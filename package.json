@@ -4,7 +4,7 @@
 	"type": "module",
 	"main": "dist-electron/main/main.js",
 	"packageManager": "pnpm@10.33.2",
-	"license": "MIT",
+	"license": "AGPL-3.0-only",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/jeroenptrs/trickroom.git"

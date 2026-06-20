@@ -112,4 +112,4 @@ pnpm build:desktop
 
 ## License
 
-MIT
+This project is licensed under [AGPL-3.0](./LICENSE). If your organization needs a commercial license that does not require open-sourcing your modifications, contact [contact@jeroenpeeters.be](mailto:contact@jeroenpeeters.be).

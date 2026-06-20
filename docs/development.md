@@ -181,23 +181,11 @@ Package:
 pnpm desktop:package
 ```
 
-Package and sign on macOS:
-
-```sh
-TRICKROOM_MAC_SIGN=1 pnpm desktop:package
-```
-
-Default identity:
-
-```text
-Developer ID Application: Jeroen Peeters (7RJS2LBMGB)
-```
-
-Override identity:
+Package and sign on macOS (set your Developer ID application identity):
 
 ```sh
 TRICKROOM_MAC_SIGN=1 \
-TRICKROOM_MAC_SIGN_IDENTITY="Developer ID Application: Name (TEAMID)" \
+TRICKROOM_MAC_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
 pnpm desktop:package
 ```
 
@@ -214,7 +202,7 @@ Store notarization credentials:
 ```sh
 xcrun notarytool store-credentials trickroom-notary \
   --apple-id "you@example.com" \
-  --team-id "7RJS2LBMGB" \
+  --team-id "YOURTEAMID" \
   --password "app-specific-password"
 ```
 
@@ -222,6 +210,7 @@ Sign and notarize:
 
 ```sh
 TRICKROOM_MAC_SIGN=1 \
+TRICKROOM_MAC_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
 TRICKROOM_NOTARY_KEYCHAIN_PROFILE=trickroom-notary \
 pnpm desktop:make
 ```

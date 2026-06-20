@@ -2,11 +2,8 @@ const { execFile } = require("node:child_process");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
-const defaultMacSignIdentity =
-	"Developer ID Application: Jeroen Peeters (7RJS2LBMGB)";
-
 const getMacSignIdentity = () =>
-	process.env.TRICKROOM_MAC_SIGN_IDENTITY ?? defaultMacSignIdentity;
+	process.env.TRICKROOM_MAC_SIGN_IDENTITY?.trim() ?? "";
 
 const getMacSignKeychain = () => process.env.TRICKROOM_MAC_SIGN_KEYCHAIN;
 const getMacNotaryKeychainProfile = () =>
@@ -18,8 +15,13 @@ const getMacSignConfig = () => {
 		return undefined;
 	}
 
+	const identity = getMacSignIdentity();
+	if (!identity) {
+		return undefined;
+	}
+
 	return {
-		identity: getMacSignIdentity(),
+		identity,
 		continueOnError: false,
 		...(getMacSignKeychain() ? { keychain: getMacSignKeychain() } : {}),
 	};
