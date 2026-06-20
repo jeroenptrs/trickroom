@@ -32,13 +32,19 @@ describe("vectorPropertiesController", () => {
 
 	it("clears stroke width without touching paint colors", () => {
 		expect(
-			clearStyleProperty("stroke-2 stroke-blue-500", opts, "vector.stroke-width"),
+			clearStyleProperty(
+				"stroke-2 stroke-blue-500",
+				opts,
+				"vector.stroke-width",
+			),
 		).toBe("stroke-blue-500");
 	});
 
 	it("reads active vector values", () => {
 		expect(
-			styleValueText(getStyleIntent("stroke-2 fill-none", opts, "vector.stroke-width")),
+			styleValueText(
+				getStyleIntent("stroke-2 fill-none", opts, "vector.stroke-width"),
+			),
 		).toBe("2");
 		expect(
 			styleValueText(getStyleIntent("stroke-2 fill-none", opts, "vector.fill")),

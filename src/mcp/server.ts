@@ -130,6 +130,7 @@ import {
 } from "../utils/system-component-draft-schemas";
 import {
 	createSystemComponentDraft,
+	deleteSystemComponent,
 	describeSystemComponent,
 	listSystemComponentSummaries,
 	publishSystemComponentDraft,
@@ -188,6 +189,7 @@ import {
 	parseDesignResourceUri,
 	slugifyDesignTitle,
 } from "./resources";
+import { systemComponentInstanceOverrideSchema } from "./system-component-schemas";
 
 export type TrickroomMcpServerContext = TrickroomProjectContext & {
 	trickroomHome?: string;
@@ -418,16 +420,6 @@ const detachRecipeInstanceOperationParameterSchema = {
 const _detachRecipeInstanceOperationParametersSchema = z.object(
 	detachRecipeInstanceOperationParameterSchema,
 );
-
-const systemComponentInstanceOverrideSchema = z.object({
-	className: z.string().optional(),
-	text: z.string().optional(),
-	"data-trickroom-icon-id": z.string().optional(),
-	"data-trickroom-asset-id": z.string().optional(),
-	props: z
-		.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
-		.optional(),
-});
 
 const addSystemComponentOperationParameterSchema = {
 	parentId: z
@@ -797,18 +789,7 @@ const createBlankDesign = (
 ): TrickroomDesign => ({
 	name,
 	...(systemId !== undefined ? { systemId } : {}),
-	boards: [
-		{
-			id: randomUUID(),
-			props: {
-				"data-trickroom-name": "Root",
-				"data-trickroom-library": "trickroom",
-				"data-trickroom-component": "container",
-				"data-trickroom-role": "branch",
-			},
-			children: [],
-		},
-	],
+	boards: [],
 });
 
 const getNodeName = (node: DesignNode) => node.props["data-trickroom-name"];
@@ -2601,6 +2582,7 @@ const getSystemComponentAuthoringContractPayload = async (
 				"createSystemComponentDraft",
 				"updateSystemComponentDraft",
 				"publishSystemComponent",
+				"deleteSystemComponent",
 			],
 		},
 		shapes: {
@@ -4809,10 +4791,10 @@ ${brief}
 
 Workflow:
 1. **Select MCP Project Scope**: Call 'getSelectedProject'. If no project is selected, call 'listProjects' and then 'selectProject' with a known 'locationId' from each listProjects entry (not just 'projectId') before any writes.
-2. **Create Design File**: Call 'createDesignFile' with a clear name${systemName ? ` and systemName "${systemName}"` : " (omit systemName only when an unlinked design is intentional)"}${designFileId ? ` and designFileId "${designFileId}"` : ""}. Capture the returned 'revision' and design file ID.
+2. **Create Design File**: Call 'createDesignFile' with a clear name${systemName ? ` and systemName "${systemName}"` : " (omit systemName only when an unlinked design is intentional — a system cannot be linked via MCP afterwards)"}${designFileId ? ` and designFileId "${designFileId}"` : ""}. Capture the returned 'revision' and design file ID. The new design starts with no boards.
 3. **Resolve Linked System**: Call 'getDesignSystemForDesignFile' on the new design. Only when a configured system is linked should you call system-scoped tools such as 'listDesignTokens', 'listSystemAssets', or 'listSystemIcons'.
 4. **Load Authoring Contract**: Call 'getDesignAuthoringContract' for the new design file before planning content.
-5. **Build with Structure**: Prefer 'addRecipe' and 'addSubtree' over many piecemeal 'addElement' calls. Use 'listRegistryRecipes' and describe tools to pick appropriate recipes.
+5. **Build with Structure**: Create boards at the design root by passing 'parentId: null'; never wrap them in a shared top-level layer. Prefer 'addRecipe' and 'addSubtree' over many piecemeal 'addElement' calls. Use 'listRegistryRecipes' and describe tools to pick appropriate recipes.
 6. **Dry-Run Inserts**: Call 'validateSubtree' (or 'validateOperation' for single inserts) before committing larger structures.
 7. **Execute with Revision Chaining**: Use 'expectedRevision' from creation (or the latest 'newRevision') for each write.
 8. **Validate & Report**: Call 'validateDesignFile' on the finished design. Note that MCP does not return rendered previews; mention this limitation in the final summary.`,
@@ -6229,6 +6211,46 @@ Workflow:
 	);
 
 	server.registerTool(
+		"deleteSystemComponent",
+		{
+			title: "Delete System Component",
+			description:
+				"Delete one component definition from the system component manifest using an expected manifest revision.",
+			inputSchema: withProjectScopedInput({
+				systemName: z
+					.string()
+					.min(1)
+					.describe("Configured design system name."),
+				componentId: z.string().min(1).describe("Stable system component id."),
+				expectedRevision: systemComponentManifestRevisionSchema,
+			}),
+			annotations: destructiveMutationAnnotations,
+		},
+		async ({ systemName, componentId, expectedRevision, project }) =>
+			withPolicyErrorHandling(project, async (context) => {
+				const policy = getMcpPolicy(context.config);
+				assertCanWriteProject(policy);
+				const system = await assertConfiguredSystem(context, systemName);
+				const result = await deleteSystemComponent(
+					context.projectRoot,
+					system.manifest.systemId,
+					componentId,
+					{ expectedRevision },
+				);
+				return createJsonResult({
+					status: "success",
+					project: getProjectReference(context),
+					systemId: system.manifest.systemId,
+					systemName: system.manifest.systemName,
+					revision: result.revision,
+					updatedAt: result.updatedAt,
+					componentId: result.componentId,
+					deleted: true,
+				});
+			}),
+	);
+
+	server.registerTool(
 		"addSystemIconFolder",
 		{
 			title: "Add System Icon Folder",
@@ -6560,7 +6582,7 @@ Workflow:
 		{
 			title: "Create Design File",
 			description:
-				"Create a new blank Trickroom design file. Uses exclusive create semantics instead of expectedRevision because the file must not already exist.",
+				"Create a new empty Trickroom design file with no boards. Add root boards afterwards with addElement/addRecipe/addSubtree using parentId: null — do not nest boards inside a wrapper layer. Pass systemName at creation when the design will use system components; a system cannot be linked via MCP afterwards. Uses exclusive create semantics instead of expectedRevision because the file must not already exist.",
 			inputSchema: withProjectScopedInput({
 				name: z.string().min(1).describe("Design file name."),
 				systemName: z
@@ -6627,7 +6649,6 @@ Workflow:
 						}
 
 						assertCanWriteDesignFile(policy, newDesignFileId);
-						assertCanUseComponent(policy, "trickroom", "container");
 
 						const trimmedName = name.trim();
 						if (trimmedName.length === 0) {

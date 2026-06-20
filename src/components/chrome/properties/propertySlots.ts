@@ -29,6 +29,15 @@ export type PropertySlot = {
 	entry: PropertyEntry | undefined;
 };
 
+/** Whether any slot (base or any variant) currently has a class for `property`. */
+export function propertyHasEntries(
+	model: PropertyModel,
+	property: PropertyKey,
+): boolean {
+	const fromModel = model.byMode[DEFAULT_MODE]?.byProperty[property];
+	return fromModel ? Object.values(fromModel).some(Boolean) : false;
+}
+
 export function computePropertySlots(
 	model: PropertyModel,
 	property: PropertyKey,

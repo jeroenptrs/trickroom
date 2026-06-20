@@ -17,6 +17,12 @@ type SpacingOverrideRowsProps = {
 	className: string;
 	options: ModelOptions;
 	property: SpacingProperty;
+	/** See {@link OverrideRows}: single-line layout for self-labelled controls. */
+	inline?: boolean;
+	/** See {@link OverrideRows}: offer as a ghost chip while unset. */
+	likely?: boolean;
+	/** See {@link OverrideRows}: extra classes on the row root. */
+	rowClassName?: string;
 	onChange: (next: string) => void;
 	/** Renders the control for one slot. `slot.apply(input)` takes a raw
 	 * spacing input (e.g. `4`, `auto`, `[13px]`); `slot.apply(null)` clears. */
@@ -34,6 +40,9 @@ export function SpacingOverrideRows({
 	className,
 	options,
 	property,
+	inline,
+	likely,
+	rowClassName,
 	onChange,
 	renderControl,
 }: SpacingOverrideRowsProps) {
@@ -47,6 +56,9 @@ export function SpacingOverrideRows({
 			label={label}
 			model={model}
 			property={property}
+			inline={inline}
+			likely={likely}
+			className={rowClassName}
 			readValue={(entry) => (entry ? formatSpacingInputValue(entry) : null)}
 			onApply={(variants, payload) => {
 				if (payload === null) {
@@ -65,6 +77,15 @@ export function SpacingOverrideRows({
 						: applySpacingClear(className, options, property, variants),
 				);
 			}}
+			onClearAll={(chains) =>
+				onChange(
+					chains.reduce(
+						(acc, variants) =>
+							applySpacingClear(acc, options, property, variants),
+						className,
+					),
+				)
+			}
 			renderControl={renderControl}
 		/>
 	);

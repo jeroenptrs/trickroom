@@ -27,7 +27,8 @@
 		"desktop:make": "pnpm build:desktop && pnpm desktop:prepare-dmg-native && electron-forge make",
 		"preview": "vite preview",
 		"generate:tailwind-tokens": "node --experimental-strip-types scripts/generate-tailwind-tokens.ts",
-		"test": "vitest run"
+		"test": "vitest run",
+		"typecheck": "tsc -b"
 	},
 	"dependencies": {
 		"@sentry/electron": "^7.13.0",

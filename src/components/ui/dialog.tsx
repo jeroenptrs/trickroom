@@ -1,9 +1,5 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { X } from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
 import { tv } from "tailwind-variants";
-import { Button } from "./button";
-import { Separator } from "./separator";
 
 const dialog = tv({
 	slots: {
@@ -17,43 +13,6 @@ const dialog = tv({
 });
 
 const { backdrop, content, title, description } = dialog();
-
-const confirmationDialog = tv({
-	slots: {
-		content:
-			"w-[calc(100vw-2rem)] max-w-[26rem] gap-0 overflow-hidden rounded-none",
-		header: "flex items-center justify-between px-4 py-3",
-		titleGroup: "flex min-w-0 items-center gap-2",
-		icon: "size-4 shrink-0 text-slate-500",
-		closeIcon: "size-4 text-slate-500",
-		body: "px-4 py-4 text-sm leading-relaxed text-slate-700",
-		footer: "flex items-center justify-end gap-2 px-4 py-3",
-		cancelButton: "",
-		actionButton: "flex items-center justify-center gap-2",
-	},
-	variants: {
-		tone: {
-			default: {
-				icon: "text-slate-500",
-			},
-			destructive: {
-				icon: "text-red-600",
-			},
-		},
-	},
-});
-
-const {
-	content: confirmationContent,
-	header: confirmationHeader,
-	titleGroup: confirmationTitleGroup,
-	icon: confirmationIcon,
-	closeIcon: confirmationCloseIcon,
-	body: confirmationBody,
-	footer: confirmationFooter,
-	cancelButton: confirmationCancelButton,
-	actionButton: confirmationActionButton,
-} = confirmationDialog();
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
 	return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -123,100 +82,7 @@ function DialogDescription({
 	);
 }
 
-function ConfirmationDialog({
-	open,
-	onOpenChange,
-	title,
-	description,
-	icon,
-	actionIcon,
-	actionLabel,
-	cancelLabel = "Cancel",
-	tone = "default",
-	actionDisabled,
-	actionType = "button",
-	actionForm,
-	onAction,
-	children,
-}: {
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	title: ReactNode;
-	description?: ReactNode;
-	icon: ReactNode;
-	actionIcon?: ReactNode;
-	actionLabel: ReactNode;
-	cancelLabel?: ReactNode;
-	tone?: "default" | "destructive";
-	actionDisabled?: boolean;
-	actionType?: ComponentProps<"button">["type"];
-	actionForm?: string;
-	onAction?: ComponentProps<"button">["onClick"];
-	children?: ReactNode;
-}) {
-	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogPortal>
-				<DialogOverlay />
-				<DialogContent
-					initialFocus={false}
-					className={confirmationContent()}
-				>
-					<div className={confirmationHeader()}>
-						<div className={confirmationTitleGroup()}>
-							<span className={confirmationIcon({ tone })} aria-hidden="true">
-								{icon}
-							</span>
-							<DialogTitle className="p-0 text-sm font-medium text-slate-900">
-								{title}
-							</DialogTitle>
-						</div>
-						<DialogClose className="border-none bg-transparent p-1 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500">
-							<span className="sr-only">Close</span>
-							<X className={confirmationCloseIcon()} aria-hidden="true" />
-						</DialogClose>
-					</div>
-					<Separator />
-					{description ? (
-						<DialogDescription className={confirmationBody()}>
-							{description}
-						</DialogDescription>
-					) : null}
-					{children}
-					<Separator />
-					<div className={confirmationFooter()}>
-						<DialogClose
-							render={
-								<Button
-									type="button"
-									variant="block"
-									className={confirmationCancelButton()}
-								/>
-							}
-						>
-							{cancelLabel}
-						</DialogClose>
-						<Button
-							type={actionType}
-							form={actionForm}
-							variant={tone === "destructive" ? "outlined" : "filled"}
-							flavor={tone === "destructive" ? "warning" : undefined}
-							className={confirmationActionButton()}
-							disabled={actionDisabled}
-							onClick={onAction}
-						>
-							{actionIcon}
-							{actionLabel}
-						</Button>
-					</div>
-				</DialogContent>
-			</DialogPortal>
-		</Dialog>
-	);
-}
-
 export {
-	ConfirmationDialog,
 	Dialog,
 	DialogClose,
 	DialogContent,

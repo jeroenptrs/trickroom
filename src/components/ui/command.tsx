@@ -1,6 +1,11 @@
 import { Command as CommandPrimitive } from "cmdk";
 import { Search } from "lucide-react";
-import { type ComponentProps, forwardRef } from "react";
+import {
+	type ComponentProps,
+	createContext,
+	forwardRef,
+	useContext,
+} from "react";
 import { tv } from "tailwind-variants";
 
 const commandStyles = tv({
@@ -49,21 +54,54 @@ const commandStyles = tv({
 		keyBadge:
 			"bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-300 px-1 font-mono text-[10px] text-slate-500",
 	},
+	variants: {
+		// compact: in-rail menus (e.g. add-property) rather than the full palette
+		size: {
+			default: {},
+			compact: {
+				searchRow: "gap-2 px-3 py-2",
+				searchInput: "text-xs",
+				list: "max-h-64",
+				empty: "py-4 text-xs",
+				groupLabel: "px-3",
+				item: "gap-2 px-3 py-1.5 text-xs",
+				footer: "px-3 py-1.5",
+			},
+		},
+	},
+	defaultVariants: {
+		size: "default",
+	},
 });
 
-const slots = commandStyles();
+type CommandSize = "default" | "compact";
+
+const CommandSizeContext = createContext<CommandSize>("default");
+
+// Parts live in separate components, so the root's size reaches them via
+// context instead of threading a prop through every call site.
+function useCommandSlots() {
+	return commandStyles({ size: useContext(CommandSizeContext) });
+}
 
 function CommandRoot({
+	size = "default",
 	className,
 	...props
-}: ComponentProps<typeof CommandPrimitive>) {
-	return <CommandPrimitive className={slots.root({ className })} {...props} />;
+}: ComponentProps<typeof CommandPrimitive> & { size?: CommandSize }) {
+	const slots = commandStyles({ size });
+	return (
+		<CommandSizeContext.Provider value={size}>
+			<CommandPrimitive className={slots.root({ className })} {...props} />
+		</CommandSizeContext.Provider>
+	);
 }
 
 const CommandInput = forwardRef<
 	HTMLInputElement,
 	ComponentProps<typeof CommandPrimitive.Input>
 >(function CommandInput({ className, ...props }, ref) {
+	const slots = useCommandSlots();
 	return (
 		<div className={slots.searchRow()}>
 			<Search className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
@@ -81,6 +119,7 @@ function CommandList({
 	className,
 	...props
 }: ComponentProps<typeof CommandPrimitive.List>) {
+	const slots = useCommandSlots();
 	return (
 		<CommandPrimitive.List className={slots.list({ className })} {...props} />
 	);
@@ -90,6 +129,7 @@ function CommandEmpty({
 	className,
 	...props
 }: ComponentProps<typeof CommandPrimitive.Empty>) {
+	const slots = useCommandSlots();
 	return (
 		<CommandPrimitive.Empty className={slots.empty({ className })} {...props} />
 	);
@@ -99,12 +139,14 @@ function CommandGroup({
 	className,
 	...props
 }: ComponentProps<typeof CommandPrimitive.Group>) {
+	const slots = useCommandSlots();
 	return (
 		<CommandPrimitive.Group className={slots.group({ className })} {...props} />
 	);
 }
 
 function CommandGroupLabel({ className, ...props }: ComponentProps<"div">) {
+	const slots = useCommandSlots();
 	return <div className={slots.groupLabel({ className })} {...props} />;
 }
 
@@ -112,6 +154,7 @@ function CommandItem({
 	className,
 	...props
 }: ComponentProps<typeof CommandPrimitive.Item>) {
+	const slots = useCommandSlots();
 	return (
 		<CommandPrimitive.Item className={slots.item({ className })} {...props} />
 	);
@@ -121,6 +164,7 @@ function CommandSeparator({
 	className,
 	...props
 }: ComponentProps<typeof CommandPrimitive.Separator>) {
+	const slots = useCommandSlots();
 	return (
 		<CommandPrimitive.Separator
 			className={slots.separator({ className })}
@@ -130,37 +174,42 @@ function CommandSeparator({
 }
 
 function CommandKeyBadge({ className, ...props }: ComponentProps<"span">) {
+	const slots = useCommandSlots();
 	return <span className={slots.keyBadge({ className })} {...props} />;
 }
 
 function CommandFooter({ className, ...props }: ComponentProps<"div">) {
+	const slots = useCommandSlots();
 	return <div className={slots.footer({ className })} {...props} />;
 }
 
 function CommandFooterLeft({ className, ...props }: ComponentProps<"div">) {
+	const slots = useCommandSlots();
 	return <div className={slots.footerLeft({ className })} {...props} />;
 }
 
 function CommandFooterHint({ className, ...props }: ComponentProps<"div">) {
+	const slots = useCommandSlots();
 	return <div className={slots.footerHint({ className })} {...props} />;
 }
 
 function CommandFooterRight({ className, ...props }: ComponentProps<"div">) {
+	const slots = useCommandSlots();
 	return <div className={slots.footerRight({ className })} {...props} />;
 }
 
 export {
-	CommandRoot,
-	CommandInput,
-	CommandList,
 	CommandEmpty,
+	CommandFooter,
+	CommandFooterHint,
+	CommandFooterLeft,
+	CommandFooterRight,
 	CommandGroup,
 	CommandGroupLabel,
+	CommandInput,
 	CommandItem,
-	CommandSeparator,
 	CommandKeyBadge,
-	CommandFooter,
-	CommandFooterLeft,
-	CommandFooterHint,
-	CommandFooterRight,
+	CommandList,
+	CommandRoot,
+	CommandSeparator,
 };

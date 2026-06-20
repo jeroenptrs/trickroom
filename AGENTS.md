@@ -56,3 +56,22 @@ When those conflict, preserve the code-native model and find the closest designe
 - Instance: the placed copy of a Component or Recipe in a Design
 - Detach: severing an Instance from the Component/Recipe it is referencing
 
+## Working in this repo
+
+TypeScript + React 19 + Vite + Electron + Tailwind v4 + MCP server, managed with pnpm.
+
+- `pnpm dev` — browser app (regenerates Tailwind tokens first); `pnpm electron:dev:hot` for the desktop shell
+- `pnpm test` — vitest, single run
+- `biome check --write` — lint + format (tabs, double quotes)
+- Typecheck with `tsc -b`. The bare `tsc` in build scripts checks nothing. There is a pre-existing error baseline; only errors in files you touched are yours.
+
+Conventions and gotchas:
+
+- tv()/cva() styling lives only in `src/components/ui/` primitives; import the variant function elsewhere (biome enforces this)
+- Prefer flexbox; reserve CSS grid for genuinely two-dimensional layouts
+- Visual language is brutalist: slate + cyan, square corners, IBM Plex. Don't soften it
+- Concurrent agent sessions may share this working tree: stage and commit by path, never `git stash` or `git add -A`
+- Persisted userland shapes need migrations — see `src/services/` for the revision and migration patterns (e.g. system components)
+
+Full docs in `docs/` — start at `docs/README.md`; `docs/architecture.md` for runtime layout, `docs/mcp.md` for agent tooling, `docs/development.md` for the complete script/packaging reference.
+

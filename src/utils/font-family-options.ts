@@ -1,4 +1,4 @@
-import type { SegmentedOption } from "../components/chrome/properties/StyleControls";
+import type { SegmentedOption } from "../components/ui/segmented";
 import type { ResolvedFontTokens } from "./resolved-font-tokens";
 
 /** Default stacks always surfaced first when present in the resolved set. */

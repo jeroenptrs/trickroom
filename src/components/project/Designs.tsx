@@ -16,10 +16,13 @@ import {
 	sortDesignsByRecentActivity,
 } from "../../utils/design-activity";
 import { useProjectScope } from "../contexts";
+import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
+import { EmptyState } from "../ui/empty-state";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
+import { Text } from "../ui/text";
 import { formatRelativeTime, pluralize } from "./project-view-utils";
 import { useScrollSelectedIntoView } from "./useScrollSelectedIntoView";
 
@@ -65,18 +68,7 @@ export function Designs({
 			const designFile = getDesignFileForUuid(designUuid);
 			const design: TrickroomDesign = {
 				name: "Untitled",
-				boards: [
-					{
-						id: crypto.randomUUID(),
-						props: {
-							"data-trickroom-name": "Root",
-							"data-trickroom-library": "trickroom",
-							"data-trickroom-component": "container",
-							"data-trickroom-role": "branch",
-						},
-						children: [],
-					},
-				],
+				boards: [],
 			};
 
 			await createDesignFile(designFile, design);
@@ -124,10 +116,10 @@ export function Designs({
 				{/* Header */}
 				<div className="flex items-center justify-between">
 					<div className="flex items-baseline gap-2">
-						<div className="text-sm font-bold">Designs</div>
-						<div className="font-mono text-xs text-slate-500">
+						<Text variant="section-header">designs</Text>
+						<Text tone="faint" className="font-mono text-[11px]">
 							{designs.length}
-						</div>
+						</Text>
 					</div>
 					<Button
 						variant="block"
@@ -182,35 +174,29 @@ export function Designs({
 					</div>
 				) : null}
 				{designsQuery.isError ? (
-					<div className="bg-red-500 px-2 py-1 text-xs text-white w-fit">
+					<Alert variant="panel" className="mx-4 my-3">
 						Failed to load designs: {designsErrorMessage}
-					</div>
+					</Alert>
 				) : null}
 				{createDesignMutation.isError ? (
-					<div className="bg-red-500 px-2 py-1 text-xs text-white w-fit">
+					<Alert variant="panel" className="mx-4 my-3">
 						Failed to create design: {createErrorMessage}
-					</div>
+					</Alert>
 				) : null}
 				{designsQuery.isSuccess ? (
 					<div className="divide-y divide-slate-100">
 						{designs.length === 0 ? (
-							<div className="flex flex-col items-center gap-3 px-3 py-10 text-center">
-								<div className="flex size-10 items-center justify-center bg-slate-50">
-									<Image className="size-5 text-slate-400" aria-hidden="true" />
-								</div>
-								<div className="flex flex-col gap-1">
-									<p className="text-sm font-medium text-slate-700">
-										No designs yet
-									</p>
-									<p className="max-w-[16rem] text-xs text-slate-500 text-balance">
-										Press ⌘N or use + New above to create your first design
-										board.
-									</p>
-								</div>
-							</div>
+							<EmptyState
+								icon={Image}
+								size="sm"
+								title="No designs yet"
+								description="Press ⌘N or use + New above to create your first design board."
+							/>
 						) : filteredDesigns.length === 0 ? (
-							<div className="px-3 py-10 text-center text-sm text-slate-600">
-								No matching designs.
+							<div className="px-3 py-10 text-center">
+								<Text tone="muted" className="text-sm">
+									No matching designs.
+								</Text>
 							</div>
 						) : (
 							filteredDesigns.map((design) => {
@@ -260,16 +246,19 @@ export function Designs({
 													: "radial-gradient(#e2e8f0 1px, transparent 1px)",
 											}}
 										/>
-										<div className="min-w-0 flex-1">
-											<div className="truncate text-sm font-medium">
+										<div className="flex min-w-0 flex-1 flex-col gap-0.5">
+											<Text className="block max-w-full truncate">
 												{design.name}
-											</div>
-											<div className="truncate font-mono text-[11px] text-slate-500">
+											</Text>
+											<Text
+												tone="muted"
+												className="block max-w-full truncate font-mono text-[10px]"
+											>
 												{design.layersCount}{" "}
 												{pluralize(design.layersCount, "layer")}
 												{" · "}
 												{formatRelativeTime(design.modifiedAt)}
-											</div>
+											</Text>
 										</div>
 									</Button>
 								);

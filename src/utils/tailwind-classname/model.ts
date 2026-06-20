@@ -69,9 +69,12 @@ export type ModeBucket = {
 
 export type PropertyModel = {
 	/**
-	 * Keyed by mode (e.g. `""` for default / light, `"dark"` for the
-	 * dark mode bucket). Default mode is always present, even when
-	 * empty, so callers can read `model.byMode[""]` unconditionally.
+	 * Keyed by mode. By default everything lands in `""` — `dark` is edited
+	 * as an ordinary variant chain (right-rail todo 572), so `dark:bg-x`
+	 * sits at `byMode[""].byProperty.background["dark"]`. Callers that pass
+	 * `modes` explicitly re-bucket those prefixes here instead. Default mode
+	 * is always present, even when empty, so callers can read
+	 * `model.byMode[""]` unconditionally.
 	 */
 	byMode: Record<string, ModeBucket>;
 	/** Classes that did not classify as a known utility domain. */
@@ -86,7 +89,13 @@ export function buildPropertyModel(
 	className: string,
 	options: ModelOptions,
 ): PropertyModel {
-	const original = parseClassName(className, options);
+	// Fold mode prefixes into the variant chains unless the caller opts out:
+	// the editing model addresses (property, variant-chain) slots, and the
+	// scope bar / override peeks treat `dark` like any other chain.
+	const original = parseClassName(className, {
+		...options,
+		modes: options.modes ?? [],
+	});
 	const byMode: Record<string, ModeBucket> = {
 		[DEFAULT_MODE]: { byProperty: {} },
 	};

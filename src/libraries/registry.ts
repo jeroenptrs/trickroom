@@ -376,6 +376,63 @@ export const getControlProps = (
 	return props;
 };
 
+/**
+ * Rewrites discriminator control props (marked uniqueAmongSiblings) so their
+ * values don't collide with the same prop on sibling elements. Duplicate
+ * discriminators break library behavior at runtime (e.g. Base UI tabs with
+ * equal values activate together and loop). Only props not listed in
+ * `explicitProps` are rewritten, so caller-provided values stay untouched.
+ */
+export const uniquifyControlPropsAmongSiblings = (
+	props: Props,
+	definition: RegistryComponentDefinition,
+	siblingProps: readonly Props[],
+	explicitProps?: ReadonlySet<string>,
+): Props => {
+	let nextProps = props;
+
+	for (const control of getControlDefinitions(definition)) {
+		if (!control.uniqueAmongSiblings || control.valueType !== "string") {
+			continue;
+		}
+		if (explicitProps?.has(control.prop)) {
+			continue;
+		}
+		const current = nextProps[control.prop];
+		if (typeof current !== "string") {
+			continue;
+		}
+
+		const taken = new Set<string>();
+		for (const sibling of siblingProps) {
+			const siblingValue = sibling[control.prop];
+			if (
+				typeof siblingValue === "string" &&
+				sibling["data-trickroom-library"] === props["data-trickroom-library"] &&
+				sibling["data-trickroom-component"] ===
+					props["data-trickroom-component"]
+			) {
+				taken.add(siblingValue);
+			}
+		}
+
+		if (!taken.has(current)) {
+			continue;
+		}
+
+		const base = current.replace(/-\d+$/, "");
+		let suffix = 2;
+		let candidate = `${base}-${suffix}`;
+		while (taken.has(candidate)) {
+			suffix += 1;
+			candidate = `${base}-${suffix}`;
+		}
+		nextProps = { ...nextProps, [control.prop]: candidate };
+	}
+
+	return nextProps;
+};
+
 export const getDefaultProps = (
 	library: string,
 	component: string,

@@ -1,4 +1,7 @@
-import type { ModelOptions, StyleProperty } from "../../../utils/tailwind-classname";
+import type {
+	ModelOptions,
+	StyleProperty,
+} from "../../../utils/tailwind-classname";
 import {
 	applyStyleUtility,
 	clearStyleProperty,

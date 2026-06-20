@@ -15,9 +15,32 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"recommended": true
+			"recommended": true,
+			"style": {
+				"noRestrictedImports": {
+					"level": "error",
+					"options": {
+						"paths": {
+							"tailwind-variants": "Keep tv()/cva() styling inside src/components/ui/ primitives; import the resulting variant function instead of defining styles here.",
+							"class-variance-authority": "Keep tv()/cva() styling inside src/components/ui/ primitives; import the resulting variant function instead of defining styles here."
+						}
+					}
+				}
+			}
 		}
 	},
+	"overrides": [
+		{
+			"includes": ["src/components/ui/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": "off"
+					}
+				}
+			}
+		}
+	],
 	"javascript": {
 		"formatter": {
 			"quoteStyle": "double"

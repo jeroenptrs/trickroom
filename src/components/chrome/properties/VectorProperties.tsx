@@ -7,17 +7,16 @@ import {
 	type ModelOptions,
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
+import { Segmented, type SegmentedOption } from "../../ui/segmented";
 import { ColorPropertyControl } from "./ColorPropertyControl";
-import { applyColorChange, applyColorClear } from "./colorPropertiesController";
-import { Segmented, type SegmentedOption } from "./StyleControls";
+import {
+	applyColorChange,
+	applyColorClear,
+	applyColorClearAll,
+} from "./colorPropertiesController";
 import { StyleOverrideRows } from "./StyleOverrideRows";
 import { StyleSection } from "./StyleSection";
-import {
-	applyStyleUtility,
-	clearStyleProperty,
-	getStyleIntent,
-	styleValueText,
-} from "./styleSectionController";
+import { getStyleIntent, styleValueText } from "./styleSectionController";
 import { vectorUtility } from "./vectorPropertiesController";
 
 type VectorPropertiesProps = {
@@ -61,31 +60,11 @@ export function VectorProperties({
 		[className, options],
 	);
 
-	const apply = useCallback(
-		(property: StyleProperty, next: string | null) => {
-			if (next === null) {
-				onChange(clearStyleProperty(className, options, property));
-				return;
-			}
-			onChange(
-				applyStyleUtility(
-					className,
-					options,
-					property,
-					vectorUtility(property, next),
-				),
-			);
-		},
-		[className, onChange, options],
-	);
-
 	const strokeWidth = read("vector.stroke-width");
-	const fillNone = read("vector.fill");
-	const strokeNone = read("vector.stroke");
 
-	const summary =
-		[strokeWidth && `stroke ${strokeWidth}`].filter(Boolean).join(" · ") ||
-		undefined;
+	const summary = [strokeWidth ? `stroke ${strokeWidth}` : null].filter(
+		(value): value is string => value !== null,
+	);
 
 	return (
 		<StyleSection title="Vector" summary={summary}>
@@ -107,6 +86,9 @@ export function VectorProperties({
 					onChange(
 						applyColorClear(className, options, { property: "fill", variants }),
 					)
+				}
+				onClearAll={(chains) =>
+					onChange(applyColorClearAll(className, options, "fill", chains))
 				}
 			/>
 			<ColorPropertyControl
@@ -131,6 +113,9 @@ export function VectorProperties({
 						}),
 					)
 				}
+				onClearAll={(chains) =>
+					onChange(applyColorClearAll(className, options, "stroke", chains))
+				}
 			/>
 			<StyleOverrideRows
 				label="Stroke width"
@@ -153,17 +138,43 @@ export function VectorProperties({
 					/>
 				)}
 			/>
-			<Segmented
-				ariaLabel="Fill none"
-				options={PAINT_NONE_OPTIONS}
-				value={fillNone === "none" ? "none" : null}
-				onChange={(next) => apply("vector.fill", next)}
+			<StyleOverrideRows
+				label="Fill none"
+				className={className}
+				options={options}
+				property="vector.fill"
+				onChange={onChange}
+				renderControl={(slot) => (
+					<Segmented
+						ariaLabel="Fill none"
+						options={PAINT_NONE_OPTIONS}
+						value={slot.value === "none" ? "none" : null}
+						onChange={(next) =>
+							slot.apply(
+								next === null ? null : vectorUtility("vector.fill", next),
+							)
+						}
+					/>
+				)}
 			/>
-			<Segmented
-				ariaLabel="Stroke none"
-				options={PAINT_NONE_OPTIONS}
-				value={strokeNone === "none" ? "none" : null}
-				onChange={(next) => apply("vector.stroke", next)}
+			<StyleOverrideRows
+				label="Stroke none"
+				className={className}
+				options={options}
+				property="vector.stroke"
+				onChange={onChange}
+				renderControl={(slot) => (
+					<Segmented
+						ariaLabel="Stroke none"
+						options={PAINT_NONE_OPTIONS}
+						value={slot.value === "none" ? "none" : null}
+						onChange={(next) =>
+							slot.apply(
+								next === null ? null : vectorUtility("vector.stroke", next),
+							)
+						}
+					/>
+				)}
 			/>
 		</StyleSection>
 	);

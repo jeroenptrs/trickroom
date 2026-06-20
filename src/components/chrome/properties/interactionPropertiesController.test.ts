@@ -1,15 +1,12 @@
 import { describe, expect, it } from "vitest";
-import {
-	applyColorChange,
-	applyColorClear,
-} from "./colorPropertiesController";
+import { applyColorChange, applyColorClear } from "./colorPropertiesController";
+import { interactionUtility } from "./interactionPropertiesController";
 import {
 	applyStyleUtility,
 	clearStyleProperty,
 	getStyleIntent,
 	styleValueText,
 } from "./styleSectionController";
-import { interactionUtility } from "./interactionPropertiesController";
 
 const opts = { colorTokens: new Set(["red-500", "blue-500"]) };
 
@@ -36,7 +33,11 @@ describe("interactionPropertiesController", () => {
 
 	it("clears one interaction property without touching unrelated classes", () => {
 		expect(
-			clearStyleProperty("cursor-pointer bg-red-500", opts, "interaction.cursor"),
+			clearStyleProperty(
+				"cursor-pointer bg-red-500",
+				opts,
+				"interaction.cursor",
+			),
 		).toBe("bg-red-500");
 	});
 
@@ -48,7 +49,11 @@ describe("interactionPropertiesController", () => {
 		).toBe("wait");
 		expect(
 			styleValueText(
-				getStyleIntent("cursor-wait scroll-smooth", opts, "interaction.scroll-behavior"),
+				getStyleIntent(
+					"cursor-wait scroll-smooth",
+					opts,
+					"interaction.scroll-behavior",
+				),
 			),
 		).toBe("smooth");
 		expect(

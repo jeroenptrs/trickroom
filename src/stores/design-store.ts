@@ -7,6 +7,7 @@ import {
 	isValidControlValue,
 	normalizeRole,
 	type RecipeRef,
+	uniquifyControlPropsAmongSiblings,
 } from "../libraries/registry";
 import {
 	findRecipeControlTargetElement,
@@ -52,6 +53,7 @@ import {
 	setSystemComponentOverridePropOnRoots,
 	setSystemComponentOverrideTextOnRoots,
 	setSystemComponentVariantValueOnRoots,
+	updateSystemComponentInstanceOnRoots,
 } from "../utils/system-component-instance-update";
 import {
 	isSystemComponentMarkerPropKey,
@@ -654,11 +656,21 @@ export function addElement(
 		const role = getComponentRole(selection);
 		const componentName = selection["data-trickroom-component"];
 		const definition = getComponentDefinition(selection);
+		const siblingIds = targetParentId
+			? (targetParent?.childIds ?? [])
+			: state.rootIds;
+		const siblingProps = siblingIds.flatMap(
+			(siblingId) => state.entitiesById[siblingId]?.props ?? [],
+		);
 		const nextEntity: DesignEntity = {
 			id,
 			parentId: targetParentId,
 			role,
-			props: createComponentProps(definition.label || componentName, selection),
+			props: uniquifyControlPropsAmongSiblings(
+				createComponentProps(definition.label || componentName, selection),
+				definition,
+				siblingProps,
+			),
 		};
 
 		if (role === "text") {
@@ -1283,6 +1295,23 @@ export function setSystemComponentOverrideProp(
 					prop,
 					value,
 				),
+		),
+	);
+}
+
+export function resetSystemComponentOverrides(
+	rootElementId: string,
+	version: PublishedSystemComponentVersion,
+) {
+	designStore.setState((state) =>
+		applySystemComponentInstanceUpdate(
+			state,
+			rootElementId,
+			version,
+			(boards) =>
+				updateSystemComponentInstanceOnRoots(boards, rootElementId, version, {
+					overrides: {},
+				}),
 		),
 	);
 }

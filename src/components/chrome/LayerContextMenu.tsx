@@ -3,7 +3,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
-import { tv } from "tailwind-variants";
 import {
 	designFileQueryKey,
 	designSummariesQueryKey,
@@ -22,17 +21,8 @@ import {
 	updateRecipeInstance,
 } from "../../stores/design-store";
 import { useProjectScope } from "../contexts";
+import { contextMenu } from "../ui/context-menu";
 import { ExtractSystemComponentDialog } from "./ExtractSystemComponentDialog";
-
-const contextMenu = tv({
-	slots: {
-		trigger: "select-none",
-		positioner: "outline-hidden",
-		popup:
-			"min-w-25 origin-[var(--transform-origin)] transition-[opacity] data-[ending-style]:opacity-0 shadow-lg shadow-slate-500/10 bg-slate-50 text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-200",
-		item: "flex max-w-56 cursor-default p-1 text-xs outline-hidden select-none data-[disabled]:opacity-50 data-[highlighted]:bg-slate-200 data-[highlighted]:active:text-cyan-500 data-highlighted:active:bg-cyan-50",
-	},
-});
 
 const { trigger, positioner, popup, item } = contextMenu();
 

@@ -1,7 +1,8 @@
-import { Check, Copy, Terminal, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Terminal, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { getTrickroomDesktopApi } from "../desktop-api";
 import { Button } from "./ui/button";
+import { CopyButton } from "./ui/copy-button";
 import {
 	Dialog,
 	DialogClose,
@@ -11,6 +12,7 @@ import {
 	DialogTitle,
 } from "./ui/dialog";
 import { Separator } from "./ui/separator";
+import { Text } from "./ui/text";
 
 // Fallback shown in non-desktop contexts (e.g. browser preview). The Electron
 // main process resolves the real path at runtime via getMcpHelperPath.
@@ -86,9 +88,7 @@ type MCPSetupDialogProps = {
 
 export function MCPSetupDialog({ open, onOpenChange }: MCPSetupDialogProps) {
 	const [selectedId, setSelectedId] = useState("codex");
-	const [copied, setCopied] = useState(false);
 	const [mcpPath, setMcpPath] = useState(FALLBACK_MCP_PATH);
-	const copyResetTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	useEffect(() => {
 		const desktop = getTrickroomDesktopApi();
@@ -111,39 +111,8 @@ export function MCPSetupDialog({ open, onOpenChange }: MCPSetupDialogProps) {
 		};
 	}, []);
 
-	useEffect(
-		() => () => {
-			if (copyResetTimeout.current) {
-				clearTimeout(copyResetTimeout.current);
-			}
-		},
-		[],
-	);
-
 	const agents = buildAgents(mcpPath);
 	const selected = agents.find((agent) => agent.id === selectedId) ?? agents[0];
-
-	const handleSelect = (id: string) => {
-		setSelectedId(id);
-		setCopied(false);
-		if (copyResetTimeout.current) {
-			clearTimeout(copyResetTimeout.current);
-			copyResetTimeout.current = null;
-		}
-	};
-
-	const handleCopy = async () => {
-		try {
-			await navigator.clipboard.writeText(selected.installCommand);
-			setCopied(true);
-			if (copyResetTimeout.current) {
-				clearTimeout(copyResetTimeout.current);
-			}
-			copyResetTimeout.current = setTimeout(() => setCopied(false), 1500);
-		} catch {
-			// Clipboard unavailable — leave the button in its resting state.
-		}
-	};
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -179,7 +148,7 @@ export function MCPSetupDialog({ open, onOpenChange }: MCPSetupDialogProps) {
 									isSelected={isActive}
 									role="tab"
 									aria-selected={isActive}
-									onClick={() => handleSelect(agent.id)}
+									onClick={() => setSelectedId(agent.id)}
 								>
 									{agent.name}
 								</Button>
@@ -190,7 +159,9 @@ export function MCPSetupDialog({ open, onOpenChange }: MCPSetupDialogProps) {
 					<Separator />
 
 					<div className="flex flex-col gap-3 p-5">
-						<p className="text-xs text-slate-600">{selected.description}</p>
+						<Text render={<p />} tone="muted" className="text-xs">
+							{selected.description}
+						</Text>
 
 						<div className="flex flex-row items-stretch bg-slate-900">
 							<Terminal
@@ -201,30 +172,26 @@ export function MCPSetupDialog({ open, onOpenChange }: MCPSetupDialogProps) {
 								{selected.installCommand}
 							</code>
 							<Separator orientation="vertical" className="bg-slate-700" />
-							<Button
-								type="button"
+							<CopyButton
+								key={selected.id}
 								variant="blockDark"
-								isSelected={copied}
-								onClick={handleCopy}
-								aria-label={copied ? "Copied" : "Copy install command"}
-								className="flex shrink-0 items-center gap-1.5"
-							>
-								{copied ? (
-									<Check className="size-3.5 shrink-0" aria-hidden="true" />
-								) : (
-									<Copy className="size-3.5 shrink-0" aria-hidden="true" />
-								)}
-								{copied ? "Copied" : "Copy"}
-							</Button>
+								value={selected.installCommand}
+								subject="install command"
+								labels={{ idle: "Copy", copied: "Copied" }}
+							/>
 						</div>
 
-						<p className="text-[11px] leading-relaxed text-slate-600">
+						<Text
+							render={<p />}
+							tone="muted"
+							className="text-[11px] leading-relaxed"
+						>
 							To unregister later, run{" "}
 							<code className="font-mono text-cyan-900">
 								{selected.removeCommand}
 							</code>
 							.
-						</p>
+						</Text>
 					</div>
 				</DialogContent>
 			</DialogPortal>

@@ -1,16 +1,20 @@
 import { useCallback, useMemo } from "react";
 import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
+import { useResolvedDomainTokens } from "../../../hooks/useResolvedDomainTokens";
 import { useDesignSystemId } from "../../../stores/design-store";
 import type { ModelOptions } from "../../../utils/tailwind-classname";
+import { Segmented, type SegmentedOption } from "../../ui/segmented";
+import { offsetTokenOptions, zIndexTokenOptions } from "./domainTokenOptions";
 import {
 	insetUtilityFromInput,
 	readPositionValue,
 	zIndexUtilityFromInput,
 } from "./positionPropertiesController";
-import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
 import { StyleSection } from "./StyleSection";
+import { resolveSpacingBasePx } from "./sizeTokenOptions";
 import { getStyleIntent, styleValueText } from "./styleSectionController";
+import { TokenField } from "./TokenField";
 
 type PositionPropertiesProps = {
 	className: string;
@@ -48,6 +52,65 @@ const ISOLATION_OPTIONS: readonly SegmentedOption<string>[] = [
 	{ value: "auto", label: "Auto" },
 ];
 
+type InsetFieldDefinition = {
+	property:
+		| "position.inset"
+		| "position.inset-x"
+		| "position.inset-y"
+		| "position.top"
+		| "position.right"
+		| "position.bottom"
+		| "position.left";
+	label: string;
+	prefix: string;
+	placeholder: string;
+};
+
+const INSET_FIELDS: readonly InsetFieldDefinition[] = [
+	{
+		property: "position.inset",
+		label: "Inset",
+		prefix: "inset",
+		placeholder: "0, 4, auto",
+	},
+	{
+		property: "position.inset-x",
+		label: "Inset X",
+		prefix: "inset-x",
+		placeholder: "0, 4",
+	},
+	{
+		property: "position.inset-y",
+		label: "Inset Y",
+		prefix: "inset-y",
+		placeholder: "0, 4",
+	},
+	{
+		property: "position.top",
+		label: "Top",
+		prefix: "top",
+		placeholder: "0, 4, -4, auto",
+	},
+	{
+		property: "position.right",
+		label: "Right",
+		prefix: "right",
+		placeholder: "0, 4, auto",
+	},
+	{
+		property: "position.bottom",
+		label: "Bottom",
+		prefix: "bottom",
+		placeholder: "0, 4, auto",
+	},
+	{
+		property: "position.left",
+		label: "Left",
+		prefix: "left",
+		placeholder: "0, 4, auto",
+	},
+];
+
 export function PositionProperties({
 	className,
 	onChange,
@@ -60,6 +123,13 @@ export function PositionProperties({
 		[customUtilityRoots],
 	);
 
+	const spacingTokens = useResolvedDomainTokens(systemId, "spacing");
+	const insetOptions = useMemo(
+		() => offsetTokenOptions(resolveSpacingBasePx(spacingTokens.values)),
+		[spacingTokens.values],
+	);
+	const zOptions = useMemo(() => zIndexTokenOptions(), []);
+
 	const read = useCallback(
 		(property: Parameters<typeof readPositionValue>[2]) =>
 			readPositionValue(className, options, property),
@@ -70,9 +140,9 @@ export function PositionProperties({
 		getStyleIntent(className, options, "position.position"),
 	);
 	const zIndex = read("position.z-index");
-	const summary =
-		[position, zIndex && `z-${zIndex}`].filter(Boolean).join(" · ") ||
-		undefined;
+	const summary = [position, zIndex ? `z-${zIndex}` : null].filter(
+		(value): value is string => value !== null,
+	);
 
 	return (
 		<StyleSection title="Position" summary={summary}>
@@ -81,6 +151,7 @@ export function PositionProperties({
 				className={className}
 				options={options}
 				property="position.position"
+				likely
 				onChange={onChange}
 				renderControl={(slot) => (
 					<Segmented
@@ -91,174 +162,79 @@ export function PositionProperties({
 					/>
 				)}
 			/>
-			<div className="flex flex-col gap-1">
-				<span className="px-0.5 text-[10px] text-slate-400">Inset</span>
-				<div className="flex gap-2">
-					<StyleOverrideRows
-						label="All"
-						className={className}
-						options={options}
-						property="position.inset"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="All"
-								value={slot.value ?? ""}
-								placeholder="0, 4, auto"
-								onCommit={(v) => slot.apply(insetUtilityFromInput("inset", v))}
-							/>
-						)}
-					/>
-					<StyleOverrideRows
-						label="X"
-						className={className}
-						options={options}
-						property="position.inset-x"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="X"
-								value={slot.value ?? ""}
-								placeholder="0, 4"
-								onCommit={(v) =>
-									slot.apply(insetUtilityFromInput("inset-x", v))
-								}
-							/>
-						)}
-					/>
-					<StyleOverrideRows
-						label="Y"
-						className={className}
-						options={options}
-						property="position.inset-y"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="Y"
-								value={slot.value ?? ""}
-								placeholder="0, 4"
-								onCommit={(v) =>
-									slot.apply(insetUtilityFromInput("inset-y", v))
-								}
-							/>
-						)}
-					/>
-				</div>
-				<div className="grid grid-cols-2 gap-1">
-					<StyleOverrideRows
-						label="Top"
-						className={className}
-						options={options}
-						property="position.top"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="Top"
-								value={slot.value ?? ""}
-								placeholder="0, 4, -4, auto"
-								onCommit={(v) => slot.apply(insetUtilityFromInput("top", v))}
-							/>
-						)}
-					/>
-					<StyleOverrideRows
-						label="Right"
-						className={className}
-						options={options}
-						property="position.right"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="Right"
-								value={slot.value ?? ""}
-								placeholder="0, 4, auto"
-								onCommit={(v) => slot.apply(insetUtilityFromInput("right", v))}
-							/>
-						)}
-					/>
-					<StyleOverrideRows
-						label="Bottom"
-						className={className}
-						options={options}
-						property="position.bottom"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="Bottom"
-								value={slot.value ?? ""}
-								placeholder="0, 4, auto"
-								onCommit={(v) => slot.apply(insetUtilityFromInput("bottom", v))}
-							/>
-						)}
-					/>
-					<StyleOverrideRows
-						label="Left"
-						className={className}
-						options={options}
-						property="position.left"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="Left"
-								value={slot.value ?? ""}
-								placeholder="0, 4, auto"
-								onCommit={(v) => slot.apply(insetUtilityFromInput("left", v))}
-							/>
-						)}
-					/>
-				</div>
-			</div>
+			{INSET_FIELDS.map((field) => (
+				<StyleOverrideRows
+					key={field.property}
+					label={field.label}
+					className={className}
+					options={options}
+					property={field.property}
+					inline
+					onChange={onChange}
+					renderControl={(slot) => (
+						<TokenField
+							label={field.label}
+							value={slot.value ?? ""}
+							placeholder={field.placeholder}
+							options={insetOptions}
+							onCommit={(v) =>
+								slot.apply(insetUtilityFromInput(field.prefix, v))
+							}
+						/>
+					)}
+				/>
+			))}
 			<StyleOverrideRows
 				label="Z-index"
 				className={className}
 				options={options}
 				property="position.z-index"
+				inline
 				onChange={onChange}
 				renderControl={(slot) => (
-					<ValueField
+					<TokenField
 						label="Z-index"
 						value={slot.value ?? ""}
 						placeholder="0, 10, auto"
+						options={zOptions}
 						onCommit={(v) => slot.apply(zIndexUtilityFromInput(v))}
 					/>
 				)}
 			/>
-			<div className="flex flex-col gap-1">
-				<span className="px-0.5 text-[10px] text-slate-400">Object</span>
-				<StyleOverrideRows
-					label="Object fit"
-					className={className}
-					options={options}
-					property="position.object-fit"
-					onChange={onChange}
-					renderControl={(slot) => (
-						<Segmented
-							ariaLabel="Object fit"
-							options={OBJECT_FIT_OPTIONS}
-							value={slot.value}
-							onChange={(next) =>
-								slot.apply(next === null ? null : `object-${next}`)
-							}
-						/>
-					)}
-				/>
-				<StyleOverrideRows
-					label="Object position"
-					className={className}
-					options={options}
-					property="position.object-position"
-					onChange={onChange}
-					renderControl={(slot) => (
-						<Segmented
-							ariaLabel="Object position"
-							options={OBJECT_POSITION_OPTIONS}
-							value={slot.value}
-							onChange={(next) =>
-								slot.apply(next === null ? null : `object-${next}`)
-							}
-						/>
-					)}
-				/>
-			</div>
+			<StyleOverrideRows
+				label="Object fit"
+				className={className}
+				options={options}
+				property="position.object-fit"
+				onChange={onChange}
+				renderControl={(slot) => (
+					<Segmented
+						ariaLabel="Object fit"
+						options={OBJECT_FIT_OPTIONS}
+						value={slot.value}
+						onChange={(next) =>
+							slot.apply(next === null ? null : `object-${next}`)
+						}
+					/>
+				)}
+			/>
+			<StyleOverrideRows
+				label="Object position"
+				className={className}
+				options={options}
+				property="position.object-position"
+				onChange={onChange}
+				renderControl={(slot) => (
+					<Segmented
+						ariaLabel="Object position"
+						options={OBJECT_POSITION_OPTIONS}
+						value={slot.value}
+						onChange={(next) =>
+							slot.apply(next === null ? null : `object-${next}`)
+						}
+					/>
+				)}
+			/>
 			<StyleOverrideRows
 				label="Isolation"
 				className={className}

@@ -27,13 +27,17 @@ import type {
 	RecipeTemplateNode,
 	TrickroomDesign,
 } from "../types";
-import { getSystemComponentStructuralMetadata } from "../utils/system-component-markers";
+import {
+	getSystemComponentStructuralMetadata,
+	type SystemComponentInstanceOverrides,
+} from "../utils/system-component-markers";
 import {
 	assertCanUseComponent,
 	getComponentRef,
 	getComponentRef as getGovernanceComponentRef,
 	type McpPolicy,
 } from "./governance";
+import { systemComponentInstanceOverridesSchema } from "./system-component-schemas";
 import {
 	addSubtreeOptionsSchema,
 	proposedSubtreeNodeSchema,
@@ -111,14 +115,7 @@ const addSystemComponentOperationParametersSchema = z.object({
 		.describe(
 			"Variant axes to clear from initial variantValues before resolving schema defaults.",
 		),
-	overrides: z
-		.record(
-			z.string(),
-			z.object({
-				className: z.string().optional(),
-			}),
-		)
-		.optional(),
+	overrides: systemComponentInstanceOverridesSchema.optional(),
 });
 
 const detachRecipeInstanceOperationParametersSchema = z.object({
@@ -140,16 +137,10 @@ const updateSystemComponentInstanceOperationParametersSchema = z.object({
 		.array(z.string())
 		.optional()
 		.describe("Variant axes to clear from the instance."),
-	overrides: z
-		.record(
-			z.string(),
-			z.object({
-				className: z.string().optional(),
-			}),
-		)
+	overrides: systemComponentInstanceOverridesSchema
 		.optional()
 		.describe(
-			"Override classNames keyed by declared override target id. Replaces the full override map when provided.",
+			"Instance overrides keyed by declared override target id. Replaces the full override map when provided.",
 		),
 });
 
@@ -853,7 +844,7 @@ export const applyDryRunOperation = async (
 					| undefined,
 				unsetVariantAxes: params.unsetVariantAxes as string[] | undefined,
 				overrides: params.overrides as
-					| Record<string, { className?: string }>
+					| SystemComponentInstanceOverrides
 					| undefined,
 			});
 			return {
@@ -892,7 +883,7 @@ export const applyDryRunOperation = async (
 					| undefined,
 				unsetVariantAxes: params.unsetVariantAxes as string[] | undefined,
 				overrides: params.overrides as
-					| Record<string, { className?: string }>
+					| SystemComponentInstanceOverrides
 					| undefined,
 			});
 			return {

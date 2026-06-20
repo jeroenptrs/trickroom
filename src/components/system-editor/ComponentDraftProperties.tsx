@@ -44,7 +44,7 @@ import {
 } from "../chrome/Properties";
 import { BackgroundProperties } from "../chrome/properties/BackgroundProperties";
 import { BorderProperties } from "../chrome/properties/BorderProperties";
-import { ClassInventoryPanel } from "../chrome/properties/ClassInventoryPanel";
+import { ClassCompositionPanel } from "../chrome/properties/ClassCompositionPanel";
 import { EffectsProperties } from "../chrome/properties/EffectsProperties";
 import { FocusProperties } from "../chrome/properties/FocusProperties";
 import { InteractionProperties } from "../chrome/properties/InteractionProperties";
@@ -52,14 +52,15 @@ import { LayoutProperties } from "../chrome/properties/LayoutProperties";
 import { MaskProperties } from "../chrome/properties/MaskProperties";
 import { MotionProperties } from "../chrome/properties/MotionProperties";
 import { PositionProperties } from "../chrome/properties/PositionProperties";
+import { ReceiptsFooter } from "../chrome/properties/ReceiptsFooter";
+import { StyleScopeProvider } from "../chrome/properties/ScopeBar";
 import { SizeProperties } from "../chrome/properties/SizeProperties";
 import { SpacingProperties } from "../chrome/properties/SpacingProperties";
 import { StructureProperties } from "../chrome/properties/StructureProperties";
-import { StyleSection } from "../chrome/properties/StyleSection";
 import { TransformProperties } from "../chrome/properties/TransformProperties";
 import { TypographyProperties } from "../chrome/properties/TypographyProperties";
 import { VectorProperties } from "../chrome/properties/VectorProperties";
-import { InputField, TextareaField } from "../ui/input";
+import { InputField } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "../ui/tabs";
 import { Text } from "../ui/text";
@@ -557,20 +558,20 @@ function StyleTargetClassEditor({
 }) {
 	const className = useComponentDraftClassNameForStyleTab(target.tab, path);
 
+	// Same chip + conflict-lint + combobox surface as the design editor's
+	// Classes tab (right-rail P5), one block per style target.
 	return (
-		<section className="flex flex-col gap-2 border-b border-slate-200 pb-3 last:border-b-0 last:pb-0">
-			<TextareaField
-				label={`${target.label} classnames`}
-				value={className}
-				onChange={(event) =>
-					setDraftClassNameForStyleTab(
-						target.tab,
-						path,
-						event.currentTarget.value,
-					)
+		<section className="flex flex-col border-b border-slate-200 last:border-b-0">
+			<span className="px-3 pt-2.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+				{target.label}
+			</span>
+			<ClassCompositionPanel
+				className={className}
+				editable
+				onChangeClassName={(next) =>
+					setDraftClassNameForStyleTab(target.tab, path, next)
 				}
 			/>
-			<ClassInventoryPanel className={className} />
 		</section>
 	);
 }
@@ -848,76 +849,79 @@ export function ComponentDraftProperties({
 					</TabsTab>
 				</TabsList>
 				{showStyleTargetSection ? <StyleTargetSection /> : null}
-				<TabsPanel value="style" className="min-h-0 flex-1">
-					<ScrollArea className="h-full">
-						<div
+				<TabsPanel value="style" className="flex min-h-0 flex-1 flex-col">
+					<ScrollArea className="min-h-0 flex-1">
+						{/* Keyed per node + style target so the panel scope and the
+						    sections' revealed rows reset together. */}
+						<StyleScopeProvider
 							key={`${path}:${getStyleControlsRemountKey(styleTarget)}`}
-							className="flex flex-col divide-y divide-slate-200"
+							className={className}
 						>
-							<LayoutProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<SizeProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<StyleSection title="Spacing">
+							<div className="flex flex-col divide-y divide-slate-200">
+								<LayoutProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
+								<SizeProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
 								<SpacingProperties
 									className={className}
 									onChange={onChangeClassName}
 								/>
-							</StyleSection>
-							<TypographyProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<BackgroundProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<BorderProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<EffectsProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<FocusProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<PositionProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<TransformProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<MotionProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<VectorProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<StructureProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<MaskProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<InteractionProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-						</div>
+								<TypographyProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
+								<BackgroundProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
+								<BorderProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
+								<EffectsProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
+								<FocusProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
+								<PositionProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
+								<TransformProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
+								<MotionProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
+								<VectorProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
+								<StructureProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
+								<MaskProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
+								<InteractionProperties
+									className={className}
+									onChange={onChangeClassName}
+								/>
+							</div>
+						</StyleScopeProvider>
 					</ScrollArea>
+					<ReceiptsFooter className={className} />
 				</TabsPanel>
 				<TabsPanel value="properties" className="min-h-0 flex-1">
 					<ScrollArea className="h-full">
@@ -994,7 +998,7 @@ export function ComponentDraftProperties({
 				</TabsPanel>
 				<TabsPanel value="classes" className="min-h-0 flex-1">
 					<ScrollArea className="h-full">
-						<div className="flex flex-col gap-3 p-3">
+						<div className="flex flex-col">
 							{styleTargetClassEditors.map((target) => (
 								<StyleTargetClassEditor
 									key={target.id}

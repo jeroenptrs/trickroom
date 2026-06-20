@@ -318,6 +318,60 @@ describe("trickroom MCP system component tools", () => {
 		expect(createSchema).toContain("overrideTargets");
 	});
 
+	it("deletes a component from the manifest with revision metadata", async () => {
+		const initial = await session.client.callTool({
+			name: "listSystemComponents",
+			arguments: { systemName: "Core" },
+		});
+		const created = await session.client.callTool({
+			name: "createSystemComponentDraft",
+			arguments: {
+				systemName: "Core",
+				expectedRevision: initial.structuredContent?.revision,
+				slug: "delete-me",
+				name: "Delete Me",
+			},
+		});
+		const componentId = String(created.structuredContent?.componentId);
+
+		const deleted = await session.client.callTool({
+			name: "deleteSystemComponent",
+			arguments: {
+				systemName: "Core",
+				componentId,
+				expectedRevision: created.structuredContent?.revision,
+			},
+		});
+		expect(deleted.isError).not.toBe(true);
+		expect(deleted.structuredContent).toMatchObject({
+			status: "success",
+			systemName: "Core",
+			componentId,
+			deleted: true,
+		});
+		expect(deleted.structuredContent?.revision).not.toBe(
+			created.structuredContent?.revision,
+		);
+
+		const listed = await session.client.callTool({
+			name: "listSystemComponents",
+			arguments: { systemName: "Core" },
+		});
+		expect(listed.structuredContent).toMatchObject({
+			revision: deleted.structuredContent?.revision,
+			components: [],
+		});
+
+		const described = await session.client.callTool({
+			name: "describeSystemComponent",
+			arguments: { systemName: "Core", componentId },
+		});
+		expect(described.isError).toBe(true);
+		expect(described.structuredContent).toMatchObject({
+			code: "COMPONENT_NOT_FOUND",
+		});
+	});
+
 	it("returns structured diagnostics for malformed draft updates", async () => {
 		const initial = await session.client.callTool({
 			name: "listSystemComponents",

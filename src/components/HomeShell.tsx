@@ -12,9 +12,10 @@ import {
 } from "../queries/projects";
 import { systemsQueryKey } from "../queries/systems";
 import { MCPSetupDialog } from "./MCPSetupDialog";
+import { Alert } from "./ui/alert";
+import { ConfirmationDialog } from "./ui/alert-dialog";
 import { Button } from "./ui/button";
-import { ConfirmationDialog } from "./ui/dialog";
-import { Separator } from "./ui/separator";
+import { Row } from "./ui/row";
 import { Text } from "./ui/text";
 
 type RecentProjectRowProps = {
@@ -31,24 +32,26 @@ function RecentProjectRow({
 	onRemove,
 }: RecentProjectRowProps) {
 	return (
-		<div className="flex items-stretch">
-			<Button
-				variant="block"
-				className="flex-1 flex flex-col items-start min-w-0 px-2 [&_[data-slot=path]]:text-slate-500 [&_[data-slot=path]]:not-disabled:active:text-cyan-900"
+		<Row state="default" className="group">
+			<button
+				type="button"
+				className="flex min-w-0 flex-1 flex-col items-start gap-0.5 px-2 py-1.5 text-left focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500 disabled:pointer-events-none disabled:opacity-50"
 				disabled={disabled}
 				onClick={onOpen}
 			>
-				<span className="block max-w-full truncate">{project.name}</span>
-				<span
-					data-slot="path"
+				<Text tone="foreground" className="block max-w-full truncate text-sm">
+					{project.name}
+				</Text>
+				<Text
+					tone="muted"
 					className="block max-w-full truncate font-mono text-[10px]"
 				>
 					{project.projectRoot}
-				</span>
-			</Button>
+				</Text>
+			</button>
 			<Button
-				variant="block"
-				className="flex items-center justify-center px-2 text-slate-500 not-disabled:hover:text-slate-600"
+				variant="ghost"
+				className="shrink-0 items-center justify-center px-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
 				disabled={disabled}
 				onClick={onRemove}
 				aria-label={`Remove ${project.name} from recent projects`}
@@ -56,7 +59,7 @@ function RecentProjectRow({
 			>
 				<Trash2 className="size-3.5" aria-hidden="true" />
 			</Button>
-		</div>
+		</Row>
 	);
 }
 
@@ -108,10 +111,10 @@ export function HomeShell() {
 		<main className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-950">
 			<div className="flex w-full max-w-5xl flex-col gap-4 px-12 py-16">
 				<section className="flex min-h-[26rem] w-full bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
-					<aside className="flex w-56 shrink-0 flex-col gap-4 border-r border-slate-200 py-4">
+					<aside className="flex w-56 shrink-0 flex-col border-r border-slate-200">
 						<button
 							type="button"
-							className="flex flex-row items-center gap-2 px-5 text-left focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
+							className="flex min-h-20 items-center gap-2 border-b border-slate-200 px-5 text-left focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
 							onClick={() => navigate("/", { replace: true })}
 						>
 							<img
@@ -119,15 +122,16 @@ export function HomeShell() {
 								alt="Trickroom logo"
 								className="size-6 shrink-0"
 							/>
-							<Text className="text-base font-medium text-slate-900 tracking-tight">
+							<Text
+								tone="foreground"
+								className="text-base font-medium tracking-tight"
+							>
 								Trickroom
 							</Text>
-						</button>
-						<Separator />
-						<div className="flex flex-1 flex-col gap-1 px-5">
-							<Text variant="label">Recent</Text>
+						</button>						<div className="flex flex-1 flex-col gap-2 px-5 py-5">
+							<Text variant="section-header">recent</Text>
 							{recentProjects.length === 0 ? (
-								<Text className="mt-1 text-xs text-slate-500">
+								<Text tone="faint" className="mt-1 text-xs">
 									No recent projects yet.
 								</Text>
 							) : (
@@ -146,9 +150,7 @@ export function HomeShell() {
 									))}
 								</div>
 							)}
-						</div>
-						<Separator />
-						<div className="px-5">
+						</div>						<div className="border-t border-slate-200 px-5 py-4">
 							<Button
 								type="button"
 								variant="outlined"
@@ -184,9 +186,9 @@ export function HomeShell() {
 				onAction={handleDeleteProject}
 			>
 				{deleteError ? (
-					<div className="mx-4 mb-4 w-fit bg-red-500 px-2 py-1 text-xs text-white">
+					<Alert variant="panel" className="mx-4 mb-4">
 						Failed to remove project: {deleteError}
-					</div>
+					</Alert>
 				) : null}
 			</ConfirmationDialog>
 		</main>

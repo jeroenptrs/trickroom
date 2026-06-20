@@ -21,7 +21,7 @@ export const SELECTOR_OVERRIDES = [
 	"disabled",
 ] as const;
 
-/** Mode buckets (kept separate so existing `dark:` classes are not dropped). */
+/** Mode prefixes, offered as ordinary scopes/override chains (todo 572). */
 export const MODE_OVERRIDES = ["dark"] as const;
 
 /** Tailwind default responsive breakpoint names, used when no synced tokens exist. */
@@ -57,7 +57,10 @@ export function buildOverrideOptions(
 	usedVariantKeys: ReadonlySet<string>,
 ): OverrideOption[] {
 	const options: OverrideOption[] = [
-		...SELECTOR_OVERRIDES.map((value) => ({ value, group: "selector" as const })),
+		...SELECTOR_OVERRIDES.map((value) => ({
+			value,
+			group: "selector" as const,
+		})),
 		...breakpoints.map((value) => ({ value, group: "breakpoint" as const })),
 		...MODE_OVERRIDES.map((value) => ({ value, group: "mode" as const })),
 	];

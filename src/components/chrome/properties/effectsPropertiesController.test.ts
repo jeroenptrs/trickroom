@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { effectsUtility } from "./effectsPropertiesController";
 import {
 	applyStyleUtility,
 	clearStyleProperty,
 	getStyleIntent,
 	styleValueText,
 } from "./styleSectionController";
-import { effectsUtility } from "./effectsPropertiesController";
 
 const opts = { colorTokens: new Set(["red-500"]) };
 
@@ -32,16 +32,24 @@ describe("effectsPropertiesController", () => {
 
 	it("clears one effects property without touching unrelated classes", () => {
 		expect(
-			clearStyleProperty("shadow-lg blur-md shadow-red-500", opts, "effects.shadow"),
+			clearStyleProperty(
+				"shadow-lg blur-md shadow-red-500",
+				opts,
+				"effects.shadow",
+			),
 		).toBe("blur-md shadow-red-500");
 	});
 
 	it("reads active effects values", () => {
 		expect(
-			styleValueText(getStyleIntent("shadow-lg opacity-50", opts, "effects.shadow")),
+			styleValueText(
+				getStyleIntent("shadow-lg opacity-50", opts, "effects.shadow"),
+			),
 		).toBe("lg");
 		expect(
-			styleValueText(getStyleIntent("shadow-lg opacity-50", opts, "effects.opacity")),
+			styleValueText(
+				getStyleIntent("shadow-lg opacity-50", opts, "effects.opacity"),
+			),
 		).toBe("50");
 	});
 });

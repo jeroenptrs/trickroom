@@ -45,6 +45,7 @@ import {
 	isSystemComponentSlug,
 	type SystemComponentVariantSchema,
 } from "../../utils/system-components";
+import { Alert } from "../ui/alert";
 import {
 	AutocompleteEmpty,
 	AutocompleteInput,
@@ -56,6 +57,7 @@ import {
 	AutocompleteRoot,
 } from "../ui/autocomplete";
 import { Button } from "../ui/button";
+import { Card } from "../ui/card";
 import { Input } from "../ui/input";
 import { AuthoredCompoundsList } from "./AuthoredCompoundsList";
 import { ComponentDraftProperties } from "./ComponentDraftProperties";
@@ -614,10 +616,7 @@ function VariantSchemaEditor({
 				</p>
 			) : null}
 			{drafts.map((axis, axisIndex) => (
-				<div
-					key={axis.id}
-					className="flex flex-col gap-2 border border-slate-200 bg-white p-2"
-				>
+				<Card key={axis.id} edge="border" className="flex flex-col gap-2 p-2">
 					<div className="grid grid-cols-[1fr_1fr_auto] gap-2">
 						<label
 							className="flex flex-col gap-1"
@@ -794,20 +793,24 @@ function VariantSchemaEditor({
 							</div>
 						))}
 					</div>
-				</div>
+				</Card>
 			))}
 			<AuthoredCompoundsList onMutate={onCompoundsMutate} />
 			{diagnostics.length > 0 ? (
-				<ul
-					className="flex flex-col gap-1 border border-red-200 bg-red-50 px-2 py-1.5"
+				<Card
+					edge="border"
+					tone="danger"
+					className="flex flex-col gap-1 px-2 py-1.5"
 					role="alert"
 				>
-					{diagnostics.map((diagnostic) => (
-						<li key={diagnostic} className="text-[11px] text-red-700">
-							{diagnostic}
-						</li>
-					))}
-				</ul>
+					<ul className="flex flex-col gap-1">
+						{diagnostics.map((diagnostic) => (
+							<li key={diagnostic} className="text-[11px]">
+								{diagnostic}
+							</li>
+						))}
+					</ul>
+				</Card>
 			) : null}
 		</section>
 	);
@@ -1124,9 +1127,7 @@ export function SystemEditorComponentContextPanel({
 
 	if (detailQuery.isError) {
 		return (
-			<p className="text-red-700" role="alert">
-				{(detailQuery.error as Error).message}
-			</p>
+			<Alert variant="inline">{(detailQuery.error as Error).message}</Alert>
 		);
 	}
 
@@ -1218,23 +1219,20 @@ export function SystemEditorComponentContextPanel({
 				<span className="text-[11px] text-slate-500">{variantStatusLabel}</span>
 			</div>
 			{draftConflict ? (
-				<p
-					className="border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-800"
-					role="alert"
-				>
+				<Card edge="border" tone="warning" className="px-2 py-1.5" role="alert">
 					{draftConflict}
-				</p>
+				</Card>
 			) : null}
 		</form>
 	) : (
-		<div className="border border-slate-200 bg-white px-2 py-1.5">
+		<Card edge="border" className="px-2 py-1.5">
 			<p className="text-[11px] font-medium text-slate-700">
 				No draft variants to edit.
 			</p>
 			<p className="mt-1 text-[11px] text-slate-500">
 				Create a draft before defining variant axes and compound variants.
 			</p>
-		</div>
+		</Card>
 	);
 
 	if (mode === "variants") {
@@ -1269,7 +1267,7 @@ export function SystemEditorComponentContextPanel({
 						</p>
 					</div>
 					{record.draft ? (
-						<div className="flex flex-col gap-1 border border-slate-200 bg-white px-2 py-1.5">
+						<Card edge="border" className="flex flex-col gap-1 px-2 py-1.5">
 							<InspectorField
 								label="Generated version"
 								value={nextPublishedVersion}
@@ -1295,9 +1293,9 @@ export function SystemEditorComponentContextPanel({
 											? "Warnings are listed below. Review before publishing."
 											: "Draft is ready to publish."}
 							</p>
-						</div>
+						</Card>
 					) : (
-						<div className="flex flex-col gap-1 border border-slate-200 bg-white px-2 py-1.5">
+						<Card edge="border" className="flex flex-col gap-1 px-2 py-1.5">
 							<p className="text-[11px] font-medium text-slate-700">
 								No draft available to publish.
 							</p>
@@ -1305,7 +1303,7 @@ export function SystemEditorComponentContextPanel({
 								Create or edit a draft first, then save it before publishing a
 								new version.
 							</p>
-						</div>
+						</Card>
 					)}
 				</div>
 				{currentPublishedVersion ? (
@@ -1313,7 +1311,10 @@ export function SystemEditorComponentContextPanel({
 						<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
 							Current published
 						</p>
-						<div className="mt-1 flex flex-col gap-1 border border-slate-200 bg-white px-2 py-1.5">
+						<Card
+							edge="border"
+							className="mt-1 flex flex-col gap-1 px-2 py-1.5"
+						>
 							<InspectorField
 								label="Version"
 								value={currentPublishedVersion.version}
@@ -1332,7 +1333,7 @@ export function SystemEditorComponentContextPanel({
 								label="Variant schema hash"
 								value={currentPublishedVersion.variantSchemaHash}
 							/>
-						</div>
+						</Card>
 					</div>
 				) : null}
 				{versionHistory.length > 0 ? (
@@ -1515,12 +1516,14 @@ export function SystemEditorComponentContextPanel({
 						</span>
 					</div>
 					{draftConflict ? (
-						<p
-							className="border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-800"
+						<Card
+							edge="border"
+							tone="warning"
+							className="px-2 py-1.5"
 							role="alert"
 						>
 							{draftConflict}
-						</p>
+						</Card>
 					) : null}
 				</form>
 			) : null}
@@ -1593,9 +1596,7 @@ function AssetInspector({
 
 	if (assetsQuery.isError) {
 		return (
-			<p className="text-red-700" role="alert">
-				{(assetsQuery.error as Error).message}
-			</p>
+			<Alert variant="inline">{(assetsQuery.error as Error).message}</Alert>
 		);
 	}
 
@@ -1647,9 +1648,7 @@ function IconInspector({
 
 	if (iconsQuery.isError) {
 		return (
-			<p className="text-red-700" role="alert">
-				{(iconsQuery.error as Error).message}
-			</p>
+			<Alert variant="inline">{(iconsQuery.error as Error).message}</Alert>
 		);
 	}
 
@@ -1751,7 +1750,7 @@ export function SystemEditorInspector({
 		<aside
 			data-editor-region="inspector"
 			tabIndex={-1}
-			className="flex min-h-0 w-[336px] shrink-0 flex-col border-l border-slate-200 bg-slate-50 text-xs focus-visible:outline-none"
+			className="flex min-h-0 w-[336px] shrink-0 flex-col border-l border-slate-200 bg-white text-xs focus-visible:outline-none"
 		>
 			<header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-slate-200 px-4 text-xs font-medium">
 				<span>{isNodeInspector ? "Properties" : "Inspector"}</span>

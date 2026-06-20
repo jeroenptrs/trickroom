@@ -20,11 +20,7 @@ describe("computeColorPropertySlots", () => {
 			opts,
 		);
 		const slots = computeColorPropertySlots(model, "background", []);
-		expect(slots.map((s) => s.variantKey)).toEqual([
-			"",
-			"hover",
-			"md:hover",
-		]);
+		expect(slots.map((s) => s.variantKey)).toEqual(["", "hover", "md:hover"]);
 		expect(slots[0].entry?.intent.token).toBe("red-500");
 		expect(slots[1].entry?.intent.token).toBe("blue-500");
 		expect(slots[2].entry?.intent.token).toBe("slate-200");
@@ -36,11 +32,7 @@ describe("computeColorPropertySlots", () => {
 			"focus",
 			"active",
 		]);
-		expect(slots.map((s) => s.variantKey)).toEqual([
-			"",
-			"focus",
-			"active",
-		]);
+		expect(slots.map((s) => s.variantKey)).toEqual(["", "focus", "active"]);
 		expect(slots[1].entry).toBeUndefined();
 		expect(slots[2].entry).toBeUndefined();
 	});
@@ -60,10 +52,7 @@ describe("computeColorPropertySlots", () => {
 	});
 
 	it("ignores variants for other properties", () => {
-		const model = buildPropertyModel(
-			"bg-red-500 hover:text-blue-500",
-			opts,
-		);
+		const model = buildPropertyModel("bg-red-500 hover:text-blue-500", opts);
 		const bg = computeColorPropertySlots(model, "background", []);
 		const text = computeColorPropertySlots(model, "text", []);
 		expect(bg.map((s) => s.variantKey)).toEqual([""]);

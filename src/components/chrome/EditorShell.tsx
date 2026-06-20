@@ -23,17 +23,17 @@ import {
 	useHasUnsavedChanges,
 } from "../../stores/design-store";
 import type { TrickroomDesign } from "../../types";
-import { Button } from "../ui/button";
-import { Input } from "../ui/input";
-import { Layers } from "./Layers";
-import { Properties } from "./Properties";
-import { WorkspaceToolbar } from "./WorkspaceToolbar";
-import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
 import {
 	focusEditorRegion,
 	getKey,
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
+import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Layers } from "./Layers";
+import { Properties } from "./Properties";
+import { WorkspaceToolbar } from "./WorkspaceToolbar";
 
 const AUTOSAVE_DELAY_MS = 1000;
 
@@ -210,7 +210,7 @@ function LeftSidebar({ designFile }: { designFile: string }) {
 		: "No design system";
 
 	return (
-		<aside className="flex min-h-0 w-[264px] shrink-0 flex-col border-r border-slate-200 bg-slate-50 text-xs">
+		<aside className="flex min-h-0 w-[264px] shrink-0 flex-col border-r border-slate-200 bg-white text-xs">
 			<header className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 px-3">
 				<Button
 					variant="block"
@@ -236,7 +236,9 @@ function LeftSidebar({ designFile }: { designFile: string }) {
 
 function RightInspector() {
 	return (
-		<aside className="flex min-h-0 w-[336px] shrink-0 flex-col border-l border-slate-200 bg-slate-50 text-xs">
+		// White, matching the right-rail design boards: control shells
+		// (slate-100/200) and the receipts footer read against it.
+		<aside className="flex min-h-0 w-[336px] shrink-0 flex-col border-l border-slate-200 bg-white text-xs">
 			<Properties />
 		</aside>
 	);

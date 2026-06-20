@@ -43,6 +43,15 @@ import {
 } from "./combobox";
 import type { BaseUiComponents } from "./components";
 import {
+	ContextMenuItem,
+	ContextMenuPopup,
+	ContextMenuPortal,
+	ContextMenuPositioner,
+	ContextMenuRoot,
+	ContextMenuSeparator,
+	ContextMenuTrigger,
+} from "./context-menu";
+import {
 	DrawerBackdrop,
 	DrawerClose,
 	DrawerContent,
@@ -78,6 +87,7 @@ import {
 	MenuSeparator,
 	MenuTrigger,
 } from "./menu";
+import { Menubar } from "./menubar";
 import {
 	MeterIndicator,
 	MeterLabel,
@@ -85,6 +95,46 @@ import {
 	MeterTrack,
 	MeterValue,
 } from "./meter";
+import {
+	NumberFieldDecrement,
+	NumberFieldGroup,
+	NumberFieldIncrement,
+	NumberFieldInput,
+	NumberFieldRoot,
+	NumberFieldScrubArea,
+	NumberFieldScrubAreaCursor,
+} from "./number-field";
+import { OTPFieldInput, OTPFieldRoot } from "./otp-field";
+import {
+	PopoverArrow,
+	PopoverBackdrop,
+	PopoverClose,
+	PopoverDescription,
+	PopoverPopup,
+	PopoverPortal,
+	PopoverPositioner,
+	PopoverRoot,
+	PopoverTitle,
+	PopoverTrigger,
+	PopoverViewport,
+} from "./popover";
+import {
+	PreviewCardArrow,
+	PreviewCardBackdrop,
+	PreviewCardPopup,
+	PreviewCardPortal,
+	PreviewCardPositioner,
+	PreviewCardRoot,
+	PreviewCardTrigger,
+	PreviewCardViewport,
+} from "./preview-card";
+import {
+	ProgressIndicator,
+	ProgressLabel,
+	ProgressRoot,
+	ProgressTrack,
+	ProgressValue,
+} from "./progress";
 import { RadioGroup, RadioIndicator, RadioRoot } from "./radio";
 import {
 	ScrollAreaContent,
@@ -128,6 +178,14 @@ import {
 import { SwitchRoot, SwitchThumb } from "./switch";
 import { TabsIndicator, TabsList, TabsPanel, TabsRoot, TabsTab } from "./tabs";
 import { Toggle, ToggleGroup } from "./toggle";
+import {
+	ToolbarButton,
+	ToolbarGroup,
+	ToolbarInput,
+	ToolbarLink,
+	ToolbarRoot,
+	ToolbarSeparator,
+} from "./toolbar";
 import {
 	TooltipArrow,
 	TooltipPopup,
@@ -179,6 +237,13 @@ export const baseUiRenderComponents = {
 	"combobox.empty": ComboboxEmpty,
 	"combobox.clear": ComboboxClear,
 	"combobox.separator": ComboboxSeparator,
+	"context-menu.root": ContextMenuRoot,
+	"context-menu.trigger": ContextMenuTrigger,
+	"context-menu.portal": ContextMenuPortal,
+	"context-menu.positioner": ContextMenuPositioner,
+	"context-menu.popup": ContextMenuPopup,
+	"context-menu.item": ContextMenuItem,
+	"context-menu.separator": ContextMenuSeparator,
 	"drawer.provider": DrawerProvider,
 	"drawer.root": DrawerRoot,
 	"drawer.trigger": DrawerTrigger,
@@ -215,6 +280,40 @@ export const baseUiRenderComponents = {
 	"menu.popup": MenuPopup,
 	"menu.item": MenuItem,
 	"menu.separator": MenuSeparator,
+	menubar: Menubar,
+	"number-field.root": NumberFieldRoot,
+	"number-field.group": NumberFieldGroup,
+	"number-field.decrement": NumberFieldDecrement,
+	"number-field.input": NumberFieldInput,
+	"number-field.increment": NumberFieldIncrement,
+	"number-field.scrub-area": NumberFieldScrubArea,
+	"number-field.scrub-area-cursor": NumberFieldScrubAreaCursor,
+	"otp-field.root": OTPFieldRoot,
+	"otp-field.input": OTPFieldInput,
+	"popover.root": PopoverRoot,
+	"popover.trigger": PopoverTrigger,
+	"popover.portal": PopoverPortal,
+	"popover.backdrop": PopoverBackdrop,
+	"popover.positioner": PopoverPositioner,
+	"popover.popup": PopoverPopup,
+	"popover.arrow": PopoverArrow,
+	"popover.viewport": PopoverViewport,
+	"popover.title": PopoverTitle,
+	"popover.description": PopoverDescription,
+	"popover.close": PopoverClose,
+	"preview-card.root": PreviewCardRoot,
+	"preview-card.trigger": PreviewCardTrigger,
+	"preview-card.portal": PreviewCardPortal,
+	"preview-card.backdrop": PreviewCardBackdrop,
+	"preview-card.positioner": PreviewCardPositioner,
+	"preview-card.popup": PreviewCardPopup,
+	"preview-card.arrow": PreviewCardArrow,
+	"preview-card.viewport": PreviewCardViewport,
+	"progress.root": ProgressRoot,
+	"progress.label": ProgressLabel,
+	"progress.track": ProgressTrack,
+	"progress.indicator": ProgressIndicator,
+	"progress.value": ProgressValue,
 	"radio-group": RadioGroup,
 	"radio.root": RadioRoot,
 	"radio.indicator": RadioIndicator,
@@ -258,6 +357,12 @@ export const baseUiRenderComponents = {
 	"tabs.tab": TabsTab,
 	"tabs.indicator": TabsIndicator,
 	"tabs.panel": TabsPanel,
+	"toolbar.root": ToolbarRoot,
+	"toolbar.group": ToolbarGroup,
+	"toolbar.button": ToolbarButton,
+	"toolbar.link": ToolbarLink,
+	"toolbar.input": ToolbarInput,
+	"toolbar.separator": ToolbarSeparator,
 	"tooltip.provider": TooltipProvider,
 	"tooltip.root": TooltipRoot,
 	"tooltip.trigger": TooltipTrigger,

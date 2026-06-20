@@ -13,6 +13,7 @@ import {
 } from "../../utils/system-component-compound-shape";
 import { compoundWhenSignature } from "../../utils/system-component-compound-signature";
 import { Button } from "../ui/button";
+import { Card } from "../ui/card";
 
 function toFocusableCompoundWhen(
 	when: Record<string, string | string[]>,
@@ -90,10 +91,12 @@ export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 					const isActive = entry.signature === activeSignature;
 					if (entry.isAdvanced) {
 						return (
-							<li
-								key={entry.signature}
-								className="flex items-start justify-between gap-2 border border-amber-200 bg-amber-50 px-2 py-1.5"
-							>
+							<li key={entry.signature}>
+								<Card
+									edge="border"
+									tone="warning"
+									className="flex items-start justify-between gap-2 px-2 py-1.5"
+								>
 								<div className="min-w-0 flex-1">
 									<p
 										className="truncate text-sm text-slate-900"
@@ -115,6 +118,7 @@ export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 								>
 									<Trash2 className="size-3.5" aria-hidden="true" />
 								</Button>
+								</Card>
 							</li>
 						);
 					}

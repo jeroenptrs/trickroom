@@ -3,12 +3,14 @@ import { useMemo } from "react";
 import type { ResolvedColorTokens } from "../../../utils/resolved-color-tokens";
 import type { ColorValue } from "../../../utils/tailwind-classname";
 import { Button } from "../../ui/button";
+import { ColorSwatch } from "../../ui/color-swatch";
 import { Text } from "../../ui/text";
-import { ColorSwatch } from "./ColorSwatch";
 
 type ColorPickerPopoverProps = {
 	/** Visual trigger content (swatch + label). Interactive styles are applied by this component. */
 	trigger: React.ReactNode;
+	/** Extra classes on the trigger button — e.g. the quiet-row field shell. */
+	triggerClassName?: string;
 	resolved: ResolvedColorTokens;
 	onPick: (value: ColorValue) => void;
 	onClear: () => void;
@@ -18,6 +20,7 @@ const UNIVERSAL_KEYWORDS = ["current", "transparent", "inherit"] as const;
 
 export function ColorPickerPopover({
 	trigger,
+	triggerClassName,
 	resolved,
 	onPick,
 	onClear,
@@ -32,7 +35,7 @@ export function ColorPickerPopover({
 						type="button"
 						variant="block"
 						{...props}
-						className="flex flex-row items-center gap-1.5"
+						className={`flex flex-row items-center gap-1.5${triggerClassName ? ` ${triggerClassName}` : ""}`}
 					>
 						{trigger}
 					</Button>

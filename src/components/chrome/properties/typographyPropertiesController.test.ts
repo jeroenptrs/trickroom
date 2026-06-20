@@ -32,19 +32,27 @@ describe("typographyPropertiesController", () => {
 
 	it("clears one typography property without touching unrelated classes", () => {
 		expect(
-			clearStyleProperty("text-sm font-bold text-red-500", opts, "typography.font-size"),
+			clearStyleProperty(
+				"text-sm font-bold text-red-500",
+				opts,
+				"typography.font-size",
+			),
 		).toBe("font-bold text-red-500");
 	});
 
 	it("reads active typography values", () => {
 		expect(
-			styleValueText(getStyleIntent("text-sm text-center", opts, "typography.font-size")),
+			styleValueText(
+				getStyleIntent("text-sm text-center", opts, "typography.font-size"),
+			),
 		).toBe("sm");
 		expect(
 			styleValueText(
 				getStyleIntent("text-sm text-center", opts, "typography.text-align"),
 			),
 		).toBe("center");
-		expect(getStyleIntent("text-sm", opts, "typography.text-align")).toBeUndefined();
+		expect(
+			getStyleIntent("text-sm", opts, "typography.text-align"),
+		).toBeUndefined();
 	});
 });

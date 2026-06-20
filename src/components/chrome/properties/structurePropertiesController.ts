@@ -1,4 +1,7 @@
-import type { ModelOptions, StyleProperty } from "../../../utils/tailwind-classname";
+import type {
+	ModelOptions,
+	StyleProperty,
+} from "../../../utils/tailwind-classname";
 import {
 	applyStyleUtility,
 	clearStyleProperty,
@@ -9,7 +12,10 @@ import {
 export { getStyleIntent, styleValueText };
 
 /** Map a structure slot value to its Tailwind utility body. */
-export function structureUtility(property: StyleProperty, value: string): string {
+export function structureUtility(
+	property: StyleProperty,
+	value: string,
+): string {
 	if (value.startsWith("[") || value.startsWith("(")) {
 		switch (property) {
 			case "structure.columns":

@@ -14,17 +14,19 @@ import {
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
 import { useProjectScope } from "../../contexts";
+import { Segmented, type SegmentedOption } from "../../ui/segmented";
 import { backgroundUtility } from "./backgroundPropertiesController";
 import { ColorPropertyControl } from "./ColorPropertyControl";
-import { applyColorChange, applyColorClear } from "./colorPropertiesController";
-import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
-import { StyleSection } from "./StyleSection";
 import {
-	applyStyleUtility,
-	clearStyleProperty,
-	getStyleIntent,
-	styleValueText,
-} from "./styleSectionController";
+	applyColorChange,
+	applyColorClear,
+	applyColorClearAll,
+} from "./colorPropertiesController";
+import { percentStopTokenOptions } from "./domainTokenOptions";
+import { StyleOverrideRows } from "./StyleOverrideRows";
+import { StyleSection } from "./StyleSection";
+import { getStyleIntent, styleValueText } from "./styleSectionController";
+import { TokenField } from "./TokenField";
 
 type BackgroundPropertiesProps = {
 	className: string;
@@ -59,7 +61,7 @@ const GRADIENT_OPTIONS: readonly SegmentedOption<string>[] = [
 ];
 
 const COLOR_ROWS = [
-	{ property: "background" as const, label: "Background" },
+	{ property: "background" as const, label: "Background", likely: true },
 	{ property: "gradient-from" as const, label: "From" },
 	{ property: "gradient-via" as const, label: "Via" },
 	{ property: "gradient-to" as const, label: "To" },
@@ -83,56 +85,38 @@ export function BackgroundProperties({
 		[className, options],
 	);
 
+	const stopOptions = useMemo(() => percentStopTokenOptions(), []);
+
 	const read = useCallback(
 		(property: StyleProperty) =>
 			styleValueText(getStyleIntent(className, options, property)),
 		[className, options],
 	);
 
-	const apply = useCallback(
-		(property: StyleProperty, next: string | null) => {
-			if (next === null) {
-				onChange(clearStyleProperty(className, options, property));
-				return;
-			}
-			onChange(
-				applyStyleUtility(
-					className,
-					options,
-					property,
-					backgroundUtility(property, next),
-				),
-			);
-		},
-		[className, onChange, options],
-	);
-
 	const size = read("background.background-size");
-	const repeat = read("background.background-repeat");
-	const attachment = read("background.background-attachment");
 	const gradient = read("background.background-gradient");
-	const fromPos = read("background.gradient-from-position");
-	const viaPos = read("background.gradient-via-position");
-	const toPos = read("background.gradient-to-position");
 
 	// Background color (color domain) and image (style domain) are independent
 	// slots that compose, so surface both in the summary.
 	const hasColor = Boolean(model.byMode[""]?.byProperty.background?.[""]);
 	const hasImage = Boolean(read("background.background-image"));
-	const summary =
-		[hasColor && "color", hasImage && "image", size, gradient]
-			.filter(Boolean)
-			.join(" · ") || undefined;
+	const summary = [
+		hasColor ? "color" : null,
+		hasImage ? "image" : null,
+		size,
+		gradient,
+	].filter((value): value is string => value !== null);
 
 	return (
 		<StyleSection title="Background" summary={summary}>
-			{COLOR_ROWS.map(({ property, label }) => (
+			{COLOR_ROWS.map(({ property, label, likely }) => (
 				<ColorPropertyControl
 					key={property}
 					label={label}
 					property={property}
 					model={model}
 					resolved={resolved}
+					likely={likely}
 					onSet={(variants, value) =>
 						onChange(
 							applyColorChange(className, options, {
@@ -147,90 +131,111 @@ export function BackgroundProperties({
 							applyColorClear(className, options, { property, variants }),
 						)
 					}
+					onClearAll={(chains) =>
+						onChange(applyColorClearAll(className, options, property, chains))
+					}
 				/>
 			))}
-			<BackgroundImagePicker
+			<StyleOverrideRows
+				label="Image"
 				className={className}
 				options={options}
-				systemId={systemId}
+				property="background.background-image"
+				inline
 				onChange={onChange}
+				renderControl={(slot) => (
+					<BackgroundImageSelect
+						systemId={systemId}
+						value={slot.value}
+						onSelect={(assetId) =>
+							slot.apply(assetId ? assetImageUtility(assetId) : null)
+						}
+					/>
+				)}
 			/>
-			<Segmented
-				ariaLabel="Background size"
-				options={SIZE_OPTIONS}
-				value={size}
-				onChange={(next) => apply("background.background-size", next)}
-			/>
-			<Segmented
-				ariaLabel="Background repeat"
-				options={REPEAT_OPTIONS}
-				value={repeat}
-				onChange={(next) => apply("background.background-repeat", next)}
-			/>
-			<Segmented
-				ariaLabel="Background attachment"
-				options={ATTACHMENT_OPTIONS}
-				value={attachment}
-				onChange={(next) => apply("background.background-attachment", next)}
-			/>
-			<Segmented
-				ariaLabel="Gradient"
-				options={GRADIENT_OPTIONS}
-				value={gradient}
-				onChange={(next) => apply("background.background-gradient", next)}
-			/>
-			<ValueField
-				label="From %"
-				value={fromPos ?? ""}
-				placeholder="50%"
-				onCommit={(next) =>
-					apply(
-						"background.gradient-from-position",
-						next.trim() ? next.trim() : null,
-					)
-				}
-			/>
-			<ValueField
-				label="Via %"
-				value={viaPos ?? ""}
-				placeholder="25%"
-				onCommit={(next) =>
-					apply(
-						"background.gradient-via-position",
-						next.trim() ? next.trim() : null,
-					)
-				}
-			/>
-			<ValueField
-				label="To %"
-				value={toPos ?? ""}
-				placeholder="75%"
-				onCommit={(next) =>
-					apply(
-						"background.gradient-to-position",
-						next.trim() ? next.trim() : null,
-					)
-				}
-			/>
+			{(
+				[
+					["background.background-size", "Size", SIZE_OPTIONS],
+					["background.background-repeat", "Repeat", REPEAT_OPTIONS],
+					[
+						"background.background-attachment",
+						"Attachment",
+						ATTACHMENT_OPTIONS,
+					],
+					["background.background-gradient", "Gradient", GRADIENT_OPTIONS],
+				] as const
+			).map(([property, label, segmentedOptions]) => (
+				<StyleOverrideRows
+					key={property}
+					label={label}
+					className={className}
+					options={options}
+					property={property}
+					onChange={onChange}
+					renderControl={(slot) => (
+						<Segmented
+							ariaLabel={label}
+							options={segmentedOptions}
+							value={slot.value}
+							onChange={(next) =>
+								slot.apply(
+									next === null ? null : backgroundUtility(property, next),
+								)
+							}
+						/>
+					)}
+				/>
+			))}
+			{(
+				[
+					["background.gradient-from-position", "From %", "50%"],
+					["background.gradient-via-position", "Via %", "25%"],
+					["background.gradient-to-position", "To %", "75%"],
+				] as const
+			).map(([property, label, placeholder]) => (
+				<StyleOverrideRows
+					key={property}
+					label={label}
+					className={className}
+					options={options}
+					property={property}
+					inline
+					onChange={onChange}
+					renderControl={(slot) => (
+						<TokenField
+							label={label}
+							value={slot.value ?? ""}
+							placeholder={placeholder}
+							options={stopOptions}
+							onCommit={(next) =>
+								slot.apply(
+									next.trim() ? backgroundUtility(property, next.trim()) : null,
+								)
+							}
+						/>
+					)}
+				/>
+			))}
 		</StyleSection>
 	);
 }
 
 /**
  * Picks a system asset to use as the background image, reusing the asset
- * registry/picker. Writes the id-bound utility `bg-(image:--asset-<id>)`; the
+ * registry/picker. Selecting writes the id-bound utility
+ * `bg-(image:--asset-<id>)` through the enclosing override-aware row; the
  * iframe resolves the var via `useInjectSystemAssets`.
  */
-function BackgroundImagePicker({
-	className,
-	options,
+function BackgroundImageSelect({
 	systemId,
-	onChange,
+	value,
+	onSelect,
 }: {
-	className: string;
-	options: ModelOptions;
 	systemId: string | null | undefined;
-	onChange: (next: string) => void;
+	/** Current slot value text (`styleValueText` form), or null when unset. */
+	value: string | null;
+	/** Called with the picked asset id, or `""` to clear. */
+	onSelect: (assetId: string) => void;
 }) {
 	const projectScope = useProjectScope();
 	const assetsQuery = useQuery({
@@ -239,36 +244,17 @@ function BackgroundImagePicker({
 	});
 	const assets = assetsQuery.data?.assets ?? [];
 
-	const current = styleValueText(
-		getStyleIntent(className, options, "background.background-image"),
-	);
 	const selectedId =
-		assets.find((asset) => assetImageSlotValue(asset.id) === current)?.id ?? "";
+		assets.find((asset) => assetImageSlotValue(asset.id) === value)?.id ?? "";
 
 	return (
-		<label className="flex min-w-0 items-center gap-2 text-[11px]">
-			<span className="w-16 shrink-0 text-slate-400">Image</span>
+		<label className="flex h-6 min-w-0 flex-1 items-center gap-1.5 bg-slate-200/60 px-1.5 text-[11px] inset-shadow-[0_0_0_1px] inset-shadow-transparent focus-within:inset-shadow-cyan-200">
+			<span className="shrink-0 text-slate-400">Image</span>
 			<select
-				className="h-6 min-w-0 flex-1 border-none bg-slate-200/60 px-1 text-xs text-slate-950 inset-shadow-[0_0_0_1px_transparent] focus:inset-shadow-[0_0_0_1px_#67e8f9] focus:outline-none"
+				className="h-full min-w-0 flex-1 border-none bg-transparent text-xs text-slate-950 focus:outline-none"
 				value={selectedId}
 				disabled={!systemId || assetsQuery.isPending}
-				onChange={(event) => {
-					const assetId = event.currentTarget.value;
-					onChange(
-						assetId
-							? applyStyleUtility(
-									className,
-									options,
-									"background.background-image",
-									assetImageUtility(assetId),
-								)
-							: clearStyleProperty(
-									className,
-									options,
-									"background.background-image",
-								),
-					);
-				}}
+				onChange={(event) => onSelect(event.currentTarget.value)}
 			>
 				<option value="">
 					{!systemId

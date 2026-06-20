@@ -1,18 +1,26 @@
 import { useCallback, useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
 import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
+import { useResolvedDomainTokens } from "../../../hooks/useResolvedDomainTokens";
 import { useDesignSystemId } from "../../../stores/design-store";
 import {
 	buildPropertyModel,
 	type ModelOptions,
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
+import { Segmented, type SegmentedOption } from "../../ui/segmented";
 import { ColorPropertyControl } from "./ColorPropertyControl";
-import { applyColorChange, applyColorClear } from "./colorPropertiesController";
-import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
+import {
+	applyColorChange,
+	applyColorClear,
+	applyColorClearAll,
+} from "./colorPropertiesController";
+import { radiusTokenOptions } from "./domainTokenOptions";
+import { propertyHasEntries } from "./propertySlots";
 import { StyleOverrideRows } from "./StyleOverrideRows";
-import { StyleSection } from "./StyleSection";
+import { SectionGroupLabel, StyleSection } from "./StyleSection";
 import { getStyleIntent, styleValueText } from "./styleSectionController";
+import { TokenField } from "./TokenField";
 
 type BorderPropertiesProps = {
 	className: string;
@@ -59,6 +67,12 @@ const DIVIDE_STYLE_OPTIONS: readonly SegmentedOption<string>[] = [
 	{ value: "none", label: "None" },
 ];
 
+const DIVIDE_PROPERTIES: readonly StyleProperty[] = [
+	"border.divide-x-width",
+	"border.divide-y-width",
+	"border.divide-style",
+];
+
 /** Map a border-width value to its utility body. "DEFAULT" → bare "border". */
 function borderWidthUtility(prefix: string, value: string): string {
 	return value === "DEFAULT" ? prefix : `${prefix}-${value}`;
@@ -87,6 +101,12 @@ export function BorderProperties({
 		[className, options],
 	);
 
+	const radiusTokens = useResolvedDomainTokens(systemId, "radius");
+	const cornerOptions = useMemo(
+		() => radiusTokenOptions(radiusTokens.values),
+		[radiusTokens.values],
+	);
+
 	const read = useCallback(
 		(property: StyleProperty) =>
 			styleValueText(getStyleIntent(className, options, property)),
@@ -107,8 +127,9 @@ export function BorderProperties({
 			? "rounded"
 			: `rounded-${radius}`
 		: null;
-	const summary =
-		[borderWidthLabel, radiusLabel].filter(Boolean).join(" · ") || undefined;
+	const summary = [borderWidthLabel, radiusLabel].filter(
+		(value): value is string => value !== null,
+	);
 
 	return (
 		<StyleSection title="Border" summary={summary}>
@@ -134,12 +155,16 @@ export function BorderProperties({
 						}),
 					)
 				}
+				onClearAll={(chains) =>
+					onChange(applyColorClearAll(className, options, "border", chains))
+				}
 			/>
 			<StyleOverrideRows
 				label="Width"
 				className={className}
 				options={options}
 				property="border.border-width"
+				likely
 				onChange={onChange}
 				renderControl={(slot) => (
 					<Segmented
@@ -176,6 +201,7 @@ export function BorderProperties({
 				className={className}
 				options={options}
 				property="border.radius"
+				likely
 				onChange={onChange}
 				renderControl={(slot) => (
 					<Segmented
@@ -188,134 +214,97 @@ export function BorderProperties({
 					/>
 				)}
 			/>
-			<div className="grid grid-cols-2 gap-1">
+			{(
+				[
+					["border.radius-top-left", "Radius TL", "tl"],
+					["border.radius-top-right", "Radius TR", "tr"],
+					["border.radius-bottom-left", "Radius BL", "bl"],
+					["border.radius-bottom-right", "Radius BR", "br"],
+				] as const
+			).map(([property, label, corner]) => (
 				<StyleOverrideRows
-					label="TL"
+					key={property}
+					label={label}
 					className={className}
 					options={options}
-					property="border.radius-top-left"
+					property={property}
+					inline
 					onChange={onChange}
 					renderControl={(slot) => (
-						<ValueField
-							label="TL"
+						<TokenField
+							label={label}
 							value={slot.value ?? ""}
 							placeholder="sm, lg, full"
+							options={cornerOptions}
 							onCommit={(v) =>
-								slot.apply(v.trim() ? `rounded-tl-${v.trim()}` : null)
+								slot.apply(v.trim() ? `rounded-${corner}-${v.trim()}` : null)
 							}
 						/>
 					)}
 				/>
-				<StyleOverrideRows
-					label="TR"
-					className={className}
-					options={options}
-					property="border.radius-top-right"
-					onChange={onChange}
-					renderControl={(slot) => (
-						<ValueField
-							label="TR"
-							value={slot.value ?? ""}
-							placeholder="sm, lg, full"
-							onCommit={(v) =>
-								slot.apply(v.trim() ? `rounded-tr-${v.trim()}` : null)
-							}
-						/>
-					)}
-				/>
-				<StyleOverrideRows
-					label="BL"
-					className={className}
-					options={options}
-					property="border.radius-bottom-left"
-					onChange={onChange}
-					renderControl={(slot) => (
-						<ValueField
-							label="BL"
-							value={slot.value ?? ""}
-							placeholder="sm, lg, full"
-							onCommit={(v) =>
-								slot.apply(v.trim() ? `rounded-bl-${v.trim()}` : null)
-							}
-						/>
-					)}
-				/>
-				<StyleOverrideRows
-					label="BR"
-					className={className}
-					options={options}
-					property="border.radius-bottom-right"
-					onChange={onChange}
-					renderControl={(slot) => (
-						<ValueField
-							label="BR"
-							value={slot.value ?? ""}
-							placeholder="sm, lg, full"
-							onCommit={(v) =>
-								slot.apply(v.trim() ? `rounded-br-${v.trim()}` : null)
-							}
-						/>
-					)}
-				/>
-			</div>
-			<div className="flex flex-col gap-1">
-				<span className="px-0.5 text-[10px] text-slate-400">Divide</span>
-				<StyleOverrideRows
-					label="Divide X"
-					className={className}
-					options={options}
-					property="border.divide-x-width"
-					onChange={onChange}
-					renderControl={(slot) => (
-						<Segmented
-							ariaLabel="Divide X width"
-							options={DIVIDE_WIDTH_OPTIONS}
-							value={slot.value}
-							onChange={(next) =>
-								slot.apply(
-									next === null ? null : borderWidthUtility("divide-x", next),
-								)
-							}
-						/>
-					)}
-				/>
-				<StyleOverrideRows
-					label="Divide Y"
-					className={className}
-					options={options}
-					property="border.divide-y-width"
-					onChange={onChange}
-					renderControl={(slot) => (
-						<Segmented
-							ariaLabel="Divide Y width"
-							options={DIVIDE_WIDTH_OPTIONS}
-							value={slot.value}
-							onChange={(next) =>
-								slot.apply(
-									next === null ? null : borderWidthUtility("divide-y", next),
-								)
-							}
-						/>
-					)}
-				/>
-				<StyleOverrideRows
-					label="Divide style"
-					className={className}
-					options={options}
-					property="border.divide-style"
-					onChange={onChange}
-					renderControl={(slot) => (
-						<Segmented
-							ariaLabel="Divide style"
-							options={DIVIDE_STYLE_OPTIONS}
-							value={slot.value}
-							onChange={(next) =>
-								slot.apply(next === null ? null : `divide-${next}`)
-							}
-						/>
-					)}
-				/>
-			</div>
+			))}
+			<SectionGroupLabel
+				label="Divide"
+				ids={DIVIDE_PROPERTIES}
+				anySet={DIVIDE_PROPERTIES.some((property) =>
+					propertyHasEntries(model, property),
+				)}
+			/>
+			<StyleOverrideRows
+				label="Divide X"
+				className={className}
+				options={options}
+				property="border.divide-x-width"
+				onChange={onChange}
+				renderControl={(slot) => (
+					<Segmented
+						ariaLabel="Divide X width"
+						options={DIVIDE_WIDTH_OPTIONS}
+						value={slot.value}
+						onChange={(next) =>
+							slot.apply(
+								next === null ? null : borderWidthUtility("divide-x", next),
+							)
+						}
+					/>
+				)}
+			/>
+			<StyleOverrideRows
+				label="Divide Y"
+				className={className}
+				options={options}
+				property="border.divide-y-width"
+				onChange={onChange}
+				renderControl={(slot) => (
+					<Segmented
+						ariaLabel="Divide Y width"
+						options={DIVIDE_WIDTH_OPTIONS}
+						value={slot.value}
+						onChange={(next) =>
+							slot.apply(
+								next === null ? null : borderWidthUtility("divide-y", next),
+							)
+						}
+					/>
+				)}
+			/>
+			<StyleOverrideRows
+				label="Divide style"
+				className={className}
+				options={options}
+				property="border.divide-style"
+				onChange={onChange}
+				renderControl={(slot) => (
+					<Segmented
+						ariaLabel="Divide style"
+						options={DIVIDE_STYLE_OPTIONS}
+						value={slot.value}
+						onChange={(next) =>
+							slot.apply(next === null ? null : `divide-${next}`)
+						}
+					/>
+				)}
+			/>
 		</StyleSection>
 	);
 }

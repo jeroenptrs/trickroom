@@ -10,6 +10,7 @@ import {
 	resolveRegistryComponent,
 	resolveRegistryRecipe,
 	SYSTEM_PROP_KEYS,
+	uniquifyControlPropsAmongSiblings,
 } from "../libraries/registry";
 import {
 	findRecipeControlTargetElement,
@@ -1789,9 +1790,22 @@ export const applyAddElement = (
 			: {}),
 	};
 
+	const siblingIds =
+		params.parentId === null
+			? rootIds
+			: (entitiesById[params.parentId]?.childIds ?? []);
+	const siblingProps = siblingIds.flatMap(
+		(siblingId) => entitiesById[siblingId]?.props ?? [],
+	);
+
 	const newEntity: FlatEntity = {
 		id,
-		props,
+		props: uniquifyControlPropsAmongSiblings(
+			props,
+			definition,
+			siblingProps,
+			new Set(Object.keys(propsFromParams)),
+		),
 		parentId: params.parentId,
 		role,
 	};

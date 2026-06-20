@@ -192,4 +192,30 @@ describe("validateDryRunOperationParameters", () => {
 			unsetVariantAxes: ["tone"],
 		});
 	});
+
+	it("preserves nested system component override fields in operation plans", () => {
+		expect(
+			validateDryRunOperationParameters("updateSystemComponentInstance", {
+				rootElementId: "component-root",
+				overrides: {
+					input: {
+						className: "rounded-md",
+						text: "Label",
+						"data-trickroom-icon-id": "icon-search",
+						props: { placeholder: "Search", disabled: true },
+					},
+				},
+			}),
+		).toEqual({
+			rootElementId: "component-root",
+			overrides: {
+				input: {
+					className: "rounded-md",
+					text: "Label",
+					"data-trickroom-icon-id": "icon-search",
+					props: { placeholder: "Search", disabled: true },
+				},
+			},
+		});
+	});
 });

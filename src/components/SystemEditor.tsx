@@ -9,6 +9,11 @@ import {
 	useComponentDraftComponentId,
 	useComponentDraftSelectedPath,
 } from "../stores/component-draft-store";
+import {
+	focusEditorRegion,
+	getKey,
+	useWindowKeyDown,
+} from "../utils/editor-shortcuts";
 import { useProjectScope, useTailwindSyncController } from "./contexts";
 import {
 	SystemStatusBadge,
@@ -31,11 +36,6 @@ import { ScrollArea } from "./ui/scroll-area";
 import { Separator } from "./ui/separator";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "./ui/tabs";
 import { Text } from "./ui/text";
-import {
-	focusEditorRegion,
-	getKey,
-	useWindowKeyDown,
-} from "../utils/editor-shortcuts";
 
 const SYSTEM_EDITOR_PAGES: Array<{ value: SystemEditorPage; label: string }> = [
 	{ value: "components", label: "Components" },
@@ -101,7 +101,7 @@ function SystemLeftSidebar({
 		<aside
 			data-editor-region="rail"
 			tabIndex={-1}
-			className="flex min-h-0 w-[300px] shrink-0 flex-col border-r border-slate-200 bg-slate-50 text-xs"
+			className="flex min-h-0 w-[300px] shrink-0 flex-col border-r border-slate-200 bg-white text-xs"
 			data-system-id={systemId}
 		>
 			{collapseChrome ? null : (

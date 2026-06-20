@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { maskUtility } from "./maskPropertiesController";
 import {
 	applyStyleUtility,
 	clearStyleProperty,
 	getStyleIntent,
 	styleValueText,
 } from "./styleSectionController";
-import { maskUtility } from "./maskPropertiesController";
 
 const opts = { colorTokens: new Set(["red-500"]) };
 
@@ -38,7 +38,9 @@ describe("maskPropertiesController", () => {
 
 	it("reads active mask values and preserves unknown classes", () => {
 		expect(
-			styleValueText(getStyleIntent("mask-cover mask-center", opts, "mask.mask-size")),
+			styleValueText(
+				getStyleIntent("mask-cover mask-center", opts, "mask.mask-size"),
+			),
 		).toBe("cover");
 		expect(
 			styleValueText(

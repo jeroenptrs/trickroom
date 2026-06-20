@@ -1,7 +1,5 @@
-import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCcw } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
 import {
 	configFileProjectQueryKey,
 	configFileQueryKey,
@@ -15,7 +13,11 @@ import {
 } from "../../queries/projects";
 import type { TrickroomConfig } from "../../types";
 import { useProjectConfig, useProjectScope } from "../contexts";
+import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
+import { EditableTitle } from "../ui/editable-title";
+import { Kbd } from "../ui/kbd";
+import { Text } from "../ui/text";
 import { CommandMenu } from "./CommandMenu";
 
 type ProjectMcpMode = "off" | "read-only" | "read-write";
@@ -65,10 +67,6 @@ function ProjectTitle({
 }) {
 	const queryClient = useQueryClient();
 	const projectScope = useProjectScope();
-	const [isRenaming, setIsRenaming] = useState(false);
-	const [draftName, setDraftName] = useState(name);
-	const inputRef = useRef<HTMLInputElement>(null);
-	const cancelledRef = useRef(false);
 	const renameMutation = useMutation({
 		mutationFn: (nextName: string) => {
 			if (!locationId) {
@@ -94,74 +92,21 @@ function ProjectTitle({
 	});
 	const errorMessage = (renameMutation.error as Error | null)?.message;
 
-	const startRenaming = () => {
-		if (!locationId || renameMutation.isPending) {
-			return;
-		}
-
-		cancelledRef.current = false;
-		setDraftName(name);
-		setIsRenaming(true);
-	};
-
-	const confirmRename = () => {
-		const nextName = draftName.trim();
-		setIsRenaming(false);
-		if (nextName.length === 0 || nextName === name) {
-			return;
-		}
-
-		renameMutation.mutate(nextName);
-	};
-
-	const cancelRename = () => {
-		cancelledRef.current = true;
-		setIsRenaming(false);
-	};
-
-	useHotkey("Enter", confirmRename, {
-		enabled: isRenaming,
-		ignoreInputs: false,
-	});
-	useHotkey("Escape", cancelRename, { enabled: isRenaming });
-	useEffect(() => {
-		if (!isRenaming) {
-			return;
-		}
-
-		inputRef.current?.focus();
-		inputRef.current?.select();
-	}, [isRenaming]);
-
 	return (
 		<div className="min-w-0">
-			<div className="grid max-w-[16rem]">
-				<button
-					type="button"
-					className="[grid-area:1/1] truncate border-none bg-transparent px-2 py-1 text-left text-base font-medium text-slate-950 hover:bg-slate-100 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500 disabled:pointer-events-none disabled:opacity-60"
-					style={{ visibility: isRenaming ? "hidden" : "visible" }}
-					disabled={!locationId || renameMutation.isPending}
-					onClick={startRenaming}
-				>
-					{name}
-				</button>
-				<input
-					ref={inputRef}
-					className="[grid-area:1/1] w-full min-w-0 border-none bg-transparent px-2 py-1 text-base font-medium text-slate-950 outline-none focus-visible:outline-none"
-					style={{ visibility: isRenaming ? "visible" : "hidden" }}
-					size={1}
-					value={draftName}
-					onChange={(event) => setDraftName(event.target.value)}
-					onBlur={() => {
-						if (!cancelledRef.current) confirmRename();
-					}}
+			<div className="max-w-[16rem]">
+				<EditableTitle
+					value={name}
+					size="md"
 					aria-label="Project name"
+					disabled={!locationId || renameMutation.isPending}
+					onRename={(nextName) => renameMutation.mutate(nextName)}
 				/>
 			</div>
 			{errorMessage ? (
-				<div className="mt-1 w-fit bg-red-500 px-2 py-1 text-xs text-white">
+				<Alert variant="inline" className="mt-1">
 					{errorMessage}
-				</div>
+				</Alert>
 			) : null}
 		</div>
 	);
@@ -200,17 +145,17 @@ export function ProjectHeader() {
 					locationId={activeProject?.locationId ?? null}
 				/>
 				<CommandMenu />
-				<span className="ml-2 truncate font-mono text-[11px] text-slate-500">
+				<Text tone="faint" className="ml-2 truncate font-mono text-[11px]">
 					{activeProject?.projectRoot ?? "Project path unavailable"}
-				</span>
+				</Text>
 			</div>
 			<div className="flex-1" />
 			<div className="flex items-center gap-3">
-				<div className="flex items-center gap-1.5 font-mono text-[10px] text-slate-500">
-					<span>switch</span>
-					<span className="bg-slate-100 px-1 py-0.5 font-medium text-slate-600">
-						⌘P
-					</span>
+				<div className="flex items-center gap-1.5">
+					<Text tone="faint" className="font-mono text-[10px]">
+						switch
+					</Text>
+					<Kbd>⌘P</Kbd>
 				</div>
 				<Button
 					type="button"

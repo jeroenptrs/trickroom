@@ -1,5 +1,16 @@
+import { copyFileSync } from "node:fs";
 import { builtinModules } from "node:module";
-import { defineConfig } from "vite";
+import path from "node:path";
+import { defineConfig, type Plugin } from "vite";
+
+const copyElectronSplash = (): Plugin => ({
+	name: "copy-electron-splash",
+	closeBundle() {
+		const source = path.resolve("electron/splash.html");
+		const target = path.resolve("dist-electron/main/splash.html");
+		copyFileSync(source, target);
+	},
+});
 
 const external = [
 	"electron",
@@ -8,6 +19,7 @@ const external = [
 ];
 
 export default defineConfig({
+	plugins: [copyElectronSplash()],
 	build: {
 		ssr: "electron/main.ts",
 		outDir: "dist-electron/main",

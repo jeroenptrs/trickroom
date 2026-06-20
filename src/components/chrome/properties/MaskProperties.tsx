@@ -5,11 +5,16 @@ import type {
 	ModelOptions,
 	StyleProperty,
 } from "../../../utils/tailwind-classname";
+import { Segmented, type SegmentedOption } from "../../ui/segmented";
+import {
+	percentStopTokenOptions,
+	rotateTokenOptions,
+} from "./domainTokenOptions";
 import { maskUtility } from "./maskPropertiesController";
-import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
 import { StyleSection } from "./StyleSection";
 import { getStyleIntent, styleValueText } from "./styleSectionController";
+import { TokenField } from "./TokenField";
 
 type MaskPropertiesProps = {
 	className: string;
@@ -95,6 +100,9 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 		[customUtilityRoots],
 	);
 
+	const stopOptions = useMemo(() => percentStopTokenOptions(), []);
+	const conicOptions = useMemo(() => rotateTokenOptions(), []);
+
 	const read = useCallback(
 		(property: StyleProperty) =>
 			styleValueText(getStyleIntent(className, options, property)),
@@ -105,8 +113,9 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 	const maskSize = read("mask.mask-size");
 	const maskLinear = read("mask.mask-linear");
 
-	const summary =
-		[maskSize, maskMode, maskLinear].filter(Boolean).join(" · ") || undefined;
+	const summary = [maskSize, maskMode, maskLinear].filter(
+		(value): value is string => value !== null && value !== undefined,
+	);
 
 	return (
 		<StyleSection title="Mask" summary={summary}>
@@ -286,12 +295,14 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 				className={className}
 				options={options}
 				property="mask.mask-linear-from"
+				inline
 				onChange={onChange}
 				renderControl={(slot) => (
-					<ValueField
+					<TokenField
 						label="Linear from"
 						value={slot.value ?? ""}
 						placeholder="0%"
+						options={stopOptions}
 						onCommit={(next) =>
 							slot.apply(
 								next.trim()
@@ -307,12 +318,14 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 				className={className}
 				options={options}
 				property="mask.mask-linear-to"
+				inline
 				onChange={onChange}
 				renderControl={(slot) => (
-					<ValueField
+					<TokenField
 						label="Linear to"
 						value={slot.value ?? ""}
 						placeholder="100%"
+						options={stopOptions}
 						onCommit={(next) =>
 							slot.apply(
 								next.trim()
@@ -349,12 +362,14 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 				className={className}
 				options={options}
 				property="mask.mask-radial-from"
+				inline
 				onChange={onChange}
 				renderControl={(slot) => (
-					<ValueField
+					<TokenField
 						label="Radial from"
 						value={slot.value ?? ""}
 						placeholder="0%"
+						options={stopOptions}
 						onCommit={(next) =>
 							slot.apply(
 								next.trim()
@@ -370,12 +385,14 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 				className={className}
 				options={options}
 				property="mask.mask-radial-to"
+				inline
 				onChange={onChange}
 				renderControl={(slot) => (
-					<ValueField
+					<TokenField
 						label="Radial to"
 						value={slot.value ?? ""}
 						placeholder="100%"
+						options={stopOptions}
 						onCommit={(next) =>
 							slot.apply(
 								next.trim()
@@ -410,12 +427,14 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 				className={className}
 				options={options}
 				property="mask.mask-conic-from"
+				inline
 				onChange={onChange}
 				renderControl={(slot) => (
-					<ValueField
+					<TokenField
 						label="Conic from"
 						value={slot.value ?? ""}
 						placeholder="0"
+						options={conicOptions}
 						onCommit={(next) =>
 							slot.apply(
 								next.trim()
@@ -431,12 +450,14 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 				className={className}
 				options={options}
 				property="mask.mask-conic-to"
+				inline
 				onChange={onChange}
 				renderControl={(slot) => (
-					<ValueField
+					<TokenField
 						label="Conic to"
 						value={slot.value ?? ""}
 						placeholder="180"
+						options={conicOptions}
 						onCommit={(next) =>
 							slot.apply(
 								next.trim()

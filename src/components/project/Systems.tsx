@@ -5,8 +5,11 @@ import { useNavigate } from "react-router";
 import type { TailwindSyncResult } from "../../hooks/useTailwindSyncController";
 import { useTailwindSyncController } from "../contexts";
 import { Button } from "../ui/button";
+import { EmptyState } from "../ui/empty-state";
 import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
+import { StatusDot } from "../ui/status-dot";
+import { Text } from "../ui/text";
 import { CreateSystemDialog } from "./CreateSystemDialog";
 import { pluralize } from "./project-view-utils";
 import { getSystemEditorPath } from "./SystemDetailPane";
@@ -75,46 +78,17 @@ export function getSystemMetadata(
 	return `${prefix}${tokenCount} ${pluralize(tokenCount, "token")}`;
 }
 
-function getSystemStatusDotClassName(
-	system: TailwindSyncResult,
-	reviewRequired: boolean,
-) {
-	if (system.status === "error") {
-		return "bg-red-500";
-	}
-
-	if (system.status === "idle") {
-		return "bg-slate-300";
-	}
-
-	if (reviewRequired) {
-		return "bg-amber-500";
-	}
-
-	return "bg-green-500";
-}
-
-function SystemStatusIndicator({
-	system,
-	reviewRequired,
-}: {
-	system: TailwindSyncResult;
-	reviewRequired: boolean;
-}) {
-	if (system.status === "pending") {
+function SystemStatusIndicator({ state }: { state: SystemStatusBadgeState }) {
+	if (state === "syncing") {
 		return (
 			<RefreshCw
-				className="size-3 animate-spin text-cyan-500"
+				className="size-3 shrink-0 animate-spin text-cyan-500"
 				aria-hidden="true"
 			/>
 		);
 	}
 
-	return (
-		<span
-			className={`size-2 shrink-0 rounded-full ${getSystemStatusDotClassName(system, reviewRequired)}`}
-		/>
-	);
+	return <StatusDot tone={state} shape="square" className="shrink-0" />;
 }
 
 function System({
@@ -154,12 +128,15 @@ function System({
 			onDoubleClick={onOpen}
 			className="flex w-full items-center gap-2 px-4 py-3 text-left"
 		>
-			<SystemStatusIndicator system={system} reviewRequired={reviewRequired} />
-			<div className="min-w-0 flex-1">
-				<div className="truncate text-sm">{displayedSystemName}</div>
-				<div className="truncate font-mono text-[11px] text-slate-500">
+			<SystemStatusIndicator state={status} />
+			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
+				<Text className="block max-w-full truncate">{displayedSystemName}</Text>
+				<Text
+					tone="muted"
+					className="block max-w-full truncate font-mono text-[10px]"
+				>
 					{metaSubtitle}
-				</div>
+				</Text>
 			</div>
 			{actionBadgeState ? <SystemStatusBadge state={actionBadgeState} /> : null}
 		</Button>
@@ -203,10 +180,10 @@ export function Systems({
 			<section className="flex flex-col flex-1 min-h-0 border-t border-slate-200">
 				<div className="flex items-center justify-between px-4 py-3">
 					<div className="flex items-baseline gap-2">
-						<div className="text-sm font-bold">Systems</div>
-						<div className="font-mono text-xs text-slate-500">
+						<Text variant="section-header">systems</Text>
+						<Text tone="faint" className="font-mono text-[11px]">
 							{systemEntries.length}
-						</div>
+						</Text>
 					</div>
 					<Button
 						variant="block"
@@ -220,20 +197,12 @@ export function Systems({
 				<Separator />
 				<ScrollArea className="flex-1 min-h-0">
 					{systemEntries.length === 0 ? (
-						<div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-							<div className="flex size-10 items-center justify-center bg-slate-50">
-								<Palette className="size-5 text-slate-400" aria-hidden="true" />
-							</div>
-							<div className="flex flex-col gap-1">
-								<p className="text-sm font-medium text-slate-700">
-									No systems yet
-								</p>
-								<p className="max-w-[16rem] text-xs text-slate-500 text-balance">
-									Press ⌘⇧N or use + New above to connect a tokens file or
-									Tailwind config.
-								</p>
-							</div>
-						</div>
+						<EmptyState
+							icon={Palette}
+							size="sm"
+							title="No systems yet"
+							description="Press ⌘⇧N or use + New above to connect a tokens file or Tailwind config."
+						/>
 					) : (
 						<div className="divide-y divide-slate-100">
 							{systemEntries.map(([systemId, status]) => (

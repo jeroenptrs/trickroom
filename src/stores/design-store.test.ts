@@ -352,6 +352,19 @@ describe("design store transforms", () => {
 		]);
 	});
 
+	it("uniquifies discriminator value defaults among siblings on insert", () => {
+		vi.spyOn(crypto, "randomUUID")
+			.mockReturnValueOnce("tab-one")
+			.mockReturnValueOnce("tab-two");
+
+		addElement(baseUiComponent("tabs.tab"), containerId, 0);
+		addElement(baseUiComponent("tabs.tab"), containerId, 1);
+
+		const state = designStore.get();
+		expect(state.entitiesById["tab-one"]?.props.value).toBe("tab");
+		expect(state.entitiesById["tab-two"]?.props.value).toBe("tab-2");
+	});
+
 	it("updates selected element props without mutating unrelated entities", () => {
 		const originalContainer = designStore.get().entitiesById[containerId];
 

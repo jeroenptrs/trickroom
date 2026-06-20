@@ -31,7 +31,11 @@ describe("styleSectionController", () => {
 
 	it("clears one property without touching unrelated classes", () => {
 		expect(
-			clearStyleProperty("flex flex-col bg-red-500", opts, "layout.flex-direction"),
+			clearStyleProperty(
+				"flex flex-col bg-red-500",
+				opts,
+				"layout.flex-direction",
+			),
 		).toBe("flex bg-red-500");
 	});
 

@@ -463,10 +463,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 				fixture.designFileService.getFileForUuid(createdDesignFileId),
 			);
 			expect(createdDesign.design.name).toBe("Smoke Exploration");
-			expect(createdDesign.design.boards[0].props).toMatchObject({
-				"data-trickroom-component": "container",
-				"data-trickroom-role": "branch",
-			});
+			expect(createdDesign.design.boards).toEqual([]);
 
 			const addResult = await requireStructuredPayload(
 				session.client,

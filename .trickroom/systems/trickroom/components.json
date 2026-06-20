@@ -3,7 +3,7 @@
 	"metadata": {
 		"schemaVersion": 2,
 		"createdAt": "1970-01-01T00:00:00.000Z",
-		"updatedAt": "2026-06-07T12:19:41.983Z"
+		"updatedAt": "2026-06-09T19:23:16.634Z"
 	},
 	"settings": {
 		"autoMigrateComponents": false
@@ -855,385 +855,12 @@
 				}
 			}
 		},
-		"cmp_d470b1df-1388-4e36-b7c2-fff8faf38759": {
-			"componentId": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
-			"slug": "icon-button",
-			"name": "Icon Button",
-			"createdAt": "2026-06-07T10:09:30.167Z",
-			"updatedAt": "2026-06-07T12:19:41.982Z",
-			"draft": {
-				"root": {
-					"path": "root",
-					"library": "base-ui",
-					"component": "button",
-					"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
-					"children": [
-						{
-							"path": "icon",
-							"library": "trickroom",
-							"component": "icon",
-							"className": "size-4"
-						}
-					]
-				},
-				"variants": {
-					"axes": {
-						"variant": {
-							"label": "Variant",
-							"values": {
-								"filled": {
-									"label": "Filled",
-									"classesByPath": {
-										"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
-									}
-								},
-								"outlined": {
-									"label": "Outlined",
-									"classesByPath": {
-										"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
-									}
-								},
-								"ghost": {
-									"label": "Ghost",
-									"classesByPath": {
-										"root": "text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
-									}
-								}
-							},
-							"defaultValue": "ghost"
-						},
-						"size": {
-							"label": "Size",
-							"values": {
-								"sm": {
-									"label": "Small",
-									"classesByPath": {
-										"root": "size-8"
-									}
-								},
-								"md": {
-									"label": "Medium",
-									"classesByPath": {
-										"root": "size-9"
-									}
-								},
-								"lg": {
-									"label": "Large",
-									"classesByPath": {
-										"root": "size-10"
-									}
-								}
-							},
-							"defaultValue": "md"
-						}
-					},
-					"defaultValues": {
-						"variant": "ghost",
-						"size": "md"
-					}
-				},
-				"overrideTargets": {
-					"icon": {
-						"targetId": "icon",
-						"label": "Icon",
-						"path": "icon",
-						"capabilities": [
-							"icon",
-							"className"
-						]
-					},
-					"root": {
-						"targetId": "root",
-						"label": "Root",
-						"path": "root",
-						"capabilities": [
-							"className"
-						]
-					}
-				}
-			},
-			"published": {
-				"currentVersion": "3",
-				"versions": {
-					"1": {
-						"root": {
-							"path": "root",
-							"library": "base-ui",
-							"component": "button",
-							"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
-							"children": [
-								{
-									"path": "icon",
-									"library": "trickroom",
-									"component": "icon"
-								}
-							]
-						},
-						"variants": {
-							"axes": {
-								"variant": {
-									"label": "Variant",
-									"values": {
-										"filled": {
-											"label": "Filled",
-											"classesByPath": {
-												"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
-											}
-										},
-										"outlined": {
-											"label": "Outlined",
-											"classesByPath": {
-												"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
-											}
-										},
-										"ghost": {
-											"label": "Ghost",
-											"classesByPath": {
-												"root": "text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
-											}
-										}
-									},
-									"defaultValue": "ghost"
-								},
-								"size": {
-									"label": "Size",
-									"values": {
-										"sm": {
-											"label": "Small",
-											"classesByPath": {
-												"root": "size-6"
-											}
-										},
-										"md": {
-											"label": "Medium",
-											"classesByPath": {
-												"root": "size-7"
-											}
-										},
-										"lg": {
-											"label": "Large",
-											"classesByPath": {
-												"root": "size-8"
-											}
-										}
-									},
-									"defaultValue": "md"
-								}
-							},
-							"defaultValues": {
-								"variant": "ghost",
-								"size": "md"
-							}
-						},
-						"overrideTargets": {
-							"icon": {
-								"targetId": "icon",
-								"label": "Icon",
-								"path": "icon",
-								"capabilities": [
-									"icon",
-									"className"
-								]
-							}
-						},
-						"version": "1",
-						"publishedAt": "2026-06-07T10:09:34.475Z",
-						"templateHash": "sha256:0bedd6bc20a69d6bc3a0978603ba30c5f138279933f4b11929c25db2cff0f099",
-						"variantSchemaHash": "sha256:9ed3831c1550919aedb33706e0c5697c0ab6236a1ab58243107242b3747d1222"
-					},
-					"2": {
-						"root": {
-							"path": "root",
-							"library": "base-ui",
-							"component": "button",
-							"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
-							"children": [
-								{
-									"path": "icon",
-									"library": "trickroom",
-									"component": "icon",
-									"className": "size-4"
-								}
-							]
-						},
-						"variants": {
-							"axes": {
-								"variant": {
-									"label": "Variant",
-									"values": {
-										"filled": {
-											"label": "Filled",
-											"classesByPath": {
-												"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
-											}
-										},
-										"outlined": {
-											"label": "Outlined",
-											"classesByPath": {
-												"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
-											}
-										},
-										"ghost": {
-											"label": "Ghost",
-											"classesByPath": {
-												"root": "text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
-											}
-										}
-									},
-									"defaultValue": "ghost"
-								},
-								"size": {
-									"label": "Size",
-									"values": {
-										"sm": {
-											"label": "Small",
-											"classesByPath": {
-												"root": "size-8"
-											}
-										},
-										"md": {
-											"label": "Medium",
-											"classesByPath": {
-												"root": "size-9"
-											}
-										},
-										"lg": {
-											"label": "Large",
-											"classesByPath": {
-												"root": "size-10"
-											}
-										}
-									},
-									"defaultValue": "md"
-								}
-							},
-							"defaultValues": {
-								"variant": "ghost",
-								"size": "md"
-							}
-						},
-						"overrideTargets": {
-							"icon": {
-								"targetId": "icon",
-								"label": "Icon",
-								"path": "icon",
-								"capabilities": [
-									"icon",
-									"className"
-								]
-							}
-						},
-						"version": "2",
-						"publishedAt": "2026-06-07T11:54:33.091Z",
-						"templateHash": "sha256:f910c673238e0ded0ca729a0b2be29ab49a1125a7b644ec8ba7d6d0f598b7ac4",
-						"variantSchemaHash": "sha256:ab1b9111843c4448a121f3e7c99e75666f9b0fb29b3ae83ded268f6d79ba34be",
-						"previousVersion": "1"
-					},
-					"3": {
-						"root": {
-							"path": "root",
-							"library": "base-ui",
-							"component": "button",
-							"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
-							"children": [
-								{
-									"path": "icon",
-									"library": "trickroom",
-									"component": "icon",
-									"className": "size-4"
-								}
-							]
-						},
-						"variants": {
-							"axes": {
-								"variant": {
-									"label": "Variant",
-									"values": {
-										"filled": {
-											"label": "Filled",
-											"classesByPath": {
-												"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
-											}
-										},
-										"outlined": {
-											"label": "Outlined",
-											"classesByPath": {
-												"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
-											}
-										},
-										"ghost": {
-											"label": "Ghost",
-											"classesByPath": {
-												"root": "text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
-											}
-										}
-									},
-									"defaultValue": "ghost"
-								},
-								"size": {
-									"label": "Size",
-									"values": {
-										"sm": {
-											"label": "Small",
-											"classesByPath": {
-												"root": "size-8"
-											}
-										},
-										"md": {
-											"label": "Medium",
-											"classesByPath": {
-												"root": "size-9"
-											}
-										},
-										"lg": {
-											"label": "Large",
-											"classesByPath": {
-												"root": "size-10"
-											}
-										}
-									},
-									"defaultValue": "md"
-								}
-							},
-							"defaultValues": {
-								"variant": "ghost",
-								"size": "md"
-							}
-						},
-						"overrideTargets": {
-							"icon": {
-								"targetId": "icon",
-								"label": "Icon",
-								"path": "icon",
-								"capabilities": [
-									"icon",
-									"className"
-								]
-							},
-							"root": {
-								"targetId": "root",
-								"label": "Root",
-								"path": "root",
-								"capabilities": [
-									"className"
-								]
-							}
-						},
-						"version": "3",
-						"publishedAt": "2026-06-07T12:19:41.982Z",
-						"templateHash": "sha256:8705bf4c4cbbe81e66710aebd6aa0dead5a8125120db8e8342bed5c052965fec",
-						"variantSchemaHash": "sha256:ab1b9111843c4448a121f3e7c99e75666f9b0fb29b3ae83ded268f6d79ba34be",
-						"previousVersion": "2"
-					}
-				}
-			}
-		},
 		"cmp_645de54b-09e0-49c7-8018-c1b760dc8460": {
 			"componentId": "cmp_645de54b-09e0-49c7-8018-c1b760dc8460",
 			"slug": "surface",
 			"name": "Surface",
 			"createdAt": "2026-06-07T10:09:42.021Z",
-			"updatedAt": "2026-06-07T10:09:44.621Z",
+			"updatedAt": "2026-06-08T07:13:49.240Z",
 			"draft": {
 				"root": {
 					"path": "root",
@@ -1267,15 +894,75 @@
 								}
 							},
 							"defaultValue": "inset"
+						},
+						"tone": {
+							"label": "Tone",
+							"values": {
+								"default": {
+									"label": "Default"
+								},
+								"danger": {
+									"label": "Danger",
+									"classesByPath": {
+										"root": "bg-red-50 text-red-900"
+									}
+								},
+								"warning": {
+									"label": "Warning",
+									"classesByPath": {
+										"root": "bg-amber-50 text-amber-900"
+									}
+								}
+							},
+							"defaultValue": "default"
 						}
 					},
+					"compoundVariants": [
+						{
+							"when": {
+								"edge": "inset",
+								"tone": "danger"
+							},
+							"classesByPath": {
+								"root": "inset-shadow-red-300"
+							}
+						},
+						{
+							"when": {
+								"edge": "inset",
+								"tone": "warning"
+							},
+							"classesByPath": {
+								"root": "inset-shadow-amber-300"
+							}
+						},
+						{
+							"when": {
+								"edge": "border",
+								"tone": "danger"
+							},
+							"classesByPath": {
+								"root": "border-red-200"
+							}
+						},
+						{
+							"when": {
+								"edge": "border",
+								"tone": "warning"
+							},
+							"classesByPath": {
+								"root": "border-amber-200"
+							}
+						}
+					],
 					"defaultValues": {
-						"edge": "inset"
+						"edge": "inset",
+						"tone": "default"
 					}
 				}
 			},
 			"published": {
-				"currentVersion": "1",
+				"currentVersion": "2",
 				"versions": {
 					"1": {
 						"root": {
@@ -1320,6 +1007,111 @@
 						"publishedAt": "2026-06-07T10:09:44.621Z",
 						"templateHash": "sha256:3573de681c319f07499168c37aba41b866680f8da05a0fa9ed7f00d6ae1dcf95",
 						"variantSchemaHash": "sha256:aa3779af2ec7ebf8324aa7e2af84e70239e47ab2b31e80265f491f1a619bb6a1"
+					},
+					"2": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "bg-white rounded-none"
+						},
+						"slots": {
+							"content": {
+								"name": "content",
+								"hostPath": "root",
+								"label": "Content"
+							}
+						},
+						"variants": {
+							"axes": {
+								"edge": {
+									"label": "Edge",
+									"values": {
+										"inset": {
+											"label": "Inset",
+											"classesByPath": {
+												"root": "inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
+											}
+										},
+										"border": {
+											"label": "Border",
+											"classesByPath": {
+												"root": "border border-slate-200"
+											}
+										}
+									},
+									"defaultValue": "inset"
+								},
+								"tone": {
+									"label": "Tone",
+									"values": {
+										"default": {
+											"label": "Default"
+										},
+										"danger": {
+											"label": "Danger",
+											"classesByPath": {
+												"root": "bg-red-50 text-red-900"
+											}
+										},
+										"warning": {
+											"label": "Warning",
+											"classesByPath": {
+												"root": "bg-amber-50 text-amber-900"
+											}
+										}
+									},
+									"defaultValue": "default"
+								}
+							},
+							"compoundVariants": [
+								{
+									"when": {
+										"edge": "inset",
+										"tone": "danger"
+									},
+									"classesByPath": {
+										"root": "inset-shadow-red-300"
+									}
+								},
+								{
+									"when": {
+										"edge": "inset",
+										"tone": "warning"
+									},
+									"classesByPath": {
+										"root": "inset-shadow-amber-300"
+									}
+								},
+								{
+									"when": {
+										"edge": "border",
+										"tone": "danger"
+									},
+									"classesByPath": {
+										"root": "border-red-200"
+									}
+								},
+								{
+									"when": {
+										"edge": "border",
+										"tone": "warning"
+									},
+									"classesByPath": {
+										"root": "border-amber-200"
+									}
+								}
+							],
+							"defaultValues": {
+								"edge": "inset",
+								"tone": "default"
+							}
+						},
+						"version": "2",
+						"publishedAt": "2026-06-08T07:13:49.240Z",
+						"templateHash": "sha256:3573de681c319f07499168c37aba41b866680f8da05a0fa9ed7f00d6ae1dcf95",
+						"variantSchemaHash": "sha256:e893a058c21efe02a0451055e431bdd2cf3a50ed9c9ca00725efcdbb24578228",
+						"previousVersion": "1"
 					}
 				}
 			}
@@ -1329,51 +1121,79 @@
 			"slug": "field",
 			"name": "Field",
 			"createdAt": "2026-06-07T10:09:51.969Z",
-			"updatedAt": "2026-06-07T10:09:54.472Z",
+			"updatedAt": "2026-06-07T16:57:48.233Z",
 			"draft": {
 				"root": {
 					"path": "root",
-					"library": "trickroom",
-					"component": "container",
-					"className": "flex flex-col gap-1.5",
+					"library": "base-ui",
+					"component": "field.root",
+					"className": "flex flex-col gap-1 text-xs",
 					"children": [
 						{
 							"path": "label",
-							"library": "trickroom",
-							"component": "text",
-							"className": "text-xs text-slate-600",
-							"text": "Label"
+							"library": "base-ui",
+							"component": "field.label",
+							"className": "font-semibold",
+							"children": [
+								{
+									"path": "labelText",
+									"library": "trickroom",
+									"component": "text",
+									"text": "Label"
+								}
+							]
 						},
 						{
-							"path": "helper",
+							"path": "controlHost",
 							"library": "trickroom",
-							"component": "text",
-							"className": "font-mono text-[10px] text-slate-500",
-							"text": "Helper"
+							"component": "container",
+							"className": "contents"
+						},
+						{
+							"path": "description",
+							"library": "base-ui",
+							"component": "field.description",
+							"className": "pt-0.5 text-slate-900/60",
+							"children": [
+								{
+									"path": "descText",
+									"library": "trickroom",
+									"component": "text",
+									"text": "Helper text"
+								}
+							]
 						}
 					]
 				},
 				"slots": {
 					"control": {
 						"name": "control",
-						"hostPath": "root",
+						"hostPath": "controlHost",
 						"label": "Control"
 					}
 				},
 				"overrideTargets": {
+					"root": {
+						"targetId": "root",
+						"label": "Root",
+						"path": "root",
+						"capabilities": [
+							"className"
+						]
+					},
 					"label": {
 						"targetId": "label",
 						"label": "Label",
-						"path": "label",
+						"path": "labelText",
 						"capabilities": [
 							"text",
 							"className"
 						]
 					},
-					"helper": {
-						"targetId": "helper",
+					"description": {
+						"targetId": "description",
 						"label": "Helper",
-						"path": "helper",
+						"path": "descText",
 						"capabilities": [
 							"text",
 							"className"
@@ -1382,7 +1202,7 @@
 				}
 			},
 			"published": {
-				"currentVersion": "1",
+				"currentVersion": "4",
 				"versions": {
 					"1": {
 						"root": {
@@ -1438,78 +1258,269 @@
 						"publishedAt": "2026-06-07T10:09:54.472Z",
 						"templateHash": "sha256:36edd0aabe5af6455c03d4b5fff8e57d009e5d32e5884d52ea195fcf86bffd20",
 						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099"
-					}
-				}
-			}
-		},
-		"cmp_a6214839-abe2-4e98-be53-3d3d47955c34": {
-			"componentId": "cmp_a6214839-abe2-4e98-be53-3d3d47955c34",
-			"slug": "compound-field",
-			"name": "Compound Field",
-			"createdAt": "2026-06-07T10:10:02.788Z",
-			"updatedAt": "2026-06-07T10:10:05.615Z",
-			"draft": {
-				"root": {
-					"path": "root",
-					"library": "trickroom",
-					"component": "container",
-					"className": "flex items-stretch rounded-none inset-shadow-[0_0_0_1px] inset-shadow-slate-200",
-					"children": [
-						{
-							"path": "action",
-							"library": "trickroom",
-							"component": "container",
-							"className": "flex items-center border-l border-slate-200 px-3"
-						}
-					]
-				},
-				"slots": {
-					"input": {
-						"name": "input",
-						"hostPath": "root",
-						"label": "Input"
 					},
-					"action": {
-						"name": "action",
-						"hostPath": "action",
-						"label": "Action"
-					}
-				}
-			},
-			"published": {
-				"currentVersion": "1",
-				"versions": {
-					"1": {
+					"2": {
 						"root": {
 							"path": "root",
-							"library": "trickroom",
-							"component": "container",
-							"className": "flex items-stretch rounded-none inset-shadow-[0_0_0_1px] inset-shadow-slate-200",
+							"library": "base-ui",
+							"component": "field.root",
+							"className": "flex flex-col gap-1 text-xs",
 							"children": [
 								{
-									"path": "action",
-									"library": "trickroom",
-									"component": "container",
-									"className": "flex items-center border-l border-slate-200 px-3"
+									"path": "label",
+									"library": "base-ui",
+									"component": "field.label",
+									"className": "font-semibold",
+									"children": [
+										{
+											"path": "labelText",
+											"library": "trickroom",
+											"component": "text",
+											"text": "Label"
+										}
+									]
+								},
+								{
+									"path": "control",
+									"library": "base-ui",
+									"component": "field.control",
+									"className": "border-none bg-slate-200/60 text-slate-950 w-full rounded-none inset-shadow-[0_0_0_1px] text-xs font-normal file:font-medium placeholder:text-slate-500 focus-visible:outline-none disabled:opacity-50 inset-shadow-transparent focus-within:inset-shadow-cyan-200 px-1 py-0.5",
+									"props": {
+										"type": "text",
+										"placeholder": "Value"
+									}
+								},
+								{
+									"path": "description",
+									"library": "base-ui",
+									"component": "field.description",
+									"className": "pt-0.5 text-slate-900/60",
+									"children": [
+										{
+											"path": "descText",
+											"library": "trickroom",
+											"component": "text",
+											"text": "Helper text"
+										}
+									]
+								}
+							]
+						},
+						"slots": {},
+						"overrideTargets": {
+							"root": {
+								"targetId": "root",
+								"label": "Root",
+								"path": "root",
+								"capabilities": [
+									"className"
+								]
+							},
+							"label": {
+								"targetId": "label",
+								"label": "Label",
+								"path": "labelText",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"control": {
+								"targetId": "control",
+								"label": "Control",
+								"path": "control",
+								"capabilities": [
+									"className"
+								]
+							},
+							"description": {
+								"targetId": "description",
+								"label": "Helper",
+								"path": "descText",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							}
+						},
+						"version": "2",
+						"publishedAt": "2026-06-07T16:31:19.152Z",
+						"templateHash": "sha256:a3b777a08980c4a037bb03f0c2dc575c0e1bf3628b6c9c3e3e4573c4ca0e34f2",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099",
+						"previousVersion": "1"
+					},
+					"3": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "field.root",
+							"className": "flex flex-col gap-1 text-xs",
+							"children": [
+								{
+									"path": "label",
+									"library": "base-ui",
+									"component": "field.label",
+									"className": "font-semibold",
+									"children": [
+										{
+											"path": "labelText",
+											"library": "trickroom",
+											"component": "text",
+											"text": "Label"
+										}
+									]
+								},
+								{
+									"path": "control",
+									"library": "base-ui",
+									"component": "field.control",
+									"className": "border-none bg-slate-200/60 text-slate-950 w-full rounded-none inset-shadow-[0_0_0_1px] text-xs font-normal file:font-medium placeholder:text-slate-500 focus-visible:outline-none disabled:opacity-50 inset-shadow-transparent focus-within:inset-shadow-cyan-200 px-1 py-0.5",
+									"slot": "control",
+									"props": {
+										"type": "text",
+										"placeholder": "Value"
+									}
+								},
+								{
+									"path": "description",
+									"library": "base-ui",
+									"component": "field.description",
+									"className": "pt-0.5 text-slate-900/60",
+									"children": [
+										{
+											"path": "descText",
+											"library": "trickroom",
+											"component": "text",
+											"text": "Helper text"
+										}
+									]
 								}
 							]
 						},
 						"slots": {
-							"input": {
-								"name": "input",
+							"control": {
+								"name": "control",
 								"hostPath": "root",
-								"label": "Input"
-							},
-							"action": {
-								"name": "action",
-								"hostPath": "action",
-								"label": "Action"
+								"label": "Control"
 							}
 						},
-						"version": "1",
-						"publishedAt": "2026-06-07T10:10:05.615Z",
-						"templateHash": "sha256:014dc17559c3dbfc9ac018367dbd032c968cd11726656e9691372769b047fc5b",
-						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099"
+						"overrideTargets": {
+							"root": {
+								"targetId": "root",
+								"label": "Root",
+								"path": "root",
+								"capabilities": [
+									"className"
+								]
+							},
+							"label": {
+								"targetId": "label",
+								"label": "Label",
+								"path": "labelText",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"description": {
+								"targetId": "description",
+								"label": "Helper",
+								"path": "descText",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							}
+						},
+						"version": "3",
+						"publishedAt": "2026-06-07T16:41:44.247Z",
+						"templateHash": "sha256:96f530fdba0181fccf1148d0c49af7f7fc5b219a133930263c07f768f0b3211b",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099",
+						"previousVersion": "2"
+					},
+					"4": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "field.root",
+							"className": "flex flex-col gap-1 text-xs",
+							"children": [
+								{
+									"path": "label",
+									"library": "base-ui",
+									"component": "field.label",
+									"className": "font-semibold",
+									"children": [
+										{
+											"path": "labelText",
+											"library": "trickroom",
+											"component": "text",
+											"text": "Label"
+										}
+									]
+								},
+								{
+									"path": "controlHost",
+									"library": "trickroom",
+									"component": "container",
+									"className": "contents"
+								},
+								{
+									"path": "description",
+									"library": "base-ui",
+									"component": "field.description",
+									"className": "pt-0.5 text-slate-900/60",
+									"children": [
+										{
+											"path": "descText",
+											"library": "trickroom",
+											"component": "text",
+											"text": "Helper text"
+										}
+									]
+								}
+							]
+						},
+						"slots": {
+							"control": {
+								"name": "control",
+								"hostPath": "controlHost",
+								"label": "Control"
+							}
+						},
+						"overrideTargets": {
+							"root": {
+								"targetId": "root",
+								"label": "Root",
+								"path": "root",
+								"capabilities": [
+									"className"
+								]
+							},
+							"label": {
+								"targetId": "label",
+								"label": "Label",
+								"path": "labelText",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"description": {
+								"targetId": "description",
+								"label": "Helper",
+								"path": "descText",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							}
+						},
+						"version": "4",
+						"publishedAt": "2026-06-07T16:57:48.233Z",
+						"templateHash": "sha256:1623eea436063c726d4a0a48edcd06c27b8082b8be997585127fddd59042ce11",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099",
+						"previousVersion": "3"
 					}
 				}
 			}
@@ -1681,34 +1692,107 @@
 			"name": "Dialog",
 			"description": "Dialog panel shell; base-ui wiring deferred because no dialog recipe is registered.",
 			"createdAt": "2026-06-07T10:10:19.007Z",
-			"updatedAt": "2026-06-07T10:10:21.581Z",
+			"updatedAt": "2026-06-07T18:40:36.947Z",
 			"draft": {
 				"root": {
 					"path": "root",
-					"library": "trickroom",
-					"component": "container",
-					"className": "flex flex-col bg-white rounded-none inset-shadow-[0_0_0_1px] inset-shadow-slate-200 shadow-2xl shadow-slate-950/30"
+					"library": "base-ui",
+					"component": "dialog.root",
+					"children": [
+						{
+							"path": "portal",
+							"library": "base-ui",
+							"component": "dialog.portal",
+							"children": [
+								{
+									"path": "backdrop",
+									"library": "base-ui",
+									"component": "dialog.backdrop",
+									"className": "fixed inset-0 min-h-dvh bg-slate-950 opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70 supports-[-webkit-touch-callout:none]:absolute"
+								},
+								{
+									"path": "popup",
+									"library": "base-ui",
+									"component": "dialog.popup",
+									"className": "flex flex-col fixed top-1/2 left-1/2 -mt-8 w-full max-w-xs md:max-w-md -translate-x-1/2 -translate-y-1/2 rounded-none bg-white text-slate-900 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 shadow-xl shadow-slate-900/10 transition-all duration-150 data-[ending-style]:scale-90 data-[ending-style]:opacity-0 data-[starting-style]:scale-90 data-[starting-style]:opacity-0",
+									"children": [
+										{
+											"path": "title",
+											"library": "base-ui",
+											"component": "dialog.title",
+											"className": "p-2",
+											"children": [
+												{
+													"path": "titleText",
+													"library": "trickroom",
+													"component": "text",
+													"text": "Dialog title"
+												}
+											]
+										},
+										{
+											"path": "description",
+											"library": "base-ui",
+											"component": "dialog.description",
+											"className": "px-2 mb-4",
+											"children": [
+												{
+													"path": "descText",
+													"library": "trickroom",
+													"component": "text",
+													"text": "Description text"
+												}
+											]
+										}
+									]
+								}
+							]
+						}
+					]
 				},
 				"slots": {
-					"header": {
-						"name": "header",
-						"hostPath": "root",
-						"label": "Header"
-					},
 					"body": {
 						"name": "body",
-						"hostPath": "root",
+						"hostPath": "popup",
 						"label": "Body"
 					},
 					"footer": {
 						"name": "footer",
-						"hostPath": "root",
+						"hostPath": "popup",
 						"label": "Footer"
+					}
+				},
+				"overrideTargets": {
+					"title": {
+						"targetId": "title",
+						"label": "Title",
+						"path": "titleText",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					},
+					"description": {
+						"targetId": "description",
+						"label": "Description",
+						"path": "descText",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					},
+					"popup": {
+						"targetId": "popup",
+						"label": "Popup",
+						"path": "popup",
+						"capabilities": [
+							"className"
+						]
 					}
 				}
 			},
 			"published": {
-				"currentVersion": "1",
+				"currentVersion": "3",
 				"versions": {
 					"1": {
 						"root": {
@@ -1738,6 +1822,170 @@
 						"publishedAt": "2026-06-07T10:10:21.581Z",
 						"templateHash": "sha256:4f68fd6aa45cf2991899e9256b2fa786358c560419611f1d7d9fd3716f492937",
 						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099"
+					},
+					"2": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "flex flex-col w-full max-w-md rounded-none bg-white text-slate-900 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 shadow-xl shadow-slate-900/10",
+							"children": [
+								{
+									"path": "title",
+									"library": "trickroom",
+									"component": "text",
+									"className": "p-2",
+									"text": "Dialog title"
+								},
+								{
+									"path": "description",
+									"library": "trickroom",
+									"component": "text",
+									"className": "px-2 mb-4",
+									"text": "Description text"
+								}
+							]
+						},
+						"slots": {
+							"body": {
+								"name": "body",
+								"hostPath": "root",
+								"label": "Body"
+							},
+							"footer": {
+								"name": "footer",
+								"hostPath": "root",
+								"label": "Footer"
+							}
+						},
+						"overrideTargets": {
+							"title": {
+								"targetId": "title",
+								"label": "Title",
+								"path": "title",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"description": {
+								"targetId": "description",
+								"label": "Description",
+								"path": "description",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							}
+						},
+						"version": "2",
+						"publishedAt": "2026-06-07T17:00:03.340Z",
+						"templateHash": "sha256:6db7b36c2bb75ec1ce809f34fe4f7b419d9cb4dbc4a80da0549e55ca0d77e943",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099",
+						"previousVersion": "1"
+					},
+					"3": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "dialog.root",
+							"children": [
+								{
+									"path": "portal",
+									"library": "base-ui",
+									"component": "dialog.portal",
+									"children": [
+										{
+											"path": "backdrop",
+											"library": "base-ui",
+											"component": "dialog.backdrop",
+											"className": "fixed inset-0 min-h-dvh bg-slate-950 opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70 supports-[-webkit-touch-callout:none]:absolute"
+										},
+										{
+											"path": "popup",
+											"library": "base-ui",
+											"component": "dialog.popup",
+											"className": "flex flex-col fixed top-1/2 left-1/2 -mt-8 w-full max-w-xs md:max-w-md -translate-x-1/2 -translate-y-1/2 rounded-none bg-white text-slate-900 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 shadow-xl shadow-slate-900/10 transition-all duration-150 data-[ending-style]:scale-90 data-[ending-style]:opacity-0 data-[starting-style]:scale-90 data-[starting-style]:opacity-0",
+											"children": [
+												{
+													"path": "title",
+													"library": "base-ui",
+													"component": "dialog.title",
+													"className": "p-2",
+													"children": [
+														{
+															"path": "titleText",
+															"library": "trickroom",
+															"component": "text",
+															"text": "Dialog title"
+														}
+													]
+												},
+												{
+													"path": "description",
+													"library": "base-ui",
+													"component": "dialog.description",
+													"className": "px-2 mb-4",
+													"children": [
+														{
+															"path": "descText",
+															"library": "trickroom",
+															"component": "text",
+															"text": "Description text"
+														}
+													]
+												}
+											]
+										}
+									]
+								}
+							]
+						},
+						"slots": {
+							"body": {
+								"name": "body",
+								"hostPath": "popup",
+								"label": "Body"
+							},
+							"footer": {
+								"name": "footer",
+								"hostPath": "popup",
+								"label": "Footer"
+							}
+						},
+						"overrideTargets": {
+							"title": {
+								"targetId": "title",
+								"label": "Title",
+								"path": "titleText",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"description": {
+								"targetId": "description",
+								"label": "Description",
+								"path": "descText",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"popup": {
+								"targetId": "popup",
+								"label": "Popup",
+								"path": "popup",
+								"capabilities": [
+									"className"
+								]
+							}
+						},
+						"version": "3",
+						"publishedAt": "2026-06-07T18:40:36.947Z",
+						"templateHash": "sha256:9b1f0b0234821195460d46337dc4cc7ff15f385dc41f1dd5802863dc8caeac92",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099",
+						"previousVersion": "2"
 					}
 				}
 			}
@@ -1747,7 +1995,7 @@
 			"slug": "input",
 			"name": "Input",
 			"createdAt": "2026-06-07T12:03:17.107Z",
-			"updatedAt": "2026-06-07T12:03:33.245Z",
+			"updatedAt": "2026-06-07T16:42:18.244Z",
 			"draft": {
 				"root": {
 					"path": "root",
@@ -1815,12 +2063,17 @@
 						"path": "root",
 						"capabilities": [
 							"className"
+						],
+						"props": [
+							"placeholder",
+							"defaultValue",
+							"type"
 						]
 					}
 				}
 			},
 			"published": {
-				"currentVersion": "1",
+				"currentVersion": "2",
 				"versions": {
 					"1": {
 						"root": {
@@ -1896,6 +2149,1568 @@
 						"publishedAt": "2026-06-07T12:03:33.245Z",
 						"templateHash": "sha256:f59b7cfce482d882c15dd4ef55841009239a33f8ab6693b6ff37ce854a4effb3",
 						"variantSchemaHash": "sha256:bf8eb6b5a554231d7360e74762bd264b6d0900fd4fb6e16343e2c4151706b5b1"
+					},
+					"2": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "input",
+							"className": "border-none bg-slate-200/60 text-slate-950 w-full rounded-none inset-shadow-[0_0_0_1px] text-xs font-normal file:font-medium placeholder:text-slate-500 focus-visible:outline-none disabled:opacity-50",
+							"props": {
+								"type": "text",
+								"placeholder": "Text"
+							}
+						},
+						"variants": {
+							"axes": {
+								"variant": {
+									"label": "Variant",
+									"values": {
+										"inline": {
+											"label": "Inline",
+											"classesByPath": {
+												"root": "inset-shadow-cyan-200 leading-5 pl-0.5 pr-1"
+											}
+										},
+										"block": {
+											"label": "Block",
+											"classesByPath": {
+												"root": "inset-shadow-transparent focus-within:inset-shadow-cyan-200 px-1 py-0.5"
+											}
+										},
+										"outlined": {
+											"label": "Outlined",
+											"classesByPath": {
+												"root": "bg-transparent inset-shadow-slate-200 focus-visible:inset-shadow-cyan-500 px-2 py-1.5"
+											}
+										},
+										"form": {
+											"label": "Form",
+											"classesByPath": {
+												"root": "bg-transparent px-3 py-2 text-sm inset-shadow-slate-200 focus-visible:inset-shadow-cyan-500 aria-invalid:inset-shadow-red-500"
+											}
+										},
+										"formCompact": {
+											"label": "Form compact",
+											"classesByPath": {
+												"root": "bg-white px-2 py-1.5 text-sm inset-shadow-slate-200 focus-visible:inset-shadow-cyan-500 aria-invalid:inset-shadow-red-500"
+											}
+										},
+										"formEmbedded": {
+											"label": "Form embedded",
+											"classesByPath": {
+												"root": "bg-transparent px-2 py-2 text-sm inset-shadow-transparent"
+											}
+										}
+									},
+									"defaultValue": "form"
+								}
+							},
+							"defaultValues": {
+								"variant": "form"
+							}
+						},
+						"overrideTargets": {
+							"root": {
+								"targetId": "root",
+								"label": "Root",
+								"path": "root",
+								"capabilities": [
+									"className"
+								],
+								"props": [
+									"placeholder",
+									"defaultValue",
+									"type"
+								]
+							}
+						},
+						"version": "2",
+						"publishedAt": "2026-06-07T16:42:18.244Z",
+						"templateHash": "sha256:b84cec0c12e94cb990816e610e728f62ad52595eed2487f6e3e466dd1ef3dbf5",
+						"variantSchemaHash": "sha256:bf8eb6b5a554231d7360e74762bd264b6d0900fd4fb6e16343e2c4151706b5b1",
+						"previousVersion": "1"
+					}
+				}
+			}
+		},
+		"cmp_49642f54-e844-451a-b538-4b165a8bd7e4": {
+			"componentId": "cmp_49642f54-e844-451a-b538-4b165a8bd7e4",
+			"slug": "alert",
+			"name": "Alert",
+			"description": "Error/notice — mirrors src/components/ui/alert.tsx (variant panel|inline, tone danger|warning|info).",
+			"createdAt": "2026-06-08T07:02:02.062Z",
+			"updatedAt": "2026-06-08T07:02:11.094Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "trickroom",
+					"component": "container",
+					"className": "flex text-[11px]",
+					"children": [
+						{
+							"path": "icon",
+							"library": "trickroom",
+							"component": "icon",
+							"className": "shrink-0",
+							"props": {
+								"data-trickroom-icon-id": "lucide-static/triangle-alert"
+							}
+						},
+						{
+							"path": "message",
+							"library": "trickroom",
+							"component": "text",
+							"text": "Alert message"
+						}
+					]
+				},
+				"variants": {
+					"axes": {
+						"variant": {
+							"label": "Variant",
+							"values": {
+								"panel": {
+									"label": "Panel",
+									"classesByPath": {
+										"root": "items-start gap-2 rounded-none px-2.5 py-2 leading-relaxed inset-shadow-[0_0_0_1px]",
+										"icon": "mt-px size-3.5"
+									}
+								},
+								"inline": {
+									"label": "Inline",
+									"classesByPath": {
+										"root": "items-center gap-1.5",
+										"icon": "size-3"
+									}
+								}
+							},
+							"defaultValue": "panel"
+						},
+						"tone": {
+							"label": "Tone",
+							"values": {
+								"danger": {
+									"label": "Danger",
+									"classesByPath": {
+										"root": "text-red-900",
+										"icon": "text-red-700"
+									}
+								},
+								"warning": {
+									"label": "Warning",
+									"classesByPath": {
+										"root": "text-amber-900",
+										"icon": "text-amber-700"
+									}
+								},
+								"info": {
+									"label": "Info",
+									"classesByPath": {
+										"root": "text-cyan-900",
+										"icon": "text-cyan-700"
+									}
+								}
+							},
+							"defaultValue": "danger"
+						}
+					},
+					"compoundVariants": [
+						{
+							"when": {
+								"variant": "panel",
+								"tone": "danger"
+							},
+							"classesByPath": {
+								"root": "bg-red-50 inset-shadow-red-300"
+							}
+						},
+						{
+							"when": {
+								"variant": "panel",
+								"tone": "warning"
+							},
+							"classesByPath": {
+								"root": "bg-amber-50 inset-shadow-amber-300"
+							}
+						},
+						{
+							"when": {
+								"variant": "panel",
+								"tone": "info"
+							},
+							"classesByPath": {
+								"root": "bg-cyan-50 inset-shadow-cyan-300"
+							}
+						}
+					],
+					"defaultValues": {
+						"variant": "panel",
+						"tone": "danger"
+					}
+				},
+				"overrideTargets": {
+					"message": {
+						"targetId": "message",
+						"label": "Message",
+						"path": "message",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					},
+					"icon": {
+						"targetId": "icon",
+						"label": "Icon",
+						"path": "icon",
+						"capabilities": [
+							"icon",
+							"className"
+						]
+					},
+					"root": {
+						"targetId": "root",
+						"label": "Root",
+						"path": "root",
+						"capabilities": [
+							"className"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "flex text-[11px]",
+							"children": [
+								{
+									"path": "icon",
+									"library": "trickroom",
+									"component": "icon",
+									"className": "shrink-0",
+									"props": {
+										"data-trickroom-icon-id": "lucide-static/triangle-alert"
+									}
+								},
+								{
+									"path": "message",
+									"library": "trickroom",
+									"component": "text",
+									"text": "Alert message"
+								}
+							]
+						},
+						"variants": {
+							"axes": {
+								"variant": {
+									"label": "Variant",
+									"values": {
+										"panel": {
+											"label": "Panel",
+											"classesByPath": {
+												"root": "items-start gap-2 rounded-none px-2.5 py-2 leading-relaxed inset-shadow-[0_0_0_1px]",
+												"icon": "mt-px size-3.5"
+											}
+										},
+										"inline": {
+											"label": "Inline",
+											"classesByPath": {
+												"root": "items-center gap-1.5",
+												"icon": "size-3"
+											}
+										}
+									},
+									"defaultValue": "panel"
+								},
+								"tone": {
+									"label": "Tone",
+									"values": {
+										"danger": {
+											"label": "Danger",
+											"classesByPath": {
+												"root": "text-red-900",
+												"icon": "text-red-700"
+											}
+										},
+										"warning": {
+											"label": "Warning",
+											"classesByPath": {
+												"root": "text-amber-900",
+												"icon": "text-amber-700"
+											}
+										},
+										"info": {
+											"label": "Info",
+											"classesByPath": {
+												"root": "text-cyan-900",
+												"icon": "text-cyan-700"
+											}
+										}
+									},
+									"defaultValue": "danger"
+								}
+							},
+							"compoundVariants": [
+								{
+									"when": {
+										"variant": "panel",
+										"tone": "danger"
+									},
+									"classesByPath": {
+										"root": "bg-red-50 inset-shadow-red-300"
+									}
+								},
+								{
+									"when": {
+										"variant": "panel",
+										"tone": "warning"
+									},
+									"classesByPath": {
+										"root": "bg-amber-50 inset-shadow-amber-300"
+									}
+								},
+								{
+									"when": {
+										"variant": "panel",
+										"tone": "info"
+									},
+									"classesByPath": {
+										"root": "bg-cyan-50 inset-shadow-cyan-300"
+									}
+								}
+							],
+							"defaultValues": {
+								"variant": "panel",
+								"tone": "danger"
+							}
+						},
+						"overrideTargets": {
+							"message": {
+								"targetId": "message",
+								"label": "Message",
+								"path": "message",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"icon": {
+								"targetId": "icon",
+								"label": "Icon",
+								"path": "icon",
+								"capabilities": [
+									"icon",
+									"className"
+								]
+							},
+							"root": {
+								"targetId": "root",
+								"label": "Root",
+								"path": "root",
+								"capabilities": [
+									"className"
+								]
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-08T07:02:11.094Z",
+						"templateHash": "sha256:f4b637a2a88954e862ef181c70602befc55b2caca5043ea75b1aa659106eac45",
+						"variantSchemaHash": "sha256:1af501856f11fc7f14d95c6bfc6fe327327c88ec03ede29d055848270df2f41c"
+					}
+				}
+			}
+		},
+		"cmp_f4e317ad-e228-4509-a168-f775198e4a5a": {
+			"componentId": "cmp_f4e317ad-e228-4509-a168-f775198e4a5a",
+			"slug": "readonly-field",
+			"name": "Read-only Field",
+			"description": "Labelled read-only value in a stamped mono box + optional action slot. Mirrors src/components/ui/readonly-field.tsx.",
+			"createdAt": "2026-06-08T07:14:18.326Z",
+			"updatedAt": "2026-06-08T07:14:26.101Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "trickroom",
+					"component": "container",
+					"className": "flex flex-col gap-1.5",
+					"children": [
+						{
+							"path": "label",
+							"library": "trickroom",
+							"component": "text",
+							"className": "text-xs font-semibold text-slate-950",
+							"text": "Label"
+						},
+						{
+							"path": "box",
+							"library": "trickroom",
+							"component": "container",
+							"className": "flex min-w-0 items-stretch rounded-none bg-slate-50 inset-shadow-[0_0_0_1px] inset-shadow-slate-200",
+							"children": [
+								{
+									"path": "value",
+									"library": "trickroom",
+									"component": "text",
+									"className": "min-w-0 flex-1 truncate px-2 py-1.5 font-mono text-xs text-slate-700",
+									"text": "/absolute/path/value"
+								}
+							]
+						}
+					]
+				},
+				"slots": {
+					"action": {
+						"name": "action",
+						"hostPath": "box",
+						"label": "Action"
+					}
+				},
+				"overrideTargets": {
+					"label": {
+						"targetId": "label",
+						"label": "Label",
+						"path": "label",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					},
+					"value": {
+						"targetId": "value",
+						"label": "Value",
+						"path": "value",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					},
+					"root": {
+						"targetId": "root",
+						"label": "Root",
+						"path": "root",
+						"capabilities": [
+							"className"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "flex flex-col gap-1.5",
+							"children": [
+								{
+									"path": "label",
+									"library": "trickroom",
+									"component": "text",
+									"className": "text-xs font-semibold text-slate-950",
+									"text": "Label"
+								},
+								{
+									"path": "box",
+									"library": "trickroom",
+									"component": "container",
+									"className": "flex min-w-0 items-stretch rounded-none bg-slate-50 inset-shadow-[0_0_0_1px] inset-shadow-slate-200",
+									"children": [
+										{
+											"path": "value",
+											"library": "trickroom",
+											"component": "text",
+											"className": "min-w-0 flex-1 truncate px-2 py-1.5 font-mono text-xs text-slate-700",
+											"text": "/absolute/path/value"
+										}
+									]
+								}
+							]
+						},
+						"slots": {
+							"action": {
+								"name": "action",
+								"hostPath": "box",
+								"label": "Action"
+							}
+						},
+						"overrideTargets": {
+							"label": {
+								"targetId": "label",
+								"label": "Label",
+								"path": "label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"value": {
+								"targetId": "value",
+								"label": "Value",
+								"path": "value",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"root": {
+								"targetId": "root",
+								"label": "Root",
+								"path": "root",
+								"capabilities": [
+									"className"
+								]
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-08T07:14:26.101Z",
+						"templateHash": "sha256:8ecc15c7b2be609efb5a05ed7d7630ddd90335af9d21e870838b9a1196fc5ae5",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099"
+					}
+				}
+			}
+		},
+		"cmp_e31e6aa3-5097-403a-a2d6-76bab1fe5606": {
+			"componentId": "cmp_e31e6aa3-5097-403a-a2d6-76bab1fe5606",
+			"slug": "chip",
+			"name": "Chip",
+			"description": "Mono lowercase label chip — sibling of Tag but for Tailwind class names and token values (Tag forces uppercase tracking-wider). Mirrors src/components/ui/chip.tsx.",
+			"createdAt": "2026-06-09T19:02:37.853Z",
+			"updatedAt": "2026-06-09T19:03:33.659Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "trickroom",
+					"component": "container",
+					"className": "inline-flex max-w-full items-center gap-1 rounded-none px-1 py-0.5 font-mono text-xs",
+					"children": [
+						{
+							"path": "label",
+							"library": "trickroom",
+							"component": "text",
+							"text": "chip"
+						}
+					]
+				},
+				"variants": {
+					"axes": {
+						"tone": {
+							"label": "Tone",
+							"values": {
+								"base": {
+									"label": "Base",
+									"classesByPath": {
+										"root": "bg-slate-100 text-slate-600"
+									}
+								},
+								"scope": {
+									"label": "Scope",
+									"classesByPath": {
+										"root": "bg-cyan-50 text-cyan-700"
+									}
+								},
+								"ghost": {
+									"label": "Ghost",
+									"classesByPath": {
+										"root": "border border-dashed border-slate-300 text-slate-400"
+									}
+								},
+								"struck": {
+									"label": "Struck",
+									"classesByPath": {
+										"root": "bg-white text-slate-400 line-through"
+									}
+								}
+							},
+							"defaultValue": "base"
+						}
+					},
+					"defaultValues": {
+						"tone": "base"
+					}
+				},
+				"overrideTargets": {
+					"label": {
+						"targetId": "label",
+						"label": "Label",
+						"path": "label",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "inline-flex max-w-full items-center gap-1 rounded-none px-1 py-0.5 font-mono text-xs",
+							"children": [
+								{
+									"path": "label",
+									"library": "trickroom",
+									"component": "text",
+									"text": "chip"
+								}
+							]
+						},
+						"variants": {
+							"axes": {
+								"tone": {
+									"label": "Tone",
+									"values": {
+										"base": {
+											"label": "Base",
+											"classesByPath": {
+												"root": "bg-slate-100 text-slate-600"
+											}
+										},
+										"scope": {
+											"label": "Scope",
+											"classesByPath": {
+												"root": "bg-cyan-50 text-cyan-700"
+											}
+										},
+										"ghost": {
+											"label": "Ghost",
+											"classesByPath": {
+												"root": "border border-dashed border-slate-300 text-slate-400"
+											}
+										},
+										"struck": {
+											"label": "Struck",
+											"classesByPath": {
+												"root": "bg-white text-slate-400 line-through"
+											}
+										}
+									},
+									"defaultValue": "base"
+								}
+							},
+							"defaultValues": {
+								"tone": "base"
+							}
+						},
+						"overrideTargets": {
+							"label": {
+								"targetId": "label",
+								"label": "Label",
+								"path": "label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-09T19:03:33.659Z",
+						"templateHash": "sha256:925ea9664b49b60d026fb53e83aa80b9abd7f48a8bb52d26693036c1d251ad74",
+						"variantSchemaHash": "sha256:687b1ddb57d129317b162668d566a8f6e77773bc2b3df6334aa7d9142ea926f7"
+					}
+				}
+			}
+		},
+		"cmp_da846d9c-6856-488b-bec9-b680e0430cf8": {
+			"componentId": "cmp_da846d9c-6856-488b-bec9-b680e0430cf8",
+			"slug": "switch",
+			"name": "Switch",
+			"description": "Toggle switch — square track + thumb, slate-900 when on, cyan focus ring. Mirrors src/components/ui/switch.tsx.",
+			"createdAt": "2026-06-09T19:02:47.497Z",
+			"updatedAt": "2026-06-09T19:03:37.195Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "base-ui",
+					"component": "switch.root",
+					"className": "flex h-4 w-7 shrink-0 items-center rounded-none p-0.5 inset-shadow-[0_0_0_1px] inset-shadow-transparent transition-colors focus-visible:outline-none focus-visible:inset-shadow-cyan-500 disabled:pointer-events-none disabled:opacity-50",
+					"children": [
+						{
+							"path": "thumb",
+							"library": "base-ui",
+							"component": "switch.thumb",
+							"className": "size-3 rounded-none bg-white transition-transform"
+						}
+					]
+				},
+				"variants": {
+					"axes": {
+						"checked": {
+							"label": "Checked",
+							"values": {
+								"off": {
+									"label": "Off",
+									"classesByPath": {
+										"root": "bg-slate-300"
+									}
+								},
+								"on": {
+									"label": "On",
+									"classesByPath": {
+										"root": "bg-slate-900",
+										"thumb": "translate-x-3"
+									}
+								}
+							},
+							"defaultValue": "off"
+						}
+					},
+					"defaultValues": {
+						"checked": "off"
+					}
+				},
+				"overrideTargets": {
+					"root": {
+						"targetId": "root",
+						"label": "Switch",
+						"path": "root",
+						"capabilities": [
+							"className"
+						],
+						"props": [
+							"disabled",
+							"defaultChecked"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "switch.root",
+							"className": "flex h-4 w-7 shrink-0 items-center rounded-none p-0.5 inset-shadow-[0_0_0_1px] inset-shadow-transparent transition-colors focus-visible:outline-none focus-visible:inset-shadow-cyan-500 disabled:pointer-events-none disabled:opacity-50",
+							"children": [
+								{
+									"path": "thumb",
+									"library": "base-ui",
+									"component": "switch.thumb",
+									"className": "size-3 rounded-none bg-white transition-transform"
+								}
+							]
+						},
+						"variants": {
+							"axes": {
+								"checked": {
+									"label": "Checked",
+									"values": {
+										"off": {
+											"label": "Off",
+											"classesByPath": {
+												"root": "bg-slate-300"
+											}
+										},
+										"on": {
+											"label": "On",
+											"classesByPath": {
+												"root": "bg-slate-900",
+												"thumb": "translate-x-3"
+											}
+										}
+									},
+									"defaultValue": "off"
+								}
+							},
+							"defaultValues": {
+								"checked": "off"
+							}
+						},
+						"overrideTargets": {
+							"root": {
+								"targetId": "root",
+								"label": "Switch",
+								"path": "root",
+								"capabilities": [
+									"className"
+								],
+								"props": [
+									"disabled",
+									"defaultChecked"
+								]
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-09T19:03:37.195Z",
+						"templateHash": "sha256:75b7f9e6363e5204e1997186cc61c35accbf070bf419b599966c900039377fd6",
+						"variantSchemaHash": "sha256:feeb257e64a02350ee4706654bf25d93099ea321ec13cd29a4b7f2ec115be579"
+					}
+				}
+			}
+		},
+		"cmp_0c60f371-19cd-4937-a3c1-0d66ca54fa91": {
+			"componentId": "cmp_0c60f371-19cd-4937-a3c1-0d66ca54fa91",
+			"slug": "disclosure",
+			"name": "Disclosure",
+			"description": "Collapsible section shell — header trigger (chevron + label) above a padded panel. Mirrors src/components/ui/disclosure.tsx.",
+			"createdAt": "2026-06-09T19:02:57.656Z",
+			"updatedAt": "2026-06-09T19:03:41.447Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "base-ui",
+					"component": "collapsible.root",
+					"className": "flex flex-col",
+					"children": [
+						{
+							"path": "trigger",
+							"library": "base-ui",
+							"component": "collapsible.trigger",
+							"className": "flex w-full items-center gap-1 px-3 py-2 text-left text-[11px] font-semibold text-slate-700 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500",
+							"children": [
+								{
+									"path": "label",
+									"library": "trickroom",
+									"component": "text",
+									"text": "Section Title"
+								}
+							]
+						},
+						{
+							"path": "panel",
+							"library": "base-ui",
+							"component": "collapsible.panel",
+							"className": "flex flex-col gap-2 px-3 pb-3",
+							"slot": "content"
+						}
+					],
+					"props": {
+						"defaultOpen": true
+					}
+				},
+				"slots": {
+					"content": {
+						"name": "content",
+						"hostPath": "panel",
+						"label": "Panel content"
+					}
+				},
+				"overrideTargets": {
+					"label": {
+						"targetId": "label",
+						"label": "Label",
+						"path": "label",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					},
+					"root": {
+						"targetId": "root",
+						"label": "Root",
+						"path": "root",
+						"capabilities": [
+							"className"
+						],
+						"props": [
+							"defaultOpen"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "collapsible.root",
+							"className": "flex flex-col",
+							"children": [
+								{
+									"path": "trigger",
+									"library": "base-ui",
+									"component": "collapsible.trigger",
+									"className": "flex w-full items-center gap-1 px-3 py-2 text-left text-[11px] font-semibold text-slate-700 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500",
+									"children": [
+										{
+											"path": "label",
+											"library": "trickroom",
+											"component": "text",
+											"text": "Section Title"
+										}
+									]
+								},
+								{
+									"path": "panel",
+									"library": "base-ui",
+									"component": "collapsible.panel",
+									"className": "flex flex-col gap-2 px-3 pb-3",
+									"slot": "content"
+								}
+							],
+							"props": {
+								"defaultOpen": true
+							}
+						},
+						"slots": {
+							"content": {
+								"name": "content",
+								"hostPath": "panel",
+								"label": "Panel content"
+							}
+						},
+						"overrideTargets": {
+							"label": {
+								"targetId": "label",
+								"label": "Label",
+								"path": "label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"root": {
+								"targetId": "root",
+								"label": "Root",
+								"path": "root",
+								"capabilities": [
+									"className"
+								],
+								"props": [
+									"defaultOpen"
+								]
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-09T19:03:41.447Z",
+						"templateHash": "sha256:40faf8af928f58aa0e62e002ebb38fa54ced71f8ff1b3aff3d086f73ea306f07",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099"
+					}
+				}
+			}
+		},
+		"cmp_60d59882-154d-4544-b5ba-95b64e3bf741": {
+			"componentId": "cmp_60d59882-154d-4544-b5ba-95b64e3bf741",
+			"slug": "popover",
+			"name": "Popover",
+			"description": "Floating popup shell — square, inset-shadow border, soft shadow, content slot. Design representation of the open state. Mirrors src/components/ui/popover.tsx.",
+			"createdAt": "2026-06-09T19:03:06.590Z",
+			"updatedAt": "2026-06-09T19:23:16.632Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "base-ui",
+					"component": "popover.root",
+					"children": [
+						{
+							"path": "trigger",
+							"library": "base-ui",
+							"component": "popover.trigger",
+							"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+							"children": [
+								{
+									"path": "trigger-label",
+									"library": "trickroom",
+									"component": "text",
+									"text": "Open"
+								}
+							]
+						},
+						{
+							"path": "positioner",
+							"library": "base-ui",
+							"component": "popover.positioner",
+							"children": [
+								{
+									"path": "popup",
+									"library": "base-ui",
+									"component": "popover.popup",
+									"className": "flex flex-col rounded-none bg-white p-1 text-slate-900 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 shadow-md shadow-slate-900/10 min-w-48 transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
+									"slot": "content",
+									"children": [
+										{
+											"path": "title",
+											"library": "base-ui",
+											"component": "popover.title",
+											"className": "px-2 py-1 text-xs font-semibold text-slate-700",
+											"children": [
+												{
+													"path": "title-text",
+													"library": "trickroom",
+													"component": "text",
+													"text": "Popover title"
+												}
+											]
+										}
+									]
+								}
+							],
+							"props": {
+								"side": "bottom",
+								"align": "start",
+								"sideOffset": 4
+							}
+						}
+					],
+					"props": {
+						"defaultOpen": false
+					}
+				},
+				"slots": {
+					"content": {
+						"name": "content",
+						"hostPath": "popup",
+						"label": "Content"
+					}
+				},
+				"overrideTargets": {
+					"trigger-label": {
+						"targetId": "trigger-label",
+						"label": "Trigger label",
+						"path": "trigger-label",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					},
+					"title-text": {
+						"targetId": "title-text",
+						"label": "Title",
+						"path": "title-text",
+						"capabilities": [
+							"text",
+							"className"
+						],
+						"history": [
+							{
+								"fromVersion": "1",
+								"previousTargetId": "title",
+								"previousPath": "title"
+							}
+						]
+					},
+					"popup": {
+						"targetId": "popup",
+						"label": "Popup",
+						"path": "popup",
+						"capabilities": [
+							"className"
+						],
+						"history": [
+							{
+								"fromVersion": "1",
+								"previousTargetId": "root",
+								"previousPath": "root"
+							}
+						]
+					},
+					"positioner": {
+						"targetId": "positioner",
+						"label": "Positioner",
+						"path": "positioner",
+						"capabilities": [
+							"className"
+						],
+						"props": [
+							"side",
+							"align",
+							"sideOffset",
+							"alignOffset"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "3",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "flex flex-col rounded-none bg-white p-1 text-slate-900 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 shadow-md shadow-slate-900/10 min-w-48",
+							"slot": "content",
+							"children": [
+								{
+									"path": "title",
+									"library": "trickroom",
+									"component": "text",
+									"className": "px-2 py-1 text-xs font-semibold text-slate-700",
+									"text": "Popover title"
+								}
+							]
+						},
+						"slots": {
+							"content": {
+								"name": "content",
+								"hostPath": "root",
+								"label": "Content"
+							}
+						},
+						"overrideTargets": {
+							"title": {
+								"targetId": "title",
+								"label": "Title",
+								"path": "title",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"root": {
+								"targetId": "root",
+								"label": "Popup",
+								"path": "root",
+								"capabilities": [
+									"className"
+								]
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-09T19:03:48.394Z",
+						"templateHash": "sha256:9f51064d00d3cec574a8afcb856e482d4e3c33f957b3fa15a6a6fed9f516abe1",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099"
+					},
+					"2": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "popover.root",
+							"children": [
+								{
+									"path": "trigger",
+									"library": "base-ui",
+									"component": "popover.trigger",
+									"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+									"children": [
+										{
+											"path": "trigger-label",
+											"library": "trickroom",
+											"component": "text",
+											"text": "Open"
+										}
+									]
+								},
+								{
+									"path": "positioner",
+									"library": "base-ui",
+									"component": "popover.positioner",
+									"children": [
+										{
+											"path": "popup",
+											"library": "base-ui",
+											"component": "popover.popup",
+											"className": "flex flex-col rounded-none bg-white p-1 text-slate-900 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 shadow-md shadow-slate-900/10 min-w-48 transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
+											"slot": "content",
+											"children": [
+												{
+													"path": "title",
+													"library": "base-ui",
+													"component": "popover.title",
+													"className": "px-2 py-1 text-xs font-semibold text-slate-700",
+													"children": [
+														{
+															"path": "title-text",
+															"library": "trickroom",
+															"component": "text",
+															"text": "Popover title"
+														}
+													]
+												}
+											]
+										}
+									],
+									"props": {
+										"side": "bottom",
+										"align": "start",
+										"sideOffset": 4
+									}
+								}
+							],
+							"props": {
+								"defaultOpen": true
+							}
+						},
+						"slots": {
+							"content": {
+								"name": "content",
+								"hostPath": "popup",
+								"label": "Content"
+							}
+						},
+						"overrideTargets": {
+							"trigger-label": {
+								"targetId": "trigger-label",
+								"label": "Trigger label",
+								"path": "trigger-label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"title-text": {
+								"targetId": "title-text",
+								"label": "Title",
+								"path": "title-text",
+								"capabilities": [
+									"text",
+									"className"
+								],
+								"history": [
+									{
+										"fromVersion": "1",
+										"previousTargetId": "title",
+										"previousPath": "title"
+									}
+								]
+							},
+							"popup": {
+								"targetId": "popup",
+								"label": "Popup",
+								"path": "popup",
+								"capabilities": [
+									"className"
+								],
+								"history": [
+									{
+										"fromVersion": "1",
+										"previousTargetId": "root",
+										"previousPath": "root"
+									}
+								]
+							},
+							"positioner": {
+								"targetId": "positioner",
+								"label": "Positioner",
+								"path": "positioner",
+								"capabilities": [
+									"className"
+								],
+								"props": [
+									"side",
+									"align",
+									"sideOffset",
+									"alignOffset"
+								]
+							}
+						},
+						"version": "2",
+						"publishedAt": "2026-06-09T19:16:40.491Z",
+						"templateHash": "sha256:414c1efbbf8d19981b6336cab24b7e042ddb2887fb8b92fd300acd29a83c294c",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099",
+						"previousVersion": "1"
+					},
+					"3": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "popover.root",
+							"children": [
+								{
+									"path": "trigger",
+									"library": "base-ui",
+									"component": "popover.trigger",
+									"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+									"children": [
+										{
+											"path": "trigger-label",
+											"library": "trickroom",
+											"component": "text",
+											"text": "Open"
+										}
+									]
+								},
+								{
+									"path": "positioner",
+									"library": "base-ui",
+									"component": "popover.positioner",
+									"children": [
+										{
+											"path": "popup",
+											"library": "base-ui",
+											"component": "popover.popup",
+											"className": "flex flex-col rounded-none bg-white p-1 text-slate-900 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 shadow-md shadow-slate-900/10 min-w-48 transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
+											"slot": "content",
+											"children": [
+												{
+													"path": "title",
+													"library": "base-ui",
+													"component": "popover.title",
+													"className": "px-2 py-1 text-xs font-semibold text-slate-700",
+													"children": [
+														{
+															"path": "title-text",
+															"library": "trickroom",
+															"component": "text",
+															"text": "Popover title"
+														}
+													]
+												}
+											]
+										}
+									],
+									"props": {
+										"side": "bottom",
+										"align": "start",
+										"sideOffset": 4
+									}
+								}
+							],
+							"props": {
+								"defaultOpen": false
+							}
+						},
+						"slots": {
+							"content": {
+								"name": "content",
+								"hostPath": "popup",
+								"label": "Content"
+							}
+						},
+						"overrideTargets": {
+							"trigger-label": {
+								"targetId": "trigger-label",
+								"label": "Trigger label",
+								"path": "trigger-label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"title-text": {
+								"targetId": "title-text",
+								"label": "Title",
+								"path": "title-text",
+								"capabilities": [
+									"text",
+									"className"
+								],
+								"history": [
+									{
+										"fromVersion": "1",
+										"previousTargetId": "title",
+										"previousPath": "title"
+									}
+								]
+							},
+							"popup": {
+								"targetId": "popup",
+								"label": "Popup",
+								"path": "popup",
+								"capabilities": [
+									"className"
+								],
+								"history": [
+									{
+										"fromVersion": "1",
+										"previousTargetId": "root",
+										"previousPath": "root"
+									}
+								]
+							},
+							"positioner": {
+								"targetId": "positioner",
+								"label": "Positioner",
+								"path": "positioner",
+								"capabilities": [
+									"className"
+								],
+								"props": [
+									"side",
+									"align",
+									"sideOffset",
+									"alignOffset"
+								]
+							}
+						},
+						"version": "3",
+						"publishedAt": "2026-06-09T19:23:16.632Z",
+						"templateHash": "sha256:05a7c4fe3e577fa8aa38a614f6712a509fd8316c5b03bd52458c2881e5630072",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099",
+						"previousVersion": "2"
+					}
+				}
+			}
+		},
+		"cmp_9d513c29-5b37-4d91-b5fb-d225bc809f31": {
+			"componentId": "cmp_9d513c29-5b37-4d91-b5fb-d225bc809f31",
+			"slug": "segmented",
+			"name": "Segmented",
+			"description": "Segmented toggle group — horizontally adjacent cells that act as a mutually-exclusive selector. Re-clicking the active option deselects. Mirrors src/components/ui/segmented.tsx.",
+			"createdAt": "2026-06-09T19:03:23.746Z",
+			"updatedAt": "2026-06-09T19:03:52.301Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "base-ui",
+					"component": "toggle-group",
+					"className": "flex gap-px",
+					"children": [
+						{
+							"path": "option-a",
+							"library": "base-ui",
+							"component": "toggle",
+							"className": "flex flex-1 items-center justify-center px-2 py-1 text-[11px] rounded-none text-slate-600 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 hover:text-slate-950 data-pressed:bg-cyan-100 data-pressed:text-cyan-900 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+							"children": [
+								{
+									"path": "option-a-label",
+									"library": "trickroom",
+									"component": "text",
+									"text": "A"
+								}
+							]
+						},
+						{
+							"path": "option-b",
+							"library": "base-ui",
+							"component": "toggle",
+							"className": "flex flex-1 items-center justify-center px-2 py-1 text-[11px] rounded-none text-slate-600 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 hover:text-slate-950 data-pressed:bg-cyan-100 data-pressed:text-cyan-900 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+							"children": [
+								{
+									"path": "option-b-label",
+									"library": "trickroom",
+									"component": "text",
+									"text": "B"
+								}
+							]
+						},
+						{
+							"path": "option-c",
+							"library": "base-ui",
+							"component": "toggle",
+							"className": "flex flex-1 items-center justify-center px-2 py-1 text-[11px] rounded-none text-slate-600 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 hover:text-slate-950 data-pressed:bg-cyan-100 data-pressed:text-cyan-900 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+							"children": [
+								{
+									"path": "option-c-label",
+									"library": "trickroom",
+									"component": "text",
+									"text": "C"
+								}
+							]
+						}
+					]
+				},
+				"overrideTargets": {
+					"option-a-label": {
+						"targetId": "option-a-label",
+						"label": "Option A",
+						"path": "option-a-label",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					},
+					"option-b-label": {
+						"targetId": "option-b-label",
+						"label": "Option B",
+						"path": "option-b-label",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					},
+					"option-c-label": {
+						"targetId": "option-c-label",
+						"label": "Option C",
+						"path": "option-c-label",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "toggle-group",
+							"className": "flex gap-px",
+							"children": [
+								{
+									"path": "option-a",
+									"library": "base-ui",
+									"component": "toggle",
+									"className": "flex flex-1 items-center justify-center px-2 py-1 text-[11px] rounded-none text-slate-600 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 hover:text-slate-950 data-pressed:bg-cyan-100 data-pressed:text-cyan-900 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+									"children": [
+										{
+											"path": "option-a-label",
+											"library": "trickroom",
+											"component": "text",
+											"text": "A"
+										}
+									]
+								},
+								{
+									"path": "option-b",
+									"library": "base-ui",
+									"component": "toggle",
+									"className": "flex flex-1 items-center justify-center px-2 py-1 text-[11px] rounded-none text-slate-600 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 hover:text-slate-950 data-pressed:bg-cyan-100 data-pressed:text-cyan-900 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+									"children": [
+										{
+											"path": "option-b-label",
+											"library": "trickroom",
+											"component": "text",
+											"text": "B"
+										}
+									]
+								},
+								{
+									"path": "option-c",
+									"library": "base-ui",
+									"component": "toggle",
+									"className": "flex flex-1 items-center justify-center px-2 py-1 text-[11px] rounded-none text-slate-600 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 hover:text-slate-950 data-pressed:bg-cyan-100 data-pressed:text-cyan-900 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+									"children": [
+										{
+											"path": "option-c-label",
+											"library": "trickroom",
+											"component": "text",
+											"text": "C"
+										}
+									]
+								}
+							]
+						},
+						"overrideTargets": {
+							"option-a-label": {
+								"targetId": "option-a-label",
+								"label": "Option A",
+								"path": "option-a-label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"option-b-label": {
+								"targetId": "option-b-label",
+								"label": "Option B",
+								"path": "option-b-label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"option-c-label": {
+								"targetId": "option-c-label",
+								"label": "Option C",
+								"path": "option-c-label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-09T19:03:52.301Z",
+						"templateHash": "sha256:c4e4913202ba2e99908e4585adf1b85eda02ce91c42c2169b4139223d8ab121d",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099"
 					}
 				}
 			}

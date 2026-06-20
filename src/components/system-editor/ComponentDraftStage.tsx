@@ -24,6 +24,8 @@ import {
 	resolveRenderableRegistryComponent,
 } from "../../libraries/render-registry";
 import { DesignSystemRenderContext } from "../../libraries/trickroom/render-context";
+import { Alert } from "../ui/alert";
+import { Card } from "../ui/card";
 import type { ProjectQueryScope } from "../../queries/project-scope";
 import { systemComponentQueryOptions } from "../../queries/system-components";
 import {
@@ -279,16 +281,13 @@ export function ComponentDraftStage({
 
 	if (componentQuery.isError) {
 		return (
-			<div
-				className="flex min-h-0 flex-1 flex-col justify-center bg-slate-100 px-6 text-sm"
-				role="alert"
-			>
-				<p className="font-medium text-red-950">
-					Failed to load component draft
-				</p>
-				<p className="mt-1 text-xs text-red-700">
-					{(componentQuery.error as Error).message}
-				</p>
+			<div className="flex min-h-0 flex-1 flex-col justify-center bg-slate-100 px-6 text-sm">
+				<Alert variant="panel">
+					<span className="block font-medium">Failed to load component draft</span>
+					<span className="mt-1 block text-xs">
+						{(componentQuery.error as Error).message}
+					</span>
+				</Alert>
 			</div>
 		);
 	}
@@ -303,16 +302,13 @@ export function ComponentDraftStage({
 
 	if (draftComponentId !== componentId) {
 		return (
-			<div
-				className="flex min-h-0 flex-1 flex-col justify-center bg-slate-100 px-6 text-sm"
-				role="alert"
-			>
-				<p className="font-medium text-amber-950">
-					Unsaved draft is still open
-				</p>
-				<p className="mt-1 text-xs text-amber-800">
-					Save or reload the current draft before editing this component.
-				</p>
+			<div className="flex min-h-0 flex-1 flex-col justify-center bg-slate-100 px-6 text-sm">
+				<Card edge="border" tone="warning" className="px-4 py-3" role="alert">
+					<p className="font-medium">Unsaved draft is still open</p>
+					<p className="mt-1 text-xs">
+						Save or reload the current draft before editing this component.
+					</p>
+				</Card>
 			</div>
 		);
 	}

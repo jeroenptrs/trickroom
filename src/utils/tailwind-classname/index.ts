@@ -2,8 +2,8 @@ export {
 	type ClassifyContext,
 	type ClassifyOptions,
 	type ColorIntent,
-	classifyParsedClass,
 	type CustomFunctionalIntent,
+	classifyParsedClass,
 	type KnownUtilityIntent,
 	type StyleIntent,
 	type StyleProperty,
@@ -46,6 +46,15 @@ export {
 	UNIVERSAL_COLOR_KEYWORDS,
 } from "./registry";
 export {
+	getModifierChain,
+	getUtilityConflictGroup,
+	getUtilityConflictScope,
+	type ModifierChain,
+	sameModifierChain,
+	type UtilityConflictScope,
+	utilityScopesMayConflict,
+} from "./scope";
+export {
 	DEFAULT_MODE,
 	formatWithVariantChain,
 	resolveSlotTarget,
@@ -53,12 +62,4 @@ export {
 	type SlotTarget,
 	slotKeysFromParsed,
 } from "./slots";
-export {
-	getModifierChain,
-	getUtilityConflictGroup,
-	getUtilityConflictScope,
-	sameModifierChain,
-	type ModifierChain,
-	type UtilityConflictScope,
-	utilityScopesMayConflict,
-} from "./scope";
+export { SPACING_PROPERTY_TO_PREFIX } from "./spacing";

@@ -591,6 +591,16 @@ function classifyMaskProperty(value: string): string {
 	return "mask";
 }
 
+/** All literal Tailwind class names recognized by the static classifier. */
+export const KNOWN_STATIC_CLASS_NAMES: readonly string[] = [
+	...STATIC_SPECS.keys(),
+];
+
+/** Functional prefix roots recognized by the style classifier (e.g. "w", "h", "p"). */
+export const KNOWN_FUNCTIONAL_ROOTS: readonly string[] = FUNCTIONAL_SPECS.map(
+	(s) => s.root,
+);
+
 function getFunctionalValue(
 	utility: string,
 	spec: FunctionalStyleSpec,

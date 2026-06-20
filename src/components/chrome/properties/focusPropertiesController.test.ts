@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { focusUtility } from "./focusPropertiesController";
 import {
 	applyStyleUtility,
 	clearStyleProperty,
 	getStyleIntent,
 	styleValueText,
 } from "./styleSectionController";
-import { focusUtility } from "./focusPropertiesController";
 
 const opts = { colorTokens: new Set(["blue-500"]) };
 
@@ -32,13 +32,19 @@ describe("focusPropertiesController", () => {
 
 	it("clears one focus property without touching unrelated classes", () => {
 		expect(
-			clearStyleProperty("ring-2 outline-dashed ring-blue-500", opts, "focus.ring-width"),
+			clearStyleProperty(
+				"ring-2 outline-dashed ring-blue-500",
+				opts,
+				"focus.ring-width",
+			),
 		).toBe("outline-dashed ring-blue-500");
 	});
 
 	it("reads active focus values", () => {
 		expect(
-			styleValueText(getStyleIntent("ring-2 outline-dashed", opts, "focus.ring-width")),
+			styleValueText(
+				getStyleIntent("ring-2 outline-dashed", opts, "focus.ring-width"),
+			),
 		).toBe("2");
 		expect(
 			styleValueText(

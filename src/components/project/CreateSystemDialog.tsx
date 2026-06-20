@@ -9,6 +9,7 @@ import {
 	createSystem,
 	systemsQueryKey,
 } from "../../queries/systems";
+import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 import {
 	Dialog,
@@ -19,7 +20,9 @@ import {
 	DialogTitle,
 } from "../ui/dialog";
 import { Input } from "../ui/input";
+import { InputGroup, InputGroupButton } from "../ui/input-group";
 import { Separator } from "../ui/separator";
+import { Text } from "../ui/text";
 
 export function CreateSystemDialog({
 	open,
@@ -128,17 +131,16 @@ export function CreateSystemDialog({
 					<Separator />
 					<form id={formId} onSubmit={handleSubmit}>
 						<div className="flex flex-col gap-5 px-5 py-5">
-							<p className="text-xs text-slate-600">
+							<Text render={<p />} tone="muted" className="text-xs">
 								Define a design system for this project. Trickroom reads your
 								tokens from the CSS file you point it at.
-							</p>
+							</Text>
 							<div className="flex flex-col gap-5">
 								<div className="flex flex-col gap-2">
-									<label
-										htmlFor={`${formId}-name`}
-										className="text-xs font-semibold text-slate-950"
-									>
-										System name
+									<label htmlFor={`${formId}-name`}>
+										<Text variant="label" tone="foreground">
+											System name
+										</Text>
 									</label>
 									<Input
 										id={`${formId}-name`}
@@ -151,17 +153,12 @@ export function CreateSystemDialog({
 									/>
 								</div>
 								<div className="flex flex-col gap-2">
-									<label
-										htmlFor={`${formId}-css`}
-										className="text-xs font-semibold text-slate-950"
-									>
-										Token source
+									<label htmlFor={`${formId}-css`}>
+										<Text variant="label" tone="foreground">
+											Token source
+										</Text>
 									</label>
-									<div className="group flex min-w-0 items-stretch inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500">
-										<FilePlus2
-											className="ml-2 size-4 shrink-0 self-center text-slate-600 group-focus-within:text-cyan-900"
-											aria-hidden="true"
-										/>
+									<InputGroup icon={FilePlus2}>
 										<Input
 											id={`${formId}-css`}
 											variant="formEmbedded"
@@ -172,10 +169,7 @@ export function CreateSystemDialog({
 											disabled={mutation.isPending}
 										/>
 										{desktopApi ? (
-											<Button
-												type="button"
-												variant="block"
-												className="shrink-0 inset-shadow-[1px_0_0_0] inset-shadow-slate-200 group-focus-within:inset-shadow-cyan-500 not-disabled:hover:inset-shadow-[0_0_0_1px] not-disabled:active:inset-shadow-[0_0_0_1px] not-disabled:active:inset-shadow-cyan-500"
+											<InputGroupButton
 												disabled={
 													mutation.isPending || isPickingCss || !canPickCss
 												}
@@ -185,18 +179,18 @@ export function CreateSystemDialog({
 												}
 											>
 												{isPickingCss ? "Browsing" : "Browse"}
-											</Button>
+											</InputGroupButton>
 										) : null}
-									</div>
-									<span className="text-[11px] leading-relaxed text-slate-600">
+									</InputGroup>
+									<Text tone="muted" className="text-[11px] leading-relaxed">
 										Trickroom indexes the @theme tokens declared in this file.
-									</span>
+									</Text>
 								</div>
 							</div>
 							{errorMessage ? (
-								<div className="w-fit bg-red-500 px-2 py-1 text-xs text-white">
+								<Alert variant="panel" tone="danger">
 									{errorMessage}
-								</div>
+								</Alert>
 							) : null}
 						</div>
 					</form>

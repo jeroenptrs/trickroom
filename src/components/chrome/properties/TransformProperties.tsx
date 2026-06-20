@@ -1,10 +1,20 @@
 import { useCallback, useMemo } from "react";
 import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
+import { useResolvedDomainTokens } from "../../../hooks/useResolvedDomainTokens";
 import { useDesignSystemId } from "../../../stores/design-store";
 import type { ModelOptions } from "../../../utils/tailwind-classname";
-import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
+import { Segmented, type SegmentedOption } from "../../ui/segmented";
+import {
+	offsetTokenOptions,
+	rotateTokenOptions,
+	scaleTokenOptions,
+	skewTokenOptions,
+} from "./domainTokenOptions";
 import { StyleOverrideRows } from "./StyleOverrideRows";
 import { StyleSection } from "./StyleSection";
+import { resolveSpacingBasePx } from "./sizeTokenOptions";
+import { TokenField } from "./TokenField";
+import type { TokenFieldOption } from "./tokenFieldController";
 import {
 	readTransformValue,
 	transformModeUtility,
@@ -37,6 +47,85 @@ const ORIGIN_OPTIONS: readonly SegmentedOption<string>[] = [
 	{ value: "top-left", label: "TL" },
 ];
 
+type TransformFieldDefinition = {
+	property: Parameters<typeof readTransformValue>[2];
+	label: string;
+	prefix: string;
+	placeholder: string;
+	likely?: boolean;
+};
+
+const TRANSFORM_FIELDS: readonly TransformFieldDefinition[] = [
+	{
+		property: "transform.translate-x",
+		label: "Translate X",
+		prefix: "translate-x",
+		placeholder: "4, -4, [13px]",
+	},
+	{
+		property: "transform.translate-y",
+		label: "Translate Y",
+		prefix: "translate-y",
+		placeholder: "4, -4, [13px]",
+	},
+	{
+		property: "transform.translate-z",
+		label: "Translate Z",
+		prefix: "translate-z",
+		placeholder: "4, [13px]",
+	},
+	{
+		property: "transform.rotate",
+		label: "Rotate",
+		prefix: "rotate",
+		placeholder: "45, -90, [0.5turn]",
+		likely: true,
+	},
+	{
+		property: "transform.rotate-x",
+		label: "Rotate X",
+		prefix: "rotate-x",
+		placeholder: "45, -90",
+	},
+	{
+		property: "transform.rotate-y",
+		label: "Rotate Y",
+		prefix: "rotate-y",
+		placeholder: "45, -90",
+	},
+	{
+		property: "transform.scale",
+		label: "Scale",
+		prefix: "scale",
+		placeholder: "50, 100, 150",
+		likely: true,
+	},
+	{
+		property: "transform.scale-x",
+		label: "Scale X",
+		prefix: "scale-x",
+		placeholder: "50, 100",
+	},
+	{
+		property: "transform.scale-y",
+		label: "Scale Y",
+		prefix: "scale-y",
+		placeholder: "50, 100",
+	},
+	{
+		property: "transform.skew-x",
+		label: "Skew X",
+		prefix: "skew-x",
+		placeholder: "6, -6, [10deg]",
+	},
+	{
+		property: "transform.skew-y",
+		label: "Skew Y",
+		prefix: "skew-y",
+		placeholder: "6, -6, [10deg]",
+	},
+];
+
 export function TransformProperties({
 	className,
 	onChange,
@@ -49,6 +138,28 @@ export function TransformProperties({
 		[customUtilityRoots],
 	);
 
+	const spacingTokens = useResolvedDomainTokens(systemId, "spacing");
+	const fieldOptions = useMemo<ReadonlyMap<string, TokenFieldOption[]>>(() => {
+		const translate = offsetTokenOptions(
+			resolveSpacingBasePx(spacingTokens.values),
+		);
+		const rotate = rotateTokenOptions();
+		const scale = scaleTokenOptions();
+		const skew = skewTokenOptions();
+		return new Map(
+			TRANSFORM_FIELDS.map((field) => [
+				field.prefix,
+				field.prefix.startsWith("translate")
+					? translate
+					: field.prefix.startsWith("rotate")
+						? rotate
+						: field.prefix.startsWith("scale")
+							? scale
+							: skew,
+			]),
+		);
+	}, [spacingTokens.values]);
+
 	const read = useCallback(
 		(property: Parameters<typeof readTransformValue>[2]) =>
 			readTransformValue(className, options, property),
@@ -60,12 +171,11 @@ export function TransformProperties({
 	const translateX = read("transform.translate-x");
 	const translateY = read("transform.translate-y");
 
-	const summaryParts = [
-		rotate && `rotate-${rotate}`,
-		scale && `scale-${scale}`,
-		(translateX || translateY) && "translate",
-	].filter(Boolean);
-	const summary = summaryParts.join(" · ") || undefined;
+	const summary = [
+		rotate ? `rotate-${rotate}` : null,
+		scale ? `scale-${scale}` : null,
+		translateX || translateY ? "translate" : null,
+	].filter((value): value is string => value !== null);
 
 	return (
 		<StyleSection title="Transform" summary={summary}>
@@ -86,213 +196,29 @@ export function TransformProperties({
 					/>
 				)}
 			/>
-			<div className="flex flex-col gap-1">
-				<span className="px-0.5 text-[10px] text-slate-400">Translate</span>
-				<div className="flex gap-2">
-					<StyleOverrideRows
-						label="X"
-						className={className}
-						options={options}
-						property="transform.translate-x"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="X"
-								value={slot.value ?? ""}
-								placeholder="4, -4, [13px]"
-								onCommit={(v) =>
-									slot.apply(transformUtilityFromInput("translate-x", v))
-								}
-							/>
-						)}
-					/>
-					<StyleOverrideRows
-						label="Y"
-						className={className}
-						options={options}
-						property="transform.translate-y"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="Y"
-								value={slot.value ?? ""}
-								placeholder="4, -4, [13px]"
-								onCommit={(v) =>
-									slot.apply(transformUtilityFromInput("translate-y", v))
-								}
-							/>
-						)}
-					/>
-					<StyleOverrideRows
-						label="Z"
-						className={className}
-						options={options}
-						property="transform.translate-z"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="Z"
-								value={slot.value ?? ""}
-								placeholder="4, [13px]"
-								onCommit={(v) =>
-									slot.apply(transformUtilityFromInput("translate-z", v))
-								}
-							/>
-						)}
-					/>
-				</div>
-			</div>
-			<div className="flex flex-col gap-1">
-				<span className="px-0.5 text-[10px] text-slate-400">Rotate</span>
-				<div className="flex gap-2">
-					<StyleOverrideRows
-						label="All"
-						className={className}
-						options={options}
-						property="transform.rotate"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="All"
-								value={slot.value ?? ""}
-								placeholder="45, -90, [0.5turn]"
-								onCommit={(v) =>
-									slot.apply(transformUtilityFromInput("rotate", v))
-								}
-							/>
-						)}
-					/>
-					<StyleOverrideRows
-						label="X"
-						className={className}
-						options={options}
-						property="transform.rotate-x"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="X"
-								value={slot.value ?? ""}
-								placeholder="45, -90"
-								onCommit={(v) =>
-									slot.apply(transformUtilityFromInput("rotate-x", v))
-								}
-							/>
-						)}
-					/>
-					<StyleOverrideRows
-						label="Y"
-						className={className}
-						options={options}
-						property="transform.rotate-y"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="Y"
-								value={slot.value ?? ""}
-								placeholder="45, -90"
-								onCommit={(v) =>
-									slot.apply(transformUtilityFromInput("rotate-y", v))
-								}
-							/>
-						)}
-					/>
-				</div>
-			</div>
-			<div className="flex flex-col gap-1">
-				<span className="px-0.5 text-[10px] text-slate-400">Scale</span>
-				<div className="flex gap-2">
-					<StyleOverrideRows
-						label="All"
-						className={className}
-						options={options}
-						property="transform.scale"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="All"
-								value={slot.value ?? ""}
-								placeholder="50, 100, 150"
-								onCommit={(v) =>
-									slot.apply(transformUtilityFromInput("scale", v))
-								}
-							/>
-						)}
-					/>
-					<StyleOverrideRows
-						label="X"
-						className={className}
-						options={options}
-						property="transform.scale-x"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="X"
-								value={slot.value ?? ""}
-								placeholder="50, 100"
-								onCommit={(v) =>
-									slot.apply(transformUtilityFromInput("scale-x", v))
-								}
-							/>
-						)}
-					/>
-					<StyleOverrideRows
-						label="Y"
-						className={className}
-						options={options}
-						property="transform.scale-y"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="Y"
-								value={slot.value ?? ""}
-								placeholder="50, 100"
-								onCommit={(v) =>
-									slot.apply(transformUtilityFromInput("scale-y", v))
-								}
-							/>
-						)}
-					/>
-				</div>
-			</div>
-			<div className="flex flex-col gap-1">
-				<span className="px-0.5 text-[10px] text-slate-400">Skew</span>
-				<div className="flex gap-2">
-					<StyleOverrideRows
-						label="X"
-						className={className}
-						options={options}
-						property="transform.skew-x"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="X"
-								value={slot.value ?? ""}
-								placeholder="6, -6, [10deg]"
-								onCommit={(v) =>
-									slot.apply(transformUtilityFromInput("skew-x", v))
-								}
-							/>
-						)}
-					/>
-					<StyleOverrideRows
-						label="Y"
-						className={className}
-						options={options}
-						property="transform.skew-y"
-						onChange={onChange}
-						renderControl={(slot) => (
-							<ValueField
-								label="Y"
-								value={slot.value ?? ""}
-								placeholder="6, -6, [10deg]"
-								onCommit={(v) =>
-									slot.apply(transformUtilityFromInput("skew-y", v))
-								}
-							/>
-						)}
-					/>
-				</div>
-			</div>
+			{TRANSFORM_FIELDS.map((field) => (
+				<StyleOverrideRows
+					key={field.property}
+					label={field.label}
+					className={className}
+					options={options}
+					property={field.property}
+					inline
+					likely={field.likely}
+					onChange={onChange}
+					renderControl={(slot) => (
+						<TokenField
+							label={field.label}
+							value={slot.value ?? ""}
+							placeholder={field.placeholder}
+							options={fieldOptions.get(field.prefix) ?? []}
+							onCommit={(v) =>
+								slot.apply(transformUtilityFromInput(field.prefix, v))
+							}
+						/>
+					)}
+				/>
+			))}
 			<StyleOverrideRows
 				label="Origin"
 				className={className}

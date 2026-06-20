@@ -3,6 +3,8 @@ import { MousePointerClick, Sparkles } from "lucide-react";
 import { designSummariesQueryOptions } from "../../queries/design-file";
 import { sessionQueryOptions } from "../../queries/projects";
 import { useProjectScope, useTailwindSyncController } from "../contexts";
+import { EmptyState } from "../ui/empty-state";
+import { Kbd } from "../ui/kbd";
 import { Text } from "../ui/text";
 import { DesignDetailPane } from "./DesignDetailPane";
 import { SystemDetailPane } from "./SystemDetailPane";
@@ -10,60 +12,61 @@ import { SystemDetailPane } from "./SystemDetailPane";
 function KbdHint({ kbd, label }: { kbd: string; label: string }) {
 	return (
 		<div className="flex items-center gap-1.5">
-			<span className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] font-medium text-slate-600">
-				{kbd}
-			</span>
-			<span className="text-xs text-slate-500">{label}</span>
+			<Kbd>{kbd}</Kbd>
+			<Text tone="faint" className="text-xs">
+				{label}
+			</Text>
+		</div>
+	);
+}
+
+function KbdHintRow({ hints }: { hints: { kbd: string; label: string }[] }) {
+	return (
+		<div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+			{hints.map((hint) => (
+				<KbdHint key={hint.kbd} kbd={hint.kbd} label={hint.label} />
+			))}
 		</div>
 	);
 }
 
 function WelcomePane({ projectRoot }: { projectRoot: string }) {
 	return (
-		<div className="flex h-full flex-col items-center justify-center gap-5 p-8 text-center">
-			<div className="flex size-12 items-center justify-center bg-slate-100 inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
-				<Sparkles className="size-5 text-slate-400" aria-hidden="true" />
-			</div>
-			<div className="flex flex-col gap-1.5">
-				<Text variant="title">Welcome to Trickroom</Text>
-				<p className="max-w-xs text-sm text-slate-500">
-					This project doesn&apos;t have any designs or systems yet. Start by
-					creating a design board.
-				</p>
-			</div>
-			<p className="font-mono text-xs text-slate-400">{projectRoot}</p>
-			<div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-				<KbdHint kbd="⌘N" label="new design" />
-				<KbdHint kbd="⌘⇧N" label="new system" />
-				<KbdHint kbd="⌘K" label="switch project" />
-			</div>
-		</div>
+		<EmptyState
+			icon={Sparkles}
+			title="Welcome to Trickroom"
+			description="This project doesn't have any designs or systems yet. Start by creating a design board."
+		>
+			<Text tone="faint" className="font-mono text-xs">
+				{projectRoot}
+			</Text>
+			<KbdHintRow
+				hints={[
+					{ kbd: "⌘N", label: "new design" },
+					{ kbd: "⌘⇧N", label: "new system" },
+					{ kbd: "⌘K", label: "switch project" },
+				]}
+			/>
+		</EmptyState>
 	);
 }
 
 function NothingSelectedPane() {
 	return (
-		<div className="flex h-full flex-col items-center justify-center gap-5 p-8 text-center">
-			<div className="flex size-12 items-center justify-center bg-slate-100 inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
-				<MousePointerClick
-					className="size-5 text-slate-400"
-					aria-hidden="true"
-				/>
-			</div>
-			<div className="flex flex-col gap-1.5">
-				<Text variant="title">Nothing selected</Text>
-				<p className="max-w-sm text-sm text-slate-500">
-					Pick a design or system from the sidebar to preview its contents and
-					edit metadata.
-				</p>
-			</div>
-			<div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-				<KbdHint kbd="↑↓" label="navigate" />
-				<KbdHint kbd="↵" label="open" />
-				<KbdHint kbd="⌘N" label="new design" />
-				<KbdHint kbd="⌘⇧N" label="new system" />
-			</div>
-		</div>
+		<EmptyState
+			icon={MousePointerClick}
+			title="Nothing selected"
+			description="Pick a design or system from the sidebar to preview its contents and edit metadata."
+		>
+			<KbdHintRow
+				hints={[
+					{ kbd: "↑↓", label: "navigate" },
+					{ kbd: "↵", label: "open" },
+					{ kbd: "⌘N", label: "new design" },
+					{ kbd: "⌘⇧N", label: "new system" },
+				]}
+			/>
+		</EmptyState>
 	);
 }
 

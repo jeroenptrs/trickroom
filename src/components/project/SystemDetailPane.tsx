@@ -1,21 +1,7 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-	ArrowUpRight,
-	Check,
-	Copy,
-	RefreshCw,
-	Save,
-	Trash2,
-} from "lucide-react";
-import {
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { ArrowUpRight, Check, RefreshCw, Save, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { getTrickroomDesktopApi } from "../../desktop-api";
 import type { TailwindSyncResult } from "../../hooks/useTailwindSyncController";
@@ -50,9 +36,17 @@ import {
 	type TailwindTokenEntry,
 } from "../../utils/tailwind-token-domains";
 import { useProjectScope, useTailwindSyncController } from "../contexts";
+import { Alert } from "../ui/alert";
+import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
-import { ConfirmationDialog } from "../ui/dialog";
+import { CopyButton } from "../ui/copy-button";
+import { DetailSection, DetailSectionRow } from "../ui/detail-section";
+import { EditableTitle } from "../ui/editable-title";
 import { Input } from "../ui/input";
+import { InputGroup, InputGroupButton } from "../ui/input-group";
+import { MetricCard } from "../ui/metric-card";
+import { PaneHeader } from "../ui/pane-header";
+import { ReadOnlyField } from "../ui/readonly-field";
 import { ScrollArea } from "../ui/scroll-area";
 import { Text } from "../ui/text";
 import { formatRelativeTime } from "./project-view-utils";
@@ -111,8 +105,8 @@ export function OpenSystemEditorAction({
 	return (
 		<Button
 			type="button"
-			variant="blockDark"
-			className="flex items-center gap-1.5 bg-slate-950"
+			variant="filled"
+			className="flex items-center gap-1.5"
 			onClick={() =>
 				navigate(
 					getSystemEditorPath(
@@ -286,61 +280,6 @@ function toTokenSaveDomains(overridesByDomain: TokenOverridesByDomain) {
 	) as Record<TailwindTokenDomain, { overrides: string[] }>;
 }
 
-function SystemDetailHeader({
-	title,
-	status,
-	subline,
-	diff,
-	actions,
-	errors,
-}: {
-	title: ReactNode;
-	status: SystemStatusBadgeState;
-	subline: string;
-	diff: TokenDiff;
-	actions?: ReactNode;
-	errors?: ReactNode;
-}) {
-	const isSyncing = status === "syncing";
-
-	return (
-		<header className="relative border-b border-slate-200">
-			{isSyncing ? (
-				<div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-cyan-100/70">
-					<div className="h-full w-full animate-pulse bg-cyan-500" />
-				</div>
-			) : null}
-			<div className="flex items-start justify-between gap-4 px-10 pt-8 pb-6">
-				<div className="flex min-w-0 flex-1 flex-col gap-1">
-					<Text variant="eyebrow" className="text-amber-700">
-						System
-					</Text>
-					<div className="flex min-w-0 flex-wrap items-center gap-3">
-						{title}
-						<SystemStatusBadge state={status} />
-					</div>
-					<div className="flex min-w-0 flex-wrap items-center gap-2">
-						<span className="min-w-0 truncate font-mono text-[11px] text-slate-500">
-							{subline}
-						</span>
-						{diff.added > 0 || diff.overridden > 0 || diff.removed > 0 ? (
-							<SystemDiffChips
-								added={diff.added}
-								overridden={diff.overridden}
-								removed={diff.removed}
-							/>
-						) : null}
-					</div>
-					{errors}
-				</div>
-				{actions ? (
-					<div className="flex shrink-0 items-center gap-2">{actions}</div>
-				) : null}
-			</div>
-		</header>
-	);
-}
-
 function TokenDiffMiniBar({ diff }: { diff: TokenDiff }) {
 	const total = diff.added + diff.overridden + diff.removed;
 	if (total === 0) {
@@ -353,18 +292,21 @@ function TokenDiffMiniBar({ diff }: { diff: TokenDiff }) {
 			width: (diff.added / total) * 100,
 			className: "bg-emerald-500",
 			label: `+${diff.added}`,
+			textClassName: "font-medium text-emerald-700",
 		},
 		{
 			key: "overridden",
 			width: (diff.overridden / total) * 100,
 			className: "bg-amber-500",
 			label: `~${diff.overridden}`,
+			textClassName: "font-medium text-amber-700",
 		},
 		{
 			key: "removed",
 			width: (diff.removed / total) * 100,
 			className: "bg-rose-500",
 			label: `-${diff.removed}`,
+			textClassName: "font-medium text-rose-700",
 		},
 	];
 
@@ -380,43 +322,12 @@ function TokenDiffMiniBar({ diff }: { diff: TokenDiff }) {
 					/>
 				))}
 			</div>
-			<div className="flex items-center gap-1.5 text-[10px] text-slate-500">
-				<span className="font-medium text-emerald-700">
-					{segments[0].label}
-				</span>
-				<span className="font-medium text-amber-700">{segments[1].label}</span>
-				<span className="font-medium text-rose-700">{segments[2].label}</span>
-			</div>
-		</div>
-	);
-}
-
-function SystemOverviewTokenMetricCard({
-	tokenCount,
-	diff,
-}: {
-	tokenCount: number | null;
-	diff: TokenDiff;
-}) {
-	const tokenValue =
-		tokenCount === null ? "Not synced" : tokenCount.toLocaleString();
-
-	return (
-		<div className="flex min-h-32 min-w-0 flex-col bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
-			<div className="flex items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-slate-950">
-				Tokens
-			</div>
-			<div className="flex min-w-0 flex-1 flex-col justify-end gap-1 border-t border-slate-100 px-4 py-3">
-				<div
-					className="truncate text-2xl font-medium text-slate-950"
-					title={String(tokenValue)}
-				>
-					{tokenValue}
-				</div>
-				<div className="truncate text-xs text-slate-500">
-					Stored token records
-				</div>
-				<TokenDiffMiniBar diff={diff} />
+			<div className="flex items-center gap-1.5">
+				{segments.map((segment) => (
+					<Text key={segment.key} className={segment.textClassName}>
+						{segment.label}
+					</Text>
+				))}
 			</div>
 		</div>
 	);
@@ -437,11 +348,6 @@ function SystemOverviewSubview({
 	projectScope?: ProjectQueryScope;
 	systemId: string;
 }) {
-	const [copiedSystemId, setCopiedSystemId] = useState(false);
-	const systemIdCopyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-		null,
-	);
-
 	const assetsQuery = useQuery(
 		systemAssetsQueryOptions(systemId, projectScope),
 	);
@@ -463,37 +369,6 @@ function SystemOverviewSubview({
 	const usedByDetail = usedByQuery.isError
 		? "Could not load usage count"
 		: "Design usage count";
-	const copySystemId = () => {
-		const copyText = async () => {
-			const desktopApi = getTrickroomDesktopApi();
-			if (desktopApi?.clipboard) {
-				await desktopApi.clipboard.writeText(systemId);
-			} else {
-				await navigator.clipboard.writeText(systemId);
-			}
-		};
-
-		void copyText()
-			.then(() => {
-				setCopiedSystemId(true);
-				if (systemIdCopyTimeoutRef.current) {
-					clearTimeout(systemIdCopyTimeoutRef.current);
-				}
-				systemIdCopyTimeoutRef.current = setTimeout(() => {
-					setCopiedSystemId(false);
-				}, 1500);
-			})
-			.catch(() => {
-				setCopiedSystemId(false);
-			});
-	};
-	useEffect(() => {
-		return () => {
-			if (systemIdCopyTimeoutRef.current) {
-				clearTimeout(systemIdCopyTimeoutRef.current);
-			}
-		};
-	}, []);
 
 	const iconLabel = iconFoldersQuery.isPending
 		? "Loading..."
@@ -508,145 +383,50 @@ function SystemOverviewSubview({
 				: "Failed to load icon index"
 			: `${iconSampleRow ?? "No icon folders"} · ${iconDiagnosticCount} diagnostic${iconDiagnosticCount === 1 ? "" : "s"}`;
 
-	const metricCards = [
-		{
-			label: "Assets",
-			value: assetsQuery.isPending
-				? "..."
-				: assetsQuery.isError
-					? "Error"
-					: assets.length.toLocaleString(),
-			detail: assetsQuery.isPending
-				? "Loading assets"
-				: assetsQuery.isError
-					? "Failed to load assets"
-					: "Indexed asset images",
-		},
-		{
-			label: "Icons",
-			value: iconLabel,
-			detail: iconDetail,
-		},
-		{
-			label: "Used By",
-			value: usedByCount,
-			detail: usedByDetail,
-		},
-		{
-			label: "Last Sync",
-			value: syncedAtLabel,
-			detail: getCssBasename(cssPath),
-		},
-		{
-			label: "System ID",
-			value: systemId,
-			detail: "Project config key",
-			isMonospace: true,
-			showCopy: true,
-		},
-	];
+	const tokenValue =
+		tokenCount === null ? "Not synced" : tokenCount.toLocaleString();
 
 	return (
 		<div className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] gap-4">
-			<SystemOverviewTokenMetricCard tokenCount={tokenCount} diff={tokenDiff} />
-			{metricCards.map((card) => (
-				<div
-					key={card.label}
-					className="flex min-h-32 min-w-0 flex-col bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
-				>
-					<div className="flex items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-slate-950">
-						{card.label}
-					</div>
-					<div className="flex min-w-0 flex-1 flex-col justify-end gap-1 border-t border-slate-100 px-4 py-3">
-						<div className="flex min-w-0 items-center gap-2">
-							<div
-								className={`min-w-0 flex-1 truncate text-2xl font-medium text-slate-950 ${
-									card.isMonospace ? "font-mono text-lg" : ""
-								}`}
-								title={String(card.value)}
-							>
-								{card.value}
-							</div>
-							{card.showCopy ? (
-								<Button
-									variant="block"
-									className="shrink-0 p-2"
-									aria-label={
-										copiedSystemId ? "Copied system id" : "Copy system id"
-									}
-									onClick={copySystemId}
-								>
-									<Copy
-										className={`size-4 ${copiedSystemId ? "text-cyan-600" : ""}`}
-										aria-hidden="true"
-									/>
-								</Button>
-							) : null}
-						</div>
-						<div className="truncate text-xs text-slate-500">{card.detail}</div>
-					</div>
-				</div>
-			))}
-		</div>
-	);
-}
-
-function SettingsSection({
-	title,
-	children,
-	tone = "default",
-}: {
-	title: string;
-	children: ReactNode;
-	tone?: "default" | "danger";
-}) {
-	return (
-		<section
-			className={`flex flex-col border bg-white ${
-				tone === "danger" ? "border-red-200" : "border-slate-200"
-			}`}
-		>
-			<div
-				className={`flex items-baseline px-4 py-3 text-sm font-bold ${
-					tone === "danger" ? "bg-red-50 text-red-900" : "text-slate-950"
-				}`}
-			>
-				{title}
-			</div>
-			<div
-				className={`flex flex-col gap-3 border-t px-4 py-3 ${
-					tone === "danger" ? "border-red-200" : "border-slate-100"
-				}`}
-			>
-				{children}
-			</div>
-		</section>
-	);
-}
-
-function SettingsReadOnlyField({
-	label,
-	value,
-	action,
-}: {
-	label: string;
-	value: string;
-	action?: ReactNode;
-}) {
-	return (
-		<div className="flex min-w-0 flex-col gap-1.5">
-			<span className="text-xs text-slate-500">{label}</span>
-			<div className="flex min-w-0 items-stretch">
-				<div
-					className={`flex min-w-0 flex-1 items-center border border-slate-200 bg-slate-50 px-2 py-2 font-mono text-sm text-slate-800 ${
-						action ? "border-r-0" : ""
-					}`}
-					title={value}
-				>
-					<span className="min-w-0 flex-1 truncate">{value}</span>
-				</div>
-				{action}
-			</div>
+			<MetricCard
+				label="Tokens"
+				value={tokenValue}
+				detail="Stored token records"
+				footer={<TokenDiffMiniBar diff={tokenDiff} />}
+			/>
+			<MetricCard
+				label="Assets"
+				value={
+					assetsQuery.isPending
+						? "..."
+						: assetsQuery.isError
+							? "Error"
+							: assets.length.toLocaleString()
+				}
+				detail={
+					assetsQuery.isPending
+						? "Loading assets"
+						: assetsQuery.isError
+							? "Failed to load assets"
+							: "Indexed asset images"
+				}
+			/>
+			<MetricCard label="Icons" value={iconLabel} detail={iconDetail} />
+			<MetricCard label="Used By" value={usedByCount} detail={usedByDetail} />
+			<MetricCard
+				label="Last Sync"
+				value={syncedAtLabel}
+				detail={getCssBasename(cssPath)}
+			/>
+			<MetricCard
+				label="System ID"
+				value={systemId}
+				detail="Project config key"
+				mono
+				action={
+					<CopyButton value={systemId} subject="system ID" className="p-2" />
+				}
+			/>
 		</div>
 	);
 }
@@ -680,10 +460,6 @@ function SystemSettingsSubview({
 		null,
 	);
 	const [isPickingCssPath, setIsPickingCssPath] = useState(false);
-	const [copiedSystemId, setCopiedSystemId] = useState(false);
-	const systemIdCopyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-		null,
-	);
 	const projectRoot = sessionQuery.data?.activeProject?.projectRoot ?? "";
 	const canPickCssPath = Boolean(desktopApi) && Boolean(projectRoot);
 	const storageRoot = `.trickroom/systems/${systemId}`;
@@ -791,54 +567,20 @@ function SystemSettingsSubview({
 		}
 	};
 
-	const copySystemId = () => {
-		const copyText = async () => {
-			const desktopApi = getTrickroomDesktopApi();
-			if (desktopApi?.clipboard) {
-				await desktopApi.clipboard.writeText(systemId);
-			} else {
-				await navigator.clipboard.writeText(systemId);
-			}
-		};
-
-		void copyText()
-			.then(() => {
-				setCopiedSystemId(true);
-				if (systemIdCopyTimeoutRef.current) {
-					clearTimeout(systemIdCopyTimeoutRef.current);
-				}
-				systemIdCopyTimeoutRef.current = setTimeout(() => {
-					setCopiedSystemId(false);
-				}, 1500);
-			})
-			.catch(() => {
-				setCopiedSystemId(false);
-			});
-	};
-
-	useEffect(() => {
-		return () => {
-			if (systemIdCopyTimeoutRef.current) {
-				clearTimeout(systemIdCopyTimeoutRef.current);
-			}
-		};
-	}, []);
-
 	return (
 		<div className="flex flex-col gap-4">
 			{settingsError ? (
-				<div className="bg-red-500 px-3 py-2 text-xs text-white" role="alert">
+				<Alert variant="panel" tone="danger">
 					{settingsError}
-				</div>
+				</Alert>
 			) : null}
 
-			<SettingsSection title="Identity">
+			<DetailSection title="Identity">
 				<div className="flex min-w-0 flex-col gap-1.5">
-					<label
-						htmlFor="system-settings-name"
-						className="text-xs text-slate-500"
-					>
-						System name
+					<label htmlFor="system-settings-name">
+						<Text variant="label" tone="foreground">
+							System name
+						</Text>
 					</label>
 					<div className="flex min-w-0 items-center gap-2">
 						<Input
@@ -854,7 +596,7 @@ function SystemSettingsSubview({
 						/>
 						<Button
 							variant="outlined"
-							className="flex items-center gap-1.5 px-3 py-2"
+							className="flex items-center gap-1.5"
 							onClick={saveName}
 							disabled={saveNameDisabled}
 						>
@@ -862,41 +604,32 @@ function SystemSettingsSubview({
 							{updateSystemMutation.isPending ? "Saving..." : "Save"}
 						</Button>
 					</div>
-					<p className="font-mono text-[10px] text-slate-500">
+					<Text tone="muted" className="text-[11px]">
 						Shown in the sidebar and design header.
-					</p>
+					</Text>
 				</div>
-				<SettingsReadOnlyField
+				<ReadOnlyField
 					label="System ID"
 					value={systemId}
 					action={
-						<Button
-							variant="outlined"
-							className="shrink-0 bg-slate-50 px-3 py-2"
-							aria-label={
-								copiedSystemId ? "Copied system ID" : "Copy system ID"
-							}
-							onClick={copySystemId}
-						>
-							<Copy
-								className={`size-3.5 ${copiedSystemId ? "text-cyan-600" : ""}`}
-								aria-hidden="true"
-							/>
-						</Button>
+						<CopyButton
+							value={systemId}
+							subject="system ID"
+							className="px-3 py-2"
+						/>
 					}
 				/>
-			</SettingsSection>
+			</DetailSection>
 
-			<SettingsSection title="Token Source">
+			<DetailSection title="Token Source">
 				<div className="flex min-w-0 flex-col gap-1.5">
-					<label
-						htmlFor="system-settings-css-path"
-						className="text-xs text-slate-500"
-					>
-						CSS source path
+					<label htmlFor="system-settings-css-path">
+						<Text variant="label" tone="foreground">
+							CSS source path
+						</Text>
 					</label>
 					<div className="flex min-w-0 items-stretch gap-2">
-						<div className="group flex min-w-0 flex-1 items-stretch inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500">
+						<InputGroup className="min-w-0 flex-1">
 							<Input
 								id="system-settings-css-path"
 								variant="formEmbedded"
@@ -909,10 +642,7 @@ function SystemSettingsSubview({
 								disabled={settingsActionsDisabled}
 							/>
 							{desktopApi ? (
-								<Button
-									type="button"
-									variant="block"
-									className="shrink-0 inset-shadow-[1px_0_0_0] inset-shadow-slate-200 group-focus-within:inset-shadow-cyan-500 not-disabled:hover:inset-shadow-[0_0_0_1px] not-disabled:active:inset-shadow-[0_0_0_1px] not-disabled:active:inset-shadow-cyan-500"
+								<InputGroupButton
 									disabled={pickerActionsDisabled || !canPickCssPath}
 									onClick={pickCssPath}
 									title={
@@ -920,12 +650,12 @@ function SystemSettingsSubview({
 									}
 								>
 									{isPickingCssPath ? "Browsing" : "Browse"}
-								</Button>
+								</InputGroupButton>
 							) : null}
-						</div>
+						</InputGroup>
 						<Button
 							variant="outlined"
-							className="flex items-center gap-1.5 px-3 py-2"
+							className="flex items-center gap-1.5"
 							onClick={saveCssPath}
 							disabled={saveCssPathDisabled}
 						>
@@ -933,48 +663,37 @@ function SystemSettingsSubview({
 							{updateSystemMutation.isPending ? "Saving..." : "Save"}
 						</Button>
 					</div>
-					<p className="font-mono text-[10px] text-slate-500">
+					<Text tone="muted" className="text-[11px]">
 						Path watched for @theme blocks and stored overrides.
-					</p>
+					</Text>
 				</div>
-			</SettingsSection>
+			</DetailSection>
 
-			<SettingsSection title="Storage & Debug Paths">
-				<SettingsReadOnlyField label="System storage" value={storageRoot} />
-				<SettingsReadOnlyField
-					label="Token snapshot"
-					value={tokenStoragePath}
-				/>
-				<SettingsReadOnlyField label="Icon manifest" value={iconManifestPath} />
-				<SettingsReadOnlyField
-					label="Asset manifest"
-					value={assetManifestPath}
-				/>
-			</SettingsSection>
+			<DetailSection title="Storage & Debug Paths">
+				<ReadOnlyField label="System storage" value={storageRoot} />
+				<ReadOnlyField label="Token snapshot" value={tokenStoragePath} />
+				<ReadOnlyField label="Icon manifest" value={iconManifestPath} />
+				<ReadOnlyField label="Asset manifest" value={assetManifestPath} />
+			</DetailSection>
 
-			<SettingsSection title="Danger Zone" tone="danger">
-				<div className="flex items-center justify-between gap-4">
-					<div className="flex min-w-0 flex-col gap-1">
-						<span className="text-sm font-medium text-slate-800">
-							Disconnect system
-						</span>
-						<p className="text-xs text-slate-600">
-							Removes this system from project config and deletes Trickroom
-							system storage for tokens, manifests, assets, and icon indexes.
-						</p>
-					</div>
-					<Button
-						variant="outlined"
-						flavor="warning"
-						className="flex shrink-0 items-center gap-1.5 px-3 py-1.5"
-						onClick={onDisconnect}
-						disabled={settingsActionsDisabled}
-					>
-						<Trash2 className="size-3.5" aria-hidden="true" />
-						{isDisconnecting ? "Disconnecting..." : "Disconnect..."}
-					</Button>
-				</div>
-			</SettingsSection>
+			<DetailSection title="Danger Zone" tone="danger">
+				<DetailSectionRow
+					title="Disconnect system"
+					description="Removes this system from project config and deletes Trickroom system storage for tokens, manifests, assets, and icon indexes."
+					action={
+						<Button
+							variant="outlined"
+							flavor="warning"
+							className="flex shrink-0 items-center gap-1.5"
+							onClick={onDisconnect}
+							disabled={settingsActionsDisabled}
+						>
+							<Trash2 className="size-3.5" aria-hidden="true" />
+							{isDisconnecting ? "Disconnecting..." : "Disconnect..."}
+						</Button>
+					}
+				/>
+			</DetailSection>
 		</div>
 	);
 }
@@ -1030,17 +749,10 @@ export function SystemDetailPane({
 		() => computeSuggestedTokenOverridesByDomain(removedTokens),
 		[removedTokens],
 	);
-	const [isRenaming, setIsRenaming] = useState(false);
 	const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
 	const [isSettingsMutationPending, setIsSettingsMutationPending] =
 		useState(false);
 	const detailViewportRef = useRef<HTMLDivElement>(null);
-	const [draftName, setDraftName] = useState(
-		systemTarget?.systemName ?? result.data?.systemName ?? systemId,
-	);
-	const inputRef = useRef<HTMLInputElement>(null);
-	const cancelledRef = useRef(false);
-	const selectedSystemIdRef = useRef(systemId);
 
 	const renameMutation = useMutation({
 		mutationFn: (nextSystemName: string) =>
@@ -1158,32 +870,11 @@ export function SystemDetailPane({
 				)
 			: null);
 
-	const startRenaming = () => {
+	const renameSystem = (nextSystemName: string) => {
 		if (actionDisabled) {
 			return;
 		}
-
-		cancelledRef.current = false;
-		setDraftName(systemDisplayName);
-		setIsRenaming(true);
-	};
-
-	const confirmRename = () => {
-		const nextSystemName = draftName.trim();
-		setIsRenaming(false);
-		if (
-			actionDisabled ||
-			nextSystemName.length === 0 ||
-			nextSystemName === systemDisplayName
-		) {
-			return;
-		}
 		renameMutation.mutate(nextSystemName);
-	};
-
-	const cancelRename = () => {
-		cancelledRef.current = true;
-		setIsRenaming(false);
 	};
 
 	const handleDelete = () => {
@@ -1197,26 +888,6 @@ export function SystemDetailPane({
 		void syncController.syncSystem(systemId);
 	};
 
-	useHotkey("Enter", confirmRename, {
-		enabled: isRenaming,
-		ignoreInputs: false,
-	});
-	useHotkey("Escape", cancelRename, { enabled: isRenaming });
-	useEffect(() => {
-		if (!isRenaming) {
-			return;
-		}
-
-		inputRef.current?.focus();
-		inputRef.current?.select();
-	}, [isRenaming]);
-	useEffect(() => {
-		if (selectedSystemIdRef.current === systemId) {
-			return;
-		}
-
-		selectedSystemIdRef.current = systemId;
-	}, [systemId]);
 	const actionError = renameError ?? deleteError;
 	const isSyncing = result.status === "pending";
 	const rawTokenDiff: TokenDiff = {
@@ -1242,8 +913,8 @@ export function SystemDetailPane({
 	const reviewAction =
 		syncState === "review" ? (
 			<Button
-				variant="blockDark"
-				className="flex items-center gap-1.5 bg-slate-950"
+				variant="filled"
+				className="flex items-center gap-1.5"
 				onClick={handleSave}
 				disabled={saveDisabled || actionDisabled}
 			>
@@ -1279,49 +950,61 @@ export function SystemDetailPane({
 
 	return (
 		<div className="flex h-full flex-col gap-0 overflow-hidden bg-slate-50 text-slate-950">
-			<SystemDetailHeader
-				title={
-					isRenaming ? (
-						<input
-							ref={inputRef}
-							className="min-w-0 border-none bg-transparent p-0 text-xl font-medium text-slate-900 outline-none focus-visible:outline-none"
-							value={draftName}
-							onChange={(event) => setDraftName(event.target.value)}
-							onBlur={() => {
-								if (!cancelledRef.current) confirmRename();
-							}}
-							aria-label="System name"
-						/>
-					) : (
-						<button
-							type="button"
-							className="min-w-0 truncate border-none bg-transparent p-0 text-left text-xl font-medium text-slate-900 hover:bg-slate-100 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
-							onClick={startRenaming}
-							disabled={actionDisabled}
-						>
-							{systemDisplayName}
-						</button>
-					)
+			<PaneHeader
+				banner={
+					isSyncing ? (
+						<div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-cyan-100/70">
+							<div className="h-full w-full animate-pulse bg-cyan-500" />
+						</div>
+					) : null
 				}
-				status={syncState}
-				subline={headerSub}
-				diff={{
-					added: tokenDiff.added,
-					overridden: tokenDiff.overridden,
-					removed: tokenDiff.removed,
-				}}
+				eyebrow={
+					<Text variant="eyebrow" className="text-amber-700">
+						System
+					</Text>
+				}
+				title={
+					<>
+						<EditableTitle
+							value={systemDisplayName}
+							aria-label="System name"
+							disabled={actionDisabled}
+							onRename={renameSystem}
+						/>
+						<SystemStatusBadge state={syncState} />
+					</>
+				}
+				meta={
+					<>
+						<Text
+							tone="faint"
+							className="min-w-0 truncate font-mono text-[11px]"
+						>
+							{headerSub}
+						</Text>
+						<SystemDiffChips
+							added={tokenDiff.added}
+							overridden={tokenDiff.overridden}
+							removed={tokenDiff.removed}
+						/>
+					</>
+				}
 				errors={
 					<>
 						{syncErrorMessage ? (
-							<p className="text-xs text-red-600">{syncErrorMessage}</p>
+							<Text tone="danger" className="text-xs">
+								{syncErrorMessage}
+							</Text>
 						) : null}
 						{actionError ? (
-							<p className="text-xs text-red-600">{actionError}</p>
+							<Text tone="danger" className="text-xs">
+								{actionError}
+							</Text>
 						) : null}
 						{saveError ? (
-							<p className="text-xs text-red-600">
+							<Text tone="danger" className="text-xs">
 								Failed to save overrides: {saveError}
-							</p>
+							</Text>
 						) : null}
 					</>
 				}

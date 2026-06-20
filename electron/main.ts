@@ -35,6 +35,7 @@ import {
 	getMcpHelperPath,
 	getPreloadPath,
 	getRuntimeRoot,
+	getSplashPath,
 } from "./paths";
 import {
 	createSessionAuthHeaders,
@@ -52,6 +53,7 @@ if (process.platform === "darwin") {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let splashWindow: BrowserWindow | null = null;
 const tokenReferenceWindows = new Map<string, BrowserWindow>();
 let backendReady: BackendReady | null = null;
 let sessionToken = "";
@@ -422,7 +424,68 @@ const closeProjectFromMain = async () => {
 	await mainWindow?.loadURL(appUrl());
 };
 
+const closeSplashWindow = () => {
+	if (!splashWindow || splashWindow.isDestroyed()) {
+		splashWindow = null;
+		return;
+	}
+
+	splashWindow.close();
+	splashWindow = null;
+};
+
+const showSplashWindow = async () => {
+	if (smokeMode) {
+		return;
+	}
+
+	const window = new BrowserWindow({
+		width: 280,
+		height: 280,
+		frame: false,
+		resizable: false,
+		movable: false,
+		minimizable: false,
+		maximizable: false,
+		fullscreenable: false,
+		center: true,
+		show: false,
+		backgroundColor: "#f8fafc",
+		skipTaskbar: true,
+		webPreferences: {
+			nodeIntegration: false,
+			contextIsolation: true,
+			sandbox: true,
+			webSecurity: true,
+		},
+	});
+
+	splashWindow = window;
+
+	window.on("closed", () => {
+		if (splashWindow === window) {
+			splashWindow = null;
+		}
+	});
+
+	window.once("ready-to-show", () => {
+		if (!window.isDestroyed()) {
+			window.show();
+		}
+	});
+
+	await window.loadFile(getSplashPath());
+};
+
+const revealMainWindow = (window: BrowserWindow) => {
+	closeSplashWindow();
+	if (!smokeMode && !window.isDestroyed()) {
+		window.show();
+	}
+};
+
 const showDesktopError = (title: string, error: unknown) => {
+	closeSplashWindow();
 	const detail = error instanceof Error ? error.message : String(error);
 	console.error(`${title}: ${detail}`);
 	dialog.showErrorBox(title, detail);
@@ -581,9 +644,7 @@ const createMainWindow = async (initialProjectRoot: string | null) => {
 	});
 
 	window.once("ready-to-show", () => {
-		if (!smokeMode) {
-			window.show();
-		}
+		revealMainWindow(window);
 	});
 
 	window.webContents.on("did-fail-load", (_event, _code, description) => {
@@ -691,7 +752,13 @@ if (!gotSingleInstanceLock) {
 				validateProjectRoot(initialProjectRoot);
 			}
 
-			await createMainWindow(initialProjectRoot);
+			await showSplashWindow();
+			try {
+				await createMainWindow(initialProjectRoot);
+			} catch (error) {
+				closeSplashWindow();
+				throw error;
+			}
 
 			if (initialDeeplink) {
 				try {

@@ -1,4 +1,7 @@
-import type { ModelOptions, StyleProperty } from "../../../utils/tailwind-classname";
+import type {
+	ModelOptions,
+	StyleProperty,
+} from "../../../utils/tailwind-classname";
 import {
 	applyStyleUtility,
 	clearStyleProperty,
@@ -71,7 +74,12 @@ export function applyMotionInput(
 ): string {
 	const trimmed = input.trim();
 	if (!trimmed) return clearStyleProperty(className, options, property);
-	return applyStyleUtility(className, options, property, motionUtility(property, trimmed));
+	return applyStyleUtility(
+		className,
+		options,
+		property,
+		motionUtility(property, trimmed),
+	);
 }
 
 /** Return the display string for a motion property slot. */

@@ -1,9 +1,7 @@
-import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, Copy, Save, Trash2 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { ArrowUpRight, Save, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { getTrickroomDesktopApi } from "../../desktop-api";
 import { buildDesignResourceUri } from "../../mcp/resources";
 import {
 	deleteDesignFile,
@@ -13,114 +11,19 @@ import {
 } from "../../queries/design-file";
 import type { TrickroomDesignSummary } from "../../types";
 import { useProjectScope } from "../contexts";
+import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
-import { ConfirmationDialog } from "../ui/dialog";
+import { CopyButton } from "../ui/copy-button";
+import { DetailSection, DetailSectionRow } from "../ui/detail-section";
+import { EditableTitle } from "../ui/editable-title";
 import { Input } from "../ui/input";
+import { MetricCard } from "../ui/metric-card";
+import { PaneHeader } from "../ui/pane-header";
+import { ReadOnlyField } from "../ui/readonly-field";
 import { ScrollArea } from "../ui/scroll-area";
 import { Text } from "../ui/text";
 import { DesignGlyph } from "./DesignGlyph";
 import { formatRelativeTime } from "./project-view-utils";
-
-function DesignOverviewMetricCard({
-	label,
-	value,
-	detail,
-	isMonospace = false,
-}: {
-	label: string;
-	value: string;
-	detail: string;
-	isMonospace?: boolean;
-}) {
-	return (
-		<div className="flex min-h-32 min-w-0 flex-col bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
-			<div className="flex items-center justify-between gap-3 px-4 py-3 text-sm font-bold text-slate-950">
-				{label}
-			</div>
-			<div className="flex min-w-0 flex-1 flex-col justify-end gap-1 border-t border-slate-100 px-4 py-3">
-				<div
-					className={`truncate text-2xl font-medium text-slate-950 ${
-						isMonospace ? "font-mono text-lg" : ""
-					}`}
-					title={value}
-				>
-					{value}
-				</div>
-				<div className="truncate text-xs text-slate-500">{detail}</div>
-			</div>
-		</div>
-	);
-}
-
-function DesignDetailSection({
-	title,
-	children,
-	tone = "default",
-}: {
-	title: string;
-	children: ReactNode;
-	tone?: "default" | "danger";
-}) {
-	return (
-		<section
-			className={`flex flex-col border bg-white ${
-				tone === "danger" ? "border-red-200" : "border-slate-200"
-			}`}
-		>
-			<div
-				className={`flex items-baseline px-4 py-3 text-sm font-bold ${
-					tone === "danger" ? "bg-red-50 text-red-900" : "text-slate-950"
-				}`}
-			>
-				{title}
-			</div>
-			<div
-				className={`flex flex-col gap-3 border-t px-4 py-3 ${
-					tone === "danger" ? "border-red-200" : "border-slate-100"
-				}`}
-			>
-				{children}
-			</div>
-		</section>
-	);
-}
-
-function DesignReadOnlyField({
-	label,
-	value,
-	action,
-}: {
-	label: string;
-	value: string;
-	action?: ReactNode;
-}) {
-	return (
-		<div className="flex min-w-0 flex-col gap-1.5">
-			<span className="text-xs text-slate-500">{label}</span>
-			<div className="flex min-w-0 items-stretch">
-				<div
-					className={`flex min-w-0 flex-1 items-center border border-slate-200 bg-slate-50 px-2 py-2 font-mono text-sm text-slate-800 ${
-						action ? "border-r-0" : ""
-					}`}
-					title={value}
-				>
-					<span className="min-w-0 flex-1 truncate">{value}</span>
-				</div>
-				{action}
-			</div>
-		</div>
-	);
-}
-
-async function writeClipboardText(value: string) {
-	const desktopApi = getTrickroomDesktopApi();
-	if (desktopApi?.clipboard) {
-		await desktopApi.clipboard.writeText(value);
-		return;
-	}
-
-	await navigator.clipboard.writeText(value);
-}
 
 export function DesignDetailPane({
 	design,
@@ -134,20 +37,8 @@ export function DesignDetailPane({
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const projectScope = useProjectScope();
-	const [isRenaming, setIsRenaming] = useState(false);
 	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-	const [copiedResource, setCopiedResource] = useState(false);
-	const [copiedDesignId, setCopiedDesignId] = useState(false);
 	const [draftName, setDraftName] = useState(design.name);
-	const inputRef = useRef<HTMLInputElement>(null);
-	const cancelledRef = useRef(false);
-	const copiedResourceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-		null,
-	);
-	const copiedDesignIdTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-		null,
-	);
-	const shaPreview = design.uuid;
 	const resourceUri = buildDesignResourceUri(
 		locationId,
 		design.uuid,
@@ -155,8 +46,6 @@ export function DesignDetailPane({
 	);
 
 	const systemName = design.systemName ?? "-";
-	const boardsCount = design.boardsCount;
-	const layersCount = design.layersCount;
 	const editedTime = formatRelativeTime(design.modifiedAt);
 	const renameMutation = useMutation({
 		mutationFn: (name: string) => renameDesignFile(design.file, name),
@@ -192,32 +81,18 @@ export function DesignDetailPane({
 		(renameMutation.error as Error | null)?.message ??
 		(deleteMutation.error as Error | null)?.message;
 
-	const startRenaming = () => {
-		if (isMutatingDesign) {
-			return;
-		}
-
-		cancelledRef.current = false;
-		setDraftName(design.name);
-		setIsRenaming(true);
-	};
-
-	const confirmRename = () => {
+	const renameDesign = (nextName: string) => {
 		if (renameMutation.isPending) {
-			return;
-		}
-
-		const nextName = draftName.trim();
-		setIsRenaming(false);
-		if (nextName.length === 0 || nextName === design.name) {
 			return;
 		}
 		renameMutation.mutate(nextName);
 	};
 
-	const cancelRename = () => {
-		cancelledRef.current = true;
-		setIsRenaming(false);
+	const saveDraftName = () => {
+		if (saveNameDisabled) {
+			return;
+		}
+		renameDesign(draftName.trim());
 	};
 
 	const deleteSelectedDesign = () => {
@@ -227,157 +102,91 @@ export function DesignDetailPane({
 		deleteMutation.mutate();
 	};
 
-	const copyResourceUri = () => {
-		void writeClipboardText(resourceUri)
-			.then(() => {
-				setCopiedResource(true);
-				if (copiedResourceTimeoutRef.current) {
-					clearTimeout(copiedResourceTimeoutRef.current);
-				}
-				copiedResourceTimeoutRef.current = setTimeout(() => {
-					setCopiedResource(false);
-				}, 1500);
-			})
-			.catch(() => {
-				setCopiedResource(false);
-			});
-	};
-
-	const copyDesignId = () => {
-		void writeClipboardText(design.uuid)
-			.then(() => {
-				setCopiedDesignId(true);
-				if (copiedDesignIdTimeoutRef.current) {
-					clearTimeout(copiedDesignIdTimeoutRef.current);
-				}
-				copiedDesignIdTimeoutRef.current = setTimeout(() => {
-					setCopiedDesignId(false);
-				}, 1500);
-			})
-			.catch(() => {
-				setCopiedDesignId(false);
-			});
-	};
-
-	useHotkey("Enter", confirmRename, {
-		enabled: isRenaming,
-		ignoreInputs: false,
-	});
-	useHotkey("Escape", cancelRename, { enabled: isRenaming });
-	useEffect(() => {
-		if (!isRenaming) {
-			return;
-		}
-
-		inputRef.current?.focus();
-		inputRef.current?.select();
-	}, [isRenaming]);
 	useEffect(() => {
 		setDraftName(design.name);
 	}, [design.name]);
-	useEffect(() => {
-		return () => {
-			if (copiedResourceTimeoutRef.current) {
-				clearTimeout(copiedResourceTimeoutRef.current);
-			}
-			if (copiedDesignIdTimeoutRef.current) {
-				clearTimeout(copiedDesignIdTimeoutRef.current);
-			}
-		};
-	}, []);
 
 	return (
 		<>
 			<div className="flex h-full flex-col overflow-hidden bg-slate-50 text-slate-950">
-				<header className="border-b border-slate-200">
-					<div className="flex items-start justify-between gap-4 px-10 pt-8 pb-6">
-						<div className="flex min-w-0 flex-1 flex-col gap-1">
-							<Text variant="eyebrow">Design</Text>
-							{isRenaming ? (
-								<input
-									ref={inputRef}
-									className="min-w-0 border-none bg-transparent p-0 text-xl font-medium text-slate-900 outline-none focus-visible:outline-none"
-									value={draftName}
-									onChange={(event) => setDraftName(event.target.value)}
-									onBlur={() => {
-										if (!cancelledRef.current) confirmRename();
-									}}
-									aria-label="Design name"
-								/>
-							) : (
-								<button
-									type="button"
-									className="min-w-0 truncate border-none bg-transparent p-0 text-left text-xl font-medium text-slate-900 hover:bg-slate-100 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
-									onClick={startRenaming}
-								>
-									{design.name}
-								</button>
-							)}
-							<p className="font-mono text-[11px] text-slate-400">
-								{shaPreview}
-							</p>
-							{actionError ? (
-								<p className="text-xs text-red-600">{actionError}</p>
-							) : null}
-						</div>
+				<PaneHeader
+					eyebrow={<Text variant="eyebrow">Design</Text>}
+					title={
+						<EditableTitle
+							value={design.name}
+							aria-label="Design name"
+							disabled={isMutatingDesign}
+							onRename={renameDesign}
+						/>
+					}
+					meta={
+						<Text
+							tone="faint"
+							className="min-w-0 truncate font-mono text-[11px]"
+						>
+							{design.uuid}
+						</Text>
+					}
+					errors={
+						actionError ? (
+							<Text tone="danger" className="text-xs">
+								{actionError}
+							</Text>
+						) : null
+					}
+					actions={
 						<div className="flex shrink-0 items-center">
 							<Button
-								variant="blockDark"
-								className="flex items-center gap-1.5 bg-slate-950"
+								variant="filled"
+								className="flex items-center gap-1.5"
 								onClick={() => navigate(`/design/${design.uuid}`)}
 							>
 								<ArrowUpRight className="size-4" aria-hidden="true" />
 								Open design
 							</Button>
-							<Button
-								variant="block"
+							<CopyButton
+								value={resourceUri}
+								subject="resource link"
 								className="p-2.5"
-								aria-label={copiedResource ? "Copied!" : "Copy resource link"}
-								onClick={copyResourceUri}
-							>
-								<Copy
-									className={`size-4 ${copiedResource ? "text-cyan-600" : ""}`}
-									aria-hidden="true"
-								/>
-							</Button>
+								iconClassName="size-4"
+							/>
 						</div>
-					</div>
-				</header>
+					}
+				/>
 
 				<ScrollArea className="min-h-0 flex-1">
 					<div className="flex min-h-full flex-col gap-6 px-10 py-8">
 						<div className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] gap-4">
-							<DesignOverviewMetricCard
+							<MetricCard
 								label="Boards"
-								value={boardsCount.toLocaleString()}
+								value={design.boardsCount.toLocaleString()}
 								detail="Root boards in this design"
 							/>
-							<DesignOverviewMetricCard
+							<MetricCard
 								label="Layers"
-								value={layersCount.toLocaleString()}
+								value={design.layersCount.toLocaleString()}
 								detail="Total rendered layers"
 							/>
-							<DesignOverviewMetricCard
+							<MetricCard
 								label="System"
 								value={systemName}
 								detail={
 									design.systemName ? "Linked system" : "No system linked"
 								}
 							/>
-							<DesignOverviewMetricCard
+							<MetricCard
 								label="Edited"
 								value={editedTime}
 								detail="Last file modification"
 							/>
 						</div>
 
-						<DesignDetailSection title="Identity">
+						<DetailSection title="Identity">
 							<div className="flex min-w-0 flex-col gap-1.5">
-								<label
-									htmlFor="design-settings-name"
-									className="text-xs text-slate-500"
-								>
-									Design name
+								<label htmlFor="design-settings-name">
+									<Text variant="label" tone="foreground">
+										Design name
+									</Text>
 								</label>
 								<div className="flex min-w-0 items-center gap-2">
 									<Input
@@ -387,106 +196,80 @@ export function DesignDetailPane({
 										value={draftName}
 										onChange={(event) => setDraftName(event.target.value)}
 										onKeyDown={(event) => {
-											if (event.key === "Enter") confirmRename();
+											if (event.key === "Enter") saveDraftName();
 										}}
 										disabled={isMutatingDesign}
 									/>
 									<Button
 										variant="outlined"
-										className="flex items-center gap-1.5 px-3 py-2"
-										onClick={confirmRename}
+										className="flex items-center gap-1.5"
+										onClick={saveDraftName}
 										disabled={saveNameDisabled}
 									>
 										<Save className="size-3.5" aria-hidden="true" />
 										{renameMutation.isPending ? "Saving..." : "Save"}
 									</Button>
 								</div>
-								<p className="font-mono text-[10px] text-slate-500">
+								<Text tone="muted" className="text-[11px]">
 									Shown in the sidebar, design editor, and resource links.
-								</p>
+								</Text>
 							</div>
-							<DesignReadOnlyField
+							<ReadOnlyField
 								label="Design ID"
 								value={design.uuid}
 								action={
-									<Button
-										variant="outlined"
-										className="shrink-0 bg-slate-50 px-3 py-2"
-										aria-label={
-											copiedDesignId ? "Copied design ID" : "Copy design ID"
-										}
-										onClick={copyDesignId}
-									>
-										<Copy
-											className={`size-3.5 ${
-												copiedDesignId ? "text-cyan-600" : ""
-											}`}
-											aria-hidden="true"
-										/>
-									</Button>
+									<CopyButton
+										value={design.uuid}
+										subject="design ID"
+										className="px-3 py-2"
+									/>
 								}
 							/>
-						</DesignDetailSection>
+						</DetailSection>
 
-						<DesignDetailSection title="Storage & Resource">
-							<DesignReadOnlyField label="Design file" value={design.file} />
-							<DesignReadOnlyField
+						<DetailSection title="Storage & Resource">
+							<ReadOnlyField label="Design file" value={design.file} />
+							<ReadOnlyField
 								label="Resource URI"
 								value={resourceUri}
 								action={
+									<CopyButton
+										value={resourceUri}
+										subject="resource URI"
+										className="px-3 py-2"
+									/>
+								}
+							/>
+						</DetailSection>
+
+						<DetailSection title="Danger Zone" tone="danger">
+							<DetailSectionRow
+								title="Delete design"
+								description="Removes this design file from the project."
+								action={
 									<Button
 										variant="outlined"
-										className="shrink-0 bg-slate-50 px-3 py-2"
-										aria-label={
-											copiedResource
-												? "Copied resource URI"
-												: "Copy resource URI"
-										}
-										onClick={copyResourceUri}
+										flavor="warning"
+										className="flex shrink-0 items-center gap-1.5"
+										disabled={isMutatingDesign}
+										onClick={() => {
+											deleteMutation.reset();
+											setDeleteDialogOpen(true);
+										}}
 									>
-										<Copy
-											className={`size-3.5 ${
-												copiedResource ? "text-cyan-600" : ""
-											}`}
-											aria-hidden="true"
-										/>
+										<Trash2 className="size-3.5" aria-hidden="true" />
+										{deleteMutation.isPending ? "Deleting..." : "Delete..."}
 									</Button>
 								}
 							/>
-						</DesignDetailSection>
+						</DetailSection>
 
-						<DesignDetailSection title="Danger Zone" tone="danger">
-							<div className="flex items-center justify-between gap-4">
-								<div className="flex min-w-0 flex-col gap-1">
-									<span className="text-sm font-medium text-slate-800">
-										Delete design
-									</span>
-									<p className="text-xs text-slate-600">
-										Removes this design file from the project.
-									</p>
-								</div>
-								<Button
-									variant="outlined"
-									flavor="warning"
-									className="flex shrink-0 items-center gap-1.5 px-3 py-1.5"
-									disabled={isMutatingDesign}
-									onClick={() => {
-										deleteMutation.reset();
-										setDeleteDialogOpen(true);
-									}}
-								>
-									<Trash2 className="size-3.5" aria-hidden="true" />
-									{deleteMutation.isPending ? "Deleting..." : "Delete..."}
-								</Button>
-							</div>
-						</DesignDetailSection>
-
-						<DesignDetailSection title="Glyph">
+						<DetailSection title="Glyph">
 							<DesignGlyph
 								design={design}
 								className="mx-auto aspect-square w-full max-w-[700px]"
 							/>
-						</DesignDetailSection>
+						</DetailSection>
 					</div>
 				</ScrollArea>
 			</div>

@@ -19,6 +19,12 @@ type StyleOverrideRowsProps = {
 	className: string;
 	options: ModelOptions;
 	property: StyleProperty;
+	/** See {@link OverrideRows}: single-line layout for self-labelled controls. */
+	inline?: boolean;
+	/** See {@link OverrideRows}: offer as a ghost chip while unset. */
+	likely?: boolean;
+	/** See {@link OverrideRows}: extra classes on the row root. */
+	rowClassName?: string;
 	onChange: (next: string) => void;
 	/** Renders the control for one slot. `slot.apply(utility)` writes a class
 	 * body (e.g. `flex-row`); `slot.apply(null)` clears the slot. */
@@ -35,6 +41,9 @@ export function StyleOverrideRows({
 	className,
 	options,
 	property,
+	inline,
+	likely,
+	rowClassName,
 	onChange,
 	renderControl,
 }: StyleOverrideRowsProps) {
@@ -48,6 +57,9 @@ export function StyleOverrideRows({
 			label={label}
 			model={model}
 			property={property}
+			inline={inline}
+			likely={likely}
+			className={rowClassName}
 			readValue={(entry) =>
 				entry && entry.intent.kind === "style"
 					? styleValueText(entry.intent)
@@ -60,6 +72,15 @@ export function StyleOverrideRows({
 						: applyStyleUtility(className, options, property, payload, {
 								variants,
 							}),
+				)
+			}
+			onClearAll={(chains) =>
+				onChange(
+					chains.reduce(
+						(acc, variants) =>
+							clearStyleProperty(acc, options, property, variants),
+						className,
+					),
 				)
 			}
 			renderControl={renderControl}

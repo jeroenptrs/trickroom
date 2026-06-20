@@ -23,7 +23,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { tv } from "tailwind-variants";
 import {
 	availableRegistries,
 	canHaveElementChildren,
@@ -58,49 +57,15 @@ import {
 import { layerDropInsertionIndex } from "../../utils/reorder-insertion-index";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import {
+	layerDropIndicator as dropIndicator,
+	layerChevron as icon,
+	layerRow,
+} from "../ui/layer-tree";
 import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
 import { Text } from "../ui/text";
 import { DraftLayerContextMenu } from "./DraftLayerContextMenu";
-
-const icon = tv({
-	base: "size-4 -ml-1 text-slate-400 transition-transform translate-y-px",
-	variants: {
-		open: {
-			true: "rotate-90 -translate-x-px",
-		},
-		isEditing: {
-			true: "-mr-0.5",
-		},
-		selected: {
-			true: "text-cyan-500",
-		},
-	},
-});
-
-const dropIndicator = tv({
-	base: "pointer-events-none absolute inset-x-0 z-10",
-	variants: {
-		intent: {
-			before: "-top-px h-0.5 bg-cyan-500",
-			after: "-bottom-px h-0.5 bg-cyan-500",
-			inside: "inset-y-0 border border-cyan-400 bg-cyan-100/50",
-		},
-	},
-});
-
-const layerRow = tv({
-	base: "relative pr-1 flex flex-row items-center leading-5 inset-shadow-[0_0_0_1px]",
-	variants: {
-		selected: {
-			true: "bg-cyan-50 text-cyan-500 inset-shadow-transparent",
-			false: "text-slate-950 inset-shadow-transparent hover:bg-slate-200",
-		},
-		dragging: {
-			true: "opacity-40",
-		},
-	},
-});
 
 const INDENT_PER_LEVEL = 12;
 
@@ -1008,7 +973,7 @@ export function ComponentDraftLayers({
 	const Shell = embedded ? "div" : "aside";
 	const shellClassName = embedded
 		? `flex min-h-0 flex-1 flex-col text-xs ${className ?? ""}`
-		: `flex min-h-0 w-[264px] shrink-0 flex-col border-r border-slate-200 bg-slate-50 text-xs ${className ?? ""}`;
+		: `flex min-h-0 w-[264px] shrink-0 flex-col border-r border-slate-200 bg-white text-xs ${className ?? ""}`;
 
 	if (draftComponentId !== componentId) {
 		return (

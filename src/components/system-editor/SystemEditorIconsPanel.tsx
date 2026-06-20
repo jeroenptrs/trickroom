@@ -28,6 +28,7 @@ import {
 	systemIconsQueryOptions,
 } from "../../queries/system-icons";
 import { Button } from "../ui/button";
+import { Card } from "../ui/card";
 import { Input } from "../ui/input";
 import { groupItemsBySegment, resolveIconFolderSegment } from "./path-segments";
 import {
@@ -415,12 +416,14 @@ export function SystemEditorIconFoldersRail({
 					</Button>
 				</div>
 				{iconFolderError ? (
-					<div
-						className="border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] text-red-700"
+					<Card
+						edge="border"
+						tone="danger"
+						className="px-2 py-1.5 text-[11px]"
 						role="alert"
 					>
 						{iconFolderError}
-					</div>
+					</Card>
 				) : null}
 				<div className="flex min-w-0 flex-col gap-1.5">
 					<label
@@ -617,9 +620,9 @@ export function SystemEditorIconsPanel({
 					onFilterChange={setIconFilter}
 					onGroupByFolderChange={setGroupIconsByFolder}
 				/>
-				<div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+				<Card edge="border" tone="danger" className="px-4 py-3 text-sm">
 					Failed to load icons: {(iconsQuery.error as Error).message}
-				</div>
+				</Card>
 			</div>
 		);
 	}

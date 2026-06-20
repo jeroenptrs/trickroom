@@ -7,10 +7,14 @@ import {
 	type ModelOptions,
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
+import { Segmented, type SegmentedOption } from "../../ui/segmented";
 import { ColorPropertyControl } from "./ColorPropertyControl";
-import { applyColorChange, applyColorClear } from "./colorPropertiesController";
+import {
+	applyColorChange,
+	applyColorClear,
+	applyColorClearAll,
+} from "./colorPropertiesController";
 import { focusUtility } from "./focusPropertiesController";
-import { Segmented, type SegmentedOption } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
 import { StyleSection } from "./StyleSection";
 import { getStyleIntent, styleValueText } from "./styleSectionController";
@@ -83,10 +87,9 @@ export function FocusProperties({ className, onChange }: FocusPropertiesProps) {
 	const ringWidth = read("focus.ring-width");
 	const outlineStyle = read("focus.outline-style");
 
-	const summary =
-		[ringWidth && `ring ${ringWidth}`, outlineStyle]
-			.filter(Boolean)
-			.join(" · ") || undefined;
+	const summary = [ringWidth ? `ring ${ringWidth}` : null, outlineStyle].filter(
+		(value): value is string => value !== null,
+	);
 
 	return (
 		<StyleSection title="Focus" summary={summary}>
@@ -95,6 +98,7 @@ export function FocusProperties({ className, onChange }: FocusPropertiesProps) {
 				className={className}
 				options={options}
 				property="focus.ring-width"
+				likely
 				onChange={onChange}
 				renderControl={(slot) => (
 					<Segmented
@@ -167,6 +171,9 @@ export function FocusProperties({ className, onChange }: FocusPropertiesProps) {
 						onChange(
 							applyColorClear(className, options, { property, variants }),
 						)
+					}
+					onClearAll={(chains) =>
+						onChange(applyColorClearAll(className, options, property, chains))
 					}
 				/>
 			))}

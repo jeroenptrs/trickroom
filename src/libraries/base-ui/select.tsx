@@ -101,7 +101,13 @@ export const SelectPortal = forwardRef<HTMLDivElement, SelectPortalProps>(
 		const { document: frameDocument } = useFrame();
 
 		if (isInsideSelectRoot) {
-			const { container, ...portalProps } = props;
+			// Base UI 1.5 dropped keepMounted on Select.Portal; strip the stale
+			// persisted prop so it doesn't spread onto the portal div.
+			const {
+				container,
+				keepMounted: _keepMounted,
+				...portalProps
+			} = props as SelectPortalProps & { keepMounted?: boolean };
 			const resolvedContainer =
 				container === undefined ? frameDocument?.body : container;
 

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	getControlDefinitions,
@@ -73,9 +74,13 @@ function renderPropertiesForSelection(
 
 	return renderToStaticMarkup(
 		React.createElement(
-			QueryClientProvider,
-			{ client: queryClient },
-			React.createElement(Properties),
+			MemoryRouter,
+			null,
+			React.createElement(
+				QueryClientProvider,
+				{ client: queryClient },
+				React.createElement(Properties),
+			),
 		),
 	);
 }
@@ -380,8 +385,7 @@ describe("Properties", () => {
 		expect(html).toContain("Detach component");
 		expect(html).toContain("Variants");
 		expect(html).toContain("Tone");
-		expect(html).toContain("Unselected");
-		expect(html).not.toContain("Overrides");
+		expect(html).toContain("brand");
 		expect(html).not.toContain("Label class");
 	});
 

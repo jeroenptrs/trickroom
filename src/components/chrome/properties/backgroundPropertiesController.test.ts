@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { backgroundUtility } from "./backgroundPropertiesController";
 import {
 	applyStyleUtility,
 	clearStyleProperty,
 	getStyleIntent,
 	styleValueText,
 } from "./styleSectionController";
-import { backgroundUtility } from "./backgroundPropertiesController";
 
 const opts = { colorTokens: new Set(["red-500"]) };
 
@@ -32,7 +32,11 @@ describe("backgroundPropertiesController", () => {
 
 	it("clears one background property without touching unrelated classes", () => {
 		expect(
-			clearStyleProperty("bg-cover bg-red-500", opts, "background.background-size"),
+			clearStyleProperty(
+				"bg-cover bg-red-500",
+				opts,
+				"background.background-size",
+			),
 		).toBe("bg-red-500");
 	});
 
@@ -44,7 +48,11 @@ describe("backgroundPropertiesController", () => {
 		).toBe("cover");
 		expect(
 			styleValueText(
-				getStyleIntent("bg-cover bg-fixed", opts, "background.background-attachment"),
+				getStyleIntent(
+					"bg-cover bg-fixed",
+					opts,
+					"background.background-attachment",
+				),
 			),
 		).toBe("fixed");
 	});

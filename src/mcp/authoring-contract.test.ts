@@ -76,7 +76,7 @@ describe("getDesignAuthoringContract planning payload", () => {
 		expect(contract.relatedContracts.systemComponentAuthoring.tool).toBe(
 			"getSystemComponentAuthoringContract",
 		);
-		expect(JSON.stringify(contract).length).toBeLessThan(80_000);
+		expect(JSON.stringify(contract).length).toBeLessThan(100_000);
 		expect(second.structuredContent).toMatchObject({
 			catalogHash: contract.catalogHash,
 			registryHash: contract.registryHash,

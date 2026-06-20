@@ -9,9 +9,13 @@ import {
 	type ModelOptions,
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
+import { Segmented, type SegmentedOption } from "../../ui/segmented";
 import { ColorPropertyControl } from "./ColorPropertyControl";
-import { applyColorChange, applyColorClear } from "./colorPropertiesController";
-import { Segmented, type SegmentedOption } from "./StyleControls";
+import {
+	applyColorChange,
+	applyColorClear,
+	applyColorClearAll,
+} from "./colorPropertiesController";
 import { StyleOverrideRows } from "./StyleOverrideRows";
 import { StyleSection } from "./StyleSection";
 import { getStyleIntent, styleValueText } from "./styleSectionController";
@@ -105,8 +109,9 @@ export function TypographyProperties({
 	const fontSize = read("typography.font-size");
 	const fontWeight = read("typography.font-weight");
 
-	const summary =
-		[fontSize, fontWeight].filter(Boolean).join(" · ") || undefined;
+	const summary = [fontSize, fontWeight].filter(
+		(value): value is string => value !== null,
+	);
 
 	return (
 		<StyleSection title="Typography" summary={summary}>
@@ -115,6 +120,7 @@ export function TypographyProperties({
 				className={className}
 				options={options}
 				property="typography.font-size"
+				likely
 				onChange={onChange}
 				renderControl={(slot) => (
 					<Segmented
@@ -136,6 +142,7 @@ export function TypographyProperties({
 				className={className}
 				options={options}
 				property="typography.font-weight"
+				likely
 				onChange={onChange}
 				renderControl={(slot) => (
 					<Segmented
@@ -220,6 +227,7 @@ export function TypographyProperties({
 				property="text"
 				model={model}
 				resolved={resolved}
+				likely
 				onSet={(variants, value) =>
 					onChange(
 						applyColorChange(className, options, {
@@ -233,6 +241,9 @@ export function TypographyProperties({
 					onChange(
 						applyColorClear(className, options, { property: "text", variants }),
 					)
+				}
+				onClearAll={(chains) =>
+					onChange(applyColorClearAll(className, options, "text", chains))
 				}
 			/>
 			<StyleOverrideRows

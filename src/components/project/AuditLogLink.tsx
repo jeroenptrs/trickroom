@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { auditLogSummaryQueryOptions } from "../../queries/audit-log";
 import { useProjectConfig, useProjectScope } from "../contexts";
+import { Text } from "../ui/text";
 
 export function AuditLogLink() {
 	const config = useProjectConfig();
@@ -25,9 +26,7 @@ export function AuditLogLink() {
 	return (
 		<div className="border-t border-slate-200 px-4 py-3">
 			<div className="flex items-baseline justify-between gap-3">
-				<div className="font-mono text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-					Audit log
-				</div>
+				<Text variant="section-header">audit log</Text>
 				<a
 					href="/api/trickroom/audit-log/summary"
 					target="_blank"

@@ -148,6 +148,68 @@ describe("icon manifest service", () => {
 		).toMatchObject({ ok: false });
 		expect(
 			sanitizeSvg('<svg><path style="fill: currentColor"/></svg>'),
+		).toMatchObject({ ok: true });
+		expect(
+			sanitizeSvg(
+				'<svg><path style="fill:none;stroke:#0f0;stroke-width:2;stroke-linecap:round;"/></svg>',
+			),
+		).toMatchObject({ ok: true });
+		expect(
+			sanitizeSvg('<svg><path style="fill:url(#grad)"/></svg>'),
+		).toMatchObject({ ok: true });
+		expect(
+			sanitizeSvg('<svg><path style="background:red"/></svg>'),
+		).toMatchObject({ ok: false });
+		expect(
+			sanitizeSvg('<svg><path style="fill:url(https://evil/#x)"/></svg>'),
+		).toMatchObject({ ok: false });
+		expect(
+			sanitizeSvg('<svg><path style=fill:red d="M0 0h8v8z"/></svg>'),
+		).toMatchObject({ ok: false });
+		expect(
+			sanitizeSvg(
+				'<svg><style>.cls-1{fill:none;stroke-width:2}.cls-2{stroke:#000}</style><path class="cls-1" d="M0 0h8v8z"/></svg>',
+			),
+		).toMatchObject({ ok: true });
+		expect(
+			sanitizeSvg(
+				"<svg><style>/* exported */ .a , .b-c { fill : #fff ; opacity : .5 }</style></svg>",
+			),
+		).toMatchObject({ ok: true });
+		expect(
+			sanitizeSvg("<svg><style>@import url(https://evil/x.css);</style></svg>"),
+		).toMatchObject({ ok: false });
+		expect(
+			sanitizeSvg("<svg><style>path{fill:red}</style></svg>"),
+		).toMatchObject({ ok: false });
+		expect(
+			sanitizeSvg("<svg><style>.a{cursor:pointer}</style></svg>"),
+		).toMatchObject({ ok: false });
+		expect(sanitizeSvg("<svg><style>.a{fill:red}</svg>")).toMatchObject({
+			ok: false,
+		});
+		expect(
+			sanitizeSvg(
+				'<svg><path style="&#x66;ill:red;&#x62;ackground:url(//evil)"/></svg>',
+			),
+		).toMatchObject({ ok: false });
+		expect(
+			sanitizeSvg(
+				'<svg><defs><linearGradient id="g"><stop offset="0" stop-color="#000"/></linearGradient></defs><path fill="url(#g)" d="M0 0h8v8z"/></svg>',
+			),
+		).toMatchObject({ ok: true });
+		expect(
+			sanitizeSvg('<svg><path fill="url(\'#g\')" d="M0 0h8v8z"/></svg>'),
+		).toMatchObject({ ok: true });
+		expect(
+			sanitizeSvg(
+				'<svg><path fill="url(https://example.com/x.svg#g)" d="M0 0h8v8z"/></svg>',
+			),
+		).toMatchObject({ ok: false });
+		expect(
+			sanitizeSvg(
+				'<svg><path fill="url(&#x68;ttp://evil)" d="M0 0h8v8z"/></svg>',
+			),
 		).toMatchObject({ ok: false });
 		expect(
 			sanitizeSvg(

@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { ResourceListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { expandRegistryRecipe } from "../recipes/expansion";
-import { ResourceListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { installAvatarLegacyPreviousTemplate } from "../recipes/legacy-avatar-template";
 import {
 	getRecipeMarkerProps,
@@ -1418,13 +1418,8 @@ describe("MCP mutation tools", () => {
 					systemName: "Core",
 					revision: content.newRevision,
 				});
-				expect(content.rootElementIds).toHaveLength(1);
-				expect(content.elementTree).toEqual([
-					expect.objectContaining({
-						component: "container",
-						role: "branch",
-					}),
-				]);
+				expect(content.rootElementIds).toHaveLength(0);
+				expect(content.elementTree).toEqual([]);
 
 				const persisted = await fixture.designFileService.readDesignFile(
 					fixture.designFileService.getFileForUuid(createdDesignFileId),
@@ -1432,17 +1427,7 @@ describe("MCP mutation tools", () => {
 				expect(persisted.design).toMatchObject({
 					name: "Exploration",
 					systemId: expect.stringMatching(/^sys_/),
-					boards: [
-						{
-							props: {
-								"data-trickroom-name": "Root",
-								"data-trickroom-library": "trickroom",
-								"data-trickroom-component": "container",
-								"data-trickroom-role": "branch",
-							},
-							children: [],
-						},
-					],
+					boards: [],
 				});
 				expect(persisted.design).not.toHaveProperty("systemName");
 
@@ -1602,17 +1587,19 @@ describe("MCP mutation tools", () => {
 				await componentFixture.readMcpContext(),
 			);
 			try {
-				const denied = await componentSession.client.callTool({
+				// Empty creation uses no components, so component allowlists do not
+				// gate createDesignFile itself — only subsequent inserts.
+				const created = await componentSession.client.callTool({
 					name: "createDesignFile",
 					arguments: {
 						designFileId: secondCreatedDesignFileId,
-						name: "Component Denied",
+						name: "Component Allowlist Ignored",
 					},
 				});
-				expect(denied.isError).toBe(true);
-				expect(denied.structuredContent).toMatchObject({
-					status: "POLICY_DENIED",
-					code: "MCP_COMPONENT_NOT_ALLOWED",
+				expect(created.isError).toBeFalsy();
+				expect(created.structuredContent).toMatchObject({
+					status: "success",
+					rootElementIds: [],
 				});
 			} finally {
 				await componentSession.close();
@@ -1769,7 +1756,6 @@ describe("MCP mutation tools", () => {
 				await session.close();
 			}
 		});
-
 	});
 
 	describe("extractSubtree", () => {
@@ -2873,9 +2859,7 @@ describe("MCP mutation tools", () => {
 				expect(readContent.element.props["data-trickroom-name"]).toBe(
 					"Alias Renamed Board",
 				);
-				expect(readContent.element.props.className).toBe(
-					"flex flex-col gap-6",
-				);
+				expect(readContent.element.props.className).toBe("flex flex-col gap-6");
 			} finally {
 				await session.close();
 			}

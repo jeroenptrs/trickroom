@@ -56,7 +56,9 @@ import {
 	TokenFilterInput,
 	type TokenRowValue,
 } from "../project/SystemTokenRows";
+import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
+import { Card } from "../ui/card";
 import { Text } from "../ui/text";
 
 type StoredTokenDomains = StoredTailwindTokensResponse["domains"];
@@ -772,7 +774,11 @@ function ReviewBanner({
 	const changeCount = diff.added + diff.overridden + diff.removed;
 
 	return (
-		<div className="border-b border-amber-200 bg-amber-50 px-10 py-3">
+		<Card
+			edge="border"
+			tone="warning"
+			className="rounded-none border-x-0 border-t-0 px-10 py-3"
+		>
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<div className="flex min-w-0 flex-col gap-1">
 					<div className="flex flex-wrap items-center gap-2">
@@ -790,7 +796,9 @@ function ReviewBanner({
 						pending confirmation.
 					</p>
 					{saveError ? (
-						<p className="text-[11px] text-red-700">{saveError}</p>
+						<Alert variant="inline" className="text-[11px]">
+							{saveError}
+						</Alert>
 					) : null}
 				</div>
 				<div className="flex shrink-0 items-center gap-2">
@@ -816,7 +824,7 @@ function ReviewBanner({
 					</Button>
 				</div>
 			</div>
-		</div>
+		</Card>
 	);
 }
 
@@ -2573,21 +2581,21 @@ export function SystemEditorTokensPanel({
 					syncDisabled={isSyncing}
 					canExport={false}
 				/>
-				<div
-					className="mx-10 my-8 flex items-start gap-3 border border-red-200 bg-red-50 px-4 py-4"
+				<Card
+					edge="border"
+					tone="danger"
+					className="mx-10 my-8 flex items-start gap-3 px-4 py-4"
 					role="alert"
 				>
 					<AlertTriangle
-						className="mt-0.5 size-4 shrink-0 text-red-600"
+						className="mt-0.5 size-4 shrink-0"
 						aria-hidden="true"
 					/>
 					<div className="min-w-0">
-						<p className="text-sm font-medium text-red-950">
-							Failed to load tokens
-						</p>
-						<p className="mt-1 text-xs text-red-700">{storedTokensError}</p>
+						<p className="text-sm font-medium">Failed to load tokens</p>
+						<p className="mt-1 text-xs">{storedTokensError}</p>
 					</div>
-				</div>
+				</Card>
 			</div>
 		);
 	}
@@ -2623,9 +2631,14 @@ export function SystemEditorTokensPanel({
 				/>
 			) : null}
 			{syncError ? (
-				<div className="border-b border-red-200 bg-red-50 px-10 py-2 text-xs text-red-700">
+				<Card
+					edge="border"
+					tone="danger"
+					className="rounded-none border-x-0 border-t-0 px-10 py-2 text-xs"
+					role="alert"
+				>
 					{syncError}
-				</div>
+				</Card>
 			) : null}
 			{totalTokenCount === 0 && changeRows.length === 0 ? (
 				<div className="px-10 py-8">

@@ -1,6 +1,6 @@
-import type { ColorIntent } from "../../../utils/tailwind-classname";
 import type { ResolvedColorTokens } from "../../../utils/resolved-color-tokens";
-import type { ColorSwatchAppearance } from "./ColorSwatch";
+import type { ColorIntent } from "../../../utils/tailwind-classname";
+import type { ColorSwatchAppearance } from "../../ui/color-swatch";
 
 /**
  * Maps a `ColorIntent` (from a parsed Tailwind class) to a presentation-

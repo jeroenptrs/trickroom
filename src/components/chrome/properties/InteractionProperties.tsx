@@ -1,24 +1,32 @@
 import { useCallback, useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
 import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
+import { useResolvedDomainTokens } from "../../../hooks/useResolvedDomainTokens";
 import { useDesignSystemId } from "../../../stores/design-store";
 import {
 	buildPropertyModel,
 	type ModelOptions,
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
+import { Segmented, type SegmentedOption } from "../../ui/segmented";
 import { ColorPropertyControl } from "./ColorPropertyControl";
-import { applyColorChange, applyColorClear } from "./colorPropertiesController";
+import {
+	applyColorChange,
+	applyColorClear,
+	applyColorClearAll,
+} from "./colorPropertiesController";
+import { spacingTokenOptions } from "./domainTokenOptions";
 import { interactionUtility } from "./interactionPropertiesController";
-import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
 import { StyleSection } from "./StyleSection";
+import { resolveSpacingBasePx } from "./sizeTokenOptions";
 import {
 	applyStyleUtility,
 	clearStyleProperty,
 	getStyleIntent,
 	styleValueText,
 } from "./styleSectionController";
+import { TokenField } from "./TokenField";
 
 type InteractionPropertiesProps = {
 	className: string;
@@ -116,6 +124,12 @@ export function InteractionProperties({
 		[resolved.names, customUtilityRoots],
 	);
 
+	const spacingTokens = useResolvedDomainTokens(systemId, "spacing");
+	const scrollMarginOptions = useMemo(
+		() => spacingTokenOptions(resolveSpacingBasePx(spacingTokens.values)),
+		[spacingTokens.values],
+	);
+
 	const model = useMemo(
 		() => buildPropertyModel(className, options),
 		[className, options],
@@ -132,8 +146,9 @@ export function InteractionProperties({
 	const snapType = read("interaction.scroll-snap-type");
 	const snapAxis = read("interaction.scroll-snap-axis");
 
-	const summary =
-		[cursor, pointerEvents].filter(Boolean).join(" · ") || undefined;
+	const summary = [cursor, pointerEvents].filter(
+		(value): value is string => value !== null && value !== undefined,
+	);
 
 	return (
 		<StyleSection title="Interaction" summary={summary}>
@@ -142,6 +157,7 @@ export function InteractionProperties({
 				className={className}
 				options={options}
 				property="interaction.cursor"
+				likely
 				onChange={onChange}
 				renderControl={(slot) => (
 					<Segmented
@@ -264,6 +280,9 @@ export function InteractionProperties({
 						}),
 					)
 				}
+				onClearAll={(chains) =>
+					onChange(applyColorClearAll(className, options, "accent", chains))
+				}
 			/>
 			<ColorPropertyControl
 				label="Caret"
@@ -286,6 +305,9 @@ export function InteractionProperties({
 							variants,
 						}),
 					)
+				}
+				onClearAll={(chains) =>
+					onChange(applyColorClearAll(className, options, "caret", chains))
 				}
 			/>
 			<StyleOverrideRows
@@ -471,12 +493,14 @@ export function InteractionProperties({
 				className={className}
 				options={options}
 				property="interaction.scroll-margin-top"
+				inline
 				onChange={onChange}
 				renderControl={(slot) => (
-					<ValueField
+					<TokenField
 						label="Scroll MT"
 						value={slot.value ?? ""}
 						placeholder="4"
+						options={scrollMarginOptions}
 						onCommit={(next) =>
 							slot.apply(
 								next.trim()

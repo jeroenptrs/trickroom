@@ -1,56 +1,5 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
-import { Button } from "../../ui/button";
+import { useEffect, useRef, useState } from "react";
 import { Input } from "../../ui/input";
-
-export type SegmentedOption<T extends string> = {
-	value: T;
-	label: ReactNode;
-	/** Tooltip / accessible text when `label` is an icon. */
-	title?: string;
-};
-
-type SegmentedProps<T extends string> = {
-	options: readonly SegmentedOption<T>[];
-	/** Currently active value, or null when the property is unset. */
-	value: T | null;
-	/** Called with the next value, or null when the active option is toggled off. */
-	onChange: (next: T | null) => void;
-	ariaLabel: string;
-};
-
-/**
- * Segmented toggle group rendered with the block-variant Button. The selected
- * cell uses the block `isSelected` styling (cyan-100 / cyan-900) — the same
- * affordance the right-rail exploration mocked by hand. Re-clicking the active
- * option clears the property.
- */
-export function Segmented<T extends string>({
-	options,
-	value,
-	onChange,
-	ariaLabel,
-}: SegmentedProps<T>) {
-	return (
-		<div className="flex gap-px" role="group" aria-label={ariaLabel}>
-			{options.map((option) => {
-				const isSelected = value === option.value;
-				return (
-					<Button
-						key={option.value}
-						type="button"
-						variant="block"
-						isSelected={isSelected}
-						title={option.title}
-						className="flex-1 justify-center px-2 py-1 text-[11px]"
-						onClick={() => onChange(isSelected ? null : option.value)}
-					>
-						{option.label}
-					</Button>
-				);
-			})}
-		</div>
-	);
-}
 
 type ValueFieldProps = {
 	label: string;

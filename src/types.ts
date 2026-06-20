@@ -29,6 +29,12 @@ export type ControlDefinition = {
 	visibility?: ControlVisibility;
 	deprecationReason?: string;
 	defaultValue?: Exclude<JsonPrimitive, null>;
+	/**
+	 * Marks a discriminator prop (e.g. tab/item/radio value) whose value must
+	 * not collide with the same prop on sibling elements. Insert paths suffix
+	 * the default value to keep it unique among siblings.
+	 */
+	uniqueAmongSiblings?: boolean;
 };
 
 export type RegistryComponentDefinition = {

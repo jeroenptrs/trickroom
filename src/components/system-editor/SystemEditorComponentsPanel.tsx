@@ -59,7 +59,9 @@ import {
 import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
 import { isSystemComponentSlug } from "../../utils/system-components";
 import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
+import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
+import { Card } from "../ui/card";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "../ui/tabs";
@@ -546,12 +548,14 @@ function ComponentWorkspaceActions({
 				</div>
 			</div>
 			{saveError || publishError ? (
-				<p
-					className="border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] text-red-700"
+				<Card
+					edge="border"
+					tone="danger"
+					className="px-2 py-1.5 text-[11px]"
 					role="alert"
 				>
 					{saveError ?? publishError}
-				</p>
+				</Card>
 			) : null}
 		</div>
 	);
@@ -1078,13 +1082,15 @@ export function SystemEditorComponentsRail({
 
 	if (componentsQuery.isError) {
 		return (
-			<div className="flex min-h-0 flex-1 flex-col px-3 py-4" role="alert">
-				<p className="text-sm font-medium text-red-950">
-					Failed to load components
-				</p>
-				<p className="mt-1 text-xs text-red-700">
-					{(componentsQuery.error as Error).message}
-				</p>
+			<div className="flex min-h-0 flex-1 flex-col px-3 py-4">
+				<Alert variant="panel">
+					<span className="block text-sm font-medium">
+						Failed to load components
+					</span>
+					<span className="mt-1 block text-xs">
+						{(componentsQuery.error as Error).message}
+					</span>
+				</Alert>
 			</div>
 		);
 	}
@@ -1250,28 +1256,34 @@ export function SystemEditorComponentsRail({
 				</div>
 			</div>
 			{createError ? (
-				<div
-					className="mx-2 mt-2 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+				<Card
+					edge="border"
+					tone="danger"
+					className="mx-2 mt-2 px-3 py-2 text-xs"
 					role="alert"
 				>
 					{createError}
-				</div>
+				</Card>
 			) : null}
 			{copyDraftError ? (
-				<div
-					className="mx-2 mt-2 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+				<Card
+					edge="border"
+					tone="danger"
+					className="mx-2 mt-2 px-3 py-2 text-xs"
 					role="alert"
 				>
 					{copyDraftError}
-				</div>
+				</Card>
 			) : null}
 			{deleteError ? (
-				<div
-					className="mx-2 mt-2 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+				<Card
+					edge="border"
+					tone="danger"
+					className="mx-2 mt-2 px-3 py-2 text-xs"
 					role="alert"
 				>
 					{deleteError}
-				</div>
+				</Card>
 			) : null}
 			{components.length === 0 ? (
 				<ComponentRailEmptyState />

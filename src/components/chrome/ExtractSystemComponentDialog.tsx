@@ -25,6 +25,7 @@ import {
 	systemComponentSlugFromName,
 } from "../../utils/system-components";
 import { useProjectScope } from "../contexts";
+import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 import Checkbox from "../ui/checkbox";
 import {
@@ -497,9 +498,9 @@ export function ExtractSystemComponentDialog({
 								</label>
 							</div>
 							{errorMessage ? (
-								<div className="w-fit bg-red-500 px-2 py-1 text-xs text-white">
+								<Alert variant="panel" tone="danger">
 									{errorMessage}
-								</div>
+								</Alert>
 							) : null}
 						</div>
 					</form>

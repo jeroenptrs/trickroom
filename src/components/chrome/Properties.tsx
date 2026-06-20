@@ -1,7 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { Box, Component, Type } from "lucide-react";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import {
+	Fragment,
+	type ReactNode,
+	useCallback,
+	useMemo,
+	useState,
+} from "react";
 import {
 	getControlDefinitions,
 	getRenderableClassComposition,
@@ -56,8 +62,10 @@ import type {
 } from "../../utils/system-components";
 import { useProjectScope } from "../contexts";
 import { Button } from "../ui/button";
-import { InputField, TextareaField } from "../ui/input";
+import { InputField } from "../ui/input";
+import { Kbd } from "../ui/kbd";
 import { ScrollArea } from "../ui/scroll-area";
+import { Switch } from "../ui/switch";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "../ui/tabs";
 import { Text } from "../ui/text";
 import {
@@ -71,7 +79,7 @@ import {
 import { DesignSystemPicker } from "./DesignSystemPicker";
 import { BackgroundProperties } from "./properties/BackgroundProperties";
 import { BorderProperties } from "./properties/BorderProperties";
-import { ClassInventoryPanel } from "./properties/ClassInventoryPanel";
+import { ClassCompositionPanel } from "./properties/ClassCompositionPanel";
 import { DomainCustomUtilities } from "./properties/DomainCustomUtilities";
 import { EffectsProperties } from "./properties/EffectsProperties";
 import { FocusProperties } from "./properties/FocusProperties";
@@ -80,10 +88,11 @@ import { LayoutProperties } from "./properties/LayoutProperties";
 import { MaskProperties } from "./properties/MaskProperties";
 import { MotionProperties } from "./properties/MotionProperties";
 import { PositionProperties } from "./properties/PositionProperties";
+import { ReceiptsFooter } from "./properties/ReceiptsFooter";
+import { StyleScopeProvider } from "./properties/ScopeBar";
 import { SizeProperties } from "./properties/SizeProperties";
 import { SpacingProperties } from "./properties/SpacingProperties";
 import { StructureProperties } from "./properties/StructureProperties";
-import { StyleSection } from "./properties/StyleSection";
 import { TransformProperties } from "./properties/TransformProperties";
 import { TypographyProperties } from "./properties/TypographyProperties";
 import { VectorProperties } from "./properties/VectorProperties";
@@ -298,11 +307,10 @@ function ComponentControl({
 				>
 					{control.label}
 				</label>
-				<input
+				<Switch
 					id={`${elementId}-${control.prop}`}
-					type="checkbox"
 					checked={value === true}
-					onChange={(event) => updateValue(event.currentTarget.checked)}
+					onCheckedChange={(checked) => updateValue(checked)}
 					title={control.description ?? control.label}
 				/>
 			</div>
@@ -360,12 +368,20 @@ function AssetPicker({
 		enabled: Boolean(systemId),
 	});
 	const assets = assetsQuery.data?.assets ?? [];
+	const selectedAsset = assets.find((a) => a.id === value);
 
 	return (
 		<div className="flex flex-col gap-1 text-xs">
 			<label className="font-semibold" htmlFor={`${elementId}-asset`}>
 				{label}
 			</label>
+			{systemId && value ? (
+				<img
+					src={`/api/trickroom/systems/${encodeURIComponent(systemId)}/assets/${encodeURIComponent(value)}/file`}
+					alt={selectedAsset?.name ?? value}
+					className="h-16 w-full bg-slate-100 object-contain object-left"
+				/>
+			) : null}
 			<select
 				id={`${elementId}-asset`}
 				className="w-full border-none bg-slate-200/60 px-1 py-0.5 text-xs text-slate-950 inset-shadow-[0_0_0_1px_transparent] focus:outline-none focus:inset-shadow-[0_0_0_1px_#67e8f9]"
@@ -416,12 +432,25 @@ function IconPicker({
 		enabled: Boolean(systemId),
 	});
 	const icons = iconsQuery.data?.icons ?? [];
+	const selectedIcon = icons.find((i) => i.id === value);
 
 	return (
 		<div className="flex flex-col gap-1 text-xs">
 			<label className="font-semibold" htmlFor={`${elementId}-icon`}>
 				{label}
 			</label>
+			{systemId && value ? (
+				<div className="flex items-center gap-2">
+					<img
+						src={`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/${encodeURIComponent(value)}/svg`}
+						alt={selectedIcon?.name ?? value}
+						className="size-5 shrink-0 object-contain"
+					/>
+					<span className="truncate text-slate-600">
+						{selectedIcon?.name ?? value}
+					</span>
+				</div>
+			) : null}
 			<select
 				id={`${elementId}-icon`}
 				className="w-full border-none bg-slate-200/60 px-1 py-0.5 text-xs text-slate-950 inset-shadow-[0_0_0_1px_transparent] focus:outline-none focus:inset-shadow-[0_0_0_1px_#67e8f9]"
@@ -637,39 +666,72 @@ function StyleClassControls({
 	elementId: string;
 }) {
 	return (
-		<div key={elementId} className="flex flex-col divide-y divide-slate-200">
-			<LayoutProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="layout" />
-			<SizeProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="size" />
-			<StyleSection title="Spacing">
+		// Keyed on the element so the panel scope and section reveal state reset
+		// per selection.
+		<StyleScopeProvider key={elementId} className={className}>
+			<div className="flex flex-col divide-y divide-slate-200">
+				<LayoutProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="layout" />
+				<SizeProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="size" />
 				<SpacingProperties className={className} onChange={onChange} />
-			</StyleSection>
-			<DomainCustomUtilities className={className} domain="spacing" />
-			<TypographyProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="typography" />
-			<BackgroundProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="background" />
-			<BorderProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="border" />
-			<EffectsProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="effects" />
-			<FocusProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="focus" />
-			<PositionProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="position" />
-			<TransformProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="transform" />
-			<MotionProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="motion" />
-			<VectorProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="vector" />
-			<StructureProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="structure" />
-			<MaskProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="mask" />
-			<InteractionProperties className={className} onChange={onChange} />
-			<DomainCustomUtilities className={className} domain="interaction" />
+				<DomainCustomUtilities className={className} domain="spacing" />
+				<TypographyProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="typography" />
+				<BackgroundProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="background" />
+				<BorderProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="border" />
+				<EffectsProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="effects" />
+				<FocusProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="focus" />
+				<PositionProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="position" />
+				<TransformProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="transform" />
+				<MotionProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="motion" />
+				<VectorProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="vector" />
+				<StructureProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="structure" />
+				<MaskProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="mask" />
+				<InteractionProperties className={className} onChange={onChange} />
+				<DomainCustomUtilities className={className} domain="interaction" />
+			</div>
+		</StyleScopeProvider>
+	);
+}
+
+const KBD_MAP = [
+	{ key: "F", label: "Add frame" },
+	{ key: "T", label: "Add text" },
+	{ key: "A", label: "Add element" },
+	{ key: ".", label: "Repeat last" },
+	{ key: "R", label: "Rename layer" },
+	{ key: "Del", label: "Delete layer" },
+	{ key: "J / ↓", label: "Next layer" },
+	{ key: "K / ↑", label: "Prev layer" },
+	{ key: "L / →", label: "Enter layer" },
+	{ key: "H / ←", label: "Exit layer" },
+] as const;
+
+function EmptyStateKbdMap() {
+	return (
+		<div className="flex flex-col gap-1.5">
+			<span className="text-[11px] font-semibold text-slate-700">
+				Shortcuts
+			</span>
+			<div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+				{KBD_MAP.map(({ key, label }) => (
+					<Fragment key={key}>
+						<Kbd>{key}</Kbd>
+						<span className="text-[11px] text-slate-500">{label}</span>
+					</Fragment>
+				))}
+			</div>
 		</div>
 	);
 }
@@ -719,9 +781,12 @@ export function Properties() {
 						Design
 					</Text>
 				</header>
-				<div className="p-3">
-					<DesignSystemPicker />
-				</div>
+				<ScrollArea className="min-h-0 flex-1">
+					<div className="flex flex-col gap-4 p-3">
+						<DesignSystemPicker />
+						<EmptyStateKbdMap />
+					</div>
+				</ScrollArea>
 			</div>
 		);
 	}
@@ -840,8 +905,8 @@ export function Properties() {
 						Classes
 					</TabsTab>
 				</TabsList>
-				<TabsPanel value="style" className="min-h-0 flex-1">
-					<ScrollArea className="h-full">
+				<TabsPanel value="style" className="flex min-h-0 flex-1 flex-col">
+					<ScrollArea className="min-h-0 flex-1">
 						{!canFreelyEdit ? (
 							!canEditClassName ? (
 								<ReadOnlyInspectorNotice message="Component-owned layers are structurally locked. This layer has no published className override." />
@@ -860,6 +925,7 @@ export function Properties() {
 							/>
 						)}
 					</ScrollArea>
+					{canEditClassName ? <ReceiptsFooter className={className} /> : null}
 				</TabsPanel>
 				<TabsPanel value="properties" className="min-h-0 flex-1">
 					<ScrollArea className="h-full">
@@ -1078,38 +1144,22 @@ export function Properties() {
 							!canEditClassName ? (
 								<ReadOnlyInspectorNotice message="Direct class editing is locked for component-owned layers. This layer has no published className override." />
 							) : (
-								<div className="flex flex-col gap-3 p-3">
-									<TextareaField
-										label="Tailwind classnames"
-										value={className}
-										onChange={(event) =>
-											onChangeClassName(event.currentTarget.value)
-										}
-									/>
-									<ClassInventoryPanel
-										className={className}
-										layers={classInventoryLayers}
-									/>
-								</div>
-							)
-						) : (
-							<div className="flex flex-col gap-3 p-3">
-								{/* TODO: this should become somewhat of a combobox situation, but with tailwind intellisense */}
-								<TextareaField
-									label="Tailwind classnames"
-									value={className}
-									onChange={(event) =>
-										updateElementClassName(
-											selectedElement.id,
-											event.currentTarget.value,
-										)
-									}
-								/>
-								<ClassInventoryPanel
+								<ClassCompositionPanel
 									className={className}
 									layers={classInventoryLayers}
+									editable={true}
+									onChangeClassName={onChangeClassName}
 								/>
-							</div>
+							)
+						) : (
+							<ClassCompositionPanel
+								className={className}
+								layers={classInventoryLayers}
+								editable={true}
+								onChangeClassName={(next) =>
+									updateElementClassName(selectedElement.id, next)
+								}
+							/>
 						)}
 					</ScrollArea>
 				</TabsPanel>

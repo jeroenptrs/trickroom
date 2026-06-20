@@ -55,16 +55,27 @@ describe("buildPropertyModel — grouping", () => {
 		);
 		const bg = model.byMode[""].byProperty.background;
 		expect(bg?.[""]?.intent.token).toBe("red-500");
-		expect(bg?.["hover"]?.intent.token).toBe("blue-500");
+		expect(bg?.hover?.intent.token).toBe("blue-500");
 		expect(bg?.["md:hover"]?.intent.token).toBe("slate-200");
 	});
 
-	it("splits classes by mode", () => {
+	it("folds dark into the variant chains by default (todo 572)", () => {
 		const model = buildPropertyModel("bg-red-500 dark:bg-blue-500", opts);
 		expect(model.byMode[""].byProperty.background?.[""]?.intent.token).toBe(
 			"red-500",
 		);
-		expect(model.byMode["dark"].byProperty.background?.[""]?.intent.token).toBe(
+		expect(model.byMode[""].byProperty.background?.dark?.intent.token).toBe(
+			"blue-500",
+		);
+		expect(model.byMode.dark).toBeUndefined();
+	});
+
+	it("still buckets by mode when the caller passes modes explicitly", () => {
+		const model = buildPropertyModel("bg-red-500 dark:bg-blue-500", {
+			...opts,
+			modes: ["dark"],
+		});
+		expect(model.byMode.dark.byProperty.background?.[""]?.intent.token).toBe(
 			"blue-500",
 		);
 	});

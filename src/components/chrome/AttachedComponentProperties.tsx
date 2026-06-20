@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { useMemo } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { systemComponentQueryOptions } from "../../queries/system-components";
 import {
 	designStore,
 	detachSystemComponent,
+	resetSystemComponentOverrides,
 	serializeDesign,
 	setSystemComponentVariantValue,
 	updateSystemComponentInstance,
@@ -25,6 +27,7 @@ import type {
 	SystemComponentVariantAxis,
 } from "../../utils/system-components";
 import { useProjectScope } from "../contexts";
+import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 import {
 	type AttachedComponentInspection,
@@ -36,12 +39,15 @@ import {
 	getPublishedVersionForInstance,
 	isAttachedComponentStaleStatus,
 } from "./attached-component-inspector";
+import { getSystemComponentEditorPath } from "./ExtractSystemComponentDialog";
 
 type AttachedComponentPropertiesProps = {
 	inspection: AttachedComponentInspection;
 };
 
 const unsetVariantAxisValue = "__trickroom_unset_variant_axis__";
+
+const VARIANT_SEGMENT_THRESHOLD = 4;
 
 function VariantAxisControl({
 	rootElementId,
@@ -57,8 +63,31 @@ function VariantAxisControl({
 	currentValue: string | undefined;
 }) {
 	const options = Object.entries(axis.values);
-	const selectValue = currentValue ?? unsetVariantAxisValue;
+	const onChange = (next: string | null) =>
+		setSystemComponentVariantValue(rootElementId, version, axisKey, next);
 
+	if (options.length <= VARIANT_SEGMENT_THRESHOLD) {
+		return (
+			<div className="flex flex-col gap-1 text-xs">
+				<span className="font-semibold">{axis.label}</span>
+				<div className="flex flex-row">
+					{options.map(([valueKey, value]) => (
+						<Button
+							key={valueKey}
+							variant="block"
+							isSelected={currentValue === valueKey}
+							className="min-w-0 flex-1 px-2 py-1 text-xs"
+							onClick={() => onChange(valueKey)}
+						>
+							{value.label ?? valueKey}
+						</Button>
+					))}
+				</div>
+			</div>
+		);
+	}
+
+	const selectValue = currentValue ?? unsetVariantAxisValue;
 	return (
 		<div className="flex flex-col gap-1 text-xs">
 			<label className="font-semibold" htmlFor={`component-variant-${axisKey}`}>
@@ -69,10 +98,7 @@ function VariantAxisControl({
 				className="w-full border-none bg-slate-200/60 px-1 py-0.5 text-xs text-slate-950 inset-shadow-[0_0_0_1px_transparent] focus:outline-none focus:inset-shadow-[0_0_0_1px_#67e8f9]"
 				value={selectValue}
 				onChange={(event) =>
-					setSystemComponentVariantValue(
-						rootElementId,
-						version,
-						axisKey,
+					onChange(
 						event.currentTarget.value === unsetVariantAxisValue
 							? null
 							: event.currentTarget.value,
@@ -105,33 +131,33 @@ function ComponentStatusMessage({
 		case "stale-variants":
 		case "stale-both":
 			return (
-				<p className="text-[11px] text-amber-700">
+				<Alert variant="inline" tone="warning">
 					This attached component does not match the current published
 					component. Review the migration notes below, then update when ready.
-				</p>
+				</Alert>
 			);
 		case "missing-component":
 			return (
-				<p className="text-[11px] text-red-700">
+				<Alert variant="inline" tone="danger">
 					This instance references component {instance.componentId}, but that
 					component is not available in the current design system. Reconnect the
 					system component or detach this instance before editing its structure.
-				</p>
+				</Alert>
 			);
 		case "missing-version":
 			return (
-				<p className="text-[11px] text-red-700">
+				<Alert variant="inline" tone="danger">
 					This instance references version {instance.version}, but that
 					published version is not available. Restore the version, update the
 					instance when migration is available, or detach it.
-				</p>
+				</Alert>
 			);
 		case "unknown":
 			return (
-				<p className="text-[11px] text-red-700">
+				<Alert variant="inline" tone="danger">
 					Published component metadata could not be loaded. Check the linked
 					design system, or detach this instance if you need to edit it now.
-				</p>
+				</Alert>
 			);
 	}
 }
@@ -168,6 +194,7 @@ function AttachedComponentRootControls({
 	componentName,
 	systemId,
 	componentRecord,
+	onOpen,
 }: {
 	rootElementId: string;
 	instance: SystemComponentInstanceMetadata;
@@ -177,6 +204,7 @@ function AttachedComponentRootControls({
 	componentName: string;
 	systemId: string | null;
 	componentRecord: SystemComponentRecord | undefined;
+	onOpen: (() => void) | null;
 }) {
 	const variantAxes = version?.variants?.axes ?? {};
 	const canUpdate = isAttachedComponentStaleStatus(status);
@@ -240,6 +268,18 @@ function AttachedComponentRootControls({
 	}, [migrationPreview]);
 	const updateBlocked =
 		isSystemComponentInstanceMigrationUpdateBlocked(migrationPreview);
+	const overrideCount = Object.keys(instance.overrides).length;
+
+	const handleOpen = onOpen ?? null;
+
+	const handleResetOverrides = () => {
+		if (!version || overrideCount === 0) return;
+		const confirmed = window.confirm(
+			`Reset all overrides for "${componentName}"? This removes all className, text, icon, asset, and prop overrides on this instance.`,
+		);
+		if (!confirmed) return;
+		resetSystemComponentOverrides(rootElementId, version);
+	};
 
 	const handleDetach = () => {
 		const confirmed = window.confirm(
@@ -294,7 +334,16 @@ function AttachedComponentRootControls({
 		<>
 			<section className="flex flex-col">
 				<div className="flex items-center justify-between px-3 py-2 text-[11px] font-semibold text-slate-700">
-					Component
+					<span>Component</span>
+					{handleOpen ? (
+						<button
+							type="button"
+							className="text-[11px] font-normal text-cyan-700 hover:text-cyan-900"
+							onClick={handleOpen}
+						>
+							Open
+						</button>
+					) : null}
 				</div>
 				<div className="flex flex-col gap-2 px-3 pb-3 text-xs text-slate-600">
 					<div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1">
@@ -308,6 +357,14 @@ function AttachedComponentRootControls({
 							<>
 								<span className="font-semibold text-slate-700">Latest</span>
 								<span>{currentVersion.version}</span>
+							</>
+						) : null}
+						{overrideCount > 0 ? (
+							<>
+								<span className="font-semibold text-slate-700">Modified</span>
+								<span>
+									{overrideCount} target{overrideCount === 1 ? "" : "s"}
+								</span>
 							</>
 						) : null}
 					</div>
@@ -330,6 +387,16 @@ function AttachedComponentRootControls({
 								onClick={handleUpdate}
 							>
 								Update component
+							</Button>
+						) : null}
+						{overrideCount > 0 ? (
+							<Button
+								type="button"
+								variant="outlined"
+								className="w-fit px-2 py-1 text-xs"
+								onClick={handleResetOverrides}
+							>
+								Reset overrides
 							</Button>
 						) : null}
 						<Button
@@ -408,6 +475,7 @@ function AttachedComponentOwnedContext({
 export function AttachedComponentProperties({
 	inspection,
 }: AttachedComponentPropertiesProps) {
+	const navigate = useNavigate();
 	const systemId = useDesignSystemId();
 	const projectScope = useProjectScope();
 	const rootEntity = useSelector(designStore, (state) =>
@@ -521,6 +589,16 @@ export function AttachedComponentProperties({
 		);
 	}
 
+	const onOpen = systemId
+		? () =>
+				navigate(
+					getSystemComponentEditorPath(
+						systemId,
+						inspection.instance.componentId,
+					),
+				)
+		: null;
+
 	return (
 		<AttachedComponentRootControls
 			rootElementId={inspection.rootElementId}
@@ -531,6 +609,7 @@ export function AttachedComponentProperties({
 			componentName={componentName}
 			systemId={systemId}
 			componentRecord={componentQuery.data?.record}
+			onOpen={onOpen}
 		/>
 	);
 }

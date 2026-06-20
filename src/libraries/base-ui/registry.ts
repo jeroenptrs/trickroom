@@ -99,6 +99,75 @@ export const components = {
 		label: "Accordion Panel",
 		description: "Content panel for a Base UI Accordion item.",
 	},
+	"alert-dialog.root": {
+		role: "branch",
+		label: "Alert Dialog Root",
+		description: "Base UI Alert Dialog root.",
+		controls: {
+			defaultOpen: {
+				label: "Default open",
+				input: "switch",
+				prop: "defaultOpen",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"alert-dialog.trigger": {
+		role: "branch",
+		label: "Alert Dialog Trigger",
+		description: "Button that opens a Base UI Alert Dialog.",
+		defaultProps: {
+			type: "button",
+		},
+	},
+	"alert-dialog.portal": {
+		role: "branch",
+		label: "Alert Dialog Portal",
+		description: "Portal host for Base UI Alert Dialog content.",
+		controls: {
+			keepMounted: {
+				label: "Keep mounted",
+				input: "switch",
+				prop: "keepMounted",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"alert-dialog.backdrop": {
+		role: "leaf",
+		label: "Alert Dialog Backdrop",
+		description: "Backdrop for a Base UI Alert Dialog.",
+	},
+	"alert-dialog.viewport": {
+		role: "branch",
+		label: "Alert Dialog Viewport",
+		description: "Viewport for Base UI Alert Dialog content.",
+	},
+	"alert-dialog.popup": {
+		role: "branch",
+		label: "Alert Dialog Popup",
+		description: "Popup container for a Base UI Alert Dialog.",
+	},
+	"alert-dialog.title": {
+		role: "branch",
+		label: "Alert Dialog Title",
+		description: "Accessible title for a Base UI Alert Dialog.",
+	},
+	"alert-dialog.description": {
+		role: "branch",
+		label: "Alert Dialog Description",
+		description: "Accessible description for a Base UI Alert Dialog.",
+	},
+	"alert-dialog.close": {
+		role: "branch",
+		label: "Alert Dialog Close",
+		description: "Button that closes a Base UI Alert Dialog.",
+		defaultProps: {
+			type: "button",
+		},
+	},
 	"avatar.root": {
 		role: "branch",
 		label: "Avatar Root",
@@ -142,6 +211,18 @@ export const components = {
 			type: "button",
 		},
 		controls: {
+			type: {
+				label: "Type",
+				input: "select",
+				prop: "type",
+				valueType: "string",
+				options: [
+					{ label: "Button", value: "button" },
+					{ label: "Submit", value: "submit" },
+					{ label: "Reset", value: "reset" },
+				],
+				defaultValue: "button",
+			},
 			disabled: {
 				label: "Disabled",
 				input: "switch",
@@ -459,10 +540,13 @@ export const components = {
 		controls: {
 			value: {
 				label: "Value",
+				description:
+					"Must be unique among the items of this combobox — duplicate values make items indistinguishable on selection.",
 				input: "text",
 				prop: "value",
 				valueType: "string",
 				defaultValue: "item",
+				uniqueAmongSiblings: true,
 			},
 			disabled: {
 				label: "Disabled",
@@ -539,6 +623,186 @@ export const components = {
 		baseClassName: separatorClassName,
 		defaultProps: {
 			orientation: "horizontal",
+		},
+	},
+	"context-menu.root": {
+		role: "branch",
+		label: "Context Menu Root",
+		description: "Base UI Context Menu root.",
+	},
+	"context-menu.trigger": {
+		role: "branch",
+		label: "Context Menu Trigger",
+		description: "Surface that opens a Base UI Context Menu on right-click.",
+	},
+	"context-menu.portal": {
+		role: "branch",
+		label: "Context Menu Portal",
+		description: "Portal host for a Base UI Context Menu popup.",
+		controls: {
+			keepMounted: {
+				label: "Keep mounted",
+				input: "switch",
+				prop: "keepMounted",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"context-menu.positioner": {
+		role: "branch",
+		label: "Context Menu Positioner",
+		description:
+			"Positions a Base UI Context Menu popup against the pointer location.",
+		controls: {
+			side: {
+				label: "Side",
+				input: "select",
+				prop: "side",
+				valueType: "string",
+				options: sideOptions,
+				defaultValue: "bottom",
+			},
+			align: {
+				label: "Align",
+				input: "select",
+				prop: "align",
+				valueType: "string",
+				options: alignOptions,
+				defaultValue: "start",
+			},
+			sideOffset: {
+				label: "Side offset",
+				input: "number",
+				prop: "sideOffset",
+				valueType: "number",
+				defaultValue: 4,
+			},
+		},
+	},
+	"context-menu.popup": {
+		role: "branch",
+		label: "Context Menu Popup",
+		description: "Popup container for Base UI Context Menu items.",
+	},
+	"context-menu.item": {
+		role: "branch",
+		label: "Context Menu Item",
+		description: "Interactive Base UI Context Menu item.",
+		controls: {
+			disabled: {
+				label: "Disabled",
+				input: "switch",
+				prop: "disabled",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+			closeOnClick: {
+				label: "Close on click",
+				input: "switch",
+				prop: "closeOnClick",
+				valueType: "boolean",
+				defaultValue: true,
+			},
+			label: {
+				label: "Text navigation label",
+				input: "text",
+				prop: "label",
+				valueType: "string",
+				defaultValue: "",
+			},
+		},
+	},
+	"context-menu.separator": {
+		role: "leaf",
+		label: "Context Menu Separator",
+		description: "Separator between Base UI Context Menu item groups.",
+		baseClassName: separatorClassName,
+		defaultProps: {
+			orientation: "horizontal",
+		},
+	},
+	"dialog.root": {
+		role: "branch",
+		label: "Dialog Root",
+		description: "Base UI Dialog root.",
+		controls: {
+			defaultOpen: {
+				label: "Default open",
+				input: "switch",
+				prop: "defaultOpen",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+			modal: {
+				label: "Modal",
+				input: "switch",
+				prop: "modal",
+				valueType: "boolean",
+				defaultValue: true,
+			},
+			disablePointerDismissal: {
+				label: "Disable pointer dismissal",
+				input: "switch",
+				prop: "disablePointerDismissal",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"dialog.trigger": {
+		role: "branch",
+		label: "Dialog Trigger",
+		description: "Button that opens a Base UI Dialog.",
+		defaultProps: {
+			type: "button",
+		},
+	},
+	"dialog.portal": {
+		role: "branch",
+		label: "Dialog Portal",
+		description: "Portal host for Base UI Dialog content.",
+		controls: {
+			keepMounted: {
+				label: "Keep mounted",
+				input: "switch",
+				prop: "keepMounted",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"dialog.backdrop": {
+		role: "leaf",
+		label: "Dialog Backdrop",
+		description: "Backdrop for a Base UI Dialog.",
+	},
+	"dialog.viewport": {
+		role: "branch",
+		label: "Dialog Viewport",
+		description: "Viewport for Base UI Dialog content.",
+	},
+	"dialog.popup": {
+		role: "branch",
+		label: "Dialog Popup",
+		description: "Popup container for a Base UI Dialog.",
+	},
+	"dialog.title": {
+		role: "branch",
+		label: "Dialog Title",
+		description: "Accessible title for a Base UI Dialog.",
+	},
+	"dialog.description": {
+		role: "branch",
+		label: "Dialog Description",
+		description: "Accessible description for a Base UI Dialog.",
+	},
+	"dialog.close": {
+		role: "branch",
+		label: "Dialog Close",
+		description: "Button that closes a Base UI Dialog.",
+		defaultProps: {
+			type: "button",
 		},
 	},
 	"drawer.provider": {
@@ -1063,6 +1327,540 @@ export const components = {
 			orientation: "horizontal",
 		},
 	},
+	menubar: {
+		role: "branch",
+		label: "Menubar",
+		description:
+			"Base UI Menubar that groups menu roots into a horizontal or vertical bar.",
+		controls: {
+			orientation: {
+				label: "Orientation",
+				input: "radio",
+				prop: "orientation",
+				valueType: "string",
+				options: orientationOptions,
+				defaultValue: "horizontal",
+			},
+			modal: {
+				label: "Modal",
+				input: "switch",
+				prop: "modal",
+				valueType: "boolean",
+				defaultValue: true,
+			},
+			loopFocus: {
+				label: "Loop focus",
+				input: "switch",
+				prop: "loopFocus",
+				valueType: "boolean",
+				defaultValue: true,
+			},
+			disabled: {
+				label: "Disabled",
+				input: "switch",
+				prop: "disabled",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"number-field.root": {
+		role: "branch",
+		label: "Number Field Root",
+		description: "Base UI Number Field root.",
+		defaultProps: {
+			defaultValue: 0,
+		},
+		controls: {
+			defaultValue: {
+				label: "Default value",
+				input: "number",
+				prop: "defaultValue",
+				valueType: "number",
+				defaultValue: 0,
+			},
+			min: {
+				label: "Min",
+				input: "number",
+				prop: "min",
+				valueType: "number",
+			},
+			max: {
+				label: "Max",
+				input: "number",
+				prop: "max",
+				valueType: "number",
+			},
+			step: {
+				label: "Step",
+				input: "number",
+				prop: "step",
+				valueType: "number",
+				defaultValue: 1,
+			},
+			disabled: {
+				label: "Disabled",
+				input: "switch",
+				prop: "disabled",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+			readOnly: {
+				label: "Read only",
+				input: "switch",
+				prop: "readOnly",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+			required: {
+				label: "Required",
+				input: "switch",
+				prop: "required",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"number-field.group": {
+		role: "branch",
+		label: "Number Field Group",
+		description: "Groups the input with the increment and decrement buttons.",
+	},
+	"number-field.decrement": {
+		role: "branch",
+		label: "Number Field Decrement",
+		description: "Button that decrements a Base UI Number Field value.",
+		defaultProps: {
+			type: "button",
+		},
+	},
+	"number-field.input": {
+		role: "leaf",
+		label: "Number Field Input",
+		description: "Input for a Base UI Number Field.",
+	},
+	"number-field.increment": {
+		role: "branch",
+		label: "Number Field Increment",
+		description: "Button that increments a Base UI Number Field value.",
+		defaultProps: {
+			type: "button",
+		},
+	},
+	"number-field.scrub-area": {
+		role: "branch",
+		label: "Number Field Scrub Area",
+		description:
+			"Area where pointer dragging scrubs a Base UI Number Field value, typically wrapping the label.",
+		controls: {
+			direction: {
+				label: "Direction",
+				input: "radio",
+				prop: "direction",
+				valueType: "string",
+				options: orientationOptions,
+				defaultValue: "horizontal",
+			},
+		},
+	},
+	"number-field.scrub-area-cursor": {
+		role: "branch",
+		label: "Number Field Scrub Area Cursor",
+		description:
+			"Custom cursor for a Base UI Number Field scrub area. Only visible while scrubbing.",
+	},
+	"otp-field.root": {
+		role: "branch",
+		label: "OTP Field Root",
+		description:
+			"Base UI OTP Field root that groups character inputs. Keep the length control in sync with the number of OTP Field Input children.",
+		defaultProps: {
+			length: 6,
+		},
+		controls: {
+			length: {
+				label: "Length",
+				input: "number",
+				prop: "length",
+				valueType: "number",
+				defaultValue: 6,
+			},
+			validationType: {
+				label: "Validation",
+				input: "select",
+				prop: "validationType",
+				valueType: "string",
+				options: [
+					{ label: "Numeric", value: "numeric" },
+					{ label: "Alpha", value: "alpha" },
+					{ label: "Alphanumeric", value: "alphanumeric" },
+					{ label: "None", value: "none" },
+				],
+				defaultValue: "numeric",
+			},
+			mask: {
+				label: "Mask",
+				input: "switch",
+				prop: "mask",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+			defaultValue: {
+				label: "Default value",
+				input: "text",
+				prop: "defaultValue",
+				valueType: "string",
+				defaultValue: "",
+			},
+			disabled: {
+				label: "Disabled",
+				input: "switch",
+				prop: "disabled",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+			readOnly: {
+				label: "Read only",
+				input: "switch",
+				prop: "readOnly",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+			required: {
+				label: "Required",
+				input: "switch",
+				prop: "required",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"otp-field.input": {
+		role: "leaf",
+		label: "OTP Field Input",
+		description: "Individual character input for a Base UI OTP Field.",
+	},
+	"popover.root": {
+		role: "branch",
+		label: "Popover Root",
+		description: "Root for an accessible popup anchored to a trigger.",
+		controls: {
+			defaultOpen: {
+				label: "Default open",
+				input: "switch",
+				prop: "defaultOpen",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"popover.trigger": {
+		role: "branch",
+		label: "Popover Trigger",
+		description: "Button that anchors and opens a Base UI Popover.",
+		defaultProps: {
+			type: "button",
+		},
+	},
+	"popover.portal": {
+		role: "branch",
+		label: "Popover Portal",
+		description: "Portal host for Base UI Popover content.",
+	},
+	"popover.backdrop": {
+		role: "leaf",
+		label: "Popover Backdrop",
+		description: "Optional visual backdrop behind a Base UI Popover.",
+	},
+	"popover.positioner": {
+		role: "branch",
+		label: "Popover Positioner",
+		description:
+			"Positions a Base UI Popover against its trigger. Placement controls visibly change the popup layout.",
+		controls: {
+			side: {
+				label: "Side",
+				input: "select",
+				prop: "side",
+				valueType: "string",
+				options: sideOptions,
+				defaultValue: "bottom",
+			},
+			align: {
+				label: "Align",
+				input: "select",
+				prop: "align",
+				valueType: "string",
+				options: alignOptions,
+				defaultValue: "center",
+			},
+			sideOffset: {
+				label: "Side offset",
+				input: "number",
+				prop: "sideOffset",
+				valueType: "number",
+				defaultValue: 8,
+			},
+			alignOffset: {
+				label: "Align offset",
+				input: "number",
+				prop: "alignOffset",
+				valueType: "number",
+				defaultValue: 0,
+			},
+			arrowPadding: {
+				label: "Arrow padding",
+				input: "number",
+				prop: "arrowPadding",
+				valueType: "number",
+				defaultValue: 8,
+			},
+			collisionPadding: {
+				label: "Collision padding",
+				input: "number",
+				prop: "collisionPadding",
+				valueType: "number",
+				defaultValue: 8,
+			},
+			sticky: {
+				label: "Sticky",
+				input: "switch",
+				prop: "sticky",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+			positionMethod: {
+				label: "Position method",
+				input: "radio",
+				prop: "positionMethod",
+				valueType: "string",
+				options: [
+					{ label: "Absolute", value: "absolute" },
+					{ label: "Fixed", value: "fixed" },
+				],
+				defaultValue: "absolute",
+			},
+		},
+	},
+	"popover.popup": {
+		role: "branch",
+		label: "Popover Popup",
+		description: "Popup container for Base UI Popover content.",
+	},
+	"popover.arrow": {
+		role: "branch",
+		label: "Popover Arrow",
+		description: "Arrow that visually connects a popover to its trigger.",
+	},
+	"popover.viewport": {
+		role: "branch",
+		label: "Popover Viewport",
+		description:
+			"Viewport for animated content transitions between multiple triggers.",
+	},
+	"popover.title": {
+		role: "branch",
+		label: "Popover Title",
+		description: "Accessible title for a Base UI Popover.",
+	},
+	"popover.description": {
+		role: "branch",
+		label: "Popover Description",
+		description: "Accessible description for a Base UI Popover.",
+	},
+	"popover.close": {
+		role: "branch",
+		label: "Popover Close",
+		description: "Button that closes a Base UI Popover.",
+		defaultProps: {
+			type: "button",
+		},
+	},
+	"preview-card.root": {
+		role: "branch",
+		label: "Preview Card Root",
+		description: "Base UI Preview Card root.",
+		controls: {
+			defaultOpen: {
+				label: "Default open",
+				input: "switch",
+				prop: "defaultOpen",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"preview-card.trigger": {
+		role: "branch",
+		label: "Preview Card Trigger",
+		description: "Link that opens a Base UI Preview Card on hover or focus.",
+		defaultProps: {
+			href: "#",
+		},
+		controls: {
+			href: {
+				label: "Href",
+				input: "text",
+				prop: "href",
+				valueType: "string",
+				defaultValue: "#",
+			},
+			delay: {
+				label: "Open delay",
+				input: "number",
+				prop: "delay",
+				valueType: "number",
+				defaultValue: 600,
+			},
+			closeDelay: {
+				label: "Close delay",
+				input: "number",
+				prop: "closeDelay",
+				valueType: "number",
+				defaultValue: 300,
+			},
+		},
+	},
+	"preview-card.portal": {
+		role: "branch",
+		label: "Preview Card Portal",
+		description: "Portal host for Base UI Preview Card content.",
+		controls: {
+			keepMounted: {
+				label: "Keep mounted",
+				input: "switch",
+				prop: "keepMounted",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"preview-card.backdrop": {
+		role: "leaf",
+		label: "Preview Card Backdrop",
+		description: "Backdrop for a Base UI Preview Card.",
+	},
+	"preview-card.positioner": {
+		role: "branch",
+		label: "Preview Card Positioner",
+		description:
+			"Positions a Base UI Preview Card against its trigger. Placement controls visibly change the popup layout.",
+		controls: {
+			side: {
+				label: "Side",
+				input: "select",
+				prop: "side",
+				valueType: "string",
+				options: sideOptions,
+				defaultValue: "bottom",
+			},
+			align: {
+				label: "Align",
+				input: "select",
+				prop: "align",
+				valueType: "string",
+				options: alignOptions,
+				defaultValue: "center",
+			},
+			sideOffset: {
+				label: "Side offset",
+				input: "number",
+				prop: "sideOffset",
+				valueType: "number",
+				defaultValue: 8,
+			},
+			alignOffset: {
+				label: "Align offset",
+				input: "number",
+				prop: "alignOffset",
+				valueType: "number",
+				defaultValue: 0,
+			},
+			arrowPadding: {
+				label: "Arrow padding",
+				input: "number",
+				prop: "arrowPadding",
+				valueType: "number",
+				defaultValue: 8,
+			},
+			collisionPadding: {
+				label: "Collision padding",
+				input: "number",
+				prop: "collisionPadding",
+				valueType: "number",
+				defaultValue: 8,
+			},
+		},
+	},
+	"preview-card.popup": {
+		role: "branch",
+		label: "Preview Card Popup",
+		description: "Popup container for Base UI Preview Card content.",
+	},
+	"preview-card.arrow": {
+		role: "branch",
+		label: "Preview Card Arrow",
+		description: "Arrow that visually connects a preview card to its trigger.",
+	},
+	"preview-card.viewport": {
+		role: "branch",
+		label: "Preview Card Viewport",
+		description:
+			"Viewport for animated content transitions between multiple triggers.",
+	},
+	"progress.root": {
+		role: "branch",
+		label: "Progress Root",
+		description: "Base UI Progress root.",
+		defaultProps: {
+			value: 50,
+			min: 0,
+			max: 100,
+		},
+		controls: {
+			value: {
+				label: "Value",
+				input: "number",
+				prop: "value",
+				valueType: "number",
+				defaultValue: 50,
+			},
+			min: {
+				label: "Min",
+				input: "number",
+				prop: "min",
+				valueType: "number",
+				defaultValue: 0,
+			},
+			max: {
+				label: "Max",
+				input: "number",
+				prop: "max",
+				valueType: "number",
+				defaultValue: 100,
+			},
+		},
+	},
+	"progress.label": {
+		role: "branch",
+		label: "Progress Label",
+		description: "Label for a Base UI Progress bar.",
+	},
+	"progress.track": {
+		role: "branch",
+		label: "Progress Track",
+		description: "Track for a Base UI Progress bar.",
+	},
+	"progress.indicator": {
+		role: "branch",
+		label: "Progress Indicator",
+		description: "Indicator for a Base UI Progress value.",
+	},
+	"progress.value": {
+		role: "branch",
+		label: "Progress Value",
+		description: "Formatted value for a Base UI Progress bar.",
+	},
 	"radio-group": {
 		role: "branch",
 		label: "Radio Group",
@@ -1115,10 +1913,13 @@ export const components = {
 		controls: {
 			value: {
 				label: "Value",
+				description:
+					"Must be unique among the radios of this group — duplicate values check together.",
 				input: "text",
 				prop: "value",
 				valueType: "string",
 				defaultValue: "option",
+				uniqueAmongSiblings: true,
 			},
 			disabled: {
 				label: "Disabled",
@@ -1297,15 +2098,6 @@ export const components = {
 		role: "branch",
 		label: "Select Portal",
 		description: "Portal host for a Base UI Select popup.",
-		controls: {
-			keepMounted: {
-				label: "Keep mounted",
-				input: "switch",
-				prop: "keepMounted",
-				valueType: "boolean",
-				defaultValue: false,
-			},
-		},
 	},
 	"select.backdrop": {
 		role: "leaf",
@@ -1362,10 +2154,13 @@ export const components = {
 		controls: {
 			value: {
 				label: "Value",
+				description:
+					"Must be unique among the items of this select — duplicate values make items indistinguishable on selection.",
 				input: "text",
 				prop: "value",
 				valueType: "string",
 				defaultValue: "item",
+				uniqueAmongSiblings: true,
 			},
 			disabled: {
 				label: "Disabled",
@@ -1617,10 +2412,13 @@ export const components = {
 		controls: {
 			value: {
 				label: "Value",
+				description:
+					"Must be unique among sibling tabs — duplicate values activate together and break tab switching. Pair with a Tabs Panel using the same value.",
 				input: "text",
 				prop: "value",
 				valueType: "string",
 				defaultValue: "tab",
+				uniqueAmongSiblings: true,
 			},
 			disabled: {
 				label: "Disabled",
@@ -1646,10 +2444,13 @@ export const components = {
 		controls: {
 			value: {
 				label: "Value",
+				description:
+					"Must match the value of exactly one Tabs Tab and be unique among sibling panels.",
 				input: "text",
 				prop: "value",
 				valueType: "string",
 				defaultValue: "tab",
+				uniqueAmongSiblings: true,
 			},
 			keepMounted: {
 				label: "Keep mounted",
@@ -1659,6 +2460,121 @@ export const components = {
 				defaultValue: false,
 			},
 		},
+	},
+	"toolbar.root": {
+		role: "branch",
+		label: "Toolbar Root",
+		description: "Base UI Toolbar root with roving focus across its controls.",
+		controls: {
+			orientation: {
+				label: "Orientation",
+				input: "radio",
+				prop: "orientation",
+				valueType: "string",
+				options: orientationOptions,
+				defaultValue: "horizontal",
+			},
+			loopFocus: {
+				label: "Loop focus",
+				input: "switch",
+				prop: "loopFocus",
+				valueType: "boolean",
+				defaultValue: true,
+			},
+			disabled: {
+				label: "Disabled",
+				input: "switch",
+				prop: "disabled",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"toolbar.group": {
+		role: "branch",
+		label: "Toolbar Group",
+		description: "Groups related controls inside a Base UI Toolbar.",
+		controls: {
+			disabled: {
+				label: "Disabled",
+				input: "switch",
+				prop: "disabled",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"toolbar.button": {
+		role: "branch",
+		label: "Toolbar Button",
+		description: "Button inside a Base UI Toolbar.",
+		defaultProps: {
+			type: "button",
+		},
+		controls: {
+			disabled: {
+				label: "Disabled",
+				input: "switch",
+				prop: "disabled",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"toolbar.link": {
+		role: "branch",
+		label: "Toolbar Link",
+		description: "Link inside a Base UI Toolbar.",
+		defaultProps: {
+			href: "#",
+		},
+		controls: {
+			href: {
+				label: "Href",
+				input: "text",
+				prop: "href",
+				valueType: "string",
+				defaultValue: "#",
+			},
+		},
+	},
+	"toolbar.input": {
+		role: "leaf",
+		label: "Toolbar Input",
+		description: "Input inside a Base UI Toolbar.",
+		defaultProps: {
+			placeholder: "",
+		},
+		controls: {
+			placeholder: {
+				label: "Placeholder",
+				input: "text",
+				prop: "placeholder",
+				valueType: "string",
+				defaultValue: "",
+			},
+			defaultValue: {
+				label: "Default value",
+				input: "text",
+				prop: "defaultValue",
+				valueType: "string",
+				defaultValue: "",
+			},
+			disabled: {
+				label: "Disabled",
+				input: "switch",
+				prop: "disabled",
+				valueType: "boolean",
+				defaultValue: false,
+			},
+		},
+	},
+	"toolbar.separator": {
+		role: "leaf",
+		label: "Toolbar Separator",
+		description:
+			"Separator between Base UI Toolbar groups. Orientation is derived perpendicular to the toolbar.",
+		baseClassName: separatorClassName,
 	},
 	"tooltip.provider": {
 		role: "branch",
@@ -1880,10 +2796,13 @@ export const components = {
 		controls: {
 			value: {
 				label: "Value",
+				description:
+					"Must be unique among the toggles of a toggle group so the group can track which toggle is pressed.",
 				input: "text",
 				prop: "value",
 				valueType: "string",
 				defaultValue: "toggle",
+				uniqueAmongSiblings: true,
 			},
 			defaultPressed: {
 				label: "Default pressed",

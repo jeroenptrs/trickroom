@@ -22,6 +22,9 @@ export const getBackendEntryPath = () =>
 export const getPreloadPath = () =>
 	path.join(getRuntimeRoot(), "dist-electron", "preload", "preload.cjs");
 
+export const getSplashPath = () =>
+	path.join(getRuntimeRoot(), "dist-electron", "main", "splash.html");
+
 export const getMcpHelperPath = () => {
 	const binary = process.platform === "win32" ? "mcp.cmd" : "mcp";
 	const root = app.isPackaged

@@ -2,14 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
 	applyColorChange,
 	applyColorClear,
+	applyColorClearAll,
 } from "./colorPropertiesController";
 
-const TOKENS = new Set([
-	"red-500",
-	"blue-500",
-	"slate-200",
-	"brand-primary",
-]);
+const TOKENS = new Set(["red-500", "blue-500", "slate-200", "brand-primary"]);
 const opts = { colorTokens: TOKENS };
 
 describe("applyColorChange — integration glue", () => {
@@ -105,6 +101,36 @@ describe("applyColorClear — integration glue", () => {
 				property: "background",
 			}),
 		).toBe("text-sm");
+	});
+});
+
+describe("applyColorClearAll — row-level remove gesture", () => {
+	it("clears base and every override chain in one fold", () => {
+		expect(
+			applyColorClearAll(
+				"flex bg-red-500 hover:bg-blue-500 md:hover:bg-slate-200 text-sm",
+				opts,
+				"background",
+				[[], ["hover"], ["md", "hover"]],
+			),
+		).toBe("flex text-sm");
+	});
+
+	it("leaves other properties' chains untouched", () => {
+		expect(
+			applyColorClearAll(
+				"bg-red-500 hover:bg-blue-500 hover:text-blue-500",
+				opts,
+				"background",
+				[[], ["hover"]],
+			),
+		).toBe("hover:text-blue-500");
+	});
+
+	it("is a no-op for an empty chain list", () => {
+		expect(applyColorClearAll("flex bg-red-500", opts, "background", [])).toBe(
+			"flex bg-red-500",
+		);
 	});
 });
 

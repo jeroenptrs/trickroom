@@ -19,6 +19,7 @@ import {
 	systemAssetsQueryOptions,
 } from "../../queries/system-assets";
 import { Button } from "../ui/button";
+import { Card } from "../ui/card";
 import { Input } from "../ui/input";
 import { getParentPathSegment, groupItemsByPathSegment } from "./path-segments";
 import {
@@ -418,9 +419,9 @@ export function SystemEditorAssetsPanel({
 					onAddAsset={pickAsset}
 					isAddingAsset={isPickingAsset || createAssetMutation.isPending}
 				/>
-				<div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+				<Card edge="border" tone="danger" className="px-4 py-3 text-sm">
 					Failed to load assets: {(assetsQuery.error as Error).message}
-				</div>
+				</Card>
 			</div>
 		);
 	}
@@ -440,12 +441,14 @@ export function SystemEditorAssetsPanel({
 				isAddingAsset={isPickingAsset || createAssetMutation.isPending}
 			/>
 			{assetActionError ? (
-				<div
-					className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+				<Card
+					edge="border"
+					tone="danger"
+					className="px-4 py-3 text-sm"
 					role="alert"
 				>
 					{assetActionError}
-				</div>
+				</Card>
 			) : null}
 			{assets.length === 0 ? (
 				<div className="flex min-h-0 flex-1 flex-col items-center justify-center border border-dashed border-slate-300 bg-white px-4 py-10 text-center">

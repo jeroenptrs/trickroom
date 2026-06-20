@@ -111,6 +111,139 @@ const recipes = {
 			},
 		},
 	},
+	"alert-dialog.default": {
+		id: "base-ui/alert-dialog.default",
+		label: "Alert Dialog",
+		description:
+			"Alert Dialog composition with trigger, backdrop, content, and close slots.",
+		version: 1,
+		root: {
+			path: "root",
+			library: "base-ui",
+			component: "alert-dialog.root",
+			props: {
+				defaultOpen: true,
+			},
+			children: [
+				{
+					path: "trigger",
+					library: "base-ui",
+					component: "alert-dialog.trigger",
+					slot: "trigger",
+					children: [],
+				},
+				{
+					path: "portal",
+					library: "base-ui",
+					component: "alert-dialog.portal",
+					children: [
+						{
+							path: "backdrop",
+							library: "base-ui",
+							component: "alert-dialog.backdrop",
+							className: "fixed inset-0 bg-black/20",
+						},
+						{
+							path: "viewport",
+							library: "base-ui",
+							component: "alert-dialog.viewport",
+							children: [
+								{
+									path: "popup",
+									library: "base-ui",
+									component: "alert-dialog.popup",
+									className:
+										"fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-4 shadow-lg",
+									children: [
+										{
+											path: "content",
+											library: "trickroom",
+											component: "container",
+											slot: "content",
+											children: [],
+										},
+									],
+								},
+							],
+						},
+					],
+				},
+			],
+		},
+		slots: {
+			trigger: {
+				name: "trigger",
+				label: "Trigger",
+				hostPath: "trigger",
+				allowedChildren: undefined,
+				defaultChildren: [
+					{
+						path: "trigger-text",
+						library: "trickroom",
+						component: "text",
+						text: "Open alert dialog",
+					},
+				],
+			},
+			content: {
+				name: "content",
+				label: "Content",
+				hostPath: "content",
+				allowedChildren: undefined,
+				defaultChildren: [
+					{
+						path: "title",
+						library: "base-ui",
+						component: "alert-dialog.title",
+						children: [
+							{
+								path: "title-text",
+								library: "trickroom",
+								component: "text",
+								text: "Alert Dialog",
+							},
+						],
+					},
+					{
+						path: "description",
+						library: "base-ui",
+						component: "alert-dialog.description",
+						children: [
+							{
+								path: "description-text",
+								library: "trickroom",
+								component: "text",
+								text: "Are you sure?",
+							},
+						],
+					},
+					{
+						path: "close",
+						library: "base-ui",
+						component: "alert-dialog.close",
+						children: [
+							{
+								path: "close-text",
+								library: "trickroom",
+								component: "text",
+								text: "Close",
+							},
+						],
+					},
+				],
+			},
+		},
+		controls: {
+			defaultOpen: {
+				label: "Default open",
+				input: "switch",
+				prop: "defaultOpen",
+				valueType: "boolean",
+				defaultValue: true,
+				path: "root",
+			},
+		},
+	},
 	"avatar.default": {
 		id: "base-ui/avatar.default",
 		label: "Avatar",
@@ -518,6 +651,260 @@ const recipes = {
 				valueType: "boolean",
 				defaultValue: false,
 				path: "panel",
+			},
+		},
+	},
+	"context-menu.default": {
+		id: "base-ui/context-menu.default",
+		label: "Context Menu",
+		description:
+			"Context menu composition with right-click trigger area and item slots.",
+		version: 1,
+		root: {
+			path: "root",
+			library: "base-ui",
+			component: "context-menu.root",
+			children: [
+				{
+					path: "trigger",
+					library: "base-ui",
+					component: "context-menu.trigger",
+					slot: "trigger",
+					children: [],
+				},
+				{
+					path: "portal",
+					library: "base-ui",
+					component: "context-menu.portal",
+					children: [
+						{
+							path: "positioner",
+							library: "base-ui",
+							component: "context-menu.positioner",
+							children: [
+								{
+									path: "popup",
+									library: "base-ui",
+									component: "context-menu.popup",
+									slot: "items",
+									children: [],
+								},
+							],
+						},
+					],
+				},
+			],
+		},
+		slots: {
+			trigger: {
+				name: "trigger",
+				label: "Trigger",
+				hostPath: "trigger",
+				allowedChildren: undefined,
+				defaultChildren: [
+					{
+						path: "trigger-text",
+						library: "trickroom",
+						component: "text",
+						text: "Right click here",
+					},
+				],
+			},
+			items: {
+				name: "items",
+				label: "Items",
+				hostPath: "popup",
+				allowedChildren: [
+					{ library: "base-ui", component: "context-menu.item" },
+					{ library: "base-ui", component: "context-menu.separator" },
+				],
+			},
+		},
+		controls: {
+			side: {
+				label: "Side",
+				input: "select",
+				prop: "side",
+				valueType: "string",
+				options: [
+					{ label: "Top", value: "top" },
+					{ label: "Right", value: "right" },
+					{ label: "Bottom", value: "bottom" },
+					{ label: "Left", value: "left" },
+				],
+				defaultValue: "bottom",
+				path: "positioner",
+			},
+			align: {
+				label: "Align",
+				input: "select",
+				prop: "align",
+				valueType: "string",
+				options: [
+					{ label: "Start", value: "start" },
+					{ label: "Center", value: "center" },
+					{ label: "End", value: "end" },
+				],
+				defaultValue: "start",
+				path: "positioner",
+			},
+			sideOffset: {
+				label: "Side offset",
+				input: "number",
+				prop: "sideOffset",
+				valueType: "number",
+				defaultValue: 4,
+				path: "positioner",
+			},
+		},
+	},
+	"dialog.default": {
+		id: "base-ui/dialog.default",
+		label: "Dialog",
+		description:
+			"Dialog composition with trigger, backdrop, content, and close slots.",
+		version: 1,
+		root: {
+			path: "root",
+			library: "base-ui",
+			component: "dialog.root",
+			props: {
+				defaultOpen: true,
+				modal: true,
+			},
+			children: [
+				{
+					path: "trigger",
+					library: "base-ui",
+					component: "dialog.trigger",
+					slot: "trigger",
+					children: [],
+				},
+				{
+					path: "portal",
+					library: "base-ui",
+					component: "dialog.portal",
+					children: [
+						{
+							path: "backdrop",
+							library: "base-ui",
+							component: "dialog.backdrop",
+							className: "fixed inset-0 bg-black/20",
+						},
+						{
+							path: "viewport",
+							library: "base-ui",
+							component: "dialog.viewport",
+							children: [
+								{
+									path: "popup",
+									library: "base-ui",
+									component: "dialog.popup",
+									className:
+										"fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-4 shadow-lg",
+									children: [
+										{
+											path: "content",
+											library: "trickroom",
+											component: "container",
+											slot: "content",
+											children: [],
+										},
+									],
+								},
+							],
+						},
+					],
+				},
+			],
+		},
+		slots: {
+			trigger: {
+				name: "trigger",
+				label: "Trigger",
+				hostPath: "trigger",
+				allowedChildren: undefined,
+				defaultChildren: [
+					{
+						path: "trigger-text",
+						library: "trickroom",
+						component: "text",
+						text: "Open dialog",
+					},
+				],
+			},
+			content: {
+				name: "content",
+				label: "Content",
+				hostPath: "content",
+				allowedChildren: undefined,
+				defaultChildren: [
+					{
+						path: "title",
+						library: "base-ui",
+						component: "dialog.title",
+						children: [
+							{
+								path: "title-text",
+								library: "trickroom",
+								component: "text",
+								text: "Dialog",
+							},
+						],
+					},
+					{
+						path: "description",
+						library: "base-ui",
+						component: "dialog.description",
+						children: [
+							{
+								path: "description-text",
+								library: "trickroom",
+								component: "text",
+								text: "Dialog content",
+							},
+						],
+					},
+					{
+						path: "close",
+						library: "base-ui",
+						component: "dialog.close",
+						children: [
+							{
+								path: "close-text",
+								library: "trickroom",
+								component: "text",
+								text: "Close",
+							},
+						],
+					},
+				],
+			},
+		},
+		controls: {
+			defaultOpen: {
+				label: "Default open",
+				input: "switch",
+				prop: "defaultOpen",
+				valueType: "boolean",
+				defaultValue: true,
+				path: "root",
+			},
+			modal: {
+				label: "Modal",
+				input: "switch",
+				prop: "modal",
+				valueType: "boolean",
+				defaultValue: true,
+				path: "root",
+			},
+			disablePointerDismissal: {
+				label: "Disable pointer dismissal",
+				input: "switch",
+				prop: "disablePointerDismissal",
+				valueType: "boolean",
+				defaultValue: false,
+				path: "root",
 			},
 		},
 	},
@@ -1178,6 +1565,733 @@ const recipes = {
 				valueType: "number",
 				defaultValue: 4,
 				path: "positioner",
+			},
+		},
+	},
+	"menubar.default": {
+		id: "base-ui/menubar.default",
+		label: "Menubar",
+		description: "Menubar that hosts menu compositions side by side.",
+		version: 1,
+		root: {
+			path: "root",
+			library: "base-ui",
+			component: "menubar",
+			slot: "menus",
+			children: [],
+		},
+		slots: {
+			menus: {
+				name: "menus",
+				label: "Menus",
+				hostPath: "root",
+				allowedChildren: [
+					{ library: "base-ui", component: "menu.root" },
+					{
+						kind: "recipe",
+						library: "base-ui",
+						recipe: "menu.default",
+					},
+				],
+			},
+		},
+		controls: {
+			orientation: {
+				label: "Orientation",
+				input: "radio",
+				prop: "orientation",
+				valueType: "string",
+				options: [
+					{ label: "Horizontal", value: "horizontal" },
+					{ label: "Vertical", value: "vertical" },
+				],
+				defaultValue: "horizontal",
+				path: "root",
+			},
+			disabled: {
+				label: "Disabled",
+				input: "switch",
+				prop: "disabled",
+				valueType: "boolean",
+				defaultValue: false,
+				path: "root",
+			},
+		},
+	},
+	"number-field.default": {
+		id: "base-ui/number-field.default",
+		label: "Number Field",
+		description:
+			"Number field with decrement and increment buttons around the input.",
+		version: 1,
+		root: {
+			path: "root",
+			library: "base-ui",
+			component: "number-field.root",
+			props: {
+				defaultValue: 0,
+			},
+			children: [
+				{
+					path: "group",
+					library: "base-ui",
+					component: "number-field.group",
+					children: [
+						{
+							path: "decrement",
+							library: "base-ui",
+							component: "number-field.decrement",
+							props: {
+								type: "button",
+							},
+							slot: "decrement",
+							children: [],
+						},
+						{
+							path: "input",
+							library: "base-ui",
+							component: "number-field.input",
+						},
+						{
+							path: "increment",
+							library: "base-ui",
+							component: "number-field.increment",
+							props: {
+								type: "button",
+							},
+							slot: "increment",
+							children: [],
+						},
+					],
+				},
+			],
+		},
+		slots: {
+			decrement: {
+				name: "decrement",
+				label: "Decrement",
+				hostPath: "decrement",
+				allowedChildren: undefined,
+				defaultChildren: [
+					{
+						path: "decrement-text",
+						library: "trickroom",
+						component: "text",
+						text: "−",
+					},
+				],
+			},
+			increment: {
+				name: "increment",
+				label: "Increment",
+				hostPath: "increment",
+				allowedChildren: undefined,
+				defaultChildren: [
+					{
+						path: "increment-text",
+						library: "trickroom",
+						component: "text",
+						text: "+",
+					},
+				],
+			},
+		},
+		controls: {
+			defaultValue: {
+				label: "Default value",
+				input: "number",
+				prop: "defaultValue",
+				valueType: "number",
+				defaultValue: 0,
+				path: "root",
+			},
+			min: {
+				label: "Min",
+				input: "number",
+				prop: "min",
+				valueType: "number",
+				path: "root",
+			},
+			max: {
+				label: "Max",
+				input: "number",
+				prop: "max",
+				valueType: "number",
+				path: "root",
+			},
+			step: {
+				label: "Step",
+				input: "number",
+				prop: "step",
+				valueType: "number",
+				defaultValue: 1,
+				path: "root",
+			},
+			disabled: {
+				label: "Disabled",
+				input: "switch",
+				prop: "disabled",
+				valueType: "boolean",
+				defaultValue: false,
+				path: "root",
+			},
+		},
+	},
+	"otp-field.default": {
+		id: "base-ui/otp-field.default",
+		label: "OTP Field",
+		description:
+			"One-time password field with six character inputs. Keep the length control in sync with the number of inputs.",
+		version: 1,
+		root: {
+			path: "root",
+			library: "base-ui",
+			component: "otp-field.root",
+			props: {
+				length: 6,
+			},
+			slot: "inputs",
+			children: [],
+		},
+		slots: {
+			inputs: {
+				name: "inputs",
+				label: "Inputs",
+				hostPath: "root",
+				allowedChildren: [
+					{ library: "base-ui", component: "otp-field.input" },
+					{ library: "base-ui", component: "separator" },
+				],
+				defaultChildren: [
+					{
+						path: "input-1",
+						library: "base-ui",
+						component: "otp-field.input",
+					},
+					{
+						path: "input-2",
+						library: "base-ui",
+						component: "otp-field.input",
+					},
+					{
+						path: "input-3",
+						library: "base-ui",
+						component: "otp-field.input",
+					},
+					{
+						path: "input-4",
+						library: "base-ui",
+						component: "otp-field.input",
+					},
+					{
+						path: "input-5",
+						library: "base-ui",
+						component: "otp-field.input",
+					},
+					{
+						path: "input-6",
+						library: "base-ui",
+						component: "otp-field.input",
+					},
+				],
+			},
+		},
+		controls: {
+			length: {
+				label: "Length",
+				input: "number",
+				prop: "length",
+				valueType: "number",
+				defaultValue: 6,
+				path: "root",
+			},
+			validationType: {
+				label: "Validation",
+				input: "select",
+				prop: "validationType",
+				valueType: "string",
+				options: [
+					{ label: "Numeric", value: "numeric" },
+					{ label: "Alpha", value: "alpha" },
+					{ label: "Alphanumeric", value: "alphanumeric" },
+					{ label: "None", value: "none" },
+				],
+				defaultValue: "numeric",
+				path: "root",
+			},
+			mask: {
+				label: "Mask",
+				input: "switch",
+				prop: "mask",
+				valueType: "boolean",
+				defaultValue: false,
+				path: "root",
+			},
+			disabled: {
+				label: "Disabled",
+				input: "switch",
+				prop: "disabled",
+				valueType: "boolean",
+				defaultValue: false,
+				path: "root",
+			},
+		},
+	},
+	"popover.default": {
+		id: "base-ui/popover.default",
+		label: "Popover",
+		description: "Popover composition with editable trigger and content slots.",
+		version: 1,
+		root: {
+			path: "root",
+			library: "base-ui",
+			component: "popover.root",
+			props: {
+				defaultOpen: true,
+			},
+			children: [
+				{
+					path: "trigger",
+					library: "base-ui",
+					component: "popover.trigger",
+					className:
+						"inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm",
+					props: {
+						type: "button",
+					},
+					slot: "trigger",
+					children: [],
+				},
+				{
+					path: "portal",
+					library: "base-ui",
+					component: "popover.portal",
+					children: [
+						{
+							path: "positioner",
+							library: "base-ui",
+							component: "popover.positioner",
+							props: {
+								sideOffset: 8,
+								arrowPadding: 8,
+							},
+							children: [
+								{
+									path: "popup",
+									library: "base-ui",
+									component: "popover.popup",
+									className:
+										"w-72 rounded-lg border border-slate-200 bg-white p-4 text-slate-950 shadow-lg",
+									children: [
+										{
+											path: "arrow",
+											library: "base-ui",
+											component: "popover.arrow",
+											className:
+												"size-3 rotate-45 border-l border-t border-slate-200 bg-white",
+										},
+										{
+											path: "content",
+											library: "trickroom",
+											component: "container",
+											className: "flex flex-col gap-2",
+											slot: "content",
+											children: [],
+										},
+									],
+								},
+							],
+						},
+					],
+				},
+			],
+		},
+		slots: {
+			trigger: {
+				name: "trigger",
+				label: "Trigger",
+				hostPath: "trigger",
+				allowedChildren: undefined,
+				defaultChildren: [
+					{
+						path: "trigger-label",
+						library: "trickroom",
+						component: "text",
+						text: "Open popover",
+					},
+				],
+			},
+			content: {
+				name: "content",
+				label: "Content",
+				hostPath: "content",
+				allowedChildren: undefined,
+				defaultChildren: [
+					{
+						path: "title",
+						library: "base-ui",
+						component: "popover.title",
+						className: "font-medium",
+						children: [
+							{
+								path: "title-text",
+								library: "trickroom",
+								component: "text",
+								text: "Popover title",
+							},
+						],
+					},
+					{
+						path: "description",
+						library: "base-ui",
+						component: "popover.description",
+						className: "text-sm text-slate-600",
+						children: [
+							{
+								path: "description-text",
+								library: "trickroom",
+								component: "text",
+								text: "Add supporting content or actions here.",
+							},
+						],
+					},
+					{
+						path: "close",
+						library: "base-ui",
+						component: "popover.close",
+						className:
+							"mt-2 inline-flex self-start rounded-md border border-slate-300 px-2 py-1 text-sm",
+						props: {
+							type: "button",
+						},
+						children: [
+							{
+								path: "close-text",
+								library: "trickroom",
+								component: "text",
+								text: "Close",
+							},
+						],
+					},
+				],
+			},
+		},
+		controls: {
+			defaultOpen: {
+				label: "Default open",
+				description:
+					"Useful while designing because it makes the popup visible by default.",
+				input: "switch",
+				prop: "defaultOpen",
+				valueType: "boolean",
+				defaultValue: true,
+				path: "root",
+			},
+			side: {
+				label: "Side",
+				input: "select",
+				prop: "side",
+				valueType: "string",
+				options: [
+					{ label: "Top", value: "top" },
+					{ label: "Right", value: "right" },
+					{ label: "Bottom", value: "bottom" },
+					{ label: "Left", value: "left" },
+				],
+				defaultValue: "bottom",
+				path: "positioner",
+			},
+			align: {
+				label: "Align",
+				input: "select",
+				prop: "align",
+				valueType: "string",
+				options: [
+					{ label: "Start", value: "start" },
+					{ label: "Center", value: "center" },
+					{ label: "End", value: "end" },
+				],
+				defaultValue: "center",
+				path: "positioner",
+			},
+			sideOffset: {
+				label: "Side offset",
+				input: "number",
+				prop: "sideOffset",
+				valueType: "number",
+				defaultValue: 8,
+				path: "positioner",
+			},
+			alignOffset: {
+				label: "Align offset",
+				input: "number",
+				prop: "alignOffset",
+				valueType: "number",
+				defaultValue: 0,
+				path: "positioner",
+			},
+			arrowPadding: {
+				label: "Arrow padding",
+				input: "number",
+				prop: "arrowPadding",
+				valueType: "number",
+				defaultValue: 8,
+				path: "positioner",
+			},
+			collisionPadding: {
+				label: "Collision padding",
+				input: "number",
+				prop: "collisionPadding",
+				valueType: "number",
+				defaultValue: 8,
+				path: "positioner",
+			},
+		},
+	},
+	"preview-card.default": {
+		id: "base-ui/preview-card.default",
+		label: "Preview Card",
+		description:
+			"Preview card composition with link trigger and editable content slot.",
+		version: 1,
+		root: {
+			path: "root",
+			library: "base-ui",
+			component: "preview-card.root",
+			props: {
+				defaultOpen: true,
+			},
+			children: [
+				{
+					path: "trigger",
+					library: "base-ui",
+					component: "preview-card.trigger",
+					className: "text-sm underline underline-offset-2",
+					props: {
+						href: "#",
+					},
+					slot: "trigger",
+					children: [],
+				},
+				{
+					path: "portal",
+					library: "base-ui",
+					component: "preview-card.portal",
+					children: [
+						{
+							path: "positioner",
+							library: "base-ui",
+							component: "preview-card.positioner",
+							props: {
+								sideOffset: 8,
+								arrowPadding: 8,
+							},
+							children: [
+								{
+									path: "popup",
+									library: "base-ui",
+									component: "preview-card.popup",
+									className:
+										"w-72 rounded-lg border border-slate-200 bg-white p-4 text-slate-950 shadow-lg",
+									children: [
+										{
+											path: "arrow",
+											library: "base-ui",
+											component: "preview-card.arrow",
+											className:
+												"size-3 rotate-45 border-l border-t border-slate-200 bg-white",
+										},
+										{
+											path: "content",
+											library: "trickroom",
+											component: "container",
+											className: "flex flex-col gap-2",
+											slot: "content",
+											children: [],
+										},
+									],
+								},
+							],
+						},
+					],
+				},
+			],
+		},
+		slots: {
+			trigger: {
+				name: "trigger",
+				label: "Trigger",
+				hostPath: "trigger",
+				allowedChildren: undefined,
+				defaultChildren: [
+					{
+						path: "trigger-label",
+						library: "trickroom",
+						component: "text",
+						text: "Hover this link",
+					},
+				],
+			},
+			content: {
+				name: "content",
+				label: "Content",
+				hostPath: "content",
+				allowedChildren: undefined,
+				defaultChildren: [
+					{
+						path: "title",
+						library: "trickroom",
+						component: "text",
+						className: "font-medium",
+						text: "Preview title",
+					},
+					{
+						path: "description",
+						library: "trickroom",
+						component: "text",
+						className: "text-sm text-slate-600",
+						text: "Add a summary of the linked content here.",
+					},
+				],
+			},
+		},
+		controls: {
+			defaultOpen: {
+				label: "Default open",
+				description:
+					"Useful while designing because it makes the popup visible by default.",
+				input: "switch",
+				prop: "defaultOpen",
+				valueType: "boolean",
+				defaultValue: true,
+				path: "root",
+			},
+			side: {
+				label: "Side",
+				input: "select",
+				prop: "side",
+				valueType: "string",
+				options: [
+					{ label: "Top", value: "top" },
+					{ label: "Right", value: "right" },
+					{ label: "Bottom", value: "bottom" },
+					{ label: "Left", value: "left" },
+				],
+				defaultValue: "bottom",
+				path: "positioner",
+			},
+			align: {
+				label: "Align",
+				input: "select",
+				prop: "align",
+				valueType: "string",
+				options: [
+					{ label: "Start", value: "start" },
+					{ label: "Center", value: "center" },
+					{ label: "End", value: "end" },
+				],
+				defaultValue: "center",
+				path: "positioner",
+			},
+			sideOffset: {
+				label: "Side offset",
+				input: "number",
+				prop: "sideOffset",
+				valueType: "number",
+				defaultValue: 8,
+				path: "positioner",
+			},
+		},
+	},
+	"progress.default": {
+		id: "base-ui/progress.default",
+		label: "Progress",
+		description: "Progress bar with label, track, indicator, and value.",
+		version: 1,
+		root: {
+			path: "root",
+			library: "base-ui",
+			component: "progress.root",
+			props: {
+				value: 50,
+				min: 0,
+				max: 100,
+			},
+			children: [
+				{
+					path: "label",
+					library: "base-ui",
+					component: "progress.label",
+					slot: "label",
+					children: [],
+				},
+				{
+					path: "track",
+					library: "base-ui",
+					component: "progress.track",
+					children: [
+						{
+							path: "indicator",
+							library: "base-ui",
+							component: "progress.indicator",
+							slot: "indicator",
+							children: [],
+						},
+					],
+				},
+				{
+					path: "value",
+					library: "base-ui",
+					component: "progress.value",
+				},
+			],
+		},
+		slots: {
+			label: {
+				name: "label",
+				label: "Label",
+				hostPath: "label",
+				allowedChildren: undefined,
+				defaultChildren: [
+					{
+						path: "label-text",
+						library: "trickroom",
+						component: "text",
+						text: "Loading",
+					},
+				],
+			},
+			indicator: {
+				name: "indicator",
+				label: "Indicator",
+				hostPath: "indicator",
+				allowedChildren: undefined,
+			},
+		},
+		controls: {
+			value: {
+				label: "Value",
+				input: "number",
+				prop: "value",
+				valueType: "number",
+				defaultValue: 50,
+				path: "root",
+			},
+			min: {
+				label: "Min",
+				input: "number",
+				prop: "min",
+				valueType: "number",
+				defaultValue: 0,
+				path: "root",
+			},
+			max: {
+				label: "Max",
+				input: "number",
+				prop: "max",
+				valueType: "number",
+				defaultValue: 100,
+				path: "root",
 			},
 		},
 	},
@@ -1934,6 +3048,111 @@ const recipes = {
 					{ label: "Vertical", value: "vertical" },
 				],
 				defaultValue: "horizontal",
+				path: "root",
+			},
+		},
+	},
+	"toolbar.default": {
+		id: "base-ui/toolbar.default",
+		label: "Toolbar",
+		description:
+			"Toolbar with editable buttons, separators, links, and inputs.",
+		version: 1,
+		root: {
+			path: "root",
+			library: "base-ui",
+			component: "toolbar.root",
+			slot: "items",
+			children: [],
+		},
+		slots: {
+			items: {
+				name: "items",
+				label: "Items",
+				hostPath: "root",
+				allowedChildren: [
+					{ library: "base-ui", component: "toolbar.button" },
+					{ library: "base-ui", component: "toolbar.link" },
+					{ library: "base-ui", component: "toolbar.input" },
+					{ library: "base-ui", component: "toolbar.group" },
+					{ library: "base-ui", component: "toolbar.separator" },
+				],
+				defaultChildren: [
+					{
+						path: "button-1",
+						library: "base-ui",
+						component: "toolbar.button",
+						props: {
+							type: "button",
+						},
+						children: [
+							{
+								path: "button-1-text",
+								library: "trickroom",
+								component: "text",
+								text: "Cut",
+							},
+						],
+					},
+					{
+						path: "button-2",
+						library: "base-ui",
+						component: "toolbar.button",
+						props: {
+							type: "button",
+						},
+						children: [
+							{
+								path: "button-2-text",
+								library: "trickroom",
+								component: "text",
+								text: "Copy",
+							},
+						],
+					},
+					{
+						path: "separator",
+						library: "base-ui",
+						component: "toolbar.separator",
+					},
+					{
+						path: "link",
+						library: "base-ui",
+						component: "toolbar.link",
+						props: {
+							href: "#",
+						},
+						children: [
+							{
+								path: "link-text",
+								library: "trickroom",
+								component: "text",
+								text: "Help",
+							},
+						],
+					},
+				],
+			},
+		},
+		controls: {
+			orientation: {
+				label: "Orientation",
+				input: "radio",
+				prop: "orientation",
+				valueType: "string",
+				options: [
+					{ label: "Horizontal", value: "horizontal" },
+					{ label: "Vertical", value: "vertical" },
+				],
+				defaultValue: "horizontal",
+				path: "root",
+			},
+			disabled: {
+				label: "Disabled",
+				input: "switch",
+				prop: "disabled",
+				valueType: "boolean",
+				defaultValue: false,
 				path: "root",
 			},
 		},

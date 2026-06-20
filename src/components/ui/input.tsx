@@ -1,7 +1,7 @@
-import { Field } from "@base-ui/react/field";
 import { Input as InputPrimitive, type InputProps } from "@base-ui/react/input";
 import type { ComponentProps } from "react";
 import { tv } from "tailwind-variants";
+import { Field, FieldPrimitive } from "./field";
 
 type InputVariant =
 	| "inline"
@@ -47,6 +47,24 @@ function Input({
 	);
 }
 
+/** A Base UI Field.Control styled as an input, for use inside `Field`. */
+function FieldControl({
+	className,
+	variant = "block",
+	...props
+}: Omit<InputProps, "className"> & {
+	className?: string;
+	variant?: InputVariant;
+}) {
+	return (
+		<FieldPrimitive.Control
+			data-slot="field-control"
+			className={input({ variant, className })}
+			{...props}
+		/>
+	);
+}
+
 function InputField({
 	label,
 	description,
@@ -58,21 +76,9 @@ function InputField({
 	description?: string;
 }) {
 	return (
-		<Field.Root data-slot="field-root" className="text-xs flex flex-col gap-1">
-			<Field.Label data-slot="field-label" className="font-semibold">
-				{label}
-			</Field.Label>
-			<Field.Control
-				data-slot="field-control"
-				className={input({ className, variant: "block" })}
-				{...props}
-			/>
-			{description ? (
-				<Field.Description className="text-slate-900/60 pt-0.5">
-					{description}
-				</Field.Description>
-			) : null}
-		</Field.Root>
+		<Field label={label} description={description}>
+			<FieldControl className={className} {...props} />
+		</Field>
 	);
 }
 
@@ -89,10 +95,7 @@ function TextareaField({
 	variant?: InputVariant;
 }) {
 	return (
-		<Field.Root data-slot="field-root" className="text-xs flex flex-col gap-1">
-			<Field.Label data-slot="field-label" className="font-semibold">
-				{label}
-			</Field.Label>
+		<Field label={label} description={description}>
 			<textarea
 				data-slot="field-control"
 				className={input({
@@ -101,13 +104,8 @@ function TextareaField({
 				})}
 				{...props}
 			/>
-			{description ? (
-				<Field.Description className="text-slate-900/60 pt-0.5">
-					{description}
-				</Field.Description>
-			) : null}
-		</Field.Root>
+		</Field>
 	);
 }
 
-export { Input, InputField, TextareaField };
+export { FieldControl, Input, InputField, TextareaField };

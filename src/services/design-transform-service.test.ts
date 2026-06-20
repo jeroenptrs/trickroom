@@ -640,6 +640,49 @@ describe("applyAddElement", () => {
 		).toBe(separatorBaseClassName);
 	});
 
+	describe("discriminator value uniquification", () => {
+		const addTab = (design: TrickroomDesign, props?: Record<string, string>) =>
+			applyAddElement(design, {
+				parentId: "root",
+				index: 0,
+				library: "base-ui",
+				component: "tabs.tab",
+				...(props ? { props } : {}),
+			});
+
+		const childValue = (design: TrickroomDesign, id: string) =>
+			findNode(design.boards, id)?.props.value;
+
+		it("suffixes default values that collide with a sibling", () => {
+			const first = addTab(simpleDesign);
+			expect(childValue(first.design, first.changedElementId)).toBe("tab");
+
+			const second = addTab(first.design);
+			expect(childValue(second.design, second.changedElementId)).toBe("tab-2");
+
+			const third = addTab(second.design);
+			expect(childValue(third.design, third.changedElementId)).toBe("tab-3");
+		});
+
+		it("keeps explicitly provided values even when they collide", () => {
+			const first = addTab(simpleDesign, { value: "tab" });
+			const second = addTab(first.design, { value: "tab" });
+			expect(childValue(second.design, second.changedElementId)).toBe("tab");
+		});
+
+		it("ignores sibling values from other components", () => {
+			const item = applyAddElement(simpleDesign, {
+				parentId: "root",
+				index: 0,
+				library: "base-ui",
+				component: "select.item",
+				props: { value: "tab" },
+			});
+			const tab = addTab(item.design);
+			expect(childValue(tab.design, tab.changedElementId)).toBe("tab");
+		});
+	});
+
 	describe("props parameter", () => {
 		it("applies data-trickroom-name from props when name shortcut is absent", () => {
 			const { design: result, changedElementId } = applyAddElement(

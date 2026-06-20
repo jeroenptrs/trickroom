@@ -7,13 +7,19 @@ import {
 	type ModelOptions,
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
+import { Segmented, type SegmentedOption } from "../../ui/segmented";
 import { ColorPropertyControl } from "./ColorPropertyControl";
-import { applyColorChange, applyColorClear } from "./colorPropertiesController";
+import {
+	applyColorChange,
+	applyColorClear,
+	applyColorClearAll,
+} from "./colorPropertiesController";
+import { blendModeTokenOptions } from "./domainTokenOptions";
 import { effectsUtility } from "./effectsPropertiesController";
-import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
 import { StyleSection } from "./StyleSection";
 import { getStyleIntent, styleValueText } from "./styleSectionController";
+import { TokenField } from "./TokenField";
 
 type EffectsPropertiesProps = {
 	className: string;
@@ -77,6 +83,8 @@ export function EffectsProperties({
 		[className, options],
 	);
 
+	const blendOptions = useMemo(() => blendModeTokenOptions(), []);
+
 	const read = useCallback(
 		(property: StyleProperty) =>
 			styleValueText(getStyleIntent(className, options, property)),
@@ -86,10 +94,10 @@ export function EffectsProperties({
 	const shadow = read("effects.shadow");
 	const opacity = read("effects.opacity");
 
-	const summary =
-		[shadow && `shadow ${shadow}`, opacity && `${opacity}%`]
-			.filter(Boolean)
-			.join(" · ") || undefined;
+	const summary = [
+		shadow ? `shadow ${shadow}` : null,
+		opacity ? `${opacity}%` : null,
+	].filter((value): value is string => value !== null);
 
 	return (
 		<StyleSection title="Effects" summary={summary}>
@@ -98,6 +106,7 @@ export function EffectsProperties({
 				className={className}
 				options={options}
 				property="effects.shadow"
+				likely
 				onChange={onChange}
 				renderControl={(slot) => (
 					<Segmented
@@ -132,6 +141,9 @@ export function EffectsProperties({
 						onChange(
 							applyColorClear(className, options, { property, variants }),
 						)
+					}
+					onClearAll={(chains) =>
+						onChange(applyColorClearAll(className, options, property, chains))
 					}
 				/>
 			))}
@@ -201,6 +213,7 @@ export function EffectsProperties({
 				className={className}
 				options={options}
 				property="effects.opacity"
+				likely
 				onChange={onChange}
 				renderControl={(slot) => (
 					<Segmented
@@ -220,12 +233,14 @@ export function EffectsProperties({
 				className={className}
 				options={options}
 				property="effects.mix-blend-mode"
+				inline
 				onChange={onChange}
 				renderControl={(slot) => (
-					<ValueField
+					<TokenField
 						label="Mix blend"
 						value={slot.value ?? ""}
 						placeholder="multiply"
+						options={blendOptions}
 						onCommit={(v) =>
 							slot.apply(
 								v.trim()

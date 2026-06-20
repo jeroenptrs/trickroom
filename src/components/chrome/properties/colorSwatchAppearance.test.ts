@@ -49,10 +49,7 @@ describe("appearanceFromIntent", () => {
 
 	it("renders an arbitrary hex value verbatim", () => {
 		expect(
-			appearanceFromIntent(
-				colorIntent({ arbitraryValue: "[#abc]" }),
-				resolved,
-			),
+			appearanceFromIntent(colorIntent({ arbitraryValue: "[#abc]" }), resolved),
 		).toEqual({ kind: "color", cssValue: "#abc" });
 	});
 

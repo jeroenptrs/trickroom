@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
-	applyStyleUtility,
-	clearStyleProperty,
-	getStyleIntent,
-	styleValueText,
-} from "./styleSectionController";
-import {
 	applyMotionInput,
 	motionUtility,
 	readMotionValue,
 	readTransitionPropertyValue,
 } from "./motionPropertiesController";
+import {
+	applyStyleUtility,
+	clearStyleProperty,
+	getStyleIntent,
+	styleValueText,
+} from "./styleSectionController";
 
 const opts = { colorTokens: new Set(["red-500"]) };
 
@@ -36,9 +36,9 @@ describe("motionPropertiesController", () => {
 	});
 
 	it("writes arbitrary transition-property utilities", () => {
-		expect(motionUtility("motion.transition-property", "[color,transform]")).toBe(
-			"transition-[color,transform]",
-		);
+		expect(
+			motionUtility("motion.transition-property", "[color,transform]"),
+		).toBe("transition-[color,transform]");
 	});
 
 	it("clears one motion property without touching unrelated classes", () => {
@@ -52,7 +52,8 @@ describe("motionPropertiesController", () => {
 	});
 
 	it("reads active motion values and preserves unknown classes on round-trip", () => {
-		const input = "transition-all duration-500 delay-100 ease-linear animate-bounce custom-motion";
+		const input =
+			"transition-all duration-500 delay-100 ease-linear animate-bounce custom-motion";
 		expect(readTransitionPropertyValue(input, opts)).toBe("all");
 		expect(readMotionValue(input, opts, "motion.duration")).toBe("500");
 		expect(readMotionValue(input, opts, "motion.delay")).toBe("100");
@@ -63,8 +64,8 @@ describe("motionPropertiesController", () => {
 		expect(next).toBe(
 			"transition-all duration-500 delay-100 ease-in-out animate-bounce custom-motion",
 		);
-		expect(
-			styleValueText(getStyleIntent(next, opts, "motion.easing")),
-		).toBe("in-out");
+		expect(styleValueText(getStyleIntent(next, opts, "motion.easing"))).toBe(
+			"in-out",
+		);
 	});
 });

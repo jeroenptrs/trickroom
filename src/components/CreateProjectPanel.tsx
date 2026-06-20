@@ -1,6 +1,5 @@
-import { Fieldset } from "@base-ui/react/fieldset";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FilePlus2, FolderPlus, Plus } from "lucide-react";
+import { FilePlus2, FolderPlus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { getTrickroomDesktopApi } from "../desktop-api";
@@ -16,8 +15,10 @@ import {
 } from "../queries/projects";
 import { systemsQueryKey } from "../queries/systems";
 import { HttpError } from "../utils/readJsonOrThrow";
+import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { InputGroup, InputGroupButton } from "./ui/input-group";
 import { Text } from "./ui/text";
 
 const systemNamePattern = /^[A-Za-z0-9_@-]+$/;
@@ -33,6 +34,7 @@ export function CreateProjectPanel() {
 	const [systemCssPath, setSystemCssPath] = useState("");
 	const [cssPickerError, setCssPickerError] = useState<string | null>(null);
 	const [isPickingCss, setIsPickingCss] = useState(false);
+	const [showSystem, setShowSystem] = useState(false);
 	const nameInputRef = useRef<HTMLInputElement>(null);
 	const desktopApi = getTrickroomDesktopApi();
 	const queryClient = useQueryClient();
@@ -100,6 +102,17 @@ export function CreateProjectPanel() {
 		createProjectMutation.mutate();
 	};
 
+	const handleToggleSystem = () => {
+		setShowSystem((shown) => {
+			if (shown) {
+				setSystemName("");
+				setSystemCssPath("");
+				setCssPickerError(null);
+			}
+			return !shown;
+		});
+	};
+
 	const handlePickProjectFolder = async () => {
 		if (!desktopApi || isPickingFolder || createProjectMutation.isPending) {
 			return;
@@ -160,45 +173,51 @@ export function CreateProjectPanel() {
 		hasInvalidSystemName;
 
 	return (
-		<div className="flex flex-1 flex-col gap-5 px-8 pt-4 pb-8">
-			<div>
-				<Text variant="title" className="text-lg">
-					Start a new Trickroom project
-				</Text>
-				<Text className="mt-1 block text-sm text-slate-700">
-					{isNoProjectCreate
-						? "Point Trickroom at the folder for your project and, if you have one, link your Tailwind design system."
-						: "Trickroom will create the metadata for the open folder. Link a Tailwind design system if you have one."}
+		<div className="flex flex-1 flex-col">
+			<div className="flex min-h-20 flex-col justify-center gap-1 border-b border-slate-200 px-8">
+				<Text variant="eyebrow">New project</Text>
+				<Text
+					variant="title"
+					tone="foreground"
+					className="text-xl tracking-tight"
+				>
+					Create project
 				</Text>
 			</div>
 
-			<div className="flex flex-col gap-5">
-				<Fieldset.Root className="flex flex-col gap-2 border-none p-0 m-0 min-w-0">
-					<Fieldset.Legend
-						render={<Text variant="label" />}
-						className="text-xs font-semibold text-slate-950"
-					>
-						Project
-					</Fieldset.Legend>
-					<div
-						className={`grid gap-2 ${isNoProjectCreate ? "grid-cols-[minmax(0,12rem)_minmax(0,1fr)]" : "grid-cols-1"}`}
-					>
+			<div className="flex flex-1 flex-col gap-6 px-8 py-6">
+				<div className="flex flex-col gap-4">
+					<div className="flex items-center gap-2">
+						<span className="flex size-5 shrink-0 items-center justify-center bg-slate-950 font-mono text-[10px] text-slate-50">
+							1
+						</span>
+						<Text tone="foreground" className="text-sm font-semibold">
+							Project
+						</Text>
+					</div>
+
+					<div className="flex flex-col gap-1.5">
+						<Text variant="label" tone="foreground">
+							Project name
+						</Text>
 						<Input
 							ref={nameInputRef}
 							type="text"
 							variant="form"
 							aria-label="Project name"
-							placeholder="Project name"
+							placeholder="acme-dashboard"
 							value={name}
 							onChange={(event) => setName(event.target.value)}
 							disabled={inputsDisabled}
 						/>
-						{isNoProjectCreate ? (
-							<div className="group flex min-w-0 items-stretch inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500">
-								<FolderPlus
-									className="ml-2 size-4 shrink-0 self-center text-slate-600 group-focus-within:text-cyan-900"
-									aria-hidden="true"
-								/>
+					</div>
+
+					{isNoProjectCreate ? (
+						<div className="flex flex-col gap-1.5">
+							<Text variant="label" tone="foreground">
+								Location
+							</Text>
+							<InputGroup icon={FolderPlus}>
 								<Input
 									type="text"
 									variant="formEmbedded"
@@ -210,126 +229,143 @@ export function CreateProjectPanel() {
 									className="min-w-0 flex-1 truncate"
 								/>
 								{desktopApi ? (
-									<Button
-										type="button"
-										variant="block"
-										className="shrink-0 inset-shadow-[1px_0_0_0] inset-shadow-slate-200 group-focus-within:inset-shadow-cyan-500 not-disabled:hover:inset-shadow-[0_0_0_1px] not-disabled:active:inset-shadow-[0_0_0_1px] not-disabled:active:inset-shadow-cyan-500"
+									<InputGroupButton
 										disabled={inputsDisabled || isPickingFolder}
 										onClick={handlePickProjectFolder}
 									>
 										{isPickingFolder ? "Browsing" : "Browse"}
-									</Button>
+									</InputGroupButton>
 								) : null}
-							</div>
-						) : null}
-					</div>
-				</Fieldset.Root>
+							</InputGroup>
+						</div>
+					) : null}
+				</div>
 
-				<Fieldset.Root className="flex flex-col gap-2 border-none p-0 m-0 min-w-0">
-					<Fieldset.Legend
-						render={<Text variant="label" />}
-						className="text-xs font-semibold text-slate-950"
-					>
-						Design system
-					</Fieldset.Legend>
-					<div className="grid gap-2 grid-cols-[minmax(0,12rem)_minmax(0,1fr)]">
-						<Input
-							type="text"
-							variant="form"
-							aria-label="Design system name"
-							placeholder="System name"
-							value={systemName}
-							onChange={(event) => setSystemName(event.target.value)}
-							pattern={systemNamePattern.source}
-							aria-invalid={hasInvalidSystemName}
-							disabled={inputsDisabled}
-						/>
-						<div className="group flex min-w-0 items-stretch inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500">
-							<FilePlus2
-								className="ml-2 size-4 shrink-0 self-center text-slate-600 group-focus-within:text-cyan-900"
-								aria-hidden="true"
-							/>
-							<Input
-								type="text"
-								variant="formEmbedded"
-								aria-label="Design system CSS file"
-								placeholder="src/index.css"
-								value={systemCssPath}
-								onChange={(event) => setSystemCssPath(event.target.value)}
-								disabled={inputsDisabled}
-								className="min-w-0 flex-1 truncate"
-							/>
-							{desktopApi ? (
-								<Button
-									type="button"
-									variant="block"
-									className="shrink-0 inset-shadow-[1px_0_0_0] inset-shadow-slate-200 group-focus-within:inset-shadow-cyan-500 not-disabled:hover:inset-shadow-[0_0_0_1px] not-disabled:active:inset-shadow-[0_0_0_1px] not-disabled:active:inset-shadow-cyan-500"
-									disabled={inputsDisabled || isPickingCss || !canPickCss}
-									onClick={handlePickCssFile}
-									title={
-										!canPickCss
-											? "Browse for a project folder first."
-											: undefined
-									}
-								>
-									{isPickingCss ? "Browsing" : "Browse"}
-								</Button>
+				<div className="flex flex-col gap-2 border-t border-slate-200 pt-5">
+					<div className="flex items-center justify-between">
+						<div className="flex items-center gap-2">
+							<span className="flex size-5 shrink-0 items-center justify-center font-mono text-[10px] text-slate-500 inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
+								2
+							</span>
+							<Text tone="foreground" className="text-sm font-semibold">
+								Design system
+							</Text>
+						</div>
+						<Button type="button" variant="link" onClick={handleToggleSystem}>
+							{showSystem ? "Remove" : "Add +"}
+						</Button>
+					</div>
+
+					{showSystem ? (
+						<div className="flex flex-col gap-2 pl-7">
+							<div className="flex flex-col gap-1.5">
+								<Text variant="label" tone="foreground">
+									System name
+								</Text>
+								<Input
+									type="text"
+									variant="form"
+									aria-label="Design system name"
+									placeholder="System name"
+									value={systemName}
+									onChange={(event) => setSystemName(event.target.value)}
+									pattern={systemNamePattern.source}
+									aria-invalid={hasInvalidSystemName}
+									disabled={inputsDisabled}
+								/>
+							</div>
+							<div className="flex flex-col gap-1.5">
+								<Text variant="label" tone="foreground">
+									CSS file
+								</Text>
+								<InputGroup icon={FilePlus2}>
+									<Input
+										type="text"
+										variant="formEmbedded"
+										aria-label="Design system CSS file"
+										placeholder="src/index.css"
+										value={systemCssPath}
+										onChange={(event) => setSystemCssPath(event.target.value)}
+										disabled={inputsDisabled}
+										className="min-w-0 flex-1 truncate"
+									/>
+									{desktopApi ? (
+										<InputGroupButton
+											disabled={inputsDisabled || isPickingCss || !canPickCss}
+											onClick={handlePickCssFile}
+											title={
+												!canPickCss
+													? "Browse for a project folder first."
+													: undefined
+											}
+										>
+											{isPickingCss ? "Browsing" : "Browse"}
+										</InputGroupButton>
+									) : null}
+								</InputGroup>
+							</div>
+							<Text tone="muted" className="text-[11px]">
+								Optional. Path is relative to the project folder — e.g.{" "}
+								<code className="font-mono">src/index.css</code>.
+							</Text>
+							{hasPartialSystemLink ? (
+								<Alert variant="inline">
+									Provide both a design system name and CSS path, or leave both
+									empty.
+								</Alert>
+							) : null}
+							{hasInvalidSystemName ? (
+								<Alert variant="inline">
+									Use only letters, numbers, dashes, underscores, and at-signs
+									in the design system name.
+								</Alert>
+							) : null}
+							{cssPickerError ? (
+								<Alert variant="inline">{cssPickerError}</Alert>
 							) : null}
 						</div>
-					</div>
-					<Text className="text-[11px] text-slate-600">
-						Optional. Path is relative to the project folder — e.g.{" "}
-						<code className="font-mono">src/index.css</code>.
-					</Text>
-					{hasPartialSystemLink ? (
-						<Text className="text-[11px] text-red-900">
-							Provide both a design system name and CSS path, or leave both
-							empty.
+					) : (
+						<Text tone="muted" className="pl-7 font-mono text-[10px]">
+							Link a Tailwind CSS file now, or add one after the project exists.
 						</Text>
-					) : null}
-					{hasInvalidSystemName ? (
-						<Text className="text-[11px] text-red-900">
-							Use only letters, numbers, dashes, underscores, and at-signs in
-							the design system name.
-						</Text>
-					) : null}
-					{cssPickerError ? (
-						<Text className="text-[11px] text-red-900">{cssPickerError}</Text>
-					) : null}
-				</Fieldset.Root>
+					)}
+				</div>
 
 				{folderPickerError ? (
-					<div className="w-fit bg-red-500 px-2 py-1 text-xs text-white">
-						{folderPickerError}
-					</div>
+					<Alert variant="panel">{folderPickerError}</Alert>
 				) : null}
 				{createProjectMutation.isError ? (
-					<div className="w-fit bg-red-500 px-2 py-1 text-xs text-white">
+					<Alert variant="panel">
 						Failed to create project: {createErrorMessage}
-					</div>
+					</Alert>
 				) : null}
 			</div>
 
-			<div className="flex gap-2">
-				<Button
-					type="button"
-					variant="outlined"
-					className="flex-1 justify-center"
-					onClick={() => navigate("/")}
-					disabled={createProjectMutation.isPending}
+			<div className="flex items-center justify-between border-t border-slate-200 px-8 py-4">
+				<Text
+					tone="faint"
+					className="font-mono text-[10px] uppercase tracking-wider"
 				>
-					Open project instead
-				</Button>
-				<Button
-					type="button"
-					variant="outlined"
-					className="flex flex-1 items-center justify-center gap-2"
-					onClick={handleCreate}
-					disabled={submitDisabled}
-				>
-					<Plus className="size-3.5" aria-hidden="true" />
-					{createProjectMutation.isPending ? "Creating…" : "Create project"}
-				</Button>
+					Step {showSystem ? "2" : "1"} of 2
+				</Text>
+				<div className="flex items-center gap-2">
+					<Button
+						type="button"
+						variant="ghost"
+						onClick={() => navigate("/")}
+						disabled={createProjectMutation.isPending}
+					>
+						Cancel
+					</Button>
+					<Button
+						type="button"
+						variant="filled"
+						onClick={handleCreate}
+						disabled={submitDisabled}
+					>
+						{createProjectMutation.isPending ? "Creating…" : "Create project"}
+					</Button>
+				</div>
 			</div>
 		</div>
 	);

@@ -229,6 +229,7 @@ Design-system resource writes:
 | `createSystemComponentDraft` | Adds one component draft record to `components.json` | Low; requires the current component manifest revision. |
 | `updateSystemComponentDraft` | Updates a component draft template, slots, variants, and/or override targets in `components.json` | Medium; changes future publishes but does not rewrite existing published versions. |
 | `publishSystemComponent` | Appends an immutable published component version in `components.json` | Medium; changes the current version used by new insertions and stale scans. |
+| `deleteSystemComponent` | Removes one component record from `components.json` | High; does not remove attached design instances, which may become stale or missing-component. |
 
 Design-file writes:
 

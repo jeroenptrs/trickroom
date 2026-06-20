@@ -1,4 +1,7 @@
-import type { ModelOptions, StyleProperty } from "../../../utils/tailwind-classname";
+import type {
+	ModelOptions,
+	StyleProperty,
+} from "../../../utils/tailwind-classname";
 import {
 	applyStyleUtility,
 	clearStyleProperty,
@@ -58,8 +61,14 @@ export function applyZIndexInput(
 	input: string,
 ): string {
 	const trimmed = input.trim();
-	if (!trimmed) return clearStyleProperty(className, options, "position.z-index");
-	return applyStyleUtility(className, options, "position.z-index", `z-${trimmed}`);
+	if (!trimmed)
+		return clearStyleProperty(className, options, "position.z-index");
+	return applyStyleUtility(
+		className,
+		options,
+		"position.z-index",
+		`z-${trimmed}`,
+	);
 }
 
 /** Return the display string for a position slot. */

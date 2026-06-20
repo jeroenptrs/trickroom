@@ -295,10 +295,11 @@ export function sanitizeSvg(
 		/\son[a-z]+\s*=/iu,
 		/(?:href|src)\s*=\s*["']?(?!#)[^"'\s>]+/iu,
 		/\sxlink:href\s*=/iu,
-		/\sstyle\s*=/iu,
 		/javascript\s*:/iu,
 		/data\s*:/iu,
-		/url\s*\(/iu,
+		// url() is only safe as a local fragment ref (e.g. fill="url(#grad)");
+		// anything where the first character isn't a literal "#" is rejected.
+		/url\s*\(\s*(?!["']?#)/iu,
 	];
 	for (const pattern of unsafePattern) {
 		if (pattern.test(withoutPreamble) || pattern.test(inspectionText)) {
@@ -307,6 +308,16 @@ export function sanitizeSvg(
 				message: "SVG icon contains unsupported or unsafe content.",
 			};
 		}
+	}
+
+	if (
+		hasUnsafeStyleContent(withoutPreamble) ||
+		hasUnsafeStyleContent(inspectionText)
+	) {
+		return {
+			ok: false,
+			message: "SVG icon contains unsupported style rules.",
+		};
 	}
 
 	const tagPattern = /<\/?([a-zA-Z][a-zA-Z0-9:-]*)\b[^>]*>/gu;
@@ -326,6 +337,7 @@ export function sanitizeSvg(
 		"linearGradient",
 		"radialGradient",
 		"stop",
+		"style",
 		"title",
 		"symbol",
 		"use",
@@ -340,6 +352,87 @@ export function sanitizeSvg(
 	}
 
 	return { ok: true, svg: withoutPreamble };
+}
+
+const safeStyleProperties = new Set([
+	"fill",
+	"stroke",
+	"stop-color",
+	"fill-rule",
+	"clip-rule",
+	"opacity",
+	"fill-opacity",
+	"stroke-opacity",
+	"stroke-width",
+	"stroke-linecap",
+	"stroke-linejoin",
+]);
+
+// Values may not contain braces or angle brackets; url(), javascript:, and
+// data: payloads are already rejected document-wide by sanitizeSvg unless the
+// url() target is a local "#" fragment.
+function isSafeStyleDeclarationList(text: string): boolean {
+	return text.split(";").every((declaration) => {
+		const trimmed = declaration.trim();
+		if (trimmed.length === 0) {
+			return true;
+		}
+
+		const match = /^([a-z-]+)\s*:\s*[^{}<>]+$/iu.exec(trimmed);
+		return match !== null && safeStyleProperties.has(match[1].toLowerCase());
+	});
+}
+
+// <style> bodies are limited to class-selector rules over the same safe
+// declaration list as style attributes; anything else (at-rules, element or
+// attribute selectors, CDATA wrappers) is rejected.
+function isSafeStyleSheet(cssText: string): boolean {
+	let remaining = cssText.replace(/\/\*[\s\S]*?\*\//gu, "").trim();
+	while (remaining.length > 0) {
+		const rule = /^([^{}]+)\{([^{}]*)\}/u.exec(remaining);
+		if (rule === null) {
+			return false;
+		}
+
+		const selectorsSafe = rule[1]
+			.split(",")
+			.every((selector) => /^\.[a-z_][\w-]*$/iu.test(selector.trim()));
+		if (!selectorsSafe || !isSafeStyleDeclarationList(rule[2])) {
+			return false;
+		}
+
+		remaining = remaining.slice(rule[0].length).trim();
+	}
+
+	return true;
+}
+
+function hasUnsafeStyleContent(text: string): boolean {
+	for (const match of text.matchAll(
+		/\sstyle\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)/giu,
+	)) {
+		const raw = match[1];
+		if (!/^(?:"[^"]*"|'[^']*')$/u.test(raw)) {
+			return true;
+		}
+		if (!isSafeStyleDeclarationList(raw.slice(1, -1))) {
+			return true;
+		}
+	}
+
+	const styleOpenCount = (text.match(/<style\b/giu) ?? []).length;
+	let stylePairCount = 0;
+	for (const match of text.matchAll(
+		/<style\b[^>]*>([\s\S]*?)<\/style\s*>/giu,
+	)) {
+		stylePairCount += 1;
+		if (!isSafeStyleSheet(match[1])) {
+			return true;
+		}
+	}
+
+	// An unpaired <style> would leave its body unvalidated.
+	return styleOpenCount !== stylePairCount;
 }
 
 function stripSvgPreamble(svg: string): string {
