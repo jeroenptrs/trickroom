@@ -1,8 +1,5 @@
 import { Menu } from "@base-ui/react/menu";
-import {
-	RiAddLine as AddLine,
-	RiDeleteBin6Line as DeleteBin,
-} from "@remixicon/react";
+import { Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ResolvedColorTokens } from "../../../utils/resolved-color-tokens";
 import type {
@@ -14,10 +11,10 @@ import { Button } from "../../ui/button";
 import { Text } from "../../ui/text";
 import { ColorPickerPopover } from "./ColorPickerPopover";
 import { ColorSwatch } from "./ColorSwatch";
-import { appearanceFromIntent } from "./colorSwatchAppearance";
 import { computeColorPropertySlots } from "./colorPropertySlots";
+import { appearanceFromIntent } from "./colorSwatchAppearance";
 
-const COMMON_VARIANTS = [
+const COMMON_OVERRIDES = [
 	"hover",
 	"focus",
 	"focus-visible",
@@ -58,8 +55,8 @@ export function ColorPropertyControl({
 		() => new Set(slots.map((s) => s.variantKey)),
 		[slots],
 	);
-	const availableCommonVariants = COMMON_VARIANTS.filter(
-		(variant) => !usedVariantKeys.has(variant),
+	const availableCommonOverrides = COMMON_OVERRIDES.filter(
+		(override) => !usedVariantKeys.has(override),
 	);
 
 	function handleSet(variants: string[], value: ColorValue) {
@@ -79,12 +76,12 @@ export function ColorPropertyControl({
 				<Text variant="label" render={<div />} className="px-1 shrink-0">
 					{label}
 				</Text>
-				{availableCommonVariants.length > 0 ? (
-					<AddVariantMenu
-						availableVariants={availableCommonVariants}
-						onAdd={(variant) => {
+				{availableCommonOverrides.length > 0 ? (
+					<AddOverrideMenu
+						availableOverrides={availableCommonOverrides}
+						onAdd={(override) => {
 							setDraftVariants((prev) =>
-								prev.includes(variant) ? prev : [...prev, variant],
+								prev.includes(override) ? prev : [...prev, override],
 							);
 						}}
 					/>
@@ -105,7 +102,7 @@ export function ColorPropertyControl({
 						>
 							<div className="flex flex-row items-center">
 								{variantKey ? (
-									<span className="text-xs text-gray-900 font-semibold w-fit truncate shrink-0">
+									<span className="text-xs text-slate-900 font-semibold w-fit truncate shrink-0">
 										{variantKey}:
 									</span>
 								) : null}
@@ -119,7 +116,7 @@ export function ColorPropertyControl({
 											data-warning={isWarning ? "true" : undefined}
 										>
 											<ColorSwatch appearance={appearance} title={tokenLabel} />
-											<span className="text-xs text-gray-900 truncate max-w-32">
+											<span className="text-xs text-slate-950 truncate max-w-32">
 												{tokenLabel}
 											</span>
 										</span>
@@ -134,7 +131,7 @@ export function ColorPropertyControl({
 									onClick={() => handleClear(variants)}
 									className="ml-auto p-0.5"
 								>
-									<DeleteBin className="size-3 fill-gray-900/60" />
+									<Trash2 className="size-3 text-slate-950" />
 								</Button>
 							) : null}
 						</div>
@@ -145,32 +142,34 @@ export function ColorPropertyControl({
 	);
 }
 
-function AddVariantMenu({
-	availableVariants,
+function AddOverrideMenu({
+	availableOverrides,
 	onAdd,
 }: {
-	availableVariants: readonly string[];
-	onAdd: (variant: string) => void;
+	availableOverrides: readonly string[];
+	onAdd: (override: string) => void;
 }) {
 	return (
 		<Menu.Root modal>
 			<Menu.Trigger
 				className="flex flex-row items-center gap-1 text-xs self-start cursor-pointer"
-				render={<Button variant="block" />}
+				render={(props, { open }) => (
+					<Button {...props} variant="block" isSelected={open} />
+				)}
 			>
-				<AddLine className="size-3 fill-gray-900" />
-				<span>variant</span>
+				<Plus className="size-3 text-slate-900" />
+				<span>override</span>
 			</Menu.Trigger>
 			<Menu.Portal>
 				<Menu.Positioner sideOffset={4} align="start">
-					<Menu.Popup className="bg-gray-50 inset-shadow-[0_0_0_1px] inset-shadow-gray-200 p-1 flex flex-col">
-						{availableVariants.map((variant) => (
+					<Menu.Popup className="bg-slate-50 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 p-1 flex flex-col">
+						{availableOverrides.map((override) => (
 							<Menu.Item
-								key={variant}
-								className="text-left text-xs px-2 py-0.5 cursor-default data-[highlighted]:bg-gray-200/60"
-								onClick={() => onAdd(variant)}
+								key={override}
+								className="text-left text-xs px-2 py-0.5 cursor-default data-[highlighted]:bg-slate-200/60"
+								onClick={() => onAdd(override)}
 							>
-								{variant}
+								{override}
 							</Menu.Item>
 						))}
 					</Menu.Popup>

@@ -1,0 +1,9 @@
+{
+	"version": 1,
+	"systemId": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+	"systemName": "Trickroom",
+	"cssPath": "src/index.css",
+	"iconFolderPaths": [
+		"node_modules/lucide-static/icons"
+	]
+}

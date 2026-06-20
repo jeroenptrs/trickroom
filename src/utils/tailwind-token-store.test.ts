@@ -78,7 +78,7 @@ describe("tailwind-token-store", () => {
 				path.join(
 					"/project",
 					".trickroom",
-					"tailwind",
+					"systems",
 					"my-system",
 					"tokens.json",
 				),
@@ -118,10 +118,9 @@ describe("tailwind-token-store", () => {
 
 			const read = await readDomainTokens(testDir, "core");
 
-			expect(read).toEqual({
+			expect(read).toMatchObject({
 				version: 2,
 				metadata: {
-					systemName: "core",
 					cssPath: "src/theme.css",
 					syncedAt: "2026-05-02T12:00:00.000Z",
 					tailwindBaselineVersion: "4.2.4",
@@ -157,6 +156,11 @@ describe("tailwind-token-store", () => {
 						},
 					},
 				},
+			});
+			expect(read?.domains.spacing).toEqual({
+				tokens: {},
+				overrides: [],
+				baselineDiff: { added: [], overridden: [], removed: [] },
 			});
 		});
 
@@ -390,6 +394,31 @@ describe("tailwind-token-store", () => {
 			expect(files.filter((file) => file.endsWith(".tmp"))).toHaveLength(0);
 		});
 
+		it("creates a system manifest next to stored tokens", async () => {
+			await storeDomainTokens({
+				projectRoot: testDir,
+				systemName: "core",
+				tokens: { "brand-500": "#123456" },
+				tailwindBaselineVersion: "4.2.4",
+				cssPath: "src/theme.css",
+				baselineDiff: { added: [], overridden: [], removed: [] },
+				reviewRequired: false,
+			});
+
+			const manifestPath = path.join(
+				path.dirname(resolveTokenSnapshotPath(testDir, "core")),
+				"system.json",
+			);
+
+			await expect(
+				readFile(manifestPath, "utf8").then(JSON.parse),
+			).resolves.toMatchObject({
+				version: 1,
+				systemId: expect.stringMatching(/^sys_/),
+				systemName: "core",
+			});
+		});
+
 		it("returns null when required reviewRequired metadata is missing", async () => {
 			const snapshotPath = resolveTokenSnapshotPath(testDir, "core");
 			await mkdir(path.dirname(snapshotPath), { recursive: true });
@@ -444,16 +473,14 @@ describe("tailwind-token-store", () => {
 			},
 		});
 
-		it("ignores overrides, syncedAt, reviewRequired, and systemName", () => {
+		it("ignores overrides, syncedAt, and reviewRequired", () => {
 			const left = createStorage(["--color-brand-500"], {
-				systemName: "Core",
 				cssPath: "./src/theme.css",
 				syncedAt: "2026-05-02T12:00:00.000Z",
 				tailwindBaselineVersion: "4.2.4",
 				reviewRequired: true,
 			});
 			const right = createStorage([], {
-				systemName: "Other",
 				cssPath: "src/theme.css",
 				syncedAt: "2026-05-03T12:00:00.000Z",
 				tailwindBaselineVersion: "4.2.4",
@@ -468,14 +495,12 @@ describe("tailwind-token-store", () => {
 
 		it("includes normalized css path, baseline version, tokens, and diff data", () => {
 			const left = createStorage([], {
-				systemName: "core",
 				cssPath: "src/theme.css",
 				syncedAt: "2026-05-02T12:00:00.000Z",
 				tailwindBaselineVersion: "4.2.4",
 				reviewRequired: false,
 			});
 			const right = createStorage([], {
-				systemName: "core",
 				cssPath: "src/other.css",
 				syncedAt: "2026-05-02T12:00:00.000Z",
 				tailwindBaselineVersion: "4.2.5",

@@ -8,7 +8,10 @@ import {
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { readMcpEnabledProjectContext } from "../project";
+import {
+	getTrickroomProjectPaths,
+	readMcpEnabledProjectContext,
+} from "../project";
 import { createDesignFileService } from "../services/design-file-service";
 import type { TrickroomConfig, TrickroomDesign } from "../types";
 import {
@@ -133,9 +136,13 @@ export const createTrickroomMcpProjectFixture = async (
 	const projectRoot = await mkdtemp(
 		path.join(process.cwd(), ".tmp-trickroom-mcp-fixture-"),
 	);
-	const configPath = path.join(projectRoot, "trickroom.config.json");
+	const configPath = getTrickroomProjectPaths(projectRoot).configPath;
 	const systems = options.systems ?? options.config?.systems ?? defaultSystems;
+	const fallbackProjectId = `proj_${path
+		.basename(projectRoot)
+		.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 	const config = {
+		projectId: options.config?.projectId ?? fallbackProjectId,
 		name: options.name ?? options.config?.name ?? "Harness Project",
 		systems,
 		mcp: {
@@ -143,6 +150,18 @@ export const createTrickroomMcpProjectFixture = async (
 				options.mcpEnabled ??
 				options.config?.mcp?.enabled ??
 				(options.config?.mcp === undefined ? true : options.config.mcp.enabled),
+			...(options.config?.mcp?.mode ? { mode: options.config.mcp.mode } : {}),
+			...(options.config?.mcp?.allowedDesignFileIds
+				? {
+						allowedDesignFileIds: options.config.mcp.allowedDesignFileIds,
+					}
+				: {}),
+			...(options.config?.mcp?.allowedComponents
+				? { allowedComponents: options.config.mcp.allowedComponents }
+				: {}),
+			...(options.config?.mcp?.auditLog !== undefined
+				? { auditLog: options.config.mcp.auditLog }
+				: {}),
 		},
 	} satisfies TrickroomConfig;
 	const designFileService = createDesignFileService(projectRoot);
@@ -184,6 +203,13 @@ export const createTrickroomMcpProjectFixture = async (
 				},
 				reviewRequired: snapshot.reviewRequired ?? false,
 				...(snapshot.syncedAt ? { syncedAt: snapshot.syncedAt } : {}),
+				...(snapshot.domains ? { domains: snapshot.domains } : {}),
+				...(snapshot.domainOverrides
+					? { domainOverrides: snapshot.domainOverrides }
+					: {}),
+				...(snapshot.domainBaselineDiffs
+					? { domainBaselineDiffs: snapshot.domainBaselineDiffs }
+					: {}),
 			});
 		},
 		cleanup: () => rm(projectRoot, { force: true, recursive: true }),
@@ -217,8 +243,16 @@ export const createTrickroomMcpProjectFixture = async (
 
 export const createTrickroomMcpTestClient = async (
 	context: TrickroomMcpServerContext,
+	options?: {
+		clientCapabilities?: Record<string, unknown>;
+	},
 ): Promise<TrickroomMcpClientSession> => {
-	const client = new Client({ name: "trickroom-mcp-test", version: "0.1.0" });
+	const client = options?.clientCapabilities
+		? new Client(
+				{ name: "trickroom-mcp-test", version: "0.1.0" },
+				{ capabilities: options.clientCapabilities },
+			)
+		: new Client({ name: "trickroom-mcp-test", version: "0.1.0" });
 	const server = createTrickroomMcpServer(context);
 	const [clientTransport, serverTransport] =
 		InMemoryTransport.createLinkedPair();

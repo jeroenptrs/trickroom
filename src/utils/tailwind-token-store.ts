@@ -1,13 +1,25 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { defaultTailwindColorTokens } from "./default-tailwind-tokens";
+import { defaultTailwindTokensByDomain } from "./default-tailwind-tokens";
+import {
+	ensureDesignSystemManifest,
+	resolveDesignSystemDir,
+	resolveDesignSystemFilePath,
+} from "./design-system-store.ts";
 import type {
 	TailwindColorTokenBaselineDiff,
 	TailwindDefaultTokenEntry,
 	TailwindOverriddenTokenEntry,
 	TailwindTokenEntry,
 } from "./tailwind-color-tokens";
-import { normalizeTailwindColorTokenValue } from "./tailwind-color-tokens";
+import {
+	normalizeTailwindTokenValue,
+	TAILWIND_TOKEN_DOMAINS,
+	type TailwindMeaningfulTokenBaselineDiff,
+	type TailwindTokenBaselineDiff,
+	type TailwindTokenDomain,
+} from "./tailwind-token-domains";
 
 export type TailwindMeaningfulColorBaselineDiff = {
 	added: TailwindTokenEntry[];
@@ -18,20 +30,19 @@ export type TailwindMeaningfulColorBaselineDiff = {
 export interface TailwindDomainStorage {
 	tokens: Record<string, string>;
 	overrides: string[];
-	baselineDiff: TailwindMeaningfulColorBaselineDiff;
+	baselineDiff: TailwindMeaningfulTokenBaselineDiff;
 }
 
 export interface TailwindTokenStorageV2 {
 	version: 2;
 	metadata: {
-		systemName: string;
 		cssPath: string;
 		syncedAt: string;
 		tailwindBaselineVersion: string;
 		reviewRequired: boolean;
 	};
 	domains: {
-		color: TailwindDomainStorage;
+		[domain in TailwindTokenDomain]: TailwindDomainStorage;
 	};
 }
 
@@ -41,10 +52,18 @@ export type StoreDomainTokensParams = {
 	cssPath: string;
 	tailwindBaselineVersion: string;
 	tokens: Record<string, string>;
+	domains?: Partial<Record<TailwindTokenDomain, Record<string, string>>>;
 	overrides?: string[];
+	domainOverrides?: Partial<Record<TailwindTokenDomain, string[]>>;
 	baselineDiff:
 		| TailwindMeaningfulColorBaselineDiff
 		| TailwindColorTokenBaselineDiff;
+	domainBaselineDiffs?: Partial<
+		Record<
+			TailwindTokenDomain,
+			TailwindMeaningfulTokenBaselineDiff | TailwindTokenBaselineDiff
+		>
+	>;
 	reviewRequired: boolean;
 	syncedAt?: string;
 };
@@ -56,41 +75,34 @@ export type ComparableTailwindTokenStorage = {
 		tailwindBaselineVersion: string;
 	};
 	domains: {
-		color: {
+		[domain in TailwindTokenDomain]: {
 			tokens: Record<string, string>;
-			baselineDiff: TailwindMeaningfulColorBaselineDiff;
+			baselineDiff: TailwindMeaningfulTokenBaselineDiff;
 		};
 	};
 };
 
-/**
- * Convert system name to filesystem-safe key.
- * @example "my-system" -> "my-system", "My System" -> "my-system"
- */
-export function systemNameToSafeKey(systemName: string): string {
-	return systemName
-		.toLowerCase()
-		.replace(/\s+/g, "-")
-		.replace(/[^a-z0-9\-_.]/g, "")
-		.replace(/^-+|-+$/g, "");
-}
+export { systemNameToSafeKey } from "./design-system-store.ts";
 
 /**
  * Resolve path to stored token snapshot.
- * @returns Full path to `.trickroom/tailwind/<safe-key>/tokens.json`
+ * @returns Full path to `.trickroom/systems/<safe-key>/tokens.json`
  */
 export function resolveTokenSnapshotPath(
 	projectRoot: string,
 	systemName: string,
 ): string {
-	const safeKey = systemNameToSafeKey(systemName);
 	return path.join(
-		projectRoot,
-		".trickroom",
-		"tailwind",
-		safeKey,
+		resolveDesignSystemDir(projectRoot, systemName),
 		"tokens.json",
 	);
+}
+
+async function resolveTokenSnapshotPathForHandle(
+	projectRoot: string,
+	systemHandle: string,
+): Promise<string> {
+	return resolveDesignSystemFilePath(projectRoot, systemHandle, "tokens.json");
 }
 
 /**
@@ -162,30 +174,36 @@ export async function storeDomainTokens(
 				}
 			: paramsOrProjectRoot;
 
-	const snapshotPath = resolveTokenSnapshotPath(
+	await ensureDesignSystemManifest(params.projectRoot, params.systemName);
+	const snapshotPath = await resolveTokenSnapshotPathForHandle(
 		params.projectRoot,
 		params.systemName,
 	);
 	const snapshotDir = path.dirname(snapshotPath);
-
 	await mkdir(snapshotDir, { recursive: true });
 
 	const data: TailwindTokenStorageV2 = {
 		version: 2,
 		metadata: {
-			systemName: params.systemName,
 			cssPath: normalizeCssPath(params.cssPath, params.projectRoot),
 			syncedAt: params.syncedAt ?? new Date().toISOString(),
 			tailwindBaselineVersion: params.tailwindBaselineVersion,
 			reviewRequired: params.reviewRequired,
 		},
-		domains: {
-			color: {
-				tokens: normalizeMeaningfulColorTokens(params.tokens),
-				overrides: normalizeStringArray(params.overrides ?? []),
-				baselineDiff: normalizeMeaningfulColorBaselineDiff(params.baselineDiff),
+		domains: normalizeDomainStorages({
+			tokensByDomain: {
+				color: params.tokens,
+				...(params.domains ?? {}),
 			},
-		},
+			overridesByDomain: {
+				color: params.overrides ?? [],
+				...(params.domainOverrides ?? {}),
+			},
+			baselineDiffsByDomain: {
+				color: params.baselineDiff,
+				...(params.domainBaselineDiffs ?? {}),
+			},
+		}),
 	};
 
 	await writeJsonAtomically(snapshotPath, data);
@@ -218,7 +236,10 @@ async function readDomainTokensInternal(
 	systemName: string,
 	options: { canonicalize: boolean },
 ): Promise<TailwindTokenStorageV2 | null> {
-	const snapshotPath = resolveTokenSnapshotPath(projectRoot, systemName);
+	const snapshotPath = await resolveTokenSnapshotPathForHandle(
+		projectRoot,
+		systemName,
+	);
 
 	try {
 		const contents = await readFile(snapshotPath, "utf8");
@@ -250,20 +271,22 @@ export function normalizeTokenStorageForComparison(
 	storage: TailwindTokenStorageV2,
 	projectRoot = "",
 ): ComparableTailwindTokenStorage {
+	const normalized = normalizeTailwindTokenStorage(storage, projectRoot);
 	return {
 		version: 2,
 		metadata: {
-			cssPath: normalizeCssPath(storage.metadata.cssPath, projectRoot),
-			tailwindBaselineVersion: storage.metadata.tailwindBaselineVersion,
+			cssPath: normalized.metadata.cssPath,
+			tailwindBaselineVersion: normalized.metadata.tailwindBaselineVersion,
 		},
-		domains: {
-			color: {
-				tokens: normalizeMeaningfulColorTokens(storage.domains.color.tokens),
-				baselineDiff: normalizeMeaningfulColorBaselineDiff(
-					storage.domains.color.baselineDiff,
-				),
-			},
-		},
+		domains: Object.fromEntries(
+			TAILWIND_TOKEN_DOMAINS.map((domain) => [
+				domain,
+				{
+					tokens: normalized.domains[domain].tokens,
+					baselineDiff: normalized.domains[domain].baselineDiff,
+				},
+			]),
+		) as ComparableTailwindTokenStorage["domains"],
 	};
 }
 
@@ -285,58 +308,100 @@ function normalizeTailwindTokenStorage(
 	return {
 		version: 2,
 		metadata: {
-			systemName: storage.metadata.systemName,
 			cssPath: normalizeCssPath(storage.metadata.cssPath, projectRoot),
 			syncedAt: storage.metadata.syncedAt,
 			tailwindBaselineVersion: storage.metadata.tailwindBaselineVersion,
 			reviewRequired: storage.metadata.reviewRequired,
 		},
-		domains: {
-			color: {
-				tokens: normalizeMeaningfulColorTokens(storage.domains.color.tokens),
-				overrides: normalizeStringArray(storage.domains.color.overrides),
-				baselineDiff: normalizeMeaningfulColorBaselineDiff(
-					storage.domains.color.baselineDiff,
-				),
-			},
-		},
+		domains: normalizeDomainStorages({
+			tokensByDomain: Object.fromEntries(
+				TAILWIND_TOKEN_DOMAINS.map((domain) => [
+					domain,
+					storage.domains[domain]?.tokens ?? {},
+				]),
+			) as Partial<Record<TailwindTokenDomain, Record<string, string>>>,
+			overridesByDomain: Object.fromEntries(
+				TAILWIND_TOKEN_DOMAINS.map((domain) => [
+					domain,
+					storage.domains[domain]?.overrides ?? [],
+				]),
+			) as Partial<Record<TailwindTokenDomain, string[]>>,
+			baselineDiffsByDomain: Object.fromEntries(
+				TAILWIND_TOKEN_DOMAINS.map((domain) => [
+					domain,
+					storage.domains[domain]?.baselineDiff ?? emptyMeaningfulDiff(),
+				]),
+			) as Partial<
+				Record<TailwindTokenDomain, TailwindMeaningfulTokenBaselineDiff>
+			>,
+		}),
 	};
 }
 
-function normalizeMeaningfulColorTokens(
+function normalizeDomainStorages({
+	tokensByDomain,
+	overridesByDomain,
+	baselineDiffsByDomain,
+}: {
+	tokensByDomain: Partial<Record<TailwindTokenDomain, Record<string, string>>>;
+	overridesByDomain: Partial<Record<TailwindTokenDomain, string[]>>;
+	baselineDiffsByDomain: Partial<
+		Record<
+			TailwindTokenDomain,
+			TailwindMeaningfulTokenBaselineDiff | TailwindTokenBaselineDiff
+		>
+	>;
+}): TailwindTokenStorageV2["domains"] {
+	return Object.fromEntries(
+		TAILWIND_TOKEN_DOMAINS.map((domain) => [
+			domain,
+			{
+				tokens: normalizeMeaningfulDomainTokens(
+					domain,
+					tokensByDomain[domain] ?? {},
+				),
+				overrides: normalizeStringArray(overridesByDomain[domain] ?? []),
+				baselineDiff: normalizeMeaningfulBaselineDiff(
+					baselineDiffsByDomain[domain] ?? emptyMeaningfulDiff(),
+					domain,
+				),
+			},
+		]),
+	) as TailwindTokenStorageV2["domains"];
+}
+
+function normalizeMeaningfulDomainTokens(
+	domain: TailwindTokenDomain,
 	tokens: Record<string, string>,
 ): Record<string, string> {
+	const defaults = defaultTailwindTokensByDomain[domain] ?? {};
 	return normalizeStringRecord(
 		Object.fromEntries(
 			Object.entries(tokens).filter(([name, value]) => {
-				const defaultValue =
-					defaultTailwindColorTokens[
-						name as keyof typeof defaultTailwindColorTokens
-					];
+				const defaultValue = defaults[name as keyof typeof defaults];
 				if (defaultValue === undefined) {
 					return true;
 				}
 
 				return (
-					normalizeTailwindColorTokenValue(value) !==
-					normalizeTailwindColorTokenValue(defaultValue)
+					normalizeTailwindTokenValue(value) !==
+					normalizeTailwindTokenValue(defaultValue)
 				);
 			}),
 		),
 	);
 }
 
-function normalizeMeaningfulColorBaselineDiff(
-	baselineDiff:
-		| TailwindMeaningfulColorBaselineDiff
-		| TailwindColorTokenBaselineDiff,
-): TailwindMeaningfulColorBaselineDiff {
+function normalizeMeaningfulBaselineDiff(
+	baselineDiff: TailwindMeaningfulTokenBaselineDiff | TailwindTokenBaselineDiff,
+	domain: TailwindTokenDomain,
+): TailwindMeaningfulTokenBaselineDiff {
 	return {
 		added: baselineDiff.added
 			.map((token) => ({
 				name: token.name,
 				value: token.value,
-				domain: token.domain,
+				domain,
 			}))
 			.sort(compareTokenEntriesByName),
 		overridden: baselineDiff.overridden
@@ -344,16 +409,24 @@ function normalizeMeaningfulColorBaselineDiff(
 				name: token.name,
 				value: token.value,
 				defaultValue: token.defaultValue,
-				domain: token.domain,
+				domain,
 			}))
 			.sort(compareTokenEntriesByName),
 		removed: baselineDiff.removed
 			.map((token) => ({
 				name: token.name,
 				defaultValue: token.defaultValue,
-				domain: token.domain,
+				domain,
 			}))
 			.sort(compareTokenEntriesByName),
+	};
+}
+
+function emptyMeaningfulDiff(): TailwindMeaningfulTokenBaselineDiff {
+	return {
+		added: [],
+		overridden: [],
+		removed: [],
 	};
 }
 
@@ -383,7 +456,7 @@ async function writeJsonAtomically(
 	data: TailwindTokenStorageV2,
 ): Promise<void> {
 	const contents = `${JSON.stringify(data, null, "\t")}\n`;
-	const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
 
 	try {
 		await writeFile(tempPath, contents, "utf8");
@@ -410,24 +483,31 @@ function isTailwindTokenStorageV2(
 	}
 
 	const { metadata } = data;
-	const color = data.domains.color;
 
 	return (
-		typeof metadata.systemName === "string" &&
 		typeof metadata.cssPath === "string" &&
 		typeof metadata.syncedAt === "string" &&
 		typeof metadata.tailwindBaselineVersion === "string" &&
 		typeof metadata.reviewRequired === "boolean" &&
-		isStringRecord(color.tokens) &&
-		Array.isArray(color.overrides) &&
-		color.overrides.every((override) => typeof override === "string") &&
-		isMeaningfulColorBaselineDiff(color.baselineDiff)
+		TAILWIND_TOKEN_DOMAINS.every((domain) => {
+			const storage = data.domains[domain];
+			if (storage === undefined) {
+				return domain !== "color";
+			}
+			return (
+				isRecord(storage) &&
+				isStringRecord(storage.tokens) &&
+				Array.isArray(storage.overrides) &&
+				storage.overrides.every((override) => typeof override === "string") &&
+				isMeaningfulBaselineDiff(storage.baselineDiff)
+			);
+		})
 	);
 }
 
-function isMeaningfulColorBaselineDiff(
+function isMeaningfulBaselineDiff(
 	value: unknown,
-): value is TailwindMeaningfulColorBaselineDiff {
+): value is TailwindMeaningfulTokenBaselineDiff {
 	if (!isRecord(value)) {
 		return false;
 	}
@@ -447,7 +527,8 @@ function isTailwindTokenEntry(value: unknown): value is TailwindTokenEntry {
 		isRecord(value) &&
 		typeof value.name === "string" &&
 		typeof value.value === "string" &&
-		value.domain === "color"
+		typeof value.domain === "string" &&
+		(TAILWIND_TOKEN_DOMAINS as string[]).includes(value.domain)
 	);
 }
 
@@ -464,7 +545,8 @@ function isTailwindDefaultTokenEntry(
 		isRecord(value) &&
 		typeof value.name === "string" &&
 		typeof value.defaultValue === "string" &&
-		value.domain === "color"
+		typeof value.domain === "string" &&
+		(TAILWIND_TOKEN_DOMAINS as string[]).includes(value.domain)
 	);
 }
 

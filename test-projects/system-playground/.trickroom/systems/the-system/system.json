@@ -1,0 +1,10 @@
+{
+	"version": 1,
+	"systemId": "sys_6ec409e8-3743-4582-ad21-5e059a2fbc44",
+	"systemName": "the-system",
+	"cssPath": "index.css",
+	"iconFolderPaths": [
+		"icons-1",
+		"icons-2"
+	]
+}

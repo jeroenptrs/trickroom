@@ -1,0 +1,279 @@
+{
+	"name": "Assets Test",
+	"systemId": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+	"boards": [
+		{
+			"id": "944ff0c0-0035-4f2c-8d39-f0e85bbc126f",
+			"props": {
+				"data-trickroom-name": "Root",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				"className": "flex flex-col gap-4 text-nowrap p-4 bg-slate-50 w-md rounded-md items-center justify-center font-sans"
+			},
+			"children": [
+				{
+					"id": "e9335950-9f79-4542-be44-8008c96dfe53",
+					"props": {
+						"data-trickroom-name": "Container",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						"className": "flex flex-row items-center gap-2"
+					},
+					"children": [
+						{
+							"id": "a2be9fdf-bce9-4fe6-b3d5-8cdb0cd6c5c9",
+							"props": {
+								"data-trickroom-name": "Avatar Root",
+								"data-trickroom-library": "base-ui",
+								"data-trickroom-component": "avatar.root",
+								"data-trickroom-role": "branch",
+								"data-trickroom-recipe-id": "base-ui/avatar.default",
+								"data-trickroom-recipe-instance": "1936abb5-41e7-4415-b801-01bdf0e638c6",
+								"data-trickroom-recipe-path": "root",
+								"data-trickroom-recipe-root": "true",
+								"className": "inline-flex size-12 items-center justify-center overflow-hidden rounded-full bg-gray-900 align-middle text-base text-gray-50 select-none"
+							},
+							"children": [
+								{
+									"id": "60d6b4dd-89e0-40b1-bfac-80a47cfa9f72",
+									"props": {
+										"data-trickroom-asset-id": "",
+										"alt": "",
+										"className": "h-full w-full object-cover",
+										"data-trickroom-name": "Avatar Image",
+										"data-trickroom-library": "base-ui",
+										"data-trickroom-component": "avatar.image",
+										"data-trickroom-role": "leaf",
+										"data-trickroom-recipe-id": "base-ui/avatar.default",
+										"data-trickroom-recipe-instance": "1936abb5-41e7-4415-b801-01bdf0e638c6",
+										"data-trickroom-recipe-path": "image"
+									},
+									"children": []
+								},
+								{
+									"id": "bb070c94-c56a-4006-9e24-492dce84d95b",
+									"props": {
+										"data-trickroom-name": "Avatar Fallback",
+										"data-trickroom-library": "base-ui",
+										"data-trickroom-component": "avatar.fallback",
+										"data-trickroom-role": "branch",
+										"data-trickroom-recipe-id": "base-ui/avatar.default",
+										"data-trickroom-recipe-instance": "1936abb5-41e7-4415-b801-01bdf0e638c6",
+										"data-trickroom-recipe-path": "fallback",
+										"data-trickroom-recipe-slot": "fallback",
+										"className": "flex size-full items-center justify-center"
+									},
+									"children": [
+										{
+											"id": "38c0c242-c48e-4fa4-a281-8e56040262c2",
+											"props": {
+												"data-trickroom-name": "Text",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "text",
+												"data-trickroom-role": "text",
+												"className": "font-mono"
+											},
+											"children": "JP"
+										}
+									]
+								}
+							]
+						},
+						{
+							"id": "93c49285-eb67-441c-8214-31314f448d4c",
+							"props": {
+								"orientation": "vertical",
+								"loopFocus": true,
+								"modal": true,
+								"highlightItemOnHover": true,
+								"disabled": false,
+								"data-trickroom-name": "Menu Root",
+								"data-trickroom-library": "base-ui",
+								"data-trickroom-component": "menu.root",
+								"data-trickroom-role": "branch",
+								"data-trickroom-recipe-id": "base-ui/menu.default",
+								"data-trickroom-recipe-instance": "403954be-ef2f-4982-b5f7-570afbcbf589",
+								"data-trickroom-recipe-path": "root",
+								"data-trickroom-recipe-root": "true"
+							},
+							"children": [
+								{
+									"id": "f4c2befc-3426-4cd0-8c77-89ac88022dca",
+									"props": {
+										"type": "button",
+										"disabled": false,
+										"openOnHover": false,
+										"delay": 100,
+										"closeDelay": 0,
+										"data-trickroom-name": "Menu Trigger",
+										"data-trickroom-library": "base-ui",
+										"data-trickroom-component": "menu.trigger",
+										"data-trickroom-role": "branch",
+										"data-trickroom-recipe-id": "base-ui/menu.default",
+										"data-trickroom-recipe-instance": "403954be-ef2f-4982-b5f7-570afbcbf589",
+										"data-trickroom-recipe-path": "trigger",
+										"data-trickroom-recipe-slot": "trigger"
+									},
+									"children": [
+										{
+											"id": "a777afb1-0978-4e05-ab34-0cff8bfcc50f",
+											"props": {
+												"data-trickroom-name": "Container",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"className": "hover:text-cyan-500 cursor-pointer flex items-center gap-1"
+											},
+											"children": [
+												{
+													"id": "b230fb5a-2f6c-4255-b518-910d34f1c67b",
+													"props": {
+														"data-trickroom-icon-id": "lucide-static/arrow-left",
+														"className": "inline-block size-4",
+														"aria-label": "",
+														"data-trickroom-name": "Icon",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "icon",
+														"data-trickroom-role": "leaf"
+													},
+													"children": []
+												},
+												{
+													"id": "b36ac38b-5290-49db-945b-c465217c1014",
+													"props": {
+														"data-trickroom-name": "Text",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "text",
+														"data-trickroom-role": "text",
+														"className": ""
+													},
+													"children": "Top Text"
+												}
+											]
+										}
+									]
+								},
+								{
+									"id": "abff59dc-7fed-4820-8d61-9654dc46da84",
+									"props": {
+										"keepMounted": false,
+										"data-trickroom-name": "Menu Portal",
+										"data-trickroom-library": "base-ui",
+										"data-trickroom-component": "menu.portal",
+										"data-trickroom-role": "branch",
+										"data-trickroom-recipe-id": "base-ui/menu.default",
+										"data-trickroom-recipe-instance": "403954be-ef2f-4982-b5f7-570afbcbf589",
+										"data-trickroom-recipe-path": "portal"
+									},
+									"children": [
+										{
+											"id": "f8998a58-fdde-4774-b1d6-27de4c6706c7",
+											"props": {
+												"side": "bottom",
+												"align": "start",
+												"sideOffset": 4,
+												"data-trickroom-name": "Menu Positioner",
+												"data-trickroom-library": "base-ui",
+												"data-trickroom-component": "menu.positioner",
+												"data-trickroom-role": "branch",
+												"data-trickroom-recipe-id": "base-ui/menu.default",
+												"data-trickroom-recipe-instance": "403954be-ef2f-4982-b5f7-570afbcbf589",
+												"data-trickroom-recipe-path": "positioner",
+												"className": "outline-hidden"
+											},
+											"children": [
+												{
+													"id": "88926c48-dca2-4618-83c8-9a7aa3a1cdf7",
+													"props": {
+														"data-trickroom-name": "Menu Popup",
+														"data-trickroom-library": "base-ui",
+														"data-trickroom-component": "menu.popup",
+														"data-trickroom-role": "branch",
+														"data-trickroom-recipe-id": "base-ui/menu.default",
+														"data-trickroom-recipe-instance": "403954be-ef2f-4982-b5f7-570afbcbf589",
+														"data-trickroom-recipe-path": "popup",
+														"data-trickroom-recipe-slot": "items",
+														"className": "origin-[var(--transform-origin)] rounded-md bg-white py-1 text-gray-900 shadow-lg shadow-gray-200 outline-1 outline-gray-200 transition-[transform,scale,opacity] data-[ending-style]:scale-90 data-[ending-style]:opacity-0 data-[starting-style]:scale-90 data-[starting-style]:opacity-0 dark:shadow-none dark:-outline-offset-1 dark:outline-gray-300"
+													},
+													"children": [
+														{
+															"id": "383a8c52-b18b-43bd-b4b7-6b122d1afa32",
+															"props": {
+																"disabled": false,
+																"closeOnClick": true,
+																"label": "",
+																"data-trickroom-name": "Menu Item",
+																"data-trickroom-library": "base-ui",
+																"data-trickroom-component": "menu.item",
+																"data-trickroom-role": "branch",
+																"className": "min-w-[100px]  flex cursor-default py-2 pr-8 pl-4 text-sm leading-4 outline-hidden select-none data-[highlighted]:relative data-[highlighted]:z-0 data-[highlighted]:text-gray-50 data-[highlighted]:before:absolute data-[highlighted]:before:inset-x-1 data-[highlighted]:before:inset-y-0 data-[highlighted]:before:z-[-1] data-[highlighted]:before:rounded-sm data-[highlighted]:before:bg-gray-900 data-[disabled]:text-gray-400 data-[disabled]:data-[highlighted]:before:bg-gray-300"
+															},
+															"children": [
+																{
+																	"id": "7c9a67fe-a9c3-4abc-bccd-6c208924a7d7",
+																	"props": {
+																		"data-trickroom-name": "Text",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text"
+																	},
+																	"children": "Text"
+																}
+															]
+														}
+													]
+												}
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "4d6a884e-65cb-414a-82c8-da02b4af71f1",
+					"props": {
+						"className": "data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full bg-red-500",
+						"orientation": "horizontal",
+						"data-trickroom-name": "Separator",
+						"data-trickroom-library": "base-ui",
+						"data-trickroom-component": "separator",
+						"data-trickroom-role": "leaf"
+					},
+					"children": []
+				},
+				{
+					"id": "c635b256-d0de-41f8-861f-4162b155a01d",
+					"props": {
+						"data-trickroom-asset-id": "ast_trickroom-app-icon-3",
+						"alt": "",
+						"objectFit": "fill",
+						"objectPosition": "",
+						"loading": "lazy",
+						"decoding": "async",
+						"data-trickroom-name": "Asset",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "asset",
+						"data-trickroom-role": "leaf",
+						"className": "size-16"
+					},
+					"children": []
+				},
+				{
+					"id": "b8a12ea4-93a9-4c6e-bee2-d356d0adcad1",
+					"props": {
+						"data-trickroom-name": "Container-with-background",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						"className": "size-50 bg-amber-100 bg-[image:var(--asset-ast_trickroom-app-icon-2)] bg-cover rounded-xl"
+					},
+					"children": []
+				}
+			]
+		}
+	]
+}

@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { TrickroomDesign } from "../types";
+import { expandRegistryRecipe } from "../recipes/expansion";
+import { installAvatarLegacyPreviousTemplate } from "../recipes/legacy-avatar-template";
+import {
+	recipeIdProp,
+	recipePathProp,
+	recipeRootProp,
+} from "../recipes/markers";
+import type { Node as DesignNode, TrickroomDesign } from "../types";
 import {
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
@@ -85,6 +92,102 @@ const unconfiguredSystemDesign = {
 	],
 } satisfies TrickroomDesign;
 
+const createRecipeIdFactory = (prefix: string) => {
+	let index = 0;
+	return () => `${prefix}-${++index}`;
+};
+
+const setRecipeId = (node: DesignNode, recipeId: string) => {
+	if (Object.hasOwn(node.props, recipeIdProp)) {
+		node.props[recipeIdProp] = recipeId;
+	}
+	if (Array.isArray(node.children)) {
+		for (const child of node.children) {
+			setRecipeId(child, recipeId);
+		}
+	}
+};
+
+const withAvatarLegacyPreviousTemplate = async <T>(
+	fn: () => Promise<T> | T,
+) => {
+	const restoreAvatarLegacyPreviousTemplate =
+		installAvatarLegacyPreviousTemplate();
+	try {
+		return await fn();
+	} finally {
+		restoreAvatarLegacyPreviousTemplate();
+	}
+};
+
+const recipeMetadataReadFixture = (() => {
+	const valid = expandRegistryRecipe("base-ui", "avatar.default", {
+		createElementId: createRecipeIdFactory("read-valid"),
+		createRecipeInstanceId: () => "recipe-instance-valid",
+	});
+
+	const invalid = expandRegistryRecipe("base-ui", "avatar.default", {
+		createElementId: createRecipeIdFactory("read-invalid"),
+		createRecipeInstanceId: () => "recipe-instance-invalid",
+	});
+	delete (invalid.root.props as { [key: string]: unknown })[recipeRootProp];
+
+	const unknown = expandRegistryRecipe("base-ui", "avatar.default", {
+		createElementId: createRecipeIdFactory("read-unknown"),
+		createRecipeInstanceId: () => "recipe-instance-unknown",
+	});
+	setRecipeId(unknown.root, "base-ui/does-not-exist");
+
+	const stale = expandRegistryRecipe("base-ui", "avatar.default", {
+		createElementId: createRecipeIdFactory("read-stale"),
+		createRecipeInstanceId: () => "recipe-instance-stale",
+	});
+	const staleFallback = (stale.root.children as DesignNode[])[1];
+	staleFallback.props[recipePathProp] = "legacy-fallback";
+	stale.root.children = [staleFallback];
+
+	return {
+		designFileId: "10000000-0000-4000-8000-000000000064",
+		design: {
+			name: "Recipe Metadata Design",
+			systemName: "Core",
+			boards: [
+				{
+					id: "recipe-metadata-board",
+					props: {
+						"data-trickroom-name": "Recipe Metadata Board",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+					},
+					children: [valid.root, invalid.root, unknown.root, stale.root],
+				},
+			],
+		} satisfies TrickroomDesign,
+		nodeIds: {
+			valid: {
+				instanceId: "recipe-instance-valid",
+				root: valid.root.id,
+				fallback: valid.elementIdsByPath.fallback,
+			},
+			invalid: {
+				instanceId: "recipe-instance-invalid",
+				root: invalid.root.id,
+				fallback: invalid.elementIdsByPath.fallback,
+			},
+			unknown: {
+				instanceId: "recipe-instance-unknown",
+				root: unknown.root.id,
+				fallback: unknown.elementIdsByPath.fallback,
+			},
+			stale: {
+				instanceId: "recipe-instance-stale",
+				root: stale.root.id,
+				fallback: stale.elementIdsByPath.fallback,
+			},
+		},
+	};
+})();
+
 describe("trickroom MCP design read tools", () => {
 	const fixtures: TrickroomMcpProjectFixture[] = [];
 	const sessions: TrickroomMcpClientSession[] = [];
@@ -138,11 +241,17 @@ describe("trickroom MCP design read tools", () => {
 			toolsByName.get("readDesignFile")?.inputSchema.properties,
 		).toHaveProperty("designFileId");
 		expect(
+			toolsByName.get("readDesignFile")?.inputSchema.properties,
+		).toHaveProperty("maxNodes");
+		expect(
 			toolsByName.get("readElement")?.inputSchema.properties,
 		).toHaveProperty("elementId");
 		expect(
 			toolsByName.get("readSubtree")?.inputSchema.properties,
 		).toHaveProperty("depth");
+		expect(
+			toolsByName.get("readSubtree")?.inputSchema.properties,
+		).toHaveProperty("maxNodes");
 	});
 
 	it("lists design file UUID handles and reads compact file trees", async () => {
@@ -159,6 +268,9 @@ describe("trickroom MCP design read tools", () => {
 					file: `${designFileId}.json`,
 					name: "Readable Design",
 					systemName: "Core",
+					boardsCount: 2,
+					layersCount: 3,
+					modifiedAt: expect.any(String),
 					revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
 				},
 				{
@@ -166,6 +278,9 @@ describe("trickroom MCP design read tools", () => {
 					file: `${secondDesignFileId}.json`,
 					name: "Second Design",
 					systemName: null,
+					boardsCount: 2,
+					layersCount: 3,
+					modifiedAt: expect.any(String),
 					revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
 				},
 			],
@@ -191,6 +306,33 @@ describe("trickroom MCP design read tools", () => {
 				cssPath: "src/index.css",
 			},
 			rootElementIds: ["board-a", "board-b"],
+			boards: [
+				{
+					id: "board-a",
+					name: "Board A",
+					childCount: 2,
+					descendantCount: 3,
+				},
+				{
+					id: "board-b",
+					name: "Board B",
+					childCount: 0,
+					descendantCount: 0,
+				},
+			],
+			counts: {
+				boardsCount: 2,
+				layersCount: 3,
+				elementCount: 5,
+				textLeavesCount: 2,
+			},
+			read: {
+				depth: 2,
+				maxNodes: 100,
+				truncated: false,
+				returnedNodeCount: 5,
+				omittedNodeCount: 0,
+			},
 			elementTree: [
 				{
 					id: "board-a",
@@ -216,7 +358,10 @@ describe("trickroom MCP design read tools", () => {
 				},
 			],
 		});
-		expect(readResult.structuredContent).not.toHaveProperty("boards");
+		expect(readResult.content[0]).toMatchObject({
+			type: "text",
+			text: expect.stringContaining("Returned 5 nodes"),
+		});
 	});
 
 	it("reads full elements with parent and sibling context", async () => {
@@ -255,6 +400,111 @@ describe("trickroom MCP design read tools", () => {
 		});
 	});
 
+	it("bounds design and subtree reads by default", async () => {
+		const deepDesignFileId = "10000000-0000-4000-8000-000000000065";
+		const { client } = await createSession({
+			[deepDesignFileId]: {
+				name: "Deep Design",
+				systemName: "Core",
+				boards: [
+					{
+						id: "deep-board",
+						props: {
+							"data-trickroom-name": "Deep Board",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "container",
+						},
+						children: [
+							{
+								id: "level-1",
+								props: {
+									"data-trickroom-name": "Level 1",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+								},
+								children: [
+									{
+										id: "level-2",
+										props: {
+											"data-trickroom-name": "Level 2",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "container",
+										},
+										children: [
+											{
+												id: "level-3",
+												props: {
+													"data-trickroom-name": "Level 3",
+													"data-trickroom-library": "trickroom",
+													"data-trickroom-component": "text",
+													"data-trickroom-role": "text",
+												},
+												children: "Hidden by default",
+											},
+										],
+									},
+								],
+							},
+						],
+					},
+				],
+			},
+		});
+
+		const designRead = await client.callTool({
+			name: "readDesignFile",
+			arguments: {
+				designFileId: deepDesignFileId,
+			},
+		});
+		expect(designRead.structuredContent).toMatchObject({
+			read: {
+				depth: 2,
+				maxNodes: 100,
+				truncated: true,
+				returnedNodeCount: 3,
+				omittedNodeCount: 1,
+			},
+		});
+
+		const subtreeRead = await client.callTool({
+			name: "readSubtree",
+			arguments: {
+				designFileId: deepDesignFileId,
+				elementId: "deep-board",
+			},
+		});
+		expect(subtreeRead.structuredContent).toMatchObject({
+			depth: 2,
+			read: {
+				depth: 2,
+				maxNodes: 100,
+				truncated: true,
+				returnedNodeCount: 3,
+				omittedNodeCount: 1,
+			},
+		});
+
+		const unboundedSubtreeRead = await client.callTool({
+			name: "readSubtree",
+			arguments: {
+				designFileId: deepDesignFileId,
+				elementId: "deep-board",
+				allowLarge: true,
+			},
+		});
+		expect(unboundedSubtreeRead.structuredContent).toMatchObject({
+			depth: null,
+			read: {
+				depth: null,
+				maxNodes: null,
+				truncated: false,
+				returnedNodeCount: 4,
+				omittedNodeCount: 0,
+			},
+		});
+	});
+
 	it("reads detailed subtrees with an optional depth cap", async () => {
 		const { client } = await createSession();
 
@@ -279,7 +529,7 @@ describe("trickroom MCP design read tools", () => {
 			subtree: {
 				id: "board-a",
 				childIds: ["title", "cta"],
-				truncated: false,
+				truncated: true,
 				children: [
 					{
 						id: "title",
@@ -295,6 +545,208 @@ describe("trickroom MCP design read tools", () => {
 					},
 				],
 			},
+		});
+	});
+
+	it("adds recipe metadata summaries to subtree reads", async () => {
+		await withAvatarLegacyPreviousTemplate(async () => {
+			const { client } = await createSession({
+				[recipeMetadataReadFixture.designFileId]:
+					recipeMetadataReadFixture.design,
+			});
+
+			const readResult = await client.callTool({
+				name: "readSubtree",
+				arguments: {
+					designFileId: recipeMetadataReadFixture.designFileId,
+					elementId: "recipe-metadata-board",
+					depth: 2,
+				},
+			});
+
+			const readContent = readResult.structuredContent as {
+				subtree: {
+					children: Array<{
+						id: string;
+						children?: Array<{
+							id: string;
+							recipe?: {
+								slotName: string | null;
+								path: string;
+								state: string;
+							};
+						}>;
+						recipe?: {
+							recipeId: string;
+							instanceId: string;
+							rootElementId: string | null;
+							path: string;
+							slotName: string | null;
+							state: string;
+						};
+					}>;
+				};
+			};
+
+			const validRoot = readContent.subtree.children.find(
+				(node) => node.id === recipeMetadataReadFixture.nodeIds.valid.root,
+			);
+			const invalidRoot = readContent.subtree.children.find(
+				(node) => node.id === recipeMetadataReadFixture.nodeIds.invalid.root,
+			);
+			const unknownRoot = readContent.subtree.children.find(
+				(node) => node.id === recipeMetadataReadFixture.nodeIds.unknown.root,
+			);
+			const staleRoot = readContent.subtree.children.find(
+				(node) => node.id === recipeMetadataReadFixture.nodeIds.stale.root,
+			);
+
+			expect(validRoot).toMatchObject({
+				id: recipeMetadataReadFixture.nodeIds.valid.root,
+				recipe: {
+					recipeId: "base-ui/avatar.default",
+					instanceId: recipeMetadataReadFixture.nodeIds.valid.instanceId,
+					rootElementId: recipeMetadataReadFixture.nodeIds.valid.root,
+					path: "root",
+					slotName: null,
+					state: "attached-valid",
+				},
+			});
+			expect(invalidRoot).toMatchObject({
+				id: recipeMetadataReadFixture.nodeIds.invalid.root,
+				recipe: {
+					recipeId: "base-ui/avatar.default",
+					instanceId: recipeMetadataReadFixture.nodeIds.invalid.instanceId,
+					rootElementId: null,
+					path: "root",
+					slotName: null,
+					state: "invalid-known",
+				},
+			});
+			expect(unknownRoot).toMatchObject({
+				id: recipeMetadataReadFixture.nodeIds.unknown.root,
+				recipe: {
+					recipeId: "base-ui/does-not-exist",
+					instanceId: recipeMetadataReadFixture.nodeIds.unknown.instanceId,
+					rootElementId: recipeMetadataReadFixture.nodeIds.unknown.root,
+					path: "root",
+					slotName: null,
+					state: "unknown-recipe",
+				},
+			});
+			expect(staleRoot).toMatchObject({
+				id: recipeMetadataReadFixture.nodeIds.stale.root,
+				recipe: {
+					recipeId: "base-ui/avatar.default",
+					instanceId: recipeMetadataReadFixture.nodeIds.stale.instanceId,
+					rootElementId: recipeMetadataReadFixture.nodeIds.stale.root,
+					path: "root",
+					slotName: null,
+					state: "attached-stale",
+					currentVersion: "1",
+					matchedTemplateVersion: "0.9",
+				},
+			});
+
+			const findNodeById = (
+				nodes: ReadonlyArray<{
+					id: string;
+					children?: ReadonlyArray<{
+						id: string;
+						children?: Array<{ id: string }>;
+					}>;
+				}>,
+				targetId: string,
+			): { recipe?: { slotName: string | null; path: string } } | null => {
+				for (const node of nodes) {
+					if (node.id === targetId) {
+						return node;
+					}
+					if (node.children) {
+						const found = findNodeById(node.children, targetId);
+						if (found) {
+							return found;
+						}
+					}
+				}
+				return null;
+			};
+
+			const validFallback = findNodeById(
+				readContent.subtree.children,
+				recipeMetadataReadFixture.nodeIds.valid.fallback,
+			);
+			expect(validFallback).toMatchObject({
+				recipe: {
+					slotName: "fallback",
+					path: "fallback",
+				},
+			});
+		});
+	});
+
+	it("adds recipe metadata summaries to design graph reads", async () => {
+		await withAvatarLegacyPreviousTemplate(async () => {
+			const { client } = await createSession({
+				[recipeMetadataReadFixture.designFileId]:
+					recipeMetadataReadFixture.design,
+			});
+
+			const graphResult = await client.callTool({
+				name: "readDesignGraph",
+				arguments: {
+					designFileId: recipeMetadataReadFixture.designFileId,
+				},
+			});
+
+			const graphContent = graphResult.structuredContent as {
+				graph: {
+					elementsById: Record<
+						string,
+						{
+							recipe?: {
+								state: string;
+								rootElementId: string | null;
+							};
+						}
+					>;
+				};
+			};
+			const validElement =
+				graphContent.graph.elementsById[
+					recipeMetadataReadFixture.nodeIds.valid.root
+				];
+			const invalidElement =
+				graphContent.graph.elementsById[
+					recipeMetadataReadFixture.nodeIds.invalid.root
+				];
+			const unknownElement =
+				graphContent.graph.elementsById[
+					recipeMetadataReadFixture.nodeIds.unknown.root
+				];
+			const staleElement =
+				graphContent.graph.elementsById[
+					recipeMetadataReadFixture.nodeIds.stale.root
+				];
+
+			expect(validElement.recipe).toMatchObject({
+				state: "attached-valid",
+				rootElementId: recipeMetadataReadFixture.nodeIds.valid.root,
+			});
+			expect(invalidElement.recipe).toMatchObject({
+				state: "invalid-known",
+				rootElementId: null,
+			});
+			expect(unknownElement.recipe).toMatchObject({
+				state: "unknown-recipe",
+				rootElementId: recipeMetadataReadFixture.nodeIds.unknown.root,
+			});
+			expect(staleElement.recipe).toMatchObject({
+				state: "attached-stale",
+				rootElementId: recipeMetadataReadFixture.nodeIds.stale.root,
+				currentVersion: "1",
+				matchedTemplateVersion: "0.9",
+			});
 		});
 	});
 

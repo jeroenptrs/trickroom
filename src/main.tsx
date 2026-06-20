@@ -1,31 +1,23 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Route, Routes } from "react-router";
 import { Toaster } from "sonner";
-import { CreateProject } from "./components/CreateProject";
-import { Design } from "./components/Design";
-import { Project } from "./components/Project";
-import { Root } from "./components/Root";
+import App from "./App";
+import "./index.css";
+import { initRendererSentry } from "./sentry/renderer";
+
+initRendererSentry();
 
 const queryClient = new QueryClient();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 	<React.StrictMode>
 		<QueryClientProvider client={queryClient}>
-			<BrowserRouter>
-				<Routes>
-					<Route path="/" element={<Root />}>
-						<Route index element={<Project />} />
-						<Route path="/design/:uuid" element={<Design />} />
-					</Route>
-					<Route path="/new" element={<CreateProject />} />
-				</Routes>
-			</BrowserRouter>
+			<App />
 			<Toaster
 				toastOptions={{
 					classNames: {
-						toast: "!rounded-none !border-gray-200",
+						toast: "!rounded-none !border-slate-200 !bg-white !text-slate-950",
 					},
 				}}
 			/>

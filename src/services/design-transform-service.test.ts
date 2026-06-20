@@ -1,12 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import {
+	getRecipeMarkerProps,
+	RECIPE_MARKER_PROP_KEYS,
+	recipeInstanceProp,
+} from "../recipes/markers";
 import type { TrickroomDesign } from "../types";
+import { assetIdProp } from "../utils/resource-props";
 import {
 	applyAddElement,
+	applyAddSubtree,
+	applyCopySubtree,
 	applyDeleteElement,
+	applyExtractSubtree,
 	applyMoveElement,
 	applyUpdateElementProps,
 	applyUpdateElementText,
 	DesignTransformError,
+	validateProposedSubtreeForInsertion,
 } from "./design-transform-service";
 
 const containerElement = (
@@ -44,6 +54,178 @@ const simpleDesign: TrickroomDesign = {
 	],
 };
 
+const findNode = (
+	nodes: TrickroomDesign["boards"],
+	id: string,
+): TrickroomDesign["boards"][number] | null => {
+	for (const node of nodes) {
+		if (node.id === id) {
+			return node;
+		}
+		if (Array.isArray(node.children)) {
+			const match = findNode(node.children, id);
+			if (match) {
+				return match;
+			}
+		}
+	}
+	return null;
+};
+
+const avatarRecipeDesign = (): TrickroomDesign => ({
+	name: "Recipe Design",
+	boards: [
+		{
+			id: "avatar-root",
+			props: {
+				"data-trickroom-name": "Avatar Root",
+				"data-trickroom-library": "base-ui",
+				"data-trickroom-component": "avatar.root",
+				"data-trickroom-role": "branch",
+				...getRecipeMarkerProps({
+					recipeId: "base-ui/avatar.default",
+					instanceId: "recipe-instance-1",
+					path: "root",
+					isRoot: true,
+				}),
+			},
+			children: [
+				{
+					id: "avatar-image",
+					props: {
+						"data-trickroom-name": "Avatar Image",
+						"data-trickroom-library": "base-ui",
+						"data-trickroom-component": "avatar.image",
+						"data-trickroom-role": "leaf",
+						[assetIdProp]: "",
+						alt: "",
+						...getRecipeMarkerProps({
+							recipeId: "base-ui/avatar.default",
+							instanceId: "recipe-instance-1",
+							path: "image",
+						}),
+					},
+					children: [],
+				},
+				{
+					id: "avatar-fallback",
+					props: {
+						"data-trickroom-name": "Avatar Fallback",
+						"data-trickroom-library": "base-ui",
+						"data-trickroom-component": "avatar.fallback",
+						"data-trickroom-role": "branch",
+						...getRecipeMarkerProps({
+							recipeId: "base-ui/avatar.default",
+							instanceId: "recipe-instance-1",
+							path: "fallback",
+							slotName: "fallback",
+						}),
+					},
+					children: [
+						{
+							id: "slot-child",
+							props: {
+								"data-trickroom-name": "Slot Child",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "container",
+								"data-trickroom-role": "branch",
+							},
+							children: [],
+						},
+					],
+				},
+			],
+		},
+	],
+});
+
+const menuRecipeDesign = (): TrickroomDesign => ({
+	name: "Menu Recipe Design",
+	boards: [
+		{
+			id: "menu-root",
+			props: {
+				"data-trickroom-name": "Menu Root",
+				"data-trickroom-library": "base-ui",
+				"data-trickroom-component": "menu.root",
+				"data-trickroom-role": "branch",
+				...getRecipeMarkerProps({
+					recipeId: "base-ui/menu.default",
+					instanceId: "recipe-instance-1",
+					path: "root",
+					isRoot: true,
+				}),
+			},
+			children: [
+				{
+					id: "menu-trigger",
+					props: {
+						"data-trickroom-name": "Menu Trigger",
+						"data-trickroom-library": "base-ui",
+						"data-trickroom-component": "menu.trigger",
+						"data-trickroom-role": "branch",
+						...getRecipeMarkerProps({
+							recipeId: "base-ui/menu.default",
+							instanceId: "recipe-instance-1",
+							path: "trigger",
+							slotName: "trigger",
+						}),
+					},
+					children: [],
+				},
+				{
+					id: "menu-portal",
+					props: {
+						"data-trickroom-name": "Menu Portal",
+						"data-trickroom-library": "base-ui",
+						"data-trickroom-component": "menu.portal",
+						"data-trickroom-role": "branch",
+						...getRecipeMarkerProps({
+							recipeId: "base-ui/menu.default",
+							instanceId: "recipe-instance-1",
+							path: "portal",
+						}),
+					},
+					children: [
+						{
+							id: "menu-positioner",
+							props: {
+								"data-trickroom-name": "Menu Positioner",
+								"data-trickroom-library": "base-ui",
+								"data-trickroom-component": "menu.positioner",
+								"data-trickroom-role": "branch",
+								...getRecipeMarkerProps({
+									recipeId: "base-ui/menu.default",
+									instanceId: "recipe-instance-1",
+									path: "positioner",
+								}),
+							},
+							children: [
+								{
+									id: "menu-popup",
+									props: {
+										"data-trickroom-name": "Menu Popup",
+										"data-trickroom-library": "base-ui",
+										"data-trickroom-component": "menu.popup",
+										"data-trickroom-role": "branch",
+										...getRecipeMarkerProps({
+											recipeId: "base-ui/menu.default",
+											instanceId: "recipe-instance-1",
+											path: "popup",
+											slotName: "items",
+										}),
+									},
+									children: [],
+								},
+							],
+						},
+					],
+				},
+			],
+		},
+	],
+});
+
 describe("applyAddElement", () => {
 	it("adds a container element to the root", () => {
 		const design: TrickroomDesign = { name: "D", boards: [] };
@@ -56,9 +238,12 @@ describe("applyAddElement", () => {
 
 		expect(result.boards).toHaveLength(1);
 		expect(result.boards[0].id).toBe(changedElementId);
-		expect(result.boards[0].props["data-trickroom-name"]).toBe("container");
+		expect(result.boards[0].props["data-trickroom-name"]).toBe("Container");
 		expect(result.boards[0].props["data-trickroom-library"]).toBe("trickroom");
-		expect(result.boards[0].props["data-trickroom-component"]).toBe("container");
+		expect(result.boards[0].props["data-trickroom-component"]).toBe(
+			"container",
+		);
+		expect(result.boards[0].props["data-trickroom-role"]).toBe("branch");
 		expect(result.boards[0].children).toEqual([]);
 	});
 
@@ -75,7 +260,9 @@ describe("applyAddElement", () => {
 		const root = result.boards[0];
 		expect(Array.isArray(root.children)).toBe(true);
 		const children = root.children as TrickroomDesign["boards"];
-		const heading = children.find((c) => c.props["data-trickroom-name"] === "Heading");
+		const heading = children.find(
+			(c) => c.props["data-trickroom-name"] === "Heading",
+		);
 		expect(heading).toBeDefined();
 		expect(heading?.props["data-trickroom-role"]).toBe("text");
 		expect(heading?.children).toBe("Initial content");
@@ -180,7 +367,7 @@ describe("applyAddElement", () => {
 		);
 	});
 
-	it("throws TEXT_ROLE_PARENT when parent is a text element", () => {
+	it("throws PARENT_CANNOT_HAVE_CHILDREN when parent is a text element", () => {
 		expect(() =>
 			applyAddElement(simpleDesign, {
 				parentId: "title",
@@ -191,64 +378,137 @@ describe("applyAddElement", () => {
 		).toThrow(
 			expect.objectContaining({
 				name: "DesignTransformError",
-				code: "TEXT_ROLE_PARENT",
+				code: "PARENT_CANNOT_HAVE_CHILDREN",
 			}),
 		);
 	});
 
+	it("adds Base UI Separator as a leaf with orientation defaults", () => {
+		const { design: result, changedElementId } = applyAddElement(simpleDesign, {
+			parentId: "root",
+			index: 1,
+			library: "base-ui",
+			component: "separator",
+		});
+
+		const root = result.boards[0];
+		const children = root.children as TrickroomDesign["boards"];
+		const separator = children.find((child) => child.id === changedElementId);
+		expect(separator).toMatchObject({
+			props: {
+				"data-trickroom-name": "Separator",
+				"data-trickroom-library": "base-ui",
+				"data-trickroom-component": "separator",
+				"data-trickroom-role": "leaf",
+				className:
+					"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
+				orientation: "horizontal",
+			},
+			children: [],
+		});
+	});
+
 	describe("props parameter", () => {
 		it("applies data-trickroom-name from props when name shortcut is absent", () => {
-			const { design: result, changedElementId } = applyAddElement(simpleDesign, {
-				parentId: null,
-				index: 0,
-				library: "trickroom",
-				component: "container",
-				props: { "data-trickroom-name": "From Props" },
-			});
+			const { design: result, changedElementId } = applyAddElement(
+				simpleDesign,
+				{
+					parentId: null,
+					index: 0,
+					library: "trickroom",
+					component: "container",
+					props: { "data-trickroom-name": "From Props" },
+				},
+			);
 
 			const board = result.boards.find((b) => b.id === changedElementId);
 			expect(board?.props["data-trickroom-name"]).toBe("From Props");
 		});
 
 		it("applies className from props when className shortcut is absent", () => {
-			const { design: result, changedElementId } = applyAddElement(simpleDesign, {
-				parentId: null,
-				index: 0,
-				library: "trickroom",
-				component: "container",
-				props: { className: "p-4 bg-white" },
-			});
+			const { design: result, changedElementId } = applyAddElement(
+				simpleDesign,
+				{
+					parentId: null,
+					index: 0,
+					library: "trickroom",
+					component: "container",
+					props: { className: "p-4 bg-white" },
+				},
+			);
 
 			const board = result.boards.find((b) => b.id === changedElementId);
 			expect(board?.props.className).toBe("p-4 bg-white");
 		});
 
 		it("name shortcut overrides props[data-trickroom-name]", () => {
-			const { design: result, changedElementId } = applyAddElement(simpleDesign, {
-				parentId: null,
-				index: 0,
-				library: "trickroom",
-				component: "container",
-				name: "Shortcut Name",
-				props: { "data-trickroom-name": "Props Name" },
-			});
+			const { design: result, changedElementId } = applyAddElement(
+				simpleDesign,
+				{
+					parentId: null,
+					index: 0,
+					library: "trickroom",
+					component: "container",
+					name: "Shortcut Name",
+					props: { "data-trickroom-name": "Props Name" },
+				},
+			);
 
 			const board = result.boards.find((b) => b.id === changedElementId);
 			expect(board?.props["data-trickroom-name"]).toBe("Shortcut Name");
 		});
 
 		it("className shortcut overrides props.className", () => {
-			const { design: result, changedElementId } = applyAddElement(simpleDesign, {
-				parentId: null,
-				index: 0,
-				library: "trickroom",
-				component: "container",
-				className: "shortcut-class",
-				props: { className: "props-class" },
-			});
+			const { design: result, changedElementId } = applyAddElement(
+				simpleDesign,
+				{
+					parentId: null,
+					index: 0,
+					library: "trickroom",
+					component: "container",
+					className: "shortcut-class",
+					props: { className: "props-class" },
+				},
+			);
 
 			const board = result.boards.find((b) => b.id === changedElementId);
 			expect(board?.props.className).toBe("shortcut-class");
+		});
+
+		it("applies registry-backed control props", () => {
+			const { design: result, changedElementId } = applyAddElement(
+				simpleDesign,
+				{
+					parentId: "root",
+					index: 0,
+					library: "base-ui",
+					component: "separator",
+					props: { orientation: "vertical" },
+				},
+			);
+
+			const root = result.boards[0];
+			const separator = (root.children as TrickroomDesign["boards"]).find(
+				(child) => child.id === changedElementId,
+			);
+			expect(separator?.props.orientation).toBe("vertical");
+		});
+
+		it("throws INVALID_PROP_VALUE for invalid control values", () => {
+			expect(() =>
+				applyAddElement(simpleDesign, {
+					parentId: "root",
+					index: 0,
+					library: "base-ui",
+					component: "separator",
+					props: { orientation: "diagonal" },
+				}),
+			).toThrow(
+				expect.objectContaining({
+					name: "DesignTransformError",
+					code: "INVALID_PROP_VALUE",
+				}),
+			);
 		});
 
 		it("throws INVALID_PROP_KEY for registry-reference keys in props", () => {
@@ -308,6 +568,53 @@ describe("applyAddElement", () => {
 		});
 	});
 
+	it("rejects inserting into recipe-owned non-slot structure but allows declared slots", () => {
+		const design = avatarRecipeDesign();
+
+		expect(() =>
+			applyAddElement(design, {
+				parentId: "avatar-root",
+				index: 0,
+				library: "trickroom",
+				component: "container",
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "RECIPE_STRUCTURE_LOCKED",
+			}),
+		);
+
+		const { design: result, changedElementId } = applyAddElement(design, {
+			parentId: "avatar-fallback",
+			index: 0,
+			library: "trickroom",
+			component: "text",
+			text: "JP",
+		});
+
+		const fallback = findNode(result.boards, "avatar-fallback");
+		expect(
+			(fallback?.children as TrickroomDesign["boards"]).map(
+				(child) => child.id,
+			),
+		).toContain(changedElementId);
+	});
+
+	it("rejects disallowed component insertions into allowlisted recipe slots", () => {
+		expect(() =>
+			applyAddElement(menuRecipeDesign(), {
+				parentId: "menu-popup",
+				index: 0,
+				library: "trickroom",
+				component: "container",
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "RECIPE_SLOT_DISALLOWED_CHILD",
+			}),
+		);
+	});
+
 	it("generates a unique UUID for each new element", () => {
 		const { changedElementId: id1 } = applyAddElement(simpleDesign, {
 			parentId: null,
@@ -324,6 +631,435 @@ describe("applyAddElement", () => {
 		expect(id1).not.toBe(id2);
 		expect(id1).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+		);
+	});
+});
+
+describe("validateProposedSubtreeForInsertion", () => {
+	it("normalizes a nested element subtree and builds an in-memory candidate", () => {
+		const result = validateProposedSubtreeForInsertion(simpleDesign, {
+			parentId: "root",
+			index: 1,
+			subtree: {
+				tempId: "outer",
+				library: "trickroom",
+				component: "container",
+				name: "Outer",
+				children: [
+					{
+						tempId: "copy",
+						library: "trickroom",
+						component: "text",
+						text: "Inserted",
+					},
+				],
+			},
+			options: { includeNormalizedTree: true },
+		});
+
+		expect(result.valid).toBe(true);
+		expect(result.diagnostics).toEqual([]);
+		expect(result.stats).toEqual({
+			nodeCount: 2,
+			maxDepth: 2,
+			recipeCount: 0,
+		});
+		expect(result.candidateDesign).not.toBeNull();
+		expect(result.normalizedSubtree).toMatchObject({
+			kind: "element",
+			tempId: "outer",
+			library: "trickroom",
+			component: "container",
+			role: "branch",
+			children: [
+				{
+					kind: "element",
+					tempId: "copy",
+					component: "text",
+					text: "Inserted",
+				},
+			],
+		});
+
+		const root = findNode(result.candidateDesign?.boards ?? [], "root");
+		const childNames = (root?.children as TrickroomDesign["boards"]).map(
+			(child) => child.props["data-trickroom-name"],
+		);
+		expect(childNames).toEqual(["title", "Outer", "inner"]);
+	});
+
+	it("validates insertion indexes strictly without clamping", () => {
+		const result = validateProposedSubtreeForInsertion(simpleDesign, {
+			parentId: "root",
+			index: 99,
+			subtree: {
+				library: "trickroom",
+				component: "container",
+			},
+		});
+
+		expect(result.valid).toBe(false);
+		expect(result.candidateDesign).toBeNull();
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "INDEX_OUT_OF_BOUNDS",
+				path: "/index",
+				details: expect.objectContaining({ max: 2 }),
+			}),
+		);
+	});
+
+	it("does not descend into invalid children under text nodes during validation", () => {
+		const result = validateProposedSubtreeForInsertion(simpleDesign, {
+			parentId: "root",
+			index: 0,
+			subtree: {
+				tempId: "same",
+				library: "trickroom",
+				component: "text",
+				children: [
+					{
+						tempId: "same",
+						library: "trickroom",
+						component: "container",
+					},
+				],
+			},
+		});
+
+		expect(result.valid).toBe(false);
+		expect(result.stats).toEqual({
+			nodeCount: 1,
+			maxDepth: 1,
+			recipeCount: 0,
+		});
+		expect(result.candidateDesign).toBeNull();
+		expect(result.candidateElementIds).toEqual([]);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "PARENT_CANNOT_HAVE_CHILDREN",
+				path: "/subtree/children",
+				tempId: "same",
+			}),
+		);
+		expect(result.diagnostics).not.toContainEqual(
+			expect.objectContaining({
+				code: "DUPLICATE_TEMP_ID",
+				path: "/subtree/children/0/tempId",
+			}),
+		);
+	});
+
+	it("reuses instance prop validation for proposed element props", () => {
+		const result = validateProposedSubtreeForInsertion(simpleDesign, {
+			parentId: null,
+			index: 1,
+			subtree: {
+				library: "trickroom",
+				component: "container",
+				props: {
+					"data-trickroom-library": "trickroom",
+				},
+			},
+		});
+
+		expect(result.valid).toBe(false);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "INVALID_PROP_KEY",
+				path: "/subtree/props",
+			}),
+		);
+	});
+
+	it("expands recipe nodes for stats and candidate validation", () => {
+		const result = validateProposedSubtreeForInsertion(simpleDesign, {
+			parentId: "root",
+			index: 1,
+			subtree: {
+				kind: "recipe",
+				tempId: "avatar",
+				library: "base-ui",
+				recipe: "avatar.default",
+			},
+			options: { includeNormalizedTree: true },
+		});
+
+		expect(result.valid).toBe(true);
+		expect(result.stats).toEqual({
+			nodeCount: 3,
+			maxDepth: 2,
+			recipeCount: 1,
+		});
+		expect(result.recipeExpansions).toEqual([
+			expect.objectContaining({
+				tempId: "avatar",
+				recipeId: "base-ui/avatar.default",
+				nodeCount: 3,
+				maxDepth: 2,
+			}),
+		]);
+		expect(result.normalizedSubtree).toMatchObject({
+			kind: "recipe",
+			tempId: "avatar",
+			expansion: {
+				recipeId: "base-ui/avatar.default",
+			},
+		});
+
+		const root = findNode(result.candidateDesign?.boards ?? [], "root");
+		const inserted = (root?.children as TrickroomDesign["boards"])[1];
+		expect(inserted.props).toMatchObject({
+			"data-trickroom-library": "base-ui",
+			"data-trickroom-component": "avatar.root",
+		});
+	});
+
+	it("reuses recipe boundary validation for insertion targets", () => {
+		const result = validateProposedSubtreeForInsertion(avatarRecipeDesign(), {
+			parentId: "avatar-root",
+			index: 0,
+			subtree: {
+				library: "trickroom",
+				component: "container",
+			},
+		});
+
+		expect(result.valid).toBe(false);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "RECIPE_STRUCTURE_LOCKED",
+				path: "/parentId",
+			}),
+		);
+	});
+
+	it("validates subtree roots against recipe slot allowlists", () => {
+		const result = validateProposedSubtreeForInsertion(menuRecipeDesign(), {
+			parentId: "menu-popup",
+			index: 0,
+			subtree: {
+				library: "trickroom",
+				component: "container",
+			},
+		});
+
+		expect(result.valid).toBe(false);
+		expect(result.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "RECIPE_SLOT_DISALLOWED_CHILD",
+				path: "/parentId",
+			}),
+		);
+		expect(result.candidateDesign).toBeNull();
+	});
+});
+
+describe("applyAddSubtree", () => {
+	it("adds a nested element subtree with generated IDs and tempId mapping", () => {
+		const {
+			design: result,
+			rootElementId,
+			idMap,
+			inserted,
+		} = applyAddSubtree(simpleDesign, {
+			parentId: "root",
+			index: 1,
+			subtree: {
+				tempId: "outer",
+				library: "trickroom",
+				component: "container",
+				name: "Outer",
+				children: [
+					{
+						tempId: "label",
+						library: "trickroom",
+						component: "text",
+						text: "Inserted",
+					},
+				],
+			},
+		});
+
+		expect(rootElementId).toBe(idMap.outer);
+		expect(idMap).toEqual({
+			outer: rootElementId,
+			label: inserted.elementIds[1],
+		});
+		expect(inserted).toEqual({
+			nodeCount: 2,
+			rootElementId,
+			elementIds: [rootElementId, idMap.label],
+		});
+
+		const root = findNode(result.boards, "root");
+		const children = root?.children as TrickroomDesign["boards"];
+		expect(children.map((child) => child.id)).toEqual([
+			"title",
+			rootElementId,
+			"inner",
+		]);
+		const outer = children[1];
+		expect(outer.props["data-trickroom-name"]).toBe("Outer");
+		expect((outer.children as TrickroomDesign["boards"])[0]).toMatchObject({
+			id: idMap.label,
+			children: "Inserted",
+		});
+	});
+
+	it("maps only supplied tempIds and reports inserted IDs in pre-order", () => {
+		const {
+			design: result,
+			rootElementId,
+			idMap,
+			inserted,
+		} = applyAddSubtree(simpleDesign, {
+			parentId: "root",
+			index: 2,
+			subtree: {
+				tempId: "outer",
+				library: "trickroom",
+				component: "container",
+				children: [
+					{
+						library: "trickroom",
+						component: "container",
+						children: [
+							{
+								tempId: "deep-label",
+								library: "trickroom",
+								component: "text",
+								text: "Deep",
+							},
+						],
+					},
+				],
+			},
+		});
+
+		expect(Object.keys(idMap).sort()).toEqual(["deep-label", "outer"]);
+		expect(rootElementId).toBe(idMap.outer);
+		expect(inserted.nodeCount).toBe(3);
+		expect(inserted.elementIds[0]).toBe(rootElementId);
+		expect(inserted.elementIds[2]).toBe(idMap["deep-label"]);
+
+		const outer = findNode(result.boards, rootElementId);
+		const middle = (outer?.children as TrickroomDesign["boards"])[0];
+		const deepLabel = (middle.children as TrickroomDesign["boards"])[0];
+		expect(inserted.elementIds).toEqual([
+			rootElementId,
+			middle.id,
+			idMap["deep-label"],
+		]);
+		expect(deepLabel.id).toBe(idMap["deep-label"]);
+	});
+
+	it("adds recipe nodes and reports recipe internals in pre-order", () => {
+		const result = applyAddSubtree(simpleDesign, {
+			parentId: "root",
+			index: 1,
+			subtree: {
+				kind: "recipe",
+				tempId: "avatar",
+				library: "base-ui",
+				recipe: "avatar.default",
+			},
+		});
+
+		expect(result.idMap).toEqual({ avatar: result.rootElementId });
+		expect(result.inserted.elementIds).toHaveLength(3);
+		expect(result.inserted.elementIds[0]).toBe(result.rootElementId);
+		expect(result.recipeExpansions).toEqual([
+			expect.objectContaining({
+				tempId: "avatar",
+				recipeId: "base-ui/avatar.default",
+				rootElementId: result.rootElementId,
+				elementIdsByPath: expect.objectContaining({
+					root: result.rootElementId,
+				}),
+			}),
+		]);
+		expect(result.recipeExpansions[0].instanceId).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+		);
+		expect(Object.values(result.recipeExpansions[0].elementIdsByPath)).toEqual(
+			result.inserted.elementIds,
+		);
+	});
+
+	it("rejects out-of-bounds indexes without clamping", () => {
+		expect(() =>
+			applyAddSubtree(simpleDesign, {
+				parentId: "root",
+				index: 99,
+				subtree: {
+					library: "trickroom",
+					component: "container",
+				},
+			}),
+		).toThrow(
+			expect.objectContaining({
+				name: "DesignTransformError",
+				code: "INDEX_OUT_OF_BOUNDS",
+			}),
+		);
+	});
+
+	it("validates the full subtree before allocating persistent IDs", () => {
+		let generatedCount = 0;
+		const randomUUIDSpy = vi.spyOn(globalThis.crypto, "randomUUID");
+		randomUUIDSpy.mockImplementation(() => {
+			generatedCount += 1;
+			return "00000000-0000-4000-8000-000000000000";
+		});
+
+		try {
+			expect(() =>
+				applyAddSubtree(simpleDesign, {
+					parentId: "root",
+					index: 0,
+					subtree: {
+						library: "trickroom",
+						component: "text",
+						children: [
+							{
+								library: "trickroom",
+								component: "container",
+							},
+						],
+					},
+				}),
+			).toThrow(
+				expect.objectContaining({
+					code: "PARENT_CANNOT_HAVE_CHILDREN",
+				}),
+			);
+			expect(generatedCount).toBe(0);
+		} finally {
+			randomUUIDSpy.mockRestore();
+		}
+	});
+
+	it("rejects children under leaf elements", () => {
+		expect(() =>
+			applyAddSubtree(simpleDesign, {
+				parentId: "root",
+				index: 0,
+				subtree: {
+					library: "base-ui",
+					component: "separator",
+					children: [
+						{
+							library: "trickroom",
+							component: "container",
+						},
+					],
+				},
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "PARENT_CANNOT_HAVE_CHILDREN",
+			}),
 		);
 	});
 });
@@ -377,6 +1113,30 @@ describe("applyUpdateElementProps", () => {
 		expect(result.boards[0].props.className).toBe("existing-class");
 	});
 
+	it("updates registry-backed control props", () => {
+		const { design } = applyAddElement(simpleDesign, {
+			parentId: "root",
+			index: 0,
+			library: "base-ui",
+			component: "separator",
+			name: "Divider",
+		});
+		const separator = (
+			design.boards[0].children as TrickroomDesign["boards"]
+		).find((child) => child.props["data-trickroom-name"] === "Divider");
+		expect(separator).toBeDefined();
+
+		const { design: result } = applyUpdateElementProps(design, {
+			elementId: separator?.id ?? "",
+			props: { orientation: "vertical" },
+		});
+
+		const updated = (
+			result.boards[0].children as TrickroomDesign["boards"]
+		).find((child) => child.id === separator?.id);
+		expect(updated?.props.orientation).toBe("vertical");
+	});
+
 	it("throws ELEMENT_NOT_FOUND when element does not exist", () => {
 		expect(() =>
 			applyUpdateElementProps(simpleDesign, {
@@ -403,6 +1163,36 @@ describe("applyUpdateElementProps", () => {
 			(c) => c.id === "inner",
 		);
 		expect(inner?.props["data-trickroom-name"]).toBe("inner");
+	});
+
+	it("allows recipe structural style and declared control updates but rejects marker prop updates", () => {
+		const design = avatarRecipeDesign();
+
+		const { design: renamed } = applyUpdateElementProps(design, {
+			elementId: "avatar-image",
+			name: "Profile Image",
+			className: "size-10 rounded-full",
+			props: {
+				[assetIdProp]: "asset_profile",
+				alt: "Profile photo",
+			},
+		});
+		const image = findNode(renamed.boards, "avatar-image");
+		expect(image?.props["data-trickroom-name"]).toBe("Profile Image");
+		expect(image?.props.className).toBe("size-10 rounded-full");
+		expect(image?.props[assetIdProp]).toBe("asset_profile");
+		expect(image?.props.alt).toBe("Profile photo");
+
+		expect(() =>
+			applyUpdateElementProps(design, {
+				elementId: "avatar-image",
+				props: { [recipeInstanceProp]: "other-instance" },
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "INVALID_PROP_KEY",
+			}),
+		);
 	});
 });
 
@@ -457,6 +1247,40 @@ describe("applyUpdateElementText", () => {
 		const children = root.children as TrickroomDesign["boards"];
 		const title = children.find((c) => c.id === "title");
 		expect(title?.children).toBe("");
+	});
+
+	it("rejects text updates on recipe-owned structural text nodes", () => {
+		const design: TrickroomDesign = {
+			name: "Recipe Text",
+			boards: [
+				{
+					id: "recipe-label",
+					props: {
+						"data-trickroom-name": "Recipe Label",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "text",
+						"data-trickroom-role": "text",
+						...getRecipeMarkerProps({
+							recipeId: "example/text.recipe",
+							instanceId: "recipe-instance-1",
+							path: "label",
+						}),
+					},
+					children: "Locked",
+				},
+			],
+		};
+
+		expect(() =>
+			applyUpdateElementText(design, {
+				elementId: "recipe-label",
+				text: "Changed",
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "RECIPE_STRUCTURAL_NODE_LOCKED",
+			}),
+		);
 	});
 });
 
@@ -559,7 +1383,7 @@ describe("applyMoveElement", () => {
 		);
 	});
 
-	it("throws TEXT_ROLE_PARENT when target parent is a text element", () => {
+	it("throws PARENT_CANNOT_HAVE_CHILDREN when target parent is a text element", () => {
 		expect(() =>
 			applyMoveElement(simpleDesign, {
 				elementId: "inner",
@@ -569,7 +1393,7 @@ describe("applyMoveElement", () => {
 		).toThrow(
 			expect.objectContaining({
 				name: "DesignTransformError",
-				code: "TEXT_ROLE_PARENT",
+				code: "PARENT_CANNOT_HAVE_CHILDREN",
 			}),
 		);
 	});
@@ -585,6 +1409,34 @@ describe("applyMoveElement", () => {
 			expect.objectContaining({
 				name: "DesignTransformError",
 				code: "PARENT_NOT_FOUND",
+			}),
+		);
+	});
+
+	it("rejects moving recipe-owned structure and moving content into non-slot structure", () => {
+		const design = avatarRecipeDesign();
+
+		expect(() =>
+			applyMoveElement(design, {
+				elementId: "avatar-image",
+				targetParentId: null,
+				index: 0,
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "RECIPE_STRUCTURAL_NODE_LOCKED",
+			}),
+		);
+
+		expect(() =>
+			applyMoveElement(design, {
+				elementId: "slot-child",
+				targetParentId: "avatar-root",
+				index: 0,
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "RECIPE_STRUCTURE_LOCKED",
 			}),
 		);
 	});
@@ -651,6 +1503,346 @@ describe("applyDeleteElement", () => {
 		const inputJson = JSON.stringify(simpleDesign);
 		applyDeleteElement(simpleDesign, { elementId: "title" });
 		expect(JSON.stringify(simpleDesign)).toBe(inputJson);
+	});
+
+	it("rejects deleting recipe-owned non-root structure but allows deleting the recipe root", () => {
+		const design = avatarRecipeDesign();
+
+		expect(() =>
+			applyDeleteElement(design, { elementId: "avatar-image" }),
+		).toThrow(
+			expect.objectContaining({
+				code: "RECIPE_STRUCTURAL_NODE_LOCKED",
+			}),
+		);
+
+		const { design: result, deletedIds } = applyDeleteElement(design, {
+			elementId: "avatar-root",
+		});
+		expect(result.boards).toEqual([]);
+		expect(deletedIds).toEqual([
+			"avatar-root",
+			"avatar-image",
+			"avatar-fallback",
+			"slot-child",
+		]);
+	});
+});
+
+describe("applyExtractSubtree", () => {
+	it("copies a subtree into a new design with regenerated ids and inherited system", () => {
+		const design: TrickroomDesign = {
+			...simpleDesign,
+			systemName: "Core",
+		};
+
+		const { newDesign, changedElementId, idMap } = applyExtractSubtree(design, {
+			elementId: "inner",
+		});
+
+		expect(newDesign.name).toBe("inner");
+		expect(newDesign.systemName).toBe("Core");
+		expect(newDesign.boards).toHaveLength(1);
+		const root = newDesign.boards[0];
+		expect(root.id).toBe(changedElementId);
+		expect(root.id).not.toBe("inner");
+		expect(root.props["data-trickroom-name"]).toBe("inner");
+		expect(root.props["data-trickroom-role"]).toBe("branch");
+		const children = root.children as TrickroomDesign["boards"];
+		expect(children).toHaveLength(1);
+		expect(children[0].id).not.toBe("inner-text");
+		expect(children[0].children).toBe("World");
+		expect(idMap).toEqual({
+			inner: root.id,
+			"inner-text": children[0].id,
+		});
+	});
+
+	it("uses the requested name and supports an explicit system override", () => {
+		const { newDesign } = applyExtractSubtree(simpleDesign, {
+			elementId: "title",
+			name: "Heading Copy",
+			systemName: null,
+		});
+
+		expect(newDesign.name).toBe("Heading Copy");
+		expect(newDesign.systemName).toBeNull();
+		expect(newDesign.boards[0].props["data-trickroom-name"]).toBe("title");
+		expect(newDesign.boards[0].children).toBe("Hello");
+	});
+
+	it("falls back to Untitled when the source layer name is blank", () => {
+		const blankText = textElement("blank", "Hello", "");
+		const design: TrickroomDesign = {
+			name: "Blank Name",
+			boards: [containerElement("root", [blankText])],
+		};
+
+		const { newDesign } = applyExtractSubtree(design, {
+			elementId: "blank",
+		});
+
+		expect(newDesign.name).toBe("Untitled");
+	});
+
+	it("throws for missing elements and blank requested names", () => {
+		expect(() =>
+			applyExtractSubtree(simpleDesign, { elementId: "missing" }),
+		).toThrow(DesignTransformError);
+		expect(() =>
+			applyExtractSubtree(simpleDesign, { elementId: "title", name: " " }),
+		).toThrow(DesignTransformError);
+		expect(() =>
+			applyExtractSubtree(simpleDesign, {
+				elementId: "title",
+				systemName: " ",
+			}),
+		).toThrow(DesignTransformError);
+	});
+
+	it("rejects duplicate element ids before extracting", () => {
+		const duplicateDesign: TrickroomDesign = {
+			name: "Duplicate IDs",
+			boards: [
+				containerElement("duplicate"),
+				textElement("duplicate", "Later duplicate"),
+			],
+		};
+
+		expect(() =>
+			applyExtractSubtree(duplicateDesign, { elementId: "duplicate" }),
+		).toThrow(
+			expect.objectContaining({
+				name: "DesignTransformError",
+				code: "DUPLICATE_ELEMENT_ID",
+			}),
+		);
+	});
+
+	it("does not treat inherited object property names as duplicate ids", () => {
+		const design: TrickroomDesign = {
+			name: "Inherited Property ID",
+			boards: [textElement("toString", "Still valid", "Layer")],
+		};
+
+		const { newDesign } = applyExtractSubtree(design, {
+			elementId: "toString",
+		});
+
+		expect(newDesign.name).toBe("Layer");
+		expect(newDesign.boards[0].children).toBe("Still valid");
+	});
+
+	it("preserves full recipe root attachment with a fresh instance id", () => {
+		const { newDesign } = applyExtractSubtree(avatarRecipeDesign(), {
+			elementId: "avatar-root",
+		});
+
+		const root = newDesign.boards[0];
+		const image = (root.children as TrickroomDesign["boards"])[0];
+		const fallback = (root.children as TrickroomDesign["boards"])[1];
+		const instanceId = root.props[recipeInstanceProp];
+
+		expect(newDesign.name).toBe("Avatar Root");
+		expect(instanceId).toEqual(expect.any(String));
+		expect(instanceId).not.toBe("recipe-instance-1");
+		expect(image.props[recipeInstanceProp]).toBe(instanceId);
+		expect(fallback.props[recipeInstanceProp]).toBe(instanceId);
+		expect(root.props["data-trickroom-recipe-id"]).toBe(
+			"base-ui/avatar.default",
+		);
+		expect(root.props["data-trickroom-recipe-root"]).toBe("true");
+		expect(root.props["data-trickroom-recipe-path"]).toBe("root");
+		expect(fallback.props["data-trickroom-recipe-slot"]).toBe("fallback");
+		expect(
+			(fallback.children as TrickroomDesign["boards"])[0].props[
+				"data-trickroom-name"
+			],
+		).toBe("Slot Child");
+	});
+
+	it("strips markers when extracting a partial recipe structural node", () => {
+		const design = avatarRecipeDesign();
+		const image = design.boards[0].children[0];
+		image.props[assetIdProp] = "asset-avatar";
+		image.props.alt = "Ada avatar";
+		image.props.className = "rounded-full";
+
+		const { newDesign } = applyExtractSubtree(design, {
+			elementId: "avatar-image",
+		});
+
+		const root = newDesign.boards[0];
+		expect(newDesign.name).toBe("Avatar Image");
+		expect(root.props[assetIdProp]).toBe("asset-avatar");
+		expect(root.props.alt).toBe("Ada avatar");
+		expect(root.props.className).toBe("rounded-full");
+		expect(root.props["data-trickroom-name"]).toBe("Avatar Image");
+		for (const markerProp of RECIPE_MARKER_PROP_KEYS) {
+			expect(root.props).not.toHaveProperty(markerProp);
+		}
+	});
+});
+
+describe("applyCopySubtree", () => {
+	it("copies a same-file subtree with fresh ids and renames only the copied root", () => {
+		const { design, rootElementId, idMap, inserted } = applyCopySubtree(
+			simpleDesign,
+			simpleDesign,
+			{
+				sourceElementId: "inner",
+				parentId: "root",
+				index: 1,
+				sameDesign: true,
+			},
+		);
+
+		expect(rootElementId).toBe(idMap.inner);
+		expect(rootElementId).not.toBe("inner");
+		expect(inserted).toEqual({
+			nodeCount: 2,
+			rootElementId,
+			elementIds: [idMap.inner, idMap["inner-text"]],
+		});
+
+		const root = design.boards[0];
+		const children = root.children as TrickroomDesign["boards"];
+		expect(children.map((child) => child.id)).toEqual([
+			"title",
+			rootElementId,
+			"inner",
+		]);
+		const copy = children[1];
+		const copyChildren = copy.children as TrickroomDesign["boards"];
+		expect(copy.props["data-trickroom-name"]).toBe("inner Copy");
+		expect(copyChildren[0].id).toBe(idMap["inner-text"]);
+		expect(copyChildren[0].props["data-trickroom-name"]).toBe("inner-text");
+		expect(copyChildren[0].children).toBe("World");
+	});
+
+	it("copies across designs without renaming and preserves the target design metadata", () => {
+		const targetDesign: TrickroomDesign = {
+			name: "Target Design",
+			systemName: "Target System",
+			boards: [containerElement("target-root")],
+		};
+
+		const { design, rootElementId } = applyCopySubtree(
+			simpleDesign,
+			targetDesign,
+			{
+				sourceElementId: "inner",
+				parentId: "target-root",
+				index: 0,
+			},
+		);
+
+		const copiedRoot = (
+			design.boards[0].children as TrickroomDesign["boards"]
+		)[0];
+		expect(design.name).toBe("Target Design");
+		expect(design.systemName).toBe("Target System");
+		expect(copiedRoot.id).toBe(rootElementId);
+		expect(copiedRoot.props["data-trickroom-name"]).toBe("inner");
+	});
+
+	it("rejects same-file copies into the source subtree", () => {
+		expect(() =>
+			applyCopySubtree(simpleDesign, simpleDesign, {
+				sourceElementId: "root",
+				parentId: "inner",
+				index: 0,
+				sameDesign: true,
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "CYCLE_DETECTED",
+			}),
+		);
+	});
+
+	it("rejects partial recipe-owned copies", () => {
+		expect(() =>
+			applyCopySubtree(avatarRecipeDesign(), simpleDesign, {
+				sourceElementId: "avatar-image",
+				parentId: "root",
+				index: 0,
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "RECIPE_STRUCTURAL_NODE_LOCKED",
+			}),
+		);
+	});
+
+	it("rejects copying a disallowed root into an allowlisted recipe slot", () => {
+		expect(() =>
+			applyCopySubtree(simpleDesign, menuRecipeDesign(), {
+				sourceElementId: "inner",
+				parentId: "menu-popup",
+				index: 1,
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "RECIPE_SLOT_DISALLOWED_CHILD",
+			}),
+		);
+	});
+
+	it("preserves complete recipe root attachment with a fresh instance id", () => {
+		const { design, rootElementId } = applyCopySubtree(
+			avatarRecipeDesign(),
+			simpleDesign,
+			{
+				sourceElementId: "avatar-root",
+				parentId: "root",
+				index: 0,
+			},
+		);
+
+		const root = findNode(design.boards, rootElementId);
+		expect(root).not.toBeNull();
+		const children = root?.children as TrickroomDesign["boards"];
+		const image = children[0];
+		const fallback = children[1];
+		const instanceId = root?.props[recipeInstanceProp];
+
+		expect(instanceId).toEqual(expect.any(String));
+		expect(instanceId).not.toBe("recipe-instance-1");
+		expect(image.props[recipeInstanceProp]).toBe(instanceId);
+		expect(fallback.props[recipeInstanceProp]).toBe(instanceId);
+		expect(root?.props["data-trickroom-recipe-id"]).toBe(
+			"base-ui/avatar.default",
+		);
+		expect(root?.props["data-trickroom-recipe-root"]).toBe("true");
+		expect(fallback.props["data-trickroom-recipe-slot"]).toBe("fallback");
+		expect(
+			(fallback.children as TrickroomDesign["boards"])[0].props[
+				"data-trickroom-name"
+			],
+		).toBe("Slot Child");
+	});
+
+	it("rejects duplicate source ids through normalization", () => {
+		const duplicateDesign: TrickroomDesign = {
+			name: "Duplicate IDs",
+			boards: [
+				containerElement("duplicate"),
+				textElement("duplicate", "Later duplicate"),
+			],
+		};
+
+		expect(() =>
+			applyCopySubtree(duplicateDesign, simpleDesign, {
+				sourceElementId: "duplicate",
+				parentId: "root",
+				index: 0,
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "DUPLICATE_ELEMENT_ID",
+			}),
+		);
 	});
 });
 

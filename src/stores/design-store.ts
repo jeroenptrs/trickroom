@@ -1,25 +1,55 @@
 import { createStore, shallow, useSelector } from "@tanstack/react-store";
-import { getLibraryComponent } from "../libraries/registry";
-import type { Node, Props, TrickroomDesign } from "../types";
+import {
+	canHaveElementChildren,
+	getDefaultProps,
+	getDefaultText,
+	getLibraryComponent,
+	isValidControlValue,
+	normalizeRole,
+	type RecipeRef,
+} from "../libraries/registry";
+import {
+	findRecipeControlTargetElement,
+	getRecipeControlByPathAndProp,
+} from "../recipes/controls";
+import { detachRecipeInstance } from "../recipes/detach";
+import { expandRegistryRecipe } from "../recipes/expansion";
+import { updateStaleRecipeInstance } from "../recipes/migration";
+import {
+	canDeleteElementAcrossRecipeBoundary,
+	canInsertIntoRecipeBoundary,
+	canMoveElementAcrossRecipeBoundary,
+} from "../recipes/ownership";
+import {
+	getRecipeSlotCandidateForExistingNode,
+	isRecipeSlotInsertionAllowed,
+} from "../recipes/slot-allowlist";
+import { applyExtractSubtree } from "../services/design-transform-service";
+import type {
+	JsonPrimitive,
+	Node,
+	Props,
+	Role,
+	TrickroomDesign,
+} from "../types";
 
-type ComponentSelection = Pick<
+export type ComponentSelection = Pick<
 	Props,
 	"data-trickroom-library" | "data-trickroom-component"
 >;
-
-type TrickroomRole = Props["data-trickroom-role"];
 
 export type DesignEntity = {
 	id: string;
 	props: Props;
 	parentId: string | null;
-	role: TrickroomRole;
+	role: Role;
 	childIds?: string[];
 	text?: string;
 };
 
 export type DesignStoreState = {
 	name: string;
+	systemId?: string | null;
 	systemName?: string | null;
 	rootIds: string[];
 	entitiesById: Record<string, DesignEntity>;
@@ -42,29 +72,28 @@ const emptyIds: string[] = [];
 
 export const designStore = createStore<DesignStoreState>(emptyState);
 
-const isTextRole = (role: TrickroomRole) => role === "text";
-
 const canHaveChildren = (entity: DesignEntity | null | undefined) =>
-	!!entity && !isTextRole(entity.role);
+	!!entity && canHaveElementChildren(entity.role);
 
-function getComponentRole(selection: ComponentSelection): TrickroomRole {
+function getComponentDefinition(selection: ComponentSelection) {
 	return getLibraryComponent(
 		selection["data-trickroom-library"],
 		selection["data-trickroom-component"],
-	).role;
+	);
+}
+
+function getComponentRole(selection: ComponentSelection): Role {
+	return getComponentDefinition(selection).role;
 }
 
 function createComponentProps(
 	name: string,
 	selection: ComponentSelection,
 ): Props {
-	const role = getComponentRole(selection);
-	return {
-		"data-trickroom-name": name,
-		"data-trickroom-library": selection["data-trickroom-library"],
-		"data-trickroom-component": selection["data-trickroom-component"],
-		...(role ? { "data-trickroom-role": role } : {}),
-	};
+	const definition = getComponentDefinition(selection);
+	const library = selection["data-trickroom-library"];
+	const component = selection["data-trickroom-component"];
+	return getDefaultProps(library, component, definition, name);
 }
 
 function normalizeEntity(
@@ -72,18 +101,23 @@ function normalizeEntity(
 	parentId: string | null,
 	entitiesById: Record<string, DesignEntity>,
 ) {
-	const role = data.props["data-trickroom-role"];
+	const role = normalizeRole(data.props["data-trickroom-role"]);
 	const entity: DesignEntity = {
 		id: data.id,
-		props: { ...data.props },
+		props: { ...data.props, "data-trickroom-role": role },
 		parentId,
 		role,
 	};
 
 	entitiesById[data.id] = entity;
 
-	if (isTextRole(role)) {
+	if (role === "text") {
 		entity.text = typeof data.children === "string" ? data.children : "";
+		return;
+	}
+
+	if (role === "leaf") {
+		entity.childIds = [];
 		return;
 	}
 
@@ -107,6 +141,7 @@ export function normalizeDesign(design: TrickroomDesign): DesignStoreState {
 
 	return {
 		name: design.name,
+		...(design.systemId !== undefined ? { systemId: design.systemId } : {}),
 		...(design.systemName !== undefined
 			? { systemName: design.systemName }
 			: {}),
@@ -128,11 +163,12 @@ function serializeEntity(
 		throw new Error(`Cannot serialize missing design entity: ${entityId}`);
 	}
 
-	const children = isTextRole(entity.role)
-		? (entity.text ?? "")
-		: (entity.childIds ?? []).map((childId) =>
-				serializeEntity(childId, entitiesById),
-			);
+	const children =
+		entity.role === "text"
+			? (entity.text ?? "")
+			: (entity.childIds ?? []).map((childId) =>
+					serializeEntity(childId, entitiesById),
+				);
 
 	return {
 		id: entity.id,
@@ -144,13 +180,24 @@ function serializeEntity(
 export function serializeDesignState(state: DesignStoreState): TrickroomDesign {
 	return {
 		name: state.name,
-		...(state.systemName !== undefined
+		...(state.systemId !== undefined ? { systemId: state.systemId } : {}),
+		...(state.systemId === undefined && state.systemName !== undefined
 			? { systemName: state.systemName }
 			: {}),
 		boards: state.rootIds.map((rootId) =>
 			serializeEntity(rootId, state.entitiesById),
 		),
 	};
+}
+
+export function extractSubtreeToDesign(
+	id: string,
+	options: { name?: string } = {},
+): TrickroomDesign {
+	return applyExtractSubtree(serializeDesignState(designStore.get()), {
+		elementId: id,
+		name: options.name,
+	}).newDesign;
 }
 
 const hasDirtyChanges = (state: DesignStoreState) =>
@@ -176,7 +223,7 @@ export function hydrateDesign(design: TrickroomDesign) {
 		const nextState = normalizeDesign(design);
 		return {
 			...nextState,
-			revision: state.revision,
+			revision: state.revision + 1,
 			selectedId:
 				state.selectedId && nextState.entitiesById[state.selectedId]
 					? state.selectedId
@@ -208,16 +255,19 @@ export function updateElementProps(id: string, patch: Partial<Props>) {
 			...entity.props,
 			...patch,
 		};
-		const role = props["data-trickroom-role"];
+		const role = normalizeRole(props["data-trickroom-role"]);
 		const nextEntity: DesignEntity = {
 			...entity,
-			props,
+			props: { ...props, "data-trickroom-role": role },
 			role,
 		};
 
-		if (isTextRole(role)) {
+		if (role === "text") {
 			nextEntity.text = entity.text ?? "";
 			delete nextEntity.childIds;
+		} else if (role === "leaf") {
+			nextEntity.childIds = [];
+			delete nextEntity.text;
 		} else {
 			nextEntity.childIds = entity.childIds ?? [];
 			delete nextEntity.text;
@@ -242,6 +292,52 @@ export function updateElementClassName(id: string, className: string) {
 	updateElementProps(id, { className });
 }
 
+export function updateRecipeControl(
+	instanceId: string,
+	path: string,
+	prop: string,
+	value: JsonPrimitive,
+) {
+	designStore.setState((state) => {
+		const target = findRecipeControlTargetElement(
+			state.entitiesById,
+			instanceId,
+			path,
+		);
+		if (!target) {
+			return state;
+		}
+
+		const recipeId = target.props["data-trickroom-recipe-id"];
+		const control =
+			typeof recipeId === "string"
+				? getRecipeControlByPathAndProp(recipeId, path, prop)
+				: null;
+		if (!control || !isValidControlValue(control, value)) {
+			return state;
+		}
+
+		return {
+			...state,
+			entitiesById: {
+				...state.entitiesById,
+				[target.id]: {
+					...target,
+					props: {
+						...target.props,
+						[prop]: value,
+					},
+				},
+			},
+			dirtyIds: {
+				...state.dirtyIds,
+				[target.id]: true,
+			},
+			revision: state.revision + 1,
+		};
+	});
+}
+
 export function renameElement(id: string, name: string) {
 	updateElementProps(id, { "data-trickroom-name": name });
 }
@@ -249,7 +345,7 @@ export function renameElement(id: string, name: string) {
 export function updateElementText(id: string, text: string) {
 	designStore.setState((state) => {
 		const entity = state.entitiesById[id];
-		if (!entity || !isTextRole(entity.role)) {
+		if (!entity || entity.role !== "text") {
 			return state;
 		}
 
@@ -296,21 +392,33 @@ export function addElement(
 			return state;
 		}
 
+		if (!canInsertIntoRecipeBoundary(state.entitiesById, targetParentId)) {
+			return state;
+		}
+
+		if (
+			!isRecipeSlotInsertionAllowed(state.entitiesById, targetParentId, {
+				kind: "component",
+				library: selection["data-trickroom-library"],
+				component: selection["data-trickroom-component"],
+			})
+		) {
+			return state;
+		}
+
 		const id = crypto.randomUUID();
 		const role = getComponentRole(selection);
 		const componentName = selection["data-trickroom-component"];
+		const definition = getComponentDefinition(selection);
 		const nextEntity: DesignEntity = {
 			id,
 			parentId: targetParentId,
 			role,
-			props: createComponentProps(
-				componentName === "container" ? "Container" : "Text",
-				selection,
-			),
+			props: createComponentProps(definition.label || componentName, selection),
 		};
 
-		if (isTextRole(role)) {
-			nextEntity.text = "Text";
+		if (role === "text") {
+			nextEntity.text = getDefaultText(role);
 		} else {
 			nextEntity.childIds = [];
 		}
@@ -343,6 +451,131 @@ export function addElement(
 			entitiesById: nextEntitiesById,
 			selectedId: id,
 			dirtyIds: nextDirtyIds,
+			revision: state.revision + 1,
+		};
+	});
+}
+
+export function addRecipe(
+	recipeRef: RecipeRef,
+	targetParentId: string | null,
+	index: number,
+) {
+	designStore.setState((state) => {
+		const targetParent = targetParentId
+			? state.entitiesById[targetParentId]
+			: null;
+
+		if (targetParentId && !canHaveChildren(targetParent)) {
+			return state;
+		}
+
+		if (!canInsertIntoRecipeBoundary(state.entitiesById, targetParentId)) {
+			return state;
+		}
+
+		if (
+			!isRecipeSlotInsertionAllowed(state.entitiesById, targetParentId, {
+				kind: "recipe",
+				library: recipeRef.library,
+				recipe: recipeRef.recipe,
+			})
+		) {
+			return state;
+		}
+
+		const expansion = expandRegistryRecipe(recipeRef.library, recipeRef.recipe);
+		const insertedEntitiesById: Record<string, DesignEntity> = {};
+		normalizeEntity(expansion.root, targetParentId, insertedEntitiesById);
+
+		const nextEntitiesById: Record<string, DesignEntity> = {
+			...state.entitiesById,
+			...insertedEntitiesById,
+		};
+
+		let nextRootIds = state.rootIds;
+		const nextDirtyIds = {
+			...state.dirtyIds,
+		};
+
+		for (const id of Object.keys(insertedEntitiesById)) {
+			nextDirtyIds[id] = true;
+		}
+
+		if (!targetParentId) {
+			nextRootIds = insertAt(nextRootIds, expansion.root.id, index);
+		} else {
+			const parentChildIds = targetParent.childIds ?? [];
+			nextEntitiesById[targetParentId] = {
+				...targetParent,
+				childIds: insertAt(parentChildIds, expansion.root.id, index),
+			};
+			nextDirtyIds[targetParentId] = true;
+		}
+
+		return {
+			...state,
+			rootIds: nextRootIds,
+			entitiesById: nextEntitiesById,
+			selectedId: expansion.root.id,
+			dirtyIds: nextDirtyIds,
+			revision: state.revision + 1,
+		};
+	});
+}
+
+export function detachRecipe(id: string) {
+	designStore.setState((state) => {
+		const result = detachRecipeInstance(serializeDesignState(state).boards, id);
+		if (!result) {
+			return state;
+		}
+
+		const nextState = normalizeDesign({
+			...serializeDesignState(state),
+			boards: result.roots,
+		});
+		const nextDirtyIds = {
+			...state.dirtyIds,
+		};
+		for (const detachedElementId of result.detachedElementIds) {
+			nextDirtyIds[detachedElementId] = true;
+		}
+
+		return {
+			...nextState,
+			selectedId: nextState.entitiesById[result.selectionElementId]
+				? result.selectionElementId
+				: state.selectedId && nextState.entitiesById[state.selectedId]
+					? state.selectedId
+					: null,
+			dirtyIds: nextDirtyIds,
+			designDirty: state.designDirty,
+			revision: state.revision + 1,
+		};
+	});
+}
+
+export function updateRecipeInstance(id: string) {
+	designStore.setState((state) => {
+		const result = updateStaleRecipeInstance(serializeDesignState(state), id);
+		const nextState = normalizeDesign(result.design);
+		const dirtyIds = { ...state.dirtyIds };
+		for (const mapping of [
+			...result.metadata.preservedPaths,
+			...result.metadata.remappedPaths,
+			...result.metadata.addedPaths,
+		]) {
+			dirtyIds[mapping.elementId] = true;
+		}
+
+		return {
+			...nextState,
+			selectedId: nextState.entitiesById[result.changedElementId]
+				? result.changedElementId
+				: result.metadata.rootElementId,
+			dirtyIds,
+			designDirty: state.designDirty,
 			revision: state.revision + 1,
 		};
 	});
@@ -405,6 +638,31 @@ export function moveElement(
 			return state;
 		}
 
+		if (
+			!canMoveElementAcrossRecipeBoundary(
+				state.entitiesById,
+				id,
+				targetParentId,
+			)
+		) {
+			return state;
+		}
+
+		const candidate = getRecipeSlotCandidateForExistingNode(
+			state.entitiesById,
+			id,
+		);
+		if (
+			candidate &&
+			!isRecipeSlotInsertionAllowed(
+				state.entitiesById,
+				targetParentId,
+				candidate,
+			)
+		) {
+			return state;
+		}
+
 		const nextEntitiesById = {
 			...state.entitiesById,
 			[id]: {
@@ -459,6 +717,10 @@ export function deleteElement(id: string) {
 	designStore.setState((state) => {
 		const entity = state.entitiesById[id];
 		if (!entity) {
+			return state;
+		}
+
+		if (!canDeleteElementAcrossRecipeBoundary(state.entitiesById, id)) {
 			return state;
 		}
 
@@ -520,6 +782,11 @@ export function clearDirty(expectedRevision?: number) {
 	});
 }
 
+export function isDesignCleanAtRevision(expectedRevision: number) {
+	const state = designStore.get();
+	return state.revision === expectedRevision && !hasDirtyChanges(state);
+}
+
 export function serializeDesign() {
 	return serializeDesignState(designStore.get());
 }
@@ -534,7 +801,12 @@ export function setDesignName(name: string) {
 
 	designStore.setState((state) => {
 		if (state.name === trimmed) return state;
-		return { ...state, name: trimmed, designDirty: true, revision: state.revision + 1 };
+		return {
+			...state,
+			name: trimmed,
+			designDirty: true,
+			revision: state.revision + 1,
+		};
 	});
 }
 
@@ -542,38 +814,56 @@ export function useDesignSystemName() {
 	return useSelector(designStore, (state) => state.systemName);
 }
 
-function normalizeDesignSystemNameInput(
-	systemName: string | null,
-): string | null {
-	if (systemName === null) {
+export function useDesignSystemId() {
+	return useSelector(designStore, (state) => state.systemId);
+}
+
+function normalizeDesignSystemIdInput(systemId: string | null): string | null {
+	if (systemId === null) {
 		return null;
 	}
 
-	const trimmedSystemName = systemName.trim();
-	return trimmedSystemName.length > 0 ? trimmedSystemName : null;
+	const trimmedSystemId = systemId.trim();
+	return trimmedSystemId.length > 0 ? trimmedSystemId : null;
 }
 
-export function setDesignSystemName(systemName: string | null) {
-	const nextSystemName = normalizeDesignSystemNameInput(systemName);
+export function setDesignSystemId(systemId: string | null) {
+	const nextSystemId = normalizeDesignSystemIdInput(systemId);
 
 	designStore.setState((state) => {
-		if (state.systemName === nextSystemName) {
+		if (state.systemId === nextSystemId && state.systemName === undefined) {
 			return state;
 		}
 
 		return {
 			...state,
-			systemName: nextSystemName,
+			systemId: nextSystemId,
+			systemName: undefined,
 			designDirty: true,
 			revision: state.revision + 1,
 		};
 	});
 }
 
+export function setDesignSystemName(systemName: string | null) {
+	setDesignSystemId(systemName);
+}
+
 export function useDesignRoots() {
 	return useSelector(designStore, (state) => state.rootIds, {
 		compare: shallow,
 	});
+}
+
+export function useLayerTreeSnapshot() {
+	return useSelector(
+		designStore,
+		(state) => ({
+			rootIds: state.rootIds,
+			entitiesById: state.entitiesById,
+		}),
+		{ compare: shallow },
+	);
 }
 
 export function useHasUnsavedChanges() {
@@ -618,7 +908,6 @@ export function useLayerSummary(id: string) {
 			return {
 				id,
 				name: entity?.props["data-trickroom-name"] ?? "Untitled",
-				className: entity?.props.className,
 				parentId: entity?.parentId ?? null,
 				role: entity?.role,
 				canHaveChildren: canHaveChildren(entity),

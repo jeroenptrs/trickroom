@@ -1,0 +1,160 @@
+{
+	"version": 1,
+	"metadata": {
+		"updatedAt": "2026-05-25T20:18:44.358Z"
+	},
+	"fonts": {
+		"fnt_ibm-plex-mono": {
+			"name": "IBM Plex Mono",
+			"family": "IBM Plex Mono",
+			"faces": [
+				{
+					"style": "normal",
+					"weight": "400",
+					"display": "swap",
+					"sources": [
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2",
+							"format": "woff2"
+						},
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff",
+							"format": "woff"
+						}
+					]
+				},
+				{
+					"style": "normal",
+					"weight": "500",
+					"display": "swap",
+					"sources": [
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2",
+							"format": "woff2"
+						},
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff",
+							"format": "woff"
+						}
+					]
+				},
+				{
+					"style": "normal",
+					"weight": "600",
+					"display": "swap",
+					"sources": [
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-600-normal.woff2",
+							"format": "woff2"
+						},
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-600-normal.woff",
+							"format": "woff"
+						}
+					]
+				},
+				{
+					"style": "normal",
+					"weight": "700",
+					"display": "swap",
+					"sources": [
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-700-normal.woff2",
+							"format": "woff2"
+						},
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-700-normal.woff",
+							"format": "woff"
+						}
+					]
+				}
+			],
+			"createdAt": "2026-05-25T20:18:44.356Z",
+			"updatedAt": "2026-05-25T20:18:44.356Z"
+		},
+		"fnt_ibm-plex-sans": {
+			"name": "IBM Plex Sans",
+			"family": "IBM Plex Sans",
+			"faces": [
+				{
+					"style": "normal",
+					"weight": "400",
+					"display": "swap",
+					"sources": [
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2",
+							"format": "woff2"
+						},
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff",
+							"format": "woff"
+						}
+					]
+				},
+				{
+					"style": "normal",
+					"weight": "500",
+					"display": "swap",
+					"sources": [
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff2",
+							"format": "woff2"
+						},
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff",
+							"format": "woff"
+						}
+					]
+				},
+				{
+					"style": "normal",
+					"weight": "600",
+					"display": "swap",
+					"sources": [
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2",
+							"format": "woff2"
+						},
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff",
+							"format": "woff"
+						}
+					]
+				},
+				{
+					"style": "normal",
+					"weight": "700",
+					"display": "swap",
+					"sources": [
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-700-normal.woff2",
+							"format": "woff2"
+						},
+						{
+							"kind": "projectFile",
+							"path": "node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-700-normal.woff",
+							"format": "woff"
+						}
+					]
+				}
+			],
+			"createdAt": "2026-05-25T20:18:44.358Z",
+			"updatedAt": "2026-05-25T20:18:44.358Z"
+		}
+	}
+}

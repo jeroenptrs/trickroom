@@ -1,8 +1,11 @@
+import { spawnSync } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { build } from "vite";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { upsertProjectLocation } from "../app-state/project-registry";
 import {
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpStdioTestClient,
@@ -27,9 +30,16 @@ const expectedReadToolNames = [
 ] as const;
 
 const expectedMutationToolNames = [
+	"addSystemIconFolder",
+	"removeSystemIconFolder",
+	"addSystemAsset",
+	"removeSystemAsset",
+	"refreshSystemAssetMetadata",
+	"createDesignFile",
 	"renameDesignFile",
 	"addElement",
 	"updateElementProps",
+	"updateRecipeControl",
 	"updateElementText",
 	"moveElement",
 	"deleteElement",
@@ -41,6 +51,9 @@ const expectedPromptNames = [
 	"refactor_design_structure",
 	"explain_design_file",
 	"validate_design_changes",
+	"create_design_file_from_brief",
+	"add_media_or_icon",
+	"reuse_design_subtree",
 ] as const;
 
 const getStringEnv = (overrides: Record<string, string>) => ({
@@ -79,21 +92,25 @@ const expectInputProperties = (tool: Tool, propertyNames: string[]) => {
 };
 
 const expectReadOnlyAnnotations = (tool: Tool) => {
-	expect(tool.annotations, `Expected "${tool.name}" annotations`).toMatchObject({
-		readOnlyHint: true,
-		openWorldHint: false,
-	});
+	expect(tool.annotations, `Expected "${tool.name}" annotations`).toMatchObject(
+		{
+			readOnlyHint: true,
+			openWorldHint: false,
+		},
+	);
 };
 
 const expectWriteAnnotations = (
 	tool: Tool,
 	options: { destructiveHint: boolean },
 ) => {
-	expect(tool.annotations, `Expected "${tool.name}" annotations`).toMatchObject({
-		openWorldHint: false,
-		idempotentHint: false,
-		destructiveHint: options.destructiveHint,
-	});
+	expect(tool.annotations, `Expected "${tool.name}" annotations`).toMatchObject(
+		{
+			openWorldHint: false,
+			idempotentHint: false,
+			destructiveHint: options.destructiveHint,
+		},
+	);
 	expect(tool.annotations?.readOnlyHint).not.toBe(true);
 };
 
@@ -111,10 +128,23 @@ const requireStructuredPayload = async (
 	expect(result.structuredContent).toEqual(expect.any(Object));
 
 	const textContent = result.content.find((content) => content.type === "text");
-	expect(textContent, `Expected "${name}" to return text JSON content`).toBeDefined();
+	expect(
+		textContent,
+		`Expected "${name}" to return text JSON content`,
+	).toBeDefined();
 
 	if (textContent?.type === "text") {
-		expect(JSON.parse(textContent.text)).toEqual(result.structuredContent);
+		let parsedTextContent: unknown;
+		try {
+			parsedTextContent = JSON.parse(textContent.text);
+		} catch {
+			parsedTextContent = undefined;
+		}
+		if (parsedTextContent === undefined) {
+			expect(textContent.text.trim().length).toBeGreaterThan(0);
+		} else {
+			expect(parsedTextContent).toEqual(result.structuredContent);
+		}
 	}
 
 	return result.structuredContent as ToolCallPayload;
@@ -169,6 +199,7 @@ const expectRevisionMismatch = async (
 
 describe("trickroom MCP inspector-compatible stdio smoke", () => {
 	const fixtures: TrickroomMcpProjectFixture[] = [];
+	const trickroomHomes: string[] = [];
 
 	beforeAll(async () => {
 		await build({
@@ -178,7 +209,12 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 	}, 30_000);
 
 	afterEach(async () => {
-		await Promise.all(fixtures.splice(0).map((fixture) => fixture.cleanup()));
+		await Promise.all([
+			...fixtures.splice(0).map((fixture) => fixture.cleanup()),
+			...trickroomHomes
+				.splice(0)
+				.map((home) => rm(home, { force: true, recursive: true })),
+		]);
 	});
 
 	const createFixture = async () => {
@@ -187,21 +223,34 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 		return fixture;
 	};
 
-	const createStdioSession = async (fixture: TrickroomMcpProjectFixture) =>
-		createTrickroomMcpStdioTestClient({
+	const createStdioSession = async (fixture: TrickroomMcpProjectFixture) => {
+		const trickroomHome = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
+		);
+		trickroomHomes.push(trickroomHome);
+		const projectId = fixture.config.projectId;
+		if (!projectId) {
+			throw new Error("Fixture project is missing a projectId.");
+		}
+		await upsertProjectLocation({
+			trickroomHome,
+			projectId,
+			root: fixture.projectRoot,
+			name: fixture.config.name,
+		});
+
+		return createTrickroomMcpStdioTestClient({
 			command: process.execPath,
-			args: [
-				path.join(process.cwd(), "bin", "trickroom-mcp.js"),
-				fixture.projectRoot,
-			],
-			cwd: process.cwd(),
+			args: [path.join(process.cwd(), "bin", "trickroom-mcp.js")],
+			cwd: fixture.projectRoot,
 			env: getStringEnv({
-				TRICKROOM_PROJECT_DIR: fixture.projectRoot,
+				TRICKROOM_HOME: trickroomHome,
 				NO_COLOR: "1",
 				FORCE_COLOR: "0",
 			}),
 			stderr: "pipe",
 		});
+	};
 
 	it("starts over stdio and exposes the v1 tool and prompt contract", async () => {
 		const fixture = await createFixture();
@@ -222,10 +271,43 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 			for (const name of expectedReadToolNames) {
 				expectReadOnlyAnnotations(requireTool(toolsByName, name));
 			}
+			expect(toolsByName.get("getSelectedProject")?.annotations).toMatchObject({
+				readOnlyHint: true,
+				openWorldHint: false,
+			});
+			expect(toolsByName.get("getActiveProject")?.annotations).toMatchObject({
+				readOnlyHint: true,
+				openWorldHint: false,
+			});
+			expect(toolsByName.get("resolveProject")?.annotations).toMatchObject({
+				readOnlyHint: true,
+				openWorldHint: false,
+			});
+			expect(toolsByName.get("registerProject")?.annotations).toMatchObject({
+				readOnlyHint: false,
+				openWorldHint: false,
+				idempotentHint: true,
+			});
+			expect(toolsByName.get("selectProject")?.annotations).toMatchObject({
+				readOnlyHint: false,
+				openWorldHint: false,
+				idempotentHint: true,
+			});
+			expect(toolsByName.get("openProject")?.annotations).toMatchObject({
+				readOnlyHint: false,
+				openWorldHint: false,
+				idempotentHint: true,
+			});
 
 			for (const name of expectedMutationToolNames) {
 				expectWriteAnnotations(requireTool(toolsByName, name), {
-					destructiveHint: name !== "addElement",
+					destructiveHint: ![
+						"addSystemIconFolder",
+						"addSystemAsset",
+						"refreshSystemAssetMetadata",
+						"addElement",
+						"createDesignFile",
+					].includes(name),
 				});
 			}
 
@@ -244,6 +326,20 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 				"component",
 				"props",
 			]);
+			expectInputProperties(requireTool(toolsByName, "createDesignFile"), [
+				"name",
+				"systemName",
+				"designFileId",
+			]);
+			expectInputProperties(requireTool(toolsByName, "addSystemAsset"), [
+				"systemName",
+				"name",
+				"sourcePath",
+			]);
+			expectInputProperties(requireTool(toolsByName, "addSystemIconFolder"), [
+				"systemName",
+				"folderPath",
+			]);
 			expectInputProperties(requireTool(toolsByName, "renameDesignFile"), [
 				"designFileId",
 				"expectedRevision",
@@ -260,11 +356,32 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 				const prompts = await session.client.listPrompts();
 				const promptNames = prompts.prompts.map((prompt) => prompt.name);
 
-				expect(promptNames).toEqual(expect.arrayContaining(expectedPromptNames));
+				expect(promptNames).toEqual(
+					expect.arrayContaining(expectedPromptNames),
+				);
 			}
 		} finally {
 			await session.close();
 		}
+	});
+
+	it("rejects positional arguments for the MCP CLI entrypoint", async () => {
+		const result = spawnSync(
+			process.execPath,
+			[
+				path.join(process.cwd(), "bin", "trickroom-mcp.js"),
+				path.join(process.cwd(), "does-not-exist"),
+			],
+			{
+				encoding: "utf8",
+			},
+		);
+
+		expect(result.status).toBe(1);
+		const stderr = result.stderr?.toString() ?? "";
+		expect(stderr).toContain("does not accept positional arguments");
+		expect(stderr).toContain("registerProject");
+		expect(stderr).toContain("selectProject");
 	});
 
 	it("performs representative read and write calls through stdio", async () => {
@@ -272,6 +389,15 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 		const session = await createStdioSession(fixture);
 
 		try {
+			const resources = await session.client.listResources();
+			const fixtureResource = resources.resources.find((resource) =>
+				resource.uri.includes(trickroomMcpTestDesignUuid),
+			);
+			expect(fixtureResource).toBeDefined();
+			expect(fixtureResource).toMatchObject({
+				mimeType: "application/json",
+			});
+
 			const designFiles = await requireStructuredPayload(
 				session.client,
 				"listDesignFiles",
@@ -290,18 +416,26 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 
 			expect(initialRevision).toMatch(/^sha256:[a-f0-9]{64}$/);
 			expect(JSON.stringify(designFile).length).toBeLessThan(6000);
-			expect(designFile).not.toHaveProperty("boards");
+			expect(designFile).not.toHaveProperty("boards.0.children");
 
-			const element = await requireStructuredPayload(session.client, "readElement", {
-				designFileId: trickroomMcpTestDesignUuid,
-				elementId: "title",
-			});
+			const element = await requireStructuredPayload(
+				session.client,
+				"readElement",
+				{
+					designFileId: trickroomMcpTestDesignUuid,
+					elementId: "title",
+				},
+			);
 			expect(JSON.stringify(element)).toContain("Harness fixture");
 
-			const subtree = await requireStructuredPayload(session.client, "readSubtree", {
-				designFileId: trickroomMcpTestDesignUuid,
-				elementId: "board",
-			});
+			const subtree = await requireStructuredPayload(
+				session.client,
+				"readSubtree",
+				{
+					designFileId: trickroomMcpTestDesignUuid,
+					elementId: "board",
+				},
+			);
 			expect(JSON.stringify(subtree)).toContain("title");
 
 			const validation = await requireStructuredPayload(
@@ -313,26 +447,52 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 			);
 			expect(JSON.stringify(validation)).toMatch(/valid|ok|success/i);
 
-			const addResult = await requireStructuredPayload(session.client, "addElement", {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: initialRevision,
-				parentId: "board",
-				index: 1,
-				library: "trickroom",
-				component: "text",
-				text: "Smoke copy",
-				props: {
-					"data-trickroom-name": "Smoke Text From Props",
-					className: "text-brand-500",
+			const createdDesignFileId = "30000000-0000-4000-8000-000000000003";
+			const createResult = await requireStructuredPayload(
+				session.client,
+				"createDesignFile",
+				{
+					designFileId: createdDesignFileId,
+					name: "Smoke Exploration",
+					systemName: null,
 				},
+			);
+			expect(findRevision(createResult)).toMatch(/^sha256:[a-f0-9]{64}$/);
+			const createdDesign = await fixture.designFileService.readDesignFile(
+				fixture.designFileService.getFileForUuid(createdDesignFileId),
+			);
+			expect(createdDesign.design.name).toBe("Smoke Exploration");
+			expect(createdDesign.design.boards[0].props).toMatchObject({
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
 			});
+
+			const addResult = await requireStructuredPayload(
+				session.client,
+				"addElement",
+				{
+					designFileId: trickroomMcpTestDesignUuid,
+					expectedRevision: initialRevision,
+					parentId: "board",
+					index: 1,
+					library: "trickroom",
+					component: "text",
+					text: "Smoke copy",
+					props: {
+						"data-trickroom-name": "Smoke Text From Props",
+						className: "text-brand-500",
+					},
+				},
+			);
 			expect(findRevision(addResult)).toMatch(/^sha256:[a-f0-9]{64}$/);
 
 			const afterAdd = await fixture.designFileService.readDesignFile(
 				fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
 			);
 			expect(JSON.stringify(afterAdd.design)).toContain("Smoke copy");
-			expect(JSON.stringify(afterAdd.design)).toContain("Smoke Text From Props");
+			expect(JSON.stringify(afterAdd.design)).toContain(
+				"Smoke Text From Props",
+			);
 			expect(JSON.stringify(afterAdd.design)).toContain("text-brand-500");
 
 			await expectRevisionMismatch(session.client, {

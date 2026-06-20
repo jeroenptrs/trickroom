@@ -1,6 +1,8 @@
 import { createContext, useContext } from "react";
-import type { TailwindSyncController } from "../hooks/useTailwindSyncController";
 import type { ViewState } from "../hooks/useStageNavigation";
+import type { TailwindSyncController } from "../hooks/useTailwindSyncController";
+import type { ProjectQueryScope } from "../queries/project-scope";
+import type { SystemSummary } from "../queries/systems";
 import type { TrickroomConfig } from "../types";
 
 export const IFrameViewContext = createContext<ViewState | undefined>(
@@ -10,6 +12,12 @@ export const IFrameViewContext = createContext<ViewState | undefined>(
 export const ProjectConfigContext = createContext<TrickroomConfig | undefined>(
 	undefined,
 );
+
+export const ProjectSystemsContext = createContext<SystemSummary[] | undefined>(
+	undefined,
+);
+
+export const ProjectScopeContext = createContext<ProjectQueryScope>(undefined);
 
 export const TailwindSyncControllerContext = createContext<
 	TailwindSyncController | undefined
@@ -33,6 +41,21 @@ export function useProjectConfig() {
 	}
 
 	return context;
+}
+
+export function useProjectSystems() {
+	const context = useContext(ProjectSystemsContext);
+	if (!context) {
+		throw new Error(
+			"useProjectSystems must be used within ProjectSystemsContext",
+		);
+	}
+
+	return context;
+}
+
+export function useProjectScope() {
+	return useContext(ProjectScopeContext);
 }
 
 export function useTailwindSyncController() {

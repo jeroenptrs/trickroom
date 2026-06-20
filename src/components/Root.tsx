@@ -1,51 +1,164 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
-import { Navigate, Outlet } from "react-router";
+import { useEffect, useMemo, useRef } from "react";
+import { Navigate, Route, Routes } from "react-router";
 import { toast } from "sonner";
 import { useTailwindSyncController } from "../hooks/useTailwindSyncController";
+import { configFileQueryOptions } from "../queries/config-file";
+import { getProjectQueryScope } from "../queries/project-scope";
+import { sessionQueryOptions } from "../queries/projects";
+import { systemsQueryOptions } from "../queries/systems";
+import { HttpError } from "../utils/readJsonOrThrow";
+import { CreateProjectPanel } from "./CreateProjectPanel";
 import {
 	ProjectConfigContext,
+	ProjectScopeContext,
+	ProjectSystemsContext,
 	TailwindSyncControllerContext,
 } from "./contexts";
-import "../index.css";
-import { configFileQueryOptions } from "../queries/config-file";
-import { HttpError } from "../utils/readJsonOrThrow";
+import { Design } from "./Design";
+import { HomeShell } from "./HomeShell";
+import { OpenProjectPanel } from "./OpenProjectPanel";
+import { Project } from "./Project";
+import {
+	getSystemAttentionSummary,
+	getSystemAttentionToastIds,
+} from "./system-attention-toasts";
+
+function HomeRoutes() {
+	return (
+		<Routes>
+			<Route element={<HomeShell />}>
+				<Route index element={<OpenProjectPanel />} />
+				<Route path="new" element={<CreateProjectPanel />} />
+			</Route>
+		</Routes>
+	);
+}
 
 export function Root() {
-	const configQuery = useQuery(configFileQueryOptions());
-	const syncController = useTailwindSyncController(configQuery.data);
-	const syncControllerHasIssues = Object.entries(syncController.results)
-		.map(([key, value]) => (value.status === "error" ? key : undefined))
-		.filter(Boolean);
-	const syncControllerNeedsReview = Object.entries(syncController.results)
-		.map(([key, value]) => (value.data?.reviewRequired ? key : undefined))
-		.filter(Boolean);
+	const sessionQuery = useQuery(sessionQueryOptions());
+	const activeProject = sessionQuery.data?.activeProject;
+	const activeProjectScope = getProjectQueryScope(activeProject);
+	const hasActiveProject = Boolean(activeProject);
+	const configQuery = useQuery({
+		...configFileQueryOptions(activeProjectScope),
+		enabled: sessionQuery.isSuccess && hasActiveProject,
+	});
+	const systemsQuery = useQuery({
+		...systemsQueryOptions(activeProjectScope),
+		enabled: configQuery.isSuccess,
+	});
+	const projectDataReady =
+		hasActiveProject && configQuery.isSuccess && systemsQuery.isSuccess;
+	const projectSystems = projectDataReady ? systemsQuery.data.systems : [];
+	const syncController = useTailwindSyncController(
+		projectSystems,
+		activeProjectScope,
+	);
+	const systemAttention = useMemo(
+		() =>
+			getSystemAttentionSummary(syncController.systems, syncController.results),
+		[syncController.systems, syncController.results],
+	);
+	const attentionToastIds = useMemo(
+		() => getSystemAttentionToastIds(activeProjectScope),
+		[activeProjectScope],
+	);
+	const previousAttentionToastIdsRef = useRef(attentionToastIds);
+	const visibleAttentionToastIdsRef = useRef<{
+		issues?: string;
+		review?: string;
+	}>({});
 
 	useEffect(() => {
-		if (syncControllerHasIssues.length) {
-			toast.warning("Your systems need attention", {
-				description:
-					syncControllerHasIssues.length === 1
-						? `${syncControllerHasIssues[0]} has issues syncing tokens`
-						: "Some design systems have issues syncing tokens",
-			});
+		const previous = previousAttentionToastIdsRef.current;
+		if (
+			previous.issues !== attentionToastIds.issues ||
+			previous.review !== attentionToastIds.review
+		) {
+			if (visibleAttentionToastIdsRef.current.issues) {
+				toast.dismiss(visibleAttentionToastIdsRef.current.issues);
+			}
+			if (visibleAttentionToastIdsRef.current.review) {
+				toast.dismiss(visibleAttentionToastIdsRef.current.review);
+			}
+			visibleAttentionToastIdsRef.current = {};
+			previousAttentionToastIdsRef.current = attentionToastIds;
 		}
-	}, [syncControllerHasIssues]);
+	}, [attentionToastIds]);
 
 	useEffect(() => {
-		if (syncControllerNeedsReview.length) {
-			toast.info("Your systems need attention", {
-				description:
-					syncControllerNeedsReview.length === 1
-						? `${syncControllerNeedsReview[0]} has token changes to review`
-						: "Some design systems have token changes to review",
-			});
+		if (!projectDataReady) {
+			return;
 		}
-	}, [syncControllerNeedsReview]);
 
-	if (configQuery.isPending) {
+		if (!systemAttention.issueKey) {
+			if (visibleAttentionToastIdsRef.current.issues) {
+				toast.dismiss(visibleAttentionToastIdsRef.current.issues);
+				visibleAttentionToastIdsRef.current.issues = undefined;
+			}
+			return;
+		}
+
+		const issueNames = systemAttention.issueKey.split("\0");
+		toast.warning("Your systems need attention", {
+			id: attentionToastIds.issues,
+			description:
+				issueNames.length === 1
+					? `${issueNames[0]} has issues syncing tokens`
+					: "Some design systems have issues syncing tokens",
+		});
+		visibleAttentionToastIdsRef.current.issues = attentionToastIds.issues;
+	}, [attentionToastIds.issues, projectDataReady, systemAttention.issueKey]);
+
+	useEffect(() => {
+		if (!projectDataReady) {
+			return;
+		}
+
+		if (!systemAttention.reviewKey) {
+			if (visibleAttentionToastIdsRef.current.review) {
+				toast.dismiss(visibleAttentionToastIdsRef.current.review);
+				visibleAttentionToastIdsRef.current.review = undefined;
+			}
+			return;
+		}
+
+		const reviewNames = systemAttention.reviewKey.split("\0");
+		toast.info("Your systems need attention", {
+			id: attentionToastIds.review,
+			description:
+				reviewNames.length === 1
+					? `${reviewNames[0]} has token changes to review`
+					: "Some design systems have token changes to review",
+		});
+		visibleAttentionToastIdsRef.current.review = attentionToastIds.review;
+	}, [attentionToastIds.review, projectDataReady, systemAttention.reviewKey]);
+
+	if (sessionQuery.isPending) {
 		return (
-			<div className="pointer-events-none absolute left-3 top-3 z-30 bg-gray-500 px-2 py-1 text-xs text-white">
+			<div className="pointer-events-none absolute left-3 top-3 z-30 bg-slate-500 px-2 py-1 text-xs text-white">
+				Loading project data...
+			</div>
+		);
+	}
+
+	if (sessionQuery.isError) {
+		const errorMessage = (sessionQuery.error as Error | null)?.message;
+		return (
+			<div className="absolute left-3 top-3 z-30 bg-red-500 px-2 py-1 text-xs text-white">
+				Failed to load session: {errorMessage}
+			</div>
+		);
+	}
+
+	if (!hasActiveProject) {
+		return <HomeRoutes />;
+	}
+
+	if (configQuery.isPending || systemsQuery.isPending) {
+		return (
+			<div className="pointer-events-none absolute left-3 top-3 z-30 bg-slate-500 px-2 py-1 text-xs text-white">
 				Loading project data...
 			</div>
 		);
@@ -56,7 +169,7 @@ export function Root() {
 			configQuery.error instanceof HttpError &&
 			configQuery.error.status === 404
 		) {
-			return <Navigate to="/new" replace />;
+			return <HomeRoutes />;
 		}
 
 		const errorMessage = (configQuery.error as Error | null)?.message;
@@ -67,16 +180,39 @@ export function Root() {
 		);
 	}
 
+	if (systemsQuery.isError) {
+		const errorMessage = (systemsQuery.error as Error | null)?.message;
+		return (
+			<div className="absolute left-3 top-3 z-30 bg-red-500 px-2 py-1 text-xs text-white">
+				Failed to load system data: {errorMessage}
+			</div>
+		);
+	}
+
+	const effectiveConfig = configQuery.data;
+	if (!effectiveConfig) {
+		return <HomeRoutes />;
+	}
+
 	return (
-		<ProjectConfigContext.Provider value={configQuery.data}>
-			<TailwindSyncControllerContext.Provider value={syncController}>
-				<main
-					className="isolate relative h-screen w-screen overflow-hidden bg-white text-black"
-					data-project-name={configQuery.data.name}
-				>
-					<Outlet />
-				</main>
-			</TailwindSyncControllerContext.Provider>
-		</ProjectConfigContext.Provider>
+		<ProjectScopeContext.Provider value={activeProjectScope}>
+			<ProjectConfigContext.Provider value={effectiveConfig}>
+				<ProjectSystemsContext.Provider value={projectSystems}>
+					<TailwindSyncControllerContext.Provider value={syncController}>
+						<main
+							key={activeProjectScope}
+							className="isolate relative h-screen w-screen overflow-hidden bg-slate-50 text-slate-950"
+							data-project-name={effectiveConfig.name}
+						>
+							<Routes>
+								<Route index element={<Project />} />
+								<Route path="design/:uuid" element={<Design />} />
+								<Route path="new" element={<Navigate to="/" replace />} />
+							</Routes>
+						</main>
+					</TailwindSyncControllerContext.Provider>
+				</ProjectSystemsContext.Provider>
+			</ProjectConfigContext.Provider>
+		</ProjectScopeContext.Provider>
 	);
 }

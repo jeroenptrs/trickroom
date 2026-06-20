@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { changeProjectRoot } from "./project-root.js";
+import { setInitialProjectRoot } from "./project-root.js";
 
 const silent = process.argv.includes("--silent");
 const argv = silent
@@ -35,10 +35,17 @@ const openBrowser = (url) => {
 	}
 };
 
-changeProjectRoot(argv);
+setInitialProjectRoot(argv);
 
 const runtime = await import("../dist/index.js");
+if (runtime.serverReady && typeof runtime.serverReady.then === "function") {
+	await runtime.serverReady;
+}
 
-if (!silent && typeof runtime.serverPort === "number") {
-	openBrowser(`http://localhost:${runtime.serverPort}`);
+if (!silent) {
+	if (typeof runtime.serverUrl === "string") {
+		openBrowser(runtime.serverUrl);
+	} else if (typeof runtime.serverPort === "number") {
+		openBrowser(`http://localhost:${runtime.serverPort}`);
+	}
 }

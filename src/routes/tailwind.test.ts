@@ -170,6 +170,26 @@ describe("tailwind sync endpoint validation", () => {
 		expect(response.status).toBe(409);
 	});
 
+	it("returns 409 for systems that collide after storage key normalization", async () => {
+		await writeFile(
+			path.join(tempProjectRoot, "trickroom.config.json"),
+			JSON.stringify({
+				name: "Test Project",
+				systems: { "My System": "src/index.css", "my-system": "src/other.css" },
+			}),
+			"utf8",
+		);
+		const app = await importTestServer();
+
+		const response = await app.request("/api/trickroom/tailwind/sync-tokens", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ systemName: "My System" }),
+		});
+
+		expect(response.status).toBe(409);
+	});
+
 	it("returns 400 for invalid config file shape", async () => {
 		await writeFile(
 			path.join(tempProjectRoot, "trickroom.config.json"),
@@ -243,6 +263,7 @@ describe("tailwind sync endpoint validation", () => {
 			tokens: [
 				{ name: "brand-100", value: "#abcdef", domain: "color" },
 				{ name: "brand-500", value: "#123456", domain: "color" },
+				{ name: "content", value: "12px", domain: "spacing" },
 			],
 			baselineDiff: {
 				added: [
@@ -264,6 +285,7 @@ describe("tailwind sync endpoint validation", () => {
 		expect(json.tokens.map((token: { name: string }) => token.name)).toEqual([
 			"brand-100",
 			"brand-500",
+			"content",
 		]);
 		expect(json.baselineDiff.removed).toContainEqual(
 			expect.objectContaining({ name: "blue-500", domain: "color" }),
@@ -411,7 +433,6 @@ describe("tailwind sync endpoint validation", () => {
 
 		expect(stored).toMatchObject({
 			metadata: {
-				systemName: "Core",
 				cssPath: "src/core.css",
 				tailwindBaselineVersion: "4.2.4",
 				reviewRequired: true,
@@ -435,7 +456,7 @@ describe("tailwind sync endpoint validation", () => {
 			path.join(
 				tempProjectRoot,
 				".trickroom",
-				"tailwind",
+				"systems",
 				"core",
 				"tokens.json",
 			),
@@ -491,7 +512,7 @@ describe("tailwind sync endpoint validation", () => {
 			path.join(
 				tempProjectRoot,
 				".trickroom",
-				"tailwind",
+				"systems",
 				"my-system",
 				"tokens.json",
 			),
@@ -727,6 +748,20 @@ describe("tailwind GET /systems/:systemName/tokens", () => {
 		expect(response.status).toBe(404);
 	});
 
+	it("returns 400 for system names with invalid storage keys", async () => {
+		const app = await importTestServer();
+
+		const response = await app.request(
+			"/api/trickroom/tailwind/systems/%40%40%40/tokens",
+			{
+				method: "GET",
+				headers: { "content-type": "application/json" },
+			},
+		);
+
+		expect(response.status).toBe(400);
+	});
+
 	it("retrieves stored tokens and empty overrides", async () => {
 		const { storeDomainTokens } = await import("../utils/tailwind-token-store");
 		await storeDomainTokens(
@@ -896,6 +931,21 @@ describe("tailwind POST /systems/:systemName/tokens", () => {
 		);
 
 		expect(response.status).toBe(404);
+	});
+
+	it("returns 400 for system names with invalid storage keys", async () => {
+		const app = await importTestServer();
+
+		const response = await app.request(
+			"/api/trickroom/tailwind/systems/%40%40%40/tokens",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ domains: { color: { overrides: [] } } }),
+			},
+		);
+
+		expect(response.status).toBe(400);
 	});
 
 	it("rejects invalid override patterns", async () => {
@@ -1121,6 +1171,48 @@ describe("tailwind POST /systems/:systemName/tokens", () => {
 		]);
 	});
 
+	it("accepts non-color domain override patterns including namespace defaults", async () => {
+		const { storeDomainTokens, readDomainTokens } = await import(
+			"../utils/tailwind-token-store"
+		);
+		await storeDomainTokens(
+			tempProjectRoot,
+			"core",
+			{ "brand-500": "#123456" },
+			["--color-brand-500"],
+			"4.2.4",
+			"src/theme.css",
+		);
+		const app = await importTestServer();
+
+		const response = await app.request(
+			"/api/trickroom/tailwind/systems/core/tokens",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					domains: {
+						spacing: { overrides: ["--spacing", "--spacing-card"] },
+					},
+				}),
+			},
+		);
+
+		expect(response.status).toBe(200);
+		const json = await response.json();
+		expect(json.domains.color.overrides).toEqual(["--color-brand-500"]);
+		expect(json.domains.spacing.overrides).toEqual([
+			"--spacing",
+			"--spacing-card",
+		]);
+
+		const read = await readDomainTokens(tempProjectRoot, "core");
+		expect(read?.domains.spacing.overrides).toEqual([
+			"--spacing",
+			"--spacing-card",
+		]);
+	});
+
 	it("round-trips granular red family and token overrides", async () => {
 		const { storeDomainTokens, readDomainTokens } = await import(
 			"../utils/tailwind-token-store"
@@ -1147,7 +1239,9 @@ describe("tailwind POST /systems/:systemName/tokens", () => {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
-					domains: { color: { overrides: ["--color-red-50", "--color-red-*"] } },
+					domains: {
+						color: { overrides: ["--color-red-50", "--color-red-*"] },
+					},
 				}),
 			},
 		);

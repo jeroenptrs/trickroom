@@ -1,17 +1,17 @@
 import { tv } from "tailwind-variants";
 
 const swatch = tv({
-	base: "inline-block size-4 inset-shadow-[0_0_0_1px] inset-shadow-gray-200 shrink-0",
+	base: "inline-block size-4 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 shrink-0",
 	variants: {
 		state: {
 			normal: "",
 			warning: "inset-shadow-orange-500",
 			empty:
 				// Diagonal slash to indicate "no color".
-				"bg-gray-50 [background-image:linear-gradient(45deg,transparent_45%,var(--color-gray-300)_45%,var(--color-gray-300)_55%,transparent_55%)]",
+				"bg-slate-50 [background-image:linear-gradient(45deg,transparent_45%,var(--color-slate-300)_45%,var(--color-slate-300)_55%,transparent_55%)]",
 			transparent:
 				// Checkerboard for transparent / clear.
-				"[background-image:conic-gradient(var(--color-gray-200)_0%_25%,transparent_0%_50%,var(--color-gray-200)_50%_75%,transparent_0%)] [background-size:8px_8px]",
+				"[background-image:conic-gradient(var(--color-slate-200)_0%_25%,transparent_0%_50%,var(--color-slate-200)_50%_75%,transparent_0%)] [background-size:8px_8px]",
 		},
 		size: {
 			sm: "size-3.5",

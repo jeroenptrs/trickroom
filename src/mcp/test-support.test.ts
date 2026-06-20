@@ -58,7 +58,6 @@ describe("trickroom MCP test support", () => {
 
 		expect(tokenSnapshot).toMatchObject({
 			metadata: {
-				systemName: "Core",
 				cssPath: "src/index.css",
 				tailwindBaselineVersion: "test-baseline",
 				reviewRequired: false,
@@ -112,7 +111,13 @@ describe("trickroom MCP test support", () => {
 				projectRoot: fixture.projectRoot,
 				configPath: fixture.configPath,
 				mcpEnabled: true,
-				configuredSystems: ["Core"],
+				configuredSystems: [
+					expect.objectContaining({
+						systemId: expect.stringMatching(/^sys_/),
+						systemName: "Core",
+						cssPath: "src/index.css",
+					}),
+				],
 			});
 		} finally {
 			await session.close();

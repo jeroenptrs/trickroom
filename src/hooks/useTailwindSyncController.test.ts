@@ -94,6 +94,7 @@ function syncResponse(
 ): TailwindSyncTokensResponse {
 	return {
 		status: "ok",
+		systemId: systemName,
 		systemName,
 		cssPath,
 		tailwindBaselineVersion: "4.2.4",
@@ -147,12 +148,21 @@ async function flushPromises() {
 async function mountController(
 	config: TrickroomConfig,
 	onUpdate?: (controller: TailwindSyncController) => void,
+	projectScope?: string,
 ) {
 	const snapshots: TailwindSyncController[] = [];
 	let currentController: TailwindSyncController | undefined;
+	let currentConfig = config;
+	let currentProjectScope = projectScope;
 
-	function TestComponent() {
-		const controller = useTailwindSyncController(config);
+	function TestComponent({
+		config,
+		projectScope,
+	}: {
+		config: TrickroomConfig;
+		projectScope?: string;
+	}) {
+		const controller = useTailwindSyncController(config, projectScope);
 		currentController = controller;
 		snapshots.push(controller);
 		onUpdate?.(controller);
@@ -162,9 +172,23 @@ async function mountController(
 	const root = createRoot(createMinimalContainer() as unknown as Element);
 	mountedRoots.push(root);
 
-	await act(async () => {
-		root.render(React.createElement(TestComponent));
-	});
+	const rerender = async (
+		nextConfig = currentConfig,
+		nextProjectScope = currentProjectScope,
+	) => {
+		currentConfig = nextConfig;
+		currentProjectScope = nextProjectScope;
+		await act(async () => {
+			root.render(
+				React.createElement(TestComponent, {
+					config: currentConfig,
+					projectScope: currentProjectScope,
+				}),
+			);
+		});
+	};
+
+	await rerender();
 
 	return {
 		get controller() {
@@ -173,6 +197,7 @@ async function mountController(
 			}
 			return currentController;
 		},
+		rerender,
 		snapshots,
 	};
 }
@@ -207,8 +232,12 @@ describe("buildOrderedSystems", () => {
 		});
 
 		expect(systems).toEqual([
-			{ systemName: "Core", cssPath: "src/core.css" },
-			{ systemName: "Marketing", cssPath: "src/marketing.css" },
+			{ systemId: "Core", systemName: "Core", cssPath: "src/core.css" },
+			{
+				systemId: "Marketing",
+				systemName: "Marketing",
+				cssPath: "src/marketing.css",
+			},
 		]);
 	});
 
@@ -223,7 +252,11 @@ describe("buildOrderedSystems", () => {
 		});
 
 		expect(systems).toEqual([
-			{ systemName: "Marketing", cssPath: "src/marketing.css" },
+			{
+				systemId: "Marketing",
+				systemName: "Marketing",
+				cssPath: "src/marketing.css",
+			},
 		]);
 	});
 });
@@ -308,7 +341,7 @@ describe("useTailwindSyncController", () => {
 		let maxConcurrentCalls = 0;
 
 		syncTailwindTokensMock.mockImplementation(async (request) => {
-			const systemName = "systemName" in request ? request.systemName : "";
+			const systemName = "systemId" in request ? request.systemId : "";
 			const deferred = deferredBySystem.get(systemName);
 			if (!deferred) {
 				throw new Error(`Unexpected system ${systemName}`);
@@ -327,7 +360,7 @@ describe("useTailwindSyncController", () => {
 
 		expect(syncTailwindTokensMock).toHaveBeenCalledTimes(1);
 		expect(syncTailwindTokensMock).toHaveBeenLastCalledWith({
-			systemName: "Core",
+			systemId: "Core",
 		});
 		expect(mounted.controller.statusBySystem).toEqual({
 			Core: "pending",
@@ -340,7 +373,7 @@ describe("useTailwindSyncController", () => {
 
 		expect(syncTailwindTokensMock).toHaveBeenCalledTimes(2);
 		expect(syncTailwindTokensMock).toHaveBeenLastCalledWith({
-			systemName: "Marketing",
+			systemId: "Marketing",
 		});
 		expect(mounted.controller.statusBySystem).toEqual({
 			Core: "success",
@@ -355,7 +388,7 @@ describe("useTailwindSyncController", () => {
 
 		expect(syncTailwindTokensMock).toHaveBeenCalledTimes(3);
 		expect(syncTailwindTokensMock).toHaveBeenLastCalledWith({
-			systemName: "Product",
+			systemId: "Product",
 		});
 		expect(mounted.controller.statusBySystem).toEqual({
 			Core: "success",
@@ -414,17 +447,17 @@ describe("useTailwindSyncController", () => {
 		const failedSync = new Error("Marketing sync failed");
 
 		syncTailwindTokensMock.mockImplementation(async (request) => {
-			if (!("systemName" in request)) {
-				throw new Error("Expected systemName request");
+			if (!("systemId" in request)) {
+				throw new Error("Expected systemId request");
 			}
 
-			if (request.systemName === "Marketing") {
+			if (request.systemId === "Marketing") {
 				throw failedSync;
 			}
 
 			return syncResponse(
-				request.systemName,
-				config.systems[request.systemName as keyof typeof config.systems],
+				request.systemId,
+				config.systems[request.systemId as keyof typeof config.systems],
 			);
 		});
 
@@ -435,9 +468,9 @@ describe("useTailwindSyncController", () => {
 		expect(
 			syncTailwindTokensMock.mock.calls.map(([request]) => request),
 		).toEqual([
-			{ systemName: "Core" },
-			{ systemName: "Marketing" },
-			{ systemName: "Product" },
+			{ systemId: "Core" },
+			{ systemId: "Marketing" },
+			{ systemId: "Product" },
 		]);
 		expect(mounted.controller.statusBySystem).toEqual({
 			Core: "success",
@@ -459,13 +492,13 @@ describe("useTailwindSyncController", () => {
 
 	it("prepares per-system result data for future notification UI", async () => {
 		syncTailwindTokensMock.mockImplementation(async (request) => {
-			if (!("systemName" in request)) {
-				throw new Error("Expected systemName request");
+			if (!("systemId" in request)) {
+				throw new Error("Expected systemId request");
 			}
 
 			return syncResponse(
-				request.systemName,
-				request.systemName === "Core" ? "src/core.css" : "src/marketing.css",
+				request.systemId,
+				request.systemId === "Core" ? "src/core.css" : "src/marketing.css",
 			);
 		});
 
@@ -516,13 +549,14 @@ describe("useTailwindSyncController", () => {
 		// exposed via the result data so the UI can drive review/warning state
 		// from it independently.
 		syncTailwindTokensMock.mockImplementation(async (request) => {
-			if (!("systemName" in request)) {
-				throw new Error("Expected systemName request");
+			if (!("systemId" in request)) {
+				throw new Error("Expected systemId request");
 			}
 
-			if (request.systemName === "Core") {
+			if (request.systemId === "Core") {
 				return {
 					status: "ok",
+					systemId: "Core",
 					systemName: "Core",
 					cssPath: "src/core.css",
 					tailwindBaselineVersion: "4.2.4",
@@ -541,6 +575,7 @@ describe("useTailwindSyncController", () => {
 
 			return {
 				status: "updated",
+				systemId: "Marketing",
 				systemName: "Marketing",
 				cssPath: "src/marketing.css",
 				tailwindBaselineVersion: "4.2.4",
@@ -579,7 +614,7 @@ describe("useTailwindSyncController", () => {
 	it("re-running syncSystem refreshes a single system's data without re-syncing the others", async () => {
 		// Simulates the post save-and-confirm flow: after the save mutation
 		// success, Systems.tsx invalidates the stored-token query AND calls
-		// syncController.syncSystem(systemName) so any stale review/warning
+		// syncController.syncSystem(systemId) so any stale review/warning
 		// indicators clear once the server reports reviewRequired=false.
 		const responsesByCall = new Map<number, boolean>([
 			[1, true], // Core initial sync
@@ -588,17 +623,18 @@ describe("useTailwindSyncController", () => {
 		]);
 
 		syncTailwindTokensMock.mockImplementation(async (request) => {
-			if (!("systemName" in request)) {
-				throw new Error("Expected systemName request");
+			if (!("systemId" in request)) {
+				throw new Error("Expected systemId request");
 			}
 
 			const callIndex = syncTailwindTokensMock.mock.calls.length;
 			const reviewRequired = responsesByCall.get(callIndex) ?? false;
 			return {
 				status: reviewRequired ? "ok" : "updated",
-				systemName: request.systemName,
+				systemId: request.systemId,
+				systemName: request.systemId,
 				cssPath:
-					request.systemName === "Core" ? "src/core.css" : "src/marketing.css",
+					request.systemId === "Core" ? "src/core.css" : "src/marketing.css",
 				tailwindBaselineVersion: "4.2.4",
 				syncedAt: "2026-05-03T12:00:00.000Z",
 				reviewRequired,
@@ -631,12 +667,54 @@ describe("useTailwindSyncController", () => {
 
 		expect(syncTailwindTokensMock).toHaveBeenCalledTimes(3);
 		expect(syncTailwindTokensMock).toHaveBeenLastCalledWith({
-			systemName: "Core",
+			systemId: "Core",
 		});
 		expect(mounted.controller.results.Core.data?.reviewRequired).toBe(false);
 		// Marketing was untouched by the targeted refresh.
 		expect(mounted.controller.results.Marketing.data?.reviewRequired).toBe(
 			false,
 		);
+	});
+
+	it("drops stale results when the active project scope changes", async () => {
+		const trickroomSync = createDeferred<ReturnType<typeof syncResponse>>();
+		const siteSync = createDeferred<ReturnType<typeof syncResponse>>();
+		syncTailwindTokensMock
+			.mockReturnValueOnce(trickroomSync.promise)
+			.mockReturnValueOnce(siteSync.promise);
+
+		const mounted = await mountController(
+			{
+				name: "Trickroom",
+				systems: { Core: "src/trickroom.css" },
+			},
+			undefined,
+			"trickroom-location",
+		);
+
+		trickroomSync.resolve(syncResponse("Core", "src/trickroom.css"));
+		await flushPromises();
+		expect(mounted.controller.results.Core.data?.cssPath).toBe(
+			"src/trickroom.css",
+		);
+
+		await mounted.rerender(
+			{
+				name: "Site",
+				systems: { Core: "src/site.css" },
+			},
+			"site-location",
+		);
+
+		expect(mounted.controller.results.Core?.data?.cssPath).not.toBe(
+			"src/trickroom.css",
+		);
+
+		await flushPromises();
+		expect(syncTailwindTokensMock).toHaveBeenCalledTimes(2);
+		siteSync.resolve(syncResponse("Core", "src/site.css"));
+		await flushPromises();
+
+		expect(mounted.controller.results.Core.data?.cssPath).toBe("src/site.css");
 	});
 });

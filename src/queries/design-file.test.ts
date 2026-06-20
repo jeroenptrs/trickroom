@@ -1,0 +1,93 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { TrickroomDesign } from "../types";
+import { saveDesignFile } from "./design-file";
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (error: unknown) => void;
+	const promise = new Promise<T>((innerResolve, innerReject) => {
+		resolve = innerResolve;
+		reject = innerReject;
+	});
+
+	return { promise, reject, resolve };
+}
+
+function designFixture(name: string): TrickroomDesign {
+	return {
+		name,
+		boards: [],
+	};
+}
+
+function jsonResponse(body: unknown, status = 200) {
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: {
+			"Content-Type": "application/json",
+		},
+	});
+}
+
+describe("design file queries", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("serializes saves for the same design file", async () => {
+		const firstResponse = deferred<Response>();
+		const secondResponse = deferred<Response>();
+		const firstDesign = designFixture("First");
+		const secondDesign = designFixture("Second");
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockReturnValueOnce(firstResponse.promise)
+			.mockReturnValueOnce(secondResponse.promise);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const firstSave = saveDesignFile("design.json", firstDesign);
+		const secondSave = saveDesignFile("design.json", secondDesign);
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(fetchMock.mock.calls[0][1]?.body).toBe(
+			JSON.stringify(firstDesign),
+		);
+
+		firstResponse.resolve(jsonResponse(firstDesign));
+		await expect(firstSave).resolves.toEqual(firstDesign);
+
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(fetchMock.mock.calls[1][1]?.body).toBe(
+			JSON.stringify(secondDesign),
+		);
+
+		secondResponse.resolve(jsonResponse(secondDesign));
+		await expect(secondSave).resolves.toEqual(secondDesign);
+	});
+
+	it("continues queued saves after an earlier save fails", async () => {
+		const firstResponse = deferred<Response>();
+		const secondResponse = deferred<Response>();
+		const firstDesign = designFixture("First");
+		const secondDesign = designFixture("Second");
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockReturnValueOnce(firstResponse.promise)
+			.mockReturnValueOnce(secondResponse.promise);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const firstSave = saveDesignFile("design.json", firstDesign);
+		const secondSave = saveDesignFile("design.json", secondDesign);
+
+		firstResponse.resolve(jsonResponse({ error: "Save failed" }, 500));
+		await expect(firstSave).rejects.toThrow("Save failed");
+
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(fetchMock.mock.calls[1][1]?.body).toBe(
+			JSON.stringify(secondDesign),
+		);
+
+		secondResponse.resolve(jsonResponse(secondDesign));
+		await expect(secondSave).resolves.toEqual(secondDesign);
+	});
+});

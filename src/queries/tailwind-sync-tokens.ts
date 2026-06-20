@@ -4,9 +4,17 @@ import type {
 	TailwindColorTokenBaselineDiff,
 	TailwindTokensForPresentation,
 } from "../utils/tailwind-color-tokens";
-import type { TailwindMeaningfulColorBaselineDiff } from "../utils/tailwind-token-store";
+import type {
+	TailwindMeaningfulTokenBaselineDiff,
+	TailwindTokenDomain,
+	TailwindTokenDomainDiffs,
+} from "../utils/tailwind-token-domains";
+import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 export type TailwindSyncTokensRequest =
+	| {
+			systemId: string;
+	  }
 	| {
 			systemName: string;
 	  }
@@ -22,13 +30,21 @@ export type TailwindSyncTokensRequest =
  */
 export type TailwindSyncTokensResponse = {
 	status: "ok" | "updated";
+	systemId: string;
 	systemName: string;
 	cssPath: string;
 	tailwindBaselineVersion: string;
 	tokens: TailwindTokensForPresentation;
 	baselineDiff: TailwindColorTokenBaselineDiff;
+	baselineDiffs: TailwindTokenDomainDiffs;
 	syncedAt: string;
 	reviewRequired: boolean;
+};
+
+export type StoredTailwindTokenDomain = {
+	tokens: Record<string, string>;
+	overrides: string[];
+	baselineDiff: TailwindMeaningfulTokenBaselineDiff;
 };
 
 /**
@@ -38,27 +54,18 @@ export type TailwindSyncTokensResponse = {
  */
 export type StoredTailwindTokensResponse = {
 	ok: true;
+	systemId: string;
 	systemName: string;
 	cssPath: string;
 	syncedAt: string;
 	tailwindBaselineVersion: string;
 	reviewRequired: boolean;
-	domains: {
-		color: {
-			tokens: Record<string, string>;
-			overrides: string[];
-			baselineDiff: TailwindMeaningfulColorBaselineDiff;
-		};
-	};
+	domains: Record<TailwindTokenDomain, StoredTailwindTokenDomain>;
 };
 
 export type SaveAndConfirmTailwindTokensRequest = {
-	systemName: string;
-	domains: {
-		color: {
-			overrides: string[];
-		};
-	};
+	systemId: string;
+	domains: Partial<Record<TailwindTokenDomain, { overrides: string[] }>>;
 };
 
 export const syncTailwindTokens = async (
@@ -74,14 +81,15 @@ export const syncTailwindTokens = async (
 	return readJsonOrThrow<TailwindSyncTokensResponse>(response);
 };
 
-export const storedTailwindTokensQueryKey = (systemName: string) => [
-	"trickroom-tailwind-tokens",
-	systemName,
-];
+export const storedTailwindTokensQueryKey = (
+	systemId: string,
+	projectScope?: ProjectQueryScope,
+) =>
+	withProjectQueryScope(["trickroom-tailwind-tokens", systemId], projectScope);
 
-export const getStoredTailwindTokens = async (systemName: string) => {
+export const getStoredTailwindTokens = async (systemId: string) => {
 	const response = await fetch(
-		`/api/trickroom/tailwind/systems/${encodeURIComponent(systemName)}/tokens`,
+		`/api/trickroom/tailwind/systems/${encodeURIComponent(systemId)}/tokens`,
 	);
 
 	try {
@@ -101,11 +109,11 @@ export const getStoredTailwindTokens = async (systemName: string) => {
  * `reviewRequired` flag.
  */
 export const saveAndConfirmTailwindTokens = async ({
-	systemName,
+	systemId,
 	domains,
 }: SaveAndConfirmTailwindTokensRequest) => {
 	const response = await fetch(
-		`/api/trickroom/tailwind/systems/${encodeURIComponent(systemName)}/tokens`,
+		`/api/trickroom/tailwind/systems/${encodeURIComponent(systemId)}/tokens`,
 		{
 			method: "POST",
 			headers: {
@@ -118,8 +126,11 @@ export const saveAndConfirmTailwindTokens = async ({
 	return readJsonOrThrow<StoredTailwindTokensResponse>(response);
 };
 
-export const storedTailwindTokensQueryOptions = (systemName: string) =>
+export const storedTailwindTokensQueryOptions = (
+	systemId: string,
+	projectScope?: ProjectQueryScope,
+) =>
 	queryOptions({
-		queryKey: storedTailwindTokensQueryKey(systemName),
-		queryFn: () => getStoredTailwindTokens(systemName),
+		queryKey: storedTailwindTokensQueryKey(systemId, projectScope),
+		queryFn: () => getStoredTailwindTokens(systemId),
 	});

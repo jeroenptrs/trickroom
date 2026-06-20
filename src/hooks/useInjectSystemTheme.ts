@@ -1,10 +1,33 @@
 import { useQuery } from "@tanstack/react-query";
 import { type RefObject, useEffect } from "react";
+import { useProjectScope } from "../components/contexts";
 import { storedTailwindTokensQueryOptions } from "../queries/tailwind-sync-tokens";
-import { serializeTailwindTheme } from "../utils/tailwind-theme-css";
+import { serializeTailwindThemeDomains } from "../utils/tailwind-theme-css";
 
 const MANAGED_STYLE_ID = "trickroom-system-theme";
 const EMPTY_THEME_CSS = "@theme {}";
+
+function logSystemFontTokens(
+	systemId: string,
+	fontTokens: Record<string, string> | undefined,
+) {
+	const entries = Object.entries(fontTokens ?? {});
+	console.groupCollapsed(
+		`[Trickroom fonts] Injecting ${entries.length} font token${entries.length === 1 ? "" : "s"} for system "${systemId}"`,
+	);
+	if (entries.length === 0) {
+		console.log("No --font-* tokens found in tokens.json.");
+	} else {
+		console.table(
+			entries.map(([name, value]) => ({
+				token: `--font-${name}`,
+				utility: `font-${name}`,
+				value,
+			})),
+		);
+	}
+	console.groupEnd();
+}
 
 function upsertManagedThemeStyle(document: Document, css: string) {
 	const existing = document.getElementById(MANAGED_STYLE_ID);
@@ -27,7 +50,7 @@ function upsertManagedThemeStyle(document: Document, css: string) {
 }
 
 /**
- * When a design has a linked `systemName`, fetches the stored Tailwind tokens
+ * When a design has a linked `systemId`, fetches the stored Tailwind tokens
  * for that system and injects a single managed `<style type="text/tailwindcss">`
  * element into the design iframe's `<head>`. The element is updated in place on
  * data changes and reset to an empty theme when the design is unlinked.
@@ -39,16 +62,17 @@ function upsertManagedThemeStyle(document: Document, css: string) {
 export function useInjectSystemTheme(
 	iframeRef: RefObject<HTMLIFrameElement | null>,
 	didMount: boolean,
-	systemName: string | null | undefined,
+	systemId: string | null | undefined,
 ) {
 	const normalized =
-		typeof systemName === "string" && systemName.trim().length > 0
-			? systemName
+		typeof systemId === "string" && systemId.trim().length > 0
+			? systemId
 			: null;
 	const enabled = normalized !== null;
+	const projectScope = useProjectScope();
 
 	const tokensQuery = useQuery({
-		...storedTailwindTokensQueryOptions(normalized ?? ""),
+		...storedTailwindTokensQueryOptions(normalized ?? "", projectScope),
 		enabled,
 	});
 
@@ -77,17 +101,9 @@ export function useInjectSystemTheme(
 			return;
 		}
 
-		const css = serializeTailwindTheme(
-			stored.domains.color.tokens,
-			stored.domains.color.overrides,
-		);
+		const css = serializeTailwindThemeDomains(stored.domains);
+		logSystemFontTokens(normalized, stored.domains.font?.tokens);
 
 		upsertManagedThemeStyle(iframeDoc, css);
-	}, [
-		iframeRef,
-		didMount,
-		enabled,
-		tokensQuery.data,
-		tokensQuery.isFetched,
-	]);
+	}, [iframeRef, didMount, enabled, tokensQuery.data, tokensQuery.isFetched]);
 }

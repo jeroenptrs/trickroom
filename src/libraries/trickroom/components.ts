@@ -1,1 +1,1 @@
-export type TrickRoomComponents = "container" | "text";
+export type TrickRoomComponents = "asset" | "container" | "icon" | "text";

@@ -185,6 +185,7 @@ describe("saveAndConfirmTailwindTokens", () => {
 	it("POSTs the override payload and returns the stored snapshot", async () => {
 		const storedSnapshot = {
 			ok: true,
+			systemId: "sys_core",
 			systemName: "core",
 			cssPath: "src/index.css",
 			syncedAt: "2026-05-03T12:00:00.000Z",
@@ -207,12 +208,12 @@ describe("saveAndConfirmTailwindTokens", () => {
 			.mockResolvedValue(jsonResponse(200, storedSnapshot));
 
 		const result = await saveAndConfirmTailwindTokens({
-			systemName: "core",
+			systemId: "sys_core",
 			domains: { color: { overrides: ["--color-*"] } },
 		});
 
 		expect(fetchMock).toHaveBeenCalledWith(
-			"/api/trickroom/tailwind/systems/core/tokens",
+			"/api/trickroom/tailwind/systems/sys_core/tokens",
 			expect.objectContaining({
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -229,6 +230,7 @@ describe("saveAndConfirmTailwindTokens", () => {
 	it("POSTs granular overrides with red family and token declarations", async () => {
 		const storedSnapshot = {
 			ok: true,
+			systemId: "sys_core",
 			systemName: "core",
 			cssPath: "src/index.css",
 			syncedAt: "2026-05-03T12:00:00.000Z",
@@ -251,12 +253,12 @@ describe("saveAndConfirmTailwindTokens", () => {
 			.mockResolvedValue(jsonResponse(200, storedSnapshot));
 
 		const result = await saveAndConfirmTailwindTokens({
-			systemName: "core",
+			systemId: "sys_core",
 			domains: { color: { overrides: ["--color-red-50", "--color-red-*"] } },
 		});
 
 		expect(fetchMock).toHaveBeenCalledWith(
-			"/api/trickroom/tailwind/systems/core/tokens",
+			"/api/trickroom/tailwind/systems/sys_core/tokens",
 			expect.objectContaining({
 				method: "POST",
 				headers: { "Content-Type": "application/json" },

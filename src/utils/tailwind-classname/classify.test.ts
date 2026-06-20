@@ -65,65 +65,210 @@ describe("classifyParsedClass — color recognition", () => {
 	});
 });
 
-describe("classifyParsedClass — disambiguation against non-color siblings", () => {
-	it("returns unknown for text-{size}", () => {
-		expect(classify("text-sm")).toEqual({ kind: "unknown" });
-		expect(classify("text-2xl")).toEqual({ kind: "unknown" });
+describe("classifyParsedClass — non-color style siblings", () => {
+	it("classifies text-{size}", () => {
+		expect(classify("text-sm")).toMatchObject({
+			kind: "style",
+			domain: "typography",
+			property: "typography.font-size",
+		});
+		expect(classify("text-2xl")).toMatchObject({
+			kind: "style",
+			property: "typography.font-size",
+		});
 	});
 
-	it("returns unknown for text alignment", () => {
-		expect(classify("text-center")).toEqual({ kind: "unknown" });
+	it("classifies text alignment", () => {
+		expect(classify("text-center")).toMatchObject({
+			kind: "style",
+			property: "typography.text-align",
+		});
 	});
 
-	it("returns unknown for text wrap / overflow", () => {
-		expect(classify("text-balance")).toEqual({ kind: "unknown" });
-		expect(classify("text-ellipsis")).toEqual({ kind: "unknown" });
+	it("classifies text wrap / overflow", () => {
+		expect(classify("text-balance")).toMatchObject({
+			kind: "style",
+			property: "typography.text-wrap",
+		});
+		expect(classify("text-ellipsis")).toMatchObject({
+			kind: "style",
+			property: "typography.text-overflow",
+		});
 	});
 
-	it("returns unknown for border widths and styles", () => {
-		expect(classify("border-2")).toEqual({ kind: "unknown" });
-		expect(classify("border-solid")).toEqual({ kind: "unknown" });
-		expect(classify("border-collapse")).toEqual({ kind: "unknown" });
+	it("classifies border widths, styles, and table border collapse", () => {
+		expect(classify("border-2")).toMatchObject({
+			kind: "style",
+			property: "border.border-width",
+		});
+		expect(classify("border-solid")).toMatchObject({
+			kind: "style",
+			property: "border.border-style",
+		});
+		expect(classify("border-collapse")).toMatchObject({
+			kind: "style",
+			property: "structure.border-collapse",
+		});
 	});
 
-	it("returns unknown for bare `border`", () => {
-		expect(classify("border")).toEqual({ kind: "unknown" });
+	it("classifies bare `border`", () => {
+		expect(classify("border")).toMatchObject({
+			kind: "style",
+			property: "border.border-width",
+		});
 	});
 
-	it("returns unknown for bg backgrounds that aren't colors", () => {
-		expect(classify("bg-cover")).toEqual({ kind: "unknown" });
-		expect(classify("bg-no-repeat")).toEqual({ kind: "unknown" });
-		expect(classify("bg-fixed")).toEqual({ kind: "unknown" });
-		expect(classify("bg-blend-multiply")).toEqual({ kind: "unknown" });
+	it("classifies bg backgrounds that aren't colors", () => {
+		expect(classify("bg-cover")).toMatchObject({
+			kind: "style",
+			property: "background.background-size",
+		});
+		expect(classify("bg-no-repeat")).toMatchObject({
+			kind: "style",
+			property: "background.background-repeat",
+		});
+		expect(classify("bg-fixed")).toMatchObject({
+			kind: "style",
+			property: "background.background-attachment",
+		});
+		expect(classify("bg-blend-multiply")).toMatchObject({
+			kind: "style",
+			property: "background.background-blend-mode",
+		});
+		expect(classify("bg-radial")).toMatchObject({
+			kind: "style",
+			property: "background.background-gradient",
+		});
+		expect(classify("bg-conic")).toMatchObject({
+			kind: "style",
+			property: "background.background-gradient",
+		});
+		expect(classify("bg-linear-to-r")).toMatchObject({
+			kind: "style",
+			property: "background.background-gradient",
+		});
 	});
 
-	it("returns unknown for ring widths and bare ring", () => {
-		expect(classify("ring")).toEqual({ kind: "unknown" });
-		expect(classify("ring-2")).toEqual({ kind: "unknown" });
-		expect(classify("ring-inset")).toEqual({ kind: "unknown" });
+	it("classifies ring widths and bare ring", () => {
+		expect(classify("ring")).toMatchObject({
+			kind: "style",
+			property: "focus.ring-width",
+		});
+		expect(classify("ring-2")).toMatchObject({
+			kind: "style",
+			property: "focus.ring-width",
+		});
+		expect(classify("ring-inset")).toMatchObject({
+			kind: "style",
+			property: "focus.ring-inset",
+		});
 	});
 
-	it("returns unknown for outline widths and styles", () => {
-		expect(classify("outline")).toEqual({ kind: "unknown" });
-		expect(classify("outline-2")).toEqual({ kind: "unknown" });
-		expect(classify("outline-dashed")).toEqual({ kind: "unknown" });
+	it("classifies ring offset widths separately from ring offset colors", () => {
+		expect(classify("ring-offset-2")).toMatchObject({
+			kind: "style",
+			property: "focus.ring-offset",
+		});
+		expect(classify("ring-offset-blue-500")).toMatchObject({
+			kind: "color",
+			property: "ring-offset",
+			token: "blue-500",
+			resolved: true,
+		});
+		expect(classify("ring-offset-[oklch(50%_0.1_0)]")).toMatchObject({
+			kind: "color",
+			property: "ring-offset",
+			arbitraryValue: "[oklch(50%_0.1_0)]",
+		});
 	});
 
-	it("returns unknown for shadow sizes and bare shadow", () => {
-		expect(classify("shadow")).toEqual({ kind: "unknown" });
-		expect(classify("shadow-lg")).toEqual({ kind: "unknown" });
-		expect(classify("shadow-none")).toEqual({ kind: "unknown" });
+	it("classifies outline widths and styles", () => {
+		expect(classify("outline")).toMatchObject({
+			kind: "style",
+			property: "focus.outline-width",
+		});
+		expect(classify("outline-2")).toMatchObject({
+			kind: "style",
+			property: "focus.outline-width",
+		});
+		expect(classify("outline-dashed")).toMatchObject({
+			kind: "style",
+			property: "focus.outline-style",
+		});
 	});
 
-	it("returns unknown for divide-x / divide-y / divide widths", () => {
-		expect(classify("divide-x")).toEqual({ kind: "unknown" });
-		expect(classify("divide-y-2")).toEqual({ kind: "unknown" });
-		expect(classify("divide-solid")).toEqual({ kind: "unknown" });
+	it("classifies shadow sizes and bare shadow", () => {
+		expect(classify("shadow")).toMatchObject({
+			kind: "style",
+			property: "effects.shadow",
+		});
+		expect(classify("shadow-lg")).toMatchObject({
+			kind: "style",
+			property: "effects.shadow",
+		});
+		expect(classify("shadow-none")).toMatchObject({
+			kind: "style",
+			property: "effects.shadow",
+		});
 	});
 
-	it("returns unknown for gradient stop percentages", () => {
-		expect(classify("from-50%")).toEqual({ kind: "unknown" });
-		expect(classify("via-25%")).toEqual({ kind: "unknown" });
+	it("classifies text-shadow sizes separately from text-shadow colors", () => {
+		expect(classify("text-shadow")).toMatchObject({
+			kind: "style",
+			property: "effects.text-shadow",
+		});
+		expect(classify("text-shadow-sm")).toMatchObject({
+			kind: "style",
+			property: "effects.text-shadow",
+		});
+		expect(classify("text-shadow-none")).toMatchObject({
+			kind: "style",
+			property: "effects.text-shadow",
+		});
+		expect(classify("text-shadow-blue-500")).toMatchObject({
+			kind: "color",
+			property: "text-shadow",
+			token: "blue-500",
+			resolved: true,
+		});
+		expect(classify("text-shadow-[0_1px_2px_red]")).toMatchObject({
+			kind: "style",
+			property: "effects.text-shadow",
+		});
+	});
+
+	it("classifies divide-x / divide-y / divide widths", () => {
+		expect(classify("divide-x")).toMatchObject({
+			kind: "style",
+			property: "border.divide-x-width",
+		});
+		expect(classify("divide-y-2")).toMatchObject({
+			kind: "style",
+			property: "border.divide-y-width",
+		});
+		expect(classify("divide-solid")).toMatchObject({
+			kind: "style",
+			property: "border.divide-style",
+		});
+		expect(classify("divide-x-reverse")).toMatchObject({
+			kind: "style",
+			property: "border.divide-x-reverse",
+		});
+		expect(classify("divide-y-reverse")).toMatchObject({
+			kind: "style",
+			property: "border.divide-y-reverse",
+		});
+	});
+
+	it("classifies gradient stop percentages", () => {
+		expect(classify("from-50%")).toMatchObject({
+			kind: "style",
+			property: "background.gradient-from-position",
+		});
+		expect(classify("via-25%")).toMatchObject({
+			kind: "style",
+			property: "background.gradient-via-position",
+		});
 	});
 
 	it("classifies divide-{color} and shadow-{color} as colors", () => {
@@ -138,6 +283,64 @@ describe("classifyParsedClass — disambiguation against non-color siblings", ()
 			property: "shadow",
 			token: "red-500",
 			resolved: true,
+		});
+	});
+
+	it("classifies multi-segment color prefixes like inset-shadow", () => {
+		expect(classify("inset-shadow-slate-200")).toMatchObject({
+			kind: "color",
+			property: "inset-shadow",
+			token: "slate-200",
+			resolved: true,
+		});
+		expect(classify("focus:inset-shadow-blue-500")).toMatchObject({
+			kind: "color",
+			property: "inset-shadow",
+			token: "blue-500",
+			resolved: true,
+		});
+	});
+
+	it("classifies arbitrary colors for multi-segment color prefixes", () => {
+		expect(classify("inset-shadow-[#abc]")).toMatchObject({
+			kind: "color",
+			property: "inset-shadow",
+			token: null,
+			arbitraryValue: "[#abc]",
+			resolved: true,
+		});
+		expect(classify("focus:inset-shadow-[oklch(50%_0.1_0)]")).toMatchObject({
+			kind: "color",
+			property: "inset-shadow",
+			token: null,
+			arbitraryValue: "[oklch(50%_0.1_0)]",
+			resolved: true,
+		});
+	});
+
+	it("classifies non-color inset-shadow utilities", () => {
+		expect(classify("inset-shadow")).toMatchObject({
+			kind: "style",
+			property: "effects.inset-shadow",
+		});
+		expect(classify("inset-shadow-sm")).toMatchObject({
+			kind: "style",
+			property: "effects.inset-shadow",
+		});
+		expect(classify("inset-shadow-inner")).toMatchObject({
+			kind: "style",
+			property: "effects.inset-shadow",
+		});
+		expect(classify("inset-shadow-none")).toMatchObject({
+			kind: "style",
+			property: "effects.inset-shadow",
+		});
+	});
+
+	it("classifies non-color arbitrary inset-shadow values", () => {
+		expect(classify("inset-shadow-[0_0_0_1px]")).toMatchObject({
+			kind: "style",
+			property: "effects.inset-shadow",
 		});
 	});
 });
@@ -249,9 +452,19 @@ describe("classifyParsedClass — arbitrary values", () => {
 		});
 	});
 
-	it("returns unknown for arbitrary values that don't look like colors", () => {
-		expect(classify("bg-[url(/x.png)]")).toEqual({ kind: "unknown" });
-		expect(classify("text-[16px]")).toEqual({ kind: "unknown" });
+	it("classifies arbitrary values that don't look like colors when a style domain owns them", () => {
+		expect(classify("bg-[url(/x.png)]")).toMatchObject({
+			kind: "style",
+			property: "background.background-image",
+		});
+		expect(classify("text-[16px]")).toMatchObject({
+			kind: "style",
+			property: "typography.font-size",
+		});
+		expect(classify("content-['hi']")).toMatchObject({
+			kind: "style",
+			property: "structure.content",
+		});
 	});
 
 	it("returns unknown for fully arbitrary utilities", () => {
@@ -262,11 +475,86 @@ describe("classifyParsedClass — arbitrary values", () => {
 });
 
 describe("classifyParsedClass — unknown prefixes", () => {
-	it("returns unknown for utilities outside the color registry", () => {
-		expect(classify("flex")).toEqual({ kind: "unknown" });
-		expect(classify("p-4")).toEqual({ kind: "unknown" });
-		expect(classify("rounded-lg")).toEqual({ kind: "unknown" });
+	it("returns unknown only for utilities outside the modeled domains", () => {
+		expect(classify("flex")).toMatchObject({
+			kind: "style",
+			property: "layout.display",
+		});
+		expect(classify("rounded-lg")).toMatchObject({
+			kind: "style",
+			property: "border.radius",
+		});
 		expect(classify("custom-thing")).toEqual({ kind: "unknown" });
+	});
+});
+
+describe("classifyParsedClass — spacing recognition", () => {
+	it("classifies padding utilities by axis", () => {
+		expect(classify("p-4")).toEqual({
+			kind: "spacing",
+			property: "padding",
+			value: { kind: "scale", value: "4" },
+			negative: false,
+		});
+		expect(classify("px-2")).toMatchObject({
+			kind: "spacing",
+			property: "padding-x",
+			value: { kind: "scale", value: "2" },
+		});
+		expect(classify("pt-[13px]")).toMatchObject({
+			kind: "spacing",
+			property: "padding-top",
+			value: { kind: "arbitrary", value: "[13px]" },
+		});
+		expect(classify("pl-(--space-card)")).toMatchObject({
+			kind: "spacing",
+			property: "padding-left",
+			value: { kind: "custom-property", value: "(--space-card)" },
+		});
+	});
+
+	it("classifies margin utilities including auto and negative values", () => {
+		expect(classify("m-auto")).toMatchObject({
+			kind: "spacing",
+			property: "margin",
+			value: { kind: "keyword", keyword: "auto" },
+		});
+		expect(classify("mx-auto")).toMatchObject({
+			kind: "spacing",
+			property: "margin-x",
+			value: { kind: "keyword", keyword: "auto" },
+		});
+		expect(classify("-mt-4")).toEqual({
+			kind: "spacing",
+			property: "margin-top",
+			value: { kind: "scale", value: "4" },
+			negative: true,
+		});
+	});
+
+	it("classifies gap utilities by axis", () => {
+		expect(classify("gap-4")).toMatchObject({
+			kind: "spacing",
+			property: "gap",
+			value: { kind: "scale", value: "4" },
+		});
+		expect(classify("gap-x-2")).toMatchObject({
+			kind: "spacing",
+			property: "gap-x",
+			value: { kind: "scale", value: "2" },
+		});
+		expect(classify("gap-y-[1.5rem]")).toMatchObject({
+			kind: "spacing",
+			property: "gap-y",
+			value: { kind: "arbitrary", value: "[1.5rem]" },
+		});
+	});
+
+	it("does not classify invalid spacing shapes", () => {
+		expect(classify("-p-4")).toEqual({ kind: "unknown" });
+		expect(classify("p-auto")).toEqual({ kind: "unknown" });
+		expect(classify("gap-auto")).toEqual({ kind: "unknown" });
+		expect(classify("gap-x")).toEqual({ kind: "unknown" });
 	});
 });
 

@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+EXECUTABLE="$DIR/../../MacOS/Trickroom"
+if [ -f "$DIR/../app.asar.unpacked/bin/trickroom-mcp.js" ]; then
+	MCP_ENTRY="$DIR/../app.asar.unpacked/bin/trickroom-mcp.js"
+else
+	MCP_ENTRY="$DIR/../app/bin/trickroom-mcp.js"
+fi
+
+ELECTRON_RUN_AS_NODE=1 TRICKROOM_RUNTIME_ENV="${TRICKROOM_RUNTIME_ENV:-production}" "$EXECUTABLE" "$MCP_ENTRY" "$@"

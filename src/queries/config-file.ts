@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { TrickroomConfig } from "../types";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 const fetchConfigFile = async () => {
 	const response = await fetch("/api/trickroom/config");
@@ -19,11 +20,32 @@ export const createConfigFile = async (config: TrickroomConfig) => {
 	return readJsonOrThrow<TrickroomConfig>(response);
 };
 
+export type ProjectMcpSettings =
+	| { enabled: false }
+	| { enabled: true; mode: "read-only" | "read-write" };
+
+export const updateProjectMcpSettings = async (
+	settings: ProjectMcpSettings,
+) => {
+	const response = await fetch("/api/trickroom/config/mcp", {
+		method: "PUT",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify(settings),
+	});
+
+	return readJsonOrThrow<TrickroomConfig>(response);
+};
+
 export const configFileQueryKey = ["trickroom-config"];
 
-export const configFileQueryOptions = () =>
+export const configFileProjectQueryKey = (projectScope?: ProjectQueryScope) =>
+	withProjectQueryScope(configFileQueryKey, projectScope);
+
+export const configFileQueryOptions = (projectScope?: ProjectQueryScope) =>
 	queryOptions({
-		queryKey: configFileQueryKey,
+		queryKey: configFileProjectQueryKey(projectScope),
 		queryFn: fetchConfigFile,
 		retry: false,
 	});

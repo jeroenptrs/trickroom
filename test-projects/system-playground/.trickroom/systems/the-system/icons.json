@@ -1,0 +1,111 @@
+{
+	"version": 1,
+	"metadata": {
+		"indexedAt": "2026-05-23T18:59:12.713Z"
+	},
+	"iconFolderPaths": [
+		"icons-1",
+		"icons-2"
+	],
+	"icons": {
+		"icons-1/a-arrow-down": {
+			"name": "a-arrow-down",
+			"sourcePath": "icons-1/a-arrow-down.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:3f0d24836270e172ab84aafdc8f47f35ddecf8c8c9497d5438a7e98729eb5aa4"
+		},
+		"icons-1/banknote-x": {
+			"name": "banknote-x",
+			"sourcePath": "icons-1/banknote-x.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:2b54d8860505fbbcc0671583ddfa54be08e70f55f2dfc21b4260319991dd21c6"
+		},
+		"icons-1/cat": {
+			"name": "cat",
+			"sourcePath": "icons-1/cat.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:fc3c73246caec9e239b3830dddd6a5103e38272dc939fb3d97499aabcf067ba8"
+		},
+		"icons-1/flag": {
+			"name": "flag",
+			"sourcePath": "icons-1/flag.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:2b4de7c74b7abac12329ea92506cfa348459bee6d5d61b140647be0ca1c56123"
+		},
+		"icons-1/message-square": {
+			"name": "message-square",
+			"sourcePath": "icons-1/message-square.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:1a6c6277e74f071c623d00fbb9552244c2b18c0d6aaa886b50b5f323e957e0cd"
+		},
+		"icons-1/mic-2": {
+			"name": "mic-2",
+			"sourcePath": "icons-1/mic-2.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:ca557cd9628e8105a271484c5ffd5fab5cf6633431da831f7c4f75415000ec43"
+		},
+		"icons-1/sidebar-close": {
+			"name": "sidebar-close",
+			"sourcePath": "icons-1/sidebar-close.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:130de01668b94f0ce72e251ce1cbeaac38c9c03ef5a7f08c985538f2856b385d"
+		},
+		"icons-1/workflow": {
+			"name": "workflow",
+			"sourcePath": "icons-1/workflow.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:ca834feb6a3c149c7ee89360423bd2d3e09414ec809df3b2946e57da815327c5"
+		},
+		"icons-1/wrap-text": {
+			"name": "wrap-text",
+			"sourcePath": "icons-1/wrap-text.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:cb8c8054dfbe6828f50cb88c0a27d8825b2d8ac1901f201e7acd07179b6d0e57"
+		},
+		"icons-1/zoom-out": {
+			"name": "zoom-out",
+			"sourcePath": "icons-1/zoom-out.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:70a644f7ed4e89e5021349ad1cf5eb7491f7c73c6be9102668e1a48c3072e5c9"
+		},
+		"icons-2/castle": {
+			"name": "castle",
+			"sourcePath": "icons-2/castle.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:80da7b029431733f9c66c760ee7770330dd715a594a592936198f2b54de3c374"
+		},
+		"icons-2/metronome": {
+			"name": "metronome",
+			"sourcePath": "icons-2/metronome.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:fd45b58d8c80d402615c9988495810fce7710295e463288c0781d20f12d1d086"
+		},
+		"icons-2/sidebar-open": {
+			"name": "sidebar-open",
+			"sourcePath": "icons-2/sidebar-open.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:03b986eec6c2527cdc94ef36734a8234a7472149c63c499df620f7b54512f3a5"
+		},
+		"icons-2/zoom-in": {
+			"name": "zoom-in",
+			"sourcePath": "icons-2/zoom-in.svg",
+			"viewBox": "0 0 24 24",
+			"paint": "stroke",
+			"hash": "sha256:e5737dbc92de42a37eb5303deca3fcdae7408393a35874a7827c91bfd12c8d18"
+		}
+	},
+	"diagnostics": []
+}

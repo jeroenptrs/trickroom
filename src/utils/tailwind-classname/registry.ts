@@ -5,9 +5,8 @@
  * which `ColorProperty`, plus how to disambiguate against the prefix's
  * non-color siblings (widths, sizes, styles, …).
  *
- * The registry is colors-only for the MVP. The wider Tailwind utility
- * surface (font-size, spacing, …) is intentionally out of scope — the
- * classifier treats anything not described here as `unknown`.
+ * Color-only registry used by the color domain classifier. Other utility
+ * domains (spacing, layout, …) use their own modules; see `README.md`.
  */
 
 export type ColorProperty =
@@ -15,9 +14,11 @@ export type ColorProperty =
 	| "text"
 	| "border"
 	| "ring"
+	| "ring-offset"
 	| "outline"
 	| "fill"
 	| "stroke"
+	| "text-shadow"
 	| "accent"
 	| "caret"
 	| "placeholder"
@@ -60,6 +61,7 @@ export type ColorRegistryEntry = {
 
 const NUMERIC = /^\d+(\.\d+)?$/;
 const FRACTIONAL_NUMERIC = /^-?\d+(\.\d+)?\/\d+(\.\d+)?$/;
+const BG_GRADIENT = /^(linear|radial|conic)(-|$)/;
 
 const TEXT_SIZES = new Set([
 	"xs",
@@ -148,8 +150,6 @@ const BG_NON_COLOR = new Set([
 	"blend-luminosity",
 	"blend-plus-darker",
 	"blend-plus-lighter",
-	// gradient kinds (e.g. `bg-linear-to-r`, `bg-radial`, `bg-conic`) — these
-	// always have additional segments and won't collide with color tokens.
 ]);
 
 const BORDER_STYLES = new Set([
@@ -186,6 +186,8 @@ const SHADOW_SIZES = new Set([
 	"none",
 ]);
 
+const TEXT_SHADOW_SIZES = new Set(["2xs", "xs", "sm", "md", "lg", "none"]);
+
 const FILL_KEYWORDS = new Set(["none", "current", "inherit"]);
 
 const ACCENT_KEYWORDS = new Set(["auto"]);
@@ -215,6 +217,7 @@ export const COLOR_REGISTRY: readonly ColorRegistryEntry[] = [
 		prefix: "bg",
 		property: "background",
 		nonColorValues: BG_NON_COLOR,
+		nonColorMatchers: [BG_GRADIENT],
 	},
 	{
 		prefix: "text",
@@ -241,6 +244,11 @@ export const COLOR_REGISTRY: readonly ColorRegistryEntry[] = [
 		bareIsNonColor: true,
 	},
 	{
+		prefix: "ring-offset",
+		property: "ring-offset",
+		nonColorMatchers: [NUMERIC],
+	},
+	{
 		prefix: "outline",
 		property: "outline",
 		nonColorValues: OUTLINE_STYLES,
@@ -256,6 +264,12 @@ export const COLOR_REGISTRY: readonly ColorRegistryEntry[] = [
 		prefix: "stroke",
 		property: "stroke",
 		nonColorMatchers: [NUMERIC],
+	},
+	{
+		prefix: "text-shadow",
+		property: "text-shadow",
+		nonColorValues: TEXT_SHADOW_SIZES,
+		bareIsNonColor: true,
 	},
 	{
 		prefix: "accent",

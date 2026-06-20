@@ -6,13 +6,17 @@ import {
 	jsonError,
 	readJsonFile,
 } from "../server-utils";
-import { defaultTailwindColorTokensVersion } from "../utils/default-tailwind-tokens";
 import {
-	diffTailwindColorTokensAgainstDefaults,
-	extractTailwindColorTokens,
-	extractTailwindColorTokensForPresentation,
-	type TailwindColorTokenBaselineDiff,
-	type TailwindTokensForPresentation,
+	defaultTailwindTokensByDomain,
+	defaultTailwindTokensVersion,
+} from "../utils/default-tailwind-tokens";
+import {
+	DesignSystemStorageError,
+	findDesignSystem,
+} from "../utils/design-system-store.ts";
+import type {
+	TailwindColorTokenBaselineDiff,
+	TailwindTokensForPresentation,
 } from "../utils/tailwind-color-tokens";
 import {
 	loadTailwindDesignSystem,
@@ -20,6 +24,18 @@ import {
 	type TailwindDesignSystem,
 	TailwindSystemResolutionError,
 } from "../utils/tailwind-design-system";
+import {
+	diffTailwindTokensAgainstDefaults,
+	extractTailwindTokensForPresentation as extractAllTailwindTokensForPresentation,
+	extractTailwindTokens,
+	isValidTokenDomain,
+	TAILWIND_TOKEN_DOMAIN_NAMESPACES,
+	TAILWIND_TOKEN_DOMAINS,
+	type TailwindMeaningfulTokenBaselineDiff,
+	type TailwindTokenDomain,
+	type TailwindTokenDomainDiffs,
+	type TailwindTokenDomains,
+} from "../utils/tailwind-token-domains";
 import {
 	areTokenStoragesEquivalent,
 	normalizeCssPath,
@@ -32,15 +48,29 @@ export const tailwindRoutes = new Hono();
 
 const readTailwindSyncTarget = (
 	body: unknown,
-): { systemName: string } | { cssPath: string } | null => {
+):
+	| { systemId: string }
+	| { systemName: string }
+	| { cssPath: string }
+	| null => {
 	if (!isRecord(body)) {
 		return null;
 	}
 
+	const hasSystemId = typeof body.systemId === "string";
 	const hasSystemName = typeof body.systemName === "string";
 	const hasCssPath = typeof body.cssPath === "string";
-	if (hasSystemName === hasCssPath) {
+	if ([hasSystemId, hasSystemName, hasCssPath].filter(Boolean).length !== 1) {
 		return null;
+	}
+
+	if (hasSystemId) {
+		const systemId = body.systemId.trim();
+		if (systemId.length === 0) {
+			return null;
+		}
+
+		return { systemId };
 	}
 
 	if (hasSystemName) {
@@ -63,15 +93,19 @@ const readTailwindSyncTarget = (
 type TailwindSyncPreview = {
 	tokens: TailwindTokensForPresentation;
 	baselineDiff: TailwindColorTokenBaselineDiff;
+	baselineDiffs: TailwindTokenDomainDiffs;
+	tokensByDomain: TailwindTokenDomains;
 };
 
 type TailwindSyncResponse = {
 	status: "ok" | "updated";
+	systemId: string;
 	systemName: string;
 	cssPath: string;
 	tailwindBaselineVersion: string;
 	tokens: TailwindTokensForPresentation;
 	baselineDiff: TailwindColorTokenBaselineDiff;
+	baselineDiffs: TailwindTokenDomainDiffs;
 	syncedAt: string;
 	reviewRequired: boolean;
 };
@@ -90,14 +124,23 @@ const syncTailwindTokensForCssPath = async (
 const syncTailwindTokensForLoadedDesignSystem = (
 	designSystem: TailwindDesignSystem,
 ) => {
-	const allColorTokens = extractTailwindColorTokens(designSystem);
-	const baselineDiff = diffTailwindColorTokensAgainstDefaults(allColorTokens);
+	const tokensByDomain = extractTailwindTokens(designSystem);
+	const baselineDiffs = diffTailwindTokensAgainstDefaults(
+		tokensByDomain,
+		defaultTailwindTokensByDomainForRoute,
+	);
+	const baselineDiff = baselineDiffs.color;
 
 	return {
-		tokens: extractTailwindColorTokensForPresentation(baselineDiff),
+		tokens: extractAllTailwindTokensForPresentation(baselineDiffs),
 		baselineDiff,
+		baselineDiffs,
+		tokensByDomain,
 	} satisfies TailwindSyncPreview;
 };
+
+const defaultTailwindTokensByDomainForRoute =
+	defaultTailwindTokensByDomain as TailwindTokenDomains;
 
 const buildSyncedColorTokens = (
 	baselineDiff: TailwindColorTokenBaselineDiff,
@@ -115,61 +158,87 @@ const buildSyncedColorTokens = (
 	return syncedTokens;
 };
 
+const buildSyncedDomainTokens = (
+	baselineDiffs: TailwindTokenDomainDiffs,
+): TailwindTokenDomains =>
+	Object.fromEntries(
+		TAILWIND_TOKEN_DOMAINS.map((domain) => [
+			domain,
+			buildSyncedColorTokens(baselineDiffs[domain]),
+		]),
+	) as TailwindTokenDomains;
+
 const buildCanonicalSnapshot = ({
 	projectRoot,
-	systemName,
 	cssPath,
 	tokens,
+	domains,
 	overrides,
+	domainOverrides,
 	baselineDiff,
+	baselineDiffs,
 	syncedAt,
 	reviewRequired,
 }: {
 	projectRoot: string;
-	systemName: string;
 	cssPath: string;
 	tokens: Record<string, string>;
+	domains: TailwindTokenDomains;
 	overrides: string[];
+	domainOverrides: Partial<Record<TailwindTokenDomain, string[]>>;
 	baselineDiff: TailwindColorTokenBaselineDiff;
+	baselineDiffs: TailwindTokenDomainDiffs;
 	syncedAt: string;
 	reviewRequired: boolean;
 }): TailwindTokenStorageV2 => ({
 	version: 2,
 	metadata: {
-		systemName,
 		cssPath: normalizeCssPath(cssPath, projectRoot),
 		syncedAt,
-		tailwindBaselineVersion: defaultTailwindColorTokensVersion,
+		tailwindBaselineVersion: defaultTailwindTokensVersion,
 		reviewRequired,
 	},
-	domains: {
-		color: {
-			tokens,
-			overrides,
-			baselineDiff: {
-				added: baselineDiff.added,
-				overridden: baselineDiff.overridden,
-				removed: baselineDiff.removed,
+	domains: Object.fromEntries(
+		TAILWIND_TOKEN_DOMAINS.map((domain) => [
+			domain,
+			{
+				tokens: domain === "color" ? tokens : domains[domain],
+				overrides:
+					domain === "color" ? overrides : (domainOverrides[domain] ?? []),
+				baselineDiff: {
+					added: (domain === "color" ? baselineDiff : baselineDiffs[domain])
+						.added,
+					overridden: (domain === "color"
+						? baselineDiff
+						: baselineDiffs[domain]
+					).overridden,
+					removed: (domain === "color" ? baselineDiff : baselineDiffs[domain])
+						.removed,
+				},
 			},
-		},
-	},
+		]),
+	) as TailwindTokenStorageV2["domains"],
 });
 
 const buildTailwindSyncResponse = ({
 	status,
 	preview,
 	storage,
+	system,
 }: {
 	status: "ok" | "updated";
 	preview: TailwindSyncPreview;
 	storage: TailwindTokenStorageV2;
+	system: { systemId: string; systemName: string; cssPath: string };
 }): TailwindSyncResponse => ({
 	status,
-	systemName: storage.metadata.systemName,
-	cssPath: storage.metadata.cssPath,
+	systemId: system.systemId,
+	systemName: system.systemName,
+	cssPath: system.cssPath,
 	tailwindBaselineVersion: storage.metadata.tailwindBaselineVersion,
 	tokens: preview.tokens,
 	baselineDiff: preview.baselineDiff,
+	baselineDiffs: preview.baselineDiffs,
 	syncedAt: storage.metadata.syncedAt,
 	reviewRequired: storage.metadata.reviewRequired,
 });
@@ -187,7 +256,7 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 	const target = readTailwindSyncTarget(body);
 	if (!target) {
 		return jsonError(
-			"Invalid sync target payload: provide exactly one of systemName or cssPath",
+			"Invalid sync target payload: provide exactly one of systemId, systemName, or cssPath",
 			400,
 		);
 	}
@@ -209,7 +278,7 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 	}
 
 	try {
-		const resolvedTarget = resolveConfiguredTailwindSystemTarget(
+		const resolvedTarget = await resolveConfiguredTailwindSystemTarget(
 			projectRoot,
 			config,
 			target,
@@ -218,19 +287,25 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 			projectRoot,
 			resolvedTarget.cssPath,
 		);
-		const stored = await readDomainTokens(
-			projectRoot,
-			resolvedTarget.systemName,
-		);
+		const stored = await readDomainTokens(projectRoot, resolvedTarget.systemId);
 		const syncedTokens = buildSyncedColorTokens(preview.baselineDiff);
+		const syncedDomainTokens = buildSyncedDomainTokens(preview.baselineDiffs);
 		const overrides = stored?.domains.color.overrides ?? [];
+		const domainOverrides = Object.fromEntries(
+			TAILWIND_TOKEN_DOMAINS.map((domain) => [
+				domain,
+				stored?.domains[domain]?.overrides ?? [],
+			]),
+		) as Partial<Record<TailwindTokenDomain, string[]>>;
 		const nextCanonicalSnapshot = buildCanonicalSnapshot({
 			projectRoot,
-			systemName: resolvedTarget.systemName,
 			cssPath: resolvedTarget.cssPath,
 			tokens: syncedTokens,
+			domains: syncedDomainTokens,
 			overrides,
+			domainOverrides,
 			baselineDiff: preview.baselineDiff,
+			baselineDiffs: preview.baselineDiffs,
 			syncedAt: stored?.metadata.syncedAt ?? new Date().toISOString(),
 			reviewRequired: stored ? stored.metadata.reviewRequired : true,
 		});
@@ -244,23 +319,27 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 					status: "ok",
 					preview,
 					storage: stored,
+					system: resolvedTarget,
 				}),
 			);
 		}
 
 		await storeDomainTokens({
 			projectRoot,
-			systemName: resolvedTarget.systemName,
+			systemName: resolvedTarget.systemId,
 			cssPath: resolvedTarget.cssPath,
-			tailwindBaselineVersion: defaultTailwindColorTokensVersion,
+			tailwindBaselineVersion: defaultTailwindTokensVersion,
 			tokens: syncedTokens,
+			domains: syncedDomainTokens,
 			overrides,
+			domainOverrides,
 			baselineDiff: preview.baselineDiff,
+			domainBaselineDiffs: preview.baselineDiffs,
 			reviewRequired: true,
 		});
 		const updated = await readDomainTokens(
 			projectRoot,
-			resolvedTarget.systemName,
+			resolvedTarget.systemId,
 		);
 		if (!updated) {
 			return jsonError("Failed to persist synced Tailwind tokens", 500);
@@ -271,6 +350,7 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 				status: "updated",
 				preview,
 				storage: updated,
+				system: resolvedTarget,
 			}),
 		);
 	} catch (error) {
@@ -287,9 +367,21 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 			if (error.code === "AMBIGUOUS_CSS_PATH") {
 				return jsonError(error.message, 409);
 			}
+			if (error.code === "DUPLICATE_SYSTEM_KEY") {
+				return jsonError(error.message, 409);
+			}
 			if (error.code === "INVALID_CSS_PATH") {
 				return jsonError(error.message, 400);
 			}
+			if (error.code === "INVALID_SYSTEM_NAME") {
+				return jsonError(error.message, 400);
+			}
+		}
+		if (
+			error instanceof DesignSystemStorageError &&
+			error.code === "DUPLICATE_SYSTEM_KEY"
+		) {
+			return jsonError(error.message, 409);
 		}
 
 		console.error(error);
@@ -297,13 +389,74 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 	}
 });
 
-/**
- * Validate color token override pattern
- * Must match --color-... pattern (supports * as wildcard)
- */
-const validateColorOverride = (pattern: string): boolean => {
-	return /^--color-[a-z0-9\-*]+$/i.test(pattern);
+const validateDomainOverride = (
+	domain: TailwindTokenDomain,
+	pattern: string,
+): boolean => {
+	const namespace = TAILWIND_TOKEN_DOMAIN_NAMESPACES[domain];
+	const normalizedPattern = pattern.toLowerCase();
+	const normalizedNamespace = namespace.toLowerCase();
+	if (normalizedPattern === normalizedNamespace) {
+		return true;
+	}
+	if (normalizedPattern === `${normalizedNamespace}-*`) {
+		return true;
+	}
+	if (!normalizedPattern.startsWith(`${normalizedNamespace}-`)) {
+		return false;
+	}
+	// Longest namespace wins: --font must not claim --font-weight-* patterns
+	// (nor --text claim --text-shadow-*), which belong to the more specific
+	// domain and would otherwise be stored under the wrong domain.
+	for (const otherNamespace of Object.values(TAILWIND_TOKEN_DOMAIN_NAMESPACES)) {
+		const otherNormalized = otherNamespace.toLowerCase();
+		if (
+			otherNormalized.length > normalizedNamespace.length &&
+			(normalizedPattern === otherNormalized ||
+				normalizedPattern === `${otherNormalized}-*` ||
+				normalizedPattern.startsWith(`${otherNormalized}-`))
+		) {
+			return false;
+		}
+	}
+	const suffix = pattern.slice(namespace.length + 1);
+	return suffix.length > 0 && /^[a-z0-9\-_.*/]+$/i.test(suffix);
 };
+
+const readDomainOverridesPayload = (
+	body: unknown,
+): Partial<Record<TailwindTokenDomain, string[]>> | null => {
+	if (!isRecord(body) || !isRecord(body.domains)) {
+		return null;
+	}
+
+	const overridesByDomain: Partial<Record<TailwindTokenDomain, string[]>> = {};
+	for (const [domainName, domainPayload] of Object.entries(body.domains)) {
+		if (!isValidTokenDomain(domainName)) {
+			return null;
+		}
+		if (!isRecord(domainPayload) || !Array.isArray(domainPayload.overrides)) {
+			return null;
+		}
+		const overrides: string[] = [];
+		for (const override of domainPayload.overrides) {
+			if (typeof override !== "string") {
+				return null;
+			}
+			if (!validateDomainOverride(domainName, override)) {
+				return null;
+			}
+			overrides.push(override);
+		}
+		overridesByDomain[domainName] = overrides;
+	}
+
+	return overridesByDomain;
+};
+
+const isInvalidSystemStorageError = (error: unknown) =>
+	error instanceof DesignSystemStorageError &&
+	(error.code === "EMPTY_SYSTEM_KEY" || error.code === "INVALID_SYSTEM_KEY");
 
 /**
  * GET /systems/:systemName/tokens - Retrieve stored tokens and overrides
@@ -317,7 +470,9 @@ tailwindRoutes.get("/systems/:systemName/tokens", async (c) => {
 	}
 
 	try {
-		const stored = await readDomainTokens(projectRoot, systemName);
+		const system = await findDesignSystem(projectRoot, systemName);
+		const systemHandle = system?.manifest.systemId ?? systemName;
+		const stored = await readDomainTokens(projectRoot, systemHandle);
 
 		if (!stored) {
 			return jsonError(`No tokens stored for system "${systemName}"`, 404);
@@ -325,14 +480,19 @@ tailwindRoutes.get("/systems/:systemName/tokens", async (c) => {
 
 		return c.json({
 			ok: true,
-			systemName: stored.metadata.systemName,
-			cssPath: stored.metadata.cssPath,
+			systemId: system?.manifest.systemId ?? systemName,
+			systemName: system?.manifest.systemName ?? systemName,
+			cssPath: system?.manifest.cssPath ?? stored.metadata.cssPath,
 			syncedAt: stored.metadata.syncedAt,
 			tailwindBaselineVersion: stored.metadata.tailwindBaselineVersion,
 			reviewRequired: stored.metadata.reviewRequired,
 			domains: stored.domains,
 		});
 	} catch (error) {
+		if (isInvalidSystemStorageError(error)) {
+			return jsonError("Invalid system name", 400);
+		}
+
 		console.error(error);
 		return jsonError("Failed to read stored tokens", 500);
 	}
@@ -356,54 +516,60 @@ tailwindRoutes.post("/systems/:systemName/tokens", async (c) => {
 		return jsonError("Invalid request body", 400);
 	}
 
-	if (
-		!isRecord(body) ||
-		!isRecord(body.domains) ||
-		!isRecord(body.domains.color) ||
-		!Array.isArray(body.domains.color.overrides)
-	) {
+	const requestedOverrides = readDomainOverridesPayload(body);
+	if (!requestedOverrides) {
 		return jsonError(
-			"Request body must contain domains.color.overrides array",
+			"Request body must contain domains.<domain>.overrides arrays with valid Tailwind theme variable patterns such as --color-*",
 			400,
 		);
 	}
 
-	// Validate all overrides match color domain pattern
-	const overrides = body.domains.color.overrides as unknown[];
-	for (const override of overrides) {
-		if (typeof override !== "string") {
-			return jsonError("All overrides must be strings", 400);
-		}
-		if (!validateColorOverride(override)) {
-			return jsonError(
-				`Invalid override pattern: "${override}". Must match --color-... pattern`,
-				400,
-			);
-		}
-	}
-
 	try {
-		const stored = await readDomainTokens(projectRoot, systemName);
+		const system = await findDesignSystem(projectRoot, systemName);
+		const systemHandle = system?.manifest.systemId ?? systemName;
+		const stored = await readDomainTokens(projectRoot, systemHandle);
 
 		if (!stored) {
 			return jsonError(`No tokens stored for system "${systemName}"`, 404);
 		}
 
+		const domainOverrides = Object.fromEntries(
+			TAILWIND_TOKEN_DOMAINS.map((domain) => [
+				domain,
+				requestedOverrides[domain] ?? stored.domains[domain].overrides,
+			]),
+		) as Partial<Record<TailwindTokenDomain, string[]>>;
+
 		// Update overrides only, preserve synced tokens
 		await storeDomainTokens({
 			projectRoot,
-			systemName,
+			systemName: systemHandle,
 			tokens: stored.domains.color.tokens,
-			overrides: overrides as string[],
+			domains: Object.fromEntries(
+				TAILWIND_TOKEN_DOMAINS.map((domain) => [
+					domain,
+					stored.domains[domain].tokens,
+				]),
+			) as TailwindTokenDomains,
+			overrides: domainOverrides.color ?? [],
+			domainOverrides,
 			tailwindBaselineVersion: stored.metadata.tailwindBaselineVersion,
 			cssPath: stored.metadata.cssPath,
 			baselineDiff: stored.domains.color.baselineDiff,
+			domainBaselineDiffs: Object.fromEntries(
+				TAILWIND_TOKEN_DOMAINS.map((domain) => [
+					domain,
+					stored.domains[domain].baselineDiff,
+				]),
+			) as Partial<
+				Record<TailwindTokenDomain, TailwindMeaningfulTokenBaselineDiff>
+			>,
 			reviewRequired: false,
 			syncedAt: stored.metadata.syncedAt,
 		});
 
 		// Read back to get normalized (sorted) overrides
-		const updated = await readDomainTokens(projectRoot, systemName);
+		const updated = await readDomainTokens(projectRoot, systemHandle);
 
 		if (!updated) {
 			return jsonError("Failed to read updated tokens", 500);
@@ -411,14 +577,19 @@ tailwindRoutes.post("/systems/:systemName/tokens", async (c) => {
 
 		return c.json({
 			ok: true,
-			systemName: updated.metadata.systemName,
-			cssPath: updated.metadata.cssPath,
+			systemId: system?.manifest.systemId ?? systemName,
+			systemName: system?.manifest.systemName ?? systemName,
+			cssPath: system?.manifest.cssPath ?? updated.metadata.cssPath,
 			syncedAt: updated.metadata.syncedAt,
 			tailwindBaselineVersion: updated.metadata.tailwindBaselineVersion,
 			reviewRequired: updated.metadata.reviewRequired,
 			domains: updated.domains,
 		});
 	} catch (error) {
+		if (isInvalidSystemStorageError(error)) {
+			return jsonError("Invalid system name", 400);
+		}
+
 		console.error(error);
 		return jsonError("Failed to save and confirm overrides", 500);
 	}

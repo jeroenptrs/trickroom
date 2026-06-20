@@ -1,277 +1,233 @@
-import { RiInformationLine as Info } from "@remixicon/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { FilePlus2, Palette, RefreshCw } from "lucide-react";
+import { useState } from "react";
 import type { TailwindSyncResult } from "../../hooks/useTailwindSyncController";
-import {
-	saveAndConfirmTailwindTokens,
-	storedTailwindTokensQueryKey,
-	storedTailwindTokensQueryOptions,
-} from "../../queries/tailwind-sync-tokens";
-import { computeColorOverrides } from "../../utils/tailwind-color-tokens";
 import { useTailwindSyncController } from "../contexts";
 import { Button } from "../ui/button";
-import Checkbox from "../ui/checkbox";
-import {
-	Dialog,
-	DialogClose,
-	DialogContent,
-	DialogOverlay,
-	DialogPortal,
-	DialogTitle,
-	DialogTrigger,
-} from "../ui/dialog";
 import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
-import { Text } from "../ui/text";
+import { CreateSystemDialog } from "./CreateSystemDialog";
+import { pluralize } from "./project-view-utils";
+import { useScrollSelectedIntoView } from "./useScrollSelectedIntoView";
+import {
+	SystemStatusBadge,
+	type SystemStatusBadgeState,
+} from "./SystemStatusBadge";
 
-function System({ system }: { system: TailwindSyncResult }) {
-	const addedScrollViewportRef = useRef<HTMLDivElement>(null);
-	const removedScrollViewportRef = useRef<HTMLDivElement>(null);
-	const queryClient = useQueryClient();
-	const syncController = useTailwindSyncController();
-	const [open, setOpen] = useState(false);
-	const [shouldInjectOverrides, setShouldInjectOverrides] = useState(false);
-	const [useBroadReset, setUseBroadReset] = useState(false);
-	const shouldHaveOverrides = Boolean(
-		(system?.data?.baselineDiff.removed ?? []).length,
-	);
-	// TODO: when more domains are supported this should probably include logic
-	const possibleOverrides = useMemo(
-		() => computeColorOverrides(system.data?.baselineDiff.removed ?? []),
-		[system.data?.baselineDiff.removed],
-	);
-	const systemName = system.data?.systemName ?? "";
-	const storedTokensQuery = useQuery({
-		...storedTailwindTokensQueryOptions(systemName),
-		enabled: open && systemName.length > 0,
-	});
-	const saveOverridesMutation = useMutation({
-		mutationFn: (overrides: string[]) =>
-			saveAndConfirmTailwindTokens({
-				systemName,
-				domains: {
-					color: {
-						overrides,
-					},
-				},
-			}),
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({
-				queryKey: storedTailwindTokensQueryKey(systemName),
-			});
-			// Refresh controller/sync state so stale review/warning indicators
-			// for this system clear.
-			await syncController.syncSystem(systemName);
-		},
-	});
+function getCssBasename(cssPath: string | undefined) {
+	if (!cssPath) {
+		return null;
+	}
 
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
+	return cssPath.split(/[\\/]/).pop() || cssPath;
+}
 
-		const storedOverrides =
-			storedTokensQuery.data?.domains.color.overrides ?? [];
-		setShouldInjectOverrides(storedOverrides.length > 0);
-		setUseBroadReset(storedOverrides.includes("--color-*"));
-	}, [open, storedTokensQuery.data]);
+function getSystemBadgeState(
+	system: TailwindSyncResult,
+	reviewRequired: boolean,
+): SystemStatusBadgeState {
+	if (system.status === "error") {
+		return "error";
+	}
 
-	const saveError =
-		saveOverridesMutation.error instanceof Error
-			? saveOverridesMutation.error.message
-			: null;
-	const storedOverrides = storedTokensQuery.data?.domains.color.overrides ?? [];
-	const displayedOverrides =
-		shouldHaveOverrides && useBroadReset ? ["--color-*"] : possibleOverrides;
-	const nextOverrides =
-		shouldHaveOverrides && shouldInjectOverrides
-			? displayedOverrides
-			: [];
-	const overridesChanged =
-		JSON.stringify(nextOverrides) !== JSON.stringify(storedOverrides);
-	const reviewRequired = Boolean(
-		system.data?.reviewRequired || storedTokensQuery.data?.reviewRequired,
-	);
-	const saveDisabled =
-		!system.data ||
-		saveOverridesMutation.isPending ||
-		storedTokensQuery.isPending ||
-		(!overridesChanged && !reviewRequired);
+	if (system.status === "pending") {
+		return "syncing";
+	}
 
-	const handleSave = () => {
-		if (!system.data || saveDisabled) {
-			return;
-		}
+	if (system.status === "idle") {
+		return "idle";
+	}
 
-		saveOverridesMutation.mutate(nextOverrides);
-	};
+	if (reviewRequired) {
+		return "review";
+	}
 
-	const showWarning = Boolean(system.data?.reviewRequired);
+	return "synced";
+}
+
+export function getSystemMetadata(
+	system: TailwindSyncResult,
+	cssPath?: string,
+) {
+	const cssBasename = getCssBasename(system.data?.cssPath ?? cssPath);
+	const prefix = cssBasename ? `${cssBasename} · ` : "";
+	const baselineDiff = system.data?.baselineDiff;
+
+	if (baselineDiff) {
+		const added = baselineDiff.added.length;
+		const removed = baselineDiff.removed.length;
+		const diffLabel = `+${added} / -${removed}`;
+
+		return system.data?.reviewRequired ? diffLabel : `${prefix}${diffLabel}`;
+	}
+
+	if (system.data?.reviewRequired) {
+		return "+0 / -0";
+	}
+
+	const tokenCount = system.data?.tokens?.length;
+	if (tokenCount === undefined) {
+		return `${prefix}no token data`;
+	}
+
+	return `${prefix}${tokenCount} ${pluralize(tokenCount, "token")}`;
+}
+
+function getSystemStatusDotClassName(
+	system: TailwindSyncResult,
+	reviewRequired: boolean,
+) {
+	if (system.status === "error") {
+		return "bg-red-500";
+	}
+
+	if (system.status === "idle") {
+		return "bg-slate-300";
+	}
+
+	if (reviewRequired) {
+		return "bg-amber-500";
+	}
+
+	return "bg-green-500";
+}
+
+function SystemStatusIndicator({
+	system,
+	reviewRequired,
+}: {
+	system: TailwindSyncResult;
+	reviewRequired: boolean;
+}) {
+	if (system.status === "pending") {
+		return (
+			<RefreshCw
+				className="size-3 animate-spin text-cyan-500"
+				aria-hidden="true"
+			/>
+		);
+	}
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
-			<DialogTrigger>
-				<Button
-					variant="block"
-					className="w-full inset-shadow-gray-200 px-3 py-4"
-					flavor={showWarning ? "warning" : undefined}
-				>
-					<span className="flex flex-row gap-1 items-center justify-center">
-						{showWarning ? <Info className="size-4" /> : null}
-						{system.data?.systemName}
-					</span>
-				</Button>
-			</DialogTrigger>
-			<DialogPortal>
-				<DialogOverlay />
-				<DialogContent initialFocus={false}>
-					<DialogTitle render={<Text variant="title" />}>
-						{system.data?.systemName}
-					</DialogTitle>
-					<Separator />
-					<div className="flex flex-col bg-green-50 text-green-950">
-						<Text variant="label" className="ml-2 py-1">
-							Added tokens
-						</Text>
-						<ScrollArea
-							viewportRef={addedScrollViewportRef}
-							className="h-20 px-2"
-						>
-							{(system.data?.tokens ?? []).map((token) => (
-								<div
-									key={token.name}
-									className="flex flex-row w-full justify-between gap-1"
-								>
-									<span>
-										{token.name}: {token.value}
-									</span>
-									<pre className="bg-green-900 text-green-50 px-0.5">
-										{token.domain}
-									</pre>
-								</div>
-							))}
-						</ScrollArea>
-					</div>
-					{shouldHaveOverrides ? (
-						<div className="flex flex-col bg-red-50 text-red-950">
-							<Text variant="label" className="ml-2 py-1">
-								Removed tokens
-							</Text>
-							<ScrollArea
-								viewportRef={removedScrollViewportRef}
-								className="h-20 px-2"
-							>
-								{(system.data?.baselineDiff.removed ?? []).map((token) => (
-									<div
-										key={token.name}
-										className="flex flex-row w-full justify-between gap-1"
-									>
-										<span>
-											{token.name}: {token.defaultValue}
-										</span>
-										<pre className="bg-red-900 text-red-50 px-0.5">
-											{token.domain}
-										</pre>
-									</div>
-								))}
-							</ScrollArea>
-							<div className="p-2 flex flex-col gap-1">
-								<div className="flex flex-row gap-1 items-center flex-wrap">
-									<Checkbox
-										checked={shouldInjectOverrides}
-										onCheckedChange={(checked) =>
-											setShouldInjectOverrides(Boolean(checked))
-										}
-										disabled={saveOverridesMutation.isPending}
-									/>
-									<span>Inject the following overrides:</span>
-									{displayedOverrides.map((override) => (
-										<pre
-											className="bg-red-900 text-red-50 px-0.5"
-											key={override}
-										>
-											{override}
-										</pre>
-									))}
-								</div>
-								<div className="flex flex-row gap-1 items-center">
-									<Checkbox
-										checked={useBroadReset}
-										onCheckedChange={(checked) =>
-											setUseBroadReset(Boolean(checked))
-										}
-										disabled={
-											!shouldInjectOverrides ||
-											saveOverridesMutation.isPending
-										}
-									/>
-									<span>
-										Use sweeping{" "}
-										<code className="bg-red-900 text-red-50 px-0.5">
-											--color-*
-										</code>{" "}
-										reset
-									</span>
-								</div>
-							</div>
-						</div>
-					) : null}
-					{saveError ? (
-						<div className="bg-red-500 px-2 py-1 text-xs text-white">
-							Failed to save overrides: {saveError}
-						</div>
-					) : null}
-					<Separator />
-					<div className="flex flex-row">
-						<DialogClose
-							className="flex-1 py-2"
-							render={<Button variant="block" />}
-						>
-							Close
-						</DialogClose>
-						<Separator orientation="vertical" />
-						<Button
-							variant="block"
-							className="flex-1 py-2"
-							onClick={handleSave}
-							disabled={saveDisabled}
-						>
-							{saveOverridesMutation.isPending
-								? "Saving..."
-								: "Save and confirm"}
-						</Button>
-					</div>
-				</DialogContent>
-			</DialogPortal>
-		</Dialog>
+		<span
+			className={`size-2 shrink-0 rounded-full ${getSystemStatusDotClassName(system, reviewRequired)}`}
+		/>
 	);
 }
 
-export function Systems() {
+function System({
+	system,
+	systemId,
+	isSelected,
+	onSelect,
+	selectedItemRef,
+}: {
+	system: TailwindSyncResult;
+	systemId: string;
+	isSelected: boolean;
+	onSelect: () => void;
+	selectedItemRef?: (element: HTMLElement | null) => void;
+}) {
 	const systems = useTailwindSyncController();
-	const systemCardsData = Object.values(systems.results);
+	const target = systems.targetsById[systemId];
+	const reviewRequired = Boolean(system.data?.reviewRequired);
+	const status = getSystemBadgeState(system, reviewRequired);
+	const actionBadgeState =
+		status === "review" || status === "error" || status === "syncing"
+			? status
+			: null;
+	const metaSubtitle = getSystemMetadata(system, target?.cssPath);
+	const displayedSystemName =
+		system.data?.systemName ?? target?.systemName ?? "Unnamed system";
+
 	return (
-		<div className="flex flex-col gap-2">
-			<div className="flex flex-row items-center justify-between">
-				<Text variant="subtitle">Systems</Text>
+		<Button
+			ref={isSelected ? selectedItemRef : undefined}
+			variant="block"
+			flavor={reviewRequired ? "warning" : undefined}
+			isSelected={isSelected}
+			onClick={onSelect}
+			className="flex w-full items-center gap-2 px-4 py-3 text-left"
+		>
+			<SystemStatusIndicator system={system} reviewRequired={reviewRequired} />
+			<div className="min-w-0 flex-1">
+				<div className="truncate text-sm">{displayedSystemName}</div>
+				<div className="truncate font-mono text-[11px] text-slate-500">
+					{metaSubtitle}
+				</div>
 			</div>
-			{systems.isPending ? (
-				<div className="pointer-events-none bg-gray-500 px-2 py-1 text-xs text-white w-fit">
-					Loading systems...
+			{actionBadgeState ? <SystemStatusBadge state={actionBadgeState} /> : null}
+		</Button>
+	);
+}
+
+export function Systems({
+	selectedSystemId,
+	onSelectSystem,
+}: {
+	selectedSystemId: string | null;
+	onSelectSystem: (systemId: string | null) => void;
+}) {
+	const systems = useTailwindSyncController();
+	const systemEntries = Object.entries(systems.statusBySystem);
+	const [createDialogOpen, setCreateDialogOpen] = useState(false);
+	const setSelectedItemRef = useScrollSelectedIntoView(selectedSystemId);
+	return (
+		<>
+			<section className="flex flex-col flex-1 min-h-0 border-t border-slate-200">
+				<div className="flex items-center justify-between px-4 py-3">
+					<div className="flex items-baseline gap-2">
+						<div className="text-sm font-bold">Systems</div>
+						<div className="font-mono text-xs text-slate-500">
+							{systemEntries.length}
+						</div>
+					</div>
+					<Button
+						variant="block"
+						className="flex items-center gap-1 px-2 py-1 text-xs"
+						onClick={() => setCreateDialogOpen(true)}
+					>
+						<FilePlus2 className="size-3.5" aria-hidden="true" />
+						New
+					</Button>
 				</div>
-			) : null}
-			{/* {systems.isError ? (
-				<div className="bg-red-500 px-2 py-1 text-xs text-white w-fit">
-					Failed to load designs: {designsErrorMessage}
-				</div>
-			) : null} */}
-			{systems.isSuccess ? (
-				<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-					{systemCardsData.map((system) => (
-						<System key={system?.data?.systemName} system={system} />
-					))}
-				</div>
-			) : null}
-		</div>
+				<Separator />
+				<ScrollArea className="flex-1 min-h-0">
+					{systemEntries.length === 0 ? (
+						<div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+							<div className="flex size-10 items-center justify-center bg-slate-50">
+								<Palette className="size-5 text-slate-400" aria-hidden="true" />
+							</div>
+							<div className="flex flex-col gap-1">
+								<p className="text-sm font-medium text-slate-700">
+									No systems yet
+								</p>
+								<p className="max-w-[16rem] text-xs text-slate-500 text-balance">
+									Press ⌘⇧N or use + New above to connect a tokens file or
+									Tailwind config.
+								</p>
+							</div>
+						</div>
+					) : (
+						<div className="divide-y divide-slate-100">
+							{systemEntries.map(([systemId, status]) => (
+								<System
+									key={systemId}
+									systemId={systemId}
+									system={systems.results[systemId] ?? { status }}
+									isSelected={selectedSystemId === systemId}
+									onSelect={() => onSelectSystem(systemId)}
+									selectedItemRef={setSelectedItemRef}
+								/>
+							))}
+						</div>
+					)}
+				</ScrollArea>
+			</section>
+			<CreateSystemDialog
+				open={createDialogOpen}
+				onOpenChange={setCreateDialogOpen}
+				onCreated={(system) => onSelectSystem(system.systemId)}
+			/>
+		</>
 	);
 }

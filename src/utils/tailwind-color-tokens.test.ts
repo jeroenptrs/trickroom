@@ -2,12 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { defaultTailwindColorTokens } from "./default-tailwind-tokens";
-import { loadTailwindDesignSystem } from "./tailwind-design-system";
 import {
+	canUseGlobalColorReset,
 	computeColorOverrides,
 	diffTailwindColorTokensAgainstDefaults,
 	extractTailwindColorTokens,
 } from "./tailwind-color-tokens";
+import { loadTailwindDesignSystem } from "./tailwind-design-system";
 
 const tempProjectRoots: string[] = [];
 
@@ -30,9 +31,9 @@ async function createFixtureProject(files: Record<string, string>) {
 
 afterEach(async () => {
 	await Promise.all(
-		tempProjectRoots.splice(0).map((projectRoot) =>
-			rm(projectRoot, { force: true, recursive: true }),
-		),
+		tempProjectRoots
+			.splice(0)
+			.map((projectRoot) => rm(projectRoot, { force: true, recursive: true })),
 	);
 });
 
@@ -103,7 +104,7 @@ describe("diffTailwindColorTokensAgainstDefaults", () => {
 	it("treats equivalent values as unchanged after token normalization", () => {
 		const diff = diffTailwindColorTokensAgainstDefaults({
 			"blue-500": `  ${defaultTailwindColorTokens["blue-500"].replace(/\s+/g, "  ")}  `,
-			"black": "#000",
+			black: "#000",
 		});
 
 		expect(diff.overridden).toEqual([]);
@@ -151,7 +152,7 @@ describe("computeColorOverrides", () => {
 	it("collapses to a single global wildcard when all defaults are removed", () => {
 		const defaults = {
 			"red-50": "#111",
-			"black": "#000",
+			black: "#000",
 		};
 		const removed = [
 			{ name: "red-50", defaultValue: "#111", domain: "color" as const },
@@ -216,5 +217,44 @@ describe("computeColorOverrides", () => {
 			"--color-a-50",
 			"--color-z-50",
 		]);
+	});
+});
+
+describe("canUseGlobalColorReset", () => {
+	it("allows a global reset only when every known default color is removed", () => {
+		const defaults = {
+			"red-50": "#111",
+			black: "#000",
+		};
+		const removed = [
+			{ name: "red-50", defaultValue: "#111", domain: "color" as const },
+			{ name: "black", defaultValue: "#000", domain: "color" as const },
+		];
+
+		expect(canUseGlobalColorReset(removed, defaults)).toBe(true);
+	});
+
+	it("rejects partial removals because a global reset would remove kept defaults", () => {
+		const defaults = {
+			"red-50": "#111",
+			"blue-50": "#222",
+		};
+		const removed = [
+			{ name: "red-50", defaultValue: "#111", domain: "color" as const },
+		];
+
+		expect(canUseGlobalColorReset(removed, defaults)).toBe(false);
+	});
+
+	it("rejects mixed known and unknown removals", () => {
+		const defaults = {
+			"red-50": "#111",
+		};
+		const removed = [
+			{ name: "red-50", defaultValue: "#111", domain: "color" as const },
+			{ name: "brand-50", defaultValue: "#333", domain: "color" as const },
+		];
+
+		expect(canUseGlobalColorReset(removed, defaults)).toBe(false);
 	});
 });

@@ -1,25 +1,61 @@
-import { RiFileAiLine as FileAi } from "@remixicon/react";
+import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router";
+import { FilePlus2, Image, Search } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import {
+	createDesignFile,
 	designFileQueryOptions,
 	designSummariesQueryKey,
 	designSummariesQueryOptions,
 	getDesignFileForUuid,
-	saveDesignFile,
 } from "../../queries/design-file";
 import type { TrickroomDesign } from "../../types";
+import {
+	markDesignOpened,
+	sortDesignsByRecentActivity,
+} from "../../utils/design-activity";
+import { useProjectScope } from "../contexts";
 import { Button } from "../ui/button";
-import { Text } from "../ui/text";
+import { Input } from "../ui/input";
+import { ScrollArea } from "../ui/scroll-area";
+import { Separator } from "../ui/separator";
+import { formatRelativeTime, pluralize } from "./project-view-utils";
+import { useScrollSelectedIntoView } from "./useScrollSelectedIntoView";
 
-export function Designs() {
-	const queryClient = useQueryClient();
+export function Designs({
+	selectedUuid,
+	onSelect,
+}: {
+	selectedUuid: string | null;
+	onSelect: (uuid: string | null) => void;
+}) {
 	const navigate = useNavigate();
-	const designsQuery = useQuery(designSummariesQueryOptions());
+	const queryClient = useQueryClient();
+	const [filter, setFilter] = useState("");
+	const [activeUuid, setActiveUuid] = useState<string | null>(null);
+	const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const projectScope = useProjectScope();
+	const designsQuery = useQuery(designSummariesQueryOptions(projectScope));
 	const designsErrorMessage = (designsQuery.error as Error | null)?.message;
+	const designs = useMemo(
+		() => sortDesignsByRecentActivity(designsQuery.data ?? [], projectScope),
+		[designsQuery.data, projectScope],
+	);
+	const setSelectedItemRef = useScrollSelectedIntoView(selectedUuid);
+	const normalizedFilter = filter.trim().toLowerCase();
+	const filteredDesigns = useMemo(
+		() =>
+			normalizedFilter
+				? designs.filter((design) =>
+						design.name.toLowerCase().includes(normalizedFilter),
+					)
+				: designs,
+		[designs, normalizedFilter],
+	);
 
 	const prefetchDesignFile = (file: string) =>
-		queryClient.prefetchQuery(designFileQueryOptions(file));
+		queryClient.prefetchQuery(designFileQueryOptions(file, projectScope));
 
 	// TODO: when creating - add a secondary state requesting a name for the design file
 
@@ -36,74 +72,212 @@ export function Designs() {
 							"data-trickroom-name": "Root",
 							"data-trickroom-library": "trickroom",
 							"data-trickroom-component": "container",
+							"data-trickroom-role": "branch",
 						},
 						children: [],
 					},
 				],
 			};
 
-			await saveDesignFile(designFile, design);
+			await createDesignFile(designFile, design);
 			return designUuid;
 		},
 		onSuccess: async (designUuid) => {
+			markDesignOpened(projectScope, designUuid);
 			await queryClient.invalidateQueries({
 				queryKey: designSummariesQueryKey,
 			});
-			navigate(`/design/${designUuid}`);
+			onSelect(designUuid);
 		},
 	});
 	const createErrorMessage = (createDesignMutation.error as Error | null)
 		?.message;
 
+	useHotkey(
+		"Mod+N",
+		() => {
+			if (!createDesignMutation.isPending) {
+				createDesignMutation.mutate();
+			}
+		},
+		{ preventDefault: true },
+	);
+
+	useHotkey(
+		"Enter",
+		() => {
+			if (selectedUuid) {
+				markDesignOpened(projectScope, selectedUuid);
+				navigate(`/design/${selectedUuid}`);
+			}
+		},
+		{ enabled: selectedUuid !== null },
+	);
+
+	useHotkey("Escape", () => onSelect(null), {
+		enabled: selectedUuid !== null,
+	});
+
 	return (
-		<div className="flex flex-col gap-2">
-			<div className="flex flex-row items-center justify-between">
-				<Text variant="subtitle">Designs</Text>
-			</div>
-			{designsQuery.isPending ? (
-				<div className="pointer-events-none bg-gray-500 px-2 py-1 text-xs text-white w-fit">
-					Loading designs...
-				</div>
-			) : null}
-			{designsQuery.isError ? (
-				<div className="bg-red-500 px-2 py-1 text-xs text-white w-fit">
-					Failed to load designs: {designsErrorMessage}
-				</div>
-			) : null}
-			{createDesignMutation.isError ? (
-				<div className="bg-red-500 px-2 py-1 text-xs text-white w-fit">
-					Failed to create design: {createErrorMessage}
-				</div>
-			) : null}
-			{designsQuery.isSuccess ? (
-				<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-					{designsQuery.data.map((design) => (
-						<div
-							key={design.file}
-							className="flex flex-col inset-shadow-[0_0_0_1px] inset-shadow-gray-200 focus-visible:outline-none focus-within:inset-shadow-blue-200"
-						>
-							<Link
-								to={`/design/${design.uuid}`}
-								onMouseEnter={() => prefetchDesignFile(design.file)}
-								className="px-3 py-4 hover:bg-gray-100 focus-visible:outline-none"
-							>
-								<Text className="truncate">{design.name}</Text>
-							</Link>
+		<section className="flex flex-col flex-[2] min-h-0">
+			<div className="flex flex-col gap-2 px-4 py-3">
+				{/* Header */}
+				<div className="flex items-center justify-between">
+					<div className="flex items-baseline gap-2">
+						<div className="text-sm font-bold">Designs</div>
+						<div className="font-mono text-xs text-slate-500">
+							{designs.length}
 						</div>
-					))}
+					</div>
 					<Button
 						variant="block"
-						className="inset-shadow-gray-200 px-3 py-4"
+						className="flex items-center gap-1 px-2 py-1 text-xs"
 						disabled={createDesignMutation.isPending}
 						onClick={() => createDesignMutation.mutate()}
 					>
-						<span className="flex flex-row gap-1 items-center justify-center">
-							<FileAi className="size-4 fill-black" />
-							{createDesignMutation.isPending ? "Creating..." : "Create"}
-						</span>
+						<FilePlus2 className="size-3.5" aria-hidden="true" />
+						{createDesignMutation.isPending ? "Creating..." : "New"}
 					</Button>
 				</div>
-			) : null}
-		</div>
+
+				{/* Filter */}
+				<div className="relative">
+					<Search
+						className="absolute left-1.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400"
+						aria-hidden="true"
+					/>
+					<Input
+						variant="outlined"
+						className="w-full pl-6"
+						aria-label="Filter designs"
+						placeholder="Filter designs…"
+						value={filter}
+						onChange={(event) => setFilter(event.target.value)}
+					/>
+				</div>
+			</div>
+			<Separator />
+
+			<ScrollArea className="flex-1 min-h-0">
+				{/* Content */}
+				{designsQuery.isPending ? (
+					<div className="pointer-events-none divide-y divide-slate-100">
+						{[
+							"design-skeleton-a",
+							"design-skeleton-b",
+							"design-skeleton-c",
+						].map((key) => (
+							<div
+								key={key}
+								className="flex animate-pulse items-center gap-3 px-3 py-2.5"
+							>
+								<div className="size-10 shrink-0 bg-slate-200" />
+								<div className="min-w-0 flex-1 space-y-2">
+									<div className="h-3 w-1/3 bg-slate-200" />
+									<div className="h-2 w-1/4 bg-slate-200" />
+								</div>
+								<div className="h-2 w-10 bg-slate-200" />
+							</div>
+						))}
+					</div>
+				) : null}
+				{designsQuery.isError ? (
+					<div className="bg-red-500 px-2 py-1 text-xs text-white w-fit">
+						Failed to load designs: {designsErrorMessage}
+					</div>
+				) : null}
+				{createDesignMutation.isError ? (
+					<div className="bg-red-500 px-2 py-1 text-xs text-white w-fit">
+						Failed to create design: {createErrorMessage}
+					</div>
+				) : null}
+				{designsQuery.isSuccess ? (
+					<div className="divide-y divide-slate-100">
+						{designs.length === 0 ? (
+							<div className="flex flex-col items-center gap-3 px-3 py-10 text-center">
+								<div className="flex size-10 items-center justify-center bg-slate-50">
+									<Image className="size-5 text-slate-400" aria-hidden="true" />
+								</div>
+								<div className="flex flex-col gap-1">
+									<p className="text-sm font-medium text-slate-700">
+										No designs yet
+									</p>
+									<p className="max-w-[16rem] text-xs text-slate-500 text-balance">
+										Press ⌘N or use + New above to create your first design
+										board.
+									</p>
+								</div>
+							</div>
+						) : filteredDesigns.length === 0 ? (
+							<div className="px-3 py-10 text-center text-sm text-slate-600">
+								No matching designs.
+							</div>
+						) : (
+							filteredDesigns.map((design) => {
+								const isSelected = selectedUuid === design.uuid;
+								const isActive = activeUuid === design.uuid;
+								const dotHighlighted = isSelected || isActive;
+								return (
+									<Button
+										key={design.file}
+										ref={isSelected ? setSelectedItemRef : undefined}
+										variant="block"
+										isSelected={isSelected}
+										className="flex w-full items-center gap-3 px-4 py-3 text-left"
+										onClick={() => {
+											if (clickTimerRef.current) {
+												clearTimeout(clickTimerRef.current);
+												clickTimerRef.current = null;
+											}
+											if (isSelected) {
+												clickTimerRef.current = setTimeout(() => {
+													onSelect(null);
+													clickTimerRef.current = null;
+												}, 250);
+											} else {
+												markDesignOpened(projectScope, design.uuid);
+												onSelect(design.uuid);
+											}
+										}}
+										onDoubleClick={() => {
+											if (clickTimerRef.current) {
+												clearTimeout(clickTimerRef.current);
+												clickTimerRef.current = null;
+											}
+											markDesignOpened(projectScope, design.uuid);
+											navigate(`/design/${design.uuid}`);
+										}}
+										onPointerDown={() => setActiveUuid(design.uuid)}
+										onPointerUp={() => setActiveUuid(null)}
+										onPointerLeave={() => setActiveUuid(null)}
+										onMouseEnter={() => prefetchDesignFile(design.file)}
+									>
+										<div
+											className={`size-10 shrink-0 bg-[length:12px_12px] inset-shadow-[0_0_0_1px] ${dotHighlighted ? "inset-shadow-cyan-200" : "inset-shadow-slate-200"}`}
+											style={{
+												backgroundImage: dotHighlighted
+													? "radial-gradient(#06b6d4 1px, transparent 1px)"
+													: "radial-gradient(#e2e8f0 1px, transparent 1px)",
+											}}
+										/>
+										<div className="min-w-0 flex-1">
+											<div className="truncate text-sm font-medium">
+												{design.name}
+											</div>
+											<div className="truncate font-mono text-[11px] text-slate-500">
+												{design.layersCount}{" "}
+												{pluralize(design.layersCount, "layer")}
+												{" · "}
+												{formatRelativeTime(design.modifiedAt)}
+											</div>
+										</div>
+									</Button>
+								);
+							})
+						)}
+					</div>
+				) : null}
+			</ScrollArea>
+		</section>
 	);
 }

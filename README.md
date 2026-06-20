@@ -1,78 +1,114 @@
 # Trickroom
 
-> The dimensions twisted!
+Trickroom is a local-first design workspace for web interfaces. It lets you create and edit UI design files inside a real project folder, using React component instances and Tailwind class names as the source of truth.
 
-## Design is Code
+The app is intentionally close to code: designs are JSON files under `.trickroom/designs`, components come from registries, styling is stored as Tailwind class strings, and Tailwind design-system tokens can be snapshotted from your project CSS.
 
-Trickroom is a local design workspace for web interfaces. It is built heavily around React and Tailwind, so what you make stays close to how those libraries operate. It also lives inside your codebase by design, so you can leverage the wonders of git!
+## What You Use It For
 
-Trickroom is not trying to be a general-purpose image editor! It is a small, focused place to lay the foundation for your product's UI with the same building blocks you use in code.
+- Open or create a Trickroom project in an existing codebase.
+- Create design files that live in the project under `.trickroom`.
+- Build UI structure with container and text layers.
+- Reorder, reparent, rename, and delete layers.
+- Edit text content, raw Tailwind class names, and color properties.
+- Link a design to a configured Tailwind system and review synced color tokens.
+- Let agents inspect or mutate designs through MCP with explicit policy and revision checks.
 
-## Usage
+Trickroom is not a general image editor and it does not rewrite your application source code. It works on Trickroom project metadata, design JSON, token snapshots, and optional MCP audit logs.
 
-Install Trickroom globally:
+## Start The App
+
+Install globally:
 
 ```sh
 npm install -g trickroom
 ```
 
-Then run it from the project you want to design in:
+Open the current folder:
 
 ```sh
 trickroom .
 ```
 
-Or pass a project directory explicitly:
+Or pass a project directory:
 
 ```sh
-trickroom /path/to/your/project
+trickroom /path/to/project
 ```
 
-Trickroom currently opens a local browser tab on port `18100` and onboards you on setting up your project, and works best if you initialize it inside your web ui / styling library!
+The browser runtime defaults to `http://localhost:18100/`. Packaged desktop builds show the same React app inside Electron, add native folder picking and app menus, and supervise the local backend process.
 
-Create a design file, start adding layers and apply Tailwind class names directly. Changes autosave as JSON files under `.trickroom/designs`, meaning both tracking/version control as well as reviewing designs as code are as easy as can be.
+## Files Trickroom Writes
 
-## Contributing
+Project-owned files:
 
-For local development, clone the repository and install dependencies:
+- `.trickroom/config.json`: project name, project ID, and MCP policy.
+- `.trickroom/designs/<uuid>.json`: design files.
+- `.trickroom/designs/.gitkeep`: created when initializing the designs directory.
+- `.trickroom/systems/<safe-system-name>/system.json`: system ID, display name, CSS path, and icon folders.
+- `.trickroom/systems/<safe-system-name>/tokens.json`: stored Tailwind color-token snapshots.
+- `.trickroom/audit-log.jsonl`: MCP mutation audit log when enabled.
+
+Per-user app state:
+
+- `~/.trickroom/projects.json`: recent projects and the active local project location. Override with `TRICKROOM_HOME`.
+
+Trickroom reads configured Tailwind CSS files and their imports to extract tokens, but it does not edit those CSS files.
+
+## Agents And MCP
+
+Enable MCP in `.trickroom/config.json`:
+
+```json
+{
+  "name": "Example App",
+  "mcp": {
+    "enabled": true,
+    "mode": "read-write"
+  }
+}
+```
+
+Start the server:
+
+```sh
+trickroom-mcp
+```
+
+Agents can list projects, open/switch the active project, create design files, read designs, inspect elements, validate files, discover component registries, read linked design-system tokens, dry-run operations, and mutate design files. Existing-file mutations require an `expectedRevision` from a prior read, so agents must re-read after conflicts instead of guessing.
+
+For the full tool map and safety model, see [Agents And MCP](./docs/mcp.md).
+
+## Documentation
+
+Start with [the user guide](./docs/user-guide.md). The rest of the docs are organized by question:
+
+- [Files And Safety](./docs/project-files.md)
+- [Agents And MCP](./docs/mcp.md)
+- [Concepts And Design Model](./docs/design-model.md)
+- [Tailwind Systems And Classname Editing](./docs/tailwind-design-systems.md)
+- [Architecture](./docs/architecture.md)
+- [Development](./docs/development.md)
+
+## Development
 
 ```sh
 pnpm install
-pnpm build
-node bin/trickroom.js /path/to/your/project
-```
-
-During development you can run the Vite server directly:
-
-```sh
 pnpm dev
-```
-
-Run the test suite with:
-
-```sh
 pnpm test
 ```
 
-## What's Next
+Build the browser runtime and MCP bundle:
 
-Trickroom is early, and the current built-in component library is intentionally small but is meant to be a solid foundation for what's to come. The main focus is for this tool to support my own day time job.
+```sh
+pnpm build
+```
 
-Off the cuff, this is what should be coming in the near future:
-- [ ] Browser tab is nice, Electron app is nicer
-- [ ] Tailwind theme files as design-token sources
-- [ ] Sync design tokens to your `.trickroom` folder
-- [ ] Emulate viewports
-- [ ] Richer support for component libraries like Base UI
-- [ ] Library-specific recipes - i.e. placing the building blocks like, for example, [Base UI's Field Component](https://base-ui.com/react/components/field)
-- [ ] User-defined Components, component Variants and Slots, building on all the aforementioned steps!
-- [ ] Handle resolving out-of-theme variables (think shadcn)
-- [ ] Variants / modes (specifically Dark Mode)
-- [ ] Eventually support for libraries like Radix UI, Headless UI and making the library/registry system easily extensible
+Build the full desktop runtime:
 
-## Extremely Random
-
-The name `trickroom` is a nod to the fact that, just like Tailwind, Trick Room is an important speed control move in competitive Pokémon / VGC.
+```sh
+pnpm build:desktop
+```
 
 ## License
 

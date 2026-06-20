@@ -2,12 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-	TailwindSystemResolutionError,
 	listConfiguredTailwindSystems,
 	loadTailwindDesignSystem,
 	loadTailwindDesignSystemFromConfig,
 	resolveConfiguredTailwindSystemTarget,
 	resolveTailwindCssPath,
+	sanitizeSpacingThemeToken,
+	TailwindSystemResolutionError,
 } from "./tailwind-design-system";
 
 const tempProjectRoots: string[] = [];
@@ -67,10 +68,21 @@ async function createFixtureProject() {
 
 afterEach(async () => {
 	await Promise.all(
-		tempProjectRoots.splice(0).map((projectRoot) =>
-			rm(projectRoot, { force: true, recursive: true }),
-		),
+		tempProjectRoots
+			.splice(0)
+			.map((projectRoot) => rm(projectRoot, { force: true, recursive: true })),
 	);
+});
+
+describe("sanitizeSpacingThemeToken", () => {
+	it("returns safe spacing values unchanged", () => {
+		expect(sanitizeSpacingThemeToken("0.25rem")).toBe("0.25rem");
+	});
+
+	it("rejects unsafe characters with the default fallback", () => {
+		expect(sanitizeSpacingThemeToken("0.25rem; } evil")).toBe("0.25rem");
+		expect(sanitizeSpacingThemeToken("")).toBe("0.25rem");
+	});
 });
 
 describe("resolveTailwindCssPath", () => {
@@ -108,6 +120,38 @@ describe("loadTailwindDesignSystem", () => {
 		expect(designSystem.theme.values.has("--color-blue-50")).toBe(false);
 	});
 
+	it("loads token sources that clear --spacing while using Tailwind's spacing function", async () => {
+		const projectRoot = await mkdtemp(
+			path.join(process.cwd(), ".tmp-tailwind-design-system-"),
+		);
+		tempProjectRoots.push(projectRoot);
+
+		await mkdir(path.join(projectRoot, "src"), { recursive: true });
+		await writeFile(
+			path.join(projectRoot, "src", "index.css"),
+			[
+				'@import "tailwindcss";',
+				"@theme {",
+				"  --spacing: initial;",
+				"  --spacing-content: 12px;",
+				"}",
+				".card { margin: --spacing(4); }",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+
+		const { designSystem } = await loadTailwindDesignSystem({
+			projectRoot,
+			cssPath: "src/index.css",
+		});
+
+		expect(designSystem.theme.values.get("--spacing")?.value).toBe("0.25rem");
+		expect(designSystem.theme.values.get("--spacing-content")?.value).toBe(
+			"12px",
+		);
+	});
+
 	it("throws when a package import has no stylesheet entrypoint", async () => {
 		const projectRoot = await mkdtemp(
 			path.join(process.cwd(), ".tmp-tailwind-design-system-"),
@@ -120,7 +164,11 @@ describe("loadTailwindDesignSystem", () => {
 		});
 		await writeFile(
 			path.join(projectRoot, "node_modules", "test-no-style", "package.json"),
-			JSON.stringify({ name: "test-no-style", version: "0.0.0", main: "index.js" }),
+			JSON.stringify({
+				name: "test-no-style",
+				version: "0.0.0",
+				main: "index.js",
+			}),
 			"utf8",
 		);
 		await writeFile(
@@ -139,14 +187,18 @@ describe("loadTailwindDesignSystem", () => {
 				projectRoot,
 				cssPath: "src/index.css",
 			}),
-		).rejects.toThrow('Package "test-no-style" does not expose a stylesheet entrypoint');
+		).rejects.toThrow(
+			'Package "test-no-style" does not expose a stylesheet entrypoint',
+		);
 	});
 });
 
 describe("loadTailwindDesignSystemFromConfig", () => {
 	it("returns null when the config has no systems", async () => {
+		const projectRoot = await createFixtureProject();
+
 		await expect(
-			loadTailwindDesignSystemFromConfig(process.cwd(), {
+			loadTailwindDesignSystemFromConfig(projectRoot, {
 				name: "Test Project",
 			}),
 		).resolves.toBeNull();
@@ -169,32 +221,54 @@ describe("loadTailwindDesignSystemFromConfig", () => {
 });
 
 describe("listConfiguredTailwindSystems", () => {
-	it("preserves config order and trims values", () => {
+	it("preserves config order and trims values", async () => {
 		const projectRoot = path.join(process.cwd(), "test-project");
 
-		expect(
-			listConfiguredTailwindSystems(
-				projectRoot,
-				{
-					name: "Test Project",
-					systems: {
-						" Core ": " ./src/index.css ",
-						" Marketing ": " src/marketing.css ",
-					},
+		await expect(
+			listConfiguredTailwindSystems(projectRoot, {
+				name: "Test Project",
+				systems: {
+					" Core ": " ./src/index.css ",
+					" Marketing ": " src/marketing.css ",
 				},
-			),
-		).toEqual([
+			}),
+		).resolves.toEqual([
 			{
-				name: "Core",
+				systemId: "Core",
+				systemName: "Core",
 				cssPath: "./src/index.css",
 				normalizedCssPath: path.join(projectRoot, "src", "index.css"),
 			},
 			{
-				name: "Marketing",
+				systemId: "Marketing",
+				systemName: "Marketing",
 				cssPath: "src/marketing.css",
 				normalizedCssPath: path.join(projectRoot, "src", "marketing.css"),
 			},
 		]);
+	});
+
+	it("throws when system names collide after safe-key normalization", async () => {
+		await expect(
+			listConfiguredTailwindSystems(path.join(process.cwd(), "test-project"), {
+				name: "Test Project",
+				systems: {
+					"My System": "src/index.css",
+					"my-system": "src/marketing.css",
+				},
+			}),
+		).rejects.toThrow(/duplicate storage keys/i);
+	});
+
+	it("throws when a system name cannot produce a safe storage key", async () => {
+		await expect(
+			listConfiguredTailwindSystems(path.join(process.cwd(), "test-project"), {
+				name: "Test Project",
+				systems: {
+					"@@@": "src/index.css",
+				},
+			}),
+		).rejects.toThrow(/safe storage key/i);
 	});
 });
 
@@ -208,77 +282,68 @@ describe("resolveConfiguredTailwindSystemTarget", () => {
 		},
 	};
 
-	it("resolves by system name", () => {
-		expect(
-			resolveConfiguredTailwindSystemTarget(
-				projectRoot,
-				config,
-				{
-					systemName: " Core ",
-				},
-			),
-		).toEqual({
+	it("resolves by system name", async () => {
+		await expect(
+			resolveConfiguredTailwindSystemTarget(projectRoot, config, {
+				systemName: " Core ",
+			}),
+		).resolves.toEqual({
+			systemId: "Core",
 			systemName: "Core",
 			cssPath: "./src/index.css",
 			normalizedCssPath: path.join(projectRoot, "src", "index.css"),
 		});
 	});
 
-	it("resolves by css path using normalized matching", () => {
-		expect(
-			resolveConfiguredTailwindSystemTarget(
-				projectRoot,
-				config,
-				{
-					cssPath: "src/index.css",
-				},
-			),
-		).toEqual({
+	it("resolves by css path using normalized matching", async () => {
+		await expect(
+			resolveConfiguredTailwindSystemTarget(projectRoot, config, {
+				cssPath: "src/index.css",
+			}),
+		).resolves.toEqual({
+			systemId: "Core",
 			systemName: "Core",
 			cssPath: "./src/index.css",
 			normalizedCssPath: path.join(projectRoot, "src", "index.css"),
 		});
 	});
 
-	it("resolves absolute css paths inside the project root", () => {
-		expect(
-			resolveConfiguredTailwindSystemTarget(
-				projectRoot,
-				config,
-				{
-					cssPath: path.join(projectRoot, "src", "index.css"),
-				},
-			),
-		).toMatchObject({
+	it("resolves absolute css paths inside the project root", async () => {
+		await expect(
+			resolveConfiguredTailwindSystemTarget(projectRoot, config, {
+				cssPath: path.join(projectRoot, "src", "index.css"),
+			}),
+		).resolves.toMatchObject({
+			systemId: "Core",
 			systemName: "Core",
 			cssPath: "./src/index.css",
 		});
 	});
 
-	it("throws unknown system error", () => {
-		expect(() =>
-			resolveConfiguredTailwindSystemTarget(
-				projectRoot,
-				config,
-				{
-					systemName: "Unknown",
-				},
-			),
-		).toThrowError(TailwindSystemResolutionError);
+	it("throws unknown system error", async () => {
+		expect.assertions(2);
+
+		await expect(
+			resolveConfiguredTailwindSystemTarget(projectRoot, config, {
+				systemName: "Unknown",
+			}),
+		).rejects.toThrowError(TailwindSystemResolutionError);
 
 		try {
-			resolveConfiguredTailwindSystemTarget(
-				projectRoot,
-				config,
-				{ systemName: "Unknown" },
-			);
+			await resolveConfiguredTailwindSystemTarget(projectRoot, config, {
+				systemName: "Unknown",
+			});
 		} catch (error) {
-			expect((error as TailwindSystemResolutionError).code).toBe("UNKNOWN_SYSTEM");
+			expect((error as TailwindSystemResolutionError).code).toBe(
+				"UNKNOWN_SYSTEM",
+			);
 		}
 	});
 
-	it("throws ambiguous css path error", () => {
-		expect(() =>
+	it("throws ambiguous css path error", async () => {
+		expect.assertions(2);
+
+		await expect(
 			resolveConfiguredTailwindSystemTarget(
 				projectRoot,
 				{
@@ -290,10 +355,10 @@ describe("resolveConfiguredTailwindSystemTarget", () => {
 				},
 				{ cssPath: "src/index.css" },
 			),
-		).toThrowError(TailwindSystemResolutionError);
+		).rejects.toThrowError(TailwindSystemResolutionError);
 
 		try {
-			resolveConfiguredTailwindSystemTarget(
+			await resolveConfiguredTailwindSystemTarget(
 				projectRoot,
 				{
 					name: "Test Project",
@@ -307,6 +372,42 @@ describe("resolveConfiguredTailwindSystemTarget", () => {
 		} catch (error) {
 			expect((error as TailwindSystemResolutionError).code).toBe(
 				"AMBIGUOUS_CSS_PATH",
+			);
+		}
+	});
+
+	it("throws duplicate system key errors from configured systems", async () => {
+		expect.assertions(2);
+
+		await expect(
+			resolveConfiguredTailwindSystemTarget(
+				projectRoot,
+				{
+					name: "Test Project",
+					systems: {
+						"My System": "./src/index.css",
+						"my-system": "src/marketing.css",
+					},
+				},
+				{ systemName: "My System" },
+			),
+		).rejects.toThrowError(TailwindSystemResolutionError);
+
+		try {
+			await resolveConfiguredTailwindSystemTarget(
+				projectRoot,
+				{
+					name: "Test Project",
+					systems: {
+						"My System": "./src/index.css",
+						"my-system": "src/marketing.css",
+					},
+				},
+				{ systemName: "My System" },
+			);
+		} catch (error) {
+			expect((error as TailwindSystemResolutionError).code).toBe(
+				"DUPLICATE_SYSTEM_KEY",
 			);
 		}
 	});

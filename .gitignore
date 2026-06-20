@@ -1,3 +1,11 @@
 dist
+dist-electron
+.node-gyp
+.pnpm-store
 node_modules
+out
 *.tsbuildinfo
+assets/**/.DS_Store
+.DS_Store
+.junie
+.env

@@ -41,7 +41,7 @@ export function ColorPickerPopover({
 			<Popover.Portal>
 				<Popover.Positioner sideOffset={6} align="start">
 					<Popover.Popup
-						className="bg-gray-50 inset-shadow-[0_0_0_1px] inset-shadow-gray-200 max-w-72 max-h-80 overflow-auto p-2 flex flex-col gap-2"
+						className="bg-slate-50 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 max-w-72 max-h-80 overflow-auto p-2 flex flex-col gap-2"
 						data-slot="color-picker-popup"
 					>
 						<Popover.Close
@@ -50,14 +50,14 @@ export function ColorPickerPopover({
 									type="button"
 									variant="block"
 									{...props}
-									className="flex items-center gap-2 text-xs text-left w-full hover:ring-2 hover:ring-blue-500"
+									className="flex items-center gap-2 text-xs text-left w-full hover:ring-2 hover:ring-cyan-500"
 									onClick={(event) => {
 										props.onClick?.(event);
 										onClear();
 									}}
 								>
 									<ColorSwatch appearance={{ kind: "empty" }} />
-									<span className="text-gray-900">No color</span>
+									<span className="text-slate-900">No color</span>
 								</Button>
 							)}
 						/>
@@ -66,7 +66,7 @@ export function ColorPickerPopover({
 							<Text
 								variant="label"
 								render={<div />}
-								className="px-1 text-gray-900/70"
+								className="px-1 text-slate-900/70"
 							>
 								Universal
 							</Text>
@@ -80,7 +80,7 @@ export function ColorPickerPopover({
 												variant="block"
 												title={keyword}
 												{...props}
-												className="p-0 h-4 hover:ring-2 hover:ring-blue-500"
+												className="p-0 h-4 hover:ring-2 hover:ring-cyan-500"
 												onClick={(event) => {
 													props.onClick?.(event);
 													onPick({ kind: "keyword", keyword });
@@ -106,7 +106,7 @@ export function ColorPickerPopover({
 									<Text
 										variant="label"
 										render={<div />}
-										className="px-1 capitalize text-gray-900/70"
+										className="px-1 capitalize text-slate-900/70"
 									>
 										{family}
 									</Text>
@@ -120,7 +120,7 @@ export function ColorPickerPopover({
 														variant="block"
 														title={token}
 														{...props}
-														className="p-0 h-4 hover:ring-2 hover:ring-blue-500"
+														className="p-0 h-4 hover:ring-2 hover:ring-cyan-500"
 														onClick={(event) => {
 															props.onClick?.(event);
 															onPick({ kind: "token", token });

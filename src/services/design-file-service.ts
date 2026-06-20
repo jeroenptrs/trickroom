@@ -1,14 +1,26 @@
 import { createHash } from "node:crypto";
-import type { Dirent } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import type { Dirent, Stats } from "node:fs";
+import {
+	access,
+	mkdir,
+	readdir,
+	readFile,
+	stat,
+	unlink,
+} from "node:fs/promises";
 import path from "node:path";
-import { isTrickroomDesign, writeJsonFileAtomically } from "../server-utils";
-import type { TrickroomDesign, TrickroomDesignSummary } from "../types";
+import {
+	isTrickroomDesign,
+	writeJsonFileAtomically,
+	writeJsonFileExclusivelyAtomically,
+} from "../server-utils";
+import type { Node, TrickroomDesign, TrickroomDesignSummary } from "../types";
 
 export type DesignFileServiceErrorCode =
 	| "INVALID_DESIGN_FILE_PATH"
 	| "INVALID_DESIGN_UUID"
 	| "INVALID_DESIGN_PAYLOAD"
+	| "DESIGN_FILE_ALREADY_EXISTS"
 	| "REVISION_MISMATCH";
 
 export class DesignFileServiceError extends Error {
@@ -51,6 +63,15 @@ export type DesignFileSummary = TrickroomDesignSummary & {
 	revision: DesignFileRevision;
 };
 
+type DesignFileSummaryCacheEntry = {
+	mtimeMs: number;
+	size: number;
+	updatedAt: number;
+	summary: DesignFileSummary;
+};
+
+const maxSummaryCacheAgeMs = 30 * 60 * 1000;
+
 export const getDesignFileForUuid = (uuid: string) => `${uuid}.json`;
 
 export const getDesignUuidFromFile = (file: string) => {
@@ -79,7 +100,40 @@ const isPathInsideDirectory = (filePath: string, directoryPath: string) => {
 	return filePath.startsWith(allowedPrefix);
 };
 
+const countDescendantLayers = (node: Node): number => {
+	if (!Array.isArray(node.children)) {
+		return 0;
+	}
+
+	const stack = [...node.children];
+	let count = 0;
+	while (stack.length > 0) {
+		const child = stack.pop();
+		if (!child) {
+			continue;
+		}
+
+		count += 1;
+		if (Array.isArray(child.children)) {
+			stack.push(...child.children);
+		}
+	}
+
+	return count;
+};
+
+export const countDesignLayers = (design: TrickroomDesign) =>
+	design.boards.reduce(
+		(count, board) => count + countDescendantLayers(board),
+		0,
+	);
+
 export class DesignFileService {
+	private static readonly summaryCache = new Map<
+		string,
+		DesignFileSummaryCacheEntry
+	>();
+
 	readonly projectRoot: string;
 	readonly designsDir: string;
 	readonly designsGitkeepPath: string;
@@ -88,6 +142,27 @@ export class DesignFileService {
 		this.projectRoot = path.resolve(projectRoot);
 		this.designsDir = path.join(this.projectRoot, ".trickroom", "designs");
 		this.designsGitkeepPath = path.join(this.designsDir, ".gitkeep");
+		void DesignFileService.pruneSummaryCache().catch(() => {});
+	}
+
+	private static async pruneSummaryCache(maxAgeMs = maxSummaryCacheAgeMs) {
+		const staleBefore = Date.now() - maxAgeMs;
+		const entries = Array.from(DesignFileService.summaryCache.entries());
+
+		await Promise.all(
+			entries.map(async ([designPath, entry]) => {
+				if (entry.updatedAt < staleBefore) {
+					DesignFileService.summaryCache.delete(designPath);
+					return;
+				}
+
+				try {
+					await access(designPath);
+				} catch {
+					DesignFileService.summaryCache.delete(designPath);
+				}
+			}),
+		);
 	}
 
 	getFileForUuid(uuid: string) {
@@ -147,7 +222,43 @@ export class DesignFileService {
 		};
 	}
 
+	private getCachedSummary(
+		designPath: string,
+		fileStat: Stats,
+	): DesignFileSummary | null {
+		const cached = DesignFileService.summaryCache.get(designPath);
+		if (
+			cached &&
+			cached.mtimeMs === fileStat.mtimeMs &&
+			cached.size === fileStat.size
+		) {
+			cached.updatedAt = Date.now();
+			return cached.summary;
+		}
+
+		return null;
+	}
+
+	private setCachedSummary(
+		designPath: string,
+		fileStat: Stats,
+		summary: DesignFileSummary,
+	) {
+		DesignFileService.summaryCache.set(designPath, {
+			mtimeMs: fileStat.mtimeMs,
+			size: fileStat.size,
+			updatedAt: Date.now(),
+			summary,
+		});
+	}
+
+	private deleteCachedSummary(designPath: string) {
+		DesignFileService.summaryCache.delete(designPath);
+	}
+
 	async listDesignSummaries(): Promise<DesignFileSummary[]> {
+		await DesignFileService.pruneSummaryCache();
+
 		let directoryEntries: Dirent<string>[];
 		try {
 			directoryEntries = await readdir(this.designsDir, {
@@ -168,23 +279,42 @@ export class DesignFileService {
 
 		const summaries = await Promise.all(
 			designFiles.map(async (file) => {
+				let designPath: string | null = null;
 				try {
+					designPath = this.resolveDesignFilePath(file);
+					const fileStat = await stat(designPath);
+					const cachedSummary = this.getCachedSummary(designPath, fileStat);
+					if (cachedSummary) {
+						return cachedSummary;
+					}
+
 					const read = await this.readDesignFile(file);
 					const uuid = read.uuid;
 					if (!uuid) {
 						return null;
 					}
 
-					return {
+					const summary = {
 						uuid,
 						file,
 						name: read.design.name,
+						...(read.design.systemId !== undefined
+							? { systemId: read.design.systemId }
+							: {}),
 						...(read.design.systemName !== undefined
 							? { systemName: read.design.systemName }
 							: {}),
+						boardsCount: read.design.boards.length,
+						layersCount: countDesignLayers(read.design),
+						modifiedAt: fileStat.mtime.toISOString(),
 						revision: read.revision,
 					} satisfies DesignFileSummary;
+					this.setCachedSummary(designPath, fileStat, summary);
+					return summary;
 				} catch {
+					if (designPath) {
+						this.deleteCachedSummary(designPath);
+					}
 					return null;
 				}
 			}),
@@ -217,7 +347,10 @@ export class DesignFileService {
 			}
 		}
 
+		await mkdir(this.designsDir, { recursive: true });
 		const contents = await writeJsonFileAtomically(designPath, design);
+		this.deleteCachedSummary(designPath);
+		await DesignFileService.pruneSummaryCache();
 		return {
 			file,
 			path: designPath,
@@ -225,6 +358,50 @@ export class DesignFileService {
 			design,
 			revision: calculateDesignFileRevision(contents),
 		};
+	}
+
+	async createDesignFile(
+		file: string,
+		design: unknown,
+	): Promise<DesignFileWrite> {
+		const designPath = this.resolveDesignFilePath(file);
+		if (!isTrickroomDesign(design)) {
+			throw new DesignFileServiceError(
+				"INVALID_DESIGN_PAYLOAD",
+				"Invalid trickroom design payload",
+			);
+		}
+
+		await mkdir(this.designsDir, { recursive: true });
+		let contents: string;
+		try {
+			contents = await writeJsonFileExclusivelyAtomically(designPath, design);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+				throw new DesignFileServiceError(
+					"DESIGN_FILE_ALREADY_EXISTS",
+					`Design file already exists at ${designPath}`,
+				);
+			}
+			throw error;
+		}
+
+		this.deleteCachedSummary(designPath);
+		await DesignFileService.pruneSummaryCache();
+		return {
+			file,
+			path: designPath,
+			uuid: this.getUuidFromFile(file),
+			design,
+			revision: calculateDesignFileRevision(contents),
+		};
+	}
+
+	async deleteDesignFile(file: string) {
+		const designPath = this.resolveDesignFilePath(file);
+		await unlink(designPath);
+		this.deleteCachedSummary(designPath);
+		await DesignFileService.pruneSummaryCache();
 	}
 }
 

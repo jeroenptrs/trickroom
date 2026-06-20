@@ -4,7 +4,7 @@ import { tv } from "tailwind-variants/lite";
 const { separator } = tv({
 	slots: {
 		separator:
-			"data-[orientation=vertical]:w-px data-[orientation=horizontal]:h-px bg-gray-200",
+			"data-[orientation=vertical]:w-px data-[orientation=horizontal]:h-px bg-slate-200",
 	},
 })();
 

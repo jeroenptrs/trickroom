@@ -3,6 +3,12 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { __unstable__loadDesignSystem } from "tailwindcss";
 import type { TrickroomConfig } from "../types";
+import { defaultTailwindTokensByDomain } from "./default-tailwind-tokens.ts";
+import {
+	assertUniqueDesignSystemSafeKeys,
+	DesignSystemStorageError,
+	listDesignSystems,
+} from "./design-system-store.ts";
 
 type PackageJson = {
 	style?: string;
@@ -25,12 +31,14 @@ export type LoadTailwindDesignSystemOptions = {
 };
 
 export type ConfiguredTailwindSystem = {
+	systemId: string;
 	systemName: string;
 	cssPath: string;
 	normalizedCssPath: string;
 };
 
 export type TailwindSystemTarget =
+	| { systemId: string }
 	| { systemName: string }
 	| { cssPath: string };
 
@@ -40,7 +48,9 @@ export class TailwindSystemResolutionError extends Error {
 		| "UNKNOWN_SYSTEM"
 		| "UNKNOWN_CSS_PATH"
 		| "AMBIGUOUS_CSS_PATH"
-		| "INVALID_CSS_PATH";
+		| "INVALID_CSS_PATH"
+		| "INVALID_SYSTEM_NAME"
+		| "DUPLICATE_SYSTEM_KEY";
 
 	constructor(
 		code:
@@ -48,7 +58,9 @@ export class TailwindSystemResolutionError extends Error {
 			| "UNKNOWN_SYSTEM"
 			| "UNKNOWN_CSS_PATH"
 			| "AMBIGUOUS_CSS_PATH"
-			| "INVALID_CSS_PATH",
+			| "INVALID_CSS_PATH"
+			| "INVALID_SYSTEM_NAME"
+			| "DUPLICATE_SYSTEM_KEY",
 		message: string,
 	) {
 		super(message);
@@ -63,7 +75,7 @@ export async function loadTailwindDesignSystemFromConfig(
 	projectRoot: string,
 	config: TrickroomConfig,
 ) {
-	const system = listConfiguredTailwindSystems(projectRoot, config)[0];
+	const system = (await listConfiguredTailwindSystems(projectRoot, config))[0];
 	if (!system) {
 		return null;
 	}
@@ -72,37 +84,91 @@ export async function loadTailwindDesignSystemFromConfig(
 		projectRoot,
 		cssPath: system.cssPath,
 	});
-	return { ...loaded, systemName: system.name };
+	return { ...loaded, systemName: system.systemName };
 }
 
-export function listConfiguredTailwindSystems(
+export async function listConfiguredTailwindSystems(
 	projectRoot: string,
 	config: TrickroomConfig,
-): Array<{ name: string; cssPath: string; normalizedCssPath: string }> {
-	return Object.entries(config.systems ?? {})
+): Promise<ConfiguredTailwindSystem[]> {
+	const manifestSystems = (await listDesignSystems(projectRoot)).flatMap(
+		(record) => {
+			const cssPath = record.manifest.cssPath?.trim();
+			if (!cssPath) {
+				return [];
+			}
+
+			return [
+				{
+					systemId: record.manifest.systemId,
+					systemName: record.manifest.systemName,
+					cssPath,
+				},
+			];
+		},
+	);
+	const manifestSystemNames = new Set(
+		manifestSystems.map((system) => system.systemName),
+	);
+	const legacySystems = Object.entries(config.systems ?? {})
 		.map(([name, cssPath]) => ({
-			name: name.trim(),
+			systemId: name.trim(),
+			systemName: name.trim(),
 			cssPath: cssPath.trim(),
 		}))
-		.filter((system) => system.name.length > 0 && system.cssPath.length > 0)
-		.map((system) => ({
-			...system,
-			normalizedCssPath: normalizeConfiguredCssPath(
-				projectRoot,
-				system.cssPath,
-			),
-		}));
+		.filter(
+			(system) =>
+				system.systemName.length > 0 &&
+				system.cssPath.length > 0 &&
+				!manifestSystemNames.has(system.systemName),
+		);
+	const configuredSystems = [...manifestSystems, ...legacySystems];
+
+	assertUniqueDesignSystemSafeKeys(
+		configuredSystems.map((system) => system.systemName),
+	);
+
+	return configuredSystems.map((system) => ({
+		...system,
+		normalizedCssPath: normalizeConfiguredCssPath(projectRoot, system.cssPath),
+	}));
 }
 
 export function resolveConfiguredTailwindSystemTarget(
 	projectRoot: string,
 	config: TrickroomConfig,
 	target: TailwindSystemTarget,
-): ConfiguredTailwindSystem {
-	let configuredSystems: ReturnType<typeof listConfiguredTailwindSystems>;
+): Promise<ConfiguredTailwindSystem> {
+	return resolveConfiguredTailwindSystemTargetInternal(
+		projectRoot,
+		config,
+		target,
+	);
+}
+
+async function resolveConfiguredTailwindSystemTargetInternal(
+	projectRoot: string,
+	config: TrickroomConfig,
+	target: TailwindSystemTarget,
+): Promise<ConfiguredTailwindSystem> {
+	let configuredSystems: Awaited<
+		ReturnType<typeof listConfiguredTailwindSystems>
+	>;
 	try {
-		configuredSystems = listConfiguredTailwindSystems(projectRoot, config);
+		configuredSystems = await listConfiguredTailwindSystems(
+			projectRoot,
+			config,
+		);
 	} catch (error) {
+		if (error instanceof DesignSystemStorageError) {
+			throw new TailwindSystemResolutionError(
+				error.code === "DUPLICATE_SYSTEM_KEY"
+					? "DUPLICATE_SYSTEM_KEY"
+					: "INVALID_SYSTEM_NAME",
+				error.message,
+			);
+		}
+
 		throw new TailwindSystemResolutionError(
 			"INVALID_CSS_PATH",
 			error instanceof Error ? error.message : "Invalid Tailwind CSS path",
@@ -116,10 +182,25 @@ export function resolveConfiguredTailwindSystemTarget(
 		);
 	}
 
+	if ("systemId" in target) {
+		const requestedSystemId = target.systemId.trim();
+		const matchedSystem = configuredSystems.find(
+			(system) => system.systemId === requestedSystemId,
+		);
+		if (!matchedSystem) {
+			throw new TailwindSystemResolutionError(
+				"UNKNOWN_SYSTEM",
+				`Unknown Tailwind system: ${requestedSystemId}`,
+			);
+		}
+
+		return matchedSystem;
+	}
+
 	if ("systemName" in target) {
 		const requestedSystemName = target.systemName.trim();
 		const matchedSystem = configuredSystems.find(
-			(system) => system.name === requestedSystemName,
+			(system) => system.systemName === requestedSystemName,
 		);
 		if (!matchedSystem) {
 			throw new TailwindSystemResolutionError(
@@ -129,7 +210,8 @@ export function resolveConfiguredTailwindSystemTarget(
 		}
 
 		return {
-			systemName: matchedSystem.name,
+			systemId: matchedSystem.systemId,
+			systemName: matchedSystem.systemName,
 			cssPath: matchedSystem.cssPath,
 			normalizedCssPath: matchedSystem.normalizedCssPath,
 		};
@@ -168,7 +250,8 @@ export function resolveConfiguredTailwindSystemTarget(
 
 	const [matchedSystem] = matchedSystems;
 	return {
-		systemName: matchedSystem.name,
+		systemId: matchedSystem.systemId,
+		systemName: matchedSystem.systemName,
 		cssPath: matchedSystem.cssPath,
 		normalizedCssPath: matchedSystem.normalizedCssPath,
 	};
@@ -181,13 +264,57 @@ export async function loadTailwindDesignSystem({
 	const rootPath = resolveTailwindCssPath(projectRoot, cssPath);
 	const css = await readFile(rootPath, "utf8");
 
-	const designSystem = await __unstable__loadDesignSystem(css, {
+	const loadOptions = {
 		base: path.dirname(rootPath),
 		from: rootPath,
 		loadStylesheet,
+	};
+	const designSystem = await __unstable__loadDesignSystem(
+		css,
+		loadOptions,
+	).catch((error: unknown) => {
+		if (!isMissingSpacingThemeVariableError(error)) {
+			throw error;
+		}
+
+		return __unstable__loadDesignSystem(
+			`${css}\n@theme { --spacing: ${sanitizeSpacingThemeToken(defaultTailwindTokensByDomain.spacing.DEFAULT)}; }\n`,
+			loadOptions,
+		);
 	});
 
 	return { designSystem, rootPath };
+}
+
+const unsafeCssThemeValuePattern = /[\x00-\x1f\x7f{};\r\n]/u;
+const SAFE_SPACING_THEME_FALLBACK = "0.25rem";
+
+export function sanitizeSpacingThemeToken(token: string): string {
+	const trimmed = token.trim();
+	if (trimmed.length === 0 || unsafeCssThemeValuePattern.test(trimmed)) {
+		return SAFE_SPACING_THEME_FALLBACK;
+	}
+
+	return trimmed;
+}
+
+function isMissingSpacingThemeVariableError(error: unknown) {
+	if (!(error instanceof Error)) {
+		return false;
+	}
+
+	const code = (error as { code?: unknown }).code;
+	if (typeof code === "string" && /spacing/i.test(code)) {
+		return true;
+	}
+
+	if (/spacing/i.test(error.name) && /theme|variable/i.test(error.name)) {
+		return true;
+	}
+
+	// Tailwind does not expose a stable structured error here, so keep this
+	// fallback intentionally broad and tied to the missing `--spacing` token.
+	return /`--spacing`|--spacing/u.test(error.message);
 }
 
 export function resolveTailwindCssPath(projectRoot: string, cssPath: string) {

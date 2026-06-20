@@ -3,29 +3,30 @@
  * system. Combines the bundled Tailwind defaults with the synced
  * snapshot's added/overridden/removed entries.
  *
- * Pass the active system name (typically from `useDesignSystemName`).
- * When the name is null/empty, the hook falls back to the bundled
+ * Pass the active system id (typically from `useDesignSystemId`).
+ * When the id is null/empty, the hook falls back to the bundled
  * Tailwind defaults so the picker still works without a linked system.
  */
 
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { useProjectScope } from "../components/contexts";
 import { storedTailwindTokensQueryOptions } from "../queries/tailwind-sync-tokens";
 import {
+	computeResolvedColorTokens,
 	EMPTY_RESOLVED_COLOR_TOKENS,
 	type ResolvedColorTokens,
-	computeResolvedColorTokens,
 } from "../utils/resolved-color-tokens";
 
 export function useResolvedColorTokens(
-	systemName: string | null | undefined,
+	systemId: string | null | undefined,
 ): ResolvedColorTokens {
-	const trimmed =
-		typeof systemName === "string" ? systemName.trim() : "";
+	const trimmed = typeof systemId === "string" ? systemId.trim() : "";
 	const enabled = trimmed.length > 0;
+	const projectScope = useProjectScope();
 
 	const tokensQuery = useQuery({
-		...storedTailwindTokensQueryOptions(trimmed),
+		...storedTailwindTokensQueryOptions(trimmed, projectScope),
 		enabled,
 	});
 

@@ -1,0 +1,28 @@
+{
+	"version": 1,
+	"metadata": {
+		"updatedAt": "2026-05-22T17:37:52.674Z"
+	},
+	"assets": {
+		"ast_trickroom-app-icon-2": {
+			"name": "Trickroom App Icon",
+			"kind": "image",
+			"sourcePath": "assets/trickroom-app-icon-final.png",
+			"mimeType": "image/png",
+			"width": 1024,
+			"height": 1024,
+			"createdAt": "2026-05-22T17:37:52.674Z",
+			"updatedAt": "2026-05-22T17:37:52.674Z"
+		},
+		"ast_trickroom-app-icon-3": {
+			"name": "Trickroom Logo",
+			"kind": "image",
+			"sourcePath": "assets/trickroom-mark-final.png",
+			"mimeType": "image/png",
+			"width": 2000,
+			"height": 2000,
+			"createdAt": "2026-05-16T15:53:32.876Z",
+			"updatedAt": "2026-05-16T15:53:32.876Z"
+		}
+	}
+}

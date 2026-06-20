@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
-import { useDesignSystemName } from "../../../stores/design-store";
+import { useDesignSystemId } from "../../../stores/design-store";
 import {
 	buildPropertyModel,
 	type ColorProperty,
@@ -24,8 +24,8 @@ const PROPERTIES: { property: ColorProperty; label: string }[] = [
 ];
 
 export function ColorProperties({ className, onChange }: ColorPropertiesProps) {
-	const systemName = useDesignSystemName();
-	const resolved = useResolvedColorTokens(systemName);
+	const systemId = useDesignSystemId();
+	const resolved = useResolvedColorTokens(systemId);
 
 	const options = useMemo(
 		() => ({ colorTokens: resolved.names }),

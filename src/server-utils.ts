@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { availableRegistries, getLibraryComponent } from "./libraries/registry";
-import type { Node, Props, TrickroomConfig, TrickroomDesign } from "./types";
+import { link, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { isJsonPrimitive } from "./libraries/registry";
+import type {
+	Node,
+	Props,
+	Role,
+	TrickroomConfig,
+	TrickroomDesign,
+} from "./types";
 
 export type ErrorResponse = {
 	error: string;
@@ -36,6 +42,24 @@ export const writeJsonFileAtomically = async (
 	}
 };
 
+export const writeJsonFileExclusivelyAtomically = async (
+	filePath: string,
+	value: unknown,
+) => {
+	const contents = `${JSON.stringify(value, null, "\t")}\n`;
+	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+
+	try {
+		await writeFile(tempPath, contents, "utf8");
+		await link(tempPath, filePath);
+		await unlink(tempPath).catch(() => undefined);
+		return contents;
+	} catch (error) {
+		await unlink(tempPath).catch(() => undefined);
+		throw error;
+	}
+};
+
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -53,31 +77,42 @@ const isTrickroomSystems = (
 const isTrickroomMcpConfig = (
 	value: unknown,
 ): value is NonNullable<TrickroomConfig["mcp"]> =>
-	isRecord(value) && typeof value.enabled === "boolean";
+	isRecord(value) &&
+	typeof value.enabled === "boolean" &&
+	(value.mode === undefined ||
+		value.mode === "read-only" ||
+		value.mode === "read-write") &&
+	(value.allowedDesignFileIds === undefined ||
+		(Array.isArray(value.allowedDesignFileIds) &&
+			value.allowedDesignFileIds.every(
+				(designFileId) =>
+					typeof designFileId === "string" && designFileId.trim().length > 0,
+			))) &&
+	(value.allowedComponents === undefined ||
+		(Array.isArray(value.allowedComponents) &&
+			value.allowedComponents.every(
+				(componentRef) =>
+					typeof componentRef === "string" && componentRef.trim().length > 0,
+			))) &&
+	(value.auditLog === undefined || typeof value.auditLog === "boolean");
 
 export const isTrickroomConfig = (value: unknown): value is TrickroomConfig =>
 	isRecord(value) &&
+	(value.schemaVersion === undefined || value.schemaVersion === 1) &&
+	(value.projectId === undefined ||
+		(typeof value.projectId === "string" &&
+			value.projectId.trim().length > 0)) &&
 	typeof value.name === "string" &&
 	value.name.trim().length > 0 &&
 	!("tailwindRoot" in value) &&
 	(value.systems === undefined || isTrickroomSystems(value.systems)) &&
 	(value.mcp === undefined || isTrickroomMcpConfig(value.mcp));
 
-export const isTrickroomLibrary = (
-	value: unknown,
-): value is Props["data-trickroom-library"] =>
-	availableRegistries.includes(value as string);
-
-// TODO: improve these handlers so they're a bit more typesafe
-const isTrickroomComponent = (
-	value: unknown,
-): value is Props["data-trickroom-component"] =>
-	value === "container" || value === "text";
-
-const isTrickroomRole = (
-	value: unknown,
-): value is Props["data-trickroom-role"] | undefined =>
-	value === undefined || value === "text";
+const isTrickroomRole = (value: unknown): value is Role | undefined =>
+	value === undefined ||
+	value === "branch" ||
+	value === "text" ||
+	value === "leaf";
 
 const isProps = (value: unknown): value is Props => {
 	if (!isRecord(value)) {
@@ -93,18 +128,21 @@ const isProps = (value: unknown): value is Props => {
 	const component = value["data-trickroom-component"];
 	const role = value["data-trickroom-role"];
 	if (
-		!isTrickroomLibrary(library) ||
-		!isTrickroomComponent(component) ||
+		typeof library !== "string" ||
+		library.trim().length === 0 ||
+		typeof component !== "string" ||
+		component.trim().length === 0 ||
 		!isTrickroomRole(role)
 	) {
 		return false;
 	}
 
-	const registeredComponent = getLibraryComponent(library, component);
 	return (
 		typeof value["data-trickroom-name"] === "string" &&
-		role === registeredComponent.role &&
-		(value.className === undefined || typeof value.className === "string")
+		(value.className === undefined || typeof value.className === "string") &&
+		Object.values(value).every(
+			(propValue) => propValue === undefined || isJsonPrimitive(propValue),
+		)
 	);
 };
 
@@ -117,12 +155,9 @@ const isSerializedElement = (value: unknown): value is Node => {
 		return false;
 	}
 
-	if (value.props["data-trickroom-role"] === "text") {
-		return typeof value.children === "string";
-	}
-
 	return (
-		Array.isArray(value.children) && value.children.every(isSerializedElement)
+		typeof value.children === "string" ||
+		(Array.isArray(value.children) && value.children.every(isSerializedElement))
 	);
 };
 
@@ -133,9 +168,20 @@ const isDesignSystemName = (
 	value === null ||
 	(typeof value === "string" && value.trim().length > 0);
 
+const isDesignSystemId = (
+	value: unknown,
+): value is TrickroomDesign["systemId"] =>
+	value === undefined ||
+	value === null ||
+	(typeof value === "string" &&
+		/^sys_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+			value.trim(),
+		));
+
 export const isTrickroomDesign = (value: unknown): value is TrickroomDesign =>
 	isRecord(value) &&
 	typeof value.name === "string" &&
+	isDesignSystemId(value.systemId) &&
 	isDesignSystemName(value.systemName) &&
 	Array.isArray(value.boards) &&
 	value.boards.every(isSerializedElement);

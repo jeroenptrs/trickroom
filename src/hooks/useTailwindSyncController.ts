@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ProjectQueryScope } from "../queries/project-scope";
+import type { SystemSummary } from "../queries/systems";
 import {
 	syncTailwindTokens,
 	type TailwindSyncTokensResponse,
 } from "../queries/tailwind-sync-tokens";
 import type { TrickroomConfig } from "../types";
 
-export type TailwindSyncStatus = "idle" | "pending" | "success" | "updated" | "error";
+export type TailwindSyncStatus =
+	| "idle"
+	| "pending"
+	| "success"
+	| "updated"
+	| "error";
 
 export type TailwindSystemTarget = {
+	systemId: string;
 	systemName: string;
 	cssPath: string;
 };
@@ -21,32 +29,50 @@ export type TailwindSyncResult = {
 export type TailwindSyncController = {
 	statusBySystem: Record<string, TailwindSyncStatus>;
 	results: Record<string, TailwindSyncResult>;
+	systems: TailwindSystemTarget[];
+	targetsById: Record<string, TailwindSystemTarget>;
 	isIdle: boolean;
 	isPending: boolean;
 	isSuccess: boolean;
 	isPartialError: boolean;
 	isError: boolean;
 	syncAll: () => Promise<void>;
-	syncSystem: (systemName: string) => Promise<void>;
+	syncSystem: (systemId: string) => Promise<void>;
 };
 
 export function buildOrderedSystems(
-	config: TrickroomConfig | undefined,
+	systemsOrConfig: SystemSummary[] | TrickroomConfig | undefined,
 ): TailwindSystemTarget[] {
-	return Object.entries(config?.systems ?? {}).flatMap(([systemName, cssPath]) => {
-		const trimmedSystemName = systemName.trim();
-		const trimmedCssPath = cssPath.trim();
-		if (!trimmedSystemName || !trimmedCssPath) {
-			return [];
-		}
+	if (Array.isArray(systemsOrConfig)) {
+		return systemsOrConfig.flatMap((system) => {
+			const systemId = system.systemId.trim();
+			const systemName = system.systemName.trim();
+			const cssPath = system.cssPath?.trim() ?? "";
+			if (!systemId || !systemName || !cssPath) {
+				return [];
+			}
 
-		return [
-			{
-				systemName: trimmedSystemName,
-				cssPath: trimmedCssPath,
-			},
-		];
-	});
+			return [{ systemId, systemName, cssPath }];
+		});
+	}
+
+	return Object.entries(systemsOrConfig?.systems ?? {}).flatMap(
+		([systemName, cssPath]) => {
+			const trimmedSystemName = systemName.trim();
+			const trimmedCssPath = cssPath.trim();
+			if (!trimmedSystemName || !trimmedCssPath) {
+				return [];
+			}
+
+			return [
+				{
+					systemId: trimmedSystemName,
+					systemName: trimmedSystemName,
+					cssPath: trimmedCssPath,
+				},
+			];
+		},
+	);
 }
 
 export function deriveTailwindSyncFlags(
@@ -80,41 +106,84 @@ export function deriveTailwindSyncFlags(
 }
 
 export function useTailwindSyncController(
-	config: TrickroomConfig | undefined,
+	systemsOrConfig: SystemSummary[] | TrickroomConfig | undefined,
+	projectScope?: ProjectQueryScope,
 ): TailwindSyncController {
-	const systems = useMemo(() => buildOrderedSystems(config), [config]);
+	const systems = useMemo(
+		() => buildOrderedSystems(systemsOrConfig),
+		[systemsOrConfig],
+	);
 
-	const [results, setResults] = useState<Record<string, TailwindSyncResult>>({});
+	const normalizedProjectScope =
+		typeof projectScope === "string" ? projectScope.trim() : "";
+	const [resultsState, setResultsState] = useState<{
+		projectScope: string;
+		results: Record<string, TailwindSyncResult>;
+	}>({
+		projectScope: normalizedProjectScope,
+		results: {},
+	});
+	const results =
+		resultsState.projectScope === normalizedProjectScope
+			? resultsState.results
+			: {};
+	const setScopedResults = useCallback(
+		(
+			updater: (
+				current: Record<string, TailwindSyncResult>,
+			) => Record<string, TailwindSyncResult>,
+		) => {
+			setResultsState((current) => {
+				if (current.projectScope !== normalizedProjectScope) {
+					return current;
+				}
+
+				return {
+					projectScope: normalizedProjectScope,
+					results: updater(current.results),
+				};
+			});
+		},
+		[normalizedProjectScope],
+	);
+
+	useEffect(() => {
+		setResultsState((current) =>
+			current.projectScope === normalizedProjectScope
+				? current
+				: { projectScope: normalizedProjectScope, results: {} },
+		);
+	}, [normalizedProjectScope]);
 
 	const statusBySystem = useMemo(() => {
 		const nextStatuses: Record<string, TailwindSyncStatus> = {};
 
-		for (const { systemName } of systems) {
-			nextStatuses[systemName] = results[systemName]?.status ?? "idle";
+		for (const { systemId } of systems) {
+			nextStatuses[systemId] = results[systemId]?.status ?? "idle";
 		}
 
 		return nextStatuses;
 	}, [results, systems]);
 
 	const syncSystem = useCallback(
-		async (systemName: string) => {
-			const target = systems.find((system) => system.systemName === systemName);
+		async (systemId: string) => {
+			const target = systems.find((system) => system.systemId === systemId);
 			if (!target) {
 				return;
 			}
 
-			setResults((current) => ({
+			setScopedResults((current) => ({
 				...current,
-				[systemName]: {
+				[target.systemId]: {
 					status: "pending",
 				},
 			}));
 
 			try {
-				const data = await syncTailwindTokens({ systemName });
-				setResults((current) => ({
+				const data = await syncTailwindTokens({ systemId: target.systemId });
+				setScopedResults((current) => ({
 					...current,
-					[systemName]: {
+					[target.systemId]: {
 						status: data.status === "updated" ? "updated" : "success",
 						data,
 					},
@@ -122,34 +191,41 @@ export function useTailwindSyncController(
 			} catch (error) {
 				const normalizedError =
 					error instanceof Error ? error : new Error("Failed to sync system");
-				setResults((current) => ({
+				setScopedResults((current) => ({
 					...current,
-					[systemName]: {
+					[target.systemId]: {
 						status: "error",
 						error: normalizedError,
 					},
 				}));
 			}
 		},
-		[systems],
+		[setScopedResults, systems],
 	);
 	const syncAll = useCallback(async () => {
-		for (const { systemName } of systems) {
-			await syncSystem(systemName);
+		for (const { systemId } of systems) {
+			await syncSystem(systemId);
 		}
 	}, [syncSystem, systems]);
 
 	const syncedSystemsFingerprintRef = useRef<string | null>(null);
 	const systemsFingerprint = useMemo(
 		() =>
-			systems
-				.map(({ systemName, cssPath }) => `${systemName}\0${cssPath}`)
-				.join("\0"),
-		[systems],
+			[
+				normalizedProjectScope,
+				...systems.map(
+					({ systemId, systemName, cssPath }) =>
+						`${systemId}\0${systemName}\0${cssPath}`,
+				),
+			].join("\0"),
+		[normalizedProjectScope, systems],
 	);
 
 	useEffect(() => {
-		if (!systemsFingerprint || syncedSystemsFingerprintRef.current === systemsFingerprint) {
+		if (
+			!systemsFingerprint ||
+			syncedSystemsFingerprintRef.current === systemsFingerprint
+		) {
 			return;
 		}
 
@@ -160,6 +236,10 @@ export function useTailwindSyncController(
 	return {
 		statusBySystem,
 		results,
+		systems,
+		targetsById: Object.fromEntries(
+			systems.map((system) => [system.systemId, system]),
+		),
 		...deriveTailwindSyncFlags(statusBySystem),
 		syncAll,
 		syncSystem,
