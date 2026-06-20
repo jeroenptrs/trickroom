@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
 	findOverrideTargetForCapability,
+	getOverrideableRegistryControls,
 	inferOverrideTargetCapabilities,
 	normalizeOverrideTargetCapabilities,
 	resolveSystemComponentOverrideValue,
+	resolveSystemComponentPropOverrideValue,
 } from "./system-component-override-targets";
 import type { PublishedSystemComponentVersion } from "./system-components";
 
@@ -86,5 +88,47 @@ describe("system-component-override-targets", () => {
 				iconTarget: { "data-trickroom-icon-id": "search" },
 			}),
 		).toBe("search");
+	});
+
+	it("exposes and resolves declared registry control props", () => {
+		expect(
+			getOverrideableRegistryControls({
+				library: "base-ui",
+				component: "input",
+			}).map((control) => control.prop),
+		).toEqual(["type", "placeholder", "defaultValue", "disabled"]);
+
+		const inputVersion = {
+			...version,
+			root: {
+				path: "root",
+				library: "base-ui",
+				component: "input",
+			},
+			overrideTargets: {
+				input: {
+					targetId: "input",
+					label: "Input",
+					path: "root",
+					props: ["placeholder", "disabled"],
+				},
+			},
+		};
+		expect(
+			resolveSystemComponentPropOverrideValue(
+				inputVersion,
+				"root",
+				"placeholder",
+				{ input: { props: { placeholder: "Search" } } },
+			),
+		).toBe("Search");
+		expect(
+			resolveSystemComponentPropOverrideValue(
+				inputVersion,
+				"root",
+				"disabled",
+				{ input: { props: { disabled: false } } },
+			),
+		).toBe(false);
 	});
 });

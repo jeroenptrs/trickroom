@@ -9,7 +9,7 @@
 				"data-trickroom-library": "trickroom",
 				"data-trickroom-component": "container",
 				"data-trickroom-role": "branch",
-				"className": "flex flex-col gap-4 text-nowrap p-4 bg-slate-50 w-md rounded-md items-center justify-center font-sans"
+				"className": "flex flex-col gap-4 text-nowrap p-4 bg-slate-50 max-w-md rounded-md items-center justify-center font-sans"
 			},
 			"children": [
 				{
@@ -261,70 +261,33 @@
 						"className": "size-16"
 					},
 					"children": []
-				},
-				{
-					"id": "b8a12ea4-93a9-4c6e-bee2-d356d0adcad1",
-					"props": {
-						"data-trickroom-name": "Container-with-background",
-						"data-trickroom-library": "trickroom",
-						"data-trickroom-component": "container",
-						"data-trickroom-role": "branch",
-						"className": "size-50 bg-amber-100 bg-[image:var(--asset-ast_trickroom-app-icon-2)] bg-cover rounded-xl"
-					},
-					"children": []
-				},
-				{
-					"id": "6f13931b-f0dc-4089-a12d-b82d47ff3fb2",
-					"props": {
-						"type": "button",
-						"disabled": false,
-						"data-trickroom-name": "Button",
-						"data-trickroom-library": "base-ui",
-						"data-trickroom-component": "button",
-						"data-trickroom-role": "branch",
-						"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
-						"data-trickroom-system-component-id": "cmp_957ece62-f8fd-4044-9df8-d637cf03a3e4",
-						"data-trickroom-system-component-instance": "3245dbbc-d074-425d-a509-f7b42f792591",
-						"data-trickroom-system-component-version": "1",
-						"data-trickroom-system-component-path": "root",
-						"data-trickroom-system-component-root": "true",
-						"data-trickroom-system-component-slot": "button",
-						"data-trickroom-system-component-variant-values": "{}",
-						"data-trickroom-system-component-overrides": "{\"node\":{\"className\":\"hidden\",\"text\":\"b\"}}",
-						"data-trickroom-system-component-template-hash": "sha256:93f01db55a44976b5db4def44dcf84a99849eb9852cc920a219040823fabc60c",
-						"data-trickroom-system-component-variant-schema-hash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099",
-						"className": "flex gap-1"
-					},
-					"children": [
-						{
-							"id": "e2d0d49e-04da-4a3e-8683-2b66dfa3210a",
-							"props": {
-								"data-trickroom-name": "Text",
-								"data-trickroom-library": "trickroom",
-								"data-trickroom-component": "text",
-								"data-trickroom-role": "text",
-								"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
-								"data-trickroom-system-component-id": "cmp_957ece62-f8fd-4044-9df8-d637cf03a3e4",
-								"data-trickroom-system-component-instance": "3245dbbc-d074-425d-a509-f7b42f792591",
-								"data-trickroom-system-component-version": "1",
-								"data-trickroom-system-component-path": "node",
-								"className": "hidden"
-							},
-							"children": "b"
-						},
-						{
-							"id": "91a8bd45-780f-4e3b-8c6a-ea5a5148df95",
-							"props": {
-								"data-trickroom-name": "Text",
-								"data-trickroom-library": "trickroom",
-								"data-trickroom-component": "text",
-								"data-trickroom-role": "text"
-							},
-							"children": "a"
-						}
-					]
 				}
 			]
+		},
+		{
+			"id": "0381c0ee-fa00-4f2c-b914-56695a3528b5",
+			"props": {
+				"type": "text",
+				"placeholder": "Text",
+				"defaultValue": "",
+				"disabled": false,
+				"data-trickroom-name": "Input",
+				"data-trickroom-library": "base-ui",
+				"data-trickroom-component": "input",
+				"data-trickroom-role": "leaf",
+				"className": "border-none bg-slate-200/60 text-slate-950 w-full rounded-none inset-shadow-[0_0_0_1px] text-xs font-normal file:font-medium placeholder:text-slate-500 focus-visible:outline-none disabled:opacity-50 bg-transparent px-3 py-2 text-sm inset-shadow-slate-200 focus-visible:inset-shadow-cyan-500 aria-invalid:inset-shadow-red-500",
+				"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+				"data-trickroom-system-component-id": "cmp_00cd9fb7-58ba-40aa-8dbc-655f2fab7740",
+				"data-trickroom-system-component-instance": "38b0829a-122a-41ab-b71e-ef645481fb16",
+				"data-trickroom-system-component-version": "1",
+				"data-trickroom-system-component-path": "root",
+				"data-trickroom-system-component-root": "true",
+				"data-trickroom-system-component-variant-values": "{\"variant\":\"form\"}",
+				"data-trickroom-system-component-overrides": "{}",
+				"data-trickroom-system-component-template-hash": "sha256:f59b7cfce482d882c15dd4ef55841009239a33f8ab6693b6ff37ce854a4effb3",
+				"data-trickroom-system-component-variant-schema-hash": "sha256:bf8eb6b5a554231d7360e74762bd264b6d0900fd4fb6e16343e2c4151706b5b1"
+			},
+			"children": []
 		}
 	]
 }

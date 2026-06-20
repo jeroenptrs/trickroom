@@ -14,6 +14,7 @@ import {
 	getSystemComponentStructuralMetadata,
 	type SystemComponentInstanceOverrides,
 } from "./system-component-markers";
+import { isValidSystemComponentPropOverride } from "./system-component-override-targets";
 import {
 	resolveMaterializedSystemComponentClassComposition,
 	resolveSystemComponentVariantValues,
@@ -22,7 +23,6 @@ import { variantSchemaHashMatchesDefaultBackfillMigration } from "./system-compo
 import type {
 	PublishedSystemComponentVersion,
 	SystemComponentMigrationHints,
-	SystemComponentOverrideTarget,
 	SystemComponentRecord,
 	SystemComponentSlotDefinition,
 	SystemComponentVariantAxis,
@@ -817,7 +817,7 @@ const collectOverrideMappingConflicts = (
 
 const mapVariantValues = (
 	sourceValues: Record<string, string>,
-	sourceVersion: PublishedSystemComponentVersion,
+	_sourceVersion: PublishedSystemComponentVersion,
 	targetVersion: PublishedSystemComponentVersion,
 	hints: SystemComponentMigrationHints | undefined,
 ) => {
@@ -933,6 +933,38 @@ const mapOverrides = (
 		Object.keys(sourceVersion.overrideTargets ?? {}),
 	);
 	const remappedSourceTargetByTargetId = new Map<string, string>();
+	const mapOverrideValues = (
+		override: SystemComponentInstanceOverrides[string],
+		targetId: string,
+	) => {
+		const target = targetVersion.overrideTargets?.[targetId];
+		if (!target || !override.props) {
+			return override;
+		}
+		const props = Object.fromEntries(
+			Object.entries(override.props).filter(([prop, value]) =>
+				isValidSystemComponentPropOverride(targetVersion, target, prop, value),
+			),
+		);
+		for (const prop of Object.keys(override.props)) {
+			if (!Object.hasOwn(props, prop)) {
+				diagnostics.push({
+					code: "OVERRIDE_DROPPED",
+					severity: "warning",
+					message: `Override prop "${prop}" on target "${targetId}" is not published in version "${targetVersion.version}" and was dropped.`,
+					overrideTargetId: targetId,
+					targetId,
+				});
+			}
+		}
+		const mapped = { ...override };
+		if (Object.keys(props).length > 0) {
+			mapped.props = props;
+		} else {
+			delete mapped.props;
+		}
+		return mapped;
+	};
 
 	for (const [targetId, override] of Object.entries(sourceOverrides)) {
 		if (!fromTargetIds.has(targetId)) {
@@ -971,7 +1003,10 @@ const mapOverrides = (
 				);
 			}
 			remappedSourceTargetByTargetId.set(remapped.targetId, targetId);
-			overrides[remapped.targetId] = override;
+			overrides[remapped.targetId] = mapOverrideValues(
+				override,
+				remapped.targetId,
+			);
 			mappings.push({
 				fromTargetId: targetId,
 				toTargetId: remapped.targetId,
@@ -1283,7 +1318,7 @@ export const migrateSystemComponentInstance = (
 	const createElementId =
 		options.createElementId ?? (() => globalThis.crypto.randomUUID());
 
-	const resolved: ResolvedPublishedSystemComponent = {
+	const _resolved: ResolvedPublishedSystemComponent = {
 		systemId: input.systemId,
 		componentId: input.componentId,
 		record: {

@@ -3,13 +3,12 @@ import type { SystemComponentSummary } from "../../queries/system-components";
 import { expandRegistryRecipe } from "../../recipes/expansion";
 import { normalizeDesign } from "../../stores/design-store";
 import { getSystemComponentMarkerProps } from "../../utils/system-component-markers";
+import { getBlockedDropInstructions, getVisibleLayerRows } from "./Layers";
 import {
-	getBlockedDropInstructions,
 	getRegistryPickerSections,
 	getUserComponentPickerSections,
-	getVisibleLayerRows,
 	resolveLayerInsertionPlacement,
-} from "./Layers";
+} from "./useLayerInsertion";
 
 describe("visible layer rows", () => {
 	it("flattens only expanded layer branches", () => {
@@ -159,12 +158,47 @@ describe("registry picker sections", () => {
 			"",
 		);
 
-		expect(sections.map((section) => section.title)).toEqual([
-			"User authored components",
-		]);
+		expect(sections.map((section) => section.groupPath)).toEqual([""]);
 		expect(sections[0]?.items.map((item) => item.component.slug)).toEqual([
 			"badge",
 			"primary-button",
+		]);
+	});
+
+	it("splits user-authored components into slash-delimited group sections", () => {
+		const base = {
+			componentId: "cmp_11111111-1111-4111-8111-111111111111",
+			slug: "primary-button",
+			name: "Primary Button",
+			hasDraft: false,
+			hasPublished: true,
+			currentVersion: "1",
+			createdAt: "2026-05-26T10:00:00.000Z",
+			updatedAt: "2026-05-26T10:00:00.000Z",
+		} satisfies SystemComponentSummary;
+		const sections = getUserComponentPickerSections(
+			[
+				{ ...base, slug: "heading", group: "atoms/typography" },
+				{
+					...base,
+					componentId: "cmp_22222222-2222-4222-8222-222222222222",
+					slug: "hover-card",
+					group: "atoms/interaction",
+				},
+				{
+					...base,
+					componentId: "cmp_33333333-3333-4333-8333-333333333333",
+					slug: "loose",
+					group: undefined,
+				},
+			],
+			"",
+		);
+
+		expect(sections.map((section) => section.groupPath)).toEqual([
+			"atoms/interaction",
+			"atoms/typography",
+			"",
 		]);
 	});
 

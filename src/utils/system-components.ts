@@ -60,6 +60,7 @@ export type SystemComponentOverrideTarget = {
 	label: string;
 	path: string;
 	capabilities?: SystemComponentOverrideCapability[];
+	props?: string[];
 	history?: SystemComponentOverrideTargetHistoryEntry[];
 };
 

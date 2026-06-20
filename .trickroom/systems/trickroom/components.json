@@ -1,9 +1,9 @@
 {
-	"version": 1,
+	"version": 2,
 	"metadata": {
-		"schemaVersion": 1,
+		"schemaVersion": 2,
 		"createdAt": "1970-01-01T00:00:00.000Z",
-		"updatedAt": "2026-06-01T18:31:46.251Z"
+		"updatedAt": "2026-06-07T12:19:41.983Z"
 	},
 	"settings": {
 		"autoMigrateComponents": false
@@ -15,27 +15,25 @@
 		"preserveDrafts": true
 	},
 	"components": {
-		"cmp_957ece62-f8fd-4044-9df8-d637cf03a3e4": {
-			"componentId": "cmp_957ece62-f8fd-4044-9df8-d637cf03a3e4",
+		"cmp_3008724f-5022-4e5c-b17d-fa4a3800624d": {
+			"componentId": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
 			"slug": "button",
 			"name": "Button",
-			"createdAt": "2026-06-01T04:56:40.997Z",
-			"updatedAt": "2026-06-01T18:31:46.250Z",
+			"createdAt": "2026-06-07T10:03:35.045Z",
+			"updatedAt": "2026-06-07T11:52:56.005Z",
 			"draft": {
 				"root": {
 					"path": "root",
 					"library": "base-ui",
 					"component": "button",
-					"name": "Button",
-					"className": "flex gap-1",
+					"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
 					"slot": "button",
 					"children": [
 						{
-							"path": "node",
+							"path": "label",
 							"library": "trickroom",
 							"component": "text",
-							"name": "Text",
-							"text": "Text"
+							"text": "Button"
 						}
 					]
 				},
@@ -43,17 +41,1780 @@
 					"button": {
 						"name": "button",
 						"hostPath": "root",
-						"label": "Button"
+						"label": "button"
+					}
+				},
+				"variants": {
+					"axes": {
+						"variant": {
+							"label": "Variant",
+							"values": {
+								"filled": {
+									"label": "Filled",
+									"classesByPath": {
+										"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
+									}
+								},
+								"outlined": {
+									"label": "Outlined",
+									"classesByPath": {
+										"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
+									}
+								},
+								"ghost": {
+									"label": "Ghost",
+									"classesByPath": {
+										"root": "text-slate-600 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
+									}
+								},
+								"link": {
+									"label": "Link",
+									"classesByPath": {
+										"root": "text-cyan-700 hover:bg-slate-100 hover:text-cyan-800 active:bg-cyan-100 active:text-cyan-900"
+									}
+								}
+							},
+							"defaultValue": "outlined"
+						},
+						"width": {
+							"label": "Width",
+							"values": {
+								"auto": {
+									"label": "Auto"
+								},
+								"full": {
+									"label": "Full",
+									"classesByPath": {
+										"root": "w-full"
+									}
+								}
+							},
+							"defaultValue": "auto"
+						}
+					},
+					"defaultValues": {
+						"variant": "outlined",
+						"width": "auto"
 					}
 				},
 				"overrideTargets": {
-					"node": {
-						"targetId": "node",
-						"label": "Text",
-						"path": "node",
+					"label": {
+						"targetId": "label",
+						"label": "Label",
+						"path": "label",
 						"capabilities": [
-							"className",
-							"text"
+							"text",
+							"className"
+						]
+					},
+					"root": {
+						"targetId": "root",
+						"label": "Root",
+						"path": "root",
+						"capabilities": [
+							"className"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "5",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "button",
+							"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+							"children": [
+								{
+									"path": "label",
+									"library": "trickroom",
+									"component": "text",
+									"text": "Button"
+								}
+							]
+						},
+						"variants": {
+							"axes": {
+								"variant": {
+									"label": "Variant",
+									"values": {
+										"filled": {
+											"label": "Filled",
+											"classesByPath": {
+												"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"outlined": {
+											"label": "Outlined",
+											"classesByPath": {
+												"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"ghost": {
+											"label": "Ghost",
+											"classesByPath": {
+												"root": "text-slate-600 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
+											}
+										}
+									},
+									"defaultValue": "outlined"
+								}
+							},
+							"defaultValues": {
+								"variant": "outlined"
+							}
+						},
+						"overrideTargets": {
+							"label": {
+								"targetId": "label",
+								"label": "Label",
+								"path": "label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-07T10:03:38.042Z",
+						"templateHash": "sha256:048cb80b9363e91dd2b7961a51a2f245fb1b78069cbf5453e173f5c8c2a2fd6e",
+						"variantSchemaHash": "sha256:8a7c28d38c508180206475841c265000e265ae0750d8d709c1c308586a2ec635"
+					},
+					"2": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "button",
+							"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+							"children": [
+								{
+									"path": "label",
+									"library": "trickroom",
+									"component": "text",
+									"text": "Button"
+								}
+							]
+						},
+						"variants": {
+							"axes": {
+								"variant": {
+									"label": "Variant",
+									"values": {
+										"filled": {
+											"label": "Filled",
+											"classesByPath": {
+												"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"outlined": {
+											"label": "Outlined",
+											"classesByPath": {
+												"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"ghost": {
+											"label": "Ghost",
+											"classesByPath": {
+												"root": "text-slate-600 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
+											}
+										}
+									},
+									"defaultValue": "outlined"
+								}
+							},
+							"defaultValues": {
+								"variant": "outlined"
+							}
+						},
+						"overrideTargets": {
+							"label": {
+								"targetId": "label",
+								"label": "Label",
+								"path": "label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							}
+						},
+						"version": "2",
+						"publishedAt": "2026-06-07T10:56:38.529Z",
+						"templateHash": "sha256:048cb80b9363e91dd2b7961a51a2f245fb1b78069cbf5453e173f5c8c2a2fd6e",
+						"variantSchemaHash": "sha256:1c5043ff3ea37bad94edb0e6466826dbc7fa17f5badb5c4a269246547f431868",
+						"previousVersion": "1"
+					},
+					"3": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "button",
+							"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+							"children": [
+								{
+									"path": "label",
+									"library": "trickroom",
+									"component": "text",
+									"text": "Button"
+								}
+							]
+						},
+						"variants": {
+							"axes": {
+								"variant": {
+									"label": "Variant",
+									"values": {
+										"filled": {
+											"label": "Filled",
+											"classesByPath": {
+												"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"outlined": {
+											"label": "Outlined",
+											"classesByPath": {
+												"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"ghost": {
+											"label": "Ghost",
+											"classesByPath": {
+												"root": "text-slate-600 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
+											}
+										}
+									},
+									"defaultValue": "outlined"
+								},
+								"width": {
+									"label": "Width",
+									"values": {
+										"auto": {
+											"label": "Auto"
+										},
+										"full": {
+											"label": "Full",
+											"classesByPath": {
+												"root": "w-full"
+											}
+										}
+									},
+									"defaultValue": "auto"
+								}
+							},
+							"defaultValues": {
+								"variant": "outlined",
+								"width": "auto"
+							}
+						},
+						"overrideTargets": {
+							"label": {
+								"targetId": "label",
+								"label": "Label",
+								"path": "label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"root": {
+								"targetId": "root",
+								"label": "Root",
+								"path": "root",
+								"capabilities": [
+									"className"
+								]
+							}
+						},
+						"version": "3",
+						"publishedAt": "2026-06-07T11:22:47.192Z",
+						"templateHash": "sha256:b0e9086169f7f6a0e83bec9f3a6dfcd77c63928a13ff5b4ccb41aceed9a9d6c6",
+						"variantSchemaHash": "sha256:0ca128f9f8cfb78a0b67a68d1d6184db89d33f36fae9de764c0ea9f6caf84ced",
+						"previousVersion": "2"
+					},
+					"4": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "button",
+							"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+							"slot": "button",
+							"children": [
+								{
+									"path": "label",
+									"library": "trickroom",
+									"component": "text",
+									"text": "Button"
+								}
+							]
+						},
+						"slots": {
+							"button": {
+								"name": "button",
+								"hostPath": "root",
+								"label": "button"
+							}
+						},
+						"variants": {
+							"axes": {
+								"variant": {
+									"label": "Variant",
+									"values": {
+										"filled": {
+											"label": "Filled",
+											"classesByPath": {
+												"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"outlined": {
+											"label": "Outlined",
+											"classesByPath": {
+												"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"ghost": {
+											"label": "Ghost",
+											"classesByPath": {
+												"root": "text-slate-600 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
+											}
+										}
+									},
+									"defaultValue": "outlined"
+								},
+								"width": {
+									"label": "Width",
+									"values": {
+										"auto": {
+											"label": "Auto"
+										},
+										"full": {
+											"label": "Full",
+											"classesByPath": {
+												"root": "w-full"
+											}
+										}
+									},
+									"defaultValue": "auto"
+								}
+							},
+							"defaultValues": {
+								"variant": "outlined",
+								"width": "auto"
+							}
+						},
+						"overrideTargets": {
+							"label": {
+								"targetId": "label",
+								"label": "Label",
+								"path": "label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"root": {
+								"targetId": "root",
+								"label": "Root",
+								"path": "root",
+								"capabilities": [
+									"className"
+								]
+							}
+						},
+						"version": "4",
+						"publishedAt": "2026-06-07T11:30:27.333Z",
+						"templateHash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+						"variantSchemaHash": "sha256:0ca128f9f8cfb78a0b67a68d1d6184db89d33f36fae9de764c0ea9f6caf84ced",
+						"previousVersion": "3"
+					},
+					"5": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "button",
+							"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+							"slot": "button",
+							"children": [
+								{
+									"path": "label",
+									"library": "trickroom",
+									"component": "text",
+									"text": "Button"
+								}
+							]
+						},
+						"slots": {
+							"button": {
+								"name": "button",
+								"hostPath": "root",
+								"label": "button"
+							}
+						},
+						"variants": {
+							"axes": {
+								"variant": {
+									"label": "Variant",
+									"values": {
+										"filled": {
+											"label": "Filled",
+											"classesByPath": {
+												"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"outlined": {
+											"label": "Outlined",
+											"classesByPath": {
+												"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"ghost": {
+											"label": "Ghost",
+											"classesByPath": {
+												"root": "text-slate-600 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"link": {
+											"label": "Link",
+											"classesByPath": {
+												"root": "text-cyan-700 hover:bg-slate-100 hover:text-cyan-800 active:bg-cyan-100 active:text-cyan-900"
+											}
+										}
+									},
+									"defaultValue": "outlined"
+								},
+								"width": {
+									"label": "Width",
+									"values": {
+										"auto": {
+											"label": "Auto"
+										},
+										"full": {
+											"label": "Full",
+											"classesByPath": {
+												"root": "w-full"
+											}
+										}
+									},
+									"defaultValue": "auto"
+								}
+							},
+							"defaultValues": {
+								"variant": "outlined",
+								"width": "auto"
+							}
+						},
+						"overrideTargets": {
+							"label": {
+								"targetId": "label",
+								"label": "Label",
+								"path": "label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"root": {
+								"targetId": "root",
+								"label": "Root",
+								"path": "root",
+								"capabilities": [
+									"className"
+								]
+							}
+						},
+						"version": "5",
+						"publishedAt": "2026-06-07T11:52:56.005Z",
+						"templateHash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+						"variantSchemaHash": "sha256:39f3de474463d1033f0cecd77f13854abf79a5d71b815cc29b7e8bf0d8f15d86",
+						"previousVersion": "4"
+					}
+				}
+			}
+		},
+		"cmp_829b6591-835c-4269-8baa-62b1f9925a98": {
+			"componentId": "cmp_829b6591-835c-4269-8baa-62b1f9925a98",
+			"slug": "tag",
+			"name": "Tag",
+			"createdAt": "2026-06-07T10:08:59.882Z",
+			"updatedAt": "2026-06-07T10:09:02.657Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "trickroom",
+					"component": "container",
+					"className": "inline-flex items-center gap-1 rounded-none px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
+					"children": [
+						{
+							"path": "label",
+							"library": "trickroom",
+							"component": "text",
+							"text": "Tag"
+						}
+					]
+				},
+				"variants": {
+					"axes": {
+						"tone": {
+							"label": "Tone",
+							"values": {
+								"neutral": {
+									"classesByPath": {
+										"root": "bg-slate-100 text-slate-600"
+									}
+								},
+								"info": {
+									"classesByPath": {
+										"root": "bg-sky-100 text-sky-800"
+									}
+								},
+								"success": {
+									"classesByPath": {
+										"root": "bg-emerald-100 text-emerald-800"
+									}
+								},
+								"warning": {
+									"classesByPath": {
+										"root": "bg-amber-100 text-amber-900"
+									}
+								},
+								"danger": {
+									"classesByPath": {
+										"root": "bg-red-100 text-red-800"
+									}
+								}
+							},
+							"defaultValue": "neutral"
+						}
+					},
+					"defaultValues": {
+						"tone": "neutral"
+					}
+				},
+				"overrideTargets": {
+					"label": {
+						"targetId": "label",
+						"label": "Label",
+						"path": "label",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "inline-flex items-center gap-1 rounded-none px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
+							"children": [
+								{
+									"path": "label",
+									"library": "trickroom",
+									"component": "text",
+									"text": "Tag"
+								}
+							]
+						},
+						"variants": {
+							"axes": {
+								"tone": {
+									"label": "Tone",
+									"values": {
+										"neutral": {
+											"classesByPath": {
+												"root": "bg-slate-100 text-slate-600"
+											}
+										},
+										"info": {
+											"classesByPath": {
+												"root": "bg-sky-100 text-sky-800"
+											}
+										},
+										"success": {
+											"classesByPath": {
+												"root": "bg-emerald-100 text-emerald-800"
+											}
+										},
+										"warning": {
+											"classesByPath": {
+												"root": "bg-amber-100 text-amber-900"
+											}
+										},
+										"danger": {
+											"classesByPath": {
+												"root": "bg-red-100 text-red-800"
+											}
+										}
+									},
+									"defaultValue": "neutral"
+								}
+							},
+							"defaultValues": {
+								"tone": "neutral"
+							}
+						},
+						"overrideTargets": {
+							"label": {
+								"targetId": "label",
+								"label": "Label",
+								"path": "label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-07T10:09:02.657Z",
+						"templateHash": "sha256:a16ba0864b1b49962d27c70d0c05211164d8a0008caffce985bb5ed3032ef969",
+						"variantSchemaHash": "sha256:2417929567a6964f2a4833332ee30b7044182d89398acc88904720f9f30e6971"
+					}
+				}
+			}
+		},
+		"cmp_2f8d41d6-8871-4fb1-935d-d6dd2fec452f": {
+			"componentId": "cmp_2f8d41d6-8871-4fb1-935d-d6dd2fec452f",
+			"slug": "keycap",
+			"name": "Keycap",
+			"createdAt": "2026-06-07T10:09:09.069Z",
+			"updatedAt": "2026-06-07T10:09:11.933Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "trickroom",
+					"component": "container",
+					"className": "inline-flex items-center justify-center rounded-none bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600",
+					"children": [
+						{
+							"path": "key",
+							"library": "trickroom",
+							"component": "text",
+							"text": "Cmd K"
+						}
+					]
+				},
+				"overrideTargets": {
+					"key": {
+						"targetId": "key",
+						"label": "Key",
+						"path": "key",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "inline-flex items-center justify-center rounded-none bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600",
+							"children": [
+								{
+									"path": "key",
+									"library": "trickroom",
+									"component": "text",
+									"text": "Cmd K"
+								}
+							]
+						},
+						"overrideTargets": {
+							"key": {
+								"targetId": "key",
+								"label": "Key",
+								"path": "key",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-07T10:09:11.933Z",
+						"templateHash": "sha256:ac825082b05c319cd521972c7001e55c8b90595fa666f3349cb014443d7fd2bd",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099"
+					}
+				}
+			}
+		},
+		"cmp_bc215dcb-876e-4a66-8fa1-b66a54d4c02f": {
+			"componentId": "cmp_bc215dcb-876e-4a66-8fa1-b66a54d4c02f",
+			"slug": "status-dot",
+			"name": "Status Dot",
+			"createdAt": "2026-06-07T10:09:18.948Z",
+			"updatedAt": "2026-06-07T10:09:21.464Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "trickroom",
+					"component": "container",
+					"className": "inline-block size-2 rounded-full"
+				},
+				"variants": {
+					"axes": {
+						"tone": {
+							"label": "Tone",
+							"values": {
+								"idle": {
+									"classesByPath": {
+										"root": "bg-slate-400"
+									}
+								},
+								"synced": {
+									"classesByPath": {
+										"root": "bg-emerald-500"
+									}
+								},
+								"review": {
+									"classesByPath": {
+										"root": "bg-amber-500"
+									}
+								},
+								"syncing": {
+									"classesByPath": {
+										"root": "bg-cyan-500"
+									}
+								},
+								"error": {
+									"classesByPath": {
+										"root": "bg-red-500"
+									}
+								}
+							},
+							"defaultValue": "idle"
+						}
+					},
+					"defaultValues": {
+						"tone": "idle"
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "inline-block size-2 rounded-full"
+						},
+						"variants": {
+							"axes": {
+								"tone": {
+									"label": "Tone",
+									"values": {
+										"idle": {
+											"classesByPath": {
+												"root": "bg-slate-400"
+											}
+										},
+										"synced": {
+											"classesByPath": {
+												"root": "bg-emerald-500"
+											}
+										},
+										"review": {
+											"classesByPath": {
+												"root": "bg-amber-500"
+											}
+										},
+										"syncing": {
+											"classesByPath": {
+												"root": "bg-cyan-500"
+											}
+										},
+										"error": {
+											"classesByPath": {
+												"root": "bg-red-500"
+											}
+										}
+									},
+									"defaultValue": "idle"
+								}
+							},
+							"defaultValues": {
+								"tone": "idle"
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-07T10:09:21.464Z",
+						"templateHash": "sha256:da2184aea647cd9909a6244083738780c16733c1f499af9bce393cd8487bf5f4",
+						"variantSchemaHash": "sha256:4ec5dfbe5cfc4bf19291f0693c002aaad73784410e8929c6bb4a56b5b2924efe"
+					}
+				}
+			}
+		},
+		"cmp_d470b1df-1388-4e36-b7c2-fff8faf38759": {
+			"componentId": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
+			"slug": "icon-button",
+			"name": "Icon Button",
+			"createdAt": "2026-06-07T10:09:30.167Z",
+			"updatedAt": "2026-06-07T12:19:41.982Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "base-ui",
+					"component": "button",
+					"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+					"children": [
+						{
+							"path": "icon",
+							"library": "trickroom",
+							"component": "icon",
+							"className": "size-4"
+						}
+					]
+				},
+				"variants": {
+					"axes": {
+						"variant": {
+							"label": "Variant",
+							"values": {
+								"filled": {
+									"label": "Filled",
+									"classesByPath": {
+										"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
+									}
+								},
+								"outlined": {
+									"label": "Outlined",
+									"classesByPath": {
+										"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
+									}
+								},
+								"ghost": {
+									"label": "Ghost",
+									"classesByPath": {
+										"root": "text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
+									}
+								}
+							},
+							"defaultValue": "ghost"
+						},
+						"size": {
+							"label": "Size",
+							"values": {
+								"sm": {
+									"label": "Small",
+									"classesByPath": {
+										"root": "size-8"
+									}
+								},
+								"md": {
+									"label": "Medium",
+									"classesByPath": {
+										"root": "size-9"
+									}
+								},
+								"lg": {
+									"label": "Large",
+									"classesByPath": {
+										"root": "size-10"
+									}
+								}
+							},
+							"defaultValue": "md"
+						}
+					},
+					"defaultValues": {
+						"variant": "ghost",
+						"size": "md"
+					}
+				},
+				"overrideTargets": {
+					"icon": {
+						"targetId": "icon",
+						"label": "Icon",
+						"path": "icon",
+						"capabilities": [
+							"icon",
+							"className"
+						]
+					},
+					"root": {
+						"targetId": "root",
+						"label": "Root",
+						"path": "root",
+						"capabilities": [
+							"className"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "3",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "button",
+							"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+							"children": [
+								{
+									"path": "icon",
+									"library": "trickroom",
+									"component": "icon"
+								}
+							]
+						},
+						"variants": {
+							"axes": {
+								"variant": {
+									"label": "Variant",
+									"values": {
+										"filled": {
+											"label": "Filled",
+											"classesByPath": {
+												"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"outlined": {
+											"label": "Outlined",
+											"classesByPath": {
+												"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"ghost": {
+											"label": "Ghost",
+											"classesByPath": {
+												"root": "text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
+											}
+										}
+									},
+									"defaultValue": "ghost"
+								},
+								"size": {
+									"label": "Size",
+									"values": {
+										"sm": {
+											"label": "Small",
+											"classesByPath": {
+												"root": "size-6"
+											}
+										},
+										"md": {
+											"label": "Medium",
+											"classesByPath": {
+												"root": "size-7"
+											}
+										},
+										"lg": {
+											"label": "Large",
+											"classesByPath": {
+												"root": "size-8"
+											}
+										}
+									},
+									"defaultValue": "md"
+								}
+							},
+							"defaultValues": {
+								"variant": "ghost",
+								"size": "md"
+							}
+						},
+						"overrideTargets": {
+							"icon": {
+								"targetId": "icon",
+								"label": "Icon",
+								"path": "icon",
+								"capabilities": [
+									"icon",
+									"className"
+								]
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-07T10:09:34.475Z",
+						"templateHash": "sha256:0bedd6bc20a69d6bc3a0978603ba30c5f138279933f4b11929c25db2cff0f099",
+						"variantSchemaHash": "sha256:9ed3831c1550919aedb33706e0c5697c0ab6236a1ab58243107242b3747d1222"
+					},
+					"2": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "button",
+							"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+							"children": [
+								{
+									"path": "icon",
+									"library": "trickroom",
+									"component": "icon",
+									"className": "size-4"
+								}
+							]
+						},
+						"variants": {
+							"axes": {
+								"variant": {
+									"label": "Variant",
+									"values": {
+										"filled": {
+											"label": "Filled",
+											"classesByPath": {
+												"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"outlined": {
+											"label": "Outlined",
+											"classesByPath": {
+												"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"ghost": {
+											"label": "Ghost",
+											"classesByPath": {
+												"root": "text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
+											}
+										}
+									},
+									"defaultValue": "ghost"
+								},
+								"size": {
+									"label": "Size",
+									"values": {
+										"sm": {
+											"label": "Small",
+											"classesByPath": {
+												"root": "size-8"
+											}
+										},
+										"md": {
+											"label": "Medium",
+											"classesByPath": {
+												"root": "size-9"
+											}
+										},
+										"lg": {
+											"label": "Large",
+											"classesByPath": {
+												"root": "size-10"
+											}
+										}
+									},
+									"defaultValue": "md"
+								}
+							},
+							"defaultValues": {
+								"variant": "ghost",
+								"size": "md"
+							}
+						},
+						"overrideTargets": {
+							"icon": {
+								"targetId": "icon",
+								"label": "Icon",
+								"path": "icon",
+								"capabilities": [
+									"icon",
+									"className"
+								]
+							}
+						},
+						"version": "2",
+						"publishedAt": "2026-06-07T11:54:33.091Z",
+						"templateHash": "sha256:f910c673238e0ded0ca729a0b2be29ab49a1125a7b644ec8ba7d6d0f598b7ac4",
+						"variantSchemaHash": "sha256:ab1b9111843c4448a121f3e7c99e75666f9b0fb29b3ae83ded268f6d79ba34be",
+						"previousVersion": "1"
+					},
+					"3": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "button",
+							"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
+							"children": [
+								{
+									"path": "icon",
+									"library": "trickroom",
+									"component": "icon",
+									"className": "size-4"
+								}
+							]
+						},
+						"variants": {
+							"axes": {
+								"variant": {
+									"label": "Variant",
+									"values": {
+										"filled": {
+											"label": "Filled",
+											"classesByPath": {
+												"root": "bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"outlined": {
+											"label": "Outlined",
+											"classesByPath": {
+												"root": "text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
+											}
+										},
+										"ghost": {
+											"label": "Ghost",
+											"classesByPath": {
+												"root": "text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
+											}
+										}
+									},
+									"defaultValue": "ghost"
+								},
+								"size": {
+									"label": "Size",
+									"values": {
+										"sm": {
+											"label": "Small",
+											"classesByPath": {
+												"root": "size-8"
+											}
+										},
+										"md": {
+											"label": "Medium",
+											"classesByPath": {
+												"root": "size-9"
+											}
+										},
+										"lg": {
+											"label": "Large",
+											"classesByPath": {
+												"root": "size-10"
+											}
+										}
+									},
+									"defaultValue": "md"
+								}
+							},
+							"defaultValues": {
+								"variant": "ghost",
+								"size": "md"
+							}
+						},
+						"overrideTargets": {
+							"icon": {
+								"targetId": "icon",
+								"label": "Icon",
+								"path": "icon",
+								"capabilities": [
+									"icon",
+									"className"
+								]
+							},
+							"root": {
+								"targetId": "root",
+								"label": "Root",
+								"path": "root",
+								"capabilities": [
+									"className"
+								]
+							}
+						},
+						"version": "3",
+						"publishedAt": "2026-06-07T12:19:41.982Z",
+						"templateHash": "sha256:8705bf4c4cbbe81e66710aebd6aa0dead5a8125120db8e8342bed5c052965fec",
+						"variantSchemaHash": "sha256:ab1b9111843c4448a121f3e7c99e75666f9b0fb29b3ae83ded268f6d79ba34be",
+						"previousVersion": "2"
+					}
+				}
+			}
+		},
+		"cmp_645de54b-09e0-49c7-8018-c1b760dc8460": {
+			"componentId": "cmp_645de54b-09e0-49c7-8018-c1b760dc8460",
+			"slug": "surface",
+			"name": "Surface",
+			"createdAt": "2026-06-07T10:09:42.021Z",
+			"updatedAt": "2026-06-07T10:09:44.621Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "trickroom",
+					"component": "container",
+					"className": "bg-white rounded-none"
+				},
+				"slots": {
+					"content": {
+						"name": "content",
+						"hostPath": "root",
+						"label": "Content"
+					}
+				},
+				"variants": {
+					"axes": {
+						"edge": {
+							"label": "Edge",
+							"values": {
+								"inset": {
+									"label": "Inset",
+									"classesByPath": {
+										"root": "inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
+									}
+								},
+								"border": {
+									"label": "Border",
+									"classesByPath": {
+										"root": "border border-slate-200"
+									}
+								}
+							},
+							"defaultValue": "inset"
+						}
+					},
+					"defaultValues": {
+						"edge": "inset"
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "bg-white rounded-none"
+						},
+						"slots": {
+							"content": {
+								"name": "content",
+								"hostPath": "root",
+								"label": "Content"
+							}
+						},
+						"variants": {
+							"axes": {
+								"edge": {
+									"label": "Edge",
+									"values": {
+										"inset": {
+											"label": "Inset",
+											"classesByPath": {
+												"root": "inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
+											}
+										},
+										"border": {
+											"label": "Border",
+											"classesByPath": {
+												"root": "border border-slate-200"
+											}
+										}
+									},
+									"defaultValue": "inset"
+								}
+							},
+							"defaultValues": {
+								"edge": "inset"
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-07T10:09:44.621Z",
+						"templateHash": "sha256:3573de681c319f07499168c37aba41b866680f8da05a0fa9ed7f00d6ae1dcf95",
+						"variantSchemaHash": "sha256:aa3779af2ec7ebf8324aa7e2af84e70239e47ab2b31e80265f491f1a619bb6a1"
+					}
+				}
+			}
+		},
+		"cmp_93560ba5-baf6-4d7b-ac54-7db9f1128a15": {
+			"componentId": "cmp_93560ba5-baf6-4d7b-ac54-7db9f1128a15",
+			"slug": "field",
+			"name": "Field",
+			"createdAt": "2026-06-07T10:09:51.969Z",
+			"updatedAt": "2026-06-07T10:09:54.472Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "trickroom",
+					"component": "container",
+					"className": "flex flex-col gap-1.5",
+					"children": [
+						{
+							"path": "label",
+							"library": "trickroom",
+							"component": "text",
+							"className": "text-xs text-slate-600",
+							"text": "Label"
+						},
+						{
+							"path": "helper",
+							"library": "trickroom",
+							"component": "text",
+							"className": "font-mono text-[10px] text-slate-500",
+							"text": "Helper"
+						}
+					]
+				},
+				"slots": {
+					"control": {
+						"name": "control",
+						"hostPath": "root",
+						"label": "Control"
+					}
+				},
+				"overrideTargets": {
+					"label": {
+						"targetId": "label",
+						"label": "Label",
+						"path": "label",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					},
+					"helper": {
+						"targetId": "helper",
+						"label": "Helper",
+						"path": "helper",
+						"capabilities": [
+							"text",
+							"className"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "flex flex-col gap-1.5",
+							"children": [
+								{
+									"path": "label",
+									"library": "trickroom",
+									"component": "text",
+									"className": "text-xs text-slate-600",
+									"text": "Label"
+								},
+								{
+									"path": "helper",
+									"library": "trickroom",
+									"component": "text",
+									"className": "font-mono text-[10px] text-slate-500",
+									"text": "Helper"
+								}
+							]
+						},
+						"slots": {
+							"control": {
+								"name": "control",
+								"hostPath": "root",
+								"label": "Control"
+							}
+						},
+						"overrideTargets": {
+							"label": {
+								"targetId": "label",
+								"label": "Label",
+								"path": "label",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							},
+							"helper": {
+								"targetId": "helper",
+								"label": "Helper",
+								"path": "helper",
+								"capabilities": [
+									"text",
+									"className"
+								]
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-07T10:09:54.472Z",
+						"templateHash": "sha256:36edd0aabe5af6455c03d4b5fff8e57d009e5d32e5884d52ea195fcf86bffd20",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099"
+					}
+				}
+			}
+		},
+		"cmp_a6214839-abe2-4e98-be53-3d3d47955c34": {
+			"componentId": "cmp_a6214839-abe2-4e98-be53-3d3d47955c34",
+			"slug": "compound-field",
+			"name": "Compound Field",
+			"createdAt": "2026-06-07T10:10:02.788Z",
+			"updatedAt": "2026-06-07T10:10:05.615Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "trickroom",
+					"component": "container",
+					"className": "flex items-stretch rounded-none inset-shadow-[0_0_0_1px] inset-shadow-slate-200",
+					"children": [
+						{
+							"path": "action",
+							"library": "trickroom",
+							"component": "container",
+							"className": "flex items-center border-l border-slate-200 px-3"
+						}
+					]
+				},
+				"slots": {
+					"input": {
+						"name": "input",
+						"hostPath": "root",
+						"label": "Input"
+					},
+					"action": {
+						"name": "action",
+						"hostPath": "action",
+						"label": "Action"
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "flex items-stretch rounded-none inset-shadow-[0_0_0_1px] inset-shadow-slate-200",
+							"children": [
+								{
+									"path": "action",
+									"library": "trickroom",
+									"component": "container",
+									"className": "flex items-center border-l border-slate-200 px-3"
+								}
+							]
+						},
+						"slots": {
+							"input": {
+								"name": "input",
+								"hostPath": "root",
+								"label": "Input"
+							},
+							"action": {
+								"name": "action",
+								"hostPath": "action",
+								"label": "Action"
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-07T10:10:05.615Z",
+						"templateHash": "sha256:014dc17559c3dbfc9ac018367dbd032c968cd11726656e9691372769b047fc5b",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099"
+					}
+				}
+			}
+		},
+		"cmp_a91c5bcb-2bec-452d-a24c-5d10c4ca6fe5": {
+			"componentId": "cmp_a91c5bcb-2bec-452d-a24c-5d10c4ca6fe5",
+			"slug": "list-row",
+			"name": "List Row",
+			"createdAt": "2026-06-07T10:10:11.390Z",
+			"updatedAt": "2026-06-07T12:19:18.721Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "trickroom",
+					"component": "container",
+					"className": "flex w-full items-stretch rounded-none"
+				},
+				"slots": {
+					"content": {
+						"name": "content",
+						"hostPath": "root",
+						"label": "Content"
+					}
+				},
+				"variants": {
+					"axes": {
+						"state": {
+							"label": "State",
+							"values": {
+								"default": {
+									"label": "Default",
+									"classesByPath": {
+										"root": "hover:bg-slate-100"
+									}
+								},
+								"selected": {
+									"label": "Selected",
+									"classesByPath": {
+										"root": "bg-cyan-100 text-cyan-900 hover:bg-cyan-100"
+									}
+								}
+							},
+							"defaultValue": "default"
+						}
+					},
+					"defaultValues": {
+						"state": "default"
+					}
+				},
+				"overrideTargets": {
+					"root": {
+						"targetId": "root",
+						"label": "Root",
+						"path": "root",
+						"capabilities": [
+							"className"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "2",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "flex w-full items-stretch rounded-none"
+						},
+						"slots": {
+							"content": {
+								"name": "content",
+								"hostPath": "root",
+								"label": "Content"
+							}
+						},
+						"variants": {
+							"axes": {
+								"state": {
+									"label": "State",
+									"values": {
+										"default": {
+											"label": "Default",
+											"classesByPath": {
+												"root": "hover:bg-slate-100"
+											}
+										},
+										"selected": {
+											"label": "Selected",
+											"classesByPath": {
+												"root": "bg-cyan-100 text-cyan-900 hover:bg-cyan-100"
+											}
+										}
+									},
+									"defaultValue": "default"
+								}
+							},
+							"defaultValues": {
+								"state": "default"
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-07T10:10:13.873Z",
+						"templateHash": "sha256:5ba19f466b96fa4db0b02d33cbc7a917506f4f98c38cdf372ca935e8cd3dbd52",
+						"variantSchemaHash": "sha256:56d14166b82484f6e9387667632ee94eacf54c99ba6c6659573a076ad917d616"
+					},
+					"2": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "flex w-full items-stretch rounded-none"
+						},
+						"slots": {
+							"content": {
+								"name": "content",
+								"hostPath": "root",
+								"label": "Content"
+							}
+						},
+						"variants": {
+							"axes": {
+								"state": {
+									"label": "State",
+									"values": {
+										"default": {
+											"label": "Default",
+											"classesByPath": {
+												"root": "hover:bg-slate-100"
+											}
+										},
+										"selected": {
+											"label": "Selected",
+											"classesByPath": {
+												"root": "bg-cyan-100 text-cyan-900 hover:bg-cyan-100"
+											}
+										}
+									},
+									"defaultValue": "default"
+								}
+							},
+							"defaultValues": {
+								"state": "default"
+							}
+						},
+						"overrideTargets": {
+							"root": {
+								"targetId": "root",
+								"label": "Root",
+								"path": "root",
+								"capabilities": [
+									"className"
+								]
+							}
+						},
+						"version": "2",
+						"publishedAt": "2026-06-07T12:19:18.721Z",
+						"templateHash": "sha256:83b08945a84bb55c362b4f1dcf8d98684a3b3527ca7b3bfab0e46607efd10607",
+						"variantSchemaHash": "sha256:56d14166b82484f6e9387667632ee94eacf54c99ba6c6659573a076ad917d616",
+						"previousVersion": "1"
+					}
+				}
+			}
+		},
+		"cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0": {
+			"componentId": "cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0",
+			"slug": "dialog",
+			"name": "Dialog",
+			"description": "Dialog panel shell; base-ui wiring deferred because no dialog recipe is registered.",
+			"createdAt": "2026-06-07T10:10:19.007Z",
+			"updatedAt": "2026-06-07T10:10:21.581Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "trickroom",
+					"component": "container",
+					"className": "flex flex-col bg-white rounded-none inset-shadow-[0_0_0_1px] inset-shadow-slate-200 shadow-2xl shadow-slate-950/30"
+				},
+				"slots": {
+					"header": {
+						"name": "header",
+						"hostPath": "root",
+						"label": "Header"
+					},
+					"body": {
+						"name": "body",
+						"hostPath": "root",
+						"label": "Body"
+					},
+					"footer": {
+						"name": "footer",
+						"hostPath": "root",
+						"label": "Footer"
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "trickroom",
+							"component": "container",
+							"className": "flex flex-col bg-white rounded-none inset-shadow-[0_0_0_1px] inset-shadow-slate-200 shadow-2xl shadow-slate-950/30"
+						},
+						"slots": {
+							"header": {
+								"name": "header",
+								"hostPath": "root",
+								"label": "Header"
+							},
+							"body": {
+								"name": "body",
+								"hostPath": "root",
+								"label": "Body"
+							},
+							"footer": {
+								"name": "footer",
+								"hostPath": "root",
+								"label": "Footer"
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-07T10:10:21.581Z",
+						"templateHash": "sha256:4f68fd6aa45cf2991899e9256b2fa786358c560419611f1d7d9fd3716f492937",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099"
+					}
+				}
+			}
+		},
+		"cmp_00cd9fb7-58ba-40aa-8dbc-655f2fab7740": {
+			"componentId": "cmp_00cd9fb7-58ba-40aa-8dbc-655f2fab7740",
+			"slug": "input",
+			"name": "Input",
+			"createdAt": "2026-06-07T12:03:17.107Z",
+			"updatedAt": "2026-06-07T12:03:33.245Z",
+			"draft": {
+				"root": {
+					"path": "root",
+					"library": "base-ui",
+					"component": "input",
+					"className": "border-none bg-slate-200/60 text-slate-950 w-full rounded-none inset-shadow-[0_0_0_1px] text-xs font-normal file:font-medium placeholder:text-slate-500 focus-visible:outline-none disabled:opacity-50",
+					"props": {
+						"type": "text",
+						"placeholder": "Text"
+					}
+				},
+				"variants": {
+					"axes": {
+						"variant": {
+							"label": "Variant",
+							"values": {
+								"inline": {
+									"label": "Inline",
+									"classesByPath": {
+										"root": "inset-shadow-cyan-200 leading-5 pl-0.5 pr-1"
+									}
+								},
+								"block": {
+									"label": "Block",
+									"classesByPath": {
+										"root": "inset-shadow-transparent focus-within:inset-shadow-cyan-200 px-1 py-0.5"
+									}
+								},
+								"outlined": {
+									"label": "Outlined",
+									"classesByPath": {
+										"root": "bg-transparent inset-shadow-slate-200 focus-visible:inset-shadow-cyan-500 px-2 py-1.5"
+									}
+								},
+								"form": {
+									"label": "Form",
+									"classesByPath": {
+										"root": "bg-transparent px-3 py-2 text-sm inset-shadow-slate-200 focus-visible:inset-shadow-cyan-500 aria-invalid:inset-shadow-red-500"
+									}
+								},
+								"formCompact": {
+									"label": "Form compact",
+									"classesByPath": {
+										"root": "bg-white px-2 py-1.5 text-sm inset-shadow-slate-200 focus-visible:inset-shadow-cyan-500 aria-invalid:inset-shadow-red-500"
+									}
+								},
+								"formEmbedded": {
+									"label": "Form embedded",
+									"classesByPath": {
+										"root": "bg-transparent px-2 py-2 text-sm inset-shadow-transparent"
+									}
+								}
+							},
+							"defaultValue": "form"
+						}
+					},
+					"defaultValues": {
+						"variant": "form"
+					}
+				},
+				"overrideTargets": {
+					"root": {
+						"targetId": "root",
+						"label": "Root",
+						"path": "root",
+						"capabilities": [
+							"className"
 						]
 					}
 				}
@@ -65,42 +1826,76 @@
 						"root": {
 							"path": "root",
 							"library": "base-ui",
-							"component": "button",
-							"name": "Button",
-							"className": "flex gap-1",
-							"slot": "button",
-							"children": [
-								{
-									"path": "node",
-									"library": "trickroom",
-									"component": "text",
-									"name": "Text",
-									"text": "Text"
-								}
-							]
+							"component": "input",
+							"className": "border-none bg-slate-200/60 text-slate-950 w-full rounded-none inset-shadow-[0_0_0_1px] text-xs font-normal file:font-medium placeholder:text-slate-500 focus-visible:outline-none disabled:opacity-50",
+							"props": {
+								"type": "text",
+								"placeholder": "Text"
+							}
 						},
-						"slots": {
-							"button": {
-								"name": "button",
-								"hostPath": "root",
-								"label": "Button"
+						"variants": {
+							"axes": {
+								"variant": {
+									"label": "Variant",
+									"values": {
+										"inline": {
+											"label": "Inline",
+											"classesByPath": {
+												"root": "inset-shadow-cyan-200 leading-5 pl-0.5 pr-1"
+											}
+										},
+										"block": {
+											"label": "Block",
+											"classesByPath": {
+												"root": "inset-shadow-transparent focus-within:inset-shadow-cyan-200 px-1 py-0.5"
+											}
+										},
+										"outlined": {
+											"label": "Outlined",
+											"classesByPath": {
+												"root": "bg-transparent inset-shadow-slate-200 focus-visible:inset-shadow-cyan-500 px-2 py-1.5"
+											}
+										},
+										"form": {
+											"label": "Form",
+											"classesByPath": {
+												"root": "bg-transparent px-3 py-2 text-sm inset-shadow-slate-200 focus-visible:inset-shadow-cyan-500 aria-invalid:inset-shadow-red-500"
+											}
+										},
+										"formCompact": {
+											"label": "Form compact",
+											"classesByPath": {
+												"root": "bg-white px-2 py-1.5 text-sm inset-shadow-slate-200 focus-visible:inset-shadow-cyan-500 aria-invalid:inset-shadow-red-500"
+											}
+										},
+										"formEmbedded": {
+											"label": "Form embedded",
+											"classesByPath": {
+												"root": "bg-transparent px-2 py-2 text-sm inset-shadow-transparent"
+											}
+										}
+									},
+									"defaultValue": "form"
+								}
+							},
+							"defaultValues": {
+								"variant": "form"
 							}
 						},
 						"overrideTargets": {
-							"node": {
-								"targetId": "node",
-								"label": "Text",
-								"path": "node",
+							"root": {
+								"targetId": "root",
+								"label": "Root",
+								"path": "root",
 								"capabilities": [
-									"className",
-									"text"
+									"className"
 								]
 							}
 						},
 						"version": "1",
-						"publishedAt": "2026-06-01T18:31:46.250Z",
-						"templateHash": "sha256:93f01db55a44976b5db4def44dcf84a99849eb9852cc920a219040823fabc60c",
-						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099"
+						"publishedAt": "2026-06-07T12:03:33.245Z",
+						"templateHash": "sha256:f59b7cfce482d882c15dd4ef55841009239a33f8ab6693b6ff37ce854a4effb3",
+						"variantSchemaHash": "sha256:bf8eb6b5a554231d7360e74762bd264b6d0900fd4fb6e16343e2c4151706b5b1"
 					}
 				}
 			}

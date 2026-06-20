@@ -35,12 +35,26 @@ import {
 	useLoadedDraftTemplateHash,
 	useLoadedDraftVariantSchemaHash,
 } from "../../stores/component-editor-session-store";
+import {
+	buildComponentGroupTree,
+	collectGroupFolderPaths,
+} from "../../utils/component-groups";
 import { classifyCompoundWhenShape } from "../../utils/system-component-compound-shape";
 import { compoundWhenSignature } from "../../utils/system-component-compound-signature";
 import {
 	isSystemComponentSlug,
 	type SystemComponentVariantSchema,
 } from "../../utils/system-components";
+import {
+	AutocompleteEmpty,
+	AutocompleteInput,
+	AutocompleteItem,
+	AutocompleteList,
+	AutocompletePopup,
+	AutocompletePortal,
+	AutocompletePositioner,
+	AutocompleteRoot,
+} from "../ui/autocomplete";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { AuthoredCompoundsList } from "./AuthoredCompoundsList";
@@ -948,6 +962,13 @@ export function SystemEditorComponentContextPanel({
 		listQuery.data?.components.find(
 			(component) => component.componentId === componentId,
 		) ?? null;
+	const groupSuggestions = useMemo(
+		() =>
+			collectGroupFolderPaths(
+				buildComponentGroupTree(listQuery.data?.components ?? []),
+			).sort((left, right) => left.localeCompare(right)),
+		[listQuery.data?.components],
+	);
 	const record = detailQuery.data?.record;
 	const canEditDraft = Boolean(record?.draft);
 
@@ -1438,14 +1459,33 @@ export function SystemEditorComponentContextPanel({
 							<span className="text-[10px] uppercase tracking-wider text-slate-500">
 								Group
 							</span>
-							<Input
-								id="system-component-draft-group"
-								variant="formCompact"
+							<AutocompleteRoot
+								items={groupSuggestions}
 								value={group}
-								onChange={(event) => {
-									setGroup(event.target.value);
-								}}
-							/>
+								onValueChange={(value) => setGroup(value)}
+								openOnInputClick
+							>
+								<AutocompleteInput
+									id="system-component-draft-group"
+									placeholder="e.g. atoms/typography"
+								/>
+								<AutocompletePortal>
+									<AutocompletePositioner>
+										<AutocompletePopup>
+											<AutocompleteEmpty>
+												No matching folders — your text becomes a new one.
+											</AutocompleteEmpty>
+											<AutocompleteList>
+												{(item: string) => (
+													<AutocompleteItem key={item} value={item}>
+														{item}
+													</AutocompleteItem>
+												)}
+											</AutocompleteList>
+										</AutocompletePopup>
+									</AutocompletePositioner>
+								</AutocompletePortal>
+							</AutocompleteRoot>
 						</label>
 						<label
 							className="flex flex-col gap-1"

@@ -15,6 +15,10 @@ export const compoundMatches = (
 ) =>
 	Object.entries(when).every(([axis, expected]) => {
 		const actual = variantValues[axis];
+		// An unset axis never satisfies a condition.
+		if (actual === undefined) {
+			return false;
+		}
 		return Array.isArray(expected)
 			? expected.includes(actual)
 			: actual === expected;

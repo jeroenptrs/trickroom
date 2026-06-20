@@ -192,9 +192,60 @@ describe("recipe system foundation", () => {
 			"avatar.image",
 			"avatar.root",
 			"button",
+			"checkbox-group",
+			"checkbox.indicator",
+			"checkbox.root",
 			"collapsible.panel",
 			"collapsible.root",
 			"collapsible.trigger",
+			"combobox.arrow",
+			"combobox.backdrop",
+			"combobox.chip",
+			"combobox.chip-remove",
+			"combobox.chips",
+			"combobox.clear",
+			"combobox.empty",
+			"combobox.group",
+			"combobox.group-label",
+			"combobox.icon",
+			"combobox.input",
+			"combobox.input-group",
+			"combobox.item",
+			"combobox.item-indicator",
+			"combobox.label",
+			"combobox.list",
+			"combobox.popup",
+			"combobox.portal",
+			"combobox.positioner",
+			"combobox.root",
+			"combobox.row",
+			"combobox.separator",
+			"combobox.status",
+			"combobox.trigger",
+			"combobox.value",
+			"drawer.backdrop",
+			"drawer.close",
+			"drawer.content",
+			"drawer.description",
+			"drawer.indent",
+			"drawer.indent-background",
+			"drawer.popup",
+			"drawer.portal",
+			"drawer.provider",
+			"drawer.root",
+			"drawer.swipe-area",
+			"drawer.title",
+			"drawer.trigger",
+			"drawer.viewport",
+			"field.control",
+			"field.description",
+			"field.error",
+			"field.item",
+			"field.label",
+			"field.root",
+			"fieldset.legend",
+			"fieldset.root",
+			"form",
 			"input",
 			"menu.item",
 			"menu.popup",
@@ -203,14 +254,63 @@ describe("recipe system foundation", () => {
 			"menu.root",
 			"menu.separator",
 			"menu.trigger",
+			"meter.indicator",
+			"meter.label",
+			"meter.root",
+			"meter.track",
+			"meter.value",
 			"radio-group",
 			"radio.indicator",
 			"radio.root",
+			"scroll-area.content",
+			"scroll-area.corner",
+			"scroll-area.root",
+			"scroll-area.scrollbar",
+			"scroll-area.thumb",
+			"scroll-area.viewport",
+			"select.arrow",
+			"select.backdrop",
+			"select.group",
+			"select.group-label",
+			"select.icon",
+			"select.item",
+			"select.item-indicator",
+			"select.item-text",
+			"select.label",
+			"select.list",
+			"select.popup",
+			"select.portal",
+			"select.positioner",
+			"select.root",
+			"select.scroll-down-arrow",
+			"select.scroll-up-arrow",
+			"select.separator",
+			"select.trigger",
+			"select.value",
 			"separator",
+			"slider.control",
+			"slider.indicator",
+			"slider.label",
+			"slider.root",
+			"slider.thumb",
+			"slider.track",
+			"slider.value",
 			"switch.root",
 			"switch.thumb",
+			"tabs.indicator",
+			"tabs.list",
+			"tabs.panel",
+			"tabs.root",
+			"tabs.tab",
 			"toggle",
 			"toggle-group",
+			"tooltip.arrow",
+			"tooltip.popup",
+			"tooltip.portal",
+			"tooltip.positioner",
+			"tooltip.provider",
+			"tooltip.root",
+			"tooltip.trigger",
 		]);
 
 		const separator = resolveRegistryComponent("base-ui", "separator");
@@ -671,12 +771,26 @@ describe("recipe system foundation", () => {
 			"base-ui/accordion.default",
 			"base-ui/accordion.item.default",
 			"base-ui/avatar.default",
+			"base-ui/checkbox-group.default",
+			"base-ui/checkbox.default",
 			"base-ui/collapsible.default",
+			"base-ui/combobox.default",
+			"base-ui/drawer.default",
+			"base-ui/field.default",
+			"base-ui/fieldset.default",
+			"base-ui/form.default",
 			"base-ui/menu.default",
+			"base-ui/meter.default",
 			"base-ui/radio-group.default",
 			"base-ui/radio.default",
+			"base-ui/scroll-area.default",
+			"base-ui/select.default",
+			"base-ui/slider.default",
 			"base-ui/switch.default",
+			"base-ui/tabs.default",
 			"base-ui/toggle-group.default",
+			"base-ui/tooltip.default",
+			"base-ui/tooltip.item.default",
 		]);
 
 		const recipe = getRecipe("base-ui", "avatar.default");
@@ -727,6 +841,126 @@ describe("recipe system foundation", () => {
 		expect(resolveRegistryRecipe("base-ui", "menu.default")).toMatchObject({
 			status: "known",
 			definition: { id: "base-ui/menu.default" },
+		});
+
+		const tooltipRecipe = getRecipe("base-ui", "tooltip.default");
+		expect(tooltipRecipe).toMatchObject({
+			id: "base-ui/tooltip.default",
+			label: "Tooltip Provider",
+			version: 1,
+			root: {
+				component: "tooltip.provider",
+			},
+			slots: {
+				content: {
+					name: "content",
+					hostPath: "root",
+					allowedChildren: undefined,
+				},
+			},
+			controls: {
+				delay: { path: "root", prop: "delay" },
+				closeDelay: { path: "root", prop: "closeDelay" },
+				timeout: { path: "root", prop: "timeout" },
+			},
+		});
+		expect(getRecipe("base-ui", "base-ui/tooltip.default")).toBe(tooltipRecipe);
+		expect(resolveRegistryRecipe("base-ui", "tooltip.default")).toMatchObject({
+			status: "known",
+			definition: { id: "base-ui/tooltip.default" },
+		});
+
+		const tooltipItemRecipe = getRecipe("base-ui", "tooltip.item.default");
+		expect(tooltipItemRecipe).toMatchObject({
+			id: "base-ui/tooltip.item.default",
+			label: "Tooltip Item",
+			version: 1,
+			root: {
+				component: "tooltip.root",
+				props: { defaultOpen: true },
+			},
+			slots: {
+				trigger: {
+					name: "trigger",
+					hostPath: "trigger",
+					allowedChildren: undefined,
+				},
+				popup: {
+					name: "popup",
+					hostPath: "popup",
+					allowedChildren: undefined,
+				},
+			},
+			controls: {
+				defaultOpen: { path: "root", prop: "defaultOpen" },
+				side: { path: "positioner", prop: "side" },
+				sideOffset: { path: "positioner", prop: "sideOffset" },
+			},
+		});
+		expect(getRecipe("base-ui", "base-ui/tooltip.item.default")).toBe(
+			tooltipItemRecipe,
+		);
+		expect(
+			resolveRegistryRecipe("base-ui", "tooltip.item.default"),
+		).toMatchObject({
+			status: "known",
+			definition: { id: "base-ui/tooltip.item.default" },
+		});
+	});
+
+	it("expands the Tooltip Provider recipe with general default content", () => {
+		const ids = ["tooltip-provider", "tooltip-provider-content"];
+		const expansion = expandRegistryRecipe("base-ui", "tooltip.default", {
+			createRecipeInstanceId: () => "tooltip-provider-instance-1",
+			createElementId: () => {
+				const id = ids.shift();
+				if (!id) throw new Error("missing test id");
+				return id;
+			},
+		});
+		const content = (expansion.root.children as Node[])[0];
+
+		expect(expansion.root.props["data-trickroom-component"]).toBe(
+			"tooltip.provider",
+		);
+		expect(expansion.root.props[recipeSlotProp]).toBe("content");
+		expect(content.props["data-trickroom-component"]).toBe("container");
+	});
+
+	it("expands the Tooltip Item recipe with default slot children", () => {
+		const ids = [
+			"tooltip-root",
+			"tooltip-trigger",
+			"tooltip-portal",
+			"tooltip-positioner",
+			"tooltip-popup",
+			"tooltip-trigger-label",
+			"tooltip-arrow",
+			"tooltip-popup-content",
+		];
+		const expansion = expandRegistryRecipe("base-ui", "tooltip.item.default", {
+			createRecipeInstanceId: () => "tooltip-instance-1",
+			createElementId: () => {
+				const id = ids.shift();
+				if (!id) throw new Error("missing test id");
+				return id;
+			},
+		});
+		const trigger = (expansion.root.children as Node[])[0];
+		const portal = (expansion.root.children as Node[])[1];
+		const positioner = (portal.children as Node[])[0];
+		const popup = (positioner.children as Node[])[0];
+
+		expect(expansion.root.props["data-trickroom-component"]).toBe(
+			"tooltip.root",
+		);
+		expect(expansion.root.props.defaultOpen).toBe(true);
+		expect(trigger.props[recipeSlotProp]).toBe("trigger");
+		expect(popup.props[recipeSlotProp]).toBe("popup");
+		expect(trigger.children).toHaveLength(1);
+		expect(popup.children).toHaveLength(2);
+		expect((popup.children as Node[])[0].props).toMatchObject({
+			"data-trickroom-component": "tooltip.arrow",
 		});
 	});
 

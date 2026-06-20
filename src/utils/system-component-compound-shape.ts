@@ -42,13 +42,14 @@ export function classifyCompoundWhenShape(
 	let validSingleValueConditionCount = 0;
 
 	for (const [axisKey, value] of entries) {
+		const trimmedAxis = axisKey.trim();
 		if (Array.isArray(value)) {
 			pushReason(reasons, "array_value");
-			if (!Object.hasOwn(axes, axisKey)) {
+			if (!Object.hasOwn(axes, trimmedAxis)) {
 				pushReason(reasons, "unknown_axis");
 			} else {
 				for (const entry of value) {
-					if (!Object.hasOwn(axes[axisKey]?.values ?? {}, entry)) {
+					if (!Object.hasOwn(axes[trimmedAxis]?.values ?? {}, entry)) {
 						pushReason(reasons, "unknown_value");
 					}
 				}
@@ -56,7 +57,6 @@ export function classifyCompoundWhenShape(
 			continue;
 		}
 
-		const trimmedAxis = axisKey.trim();
 		const trimmedValue = value.trim();
 		if (!trimmedAxis || !trimmedValue) {
 			continue;
@@ -128,7 +128,8 @@ export function describeCompoundWhen(
 		if (!trimmedValue) {
 			return [];
 		}
-		const valueLabel = axis?.values[trimmedValue]?.label?.trim() || trimmedValue;
+		const valueLabel =
+			axis?.values[trimmedValue]?.label?.trim() || trimmedValue;
 		return [`${axisLabel}: ${valueLabel}`];
 	});
 

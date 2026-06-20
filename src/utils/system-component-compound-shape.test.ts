@@ -27,13 +27,13 @@ const axes = {
 
 describe("classifyCompoundWhenShape", () => {
 	it("classifies a two-axis single-value compound as normal", () => {
-		expect(classifyCompoundWhenShape({ tone: "brand", size: "lg" }, axes)).toEqual(
-			{
-				kind: "normal",
-				reasons: [],
-				validSingleValueConditionCount: 2,
-			},
-		);
+		expect(
+			classifyCompoundWhenShape({ tone: "brand", size: "lg" }, axes),
+		).toEqual({
+			kind: "normal",
+			reasons: [],
+			validSingleValueConditionCount: 2,
+		});
 	});
 
 	it("classifies partial two-of-N compounds as normal", () => {
@@ -91,9 +91,9 @@ describe("classifyCompoundWhenShape", () => {
 
 describe("describeCompoundWhen", () => {
 	it("builds a human label from axis and value labels", () => {
-		expect(
-			describeCompoundWhen({ tone: "brand", size: "lg" }, axes),
-		).toBe("Tone: Brand · Size: Large");
+		expect(describeCompoundWhen({ tone: "brand", size: "lg" }, axes)).toBe(
+			"Tone: Brand · Size: Large",
+		);
 	});
 });
 
@@ -102,7 +102,10 @@ describe("listAuthoredCompounds", () => {
 		const entries = listAuthoredCompounds({
 			axes,
 			compoundVariants: [
-				{ when: { tone: "brand", size: "lg" }, classesByPath: { root: "ring-2" } },
+				{
+					when: { tone: "brand", size: "lg" },
+					classesByPath: { root: "ring-2" },
+				},
 				{ when: { tone: "neutral", size: "sm" }, classesByPath: {} },
 				{
 					when: { tone: ["brand", "neutral"], size: "lg" },

@@ -1,4 +1,4 @@
-import type { Props } from "../types";
+import type { JsonPrimitive, Props } from "../types";
 import { assetIdProp, iconIdProp } from "./resource-props";
 
 export const systemComponentSystemIdProp =
@@ -52,6 +52,7 @@ export type SystemComponentInstanceOverrideValues = {
 	text?: string;
 	[iconIdProp]?: string;
 	[assetIdProp]?: string;
+	props?: Record<string, JsonPrimitive>;
 };
 
 export type SystemComponentInstanceOverrides = Record<
@@ -132,6 +133,24 @@ const normalizeOverrides = (
 		const assetId = record[assetIdProp];
 		if (typeof assetId === "string") {
 			next[assetIdProp] = assetId;
+		}
+		if (
+			record.props &&
+			typeof record.props === "object" &&
+			!Array.isArray(record.props)
+		) {
+			const props = Object.fromEntries(
+				Object.entries(record.props).filter(
+					([, propValue]) =>
+						propValue === null ||
+						typeof propValue === "string" ||
+						typeof propValue === "number" ||
+						typeof propValue === "boolean",
+				),
+			) as Record<string, JsonPrimitive>;
+			if (Object.keys(props).length > 0) {
+				next.props = props;
+			}
 		}
 		if (Object.keys(next).length > 0) {
 			result[targetId] = next;

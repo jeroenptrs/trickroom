@@ -49,6 +49,7 @@ import {
 	setSystemComponentOverrideAssetIdOnRoots,
 	setSystemComponentOverrideClassNameOnRoots,
 	setSystemComponentOverrideIconIdOnRoots,
+	setSystemComponentOverridePropOnRoots,
 	setSystemComponentOverrideTextOnRoots,
 	setSystemComponentVariantValueOnRoots,
 } from "../utils/system-component-instance-update";
@@ -1259,6 +1260,31 @@ export function setSystemComponentOverrideAssetId(
 		kind: "asset",
 		value: assetId,
 	});
+}
+
+export function setSystemComponentOverrideProp(
+	rootElementId: string,
+	version: PublishedSystemComponentVersion,
+	targetId: string,
+	prop: string,
+	value: JsonPrimitive | undefined,
+) {
+	designStore.setState((state) =>
+		applySystemComponentInstanceUpdate(
+			state,
+			rootElementId,
+			version,
+			(boards) =>
+				setSystemComponentOverridePropOnRoots(
+					boards,
+					rootElementId,
+					version,
+					targetId,
+					prop,
+					value,
+				),
+		),
+	);
 }
 
 export function bulkUpdateStaleSystemComponentInstances(

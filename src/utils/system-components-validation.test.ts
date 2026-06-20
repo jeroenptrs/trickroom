@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+	systemComponentDraftInputDiagnosticsFromZodError,
+	systemComponentDraftPayloadSchema,
+} from "./system-component-draft-schemas";
+import {
 	complexComponentTemplateRoot,
 	createFixturePublishedRecord,
 	FIXTURE_COMPONENT_ID,
 	FIXTURE_OTHER_COMPONENT_ID,
 	minimalComponentTemplateRoot,
 } from "./system-component-test-fixtures";
-import {
-	systemComponentDraftInputDiagnosticsFromZodError,
-	systemComponentDraftPayloadSchema,
-} from "./system-component-draft-schemas";
 import {
 	createEmptySystemComponentManifest,
 	generateSystemComponentId,
@@ -60,6 +60,62 @@ describe("system component manifest validation and hashing", () => {
 
 		expect(result.valid).toBe(true);
 		expect(result.diagnostics).toEqual([]);
+	});
+
+	it("validates registry control props published by override targets", () => {
+		const valid = validateSystemComponentManifest(
+			withComponents({
+				[COMPONENT_ID]: createRecord({
+					draft: {
+						root: {
+							path: "root",
+							library: "base-ui",
+							component: "input",
+						},
+						overrideTargets: {
+							input: {
+								targetId: "input",
+								label: "Input",
+								path: "root",
+								props: ["placeholder", "disabled"],
+							},
+						},
+					},
+				}),
+			}),
+		);
+		expect(valid.valid).toBe(true);
+
+		const invalid = validateSystemComponentManifest(
+			withComponents({
+				[COMPONENT_ID]: createRecord({
+					draft: {
+						root: {
+							path: "root",
+							library: "base-ui",
+							component: "input",
+						},
+						overrideTargets: {
+							input: {
+								targetId: "input",
+								label: "Input",
+								path: "root",
+								props: ["placeholder", "unknown"],
+							},
+						},
+					},
+				}),
+			}),
+		);
+		expect(invalid.valid).toBe(false);
+		expect(invalid.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "INVALID_OVERRIDE_TARGET_PROP",
+					path: "root",
+				}),
+			]),
+		);
 	});
 
 	it("accepts a valid complex manifest with published version hashes", () => {

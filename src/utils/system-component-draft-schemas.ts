@@ -184,6 +184,10 @@ export const systemComponentOverrideTargetSchema: z.ZodType<SystemComponentOverr
 				.describe(
 					"Allowed override kinds. Defaults to className when omitted.",
 				),
+			props: z
+				.array(z.string().min(1))
+				.optional()
+				.describe("Registry control prop names that instances may override."),
 			history: z
 				.array(systemComponentOverrideTargetHistoryEntrySchema)
 				.optional()

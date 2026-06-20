@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import {
 	getControlDefinitions,
 	resolveRegistryComponent,
@@ -8,6 +8,10 @@ import {
 import type { ProjectQueryScope } from "../../queries/project-scope";
 import { systemAssetsQueryOptions } from "../../queries/system-assets";
 import { systemIconsQueryOptions } from "../../queries/system-icons";
+import type {
+	ComponentDraftStyleTab,
+	ComponentDraftStyleTarget,
+} from "../../stores/component-draft-store";
 import {
 	addTemplateNodeOverrideTarget,
 	markTemplateNodeAsSlotHost,
@@ -28,13 +32,12 @@ import {
 	useComponentDraftStyleTarget,
 	useComponentDraftVariants,
 } from "../../stores/component-draft-store";
-import type {
-	ComponentDraftStyleTab,
-	ComponentDraftStyleTarget,
-} from "../../stores/component-draft-store";
 import type { ControlDefinition, JsonPrimitive } from "../../types";
 import { assetIdProp, iconIdProp } from "../../utils/resource-props";
-import { normalizeOverrideTargetCapabilities } from "../../utils/system-component-override-targets";
+import {
+	getOverrideableRegistryControls,
+	normalizeOverrideTargetCapabilities,
+} from "../../utils/system-component-override-targets";
 import {
 	getPropertiesControlSurface,
 	splitComponentControls,
@@ -358,10 +361,7 @@ function getStyleTargetDescriptors(
 		);
 		descriptors.push({
 			id: `compound:${styleTarget.compoundAxes
-				.map(
-					(axisKey) =>
-						`${axisKey}:${styleTarget.axisValues[axisKey] ?? ""}`,
-				)
+				.map((axisKey) => `${axisKey}:${styleTarget.axisValues[axisKey] ?? ""}`)
 				.join("|")}`,
 			label: "Compound",
 			tab: { kind: "compound" },
@@ -384,9 +384,7 @@ function styleTabsEqual(
 		: left.axisKey === right.axisKey;
 }
 
-function getStyleControlsRemountKey(
-	styleTarget: ComponentDraftStyleTarget,
-) {
+function getStyleControlsRemountKey(styleTarget: ComponentDraftStyleTarget) {
 	const activeTab = styleTarget.activeTab;
 	if (activeTab.kind === "axis") {
 		return `axis:${activeTab.axisKey}:${
@@ -396,9 +394,7 @@ function getStyleControlsRemountKey(
 
 	if (activeTab.kind === "compound") {
 		return `compound:${styleTarget.compoundAxes
-			.map(
-				(axisKey) => `${axisKey}:${styleTarget.axisValues[axisKey] ?? ""}`,
-			)
+			.map((axisKey) => `${axisKey}:${styleTarget.axisValues[axisKey] ?? ""}`)
 			.join("|")}`;
 	}
 
@@ -659,6 +655,8 @@ function SlotMetadataSection({ path }: { path: string }) {
 
 function OverrideTargetSection({ path }: { path: string }) {
 	const target = useComponentDraftSelectedOverrideTarget();
+	const entity = useComponentDraftSelectedEntity();
+	const controls = entity ? getOverrideableRegistryControls(entity) : [];
 
 	return (
 		<InspectorSection title="Override target">
@@ -690,6 +688,39 @@ function OverrideTargetSection({ path }: { path: string }) {
 							{normalizeOverrideTargetCapabilities(target).join(", ")}
 						</div>
 					</div>
+					{controls.length > 0 ? (
+						<div className="flex flex-col gap-1 text-xs text-slate-600">
+							<span className="font-semibold text-slate-700">
+								Registry props
+							</span>
+							{controls.map((control) => {
+								const checked = target.props?.includes(control.prop) ?? false;
+								return (
+									<label
+										key={control.prop}
+										className="flex items-center justify-between gap-2"
+									>
+										<span>{control.label}</span>
+										<input
+											type="checkbox"
+											checked={checked}
+											onChange={(event) => {
+												const props = new Set(target.props ?? []);
+												if (event.currentTarget.checked) {
+													props.add(control.prop);
+												} else {
+													props.delete(control.prop);
+												}
+												updateTemplateNodeOverrideTarget(target.targetId, {
+													props: [...props],
+												});
+											}}
+										/>
+									</label>
+								);
+							})}
+						</div>
+					) : null}
 					<div className="flex items-center justify-between gap-2 text-xs">
 						<span
 							className="min-w-0 truncate font-mono text-slate-500"

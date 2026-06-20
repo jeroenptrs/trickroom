@@ -13,12 +13,18 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { shallow, useSelector } from "@tanstack/react-store";
 import { type RefObject, useEffect, useMemo, useRef } from "react";
 import { useProjectScope } from "../components/contexts";
+import {
+	getRenderableClassComposition,
+	resolveRegistryComponent,
+} from "../libraries/registry";
 import {
 	compileTailwindCss,
 	storedTailwindTokensQueryOptions,
 } from "../queries/tailwind-sync-tokens";
+import { type DesignEntity, designStore } from "../stores/design-store";
 import { isCompiledTailwindMode } from "../utils/tailwind-render-mode";
 import { serializeTailwindThemeDomains } from "../utils/tailwind-theme-css";
 
@@ -36,16 +42,53 @@ const SHELL_SEED = [
 	"bg-[#ffffff]",
 	"focus-visible:outline-0",
 ];
+const EMPTY_CANDIDATES: string[] = [];
+
+function addClassNameCandidates(candidates: Set<string>, className: string) {
+	for (const token of className.split(/\s+/)) {
+		if (token) candidates.add(token);
+	}
+}
+
+export function collectDesignStoreCandidateClassNames(
+	entitiesById: Record<string, DesignEntity>,
+): string[] {
+	const candidates = new Set<string>();
+
+	for (const entity of Object.values(entitiesById)) {
+		const resolution = resolveRegistryComponent(
+			entity.props["data-trickroom-library"],
+			entity.props["data-trickroom-component"],
+		);
+		const className =
+			resolution.status === "known"
+				? getRenderableClassComposition(entity.props, resolution.definition)
+						.className
+				: typeof entity.props.className === "string"
+					? entity.props.className
+					: undefined;
+
+		if (className) {
+			addClassNameCandidates(candidates, className);
+		}
+	}
+
+	return [...candidates].sort();
+}
 
 /** DOM scan — only visible rendered nodes contribute candidates (see responsive one-board note in Artboards). */
-function collectCandidates(doc: Document): string[] {
+export function collectCandidates(
+	doc: Document,
+	modelCandidates: readonly string[] = [],
+): string[] {
 	const candidates = new Set<string>(SHELL_SEED);
+	for (const candidate of modelCandidates) {
+		if (candidate) candidates.add(candidate);
+	}
 	for (const element of doc.querySelectorAll("[class]")) {
 		const className = element.getAttribute("class");
 		if (!className) continue;
-		for (const token of className.split(/\s+/)) {
-			if (token) candidates.add(token);
-		}
+		addClassNameCandidates(candidates, className);
 	}
 	return [...candidates].sort();
 }
@@ -126,6 +169,14 @@ export function useCompiledTailwind(
 		);
 		return css === "@theme {}" ? "" : css;
 	}, [tokensQuery.data]);
+	const designCandidateClassNames = useSelector(
+		designStore,
+		(state) =>
+			enabled
+				? collectDesignStoreCandidateClassNames(state.entitiesById)
+				: EMPTY_CANDIDATES,
+		{ compare: shallow },
+	);
 
 	useEffect(() => {
 		// Runs even without a system: the server compiles baseline Tailwind so
@@ -149,7 +200,7 @@ export function useCompiledTailwind(
 			if (fellBackRef.current) {
 				return;
 			}
-			const candidates = collectCandidates(doc);
+			const candidates = collectCandidates(doc, designCandidateClassNames);
 			const key = candidates.join(" ");
 			if (key === lastCandidateKey) {
 				return;
@@ -208,5 +259,12 @@ export function useCompiledTailwind(
 			clearTimeout(timer);
 			observer.disconnect();
 		};
-	}, [enabled, didMount, normalized, themeOverrides, iframeRef]);
+	}, [
+		enabled,
+		didMount,
+		normalized,
+		themeOverrides,
+		designCandidateClassNames,
+		iframeRef,
+	]);
 }

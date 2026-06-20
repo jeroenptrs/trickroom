@@ -486,7 +486,7 @@ System-component marker props:
 - Generic element mutation tools reject writes to these marker keys.
 - Marker props are omitted when extracting partial subtrees out of a design.
 - Root nodes compare stored template/schema hashes against the currently published component during usage scanning and inspector review.
-- Instance override state is stored with the attached instance metadata, but override targets are path-scoped published capabilities (`className`, `text`, `icon`, `asset`). The inspector wires each capability into the matching component-owned layer's normal editing surface: className uses the Style and Classes tabs; text, icon, and asset use the usual Content controls. The instance root stays focused on variants, status, migration, and detach — there is no generic Overrides section.
+- Instance override state is stored with the attached instance metadata. Override targets are path-scoped published capabilities (`className`, `text`, `icon`, `asset`) and may also expose an explicit allowlist of registry control props such as `placeholder` or `disabled`. The inspector wires each capability and prop into the matching component-owned layer's normal editing surface, validates prop values against the registry control, and lets users reset prop overrides to the published template/default value. The instance root stays focused on variants, status, migration, and detach — there is no generic Overrides section.
 
 Ownership boundary rules:
 

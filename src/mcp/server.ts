@@ -23,7 +23,6 @@ import {
 	getRegistry,
 	getComponentIds as getRegistryComponentIds,
 	getRegistryRecipes,
-	isJsonPrimitive,
 	isRegistryId,
 	isValidControlValue,
 	normalizeRole,
@@ -38,7 +37,6 @@ import {
 	TrickroomProjectConfigError,
 	type TrickroomProjectContext,
 } from "../project";
-import { findRecipeControlTargetElement } from "../recipes/controls";
 import { RECIPE_MARKER_PROP_KEYS } from "../recipes/markers";
 import { getElementRecipeMetadata } from "../recipes/ownership";
 import { describeRecipeSlotChildRef } from "../recipes/slot-allowlist";
@@ -80,7 +78,6 @@ import {
 } from "../services/design-transform-service";
 import type {
 	Node as DesignNode,
-	JsonPrimitive,
 	RecipeDefinition,
 	RecipeTemplateNode,
 	RegistryComponentDefinition,
@@ -131,7 +128,6 @@ import {
 	systemComponentDraftInputDiagnosticsFromZodError,
 	systemComponentDraftPatchSchema,
 } from "../utils/system-component-draft-schemas";
-import type { SystemComponentManifestRevision } from "../utils/system-component-manifest-service";
 import {
 	createSystemComponentDraft,
 	describeSystemComponent,
@@ -408,7 +404,7 @@ const addRecipeOperationParameterSchema = {
 		),
 } as const;
 
-const addRecipeOperationParametersSchema = z.object(
+const _addRecipeOperationParametersSchema = z.object(
 	addRecipeOperationParameterSchema,
 );
 
@@ -419,9 +415,19 @@ const detachRecipeInstanceOperationParameterSchema = {
 		.describe("Any element ID inside the attached recipe structure to detach."),
 } as const;
 
-const detachRecipeInstanceOperationParametersSchema = z.object(
+const _detachRecipeInstanceOperationParametersSchema = z.object(
 	detachRecipeInstanceOperationParameterSchema,
 );
+
+const systemComponentInstanceOverrideSchema = z.object({
+	className: z.string().optional(),
+	text: z.string().optional(),
+	"data-trickroom-icon-id": z.string().optional(),
+	"data-trickroom-asset-id": z.string().optional(),
+	props: z
+		.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+		.optional(),
+});
 
 const addSystemComponentOperationParameterSchema = {
 	parentId: z
@@ -460,15 +466,7 @@ const addSystemComponentOperationParameterSchema = {
 			"Variant axes to clear from initial variantValues before resolving schema defaults.",
 		),
 	overrides: z
-		.record(
-			z.string(),
-			z.object({
-				className: z.string().optional(),
-				text: z.string().optional(),
-				"data-trickroom-icon-id": z.string().optional(),
-				"data-trickroom-asset-id": z.string().optional(),
-			}),
-		)
+		.record(z.string(), systemComponentInstanceOverrideSchema)
 		.optional()
 		.describe(
 			"Initial instance overrides keyed by declared override target id.",
@@ -491,15 +489,7 @@ const updateSystemComponentInstanceOperationParameterSchema = {
 		.optional()
 		.describe("Variant axes to clear from the instance."),
 	overrides: z
-		.record(
-			z.string(),
-			z.object({
-				className: z.string().optional(),
-				text: z.string().optional(),
-				"data-trickroom-icon-id": z.string().optional(),
-				"data-trickroom-asset-id": z.string().optional(),
-			}),
-		)
+		.record(z.string(), systemComponentInstanceOverrideSchema)
 		.optional()
 		.describe(
 			"Instance overrides keyed by declared override target id. Replaces the full override map when provided.",
@@ -522,7 +512,7 @@ const updateRecipeInstanceOperationParameterSchema = {
 		.describe("Any element ID inside the stale attached recipe instance."),
 } as const;
 
-const updateRecipeInstanceOperationParametersSchema = z.object(
+const _updateRecipeInstanceOperationParametersSchema = z.object(
 	updateRecipeInstanceOperationParameterSchema,
 );
 
@@ -536,7 +526,7 @@ const updateRecipeControlOperationParameterSchema = {
 	value: jsonPrimitiveSchema.describe("New recipe control value."),
 } as const;
 
-const updateRecipeControlOperationParametersSchema = z.object(
+const _updateRecipeControlOperationParametersSchema = z.object(
 	updateRecipeControlOperationParameterSchema,
 );
 
@@ -1811,14 +1801,30 @@ const summarizeComponentForAuthoringContract = (
 	const role = definition.role;
 	const controls = getControlDefinitions(definition);
 
-	return {
+	const componentSummary = {
 		library,
 		component,
 		label: definition.label,
 		role,
-		builtIn: true,
-		readOnly: true,
-		description: definition.description ?? null,
+		writableProps: [
+			"className",
+			"data-trickroom-name",
+			...controls.map((control) => control.prop),
+		],
+		controls: controls.map((control) => ({
+			name: control.prop,
+			valueType: control.valueType,
+			input: control.input,
+		})),
+		inspectTool: "describeRegistryComponent",
+	};
+
+	if (library !== "trickroom") {
+		return componentSummary;
+	}
+
+	return {
+		...componentSummary,
 		allowedChildren: getAllowedChildrenMetadata(role),
 		composition: getCompositionMetadata(role),
 		content:
@@ -1838,20 +1844,6 @@ const summarizeComponentForAuthoringContract = (
 							kind: "children",
 							storage: "children",
 						},
-		writableProps: [
-			"className",
-			"data-trickroom-name",
-			...controls.map((control) => control.prop),
-		],
-		controlSummary: controls.map((control) => ({
-			name: control.prop,
-			prop: control.prop,
-			valueType: control.valueType,
-			input: control.input,
-			options: control.options ?? null,
-			visibility: control.visibility ?? null,
-		})),
-		inspectTool: "describeRegistryComponent",
 	};
 };
 
@@ -2264,12 +2256,6 @@ const summarizeRecipeForContract = (
 			valueType: control.valueType,
 		})),
 		markerGuidance: {
-			systemOwnedMarkerProps: [...RECIPE_MARKER_PROP_KEYS],
-			rules: [
-				"Use addRecipe to insert attached recipe instances.",
-				"Use updateRecipeControl for declared recipe controls.",
-				"Do not write recipe marker props through generic element mutation tools.",
-			],
 			inspectTool: "describeRegistryRecipe",
 		},
 	};
@@ -2669,12 +2655,15 @@ const getSystemComponentAuthoringContractPayload = async (
 			overrideTargets: {
 				type: "Record<string, SystemComponentOverrideTarget>",
 				requiredPerTarget: ["targetId", "label", "path"],
-				optionalPerTarget: ["capabilities", "history"],
+				optionalPerTarget: ["capabilities", "props", "history"],
 				capabilities: ["className", "text", "icon", "asset"],
+				props:
+					"Visible registry control prop names on the target template node, for example placeholder or disabled.",
 				rules: [
 					"Map key must match target.targetId.",
 					"path must reference a template path.",
 					"capabilities defaults to className when omitted.",
+					"props must reference visible, non-deprecated registry controls on the target node.",
 				],
 			},
 		},
@@ -3301,7 +3290,7 @@ const bulkMigratePolicyAllowedSystemComponentUsages = async (
 		componentId: options.componentId,
 		dryRun: options.dryRun,
 		onlySafe: options.onlySafe,
-		persist: options.dryRun ? false : true,
+		persist: !options.dryRun,
 		assertInstanceSubtreeAllowed: (design, elementId) => {
 			assertCanUseSystemComponentInstanceSubtree(policy, design, elementId);
 		},

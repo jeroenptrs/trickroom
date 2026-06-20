@@ -466,7 +466,12 @@ describe("schemaToCompoundDrafts", () => {
 				schemaDefaultValue: "",
 				values: [
 					{ id: "v-brand", key: "brand", originalKey: "brand", label: "" },
-					{ id: "v-neutral", key: "neutral", originalKey: "neutral", label: "" },
+					{
+						id: "v-neutral",
+						key: "neutral",
+						originalKey: "neutral",
+						label: "",
+					},
 				],
 			},
 			{

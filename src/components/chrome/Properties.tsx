@@ -22,6 +22,7 @@ import {
 	setSystemComponentOverrideAssetId,
 	setSystemComponentOverrideClassName,
 	setSystemComponentOverrideIconId,
+	setSystemComponentOverrideProp,
 	setSystemComponentOverrideText,
 	updateElementClassName,
 	updateElementProps,
@@ -43,6 +44,7 @@ import type { SystemComponentInstanceOverrides } from "../../utils/system-compon
 import {
 	findOverrideTargetForCapability,
 	readSystemComponentOverrideValue,
+	readSystemComponentPropOverrideValue,
 } from "../../utils/system-component-override-targets";
 import {
 	resolveSystemComponentClassComposition,
@@ -465,6 +467,15 @@ type AttachedComponentOverrideBinding = {
 	value: string;
 };
 
+type AttachedComponentPropOverrideBinding = {
+	rootElementId: string;
+	version: PublishedSystemComponentVersion;
+	targetId: string;
+	prop: string;
+	value: JsonPrimitive | undefined;
+	isOverridden: boolean;
+};
+
 function useAttachedComponentOverrideBindings(
 	inspection: ReturnType<typeof useAttachedComponentInspection>,
 ) {
@@ -489,10 +500,11 @@ function useAttachedComponentOverrideBindings(
 			text: null,
 			icon: null,
 			asset: null,
+			props: {},
 		} satisfies Record<
 			SystemComponentOverrideCapability,
 			AttachedComponentOverrideBinding | null
-		>;
+		> & { props: Record<string, AttachedComponentPropOverrideBinding> };
 
 		if (inspection.kind !== "root" && inspection.kind !== "owned-internal") {
 			return empty;
@@ -534,11 +546,36 @@ function useAttachedComponentOverrideBindings(
 			};
 		};
 
+		const props: Record<string, AttachedComponentPropOverrideBinding> = {};
+		for (const target of Object.values(version.overrideTargets ?? {})
+			.filter((entry) => entry.path === templatePath)
+			.sort((left, right) => left.targetId.localeCompare(right.targetId))) {
+			for (const prop of target.props ?? []) {
+				if (props[prop]) {
+					continue;
+				}
+				const value = readSystemComponentPropOverrideValue(
+					inspection.instance.overrides,
+					target.targetId,
+					prop,
+				);
+				props[prop] = {
+					rootElementId: inspection.rootElementId,
+					version,
+					targetId: target.targetId,
+					prop,
+					value,
+					isOverridden: value !== undefined,
+				};
+			}
+		}
+
 		return {
 			className: resolveBinding("className"),
 			text: resolveBinding("text"),
 			icon: resolveBinding("icon"),
 			asset: resolveBinding("asset"),
+			props,
 		};
 	}, [componentQuery.data?.record, inspection]);
 }
@@ -707,6 +744,7 @@ export function Properties() {
 	const textOverride = overrideBindings.text;
 	const iconOverride = overrideBindings.icon;
 	const assetOverride = overrideBindings.asset;
+	const propOverrideBindings = overrideBindings.props;
 	const hasAttachedComponentContext = attachedInspection.kind !== "none";
 	const registryResolution = resolveRegistryComponent(
 		selectedElement.props["data-trickroom-library"],
@@ -758,6 +796,12 @@ export function Properties() {
 		getPropertiesControlSurface(controls);
 	const { contentControls, propertyControls } =
 		splitComponentControls(componentControls);
+	const visibleContentControls = canFreelyEdit
+		? contentControls
+		: contentControls.filter((control) => propOverrideBindings[control.prop]);
+	const visiblePropertyControls = canFreelyEdit
+		? propertyControls
+		: propertyControls.filter((control) => propOverrideBindings[control.prop]);
 	const hasContentControls =
 		(canFreelyEdit &&
 			(selectedElement.role === "text" ||
@@ -766,10 +810,11 @@ export function Properties() {
 				contentControls.length > 0)) ||
 		textOverride !== null ||
 		iconOverride !== null ||
-		assetOverride !== null;
+		assetOverride !== null ||
+		visibleContentControls.length > 0;
 	const hasPropertyControls =
-		canFreelyEdit &&
-		(propertyControls.length > 0 || recipeControlTargets.length > 0);
+		visiblePropertyControls.length > 0 ||
+		(canFreelyEdit && recipeControlTargets.length > 0);
 	const hasRegistryPropertyControls =
 		canFreelyEdit && (hasContentControls || hasPropertyControls);
 
@@ -897,26 +942,100 @@ export function Properties() {
 											}
 										/>
 									) : null}
-									{contentControls.map((control) => (
-										<ComponentControl
-											key={control.prop}
-											elementId={selectedElement.id}
-											control={control}
-											value={selectedElement.props[control.prop]}
-										/>
-									))}
+									{visibleContentControls.map((control) => {
+										const binding = propOverrideBindings[control.prop];
+										return (
+											<div key={control.prop} className="flex flex-col gap-1">
+												<ComponentControl
+													elementId={selectedElement.id}
+													control={control}
+													value={
+														binding?.isOverridden
+															? binding.value
+															: selectedElement.props[control.prop]
+													}
+													onChange={
+														binding
+															? (value) =>
+																	setSystemComponentOverrideProp(
+																		binding.rootElementId,
+																		binding.version,
+																		binding.targetId,
+																		binding.prop,
+																		value,
+																	)
+															: undefined
+													}
+												/>
+												{binding?.isOverridden ? (
+													<button
+														type="button"
+														className="self-end text-[11px] text-slate-500 hover:text-slate-900"
+														onClick={() =>
+															setSystemComponentOverrideProp(
+																binding.rootElementId,
+																binding.version,
+																binding.targetId,
+																binding.prop,
+																undefined,
+															)
+														}
+													>
+														Reset
+													</button>
+												) : null}
+											</div>
+										);
+									})}
 								</InspectorSection>
 							) : null}
-							{canFreelyEdit && propertyControls.length > 0 ? (
+							{visiblePropertyControls.length > 0 ? (
 								<InspectorSection title="Component">
-									{propertyControls.map((control) => (
-										<ComponentControl
-											key={control.prop}
-											elementId={selectedElement.id}
-											control={control}
-											value={selectedElement.props[control.prop]}
-										/>
-									))}
+									{visiblePropertyControls.map((control) => {
+										const binding = propOverrideBindings[control.prop];
+										return (
+											<div key={control.prop} className="flex flex-col gap-1">
+												<ComponentControl
+													elementId={selectedElement.id}
+													control={control}
+													value={
+														binding?.isOverridden
+															? binding.value
+															: selectedElement.props[control.prop]
+													}
+													onChange={
+														binding
+															? (value) =>
+																	setSystemComponentOverrideProp(
+																		binding.rootElementId,
+																		binding.version,
+																		binding.targetId,
+																		binding.prop,
+																		value,
+																	)
+															: undefined
+													}
+												/>
+												{binding?.isOverridden ? (
+													<button
+														type="button"
+														className="self-end text-[11px] text-slate-500 hover:text-slate-900"
+														onClick={() =>
+															setSystemComponentOverrideProp(
+																binding.rootElementId,
+																binding.version,
+																binding.targetId,
+																binding.prop,
+																undefined,
+															)
+														}
+													>
+														Reset
+													</button>
+												) : null}
+											</div>
+										);
+									})}
 								</InspectorSection>
 							) : null}
 							{canFreelyEdit && recipeControlTargets.length > 0 ? (

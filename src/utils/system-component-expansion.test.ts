@@ -40,6 +40,67 @@ import {
 const componentId = "cmp_11111111-1111-4111-8111-111111111111";
 
 describe("system component expansion", () => {
+	it("applies declared registry control prop overrides", () => {
+		const version = {
+			version: "1",
+			publishedAt: "2026-05-26T14:00:00.000Z",
+			templateHash: "sha256:template",
+			variantSchemaHash: "sha256:variants",
+			root: {
+				path: "root",
+				library: "base-ui",
+				component: "input",
+				props: { placeholder: "Published placeholder" },
+			},
+			overrideTargets: {
+				input: {
+					targetId: "input",
+					label: "Input",
+					path: "root",
+					props: ["placeholder", "disabled"],
+				},
+			},
+		};
+
+		const expansion = expandResolvedSystemComponent(
+			{
+				systemId: "sys-core",
+				componentId,
+				record: {
+					componentId,
+					slug: "search-input",
+					name: "Search Input",
+					createdAt: "2026-05-26T14:00:00.000Z",
+					updatedAt: "2026-05-26T14:00:00.000Z",
+				},
+				version,
+			},
+			{
+				overrides: {
+					input: {
+						props: {
+							placeholder: "Instance placeholder",
+							disabled: true,
+						},
+					},
+				},
+			},
+		);
+
+		expect(expansion.root.props.placeholder).toBe("Instance placeholder");
+		expect(expansion.root.props.disabled).toBe(true);
+		expect(
+			getSystemComponentStructuralMetadata(expansion.root.props)?.overrides,
+		).toEqual({
+			input: {
+				props: {
+					placeholder: "Instance placeholder",
+					disabled: true,
+				},
+			},
+		});
+	});
+
 	it("resolves variant defaults and deterministic class stacks", () => {
 		const version = {
 			version: "1",

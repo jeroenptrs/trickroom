@@ -2,6 +2,7 @@ import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	ArrowLeft,
+	ChevronRight,
 	Pencil,
 	Plus,
 	Save,
@@ -51,6 +52,10 @@ import {
 	useLoadedDraftTemplateHash,
 	useLoadedDraftVariantSchemaHash,
 } from "../../stores/component-editor-session-store";
+import {
+	buildComponentGroupTree,
+	type ComponentGroupTreeNode,
+} from "../../utils/component-groups";
 import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
 import { isSystemComponentSlug } from "../../utils/system-components";
 import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
@@ -63,7 +68,6 @@ import { ComponentDraftLayers } from "./ComponentDraftLayers";
 import { ComponentDraftStage } from "./ComponentDraftStage";
 import {
 	getComponentPublicationState,
-	groupComponentsByGroup,
 	nextUniqueComponentSlug,
 	slugifyComponentName,
 } from "./component-catalog";
@@ -660,10 +664,49 @@ export function SystemEditorComponentsRail({
 		() => filterComponents(components, componentFilter),
 		[componentFilter, components],
 	);
-	const groupedSections = useMemo(
-		() => groupComponentsByGroup(filteredComponents),
+	const groupTree = useMemo(
+		() => buildComponentGroupTree(filteredComponents),
 		[filteredComponents],
 	);
+	const isSearching = componentFilter.trim().length > 0;
+	const collapseStorageKey = `trickroom:system-editor:collapsed-groups:${systemId}`;
+	const [collapsedPaths, setCollapsedPaths] = useState<ReadonlySet<string>>(
+		() => {
+			if (typeof window === "undefined") {
+				return new Set();
+			}
+			try {
+				const raw = window.localStorage.getItem(collapseStorageKey);
+				return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+			} catch {
+				return new Set();
+			}
+		},
+	);
+	useEffect(() => {
+		if (typeof window === "undefined") {
+			return;
+		}
+		try {
+			window.localStorage.setItem(
+				collapseStorageKey,
+				JSON.stringify([...collapsedPaths]),
+			);
+		} catch {
+			// Ignore storage failures (private mode, quota); collapse is non-critical.
+		}
+	}, [collapseStorageKey, collapsedPaths]);
+	const toggleFolder = useCallback((path: string) => {
+		setCollapsedPaths((previous) => {
+			const next = new Set(previous);
+			if (next.has(path)) {
+				next.delete(path);
+			} else {
+				next.add(path);
+			}
+			return next;
+		});
+	}, []);
 	const usageByComponent = useMemo(() => {
 		const byComponent = new Map<string, ComponentUsageSummary>();
 		for (const instance of usageQuery.data?.instances ?? []) {
@@ -915,6 +958,116 @@ export function SystemEditorComponentsRail({
 		createDraftMutation.mutate(trimmed);
 	}, [createDraftMutation, draftName]);
 
+	const renderComponentRow = (component: SystemComponentSummary) => {
+		const canCopyPublished = component.hasPublished && !component.hasDraft;
+		const isCopying =
+			copyPublishedMutation.isPending &&
+			copyPublishedMutation.variables?.componentId === component.componentId;
+		const isDeleting =
+			deleteComponentMutation.isPending &&
+			deleteComponentMutation.variables?.componentId === component.componentId;
+		const usage = usageByComponent.get(component.componentId);
+		return (
+			<li key={component.componentId}>
+				<div className="flex items-stretch gap-1">
+					<Button
+						type="button"
+						variant="block"
+						onClick={() => handleSelectComponent(component.componentId)}
+						className="flex min-w-0 flex-1 items-start justify-between gap-2 px-2.5 py-2 text-left"
+					>
+						<span className="min-w-0 flex-1">
+							<span className="block truncate font-medium">
+								{component.name}
+							</span>
+							<span className="mt-1 flex flex-wrap items-center gap-1">
+								<span className="truncate font-mono text-[10px] text-slate-500">
+									{component.slug}
+								</span>
+								<ComponentUsageBadge
+									component={component}
+									usage={usage}
+									isPending={usageQuery.isPending}
+									isError={usageQuery.isError}
+								/>
+							</span>
+						</span>
+						<ComponentStatusBadge summary={component} />
+					</Button>
+					{canCopyPublished ? (
+						<Button
+							type="button"
+							variant="block"
+							className="flex w-8 shrink-0 items-center justify-center p-0"
+							disabled={copyPublishedMutation.isPending}
+							title="Create draft from published version"
+							aria-label={`Create draft from published version for ${component.name}`}
+							onClick={() => copyPublishedMutation.mutate(component)}
+						>
+							<Pencil className="size-3.5" aria-hidden="true" />
+							<span className="sr-only">
+								{isCopying ? "Creating draft" : "Edit draft"}
+							</span>
+						</Button>
+					) : null}
+					<Button
+						type="button"
+						variant="block"
+						flavor="warning"
+						className="flex w-8 shrink-0 items-center justify-center p-0"
+						disabled={deleteComponentMutation.isPending}
+						title="Delete component"
+						aria-label={`Delete ${component.name}`}
+						onClick={() => handleDeleteComponent(component)}
+					>
+						<Trash2 className="size-3.5" aria-hidden="true" />
+						<span className="sr-only">
+							{isDeleting ? "Deleting" : "Delete"}
+						</span>
+					</Button>
+				</div>
+			</li>
+		);
+	};
+
+	const renderFolder = (node: ComponentGroupTreeNode, depth: number) => {
+		const collapsed = !isSearching && collapsedPaths.has(node.path);
+		const headerPadding = depth * 12 + 4;
+		const childPadding = (depth + 1) * 12 + 4;
+		return (
+			<div key={node.path} className="flex flex-col gap-1">
+				<button
+					type="button"
+					onClick={() => toggleFolder(node.path)}
+					aria-expanded={!collapsed}
+					className="flex items-center gap-1 py-0.5 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-700"
+					style={{ paddingLeft: `${headerPadding}px` }}
+				>
+					<ChevronRight
+						className={`size-3 shrink-0 transition-transform ${
+							collapsed ? "" : "rotate-90"
+						}`}
+						aria-hidden="true"
+					/>
+					<span className="truncate">{node.segment}</span>
+				</button>
+				{collapsed ? null : (
+					<div className="flex flex-col gap-1">
+						{node.folders.map((child) => renderFolder(child, depth + 1))}
+						{node.components.length > 0 ? (
+							<ul
+								className="flex flex-col gap-1"
+								style={{ paddingLeft: `${childPadding}px` }}
+							>
+								{node.components.map(renderComponentRow)}
+							</ul>
+						) : null}
+					</div>
+				)}
+			</div>
+		);
+	};
+
 	if (componentsQuery.isPending) {
 		return (
 			<div className="flex min-h-0 flex-1 flex-col px-3 py-4">
@@ -1126,94 +1279,13 @@ export function SystemEditorComponentsRail({
 				<ComponentRailNoMatches />
 			) : (
 				<ScrollArea className="min-h-0 flex-1">
-					<div className="flex flex-col gap-4 px-2 py-3">
-						{groupedSections.map((section) => (
-							<section key={section.group} className="flex flex-col gap-1">
-								<h2 className="px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-									{section.group}
-								</h2>
-								<ul className="flex flex-col gap-1">
-									{section.components.map((component) => {
-										const canCopyPublished =
-											component.hasPublished && !component.hasDraft;
-										const isCopying =
-											copyPublishedMutation.isPending &&
-											copyPublishedMutation.variables?.componentId ===
-												component.componentId;
-										const isDeleting =
-											deleteComponentMutation.isPending &&
-											deleteComponentMutation.variables?.componentId ===
-												component.componentId;
-										const usage = usageByComponent.get(component.componentId);
-										return (
-											<li key={component.componentId}>
-												<div className="flex items-stretch gap-1">
-													<Button
-														type="button"
-														variant="block"
-														onClick={() =>
-															handleSelectComponent(component.componentId)
-														}
-														className="flex min-w-0 flex-1 items-start justify-between gap-2 px-2.5 py-2 text-left"
-													>
-														<span className="min-w-0 flex-1">
-															<span className="block truncate font-medium">
-																{component.name}
-															</span>
-															<span className="mt-1 flex flex-wrap items-center gap-1">
-																<span className="truncate font-mono text-[10px] text-slate-500">
-																	{component.slug}
-																</span>
-																<ComponentUsageBadge
-																	component={component}
-																	usage={usage}
-																	isPending={usageQuery.isPending}
-																	isError={usageQuery.isError}
-																/>
-															</span>
-														</span>
-														<ComponentStatusBadge summary={component} />
-													</Button>
-													{canCopyPublished ? (
-														<Button
-															type="button"
-															variant="block"
-															className="flex w-8 shrink-0 items-center justify-center p-0"
-															disabled={copyPublishedMutation.isPending}
-															title="Create draft from published version"
-															aria-label={`Create draft from published version for ${component.name}`}
-															onClick={() =>
-																copyPublishedMutation.mutate(component)
-															}
-														>
-															<Pencil className="size-3.5" aria-hidden="true" />
-															<span className="sr-only">
-																{isCopying ? "Creating draft" : "Edit draft"}
-															</span>
-														</Button>
-													) : null}
-													<Button
-														type="button"
-														variant="block"
-														flavor="warning"
-														className="flex w-8 shrink-0 items-center justify-center p-0"
-														disabled={deleteComponentMutation.isPending}
-														title="Delete component"
-														aria-label={`Delete ${component.name}`}
-														onClick={() => handleDeleteComponent(component)}
-													>
-														<Trash2 className="size-3.5" aria-hidden="true" />
-														<span className="sr-only">
-															{isDeleting ? "Deleting" : "Delete"}
-														</span>
-													</Button>
-												</div>
-											</li>
-										);
-									})}
-								</ul>
-							</section>
-						))}
+					<div className="flex flex-col gap-1 px-2 py-3">
+						{groupTree.folders.map((node) => renderFolder(node, 0))}
+						{groupTree.ungrouped.length > 0 ? (
+							<ul className="flex flex-col gap-1">
+								{groupTree.ungrouped.map(renderComponentRow)}
+							</ul>
+						) : null}
 					</div>
 				</ScrollArea>
 			)}

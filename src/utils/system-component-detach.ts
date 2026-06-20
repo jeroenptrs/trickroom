@@ -1,5 +1,6 @@
-import type { Node, RecipeTemplateNode } from "../types";
 import { MATERIALIZED_BASE_CLASS_PROP } from "../libraries/registry";
+import type { Node, RecipeTemplateNode } from "../types";
+import { assetIdProp, iconIdProp } from "./resource-props";
 import { resolveSystemComponentInstanceNodeClassProps } from "./system-component-instance-update";
 import {
 	getSystemComponentStructuralMetadata,
@@ -7,8 +8,10 @@ import {
 	type SystemComponentStructuralMetadata,
 	systemComponentInstanceProp,
 } from "./system-component-markers";
-import { resolveSystemComponentOverrideValue } from "./system-component-override-targets";
-import { assetIdProp, iconIdProp } from "./resource-props";
+import {
+	resolveSystemComponentOverrideValue,
+	resolveSystemComponentTargetPropValues,
+} from "./system-component-override-targets";
 import type { PublishedSystemComponentVersion } from "./system-components";
 
 export type DetachSystemComponentInstanceTarget = string | Pick<Node, "id">;
@@ -164,6 +167,21 @@ export const detachSystemComponentInstance = (
 			delete nextProps.className;
 			delete nextProps[MATERIALIZED_BASE_CLASS_PROP];
 			Object.assign(nextProps, classNameProps);
+			if (template) {
+				for (const [prop, value] of Object.entries(
+					resolveSystemComponentTargetPropValues(
+						resolvedVersion,
+						template,
+						overrides,
+					),
+				)) {
+					if (value === undefined) {
+						delete nextProps[prop];
+					} else {
+						nextProps[prop] = value;
+					}
+				}
+			}
 			const iconOverride = resolveSystemComponentOverrideValue(
 				resolvedVersion,
 				metadata.path,

@@ -6,12 +6,16 @@ const button = tv({
 	base: "border-none bg-transparent rounded-none inset-shadow-[0_0_0_1px] inset-shadow-transparent text-sm font-medium px-3 py-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
 	variants: {
 		variant: {
+			// @deprecated prefer ghost / handle dark surfaces explicitly; kept for migration
 			block:
 				"text-slate-950 not-disabled:focus-within:inset-shadow-cyan-500 not-disabled:hover:bg-slate-100 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
+			// @deprecated prefer ghost / handle dark surfaces explicitly; kept for migration
 			blockDark:
-				"text-slate-100 not-disabled:focus-within:inset-shadow-cyan-500 not-disabled:hover:bg-slate-800 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
+				"text-slate-50 not-disabled:focus-within:inset-shadow-cyan-500 not-disabled:hover:bg-slate-800 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
 			filled:
-				"bg-slate-950 text-slate-100 not-disabled:hover:bg-slate-800 not-disabled:focus-within:inset-shadow-cyan-500 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
+				"bg-slate-950 text-slate-50 not-disabled:hover:bg-slate-800 not-disabled:focus-within:inset-shadow-cyan-500 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
+			ghost:
+				"text-slate-600 not-disabled:hover:bg-slate-100 not-disabled:hover:text-slate-950 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900",
 			outlined:
 				"text-slate-950 inset-shadow-slate-200 not-disabled:focus-within:inset-shadow-cyan-500 not-disabled:hover:bg-slate-100 not-disabled:active:inset-shadow-cyan-500 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
 		},
@@ -78,7 +82,7 @@ function Button({
 	isSelected,
 	...props
 }: ComponentProps<"button"> & {
-	variant: "block" | "blockDark" | "filled" | "outlined";
+	variant: "block" | "blockDark" | "filled" | "ghost" | "outlined";
 	flavor?: "warning";
 	isSelected?: boolean;
 }) {

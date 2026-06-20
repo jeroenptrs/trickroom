@@ -20,7 +20,7 @@ const commandStyles = tv({
 			"flex-1 min-w-0 bg-transparent text-sm text-slate-950 outline-none placeholder:text-slate-400",
 		escBadge:
 			"shrink-0 font-mono text-[10px] uppercase tracking-wider text-slate-400 bg-slate-100 px-1.5 py-0.5",
-		list: "overflow-y-auto",
+		list: "max-h-[60vh] overflow-y-auto",
 		empty: "py-6 text-center text-sm text-slate-500",
 		group: "flex flex-col",
 		groupLabel:

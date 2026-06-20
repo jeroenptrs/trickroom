@@ -3,8 +3,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Node } from "../types";
 import {
-	getSystemComponentStructuralMetadata,
 	getSystemComponentMarkerProps,
+	getSystemComponentStructuralMetadata,
 	SYSTEM_COMPONENT_MARKER_PROP_KEYS,
 	systemComponentIdProp,
 	systemComponentInstanceProp,
@@ -126,8 +126,8 @@ describe("trickroom MCP system component instance tools", () => {
 			arguments: { designFileId },
 		});
 		return String(
-			(read.structuredContent as { designFile: { revision: string } }).designFile
-				.revision,
+			(read.structuredContent as { designFile: { revision: string } })
+				.designFile.revision,
 		);
 	};
 
@@ -492,10 +492,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const sourceRevision = await getDesignRevision();
-		const targetRevision = await getDesignRevision(
-			session,
-			unlinkedDesignUuid,
-		);
+		const targetRevision = await getDesignRevision(session, unlinkedDesignUuid);
 		const result = await session.client.callTool({
 			name: "copySubtree",
 			arguments: {
@@ -643,7 +640,9 @@ describe("trickroom MCP system component instance tools", () => {
 				allowedDesignFileIds: [trickroomMcpTestDesignUuid],
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "listStaleSystemComponentUsages",
@@ -661,9 +660,11 @@ describe("trickroom MCP system component instance tools", () => {
 			],
 		});
 		expect(
-			(result.structuredContent as {
-				diagnostics?: Array<{ designFileId?: string }>;
-			}).diagnostics ?? [],
+			(
+				result.structuredContent as {
+					diagnostics?: Array<{ designFileId?: string }>;
+				}
+			).diagnostics ?? [],
 		).not.toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ designFileId: malformedDesignUuid }),
@@ -699,7 +700,9 @@ describe("trickroom MCP system component instance tools", () => {
 				allowedDesignFileIds: [trickroomMcpTestDesignUuid],
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "listStaleSystemComponentUsages",
@@ -739,7 +742,9 @@ describe("trickroom MCP system component instance tools", () => {
 				allowedDesignFileIds: [],
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "listStaleSystemComponentUsages",
@@ -771,7 +776,9 @@ describe("trickroom MCP system component instance tools", () => {
 				allowedDesignFileIds: [trickroomMcpTestDesignUuid],
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "listStaleSystemComponentUsages",
@@ -799,8 +806,8 @@ describe("trickroom MCP system component instance tools", () => {
 			},
 		});
 		const rootElementId = String(
-			(added.structuredContent as { changedElement: { id: string } }).changedElement
-				.id,
+			(added.structuredContent as { changedElement: { id: string } })
+				.changedElement.id,
 		);
 
 		const stale = await session.client.callTool({
@@ -906,8 +913,8 @@ describe("trickroom MCP system component instance tools", () => {
 			},
 		});
 		const rootElementId = String(
-			(added.structuredContent as { changedElement: { id: string } }).changedElement
-				.id,
+			(added.structuredContent as { changedElement: { id: string } })
+				.changedElement.id,
 		);
 
 		const invalidUpdate = await session.client.callTool({
@@ -940,8 +947,8 @@ describe("trickroom MCP system component instance tools", () => {
 			},
 		});
 		const rootElementId = String(
-			(added.structuredContent as { changedElement: { id: string } }).changedElement
-				.id,
+			(added.structuredContent as { changedElement: { id: string } })
+				.changedElement.id,
 		);
 
 		const updated = await session.client.callTool({
@@ -1087,11 +1094,12 @@ describe("trickroom MCP system component instance tools", () => {
 				code: "MCP_COMPONENT_NOT_ALLOWED",
 			});
 
-			const persisted = await restrictedFixture.designFileService.readDesignFile(
-				restrictedFixture.designFileService.getFileForUuid(
-					trickroomMcpTestDesignUuid,
-				),
-			);
+			const persisted =
+				await restrictedFixture.designFileService.readDesignFile(
+					restrictedFixture.designFileService.getFileForUuid(
+						trickroomMcpTestDesignUuid,
+					),
+				);
 			expect(persisted.revision).toBe(revision);
 		} finally {
 			await restrictedSession.close();
@@ -1113,8 +1121,8 @@ describe("trickroom MCP system component instance tools", () => {
 			},
 		});
 		const rootElementId = String(
-			(added.structuredContent as { changedElement: { id: string } }).changedElement
-				.id,
+			(added.structuredContent as { changedElement: { id: string } })
+				.changedElement.id,
 		);
 		const afterAddRevision = String(added.structuredContent?.newRevision);
 
@@ -1318,11 +1326,12 @@ describe("trickroom MCP system component instance tools", () => {
 				code: "MCP_COMPONENT_NOT_ALLOWED",
 			});
 
-			const persisted = await restrictedFixture.designFileService.readDesignFile(
-				restrictedFixture.designFileService.getFileForUuid(
-					trickroomMcpTestDesignUuid,
-				),
-			);
+			const persisted =
+				await restrictedFixture.designFileService.readDesignFile(
+					restrictedFixture.designFileService.getFileForUuid(
+						trickroomMcpTestDesignUuid,
+					),
+				);
 			expect(persisted.revision).toBe(revision);
 		} finally {
 			await restrictedSession.close();
@@ -1385,8 +1394,8 @@ describe("trickroom MCP system component instance tools", () => {
 			},
 		});
 		const rootElementId = String(
-			(added.structuredContent as { changedElement: { id: string } }).changedElement
-				.id,
+			(added.structuredContent as { changedElement: { id: string } })
+				.changedElement.id,
 		);
 		const afterAddRevision = String(added.structuredContent?.newRevision);
 
@@ -1793,7 +1802,9 @@ describe("trickroom MCP system component instance tools", () => {
 		const staleRoot = Array.isArray(board.children)
 			? board.children.find((child) => child.id === rootElementId)
 			: null;
-		expect(staleRoot?.props["data-trickroom-system-component-version"]).toBe("1");
+		expect(staleRoot?.props["data-trickroom-system-component-version"]).toBe(
+			"1",
+		);
 	});
 
 	it("returns revision mismatch for migrateSystemComponentInstance without writing", async () => {
@@ -1836,7 +1847,9 @@ describe("trickroom MCP system component instance tools", () => {
 				mode: "read-only",
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "migrateSystemComponentInstance",
@@ -1878,7 +1891,9 @@ describe("trickroom MCP system component instance tools", () => {
 				mode: "read-only",
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "migrateSystemComponentInstance",
@@ -2037,7 +2052,9 @@ describe("trickroom MCP system component instance tools", () => {
 					(child) => child.id === rootElementId,
 				)
 			: null;
-		expect(staleRoot?.props["data-trickroom-system-component-version"]).toBe("1");
+		expect(staleRoot?.props["data-trickroom-system-component-version"]).toBe(
+			"1",
+		);
 	});
 
 	it("respects allowedDesignFileIds when bulk migrating system component usages", async () => {
@@ -2068,7 +2085,9 @@ describe("trickroom MCP system component instance tools", () => {
 				allowedDesignFileIds: [trickroomMcpTestDesignUuid],
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "bulkMigrateSystemComponentUsages",
@@ -2112,7 +2131,9 @@ describe("trickroom MCP system component instance tools", () => {
 				allowedComponents: ["trickroom/container"],
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "migrateSystemComponentInstance",
@@ -2153,7 +2174,9 @@ describe("trickroom MCP system component instance tools", () => {
 				allowedComponents: ["trickroom/container"],
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "migrateSystemComponentInstance",
@@ -2193,7 +2216,9 @@ describe("trickroom MCP system component instance tools", () => {
 				allowedComponents: ["trickroom/container"],
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "bulkMigrateSystemComponentUsages",
@@ -2222,7 +2247,9 @@ describe("trickroom MCP system component instance tools", () => {
 					(child) => child.id === rootElementId,
 				)
 			: null;
-		expect(staleRoot?.props["data-trickroom-system-component-version"]).toBe("1");
+		expect(staleRoot?.props["data-trickroom-system-component-version"]).toBe(
+			"1",
+		);
 	});
 
 	it("ignores malformed disallowed design files during allowlisted bulk migration", async () => {
@@ -2252,7 +2279,9 @@ describe("trickroom MCP system component instance tools", () => {
 				allowedDesignFileIds: [trickroomMcpTestDesignUuid],
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "bulkMigrateSystemComponentUsages",
@@ -2271,16 +2300,22 @@ describe("trickroom MCP system component instance tools", () => {
 			],
 		});
 		expect(
-			(result.structuredContent as { failures?: Array<{ designFileId?: string }> })
-				.failures ?? [],
+			(
+				result.structuredContent as {
+					failures?: Array<{ designFileId?: string }>;
+				}
+			).failures ?? [],
 		).not.toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ designFileId: malformedDesignUuid }),
 			]),
 		);
 		expect(
-			(result.structuredContent as { designs?: Array<{ designFileId: string }> })
-				.designs ?? [],
+			(
+				result.structuredContent as {
+					designs?: Array<{ designFileId: string }>;
+				}
+			).designs ?? [],
 		).not.toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ designFileId: malformedDesignUuid }),
@@ -2326,7 +2361,9 @@ describe("trickroom MCP system component instance tools", () => {
 					(child) => child.id === rootElementId,
 				)
 			: null;
-		expect(staleRoot?.props["data-trickroom-system-component-version"]).toBe("1");
+		expect(staleRoot?.props["data-trickroom-system-component-version"]).toBe(
+			"1",
+		);
 	});
 
 	it("denies project-wide bulk migration writes in read-only mode", async () => {
@@ -2342,7 +2379,9 @@ describe("trickroom MCP system component instance tools", () => {
 				mode: "read-only",
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "bulkMigrateSystemComponentUsages",
@@ -2381,7 +2420,9 @@ describe("trickroom MCP system component instance tools", () => {
 				mode: "read-only",
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "bulkMigrateSystemComponentUsages",
@@ -2426,7 +2467,9 @@ describe("trickroom MCP system component instance tools", () => {
 				mode: "read-only",
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "bulkMigrateSystemComponentUsages",
@@ -2470,7 +2513,9 @@ describe("trickroom MCP system component instance tools", () => {
 				allowedDesignFileIds: [],
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "bulkMigrateSystemComponentUsages",
@@ -2514,7 +2559,9 @@ describe("trickroom MCP system component instance tools", () => {
 				allowedDesignFileIds: [trickroomMcpTestDesignUuid],
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "bulkMigrateSystemComponentUsages",
@@ -2553,7 +2600,9 @@ describe("trickroom MCP system component instance tools", () => {
 				allowedDesignFileIds: [trickroomMcpTestDesignUuid],
 			},
 		});
-		session = await createTrickroomMcpTestClient(await fixture.readMcpContext());
+		session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
 
 		const result = await session.client.callTool({
 			name: "bulkMigrateSystemComponentUsages",

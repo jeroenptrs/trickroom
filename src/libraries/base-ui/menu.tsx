@@ -6,6 +6,7 @@ import {
 	type Ref,
 	useContext,
 } from "react";
+import { useFrame } from "react-frame-component";
 
 type MenuRootProps = ComponentPropsWithoutRef<typeof Menu.Root>;
 type MenuTriggerProps = ComponentPropsWithoutRef<typeof Menu.Trigger>;
@@ -60,11 +61,16 @@ export const MenuTrigger = forwardRef<HTMLElement, MenuTriggerProps>(
 export const MenuPortal = forwardRef<HTMLDivElement, MenuPortalProps>(
 	function MenuPortal({ children, ...props }, ref) {
 		const isInsideMenuRoot = useContext(MenuRootRenderContext);
+		const { document: frameDocument } = useFrame();
 
 		if (isInsideMenuRoot) {
+			const { container, ...portalProps } = props;
+			const resolvedContainer =
+				container === undefined ? frameDocument?.body : container;
+
 			return (
 				<MenuPortalRenderContext.Provider value={true}>
-					<Menu.Portal {...props} ref={ref}>
+					<Menu.Portal {...portalProps} container={resolvedContainer} ref={ref}>
 						{children}
 					</Menu.Portal>
 				</MenuPortalRenderContext.Provider>

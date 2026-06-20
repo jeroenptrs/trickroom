@@ -1290,6 +1290,16 @@ function normalizeOverrideTargetMap(
 						entry === "asset",
 				);
 		}
+		if (Array.isArray(rawTarget.props)) {
+			target.props = [
+				...new Set(
+					rawTarget.props
+						.filter((entry): entry is string => typeof entry === "string")
+						.map((entry) => entry.trim())
+						.filter(Boolean),
+				),
+			];
+		}
 		if (Array.isArray(rawTarget.history)) {
 			target.history = rawTarget.history
 				.filter((entry): entry is Record<string, unknown> => isRecord(entry))

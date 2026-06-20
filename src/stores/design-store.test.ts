@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	getRenderableClassComposition,
 	getRenderableProps,
-	resolveRegistryComponent,
 	type RegistryId,
 	type RegistryResolution,
+	resolveRegistryComponent,
 } from "../libraries/registry";
 import {
 	recipeIdProp,
@@ -14,13 +14,13 @@ import {
 	recipeSlotProp,
 } from "../recipes/markers";
 import type { Props, TrickroomDesign } from "../types";
+import { layerDropInsertionIndex } from "../utils/reorder-insertion-index";
 import { assetIdProp } from "../utils/resource-props";
 import {
 	getSystemComponentMarkerProps,
 	getSystemComponentStructuralMetadata,
 	systemComponentPathProp,
 } from "../utils/system-component-markers";
-import { layerDropInsertionIndex } from "../utils/reorder-insertion-index";
 import {
 	addElement,
 	addNodeTree,

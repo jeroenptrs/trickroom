@@ -148,7 +148,12 @@ function MigrationDiagnosticsList({
 	return (
 		<ul className="flex max-h-40 flex-col gap-1 overflow-y-auto rounded border border-amber-200 bg-amber-50/80 p-2 text-[11px] text-amber-900">
 			{diagnostics.map((diagnostic, index) => (
-				<li key={`${diagnostic.code}-${index}`}>{diagnostic.message}</li>
+				<li
+					// biome-ignore lint/suspicious/noArrayIndexKey: migration diagnostics are an ephemeral, render-only list with no stable id (codes may repeat).
+					key={`${diagnostic.code}-${index}`}
+				>
+					{diagnostic.message}
+				</li>
 			))}
 		</ul>
 	);
@@ -176,6 +181,7 @@ function AttachedComponentRootControls({
 	const variantAxes = version?.variants?.axes ?? {};
 	const canUpdate = isAttachedComponentStaleStatus(status);
 	const designRevision = useDesignRevision();
+	// biome-ignore lint/correctness/useExhaustiveDependencies: designRevision and instance.overrides are intentional recompute triggers — the memo reads live design state via serializeDesign(), which is not otherwise reactive.
 	const migrationPreview = useMemo(() => {
 		if (
 			!canUpdate ||
@@ -209,7 +215,6 @@ function AttachedComponentRootControls({
 		designRevision,
 		instance.componentId,
 		instance.overrides,
-		instance.variantValues,
 		rootElementId,
 		systemId,
 		version,

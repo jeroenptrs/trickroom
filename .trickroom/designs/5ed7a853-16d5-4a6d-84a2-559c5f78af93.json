@@ -1,0 +1,2288 @@
+{
+	"name": "Onboarding Redesign POC (responsive)",
+	"systemId": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+	"boards": [
+		{
+			"id": "a091c1ec-5085-4ed0-95dc-904d153d8f8d",
+			"props": {
+				"data-trickroom-name": "Launcher — responsive",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				"className": "flex min-h-screen w-full items-center justify-center bg-slate-50 text-slate-950 p-6 md:p-12"
+			},
+			"children": [
+				{
+					"id": "67bd2234-221b-45a4-93da-d0f944c8b4c3",
+					"props": {
+						"data-trickroom-name": "Card",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						"className": "flex w-full max-w-5xl flex-col bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200 md:min-h-[30rem] md:flex-row"
+					},
+					"children": [
+						{
+							"id": "47a7e59e-2047-44d8-b37a-e348c6840b7b",
+							"props": {
+								"data-trickroom-name": "Sidebar",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "container",
+								"data-trickroom-role": "branch",
+								"className": "flex w-full shrink-0 flex-col border-b border-slate-200 md:w-64 md:border-b-0 md:border-r"
+							},
+							"children": [
+								{
+									"id": "87375f93-d70a-4c36-8e92-45e54aec8b22",
+									"props": {
+										"data-trickroom-name": "Brand",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex min-h-20 items-center gap-2 border-b border-slate-200 px-5"
+									},
+									"children": [
+										{
+											"id": "32056718-3b3f-48f9-bbd1-ac8ae1ef3c7c",
+											"props": {
+												"data-trickroom-name": "Mark",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"className": "size-6 shrink-0 bg-cyan-600"
+											},
+											"children": []
+										},
+										{
+											"id": "2f14df61-d9fa-42b3-9c0e-a2ffe283e465",
+											"props": {
+												"data-trickroom-name": "Wordmark",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "text",
+												"data-trickroom-role": "text",
+												"className": "text-base font-medium tracking-tight text-slate-950"
+											},
+											"children": "Trickroom"
+										}
+									]
+								},
+								{
+									"id": "48bd8190-6ad6-40b6-915c-5e2d149e25ba",
+									"props": {
+										"data-trickroom-name": "Recent",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex flex-1 flex-col gap-2 px-5 py-5"
+									},
+									"children": [
+										{
+											"id": "5856c5d4-f961-412f-b2f4-ffd9abd34c1c",
+											"props": {
+												"data-trickroom-name": "Recent label",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "text",
+												"data-trickroom-role": "text",
+												"className": "font-mono text-[11px] lowercase tracking-normal text-slate-500"
+											},
+											"children": "Recent"
+										},
+										{
+											"id": "558919af-a57b-4f48-9752-808834edebb4",
+											"props": {
+												"data-trickroom-name": "Recent list",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"className": "-mx-2 flex flex-col"
+											},
+											"children": [
+												{
+													"id": "a65646dd-65b0-49a8-a2ee-df98c327f650",
+													"props": {
+														"data-trickroom-name": "Container",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "container",
+														"data-trickroom-role": "branch",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_a91c5bcb-2bec-452d-a24c-5d10c4ca6fe5",
+														"data-trickroom-system-component-instance": "5ec1f3d8-2180-4a74-9c84-2720cae68a35",
+														"data-trickroom-system-component-version": "2",
+														"data-trickroom-system-component-path": "root",
+														"data-trickroom-system-component-root": "true",
+														"data-trickroom-system-component-slot": "content",
+														"data-trickroom-system-component-variant-values": "{\"state\":\"default\"}",
+														"data-trickroom-system-component-overrides": "{\"root\":{\"className\":\"group\"}}",
+														"data-trickroom-system-component-template-hash": "sha256:83b08945a84bb55c362b4f1dcf8d98684a3b3527ca7b3bfab0e46607efd10607",
+														"data-trickroom-system-component-variant-schema-hash": "sha256:56d14166b82484f6e9387667632ee94eacf54c99ba6c6659573a076ad917d616",
+														"className": "flex w-full items-stretch rounded-none hover:bg-slate-100 group"
+													},
+													"children": [
+														{
+															"id": "670b484c-05cb-401f-912f-29333a0c8aed",
+															"props": {
+																"data-trickroom-name": "Container",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "container",
+																"data-trickroom-role": "branch",
+																"className": "flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-2"
+															},
+															"children": [
+																{
+																	"id": "a9dcecc4-4f1e-4ae9-87c9-abf176506e87",
+																	"props": {
+																		"data-trickroom-name": "Text",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "truncate text-sm text-slate-950"
+																	},
+																	"children": "trickroom"
+																},
+																{
+																	"id": "39b6d16b-64d1-46da-b40f-212a54ceed1a",
+																	"props": {
+																		"data-trickroom-name": "Text",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "truncate font-mono text-[10px] text-slate-600"
+																	},
+																	"children": "~/Projects/Personal/trickroom"
+																}
+															]
+														},
+														{
+															"id": "a498ea82-1fe6-4a33-9578-4b644984035f",
+															"props": {
+																"type": "button",
+																"disabled": false,
+																"data-trickroom-name": "Button",
+																"data-trickroom-library": "base-ui",
+																"data-trickroom-component": "button",
+																"data-trickroom-role": "branch",
+																"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																"data-trickroom-system-component-id": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
+																"data-trickroom-system-component-instance": "a57fb3c6-d694-41c5-8808-988330e5589c",
+																"data-trickroom-system-component-version": "3",
+																"data-trickroom-system-component-path": "root",
+																"data-trickroom-system-component-root": "true",
+																"data-trickroom-system-component-variant-values": "{\"size\":\"sm\",\"variant\":\"ghost\"}",
+																"data-trickroom-system-component-overrides": "{\"icon\":{\"data-trickroom-icon-id\":\"lucide-static/x\"},\"root\":{\"className\":\"opacity-0 group-hover:opacity-100 ml-auto self-center\"}}",
+																"data-trickroom-system-component-template-hash": "sha256:8705bf4c4cbbe81e66710aebd6aa0dead5a8125120db8e8342bed5c052965fec",
+																"data-trickroom-system-component-variant-schema-hash": "sha256:ab1b9111843c4448a121f3e7c99e75666f9b0fb29b3ae83ded268f6d79ba34be",
+																"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 size-8 text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900 opacity-0 group-hover:opacity-100 ml-auto self-center"
+															},
+															"children": [
+																{
+																	"id": "0565f854-8b4a-4ce2-8964-f4b87d4d924a",
+																	"props": {
+																		"data-trickroom-icon-id": "lucide-static/x",
+																		"aria-label": "",
+																		"data-trickroom-name": "Icon",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "icon",
+																		"data-trickroom-role": "leaf",
+																		"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																		"data-trickroom-system-component-id": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
+																		"data-trickroom-system-component-instance": "a57fb3c6-d694-41c5-8808-988330e5589c",
+																		"data-trickroom-system-component-version": "3",
+																		"data-trickroom-system-component-path": "icon",
+																		"className": "size-4"
+																	},
+																	"children": []
+																}
+															]
+														}
+													]
+												},
+												{
+													"id": "f3a62257-15a8-43fd-ad75-e3205b657f17",
+													"props": {
+														"data-trickroom-name": "Container",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "container",
+														"data-trickroom-role": "branch",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_a91c5bcb-2bec-452d-a24c-5d10c4ca6fe5",
+														"data-trickroom-system-component-instance": "08d94f77-cad2-46dc-a810-41dd2e575402",
+														"data-trickroom-system-component-version": "2",
+														"data-trickroom-system-component-path": "root",
+														"data-trickroom-system-component-root": "true",
+														"data-trickroom-system-component-slot": "content",
+														"data-trickroom-system-component-variant-values": "{\"state\":\"default\"}",
+														"data-trickroom-system-component-overrides": "{\"root\":{\"className\":\"group\"}}",
+														"data-trickroom-system-component-template-hash": "sha256:83b08945a84bb55c362b4f1dcf8d98684a3b3527ca7b3bfab0e46607efd10607",
+														"data-trickroom-system-component-variant-schema-hash": "sha256:56d14166b82484f6e9387667632ee94eacf54c99ba6c6659573a076ad917d616",
+														"className": "flex w-full items-stretch rounded-none hover:bg-slate-100 group"
+													},
+													"children": [
+														{
+															"id": "2dfa3702-c10e-4f9b-b55d-c822b3ca6e1e",
+															"props": {
+																"data-trickroom-name": "Container",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "container",
+																"data-trickroom-role": "branch",
+																"className": "flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-2"
+															},
+															"children": [
+																{
+																	"id": "8922303a-9e0d-41d7-9a72-37486ab7d71e",
+																	"props": {
+																		"data-trickroom-name": "Text",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "truncate text-sm text-slate-950"
+																	},
+																	"children": "acme-dashboard"
+																},
+																{
+																	"id": "ac6a8dd2-1d2f-47e8-b4b3-041b1cef2af7",
+																	"props": {
+																		"data-trickroom-name": "Text",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "truncate font-mono text-[10px] text-slate-600"
+																	},
+																	"children": "~/work/acme/dashboard"
+																}
+															]
+														},
+														{
+															"id": "cbac73cf-deaf-4a65-a58c-0f8a756d1d7d",
+															"props": {
+																"type": "button",
+																"disabled": false,
+																"data-trickroom-name": "Button",
+																"data-trickroom-library": "base-ui",
+																"data-trickroom-component": "button",
+																"data-trickroom-role": "branch",
+																"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																"data-trickroom-system-component-id": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
+																"data-trickroom-system-component-instance": "1d704db8-0368-4c49-b19d-7e19ba5a8d77",
+																"data-trickroom-system-component-version": "3",
+																"data-trickroom-system-component-path": "root",
+																"data-trickroom-system-component-root": "true",
+																"data-trickroom-system-component-variant-values": "{\"size\":\"sm\",\"variant\":\"ghost\"}",
+																"data-trickroom-system-component-overrides": "{\"icon\":{\"data-trickroom-icon-id\":\"lucide-static/x\"},\"root\":{\"className\":\"opacity-0 group-hover:opacity-100 ml-auto self-center\"}}",
+																"data-trickroom-system-component-template-hash": "sha256:8705bf4c4cbbe81e66710aebd6aa0dead5a8125120db8e8342bed5c052965fec",
+																"data-trickroom-system-component-variant-schema-hash": "sha256:ab1b9111843c4448a121f3e7c99e75666f9b0fb29b3ae83ded268f6d79ba34be",
+																"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 size-8 text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900 opacity-0 group-hover:opacity-100 ml-auto self-center"
+															},
+															"children": [
+																{
+																	"id": "cb3aa08e-0d4a-49f6-b9e7-acd78daacbbc",
+																	"props": {
+																		"data-trickroom-icon-id": "lucide-static/x",
+																		"aria-label": "",
+																		"data-trickroom-name": "Icon",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "icon",
+																		"data-trickroom-role": "leaf",
+																		"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																		"data-trickroom-system-component-id": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
+																		"data-trickroom-system-component-instance": "1d704db8-0368-4c49-b19d-7e19ba5a8d77",
+																		"data-trickroom-system-component-version": "3",
+																		"data-trickroom-system-component-path": "icon",
+																		"className": "size-4"
+																	},
+																	"children": []
+																}
+															]
+														}
+													]
+												},
+												{
+													"id": "a34fecfb-b245-4dfd-9baa-de8d355c71f9",
+													"props": {
+														"data-trickroom-name": "Container",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "container",
+														"data-trickroom-role": "branch",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_a91c5bcb-2bec-452d-a24c-5d10c4ca6fe5",
+														"data-trickroom-system-component-instance": "879a75ff-df7d-4f6b-ae67-507cf2fe3ab9",
+														"data-trickroom-system-component-version": "2",
+														"data-trickroom-system-component-path": "root",
+														"data-trickroom-system-component-root": "true",
+														"data-trickroom-system-component-slot": "content",
+														"data-trickroom-system-component-variant-values": "{\"state\":\"default\"}",
+														"data-trickroom-system-component-overrides": "{\"root\":{\"className\":\"group\"}}",
+														"data-trickroom-system-component-template-hash": "sha256:83b08945a84bb55c362b4f1dcf8d98684a3b3527ca7b3bfab0e46607efd10607",
+														"data-trickroom-system-component-variant-schema-hash": "sha256:56d14166b82484f6e9387667632ee94eacf54c99ba6c6659573a076ad917d616",
+														"className": "flex w-full items-stretch rounded-none hover:bg-slate-100 group"
+													},
+													"children": [
+														{
+															"id": "f41064f5-75c4-4a6d-b0da-8994321a5241",
+															"props": {
+																"data-trickroom-name": "Container",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "container",
+																"data-trickroom-role": "branch",
+																"className": "flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-2"
+															},
+															"children": [
+																{
+																	"id": "8cb65c74-55d0-420d-b984-d9d2aa2637b0",
+																	"props": {
+																		"data-trickroom-name": "Text",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "truncate text-sm text-slate-950"
+																	},
+																	"children": "marketing-site"
+																},
+																{
+																	"id": "5cea8175-ca88-469c-bb24-95569cfca540",
+																	"props": {
+																		"data-trickroom-name": "Text",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "truncate font-mono text-[10px] text-slate-600"
+																	},
+																	"children": "~/work/marketing-site"
+																}
+															]
+														},
+														{
+															"id": "56936001-dc7a-4ee1-9646-3c4f4ee5f30a",
+															"props": {
+																"type": "button",
+																"disabled": false,
+																"data-trickroom-name": "Button",
+																"data-trickroom-library": "base-ui",
+																"data-trickroom-component": "button",
+																"data-trickroom-role": "branch",
+																"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																"data-trickroom-system-component-id": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
+																"data-trickroom-system-component-instance": "dca8cd1a-7395-436c-8e62-9b4325aa8515",
+																"data-trickroom-system-component-version": "3",
+																"data-trickroom-system-component-path": "root",
+																"data-trickroom-system-component-root": "true",
+																"data-trickroom-system-component-variant-values": "{\"size\":\"sm\",\"variant\":\"ghost\"}",
+																"data-trickroom-system-component-overrides": "{\"icon\":{\"data-trickroom-icon-id\":\"lucide-static/x\"},\"root\":{\"className\":\"opacity-0 group-hover:opacity-100 ml-auto self-center\"}}",
+																"data-trickroom-system-component-template-hash": "sha256:8705bf4c4cbbe81e66710aebd6aa0dead5a8125120db8e8342bed5c052965fec",
+																"data-trickroom-system-component-variant-schema-hash": "sha256:ab1b9111843c4448a121f3e7c99e75666f9b0fb29b3ae83ded268f6d79ba34be",
+																"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 size-8 text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900 opacity-0 group-hover:opacity-100 ml-auto self-center"
+															},
+															"children": [
+																{
+																	"id": "63a21f62-f50e-4005-b1b8-7d206c9747eb",
+																	"props": {
+																		"data-trickroom-icon-id": "lucide-static/x",
+																		"aria-label": "",
+																		"data-trickroom-name": "Icon",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "icon",
+																		"data-trickroom-role": "leaf",
+																		"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																		"data-trickroom-system-component-id": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
+																		"data-trickroom-system-component-instance": "dca8cd1a-7395-436c-8e62-9b4325aa8515",
+																		"data-trickroom-system-component-version": "3",
+																		"data-trickroom-system-component-path": "icon",
+																		"className": "size-4"
+																	},
+																	"children": []
+																}
+															]
+														}
+													]
+												}
+											]
+										}
+									]
+								},
+								{
+									"id": "2c42feb2-dbeb-4c36-a3b8-03de1c6b313a",
+									"props": {
+										"data-trickroom-name": "Utility",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "border-t border-slate-200 px-5 py-4"
+									},
+									"children": [
+										{
+											"id": "1dc9584b-3839-4c38-b32f-c71d32d3c96f",
+											"props": {
+												"type": "button",
+												"disabled": false,
+												"data-trickroom-name": "Button",
+												"data-trickroom-library": "base-ui",
+												"data-trickroom-component": "button",
+												"data-trickroom-role": "branch",
+												"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+												"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+												"data-trickroom-system-component-instance": "b010c121-db28-4bd7-b1f3-430dc1525539",
+												"data-trickroom-system-component-version": "4",
+												"data-trickroom-system-component-path": "root",
+												"data-trickroom-system-component-root": "true",
+												"data-trickroom-system-component-slot": "button",
+												"data-trickroom-system-component-variant-values": "{\"variant\":\"outlined\",\"width\":\"full\"}",
+												"data-trickroom-system-component-overrides": "{\"label\":{\"text\":\"MCP Setup\"}}",
+												"data-trickroom-system-component-template-hash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+												"data-trickroom-system-component-variant-schema-hash": "sha256:0ca128f9f8cfb78a0b67a68d1d6184db89d33f36fae9de764c0ea9f6caf84ced",
+												"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900 w-full"
+											},
+											"children": [
+												{
+													"id": "737384b2-7143-4aa2-88a4-d3bbdde9c7b2",
+													"props": {
+														"data-trickroom-name": "Text",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "text",
+														"data-trickroom-role": "text",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+														"data-trickroom-system-component-instance": "b010c121-db28-4bd7-b1f3-430dc1525539",
+														"data-trickroom-system-component-version": "4",
+														"data-trickroom-system-component-path": "label"
+													},
+													"children": "MCP Setup"
+												}
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"id": "bf4a26af-e3e7-41d0-b431-97be7ca219c6",
+							"props": {
+								"data-trickroom-name": "Main",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "container",
+								"data-trickroom-role": "branch",
+								"className": "flex flex-1 flex-col justify-center gap-6 p-8 md:p-10"
+							},
+							"children": [
+								{
+									"id": "bf5ff274-2f29-4617-97bb-563ea5e8eef2",
+									"props": {
+										"data-trickroom-name": "Eyebrow",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "text",
+										"data-trickroom-role": "text",
+										"className": "font-mono text-[10px] lowercase tracking-normal text-cyan-700"
+									},
+									"children": "Welcome"
+								},
+								{
+									"id": "e1a28cc2-dafd-4cf2-97f6-d024e16c8fe5",
+									"props": {
+										"data-trickroom-name": "Title",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "text",
+										"data-trickroom-role": "text",
+										"className": "text-2xl font-medium tracking-tight text-slate-950"
+									},
+									"children": "Open a project"
+								},
+								{
+									"id": "5e0b52bd-9944-4db8-b930-5b8b3ae24945",
+									"props": {
+										"data-trickroom-name": "Lead",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "text",
+										"data-trickroom-role": "text",
+										"className": "max-w-sm text-sm text-slate-600"
+									},
+									"children": "Pick up where you left off, or point Trickroom at a folder to begin."
+								},
+								{
+									"id": "2b5f96bf-f4d9-4ca4-8a0e-9d89095dcdef",
+									"props": {
+										"data-trickroom-name": "Primary actions",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex flex-col gap-3 sm:flex-row"
+									},
+									"children": [
+										{
+											"id": "fa6382e4-2e93-4d67-ac42-b830d905b774",
+											"props": {
+												"type": "button",
+												"disabled": false,
+												"data-trickroom-name": "Button",
+												"data-trickroom-library": "base-ui",
+												"data-trickroom-component": "button",
+												"data-trickroom-role": "branch",
+												"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+												"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+												"data-trickroom-system-component-instance": "656fcd14-48bb-407f-93c1-be0ead7c56ef",
+												"data-trickroom-system-component-version": "4",
+												"data-trickroom-system-component-path": "root",
+												"data-trickroom-system-component-root": "true",
+												"data-trickroom-system-component-slot": "button",
+												"data-trickroom-system-component-variant-values": "{\"variant\":\"filled\",\"width\":\"full\"}",
+												"data-trickroom-system-component-overrides": "{\"label\":{\"text\":\"Open folder\"},\"root\":{\"className\":\"flex-col items-start gap-1 text-left\"}}",
+												"data-trickroom-system-component-template-hash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+												"data-trickroom-system-component-variant-schema-hash": "sha256:0ca128f9f8cfb78a0b67a68d1d6184db89d33f36fae9de764c0ea9f6caf84ced",
+												"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900 w-full flex-col items-start gap-1 text-left"
+											},
+											"children": [
+												{
+													"id": "7f9820fb-e1b1-4db5-8c68-3a107875e631",
+													"props": {
+														"data-trickroom-name": "Text",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "text",
+														"data-trickroom-role": "text",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+														"data-trickroom-system-component-instance": "656fcd14-48bb-407f-93c1-be0ead7c56ef",
+														"data-trickroom-system-component-version": "4",
+														"data-trickroom-system-component-path": "label"
+													},
+													"children": "Open folder"
+												},
+												{
+													"id": "efb0523e-bd51-409a-9fe4-d33507ecaa07",
+													"props": {
+														"data-trickroom-name": "Text",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "text",
+														"data-trickroom-role": "text",
+														"className": "text-[11px] text-slate-400"
+													},
+													"children": "Choose an existing project on disk"
+												}
+											]
+										},
+										{
+											"id": "71f830ad-3305-4535-a4b4-47dad3d9dea9",
+											"props": {
+												"type": "button",
+												"disabled": false,
+												"data-trickroom-name": "Button",
+												"data-trickroom-library": "base-ui",
+												"data-trickroom-component": "button",
+												"data-trickroom-role": "branch",
+												"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+												"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+												"data-trickroom-system-component-instance": "6a8be166-5f0c-4fe7-a983-7aceb587c591",
+												"data-trickroom-system-component-version": "4",
+												"data-trickroom-system-component-path": "root",
+												"data-trickroom-system-component-root": "true",
+												"data-trickroom-system-component-slot": "button",
+												"data-trickroom-system-component-variant-values": "{\"variant\":\"outlined\",\"width\":\"full\"}",
+												"data-trickroom-system-component-overrides": "{\"label\":{\"text\":\"Create project\"},\"root\":{\"className\":\"flex-col items-start gap-1 text-left\"}}",
+												"data-trickroom-system-component-template-hash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+												"data-trickroom-system-component-variant-schema-hash": "sha256:0ca128f9f8cfb78a0b67a68d1d6184db89d33f36fae9de764c0ea9f6caf84ced",
+												"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900 w-full flex-col items-start gap-1 text-left"
+											},
+											"children": [
+												{
+													"id": "4f20f2ce-f9c9-41d0-9b7d-d9919b098652",
+													"props": {
+														"data-trickroom-name": "Text",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "text",
+														"data-trickroom-role": "text",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+														"data-trickroom-system-component-instance": "6a8be166-5f0c-4fe7-a983-7aceb587c591",
+														"data-trickroom-system-component-version": "4",
+														"data-trickroom-system-component-path": "label"
+													},
+													"children": "Create project"
+												},
+												{
+													"id": "909071a7-dd72-4afa-a9c3-b79d5d65b336",
+													"props": {
+														"data-trickroom-name": "Text",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "text",
+														"data-trickroom-role": "text",
+														"className": "text-[11px] text-slate-500"
+													},
+													"children": "Start a new .trickroom workspace"
+												}
+											]
+										}
+									]
+								},
+								{
+									"id": "e987ae4f-8248-4351-a229-9fabe74ffc13",
+									"props": {
+										"data-trickroom-name": "Hint",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex items-center gap-2 pt-2"
+									},
+									"children": [
+										{
+											"id": "a4dfd3ee-05e8-475f-9381-7df9dcba4eeb",
+											"props": {
+												"data-trickroom-name": "Container",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+												"data-trickroom-system-component-id": "cmp_2f8d41d6-8871-4fb1-935d-d6dd2fec452f",
+												"data-trickroom-system-component-instance": "1c1b7775-6167-463f-9b9d-207cfeadb575",
+												"data-trickroom-system-component-version": "1",
+												"data-trickroom-system-component-path": "root",
+												"data-trickroom-system-component-root": "true",
+												"data-trickroom-system-component-variant-values": "{}",
+												"data-trickroom-system-component-overrides": "{\"key\":{\"text\":\"⌘K\"}}",
+												"data-trickroom-system-component-template-hash": "sha256:ac825082b05c319cd521972c7001e55c8b90595fa666f3349cb014443d7fd2bd",
+												"data-trickroom-system-component-variant-schema-hash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099",
+												"className": "inline-flex items-center justify-center rounded-none bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600"
+											},
+											"children": [
+												{
+													"id": "8f759dbb-9487-4e37-8926-1e6f97357a18",
+													"props": {
+														"data-trickroom-name": "Text",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "text",
+														"data-trickroom-role": "text",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_2f8d41d6-8871-4fb1-935d-d6dd2fec452f",
+														"data-trickroom-system-component-instance": "1c1b7775-6167-463f-9b9d-207cfeadb575",
+														"data-trickroom-system-component-version": "1",
+														"data-trickroom-system-component-path": "key"
+													},
+													"children": "⌘K"
+												}
+											]
+										},
+										{
+											"id": "11fe4a83-3203-4d66-8412-115eae8ca379",
+											"props": {
+												"data-trickroom-name": "Hint copy",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "text",
+												"data-trickroom-role": "text",
+												"className": "text-[11px] text-slate-600"
+											},
+											"children": "Open the command menu anywhere"
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		{
+			"id": "ee5bf77d-72e8-420c-aba8-e05cb2360c51",
+			"props": {
+				"data-trickroom-name": "Create — in launcher shell",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				"className": "flex min-h-screen w-full items-center justify-center bg-slate-50 text-slate-950 p-6 md:p-12"
+			},
+			"children": [
+				{
+					"id": "694c700b-6b0f-4764-b3c4-1ff781384664",
+					"props": {
+						"data-trickroom-name": "Card",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						"className": "flex w-full max-w-5xl flex-col bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200 md:flex-row"
+					},
+					"children": [
+						{
+							"id": "001a32c2-a625-4217-b96d-4707a14e97ad",
+							"props": {
+								"data-trickroom-name": "Sidebar",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "container",
+								"data-trickroom-role": "branch",
+								"className": "flex w-full shrink-0 flex-col border-b border-slate-200 md:w-64 md:border-b-0 md:border-r"
+							},
+							"children": [
+								{
+									"id": "62cee37e-0cd1-49e8-9f12-4665ebefdfe2",
+									"props": {
+										"data-trickroom-name": "Brand",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex min-h-20 items-center gap-2 border-b border-slate-200 px-5"
+									},
+									"children": [
+										{
+											"id": "0540e451-cdf7-4774-aae2-bde57fbdc302",
+											"props": {
+												"data-trickroom-name": "Mark",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"className": "size-6 shrink-0 bg-cyan-600"
+											},
+											"children": []
+										},
+										{
+											"id": "277c475a-27a3-4cf4-aabb-4c123c26b868",
+											"props": {
+												"data-trickroom-name": "Wordmark",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "text",
+												"data-trickroom-role": "text",
+												"className": "text-base font-medium tracking-tight text-slate-950"
+											},
+											"children": "Trickroom"
+										}
+									]
+								},
+								{
+									"id": "09d4873f-0692-474e-ad65-74019535a160",
+									"props": {
+										"data-trickroom-name": "Recent",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex flex-1 flex-col gap-2 px-5 py-5"
+									},
+									"children": [
+										{
+											"id": "5e592d7d-1273-4f51-bcab-b801d8a6dc45",
+											"props": {
+												"data-trickroom-name": "Recent label",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "text",
+												"data-trickroom-role": "text",
+												"className": "font-mono text-[11px] lowercase tracking-normal text-slate-500"
+											},
+											"children": "Recent"
+										},
+										{
+											"id": "25d5f9a3-3fa3-4c24-a58d-ebd4321a5da3",
+											"props": {
+												"data-trickroom-name": "Recent list",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"className": "-mx-2 flex flex-col"
+											},
+											"children": [
+												{
+													"id": "57f65814-e92f-4615-b3c0-85bbb2b1969f",
+													"props": {
+														"data-trickroom-name": "Container",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "container",
+														"data-trickroom-role": "branch",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_a91c5bcb-2bec-452d-a24c-5d10c4ca6fe5",
+														"data-trickroom-system-component-instance": "95229bf4-4ad1-4fdc-af6f-9a32ce4b21c2",
+														"data-trickroom-system-component-version": "2",
+														"data-trickroom-system-component-path": "root",
+														"data-trickroom-system-component-root": "true",
+														"data-trickroom-system-component-slot": "content",
+														"data-trickroom-system-component-variant-values": "{\"state\":\"default\"}",
+														"data-trickroom-system-component-overrides": "{\"root\":{\"className\":\"group\"}}",
+														"data-trickroom-system-component-template-hash": "sha256:83b08945a84bb55c362b4f1dcf8d98684a3b3527ca7b3bfab0e46607efd10607",
+														"data-trickroom-system-component-variant-schema-hash": "sha256:56d14166b82484f6e9387667632ee94eacf54c99ba6c6659573a076ad917d616",
+														"className": "flex w-full items-stretch rounded-none hover:bg-slate-100 group"
+													},
+													"children": [
+														{
+															"id": "bf31395a-d099-449f-91d9-4ed6fcec391a",
+															"props": {
+																"data-trickroom-name": "Container",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "container",
+																"data-trickroom-role": "branch",
+																"className": "flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-2"
+															},
+															"children": [
+																{
+																	"id": "ed34d8e7-12b6-4898-bad6-06ec35461b57",
+																	"props": {
+																		"data-trickroom-name": "Text",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "truncate text-sm text-slate-950"
+																	},
+																	"children": "trickroom"
+																},
+																{
+																	"id": "459acda3-12f6-448b-aad1-1b5b02041c48",
+																	"props": {
+																		"data-trickroom-name": "Text",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "truncate font-mono text-[10px] text-slate-600"
+																	},
+																	"children": "~/Projects/Personal/trickroom"
+																}
+															]
+														},
+														{
+															"id": "c3d01eee-f498-4149-a2c9-448d67eecf9b",
+															"props": {
+																"type": "button",
+																"disabled": false,
+																"data-trickroom-name": "Button",
+																"data-trickroom-library": "base-ui",
+																"data-trickroom-component": "button",
+																"data-trickroom-role": "branch",
+																"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																"data-trickroom-system-component-id": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
+																"data-trickroom-system-component-instance": "f6318d31-643e-477a-a370-b19764baec39",
+																"data-trickroom-system-component-version": "3",
+																"data-trickroom-system-component-path": "root",
+																"data-trickroom-system-component-root": "true",
+																"data-trickroom-system-component-variant-values": "{\"size\":\"sm\",\"variant\":\"ghost\"}",
+																"data-trickroom-system-component-overrides": "{\"icon\":{\"data-trickroom-icon-id\":\"lucide-static/x\"},\"root\":{\"className\":\"opacity-0 group-hover:opacity-100 ml-auto self-center\"}}",
+																"data-trickroom-system-component-template-hash": "sha256:8705bf4c4cbbe81e66710aebd6aa0dead5a8125120db8e8342bed5c052965fec",
+																"data-trickroom-system-component-variant-schema-hash": "sha256:ab1b9111843c4448a121f3e7c99e75666f9b0fb29b3ae83ded268f6d79ba34be",
+																"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 size-8 text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900 opacity-0 group-hover:opacity-100 ml-auto self-center"
+															},
+															"children": [
+																{
+																	"id": "354888e7-2a91-4830-81cd-8aaa29f932ca",
+																	"props": {
+																		"data-trickroom-icon-id": "lucide-static/x",
+																		"aria-label": "",
+																		"data-trickroom-name": "Icon",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "icon",
+																		"data-trickroom-role": "leaf",
+																		"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																		"data-trickroom-system-component-id": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
+																		"data-trickroom-system-component-instance": "f6318d31-643e-477a-a370-b19764baec39",
+																		"data-trickroom-system-component-version": "3",
+																		"data-trickroom-system-component-path": "icon",
+																		"className": "size-4"
+																	},
+																	"children": []
+																}
+															]
+														}
+													]
+												},
+												{
+													"id": "f5297eb0-f62f-498c-ae53-fcea48ebeef8",
+													"props": {
+														"data-trickroom-name": "Container",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "container",
+														"data-trickroom-role": "branch",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_a91c5bcb-2bec-452d-a24c-5d10c4ca6fe5",
+														"data-trickroom-system-component-instance": "075a6b3b-5f3c-42f6-a0b4-9399e665405f",
+														"data-trickroom-system-component-version": "2",
+														"data-trickroom-system-component-path": "root",
+														"data-trickroom-system-component-root": "true",
+														"data-trickroom-system-component-slot": "content",
+														"data-trickroom-system-component-variant-values": "{\"state\":\"default\"}",
+														"data-trickroom-system-component-overrides": "{\"root\":{\"className\":\"group\"}}",
+														"data-trickroom-system-component-template-hash": "sha256:83b08945a84bb55c362b4f1dcf8d98684a3b3527ca7b3bfab0e46607efd10607",
+														"data-trickroom-system-component-variant-schema-hash": "sha256:56d14166b82484f6e9387667632ee94eacf54c99ba6c6659573a076ad917d616",
+														"className": "flex w-full items-stretch rounded-none hover:bg-slate-100 group"
+													},
+													"children": [
+														{
+															"id": "a365a107-3cab-4a9d-b7a7-35c36c669e79",
+															"props": {
+																"data-trickroom-name": "Container",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "container",
+																"data-trickroom-role": "branch",
+																"className": "flex min-w-0 flex-1 flex-col gap-0.5 px-2 py-2"
+															},
+															"children": [
+																{
+																	"id": "dffbaf69-2135-4b69-9ab7-9a0a25f439de",
+																	"props": {
+																		"data-trickroom-name": "Text",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "truncate text-sm text-slate-950"
+																	},
+																	"children": "acme-dashboard"
+																},
+																{
+																	"id": "a2f26d09-6643-4ad4-a108-8f4aae183bf9",
+																	"props": {
+																		"data-trickroom-name": "Text",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "truncate font-mono text-[10px] text-slate-600"
+																	},
+																	"children": "~/work/acme/dashboard"
+																}
+															]
+														},
+														{
+															"id": "b0c976fb-c853-4464-9c78-10a044818b94",
+															"props": {
+																"type": "button",
+																"disabled": false,
+																"data-trickroom-name": "Button",
+																"data-trickroom-library": "base-ui",
+																"data-trickroom-component": "button",
+																"data-trickroom-role": "branch",
+																"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																"data-trickroom-system-component-id": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
+																"data-trickroom-system-component-instance": "4c617e2f-e9b2-46f6-b8ce-3596f9c84511",
+																"data-trickroom-system-component-version": "3",
+																"data-trickroom-system-component-path": "root",
+																"data-trickroom-system-component-root": "true",
+																"data-trickroom-system-component-variant-values": "{\"size\":\"sm\",\"variant\":\"ghost\"}",
+																"data-trickroom-system-component-overrides": "{\"icon\":{\"data-trickroom-icon-id\":\"lucide-static/x\"},\"root\":{\"className\":\"opacity-0 group-hover:opacity-100 ml-auto self-center\"}}",
+																"data-trickroom-system-component-template-hash": "sha256:8705bf4c4cbbe81e66710aebd6aa0dead5a8125120db8e8342bed5c052965fec",
+																"data-trickroom-system-component-variant-schema-hash": "sha256:ab1b9111843c4448a121f3e7c99e75666f9b0fb29b3ae83ded268f6d79ba34be",
+																"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 size-8 text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900 opacity-0 group-hover:opacity-100 ml-auto self-center"
+															},
+															"children": [
+																{
+																	"id": "c43b40ce-d82a-45ff-ab03-99b86fb12f3c",
+																	"props": {
+																		"data-trickroom-icon-id": "lucide-static/x",
+																		"aria-label": "",
+																		"data-trickroom-name": "Icon",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "icon",
+																		"data-trickroom-role": "leaf",
+																		"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																		"data-trickroom-system-component-id": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
+																		"data-trickroom-system-component-instance": "4c617e2f-e9b2-46f6-b8ce-3596f9c84511",
+																		"data-trickroom-system-component-version": "3",
+																		"data-trickroom-system-component-path": "icon",
+																		"className": "size-4"
+																	},
+																	"children": []
+																}
+															]
+														}
+													]
+												}
+											]
+										}
+									]
+								},
+								{
+									"id": "88660e15-7df6-4d1b-bf75-b2c5c2406718",
+									"props": {
+										"data-trickroom-name": "Utility",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "border-t border-slate-200 px-5 py-4"
+									},
+									"children": [
+										{
+											"id": "2f53962a-1d71-4738-8751-df9deae15de7",
+											"props": {
+												"type": "button",
+												"disabled": false,
+												"data-trickroom-name": "Button",
+												"data-trickroom-library": "base-ui",
+												"data-trickroom-component": "button",
+												"data-trickroom-role": "branch",
+												"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+												"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+												"data-trickroom-system-component-instance": "ed800268-9453-497d-9cfe-ef10e1029d43",
+												"data-trickroom-system-component-version": "4",
+												"data-trickroom-system-component-path": "root",
+												"data-trickroom-system-component-root": "true",
+												"data-trickroom-system-component-slot": "button",
+												"data-trickroom-system-component-variant-values": "{\"variant\":\"outlined\",\"width\":\"full\"}",
+												"data-trickroom-system-component-overrides": "{\"label\":{\"text\":\"MCP Setup\"}}",
+												"data-trickroom-system-component-template-hash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+												"data-trickroom-system-component-variant-schema-hash": "sha256:0ca128f9f8cfb78a0b67a68d1d6184db89d33f36fae9de764c0ea9f6caf84ced",
+												"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-300 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900 w-full"
+											},
+											"children": [
+												{
+													"id": "f95b900f-946b-4e3e-b14b-303c9fb43754",
+													"props": {
+														"data-trickroom-name": "Text",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "text",
+														"data-trickroom-role": "text",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+														"data-trickroom-system-component-instance": "ed800268-9453-497d-9cfe-ef10e1029d43",
+														"data-trickroom-system-component-version": "4",
+														"data-trickroom-system-component-path": "label"
+													},
+													"children": "MCP Setup"
+												}
+											]
+										}
+									]
+								}
+							]
+						},
+						{
+							"id": "183ead46-6b03-42f0-8c3a-8252972a06a1",
+							"props": {
+								"data-trickroom-name": "Main (form)",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "container",
+								"data-trickroom-role": "branch",
+								"className": "flex flex-1 flex-col"
+							},
+							"children": [
+								{
+									"id": "a480ff6a-65c7-461c-bff1-5885c45c584d",
+									"props": {
+										"data-trickroom-name": "Form header",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex min-h-20 flex-col justify-center gap-1 border-b border-slate-200 px-8"
+									},
+									"children": [
+										{
+											"id": "765e79a6-adff-44ed-93db-a81ed0e20de6",
+											"props": {
+												"data-trickroom-name": "Eyebrow",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "text",
+												"data-trickroom-role": "text",
+												"className": "font-mono text-[10px] lowercase tracking-normal text-cyan-700"
+											},
+											"children": "New project"
+										},
+										{
+											"id": "f37d79be-b219-4834-9db4-2186d8d5d0b2",
+											"props": {
+												"data-trickroom-name": "Title",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "text",
+												"data-trickroom-role": "text",
+												"className": "text-xl font-medium tracking-tight text-slate-950"
+											},
+											"children": "Create project"
+										}
+									]
+								},
+								{
+									"id": "2118cb89-e588-4e2c-a1fb-fc98e44dbb1a",
+									"props": {
+										"data-trickroom-name": "Form body",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex flex-1 flex-col gap-6 px-8 py-6"
+									},
+									"children": [
+										{
+											"id": "47a781bc-b84a-4bcc-8b25-22af358e1c98",
+											"props": {
+												"data-trickroom-name": "Step 1",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"className": "flex flex-col gap-4"
+											},
+											"children": [
+												{
+													"id": "2306e7ae-a80d-40ac-9c34-d02bc23bf30f",
+													"props": {
+														"data-trickroom-name": "Step 1 header",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "container",
+														"data-trickroom-role": "branch",
+														"className": "flex items-center gap-2"
+													},
+													"children": [
+														{
+															"id": "34b350ce-90d0-41ca-992d-e05caff786bb",
+															"props": {
+																"data-trickroom-name": "Num",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "container",
+																"data-trickroom-role": "branch",
+																"className": "flex size-5 shrink-0 items-center justify-center bg-slate-950 font-mono text-[10px] text-slate-50"
+															},
+															"children": [
+																{
+																	"id": "ef5aadbd-7558-4811-997d-0a6ba1ea35b0",
+																	"props": {
+																		"data-trickroom-name": "n",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text"
+																	},
+																	"children": "1"
+																}
+															]
+														},
+														{
+															"id": "c44f1b16-2a9e-4407-9da1-fba505e87244",
+															"props": {
+																"data-trickroom-name": "Step title",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "text",
+																"data-trickroom-role": "text",
+																"className": "text-sm font-semibold text-slate-950"
+															},
+															"children": "Project"
+														}
+													]
+												},
+												{
+													"id": "82db2f2a-2822-4b16-9965-82af68fec9f8",
+													"props": {
+														"data-trickroom-name": "Name field",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "container",
+														"data-trickroom-role": "branch",
+														"className": "flex flex-col gap-1.5"
+													},
+													"children": [
+														{
+															"id": "371ea640-e1ae-4e86-9f1a-a636c117c750",
+															"props": {
+																"data-trickroom-name": "label",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "text",
+																"data-trickroom-role": "text",
+																"className": "text-xs text-slate-600"
+															},
+															"children": "Project name"
+														},
+														{
+															"id": "274ac44f-12a1-4fd6-9873-d088568cde9f",
+															"props": {
+																"data-trickroom-name": "input",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "container",
+																"data-trickroom-role": "branch",
+																"className": "flex items-center px-3 py-2 text-sm text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
+															},
+															"children": [
+																{
+																	"id": "9d80a760-8188-443d-a64e-6d0a3f0efc26",
+																	"props": {
+																		"data-trickroom-name": "value",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text"
+																	},
+																	"children": "acme-dashboard"
+																}
+															]
+														}
+													]
+												},
+												{
+													"id": "eeede60c-052b-477a-9375-8500fea09cb4",
+													"props": {
+														"data-trickroom-name": "Location field",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "container",
+														"data-trickroom-role": "branch",
+														"className": "flex flex-col gap-1.5"
+													},
+													"children": [
+														{
+															"id": "e6363be6-6616-449a-915d-af68447123f9",
+															"props": {
+																"data-trickroom-name": "label",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "text",
+																"data-trickroom-role": "text",
+																"className": "text-xs text-slate-600"
+															},
+															"children": "Location"
+														},
+														{
+															"id": "0375cc4c-b977-4b35-b503-de1147880c92",
+															"props": {
+																"data-trickroom-name": "Compound",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "container",
+																"data-trickroom-role": "branch",
+																"className": "flex items-stretch inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
+															},
+															"children": [
+																{
+																	"id": "1a770934-27bf-4015-b138-59c693cf63d4",
+																	"props": {
+																		"data-trickroom-name": "input",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "container",
+																		"data-trickroom-role": "branch",
+																		"className": "flex flex-1 items-center px-3 py-2"
+																	},
+																	"children": [
+																		{
+																			"id": "0765ce6e-4631-44a0-a3d8-a8a05f6510ca",
+																			"props": {
+																				"data-trickroom-name": "value",
+																				"data-trickroom-library": "trickroom",
+																				"data-trickroom-component": "text",
+																				"data-trickroom-role": "text",
+																				"className": "truncate font-mono text-xs text-slate-600"
+																			},
+																			"children": "~/work/acme-dashboard"
+																		}
+																	]
+																},
+																{
+																	"id": "cb5e4293-71b3-4718-b301-a54ccaf9d310",
+																	"props": {
+																		"type": "button",
+																		"disabled": false,
+																		"data-trickroom-name": "Button",
+																		"data-trickroom-library": "base-ui",
+																		"data-trickroom-component": "button",
+																		"data-trickroom-role": "branch",
+																		"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																		"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+																		"data-trickroom-system-component-instance": "15e03229-9cfd-42d3-ade4-ce1250637b6c",
+																		"data-trickroom-system-component-version": "4",
+																		"data-trickroom-system-component-path": "root",
+																		"data-trickroom-system-component-root": "true",
+																		"data-trickroom-system-component-slot": "button",
+																		"data-trickroom-system-component-variant-values": "{\"variant\":\"ghost\",\"width\":\"auto\"}",
+																		"data-trickroom-system-component-overrides": "{\"label\":{\"text\":\"Browse\"},\"root\":{\"className\":\"border-l border-slate-200\"}}",
+																		"data-trickroom-system-component-template-hash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+																		"data-trickroom-system-component-variant-schema-hash": "sha256:0ca128f9f8cfb78a0b67a68d1d6184db89d33f36fae9de764c0ea9f6caf84ced",
+																		"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 text-slate-600 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900 border-l border-slate-200"
+																	},
+																	"children": [
+																		{
+																			"id": "b0f51b97-5438-45f1-8de4-68ce5ef2fc47",
+																			"props": {
+																				"data-trickroom-name": "Text",
+																				"data-trickroom-library": "trickroom",
+																				"data-trickroom-component": "text",
+																				"data-trickroom-role": "text",
+																				"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																				"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+																				"data-trickroom-system-component-instance": "15e03229-9cfd-42d3-ade4-ce1250637b6c",
+																				"data-trickroom-system-component-version": "4",
+																				"data-trickroom-system-component-path": "label"
+																			},
+																			"children": "Browse"
+																		}
+																	]
+																}
+															]
+														},
+														{
+															"id": "8da6a530-dedd-4ecb-aa8d-4091182dff02",
+															"props": {
+																"data-trickroom-name": "helper",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "text",
+																"data-trickroom-role": "text",
+																"className": "font-mono text-[10px] text-slate-600"
+															},
+															"children": "Name is suggested from the folder — edit anytime."
+														}
+													]
+												}
+											]
+										},
+										{
+											"id": "3db382c2-8080-4cd5-a598-d9bba59234f2",
+											"props": {
+												"data-trickroom-name": "Step 2",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"className": "flex flex-col gap-2 border-t border-slate-200 pt-5"
+											},
+											"children": [
+												{
+													"id": "558987aa-2c6a-42d9-9efb-55a6d79b569e",
+													"props": {
+														"data-trickroom-name": "Step 2 header",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "container",
+														"data-trickroom-role": "branch",
+														"className": "flex items-center justify-between"
+													},
+													"children": [
+														{
+															"id": "5fe226d5-1023-4b31-9b37-0396396674b5",
+															"props": {
+																"data-trickroom-name": "left",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "container",
+																"data-trickroom-role": "branch",
+																"className": "flex items-center gap-2"
+															},
+															"children": [
+																{
+																	"id": "c8344732-839f-4bfd-85ac-b32a0503cc5a",
+																	"props": {
+																		"data-trickroom-name": "Num",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "container",
+																		"data-trickroom-role": "branch",
+																		"className": "flex size-5 shrink-0 items-center justify-center font-mono text-[10px] text-slate-500 inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
+																	},
+																	"children": [
+																		{
+																			"id": "1ada8454-5157-4bf5-81ab-c3d47f0c7135",
+																			"props": {
+																				"data-trickroom-name": "n",
+																				"data-trickroom-library": "trickroom",
+																				"data-trickroom-component": "text",
+																				"data-trickroom-role": "text"
+																			},
+																			"children": "2"
+																		}
+																	]
+																},
+																{
+																	"id": "35d7d3e4-cdfa-4812-9bad-ffa9276d0cac",
+																	"props": {
+																		"data-trickroom-name": "t",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "text-sm font-medium text-slate-950"
+																	},
+																	"children": "Design system"
+																},
+																{
+																	"id": "409389be-8017-46c5-aa88-d17dbb6bdecd",
+																	"props": {
+																		"data-trickroom-name": "opt",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "font-mono text-[10px] uppercase tracking-wider text-slate-500"
+																	},
+																	"children": "optional"
+																}
+															]
+														},
+														{
+															"id": "213bcc01-0ee8-4c86-8684-c09c323af454",
+															"props": {
+																"type": "button",
+																"disabled": false,
+																"data-trickroom-name": "Button",
+																"data-trickroom-library": "base-ui",
+																"data-trickroom-component": "button",
+																"data-trickroom-role": "branch",
+																"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+																"data-trickroom-system-component-instance": "c343ec7a-084e-459a-87f5-5a8cfcde2c97",
+																"data-trickroom-system-component-version": "5",
+																"data-trickroom-system-component-path": "root",
+																"data-trickroom-system-component-root": "true",
+																"data-trickroom-system-component-slot": "button",
+																"data-trickroom-system-component-variant-values": "{\"variant\":\"link\",\"width\":\"auto\"}",
+																"data-trickroom-system-component-overrides": "{\"label\":{\"text\":\"Add +\"}}",
+																"data-trickroom-system-component-template-hash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+																"data-trickroom-system-component-variant-schema-hash": "sha256:39f3de474463d1033f0cecd77f13854abf79a5d71b815cc29b7e8bf0d8f15d86",
+																"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 text-cyan-700 hover:bg-slate-100 hover:text-cyan-800 active:bg-cyan-100 active:text-cyan-900"
+															},
+															"children": [
+																{
+																	"id": "19773b51-476e-43a6-9ace-f1cd7e763dad",
+																	"props": {
+																		"data-trickroom-name": "Text",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																		"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+																		"data-trickroom-system-component-instance": "c343ec7a-084e-459a-87f5-5a8cfcde2c97",
+																		"data-trickroom-system-component-version": "5",
+																		"data-trickroom-system-component-path": "label"
+																	},
+																	"children": "Add +"
+																}
+															]
+														}
+													]
+												},
+												{
+													"id": "53d532f9-6766-4099-bd14-278dd6cc3256",
+													"props": {
+														"data-trickroom-name": "helper",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "text",
+														"data-trickroom-role": "text",
+														"className": "pl-7 font-mono text-[10px] text-slate-600"
+													},
+													"children": "Link a Tailwind CSS file now, or add one after the project exists."
+												}
+											]
+										}
+									]
+								},
+								{
+									"id": "65412c72-666c-49d3-8839-148c24575d68",
+									"props": {
+										"data-trickroom-name": "Form footer",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex items-center justify-between border-t border-slate-200 px-8 py-4"
+									},
+									"children": [
+										{
+											"id": "16b12f35-1306-4ed9-a558-425b9eb67771",
+											"props": {
+												"data-trickroom-name": "progress",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "text",
+												"data-trickroom-role": "text",
+												"className": "font-mono text-[10px] uppercase tracking-wider text-slate-500"
+											},
+											"children": "Step 1 of 2"
+										},
+										{
+											"id": "620e66ce-8810-4556-9829-4246ae707454",
+											"props": {
+												"data-trickroom-name": "actions",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"className": "flex items-center gap-2"
+											},
+											"children": [
+												{
+													"id": "505421fc-421f-4dbf-b1d7-699ec6a8a03e",
+													"props": {
+														"type": "button",
+														"disabled": false,
+														"data-trickroom-name": "Button",
+														"data-trickroom-library": "base-ui",
+														"data-trickroom-component": "button",
+														"data-trickroom-role": "branch",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+														"data-trickroom-system-component-instance": "f51f642b-bd0e-4268-a664-d36df6dbbcb3",
+														"data-trickroom-system-component-version": "4",
+														"data-trickroom-system-component-path": "root",
+														"data-trickroom-system-component-root": "true",
+														"data-trickroom-system-component-slot": "button",
+														"data-trickroom-system-component-variant-values": "{\"variant\":\"ghost\",\"width\":\"auto\"}",
+														"data-trickroom-system-component-overrides": "{\"label\":{\"text\":\"Cancel\"}}",
+														"data-trickroom-system-component-template-hash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+														"data-trickroom-system-component-variant-schema-hash": "sha256:0ca128f9f8cfb78a0b67a68d1d6184db89d33f36fae9de764c0ea9f6caf84ced",
+														"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 text-slate-600 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
+													},
+													"children": [
+														{
+															"id": "37b54f0a-f1c7-4e5f-ab2c-eb70dbeafcca",
+															"props": {
+																"data-trickroom-name": "Text",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "text",
+																"data-trickroom-role": "text",
+																"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+																"data-trickroom-system-component-instance": "f51f642b-bd0e-4268-a664-d36df6dbbcb3",
+																"data-trickroom-system-component-version": "4",
+																"data-trickroom-system-component-path": "label"
+															},
+															"children": "Cancel"
+														}
+													]
+												},
+												{
+													"id": "26373e4a-9ee9-450e-891d-4d331a08f49e",
+													"props": {
+														"type": "button",
+														"disabled": false,
+														"data-trickroom-name": "Button",
+														"data-trickroom-library": "base-ui",
+														"data-trickroom-component": "button",
+														"data-trickroom-role": "branch",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+														"data-trickroom-system-component-instance": "f85416e2-ec69-4a5b-97db-4f002b700b95",
+														"data-trickroom-system-component-version": "4",
+														"data-trickroom-system-component-path": "root",
+														"data-trickroom-system-component-root": "true",
+														"data-trickroom-system-component-slot": "button",
+														"data-trickroom-system-component-variant-values": "{\"variant\":\"filled\",\"width\":\"auto\"}",
+														"data-trickroom-system-component-overrides": "{\"label\":{\"text\":\"Create project\"}}",
+														"data-trickroom-system-component-template-hash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+														"data-trickroom-system-component-variant-schema-hash": "sha256:0ca128f9f8cfb78a0b67a68d1d6184db89d33f36fae9de764c0ea9f6caf84ced",
+														"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
+													},
+													"children": [
+														{
+															"id": "bc674207-bee2-4c25-a676-4155a15fd80d",
+															"props": {
+																"data-trickroom-name": "Text",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "text",
+																"data-trickroom-role": "text",
+																"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+																"data-trickroom-system-component-instance": "f85416e2-ec69-4a5b-97db-4f002b700b95",
+																"data-trickroom-system-component-version": "4",
+																"data-trickroom-system-component-path": "label"
+															},
+															"children": "Create project"
+														}
+													]
+												}
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		{
+			"id": "2c52f606-933c-4592-b5af-def6b5063ee9",
+			"props": {
+				"data-trickroom-name": "Create — dialog over open project",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				"className": "relative flex min-h-screen w-full flex-col bg-slate-50 text-slate-950"
+			},
+			"children": [
+				{
+					"id": "b2faa974-d948-4d54-9563-1d863847b7a4",
+					"props": {
+						"data-trickroom-name": "App (behind)",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						"className": "flex flex-1 flex-col"
+					},
+					"children": [
+						{
+							"id": "6c1d32a1-9c39-4ec2-ad10-17bc4ecc142a",
+							"props": {
+								"data-trickroom-name": "Topbar",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "container",
+								"data-trickroom-role": "branch",
+								"className": "flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-4"
+							},
+							"children": [
+								{
+									"id": "8e54ad00-6ded-4dd7-97ff-a86b878f7183",
+									"props": {
+										"data-trickroom-name": "Mark",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "size-5 shrink-0 bg-cyan-600"
+									},
+									"children": []
+								},
+								{
+									"id": "8dc2541d-79d1-45e3-a45e-cc7bba11e7d2",
+									"props": {
+										"data-trickroom-name": "Project",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "text",
+										"data-trickroom-role": "text",
+										"className": "text-sm font-medium text-slate-950"
+									},
+									"children": "acme-dashboard"
+								},
+								{
+									"id": "f54dfc70-6cdd-4c12-a16e-06f58d9bac56",
+									"props": {
+										"data-trickroom-name": "Spacer",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex-1"
+									},
+									"children": []
+								},
+								{
+									"id": "87f1e936-207f-47f8-9df1-9fe2d8375204",
+									"props": {
+										"data-trickroom-name": "MCP status",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex items-center gap-1.5"
+									},
+									"children": [
+										{
+											"id": "25ab392d-2a0e-4599-b025-63cd5163291c",
+											"props": {
+												"data-trickroom-name": "Container",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"className": "inline-block size-2 rounded-full bg-emerald-500",
+												"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+												"data-trickroom-system-component-id": "cmp_bc215dcb-876e-4a66-8fa1-b66a54d4c02f",
+												"data-trickroom-system-component-instance": "2268a7d0-e39c-403d-8f87-10f41f11b54e",
+												"data-trickroom-system-component-version": "1",
+												"data-trickroom-system-component-path": "root",
+												"data-trickroom-system-component-root": "true",
+												"data-trickroom-system-component-variant-values": "{\"tone\":\"synced\"}",
+												"data-trickroom-system-component-overrides": "{}",
+												"data-trickroom-system-component-template-hash": "sha256:da2184aea647cd9909a6244083738780c16733c1f499af9bce393cd8487bf5f4",
+												"data-trickroom-system-component-variant-schema-hash": "sha256:4ec5dfbe5cfc4bf19291f0693c002aaad73784410e8929c6bb4a56b5b2924efe"
+											},
+											"children": []
+										},
+										{
+											"id": "a8e832b1-eb11-4379-ab41-283a07195586",
+											"props": {
+												"data-trickroom-name": "l",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "text",
+												"data-trickroom-role": "text",
+												"className": "font-mono text-[10px] uppercase tracking-wider text-slate-500"
+											},
+											"children": "MCP"
+										}
+									]
+								}
+							]
+						},
+						{
+							"id": "b13aa6b7-80c9-4cf0-a3e1-2ee7c7b50c1f",
+							"props": {
+								"data-trickroom-name": "App body",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "container",
+								"data-trickroom-role": "branch",
+								"className": "flex flex-1"
+							},
+							"children": [
+								{
+									"id": "f0eb73c0-8052-4a59-ab76-7fb9718119be",
+									"props": {
+										"data-trickroom-name": "Rail",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "w-64 shrink-0 border-r border-slate-200 bg-slate-50"
+									},
+									"children": []
+								},
+								{
+									"id": "a22e6f4c-0baf-41a8-b857-f06f4a662657",
+									"props": {
+										"data-trickroom-name": "Canvas",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex-1 bg-slate-100"
+									},
+									"children": []
+								}
+							]
+						}
+					]
+				},
+				{
+					"id": "c4402809-3dfd-407f-8dbb-a052b3a6304c",
+					"props": {
+						"data-trickroom-name": "Scrim",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						"className": "absolute inset-0 bg-slate-950/50"
+					},
+					"children": []
+				},
+				{
+					"id": "68bcd7b8-3f30-4b5b-893e-45998d310946",
+					"props": {
+						"data-trickroom-name": "Dialog layer",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						"className": "absolute inset-0 flex items-center justify-center p-6"
+					},
+					"children": [
+						{
+							"id": "4b599594-8822-4af3-94fb-e17e372fe1aa",
+							"props": {
+								"data-trickroom-name": "Dialog",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "container",
+								"data-trickroom-role": "branch",
+								"className": "flex w-full max-w-xl flex-col bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200 shadow-2xl shadow-slate-950/30"
+							},
+							"children": [
+								{
+									"id": "5efb3dad-1102-41a0-a622-3a5434083df1",
+									"props": {
+										"data-trickroom-name": "Header",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex items-start justify-between border-b border-slate-200 px-6 py-5"
+									},
+									"children": [
+										{
+											"id": "fa858068-f2ee-440a-9fd9-c85aed1043e3",
+											"props": {
+												"data-trickroom-name": "Titles",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"className": "flex flex-col gap-1"
+											},
+											"children": [
+												{
+													"id": "8eee7ca4-8a09-4078-8984-676d0b26fe96",
+													"props": {
+														"data-trickroom-name": "Eyebrow",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "text",
+														"data-trickroom-role": "text",
+														"className": "font-mono text-[10px] lowercase tracking-normal text-cyan-700"
+													},
+													"children": "New project"
+												},
+												{
+													"id": "533ada56-0a46-464c-9d10-a75948f322d3",
+													"props": {
+														"data-trickroom-name": "Title",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "text",
+														"data-trickroom-role": "text",
+														"className": "text-xl font-medium tracking-tight text-slate-950"
+													},
+													"children": "Create project"
+												}
+											]
+										},
+										{
+											"id": "137c1ad6-7e65-4d14-9eca-c50c26fd85b1",
+											"props": {
+												"type": "button",
+												"disabled": false,
+												"data-trickroom-name": "Button",
+												"data-trickroom-library": "base-ui",
+												"data-trickroom-component": "button",
+												"data-trickroom-role": "branch",
+												"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+												"data-trickroom-system-component-id": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
+												"data-trickroom-system-component-instance": "3d6ec197-ff7e-4861-99bf-f3942feef8ed",
+												"data-trickroom-system-component-version": "2",
+												"data-trickroom-system-component-path": "root",
+												"data-trickroom-system-component-root": "true",
+												"data-trickroom-system-component-variant-values": "{\"size\":\"sm\",\"variant\":\"ghost\"}",
+												"data-trickroom-system-component-overrides": "{\"icon\":{\"data-trickroom-icon-id\":\"lucide-static/x\"}}",
+												"data-trickroom-system-component-template-hash": "sha256:f910c673238e0ded0ca729a0b2be29ab49a1125a7b644ec8ba7d6d0f598b7ac4",
+												"data-trickroom-system-component-variant-schema-hash": "sha256:ab1b9111843c4448a121f3e7c99e75666f9b0fb29b3ae83ded268f6d79ba34be",
+												"className": "inline-flex items-center justify-center rounded-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 size-8 text-slate-500 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
+											},
+											"children": [
+												{
+													"id": "1bb67ccd-fbe2-4742-a52d-b6bd381271a9",
+													"props": {
+														"data-trickroom-icon-id": "lucide-static/x",
+														"aria-label": "",
+														"data-trickroom-name": "Icon",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "icon",
+														"data-trickroom-role": "leaf",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_d470b1df-1388-4e36-b7c2-fff8faf38759",
+														"data-trickroom-system-component-instance": "3d6ec197-ff7e-4861-99bf-f3942feef8ed",
+														"data-trickroom-system-component-version": "2",
+														"data-trickroom-system-component-path": "icon",
+														"className": "size-4"
+													},
+													"children": []
+												}
+											]
+										}
+									]
+								},
+								{
+									"id": "c8692f55-7ebb-4199-a7e6-831f5110ac2f",
+									"props": {
+										"data-trickroom-name": "Body",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex flex-col gap-6 px-6 py-6"
+									},
+									"children": [
+										{
+											"id": "072bc040-d88e-4c35-be07-61c4a50156c1",
+											"props": {
+												"data-trickroom-name": "Step 1",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"className": "flex flex-col gap-4"
+											},
+											"children": [
+												{
+													"id": "76a83de5-63bf-42cd-8f3b-184cc29f22c4",
+													"props": {
+														"data-trickroom-name": "Step 1 header",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "container",
+														"data-trickroom-role": "branch",
+														"className": "flex items-center gap-2"
+													},
+													"children": [
+														{
+															"id": "a681f8f1-8dc0-43ec-905d-b81614f97bdb",
+															"props": {
+																"data-trickroom-name": "Num",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "container",
+																"data-trickroom-role": "branch",
+																"className": "flex size-5 shrink-0 items-center justify-center bg-slate-950 font-mono text-[10px] text-slate-50"
+															},
+															"children": [
+																{
+																	"id": "b5916964-b75d-42e1-97c2-a9555743e7ec",
+																	"props": {
+																		"data-trickroom-name": "n",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text"
+																	},
+																	"children": "1"
+																}
+															]
+														},
+														{
+															"id": "40299e21-527d-4310-bb70-20e24e26fb56",
+															"props": {
+																"data-trickroom-name": "Step title",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "text",
+																"data-trickroom-role": "text",
+																"className": "text-sm font-semibold text-slate-950"
+															},
+															"children": "Project"
+														}
+													]
+												},
+												{
+													"id": "9664a703-ac15-4845-b390-8c3e6ff977ef",
+													"props": {
+														"data-trickroom-name": "Name field",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "container",
+														"data-trickroom-role": "branch",
+														"className": "flex flex-col gap-1.5"
+													},
+													"children": [
+														{
+															"id": "d2f915f5-e4eb-4990-bdad-2d7fef9a4758",
+															"props": {
+																"data-trickroom-name": "label",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "text",
+																"data-trickroom-role": "text",
+																"className": "text-xs text-slate-600"
+															},
+															"children": "Project name"
+														},
+														{
+															"id": "1da0f2e8-3a7a-4b2e-b36f-f1bdc2a31be6",
+															"props": {
+																"data-trickroom-name": "input",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "container",
+																"data-trickroom-role": "branch",
+																"className": "flex items-center px-3 py-2 text-sm text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
+															},
+															"children": [
+																{
+																	"id": "563ff0ce-506e-4c30-8885-3bcd3b3818c5",
+																	"props": {
+																		"data-trickroom-name": "value",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text"
+																	},
+																	"children": "acme-dashboard"
+																}
+															]
+														}
+													]
+												},
+												{
+													"id": "c24ca41e-7cb8-4eb8-a662-37d5c39f1586",
+													"props": {
+														"data-trickroom-name": "Location field",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "container",
+														"data-trickroom-role": "branch",
+														"className": "flex flex-col gap-1.5"
+													},
+													"children": [
+														{
+															"id": "90f9ae0c-f110-4c1f-8219-f122a23d3159",
+															"props": {
+																"data-trickroom-name": "label",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "text",
+																"data-trickroom-role": "text",
+																"className": "text-xs text-slate-600"
+															},
+															"children": "Location"
+														},
+														{
+															"id": "bae034f2-066d-42b3-8445-9c1e83571673",
+															"props": {
+																"data-trickroom-name": "Compound",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "container",
+																"data-trickroom-role": "branch",
+																"className": "flex items-stretch inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
+															},
+															"children": [
+																{
+																	"id": "255600f3-8fd4-4eef-9b9c-6ba62b9e148f",
+																	"props": {
+																		"data-trickroom-name": "input",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "container",
+																		"data-trickroom-role": "branch",
+																		"className": "flex flex-1 items-center px-3 py-2"
+																	},
+																	"children": [
+																		{
+																			"id": "caa43627-0785-4cd7-8e9b-86e73e5a9e49",
+																			"props": {
+																				"data-trickroom-name": "value",
+																				"data-trickroom-library": "trickroom",
+																				"data-trickroom-component": "text",
+																				"data-trickroom-role": "text",
+																				"className": "truncate font-mono text-xs text-slate-600"
+																			},
+																			"children": "~/work/acme-dashboard"
+																		}
+																	]
+																},
+																{
+																	"id": "ba4549a4-43b3-4baa-a2d9-9d7bae559d62",
+																	"props": {
+																		"type": "button",
+																		"disabled": false,
+																		"data-trickroom-name": "Button",
+																		"data-trickroom-library": "base-ui",
+																		"data-trickroom-component": "button",
+																		"data-trickroom-role": "branch",
+																		"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																		"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+																		"data-trickroom-system-component-instance": "e3791491-18c8-4940-af05-98a36bd6a102",
+																		"data-trickroom-system-component-version": "4",
+																		"data-trickroom-system-component-path": "root",
+																		"data-trickroom-system-component-root": "true",
+																		"data-trickroom-system-component-slot": "button",
+																		"data-trickroom-system-component-variant-values": "{\"variant\":\"ghost\",\"width\":\"auto\"}",
+																		"data-trickroom-system-component-overrides": "{\"label\":{\"text\":\"Browse\"},\"root\":{\"className\":\"border-l border-slate-200\"}}",
+																		"data-trickroom-system-component-template-hash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+																		"data-trickroom-system-component-variant-schema-hash": "sha256:0ca128f9f8cfb78a0b67a68d1d6184db89d33f36fae9de764c0ea9f6caf84ced",
+																		"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 text-slate-600 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900 border-l border-slate-200"
+																	},
+																	"children": [
+																		{
+																			"id": "0dcb7fe1-1ea9-4bfe-af39-7dabdbab9fe8",
+																			"props": {
+																				"data-trickroom-name": "Text",
+																				"data-trickroom-library": "trickroom",
+																				"data-trickroom-component": "text",
+																				"data-trickroom-role": "text",
+																				"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																				"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+																				"data-trickroom-system-component-instance": "e3791491-18c8-4940-af05-98a36bd6a102",
+																				"data-trickroom-system-component-version": "4",
+																				"data-trickroom-system-component-path": "label"
+																			},
+																			"children": "Browse"
+																		}
+																	]
+																}
+															]
+														},
+														{
+															"id": "3b52dc46-b9f1-4582-a53f-4e6b52e44d98",
+															"props": {
+																"data-trickroom-name": "helper",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "text",
+																"data-trickroom-role": "text",
+																"className": "font-mono text-[10px] text-slate-600"
+															},
+															"children": "Name is suggested from the folder — edit anytime."
+														}
+													]
+												}
+											]
+										},
+										{
+											"id": "59d5b8dd-dd90-45e6-bff5-8e09d3262cff",
+											"props": {
+												"data-trickroom-name": "Step 2",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"className": "flex flex-col gap-2 border-t border-slate-200 pt-5"
+											},
+											"children": [
+												{
+													"id": "0ac7be65-7758-4106-840e-7767e9aaa0ba",
+													"props": {
+														"data-trickroom-name": "Step 2 header",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "container",
+														"data-trickroom-role": "branch",
+														"className": "flex items-center justify-between"
+													},
+													"children": [
+														{
+															"id": "0d8ef935-b9fc-4cd6-8845-36ec104b49f8",
+															"props": {
+																"data-trickroom-name": "left",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "container",
+																"data-trickroom-role": "branch",
+																"className": "flex items-center gap-2"
+															},
+															"children": [
+																{
+																	"id": "b862a7ee-40a6-4bda-920d-c40769a9e05e",
+																	"props": {
+																		"data-trickroom-name": "Num",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "container",
+																		"data-trickroom-role": "branch",
+																		"className": "flex size-5 shrink-0 items-center justify-center font-mono text-[10px] text-slate-500 inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
+																	},
+																	"children": [
+																		{
+																			"id": "e742c9a6-2388-4f2f-b9f8-79aee7f46271",
+																			"props": {
+																				"data-trickroom-name": "n",
+																				"data-trickroom-library": "trickroom",
+																				"data-trickroom-component": "text",
+																				"data-trickroom-role": "text"
+																			},
+																			"children": "2"
+																		}
+																	]
+																},
+																{
+																	"id": "e8efb075-701b-4fdd-b313-1f3e0c3e5758",
+																	"props": {
+																		"data-trickroom-name": "t",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "text-sm font-medium text-slate-950"
+																	},
+																	"children": "Design system"
+																},
+																{
+																	"id": "cc071c80-0baa-42f9-a1ea-c477870c43c5",
+																	"props": {
+																		"data-trickroom-name": "opt",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"className": "font-mono text-[10px] uppercase tracking-wider text-slate-500"
+																	},
+																	"children": "optional"
+																}
+															]
+														},
+														{
+															"id": "3bd32f23-00ce-45f5-bf10-dfe7a05cde14",
+															"props": {
+																"type": "button",
+																"disabled": false,
+																"data-trickroom-name": "Button",
+																"data-trickroom-library": "base-ui",
+																"data-trickroom-component": "button",
+																"data-trickroom-role": "branch",
+																"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+																"data-trickroom-system-component-instance": "f7c6e3a3-17a7-48f5-aa9e-3ba7ca33ff4a",
+																"data-trickroom-system-component-version": "5",
+																"data-trickroom-system-component-path": "root",
+																"data-trickroom-system-component-root": "true",
+																"data-trickroom-system-component-slot": "button",
+																"data-trickroom-system-component-variant-values": "{\"variant\":\"link\",\"width\":\"auto\"}",
+																"data-trickroom-system-component-overrides": "{\"label\":{\"text\":\"Add +\"}}",
+																"data-trickroom-system-component-template-hash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+																"data-trickroom-system-component-variant-schema-hash": "sha256:39f3de474463d1033f0cecd77f13854abf79a5d71b815cc29b7e8bf0d8f15d86",
+																"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 text-cyan-700 hover:bg-slate-100 hover:text-cyan-800 active:bg-cyan-100 active:text-cyan-900"
+															},
+															"children": [
+																{
+																	"id": "eb791225-2917-417b-9951-a366b6d832e1",
+																	"props": {
+																		"data-trickroom-name": "Text",
+																		"data-trickroom-library": "trickroom",
+																		"data-trickroom-component": "text",
+																		"data-trickroom-role": "text",
+																		"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																		"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+																		"data-trickroom-system-component-instance": "f7c6e3a3-17a7-48f5-aa9e-3ba7ca33ff4a",
+																		"data-trickroom-system-component-version": "5",
+																		"data-trickroom-system-component-path": "label"
+																	},
+																	"children": "Add +"
+																}
+															]
+														}
+													]
+												},
+												{
+													"id": "a1a21e00-f790-4669-930d-1ae39971420d",
+													"props": {
+														"data-trickroom-name": "helper",
+														"data-trickroom-library": "trickroom",
+														"data-trickroom-component": "text",
+														"data-trickroom-role": "text",
+														"className": "pl-7 font-mono text-[10px] text-slate-600"
+													},
+													"children": "Link a Tailwind CSS file now, or add one after the project exists."
+												}
+											]
+										}
+									]
+								},
+								{
+									"id": "e144e20e-9075-4fb6-8781-73b0016ad86c",
+									"props": {
+										"data-trickroom-name": "Footer",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "container",
+										"data-trickroom-role": "branch",
+										"className": "flex items-center justify-between border-t border-slate-200 px-6 py-4"
+									},
+									"children": [
+										{
+											"id": "e33e552b-e2da-43d9-851b-90f5295299b5",
+											"props": {
+												"data-trickroom-name": "progress",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "text",
+												"data-trickroom-role": "text",
+												"className": "font-mono text-[10px] uppercase tracking-wider text-slate-500"
+											},
+											"children": "Step 1 of 2"
+										},
+										{
+											"id": "d667d73a-8091-47bd-b778-cc0c50441340",
+											"props": {
+												"data-trickroom-name": "actions",
+												"data-trickroom-library": "trickroom",
+												"data-trickroom-component": "container",
+												"data-trickroom-role": "branch",
+												"className": "flex items-center gap-2"
+											},
+											"children": [
+												{
+													"id": "a24d22a2-c65f-4d54-bf0f-899a75fbd714",
+													"props": {
+														"type": "button",
+														"disabled": false,
+														"data-trickroom-name": "Button",
+														"data-trickroom-library": "base-ui",
+														"data-trickroom-component": "button",
+														"data-trickroom-role": "branch",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+														"data-trickroom-system-component-instance": "df5956a4-2af5-4c11-a5a5-cf290b28c10b",
+														"data-trickroom-system-component-version": "4",
+														"data-trickroom-system-component-path": "root",
+														"data-trickroom-system-component-root": "true",
+														"data-trickroom-system-component-slot": "button",
+														"data-trickroom-system-component-variant-values": "{\"variant\":\"ghost\",\"width\":\"auto\"}",
+														"data-trickroom-system-component-overrides": "{\"label\":{\"text\":\"Cancel\"}}",
+														"data-trickroom-system-component-template-hash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+														"data-trickroom-system-component-variant-schema-hash": "sha256:0ca128f9f8cfb78a0b67a68d1d6184db89d33f36fae9de764c0ea9f6caf84ced",
+														"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 text-slate-600 hover:bg-slate-100 hover:text-slate-950 active:bg-cyan-100 active:text-cyan-900"
+													},
+													"children": [
+														{
+															"id": "a7e7aa78-1f05-4a23-b13a-7d799fbf33a9",
+															"props": {
+																"data-trickroom-name": "Text",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "text",
+																"data-trickroom-role": "text",
+																"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+																"data-trickroom-system-component-instance": "df5956a4-2af5-4c11-a5a5-cf290b28c10b",
+																"data-trickroom-system-component-version": "4",
+																"data-trickroom-system-component-path": "label"
+															},
+															"children": "Cancel"
+														}
+													]
+												},
+												{
+													"id": "2513bc39-cde7-42c7-a895-ee223d6a0c25",
+													"props": {
+														"type": "button",
+														"disabled": false,
+														"data-trickroom-name": "Button",
+														"data-trickroom-library": "base-ui",
+														"data-trickroom-component": "button",
+														"data-trickroom-role": "branch",
+														"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+														"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+														"data-trickroom-system-component-instance": "cdc2e55e-3ff6-4d96-8311-f99742836dd0",
+														"data-trickroom-system-component-version": "4",
+														"data-trickroom-system-component-path": "root",
+														"data-trickroom-system-component-root": "true",
+														"data-trickroom-system-component-slot": "button",
+														"data-trickroom-system-component-variant-values": "{\"variant\":\"filled\",\"width\":\"auto\"}",
+														"data-trickroom-system-component-overrides": "{\"label\":{\"text\":\"Create project\"}}",
+														"data-trickroom-system-component-template-hash": "sha256:2e47aece43be8005025d7ab28de28aa3cdc14cd014855d1658c633a94e13c386",
+														"data-trickroom-system-component-variant-schema-hash": "sha256:0ca128f9f8cfb78a0b67a68d1d6184db89d33f36fae9de764c0ea9f6caf84ced",
+														"className": "inline-flex items-center justify-center gap-1.5 rounded-none px-3 py-2 text-sm font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 bg-slate-950 text-slate-50 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900"
+													},
+													"children": [
+														{
+															"id": "c863acc0-c685-4265-b5c5-18bc1736c02b",
+															"props": {
+																"data-trickroom-name": "Text",
+																"data-trickroom-library": "trickroom",
+																"data-trickroom-component": "text",
+																"data-trickroom-role": "text",
+																"data-trickroom-system-component-system-id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
+																"data-trickroom-system-component-id": "cmp_3008724f-5022-4e5c-b17d-fa4a3800624d",
+																"data-trickroom-system-component-instance": "cdc2e55e-3ff6-4d96-8311-f99742836dd0",
+																"data-trickroom-system-component-version": "4",
+																"data-trickroom-system-component-path": "label"
+															},
+															"children": "Create project"
+														}
+													]
+												}
+											]
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			]
+		}
+	]
+}

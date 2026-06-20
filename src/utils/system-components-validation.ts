@@ -1,12 +1,15 @@
 import type { RecipeTemplateNode } from "../types";
+import { sha256Hex } from "./sha256.ts";
 import {
 	classifyCompoundWhenShape,
 	findDuplicateCompoundWhenSignatures,
 } from "./system-component-compound-shape.ts";
 import { compoundWhenSignature } from "./system-component-compound-signature.ts";
-import { isSystemComponentOverrideCapability } from "./system-component-override-targets.ts";
+import {
+	getRegistryControlOverrideDefinitions,
+	isSystemComponentOverrideCapability,
+} from "./system-component-override-targets.ts";
 import { stableSystemComponentTemplateInput } from "./system-component-template-hash.ts";
-import { sha256Hex } from "./sha256.ts";
 import {
 	assertComponentIdKeyInvariant,
 	isSystemComponentId,
@@ -28,11 +31,8 @@ export type {
 	SystemComponentManifestDiagnosticCode,
 	SystemComponentManifestDiagnosticSeverity,
 } from "./system-components-validation.types";
-import type {
-	SystemComponentManifestDiagnostic,
-	SystemComponentManifestDiagnosticCode,
-	SystemComponentManifestDiagnosticSeverity,
-} from "./system-components-validation.types";
+
+import type { SystemComponentManifestDiagnostic } from "./system-components-validation.types";
 
 export type SystemComponentManifestValidationResult = {
 	valid: boolean;
@@ -274,10 +274,19 @@ const validateSlots = (
 const validateOverrideTargets = (
 	componentId: string,
 	overrideTargets: Record<string, SystemComponentOverrideTarget> | undefined,
+	templateRoot: RecipeTemplateNode,
 	templatePaths: Set<string>,
 	versionIds: Set<string>,
 	diagnostics: SystemComponentManifestDiagnostic[],
 ) => {
+	const templatesByPath = new Map<string, RecipeTemplateNode>();
+	const visitTemplate = (node: RecipeTemplateNode) => {
+		templatesByPath.set(node.path, node);
+		for (const child of node.children ?? []) {
+			visitTemplate(child);
+		}
+	};
+	visitTemplate(templateRoot);
 	const targetIds = new Map<string, string>();
 	for (const [targetKey, target] of Object.entries(overrideTargets ?? {})) {
 		if (targetKey !== target.targetId) {
@@ -329,6 +338,27 @@ const validateOverrideTargets = (
 					message: `Component "${componentId}" override target "${target.targetId}" has unknown capability "${capability}".`,
 				});
 			}
+		}
+		const template = templatesByPath.get(target.path);
+		const allowedProps = new Set(
+			template
+				? getRegistryControlOverrideDefinitions(template).map(
+						(control) => control.prop,
+					)
+				: [],
+		);
+		const seenProps = new Set<string>();
+		for (const prop of target.props ?? []) {
+			if (!prop.trim() || seenProps.has(prop) || !allowedProps.has(prop)) {
+				pushDiagnostic(diagnostics, {
+					code: "INVALID_OVERRIDE_TARGET_PROP",
+					severity: "error",
+					componentId,
+					path: target.path,
+					message: `Component "${componentId}" override target "${target.targetId}" prop "${prop}" must be a unique registry control on template path "${target.path}".`,
+				});
+			}
+			seenProps.add(prop);
 		}
 
 		for (const historyEntry of target.history ?? []) {
@@ -425,7 +455,10 @@ const validateVariantSchema = (
 	for (const [compoundIndex, compoundVariant] of compoundVariants.entries()) {
 		const compoundLabel = `compound variant ${compoundIndex + 1}`;
 		const signature = compoundWhenSignature(compoundVariant.when);
-		const classification = classifyCompoundWhenShape(compoundVariant.when, axes);
+		const classification = classifyCompoundWhenShape(
+			compoundVariant.when,
+			axes,
+		);
 
 		for (const reason of classification.reasons) {
 			const codeByReason = {
@@ -658,6 +691,7 @@ const validateDraftOrPublishedPayload = (
 	validateOverrideTargets(
 		componentId,
 		payload.overrideTargets,
+		payload.root,
 		templatePaths,
 		versionIds,
 		diagnostics,

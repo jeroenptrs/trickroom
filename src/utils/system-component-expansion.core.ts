@@ -1,6 +1,7 @@
 import {
 	getDefaultProps,
 	getDefaultText,
+	isJsonPrimitive,
 	isRegistryId,
 	resolveRegistryComponent,
 } from "../libraries/registry";
@@ -11,7 +12,11 @@ import {
 	getSystemComponentMarkerProps,
 	type SystemComponentInstanceOverrides,
 } from "./system-component-markers.ts";
-import { resolveSystemComponentOverrideValue } from "./system-component-override-targets.ts";
+import {
+	isValidSystemComponentPropOverride,
+	resolveSystemComponentOverrideValue,
+	resolveSystemComponentTargetPropValues,
+} from "./system-component-override-targets.ts";
 
 export {
 	resolveSystemComponentClassName,
@@ -210,10 +215,16 @@ const expandTemplateNode = (
 		"asset",
 		overrides,
 	);
+	const propOverrides = resolveSystemComponentTargetPropValues(
+		resolved.version,
+		template,
+		overrides,
+	);
 	const props = {
 		...getDefaultProps(template.library, template.component, definition, name),
 		...(template.props ?? {}),
 		...classComposition.props,
+		...propOverrides,
 		...(iconOverride !== undefined ? { [iconIdProp]: iconOverride } : {}),
 		...(assetOverride !== undefined ? { [assetIdProp]: assetOverride } : {}),
 		"data-trickroom-name": name,
@@ -292,6 +303,10 @@ export const assertValidSystemComponentInstanceOverrides = (
 	}
 
 	for (const [targetId, override] of Object.entries(overrides)) {
+		const target = version.overrideTargets?.[targetId];
+		if (!target) {
+			continue;
+		}
 		if (
 			override.className !== undefined &&
 			typeof override.className !== "string"
@@ -320,6 +335,17 @@ export const assertValidSystemComponentInstanceOverrides = (
 				"INVALID_INSTANCE_STATE",
 				`System component override target "${targetId}" asset id must be a string.`,
 			);
+		}
+		for (const [prop, value] of Object.entries(override.props ?? {})) {
+			if (
+				!isJsonPrimitive(value) ||
+				!isValidSystemComponentPropOverride(version, target, prop, value)
+			) {
+				throw new SystemComponentResolutionError(
+					"INVALID_INSTANCE_STATE",
+					`System component override target "${targetId}" prop "${prop}" is not a declared registry control override or has an invalid value.`,
+				);
+			}
 		}
 	}
 };

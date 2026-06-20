@@ -55,8 +55,7 @@ export function sha256Hex(input: string): string {
 				rotateRight(words[index - 2], 17) ^
 				rotateRight(words[index - 2], 19) ^
 				(words[index - 2] >>> 10);
-			words[index] =
-				(words[index - 16] + s0 + words[index - 7] + s1) >>> 0;
+			words[index] = (words[index - 16] + s0 + words[index - 7] + s1) >>> 0;
 		}
 
 		let [a, b, c, d, e, f, g, h] = hash;
@@ -64,7 +63,8 @@ export function sha256Hex(input: string): string {
 		for (let index = 0; index < 64; index += 1) {
 			const s1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
 			const choice = (e & f) ^ (~e & g);
-			const temp1 = (h + s1 + choice + ROUND_CONSTANTS[index] + words[index]) >>> 0;
+			const temp1 =
+				(h + s1 + choice + ROUND_CONSTANTS[index] + words[index]) >>> 0;
 			const s0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
 			const majority = (a & b) ^ (a & c) ^ (b & c);
 			const temp2 = (s0 + majority) >>> 0;

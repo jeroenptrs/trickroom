@@ -3,7 +3,7 @@ import {
 	MATERIALIZED_BASE_CLASS_PROP,
 	resolveRegistryComponent,
 } from "../libraries/registry";
-import type { Node, Props, RecipeTemplateNode } from "../types";
+import type { JsonPrimitive, Node, Props, RecipeTemplateNode } from "../types";
 import { assetIdProp, iconIdProp } from "./resource-props";
 import {
 	getSystemComponentMarkerProps,
@@ -11,7 +11,11 @@ import {
 	type SystemComponentInstanceOverrides,
 	type SystemComponentInstanceOverrideValues,
 } from "./system-component-markers";
-import { resolveSystemComponentOverrideValue } from "./system-component-override-targets";
+import {
+	isValidSystemComponentPropOverride,
+	resolveSystemComponentOverrideValue,
+	resolveSystemComponentTargetPropValues,
+} from "./system-component-override-targets";
 import {
 	resolveMaterializedSystemComponentClassComposition,
 	resolveSystemComponentClassName,
@@ -259,6 +263,16 @@ export const updateSystemComponentInstanceOnRoots = (
 		delete nextProps.className;
 		delete nextProps[MATERIALIZED_BASE_CLASS_PROP];
 		Object.assign(nextProps, classNameProps);
+		const targetPropValues = template
+			? resolveSystemComponentTargetPropValues(version, template, overrides)
+			: {};
+		for (const [prop, value] of Object.entries(targetPropValues)) {
+			if (value === undefined) {
+				delete nextProps[prop];
+			} else {
+				nextProps[prop] = value;
+			}
+		}
 
 		if (metadata.isRoot) {
 			Object.assign(
@@ -311,12 +325,16 @@ export const updateSystemComponentInstanceOnRoots = (
 			nextChildren = textOverride;
 		}
 
+		const targetPropsChanged = Object.keys(targetPropValues).some(
+			(prop) => nextProps[prop] !== node.props[prop],
+		);
 		if (
 			nextProps.className !== node.props.className ||
 			nextProps[iconIdProp] !== node.props[iconIdProp] ||
 			nextProps[assetIdProp] !== node.props[assetIdProp] ||
 			nextProps[MATERIALIZED_BASE_CLASS_PROP] !==
 				node.props[MATERIALIZED_BASE_CLASS_PROP] ||
+			targetPropsChanged ||
 			nextChildren !== node.children ||
 			metadata.isRoot
 		) {
@@ -424,6 +442,57 @@ export const setSystemComponentOverrideAssetIdOnRoots = (
 	patchSystemComponentOverrideOnRoots(roots, rootElementId, version, targetId, {
 		[assetIdProp]: assetId,
 	});
+
+export const setSystemComponentOverridePropOnRoots = (
+	roots: readonly Node[],
+	rootElementId: string,
+	version: PublishedSystemComponentVersion,
+	targetId: string,
+	prop: string,
+	value: JsonPrimitive | undefined,
+) => {
+	const target = version.overrideTargets?.[targetId];
+	if (
+		!target?.props?.includes(prop) ||
+		(value !== undefined &&
+			!isValidSystemComponentPropOverride(version, target, prop, value))
+	) {
+		return null;
+	}
+
+	const rootNode = findNodeById(roots, rootElementId);
+	const rootMetadata = rootNode
+		? getSystemComponentStructuralMetadata(rootNode.props)
+		: null;
+	if (!rootMetadata?.isRoot) {
+		return null;
+	}
+
+	const targetOverride = rootMetadata.overrides[targetId] ?? {};
+	const props = { ...(targetOverride.props ?? {}) };
+	if (value === undefined) {
+		delete props[prop];
+	} else {
+		props[prop] = value;
+	}
+
+	const nextTargetOverride = { ...targetOverride };
+	if (Object.keys(props).length > 0) {
+		nextTargetOverride.props = props;
+	} else {
+		delete nextTargetOverride.props;
+	}
+	const overrides = { ...rootMetadata.overrides };
+	if (Object.keys(nextTargetOverride).length > 0) {
+		overrides[targetId] = nextTargetOverride;
+	} else {
+		delete overrides[targetId];
+	}
+
+	return updateSystemComponentInstanceOnRoots(roots, rootElementId, version, {
+		overrides,
+	});
+};
 
 const findNodeById = (roots: readonly Node[], id: string): Node | null => {
 	for (const root of roots) {

@@ -7,11 +7,11 @@ import {
 	useComponentDraftStyleTarget,
 	useComponentDraftVariants,
 } from "../../stores/component-draft-store";
-import { compoundWhenSignature } from "../../utils/system-component-compound-signature";
 import {
-	listAuthoredCompounds,
 	type AuthoredCompoundListEntry,
+	listAuthoredCompounds,
 } from "../../utils/system-component-compound-shape";
+import { compoundWhenSignature } from "../../utils/system-component-compound-signature";
 import { Button } from "../ui/button";
 
 function toFocusableCompoundWhen(
@@ -51,11 +51,7 @@ function getActiveCompoundSignature(styleTarget: ComponentDraftStyleTarget) {
 	return compoundWhenSignature(when);
 }
 
-export function AuthoredCompoundsList({
-	onMutate,
-}: {
-	onMutate?: () => void;
-}) {
+export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 	const variants = useComponentDraftVariants();
 	const styleTarget = useComponentDraftStyleTarget();
 	const entries = useMemo(() => listAuthoredCompounds(variants), [variants]);
@@ -99,7 +95,10 @@ export function AuthoredCompoundsList({
 								className="flex items-start justify-between gap-2 border border-amber-200 bg-amber-50 px-2 py-1.5"
 							>
 								<div className="min-w-0 flex-1">
-									<p className="truncate text-sm text-slate-900" title={entry.label}>
+									<p
+										className="truncate text-sm text-slate-900"
+										title={entry.label}
+									>
 										{entry.label || "Advanced compound"}
 									</p>
 									<p className="mt-0.5 text-[11px] text-amber-800">

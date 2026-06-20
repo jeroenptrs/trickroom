@@ -7,6 +7,7 @@ import {
 } from "../libraries/registry";
 import {
 	setSystemComponentOverrideClassNameOnRoots,
+	setSystemComponentOverridePropOnRoots,
 	setSystemComponentVariantValueOnRoots,
 } from "./system-component-instance-update";
 import {
@@ -348,5 +349,114 @@ describe("system-component-instance-update", () => {
 				shadowedBy: undefined,
 			},
 		]);
+	});
+
+	it("applies and resets registry control prop overrides", () => {
+		const inputVersion = {
+			...publishedVersion,
+			root: {
+				path: "root",
+				library: "base-ui",
+				component: "input",
+				props: { placeholder: "Published placeholder" },
+			},
+			variants: { axes: {} },
+			overrideTargets: {
+				input: {
+					targetId: "input",
+					label: "Input",
+					path: "root",
+					props: ["placeholder", "disabled"],
+				},
+			},
+		};
+		const inputRoots = [
+			{
+				id: "root",
+				props: {
+					"data-trickroom-name": "Input",
+					"data-trickroom-library": "base-ui",
+					"data-trickroom-component": "input",
+					"data-trickroom-role": "leaf",
+					type: "text",
+					placeholder: "Published placeholder",
+					defaultValue: "",
+					disabled: false,
+					...getSystemComponentMarkerProps({
+						systemId: "sys-core",
+						componentId: "cmp_11111111-1111-4111-8111-111111111111",
+						instanceId: "instance-1",
+						version: "1",
+						path: "root",
+						isRoot: true,
+						overrides: {},
+					}),
+				},
+				children: [],
+			},
+		];
+
+		const overridden = setSystemComponentOverridePropOnRoots(
+			inputRoots,
+			"root",
+			inputVersion,
+			"input",
+			"placeholder",
+			"Instance placeholder",
+		);
+		expect(overridden?.roots[0].props.placeholder).toBe("Instance placeholder");
+		expect(overridden?.overrides).toEqual({
+			input: { props: { placeholder: "Instance placeholder" } },
+		});
+
+		const reset = setSystemComponentOverridePropOnRoots(
+			overridden?.roots ?? [],
+			"root",
+			inputVersion,
+			"input",
+			"placeholder",
+			undefined,
+		);
+		expect(reset?.roots[0].props.placeholder).toBe("Published placeholder");
+		expect(reset?.overrides).toEqual({});
+	});
+
+	it("rejects undeclared or invalid registry control prop overrides", () => {
+		const inputVersion = {
+			...publishedVersion,
+			root: {
+				path: "root",
+				library: "base-ui",
+				component: "input",
+			},
+			overrideTargets: {
+				input: {
+					targetId: "input",
+					label: "Input",
+					path: "root",
+					props: ["disabled"],
+				},
+			},
+		};
+		expect(
+			setSystemComponentOverridePropOnRoots(
+				roots,
+				"root",
+				inputVersion,
+				"input",
+				"placeholder",
+				"Search",
+			),
+		).toBeNull();
+		expect(
+			setSystemComponentOverridePropOnRoots(
+				roots,
+				"root",
+				inputVersion,
+				"input",
+				"disabled",
+				"yes",
+			),
+		).toBeNull();
 	});
 });

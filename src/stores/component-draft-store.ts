@@ -377,7 +377,14 @@ function reconcileStyleTarget(
 			: { kind: "base" };
 	}
 	if (activeTab.kind === "compound" && !compoundIsValid) {
-		activeTab = base ? { kind: "base" } : { kind: "base" };
+		if (base) {
+			activeTab = { kind: "base" };
+		} else {
+			const firstAxisKey = sortKeys(Object.keys(axisValues))[0];
+			activeTab = firstAxisKey
+				? { kind: "axis", axisKey: firstAxisKey }
+				: { kind: "base" };
+		}
 	}
 
 	return {
@@ -607,11 +614,7 @@ export function getEffectiveDraftNodeClassName(
 	state: ComponentDraftStoreState,
 	path: string,
 ) {
-	return getDraftClassNameForStyleTab(
-		state,
-		state.styleTarget.activeTab,
-		path,
-	);
+	return getDraftClassNameForStyleTab(state, state.styleTarget.activeTab, path);
 }
 
 export function getDraftClassNameForStyleTab(
@@ -1063,7 +1066,7 @@ export function removeTemplateNodeOverrideTarget(targetId: string) {
 
 export function updateTemplateNodeOverrideTarget(
 	currentTargetId: string,
-	patch: { targetId?: string; label?: string },
+	patch: { targetId?: string; label?: string; props?: string[] },
 ) {
 	componentDraftStore.setState((state) => {
 		const target = state.overrideTargets[currentTargetId];
@@ -1087,6 +1090,13 @@ export function updateTemplateNodeOverrideTarget(
 			...target,
 			targetId: nextTargetId,
 			label: nextLabel,
+			...(patch.props !== undefined
+				? {
+						props: [...new Set(patch.props.map((prop) => prop.trim()))]
+							.filter(Boolean)
+							.sort((left, right) => left.localeCompare(right)),
+					}
+				: {}),
 		};
 		return {
 			...state,

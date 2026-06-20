@@ -12,8 +12,7 @@ import {
 } from "@atlaskit/pragmatic-drag-and-drop-hitbox/tree-item";
 import { announce } from "@atlaskit/pragmatic-drag-and-drop-live-region";
 import { Button as UnstyledButton } from "@base-ui/react/button";
-import { useKeyHold } from "@tanstack/react-hotkeys";
-import { useQuery } from "@tanstack/react-query";
+import { useHotkey, useKeyHold } from "@tanstack/react-hotkeys";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	ChevronRight,
@@ -33,55 +32,25 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { toast } from "sonner";
 import { tv } from "tailwind-variants";
 import {
-	availableRegistries,
-	type ComponentRef,
-	getComponentIds,
-	getRegistry,
-	getRegistryRecipes,
-	type RecipeRef,
-	type RegistryId,
-	resolveRegistryComponent,
-	resolveRegistryRecipe,
-} from "../../libraries/registry";
-import {
-	expandSystemComponent,
-	type SystemComponentSummary,
-	systemComponentsQueryOptions,
-} from "../../queries/system-components";
-import {
-	canInsertIntoRecipeBoundary,
 	getElementRecipeMetadata,
 	isRecipeOwnedStructuralNode,
 	isRecipeRoot,
 	isRecipeSlotHost,
 } from "../../recipes/ownership";
 import {
-	getRecipeSlotCandidateFromProps,
-	isRecipeSlotInsertionAllowed,
-} from "../../recipes/slot-allowlist";
-import {
-	addElement,
-	addNodeTree,
-	addRecipe,
 	type DesignEntity,
 	deleteElement,
 	designStore,
 	moveElement,
 	renameElement,
 	selectElement,
-	useDesignSystemId,
 	useElement,
 	useLayerSummary,
 	useLayerTreeSnapshot,
 	useSelectedElement,
 } from "../../stores/design-store";
-import type {
-	RecipeDefinition,
-	RegistryComponentDefinition,
-} from "../../types";
 import {
 	getKey,
 	getShortcutPlacementIntent,
@@ -92,18 +61,21 @@ import {
 } from "../../utils/editor-shortcuts";
 import { layerDropInsertionIndex } from "../../utils/reorder-insertion-index";
 import {
-	canInsertIntoSystemComponentBoundary,
 	isSystemComponentOwnedStructuralNode,
 	isSystemComponentRoot,
 	isSystemComponentSlotHost,
 } from "../../utils/system-component-ownership";
-import { useProjectScope } from "../contexts";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
 import { Text } from "../ui/text";
+import {
+	AddLayerCommandMenu,
+	type EditorCommandPage,
+} from "./AddLayerCommandMenu";
 import { LayerContextMenu } from "./LayerContextMenu";
+import { type PlacementIntent, useLayerInsertion } from "./useLayerInsertion";
 
 const icon = tv({
 	base: "size-4 -ml-1 text-slate-400 transition-transform translate-y-px",
@@ -226,142 +198,8 @@ type LayerDropIntent =
 	| { type: "before"; targetId: string }
 	| { type: "after"; targetId: string }
 	| { type: "inside"; targetId: string };
-type PlacementIntent = "after" | "before" | "inside";
-type InsertionPlacement = {
-	parentId: string | null;
-	index: number;
-};
 
 const INDENT_PER_LEVEL = 12;
-const componentRef = (library: string, component: string) => ({
-	"data-trickroom-library": library,
-	"data-trickroom-component": component,
-});
-const trickroomComponent = (component: "container" | "text") =>
-	componentRef("trickroom", component);
-
-type PickerItem =
-	| {
-			type: "component";
-			component: string;
-			definition: RegistryComponentDefinition;
-	  }
-	| {
-			type: "recipe";
-			recipe: string;
-			definition: RecipeDefinition;
-	  };
-
-type UserComponentPickerItem = {
-	type: "system-component";
-	component: SystemComponentSummary;
-};
-
-type PickerSection = {
-	title: string;
-	items: PickerItem[];
-};
-
-type UserComponentPickerSection = {
-	title: string;
-	items: UserComponentPickerItem[];
-};
-
-type PickerSource = "user" | "trickroom" | "libraries";
-
-type LastAddedRef =
-	| ({ type: "component" } & ComponentRef)
-	| ({ type: "recipe" } & RecipeRef);
-
-export function getRegistryPickerSections(
-	library: RegistryId,
-	queryText: string,
-): PickerSection[] {
-	const query = queryText.trim().toLowerCase();
-	const registry = getRegistry(library);
-	const matches = ({
-		id,
-		label,
-		description,
-	}: {
-		id: string;
-		label: string;
-		description?: string;
-	}) =>
-		!query ||
-		id.toLowerCase().includes(query) ||
-		label.toLowerCase().includes(query) ||
-		(description?.toLowerCase().includes(query) ?? false);
-
-	const components: PickerItem[] = getComponentIds(library)
-		.map((component) => ({
-			type: "component" as const,
-			component,
-			definition: registry[component as keyof typeof registry],
-		}))
-		.filter(({ component, definition }) =>
-			matches({
-				id: component,
-				label: definition.label,
-				description: definition.description,
-			}),
-		);
-
-	const recipes: PickerItem[] = getRegistryRecipes(library)
-		.map((definition) => ({
-			type: "recipe" as const,
-			recipe: definition.id,
-			definition,
-		}))
-		.filter(({ recipe, definition }) =>
-			matches({
-				id: recipe,
-				label: definition.label,
-				description: definition.description,
-			}),
-		);
-
-	return [
-		{ title: "Components", items: components },
-		{ title: "Recipes", items: recipes },
-	];
-}
-
-export function getUserComponentPickerSections(
-	components: readonly SystemComponentSummary[],
-	queryText: string,
-): UserComponentPickerSection[] {
-	const query = queryText.trim().toLowerCase();
-	const items = components
-		.filter((component) => component.hasPublished && component.currentVersion)
-		.filter((component) => {
-			if (!query) {
-				return true;
-			}
-
-			return (
-				component.componentId.toLowerCase().includes(query) ||
-				component.slug.toLowerCase().includes(query) ||
-				component.name.toLowerCase().includes(query) ||
-				(component.description?.toLowerCase().includes(query) ?? false) ||
-				(component.group?.toLowerCase().includes(query) ?? false)
-			);
-		})
-		.sort(
-			(left, right) =>
-				(left.order ?? Number.MAX_SAFE_INTEGER) -
-					(right.order ?? Number.MAX_SAFE_INTEGER) ||
-				(left.group ?? "").localeCompare(right.group ?? "") ||
-				left.name.localeCompare(right.name) ||
-				left.componentId.localeCompare(right.componentId),
-		)
-		.map((component) => ({
-			type: "system-component" as const,
-			component,
-		}));
-
-	return [{ title: "User authored components", items }];
-}
 
 type LayerProps = {
 	id: string;
@@ -526,60 +364,6 @@ function getPlacementIntent(
 	if (event.altKey) return "inside";
 	if (event.shiftKey) return "before";
 	return "after";
-}
-
-export function resolveLayerInsertionPlacement({
-	intent,
-	rootIds,
-	selectedElement,
-	selectedParent,
-	entitiesById,
-}: {
-	intent: PlacementIntent;
-	rootIds: readonly string[];
-	selectedElement: DesignEntity | null | undefined;
-	selectedParent: DesignEntity | null | undefined;
-	entitiesById: Record<string, DesignEntity | undefined>;
-}): InsertionPlacement | null {
-	let placement: InsertionPlacement | null = null;
-
-	if (intent === "inside") {
-		if (!selectedElement || selectedElement.role !== "branch") {
-			return null;
-		}
-
-		placement = {
-			parentId: selectedElement.id,
-			index: selectedElement.childIds?.length ?? 0,
-		};
-	} else if (!selectedElement) {
-		placement = {
-			parentId: null,
-			index: intent === "before" ? 0 : rootIds.length,
-		};
-	} else {
-		const siblingIds =
-			selectedElement.parentId === null
-				? rootIds
-				: (selectedParent?.childIds ?? []);
-		const selectedIndex = siblingIds.indexOf(selectedElement.id);
-		const insertionPoint =
-			selectedIndex === -1 ? siblingIds.length : selectedIndex;
-
-		placement = {
-			parentId: selectedElement.parentId,
-			index: intent === "before" ? insertionPoint : insertionPoint + 1,
-		};
-	}
-
-	if (!canInsertIntoRecipeBoundary(entitiesById, placement.parentId)) {
-		return null;
-	}
-	if (!canInsertIntoSystemComponentBoundary(entitiesById, placement.parentId)) {
-		return null;
-	}
-
-	return placement;
 }
 
 export function getBlockedDropInstructions(
@@ -928,26 +712,23 @@ export function Layers({
 }) {
 	const { rootIds, entitiesById } = useLayerTreeSnapshot();
 	const selectedElement = useSelectedElement();
-	const selectedParent = useElement(selectedElement?.parentId ?? "");
-	const systemId = useDesignSystemId();
-	const projectScope = useProjectScope();
 	const isAltPressed = useKeyHold("Alt");
 	const isShiftPressed = useKeyHold("Shift");
 	const scrollViewportRef = useRef<HTMLDivElement>(null);
 	const [openById, setOpenById] = useState<OpenLayerMap>({});
 	const [isDraggingLayer, setIsDraggingLayer] = useState(false);
-	const [pickerOpen, setPickerOpen] = useState(false);
-	const [pickerIntent, setPickerIntent] = useState<PlacementIntent>("after");
-	const [componentQuery, setComponentQuery] = useState("");
-	const [selectedPickerSource, setSelectedPickerSource] =
-		useState<PickerSource>("user");
-	const [selectedLibrary, setSelectedLibrary] = useState<RegistryId>("base-ui");
-	const [lastAddedRef, setLastAddedRef] = useState<LastAddedRef | null>(null);
+	const [menuOpen, setMenuOpen] = useState(false);
+	const [menuPage, setMenuPage] = useState<EditorCommandPage>("root");
+	const [menuIntent, setMenuIntent] = useState<PlacementIntent>("after");
 	const [editRequestId, setEditRequestId] = useState<string | null>(null);
-	const systemComponentsQuery = useQuery({
-		...systemComponentsQueryOptions(systemId ?? "", projectScope),
-		enabled: Boolean(systemId),
-	});
+	const insertion = useLayerInsertion();
+	const {
+		addBasicLayer,
+		canInsert,
+		lastAddedRef,
+		repeatLast,
+		resolveInsertionPlacement,
+	} = insertion;
 	const visibleLayerRows = useMemo(
 		() =>
 			getVisibleLayerRows({
@@ -968,43 +749,6 @@ export function Layers({
 		altKey: isAltPressed,
 		shiftKey: isShiftPressed,
 	});
-	const effectivePickerIntent: PlacementIntent =
-		pickerOpen && (isAltPressed || isShiftPressed)
-			? keyboardPlacementIntent
-			: pickerIntent;
-	const pickerSources = useMemo(
-		() =>
-			[
-				{ source: "user" as const, label: "User authored" },
-				{ source: "trickroom" as const, label: "Trickroom builtins" },
-				{ source: "libraries" as const, label: "Other libraries" },
-			] satisfies Array<{ source: PickerSource; label: string }>,
-		[],
-	);
-	const libraryGroups = useMemo(
-		() =>
-			availableRegistries
-				.filter((library) => library !== "trickroom")
-				.map((library) => ({ library })),
-		[],
-	);
-	const effectiveSelectedLibrary =
-		selectedPickerSource === "trickroom" ? "trickroom" : selectedLibrary;
-	const pickerSections = useMemo(
-		() =>
-			selectedPickerSource === "user"
-				? getUserComponentPickerSections(
-						systemComponentsQuery.data?.components ?? [],
-						componentQuery,
-					)
-				: getRegistryPickerSections(effectiveSelectedLibrary, componentQuery),
-		[
-			componentQuery,
-			effectiveSelectedLibrary,
-			selectedPickerSource,
-			systemComponentsQuery.data?.components,
-		],
-	);
 	const toggleLayerOpen = useCallback((id: string) => {
 		setOpenById((current) => ({
 			...current,
@@ -1015,136 +759,7 @@ export function Layers({
 		setIsDraggingLayer(isDragging);
 	}, []);
 
-	const resolveInsertionPlacement = useCallback(
-		(intent: PlacementIntent) => {
-			return resolveLayerInsertionPlacement({
-				intent,
-				rootIds,
-				selectedElement,
-				selectedParent,
-				entitiesById: designStore.get().entitiesById,
-			});
-		},
-		[rootIds, selectedElement, selectedParent],
-	);
-	const canInsertWithKeyboardIntent =
-		resolveInsertionPlacement(keyboardPlacementIntent) !== null;
-	const canInsertWithPickerIntent =
-		resolveInsertionPlacement(effectivePickerIntent) !== null;
-	const isPickerItemAllowed = useCallback(
-		(item: PickerItem) => {
-			const placement = resolveInsertionPlacement(effectivePickerIntent);
-			if (!placement) {
-				return false;
-			}
-
-			return isRecipeSlotInsertionAllowed(
-				designStore.get().entitiesById,
-				placement.parentId,
-				item.type === "recipe"
-					? {
-							kind: "recipe",
-							library: selectedLibrary,
-							recipe: item.recipe,
-						}
-					: {
-							kind: "component",
-							library: selectedLibrary,
-							component: item.component,
-						},
-			);
-		},
-		[effectivePickerIntent, resolveInsertionPlacement, selectedLibrary],
-	);
-
-	const addChosenComponent = useCallback(
-		(ref: ComponentRef, intent: PlacementIntent) => {
-			const placement = resolveInsertionPlacement(intent);
-			if (!placement) {
-				return;
-			}
-
-			addElement(
-				componentRef(ref.library, ref.component),
-				placement.parentId,
-				placement.index,
-			);
-			setLastAddedRef({ type: "component", ...ref });
-			setPickerOpen(false);
-		},
-		[resolveInsertionPlacement],
-	);
-
-	const addChosenRecipe = useCallback(
-		(ref: RecipeRef, intent: PlacementIntent) => {
-			const placement = resolveInsertionPlacement(intent);
-			if (!placement) {
-				return;
-			}
-
-			addRecipe(ref, placement.parentId, placement.index);
-			setLastAddedRef({ type: "recipe", ...ref });
-			setPickerOpen(false);
-		},
-		[resolveInsertionPlacement],
-	);
-
-	const addChosenSystemComponent = useCallback(
-		async (component: SystemComponentSummary, intent: PlacementIntent) => {
-			const placement = resolveInsertionPlacement(intent);
-			if (!placement || !systemId || !component.currentVersion) {
-				return;
-			}
-
-			try {
-				const expansion = await expandSystemComponent(
-					systemId,
-					component.componentId,
-					component.currentVersion,
-				);
-				if (
-					!isRecipeSlotInsertionAllowed(
-						designStore.get().entitiesById,
-						placement.parentId,
-						getRecipeSlotCandidateFromProps(expansion.root.props),
-					)
-				) {
-					toast.error("This recipe slot does not allow that component.");
-					return;
-				}
-				addNodeTree(expansion.root, placement.parentId, placement.index);
-				setPickerOpen(false);
-			} catch (error) {
-				toast.error(
-					error instanceof Error
-						? error.message
-						: "Failed to add the system component.",
-				);
-			}
-		},
-		[resolveInsertionPlacement, systemId],
-	);
-
-	const addBasicLayer = useCallback(
-		(elementType: "container" | "text", intent: PlacementIntent) => {
-			const placement = resolveInsertionPlacement(intent);
-			if (!placement) {
-				return;
-			}
-
-			addElement(
-				trickroomComponent(elementType),
-				placement.parentId,
-				placement.index,
-			);
-			setLastAddedRef({
-				type: "component",
-				library: "trickroom",
-				component: elementType,
-			});
-		},
-		[resolveInsertionPlacement],
-	);
+	const canInsertWithKeyboardIntent = canInsert(keyboardPlacementIntent);
 
 	const handleAddLayer = useCallback(
 		(
@@ -1156,39 +771,37 @@ export function Layers({
 		[addBasicLayer],
 	);
 
-	const handleOpenPicker = (event: MouseEvent<HTMLButtonElement>) => {
-		const intent = getPlacementIntent(event);
-		if (!resolveInsertionPlacement(intent)) {
-			return;
-		}
-		setPickerIntent(intent);
-		setPickerOpen((isOpen) => !isOpen);
+	const openAddLayerMenu = useCallback(
+		(intent: PlacementIntent) => {
+			if (!resolveInsertionPlacement(intent)) {
+				return false;
+			}
+			setMenuIntent(intent);
+			setMenuPage("home");
+			setMenuOpen(true);
+			return true;
+		},
+		[resolveInsertionPlacement],
+	);
+
+	const handleOpenMenu = (event: MouseEvent<HTMLButtonElement>) => {
+		openAddLayerMenu(getPlacementIntent(event));
 	};
 
-	const repeatLast = useCallback(
-		(intent: PlacementIntent) => {
-			if (!lastAddedRef) {
+	// Cmd/Ctrl+K opens the editor command menu at its root page; the menu owns
+	// closing while it is open (Escape backs out one page).
+	useHotkey(
+		"Mod+K",
+		() => {
+			if (menuOpen) {
+				setMenuOpen(false);
 				return;
 			}
-
-			const resolution =
-				lastAddedRef.type === "component"
-					? resolveRegistryComponent(
-							lastAddedRef.library,
-							lastAddedRef.component,
-						)
-					: resolveRegistryRecipe(lastAddedRef.library, lastAddedRef.recipe);
-			if (resolution.status !== "known") {
-				return;
-			}
-
-			if (lastAddedRef.type === "component") {
-				addChosenComponent(lastAddedRef, intent);
-			} else {
-				addChosenRecipe(lastAddedRef, intent);
-			}
+			setMenuIntent("after");
+			setMenuPage("root");
+			setMenuOpen(true);
 		},
-		[addChosenComponent, addChosenRecipe, lastAddedRef],
+		{ preventDefault: true },
 	);
 
 	const handleRepeatLast = (event: MouseEvent<HTMLButtonElement>) => {
@@ -1406,9 +1019,7 @@ export function Layers({
 				addBasicLayer("text", placementIntent);
 				handled = true;
 			} else if (!event.repeat && isShortcutLetter(event, "a")) {
-				if (resolveInsertionPlacement(placementIntent)) {
-					setPickerIntent(placementIntent);
-					setPickerOpen(true);
+				if (openAddLayerMenu(placementIntent)) {
 					handled = true;
 				}
 			} else if (!event.repeat && isPeriodKey(event) && lastAddedRef) {
@@ -1426,8 +1037,8 @@ export function Layers({
 			expandOrEnterSelectedLayer,
 			lastAddedRef,
 			moveSelectedLayerBy,
+			openAddLayerMenu,
 			repeatLast,
-			resolveInsertionPlacement,
 			selectRelativeLayer,
 			selectVisibleLayerAtIndex,
 			selectedElement,
@@ -1481,8 +1092,8 @@ export function Layers({
 					variant="block"
 					className="px-2 py-1"
 					disabled={!canInsertWithKeyboardIntent}
-					onClick={handleOpenPicker}
-					title="Add component"
+					onClick={handleOpenMenu}
+					title="Add element"
 				>
 					<Plus className="size-4 text-slate-950" />
 				</Button>
@@ -1497,137 +1108,14 @@ export function Layers({
 					<Repeat2 className="size-4 text-slate-950" />
 				</Button>
 			</div>
-			{pickerOpen ? (
-				<div className="mx-1 mb-1 flex flex-col gap-1 border border-slate-200 bg-white p-1">
-					<Input
-						variant="block"
-						value={componentQuery}
-						placeholder="Search components"
-						onChange={(event) => setComponentQuery(event.target.value)}
-					/>
-					<div className="px-1 font-mono text-[10px] text-slate-500">
-						Insert {effectivePickerIntent}
-					</div>
-					<div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-1">
-						<div className="flex flex-col gap-1">
-							{pickerSources.map((source) => (
-								<Button
-									key={source.source}
-									variant="block"
-									className="flex w-full justify-start px-1 py-1 text-xs"
-									onClick={() => setSelectedPickerSource(source.source)}
-									isSelected={selectedPickerSource === source.source}
-								>
-									{source.label}
-								</Button>
-							))}
-							{selectedPickerSource === "libraries"
-								? libraryGroups.map((group) => (
-										<Button
-											key={group.library}
-											variant="block"
-											className="flex w-full justify-start px-1 py-1 pl-3 text-xs"
-											onClick={() => setSelectedLibrary(group.library)}
-											isSelected={selectedLibrary === group.library}
-										>
-											{group.library}
-										</Button>
-									))
-								: null}
-						</div>
-						<div className="flex min-w-0 flex-col gap-1">
-							{pickerSections.map((section) => (
-								<div
-									key={section.title}
-									className="flex min-w-0 flex-col gap-1"
-								>
-									<div className="px-1 text-[0.625rem] font-semibold uppercase tracking-normal text-slate-400">
-										{section.title}
-									</div>
-									{section.items.length === 0 ? (
-										<div className="px-1 text-xs text-slate-400">
-											No matches
-										</div>
-									) : (
-										section.items.map((item) => {
-											const itemAllowed =
-												item.type === "system-component"
-													? Boolean(systemId && item.component.currentVersion)
-													: isPickerItemAllowed(item);
-											return (
-												<Button
-													key={
-														item.type === "system-component"
-															? `system-component:${item.component.componentId}`
-															: item.type === "component"
-																? `component:${item.component}`
-																: `recipe:${item.recipe}`
-													}
-													variant="block"
-													className="flex w-full justify-start px-1 py-1 text-left text-xs"
-													disabled={!canInsertWithPickerIntent || !itemAllowed}
-													title={
-														itemAllowed
-															? undefined
-															: "This recipe slot does not allow that child"
-													}
-													onClick={(event) => {
-														const placementIntent =
-															event.altKey || event.shiftKey
-																? getShortcutPlacementIntent(event)
-																: effectivePickerIntent;
-														if (item.type === "system-component") {
-															void addChosenSystemComponent(
-																item.component,
-																placementIntent,
-															);
-														} else if (item.type === "component") {
-															addChosenComponent(
-																{
-																	library: effectiveSelectedLibrary,
-																	component: item.component,
-																},
-																placementIntent,
-															);
-														} else {
-															addChosenRecipe(
-																{
-																	library: effectiveSelectedLibrary,
-																	recipe: item.recipe,
-																},
-																placementIntent,
-															);
-														}
-													}}
-												>
-													<span className="min-w-0">
-														<span className="block truncate font-medium">
-															{item.type === "system-component"
-																? item.component.name
-																: item.definition.label}
-														</span>
-														<span className="block truncate text-slate-500">
-															{item.type === "system-component"
-																? `${item.component.slug} · v${item.component.currentVersion}`
-																: item.type === "component"
-																	? item.definition.role
-																	: "recipe"}
-															{item.type === "component" &&
-															item.definition.controls
-																? ` · ${Object.keys(item.definition.controls).join(", ")}`
-																: ""}
-														</span>
-													</span>
-												</Button>
-											);
-										})
-									)}
-								</div>
-							))}
-						</div>
-					</div>
-				</div>
-			) : null}
+			<AddLayerCommandMenu
+				open={menuOpen}
+				onOpenChange={setMenuOpen}
+				page={menuPage}
+				onPageChange={setMenuPage}
+				intent={menuIntent}
+				insertion={insertion}
+			/>
 			<Separator />
 			<Text
 				variant="label"

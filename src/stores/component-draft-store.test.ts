@@ -19,6 +19,7 @@ import {
 	clearComponentDraftTemplateDirty,
 	componentDraftStore,
 	deleteTemplateNode,
+	focusCompoundInDraft,
 	getComponentDraftPreviewClassLayers,
 	getComponentDraftPreviewClassName,
 	getComponentDraftTemplateHash,
@@ -31,6 +32,7 @@ import {
 	markTemplateNodeAsSlotHost,
 	moveTemplateNode,
 	normalizeComponentDraft,
+	removeCompoundVariantByWhen,
 	removeTemplateNodeOverrideTarget,
 	removeTemplateNodeSlotHost,
 	replaceComponentDraftVariants,
@@ -39,8 +41,6 @@ import {
 	serializeComponentDraftState,
 	serializeComponentDraftVariants,
 	setComponentDraftStyleClassName,
-	focusCompoundInDraft,
-	removeCompoundVariantByWhen,
 	setComponentDraftStyleTarget,
 	setDraftClassNameForStyleTab,
 	updateTemplateNodeClassName,
@@ -614,12 +614,14 @@ describe("component draft store", () => {
 		updateTemplateNodeOverrideTarget("icon", {
 			targetId: "leadingIcon",
 			label: "Leading icon",
+			props: ["aria-label"],
 		});
 		expect(componentDraftStore.get().overrideTargets.leadingIcon).toEqual({
 			targetId: "leadingIcon",
 			label: "Leading icon",
 			path: "icon",
 			capabilities: ["className", "icon"],
+			props: ["aria-label"],
 		});
 		expect(componentDraftStore.get().overrideTargets.icon).toBeUndefined();
 		expect(componentDraftStore.get().templateDirty).toBe(true);
@@ -712,6 +714,35 @@ describe("component draft store", () => {
 			"text-blue-600",
 		);
 		expect(state.variantsDirty).toBe(true);
+	});
+
+	it("falls back to an axis tab (not base) when reconciliation invalidates a compound with base off", () => {
+		resetComponentDraftStore();
+		hydrateComponentDraft({
+			componentId: FIXTURE_COMPONENT_ID,
+			root: minimalComponentTemplateRoot(),
+			variants: {
+				axes: {
+					size: { label: "Size", values: { lg: { label: "Large" } } },
+					tone: { label: "Tone", values: { brand: { label: "Brand" } } },
+				},
+			},
+		});
+
+		// Base toggled off with one axis selected and an axis tab pointing at an
+		// unselected axis: reconciliation routes axis -> compound, and the compound
+		// is invalid (fewer than two axes). It must land on an axis tab, never on
+		// the base tab while base is suppressed.
+		setComponentDraftStyleTarget({
+			base: false,
+			axisValues: { size: "lg" },
+			compoundAxes: [],
+			activeTab: { kind: "axis", axisKey: "tone" },
+		});
+
+		const { styleTarget } = componentDraftStore.get();
+		expect(styleTarget.base).toBe(false);
+		expect(styleTarget.activeTab).toEqual({ kind: "axis", axisKey: "size" });
 	});
 
 	it("preserves authored class strings in draft base and variant storage", () => {
@@ -1282,11 +1313,7 @@ describe("component draft store", () => {
 			"root",
 			"text-blue-600",
 		);
-		setDraftClassNameForStyleTab(
-			{ kind: "compound" },
-			"root",
-			"ring-2",
-		);
+		setDraftClassNameForStyleTab({ kind: "compound" }, "root", "ring-2");
 
 		const state = componentDraftStore.get();
 		expect(state.styleTarget.activeTab).toEqual({
@@ -1303,9 +1330,9 @@ describe("component draft store", () => {
 				classesByPath: { root: "ring-2" },
 			},
 		]);
-		expect(
-			getDraftClassNameForStyleTab(state, { kind: "base" }, "root"),
-		).toBe("text-base");
+		expect(getDraftClassNameForStyleTab(state, { kind: "base" }, "root")).toBe(
+			"text-base",
+		);
 		expect(
 			getDraftClassNameForStyleTab(
 				state,
@@ -1468,7 +1495,9 @@ describe("component draft store", () => {
 
 		removeCompoundVariantByWhen({ tone: "brand", size: "lg" });
 
-		expect(componentDraftStore.get().variants?.compoundVariants).toBeUndefined();
+		expect(
+			componentDraftStore.get().variants?.compoundVariants,
+		).toBeUndefined();
 		expect(componentDraftStore.get().styleTarget.activeTab).toEqual({
 			kind: "compound",
 		});

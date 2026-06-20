@@ -3,7 +3,13 @@ import { useRender } from "@base-ui/react/use-render";
 import { tv } from "tailwind-variants";
 
 interface TextProps extends useRender.ComponentProps<"span"> {
-	variant?: "title" | "subtitle" | "label" | "eyebrow" | "section-divider";
+	variant?:
+		| "title"
+		| "subtitle"
+		| "label"
+		| "eyebrow"
+		| "section-header"
+		| "section-divider";
 }
 
 const text = tv({
@@ -14,6 +20,9 @@ const text = tv({
 			label: "text-xs font-semibold",
 			text: "text-sm font-normal",
 			eyebrow: "font-mono text-[10px] uppercase tracking-wider text-cyan-700",
+			"section-header":
+				"font-mono text-[11px] lowercase tracking-normal text-slate-500",
+			// @deprecated prefer section-header
 			"section-divider":
 				"bg-slate-50 px-5 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-slate-500",
 		},
