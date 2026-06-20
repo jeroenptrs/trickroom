@@ -9,6 +9,7 @@ import {
 import {
 	copyPublishedSystemComponentToDraft,
 	createSystemComponentDraft,
+	deleteSystemComponent,
 	describeSystemComponent,
 	discardSystemComponentDraft,
 	listSystemComponentSummaries,
@@ -499,6 +500,25 @@ describe("system component operations", () => {
 		);
 		expect(discarded.removedComponent).toBe(true);
 		expect(discarded.manifest.components[created.componentId]).toBeUndefined();
+	});
+
+	it("deletes a component record from the manifest", async () => {
+		const created = await createSystemComponentDraft(
+			projectRoot,
+			systemHandle,
+			{ slug: "delete-me", name: "Delete Me" },
+			{ expectedRevision: revision, now },
+		);
+
+		const deleted = await deleteSystemComponent(
+			projectRoot,
+			systemHandle,
+			created.componentId,
+			{ expectedRevision: created.revision, now: "2026-05-26T14:35:00.000Z" },
+		);
+
+		expect(deleted.componentId).toBe(created.componentId);
+		expect(deleted.manifest.components[created.componentId]).toBeUndefined();
 	});
 
 	it("rejects stale manifest revisions", async () => {

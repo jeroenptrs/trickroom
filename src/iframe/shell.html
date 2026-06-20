@@ -6,10 +6,24 @@
     <script src="/tailwind/index.global.js"></script>
     <style>
       @layer base {
-        .frame-content > main > [data-trickroom-library] {
+        html[data-trickroom-stage-mode="canvas"]
+          .frame-content
+          > main
+          > [data-trickroom-library] {
           width: fit-content;
           height: fit-content;
         }
+      }
+      /*
+       * Reveal-on-ready: in compiled mode the shell is marked
+       * data-trickroom-await-styles, so design content stays hidden until
+       * useCompiledTailwind injects the first compiled stylesheet and sets
+       * data-trickroom-styles-ready. Prevents a flash of unstyled content.
+       * Uses visibility (not display) so the stage can still measure board
+       * size while hidden, keeping the fit/center logic working.
+       */
+      html[data-trickroom-await-styles]:not([data-trickroom-styles-ready]) .frame-content {
+        visibility: hidden;
       }
     </style>
   </head>

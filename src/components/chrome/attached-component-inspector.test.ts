@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DesignEntity } from "../../stores/design-store";
 import { getSystemComponentMarkerProps } from "../../utils/system-component-markers";
+import { hashSystemComponentVariantSchema } from "../../utils/system-components-validation";
 import {
 	attachedComponentVersionStatusLabel,
 	canFreelyEditElementInDesignInspector,
@@ -151,6 +152,49 @@ describe("attached-component-inspector", () => {
 				variantSchemaHash: "sha256:new",
 			}),
 		).toBe("stale-both");
+	});
+
+	it("treats pre-backfill variant hashes as current for migrated published schemas", () => {
+		const oldVariants = {
+			axes: {
+				size: {
+					label: "Size",
+					values: {
+						beta: { label: "Beta" },
+						alpha: { label: "Alpha" },
+					},
+				},
+			},
+		};
+		const migratedVariants = {
+			...oldVariants,
+			defaultValues: { size: "alpha" },
+		};
+		const legacyRoot = entity("legacy-root", {
+			"data-trickroom-name": "Root",
+			"data-trickroom-library": "trickroom",
+			"data-trickroom-component": "container",
+			"data-trickroom-role": "branch",
+			...getSystemComponentMarkerProps({
+				systemId: "sys-core",
+				componentId: "cmp_11111111-1111-4111-8111-111111111111",
+				instanceId: "instance-1",
+				version: "1",
+				path: "root",
+				isRoot: true,
+				templateHash: "sha256:old",
+				variantSchemaHash: hashSystemComponentVariantSchema(oldVariants),
+			}),
+		});
+
+		expect(
+			getAttachedComponentVersionStatus(legacyRoot.props, {
+				...publishedVersion,
+				templateHash: "sha256:old",
+				variantSchemaHash: hashSystemComponentVariantSchema(migratedVariants),
+				variants: migratedVariants,
+			}),
+		).toBe("current");
 	});
 
 	it("reports stale version status when the attached version is not current", () => {

@@ -33,6 +33,10 @@ export interface TailwindDomainStorage {
 	baselineDiff: TailwindMeaningfulTokenBaselineDiff;
 }
 
+/**
+ * Legacy snapshot shape (pre-custom-namespace support). Still read for
+ * migration; never written.
+ */
 export interface TailwindTokenStorageV2 {
 	version: 2;
 	metadata: {
@@ -45,6 +49,62 @@ export interface TailwindTokenStorageV2 {
 		[domain in TailwindTokenDomain]: TailwindDomainStorage;
 	};
 }
+
+/**
+ * A custom `@utility` definition discovered in the system CSS source (one that
+ * is not part of Tailwind's built-in domains), persisted so the editor can
+ * recognise it as a known utility without re-loading the design system.
+ */
+export type TailwindCustomUtilityKind = "functional" | "static";
+
+export interface TailwindCustomUtilityStorage {
+	/** The `@utility` root, e.g. `text-interaction` for `text-interaction-*`. */
+	root: string;
+	/**
+	 * `functional` = wildcard, value-taking (matched by prefix). `static` =
+	 * value-less, matched exactly. Defaults to `functional` when absent (legacy).
+	 */
+	kind: TailwindCustomUtilityKind;
+	/** CSS variable namespaces it consumes, e.g. `["--db-interaction"]`. */
+	consumedNamespaces: string[];
+	/** Completion values exposed by the design system, e.g. `["sm", "lg"]`. Empty for static. */
+	completionValues: string[];
+	/**
+	 * UI domain(s) the utility folds into, inferred from the CSS it emits
+	 * (e.g. `["color"]`, `["typography"]`, or several for semantic utilities).
+	 * Optional for forward/backward compat; defaults to `[]` when absent.
+	 */
+	domains: string[];
+}
+
+/**
+ * Current snapshot shape. Additive over v2: the fixed `domains` whitelist is
+ * unchanged, and two dynamic sections carry everything that whitelist cannot.
+ */
+export interface TailwindTokenStorageV3 {
+	version: 3;
+	metadata: {
+		cssPath: string;
+		syncedAt: string;
+		tailwindBaselineVersion: string;
+		reviewRequired: boolean;
+	};
+	domains: {
+		[domain in TailwindTokenDomain]: TailwindDomainStorage;
+	};
+	/**
+	 * Custom CSS variables outside the fixed domain whitelist, keyed by their
+	 * full custom-property name (e.g. `--db-interaction-sm`). These are exactly
+	 * the CSS variables that custom `@utility` definitions consume; they are
+	 * just CSS custom properties, stored verbatim.
+	 */
+	customProperties: Record<string, string>;
+	/** Custom `@utility` roots discovered in the system CSS source. */
+	customUtilities: TailwindCustomUtilityStorage[];
+}
+
+/** The canonical persisted snapshot shape (always the latest version). */
+export type TailwindTokenStorage = TailwindTokenStorageV3;
 
 export type StoreDomainTokensParams = {
 	projectRoot: string;
@@ -66,10 +126,12 @@ export type StoreDomainTokensParams = {
 	>;
 	reviewRequired: boolean;
 	syncedAt?: string;
+	customProperties?: Record<string, string>;
+	customUtilities?: TailwindCustomUtilityStorage[];
 };
 
 export type ComparableTailwindTokenStorage = {
-	version: 2;
+	version: 3;
 	metadata: {
 		cssPath: string;
 		tailwindBaselineVersion: string;
@@ -80,6 +142,8 @@ export type ComparableTailwindTokenStorage = {
 			baselineDiff: TailwindMeaningfulTokenBaselineDiff;
 		};
 	};
+	customProperties: Record<string, string>;
+	customUtilities: TailwindCustomUtilityStorage[];
 };
 
 export { systemNameToSafeKey } from "./design-system-store.ts";
@@ -182,14 +246,19 @@ export async function storeDomainTokens(
 	const snapshotDir = path.dirname(snapshotPath);
 	await mkdir(snapshotDir, { recursive: true });
 
-	const data: TailwindTokenStorageV2 = {
-		version: 2,
+	// Key order here MUST match `normalizeTailwindTokenStorage` exactly: reads
+	// canonicalize-and-compare by `JSON.stringify`, so a different order would
+	// trigger a needless rewrite on every read.
+	const data: TailwindTokenStorage = {
+		version: 3,
 		metadata: {
 			cssPath: normalizeCssPath(params.cssPath, params.projectRoot),
 			syncedAt: params.syncedAt ?? new Date().toISOString(),
 			tailwindBaselineVersion: params.tailwindBaselineVersion,
 			reviewRequired: params.reviewRequired,
 		},
+		customProperties: normalizeCustomProperties(params.customProperties ?? {}),
+		customUtilities: normalizeCustomUtilities(params.customUtilities ?? []),
 		domains: normalizeDomainStorages({
 			tokensByDomain: {
 				color: params.tokens,
@@ -216,7 +285,7 @@ export async function storeDomainTokens(
 export async function readDomainTokens(
 	projectRoot: string,
 	systemName: string,
-): Promise<TailwindTokenStorageV2 | null> {
+): Promise<TailwindTokenStorage | null> {
 	return readDomainTokensInternal(projectRoot, systemName, {
 		canonicalize: true,
 	});
@@ -225,7 +294,7 @@ export async function readDomainTokens(
 export async function readDomainTokensReadonly(
 	projectRoot: string,
 	systemName: string,
-): Promise<TailwindTokenStorageV2 | null> {
+): Promise<TailwindTokenStorage | null> {
 	return readDomainTokensInternal(projectRoot, systemName, {
 		canonicalize: false,
 	});
@@ -235,7 +304,7 @@ async function readDomainTokensInternal(
 	projectRoot: string,
 	systemName: string,
 	options: { canonicalize: boolean },
-): Promise<TailwindTokenStorageV2 | null> {
+): Promise<TailwindTokenStorage | null> {
 	const snapshotPath = await resolveTokenSnapshotPathForHandle(
 		projectRoot,
 		systemName,
@@ -245,11 +314,15 @@ async function readDomainTokensInternal(
 		const contents = await readFile(snapshotPath, "utf8");
 		const data = JSON.parse(contents) as unknown;
 
-		if (!isTailwindTokenStorageV2(data)) {
+		const migrated = migrateTokenStorageToLatest(data);
+		if (!migrated) {
 			return null;
 		}
 
-		const canonicalStorage = normalizeTailwindTokenStorage(data, projectRoot);
+		const canonicalStorage = normalizeTailwindTokenStorage(
+			migrated,
+			projectRoot,
+		);
 		if (
 			options.canonicalize &&
 			JSON.stringify(canonicalStorage) !== JSON.stringify(data)
@@ -268,12 +341,12 @@ async function readDomainTokensInternal(
 }
 
 export function normalizeTokenStorageForComparison(
-	storage: TailwindTokenStorageV2,
+	storage: TailwindTokenStorage,
 	projectRoot = "",
 ): ComparableTailwindTokenStorage {
 	const normalized = normalizeTailwindTokenStorage(storage, projectRoot);
 	return {
-		version: 2,
+		version: 3,
 		metadata: {
 			cssPath: normalized.metadata.cssPath,
 			tailwindBaselineVersion: normalized.metadata.tailwindBaselineVersion,
@@ -287,12 +360,14 @@ export function normalizeTokenStorageForComparison(
 				},
 			]),
 		) as ComparableTailwindTokenStorage["domains"],
+		customProperties: normalized.customProperties,
+		customUtilities: normalized.customUtilities,
 	};
 }
 
 export function areTokenStoragesEquivalent(
-	left: TailwindTokenStorageV2,
-	right: TailwindTokenStorageV2,
+	left: TailwindTokenStorage,
+	right: TailwindTokenStorage,
 	projectRoot = "",
 ): boolean {
 	return (
@@ -302,17 +377,19 @@ export function areTokenStoragesEquivalent(
 }
 
 function normalizeTailwindTokenStorage(
-	storage: TailwindTokenStorageV2,
+	storage: TailwindTokenStorage,
 	projectRoot: string,
-): TailwindTokenStorageV2 {
+): TailwindTokenStorage {
 	return {
-		version: 2,
+		version: 3,
 		metadata: {
 			cssPath: normalizeCssPath(storage.metadata.cssPath, projectRoot),
 			syncedAt: storage.metadata.syncedAt,
 			tailwindBaselineVersion: storage.metadata.tailwindBaselineVersion,
 			reviewRequired: storage.metadata.reviewRequired,
 		},
+		customProperties: normalizeCustomProperties(storage.customProperties),
+		customUtilities: normalizeCustomUtilities(storage.customUtilities),
 		domains: normalizeDomainStorages({
 			tokensByDomain: Object.fromEntries(
 				TAILWIND_TOKEN_DOMAINS.map((domain) => [
@@ -444,6 +521,37 @@ function normalizeStringArray(values: string[]): string[] {
 	return [...values].sort((left, right) => left.localeCompare(right));
 }
 
+function normalizeCustomProperties(
+	properties: Record<string, string>,
+): Record<string, string> {
+	return Object.fromEntries(
+		Object.entries(properties)
+			.filter(([name]) => name.startsWith("--"))
+			.map(([name, value]) => [name, value] as const)
+			.sort(([leftName], [rightName]) => leftName.localeCompare(rightName)),
+	);
+}
+
+function normalizeCustomUtilities(
+	utilities: readonly TailwindCustomUtilityStorage[],
+): TailwindCustomUtilityStorage[] {
+	return [...utilities]
+		.map((utility) => ({
+			root: utility.root,
+			kind: utility.kind === "static" ? "static" : "functional",
+			consumedNamespaces: [...new Set(utility.consumedNamespaces)].sort(
+				(left, right) => left.localeCompare(right),
+			),
+			completionValues: [...new Set(utility.completionValues)].sort(
+				(left, right) => left.localeCompare(right),
+			),
+			domains: [...new Set(utility.domains ?? [])].sort((left, right) =>
+				left.localeCompare(right),
+			),
+		}))
+		.sort((left, right) => left.root.localeCompare(right.root));
+}
+
 function compareTokenEntriesByName(
 	left: { name: string },
 	right: { name: string },
@@ -453,7 +561,7 @@ function compareTokenEntriesByName(
 
 async function writeJsonAtomically(
 	filePath: string,
-	data: TailwindTokenStorageV2,
+	data: TailwindTokenStorage,
 ): Promise<void> {
 	const contents = `${JSON.stringify(data, null, "\t")}\n`;
 	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
@@ -467,13 +575,11 @@ async function writeJsonAtomically(
 	}
 }
 
-function isTailwindTokenStorageV2(
-	data: unknown,
-): data is TailwindTokenStorageV2 {
-	if (!isRecord(data) || data.version !== 2) {
-		return false;
-	}
-
+/**
+ * Validate the metadata + fixed-domain portion that v2 and v3 share. The
+ * version literal is checked by the per-version guards.
+ */
+function hasValidMetadataAndDomains(data: Record<string, unknown>): boolean {
 	if (!isRecord(data.metadata) || !isRecord(data.domains)) {
 		return false;
 	}
@@ -490,7 +596,7 @@ function isTailwindTokenStorageV2(
 		typeof metadata.tailwindBaselineVersion === "string" &&
 		typeof metadata.reviewRequired === "boolean" &&
 		TAILWIND_TOKEN_DOMAINS.every((domain) => {
-			const storage = data.domains[domain];
+			const storage = (data.domains as Record<string, unknown>)[domain];
 			if (storage === undefined) {
 				return domain !== "color";
 			}
@@ -503,6 +609,67 @@ function isTailwindTokenStorageV2(
 			);
 		})
 	);
+}
+
+function isTailwindTokenStorageV2(
+	data: unknown,
+): data is TailwindTokenStorageV2 {
+	return (
+		isRecord(data) && data.version === 2 && hasValidMetadataAndDomains(data)
+	);
+}
+
+function isTailwindTokenStorageV3(
+	data: unknown,
+): data is TailwindTokenStorageV3 {
+	return (
+		isRecord(data) &&
+		data.version === 3 &&
+		hasValidMetadataAndDomains(data) &&
+		isStringRecord(data.customProperties) &&
+		Array.isArray(data.customUtilities) &&
+		data.customUtilities.every(isCustomUtilityStorage)
+	);
+}
+
+function isCustomUtilityStorage(
+	value: unknown,
+): value is TailwindCustomUtilityStorage {
+	return (
+		isRecord(value) &&
+		typeof value.root === "string" &&
+		// `kind` is backfilled by normalizeCustomUtilities, so accept it missing
+		// (legacy) or one of the known values.
+		(value.kind === undefined ||
+			value.kind === "functional" ||
+			value.kind === "static") &&
+		isStringArray(value.consumedNamespaces) &&
+		isStringArray(value.completionValues) &&
+		// `domains` is backfilled by normalizeCustomUtilities, so accept it
+		// missing (legacy) or a string array.
+		(value.domains === undefined || isStringArray(value.domains))
+	);
+}
+
+function isStringArray(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every((v) => typeof v === "string");
+}
+
+/**
+ * Read a snapshot of any supported version and upgrade it to the latest shape.
+ * v2 → v3 adds empty `customProperties`/`customUtilities` sections. Returns
+ * null for shapes we do not recognise (treated as "no stored tokens").
+ */
+function migrateTokenStorageToLatest(
+	data: unknown,
+): TailwindTokenStorage | null {
+	if (isTailwindTokenStorageV3(data)) {
+		return data;
+	}
+	if (isTailwindTokenStorageV2(data)) {
+		return { ...data, version: 3, customProperties: {}, customUtilities: [] };
+	}
+	return null;
 }
 
 function isMeaningfulBaselineDiff(

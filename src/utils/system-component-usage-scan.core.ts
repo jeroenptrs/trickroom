@@ -3,7 +3,6 @@ import {
 	getSystemComponentStructuralMetadata,
 	systemComponentRootProp,
 } from "./system-component-markers";
-import type { SystemComponentManifest } from "./system-components";
 import type {
 	SystemComponentInstanceUsage,
 	SystemComponentInstanceVersionStatus,
@@ -11,6 +10,8 @@ import type {
 	SystemComponentUsageScanDiagnostic,
 	SystemComponentUsageScanResult,
 } from "./system-component-usage-scan.types";
+import { variantSchemaHashMatchesDefaultBackfillMigration } from "./system-component-variant-defaults-migration.ts";
+import type { SystemComponentManifest } from "./system-components";
 
 const collectNodeAttachedInstanceUsages = (
 	node: Node,
@@ -141,7 +142,13 @@ export const getSystemComponentInstanceVersionStatus = (
 	if (usage.templateHash !== publishedVersion.templateHash) {
 		hashReasons.push("template-hash");
 	}
-	if (usage.variantSchemaHash !== publishedVersion.variantSchemaHash) {
+	if (
+		usage.variantSchemaHash !== publishedVersion.variantSchemaHash &&
+		!variantSchemaHashMatchesDefaultBackfillMigration(
+			usage.variantSchemaHash,
+			publishedVersion.variants,
+		)
+	) {
 		hashReasons.push("variant-schema-hash");
 	}
 	if (hashReasons.length > 0) {

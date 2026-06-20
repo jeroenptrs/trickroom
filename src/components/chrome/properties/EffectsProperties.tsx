@@ -1,21 +1,19 @@
 import { useCallback, useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
 import { useDesignSystemId } from "../../../stores/design-store";
 import {
 	buildPropertyModel,
 	type ModelOptions,
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
-import {
-	applyColorChange,
-	applyColorClear,
-} from "./colorPropertiesController";
 import { ColorPropertyControl } from "./ColorPropertyControl";
-import { StyleSection } from "./StyleSection";
-import { Segmented, ValueField, type SegmentedOption } from "./StyleControls";
-import { StyleOverrideRows } from "./StyleOverrideRows";
-import { getStyleIntent, styleValueText } from "./styleSectionController";
+import { applyColorChange, applyColorClear } from "./colorPropertiesController";
 import { effectsUtility } from "./effectsPropertiesController";
+import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
+import { StyleOverrideRows } from "./StyleOverrideRows";
+import { StyleSection } from "./StyleSection";
+import { getStyleIntent, styleValueText } from "./styleSectionController";
 
 type EffectsPropertiesProps = {
 	className: string;
@@ -61,13 +59,17 @@ const COLOR_ROWS = [
 ];
 
 /** Override-aware: box shadow, inset shadow, blur, backdrop blur, opacity, mix blend. */
-export function EffectsProperties({ className, onChange }: EffectsPropertiesProps) {
+export function EffectsProperties({
+	className,
+	onChange,
+}: EffectsPropertiesProps) {
 	const systemId = useDesignSystemId();
 	const resolved = useResolvedColorTokens(systemId);
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
 
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: resolved.names }),
-		[resolved.names],
+		() => ({ colorTokens: resolved.names, ...customUtilityRoots }),
+		[resolved.names, customUtilityRoots],
 	);
 
 	const model = useMemo(
@@ -127,7 +129,9 @@ export function EffectsProperties({ className, onChange }: EffectsPropertiesProp
 						)
 					}
 					onClear={(variants) =>
-						onChange(applyColorClear(className, options, { property, variants }))
+						onChange(
+							applyColorClear(className, options, { property, variants }),
+						)
 					}
 				/>
 			))}
@@ -164,7 +168,9 @@ export function EffectsProperties({ className, onChange }: EffectsPropertiesProp
 						options={BLUR_OPTIONS}
 						value={slot.value}
 						onChange={(next) =>
-							slot.apply(next === null ? null : effectsUtility("effects.blur", next))
+							slot.apply(
+								next === null ? null : effectsUtility("effects.blur", next),
+							)
 						}
 					/>
 				)}
@@ -222,7 +228,9 @@ export function EffectsProperties({ className, onChange }: EffectsPropertiesProp
 						placeholder="multiply"
 						onCommit={(v) =>
 							slot.apply(
-								v.trim() ? effectsUtility("effects.mix-blend-mode", v.trim()) : null,
+								v.trim()
+									? effectsUtility("effects.mix-blend-mode", v.trim())
+									: null,
 							)
 						}
 					/>

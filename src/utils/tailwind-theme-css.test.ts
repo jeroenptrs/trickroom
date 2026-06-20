@@ -61,4 +61,34 @@ describe("serializeTailwindTheme", () => {
 			),
 		);
 	});
+
+	it("emits custom CSS variables so custom utilities resolve in the iframe", () => {
+		const domains = emptyDomainStorages();
+
+		expect(
+			serializeTailwindThemeDomains(domains, {
+				"--db-interaction-sm": "0.875rem",
+				"--db-interaction-lg": "1.25rem",
+			}),
+		).toBe(
+			[
+				"@theme {",
+				"  --db-interaction-lg: 1.25rem;",
+				"  --db-interaction-sm: 0.875rem;",
+				"}",
+			].join("\n"),
+		);
+	});
+
+	it("rejects malformed custom property names and unsafe values", () => {
+		const domains = emptyDomainStorages();
+
+		expect(
+			serializeTailwindThemeDomains(domains, {
+				"--ok": "1rem",
+				"no-leading-dashes": "2rem",
+				"--bad-value": "1rem; } body { color: red",
+			}),
+		).toBe(["@theme {", "  --ok: 1rem;", "}"].join("\n"));
+	});
 });

@@ -6,25 +6,31 @@ import {
 	SYSTEM_PROP_KEYS,
 } from "../libraries/registry";
 import type { JsonPrimitive, Props, RecipeTemplateNode, Role } from "../types";
-import {
-	type ClassLayer,
-	createClassLayers,
-	flattenClassLayers,
-} from "../utils/class-layers";
+import { type ClassLayer, flattenClassLayers } from "../utils/class-layers";
 import { convertDesignSubtreeToComponentDraftRoot } from "../utils/design-subtree-to-component-draft";
+import { compoundWhenSignature } from "../utils/system-component-compound-signature";
 import { inferOverrideTargetCapabilities } from "../utils/system-component-override-targets";
 import { hashComponentDraftSnapshot } from "../utils/system-component-template-hash";
+import { composeSystemComponentVariantClassLayers } from "../utils/system-component-variant-class-layers";
 import type {
+	SystemComponentCompoundVariant,
 	SystemComponentOverrideTarget,
 	SystemComponentSlotDefinition,
 	SystemComponentVariantAxis,
 	SystemComponentVariantSchema,
 } from "../utils/system-components";
 
-export type ComponentDraftStyleTarget =
-	| { mode: "base" }
-	| { mode: "variant"; axisKey: string; valueKey: string }
-	| { mode: "compound"; compoundIndex: number };
+export type ComponentDraftStyleTab =
+	| { kind: "base" }
+	| { kind: "axis"; axisKey: string }
+	| { kind: "compound" };
+
+export type ComponentDraftStyleTarget = {
+	base: boolean;
+	axisValues: Record<string, string>;
+	compoundAxes: string[];
+	activeTab: ComponentDraftStyleTab;
+};
 
 export type ComponentTemplateSelection = {
 	library: string;
@@ -61,7 +67,12 @@ export type ComponentDraftStoreState = {
 	revision: number;
 };
 
-const baseStyleTarget: ComponentDraftStyleTarget = { mode: "base" };
+const baseStyleTarget: ComponentDraftStyleTarget = {
+	base: true,
+	axisValues: {},
+	compoundAxes: [],
+	activeTab: { kind: "base" },
+};
 
 export type HydrateComponentDraftInput = {
 	componentId: string;
@@ -177,7 +188,7 @@ export function normalizeComponentDraft(
 		overrideTargets: cloneOverrideTargets(input.overrideTargets),
 		variants: cloneVariants(input.variants),
 		variantsDirty: false,
-		styleTarget: { mode: "base" },
+		styleTarget: baseStyleTarget,
 		rootPath: input.root.path,
 		entitiesByPath,
 		selectedPath: null,
@@ -244,6 +255,12 @@ export function serializeComponentDraftState(
 	return serializeTemplateNode(state.rootPath, state.entitiesByPath);
 }
 
+export function serializeComponentDraftVariants(
+	state: ComponentDraftStoreState,
+): SystemComponentVariantSchema | null {
+	return serializeComponentDraftVariantsSchema(state.variants);
+}
+
 const hasTemplateDirtyChanges = (state: ComponentDraftStoreState) =>
 	state.templateDirty || Object.keys(state.dirtyPaths).length > 0;
 
@@ -253,6 +270,123 @@ const hasDirtyChanges = (state: ComponentDraftStoreState) =>
 const stableVariantSchemaSignature = (
 	variants: SystemComponentVariantSchema | null,
 ) => JSON.stringify(variants ?? null);
+
+const sortKeys = (keys: string[]) =>
+	[...keys].sort((left, right) => left.localeCompare(right));
+
+const hasCompoundClasses = (compound: SystemComponentCompoundVariant) =>
+	Object.keys(compound.classesByPath).length > 0;
+
+const pruneEmptyCompoundVariants = (
+	compounds: SystemComponentVariantSchema["compoundVariants"] | undefined,
+) => compounds?.filter(hasCompoundClasses);
+
+function serializeComponentDraftVariantsSchema(
+	variants: SystemComponentVariantSchema | null,
+): SystemComponentVariantSchema | null {
+	if (!variants) {
+		return null;
+	}
+
+	const nextCompoundVariants = pruneEmptyCompoundVariants(
+		variants.compoundVariants,
+	);
+	const { compoundVariants: _compoundVariants, ...rest } = variants;
+
+	return {
+		...rest,
+		...(nextCompoundVariants && nextCompoundVariants.length > 0
+			? { compoundVariants: nextCompoundVariants }
+			: {}),
+	};
+}
+
+function deriveCompoundWhenFromStyleTarget(
+	target: ComponentDraftStyleTarget,
+): Record<string, string> | null {
+	const when: Record<string, string> = {};
+	for (const axisKey of target.compoundAxes) {
+		const valueKey = target.axisValues[axisKey];
+		if (!valueKey) {
+			return null;
+		}
+		when[axisKey] = valueKey;
+	}
+
+	return Object.keys(when).length >= 2 ? when : null;
+}
+
+function findCompoundIndexByWhen(
+	compounds: SystemComponentVariantSchema["compoundVariants"] | undefined,
+	when: Record<string, string | string[]>,
+) {
+	const signature = compoundWhenSignature(when);
+	return (compounds ?? []).findIndex(
+		(compound) => compoundWhenSignature(compound.when) === signature,
+	);
+}
+
+function reconcileStyleTarget(
+	target: ComponentDraftStyleTarget,
+	variants: SystemComponentVariantSchema | null,
+): ComponentDraftStyleTarget {
+	const axes = variants?.axes ?? {};
+	const axisValues: Record<string, string> = {};
+	for (const axisKey of sortKeys(Object.keys(target.axisValues))) {
+		const valueKey = target.axisValues[axisKey];
+		if (axes[axisKey]?.values[valueKey]) {
+			axisValues[axisKey] = valueKey;
+		}
+	}
+
+	const compoundAxes = sortKeys(
+		Array.from(
+			new Set(
+				target.compoundAxes.filter(
+					(axisKey) => axisValues[axisKey] !== undefined,
+				),
+			),
+		),
+	);
+	const compoundIsValid = compoundAxes.length >= 2;
+	const base = target.base || Object.keys(axisValues).length === 0;
+	let activeTab: ComponentDraftStyleTab = target.activeTab;
+
+	if (activeTab.kind === "base") {
+		if (!base) {
+			const firstAxisKey = sortKeys(Object.keys(axisValues))[0];
+			activeTab = firstAxisKey
+				? { kind: "axis", axisKey: firstAxisKey }
+				: { kind: "base" };
+		}
+	} else if (activeTab.kind === "axis") {
+		if (axisValues[activeTab.axisKey] === undefined) {
+			activeTab = base ? { kind: "base" } : { kind: "compound" };
+		}
+	} else if (!compoundIsValid) {
+		activeTab = base ? { kind: "base" } : { kind: "axis", axisKey: "" };
+	}
+
+	if (
+		activeTab.kind === "axis" &&
+		axisValues[activeTab.axisKey] === undefined
+	) {
+		const firstAxisKey = sortKeys(Object.keys(axisValues))[0];
+		activeTab = firstAxisKey
+			? { kind: "axis", axisKey: firstAxisKey }
+			: { kind: "base" };
+	}
+	if (activeTab.kind === "compound" && !compoundIsValid) {
+		activeTab = base ? { kind: "base" } : { kind: "base" };
+	}
+
+	return {
+		base,
+		axisValues,
+		compoundAxes,
+		activeTab,
+	};
+}
 
 const isSameCleanDraft = (
 	state: ComponentDraftStoreState,
@@ -275,33 +409,22 @@ const isSameCleanDraft = (
 	);
 };
 
-const styleTargetExists = (
-	target: ComponentDraftStyleTarget,
-	variants: SystemComponentVariantSchema | null,
-) => {
-	if (target.mode === "base") {
-		return true;
-	}
-	if (target.mode === "variant") {
-		return Boolean(variants?.axes[target.axisKey]?.values[target.valueKey]);
-	}
-	return Boolean(variants?.compoundVariants?.[target.compoundIndex]);
-};
-
 const styleTargetsEqual = (
 	left: ComponentDraftStyleTarget,
 	right: ComponentDraftStyleTarget,
 ) => {
-	if (left.mode !== right.mode) {
+	if (left.base !== right.base) {
 		return false;
 	}
-	if (left.mode === "variant" && right.mode === "variant") {
-		return left.axisKey === right.axisKey && left.valueKey === right.valueKey;
+	if (JSON.stringify(left.axisValues) !== JSON.stringify(right.axisValues)) {
+		return false;
 	}
-	if (left.mode === "compound" && right.mode === "compound") {
-		return left.compoundIndex === right.compoundIndex;
+	if (
+		JSON.stringify(left.compoundAxes) !== JSON.stringify(right.compoundAxes)
+	) {
+		return false;
 	}
-	return true;
+	return JSON.stringify(left.activeTab) === JSON.stringify(right.activeTab);
 };
 
 export function hydrateComponentDraft(
@@ -322,9 +445,8 @@ export function hydrateComponentDraft(
 		}
 
 		const nextStyleTarget =
-			state.componentId === nextState.componentId &&
-			styleTargetExists(state.styleTarget, nextState.variants)
-				? state.styleTarget
+			state.componentId === nextState.componentId
+				? reconcileStyleTarget(state.styleTarget, nextState.variants)
 				: baseStyleTarget;
 
 		result = "hydrated";
@@ -467,25 +589,45 @@ export function getCompoundClassNameForPath(
 	);
 }
 
+export function getCompoundClassNameForWhen(
+	state: ComponentDraftStoreState,
+	when: Record<string, string | string[]>,
+	path: string,
+) {
+	const compoundIndex = findCompoundIndexByWhen(
+		state.variants?.compoundVariants,
+		when,
+	);
+	return compoundIndex >= 0
+		? getCompoundClassNameForPath(state, compoundIndex, path)
+		: "";
+}
+
 export function getEffectiveDraftNodeClassName(
 	state: ComponentDraftStoreState,
 	path: string,
 ) {
-	if (state.styleTarget.mode === "variant") {
-		return getVariantClassNameForPath(
-			state,
-			state.styleTarget.axisKey,
-			state.styleTarget.valueKey,
-			path,
-		);
+	return getDraftClassNameForStyleTab(
+		state,
+		state.styleTarget.activeTab,
+		path,
+	);
+}
+
+export function getDraftClassNameForStyleTab(
+	state: ComponentDraftStoreState,
+	tab: ComponentDraftStyleTab,
+	path: string,
+) {
+	if (tab.kind === "axis") {
+		const { axisKey } = tab;
+		const valueKey = state.styleTarget.axisValues[axisKey];
+		return getVariantClassNameForPath(state, axisKey, valueKey ?? "", path);
 	}
 
-	if (state.styleTarget.mode === "compound") {
-		return getCompoundClassNameForPath(
-			state,
-			state.styleTarget.compoundIndex,
-			path,
-		);
+	if (tab.kind === "compound") {
+		const when = deriveCompoundWhenFromStyleTarget(state.styleTarget);
+		return when ? getCompoundClassNameForWhen(state, when, path) : "";
 	}
 
 	return state.entitiesByPath[path]?.className ?? "";
@@ -504,48 +646,15 @@ export function getComponentDraftPreviewClassLayers(
 		...(state.componentId ? { componentId: state.componentId } : {}),
 		library: entity.library,
 		component: entity.component,
-		path,
 	};
 
-	if (state.styleTarget.mode === "variant") {
-		const { axisKey, valueKey } = state.styleTarget;
-		return createClassLayers([
-			{
-				source: "system-template",
-				className: entity.className,
-				metadata,
-			},
-			{
-				source: "system-variant",
-				className: getVariantClassNameForPath(state, axisKey, valueKey, path),
-				metadata: { ...metadata, axis: axisKey, value: valueKey },
-			},
-		]);
-	}
-
-	if (state.styleTarget.mode === "compound") {
-		const { compoundIndex } = state.styleTarget;
-		return createClassLayers([
-			{
-				source: "system-template",
-				className: entity.className,
-				metadata,
-			},
-			{
-				source: "system-compound-variant",
-				className: getCompoundClassNameForPath(state, compoundIndex, path),
-				metadata: { ...metadata, compoundIndex },
-			},
-		]);
-	}
-
-	return createClassLayers([
-		{
-			source: "system-template",
-			className: entity.className,
-			metadata,
-		},
-	]);
+	return composeSystemComponentVariantClassLayers({
+		variants: state.variants ?? undefined,
+		path,
+		templateClassName: state.styleTarget.base ? entity.className : undefined,
+		variantValues: state.styleTarget.axisValues,
+		context: metadata,
+	});
 }
 
 export function getComponentDraftPreviewClassName(
@@ -557,21 +666,70 @@ export function getComponentDraftPreviewClassName(
 	);
 }
 
+export function focusCompoundInDraft(when: Record<string, string>) {
+	const state = componentDraftStore.get();
+	const compoundAxes = sortKeys(Object.keys(when));
+
+	setComponentDraftStyleTarget({
+		base: true,
+		axisValues: { ...when },
+		compoundAxes,
+		activeTab: { kind: "compound" },
+	});
+
+	if (!state.selectedPath && state.rootPath) {
+		selectTemplateNode(state.rootPath);
+	}
+}
+
+export function removeCompoundVariantByWhen(
+	when: Record<string, string | string[]>,
+) {
+	componentDraftStore.setState((state) => {
+		const variants = state.variants;
+		if (!variants?.compoundVariants?.length) {
+			return state;
+		}
+
+		const signature = compoundWhenSignature(when);
+		const nextCompounds = variants.compoundVariants.filter(
+			(compound) => compoundWhenSignature(compound.when) !== signature,
+		);
+		if (nextCompounds.length === variants.compoundVariants.length) {
+			return state;
+		}
+
+		const prunedCompounds = pruneEmptyCompoundVariants(nextCompounds) ?? [];
+		const { compoundVariants: _compoundVariants, ...rest } = variants;
+		const nextVariants: SystemComponentVariantSchema = {
+			...rest,
+			...(prunedCompounds.length > 0
+				? { compoundVariants: prunedCompounds }
+				: {}),
+		};
+
+		return {
+			...state,
+			variants: nextVariants,
+			variantsDirty: true,
+			styleTarget: reconcileStyleTarget(state.styleTarget, nextVariants),
+			revision: state.revision + 1,
+		};
+	});
+}
+
 export function setComponentDraftStyleTarget(
 	target: ComponentDraftStyleTarget,
 ) {
 	componentDraftStore.setState((state) => {
-		if (!styleTargetExists(target, state.variants)) {
-			return state;
-		}
-
-		if (styleTargetsEqual(state.styleTarget, target)) {
+		const nextTarget = reconcileStyleTarget(target, state.variants);
+		if (styleTargetsEqual(state.styleTarget, nextTarget)) {
 			return state;
 		}
 
 		return {
 			...state,
-			styleTarget: target,
+			styleTarget: nextTarget,
 		};
 	});
 }
@@ -580,7 +738,9 @@ export function replaceComponentDraftVariants(
 	variants: SystemComponentVariantSchema | null,
 ) {
 	componentDraftStore.setState((state) => {
-		const nextVariants = cloneVariants(variants);
+		const nextVariants = serializeComponentDraftVariantsSchema(
+			cloneVariants(variants),
+		);
 		if (
 			stableVariantSchemaSignature(state.variants) ===
 			stableVariantSchemaSignature(nextVariants)
@@ -588,27 +748,10 @@ export function replaceComponentDraftVariants(
 			return state;
 		}
 
-		let nextStyleTarget = state.styleTarget;
-		if (state.styleTarget.mode === "variant") {
-			const { axisKey, valueKey } = state.styleTarget;
-			if (!nextVariants?.axes[axisKey]?.values[valueKey]) {
-				nextStyleTarget = { mode: "base" };
-			}
-		} else if (state.styleTarget.mode === "compound") {
-			// Compounds are an ordered list, so editing a single compound's
-			// conditions keeps every index aligned, but adding or removing one
-			// shifts indices. Reset to base whenever the count changes (or the
-			// targeted compound disappears) rather than risk pointing at a
-			// different compound than the user selected.
-			const previousCount = state.variants?.compoundVariants?.length ?? 0;
-			const nextCount = nextVariants?.compoundVariants?.length ?? 0;
-			if (
-				previousCount !== nextCount ||
-				!nextVariants?.compoundVariants?.[state.styleTarget.compoundIndex]
-			) {
-				nextStyleTarget = { mode: "base" };
-			}
-		}
+		const nextStyleTarget = reconcileStyleTarget(
+			state.styleTarget,
+			nextVariants,
+		);
 
 		return {
 			...state,
@@ -669,33 +812,64 @@ export function updateVariantClassesByPath(
 	});
 }
 
-export function updateCompoundClassesByPath(
-	compoundIndex: number,
+export function updateCompoundClassesByWhen(
+	when: Record<string, string>,
 	path: string,
 	className: string,
 ) {
 	componentDraftStore.setState((state) => {
 		const variants = state.variants;
-		const compound = variants?.compoundVariants?.[compoundIndex];
-		if (!variants || !compound) {
+		if (!variants) {
 			return state;
 		}
 
-		const nextClassesByPath = { ...compound.classesByPath };
+		const compoundIndex = findCompoundIndexByWhen(
+			variants.compoundVariants,
+			when,
+		);
+		if (compoundIndex < 0 && !className.trim()) {
+			return state;
+		}
+
+		const existingCompound =
+			compoundIndex >= 0
+				? variants.compoundVariants?.[compoundIndex]
+				: undefined;
+		const nextClassesByPath = { ...(existingCompound?.classesByPath ?? {}) };
 		if (className.trim()) {
 			nextClassesByPath[path] = className;
 		} else {
 			delete nextClassesByPath[path];
 		}
 
-		const nextCompound = { ...compound, classesByPath: nextClassesByPath };
-		const nextCompounds = (variants.compoundVariants ?? []).map(
-			(entry, index) => (index === compoundIndex ? nextCompound : entry),
-		);
+		let nextCompounds = [...(variants.compoundVariants ?? [])];
+		if (compoundIndex >= 0) {
+			if (Object.keys(nextClassesByPath).length > 0) {
+				nextCompounds[compoundIndex] = {
+					...(existingCompound ?? { when }),
+					classesByPath: nextClassesByPath,
+				};
+			} else {
+				nextCompounds.splice(compoundIndex, 1);
+			}
+		} else {
+			nextCompounds.push({
+				when: { ...when },
+				classesByPath: { [path]: className },
+			});
+		}
+
+		nextCompounds = pruneEmptyCompoundVariants(nextCompounds) ?? [];
+		const { compoundVariants: _compoundVariants, ...rest } = variants;
 
 		return {
 			...state,
-			variants: { ...variants, compoundVariants: nextCompounds },
+			variants: {
+				...rest,
+				...(nextCompounds.length > 0
+					? { compoundVariants: nextCompounds }
+					: {}),
+			},
 			variantsDirty: true,
 			revision: state.revision + 1,
 		};
@@ -707,33 +881,38 @@ export function setComponentDraftStyleClassName(
 	className: string,
 ) {
 	const state = componentDraftStore.get();
-	if (state.styleTarget.mode === "variant") {
-		updateVariantClassesByPath(
-			state.styleTarget.axisKey,
-			state.styleTarget.valueKey,
-			path,
-			className,
-		);
-		return;
-	}
-
-	if (state.styleTarget.mode === "compound") {
-		updateCompoundClassesByPath(
-			state.styleTarget.compoundIndex,
-			path,
-			className,
-		);
-		return;
-	}
-
-	updateTemplateNodeClassName(path, className);
+	setDraftClassNameForStyleTab(state.styleTarget.activeTab, path, className);
 }
 
-export function updateTemplateNodeClassName(path: string, className: string) {
-	if (componentDraftStore.get().styleTarget.mode !== "base") {
+export function setDraftClassNameForStyleTab(
+	tab: ComponentDraftStyleTab,
+	path: string,
+	className: string,
+) {
+	const state = componentDraftStore.get();
+	if (tab.kind === "axis") {
+		const { axisKey } = tab;
+		const valueKey = state.styleTarget.axisValues[axisKey];
+		if (!valueKey) {
+			return;
+		}
+		updateVariantClassesByPath(axisKey, valueKey, path, className);
 		return;
 	}
 
+	if (tab.kind === "compound") {
+		const when = deriveCompoundWhenFromStyleTarget(state.styleTarget);
+		if (!when) {
+			return;
+		}
+		updateCompoundClassesByWhen(when, path, className);
+		return;
+	}
+
+	setTemplateNodeClassName(path, className);
+}
+
+function setTemplateNodeClassName(path: string, className: string) {
 	componentDraftStore.setState((state) => {
 		const entity = state.entitiesByPath[path];
 		if (!entity) {
@@ -756,6 +935,14 @@ export function updateTemplateNodeClassName(path: string, className: string) {
 			revision: state.revision + 1,
 		};
 	});
+}
+
+export function updateTemplateNodeClassName(path: string, className: string) {
+	if (componentDraftStore.get().styleTarget.activeTab.kind !== "base") {
+		return;
+	}
+
+	setTemplateNodeClassName(path, className);
 }
 
 export function updateTemplateNodeName(path: string, name: string) {
@@ -1265,32 +1452,41 @@ function removeDeletedVariantClassTargets(
 
 	let nextCompoundVariants = variants.compoundVariants;
 	if (variants.compoundVariants) {
-		nextCompoundVariants = variants.compoundVariants.map((compoundVariant) => {
-			const nextClassesByPath = Object.fromEntries(
-				Object.entries(compoundVariant.classesByPath).filter(
-					([path]) => !deletedPaths.has(path),
-				),
-			);
-			if (
-				Object.keys(nextClassesByPath).length ===
-				Object.keys(compoundVariant.classesByPath).length
-			) {
-				return compoundVariant;
-			}
+		nextCompoundVariants = variants.compoundVariants.flatMap(
+			(compoundVariant) => {
+				const nextClassesByPath = Object.fromEntries(
+					Object.entries(compoundVariant.classesByPath).filter(
+						([path]) => !deletedPaths.has(path),
+					),
+				);
+				if (
+					Object.keys(nextClassesByPath).length ===
+					Object.keys(compoundVariant.classesByPath).length
+				) {
+					return [compoundVariant];
+				}
 
-			changed = true;
-			return { ...compoundVariant, classesByPath: nextClassesByPath };
-		});
+				changed = true;
+				if (Object.keys(nextClassesByPath).length === 0) {
+					return [];
+				}
+				return [{ ...compoundVariant, classesByPath: nextClassesByPath }];
+			},
+		);
 	}
 
 	if (!changed) {
 		return variants;
 	}
 
+	const { compoundVariants: _compoundVariants, ...rest } = variants;
+
 	return {
-		...variants,
+		...rest,
 		axes: nextAxes,
-		...(nextCompoundVariants ? { compoundVariants: nextCompoundVariants } : {}),
+		...(nextCompoundVariants && nextCompoundVariants.length > 0
+			? { compoundVariants: nextCompoundVariants }
+			: {}),
 	};
 }
 
@@ -1575,6 +1771,15 @@ export function useComponentDraftStyleTarget() {
 export function useComponentDraftEffectiveClassName(path: string) {
 	return useSelector(componentDraftStore, (state) =>
 		getEffectiveDraftNodeClassName(state, path),
+	);
+}
+
+export function useComponentDraftClassNameForStyleTab(
+	tab: ComponentDraftStyleTab,
+	path: string,
+) {
+	return useSelector(componentDraftStore, (state) =>
+		getDraftClassNameForStyleTab(state, tab, path),
 	);
 }
 

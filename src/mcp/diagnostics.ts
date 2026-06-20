@@ -15,10 +15,10 @@ import {
 } from "../utils/resolved-tailwind-domain-tokens";
 import {
 	classifyParsedClass,
+	parseClassName,
 	type SpacingIntent,
 	type StyleIntent,
 	type UtilityIntent,
-	parseClassName,
 } from "../utils/tailwind-classname";
 import { loadTailwindDesignSystem } from "../utils/tailwind-design-system";
 import {
@@ -27,7 +27,8 @@ import {
 } from "../utils/tailwind-token-domains";
 import {
 	readDomainTokensReadonly,
-	type TailwindTokenStorageV2,
+	type TailwindCustomUtilityStorage,
+	type TailwindTokenStorage,
 } from "../utils/tailwind-token-store";
 import {
 	inspectTailwindUtilityCandidate,
@@ -61,12 +62,44 @@ export type DesignDiagnostics = {
 		syncedAt?: string;
 		tailwindBaselineVersion?: string;
 		tokenCount?: number;
+		customUtilities?: readonly TailwindCustomUtilityStorage[];
 	} | null;
 };
 
 type TailwindUtilityInspector = (
 	candidate: string,
 ) => TailwindUtilityInspection;
+
+type CustomUtilityRoots = {
+	customFunctionalUtilityRoots: readonly string[];
+	customStaticUtilityRoots: readonly string[];
+};
+
+const EMPTY_CUSTOM_UTILITY_ROOTS: CustomUtilityRoots = {
+	customFunctionalUtilityRoots: [],
+	customStaticUtilityRoots: [],
+};
+
+/**
+ * Split persisted custom @utility roots by kind for classification: functional
+ * roots are prefix-matched, static roots exact-matched. Each list is sorted
+ * longest-first. Legacy entries without `kind` are treated as functional.
+ */
+function splitCustomUtilityRoots(
+	customUtilities: readonly TailwindCustomUtilityStorage[],
+): CustomUtilityRoots {
+	const functional: string[] = [];
+	const staticRoots: string[] = [];
+	for (const utility of customUtilities) {
+		(utility.kind === "static" ? staticRoots : functional).push(utility.root);
+	}
+	const byLengthDescending = (roots: string[]) =>
+		roots.sort((a, b) => b.length - a.length || a.localeCompare(b));
+	return {
+		customFunctionalUtilityRoots: byLengthDescending(functional),
+		customStaticUtilityRoots: byLengthDescending(staticRoots),
+	};
+}
 
 const STYLE_PROPERTY_TO_TOKEN_DOMAIN: Partial<
 	Record<StyleIntent["property"], TailwindTokenDomain>
@@ -388,10 +421,7 @@ const collectStyleDiagnostics = (
 		return;
 	}
 
-	if (
-		intent.value.kind === "arbitrary" &&
-		ARBITRARY_WARN_DOMAINS.has(domain)
-	) {
+	if (intent.value.kind === "arbitrary" && ARBITRARY_WARN_DOMAINS.has(domain)) {
 		pushClassDiagnostic(issues, {
 			severity: "warning",
 			code: outOfSystemCodeForDomain(domain),
@@ -444,6 +474,7 @@ const collectClassDiagnostics = (
 	path: string,
 	resolvedTokens: ResolvedTokenContext,
 	colorTokens: ReadonlySet<string>,
+	customUtilityRoots: CustomUtilityRoots,
 	inspectUtility: TailwindUtilityInspector | null,
 	issues: ClassTokenDiagnostic[],
 	options: CollectClassDiagnosticsOptions = {},
@@ -453,13 +484,11 @@ const collectClassDiagnostics = (
 	const className = node.props.className;
 	if (className?.trim()) {
 		for (const parsed of parseClassName(className)) {
-			const base = createClassDiagnosticBase(
-				node,
-				path,
-				className,
-				parsed.raw,
-			);
-			const intent = classifyParsedClass(parsed, { colorTokens });
+			const base = createClassDiagnosticBase(node, path, className, parsed.raw);
+			const intent = classifyParsedClass(parsed, {
+				colorTokens,
+				...customUtilityRoots,
+			});
 
 			switch (intent.kind) {
 				case "color":
@@ -508,6 +537,7 @@ const collectClassDiagnostics = (
 				`${path}.children[${childIndex}]`,
 				resolvedTokens,
 				colorTokens,
+				customUtilityRoots,
 				inspectUtility,
 				issues,
 				options,
@@ -518,7 +548,7 @@ const collectClassDiagnostics = (
 
 const getTokenSnapshotMetadata = (
 	system: { systemId: string; systemName: string } | null,
-	storedTokens: TailwindTokenStorageV2 | null,
+	storedTokens: TailwindTokenStorage | null,
 ): DesignDiagnostics["tokenSnapshot"] => {
 	if (system === null) {
 		return null;
@@ -543,6 +573,9 @@ const getTokenSnapshotMetadata = (
 			(total, domain) => total + Object.keys(domain.tokens).length,
 			0,
 		),
+		...(storedTokens.customUtilities.length > 0
+			? { customUtilities: storedTokens.customUtilities }
+			: {}),
 	};
 };
 
@@ -621,6 +654,7 @@ export const getDesignDiagnostics = async (
 				`boards[${rootIndex}]`,
 				emptyResolvedTokens,
 				emptyColorTokens,
+				EMPTY_CUSTOM_UTILITY_ROOTS,
 				inspectUtility,
 				issues,
 				{ includeTokenDomainDiagnostics: false },
@@ -648,6 +682,9 @@ export const getDesignDiagnostics = async (
 		meaningfulTokens: colorDomain.tokens,
 		removed: colorDomain.baselineDiff.removed,
 	}).names;
+	const customUtilityRoots = splitCustomUtilityRoots(
+		storedTokens.customUtilities,
+	);
 	const inspectUtility = await loadTailwindUtilityInspector(
 		context,
 		system.manifest.cssPath ?? storedTokens.metadata.cssPath,
@@ -659,6 +696,7 @@ export const getDesignDiagnostics = async (
 			`boards[${rootIndex}]`,
 			resolvedTokens,
 			colorTokens,
+			customUtilityRoots,
 			inspectUtility,
 			issues,
 		);

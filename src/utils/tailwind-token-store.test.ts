@@ -12,7 +12,7 @@ import {
 	resolveTokenSnapshotPath,
 	storeDomainTokens,
 	systemNameToSafeKey,
-	type TailwindTokenStorageV2,
+	type TailwindTokenStorage,
 } from "./tailwind-token-store";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -100,7 +100,7 @@ describe("tailwind-token-store", () => {
 	});
 
 	describe("storeDomainTokens and readDomainTokens", () => {
-		it("stores and retrieves the current v2 domain-nested model", async () => {
+		it("stores and retrieves the current v3 domain-nested model", async () => {
 			await storeDomainTokens({
 				projectRoot: testDir,
 				systemName: "core",
@@ -119,7 +119,9 @@ describe("tailwind-token-store", () => {
 			const read = await readDomainTokens(testDir, "core");
 
 			expect(read).toMatchObject({
-				version: 2,
+				version: 3,
+				customProperties: {},
+				customUtilities: [],
 				metadata: {
 					cssPath: "src/theme.css",
 					syncedAt: "2026-05-02T12:00:00.000Z",
@@ -345,6 +347,186 @@ describe("tailwind-token-store", () => {
 			).resolves.toBeNull();
 		});
 
+		it("persists and round-trips custom properties and custom utilities", async () => {
+			await storeDomainTokens({
+				projectRoot: testDir,
+				systemName: "core",
+				tokens: {},
+				tailwindBaselineVersion: "4.2.4",
+				cssPath: "src/theme.css",
+				baselineDiff: { added: [], overridden: [], removed: [] },
+				reviewRequired: false,
+				customProperties: {
+					"--db-interaction-sm": "0.875rem",
+					"--db-interaction-lg": "1.25rem",
+				},
+				customUtilities: [
+					{
+						root: "text-interaction",
+						kind: "functional",
+						consumedNamespaces: ["--db-interaction"],
+						completionValues: ["lg", "sm"],
+						domains: ["typography"],
+					},
+					{
+						root: "core-interaction-primary",
+						kind: "static",
+						consumedNamespaces: [],
+						completionValues: [],
+						// Unsorted + duplicate to verify normalization.
+						domains: ["typography", "color", "color"],
+					},
+				],
+			});
+
+			const read = await readDomainTokens(testDir, "core");
+
+			expect(read?.version).toBe(3);
+			expect(read?.customProperties).toEqual({
+				"--db-interaction-lg": "1.25rem",
+				"--db-interaction-sm": "0.875rem",
+			});
+			expect(read?.customUtilities).toEqual([
+				{
+					root: "core-interaction-primary",
+					kind: "static",
+					consumedNamespaces: [],
+					completionValues: [],
+					domains: ["color", "typography"],
+				},
+				{
+					root: "text-interaction",
+					kind: "functional",
+					consumedNamespaces: ["--db-interaction"],
+					completionValues: ["lg", "sm"],
+					domains: ["typography"],
+				},
+			]);
+		});
+
+		it("backfills kind=functional when reading a legacy v3 utility without kind", async () => {
+			const snapshotPath = resolveTokenSnapshotPath(testDir, "core");
+			await mkdir(path.dirname(snapshotPath), { recursive: true });
+			await writeFile(
+				snapshotPath,
+				JSON.stringify({
+					version: 3,
+					metadata: {
+						cssPath: "src/theme.css",
+						syncedAt: "2026-05-02T12:00:00.000Z",
+						tailwindBaselineVersion: "4.2.4",
+						reviewRequired: false,
+					},
+					customProperties: {},
+					customUtilities: [
+						{
+							root: "text-interaction",
+							consumedNamespaces: ["--db-interaction"],
+							completionValues: ["sm"],
+						},
+					],
+					domains: {
+						color: {
+							tokens: {},
+							overrides: [],
+							baselineDiff: { added: [], overridden: [], removed: [] },
+						},
+					},
+				}),
+				"utf8",
+			);
+
+			const read = await readDomainTokens(testDir, "core");
+			expect(read?.customUtilities[0]?.kind).toBe("functional");
+			expect(read?.customUtilities[0]?.domains).toEqual([]);
+		});
+
+		it("migrates a legacy v2 snapshot to v3 with empty custom sections", async () => {
+			const snapshotPath = resolveTokenSnapshotPath(testDir, "core");
+			await mkdir(path.dirname(snapshotPath), { recursive: true });
+			await writeFile(
+				snapshotPath,
+				JSON.stringify(
+					{
+						version: 2,
+						metadata: {
+							cssPath: "src/theme.css",
+							syncedAt: "2026-05-02T12:00:00.000Z",
+							tailwindBaselineVersion: "4.2.4",
+							reviewRequired: false,
+						},
+						domains: {
+							color: {
+								tokens: { "brand-500": "#123456" },
+								overrides: [],
+								baselineDiff: {
+									added: [
+										{ name: "brand-500", value: "#123456", domain: "color" },
+									],
+									overridden: [],
+									removed: [],
+								},
+							},
+						},
+					},
+					null,
+					"\t",
+				),
+				"utf8",
+			);
+
+			const read = await readDomainTokens(testDir, "core");
+
+			// Migrated in-memory to v3...
+			expect(read?.version).toBe(3);
+			expect(read?.customProperties).toEqual({});
+			expect(read?.customUtilities).toEqual([]);
+			expect(read?.domains.color.tokens).toEqual({ "brand-500": "#123456" });
+
+			// ...and rewritten to disk as v3 (canonicalization upgrades the file).
+			const persisted = JSON.parse(await readFile(snapshotPath, "utf8")) as {
+				version: number;
+				customProperties: Record<string, string>;
+				customUtilities: unknown[];
+			};
+			expect(persisted.version).toBe(3);
+			expect(persisted.customProperties).toEqual({});
+			expect(persisted.customUtilities).toEqual([]);
+		});
+
+		it("treats custom sections as part of snapshot equivalence", async () => {
+			const base = {
+				projectRoot: testDir,
+				systemName: "core",
+				tokens: {},
+				tailwindBaselineVersion: "4.2.4",
+				cssPath: "src/theme.css",
+				baselineDiff: { added: [], overridden: [], removed: [] },
+				reviewRequired: false,
+				syncedAt: "2026-05-02T12:00:00.000Z",
+			} as const;
+
+			await storeDomainTokens({
+				...base,
+				customProperties: { "--db-interaction-sm": "0.875rem" },
+				customUtilities: [],
+			});
+			const first = await readDomainTokens(testDir, "core");
+
+			await storeDomainTokens({
+				...base,
+				customProperties: { "--db-interaction-sm": "1rem" },
+				customUtilities: [],
+			});
+			const second = await readDomainTokens(testDir, "core");
+
+			expect(first).not.toBeNull();
+			expect(second).not.toBeNull();
+			if (first && second) {
+				expect(areTokenStoragesEquivalent(first, second, testDir)).toBe(false);
+			}
+		});
+
 		it("rejects legacy v2 storage without required metadata", async () => {
 			const snapshotPath = resolveTokenSnapshotPath(testDir, "core");
 			await mkdir(path.dirname(snapshotPath), { recursive: true });
@@ -456,22 +638,25 @@ describe("tailwind-token-store", () => {
 	describe("canonical comparison helpers", () => {
 		const createStorage = (
 			overrides: string[],
-			metadata: TailwindTokenStorageV2["metadata"],
-		): TailwindTokenStorageV2 => ({
-			version: 2,
-			metadata,
-			domains: {
-				color: {
-					tokens: { "brand-500": "#123456" },
-					overrides,
-					baselineDiff: {
-						added: [{ name: "brand-500", value: "#123456", domain: "color" }],
-						overridden: [],
-						removed: [],
+			metadata: TailwindTokenStorage["metadata"],
+		): TailwindTokenStorage =>
+			({
+				version: 3,
+				metadata,
+				domains: {
+					color: {
+						tokens: { "brand-500": "#123456" },
+						overrides,
+						baselineDiff: {
+							added: [{ name: "brand-500", value: "#123456", domain: "color" }],
+							overridden: [],
+							removed: [],
+						},
 					},
 				},
-			},
-		});
+				customProperties: {},
+				customUtilities: [],
+			}) as TailwindTokenStorage;
 
 		it("ignores overrides, syncedAt, and reviewRequired", () => {
 			const left = createStorage(["--color-brand-500"], {

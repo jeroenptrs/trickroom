@@ -327,6 +327,48 @@ describe("system component routes", () => {
 		expect(describeCreatedResponse.status).toBe(200);
 	});
 
+	it("deletes a system component", async () => {
+		const app = await importTestServer();
+		const systemId = await resolveCoreSystemId(app);
+
+		const createResponse = await app.request(
+			`/api/trickroom/systems/${encodeURIComponent(systemId)}/components`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					expectedRevision: emptySystemComponentManifestRevision,
+					slug: "delete-me",
+					name: "Delete Me",
+				}),
+			},
+		);
+		const created = (await createResponse.json()) as {
+			componentId: string;
+			revision: string;
+		};
+
+		const deleteResponse = await app.request(
+			`/api/trickroom/systems/${encodeURIComponent(systemId)}/components/${encodeURIComponent(created.componentId)}`,
+			{
+				method: "DELETE",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ expectedRevision: created.revision }),
+			},
+		);
+
+		expect(deleteResponse.status).toBe(200);
+		await expect(deleteResponse.json()).resolves.toMatchObject({
+			componentId: created.componentId,
+			revision: expect.stringMatching(/^sha256:/),
+		});
+
+		const describeResponse = await app.request(
+			`/api/trickroom/systems/${encodeURIComponent(systemId)}/components/${encodeURIComponent(created.componentId)}`,
+		);
+		expect(describeResponse.status).toBe(404);
+	});
+
 	it("returns 400 for malformed create and update requests", async () => {
 		const app = await importTestServer();
 		const systemId = await resolveCoreSystemId(app);

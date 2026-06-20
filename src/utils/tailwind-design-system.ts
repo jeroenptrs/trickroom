@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { __unstable__loadDesignSystem } from "tailwindcss";
+import { __unstable__loadDesignSystem, compile } from "tailwindcss";
 import type { TrickroomConfig } from "../types";
 import { defaultTailwindTokensByDomain } from "./default-tailwind-tokens.ts";
 import {
@@ -23,6 +23,14 @@ export type LoadedTailwindDesignSystem = {
 	designSystem: TailwindDesignSystem;
 	rootPath: string;
 	systemName?: string;
+	/**
+	 * Concatenated source of every stylesheet the design system loaded — the
+	 * entry CSS plus every `@import`-ed file resolved through `loadStylesheet`.
+	 * Lets introspection discover `@utility` blocks that live in imported files,
+	 * not just the entry CSS. Package stylesheets (e.g. `tailwindcss` itself) are
+	 * included; they simply contain no project `@utility` definitions.
+	 */
+	cssSource: string;
 };
 
 export type LoadTailwindDesignSystemOptions = {
@@ -264,10 +272,20 @@ export async function loadTailwindDesignSystem({
 	const rootPath = resolveTailwindCssPath(projectRoot, cssPath);
 	const css = await readFile(rootPath, "utf8");
 
+	// Accumulate the content of every stylesheet the DS loads so callers can
+	// introspect `@utility` blocks that live in imported files, not only the
+	// entry CSS. Seeded with the entry CSS; `loadStylesheet` appends imports.
+	const collectedSources: string[] = [css];
+	const collectingLoadStylesheet = async (id: string, base: string) => {
+		const result = await loadStylesheet(id, base);
+		collectedSources.push(result.content);
+		return result;
+	};
+
 	const loadOptions = {
 		base: path.dirname(rootPath),
 		from: rootPath,
-		loadStylesheet,
+		loadStylesheet: collectingLoadStylesheet,
 	};
 	const designSystem = await __unstable__loadDesignSystem(
 		css,
@@ -277,13 +295,188 @@ export async function loadTailwindDesignSystem({
 			throw error;
 		}
 
+		// Drop imports collected by the failed first attempt so the retry's
+		// re-resolved imports are not double-counted in `cssSource`.
+		collectedSources.length = 1;
 		return __unstable__loadDesignSystem(
 			`${css}\n@theme { --spacing: ${sanitizeSpacingThemeToken(defaultTailwindTokensByDomain.spacing.DEFAULT)}; }\n`,
 			loadOptions,
 		);
 	});
 
-	return { designSystem, rootPath };
+	return { designSystem, rootPath, cssSource: collectedSources.join("\n") };
+}
+
+type CompiledStylesheet = Awaited<ReturnType<typeof compile>>;
+
+// Compiling parses the whole stylesheet (incl. `@import "tailwindcss"`), so we
+// cache the compiled instance per entry file and only re-run the cheap
+// `build(candidates)` per request. The cache entry tracks the appended theme
+// overrides plus the mtime of *every* file the compile resolved — the entry CSS
+// and every `@import`-ed fragment — so editing an imported `@theme`/`@utility`
+// file invalidates it, while candidate-only changes (the common case) reuse it.
+// One entry per file.
+type CompiledCacheEntry = {
+	themeOverrides: string;
+	/** mtimeMs of the entry CSS plus every `@import`-ed file, keyed by abs path. */
+	fileMtimes: Map<string, number>;
+	compiled: CompiledStylesheet;
+};
+
+const compiledStylesheetCache = new Map<string, CompiledCacheEntry>();
+
+async function statMtimeMs(filePath: string): Promise<number | null> {
+	try {
+		return (await stat(filePath)).mtimeMs;
+	} catch {
+		// Deleted/unreadable since the last compile — treat as changed so the
+		// caller recompiles (and surfaces any real resolution error then).
+		return null;
+	}
+}
+
+async function compiledCacheEntryIsFresh(
+	entry: CompiledCacheEntry,
+	themeOverrides: string,
+): Promise<boolean> {
+	if (entry.themeOverrides !== themeOverrides) {
+		return false;
+	}
+	for (const [filePath, mtimeMs] of entry.fileMtimes) {
+		if ((await statMtimeMs(filePath)) !== mtimeMs) {
+			return false;
+		}
+	}
+	return true;
+}
+
+async function getCompiledStylesheet(
+	rootPath: string,
+	themeOverrides: string,
+): Promise<CompiledStylesheet> {
+	const cached = compiledStylesheetCache.get(rootPath);
+	if (cached && (await compiledCacheEntryIsFresh(cached, themeOverrides))) {
+		return cached.compiled;
+	}
+
+	const rawCss = await readFile(rootPath, "utf8");
+	// A system's configured cssPath may be a *theme fragment* that is meant to be
+	// imported AFTER `@import "tailwindcss"` (e.g. a `themes/*.css` consumed by an
+	// `app.css`). Compiled standalone, it would emit no preflight/base utilities.
+	// The browser runtime never hit this because it *is* Tailwind. So ensure the
+	// import is present, but don't duplicate it when the entry already has it.
+	let source = TAILWIND_IMPORT_PATTERN.test(rawCss)
+		? rawCss
+		: `@import "tailwindcss";\n${rawCss}`;
+	// Append the editor's live `@theme` (synced tokens + overrides) so token
+	// edits preview without a sync; later `@theme` wins, matching browser mode.
+	if (themeOverrides.trim().length > 0) {
+		source += `\n${themeOverrides}\n`;
+	}
+	// Record the mtime of every file the compile resolves (entry + imports) so a
+	// later edit to any imported `@theme`/`@utility` fragment invalidates the
+	// cache, not just a change to the entry file.
+	const fileMtimes = new Map<string, number>();
+	const entryMtime = await statMtimeMs(rootPath);
+	if (entryMtime !== null) {
+		fileMtimes.set(rootPath, entryMtime);
+	}
+	const trackingLoadStylesheet = async (id: string, base: string) => {
+		const result = await loadStylesheet(id, base);
+		const mtime = await statMtimeMs(result.path);
+		if (mtime !== null) {
+			fileMtimes.set(result.path, mtime);
+		}
+		return result;
+	};
+	const loadOptions = {
+		base: path.dirname(rootPath),
+		from: rootPath,
+		loadStylesheet: trackingLoadStylesheet,
+	};
+	const compiled = await compile(source, loadOptions).catch((error: unknown) => {
+		if (!isMissingSpacingThemeVariableError(error)) {
+			throw error;
+		}
+		return compile(
+			`${source}\n@theme { --spacing: ${sanitizeSpacingThemeToken(defaultTailwindTokensByDomain.spacing.DEFAULT)}; }\n`,
+			loadOptions,
+		);
+	});
+
+	compiledStylesheetCache.set(rootPath, { themeOverrides, fileMtimes, compiled });
+	return compiled;
+}
+
+const TAILWIND_IMPORT_PATTERN = /@import\s+["']tailwindcss(?:["']|\/)/;
+
+/**
+ * Compile the full stylesheet (preflight + theme `:root` vars + the used
+ * utilities) for a set of candidate class names, using the keeper engine
+ * instead of `@tailwindcss/browser`. Output is a complete `<style>` body.
+ */
+export async function compileTailwindCss({
+	projectRoot,
+	cssPath,
+	candidates,
+	themeOverrides = "",
+}: {
+	projectRoot: string;
+	cssPath: string;
+	candidates: readonly string[];
+	/** Serialized `@theme { … }` appended to the entry to reflect live token edits. */
+	themeOverrides?: string;
+}): Promise<string> {
+	const rootPath = resolveTailwindCssPath(projectRoot, cssPath);
+	const compiled = await getCompiledStylesheet(rootPath, themeOverrides);
+	return compiled.build([...candidates]);
+}
+
+// Baseline (`@import "tailwindcss"`, no custom theme) compiled per project, so
+// designs with no linked/synced system still render with Tailwind defaults
+// instead of a blank, unstyled canvas. Resolves `tailwindcss` from the project.
+const baselineCompiledCache = new Map<string, CompiledStylesheet>();
+
+async function getBaselineCompiledStylesheet(
+	projectRoot: string,
+): Promise<CompiledStylesheet> {
+	const cached = baselineCompiledCache.get(projectRoot);
+	if (cached) {
+		return cached;
+	}
+	const loadOptions = {
+		base: projectRoot,
+		from: path.join(projectRoot, "__trickroom_baseline__.css"),
+		loadStylesheet,
+	};
+	const compiled = await compile('@import "tailwindcss";\n', loadOptions).catch(
+		(error: unknown) => {
+			if (!isMissingSpacingThemeVariableError(error)) {
+				throw error;
+			}
+			return compile(
+				`@import "tailwindcss";\n@theme { --spacing: ${sanitizeSpacingThemeToken(defaultTailwindTokensByDomain.spacing.DEFAULT)}; }\n`,
+				loadOptions,
+			);
+		},
+	);
+	baselineCompiledCache.set(projectRoot, compiled);
+	return compiled;
+}
+
+/**
+ * Compile baseline Tailwind (defaults only, no custom theme) for the given
+ * candidates — used when a design has no resolvable system.
+ */
+export async function compileBaselineTailwindCss({
+	projectRoot,
+	candidates,
+}: {
+	projectRoot: string;
+	candidates: readonly string[];
+}): Promise<string> {
+	const compiled = await getBaselineCompiledStylesheet(projectRoot);
+	return compiled.build([...candidates]);
 }
 
 const unsafeCssThemeValuePattern = /[\x00-\x1f\x7f{};\r\n]/u;

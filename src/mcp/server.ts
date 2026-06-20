@@ -62,11 +62,11 @@ import {
 	applyDetachRecipeInstance,
 	applyDetachSystemComponent,
 	applyExtractSubtree,
+	applyMigrateSystemComponentInstance,
 	applyMoveElement,
 	applyUpdateElementProps,
 	applyUpdateElementText,
 	applyUpdateRecipeControl,
-	applyMigrateSystemComponentInstance,
 	applyUpdateRecipeInstance,
 	applyUpdateSystemComponentInstance,
 	DesignTransformError,
@@ -117,15 +117,10 @@ import {
 	readIconManifest,
 	syncIconManifest,
 } from "../utils/icon-manifest-service";
-import type { SystemComponentManifestRevision } from "../utils/system-component-manifest-service";
 import {
-	createSystemComponentDraft,
-	describeSystemComponent,
-	listSystemComponentSummaries,
-	publishSystemComponentDraft,
-	SystemComponentOperationsError,
-	updateSystemComponentDraft,
-} from "../utils/system-component-operations";
+	bulkMigrateProjectSystemComponentInstances,
+	type SystemComponentBulkMigrationReport,
+} from "../utils/system-component-bulk-migration";
 import {
 	mcpPartialSystemComponentDraftPayloadInputSchema,
 	mcpRecipeTemplateNodeInputSchema,
@@ -136,19 +131,24 @@ import {
 	systemComponentDraftInputDiagnosticsFromZodError,
 	systemComponentDraftPatchSchema,
 } from "../utils/system-component-draft-schemas";
+import type { SystemComponentManifestRevision } from "../utils/system-component-manifest-service";
 import {
-	bulkMigrateProjectSystemComponentInstances,
-	type SystemComponentBulkMigrationReport,
-} from "../utils/system-component-bulk-migration";
+	createSystemComponentDraft,
+	describeSystemComponent,
+	listSystemComponentSummaries,
+	publishSystemComponentDraft,
+	SystemComponentOperationsError,
+	updateSystemComponentDraft,
+} from "../utils/system-component-operations";
 import {
-	scanProjectSystemComponentUsage,
 	type SystemComponentInstanceUsage,
 	type SystemComponentUsageScanDiagnostic,
 	type SystemComponentUsageScanResult,
+	scanProjectSystemComponentUsage,
 } from "../utils/system-component-usage-scan";
 import {
 	readDomainTokensReadonly,
-	type TailwindTokenStorageV2,
+	type TailwindTokenStorage,
 } from "../utils/tailwind-token-store";
 import { buildDesignGraph } from "./design-graph";
 import {
@@ -178,7 +178,7 @@ import {
 	applyOperationPlan,
 	createOperationPlanDependencies,
 	executeOperationPlanDryRun,
-	operationPlanInputSchema,
+	type operationPlanInputSchema,
 } from "./operation-plan";
 import {
 	createTrickroomMcpProjectResolver,
@@ -438,10 +438,7 @@ const addSystemComponentOperationParameterSchema = {
 		.string()
 		.min(1)
 		.describe("Design system id from the component manifest."),
-	componentId: z
-		.string()
-		.min(1)
-		.describe("Published system component id."),
+	componentId: z.string().min(1).describe("Published system component id."),
 	version: z
 		.string()
 		.min(1)
@@ -453,7 +450,15 @@ const addSystemComponentOperationParameterSchema = {
 	variantValues: z
 		.record(z.string(), z.string())
 		.optional()
-		.describe("Initial variant axis values for the instance."),
+		.describe(
+			"Initial variant axis values for the instance. Omitted axes remain unset unless the component schema defines defaults.",
+		),
+	unsetVariantAxes: z
+		.array(z.string())
+		.optional()
+		.describe(
+			"Variant axes to clear from initial variantValues before resolving schema defaults.",
+		),
 	overrides: z
 		.record(
 			z.string(),
@@ -478,7 +483,13 @@ const updateSystemComponentInstanceOperationParameterSchema = {
 	variantValues: z
 		.record(z.string(), z.string())
 		.optional()
-		.describe("Variant axis values to merge into the instance."),
+		.describe(
+			"Variant axis values to merge into the instance. Missing keys leave existing values unchanged.",
+		),
+	unsetVariantAxes: z
+		.array(z.string())
+		.optional()
+		.describe("Variant axes to clear from the instance."),
 	overrides: z
 		.record(
 			z.string(),
@@ -2299,7 +2310,7 @@ const buildRegistryCatalogForContract = (
 
 const summarizeTokenPlanningContext = (
 	designSystemPayload: Awaited<ReturnType<typeof getDesignSystemPayload>>,
-	storedTokens: TailwindTokenStorageV2 | null,
+	storedTokens: TailwindTokenStorage | null,
 ) => {
 	if (designSystemPayload.designSystem === null) {
 		return {
@@ -2641,10 +2652,19 @@ const getSystemComponentAuthoringContractPayload = async (
 					optional: ["label", "classesByPath"],
 				},
 				classesByPath:
-					"Record from template path to Tailwind class string. Paths must exist in root.",
+					"Record from template path to non-empty Tailwind class string. Paths must exist in root.",
 				compoundVariants:
-					"Array of { when: Record<axis, value | value[]>, classesByPath }.",
-				defaultValues: "Record from axis id to value id.",
+					"Array of { when: Record<axis, value | value[]>, classesByPath }. Normal authoring uses single string values for at least two valid axis/value conditions.",
+				defaultValues:
+					"Record from axis id to value id. Both schema defaultValues and axis.defaultValue must reference real value ids.",
+				rules: [
+					"Omit defaultValues and axis.defaultValue for optional axes. Omitted default-less axes are genuinely unset; Trickroom does not fabricate the first value.",
+					"Compound variants are matched by their normalized when signature. Do not author duplicate signatures; validation reports duplicates and persisted order remains CSS precedence.",
+					"Compounds with empty classesByPath are treated as empty and may be garbage-collected by authoring flows; omit them instead of persisting empty entries.",
+					"Array-valued when entries remain accepted for compatibility and are preserved as advanced shapes, but normal UI authoring should not collapse or expand them silently.",
+				],
+				instanceUpdates:
+					"Use variantValues to set axes and unsetVariantAxes to clear axes. Missing variantValues keys leave existing instance values unchanged. On addSystemComponent, unsetVariantAxes clears matching initial variantValues before schema defaults resolve.",
 			},
 			overrideTargets: {
 				type: "Record<string, SystemComponentOverrideTarget>",
@@ -3096,13 +3116,14 @@ const describeSystemComponentPayload = async (
 	};
 };
 
-const emptySystemComponentUsageStatusCounts = (): SystemComponentUsageScanResult["statusCounts"] => ({
-	current: 0,
-	stale: 0,
-	"missing-component": 0,
-	"missing-version": 0,
-	"hash-mismatch": 0,
-});
+const emptySystemComponentUsageStatusCounts =
+	(): SystemComponentUsageScanResult["statusCounts"] => ({
+		current: 0,
+		stale: 0,
+		"missing-component": 0,
+		"missing-version": 0,
+		"hash-mismatch": 0,
+	});
 
 const createEmptySystemComponentUsageScanResult = (options: {
 	systemId?: string;
@@ -3320,14 +3341,20 @@ const bulkMigratePolicyAllowedSystemComponentUsages = async (
 				});
 			}),
 		);
-		return mergeSystemComponentBulkMigrationReports(reports, emptyReportDefaults);
+		return mergeSystemComponentBulkMigrationReports(
+			reports,
+			emptyReportDefaults,
+		);
 	}
 
 	if (!options.dryRun) {
 		assertCanWriteProject(policy);
 	}
 
-	return bulkMigrateProjectSystemComponentInstances(context.projectRoot, bulkOptions);
+	return bulkMigrateProjectSystemComponentInstances(
+		context.projectRoot,
+		bulkOptions,
+	);
 };
 
 const bulkMigrateSystemComponentUsagesPayload = async (
@@ -5912,10 +5939,7 @@ Workflow:
 					.string()
 					.min(1)
 					.describe("Configured design system name."),
-				componentId: z
-					.string()
-					.min(1)
-					.describe("Stable system component id."),
+				componentId: z.string().min(1).describe("Stable system component id."),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
@@ -6115,10 +6139,7 @@ Workflow:
 					.string()
 					.min(1)
 					.describe("Configured design system name."),
-				componentId: z
-					.string()
-					.min(1)
-					.describe("Stable system component id."),
+				componentId: z.string().min(1).describe("Stable system component id."),
 				expectedRevision: systemComponentManifestRevisionSchema,
 				expectedDraftTemplateHash: z.string().optional(),
 				expectedDraftVariantSchemaHash: z.string().optional(),
@@ -6189,10 +6210,7 @@ Workflow:
 					.string()
 					.min(1)
 					.describe("Configured design system name."),
-				componentId: z
-					.string()
-					.min(1)
-					.describe("Stable system component id."),
+				componentId: z.string().min(1).describe("Stable system component id."),
 				expectedRevision: systemComponentManifestRevisionSchema,
 			}),
 			annotations: mutationAnnotations,
@@ -6209,9 +6227,14 @@ Workflow:
 					{ expectedRevision },
 				);
 				return createJsonResult(
-					await systemComponentMutationPayload(context, systemName, componentId, {
-						publishedVersion: result.publishedVersion,
-					}),
+					await systemComponentMutationPayload(
+						context,
+						systemName,
+						componentId,
+						{
+							publishedVersion: result.publishedVersion,
+						},
+					),
 				);
 			}),
 	);
@@ -7710,6 +7733,7 @@ Workflow:
 			componentId,
 			version,
 			variantValues,
+			unsetVariantAxes,
 			overrides,
 			project,
 		}) => {
@@ -7751,6 +7775,7 @@ Workflow:
 							componentId,
 							version: version ?? null,
 							variantValues,
+							unsetVariantAxes,
 							overrides,
 						});
 						const insertedRoot = findElementContext(
@@ -7825,7 +7850,7 @@ Workflow:
 		{
 			title: "Update System Component Instance",
 			description:
-				"Update variant values and/or override classNames on an attached system component root. Component marker props cannot be edited through generic element tools.",
+				"Update variant values, clear variant axes, and/or override classNames on an attached system component root. Component marker props cannot be edited through generic element tools.",
 			inputSchema: withProjectScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
@@ -7847,6 +7872,7 @@ Workflow:
 			expectedRevision,
 			rootElementId,
 			variantValues,
+			unsetVariantAxes,
 			overrides,
 			project,
 		}) => {
@@ -7880,7 +7906,7 @@ Workflow:
 							policy,
 							read.design,
 							"updateSystemComponentInstance",
-							{ rootElementId, variantValues, overrides },
+							{ rootElementId, variantValues, unsetVariantAxes, overrides },
 						);
 
 						const result = await applyUpdateSystemComponentInstance(
@@ -7889,6 +7915,7 @@ Workflow:
 								projectRoot: context.projectRoot,
 								rootElementId,
 								variantValues,
+								unsetVariantAxes,
 								overrides,
 							},
 						);
@@ -8038,8 +8065,7 @@ Workflow:
 							},
 						);
 
-						const targetDesign =
-							result.prospectiveDesign ?? result.design;
+						const targetDesign = result.prospectiveDesign ?? result.design;
 						assertCanUseSystemComponentInstanceSubtree(
 							policy,
 							targetDesign,
@@ -8167,7 +8193,14 @@ Workflow:
 				idempotentHint: false,
 			},
 		},
-		async ({ systemName, componentId, designFileId, onlySafe, dryRun, project }) =>
+		async ({
+			systemName,
+			componentId,
+			designFileId,
+			onlySafe,
+			dryRun,
+			project,
+		}) =>
 			withProjectContext(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				return withMutationErrorHandling(
@@ -8176,7 +8209,13 @@ Workflow:
 						toolName: "bulkMigrateSystemComponentUsages",
 						operation: "bulkMigrateSystemComponentUsages",
 						projectId: context.config.projectId ?? null,
-						details: { systemName, componentId, designFileId, onlySafe, dryRun },
+						details: {
+							systemName,
+							componentId,
+							designFileId,
+							onlySafe,
+							dryRun,
+						},
 					},
 					async () => {
 						if (designFileId) {
@@ -8189,12 +8228,16 @@ Workflow:
 						}
 
 						return createJsonResult(
-							await bulkMigrateSystemComponentUsagesPayload(context, systemName, {
-								componentId,
-								designFileId,
-								onlySafe,
-								dryRun,
-							}),
+							await bulkMigrateSystemComponentUsagesPayload(
+								context,
+								systemName,
+								{
+									componentId,
+									designFileId,
+									onlySafe,
+									dryRun,
+								},
+							),
 						);
 					},
 				);
@@ -8246,9 +8289,14 @@ Workflow:
 							);
 						}
 
-						assertOperationAllowedByPolicy(policy, read.design, "detachSystemComponent", {
-							elementId,
-						});
+						assertOperationAllowedByPolicy(
+							policy,
+							read.design,
+							"detachSystemComponent",
+							{
+								elementId,
+							},
+						);
 
 						const result = await applyDetachSystemComponent(read.design, {
 							projectRoot: context.projectRoot,

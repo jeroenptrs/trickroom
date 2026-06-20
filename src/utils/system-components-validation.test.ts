@@ -7,6 +7,10 @@ import {
 	minimalComponentTemplateRoot,
 } from "./system-component-test-fixtures";
 import {
+	systemComponentDraftInputDiagnosticsFromZodError,
+	systemComponentDraftPayloadSchema,
+} from "./system-component-draft-schemas";
+import {
 	createEmptySystemComponentManifest,
 	generateSystemComponentId,
 	SYSTEM_COMPONENT_EMPTY_TIMESTAMP,
@@ -118,7 +122,178 @@ describe("system component manifest validation and hashing", () => {
 		);
 
 		expect(result.valid).toBe(true);
-		expect(result.diagnostics).toEqual([]);
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "COMPOUND_INSUFFICIENT_CONDITIONS",
+					severity: "warning",
+				}),
+			]),
+		);
+	});
+
+	it("reports compound variant shape diagnostics", () => {
+		const root = minimalRoot();
+		const variants = {
+			axes: {
+				tone: {
+					label: "Tone",
+					values: { brand: { classesByPath: { root: "text-blue-600" } } },
+				},
+				size: {
+					label: "Size",
+					values: { lg: { classesByPath: { root: "h-6" } } },
+				},
+			},
+			compoundVariants: [
+				{ when: {}, classesByPath: { root: "always" } },
+				{
+					when: { tone: ["brand"], size: "lg" },
+					classesByPath: {},
+				},
+				{
+					when: { tone: "brand", size: "lg" },
+					classesByPath: { root: "ring-2" },
+				},
+				{
+					when: { size: "lg", tone: "brand" },
+					classesByPath: { root: "ring-4" },
+				},
+				{
+					when: { tone: "brand", missing: "x" },
+					classesByPath: { root: "ring-8" },
+				},
+			],
+		};
+
+		const result = validateSystemComponentManifest(
+			withComponents({
+				[COMPONENT_ID]: createRecord({
+					draft: { root, variants },
+				}),
+			}),
+		);
+
+		expect(result.valid).toBe(true);
+		expect(result.diagnostics.map((entry) => entry.code)).toEqual(
+			expect.arrayContaining([
+				"COMPOUND_EMPTY_WHEN",
+				"COMPOUND_ARRAY_VALUE",
+				"COMPOUND_DUPLICATE_SIGNATURE",
+				"COMPOUND_EMPTY_CLASSES_BY_PATH",
+				"COMPOUND_UNKNOWN_AXIS",
+			]),
+		);
+	});
+
+	it("reports invalid variant default references", () => {
+		const root = minimalRoot();
+		const variants = {
+			axes: {
+				tone: {
+					label: "Tone",
+					defaultValue: "missing-axis-default",
+					values: {
+						brand: { classesByPath: { root: "text-blue-600" } },
+					},
+				},
+				size: {
+					label: "Size",
+					values: {
+						sm: { classesByPath: { root: "text-sm" } },
+					},
+				},
+			},
+			defaultValues: {
+				tone: "missing-schema-default",
+				missingAxis: "anything",
+			},
+		};
+
+		const result = validateSystemComponentManifest(
+			withComponents({
+				[COMPONENT_ID]: createRecord({
+					draft: { root, variants },
+				}),
+			}),
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "INVALID_VARIANT_DEFAULT_VALUE",
+					severity: "error",
+					path: "tone",
+					message: expect.stringContaining("defaultValue"),
+				}),
+				expect.objectContaining({
+					code: "INVALID_VARIANT_DEFAULT_VALUE",
+					severity: "error",
+					path: "tone",
+					message: expect.stringContaining("variants.defaultValues"),
+				}),
+				expect.objectContaining({
+					code: "INVALID_VARIANT_DEFAULT_VALUE",
+					severity: "error",
+					path: "missingAxis",
+					message: expect.stringContaining("unknown axis"),
+				}),
+			]),
+		);
+	});
+
+	it("reports draft schema diagnostics for empty compound when values and class strings", () => {
+		const parsed = systemComponentDraftPayloadSchema.safeParse({
+			root: minimalRoot(),
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: {
+							brand: { classesByPath: { root: "" } },
+						},
+					},
+				},
+				compoundVariants: [
+					{
+						when: {
+							tone: "",
+							size: [],
+							density: [""],
+						},
+						classesByPath: { root: "" },
+					},
+				],
+			},
+		});
+
+		expect(parsed.success).toBe(false);
+		if (parsed.success) {
+			return;
+		}
+		const diagnostics = systemComponentDraftInputDiagnosticsFromZodError(
+			parsed.error,
+		);
+		const paths = diagnostics.map((diagnostic) => diagnostic.path);
+
+		expect(paths).toEqual(
+			expect.arrayContaining([
+				"variants.axes.tone.values.brand.classesByPath.root",
+				"variants.compoundVariants[0].when.tone",
+				"variants.compoundVariants[0].when.size",
+				"variants.compoundVariants[0].when.density[0]",
+				"variants.compoundVariants[0].classesByPath.root",
+			]),
+		);
+		expect(diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "INVALID_SYSTEM_COMPONENT_DRAFT_INPUT",
+					severity: "error",
+				}),
+			]),
+		);
 	});
 
 	it("reports record key drift", () => {

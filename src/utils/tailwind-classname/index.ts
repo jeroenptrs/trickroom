@@ -3,6 +3,7 @@ export {
 	type ClassifyOptions,
 	type ColorIntent,
 	classifyParsedClass,
+	type CustomFunctionalIntent,
 	type KnownUtilityIntent,
 	type StyleIntent,
 	type StyleProperty,

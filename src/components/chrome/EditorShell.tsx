@@ -18,15 +18,17 @@ import {
 	setDesignName,
 	useDesignName,
 	useDesignRevision,
+	useDesignSystemId,
 	useDesignSystemName,
 	useHasUnsavedChanges,
 } from "../../stores/design-store";
 import type { TrickroomDesign } from "../../types";
-import { useIFrameView } from "../contexts";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Layers } from "./Layers";
 import { Properties } from "./Properties";
+import { WorkspaceToolbar } from "./WorkspaceToolbar";
+import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
 import {
 	focusEditorRegion,
 	getKey,
@@ -48,16 +50,6 @@ type EditorShellProps = {
 	designFile: string;
 	children: ReactNode;
 };
-
-function CanvasChrome() {
-	const view = useIFrameView();
-	return (
-		<div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex h-9 items-center justify-between border-t border-slate-200 bg-slate-50 px-3 text-[11px] text-slate-500">
-			<span className="text-slate-400">Zoom</span>
-			<span className="tabular-nums">{Math.round(view.scale * 100)}%</span>
-		</div>
-	);
-}
 
 function SaveControl({ designFile }: SaveControlProps) {
 	const hasUnsavedChanges = useHasUnsavedChanges();
@@ -212,6 +204,7 @@ function DesignTitle() {
 function LeftSidebar({ designFile }: { designFile: string }) {
 	const navigate = useNavigate();
 	const systemName = useDesignSystemName();
+	const systemId = useDesignSystemId();
 	const subtitle = systemName
 		? `${systemName} · design system`
 		: "No design system";
@@ -233,6 +226,7 @@ function LeftSidebar({ designFile }: { designFile: string }) {
 						{subtitle}
 					</span>
 				</div>
+				<OpenDesignTokensButton systemId={systemId} />
 				<SaveControl designFile={designFile} />
 			</header>
 			<Layers designFile={designFile} className="flex-1" />
@@ -293,10 +287,10 @@ function EditorShellComponent({ designFile, children }: EditorShellProps) {
 			<main
 				data-editor-region="workspace"
 				tabIndex={-1}
-				className="relative min-h-0 min-w-0 flex-1 bg-slate-100 focus-visible:outline-none"
+				className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-100 focus-visible:outline-none"
 			>
-				<div className="absolute inset-0">{children}</div>
-				<CanvasChrome />
+				<WorkspaceToolbar />
+				<div className="relative min-h-0 flex-1">{children}</div>
 			</main>
 			<div
 				data-editor-region="inspector"

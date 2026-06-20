@@ -1,19 +1,19 @@
 import { Menu } from "@base-ui/react/menu";
 import { Plus, Trash2 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
+import { useDesignSystemId } from "../../../stores/design-store";
 import type {
 	PropertyEntry,
 	PropertyKey,
 	PropertyModel,
 } from "../../../utils/tailwind-classname";
-import { useDesignSystemId } from "../../../stores/design-store";
 import { Button } from "../../ui/button";
 import { computePropertySlots } from "./propertySlots";
 import {
 	buildOverrideOptions,
+	OVERRIDE_GROUP_LABELS,
 	type OverrideGroup,
 	type OverrideOption,
-	OVERRIDE_GROUP_LABELS,
 	useBreakpointNames,
 } from "./styleOverrides";
 
@@ -75,7 +75,9 @@ export function OverrideRows({
 
 	function apply(variants: string[], payload: string | null) {
 		onApply(variants, payload);
-		setDraftVariants((prev) => prev.filter((draft) => draft !== variants.join(":")));
+		setDraftVariants((prev) =>
+			prev.filter((draft) => draft !== variants.join(":")),
+		);
 	}
 
 	return (
@@ -97,7 +99,10 @@ export function OverrideRows({
 				{slots.map(({ variantKey, variants, entry }) => {
 					const value = readValue(entry);
 					return (
-						<div key={variantKey || "base"} className="flex items-center gap-1.5">
+						<div
+							key={variantKey || "base"}
+							className="flex items-center gap-1.5"
+						>
 							<span
 								className={
 									variantKey

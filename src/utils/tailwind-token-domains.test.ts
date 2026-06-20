@@ -122,18 +122,21 @@ describe("extractTailwindTokenResetOverrides", () => {
 			"  --text-2xs: 0.6875rem;",
 			"}",
 		].join("\n");
+		const themeValues = new Map([
+			[
+				"--color-brand-500",
+				{ value: "#123456", src: [{ file: "theme.css", code }] },
+			],
+			[
+				"--radius-sm",
+				{ value: "0.25rem", src: [{ file: "theme.css", code }] },
+			],
+		]);
 		const designSystem = {
 			theme: {
-				values: new Map([
-					[
-						"--color-brand-500",
-						{ value: "#123456", src: [{ file: "theme.css", code }] },
-					],
-					[
-						"--radius-sm",
-						{ value: "0.25rem", src: [{ file: "theme.css", code }] },
-					],
-				]),
+				entries() {
+					return themeValues.entries();
+				},
 			},
 		};
 

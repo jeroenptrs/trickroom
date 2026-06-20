@@ -1,6 +1,6 @@
 import type { RecipeTemplateNode } from "../types";
 
-export const SYSTEM_COMPONENT_MANIFEST_VERSION = 1;
+export const SYSTEM_COMPONENT_MANIFEST_VERSION = 2;
 export const SYSTEM_COMPONENT_MANIFEST_FILE_NAME = "components.json";
 export const SYSTEM_COMPONENT_EMPTY_TIMESTAMP = new Date(0).toISOString();
 export const SYSTEM_COMPONENT_ID_PREFIX = "cmp_";

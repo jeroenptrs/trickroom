@@ -61,6 +61,8 @@ export function resolveClassLayers(
 			const index = tokens.length;
 			const intent = classifyParsedClass(parsed, {
 				colorTokens: options.colorTokens,
+				customFunctionalUtilityRoots: options.customFunctionalUtilityRoots,
+				customStaticUtilityRoots: options.customStaticUtilityRoots,
 			});
 			const tokenLayer: ResolvedClassTokenLayer = {
 				source: layer.source,

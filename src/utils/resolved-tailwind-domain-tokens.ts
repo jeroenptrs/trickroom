@@ -6,14 +6,14 @@
  */
 
 import {
-	defaultTailwindTokensByDomain,
 	type DefaultTailwindTokenDomain,
+	defaultTailwindTokensByDomain,
 } from "./default-tailwind-tokens";
 import {
 	TAILWIND_TOKEN_DOMAINS,
 	type TailwindTokenDomain,
 } from "./tailwind-token-domains";
-import type { TailwindTokenStorageV2 } from "./tailwind-token-store";
+import type { TailwindTokenStorage } from "./tailwind-token-store";
 
 export type ResolvedDomainTokens = {
 	/** Token name → CSS value. */
@@ -38,9 +38,8 @@ export function computeResolvedDomainTokens(
 	input: ResolvedDomainTokensInput,
 ): ResolvedDomainTokens {
 	const defaults =
-		defaultTailwindTokensByDomain[
-			input.domain as DefaultTailwindTokenDomain
-		] ?? {};
+		defaultTailwindTokensByDomain[input.domain as DefaultTailwindTokenDomain] ??
+		{};
 	const values = new Map<string, string>(Object.entries(defaults));
 
 	for (const removed of input.removed ?? []) {
@@ -56,7 +55,7 @@ export function computeResolvedDomainTokens(
 }
 
 export function buildResolvedTokenContext(
-	storedTokens: TailwindTokenStorageV2,
+	storedTokens: TailwindTokenStorage,
 ): ResolvedTokenContext {
 	const context = {} as Record<TailwindTokenDomain, ReadonlySet<string>>;
 

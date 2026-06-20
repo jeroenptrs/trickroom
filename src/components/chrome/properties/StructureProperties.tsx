@@ -1,8 +1,13 @@
 import { useCallback, useMemo } from "react";
-import type { ModelOptions, StyleProperty } from "../../../utils/tailwind-classname";
-import { StyleSection } from "./StyleSection";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
+import { useDesignSystemId } from "../../../stores/design-store";
+import type {
+	ModelOptions,
+	StyleProperty,
+} from "../../../utils/tailwind-classname";
 import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
+import { StyleSection } from "./StyleSection";
 import {
 	readStructureValue,
 	structureUtility,
@@ -80,14 +85,21 @@ const CAPTION_OPTIONS: readonly SegmentedOption<string>[] = [
 ];
 
 /** Override-aware: all box/list/table segmenteds plus columns and list-image fields. */
-export function StructureProperties({ className, onChange }: StructurePropertiesProps) {
+export function StructureProperties({
+	className,
+	onChange,
+}: StructurePropertiesProps) {
+	const systemId = useDesignSystemId();
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
+
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: EMPTY_COLOR_TOKENS }),
-		[],
+		() => ({ colorTokens: EMPTY_COLOR_TOKENS, ...customUtilityRoots }),
+		[customUtilityRoots],
 	);
 
 	const read = useCallback(
-		(property: StyleProperty) => readStructureValue(className, options, property),
+		(property: StyleProperty) =>
+			readStructureValue(className, options, property),
 		[className, options],
 	);
 
@@ -97,7 +109,12 @@ export function StructureProperties({ className, onChange }: StructureProperties
 	const tableLayout = read("structure.table-layout");
 
 	const summary =
-		[visibility, floatVal && `float-${floatVal}`, columns && `cols ${columns}`, tableLayout && `table-${tableLayout}`]
+		[
+			visibility,
+			floatVal && `float-${floatVal}`,
+			columns && `cols ${columns}`,
+			tableLayout && `table-${tableLayout}`,
+		]
 			.filter(Boolean)
 			.join(" · ") || undefined;
 
@@ -116,7 +133,9 @@ export function StructureProperties({ className, onChange }: StructureProperties
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : structureUtility("structure.box-sizing", next),
+								next === null
+									? null
+									: structureUtility("structure.box-sizing", next),
 							)
 						}
 					/>
@@ -156,7 +175,9 @@ export function StructureProperties({ className, onChange }: StructureProperties
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : structureUtility("structure.visibility", next),
+								next === null
+									? null
+									: structureUtility("structure.visibility", next),
 							)
 						}
 					/>
@@ -177,7 +198,9 @@ export function StructureProperties({ className, onChange }: StructureProperties
 							value={slot.value}
 							onChange={(next) =>
 								slot.apply(
-									next === null ? null : structureUtility("structure.float", next),
+									next === null
+										? null
+										: structureUtility("structure.float", next),
 								)
 							}
 						/>
@@ -196,7 +219,9 @@ export function StructureProperties({ className, onChange }: StructureProperties
 							value={slot.value}
 							onChange={(next) =>
 								slot.apply(
-									next === null ? null : structureUtility("structure.clear", next),
+									next === null
+										? null
+										: structureUtility("structure.clear", next),
 								)
 							}
 						/>
@@ -216,7 +241,9 @@ export function StructureProperties({ className, onChange }: StructureProperties
 						placeholder="3, auto, [20rem]"
 						onCommit={(v) =>
 							slot.apply(
-								v.trim() ? structureUtility("structure.columns", v.trim()) : null,
+								v.trim()
+									? structureUtility("structure.columns", v.trim())
+									: null,
 							)
 						}
 					/>

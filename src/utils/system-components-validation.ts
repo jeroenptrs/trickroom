@@ -1,7 +1,12 @@
-import { createHash } from "node:crypto";
 import type { RecipeTemplateNode } from "../types";
+import {
+	classifyCompoundWhenShape,
+	findDuplicateCompoundWhenSignatures,
+} from "./system-component-compound-shape.ts";
+import { compoundWhenSignature } from "./system-component-compound-signature.ts";
 import { isSystemComponentOverrideCapability } from "./system-component-override-targets.ts";
 import { stableSystemComponentTemplateInput } from "./system-component-template-hash.ts";
+import { sha256Hex } from "./sha256.ts";
 import {
 	assertComponentIdKeyInvariant,
 	isSystemComponentId,
@@ -94,14 +99,14 @@ export function hashSystemComponentTemplate(
 	>,
 ): string {
 	const input = stableSystemComponentTemplateInput(payload);
-	return `sha256:${createHash("sha256").update(input).digest("hex")}`;
+	return `sha256:${sha256Hex(input)}`;
 }
 
 export function hashSystemComponentVariantSchema(
 	variants?: SystemComponentVariantSchema,
 ): string {
 	const input = stableStringify(variants ?? { axes: {} });
-	return `sha256:${createHash("sha256").update(input).digest("hex")}`;
+	return `sha256:${sha256Hex(input)}`;
 }
 
 const validateTemplatePaths = (
@@ -358,7 +363,26 @@ const validateVariantSchema = (
 	templatePaths: Set<string>,
 	diagnostics: SystemComponentManifestDiagnostic[],
 ) => {
-	for (const axis of Object.values(variants?.axes ?? {})) {
+	const axes = variants?.axes ?? {};
+	const compoundVariants = variants?.compoundVariants ?? [];
+	const duplicateSignatures = new Set(
+		findDuplicateCompoundWhenSignatures(compoundVariants),
+	);
+
+	for (const [axisKey, axis] of Object.entries(axes)) {
+		if (
+			axis.defaultValue !== undefined &&
+			!Object.hasOwn(axis.values, axis.defaultValue)
+		) {
+			pushDiagnostic(diagnostics, {
+				code: "INVALID_VARIANT_DEFAULT_VALUE",
+				severity: "error",
+				componentId,
+				path: axisKey,
+				message: `Component "${componentId}" variant axis "${axisKey}" defaultValue "${axis.defaultValue}" does not exist in that axis values map.`,
+			});
+		}
+
 		for (const value of Object.values(axis.values)) {
 			for (const pathValue of Object.keys(value.classesByPath ?? {})) {
 				validatePathsExist(
@@ -373,7 +397,70 @@ const validateVariantSchema = (
 		}
 	}
 
-	for (const compoundVariant of variants?.compoundVariants ?? []) {
+	for (const [axisKey, defaultValue] of Object.entries(
+		variants?.defaultValues ?? {},
+	)) {
+		const axis = axes[axisKey];
+		if (!axis) {
+			pushDiagnostic(diagnostics, {
+				code: "INVALID_VARIANT_DEFAULT_VALUE",
+				severity: "error",
+				componentId,
+				path: axisKey,
+				message: `Component "${componentId}" variants.defaultValues references unknown axis "${axisKey}".`,
+			});
+			continue;
+		}
+		if (!Object.hasOwn(axis.values, defaultValue)) {
+			pushDiagnostic(diagnostics, {
+				code: "INVALID_VARIANT_DEFAULT_VALUE",
+				severity: "error",
+				componentId,
+				path: axisKey,
+				message: `Component "${componentId}" variants.defaultValues for axis "${axisKey}" references unknown value "${defaultValue}".`,
+			});
+		}
+	}
+
+	for (const [compoundIndex, compoundVariant] of compoundVariants.entries()) {
+		const compoundLabel = `compound variant ${compoundIndex + 1}`;
+		const signature = compoundWhenSignature(compoundVariant.when);
+		const classification = classifyCompoundWhenShape(compoundVariant.when, axes);
+
+		for (const reason of classification.reasons) {
+			const codeByReason = {
+				empty_when: "COMPOUND_EMPTY_WHEN",
+				array_value: "COMPOUND_ARRAY_VALUE",
+				insufficient_conditions: "COMPOUND_INSUFFICIENT_CONDITIONS",
+				unknown_axis: "COMPOUND_UNKNOWN_AXIS",
+				unknown_value: "COMPOUND_UNKNOWN_VALUE",
+			} as const;
+			pushDiagnostic(diagnostics, {
+				code: codeByReason[reason],
+				severity: "warning",
+				componentId,
+				message: `Component "${componentId}" ${compoundLabel} has an advanced compound \`when\` shape (${reason.replaceAll("_", " ")}).`,
+			});
+		}
+
+		if (duplicateSignatures.has(signature)) {
+			pushDiagnostic(diagnostics, {
+				code: "COMPOUND_DUPLICATE_SIGNATURE",
+				severity: "warning",
+				componentId,
+				message: `Component "${componentId}" ${compoundLabel} shares a normalized \`when\` signature with another compound variant.`,
+			});
+		}
+
+		if (Object.keys(compoundVariant.classesByPath).length === 0) {
+			pushDiagnostic(diagnostics, {
+				code: "COMPOUND_EMPTY_CLASSES_BY_PATH",
+				severity: "warning",
+				componentId,
+				message: `Component "${componentId}" ${compoundLabel} has no classesByPath entries.`,
+			});
+		}
+
 		for (const pathValue of Object.keys(compoundVariant.classesByPath)) {
 			validatePathsExist(
 				componentId,

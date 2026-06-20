@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
 import { useDesignSystemId } from "../../../stores/design-store";
 import {
 	buildPropertyModel,
@@ -7,10 +8,7 @@ import {
 	type ColorValue,
 } from "../../../utils/tailwind-classname";
 import { ColorPropertyControl } from "./ColorPropertyControl";
-import {
-	applyColorChange,
-	applyColorClear,
-} from "./colorPropertiesController";
+import { applyColorChange, applyColorClear } from "./colorPropertiesController";
 
 type ColorPropertiesProps = {
 	className: string;
@@ -26,10 +24,11 @@ const PROPERTIES: { property: ColorProperty; label: string }[] = [
 export function ColorProperties({ className, onChange }: ColorPropertiesProps) {
 	const systemId = useDesignSystemId();
 	const resolved = useResolvedColorTokens(systemId);
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
 
 	const options = useMemo(
-		() => ({ colorTokens: resolved.names }),
-		[resolved.names],
+		() => ({ colorTokens: resolved.names, ...customUtilityRoots }),
+		[resolved.names, customUtilityRoots],
 	);
 
 	const model = useMemo(

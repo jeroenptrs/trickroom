@@ -100,18 +100,18 @@ describe("system asset routes", () => {
 			method: "PATCH",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
-				systemName: "Marketing",
+				systemName: "Marketing System",
 			}),
 		});
 		expect(renameResponse.status).toBe(200);
 		await expect(renameResponse.json()).resolves.toMatchObject({
 			systemId: created.systemId,
-			systemName: "Marketing",
+			systemName: "Marketing System",
 			cssPath: "src/brand.css",
 		});
 
 		const cssPathResponse = await app.request(
-			"/api/trickroom/systems/Marketing",
+			"/api/trickroom/systems/Marketing%20System",
 			{
 				method: "PATCH",
 				headers: { "content-type": "application/json" },
@@ -123,7 +123,7 @@ describe("system asset routes", () => {
 		expect(cssPathResponse.status).toBe(200);
 		await expect(cssPathResponse.json()).resolves.toMatchObject({
 			systemId: created.systemId,
-			systemName: "Marketing",
+			systemName: "Marketing System",
 			cssPath: "src/marketing.css",
 		});
 
@@ -148,12 +148,12 @@ describe("system asset routes", () => {
 		);
 		expect(renamedManifest).toMatchObject({
 			systemId: created.systemId,
-			systemName: "Marketing",
+			systemName: "Marketing System",
 			cssPath: "src/marketing.css",
 		});
 
 		const deleteResponse = await app.request(
-			"/api/trickroom/systems/Marketing",
+			"/api/trickroom/systems/Marketing%20System",
 			{ method: "DELETE" },
 		);
 		expect(deleteResponse.status).toBe(200);
@@ -1047,4 +1047,3 @@ describe("system font routes", () => {
 		expect(response.status).toBe(400);
 	});
 });
-

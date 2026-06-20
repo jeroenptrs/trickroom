@@ -23,6 +23,8 @@ import {
 	getComponentDraftPreviewClassName,
 	getComponentDraftTemplateHash,
 	getCompoundClassNameForPath,
+	getCompoundClassNameForWhen,
+	getDraftClassNameForStyleTab,
 	getEffectiveDraftNodeClassName,
 	hydrateComponentDraft,
 	isComponentDraftCleanAtRevision,
@@ -35,8 +37,12 @@ import {
 	resetComponentDraftStore,
 	selectTemplateNode,
 	serializeComponentDraftState,
+	serializeComponentDraftVariants,
 	setComponentDraftStyleClassName,
+	focusCompoundInDraft,
+	removeCompoundVariantByWhen,
 	setComponentDraftStyleTarget,
+	setDraftClassNameForStyleTab,
 	updateTemplateNodeClassName,
 	updateTemplateNodeName,
 	updateTemplateNodeOverrideTarget,
@@ -58,6 +64,29 @@ const hydrateFixture = (root: RecipeTemplateNode) => {
 		},
 	});
 };
+
+const baseStyleTarget = {
+	base: true,
+	axisValues: {},
+	compoundAxes: [],
+	activeTab: { kind: "base" as const },
+};
+
+const axisStyleTarget = (axisKey: string, valueKey: string) => ({
+	base: true,
+	axisValues: { [axisKey]: valueKey },
+	compoundAxes: [],
+	activeTab: { kind: "axis" as const, axisKey },
+});
+
+const compoundStyleTarget = (when: Record<string, string>) => ({
+	base: true,
+	axisValues: { ...when },
+	compoundAxes: Object.keys(when).sort((left, right) =>
+		left.localeCompare(right),
+	),
+	activeTab: { kind: "compound" as const },
+});
 
 beforeEach(() => {
 	resetComponentDraftStore();
@@ -379,7 +408,7 @@ describe("component draft store", () => {
 		expect(
 			state.variants?.axes.tone.values.brand.classesByPath,
 		).toBeUndefined();
-		expect(state.variants?.compoundVariants?.[0]?.classesByPath).toEqual({});
+		expect(state.variants?.compoundVariants).toBeUndefined();
 		expect(() => serializeComponentDraftState(state)).toThrow(
 			"Cannot serialize component draft without a root template.",
 		);
@@ -397,6 +426,41 @@ describe("component draft store", () => {
 			path: "root",
 			component: "text",
 		});
+	});
+
+	it("drops compound variants whose class targets are deleted", () => {
+		resetComponentDraftStore();
+		hydrateComponentDraft({
+			componentId: FIXTURE_COMPONENT_ID,
+			root: complexComponentTemplateRoot(),
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: { brand: { label: "Brand" } },
+					},
+					size: {
+						label: "Size",
+						values: { lg: { label: "Large" } },
+					},
+				},
+				compoundVariants: [
+					{
+						when: { tone: "brand", size: "lg" },
+						classesByPath: { icon: "size-4" },
+					},
+				],
+			},
+		});
+
+		deleteTemplateNode("icon");
+
+		const state = componentDraftStore.get();
+		expect(state.variantsDirty).toBe(true);
+		expect(state.variants?.compoundVariants).toBeUndefined();
+		expect(
+			serializeComponentDraftVariants(state)?.compoundVariants,
+		).toBeUndefined();
 	});
 
 	it("reorders the first sibling after a later sibling using layer-drop indices", () => {
@@ -639,11 +703,7 @@ describe("component draft store", () => {
 			},
 		});
 		updateTemplateNodeClassName("root", "text-base");
-		setComponentDraftStyleTarget({
-			mode: "variant",
-			axisKey: "tone",
-			valueKey: "brand",
-		});
+		setComponentDraftStyleTarget(axisStyleTarget("tone", "brand"));
 		updateVariantClassesByPath("tone", "brand", "root", "text-blue-600");
 
 		const state = componentDraftStore.get();
@@ -675,11 +735,7 @@ describe("component draft store", () => {
 		const variantClassName = "h-8 unknown-variant-token h-10";
 
 		updateTemplateNodeClassName("root", baseClassName);
-		setComponentDraftStyleTarget({
-			mode: "variant",
-			axisKey: "size",
-			valueKey: "lg",
-		});
+		setComponentDraftStyleTarget(axisStyleTarget("size", "lg"));
 		setComponentDraftStyleClassName("root", variantClassName);
 
 		const state = componentDraftStore.get();
@@ -733,11 +789,7 @@ describe("component draft store", () => {
 				},
 			},
 		});
-		setComponentDraftStyleTarget({
-			mode: "variant",
-			axisKey: "size",
-			valueKey: "lg",
-		});
+		setComponentDraftStyleTarget(axisStyleTarget("size", "lg"));
 
 		const state = componentDraftStore.get();
 		const layers = getComponentDraftPreviewClassLayers(state, "root");
@@ -809,6 +861,162 @@ describe("component draft store", () => {
 		]);
 	});
 
+	it("composes draft preview layers from all selected axis values and matching compounds", () => {
+		resetComponentDraftStore();
+		hydrateComponentDraft({
+			componentId: FIXTURE_COMPONENT_ID,
+			root: {
+				path: "root",
+				library: "base-ui",
+				component: "separator",
+				className: "h-4",
+			},
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: {
+							brand: {
+								label: "Brand",
+								classesByPath: { root: "text-blue-600" },
+							},
+							neutral: {
+								label: "Neutral",
+								classesByPath: { root: "text-slate-600" },
+							},
+						},
+					},
+					size: {
+						label: "Size",
+						values: {
+							lg: {
+								label: "Large",
+								classesByPath: { root: "h-6" },
+							},
+						},
+					},
+				},
+				compoundVariants: [
+					{
+						when: { tone: "brand", size: "lg" },
+						classesByPath: { root: "ring-2" },
+					},
+					{
+						when: { tone: "neutral", size: "lg" },
+						classesByPath: { root: "ring-4" },
+					},
+				],
+			},
+		});
+		setComponentDraftStyleTarget({
+			base: true,
+			axisValues: { tone: "brand", size: "lg" },
+			compoundAxes: [],
+			activeTab: { kind: "axis", axisKey: "tone" },
+		});
+
+		const state = componentDraftStore.get();
+		const layers = getComponentDraftPreviewClassLayers(state, "root");
+
+		expect(layers.map((layer) => layer.className)).toEqual([
+			"h-4",
+			"h-6",
+			"text-blue-600",
+			"ring-2",
+		]);
+		expect(layers.map((layer) => layer.source)).toEqual([
+			"system-template",
+			"system-variant",
+			"system-variant",
+			"system-compound-variant",
+		]);
+		expect(getComponentDraftPreviewClassName(state, "root")).toBe(
+			"h-4 h-6 text-blue-600 ring-2",
+		);
+	});
+
+	it("recomputes draft preview class name when base or axis selection changes, not when only activeTab changes", () => {
+		resetComponentDraftStore();
+		hydrateComponentDraft({
+			componentId: FIXTURE_COMPONENT_ID,
+			root: {
+				path: "root",
+				library: "base-ui",
+				component: "separator",
+				className: "h-4",
+			},
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: {
+							brand: {
+								label: "Brand",
+								classesByPath: { root: "text-blue-600" },
+							},
+							neutral: {
+								label: "Neutral",
+								classesByPath: { root: "text-slate-600" },
+							},
+						},
+					},
+					size: {
+						label: "Size",
+						values: {
+							lg: {
+								label: "Large",
+								classesByPath: { root: "h-6" },
+							},
+						},
+					},
+				},
+				compoundVariants: [
+					{
+						when: { tone: "brand", size: "lg" },
+						classesByPath: { root: "ring-2" },
+					},
+				],
+			},
+		});
+
+		const multiAxisTarget = {
+			base: true,
+			axisValues: { tone: "brand", size: "lg" },
+			compoundAxes: ["tone", "size"],
+			activeTab: { kind: "axis" as const, axisKey: "tone" },
+		};
+		setComponentDraftStyleTarget(multiAxisTarget);
+		const compositePreview = getComponentDraftPreviewClassName(
+			componentDraftStore.get(),
+			"root",
+		);
+		expect(compositePreview).toBe("h-4 h-6 text-blue-600 ring-2");
+
+		setComponentDraftStyleTarget({
+			...multiAxisTarget,
+			activeTab: { kind: "axis", axisKey: "size" },
+		});
+		expect(
+			getComponentDraftPreviewClassName(componentDraftStore.get(), "root"),
+		).toBe(compositePreview);
+
+		setComponentDraftStyleTarget({
+			...multiAxisTarget,
+			axisValues: { tone: "neutral", size: "lg" },
+		});
+		expect(
+			getComponentDraftPreviewClassName(componentDraftStore.get(), "root"),
+		).toBe("h-4 h-6 text-slate-600");
+
+		setComponentDraftStyleTarget({
+			...multiAxisTarget,
+			base: false,
+		});
+		expect(
+			getComponentDraftPreviewClassName(componentDraftStore.get(), "root"),
+		).toBe("h-6 text-blue-600 ring-2");
+	});
+
 	it("resolves component draft preview-like base, template, compound, and selection layers with statuses", () => {
 		const separatorResolution = resolveRegistryComponent(
 			"base-ui",
@@ -838,7 +1046,6 @@ describe("component draft store", () => {
 				],
 			},
 		});
-		setComponentDraftStyleTarget({ mode: "compound", compoundIndex: 0 });
 
 		const draftLayers = getComponentDraftPreviewClassLayers(
 			componentDraftStore.get(),
@@ -1042,7 +1249,9 @@ describe("component draft store", () => {
 	it("routes compound style edits to the compound classesByPath", () => {
 		hydrateCompoundFixture();
 		updateTemplateNodeClassName("root", "text-base");
-		setComponentDraftStyleTarget({ mode: "compound", compoundIndex: 0 });
+		setComponentDraftStyleTarget(
+			compoundStyleTarget({ tone: "brand", size: "lg" }),
+		);
 		setComponentDraftStyleClassName("root", "ring-2");
 
 		const state = componentDraftStore.get();
@@ -1053,38 +1262,258 @@ describe("component draft store", () => {
 		expect(state.variantsDirty).toBe(true);
 		expect(getEffectiveDraftNodeClassName(state, "root")).toBe("ring-2");
 		expect(getCompoundClassNameForPath(state, 0, "root")).toBe("ring-2");
+		expect(
+			getCompoundClassNameForWhen(state, { size: "lg", tone: "brand" }, "root"),
+		).toBe("ring-2");
 	});
 
-	it("ignores a compound style target whose index does not exist", () => {
+	it("routes per-style-tab class edits without requiring the tab to be active", () => {
 		hydrateCompoundFixture();
-		setComponentDraftStyleTarget({ mode: "compound", compoundIndex: 5 });
-		expect(componentDraftStore.get().styleTarget).toEqual({ mode: "base" });
-	});
-
-	it("resets a compound style target when the compound list size changes", () => {
-		hydrateCompoundFixture();
-		setComponentDraftStyleTarget({ mode: "compound", compoundIndex: 0 });
-		expect(componentDraftStore.get().styleTarget).toEqual({
-			mode: "compound",
-			compoundIndex: 0,
+		setComponentDraftStyleTarget({
+			base: true,
+			axisValues: { tone: "brand", size: "lg" },
+			compoundAxes: ["size", "tone"],
+			activeTab: { kind: "axis", axisKey: "size" },
 		});
 
-		// Removing the compound shifts indices, so the target falls back to base.
-		replaceComponentDraftVariants({
-			axes: {
-				tone: { label: "Tone", values: { brand: { label: "Brand" } } },
-				size: { label: "Size", values: { lg: { label: "Large" } } },
+		setDraftClassNameForStyleTab({ kind: "base" }, "root", "text-base");
+		setDraftClassNameForStyleTab(
+			{ kind: "axis", axisKey: "tone" },
+			"root",
+			"text-blue-600",
+		);
+		setDraftClassNameForStyleTab(
+			{ kind: "compound" },
+			"root",
+			"ring-2",
+		);
+
+		const state = componentDraftStore.get();
+		expect(state.styleTarget.activeTab).toEqual({
+			kind: "axis",
+			axisKey: "size",
+		});
+		expect(state.entitiesByPath.root?.className).toBe("text-base");
+		expect(state.variants?.axes.tone.values.brand.classesByPath?.root).toBe(
+			"text-blue-600",
+		);
+		expect(state.variants?.compoundVariants).toEqual([
+			{
+				when: { tone: "brand", size: "lg" },
+				classesByPath: { root: "ring-2" },
+			},
+		]);
+		expect(
+			getDraftClassNameForStyleTab(state, { kind: "base" }, "root"),
+		).toBe("text-base");
+		expect(
+			getDraftClassNameForStyleTab(
+				state,
+				{ kind: "axis", axisKey: "tone" },
+				"root",
+			),
+		).toBe("text-blue-600");
+		expect(
+			getDraftClassNameForStyleTab(state, { kind: "compound" }, "root"),
+		).toBe("ring-2");
+	});
+
+	it("appends new signature-keyed compounds without reordering existing compounds", () => {
+		resetComponentDraftStore();
+		hydrateComponentDraft({
+			componentId: FIXTURE_COMPONENT_ID,
+			root: minimalComponentTemplateRoot(),
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: {
+							brand: { label: "Brand" },
+							neutral: { label: "Neutral" },
+						},
+					},
+					size: {
+						label: "Size",
+						values: { lg: { label: "Large" } },
+					},
+				},
+				compoundVariants: [
+					{
+						when: { tone: "neutral", size: "lg" },
+						classesByPath: { root: "ring-1" },
+					},
+				],
 			},
 		});
-		expect(componentDraftStore.get().styleTarget).toEqual({ mode: "base" });
+		setComponentDraftStyleTarget(
+			compoundStyleTarget({ tone: "brand", size: "lg" }),
+		);
+		setComponentDraftStyleClassName("root", "ring-2");
+		setComponentDraftStyleClassName("root", "ring-4");
+
+		expect(componentDraftStore.get().variants?.compoundVariants).toEqual([
+			{
+				when: { tone: "neutral", size: "lg" },
+				classesByPath: { root: "ring-1" },
+			},
+			{
+				when: { size: "lg", tone: "brand" },
+				classesByPath: { root: "ring-4" },
+			},
+		]);
 	});
 
-	it("keeps a compound style target when only its conditions change", () => {
+	it("updates an existing duplicate compound signature without appending another entry", () => {
+		resetComponentDraftStore();
+		hydrateComponentDraft({
+			componentId: FIXTURE_COMPONENT_ID,
+			root: minimalComponentTemplateRoot(),
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: { brand: { label: "Brand" } },
+					},
+					size: {
+						label: "Size",
+						values: { lg: { label: "Large" } },
+					},
+				},
+				compoundVariants: [
+					{
+						when: { tone: "brand", size: "lg" },
+						classesByPath: { root: "ring-1" },
+					},
+					{
+						when: { size: "lg", tone: "brand" },
+						classesByPath: { root: "ring-2" },
+					},
+				],
+			},
+		});
+		setComponentDraftStyleTarget(
+			compoundStyleTarget({ tone: "brand", size: "lg" }),
+		);
+
+		setComponentDraftStyleClassName("root", "ring-4");
+
+		expect(componentDraftStore.get().variants?.compoundVariants).toEqual([
+			{
+				when: { tone: "brand", size: "lg" },
+				classesByPath: { root: "ring-4" },
+			},
+			{
+				when: { size: "lg", tone: "brand" },
+				classesByPath: { root: "ring-2" },
+			},
+		]);
+	});
+
+	it("prunes empty compounds from draft variant serialization", () => {
+		resetComponentDraftStore();
+		hydrateComponentDraft({
+			componentId: FIXTURE_COMPONENT_ID,
+			root: minimalComponentTemplateRoot(),
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: { brand: { label: "Brand" } },
+					},
+					size: {
+						label: "Size",
+						values: { lg: { label: "Large" } },
+					},
+				},
+				compoundVariants: [
+					{ when: { tone: "brand", size: "lg" }, classesByPath: {} },
+					{
+						when: { tone: "brand" },
+						classesByPath: { root: "ring-2" },
+					},
+				],
+			},
+		});
+
+		expect(
+			serializeComponentDraftVariants(componentDraftStore.get()),
+		).toMatchObject({
+			compoundVariants: [
+				{
+					when: { tone: "brand" },
+					classesByPath: { root: "ring-2" },
+				},
+			],
+		});
+	});
+
+	it("focusCompoundInDraft selects root and activates compound style target", () => {
 		hydrateCompoundFixture();
-		setComponentDraftStyleTarget({ mode: "compound", compoundIndex: 0 });
+		focusCompoundInDraft({ tone: "brand", size: "lg" });
+
+		expect(componentDraftStore.get().selectedPath).toBe("root");
+		expect(componentDraftStore.get().styleTarget).toMatchObject({
+			activeTab: { kind: "compound" },
+			axisValues: { tone: "brand", size: "lg" },
+			compoundAxes: ["size", "tone"],
+		});
+	});
+
+	it("removeCompoundVariantByWhen deletes an authored compound", () => {
+		hydrateCompoundFixture();
+		setComponentDraftStyleTarget(
+			compoundStyleTarget({ tone: "brand", size: "lg" }),
+		);
 		setComponentDraftStyleClassName("root", "ring-2");
 
-		// Editing the compound's `when` keeps the count, so index 0 stays valid.
+		removeCompoundVariantByWhen({ tone: "brand", size: "lg" });
+
+		expect(componentDraftStore.get().variants?.compoundVariants).toBeUndefined();
+		expect(componentDraftStore.get().styleTarget.activeTab).toEqual({
+			kind: "compound",
+		});
+	});
+
+	it("reconciles invalid compound selections back to base", () => {
+		hydrateCompoundFixture();
+		setComponentDraftStyleTarget(compoundStyleTarget({ tone: "brand" }));
+		expect(componentDraftStore.get().styleTarget).toMatchObject({
+			activeTab: { kind: "base" },
+			axisValues: { tone: "brand" },
+			compoundAxes: ["tone"],
+		});
+	});
+
+	it("keeps an active compound selection after the persisted compound is GC'd", () => {
+		hydrateCompoundFixture();
+		const target = compoundStyleTarget({ tone: "brand", size: "lg" });
+		setComponentDraftStyleTarget(target);
+		setComponentDraftStyleClassName("root", "ring-2");
+		setComponentDraftStyleClassName("root", "");
+
+		expect(
+			componentDraftStore.get().variants?.compoundVariants,
+		).toBeUndefined();
+		expect(componentDraftStore.get().styleTarget).toEqual(target);
+
+		setComponentDraftStyleClassName("root", "ring-4");
+
+		const state = componentDraftStore.get();
+		expect(state.variants?.compoundVariants).toEqual([
+			{
+				when: { size: "lg", tone: "brand" },
+				classesByPath: { root: "ring-4" },
+			},
+		]);
+		expect(state.styleTarget).toEqual(target);
+	});
+
+	it("keeps a compound style target when the persisted compound list changes", () => {
+		hydrateCompoundFixture();
+		const target = compoundStyleTarget({ tone: "brand", size: "lg" });
+		setComponentDraftStyleTarget(target);
+		setComponentDraftStyleClassName("root", "ring-2");
+
 		replaceComponentDraftVariants({
 			axes: {
 				tone: { label: "Tone", values: { brand: { label: "Brand" } } },
@@ -1094,10 +1523,7 @@ describe("component draft store", () => {
 				{ when: { tone: "brand" }, classesByPath: { root: "ring-2" } },
 			],
 		});
-		expect(componentDraftStore.get().styleTarget).toEqual({
-			mode: "compound",
-			compoundIndex: 0,
-		});
+		expect(componentDraftStore.get().styleTarget).toEqual(target);
 	});
 
 	it("clears template dirty without discarding unsaved variant edits", () => {
@@ -1119,11 +1545,7 @@ describe("component draft store", () => {
 		});
 
 		updateTemplateNodeClassName("root", "text-base");
-		setComponentDraftStyleTarget({
-			mode: "variant",
-			axisKey: "tone",
-			valueKey: "brand",
-		});
+		setComponentDraftStyleTarget(axisStyleTarget("tone", "brand"));
 		updateVariantClassesByPath("tone", "brand", "root", "text-blue-600");
 
 		const revision = componentDraftStore.get().revision;
@@ -1158,11 +1580,7 @@ describe("component draft store", () => {
 				},
 			},
 		});
-		setComponentDraftStyleTarget({
-			mode: "variant",
-			axisKey: "tone",
-			valueKey: "brand",
-		});
+		setComponentDraftStyleTarget(axisStyleTarget("tone", "brand"));
 
 		hydrateComponentDraft({
 			componentId: FIXTURE_COMPONENT_ID,
@@ -1179,7 +1597,7 @@ describe("component draft store", () => {
 			},
 		});
 
-		expect(componentDraftStore.get().styleTarget).toEqual({ mode: "base" });
+		expect(componentDraftStore.get().styleTarget).toEqual(baseStyleTarget);
 	});
 
 	it("blocks base className writes while variant style target is active", () => {
@@ -1199,11 +1617,7 @@ describe("component draft store", () => {
 			},
 		});
 		updateTemplateNodeClassName("root", "text-base");
-		setComponentDraftStyleTarget({
-			mode: "variant",
-			axisKey: "tone",
-			valueKey: "brand",
-		});
+		setComponentDraftStyleTarget(axisStyleTarget("tone", "brand"));
 
 		updateTemplateNodeClassName("root", "text-red-500");
 

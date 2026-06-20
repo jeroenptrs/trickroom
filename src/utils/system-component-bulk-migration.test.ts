@@ -461,6 +461,64 @@ describe("system-component-bulk-migration", () => {
     ).toBe("1");
   });
 
+  it("leaves default-less target variant axes unset during bulk migration", async () => {
+    const record = createPublishedV1V2Record();
+    const target = record.published!.versions["2"];
+    target.variants = {
+      axes: {
+        ...(target.variants?.axes ?? {}),
+        density: {
+          label: "Density",
+          values: {
+            compact: { classesByPath: { root: "density-compact" } },
+          },
+        },
+      },
+    };
+    target.variantSchemaHash = hashSystemComponentVariantSchema(target.variants);
+    if (!record.draft) {
+      throw new Error("Expected fixture record to include a draft.");
+    }
+    record.draft = {
+      ...record.draft,
+      variants: target.variants,
+    };
+    const systemId = await setupCoreSystem({
+      [FIXTURE_COMPONENT_ID]: record,
+    });
+    const v1 = record.published!.versions["1"];
+    const design = designWithAttachedComponent(
+      systemId,
+      FIXTURE_COMPONENT_ID,
+      "1",
+      "optional-bulk-instance",
+      {
+        templateHash: v1.templateHash,
+        variantSchemaHash: v1.variantSchemaHash,
+      },
+    );
+
+    const result = bulkMigrateDesignSystemComponentInstances(
+      design,
+      {
+        designFileId: "design-optional-bulk",
+        designFile: "design-optional-bulk.json",
+        designName: "Optional Bulk",
+        systemId,
+      },
+      createFixtureManifest({ [FIXTURE_COMPONENT_ID]: record }),
+    );
+    const migratedRoot = result.design.boards[0]?.children?.[0];
+
+    expect(result.report.changed).toHaveLength(1);
+    expect(
+      getSystemComponentStructuralMetadata(migratedRoot?.props ?? {}),
+    ).toMatchObject({
+      variantValues: { tone: "neutral" },
+    });
+    expect(migratedRoot?.props.className).not.toContain("density-compact");
+  });
+
   it("reports migrated root element ids when target template renames the root path", async () => {
     const record = createPublishedRecordWithRenamedRootPath();
     const systemId = await setupCoreSystem({

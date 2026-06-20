@@ -52,6 +52,16 @@ export type StoredTailwindTokenDomain = {
  * metadata fields onto the top-level response, but the meaning is identical to
  * `TailwindTokenStorageV2`.
  */
+export type StoredTailwindCustomUtility = {
+	root: string;
+	/** `functional` (value-taking, prefix-matched) or `static` (exact). Optional for legacy snapshots. */
+	kind?: "functional" | "static";
+	consumedNamespaces: string[];
+	completionValues: string[];
+	/** UI domain(s) the utility folds into (e.g. ["color"], ["typography"]). Optional for legacy snapshots. */
+	domains?: string[];
+};
+
 export type StoredTailwindTokensResponse = {
 	ok: true;
 	systemId: string;
@@ -61,6 +71,10 @@ export type StoredTailwindTokensResponse = {
 	tailwindBaselineVersion: string;
 	reviewRequired: boolean;
 	domains: Record<TailwindTokenDomain, StoredTailwindTokenDomain>;
+	/** Custom CSS variables outside the fixed domain whitelist (v3+). */
+	customProperties?: Record<string, string>;
+	/** Custom @utility roots discovered in the system CSS (v3+). */
+	customUtilities?: StoredTailwindCustomUtility[];
 };
 
 export type SaveAndConfirmTailwindTokensRequest = {
@@ -79,6 +93,34 @@ export const syncTailwindTokens = async (
 		body: JSON.stringify(request),
 	});
 	return readJsonOrThrow<TailwindSyncTokensResponse>(response);
+};
+
+export type CompileTailwindResponse = {
+	systemId: string | null;
+	systemName: string | null;
+	cssPath: string | null;
+	candidateCount: number;
+	css: string;
+};
+
+/**
+ * Compile the full stylesheet for a set of candidate class names (the
+ * `compiled` iframe render mode). The server resolves the project from request
+ * context. Omit `systemId` to compile baseline Tailwind (defaults only) — used
+ * for designs with no linked system.
+ */
+export const compileTailwindCss = async (request: {
+	systemId?: string;
+	candidates: string[];
+	/** Serialized `@theme { … }` so live (unsynced) token edits preview. */
+	themeOverrides?: string;
+}): Promise<CompileTailwindResponse> => {
+	const response = await fetch("/api/trickroom/tailwind/compile", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(request),
+	});
+	return readJsonOrThrow<CompileTailwindResponse>(response);
 };
 
 export const storedTailwindTokensQueryKey = (

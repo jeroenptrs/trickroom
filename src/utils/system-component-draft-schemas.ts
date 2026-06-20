@@ -104,7 +104,7 @@ export const systemComponentVariantValueSchema = z
 	.object({
 		label: z.string().optional(),
 		classesByPath: z
-			.record(z.string().min(1), z.string())
+			.record(z.string().min(1), z.string().min(1))
 			.optional()
 			.describe("Tailwind class strings keyed by template path."),
 	})
@@ -123,10 +123,13 @@ export const systemComponentVariantAxisSchema = z
 export const systemComponentCompoundVariantSchema = z
 	.object({
 		when: z
-			.record(z.string().min(1), z.union([z.string(), z.array(z.string())]))
+			.record(
+				z.string().min(1),
+				z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
+			)
 			.describe("Axis/value requirements for this compound variant."),
 		classesByPath: z
-			.record(z.string().min(1), z.string())
+			.record(z.string().min(1), z.string().min(1))
 			.describe("Tailwind class strings keyed by template path."),
 	})
 	.strict();

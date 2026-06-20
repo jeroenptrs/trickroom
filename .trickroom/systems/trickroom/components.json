@@ -3,7 +3,7 @@
 	"metadata": {
 		"schemaVersion": 1,
 		"createdAt": "1970-01-01T00:00:00.000Z",
-		"updatedAt": "2026-06-01T04:56:58.450Z"
+		"updatedAt": "2026-06-01T18:31:46.251Z"
 	},
 	"settings": {
 		"autoMigrateComponents": false
@@ -20,13 +20,88 @@
 			"slug": "button",
 			"name": "Button",
 			"createdAt": "2026-06-01T04:56:40.997Z",
-			"updatedAt": "2026-06-01T04:56:58.450Z",
+			"updatedAt": "2026-06-01T18:31:46.250Z",
 			"draft": {
 				"root": {
 					"path": "root",
 					"library": "base-ui",
 					"component": "button",
-					"name": "Button"
+					"name": "Button",
+					"className": "flex gap-1",
+					"slot": "button",
+					"children": [
+						{
+							"path": "node",
+							"library": "trickroom",
+							"component": "text",
+							"name": "Text",
+							"text": "Text"
+						}
+					]
+				},
+				"slots": {
+					"button": {
+						"name": "button",
+						"hostPath": "root",
+						"label": "Button"
+					}
+				},
+				"overrideTargets": {
+					"node": {
+						"targetId": "node",
+						"label": "Text",
+						"path": "node",
+						"capabilities": [
+							"className",
+							"text"
+						]
+					}
+				}
+			},
+			"published": {
+				"currentVersion": "1",
+				"versions": {
+					"1": {
+						"root": {
+							"path": "root",
+							"library": "base-ui",
+							"component": "button",
+							"name": "Button",
+							"className": "flex gap-1",
+							"slot": "button",
+							"children": [
+								{
+									"path": "node",
+									"library": "trickroom",
+									"component": "text",
+									"name": "Text",
+									"text": "Text"
+								}
+							]
+						},
+						"slots": {
+							"button": {
+								"name": "button",
+								"hostPath": "root",
+								"label": "Button"
+							}
+						},
+						"overrideTargets": {
+							"node": {
+								"targetId": "node",
+								"label": "Text",
+								"path": "node",
+								"capabilities": [
+									"className",
+									"text"
+								]
+							}
+						},
+						"version": "1",
+						"publishedAt": "2026-06-01T18:31:46.250Z",
+						"templateHash": "sha256:93f01db55a44976b5db4def44dcf84a99849eb9852cc920a219040823fabc60c",
+						"variantSchemaHash": "sha256:477b59fd450fa53b7682cb51356ad343e08545bfd0c9829711d8097891224099"
+					}
 				}
 			}
 		}

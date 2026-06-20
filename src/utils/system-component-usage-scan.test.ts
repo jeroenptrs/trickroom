@@ -20,6 +20,7 @@ import {
 	SYSTEM_COMPONENT_MANIFEST_FILE_NAME,
 	type SystemComponentRecord,
 } from "./system-components";
+import { hashSystemComponentVariantSchema } from "./system-components-validation";
 
 const designWithAttachedComponent = (
 	systemId: string,
@@ -288,6 +289,62 @@ describe("system-component-usage-scan", () => {
 		);
 	});
 
+	it("treats pre-backfill variant hashes as current for migrated published schemas", async () => {
+		const oldVariants = {
+			axes: {
+				size: {
+					label: "Size",
+					values: {
+						beta: { label: "Beta" },
+						alpha: { label: "Alpha" },
+					},
+				},
+			},
+		};
+		const migratedVariants = {
+			...oldVariants,
+			defaultValues: { size: "alpha" },
+		};
+		const publishedRecord = createFixturePublishedRecord();
+		const versionOne = publishedRecord.published?.versions["1"];
+		if (!publishedRecord.published || !versionOne) {
+			throw new Error("Fixture published record is missing version 1.");
+		}
+		publishedRecord.published.versions["1"] = {
+			...versionOne,
+			variants: migratedVariants,
+			variantSchemaHash: hashSystemComponentVariantSchema(migratedVariants),
+		};
+		const legacyVariantHash = hashSystemComponentVariantSchema(oldVariants);
+		const systemId = await setupCoreSystem({
+			[FIXTURE_COMPONENT_ID]: publishedRecord,
+		});
+
+		await writeDesign(
+			"00000000-0000-4000-8000-000000000001",
+			designWithAttachedComponent(
+				systemId,
+				FIXTURE_COMPONENT_ID,
+				"1",
+				"legacy-hash",
+				{
+					templateHash: versionOne.templateHash,
+					variantSchemaHash: legacyVariantHash,
+				},
+			),
+		);
+
+		const result = await scanProjectSystemComponentUsage(tempProjectRoot, {
+			systemHandle: systemId,
+		});
+
+		expect(result.statusCounts).toMatchObject({
+			current: 1,
+			"hash-mismatch": 0,
+		});
+		expect(result.instances[0]?.versionStatus?.status).toBe("current");
+	});
+
 	it("classifies current-version instances with missing hash metadata as hash-mismatch", async () => {
 		const systemId = await setupCoreSystem();
 		await writeDesign(
@@ -380,7 +437,11 @@ describe("system-component-usage-scan", () => {
 
 		const result = await scanDesignFileSystemComponentUsage(
 			tempProjectRoot,
-			path.join(".trickroom", "designs", "00000000-0000-4000-8000-000000000001.json"),
+			path.join(
+				".trickroom",
+				"designs",
+				"00000000-0000-4000-8000-000000000001.json",
+			),
 			{ systemHandle: systemId },
 		);
 
@@ -834,13 +895,13 @@ describe("system-component-usage-scan", () => {
 			"utf8",
 		);
 
-		const service = designFileServiceModule.createDesignFileService(
-			tempProjectRoot,
-		);
+		const service =
+			designFileServiceModule.createDesignFileService(tempProjectRoot);
 		const listSpy = vi.spyOn(service, "listDesignSummaries");
-		vi.spyOn(designFileServiceModule, "createDesignFileService").mockReturnValue(
-			service,
-		);
+		vi.spyOn(
+			designFileServiceModule,
+			"createDesignFileService",
+		).mockReturnValue(service);
 
 		const result = await scanProjectSystemComponentUsage(tempProjectRoot, {
 			systemHandle: systemId,
@@ -852,9 +913,7 @@ describe("system-component-usage-scan", () => {
 		expect(result.usedByCount).toBe(1);
 		expect(result.instances[0]?.designFileId).toBe(allowedUuid);
 		expect(
-			result.diagnostics.some(
-				(entry) => entry.designFileId === disallowedUuid,
-			),
+			result.diagnostics.some((entry) => entry.designFileId === disallowedUuid),
 		).toBe(false);
 	});
 

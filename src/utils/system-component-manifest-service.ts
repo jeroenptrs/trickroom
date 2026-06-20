@@ -28,7 +28,10 @@ import {
 } from "./system-components.ts";
 
 export type { SystemComponentManifestRevision } from "./system-component-manifest-service.types";
+
 import type { SystemComponentManifestRevision } from "./system-component-manifest-service.types";
+import { backfillOptionalVariantDefaults } from "./system-component-variant-defaults-migration.ts";
+import { hashSystemComponentVariantSchema } from "./system-components-validation.ts";
 
 export type SystemComponentManifestWarningCode =
 	| "UNKNOWN_TOP_LEVEL_FIELD"
@@ -38,6 +41,15 @@ export type SystemComponentManifestWarning = {
 	code: SystemComponentManifestWarningCode;
 	message: string;
 	path?: string;
+};
+
+const supportedSystemComponentManifestVersions = new Set<number>([
+	1,
+	SYSTEM_COMPONENT_MANIFEST_VERSION,
+]);
+
+type SystemComponentManifestNormalizationContext = {
+	backfillOptionalVariantDefaults: boolean;
 };
 
 export type SystemComponentManifestDiagnosticCode =
@@ -346,7 +358,10 @@ export function normalizeSystemComponentManifest(
 		}
 	}
 
-	if (value.version !== SYSTEM_COMPONENT_MANIFEST_VERSION) {
+	if (
+		typeof value.version !== "number" ||
+		!supportedSystemComponentManifestVersions.has(value.version)
+	) {
 		throw invalidManifest(manifestPath, [
 			{
 				code: "UNSUPPORTED_VERSION",
@@ -355,6 +370,10 @@ export function normalizeSystemComponentManifest(
 			},
 		]);
 	}
+	const normalizationContext: SystemComponentManifestNormalizationContext = {
+		backfillOptionalVariantDefaults:
+			value.version < SYSTEM_COMPONENT_MANIFEST_VERSION,
+	};
 
 	const metadata = normalizeMetadata(value.metadata, manifestPath);
 	const settings = normalizeSettings(value.settings);
@@ -367,6 +386,7 @@ export function normalizeSystemComponentManifest(
 		manifestPath,
 		warnings,
 		diagnostics,
+		normalizationContext,
 	);
 
 	try {
@@ -468,10 +488,6 @@ function normalizeMetadata(
 		]);
 	}
 
-	const schemaVersion =
-		typeof value.schemaVersion === "number"
-			? value.schemaVersion
-			: SYSTEM_COMPONENT_MANIFEST_VERSION;
 	const createdAt =
 		typeof value.createdAt === "string"
 			? value.createdAt
@@ -482,7 +498,7 @@ function normalizeMetadata(
 			: new Date(0).toISOString();
 
 	return {
-		schemaVersion,
+		schemaVersion: SYSTEM_COMPONENT_MANIFEST_VERSION,
 		createdAt,
 		updatedAt,
 	};
@@ -532,6 +548,7 @@ function normalizeComponents(
 	manifestPath: string,
 	warnings: SystemComponentManifestWarning[],
 	diagnostics: SystemComponentManifestDiagnostic[],
+	context: SystemComponentManifestNormalizationContext,
 ): Record<string, SystemComponentRecord> {
 	if (value === undefined) {
 		return {};
@@ -554,6 +571,7 @@ function normalizeComponents(
 			componentKey,
 			warnings,
 			diagnostics,
+			context,
 		);
 		if (!normalized) {
 			continue;
@@ -580,6 +598,7 @@ function normalizeComponentRecord(
 	componentKey: string,
 	warnings: SystemComponentManifestWarning[],
 	diagnostics: SystemComponentManifestDiagnostic[],
+	context: SystemComponentManifestNormalizationContext,
 ): SystemComponentRecord | null {
 	const basePath = `components.${componentKey}`;
 
@@ -669,12 +688,14 @@ function normalizeComponentRecord(
 		componentId,
 		diagnostics,
 		`${basePath}.draft`,
+		context,
 	);
 	const published = normalizePublishedState(
 		value.published,
 		componentId,
 		diagnostics,
 		`${basePath}.published`,
+		context,
 	);
 
 	if (!draft && !published) {
@@ -705,11 +726,17 @@ function normalizeComponentRecord(
 	};
 }
 
+type DraftPayloadNormalizationState = {
+	backfilledVariantDefaults: boolean;
+};
+
 function normalizeDraftPayload(
 	value: unknown,
 	componentId: string,
 	diagnostics: SystemComponentManifestDiagnostic[],
 	basePath: string,
+	context: SystemComponentManifestNormalizationContext,
+	normalizationState?: DraftPayloadNormalizationState,
 ): SystemComponentDraftPayload | undefined {
 	if (value === undefined) {
 		return undefined;
@@ -760,7 +787,15 @@ function normalizeDraftPayload(
 		basePath,
 	);
 	if (variants) {
-		draft.variants = variants;
+		if (context.backfillOptionalVariantDefaults) {
+			const backfilled = backfillOptionalVariantDefaults(variants);
+			if (backfilled.changed && normalizationState) {
+				normalizationState.backfilledVariantDefaults = true;
+			}
+			draft.variants = backfilled.variants;
+		} else {
+			draft.variants = variants;
+		}
 	}
 	const overrideTargets = normalizeOverrideTargetMap(
 		value.overrideTargets,
@@ -789,6 +824,7 @@ function normalizePublishedState(
 	componentId: string,
 	diagnostics: SystemComponentManifestDiagnostic[],
 	basePath: string,
+	context: SystemComponentManifestNormalizationContext,
 ): SystemComponentPublishedState | undefined {
 	if (value === undefined) {
 		return undefined;
@@ -833,6 +869,7 @@ function normalizePublishedState(
 			componentId,
 			diagnostics,
 			`${basePath}.versions.${versionId}`,
+			context,
 		);
 		if (!normalized) {
 			continue;
@@ -860,6 +897,7 @@ function normalizePublishedVersion(
 	componentId: string,
 	diagnostics: SystemComponentManifestDiagnostic[],
 	basePath: string,
+	context: SystemComponentManifestNormalizationContext,
 ): PublishedSystemComponentVersion | null {
 	if (!isRecord(value)) {
 		diagnostics.push({
@@ -894,22 +932,31 @@ function normalizePublishedVersion(
 		return null;
 	}
 
+	const payloadNormalizationState: DraftPayloadNormalizationState = {
+		backfilledVariantDefaults: false,
+	};
 	const payload = normalizeDraftPayload(
 		value,
 		componentId,
 		diagnostics,
 		basePath,
+		context,
+		payloadNormalizationState,
 	);
 	if (!payload) {
 		return null;
 	}
+	const normalizedVariantSchemaHash =
+		payloadNormalizationState.backfilledVariantDefaults
+			? hashSystemComponentVariantSchema(payload.variants)
+			: variantSchemaHash;
 
 	const publishedVersion: PublishedSystemComponentVersion = {
 		...payload,
 		version,
 		publishedAt,
 		templateHash,
-		variantSchemaHash,
+		variantSchemaHash: normalizedVariantSchemaHash,
 	};
 	if (
 		typeof value.previousVersion === "string" &&
@@ -1232,7 +1279,9 @@ function normalizeOverrideTargetMap(
 			target.capabilities = rawTarget.capabilities
 				.filter((entry): entry is string => typeof entry === "string")
 				.filter(
-					(entry): entry is NonNullable<
+					(
+						entry,
+					): entry is NonNullable<
 						SystemComponentOverrideTarget["capabilities"]
 					>[number] =>
 						entry === "className" ||

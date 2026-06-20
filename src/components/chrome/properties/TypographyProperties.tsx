@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
 import { useResolvedFontTokens } from "../../../hooks/useResolvedFontTokens";
 import { useDesignSystemId } from "../../../stores/design-store";
 import { buildFontFamilyOptions } from "../../../utils/font-family-options";
@@ -8,14 +9,11 @@ import {
 	type ModelOptions,
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
-import {
-	applyColorChange,
-	applyColorClear,
-} from "./colorPropertiesController";
 import { ColorPropertyControl } from "./ColorPropertyControl";
-import { StyleSection } from "./StyleSection";
+import { applyColorChange, applyColorClear } from "./colorPropertiesController";
 import { Segmented, type SegmentedOption } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
+import { StyleSection } from "./StyleSection";
 import { getStyleIntent, styleValueText } from "./styleSectionController";
 import { typographyUtility } from "./typographyPropertiesController";
 
@@ -81,6 +79,7 @@ export function TypographyProperties({
 }: TypographyPropertiesProps) {
 	const systemId = useDesignSystemId();
 	const resolved = useResolvedColorTokens(systemId);
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
 	const resolvedFonts = useResolvedFontTokens(systemId);
 	const fontFamilyOptions = useMemo(
 		() => buildFontFamilyOptions(resolvedFonts),
@@ -88,8 +87,8 @@ export function TypographyProperties({
 	);
 
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: resolved.names }),
-		[resolved.names],
+		() => ({ colorTokens: resolved.names, ...customUtilityRoots }),
+		[resolved.names, customUtilityRoots],
 	);
 
 	const model = useMemo(
@@ -124,7 +123,9 @@ export function TypographyProperties({
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : typographyUtility("typography.font-size", next),
+								next === null
+									? null
+									: typographyUtility("typography.font-size", next),
 							)
 						}
 					/>
@@ -143,7 +144,9 @@ export function TypographyProperties({
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : typographyUtility("typography.font-weight", next),
+								next === null
+									? null
+									: typographyUtility("typography.font-weight", next),
 							)
 						}
 					/>
@@ -161,7 +164,11 @@ export function TypographyProperties({
 						options={fontFamilyOptions}
 						value={slot.value}
 						onChange={(next) =>
-							slot.apply(next === null ? null : typographyUtility("typography.font", next))
+							slot.apply(
+								next === null
+									? null
+									: typographyUtility("typography.font", next),
+							)
 						}
 					/>
 				)}
@@ -179,7 +186,9 @@ export function TypographyProperties({
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : typographyUtility("typography.text-align", next),
+								next === null
+									? null
+									: typographyUtility("typography.text-align", next),
 							)
 						}
 					/>
@@ -198,7 +207,9 @@ export function TypographyProperties({
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : typographyUtility("typography.line-height", next),
+								next === null
+									? null
+									: typographyUtility("typography.line-height", next),
 							)
 						}
 					/>
@@ -219,7 +230,9 @@ export function TypographyProperties({
 					)
 				}
 				onClear={(variants) =>
-					onChange(applyColorClear(className, options, { property: "text", variants }))
+					onChange(
+						applyColorClear(className, options, { property: "text", variants }),
+					)
 				}
 			/>
 			<StyleOverrideRows
@@ -235,7 +248,9 @@ export function TypographyProperties({
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : typographyUtility("typography.text-transform", next),
+								next === null
+									? null
+									: typographyUtility("typography.text-transform", next),
 							)
 						}
 					/>
@@ -275,7 +290,9 @@ export function TypographyProperties({
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : typographyUtility("typography.text-wrap", next),
+								next === null
+									? null
+									: typographyUtility("typography.text-wrap", next),
 							)
 						}
 					/>

@@ -14,7 +14,11 @@ import {
 import type { ParsedClass } from "./parse";
 
 export type { ColorIntent } from "./color";
-export type { KnownUtilityIntent, UtilityIntent } from "./domains";
+export type {
+	CustomFunctionalIntent,
+	KnownUtilityIntent,
+	UtilityIntent,
+} from "./domains";
 export { UTILITY_DOMAINS } from "./domains";
 export type { SpacingIntent } from "./spacing";
 export type { StyleIntent, StyleProperty, StyleUtilityDomain } from "./style";

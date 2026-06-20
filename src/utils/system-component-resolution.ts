@@ -1,3 +1,4 @@
+import type { Props, RegistryComponentDefinition } from "../types";
 import {
 	type ClassLayer,
 	type ClassLayerMetadata,
@@ -12,12 +13,11 @@ import {
 } from "./class-resolution";
 import type { SystemComponentInstanceOverrides } from "./system-component-markers";
 import { resolveSystemComponentOverrideValue } from "./system-component-override-targets";
+import { composeSystemComponentVariantClassLayers } from "./system-component-variant-class-layers";
 import type {
 	PublishedSystemComponentVersion,
 	SystemComponentVariantSchema,
-	SystemComponentVariantValue,
 } from "./system-components";
-import type { Props, RegistryComponentDefinition } from "../types";
 
 const defaultClassResolutionOptions = {
 	colorTokens: new Set<string>(),
@@ -99,10 +99,7 @@ const defaultVariantValueForAxis = (
 	axisKey: string,
 	axis: SystemComponentVariantSchema["axes"][string],
 	schema: SystemComponentVariantSchema,
-) =>
-	schema.defaultValues?.[axisKey] ??
-	axis.defaultValue ??
-	Object.keys(axis.values).sort((left, right) => left.localeCompare(right))[0];
+) => schema.defaultValues?.[axisKey] ?? axis.defaultValue;
 
 export const resolveSystemComponentVariantValues = (
 	variants: SystemComponentVariantSchema | undefined,
@@ -123,36 +120,35 @@ export const resolveSystemComponentVariantValues = (
 	for (const [axisKey, axis] of Object.entries(axes).sort(([left], [right]) =>
 		left.localeCompare(right),
 	)) {
-		const value =
-			selectedValues[axisKey] ??
-			defaultVariantValueForAxis(axisKey, axis, variants ?? { axes: {} });
-		if (value === undefined || !Object.hasOwn(axis.values, value)) {
-			throw new SystemComponentResolutionError(
-				"INVALID_INSTANCE_STATE",
-				`System component variant axis "${axisKey}" has no valid value.`,
-			);
+		const hasSelectedValue = Object.hasOwn(selectedValues, axisKey);
+		if (hasSelectedValue) {
+			const selectedValue = selectedValues[axisKey];
+			if (!Object.hasOwn(axis.values, selectedValue)) {
+				throw new SystemComponentResolutionError(
+					"INVALID_INSTANCE_STATE",
+					`System component variant axis "${axisKey}" contains invalid value "${selectedValue}".`,
+				);
+			}
+			resolved[axisKey] = selectedValue;
+			continue;
 		}
-		resolved[axisKey] = value;
+
+		const defaultValue = defaultVariantValueForAxis(
+			axisKey,
+			axis,
+			variants ?? { axes: {} },
+		);
+		if (
+			defaultValue === undefined ||
+			!Object.hasOwn(axis.values, defaultValue)
+		) {
+			continue;
+		}
+		resolved[axisKey] = defaultValue;
 	}
 
 	return resolved;
 };
-
-const compoundMatches = (
-	when: Record<string, string | string[]>,
-	variantValues: Record<string, string>,
-) =>
-	Object.entries(when).every(([axis, expected]) => {
-		const actual = variantValues[axis];
-		return Array.isArray(expected)
-			? expected.includes(actual)
-			: actual === expected;
-	});
-
-const classForVariantValue = (
-	path: string,
-	value: SystemComponentVariantValue | undefined,
-) => value?.classesByPath?.[path];
 
 export const resolveSystemComponentClassName = (
 	version: PublishedSystemComponentVersion,
@@ -278,29 +274,6 @@ export const resolveSystemComponentClassLayers = (
 	overrides: SystemComponentInstanceOverrides = {},
 	context: Partial<SystemComponentClassResolutionContext> = {},
 ): ClassLayer[] => {
-	const variantLayers = Object.entries(version.variants?.axes ?? {})
-		.sort(([left], [right]) => left.localeCompare(right))
-		.map(([axisKey, axis]) => ({
-			source: "system-variant" as const,
-			className: classForVariantValue(
-				path,
-				axis.values[variantValues[axisKey]],
-			),
-			metadata: {
-				...context,
-				path,
-				axis: axisKey,
-				value: variantValues[axisKey],
-			},
-		}));
-	const compoundLayers = (version.variants?.compoundVariants ?? [])
-		.map((compound, compoundIndex) => ({ compound, compoundIndex }))
-		.filter(({ compound }) => compoundMatches(compound.when, variantValues))
-		.map(({ compound, compoundIndex }) => ({
-			source: "system-compound-variant" as const,
-			className: compound.classesByPath[path],
-			metadata: { ...context, path, compoundIndex },
-		}));
 	const overrideClassName = resolveSystemComponentOverrideValue(
 		version,
 		path,
@@ -308,18 +281,12 @@ export const resolveSystemComponentClassLayers = (
 		overrides,
 	);
 
-	return createClassLayers([
-		{
-			source: "system-template",
-			className: templateClassName,
-			metadata: { ...context, path },
-		},
-		...variantLayers,
-		...compoundLayers,
-		{
-			source: "instance-override",
-			className: overrideClassName,
-			metadata: { ...context, path, prop: "className" },
-		},
-	]);
+	return composeSystemComponentVariantClassLayers({
+		variants: version.variants,
+		path,
+		templateClassName,
+		variantValues,
+		context,
+		instanceOverrideClassName: overrideClassName,
+	});
 };

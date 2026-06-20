@@ -103,8 +103,42 @@ describe("system-component-instance-update", () => {
 		expect(result?.roots[0].props.className).toBe("base text-blue-600");
 	});
 
+	it("unsets optional variant values on the root and removes their classes", () => {
+		const optionalVersion = {
+			...publishedVersion,
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: {
+							brand: { classesByPath: { root: "text-blue-600" } },
+							neutral: { classesByPath: { root: "text-zinc-700" } },
+						},
+					},
+				},
+			},
+		};
+		const result = setSystemComponentVariantValueOnRoots(
+			roots,
+			"root",
+			optionalVersion,
+			"tone",
+			null,
+		);
+
+		expect(result?.variantValues).toEqual({});
+		const rootMetadata = getSystemComponentStructuralMetadata(
+			result?.roots[0].props ?? {},
+		);
+		expect(rootMetadata?.variantValues).toEqual({});
+		expect(result?.roots[0].props.className).toBe("base");
+	});
+
 	it("materializes registry base classes when updating attached snapshots", () => {
-		const separatorResolution = resolveRegistryComponent("base-ui", "separator");
+		const separatorResolution = resolveRegistryComponent(
+			"base-ui",
+			"separator",
+		);
 		expect(separatorResolution.status).toBe("known");
 		if (separatorResolution.status !== "known") return;
 
@@ -293,8 +327,10 @@ describe("system-component-instance-update", () => {
 				publishedVersion.root.className,
 				result?.variantValues ?? {},
 				result?.overrides ?? {},
-			).resolution.tokens
-				.filter((token) => token.classToken.startsWith("tracking-"))
+			)
+				.resolution.tokens.filter((token) =>
+					token.classToken.startsWith("tracking-"),
+				)
 				.map((token) => ({
 					classToken: token.classToken,
 					status: token.status,

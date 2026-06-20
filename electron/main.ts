@@ -13,7 +13,11 @@ import {
 	type OpenDialogOptions,
 } from "electron";
 import { getAppSession } from "./app-session";
-import { resolveInitialProjectRootFromArgs, validateProjectRoot, getElectronUserArgs } from "./argv";
+import {
+	resolveInitialProjectRootFromArgs,
+	validateProjectRoot,
+	getElectronUserArgs,
+} from "./argv";
 import { type BackendReady, BackendSupervisor } from "./backend-supervisor";
 import {
 	findTrickroomDeeplinkInArgs,
@@ -48,6 +52,7 @@ if (process.platform === "darwin") {
 }
 
 let mainWindow: BrowserWindow | null = null;
+const tokenReferenceWindows = new Map<string, BrowserWindow>();
 let backendReady: BackendReady | null = null;
 let sessionToken = "";
 let isQuitting = false;
@@ -221,6 +226,64 @@ const pickAssetFile = (projectRoot: string) =>
 		],
 	});
 
+const openTokenReferenceWindow = async (systemId: string) => {
+	const normalizedSystemId = systemId.trim();
+	if (!normalizedSystemId) {
+		throw new Error("System id is required.");
+	}
+
+	const existingWindow = tokenReferenceWindows.get(normalizedSystemId);
+	if (existingWindow && !existingWindow.isDestroyed()) {
+		if (existingWindow.isMinimized()) {
+			existingWindow.restore();
+		}
+		existingWindow.focus();
+		return;
+	}
+
+	const appSession = getAppSession();
+	const window = new BrowserWindow({
+		width: 1040,
+		height: 820,
+		minWidth: 720,
+		minHeight: 520,
+		show: false,
+		title: "Design Tokens",
+		backgroundColor: "#f8fafc",
+		parent: mainWindow ?? undefined,
+		webPreferences: {
+			session: appSession,
+			nodeIntegration: false,
+			contextIsolation: true,
+			sandbox: true,
+			webSecurity: true,
+		},
+	});
+
+	tokenReferenceWindows.set(normalizedSystemId, window);
+	installNavigationGuards(window, rendererOrigin);
+
+	window.on("closed", () => {
+		if (tokenReferenceWindows.get(normalizedSystemId) === window) {
+			tokenReferenceWindows.delete(normalizedSystemId);
+		}
+	});
+	window.once("ready-to-show", () => {
+		window.show();
+	});
+	window.webContents.on("did-fail-load", (_event, _code, description) => {
+		showDesktopError("Failed to load design tokens", description);
+	});
+
+	await window.loadURL(
+		appUrl(
+			`/api/trickroom/tailwind/systems/${encodeURIComponent(
+				normalizedSystemId,
+			)}/tokens.html`,
+		),
+	);
+};
+
 const registerIpcHandlers = () => {
 	ipcMain.handle("trickroom:pick-project-folder", async (event) => {
 		assertTrustedIpcSender(event);
@@ -252,6 +315,16 @@ const registerIpcHandlers = () => {
 		assertTrustedIpcSender(event);
 		return clipboard.readText();
 	});
+	ipcMain.handle(
+		"trickroom:open-design-tokens",
+		async (event, systemId: string) => {
+			assertTrustedIpcSender(event);
+			if (typeof systemId !== "string") {
+				throw new Error("System id is required.");
+			}
+			await openTokenReferenceWindow(systemId);
+		},
+	);
 };
 
 const requestBackend = async (path: string, init: RequestInit = {}) => {

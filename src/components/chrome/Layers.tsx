@@ -24,9 +24,9 @@ import {
 	Type,
 } from "lucide-react";
 import {
-	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent,
 	memo,
+	type KeyboardEvent as ReactKeyboardEvent,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -59,14 +59,6 @@ import {
 	isRecipeSlotHost,
 } from "../../recipes/ownership";
 import {
-	canInsertIntoSystemComponentBoundary,
-	getElementSystemComponentMetadata,
-	isSystemComponentOwnedStructuralNode,
-	isSystemComponentRoot,
-	isSystemComponentSlotHost,
-} from "../../utils/system-component-ownership";
-import { layerDropInsertionIndex } from "../../utils/reorder-insertion-index";
-import {
 	getRecipeSlotCandidateFromProps,
 	isRecipeSlotInsertionAllowed,
 } from "../../recipes/slot-allowlist";
@@ -74,8 +66,8 @@ import {
 	addElement,
 	addNodeTree,
 	addRecipe,
-	deleteElement,
 	type DesignEntity,
+	deleteElement,
 	designStore,
 	moveElement,
 	renameElement,
@@ -90,13 +82,6 @@ import type {
 	RecipeDefinition,
 	RegistryComponentDefinition,
 } from "../../types";
-import { useProjectScope } from "../contexts";
-import { Button } from "../ui/button";
-import { Input } from "../ui/input";
-import { ScrollArea } from "../ui/scroll-area";
-import { Separator } from "../ui/separator";
-import { Text } from "../ui/text";
-import { LayerContextMenu } from "./LayerContextMenu";
 import {
 	getKey,
 	getShortcutPlacementIntent,
@@ -105,6 +90,20 @@ import {
 	isShortcutLetter,
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
+import { layerDropInsertionIndex } from "../../utils/reorder-insertion-index";
+import {
+	canInsertIntoSystemComponentBoundary,
+	isSystemComponentOwnedStructuralNode,
+	isSystemComponentRoot,
+	isSystemComponentSlotHost,
+} from "../../utils/system-component-ownership";
+import { useProjectScope } from "../contexts";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { ScrollArea } from "../ui/scroll-area";
+import { Separator } from "../ui/separator";
+import { Text } from "../ui/text";
+import { LayerContextMenu } from "./LayerContextMenu";
 
 const icon = tv({
 	base: "size-4 -ml-1 text-slate-400 transition-transform translate-y-px",
@@ -583,15 +582,19 @@ export function resolveLayerInsertionPlacement({
 	return placement;
 }
 
-function getBlockedDropInstructions(
+export function getBlockedDropInstructions(
 	canHaveChildren: boolean,
 	entity:
 		| ReturnType<typeof designStore.get>["entitiesById"][string]
 		| undefined,
+	entitiesById: ReturnType<typeof designStore.get>["entitiesById"],
 ) {
 	const blockedInstructions: Instruction["type"][] = [];
 	const isRecipeOwned = isRecipeOwnedStructuralNode(entity);
 	const isComponentOwned = isSystemComponentOwnedStructuralNode(entity);
+	const parent = entity?.parentId ? entitiesById[entity.parentId] : undefined;
+	const isInsideComponentSlot =
+		isComponentOwned && isSystemComponentSlotHost(parent);
 
 	if (
 		!canHaveChildren ||
@@ -603,7 +606,9 @@ function getBlockedDropInstructions(
 
 	if (
 		(isRecipeOwned && !isRecipeRoot(entity)) ||
-		(isComponentOwned && !isSystemComponentRoot(entity))
+		(isComponentOwned &&
+			!isSystemComponentRoot(entity) &&
+			!isInsideComponentSlot)
 	) {
 		blockedInstructions.push("reorder-above", "reorder-below");
 	}
@@ -648,15 +653,15 @@ const Layer = memo(function Layer({
 		onToggleOpen(layer.id);
 	}, [layer.id, onToggleOpen]);
 
-	const selectLayer = () => {
+	const selectLayer = useCallback(() => {
 		selectElement(layer.id);
-	};
+	}, [layer.id]);
 
-	const editLayer = () => {
+	const editLayer = useCallback(() => {
 		selectLayer();
 		setDraftName(layer.name);
 		setIsEditing(true);
-	};
+	}, [layer.name, selectLayer]);
 
 	const commitLayerName = useCallback(() => {
 		const nextName = draftName.trim() || "Layer";
@@ -761,7 +766,11 @@ const Layer = memo(function Layer({
 						currentLevel: depth,
 						indentPerLevel: INDENT_PER_LEVEL,
 						mode: "standard",
-						block: getBlockedDropInstructions(layer.canHaveChildren, entity),
+						block: getBlockedDropInstructions(
+							layer.canHaveChildren,
+							entity,
+							designStore.get().entitiesById,
+						),
 					},
 				),
 			onDrag: ({ self }) => updateDropIntent(self.data),

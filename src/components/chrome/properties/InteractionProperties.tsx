@@ -1,20 +1,18 @@
 import { useCallback, useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
 import { useDesignSystemId } from "../../../stores/design-store";
 import {
 	buildPropertyModel,
 	type ModelOptions,
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
-import {
-	applyColorChange,
-	applyColorClear,
-} from "./colorPropertiesController";
 import { ColorPropertyControl } from "./ColorPropertyControl";
+import { applyColorChange, applyColorClear } from "./colorPropertiesController";
 import { interactionUtility } from "./interactionPropertiesController";
-import { StyleSection } from "./StyleSection";
-import { Segmented, ValueField, type SegmentedOption } from "./StyleControls";
+import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
+import { StyleSection } from "./StyleSection";
 import {
 	applyStyleUtility,
 	clearStyleProperty,
@@ -111,10 +109,11 @@ export function InteractionProperties({
 }: InteractionPropertiesProps) {
 	const systemId = useDesignSystemId();
 	const resolved = useResolvedColorTokens(systemId);
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
 
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: resolved.names }),
-		[resolved.names],
+		() => ({ colorTokens: resolved.names, ...customUtilityRoots }),
+		[resolved.names, customUtilityRoots],
 	);
 
 	const model = useMemo(
@@ -151,7 +150,9 @@ export function InteractionProperties({
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : interactionUtility("interaction.cursor", next),
+								next === null
+									? null
+									: interactionUtility("interaction.cursor", next),
 							)
 						}
 					/>
@@ -191,7 +192,9 @@ export function InteractionProperties({
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : interactionUtility("interaction.user-select", next),
+								next === null
+									? null
+									: interactionUtility("interaction.user-select", next),
 							)
 						}
 					/>
@@ -210,7 +213,9 @@ export function InteractionProperties({
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : interactionUtility("interaction.resize", next),
+								next === null
+									? null
+									: interactionUtility("interaction.resize", next),
 							)
 						}
 					/>
@@ -229,7 +234,9 @@ export function InteractionProperties({
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : interactionUtility("interaction.appearance", next),
+								next === null
+									? null
+									: interactionUtility("interaction.appearance", next),
 							)
 						}
 					/>
@@ -250,7 +257,12 @@ export function InteractionProperties({
 					)
 				}
 				onClear={(variants) =>
-					onChange(applyColorClear(className, options, { property: "accent", variants }))
+					onChange(
+						applyColorClear(className, options, {
+							property: "accent",
+							variants,
+						}),
+					)
 				}
 			/>
 			<ColorPropertyControl
@@ -268,7 +280,12 @@ export function InteractionProperties({
 					)
 				}
 				onClear={(variants) =>
-					onChange(applyColorClear(className, options, { property: "caret", variants }))
+					onChange(
+						applyColorClear(className, options, {
+							property: "caret",
+							variants,
+						}),
+					)
 				}
 			/>
 			<StyleOverrideRows
@@ -300,10 +317,20 @@ export function InteractionProperties({
 				onChange={onChange}
 				renderControl={(slot) => {
 					const rowSnapType = styleValueText(
-						getStyleIntent(className, options, "interaction.scroll-snap-type", slot.variants),
+						getStyleIntent(
+							className,
+							options,
+							"interaction.scroll-snap-type",
+							slot.variants,
+						),
 					);
 					const rowSnapAxis = styleValueText(
-						getStyleIntent(className, options, "interaction.scroll-snap-axis", slot.variants),
+						getStyleIntent(
+							className,
+							options,
+							"interaction.scroll-snap-axis",
+							slot.variants,
+						),
 					);
 					return (
 						<Segmented
@@ -380,7 +407,10 @@ export function InteractionProperties({
 									slot.apply(
 										next === null
 											? null
-											: interactionUtility("interaction.scroll-snap-strictness", next),
+											: interactionUtility(
+													"interaction.scroll-snap-strictness",
+													next,
+												),
 									)
 								}
 							/>
@@ -401,7 +431,10 @@ export function InteractionProperties({
 									slot.apply(
 										next === null
 											? null
-											: interactionUtility("interaction.scroll-snap-align", next),
+											: interactionUtility(
+													"interaction.scroll-snap-align",
+													next,
+												),
 									)
 								}
 							/>
@@ -422,7 +455,10 @@ export function InteractionProperties({
 									slot.apply(
 										next === null
 											? null
-											: interactionUtility("interaction.scroll-snap-stop", next),
+											: interactionUtility(
+													"interaction.scroll-snap-stop",
+													next,
+												),
 									)
 								}
 							/>
@@ -444,7 +480,10 @@ export function InteractionProperties({
 						onCommit={(next) =>
 							slot.apply(
 								next.trim()
-									? interactionUtility("interaction.scroll-margin-top", next.trim())
+									? interactionUtility(
+											"interaction.scroll-margin-top",
+											next.trim(),
+										)
 									: null,
 							)
 						}
@@ -485,7 +524,9 @@ export function InteractionProperties({
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : interactionUtility("interaction.will-change", next),
+								next === null
+									? null
+									: interactionUtility("interaction.will-change", next),
 							)
 						}
 					/>

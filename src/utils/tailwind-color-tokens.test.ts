@@ -90,15 +90,13 @@ describe("diffTailwindColorTokensAgainstDefaults", () => {
 				domain: "color",
 			},
 		]);
-		expect(diff.removed).toContainEqual({
-			name: "blue-100",
-			defaultValue: defaultTailwindColorTokens["blue-100"],
-			domain: "color",
-		});
-		expect(diff.missingDefaultTokenNames).toContain("blue-100");
-		expect(diff.missingDefaultTokenNames).toEqual(
-			diff.removed.map((token) => token.name),
-		);
+		// A default simply absent from the map is NOT "removed": in Tailwind v4 the
+		// theme keeps every default unless explicitly reset (e.g. `--color-*:
+		// initial`). Removals are only reported when a matching reset override is
+		// threaded through (the production sync path does this); this legacy wrapper
+		// passes none, so `removed` stays empty here.
+		expect(diff.removed).toEqual([]);
+		expect(diff.missingDefaultTokenNames).toEqual([]);
 	});
 
 	it("treats equivalent values as unchanged after token normalization", () => {

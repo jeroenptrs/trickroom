@@ -9,6 +9,7 @@ import type { SystemComponentManifestRevision } from "../utils/system-component-
 import {
 	copyPublishedSystemComponentToDraft,
 	createSystemComponentDraft,
+	deleteSystemComponent,
 	describeSystemComponent,
 	listSystemComponentSummaries,
 	publishSystemComponentDraft,
@@ -251,6 +252,34 @@ export const registerSystemComponentRoutes = (
 				diagnostics: result.diagnostics,
 				valid: result.valid,
 			});
+		} catch (error) {
+			return createComponentErrorResponse(error);
+		}
+	});
+
+	systemsRoutes.delete("/:systemName/components/:componentId", async (c) => {
+		const projectRoot = getProjectRoot(c);
+		const { systemId, systemName } = getRouteSystem(c);
+		const componentId = c.req.param("componentId");
+		const body = await parseJsonBody(c.req.raw);
+
+		if (!isRecord(body)) {
+			return jsonError("Request body must be a JSON object", 400);
+		}
+
+		const expectedRevision = readExpectedRevision(body);
+		if (!expectedRevision) {
+			return jsonError("Request body must include expectedRevision", 400);
+		}
+
+		try {
+			const result = await deleteSystemComponent(
+				projectRoot,
+				systemId,
+				componentId,
+				{ expectedRevision },
+			);
+			return c.json(componentMutationResponse(systemId, systemName, result));
 		} catch (error) {
 			return createComponentErrorResponse(error);
 		}

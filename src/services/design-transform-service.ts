@@ -47,36 +47,35 @@ import type {
 	Role,
 	TrickroomDesign,
 } from "../types";
+import { designReferencesSystemHandle } from "../utils/design-resource-references";
+import { findDesignSystem } from "../utils/design-system-store";
 import { detachSystemComponentInstance } from "../utils/system-component-detach";
-import {
-	previewSystemComponentInstanceMigration,
-	resolveSystemComponentInstanceMigrationContext,
-	SystemComponentInstanceMigrationError,
-	updateStaleSystemComponentInstance,
-	type SystemComponentInstanceMigrationPreview,
-} from "../utils/system-component-instance-migration";
-import { readSystemComponentManifest } from "../utils/system-component-manifest-service";
-import {
-	SystemComponentMigrationError,
-	type SystemComponentMigrationMetadata,
-} from "../utils/system-component-migration";
 import {
 	assertValidSystemComponentInstanceOverrides,
 	expandPublishedSystemComponentVersion,
 	resolvePublishedSystemComponentVersion,
 	SystemComponentResolutionError,
 } from "../utils/system-component-expansion";
+import {
+	previewSystemComponentInstanceMigration,
+	resolveSystemComponentInstanceMigrationContext,
+	SystemComponentInstanceMigrationError,
+	type SystemComponentInstanceMigrationPreview,
+	updateStaleSystemComponentInstance,
+} from "../utils/system-component-instance-migration";
 import { updateSystemComponentInstanceOnRoots } from "../utils/system-component-instance-update";
+import { readSystemComponentManifest } from "../utils/system-component-manifest-service";
 import type { SystemComponentInstanceOverrides } from "../utils/system-component-markers";
-import type { PublishedSystemComponentVersion } from "../utils/system-components";
 import {
 	getSystemComponentStructuralMetadata,
 	isSystemComponentMarkerPropKey,
 	omitSystemComponentMarkerProps,
 	systemComponentInstanceProp,
 } from "../utils/system-component-markers";
-import { designReferencesSystemHandle } from "../utils/design-resource-references";
-import { findDesignSystem } from "../utils/design-system-store";
+import {
+	SystemComponentMigrationError,
+	type SystemComponentMigrationMetadata,
+} from "../utils/system-component-migration";
 import {
 	canDeleteElementAcrossSystemComponentBoundary,
 	canInsertIntoSystemComponentBoundary,
@@ -88,6 +87,7 @@ import {
 	isSystemComponentOwnedStructuralNode,
 	isSystemComponentRoot,
 } from "../utils/system-component-ownership";
+import type { PublishedSystemComponentVersion } from "../utils/system-components";
 
 export type DesignTransformErrorCode =
 	| "ELEMENT_NOT_FOUND"
@@ -439,6 +439,7 @@ export type AddSystemComponentParams = {
 	/** Omit or pass null to use the component manifest currentVersion. */
 	version?: string | null;
 	variantValues?: Record<string, string>;
+	unsetVariantAxes?: string[];
 	overrides?: SystemComponentInstanceOverrides;
 };
 
@@ -456,6 +457,7 @@ export type UpdateSystemComponentInstanceParams = {
 	projectRoot: string;
 	rootElementId: string;
 	variantValues?: Record<string, string>;
+	unsetVariantAxes?: string[];
 	overrides?: SystemComponentInstanceOverrides;
 };
 
@@ -495,10 +497,7 @@ export type MigrateSystemComponentInstanceMutationResult = MutationResult & {
 	componentMigration?: SystemComponentMigrationMetadata;
 	preview?: Pick<
 		SystemComponentInstanceMigrationPreview,
-		| "classification"
-		| "migrationDiagnostics"
-		| "blocked"
-		| "blockMessage"
+		"classification" | "migrationDiagnostics" | "blocked" | "blockMessage"
 	>;
 };
 
@@ -1943,6 +1942,15 @@ export const applyAddSystemComponent = async (
 	let expansion: Awaited<
 		ReturnType<typeof expandPublishedSystemComponentVersion>
 	>;
+	const selectedVariantValues =
+		params.unsetVariantAxes === undefined
+			? params.variantValues
+			: { ...(params.variantValues ?? {}) };
+	if (params.unsetVariantAxes !== undefined) {
+		for (const axisKey of params.unsetVariantAxes) {
+			delete selectedVariantValues[axisKey];
+		}
+	}
 	try {
 		expansion = await expandPublishedSystemComponentVersion(
 			params.projectRoot,
@@ -1952,7 +1960,7 @@ export const applyAddSystemComponent = async (
 			{
 				createElementId: createDesignElementId,
 				createInstanceId: createDesignElementId,
-				variantValues: params.variantValues,
+				variantValues: selectedVariantValues,
 				overrides: params.overrides,
 			},
 		);
@@ -2005,7 +2013,9 @@ export const applyAddSystemComponent = async (
 
 const resolveAttachedSystemComponentVersion = async (
 	projectRoot: string,
-	metadata: NonNullable<ReturnType<typeof getSystemComponentStructuralMetadata>>,
+	metadata: NonNullable<
+		ReturnType<typeof getSystemComponentStructuralMetadata>
+	>,
 ) => {
 	try {
 		const resolved = await resolvePublishedSystemComponentVersion(
@@ -2046,11 +2056,12 @@ export const applyUpdateSystemComponentInstance = async (
 
 	if (
 		params.variantValues === undefined &&
+		params.unsetVariantAxes === undefined &&
 		params.overrides === undefined
 	) {
 		throw new DesignTransformError(
 			"INVALID_OPERATION_PARAMETERS",
-			'At least one of "variantValues" or "overrides" must be provided.',
+			'At least one of "variantValues", "unsetVariantAxes", or "overrides" must be provided.',
 		);
 	}
 
@@ -2072,6 +2083,9 @@ export const applyUpdateSystemComponentInstance = async (
 			{
 				...(params.variantValues !== undefined
 					? { variantValues: params.variantValues }
+					: {}),
+				...(params.unsetVariantAxes !== undefined
+					? { unsetVariantAxes: params.unsetVariantAxes }
 					: {}),
 				...(params.overrides !== undefined
 					? { overrides: params.overrides }
@@ -2262,10 +2276,7 @@ export const applyMigrateSystemComponentInstance = async (
 		boards: trialMigration.roots,
 	};
 
-	if (
-		onlySafe &&
-		preview.classification.safety === "requires-review"
-	) {
+	if (onlySafe && preview.classification.safety === "requires-review") {
 		return {
 			design,
 			prospectiveDesign,
@@ -3043,7 +3054,8 @@ const assertPreservedSystemComponentRootsTargetLinked = async (
 	}
 
 	if (!designReferencesSystemHandle(targetDesign, componentSystemId, null)) {
-		const designHandle = targetDesign.systemId ?? targetDesign.systemName ?? null;
+		const designHandle =
+			targetDesign.systemId ?? targetDesign.systemName ?? null;
 		throw new DesignTransformError(
 			"DESIGN_NOT_LINKED_TO_SYSTEM",
 			designHandle === null
@@ -3127,7 +3139,9 @@ export const applyExtractSubtree = async (
 	const targetLinkageDesign: Pick<TrickroomDesign, "systemId" | "systemName"> =
 		{
 			...(targetSystemId !== undefined ? { systemId: targetSystemId } : {}),
-			...(targetSystemName !== undefined ? { systemName: targetSystemName } : {}),
+			...(targetSystemName !== undefined
+				? { systemName: targetSystemName }
+				: {}),
 		};
 
 	const targetEntitiesById: Record<string, FlatEntity> = {};

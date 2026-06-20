@@ -1,12 +1,12 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Node } from "../types";
 import {
 	getRenderableProps,
 	MATERIALIZED_BASE_CLASS_PROP,
 	resolveRegistryComponent,
 } from "../libraries/registry";
+import type { Node } from "../types";
 import { createDesignSystemStorage } from "./design-system-store";
 import {
 	expandPublishedSystemComponentVersion,
@@ -15,8 +15,12 @@ import {
 	resolveSystemComponentClassName,
 	resolveSystemComponentVariantValues,
 } from "./system-component-expansion";
-import { readSystemComponentManifest } from "./system-component-manifest-service";
 import type { SystemComponentManifestRevision } from "./system-component-manifest-service";
+import { readSystemComponentManifest } from "./system-component-manifest-service";
+import {
+	getSystemComponentStructuralMetadata,
+	systemComponentInstanceProp,
+} from "./system-component-markers";
 import {
 	createSystemComponentDraft,
 	publishSystemComponentDraft,
@@ -25,10 +29,6 @@ import {
 	updateSystemComponentDraftTemplate,
 	updateSystemComponentDraftVariants,
 } from "./system-component-operations";
-import {
-	getSystemComponentStructuralMetadata,
-	systemComponentInstanceProp,
-} from "./system-component-markers";
 import {
 	getElementSystemComponentMetadata,
 	getSystemComponentOwnedStructuralIds,
@@ -97,6 +97,53 @@ describe("system component expansion", () => {
 				{ rootTarget: { className: "tracking-wide" } },
 			),
 		).toBe("base text-sm text-blue-600 font-semibold tracking-wide");
+	});
+
+	it("omits new default-less variant axes during expansion", () => {
+		const version = {
+			version: "1",
+			publishedAt: "2026-05-26T14:00:00.000Z",
+			templateHash: "sha256:template",
+			variantSchemaHash: "sha256:variants",
+			root: {
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				className: "base",
+			},
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: {
+							brand: { classesByPath: { root: "text-blue-600" } },
+						},
+					},
+				},
+			},
+		};
+
+		const expansion = expandResolvedSystemComponent({
+			systemId: "sys-core",
+			componentId,
+			record: {
+				componentId,
+				slug: "badge",
+				name: "Badge",
+				createdAt: "",
+				updatedAt: "",
+				published: {
+					currentVersion: "1",
+					versions: { "1": version },
+				},
+			},
+			version,
+		});
+		const metadata = getSystemComponentStructuralMetadata(expansion.root.props);
+
+		expect(expansion.variantValues).toEqual({});
+		expect(metadata?.variantValues).toEqual({});
+		expect(expansion.root.props.className).toBe("base");
 	});
 
 	it("expands a resolved published component into marked nodes", () => {
@@ -188,7 +235,10 @@ describe("system component expansion", () => {
 	});
 
 	it("materializes registry base classes into attached system component snapshots", () => {
-		const separatorResolution = resolveRegistryComponent("base-ui", "separator");
+		const separatorResolution = resolveRegistryComponent(
+			"base-ui",
+			"separator",
+		);
 		expect(separatorResolution.status).toBe("known");
 		if (separatorResolution.status !== "known") return;
 

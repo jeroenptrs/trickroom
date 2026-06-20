@@ -123,6 +123,10 @@ export type PublishSystemComponentParams = {
 	expectedRevision: SystemComponentManifestRevision;
 };
 
+export type DeleteSystemComponentParams = {
+	expectedRevision: SystemComponentManifestRevision;
+};
+
 export type CopyPublishedSystemComponentToDraftParams = {
 	expectedRevision: SystemComponentManifestRevision;
 	versionId?: string;
@@ -283,6 +287,22 @@ export const publishSystemComponent = async (
 		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}/publish`,
 		{
 			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(params),
+		},
+	);
+	return readJsonOrThrow<SystemComponentMutationResponse>(response);
+};
+
+export const deleteSystemComponent = async (
+	systemId: string,
+	componentId: string,
+	params: DeleteSystemComponentParams,
+) => {
+	const response = await fetch(
+		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}`,
+		{
+			method: "DELETE",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify(params),
 		},

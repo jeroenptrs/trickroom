@@ -5,24 +5,37 @@ export type ShortcutPlacementIntent = "after" | "before" | "inside";
 const editableTags = new Set(["INPUT", "SELECT", "TEXTAREA"]);
 const editableRoles = new Set(["combobox", "searchbox", "textbox"]);
 
+function getElementConstructor(target: EventTarget | null) {
+	const ownerDocument = (target as { ownerDocument?: Document | null } | null)
+		?.ownerDocument;
+	const ownerElement = ownerDocument?.defaultView?.Element;
+	if (ownerElement) {
+		return ownerElement;
+	}
+
+	return typeof Element === "undefined" ? null : Element;
+}
+
 export function isEditableShortcutTarget(target: EventTarget | null) {
-	if (!(target instanceof Element)) {
+	const ElementCtor = getElementConstructor(target);
+	if (!ElementCtor || !(target instanceof ElementCtor)) {
 		return false;
 	}
 
-	if (target.closest("[data-shortcuts-disabled]")) {
+	const element = target as Element;
+	if (element.closest("[data-shortcuts-disabled]")) {
 		return true;
 	}
 
-	if (target.closest('[contenteditable="true"]')) {
+	if (element.closest('[contenteditable="true"]')) {
 		return true;
 	}
 
-	if (editableTags.has(target.tagName)) {
+	if (editableTags.has(element.tagName)) {
 		return true;
 	}
 
-	const role = target.getAttribute("role");
+	const role = element.getAttribute("role");
 	return role ? editableRoles.has(role) : false;
 }
 

@@ -18,10 +18,11 @@ import {
 	resolveMaterializedSystemComponentClassComposition,
 	resolveSystemComponentVariantValues,
 } from "./system-component-resolution";
+import { variantSchemaHashMatchesDefaultBackfillMigration } from "./system-component-variant-defaults-migration";
 import type {
 	PublishedSystemComponentVersion,
-	SystemComponentOverrideTarget,
 	SystemComponentMigrationHints,
+	SystemComponentOverrideTarget,
 	SystemComponentRecord,
 	SystemComponentSlotDefinition,
 	SystemComponentVariantAxis,
@@ -124,7 +125,11 @@ export type SystemComponentMigrationMetadata = {
 	addedPaths: SystemComponentMigrationPathMapping[];
 	removedPaths: string[];
 	preservedSlots: SystemComponentMigrationSlotMapping[];
-	droppedSlots: Array<{ slotName: string; fromHostPath: string; childIds: string[] }>;
+	droppedSlots: Array<{
+		slotName: string;
+		fromHostPath: string;
+		childIds: string[];
+	}>;
 	variantMappings: SystemComponentMigrationVariantMapping[];
 	overrideMappings: SystemComponentMigrationOverrideMapping[];
 	diagnostics: SystemComponentMigrationDiagnostic[];
@@ -152,7 +157,9 @@ export class SystemComponentMigrationError extends Error {
 
 type NodeReference = {
 	node: Node;
-	metadata: NonNullable<ReturnType<typeof getSystemComponentStructuralMetadata>>;
+	metadata: NonNullable<
+		ReturnType<typeof getSystemComponentStructuralMetadata>
+	>;
 };
 
 export type MigrateSystemComponentInstanceInput = {
@@ -275,9 +282,7 @@ const findRemappedSlot = (
 			}
 		}
 	}
-	return (
-		toSlots.find((slot) => slot.hostPath === fromSlot.hostPath) ?? null
-	);
+	return toSlots.find((slot) => slot.hostPath === fromSlot.hostPath) ?? null;
 };
 
 const findRemappedOverrideTargetId = (
@@ -366,7 +371,11 @@ const appendMigrationHashMismatchDiagnostics = (
 
 	if (
 		input.variantSchemaHash !== undefined &&
-		input.variantSchemaHash !== input.fromVersion.variantSchemaHash
+		input.variantSchemaHash !== input.fromVersion.variantSchemaHash &&
+		!variantSchemaHashMatchesDefaultBackfillMigration(
+			input.variantSchemaHash,
+			input.fromVersion.variants,
+		)
 	) {
 		diagnostics.push(
 			reviewMigrationDiagnostic({
@@ -521,7 +530,10 @@ export const classifySystemComponentMigration = (
 	}
 
 	for (const fromTarget of fromTargets) {
-		const hasOverride = Object.hasOwn(input.overrides ?? {}, fromTarget.targetId);
+		const hasOverride = Object.hasOwn(
+			input.overrides ?? {},
+			fromTarget.targetId,
+		);
 		if (!hasOverride) {
 			continue;
 		}
@@ -690,9 +702,7 @@ const getMappedTargetHostPathBySourceHostPath = (
 				const hint = hints?.slots?.find(
 					(entry) => entry.fromName === sourceSlot.name,
 				);
-				return hint?.toName
-					? getSlotDefinition(target, hint.toName)
-					: null;
+				return hint?.toName ? getSlotDefinition(target, hint.toName) : null;
 			})();
 		if (targetSlot && targetPaths.has(targetSlot.hostPath)) {
 			map.set(sourceSlot.hostPath, targetSlot.hostPath);
@@ -718,10 +728,7 @@ const getMappedTargetHostPathBySourceHostPath = (
 
 	for (const hint of hints?.slots ?? []) {
 		const sourceSlot = getSlotDefinition(source, hint.fromName);
-		const targetSlot = getSlotDefinition(
-			target,
-			hint.toName ?? hint.fromName,
-		);
+		const targetSlot = getSlotDefinition(target, hint.toName ?? hint.fromName);
 		if (sourceSlot && targetSlot) {
 			map.set(sourceSlot.hostPath, targetSlot.hostPath);
 		}
@@ -1085,8 +1092,7 @@ const getPathMappingSource = (
 	if (
 		hints?.slots?.some((hint) =>
 			hint.hostPathMappings?.some(
-				(mapping) =>
-					mapping.fromPath === fromPath && mapping.toPath === toPath,
+				(mapping) => mapping.fromPath === fromPath && mapping.toPath === toPath,
 			),
 		)
 	) {
@@ -1146,24 +1152,21 @@ export const migrateSystemComponentInstance = (
 		targetMetadata.instanceId,
 	);
 	const oldByPath = new Map(
-		instanceReferences.map((reference) => [
-			reference.metadata.path,
-			reference,
-		]),
+		instanceReferences.map((reference) => [reference.metadata.path, reference]),
 	);
-	const targetHostPathBySourceHostPath = getMappedTargetHostPathBySourceHostPath(
-		sourceVersion,
-		targetVersion,
-		hints,
-	);
+	const targetHostPathBySourceHostPath =
+		getMappedTargetHostPathBySourceHostPath(
+			sourceVersion,
+			targetVersion,
+			hints,
+		);
 	const sourcePathByTargetPath = new Map(
 		[...targetHostPathBySourceHostPath].map(([from, to]) => [to, from]),
 	);
 	const targetNodesByPath = getTemplateNodesByPath(targetVersion.root);
 	const sourceNodesByPath = getTemplateNodesByPath(sourceVersion.root);
 	const preservedSlots: SystemComponentMigrationSlotMapping[] = [];
-	const droppedSlots: SystemComponentMigrationMetadata["droppedSlots"] =
-		[];
+	const droppedSlots: SystemComponentMigrationMetadata["droppedSlots"] = [];
 	const authoredChildrenByTargetPath = new Map<string, Node[]>();
 	const diagnostics: SystemComponentMigrationDiagnostic[] = [];
 
@@ -1487,8 +1490,10 @@ export const previewMigratedSystemComponentExpansion = (
 	resolved: ResolvedPublishedSystemComponent,
 	variantValues: Record<string, string>,
 	overrides: SystemComponentInstanceOverrides,
-	options: { createInstanceId?: () => string; createElementId?: () => string } =
-		{},
+	options: {
+		createInstanceId?: () => string;
+		createElementId?: () => string;
+	} = {},
 ) =>
 	expandResolvedSystemComponent(resolved, {
 		...options,

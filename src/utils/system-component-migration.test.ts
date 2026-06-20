@@ -12,14 +12,14 @@ import {
 	systemComponentOverridesProp,
 } from "./system-component-markers";
 import {
-	FIXTURE_COMPONENT_ID,
-	FIXTURE_OTHER_COMPONENT_ID,
-} from "./system-component-test-fixtures";
-import {
 	classifySystemComponentMigration,
 	migrateSystemComponentInstance,
 	SystemComponentMigrationError,
 } from "./system-component-migration";
+import {
+	FIXTURE_COMPONENT_ID,
+	FIXTURE_OTHER_COMPONENT_ID,
+} from "./system-component-test-fixtures";
 import type { PublishedSystemComponentVersion } from "./system-components";
 import {
 	hashSystemComponentTemplate,
@@ -246,16 +246,12 @@ describe("system-component-migration", () => {
 			},
 		});
 
-		const result = migrateSystemComponentInstance(
-			[staleRoot],
-			staleRoot.id,
-			{
-				systemId,
-				componentId,
-				sourceVersion: source,
-				targetVersion: target,
-			},
-		);
+		const result = migrateSystemComponentInstance([staleRoot], staleRoot.id, {
+			systemId,
+			componentId,
+			sourceVersion: source,
+			targetVersion: target,
+		});
 
 		const migratedRoot = result.roots[0];
 		const body = (migratedRoot.children as Node[]).find(
@@ -269,14 +265,14 @@ describe("system-component-migration", () => {
 
 		expect(migratedRoot.props.className).toContain("appearance-emphasis");
 		expect(migratedRoot.props.className).toContain("rounded-lg");
-		expect(getSystemComponentStructuralMetadata(migratedRoot.props)).toMatchObject(
-			{
-				version: "2",
-				templateHash: target.templateHash,
-				variantSchemaHash: target.variantSchemaHash,
-				variantValues: { appearance: "emphasis" },
-			},
-		);
+		expect(
+			getSystemComponentStructuralMetadata(migratedRoot.props),
+		).toMatchObject({
+			version: "2",
+			templateHash: target.templateHash,
+			variantSchemaHash: target.variantSchemaHash,
+			variantValues: { appearance: "emphasis" },
+		});
 		expect(body?.children).toEqual([
 			expect.objectContaining({
 				id: "slot-text",
@@ -336,6 +332,42 @@ describe("system-component-migration", () => {
 		expect(result.metadata.diagnostics).toEqual([]);
 	});
 
+	it("leaves new default-less target variant axes unset during migration", () => {
+		const source = sourceVersionV1();
+		const target = targetVersionV2();
+		target.variants = {
+			...target.variants,
+			axes: {
+				...(target.variants?.axes ?? {}),
+				density: {
+					label: "Density",
+					values: {
+						compact: { classesByPath: { root: "density-compact" } },
+					},
+				},
+			},
+		};
+		target.variantSchemaHash = hashSystemComponentVariantSchema(
+			target.variants,
+		);
+		const staleRoot = expandStaleInstance(source);
+
+		const result = migrateSystemComponentInstance([staleRoot], staleRoot.id, {
+			systemId,
+			componentId,
+			sourceVersion: source,
+			targetVersion: target,
+		});
+		const migratedRoot = result.roots[0];
+
+		expect(
+			getSystemComponentStructuralMetadata(migratedRoot.props),
+		).toMatchObject({
+			variantValues: { appearance: "emphasis" },
+		});
+		expect(migratedRoot.props.className).not.toContain("density-compact");
+	});
+
 	it("preserves nested attached component markers inside migrated slot content", () => {
 		const source = sourceVersionV1();
 		const target = targetVersionV2();
@@ -359,25 +391,19 @@ describe("system-component-migration", () => {
 			},
 		});
 
-		const result = migrateSystemComponentInstance(
-			[staleRoot],
-			staleRoot.id,
-			{
-				systemId,
-				componentId,
-				sourceVersion: source,
-				targetVersion: target,
-			},
-		);
+		const result = migrateSystemComponentInstance([staleRoot], staleRoot.id, {
+			systemId,
+			componentId,
+			sourceVersion: source,
+			targetVersion: target,
+		});
 		const body = ((result.roots[0].children as Node[]) ?? []).find(
 			(child) =>
 				getSystemComponentStructuralMetadata(child.props)?.path === "body",
 		);
 		const nested = Array.isArray(body?.children) ? body.children[0] : null;
 
-		expect(
-			getSystemComponentStructuralMetadata(nested?.props),
-		)?.toMatchObject({
+		expect(getSystemComponentStructuralMetadata(nested?.props))?.toMatchObject({
 			componentId: FIXTURE_OTHER_COMPONENT_ID,
 			instanceId: "nested-instance",
 		});
@@ -538,9 +564,8 @@ describe("system-component-migration", () => {
 			]),
 		);
 		expect(
-			getSystemComponentStructuralMetadata(
-				droppedTargetResult.roots[0].props,
-			)?.overrides,
+			getSystemComponentStructuralMetadata(droppedTargetResult.roots[0].props)
+				?.overrides,
 		).toEqual({
 			surface: { className: "rounded-lg" },
 		});
@@ -593,16 +618,12 @@ describe("system-component-migration", () => {
 		const staleRoot = expandStaleInstance(source);
 
 		expect(() =>
-			migrateSystemComponentInstance(
-				[staleRoot],
-				staleRoot.id,
-				{
-					systemId,
-					componentId: FIXTURE_OTHER_COMPONENT_ID,
-					sourceVersion: source,
-					targetVersion: target,
-				},
-			),
+			migrateSystemComponentInstance([staleRoot], staleRoot.id, {
+				systemId,
+				componentId: FIXTURE_OTHER_COMPONENT_ID,
+				sourceVersion: source,
+				targetVersion: target,
+			}),
 		).toThrow(
 			expect.objectContaining({
 				code: "INSTANCE_MISMATCH",
@@ -774,9 +795,8 @@ describe("system-component-migration", () => {
 			},
 		);
 		expect(
-			getSystemComponentStructuralMetadata(
-				pathHistoryResult.roots[0].props,
-			)?.overrides,
+			getSystemComponentStructuralMetadata(pathHistoryResult.roots[0].props)
+				?.overrides,
 		).toEqual({
 			surface: { className: "rounded-lg" },
 		});
@@ -836,9 +856,7 @@ describe("system-component-migration", () => {
 					{
 						fromAxis: "tone",
 						toAxis: "appearance",
-						valueMappings: [
-							{ fromValue: "brand", toValue: "missing-value" },
-						],
+						valueMappings: [{ fromValue: "brand", toValue: "missing-value" }],
 					},
 				],
 			},
@@ -1043,16 +1061,12 @@ describe("system-component-migration", () => {
 			}),
 		};
 
-		const result = migrateSystemComponentInstance(
-			[staleRoot],
-			staleRoot.id,
-			{
-				systemId,
-				componentId,
-				sourceVersion: source,
-				targetVersion: target,
-			},
-		);
+		const result = migrateSystemComponentInstance([staleRoot], staleRoot.id, {
+			systemId,
+			componentId,
+			sourceVersion: source,
+			targetVersion: target,
+		});
 
 		expect(result.metadata.diagnostics).toEqual(
 			expect.arrayContaining([
@@ -1107,16 +1121,12 @@ describe("system-component-migration", () => {
 		const staleRoot = expandStaleInstance(source, {
 			variantValues: { tone: "brand" },
 		});
-		const result = migrateSystemComponentInstance(
-			[staleRoot],
-			staleRoot.id,
-			{
-				systemId,
-				componentId,
-				sourceVersion: source,
-				targetVersion: target,
-			},
-		);
+		const result = migrateSystemComponentInstance([staleRoot], staleRoot.id, {
+			systemId,
+			componentId,
+			sourceVersion: source,
+			targetVersion: target,
+		});
 
 		expect(
 			getSystemComponentStructuralMetadata(result.roots[0].props),

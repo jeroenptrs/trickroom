@@ -1,18 +1,19 @@
 import { describe, expect, it } from "vitest";
+import { DesignTransformError } from "../services/design-transform-service";
 import type { Node } from "../types";
 import { expandResolvedSystemComponent } from "../utils/system-component-expansion";
 import { getSystemComponentStructuralMetadata } from "../utils/system-component-markers";
 import { migrateSystemComponentInstance } from "../utils/system-component-migration";
+import { FIXTURE_COMPONENT_ID } from "../utils/system-component-test-fixtures";
 import type { PublishedSystemComponentVersion } from "../utils/system-components";
-import {
-	FIXTURE_COMPONENT_ID,
-} from "../utils/system-component-test-fixtures";
 import {
 	hashSystemComponentTemplate,
 	hashSystemComponentVariantSchema,
 } from "../utils/system-components-validation";
-import { assertCanUseSystemComponentInstanceSubtree } from "./design-operations";
-import { DesignTransformError } from "../services/design-transform-service";
+import {
+	assertCanUseSystemComponentInstanceSubtree,
+	validateDryRunOperationParameters,
+} from "./design-operations";
 import { getMcpPolicy, McpPolicyError } from "./governance";
 
 const systemId = "sys-core";
@@ -59,31 +60,32 @@ const sourceVersionWithEmptySlot = (): PublishedSystemComponentVersion => {
 	};
 };
 
-const targetVersionWithDefaultSlotText = (): PublishedSystemComponentVersion => {
-	const root = sourceVersionWithEmptySlot().root;
-	const slots = {
-		default: {
-			name: "default",
-			hostPath: "body",
-			defaultChildren: [
-				{
-					path: "fallback",
-					library: "trickroom",
-					component: "text",
-					text: "Fallback",
-				},
-			],
-		},
+const targetVersionWithDefaultSlotText =
+	(): PublishedSystemComponentVersion => {
+		const root = sourceVersionWithEmptySlot().root;
+		const slots = {
+			default: {
+				name: "default",
+				hostPath: "body",
+				defaultChildren: [
+					{
+						path: "fallback",
+						library: "trickroom",
+						component: "text",
+						text: "Fallback",
+					},
+				],
+			},
+		};
+		const draft = { root, slots };
+		return {
+			...draft,
+			version: "2",
+			publishedAt: "2026-05-26T13:00:00.000Z",
+			templateHash: hashSystemComponentTemplate(draft),
+			variantSchemaHash: hashSystemComponentVariantSchema({}),
+		};
 	};
-	const draft = { root, slots };
-	return {
-		...draft,
-		version: "2",
-		publishedAt: "2026-05-26T13:00:00.000Z",
-		templateHash: hashSystemComponentTemplate(draft),
-		variantSchemaHash: hashSystemComponentVariantSchema({}),
-	};
-};
 
 const expandStaleInstance = (source: PublishedSystemComponentVersion) => {
 	const expansion = expandResolvedSystemComponent(
@@ -155,5 +157,39 @@ describe("assertCanUseSystemComponentInstanceSubtree", () => {
 				fallback.id,
 			),
 		).toThrow(DesignTransformError);
+	});
+});
+
+describe("validateDryRunOperationParameters", () => {
+	it("accepts initial system component variant unset axes", () => {
+		expect(
+			validateDryRunOperationParameters("addSystemComponent", {
+				parentId: "board",
+				index: 0,
+				systemId: "sys-core",
+				componentId,
+				variantValues: { tone: "brand" },
+				unsetVariantAxes: ["tone"],
+			}),
+		).toEqual({
+			parentId: "board",
+			index: 0,
+			systemId: "sys-core",
+			componentId,
+			variantValues: { tone: "brand" },
+			unsetVariantAxes: ["tone"],
+		});
+	});
+
+	it("accepts explicit system component variant unset axes", () => {
+		expect(
+			validateDryRunOperationParameters("updateSystemComponentInstance", {
+				rootElementId: "component-root",
+				unsetVariantAxes: ["tone"],
+			}),
+		).toEqual({
+			rootElementId: "component-root",
+			unsetVariantAxes: ["tone"],
+		});
 	});
 });

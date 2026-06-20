@@ -4,7 +4,15 @@ import {
 	resolveRegistryComponent,
 } from "../../libraries/registry";
 import { resolveRenderableRegistryComponent } from "../../libraries/render-registry";
-import type { ComponentDraftEntity } from "../../stores/component-draft-store";
+import {
+	type ComponentDraftEntity,
+	componentDraftStore,
+	getComponentDraftPreviewClassName,
+	hydrateComponentDraft,
+	resetComponentDraftStore,
+	setComponentDraftStyleTarget,
+} from "../../stores/component-draft-store";
+import { FIXTURE_COMPONENT_ID } from "../../utils/system-component-test-fixtures";
 import { getComponentDraftPreviewRenderableProps } from "./ComponentDraftStage";
 
 const separatorBaseClassName =
@@ -95,5 +103,89 @@ describe("ComponentDraftStage", () => {
 		expect(props).not.toHaveProperty("className");
 		expect(props.className).toBeUndefined();
 		expect(props.className).not.toBe("size-5");
+	});
+
+	it("passes composite draft preview classes (base + axes + compound) into stage renderable props", () => {
+		const renderResolution = resolveRenderableRegistryComponent(
+			"base-ui",
+			"separator",
+		);
+		expect(renderResolution.status).toBe("known");
+		if (renderResolution.status !== "known") {
+			return;
+		}
+
+		resetComponentDraftStore();
+		hydrateComponentDraft({
+			componentId: FIXTURE_COMPONENT_ID,
+			root: {
+				path: "root",
+				library: "base-ui",
+				component: "separator",
+				className: "h-4",
+			},
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: {
+							brand: {
+								label: "Brand",
+								classesByPath: { root: "text-blue-600" },
+							},
+						},
+					},
+					size: {
+						label: "Size",
+						values: {
+							lg: {
+								label: "Large",
+								classesByPath: { root: "h-6" },
+							},
+						},
+					},
+				},
+				compoundVariants: [
+					{
+						when: { tone: "brand", size: "lg" },
+						classesByPath: { root: "ring-2" },
+					},
+				],
+			},
+		});
+		setComponentDraftStyleTarget({
+			base: true,
+			axisValues: { tone: "brand", size: "lg" },
+			compoundAxes: ["tone", "size"],
+			activeTab: { kind: "compound" },
+		});
+
+		const previewClassName = getComponentDraftPreviewClassName(
+			componentDraftStore.get(),
+			"root",
+		);
+		expect(previewClassName).toBe("h-4 h-6 text-blue-600 ring-2");
+
+		const entity = {
+			path: "root",
+			library: "base-ui",
+			component: "separator",
+			parentPath: null,
+			role: "leaf",
+			className: "h-4",
+		} satisfies ComponentDraftEntity;
+
+		const props = getComponentDraftPreviewRenderableProps({
+			entity,
+			path: "root",
+			previewClassName,
+			selectedPath: null,
+			definition: renderResolution.definition,
+		});
+
+		expect(props.className).toContain("h-4");
+		expect(props.className).toContain("h-6");
+		expect(props.className).toContain("text-blue-600");
+		expect(props.className).toContain("ring-2");
 	});
 });

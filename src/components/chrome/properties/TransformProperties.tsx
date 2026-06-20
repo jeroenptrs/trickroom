@@ -1,8 +1,10 @@
 import { useCallback, useMemo } from "react";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
+import { useDesignSystemId } from "../../../stores/design-store";
 import type { ModelOptions } from "../../../utils/tailwind-classname";
-import { StyleSection } from "./StyleSection";
 import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
+import { StyleSection } from "./StyleSection";
 import {
 	readTransformValue,
 	transformModeUtility,
@@ -35,10 +37,16 @@ const ORIGIN_OPTIONS: readonly SegmentedOption<string>[] = [
 	{ value: "top-left", label: "TL" },
 ];
 
-export function TransformProperties({ className, onChange }: TransformPropertiesProps) {
+export function TransformProperties({
+	className,
+	onChange,
+}: TransformPropertiesProps) {
+	const systemId = useDesignSystemId();
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
+
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: EMPTY_COLOR_TOKENS }),
-		[],
+		() => ({ colorTokens: EMPTY_COLOR_TOKENS, ...customUtilityRoots }),
+		[customUtilityRoots],
 	);
 
 	const read = useCallback(
@@ -73,9 +81,7 @@ export function TransformProperties({ className, onChange }: TransformProperties
 						options={TRANSFORM_MODE_OPTIONS}
 						value={slot.value}
 						onChange={(next) =>
-							slot.apply(
-								next === null ? null : transformModeUtility(next),
-							)
+							slot.apply(next === null ? null : transformModeUtility(next))
 						}
 					/>
 				)}

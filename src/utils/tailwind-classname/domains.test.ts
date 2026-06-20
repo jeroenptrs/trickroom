@@ -10,12 +10,20 @@ import {
 const opts = { colorTokens: new Set(["red-500", "blue-500"]) };
 
 describe("UTILITY_DOMAINS registry", () => {
-	it("runs color before spacing so prefix overlap stays stable", () => {
+	it("runs custom-functional first (DS utilities win ambiguous prefixes), then color before spacing", () => {
 		expect(UTILITY_DOMAINS.map((d) => d.kind)).toEqual([
+			"custom-functional",
 			"color",
 			"spacing",
 			"style",
 		]);
+	});
+
+	it("does not claim built-in classes when no custom roots are configured", () => {
+		// custom-functional returns null without roots, so built-ins classify
+		// exactly as before the reorder.
+		const model = buildPropertyModel("bg-red-500 text-sm p-4", opts);
+		expect(serialize(model)).toBe("bg-red-500 text-sm p-4");
 	});
 });
 

@@ -842,4 +842,22 @@ export async function discardSystemComponentDraft(
 	return { ...result, removedComponent };
 }
 
+export async function deleteSystemComponent(
+	projectRoot: string,
+	systemHandle: string,
+	componentId: string,
+	options: SystemComponentMutationOptions,
+): Promise<SystemComponentMutationResult> {
+	return commitManifestMutation(
+		projectRoot,
+		systemHandle,
+		options,
+		(manifest) => {
+			requireRecord(manifest, componentId);
+			delete manifest.components[componentId];
+			return componentId;
+		},
+	);
+}
+
 export { assertValidSystemComponentManifest };

@@ -1,21 +1,19 @@
 import { useCallback, useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
 import { useDesignSystemId } from "../../../stores/design-store";
 import {
 	buildPropertyModel,
 	type ModelOptions,
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
-import {
-	applyColorChange,
-	applyColorClear,
-} from "./colorPropertiesController";
 import { ColorPropertyControl } from "./ColorPropertyControl";
-import { StyleSection } from "./StyleSection";
+import { applyColorChange, applyColorClear } from "./colorPropertiesController";
+import { focusUtility } from "./focusPropertiesController";
 import { Segmented, type SegmentedOption } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
+import { StyleSection } from "./StyleSection";
 import { getStyleIntent, styleValueText } from "./styleSectionController";
-import { focusUtility } from "./focusPropertiesController";
 
 type FocusPropertiesProps = {
 	className: string;
@@ -64,10 +62,11 @@ const COLOR_ROWS = [
 export function FocusProperties({ className, onChange }: FocusPropertiesProps) {
 	const systemId = useDesignSystemId();
 	const resolved = useResolvedColorTokens(systemId);
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
 
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: resolved.names }),
-		[resolved.names],
+		() => ({ colorTokens: resolved.names, ...customUtilityRoots }),
+		[resolved.names, customUtilityRoots],
 	);
 
 	const model = useMemo(
@@ -85,8 +84,9 @@ export function FocusProperties({ className, onChange }: FocusPropertiesProps) {
 	const outlineStyle = read("focus.outline-style");
 
 	const summary =
-		[ringWidth && `ring ${ringWidth}`, outlineStyle].filter(Boolean).join(" · ") ||
-		undefined;
+		[ringWidth && `ring ${ringWidth}`, outlineStyle]
+			.filter(Boolean)
+			.join(" · ") || undefined;
 
 	return (
 		<StyleSection title="Focus" summary={summary}>
@@ -164,7 +164,9 @@ export function FocusProperties({ className, onChange }: FocusPropertiesProps) {
 						)
 					}
 					onClear={(variants) =>
-						onChange(applyColorClear(className, options, { property, variants }))
+						onChange(
+							applyColorClear(className, options, { property, variants }),
+						)
 					}
 				/>
 			))}
@@ -181,7 +183,9 @@ export function FocusProperties({ className, onChange }: FocusPropertiesProps) {
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : focusUtility("focus.outline-width", next),
+								next === null
+									? null
+									: focusUtility("focus.outline-width", next),
 							)
 						}
 					/>
@@ -200,7 +204,9 @@ export function FocusProperties({ className, onChange }: FocusPropertiesProps) {
 						value={slot.value}
 						onChange={(next) =>
 							slot.apply(
-								next === null ? null : focusUtility("focus.outline-style", next),
+								next === null
+									? null
+									: focusUtility("focus.outline-style", next),
 							)
 						}
 					/>

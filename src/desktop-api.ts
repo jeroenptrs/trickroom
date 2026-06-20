@@ -17,6 +17,7 @@ export type TrickroomDesktopApi = {
 	pickCssFile: (projectRoot: string) => Promise<PickCssFileResult>;
 	pickAssetFile: (projectRoot: string) => Promise<PickAssetFileResult>;
 	getMcpHelperPath: () => Promise<string>;
+	openDesignTokens: (systemId: string) => Promise<void>;
 	clipboard: {
 		writeText: (text: string) => Promise<void>;
 		readText: () => Promise<string>;

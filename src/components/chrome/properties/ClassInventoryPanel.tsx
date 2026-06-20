@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
 import { useDesignSystemId } from "../../../stores/design-store";
 import type { ClassLayer } from "../../../utils/class-layers";
 import type { ModelOptions } from "../../../utils/tailwind-classname";
@@ -20,9 +21,10 @@ export function ClassInventoryPanel({
 }) {
 	const systemId = useDesignSystemId();
 	const resolved = useResolvedColorTokens(systemId);
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: resolved.names }),
-		[resolved.names],
+		() => ({ colorTokens: resolved.names, ...customUtilityRoots }),
+		[resolved.names, customUtilityRoots],
 	);
 	const inventory = useMemo(
 		() => buildClassInventory(layers ? { layers } : className, options),

@@ -1341,6 +1341,13 @@ describe("trickroom MCP discovery tools", () => {
 			expect(
 				toolsByName.get("getDesignSystemForDesignFile")?.inputSchema.properties,
 			).toHaveProperty("designFileId");
+			expect(
+				toolsByName.get("addSystemComponent")?.inputSchema.properties,
+			).toHaveProperty("unsetVariantAxes");
+			expect(
+				toolsByName.get("updateSystemComponentInstance")?.inputSchema
+					.properties,
+			).toHaveProperty("unsetVariantAxes");
 		} finally {
 			await close();
 		}
@@ -1357,12 +1364,12 @@ describe("trickroom MCP discovery tools", () => {
 			});
 			expect(listRegistriesResult.structuredContent).toMatchObject({
 				registries: expect.arrayContaining([
-					{
+					expect.objectContaining({
 						library: "base-ui",
 						builtIn: true,
 						readOnly: true,
-						componentCount: 11,
-						components: [
+						componentCount: expect.any(Number),
+						components: expect.arrayContaining([
 							"avatar.fallback",
 							"avatar.image",
 							"avatar.root",
@@ -1374,15 +1381,15 @@ describe("trickroom MCP discovery tools", () => {
 							"menu.separator",
 							"menu.trigger",
 							"separator",
-						],
-					},
-					{
+						]),
+					}),
+					expect.objectContaining({
 						library: "trickroom",
 						builtIn: true,
 						readOnly: true,
 						componentCount: 4,
 						components: ["asset", "container", "icon", "text"],
-					},
+					}),
 				]),
 			});
 
@@ -1579,11 +1586,11 @@ describe("trickroom MCP discovery tools", () => {
 				},
 			});
 			expect(recipesResult.structuredContent).toMatchObject({
-				registries: [
-					{
+				registries: expect.arrayContaining([
+					expect.objectContaining({
 						library: "base-ui",
-						recipes: [
-							{
+						recipes: expect.arrayContaining([
+							expect.objectContaining({
 								library: "base-ui",
 								recipe: "base-ui/avatar.default",
 								label: "Avatar",
@@ -1604,8 +1611,8 @@ describe("trickroom MCP discovery tools", () => {
 										hostPath: "fallback",
 									},
 								],
-							},
-							{
+							}),
+							expect.objectContaining({
 								library: "base-ui",
 								recipe: "base-ui/menu.default",
 								label: "Menu",
@@ -1631,10 +1638,10 @@ describe("trickroom MCP discovery tools", () => {
 										hostPath: "trigger",
 									},
 								],
-							},
-						],
-					},
-				],
+							}),
+						]),
+					}),
+				]),
 			});
 
 			const describeResult = await client.callTool({

@@ -1,9 +1,14 @@
 import { useCallback, useMemo } from "react";
-import type { ModelOptions, StyleProperty } from "../../../utils/tailwind-classname";
-import { StyleSection } from "./StyleSection";
-import { Segmented, ValueField, type SegmentedOption } from "./StyleControls";
-import { StyleOverrideRows } from "./StyleOverrideRows";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
+import { useDesignSystemId } from "../../../stores/design-store";
+import type {
+	ModelOptions,
+	StyleProperty,
+} from "../../../utils/tailwind-classname";
 import { maskUtility } from "./maskPropertiesController";
+import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
+import { StyleOverrideRows } from "./StyleOverrideRows";
+import { StyleSection } from "./StyleSection";
 import { getStyleIntent, styleValueText } from "./styleSectionController";
 
 type MaskPropertiesProps = {
@@ -82,9 +87,12 @@ const CONIC_ANGLE_OPTIONS: readonly SegmentedOption<string>[] = [
 
 /** Override-aware: all mask segmenteds and linear/radial/conic value fields. */
 export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
+	const systemId = useDesignSystemId();
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
+
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: EMPTY_COLOR_TOKENS }),
-		[],
+		() => ({ colorTokens: EMPTY_COLOR_TOKENS, ...customUtilityRoots }),
+		[customUtilityRoots],
 	);
 
 	const read = useCallback(
@@ -133,7 +141,9 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 						options={MODE_OPTIONS}
 						value={slot.value}
 						onChange={(next) =>
-							slot.apply(next === null ? null : maskUtility("mask.mask-mode", next))
+							slot.apply(
+								next === null ? null : maskUtility("mask.mask-mode", next),
+							)
 						}
 					/>
 				)}
@@ -150,7 +160,9 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 						options={SIZE_OPTIONS}
 						value={slot.value}
 						onChange={(next) =>
-							slot.apply(next === null ? null : maskUtility("mask.mask-size", next))
+							slot.apply(
+								next === null ? null : maskUtility("mask.mask-size", next),
+							)
 						}
 					/>
 				)}
@@ -186,7 +198,9 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 						options={REPEAT_OPTIONS}
 						value={slot.value}
 						onChange={(next) =>
-							slot.apply(next === null ? null : maskUtility("mask.mask-repeat", next))
+							slot.apply(
+								next === null ? null : maskUtility("mask.mask-repeat", next),
+							)
 						}
 					/>
 				)}
@@ -203,7 +217,9 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 						options={BOX_EDGE_OPTIONS}
 						value={slot.value}
 						onChange={(next) =>
-							slot.apply(next === null ? null : maskUtility("mask.mask-origin", next))
+							slot.apply(
+								next === null ? null : maskUtility("mask.mask-origin", next),
+							)
 						}
 					/>
 				)}
@@ -220,7 +236,9 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 						options={BOX_EDGE_OPTIONS}
 						value={slot.value}
 						onChange={(next) =>
-							slot.apply(next === null ? null : maskUtility("mask.mask-clip", next))
+							slot.apply(
+								next === null ? null : maskUtility("mask.mask-clip", next),
+							)
 						}
 					/>
 				)}
@@ -256,7 +274,9 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 						options={LINEAR_ANGLE_OPTIONS}
 						value={slot.value}
 						onChange={(next) =>
-							slot.apply(next === null ? null : maskUtility("mask.mask-linear", next))
+							slot.apply(
+								next === null ? null : maskUtility("mask.mask-linear", next),
+							)
 						}
 					/>
 				)}
@@ -295,7 +315,9 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 						placeholder="100%"
 						onCommit={(next) =>
 							slot.apply(
-								next.trim() ? maskUtility("mask.mask-linear-to", next.trim()) : null,
+								next.trim()
+									? maskUtility("mask.mask-linear-to", next.trim())
+									: null,
 							)
 						}
 					/>
@@ -356,7 +378,9 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 						placeholder="100%"
 						onCommit={(next) =>
 							slot.apply(
-								next.trim() ? maskUtility("mask.mask-radial-to", next.trim()) : null,
+								next.trim()
+									? maskUtility("mask.mask-radial-to", next.trim())
+									: null,
 							)
 						}
 					/>
@@ -374,7 +398,9 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 						options={CONIC_ANGLE_OPTIONS}
 						value={slot.value}
 						onChange={(next) =>
-							slot.apply(next === null ? null : maskUtility("mask.mask-conic", next))
+							slot.apply(
+								next === null ? null : maskUtility("mask.mask-conic", next),
+							)
 						}
 					/>
 				)}
@@ -392,7 +418,9 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 						placeholder="0"
 						onCommit={(next) =>
 							slot.apply(
-								next.trim() ? maskUtility("mask.mask-conic-from", next.trim()) : null,
+								next.trim()
+									? maskUtility("mask.mask-conic-from", next.trim())
+									: null,
 							)
 						}
 					/>
@@ -411,7 +439,9 @@ export function MaskProperties({ className, onChange }: MaskPropertiesProps) {
 						placeholder="180"
 						onCommit={(next) =>
 							slot.apply(
-								next.trim() ? maskUtility("mask.mask-conic-to", next.trim()) : null,
+								next.trim()
+									? maskUtility("mask.mask-conic-to", next.trim())
+									: null,
 							)
 						}
 					/>

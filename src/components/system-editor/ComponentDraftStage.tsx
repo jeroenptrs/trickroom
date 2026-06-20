@@ -13,14 +13,15 @@ import {
 	useState,
 } from "react";
 import Frame from "react-frame-component";
+import { useCompiledTailwind } from "../../hooks/useCompiledTailwind";
 import { useInjectSystemAssets } from "../../hooks/useInjectSystemAssets";
 import { useInjectSystemFonts } from "../../hooks/useInjectSystemFonts";
 import { useInjectSystemTheme } from "../../hooks/useInjectSystemTheme";
-import stageDoc from "../../iframe/shell.html?raw";
+import stageDocRaw from "../../iframe/shell.html?raw";
 import {
 	getRenderableProps,
-	resolveRenderableRegistryComponent,
 	type RenderableRegistryComponentDefinition,
+	resolveRenderableRegistryComponent,
 } from "../../libraries/render-registry";
 import { DesignSystemRenderContext } from "../../libraries/trickroom/render-context";
 import type { ProjectQueryScope } from "../../queries/project-scope";
@@ -37,7 +38,10 @@ import {
 	useComponentDraftRootPath,
 	useComponentDraftSelectedPath,
 } from "../../stores/component-draft-store";
+import { resolveStageDoc } from "../../utils/tailwind-render-mode";
 import { Canvas } from "../stage/Canvas";
+
+const stageDoc = resolveStageDoc(stageDocRaw);
 
 type ComponentDraftStageProps = {
 	systemId: string;
@@ -205,7 +209,7 @@ export function ComponentDraftStage({
 
 	useEffect(() => {
 		setDidMount(false);
-	}, []);
+	}, [componentId, systemId]);
 
 	useEffect(() => {
 		if (!componentId) {
@@ -235,6 +239,7 @@ export function ComponentDraftStage({
 	}, [componentId, componentQuery.data]);
 
 	useInjectSystemTheme(iframeRef, didMount, systemId);
+	useCompiledTailwind(iframeRef, didMount, systemId);
 	useInjectSystemAssets(iframeRef, didMount, systemId);
 	useInjectSystemFonts(iframeRef, didMount, systemId);
 
@@ -246,13 +251,14 @@ export function ComponentDraftStage({
 	const stage = useMemo(
 		() => (
 			<ComponentStageFrame
+				key={`${systemId}:${componentId ?? "none"}`}
 				iframeRef={iframeRef}
 				systemId={systemId}
 				componentName={componentName}
 				onMount={handleStageMount}
 			/>
 		),
-		[componentName, handleStageMount, systemId],
+		[componentId, componentName, handleStageMount, systemId],
 	);
 
 	if (!componentId) {

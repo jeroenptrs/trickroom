@@ -391,6 +391,15 @@ describe("trickroom MCP system component tools", () => {
 				}),
 				variants: expect.objectContaining({
 					classesByPath: expect.stringContaining("template path"),
+					compoundVariants: expect.stringContaining("single string values"),
+					defaultValues: expect.stringContaining("real value ids"),
+					instanceUpdates: expect.stringContaining("unsetVariantAxes"),
+					rules: expect.arrayContaining([
+						expect.stringContaining("does not fabricate the first value"),
+						expect.stringContaining("duplicate signatures"),
+						expect.stringContaining("garbage-collected"),
+						expect.stringContaining("Array-valued when"),
+					]),
 				}),
 				overrideTargets: expect.objectContaining({
 					capabilities: ["className", "text", "icon", "asset"],

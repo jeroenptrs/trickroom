@@ -17,16 +17,20 @@ import {
 import { designStore, normalizeDesign } from "../../stores/design-store";
 import type { ControlDefinition, Node, TrickroomDesign } from "../../types";
 import { assetIdProp, iconIdProp } from "../../utils/resource-props";
+import { getSystemComponentMarkerProps } from "../../utils/system-component-markers";
 import {
 	createFixturePublishedRecord,
 	FIXTURE_COMPONENT_ID,
 } from "../../utils/system-component-test-fixtures";
-import { getSystemComponentMarkerProps } from "../../utils/system-component-markers";
 import {
 	hashSystemComponentTemplate,
 	hashSystemComponentVariantSchema,
 } from "../../utils/system-components-validation";
-import { getPropertiesControlSurface, Properties } from "./Properties";
+import {
+	getPropertiesControlSurface,
+	Properties,
+	resolveAttachedComponentClassInventoryLayers,
+} from "./Properties";
 
 function controlsFor(library: string, component: string) {
 	const resolution = resolveRegistryComponent(library, component);
@@ -161,6 +165,80 @@ describe("getPropertiesControlSurface", () => {
 		expect(surface.assetControl).toBeNull();
 		expect(surface.iconControl).toBeNull();
 		expect(surface.componentControls).toEqual([visibleControl]);
+	});
+});
+
+describe("resolveAttachedComponentClassInventoryLayers", () => {
+	it("resolves attached override layers without matching compounds for absent optional axes", () => {
+		const version = {
+			version: "1",
+			publishedAt: "2026-05-26T14:00:00.000Z",
+			templateHash: "sha256:template",
+			variantSchemaHash: "sha256:variants",
+			root: {
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				className: "base",
+			},
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: {
+							brand: { classesByPath: { root: "text-blue-600" } },
+						},
+					},
+					size: {
+						label: "Size",
+						values: {
+							lg: { classesByPath: { root: "text-lg" } },
+						},
+					},
+				},
+				compoundVariants: [
+					{
+						when: { tone: "brand", size: "lg" },
+						classesByPath: { root: "ring-2" },
+					},
+				],
+			},
+			overrideTargets: {
+				rootTarget: {
+					targetId: "rootTarget",
+					label: "Root",
+					path: "root",
+				},
+			},
+		};
+
+		const layers = resolveAttachedComponentClassInventoryLayers({
+			version,
+			targetPath: "root",
+			variantValues: { tone: "brand" },
+			overrides: { rootTarget: { className: "p-6" } },
+			context: {
+				systemId: "sys-core",
+				componentId: FIXTURE_COMPONENT_ID,
+				instanceId: "instance-1",
+			},
+		});
+
+		expect(layers.map((layer) => layer.className)).toEqual([
+			"base",
+			"text-blue-600",
+			"p-6",
+		]);
+		expect(layers.map((layer) => layer.source)).toEqual([
+			"system-template",
+			"system-variant",
+			"instance-override",
+		]);
+		expect(layers.map((layer) => layer.metadata)).toEqual([
+			expect.objectContaining({ path: "root" }),
+			expect.objectContaining({ axis: "tone", value: "brand" }),
+			expect.objectContaining({ prop: "className" }),
+		]);
 	});
 });
 
@@ -302,6 +380,7 @@ describe("Properties", () => {
 		expect(html).toContain("Detach component");
 		expect(html).toContain("Variants");
 		expect(html).toContain("Tone");
+		expect(html).toContain("Unselected");
 		expect(html).not.toContain("Overrides");
 		expect(html).not.toContain("Label class");
 	});

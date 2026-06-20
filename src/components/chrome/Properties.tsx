@@ -37,7 +37,9 @@ import type {
 	RecipeTemplateNode,
 } from "../../types";
 import type { ClassLayer } from "../../utils/class-layers";
+import { useWindowKeyDown } from "../../utils/editor-shortcuts";
 import { assetIdProp, iconIdProp } from "../../utils/resource-props";
+import type { SystemComponentInstanceOverrides } from "../../utils/system-component-markers";
 import {
 	findOverrideTargetForCapability,
 	readSystemComponentOverrideValue,
@@ -68,6 +70,7 @@ import { DesignSystemPicker } from "./DesignSystemPicker";
 import { BackgroundProperties } from "./properties/BackgroundProperties";
 import { BorderProperties } from "./properties/BorderProperties";
 import { ClassInventoryPanel } from "./properties/ClassInventoryPanel";
+import { DomainCustomUtilities } from "./properties/DomainCustomUtilities";
 import { EffectsProperties } from "./properties/EffectsProperties";
 import { FocusProperties } from "./properties/FocusProperties";
 import { InteractionProperties } from "./properties/InteractionProperties";
@@ -82,7 +85,6 @@ import { StyleSection } from "./properties/StyleSection";
 import { TransformProperties } from "./properties/TransformProperties";
 import { TypographyProperties } from "./properties/TypographyProperties";
 import { VectorProperties } from "./properties/VectorProperties";
-import { useWindowKeyDown } from "../../utils/editor-shortcuts";
 
 type ComponentControlProps = {
 	elementId: string;
@@ -561,6 +563,33 @@ function getTemplateClassName(
 	return visit(version.root);
 }
 
+export function resolveAttachedComponentClassInventoryLayers({
+	version,
+	targetPath,
+	variantValues,
+	overrides,
+	context,
+}: {
+	version: PublishedSystemComponentVersion;
+	targetPath: string;
+	variantValues: Record<string, string>;
+	overrides?: SystemComponentInstanceOverrides;
+	context?: {
+		systemId?: string;
+		componentId?: string;
+		instanceId?: string;
+	};
+}): readonly ClassLayer[] {
+	return resolveSystemComponentClassComposition(
+		version,
+		targetPath,
+		getTemplateClassName(version, targetPath),
+		resolveSystemComponentVariantValues(version.variants, variantValues),
+		overrides ?? {},
+		context,
+	).layers;
+}
+
 function StyleClassControls({
 	className,
 	onChange,
@@ -573,22 +602,37 @@ function StyleClassControls({
 	return (
 		<div key={elementId} className="flex flex-col divide-y divide-slate-200">
 			<LayoutProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="layout" />
 			<SizeProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="size" />
 			<StyleSection title="Spacing">
 				<SpacingProperties className={className} onChange={onChange} />
 			</StyleSection>
+			<DomainCustomUtilities className={className} domain="spacing" />
 			<TypographyProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="typography" />
 			<BackgroundProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="background" />
 			<BorderProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="border" />
 			<EffectsProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="effects" />
 			<FocusProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="focus" />
 			<PositionProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="position" />
 			<TransformProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="transform" />
 			<MotionProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="motion" />
 			<VectorProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="vector" />
 			<StructureProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="structure" />
 			<MaskProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="mask" />
 			<InteractionProperties className={className} onChange={onChange} />
+			<DomainCustomUtilities className={className} domain="interaction" />
 		</div>
 	);
 }
@@ -673,22 +717,20 @@ export function Properties() {
 			? getControlDefinitions(registryResolution.definition)
 			: [];
 	const classInventoryLayers: readonly ClassLayer[] | undefined = classOverride
-		? resolveSystemComponentClassComposition(
-				classOverride.version,
-				classOverride.targetPath,
-				getTemplateClassName(classOverride.version, classOverride.targetPath),
-				resolveSystemComponentVariantValues(
-					classOverride.version.variants,
+		? resolveAttachedComponentClassInventoryLayers({
+				version: classOverride.version,
+				targetPath: classOverride.targetPath,
+				variantValues:
 					attachedInspection.kind === "root" ||
-						attachedInspection.kind === "owned-internal"
+					attachedInspection.kind === "owned-internal"
 						? attachedInspection.instance.variantValues
 						: {},
-				),
-				attachedInspection.kind === "root" ||
+				overrides:
+					attachedInspection.kind === "root" ||
 					attachedInspection.kind === "owned-internal"
-					? attachedInspection.instance.overrides
-					: {},
-				{
+						? attachedInspection.instance.overrides
+						: {},
+				context: {
 					systemId:
 						attachedInspection.kind === "root" ||
 						attachedInspection.kind === "owned-internal"
@@ -705,7 +747,7 @@ export function Properties() {
 							? attachedInspection.instance.instanceId
 							: undefined,
 				},
-			).layers
+			})
 		: registryResolution.status === "known"
 			? getRenderableClassComposition(
 					selectedElement.props,

@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Node } from "../types";
 import {
+	getSystemComponentStructuralMetadata,
 	getSystemComponentMarkerProps,
 	SYSTEM_COMPONENT_MARKER_PROP_KEYS,
 	systemComponentIdProp,
@@ -190,6 +191,51 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 	};
 
+	const publishOptionalToneComponent = async () => {
+		const listed = await session.client.callTool({
+			name: "listSystemComponents",
+			arguments: { systemName: "Core" },
+		});
+		const created = await session.client.callTool({
+			name: "createSystemComponentDraft",
+			arguments: {
+				systemName: "Core",
+				expectedRevision: listed.structuredContent?.revision,
+				slug: "optional-badge",
+				name: "Optional Badge",
+				draft: {
+					root: {
+						path: "root",
+						library: "trickroom",
+						component: "container",
+						className: "card",
+					},
+					variants: {
+						axes: {
+							tone: {
+								label: "Tone",
+								values: {
+									brand: { classesByPath: { root: "brand" } },
+									neutral: { classesByPath: { root: "neutral" } },
+								},
+							},
+						},
+					},
+				},
+			},
+		});
+		const optionalComponentId = String(created.structuredContent?.componentId);
+		await session.client.callTool({
+			name: "publishSystemComponent",
+			arguments: {
+				systemName: "Core",
+				componentId: optionalComponentId,
+				expectedRevision: created.structuredContent?.revision,
+			},
+		});
+		return optionalComponentId;
+	};
+
 	beforeEach(async () => {
 		fixture = await createTrickroomMcpProjectFixture();
 		session = await createTrickroomMcpTestClient(
@@ -283,6 +329,58 @@ describe("trickroom MCP system component instance tools", () => {
 			: null;
 		expect(detachedRoot?.props[systemComponentRootProp]).toBeUndefined();
 		expect(detachedRoot?.props[systemComponentInstanceProp]).toBeUndefined();
+	});
+
+	it("clears optional variant axes through updateSystemComponentInstance", async () => {
+		const optionalComponentId = await publishOptionalToneComponent();
+		const revision = await getDesignRevision();
+		const added = await session.client.callTool({
+			name: "addSystemComponent",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				expectedRevision: revision,
+				parentId: "board",
+				index: 0,
+				systemId,
+				componentId: optionalComponentId,
+				variantValues: { tone: "brand" },
+			},
+		});
+		expect(added.isError).not.toBe(true);
+		const rootElementId = String(
+			(added.structuredContent as { changedElement: { id: string } })
+				.changedElement.id,
+		);
+
+		const updated = await session.client.callTool({
+			name: "updateSystemComponentInstance",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				expectedRevision: String(added.structuredContent?.newRevision),
+				rootElementId,
+				unsetVariantAxes: ["tone"],
+			},
+		});
+		expect(updated.isError).not.toBe(true);
+		expect(updated.structuredContent).toMatchObject({
+			status: "success",
+			systemComponent: {
+				variantValues: {},
+			},
+		});
+
+		const persisted = await fixture.designFileService.readDesignFile(
+			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+		);
+		const board = persisted.design.boards[0];
+		const updatedRoot = Array.isArray(board.children)
+			? board.children.find((child) => child.id === rootElementId)
+			: null;
+		expect(updatedRoot?.props.className).toBe("card");
+		expect(
+			getSystemComponentStructuralMetadata(updatedRoot?.props ?? {})
+				?.variantValues,
+		).toEqual({});
 	});
 
 	it("reports no stale system component usages when attached instances are current", async () => {

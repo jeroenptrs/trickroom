@@ -101,7 +101,10 @@ export function useInjectSystemTheme(
 			return;
 		}
 
-		const css = serializeTailwindThemeDomains(stored.domains);
+		const css = serializeTailwindThemeDomains(
+			stored.domains,
+			stored.customProperties,
+		);
 		logSystemFontTokens(normalized, stored.domains.font?.tokens);
 
 		upsertManagedThemeStyle(iframeDoc, css);

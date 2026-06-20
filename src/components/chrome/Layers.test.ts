@@ -4,6 +4,7 @@ import { expandRegistryRecipe } from "../../recipes/expansion";
 import { normalizeDesign } from "../../stores/design-store";
 import { getSystemComponentMarkerProps } from "../../utils/system-component-markers";
 import {
+	getBlockedDropInstructions,
 	getRegistryPickerSections,
 	getUserComponentPickerSections,
 	getVisibleLayerRows,
@@ -275,6 +276,23 @@ describe("registry picker sections", () => {
 							},
 							children: [
 								{
+									id: "locked-slot-label",
+									props: {
+										"data-trickroom-name": "Locked Slot Label",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "text",
+										"data-trickroom-role": "text",
+										...getSystemComponentMarkerProps({
+											systemId: "system-1",
+											componentId: "component-1",
+											instanceId: "component-instance-1",
+											version: "1",
+											path: "slot-label",
+										}),
+									},
+									children: "Locked slot label",
+								},
+								{
 									id: "slot-text",
 									props: {
 										"data-trickroom-name": "Slot Text",
@@ -309,7 +327,7 @@ describe("registry picker sections", () => {
 				selectedParent: state.entitiesById["component-root"],
 				entitiesById: state.entitiesById,
 			}),
-		).toEqual({ parentId: "component-slot", index: 1 });
+		).toEqual({ parentId: "component-slot", index: 2 });
 
 		expect(
 			resolveLayerInsertionPlacement({
@@ -319,6 +337,32 @@ describe("registry picker sections", () => {
 				selectedParent: state.entitiesById["component-slot"],
 				entitiesById: state.entitiesById,
 			}),
-		).toEqual({ parentId: "component-slot", index: 1 });
+		).toEqual({ parentId: "component-slot", index: 2 });
+
+		expect(
+			resolveLayerInsertionPlacement({
+				intent: "before",
+				rootIds: state.rootIds,
+				selectedElement: state.entitiesById["locked-slot-label"],
+				selectedParent: state.entitiesById["component-slot"],
+				entitiesById: state.entitiesById,
+			}),
+		).toEqual({ parentId: "component-slot", index: 0 });
+
+		expect(
+			getBlockedDropInstructions(
+				false,
+				state.entitiesById["component-label"],
+				state.entitiesById,
+			),
+		).toEqual(["make-child", "reorder-above", "reorder-below"]);
+
+		expect(
+			getBlockedDropInstructions(
+				false,
+				state.entitiesById["locked-slot-label"],
+				state.entitiesById,
+			),
+		).toEqual(["make-child"]);
 	});
 });

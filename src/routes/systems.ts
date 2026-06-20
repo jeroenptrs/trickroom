@@ -25,6 +25,7 @@ import {
 	deleteDesignSystemStorage,
 	findDesignSystem,
 	listDesignSystems,
+	resolveDesignSystemSafeKey,
 	removeIconFolderPath,
 	writeDesignSystemManifest,
 } from "../utils/design-system-store";
@@ -58,7 +59,6 @@ export const systemsRoutes = new Hono();
 const getProjectRoot = (c: Context) => c.get("projectRoot") as string;
 const getConfig = (c: Context) => c.get("config") as TrickroomConfig;
 const getSystem = (c: Context) => c.get("system") as DesignSystemRecord;
-const systemNamePattern = /^[A-Za-z0-9_@-]+$/u;
 
 systemsRoutes.use("/:systemName/*", async (c, next) => {
 	const projectRoot = getProjectRoot(c);
@@ -108,7 +108,11 @@ const readStringArray = (
 const validateSystemName = (systemName: string): string | null => {
 	const trimmed = systemName.trim();
 	if (!trimmed) return null;
-	if (!systemNamePattern.test(trimmed)) return null;
+	try {
+		resolveDesignSystemSafeKey(trimmed);
+	} catch {
+		return null;
+	}
 	return trimmed;
 };
 

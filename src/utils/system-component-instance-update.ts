@@ -4,14 +4,14 @@ import {
 	resolveRegistryComponent,
 } from "../libraries/registry";
 import type { Node, Props, RecipeTemplateNode } from "../types";
+import { assetIdProp, iconIdProp } from "./resource-props";
 import {
 	getSystemComponentMarkerProps,
 	getSystemComponentStructuralMetadata,
-	type SystemComponentInstanceOverrideValues,
 	type SystemComponentInstanceOverrides,
+	type SystemComponentInstanceOverrideValues,
 } from "./system-component-markers";
 import { resolveSystemComponentOverrideValue } from "./system-component-override-targets";
-import { assetIdProp, iconIdProp } from "./resource-props";
 import {
 	resolveMaterializedSystemComponentClassComposition,
 	resolveSystemComponentClassName,
@@ -134,6 +134,7 @@ const getTemplateNodesByPath = (root: RecipeTemplateNode) => {
 
 export type UpdateSystemComponentInstancePatch = {
 	variantValues?: Record<string, string>;
+	unsetVariantAxes?: string[];
 	overrides?: SystemComponentInstanceOverrides;
 };
 
@@ -220,10 +221,17 @@ export const updateSystemComponentInstanceOnRoots = (
 		return null;
 	}
 
-	const variantValues = resolveSystemComponentVariantValues(version.variants, {
+	const selectedVariantValues = {
 		...pickCurrentVariantValues(version, rootMetadata.variantValues),
 		...(patch.variantValues ?? {}),
-	});
+	};
+	for (const axisKey of patch.unsetVariantAxes ?? []) {
+		delete selectedVariantValues[axisKey];
+	}
+	const variantValues = resolveSystemComponentVariantValues(
+		version.variants,
+		selectedVariantValues,
+	);
 	const overrides = patch.overrides ?? rootMetadata.overrides;
 	const changedElementIds = new Set<string>();
 
@@ -296,7 +304,10 @@ export const updateSystemComponentInstanceOnRoots = (
 			"text",
 			overrides,
 		);
-		if (textOverride !== undefined && node.props["data-trickroom-role"] === "text") {
+		if (
+			textOverride !== undefined &&
+			node.props["data-trickroom-role"] === "text"
+		) {
 			nextChildren = textOverride;
 		}
 
@@ -334,10 +345,12 @@ export const setSystemComponentVariantValueOnRoots = (
 	rootElementId: string,
 	version: PublishedSystemComponentVersion,
 	axisKey: string,
-	value: string,
+	value: string | null,
 ) =>
 	updateSystemComponentInstanceOnRoots(roots, rootElementId, version, {
-		variantValues: { [axisKey]: value },
+		...(value === null
+			? { unsetVariantAxes: [axisKey] }
+			: { variantValues: { [axisKey]: value } }),
 	});
 
 const patchSystemComponentOverrideOnRoots = (
@@ -375,13 +388,9 @@ export const setSystemComponentOverrideClassNameOnRoots = (
 	targetId: string,
 	className: string,
 ) =>
-	patchSystemComponentOverrideOnRoots(
-		roots,
-		rootElementId,
-		version,
-		targetId,
-		{ className },
-	);
+	patchSystemComponentOverrideOnRoots(roots, rootElementId, version, targetId, {
+		className,
+	});
 
 export const setSystemComponentOverrideTextOnRoots = (
 	roots: readonly Node[],

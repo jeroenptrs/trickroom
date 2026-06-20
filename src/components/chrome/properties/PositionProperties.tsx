@@ -1,14 +1,16 @@
 import { useCallback, useMemo } from "react";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
+import { useDesignSystemId } from "../../../stores/design-store";
 import type { ModelOptions } from "../../../utils/tailwind-classname";
-import { StyleSection } from "./StyleSection";
-import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
-import { StyleOverrideRows } from "./StyleOverrideRows";
-import { getStyleIntent, styleValueText } from "./styleSectionController";
 import {
 	insetUtilityFromInput,
 	readPositionValue,
 	zIndexUtilityFromInput,
 } from "./positionPropertiesController";
+import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
+import { StyleOverrideRows } from "./StyleOverrideRows";
+import { StyleSection } from "./StyleSection";
+import { getStyleIntent, styleValueText } from "./styleSectionController";
 
 type PositionPropertiesProps = {
 	className: string;
@@ -46,10 +48,16 @@ const ISOLATION_OPTIONS: readonly SegmentedOption<string>[] = [
 	{ value: "auto", label: "Auto" },
 ];
 
-export function PositionProperties({ className, onChange }: PositionPropertiesProps) {
+export function PositionProperties({
+	className,
+	onChange,
+}: PositionPropertiesProps) {
+	const systemId = useDesignSystemId();
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
+
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: EMPTY_COLOR_TOKENS }),
-		[],
+		() => ({ colorTokens: EMPTY_COLOR_TOKENS, ...customUtilityRoots }),
+		[customUtilityRoots],
 	);
 
 	const read = useCallback(
@@ -58,9 +66,13 @@ export function PositionProperties({ className, onChange }: PositionPropertiesPr
 		[className, options],
 	);
 
-	const position = styleValueText(getStyleIntent(className, options, "position.position"));
+	const position = styleValueText(
+		getStyleIntent(className, options, "position.position"),
+	);
 	const zIndex = read("position.z-index");
-	const summary = [position, zIndex && `z-${zIndex}`].filter(Boolean).join(" · ") || undefined;
+	const summary =
+		[position, zIndex && `z-${zIndex}`].filter(Boolean).join(" · ") ||
+		undefined;
 
 	return (
 		<StyleSection title="Position" summary={summary}>
@@ -93,9 +105,7 @@ export function PositionProperties({ className, onChange }: PositionPropertiesPr
 								label="All"
 								value={slot.value ?? ""}
 								placeholder="0, 4, auto"
-								onCommit={(v) =>
-									slot.apply(insetUtilityFromInput("inset", v))
-								}
+								onCommit={(v) => slot.apply(insetUtilityFromInput("inset", v))}
 							/>
 						)}
 					/>
@@ -146,9 +156,7 @@ export function PositionProperties({ className, onChange }: PositionPropertiesPr
 								label="Top"
 								value={slot.value ?? ""}
 								placeholder="0, 4, -4, auto"
-								onCommit={(v) =>
-									slot.apply(insetUtilityFromInput("top", v))
-								}
+								onCommit={(v) => slot.apply(insetUtilityFromInput("top", v))}
 							/>
 						)}
 					/>
@@ -163,9 +171,7 @@ export function PositionProperties({ className, onChange }: PositionPropertiesPr
 								label="Right"
 								value={slot.value ?? ""}
 								placeholder="0, 4, auto"
-								onCommit={(v) =>
-									slot.apply(insetUtilityFromInput("right", v))
-								}
+								onCommit={(v) => slot.apply(insetUtilityFromInput("right", v))}
 							/>
 						)}
 					/>
@@ -180,9 +186,7 @@ export function PositionProperties({ className, onChange }: PositionPropertiesPr
 								label="Bottom"
 								value={slot.value ?? ""}
 								placeholder="0, 4, auto"
-								onCommit={(v) =>
-									slot.apply(insetUtilityFromInput("bottom", v))
-								}
+								onCommit={(v) => slot.apply(insetUtilityFromInput("bottom", v))}
 							/>
 						)}
 					/>
@@ -197,9 +201,7 @@ export function PositionProperties({ className, onChange }: PositionPropertiesPr
 								label="Left"
 								value={slot.value ?? ""}
 								placeholder="0, 4, auto"
-								onCommit={(v) =>
-									slot.apply(insetUtilityFromInput("left", v))
-								}
+								onCommit={(v) => slot.apply(insetUtilityFromInput("left", v))}
 							/>
 						)}
 					/>

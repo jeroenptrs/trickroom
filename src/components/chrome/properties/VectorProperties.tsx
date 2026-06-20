@@ -1,19 +1,17 @@
 import { useCallback, useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
 import { useDesignSystemId } from "../../../stores/design-store";
 import {
 	buildPropertyModel,
 	type ModelOptions,
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
-import {
-	applyColorChange,
-	applyColorClear,
-} from "./colorPropertiesController";
 import { ColorPropertyControl } from "./ColorPropertyControl";
-import { StyleSection } from "./StyleSection";
+import { applyColorChange, applyColorClear } from "./colorPropertiesController";
 import { Segmented, type SegmentedOption } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
+import { StyleSection } from "./StyleSection";
 import {
 	applyStyleUtility,
 	clearStyleProperty,
@@ -39,13 +37,17 @@ const PAINT_NONE_OPTIONS: readonly SegmentedOption<string>[] = [
 ];
 
 /** Override-aware: stroke width only; fill/stroke colors unchanged. */
-export function VectorProperties({ className, onChange }: VectorPropertiesProps) {
+export function VectorProperties({
+	className,
+	onChange,
+}: VectorPropertiesProps) {
 	const systemId = useDesignSystemId();
 	const resolved = useResolvedColorTokens(systemId);
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
 
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: resolved.names }),
-		[resolved.names],
+		() => ({ colorTokens: resolved.names, ...customUtilityRoots }),
+		[resolved.names, customUtilityRoots],
 	);
 
 	const model = useMemo(
@@ -66,7 +68,12 @@ export function VectorProperties({ className, onChange }: VectorPropertiesProps)
 				return;
 			}
 			onChange(
-				applyStyleUtility(className, options, property, vectorUtility(property, next)),
+				applyStyleUtility(
+					className,
+					options,
+					property,
+					vectorUtility(property, next),
+				),
 			);
 		},
 		[className, onChange, options],
@@ -97,7 +104,9 @@ export function VectorProperties({ className, onChange }: VectorPropertiesProps)
 					)
 				}
 				onClear={(variants) =>
-					onChange(applyColorClear(className, options, { property: "fill", variants }))
+					onChange(
+						applyColorClear(className, options, { property: "fill", variants }),
+					)
 				}
 			/>
 			<ColorPropertyControl
@@ -116,7 +125,10 @@ export function VectorProperties({ className, onChange }: VectorPropertiesProps)
 				}
 				onClear={(variants) =>
 					onChange(
-						applyColorClear(className, options, { property: "stroke", variants }),
+						applyColorClear(className, options, {
+							property: "stroke",
+							variants,
+						}),
 					)
 				}
 			/>

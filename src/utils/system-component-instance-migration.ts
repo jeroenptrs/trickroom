@@ -8,11 +8,12 @@ import {
 	classifySystemComponentMigration,
 	migrateSystemComponentInstance,
 	migrateSystemComponentInstanceToCurrent,
-	SystemComponentMigrationError,
 	type SystemComponentMigrationClassification,
 	type SystemComponentMigrationDiagnostic,
+	SystemComponentMigrationError,
 	type SystemComponentMigrationResult,
 } from "./system-component-migration";
+import { variantSchemaHashMatchesDefaultBackfillMigration } from "./system-component-variant-defaults-migration";
 import type {
 	PublishedSystemComponentVersion,
 	SystemComponentManifest,
@@ -65,10 +66,16 @@ const isStaleAttachedComponentVersion = (
 		return true;
 	}
 
-	return isSystemComponentRootStale(rootProps, {
-		templateHash: sourceVersion.templateHash,
-		variantSchemaHash: sourceVersion.variantSchemaHash,
-	});
+	return (
+		isSystemComponentRootStale(rootProps, {
+			templateHash: sourceVersion.templateHash,
+		}) ||
+		(metadata.variantSchemaHash !== sourceVersion.variantSchemaHash &&
+			!variantSchemaHashMatchesDefaultBackfillMigration(
+				metadata.variantSchemaHash,
+				sourceVersion.variants,
+			))
+	);
 };
 
 export const isSystemComponentInstanceMigrationUpdateBlocked = (
@@ -158,17 +165,13 @@ export const previewSystemComponentInstanceMigration = (
 	let blockMessage: string | undefined;
 
 	try {
-		const migration = migrateSystemComponentInstance(
-			boards,
-			root.id,
-			{
-				systemId: context.systemId,
-				componentId: context.componentId,
-				sourceVersion: context.sourceVersion,
-				targetVersion: context.targetVersion,
-				migrationHints: context.targetVersion.migrationHints,
-			},
-		);
+		const migration = migrateSystemComponentInstance(boards, root.id, {
+			systemId: context.systemId,
+			componentId: context.componentId,
+			sourceVersion: context.sourceVersion,
+			targetVersion: context.targetVersion,
+			migrationHints: context.targetVersion.migrationHints,
+		});
 		migrationDiagnostics = migration.metadata.diagnostics;
 	} catch (error) {
 		if (error instanceof SystemComponentMigrationError) {
@@ -238,7 +241,10 @@ export const updateStaleSystemComponentInstance = (
 	);
 };
 
-const findNodeById = (boards: readonly Node[], elementId: string): Node | null => {
+const findNodeById = (
+	boards: readonly Node[],
+	elementId: string,
+): Node | null => {
 	for (const board of boards) {
 		const stack: Node[] = [board];
 		while (stack.length > 0) {

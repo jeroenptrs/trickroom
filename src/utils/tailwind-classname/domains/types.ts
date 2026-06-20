@@ -7,7 +7,21 @@ export type { ColorIntent } from "../color";
 export type { SpacingIntent } from "../spacing";
 export type { StyleIntent } from "../style";
 
-export type KnownUtilityIntent = ColorIntent | SpacingIntent | StyleIntent;
+export type CustomFunctionalIntent = {
+	kind: "custom-functional";
+	/**
+	 * The @utility root, used as conflict identity key
+	 * (e.g. "text-interaction" for "text-interaction-sm").
+	 */
+	property: string;
+	value: string | null;
+};
+
+export type KnownUtilityIntent =
+	| ColorIntent
+	| SpacingIntent
+	| StyleIntent
+	| CustomFunctionalIntent;
 
 export type UtilityIntent = KnownUtilityIntent | { kind: "unknown" };
 
@@ -17,6 +31,19 @@ export type ClassifyContext = {
 	 * system. Passed to the color domain classifier only.
 	 */
 	colorTokens: ReadonlySet<string>;
+	/**
+	 * Functional custom @utility roots (wildcard, value-taking), sorted by length
+	 * descending for longest-prefix matching. Matched by exact name OR `root-`
+	 * prefix (e.g. root `text-interaction` matches `text-interaction-sm`).
+	 * Absent or empty → such utilities classify as "unknown".
+	 */
+	customFunctionalUtilityRoots?: readonly string[];
+	/**
+	 * Static custom @utility roots (value-less, e.g. `core-interaction-primary`,
+	 * `bg-penn-app`). Matched by EXACT name only — never by prefix — so a stray
+	 * `bg-penn-app-x` stays unknown.
+	 */
+	customStaticUtilityRoots?: readonly string[];
 };
 
 /**

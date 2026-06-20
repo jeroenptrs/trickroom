@@ -1,12 +1,14 @@
 import { useMemo } from "react";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
+import { useDesignSystemId } from "../../../stores/design-store";
 import type {
 	ModelOptions,
 	SpacingProperty,
 } from "../../../utils/tailwind-classname";
 import { Text } from "../../ui/text";
 import { SpacingOverrideRows } from "./SpacingOverrideRows";
-import { isMarginProperty } from "./spacingPropertiesController";
 import { ValueField } from "./StyleControls";
+import { isMarginProperty } from "./spacingPropertiesController";
 
 type SpacingPropertiesProps = {
 	className: string;
@@ -64,9 +66,12 @@ export function SpacingProperties({
 	className,
 	onChange,
 }: SpacingPropertiesProps) {
+	const systemId = useDesignSystemId();
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
+
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: EMPTY_COLOR_TOKENS }),
-		[],
+		() => ({ colorTokens: EMPTY_COLOR_TOKENS, ...customUtilityRoots }),
+		[customUtilityRoots],
 	);
 
 	return (
@@ -90,7 +95,9 @@ export function SpacingProperties({
 										label={row.label}
 										value={slot.value ?? ""}
 										placeholder={
-											isMarginProperty(row.property) ? "0, 4, auto" : "0, 4, [13px]"
+											isMarginProperty(row.property)
+												? "0, 4, auto"
+												: "0, 4, [13px]"
 										}
 										onCommit={(value) =>
 											slot.apply(value.trim() ? value.trim() : null)

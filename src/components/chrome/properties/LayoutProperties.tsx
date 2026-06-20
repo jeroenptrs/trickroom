@@ -1,11 +1,13 @@
 import { useCallback, useMemo } from "react";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
+import { useDesignSystemId } from "../../../stores/design-store";
 import type {
 	ModelOptions,
 	StyleProperty,
 } from "../../../utils/tailwind-classname";
-import { StyleSection } from "./StyleSection";
 import { Segmented, type SegmentedOption } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
+import { StyleSection } from "./StyleSection";
 import { getStyleIntent, styleValueText } from "./styleSectionController";
 
 type LayoutPropertiesProps = {
@@ -48,10 +50,16 @@ const ALIGN_OPTIONS: readonly SegmentedOption<string>[] = [
 	{ value: "stretch", label: "Stretch" },
 ];
 
-export function LayoutProperties({ className, onChange }: LayoutPropertiesProps) {
+export function LayoutProperties({
+	className,
+	onChange,
+}: LayoutPropertiesProps) {
+	const systemId = useDesignSystemId();
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
+
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: EMPTY_COLOR_TOKENS }),
-		[],
+		() => ({ colorTokens: EMPTY_COLOR_TOKENS, ...customUtilityRoots }),
+		[customUtilityRoots],
 	);
 
 	const base = useCallback(

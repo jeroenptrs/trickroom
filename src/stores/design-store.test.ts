@@ -17,6 +17,7 @@ import type { Props, TrickroomDesign } from "../types";
 import { assetIdProp } from "../utils/resource-props";
 import {
 	getSystemComponentMarkerProps,
+	getSystemComponentStructuralMetadata,
 	systemComponentPathProp,
 } from "../utils/system-component-markers";
 import { layerDropInsertionIndex } from "../utils/reorder-insertion-index";
@@ -36,6 +37,7 @@ import {
 	replaceElementWithNodeTree,
 	selectElement,
 	serializeDesignState,
+	setSystemComponentVariantValue,
 	updateElementProps,
 	updateElementText,
 } from "./design-store";
@@ -1280,6 +1282,69 @@ describe("design store transforms", () => {
 		deleteElement("slot-text");
 		state = designStore.get();
 		expect(state.entitiesById["slot-text"]).toBeUndefined();
+	});
+
+	it("clears optional attached component variant axes through the UI-facing setter", () => {
+		const version = {
+			version: "1",
+			publishedAt: "2026-05-26T14:00:00.000Z",
+			templateHash: "sha256:template",
+			variantSchemaHash: "sha256:variants",
+			root: {
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				className: "base",
+			},
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: {
+							brand: { classesByPath: { root: "text-blue-600" } },
+							neutral: { classesByPath: { root: "text-zinc-700" } },
+						},
+					},
+				},
+			},
+		};
+		designStore.setState(() =>
+			normalizeDesign({
+				name: "Optional Attached Component",
+				boards: [
+					{
+						id: "component-root",
+						props: {
+							"data-trickroom-name": "Component Root",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "container",
+							"data-trickroom-role": "branch",
+							className: "base text-blue-600",
+							...getSystemComponentMarkerProps({
+								systemId: "system-1",
+								componentId: "component-1",
+								instanceId: "component-instance-1",
+								version: "1",
+								path: "root",
+								isRoot: true,
+								variantValues: { tone: "brand" },
+							}),
+						},
+						children: [],
+					},
+				],
+			}),
+		);
+
+		setSystemComponentVariantValue("component-root", version, "tone", null);
+
+		const state = designStore.get();
+		const root = state.entitiesById["component-root"];
+		expect(root?.props.className).toBe("base");
+		expect(
+			getSystemComponentStructuralMetadata(root?.props ?? {})?.variantValues,
+		).toEqual({});
+		expect(state.dirtyIds).toEqual({ "component-root": true });
 	});
 
 	it("detaches the whole recipe instance from a structural child and preserves selection", () => {

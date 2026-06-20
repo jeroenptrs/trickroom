@@ -4,7 +4,7 @@ import {
 	type ModelOptions,
 	type SpacingProperty,
 } from "../../../utils/tailwind-classname";
-import { OverrideRows, type OverrideRowSlot } from "./OverrideRows";
+import { type OverrideRowSlot, OverrideRows } from "./OverrideRows";
 import {
 	applySpacingChange,
 	applySpacingClear,

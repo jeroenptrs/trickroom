@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	getRenderableProps,
 	MATERIALIZED_BASE_CLASS_PROP,
-	resolveRegistryComponent,
 	type RegistryId,
 	type RegistryResolution,
+	resolveRegistryComponent,
 } from "../libraries/registry";
 import {
 	getRecipeMarkerProps,
@@ -39,14 +39,14 @@ import {
 	applyAddElement,
 	applyAddSubtree,
 	applyAddSystemComponent,
-	applyDetachSystemComponent,
 	applyCopySubtree,
 	applyDeleteElement,
+	applyDetachSystemComponent,
 	applyExtractSubtree,
 	applyMoveElement,
 	applyUpdateElementProps,
-	applyUpdateSystemComponentInstance,
 	applyUpdateElementText,
+	applyUpdateSystemComponentInstance,
 	cloneBoardForMigrationTrial,
 	DesignTransformError,
 	normalizeDesignForMutation,
@@ -2605,8 +2605,9 @@ describe("applyAddSystemComponent", () => {
 			{ expectedRevision: afterVariants.revision, now },
 		);
 		await publishSystemComponentDraft(projectRoot, systemId, componentId, {
-			expectedRevision: (await readSystemComponentManifest(projectRoot, systemId))
-				.revision,
+			expectedRevision: (
+				await readSystemComponentManifest(projectRoot, systemId)
+			).revision,
 			now,
 		});
 	});
@@ -2729,13 +2730,16 @@ describe("applyAddSystemComponent", () => {
 
 	it("rejects insertion into recipe slots that disallow the component root", async () => {
 		await expect(
-			applyAddSystemComponent({ ...menuRecipeDesign(), systemId }, {
-				projectRoot,
-				parentId: "menu-popup",
-				index: 0,
-				systemId,
-				componentId,
-			}),
+			applyAddSystemComponent(
+				{ ...menuRecipeDesign(), systemId },
+				{
+					projectRoot,
+					parentId: "menu-popup",
+					index: 0,
+					systemId,
+					componentId,
+				},
+			),
 		).rejects.toMatchObject({
 			name: "DesignTransformError",
 			code: "RECIPE_SLOT_DISALLOWED_CHILD",
@@ -2792,7 +2796,6 @@ describe("applyUpdateSystemComponentInstance", () => {
 				axes: {
 					tone: {
 						label: "Tone",
-						defaultValue: "neutral",
 						values: {
 							brand: { classesByPath: { root: "brand" } },
 							neutral: { classesByPath: { root: "neutral" } },
@@ -2800,11 +2803,15 @@ describe("applyUpdateSystemComponentInstance", () => {
 					},
 				},
 			},
-			{ expectedRevision: afterTemplate.revision, now: "2026-05-26T14:00:00.000Z" },
+			{
+				expectedRevision: afterTemplate.revision,
+				now: "2026-05-26T14:00:00.000Z",
+			},
 		);
 		await publishSystemComponentDraft(projectRoot, systemId, componentId, {
-			expectedRevision: (await readSystemComponentManifest(projectRoot, systemId))
-				.revision,
+			expectedRevision: (
+				await readSystemComponentManifest(projectRoot, systemId)
+			).revision,
 			now: "2026-05-26T14:00:00.000Z",
 		});
 	});
@@ -2835,6 +2842,32 @@ describe("applyUpdateSystemComponentInstance", () => {
 			name: "DesignTransformError",
 			code: "INVALID_SYSTEM_COMPONENT_INSTANCE_STATE",
 		});
+	});
+
+	it("clears optional variant axes through unsetVariantAxes", async () => {
+		const added = await applyAddSystemComponent(
+			{ ...simpleDesign, systemId },
+			{
+				projectRoot,
+				parentId: "root",
+				index: 0,
+				systemId,
+				componentId,
+				variantValues: { tone: "brand" },
+			},
+		);
+
+		const updated = await applyUpdateSystemComponentInstance(added.design, {
+			projectRoot,
+			rootElementId: added.changedElementId,
+			unsetVariantAxes: ["tone"],
+		});
+		const root = findNode(updated.design.boards, added.changedElementId);
+		const rootMetadata = getSystemComponentStructuralMetadata(root?.props);
+
+		expect(updated.variantValues).toEqual({});
+		expect(rootMetadata?.variantValues).toEqual({});
+		expect(root?.props.className).toBeUndefined();
 	});
 });
 
@@ -2880,8 +2913,9 @@ describe("applyDetachSystemComponent", () => {
 			{ expectedRevision: created.revision, now: "2026-05-26T14:00:00.000Z" },
 		);
 		await publishSystemComponentDraft(projectRoot, systemId, componentId, {
-			expectedRevision: (await readSystemComponentManifest(projectRoot, systemId))
-				.revision,
+			expectedRevision: (
+				await readSystemComponentManifest(projectRoot, systemId)
+			).revision,
 			now: "2026-05-26T14:00:00.000Z",
 		});
 	});
@@ -2925,8 +2959,13 @@ describe("applyDetachSystemComponent", () => {
 		});
 
 		expect(detached.detachedElementIds).toContain(added.changedElementId);
-		const persistedRoot = findNode(detached.design.boards, added.changedElementId);
-		expect(persistedRoot?.props["data-trickroom-system-component-instance"]).toBeUndefined();
+		const persistedRoot = findNode(
+			detached.design.boards,
+			added.changedElementId,
+		);
+		expect(
+			persistedRoot?.props["data-trickroom-system-component-instance"],
+		).toBeUndefined();
 	});
 });
 

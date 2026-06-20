@@ -35,12 +35,15 @@ import {
 	useLoadedDraftTemplateHash,
 	useLoadedDraftVariantSchemaHash,
 } from "../../stores/component-editor-session-store";
+import { classifyCompoundWhenShape } from "../../utils/system-component-compound-shape";
+import { compoundWhenSignature } from "../../utils/system-component-compound-signature";
 import {
 	isSystemComponentSlug,
 	type SystemComponentVariantSchema,
 } from "../../utils/system-components";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { AuthoredCompoundsList } from "./AuthoredCompoundsList";
 import { ComponentDraftProperties } from "./ComponentDraftProperties";
 import type { ComponentPublicationState } from "./component-catalog";
 import { getComponentPublicationState } from "./component-catalog";
@@ -88,24 +91,18 @@ export type CompoundVariantDraft = {
 	// schema. Lets condition edits keep their painted classesByPath even though
 	// changing a condition changes the `when` map it would otherwise be keyed by.
 	originalWhenSignature?: string;
+	// Preserved manifest `when` for advanced/compat shapes the normal editor
+	// cannot round-trip (arrays, empty when, one-axis, unknown refs, etc.).
+	originalWhen?: Record<string, string | string[]>;
+	isAdvancedCompat?: boolean;
 };
 
 const variantAxisKeyPattern = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 const variantValueKeyPattern = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 const createDraftId = () => Math.random().toString(36).slice(2, 9);
 
-// Compounds combine at least two axis conditions; the section is only useful
-// once a draft has two axes to combine.
+// Compounds combine at least two axis conditions.
 const COMPOUND_MIN_AXES = 2;
-
-function compoundWhenSignature(when: Record<string, string | string[]>) {
-	const normalized: Record<string, string | string[]> = {};
-	for (const axisKey of Object.keys(when).sort()) {
-		const value = when[axisKey];
-		normalized[axisKey] = Array.isArray(value) ? [...value].sort() : value;
-	}
-	return JSON.stringify(normalized);
-}
 
 function compoundConditionsToWhen(
 	conditions: CompoundConditionDraft[],
@@ -177,17 +174,21 @@ export function resolveVariantDraftSeedSource({
 export function schemaToCompoundDrafts(
 	schema: SystemComponentVariantSchema | undefined,
 ): CompoundVariantDraft[] {
-	return (schema?.compoundVariants ?? []).map((compound) => ({
-		id: createDraftId(),
-		originalWhenSignature: compoundWhenSignature(compound.when),
-		conditions: Object.entries(compound.when).map(([axisKey, value]) => ({
+	const axes = schema?.axes ?? {};
+	return (schema?.compoundVariants ?? []).map((compound) => {
+		const classification = classifyCompoundWhenShape(compound.when, axes);
+		return {
 			id: createDraftId(),
-			axisKey,
-			// Authoring supports a single value per axis; arrays (only reachable by
-			// hand-editing the manifest) collapse to their first entry.
-			valueKey: Array.isArray(value) ? (value[0] ?? "") : value,
-		})),
-	}));
+			originalWhenSignature: compoundWhenSignature(compound.when),
+			originalWhen: { ...compound.when },
+			isAdvancedCompat: classification.kind === "advanced",
+			conditions: Object.entries(compound.when).map(([axisKey, value]) => ({
+				id: createDraftId(),
+				axisKey,
+				valueKey: Array.isArray(value) ? value.join("|") : value,
+			})),
+		};
+	});
 }
 
 export function validateVariantDrafts(
@@ -281,6 +282,9 @@ export function validateVariantDrafts(
 	}
 
 	for (const [compoundIndex, compound] of compoundDrafts.entries()) {
+		if (compound.isAdvancedCompat) {
+			continue;
+		}
 		const compoundLabel = `compound ${compoundIndex + 1}`;
 		const seenAxes = new Map<string, number>();
 		let resolvedConditions = 0;
@@ -430,7 +434,10 @@ function compoundDraftsToSchema(
 	}
 
 	return compoundDrafts.map((draft) => {
-		const when = compoundConditionsToWhen(draft.conditions);
+		const when =
+			draft.isAdvancedCompat && draft.originalWhen
+				? draft.originalWhen
+				: compoundConditionsToWhen(draft.conditions);
 		const signature = compoundWhenSignature(when);
 		const classesByPath =
 			classesBySignature.get(signature) ??
@@ -520,271 +527,18 @@ export function advanceCompoundDraftKeys(
 	});
 }
 
-type CompoundAxisOption = {
-	key: string;
-	label: string;
-	values: { key: string; label: string }[];
-};
-
-function CompoundVariantsEditor({
-	compoundDrafts,
-	axisOptions,
-	onChange,
-}: {
-	compoundDrafts: CompoundVariantDraft[];
-	axisOptions: CompoundAxisOption[];
-	onChange: (next: CompoundVariantDraft[]) => void;
-}) {
-	const eligible = axisOptions.length >= COMPOUND_MIN_AXES;
-	if (!eligible && compoundDrafts.length === 0) {
-		// Compounds only make sense once there are two axes to combine; keep the
-		// surface out of the way until then.
-		return null;
-	}
-
-	const firstUnusedAxis = (conditions: CompoundConditionDraft[]) => {
-		const used = new Set(conditions.map((condition) => condition.axisKey));
-		return axisOptions.find((axis) => !used.has(axis.key));
-	};
-
-	const updateCompound = (
-		compoundId: string,
-		map: (compound: CompoundVariantDraft) => CompoundVariantDraft,
-	) =>
-		onChange(
-			compoundDrafts.map((compound) =>
-				compound.id === compoundId ? map(compound) : compound,
-			),
-		);
-
-	const addCompound = () => {
-		const conditions = axisOptions.slice(0, COMPOUND_MIN_AXES).map((axis) => ({
-			id: createDraftId(),
-			axisKey: axis.key,
-			valueKey: axis.values[0]?.key ?? "",
-		}));
-		onChange([...compoundDrafts, { id: createDraftId(), conditions }]);
-	};
-
-	return (
-		<section className="flex flex-col gap-2 border-b border-slate-200 pb-3">
-			<div className="flex items-center justify-between gap-2">
-				<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-					Compound variants
-				</p>
-				<Button
-					type="button"
-					variant="outlined"
-					className="flex items-center gap-1 px-2 py-1 text-xs"
-					disabled={!eligible}
-					onClick={addCompound}
-				>
-					<Plus className="size-3" aria-hidden="true" />
-					Compound
-				</Button>
-			</div>
-			<p className="text-[11px] text-slate-500">
-				Apply extra classes when several axes line up at once. Add the
-				conditions here, then paint the classes with the “Compound” style target
-				on the canvas. Conditions you leave off match any value.
-			</p>
-			{compoundDrafts.map((compound, compoundIndex) => {
-				const usableAxisCount = Math.min(
-					axisOptions.length,
-					compound.conditions.length +
-						(firstUnusedAxis(compound.conditions) ? 1 : 0),
-				);
-				return (
-					<div
-						key={compound.id}
-						className="flex flex-col gap-2 border border-slate-200 bg-white p-2"
-					>
-						<div className="flex items-center justify-between gap-2">
-							<span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-								Compound {compoundIndex + 1}
-							</span>
-							<Button
-								type="button"
-								variant="block"
-								flavor="warning"
-								className="px-2 py-1"
-								title="Remove compound"
-								onClick={() =>
-									onChange(
-										compoundDrafts.filter((entry) => entry.id !== compound.id),
-									)
-								}
-							>
-								<Trash2 className="size-3.5" aria-hidden="true" />
-							</Button>
-						</div>
-						{compound.conditions.map((condition) => {
-							const axis = axisOptions.find(
-								(entry) => entry.key === condition.axisKey,
-							);
-							const usedByOthers = new Set(
-								compound.conditions
-									.filter((entry) => entry.id !== condition.id)
-									.map((entry) => entry.axisKey),
-							);
-							const selectableAxes = axisOptions.filter(
-								(entry) =>
-									!usedByOthers.has(entry.key) ||
-									entry.key === condition.axisKey,
-							);
-							return (
-								<div
-									key={condition.id}
-									className="grid grid-cols-[1fr_1fr_auto] gap-2"
-								>
-									<select
-										aria-label="Compound condition axis"
-										className="w-full border-none bg-white px-2 py-1.5 text-sm text-slate-950 inset-shadow-[0_0_0_1px_#cbd5e1] focus:outline-none focus:inset-shadow-[0_0_0_1px_#06b6d4]"
-										value={condition.axisKey}
-										onChange={(event) => {
-											const axisKey = event.target.value;
-											const firstValue =
-												axisOptions.find((entry) => entry.key === axisKey)
-													?.values[0]?.key ?? "";
-											updateCompound(compound.id, (entry) => ({
-												...entry,
-												conditions: entry.conditions.map((item) =>
-													item.id === condition.id
-														? { ...item, axisKey, valueKey: firstValue }
-														: item,
-												),
-											}));
-										}}
-									>
-										{condition.axisKey &&
-										!axisOptions.some(
-											(entry) => entry.key === condition.axisKey,
-										) ? (
-											<option value={condition.axisKey}>
-												{condition.axisKey} (missing)
-											</option>
-										) : null}
-										{selectableAxes.map((entry) => (
-											<option key={entry.key} value={entry.key}>
-												{entry.label}
-											</option>
-										))}
-									</select>
-									<select
-										aria-label="Compound condition value"
-										className="w-full border-none bg-white px-2 py-1.5 text-sm text-slate-950 inset-shadow-[0_0_0_1px_#cbd5e1] focus:outline-none focus:inset-shadow-[0_0_0_1px_#06b6d4]"
-										value={condition.valueKey}
-										onChange={(event) =>
-											updateCompound(compound.id, (entry) => ({
-												...entry,
-												conditions: entry.conditions.map((item) =>
-													item.id === condition.id
-														? { ...item, valueKey: event.target.value }
-														: item,
-												),
-											}))
-										}
-									>
-										<option value="">Choose value</option>
-										{condition.valueKey &&
-										!axis?.values.some(
-											(value) => value.key === condition.valueKey,
-										) ? (
-											<option value={condition.valueKey}>
-												{condition.valueKey} (missing)
-											</option>
-										) : null}
-										{(axis?.values ?? []).map((value) => (
-											<option key={value.key} value={value.key}>
-												{value.label}
-											</option>
-										))}
-									</select>
-									<Button
-										type="button"
-										variant="block"
-										flavor="warning"
-										className="px-2 py-1"
-										title="Remove condition"
-										onClick={() =>
-											updateCompound(compound.id, (entry) => ({
-												...entry,
-												conditions: entry.conditions.filter(
-													(item) => item.id !== condition.id,
-												),
-											}))
-										}
-									>
-										<Trash2 className="size-3.5" aria-hidden="true" />
-									</Button>
-								</div>
-							);
-						})}
-						<Button
-							type="button"
-							variant="block"
-							className="flex items-center gap-1 self-start px-2 py-1 text-xs"
-							disabled={compound.conditions.length >= usableAxisCount}
-							onClick={() => {
-								const axis = firstUnusedAxis(compound.conditions);
-								if (!axis) {
-									return;
-								}
-								updateCompound(compound.id, (entry) => ({
-									...entry,
-									conditions: [
-										...entry.conditions,
-										{
-											id: createDraftId(),
-											axisKey: axis.key,
-											valueKey: axis.values[0]?.key ?? "",
-										},
-									],
-								}));
-							}}
-						>
-							<Plus className="size-3" aria-hidden="true" />
-							Condition
-						</Button>
-					</div>
-				);
-			})}
-		</section>
-	);
-}
-
 function VariantSchemaEditor({
 	diagnostics,
 	drafts,
-	compoundDrafts,
 	onChange,
+	onCompoundsMutate,
 }: {
 	diagnostics: string[];
 	drafts: VariantAxisDraft[];
-	compoundDrafts: CompoundVariantDraft[];
-	onChange: (
-		drafts: VariantAxisDraft[],
-		compoundDrafts: CompoundVariantDraft[],
-	) => void;
+	onChange: (drafts: VariantAxisDraft[]) => void;
+	onCompoundsMutate?: () => void;
 }) {
-	const emitAxes = (nextDrafts: VariantAxisDraft[]) =>
-		onChange(nextDrafts, compoundDrafts);
-	const emitCompounds = (nextCompoundDrafts: CompoundVariantDraft[]) =>
-		onChange(drafts, nextCompoundDrafts);
-	// Only fully-defined axes (a key and at least one value) can take part in a
-	// compound condition.
-	const axisOptions: CompoundAxisOption[] = drafts
-		.map((axis) => ({
-			key: axis.key.trim(),
-			label: axis.label.trim() || axis.key.trim(),
-			values: axis.values
-				.map((value) => ({
-					key: value.key.trim(),
-					label: value.label.trim() || value.key.trim(),
-				}))
-				.filter((value) => value.key),
-		}))
-		.filter((axis) => axis.key && axis.values.length > 0);
+	const emitAxes = (nextDrafts: VariantAxisDraft[]) => onChange(nextDrafts);
 	const updateAxis = (
 		axisId: string,
 		patch: Partial<Omit<VariantAxisDraft, "id" | "values">>,
@@ -1028,11 +782,7 @@ function VariantSchemaEditor({
 					</div>
 				</div>
 			))}
-			<CompoundVariantsEditor
-				compoundDrafts={compoundDrafts}
-				axisOptions={axisOptions}
-				onChange={emitCompounds}
-			/>
+			<AuthoredCompoundsList onMutate={onCompoundsMutate} />
 			{diagnostics.length > 0 ? (
 				<ul
 					className="flex flex-col gap-1 border border-red-200 bg-red-50 px-2 py-1.5"
@@ -1107,21 +857,18 @@ export function SystemEditorComponentContextSync({
 		});
 
 		if (hydrateResult === "dirty-skipped") {
-			const {
-				hasConflict,
-				adoptTemplateBaseline,
-				adoptVariantSchemaBaseline,
-			} = evaluateComponentDraftServerConflict({
-				dirtyDraftMatchesComponent: isComponentDraftForComponent(
-					record.componentId,
-				),
-				templateDirty,
-				variantsDirty,
-				serverDraftTemplateHash,
-				serverDraftVariantSchemaHash,
-				loadedDraftTemplateHash,
-				loadedDraftVariantSchemaHash,
-			});
+			const { hasConflict, adoptTemplateBaseline, adoptVariantSchemaBaseline } =
+				evaluateComponentDraftServerConflict({
+					dirtyDraftMatchesComponent: isComponentDraftForComponent(
+						record.componentId,
+					),
+					templateDirty,
+					variantsDirty,
+					serverDraftTemplateHash,
+					serverDraftVariantSchemaHash,
+					loadedDraftTemplateHash,
+					loadedDraftVariantSchemaHash,
+				});
 
 			if (adoptTemplateBaseline) {
 				setLoadedDraftHashes({ templateHash: serverDraftTemplateHash });
@@ -1424,26 +1171,30 @@ export function SystemEditorComponentContextPanel({
 			<VariantSchemaEditor
 				diagnostics={variantDiagnostics}
 				drafts={currentVariantDrafts}
-				compoundDrafts={currentCompoundDrafts}
-				onChange={(nextDrafts, nextCompoundDrafts) => {
+				onChange={(nextDrafts) => {
+					const storeVariants = componentDraftStore.get().variants;
+					const syncedCompoundDrafts = schemaToCompoundDrafts(storeVariants);
 					const nextVariants = variantDraftsToSchema(
 						nextDrafts,
-						componentDraftStore.get().variants,
-						nextCompoundDrafts,
+						storeVariants,
+						syncedCompoundDrafts,
 					);
 					replaceComponentDraftVariants(nextVariants);
 					setVariantDrafts(
 						advanceVariantDraftSchemaKeys(nextDrafts, nextVariants),
 					);
 					setCompoundDrafts(
-						advanceCompoundDraftKeys(nextCompoundDrafts, nextVariants),
+						advanceCompoundDraftKeys(syncedCompoundDrafts, nextVariants),
+					);
+				}}
+				onCompoundsMutate={() => {
+					setCompoundDrafts(
+						schemaToCompoundDrafts(componentDraftStore.get().variants),
 					);
 				}}
 			/>
 			<div className="flex items-center justify-between gap-2 pt-1">
-				<span className="text-[11px] text-slate-500">
-					{variantStatusLabel}
-				</span>
+				<span className="text-[11px] text-slate-500">{variantStatusLabel}</span>
 			</div>
 			{draftConflict ? (
 				<p
@@ -1470,9 +1221,7 @@ export function SystemEditorComponentContextPanel({
 			<div className="flex flex-col gap-3">
 				<div>
 					<p className="font-medium text-slate-900">{record.name}</p>
-					<p className="font-mono text-[11px] text-slate-500">
-						{record.slug}
-					</p>
+					<p className="font-mono text-[11px] text-slate-500">{record.slug}</p>
 				</div>
 				{variantEditor}
 			</div>
@@ -1484,9 +1233,7 @@ export function SystemEditorComponentContextPanel({
 			<div className="flex flex-col gap-3">
 				<div>
 					<p className="font-medium text-slate-900">{record.name}</p>
-					<p className="font-mono text-[11px] text-slate-500">
-						{record.slug}
-					</p>
+					<p className="font-mono text-[11px] text-slate-500">{record.slug}</p>
 				</div>
 				<InspectorField
 					label="Status"
@@ -1521,8 +1268,7 @@ export function SystemEditorComponentContextPanel({
 							<p className="pt-1 text-[11px] text-slate-500">
 								{hasUnsavedDraftChanges
 									? "Save the draft before publishing."
-									: errorDiagnostics.length > 0 ||
-											variantDiagnostics.length > 0
+									: errorDiagnostics.length > 0 || variantDiagnostics.length > 0
 										? "Resolve validation diagnostics before publishing."
 										: warningDiagnostics.length > 0
 											? "Warnings are listed below. Review before publishing."

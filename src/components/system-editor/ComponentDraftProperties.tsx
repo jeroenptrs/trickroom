@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
 	getControlDefinitions,
 	resolveRegistryComponent,
@@ -15,10 +15,12 @@ import {
 	removeTemplateNodeSlotHost,
 	setComponentDraftStyleClassName,
 	setComponentDraftStyleTarget,
+	setDraftClassNameForStyleTab,
 	updateTemplateNodeOverrideTarget,
 	updateTemplateNodeProps,
 	updateTemplateNodeSlotMetadata,
 	updateTemplateNodeText,
+	useComponentDraftClassNameForStyleTab,
 	useComponentDraftEffectiveClassName,
 	useComponentDraftSelectedEntity,
 	useComponentDraftSelectedOverrideTarget,
@@ -26,9 +28,13 @@ import {
 	useComponentDraftStyleTarget,
 	useComponentDraftVariants,
 } from "../../stores/component-draft-store";
+import type {
+	ComponentDraftStyleTab,
+	ComponentDraftStyleTarget,
+} from "../../stores/component-draft-store";
 import type { ControlDefinition, JsonPrimitive } from "../../types";
-import { normalizeOverrideTargetCapabilities } from "../../utils/system-component-override-targets";
 import { assetIdProp, iconIdProp } from "../../utils/resource-props";
+import { normalizeOverrideTargetCapabilities } from "../../utils/system-component-override-targets";
 import {
 	getPropertiesControlSurface,
 	splitComponentControls,
@@ -257,43 +263,206 @@ function InspectorSection({
 	);
 }
 
-function describeCompoundWhen(
-	variants: ReturnType<typeof useComponentDraftVariants>,
-	when: Record<string, string | string[]>,
-	index: number,
-) {
-	const parts = Object.entries(when).map(([axisKey, value]) => {
-		const axis = variants?.axes[axisKey];
-		const valueKey = Array.isArray(value) ? (value[0] ?? "") : value;
-		const axisLabel = axis?.label || axisKey;
-		const valueLabel = axis?.values[valueKey]?.label || valueKey;
-		return `${axisLabel}=${valueLabel}`;
-	});
-	return parts.length > 0 ? parts.join(" · ") : `Compound ${index + 1}`;
+type DraftVariants = ReturnType<typeof useComponentDraftVariants>;
+
+type SelectedAxisEntry = {
+	axisKey: string;
+	axisLabel: string;
+	valueKey: string;
+	valueLabel: string;
+};
+
+type StyleTargetDescriptor = {
+	id: string;
+	label: string;
+	tab: ComponentDraftStyleTab;
+	title?: string;
+};
+
+type MainInspectorTab = "style" | "properties" | "classes";
+
+function isMainInspectorTab(value: string): value is MainInspectorTab {
+	return value === "style" || value === "properties" || value === "classes";
 }
 
-function DraftStyleTargetBanner() {
+function getSelectedAxisEntries(
+	variants: DraftVariants,
+	styleTarget: ComponentDraftStyleTarget,
+): SelectedAxisEntry[] {
+	return Object.entries(variants?.axes ?? {}).flatMap(([axisKey, axis]) => {
+		const valueKey = styleTarget.axisValues[axisKey];
+		const value = valueKey ? axis.values[valueKey] : undefined;
+		if (!valueKey || !value) {
+			return [];
+		}
+
+		return [
+			{
+				axisKey,
+				axisLabel: axis.label || axisKey,
+				valueKey,
+				valueLabel: value.label || valueKey,
+			},
+		];
+	});
+}
+
+function describeCompoundSelection(
+	variants: DraftVariants,
+	styleTarget: ComponentDraftStyleTarget,
+) {
+	const parts = styleTarget.compoundAxes.flatMap((axisKey) => {
+		const valueKey = styleTarget.axisValues[axisKey];
+		const axis = variants?.axes[axisKey];
+		const value = valueKey ? axis?.values[valueKey] : undefined;
+		if (!axis || !valueKey || !value) {
+			return [];
+		}
+
+		return [`${axis.label || axisKey}: ${valueKey}`];
+	});
+
+	return parts.join(" · ");
+}
+
+function getStyleTargetDescriptors(
+	variants: DraftVariants,
+	styleTarget: ComponentDraftStyleTarget,
+): StyleTargetDescriptor[] {
+	const descriptors: StyleTargetDescriptor[] = [];
+
+	if (styleTarget.base) {
+		descriptors.push({
+			id: "base",
+			label: "Base",
+			tab: { kind: "base" },
+		});
+	}
+
+	for (const selected of getSelectedAxisEntries(variants, styleTarget)) {
+		descriptors.push({
+			id: `axis:${selected.axisKey}:${selected.valueKey}`,
+			label: `${selected.axisLabel}: ${selected.valueKey}`,
+			tab: { kind: "axis", axisKey: selected.axisKey },
+			title:
+				selected.valueLabel === selected.valueKey
+					? undefined
+					: `${selected.axisLabel}: ${selected.valueLabel}`,
+		});
+	}
+
+	if (styleTarget.compoundAxes.length >= 2) {
+		const compoundDescription = describeCompoundSelection(
+			variants,
+			styleTarget,
+		);
+		descriptors.push({
+			id: `compound:${styleTarget.compoundAxes
+				.map(
+					(axisKey) =>
+						`${axisKey}:${styleTarget.axisValues[axisKey] ?? ""}`,
+				)
+				.join("|")}`,
+			label: "Compound",
+			tab: { kind: "compound" },
+			title: compoundDescription || undefined,
+		});
+	}
+
+	return descriptors;
+}
+
+function styleTabsEqual(
+	left: ComponentDraftStyleTab,
+	right: ComponentDraftStyleTab,
+) {
+	if (left.kind !== right.kind) {
+		return false;
+	}
+	return left.kind !== "axis" || right.kind !== "axis"
+		? true
+		: left.axisKey === right.axisKey;
+}
+
+function getStyleControlsRemountKey(
+	styleTarget: ComponentDraftStyleTarget,
+) {
+	const activeTab = styleTarget.activeTab;
+	if (activeTab.kind === "axis") {
+		return `axis:${activeTab.axisKey}:${
+			styleTarget.axisValues[activeTab.axisKey] ?? ""
+		}`;
+	}
+
+	if (activeTab.kind === "compound") {
+		return `compound:${styleTarget.compoundAxes
+			.map(
+				(axisKey) => `${axisKey}:${styleTarget.axisValues[axisKey] ?? ""}`,
+			)
+			.join("|")}`;
+	}
+
+	return "base";
+}
+
+function styleTargetButtonClass(selected: boolean) {
+	return `border px-2 py-1 text-xs ${
+		selected
+			? "border-cyan-500 bg-cyan-50 text-cyan-900"
+			: "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"
+	} disabled:pointer-events-none disabled:opacity-50`;
+}
+
+function StyleTargetSection() {
 	const variants = useComponentDraftVariants();
 	const styleTarget = useComponentDraftStyleTarget();
 	const axes = Object.entries(variants?.axes ?? {});
-	const compoundVariants = variants?.compoundVariants ?? [];
+	const selectedAxisEntries = getSelectedAxisEntries(variants, styleTarget);
+	const styleTabs = getStyleTargetDescriptors(variants, styleTarget);
+	const canDisableBase = selectedAxisEntries.length > 0;
+	const setAxisValue = (axisKey: string, valueKey: string) => {
+		const axisValues = { ...styleTarget.axisValues };
+		if (valueKey) {
+			axisValues[axisKey] = valueKey;
+		} else {
+			delete axisValues[axisKey];
+		}
 
-	if (axes.length === 0) {
-		return null;
-	}
+		setComponentDraftStyleTarget({
+			...styleTarget,
+			axisValues,
+			compoundAxes: styleTarget.compoundAxes.filter(
+				(compoundAxisKey) => axisValues[compoundAxisKey] !== undefined,
+			),
+		});
+	};
+	const toggleCompoundAxis = (axisKey: string) => {
+		const hasAxis = styleTarget.compoundAxes.includes(axisKey);
+		setComponentDraftStyleTarget({
+			...styleTarget,
+			compoundAxes: (hasAxis
+				? styleTarget.compoundAxes.filter(
+						(compoundAxisKey) => compoundAxisKey !== axisKey,
+					)
+				: [...styleTarget.compoundAxes, axisKey]
+			).sort((left, right) => left.localeCompare(right)),
+		});
+	};
+	const setActiveStyleTab = (tab: ComponentDraftStyleTab) =>
+		setComponentDraftStyleTarget({
+			...styleTarget,
+			activeTab: tab,
+		});
+	const toggleBase = () => {
+		if (styleTarget.base && !canDisableBase) {
+			return;
+		}
 
-	const selectedAxisKey =
-		styleTarget.mode === "variant" ? styleTarget.axisKey : (axes[0]?.[0] ?? "");
-	const selectedAxis = selectedAxisKey
-		? variants?.axes[selectedAxisKey]
-		: undefined;
-	const valueEntries = Object.entries(selectedAxis?.values ?? {});
-	const selectedValueKey =
-		styleTarget.mode === "variant"
-			? styleTarget.valueKey
-			: (valueEntries[0]?.[0] ?? "");
-	const selectedCompoundIndex =
-		styleTarget.mode === "compound" ? styleTarget.compoundIndex : 0;
+		setComponentDraftStyleTarget({
+			...styleTarget,
+			base: !styleTarget.base,
+		});
+	};
 
 	return (
 		<section className="border-b border-slate-200 bg-slate-100/80 px-3 py-2">
@@ -301,144 +470,111 @@ function DraftStyleTargetBanner() {
 				Style target
 			</p>
 			<div className="mt-1 flex flex-col gap-2">
-				<div className="flex flex-row flex-wrap gap-1">
+				<div className="flex flex-row flex-wrap items-center gap-1">
 					<button
 						type="button"
-						className={`border px-2 py-1 text-xs ${
-							styleTarget.mode === "base"
-								? "border-cyan-500 bg-cyan-50 text-cyan-900"
-								: "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"
-						}`}
-						onClick={() => setComponentDraftStyleTarget({ mode: "base" })}
+						className={styleTargetButtonClass(styleTarget.base)}
+						aria-pressed={styleTarget.base}
+						disabled={styleTarget.base && !canDisableBase}
+						onClick={toggleBase}
 					>
-						Base styles
+						Base
 					</button>
-					<button
-						type="button"
-						className={`border px-2 py-1 text-xs ${
-							styleTarget.mode === "variant"
-								? "border-cyan-500 bg-cyan-50 text-cyan-900"
-								: "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"
-						}`}
-						disabled={valueEntries.length === 0}
-						onClick={() => {
-							if (!selectedAxisKey || !selectedValueKey) {
-								return;
-							}
-							setComponentDraftStyleTarget({
-								mode: "variant",
-								axisKey: selectedAxisKey,
-								valueKey: selectedValueKey,
-							});
-						}}
-					>
-						Variant styles
-					</button>
-					{compoundVariants.length > 0 ? (
-						<button
-							type="button"
-							className={`border px-2 py-1 text-xs ${
-								styleTarget.mode === "compound"
-									? "border-cyan-500 bg-cyan-50 text-cyan-900"
-									: "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"
-							}`}
-							onClick={() =>
-								setComponentDraftStyleTarget({
-									mode: "compound",
-									compoundIndex: selectedCompoundIndex,
-								})
-							}
-						>
-							Compound styles
-						</button>
-					) : null}
 				</div>
-				{styleTarget.mode === "compound" ? (
-					<label className="flex flex-col gap-1 text-xs">
-						<span className="font-semibold text-slate-600">Compound</span>
-						<select
-							className="w-full border-none bg-white px-2 py-1 text-xs text-slate-950 inset-shadow-[0_0_0_1px_#cbd5e1] focus:outline-none focus:inset-shadow-[0_0_0_1px_#06b6d4]"
-							value={styleTarget.compoundIndex}
-							onChange={(event) =>
-								setComponentDraftStyleTarget({
-									mode: "compound",
-									compoundIndex: Number(event.currentTarget.value),
-								})
-							}
-						>
-							{compoundVariants.map((compound, index) => (
-								<option
-									// biome-ignore lint/suspicious/noArrayIndexKey: compounds are an ordered list with no stable id
-									key={index}
-									value={index}
-								>
-									{describeCompoundWhen(variants, compound.when, index)}
-								</option>
-							))}
-						</select>
-					</label>
-				) : null}
-				{styleTarget.mode === "variant" ? (
-					<div className="grid grid-cols-2 gap-2">
-						<label className="flex flex-col gap-1 text-xs">
-							<span className="font-semibold text-slate-600">Axis</span>
-							<select
-								className="w-full border-none bg-white px-2 py-1 text-xs text-slate-950 inset-shadow-[0_0_0_1px_#cbd5e1] focus:outline-none focus:inset-shadow-[0_0_0_1px_#06b6d4]"
-								value={styleTarget.axisKey}
-								onChange={(event) => {
-									const axisKey = event.currentTarget.value;
-									const firstValueKey = Object.keys(
-										variants?.axes[axisKey]?.values ?? {},
-									)[0];
-									if (!firstValueKey) {
-										return;
+
+				{axes.length > 0 ? (
+					<div className="grid grid-cols-1 gap-2">
+						{axes.map(([axisKey, axis]) => (
+							<label key={axisKey} className="flex flex-col gap-1 text-xs">
+								<span className="font-semibold text-slate-600">
+									{axis.label || axisKey}
+								</span>
+								<select
+									className="w-full border-none bg-white px-2 py-1 text-xs text-slate-950 inset-shadow-[0_0_0_1px_#cbd5e1] focus:outline-none focus:inset-shadow-[0_0_0_1px_#06b6d4]"
+									value={styleTarget.axisValues[axisKey] ?? ""}
+									onChange={(event) =>
+										setAxisValue(axisKey, event.currentTarget.value)
 									}
-									setComponentDraftStyleTarget({
-										mode: "variant",
-										axisKey,
-										valueKey: firstValueKey,
-									});
-								}}
-							>
-								{axes.map(([axisKey, axis]) => (
-									<option key={axisKey} value={axisKey}>
-										{axis.label || axisKey}
-									</option>
-								))}
-							</select>
-						</label>
-						<label className="flex flex-col gap-1 text-xs">
-							<span className="font-semibold text-slate-600">Value</span>
-							<select
-								className="w-full border-none bg-white px-2 py-1 text-xs text-slate-950 inset-shadow-[0_0_0_1px_#cbd5e1] focus:outline-none focus:inset-shadow-[0_0_0_1px_#06b6d4]"
-								value={styleTarget.valueKey}
-								onChange={(event) =>
-									setComponentDraftStyleTarget({
-										mode: "variant",
-										axisKey: styleTarget.axisKey,
-										valueKey: event.currentTarget.value,
-									})
-								}
-							>
-								{Object.entries(
-									variants?.axes[styleTarget.axisKey]?.values ?? {},
-								).map(([valueKey, value]) => (
-									<option key={valueKey} value={valueKey}>
-										{value.label || valueKey}
-									</option>
-								))}
-							</select>
-						</label>
+								>
+									<option value="">Unselected</option>
+									{Object.entries(axis.values).map(([valueKey, value]) => (
+										<option key={valueKey} value={valueKey}>
+											{value.label || valueKey}
+										</option>
+									))}
+								</select>
+							</label>
+						))}
 					</div>
 				) : null}
-				<p className="text-[11px] text-slate-600">
-					{styleTarget.mode === "base"
-						? "Editing base template classes for the selected node."
-						: styleTarget.mode === "variant"
-							? `Editing variant classes for ${styleTarget.axisKey}/${styleTarget.valueKey}. Base classes are not changed.`
-							: `Editing compound classes for ${describeCompoundWhen(variants, compoundVariants[styleTarget.compoundIndex]?.when ?? {}, styleTarget.compoundIndex)}. Base classes are not changed.`}
-				</p>
+
+				{selectedAxisEntries.length >= 2 ? (
+					<div className="flex flex-col gap-1 text-xs">
+						<span className="font-semibold text-slate-600">Compound</span>
+						<div className="flex flex-row flex-wrap gap-1">
+							{selectedAxisEntries.map((selected) => {
+								const isCompoundAxis = styleTarget.compoundAxes.includes(
+									selected.axisKey,
+								);
+								return (
+									<button
+										key={selected.axisKey}
+										type="button"
+										className={styleTargetButtonClass(isCompoundAxis)}
+										aria-pressed={isCompoundAxis}
+										onClick={() => toggleCompoundAxis(selected.axisKey)}
+									>
+										{selected.axisLabel}
+									</button>
+								);
+							})}
+						</div>
+					</div>
+				) : null}
+
+				<div className="flex flex-row flex-wrap gap-1 border-t border-slate-200 pt-2">
+					{styleTabs.map((target) => (
+						<button
+							key={target.id}
+							type="button"
+							className={styleTargetButtonClass(
+								styleTabsEqual(styleTarget.activeTab, target.tab),
+							)}
+							title={target.title}
+							onClick={() => setActiveStyleTab(target.tab)}
+						>
+							{target.label}
+						</button>
+					))}
+				</div>
 			</div>
+		</section>
+	);
+}
+
+function StyleTargetClassEditor({
+	path,
+	target,
+}: {
+	path: string;
+	target: StyleTargetDescriptor;
+}) {
+	const className = useComponentDraftClassNameForStyleTab(target.tab, path);
+
+	return (
+		<section className="flex flex-col gap-2 border-b border-slate-200 pb-3 last:border-b-0 last:pb-0">
+			<TextareaField
+				label={`${target.label} classnames`}
+				value={className}
+				onChange={(event) =>
+					setDraftClassNameForStyleTab(
+						target.tab,
+						path,
+						event.currentTarget.value,
+					)
+				}
+			/>
+			<ClassInventoryPanel className={className} />
 		</section>
 	);
 }
@@ -598,8 +734,11 @@ export function ComponentDraftProperties({
 	systemId: string;
 	projectScope?: ProjectQueryScope;
 }) {
+	const [activeMainTab, setActiveMainTab] =
+		useState<MainInspectorTab>("properties");
 	const selectedEntity = useComponentDraftSelectedEntity();
 	const selectedPath = selectedEntity?.path ?? "";
+	const variants = useComponentDraftVariants();
 	const styleTarget = useComponentDraftStyleTarget();
 	const className = useComponentDraftEffectiveClassName(selectedPath);
 
@@ -644,11 +783,25 @@ export function ComponentDraftProperties({
 	const title =
 		selectedEntity.name?.trim() || selectedEntity.component || "Untitled";
 	const subtitle = `${selectedEntity.library}/${selectedEntity.component} · ${selectedEntity.role}`;
+	const styleTargetClassEditors = getStyleTargetDescriptors(
+		variants,
+		styleTarget,
+	);
+	const showStyleTargetSection =
+		activeMainTab === "style" || activeMainTab === "classes";
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<DraftInspectorHeader title={title} subtitle={subtitle} />
-			<Tabs defaultValue="properties" className="min-h-0 flex-1 gap-0">
+			<Tabs
+				value={activeMainTab}
+				onValueChange={(value) => {
+					if (isMainInspectorTab(value)) {
+						setActiveMainTab(value);
+					}
+				}}
+				className="min-h-0 flex-1 gap-0"
+			>
 				<TabsList
 					variant="block"
 					className="border-b border-slate-200 px-1 py-1"
@@ -663,19 +816,13 @@ export function ComponentDraftProperties({
 						Classes
 					</TabsTab>
 				</TabsList>
+				{showStyleTargetSection ? <StyleTargetSection /> : null}
 				<TabsPanel value="style" className="min-h-0 flex-1">
 					<ScrollArea className="h-full">
 						<div
-							key={`${path}:${
-								styleTarget.mode === "variant"
-									? `${styleTarget.axisKey}/${styleTarget.valueKey}`
-									: styleTarget.mode === "compound"
-										? `compound:${styleTarget.compoundIndex}`
-										: "base"
-							}`}
+							key={`${path}:${getStyleControlsRemountKey(styleTarget)}`}
 							className="flex flex-col divide-y divide-slate-200"
 						>
-							<DraftStyleTargetBanner />
 							<LayoutProperties
 								className={className}
 								onChange={onChangeClassName}
@@ -817,17 +964,13 @@ export function ComponentDraftProperties({
 				<TabsPanel value="classes" className="min-h-0 flex-1">
 					<ScrollArea className="h-full">
 						<div className="flex flex-col gap-3 p-3">
-							<TextareaField
-								label="Tailwind classnames"
-								value={className}
-								onChange={(event) =>
-									setComponentDraftStyleClassName(
-										path,
-										event.currentTarget.value,
-									)
-								}
-							/>
-							<ClassInventoryPanel className={className} />
+							{styleTargetClassEditors.map((target) => (
+								<StyleTargetClassEditor
+									key={target.id}
+									path={path}
+									target={target}
+								/>
+							))}
 						</div>
 					</ScrollArea>
 				</TabsPanel>

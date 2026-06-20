@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld("trickroomDesktop", {
 	pickAssetFile: (projectRoot: string) =>
 		ipcRenderer.invoke("trickroom:pick-asset-file", projectRoot),
 	getMcpHelperPath: () => ipcRenderer.invoke("trickroom:get-mcp-helper-path"),
+	openDesignTokens: (systemId: string) =>
+		ipcRenderer.invoke("trickroom:open-design-tokens", systemId),
 	clipboard: {
 		writeText: (text: string) =>
 			ipcRenderer.invoke("trickroom:clipboard-write", text),

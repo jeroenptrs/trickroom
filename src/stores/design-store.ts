@@ -36,14 +36,14 @@ import type {
 	Role,
 	TrickroomDesign,
 } from "../types";
-import { detachSystemComponentInstance } from "../utils/system-component-detach";
 import {
 	bulkMigrateDesignSystemComponentInstances,
 	type SystemComponentBulkMigrationDesignReport,
 } from "../utils/system-component-bulk-migration-design";
+import { detachSystemComponentInstance } from "../utils/system-component-detach";
 import {
-	updateStaleSystemComponentInstance,
 	type SystemComponentInstanceMigrationContext,
+	updateStaleSystemComponentInstance,
 } from "../utils/system-component-instance-migration";
 import {
 	setSystemComponentOverrideAssetIdOnRoots,
@@ -1137,7 +1137,7 @@ export function setSystemComponentVariantValue(
 	rootElementId: string,
 	version: PublishedSystemComponentVersion,
 	axisKey: string,
-	value: string,
+	value: string | null,
 ) {
 	designStore.setState((state) =>
 		applySystemComponentInstanceUpdate(
@@ -1189,34 +1189,39 @@ function applySystemComponentOverridePatch(
 		| { kind: "asset"; value: string },
 ) {
 	designStore.setState((state) =>
-		applySystemComponentInstanceUpdate(state, rootElementId, version, (boards) => {
-			switch (patch.kind) {
-				case "text":
-					return setSystemComponentOverrideTextOnRoots(
-						boards,
-						rootElementId,
-						version,
-						targetId,
-						patch.value,
-					);
-				case "icon":
-					return setSystemComponentOverrideIconIdOnRoots(
-						boards,
-						rootElementId,
-						version,
-						targetId,
-						patch.value,
-					);
-				case "asset":
-					return setSystemComponentOverrideAssetIdOnRoots(
-						boards,
-						rootElementId,
-						version,
-						targetId,
-						patch.value,
-					);
-			}
-		}),
+		applySystemComponentInstanceUpdate(
+			state,
+			rootElementId,
+			version,
+			(boards) => {
+				switch (patch.kind) {
+					case "text":
+						return setSystemComponentOverrideTextOnRoots(
+							boards,
+							rootElementId,
+							version,
+							targetId,
+							patch.value,
+						);
+					case "icon":
+						return setSystemComponentOverrideIconIdOnRoots(
+							boards,
+							rootElementId,
+							version,
+							targetId,
+							patch.value,
+						);
+					case "asset":
+						return setSystemComponentOverrideAssetIdOnRoots(
+							boards,
+							rootElementId,
+							version,
+							targetId,
+							patch.value,
+						);
+				}
+			},
+		),
 	);
 }
 
@@ -1386,7 +1391,7 @@ export function updateRecipeInstance(id: string) {
 	});
 }
 
-function isDescendantOf(
+export function isDescendantOf(
 	entitiesById: Record<string, DesignEntity>,
 	id: string,
 	ancestorId: string,

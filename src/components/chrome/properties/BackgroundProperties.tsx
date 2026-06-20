@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
 import { systemAssetsQueryOptions } from "../../../queries/system-assets";
 import { useDesignSystemId } from "../../../stores/design-store";
 import {
@@ -13,20 +14,17 @@ import {
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
 import { useProjectScope } from "../../contexts";
-import {
-	applyColorChange,
-	applyColorClear,
-} from "./colorPropertiesController";
+import { backgroundUtility } from "./backgroundPropertiesController";
 import { ColorPropertyControl } from "./ColorPropertyControl";
+import { applyColorChange, applyColorClear } from "./colorPropertiesController";
+import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
 import { StyleSection } from "./StyleSection";
-import { Segmented, ValueField, type SegmentedOption } from "./StyleControls";
 import {
 	applyStyleUtility,
 	clearStyleProperty,
 	getStyleIntent,
 	styleValueText,
 } from "./styleSectionController";
-import { backgroundUtility } from "./backgroundPropertiesController";
 
 type BackgroundPropertiesProps = {
 	className: string;
@@ -73,10 +71,11 @@ export function BackgroundProperties({
 }: BackgroundPropertiesProps) {
 	const systemId = useDesignSystemId();
 	const resolved = useResolvedColorTokens(systemId);
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
 
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: resolved.names }),
-		[resolved.names],
+		() => ({ colorTokens: resolved.names, ...customUtilityRoots }),
+		[resolved.names, customUtilityRoots],
 	);
 
 	const model = useMemo(
@@ -144,7 +143,9 @@ export function BackgroundProperties({
 						)
 					}
 					onClear={(variants) =>
-						onChange(applyColorClear(className, options, { property, variants }))
+						onChange(
+							applyColorClear(className, options, { property, variants }),
+						)
 					}
 				/>
 			))}

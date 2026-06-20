@@ -184,6 +184,22 @@ function createFetchMock() {
 			);
 		}
 
+		if (
+			url.endsWith("/api/trickroom/systems/core/components/cmp_button") &&
+			method === "DELETE"
+		) {
+			return new Response(
+				JSON.stringify({
+					systemId: "core",
+					systemName: "Core",
+					revision: "sha256:components-deleted",
+					updatedAt: "2026-05-26T00:03:00.000Z",
+					componentId: "cmp_button",
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			);
+		}
+
 		return new Response("Not found", { status: 404 });
 	});
 }
@@ -348,6 +364,49 @@ describe("SystemEditor page panels", () => {
 
 	afterEach(() => {
 		vi.unstubAllGlobals();
+	});
+
+	it("detects when a component draft has publishable changes", async () => {
+		const { hasPublishableComponentDraftChanges } = await import(
+			"./system-editor/SystemEditorComponentsPanel"
+		);
+
+		expect(
+			hasPublishableComponentDraftChanges({
+				hasDraft: true,
+				hasPublishedVersion: false,
+				draftTemplateHash: "sha256:draft",
+				draftVariantSchemaHash: null,
+			}),
+		).toBe(true);
+		expect(
+			hasPublishableComponentDraftChanges({
+				hasDraft: true,
+				hasPublishedVersion: true,
+				draftTemplateHash: "sha256:draft",
+				draftVariantSchemaHash: null,
+				publishedTemplateHash: "sha256:published",
+				publishedVariantSchemaHash: null,
+			}),
+		).toBe(true);
+		expect(
+			hasPublishableComponentDraftChanges({
+				hasDraft: true,
+				hasPublishedVersion: true,
+				draftTemplateHash: "sha256:same",
+				draftVariantSchemaHash: "sha256:variants",
+				publishedTemplateHash: "sha256:same",
+				publishedVariantSchemaHash: "sha256:variants",
+			}),
+		).toBe(false);
+		expect(
+			hasPublishableComponentDraftChanges({
+				hasDraft: false,
+				hasPublishedVersion: true,
+				draftTemplateHash: "sha256:draft",
+				publishedTemplateHash: "sha256:published",
+			}),
+		).toBe(false);
 	});
 
 	it("exposes tokens browse copy on the tokens tab", async () => {
@@ -600,6 +659,24 @@ describe("SystemEditor page panels", () => {
 		expect(html).toContain("Draft only");
 	});
 
+	it("deletes a component through the component API", async () => {
+		const fetchMock = createFetchMock();
+		vi.stubGlobal("fetch", fetchMock);
+		const { deleteSystemComponent } = await import(
+			"../queries/system-components"
+		);
+
+		const response = await deleteSystemComponent("core", "cmp_button", {
+			expectedRevision: manifestRevision,
+		});
+
+		expect(response.componentId).toBe("cmp_button");
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/trickroom/systems/core/components/cmp_button",
+			expect.objectContaining({ method: "DELETE" }),
+		);
+	});
+
 	it("labels component draft and publication states distinctly", async () => {
 		const queryClient = new QueryClient({
 			defaultOptions: {
@@ -662,6 +739,7 @@ describe("SystemEditor page panels", () => {
 		expect(html).toContain("Published v1");
 		expect(html).toContain("Draft over v2");
 		expect(html).toContain("Create draft from published version for Published");
+		expect(html).toContain("Delete Draft");
 	});
 
 	it("shows component usage and stale status in the components list", async () => {

@@ -3,7 +3,7 @@ import {
 	type TailwindTokenDomain,
 	tokenDomainToCssPropertyName,
 } from "./tailwind-token-domains";
-import type { TailwindTokenStorageV2 } from "./tailwind-token-store";
+import type { TailwindTokenStorage } from "./tailwind-token-store";
 
 function isValidOverrideName(
 	domain: TailwindTokenDomain,
@@ -32,8 +32,13 @@ function isValidValue(value: string): boolean {
 	return !/[;{}]/.test(value);
 }
 
+function isValidCustomPropertyName(name: string): boolean {
+	return name.startsWith("--") && /^--[a-z0-9\-_.]+$/i.test(name);
+}
+
 export function serializeTailwindThemeDomains(
-	domains: TailwindTokenStorageV2["domains"],
+	domains: TailwindTokenStorage["domains"],
+	customProperties: Record<string, string> = {},
 ): string {
 	const lines: string[] = [];
 
@@ -58,6 +63,17 @@ export function serializeTailwindThemeDomains(
 					`  ${tokenDomainToCssPropertyName(domain, name)}: ${value};`,
 				);
 			}
+		}
+	}
+
+	const customPropertyNames = Object.keys(customProperties)
+		.filter(isValidCustomPropertyName)
+		.sort((left, right) => left.localeCompare(right));
+
+	for (const name of customPropertyNames) {
+		const value = customProperties[name];
+		if (isValidValue(value)) {
+			lines.push(`  ${name}: ${value};`);
 		}
 	}
 
@@ -93,5 +109,5 @@ export function serializeTailwindTheme(
 				],
 			),
 		),
-	} as TailwindTokenStorageV2["domains"]);
+	} as TailwindTokenStorage["domains"]);
 }

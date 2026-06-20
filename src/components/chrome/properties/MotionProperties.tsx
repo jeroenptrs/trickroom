@@ -1,13 +1,15 @@
 import { useCallback, useMemo } from "react";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
+import { useDesignSystemId } from "../../../stores/design-store";
 import type { ModelOptions } from "../../../utils/tailwind-classname";
-import { StyleSection } from "./StyleSection";
-import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
-import { StyleOverrideRows } from "./StyleOverrideRows";
 import {
 	motionUtility,
 	readMotionValue,
 	transitionPropertyUtility,
 } from "./motionPropertiesController";
+import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
+import { StyleOverrideRows } from "./StyleOverrideRows";
+import { StyleSection } from "./StyleSection";
 
 type MotionPropertiesProps = {
 	className: string;
@@ -56,10 +58,16 @@ const ANIMATION_OPTIONS: readonly SegmentedOption<string>[] = [
 	{ value: "bounce", label: "Bounce" },
 ];
 
-export function MotionProperties({ className, onChange }: MotionPropertiesProps) {
+export function MotionProperties({
+	className,
+	onChange,
+}: MotionPropertiesProps) {
+	const systemId = useDesignSystemId();
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
+
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: EMPTY_COLOR_TOKENS }),
-		[],
+		() => ({ colorTokens: EMPTY_COLOR_TOKENS, ...customUtilityRoots }),
+		[customUtilityRoots],
 	);
 
 	const read = useCallback(
@@ -74,7 +82,11 @@ export function MotionProperties({ className, onChange }: MotionPropertiesProps)
 	const animation = read("motion.animation");
 
 	const summary =
-		[duration && `duration-${duration}`, easing && `ease-${easing}`, animation && animation !== "none" && `animate-${animation}`]
+		[
+			duration && `duration-${duration}`,
+			easing && `ease-${easing}`,
+			animation && animation !== "none" && `animate-${animation}`,
+		]
 			.filter(Boolean)
 			.join(" · ") || undefined;
 
@@ -90,9 +102,7 @@ export function MotionProperties({ className, onChange }: MotionPropertiesProps)
 					<Segmented
 						ariaLabel="Transition property"
 						options={TRANSITION_PROPERTY_OPTIONS}
-						value={
-							slot.value === "DEFAULT" ? "default" : slot.value
-						}
+						value={slot.value === "DEFAULT" ? "default" : slot.value}
 						onChange={(next) => {
 							if (next === null) {
 								slot.apply(null);
@@ -177,9 +187,7 @@ export function MotionProperties({ className, onChange }: MotionPropertiesProps)
 									placeholder="150, [200ms]"
 									onCommit={(v) =>
 										slot.apply(
-											v.trim()
-												? motionUtility("motion.delay", v.trim())
-												: null,
+											v.trim() ? motionUtility("motion.delay", v.trim()) : null,
 										)
 									}
 								/>

@@ -6,10 +6,9 @@
  * in user-facing copy to keep it distinct from component properties.
  */
 
-import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { useProjectScope } from "../../contexts";
-import { storedTailwindTokensQueryOptions } from "../../../queries/tailwind-sync-tokens";
+import { useResolvedBreakpoints } from "../../../hooks/useResolvedBreakpoints";
+import { DEFAULT_RESOLVED_BREAKPOINTS } from "../../../utils/resolved-breakpoints";
 
 export type OverrideGroup = "selector" | "breakpoint" | "mode";
 
@@ -25,8 +24,10 @@ export const SELECTOR_OVERRIDES = [
 /** Mode buckets (kept separate so existing `dark:` classes are not dropped). */
 export const MODE_OVERRIDES = ["dark"] as const;
 
-/** Tailwind default responsive breakpoints, used when no synced tokens exist. */
-export const DEFAULT_BREAKPOINTS = ["sm", "md", "lg", "xl", "2xl"] as const;
+/** Tailwind default responsive breakpoint names, used when no synced tokens exist. */
+export const DEFAULT_BREAKPOINTS = DEFAULT_RESOLVED_BREAKPOINTS.map(
+	({ name }) => name,
+);
 
 /**
  * Resolve the breakpoint override names for the active system: the Tailwind
@@ -37,26 +38,9 @@ export const DEFAULT_BREAKPOINTS = ["sm", "md", "lg", "xl", "2xl"] as const;
 export function useBreakpointNames(
 	systemId: string | null | undefined,
 ): string[] {
-	const trimmed = typeof systemId === "string" ? systemId.trim() : "";
-	const enabled = trimmed.length > 0;
-	const projectScope = useProjectScope();
+	const breakpoints = useResolvedBreakpoints(systemId);
 
-	const tokensQuery = useQuery({
-		...storedTailwindTokensQueryOptions(trimmed, projectScope),
-		enabled,
-	});
-
-	return useMemo(() => {
-		const names = new Set<string>(DEFAULT_BREAKPOINTS);
-		const stored = tokensQuery.data;
-		const tokens = stored?.domains.breakpoint?.tokens;
-		if (tokens) {
-			for (const name of Object.keys(tokens)) {
-				names.add(name);
-			}
-		}
-		return Array.from(names);
-	}, [tokensQuery.data]);
+	return useMemo(() => breakpoints.map(({ name }) => name), [breakpoints]);
 }
 
 export type OverrideOption = {

@@ -10,12 +10,12 @@ import {
 	applyDeleteElement,
 	applyDetachRecipeInstance,
 	applyDetachSystemComponent,
-	applyUpdateSystemComponentInstance,
 	applyMoveElement,
 	applyUpdateElementProps,
 	applyUpdateElementText,
 	applyUpdateRecipeControl,
 	applyUpdateRecipeInstance,
+	applyUpdateSystemComponentInstance,
 	DesignTransformError,
 	normalizeDesignForMutation,
 	type ProposedSubtreeNode,
@@ -101,7 +101,16 @@ const addSystemComponentOperationParametersSchema = z.object({
 	systemId: z.string().min(1),
 	componentId: z.string().min(1),
 	version: z.string().min(1).nullable().optional(),
-	variantValues: z.record(z.string(), z.string()).optional(),
+	variantValues: z
+		.record(z.string(), z.string())
+		.optional()
+		.describe("Initial variant axis values for the instance."),
+	unsetVariantAxes: z
+		.array(z.string())
+		.optional()
+		.describe(
+			"Variant axes to clear from initial variantValues before resolving schema defaults.",
+		),
 	overrides: z
 		.record(
 			z.string(),
@@ -124,7 +133,13 @@ const updateSystemComponentInstanceOperationParametersSchema = z.object({
 	variantValues: z
 		.record(z.string(), z.string())
 		.optional()
-		.describe("Variant axis values to merge into the instance."),
+		.describe(
+			"Variant axis values to merge into the instance. Missing keys leave existing values unchanged.",
+		),
+	unsetVariantAxes: z
+		.array(z.string())
+		.optional()
+		.describe("Variant axes to clear from the instance."),
 	overrides: z
 		.record(
 			z.string(),
@@ -588,7 +603,9 @@ export const assertCanUseSystemComponentInstanceSubtree = (
 		);
 	}
 
-	const anchorMetadata = getSystemComponentStructuralMetadata(anchor.element.props);
+	const anchorMetadata = getSystemComponentStructuralMetadata(
+		anchor.element.props,
+	);
 	if (!anchorMetadata) {
 		throw new DesignTransformError(
 			"SYSTEM_COMPONENT_INSTANCE_NOT_FOUND",
@@ -834,6 +851,7 @@ export const applyDryRunOperation = async (
 				variantValues: params.variantValues as
 					| Record<string, string>
 					| undefined,
+				unsetVariantAxes: params.unsetVariantAxes as string[] | undefined,
 				overrides: params.overrides as
 					| Record<string, { className?: string }>
 					| undefined,
@@ -872,6 +890,7 @@ export const applyDryRunOperation = async (
 				variantValues: params.variantValues as
 					| Record<string, string>
 					| undefined,
+				unsetVariantAxes: params.unsetVariantAxes as string[] | undefined,
 				overrides: params.overrides as
 					| Record<string, { className?: string }>
 					| undefined,

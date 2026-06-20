@@ -1,10 +1,15 @@
 import { useCallback, useMemo } from "react";
-import type { ModelOptions, StyleProperty } from "../../../utils/tailwind-classname";
-import { StyleSection } from "./StyleSection";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
+import { useDesignSystemId } from "../../../stores/design-store";
+import type {
+	ModelOptions,
+	StyleProperty,
+} from "../../../utils/tailwind-classname";
 import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
-import { getStyleIntent, styleValueText } from "./styleSectionController";
+import { StyleSection } from "./StyleSection";
 import { inputToSizeUtility, readSizeValue } from "./sizePropertiesController";
+import { getStyleIntent, styleValueText } from "./styleSectionController";
 
 type SizePropertiesProps = {
 	className: string;
@@ -31,9 +36,12 @@ const SHRINK_OPTIONS: readonly SegmentedOption<string>[] = [
 ];
 
 export function SizeProperties({ className, onChange }: SizePropertiesProps) {
+	const systemId = useDesignSystemId();
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
+
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: EMPTY_COLOR_TOKENS }),
-		[],
+		() => ({ colorTokens: EMPTY_COLOR_TOKENS, ...customUtilityRoots }),
+		[customUtilityRoots],
 	);
 
 	const read = useCallback(
@@ -45,9 +53,12 @@ export function SizeProperties({ className, onChange }: SizePropertiesProps) {
 	const h = read("size.height");
 	const flex = styleValueText(getStyleIntent(className, options, "size.flex"));
 	const grow = styleValueText(getStyleIntent(className, options, "size.grow"));
-	const shrink = styleValueText(getStyleIntent(className, options, "size.shrink"));
+	const shrink = styleValueText(
+		getStyleIntent(className, options, "size.shrink"),
+	);
 
-	const summary = [w && `w-${w}`, h && `h-${h}`].filter(Boolean).join(" · ") || undefined;
+	const summary =
+		[w && `w-${w}`, h && `h-${h}`].filter(Boolean).join(" · ") || undefined;
 
 	return (
 		<StyleSection title="Size" summary={summary}>
@@ -64,9 +75,7 @@ export function SizeProperties({ className, onChange }: SizePropertiesProps) {
 								label="W"
 								value={slot.value ?? ""}
 								placeholder="auto, 4, full"
-								onCommit={(v) =>
-									slot.apply(inputToSizeUtility("w", v))
-								}
+								onCommit={(v) => slot.apply(inputToSizeUtility("w", v))}
 							/>
 						)}
 					/>
@@ -81,9 +90,7 @@ export function SizeProperties({ className, onChange }: SizePropertiesProps) {
 								label="H"
 								value={slot.value ?? ""}
 								placeholder="auto, 4, full"
-								onCommit={(v) =>
-									slot.apply(inputToSizeUtility("h", v))
-								}
+								onCommit={(v) => slot.apply(inputToSizeUtility("h", v))}
 							/>
 						)}
 					/>
@@ -99,9 +106,7 @@ export function SizeProperties({ className, onChange }: SizePropertiesProps) {
 							label="Size"
 							value={slot.value ?? ""}
 							placeholder="4, full, [200px]"
-							onCommit={(v) =>
-								slot.apply(inputToSizeUtility("size", v))
-							}
+							onCommit={(v) => slot.apply(inputToSizeUtility("size", v))}
 						/>
 					)}
 				/>
@@ -117,9 +122,7 @@ export function SizeProperties({ className, onChange }: SizePropertiesProps) {
 								label="Min W"
 								value={slot.value ?? ""}
 								placeholder="0, 4, full"
-								onCommit={(v) =>
-									slot.apply(inputToSizeUtility("min-w", v))
-								}
+								onCommit={(v) => slot.apply(inputToSizeUtility("min-w", v))}
 							/>
 						)}
 					/>
@@ -134,9 +137,7 @@ export function SizeProperties({ className, onChange }: SizePropertiesProps) {
 								label="Max W"
 								value={slot.value ?? ""}
 								placeholder="4, full, none"
-								onCommit={(v) =>
-									slot.apply(inputToSizeUtility("max-w", v))
-								}
+								onCommit={(v) => slot.apply(inputToSizeUtility("max-w", v))}
 							/>
 						)}
 					/>
@@ -153,9 +154,7 @@ export function SizeProperties({ className, onChange }: SizePropertiesProps) {
 								label="Min H"
 								value={slot.value ?? ""}
 								placeholder="0, 4, full"
-								onCommit={(v) =>
-									slot.apply(inputToSizeUtility("min-h", v))
-								}
+								onCommit={(v) => slot.apply(inputToSizeUtility("min-h", v))}
 							/>
 						)}
 					/>
@@ -170,9 +169,7 @@ export function SizeProperties({ className, onChange }: SizePropertiesProps) {
 								label="Max H"
 								value={slot.value ?? ""}
 								placeholder="4, full, none"
-								onCommit={(v) =>
-									slot.apply(inputToSizeUtility("max-h", v))
-								}
+								onCommit={(v) => slot.apply(inputToSizeUtility("max-h", v))}
 							/>
 						)}
 					/>
@@ -188,9 +185,7 @@ export function SizeProperties({ className, onChange }: SizePropertiesProps) {
 							label="Aspect"
 							value={slot.value ?? ""}
 							placeholder="auto, square, video"
-							onCommit={(v) =>
-								slot.apply(inputToSizeUtility("aspect", v))
-							}
+							onCommit={(v) => slot.apply(inputToSizeUtility("aspect", v))}
 						/>
 					)}
 				/>
@@ -208,9 +203,7 @@ export function SizeProperties({ className, onChange }: SizePropertiesProps) {
 							label="Basis"
 							value={slot.value ?? ""}
 							placeholder="auto, 4, full"
-							onCommit={(v) =>
-								slot.apply(inputToSizeUtility("basis", v))
-							}
+							onCommit={(v) => slot.apply(inputToSizeUtility("basis", v))}
 						/>
 					)}
 				/>

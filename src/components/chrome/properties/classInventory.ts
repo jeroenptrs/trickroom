@@ -83,6 +83,8 @@ function intentProperty(intent: KnownUtilityIntent): string {
 			return `spacing.${intent.property}`;
 		case "style":
 			return intent.property;
+		case "custom-functional":
+			return `custom-functional.${intent.property}`;
 	}
 }
 
@@ -163,7 +165,11 @@ function itemFromToken(
 	};
 	const intent =
 		token.intent ??
-		classifyParsedClass(token.parsed, { colorTokens: options.colorTokens });
+		classifyParsedClass(token.parsed, {
+			colorTokens: options.colorTokens,
+			customFunctionalUtilityRoots: options.customFunctionalUtilityRoots,
+			customStaticUtilityRoots: options.customStaticUtilityRoots,
+		});
 
 	if (intent.kind === "unknown") {
 		const category: ClassCategory =

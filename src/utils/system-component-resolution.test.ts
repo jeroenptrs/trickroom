@@ -6,6 +6,7 @@ import {
 	resolveSystemComponentClassLayers,
 	resolveSystemComponentClassName,
 	resolveSystemComponentMaterializedSnapshotClassComposition,
+	resolveSystemComponentVariantValues,
 } from "./system-component-resolution";
 import type { PublishedSystemComponentVersion } from "./system-components";
 
@@ -56,6 +57,94 @@ const version: PublishedSystemComponentVersion = {
 		},
 	},
 };
+
+describe("resolveSystemComponentVariantValues", () => {
+	it("omits default-less axes unless an explicit value is selected", () => {
+		expect(resolveSystemComponentVariantValues(version.variants, {})).toEqual(
+			{},
+		);
+		expect(
+			resolveSystemComponentVariantValues(version.variants, {
+				intent: "brand",
+			}),
+		).toEqual({ intent: "brand" });
+	});
+
+	it("uses schema defaults before axis defaults", () => {
+		expect(
+			resolveSystemComponentVariantValues(
+				{
+					axes: {
+						tone: {
+							label: "Tone",
+							defaultValue: "neutral",
+							values: {
+								brand: {},
+								neutral: {},
+							},
+						},
+					},
+					defaultValues: { tone: "brand" },
+				},
+				{},
+			),
+		).toEqual({ tone: "brand" });
+	});
+
+	it("throws for unknown axes and invalid explicit values", () => {
+		expect(() =>
+			resolveSystemComponentVariantValues(version.variants, { tone: "brand" }),
+		).toThrow("unknown variant axes: tone");
+		expect(() =>
+			resolveSystemComponentVariantValues(version.variants, {
+				intent: "missing",
+			}),
+		).toThrow('axis "intent" contains invalid value "missing"');
+	});
+
+	it("does not match compounds when an optional axis condition is absent", () => {
+		const optionalVersion: PublishedSystemComponentVersion = {
+			...version,
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: {
+							brand: { classesByPath: { root: "text-blue-600" } },
+						},
+					},
+					size: {
+						label: "Size",
+						values: {
+							lg: { classesByPath: { root: "text-lg" } },
+						},
+					},
+				},
+				compoundVariants: [
+					{
+						when: { tone: "brand", size: "lg" },
+						classesByPath: { root: "ring-2" },
+					},
+				],
+			},
+		};
+
+		const variantValues = resolveSystemComponentVariantValues(
+			optionalVersion.variants,
+			{ tone: "brand" },
+		);
+
+		expect(variantValues).toEqual({ tone: "brand" });
+		expect(
+			resolveSystemComponentClassName(
+				optionalVersion,
+				"root",
+				"base",
+				variantValues,
+			),
+		).toBe("base text-blue-600");
+	});
+});
 
 describe("resolveSystemComponentClassLayers", () => {
 	it("preserves class source metadata in deterministic flattening order", () => {

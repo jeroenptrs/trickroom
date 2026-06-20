@@ -3,17 +3,19 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDesignSystemStorage } from "./design-system-store";
 import {
-	createEmptySystemComponentManifest,
-	generateSystemComponentId,
-	SYSTEM_COMPONENT_EMPTY_TIMESTAMP,
-	type SystemComponentRecord,
-} from "./system-components";
-import {
 	emptySystemComponentManifestRevision,
 	readSystemComponentManifest,
 	type SystemComponentManifestServiceError,
 	writeSystemComponentManifest,
 } from "./system-component-manifest-service";
+import { resolveSystemComponentVariantValues } from "./system-component-resolution";
+import {
+	createEmptySystemComponentManifest,
+	generateSystemComponentId,
+	SYSTEM_COMPONENT_EMPTY_TIMESTAMP,
+	type SystemComponentRecord,
+} from "./system-components";
+import { hashSystemComponentVariantSchema } from "./system-components-validation";
 
 const minimalRoot = () => ({
 	path: "root",
@@ -102,6 +104,92 @@ describe("system component manifest service", () => {
 				},
 			},
 		});
+	});
+
+	it("migrates v1 manifests by backfilling optional variant defaults and published hashes", async () => {
+		const componentId = generateSystemComponentId();
+		const oldVariants = {
+			axes: {
+				size: {
+					label: "Size",
+					values: {
+						beta: { label: "Beta" },
+						alpha: { label: "Alpha" },
+					},
+				},
+				tone: {
+					label: "Tone",
+					defaultValue: "brand",
+					values: {
+						brand: { label: "Brand" },
+					},
+				},
+			},
+		};
+		const oldVariantHash = hashSystemComponentVariantSchema(oldVariants);
+		const manifestPath = path.join(
+			projectRoot,
+			".trickroom",
+			"systems",
+			"core",
+			"components.json",
+		);
+		await mkdir(path.dirname(manifestPath), { recursive: true });
+		await writeFile(
+			manifestPath,
+			JSON.stringify({
+				version: 1,
+				metadata: {
+					schemaVersion: 1,
+					createdAt: SYSTEM_COMPONENT_EMPTY_TIMESTAMP,
+					updatedAt: SYSTEM_COMPONENT_EMPTY_TIMESTAMP,
+				},
+				migrationPolicy: createEmptySystemComponentManifest().migrationPolicy,
+				components: {
+					[componentId]: {
+						...draftRecord(componentId, "primary-button"),
+						draft: {
+							root: minimalRoot(),
+							variants: oldVariants,
+						},
+						published: {
+							currentVersion: "1",
+							versions: {
+								"1": {
+									version: "1",
+									publishedAt: "2026-05-26T12:00:00.000Z",
+									root: minimalRoot(),
+									templateHash: "sha256:template",
+									variantSchemaHash: oldVariantHash,
+									variants: oldVariants,
+								},
+							},
+						},
+					},
+				},
+			}),
+			"utf8",
+		);
+
+		const read = await readSystemComponentManifest(projectRoot, "Core");
+		const record = read.manifest.components[componentId];
+		const publishedVersion = record?.published?.versions["1"];
+		const migratedVariants = {
+			...oldVariants,
+			defaultValues: { size: "alpha" },
+		};
+
+		expect(read.manifest.version).toBe(2);
+		expect(read.manifest.metadata.schemaVersion).toBe(2);
+		expect(record?.draft?.variants).toEqual(migratedVariants);
+		expect(publishedVersion?.variants).toEqual(migratedVariants);
+		expect(publishedVersion?.variantSchemaHash).toBe(
+			hashSystemComponentVariantSchema(migratedVariants),
+		);
+		expect(publishedVersion?.variantSchemaHash).not.toBe(oldVariantHash);
+		expect(
+			resolveSystemComponentVariantValues(record?.draft?.variants, {}),
+		).toEqual({ size: "alpha", tone: "brand" });
 	});
 
 	it("rejects malformed component manifests with deterministic diagnostics", async () => {
@@ -209,7 +297,9 @@ describe("system component manifest service", () => {
 
 		const outcomes = [firstResult, secondResult];
 		const fulfilled = outcomes.filter(
-			(outcome): outcome is PromiseFulfilledResult<
+			(
+				outcome,
+			): outcome is PromiseFulfilledResult<
 				Awaited<ReturnType<typeof writeSystemComponentManifest>>
 			> => outcome.status === "fulfilled",
 		);

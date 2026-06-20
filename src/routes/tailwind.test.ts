@@ -762,6 +762,60 @@ describe("tailwind GET /systems/:systemName/tokens", () => {
 		expect(response.status).toBe(400);
 	});
 
+	it("renders stored tokens as static HTML", async () => {
+		const { storeDomainTokens } = await import("../utils/tailwind-token-store");
+		await storeDomainTokens(
+			tempProjectRoot,
+			"core",
+			{ "brand-500": "#123456" },
+			[],
+			"4.2.4",
+			"src/theme.css",
+		);
+		const app = await importTestServer();
+
+		const response = await app.request(
+			"/api/trickroom/tailwind/systems/core/tokens.html",
+			{
+				method: "GET",
+			},
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toContain("text/html");
+		const html = await response.text();
+		expect(html).toContain("<!doctype html>");
+		expect(html).toContain("core");
+		expect(html).toContain("brand-500");
+		expect(html).toContain("#123456");
+		expect(html).not.toContain("<script");
+	});
+
+	it("marks static token HTML as downloadable when requested", async () => {
+		const { storeDomainTokens } = await import("../utils/tailwind-token-store");
+		await storeDomainTokens(
+			tempProjectRoot,
+			"core",
+			{ "brand-500": "#123456" },
+			[],
+			"4.2.4",
+			"src/theme.css",
+		);
+		const app = await importTestServer();
+
+		const response = await app.request(
+			"/api/trickroom/tailwind/systems/core/tokens.html?download=1",
+			{
+				method: "GET",
+			},
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-disposition")).toMatch(
+			/^attachment; filename=".+-tokens\.html"$/,
+		);
+	});
+
 	it("retrieves stored tokens and empty overrides", async () => {
 		const { storeDomainTokens } = await import("../utils/tailwind-token-store");
 		await storeDomainTokens(
@@ -1259,5 +1313,87 @@ describe("tailwind POST /systems/:systemName/tokens", () => {
 			"--color-red-*",
 			"--color-red-50",
 		]);
+	});
+
+	it("compiles a full stylesheet for the given candidates", async () => {
+		await writeFile(
+			path.join(tempProjectRoot, "trickroom.config.json"),
+			JSON.stringify({
+				name: "Test Project",
+				systems: { Core: "src/core.css" },
+			}),
+			"utf8",
+		);
+		const cssPath = path.join(tempProjectRoot, "src", "core.css");
+		await mkdir(path.dirname(cssPath), { recursive: true });
+		await writeFile(
+			cssPath,
+			[
+				'@import "tailwindcss";',
+				"@theme { --color-brand: oklch(0.6 0.2 280); }",
+				"",
+			].join("\n"),
+			"utf8",
+		);
+		const app = await importTestServer();
+
+		const response = await app.request("/api/trickroom/tailwind/compile", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				systemName: "Core",
+				candidates: ["flex", "bg-brand", "grid"],
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		const json = await response.json();
+		expect(json.candidateCount).toBe(3);
+		expect(json.css).toContain("box-sizing"); // preflight
+		expect(json.css).toContain("--color-brand"); // theme var
+		expect(json.css).toContain("display: flex");
+		expect(json.css).toContain(".bg-brand");
+	});
+
+	it("compiles baseline Tailwind when no system target is given", async () => {
+		await writeFile(
+			path.join(tempProjectRoot, "trickroom.config.json"),
+			JSON.stringify({ name: "Test Project" }),
+			"utf8",
+		);
+		const app = await importTestServer();
+
+		const response = await app.request("/api/trickroom/tailwind/compile", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ candidates: ["flex", "p-4"] }),
+		});
+
+		expect(response.status).toBe(200);
+		const json = await response.json();
+		expect(json.systemId).toBeNull();
+		expect(json.css).toContain("box-sizing"); // preflight
+		expect(json.css).toContain("display: flex");
+		expect(json.css).toContain(".p-4");
+	});
+
+	it("rejects a compile request with non-string candidates", async () => {
+		await writeFile(
+			path.join(tempProjectRoot, "trickroom.config.json"),
+			JSON.stringify({
+				name: "Test Project",
+				systems: { Core: "src/index.css" },
+			}),
+			"utf8",
+		);
+		const app = await importTestServer();
+
+		const response = await app.request("/api/trickroom/tailwind/compile", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ systemName: "Core", candidates: [42] }),
+		});
+
+		expect(response.status).toBe(400);
 	});
 });

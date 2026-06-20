@@ -1,11 +1,11 @@
 import { Hono } from "hono";
+import { readJsonFile } from "../server-file-utils";
 import {
 	asErrnoException,
 	isRecord,
 	isTrickroomConfig,
 	jsonError,
 } from "../server-utils";
-import { readJsonFile } from "../server-file-utils";
 import {
 	defaultTailwindTokensByDomain,
 	defaultTailwindTokensVersion,
@@ -19,15 +19,20 @@ import type {
 	TailwindTokensForPresentation,
 } from "../utils/tailwind-color-tokens";
 import {
+	compileBaselineTailwindCss,
+	compileTailwindCss,
 	loadTailwindDesignSystem,
 	resolveConfiguredTailwindSystemTarget,
 	type TailwindDesignSystem,
 	TailwindSystemResolutionError,
 } from "../utils/tailwind-design-system";
+import { createTailwindIntrospection } from "../utils/tailwind-introspection";
 import {
 	diffTailwindTokensAgainstDefaults,
-	extractTailwindTokenResetOverrides,
 	extractTailwindTokensForPresentation as extractAllTailwindTokensForPresentation,
+	extractCustomTailwindProperties,
+	extractTailwindCustomUtilities,
+	extractTailwindTokenResetOverrides,
 	extractTailwindTokens,
 	isValidTokenDomain,
 	TAILWIND_TOKEN_DOMAIN_NAMESPACES,
@@ -42,8 +47,10 @@ import {
 	normalizeCssPath,
 	readDomainTokens,
 	storeDomainTokens,
-	type TailwindTokenStorageV2,
+	type TailwindCustomUtilityStorage,
+	type TailwindTokenStorage,
 } from "../utils/tailwind-token-store";
+import { renderTailwindTokenHtml } from "../utils/tailwind-token-export";
 
 export const tailwindRoutes = new Hono();
 
@@ -96,6 +103,8 @@ type TailwindSyncPreview = {
 	baselineDiff: TailwindColorTokenBaselineDiff;
 	baselineDiffs: TailwindTokenDomainDiffs;
 	tokensByDomain: TailwindTokenDomains;
+	customProperties: Record<string, string>;
+	customUtilities: TailwindCustomUtilityStorage[];
 };
 
 type TailwindSyncResponse = {
@@ -119,11 +128,15 @@ const syncTailwindTokensForCssPath = async (
 		projectRoot,
 		cssPath: targetCssPath,
 	});
-	return syncTailwindTokensForLoadedDesignSystem(loaded.designSystem);
+	return syncTailwindTokensForLoadedDesignSystem(
+		loaded.designSystem,
+		loaded.cssSource,
+	);
 };
 
 const syncTailwindTokensForLoadedDesignSystem = (
 	designSystem: TailwindDesignSystem,
+	cssSource: string,
 ) => {
 	const tokensByDomain = extractTailwindTokens(designSystem);
 	const resetOverridesByDomain =
@@ -135,11 +148,27 @@ const syncTailwindTokensForLoadedDesignSystem = (
 	);
 	const baselineDiff = baselineDiffs.color;
 
+	// Custom @utility namespaces (e.g. --db-interaction-*) live outside the
+	// fixed domain whitelist; introspect the loaded DS + CSS source to persist
+	// them so the editor recognises custom utilities like text-interaction-*.
+	const introspection = createTailwindIntrospection(designSystem, cssSource);
+	const customProperties = extractCustomTailwindProperties(introspection);
+	const customUtilities: TailwindCustomUtilityStorage[] =
+		extractTailwindCustomUtilities(introspection).map((utility) => ({
+			root: utility.root,
+			kind: utility.kind,
+			consumedNamespaces: utility.consumedNamespaces,
+			completionValues: utility.completionValues,
+			domains: utility.domains,
+		}));
+
 	return {
 		tokens: extractAllTailwindTokensForPresentation(baselineDiffs),
 		baselineDiff,
 		baselineDiffs,
 		tokensByDomain,
+		customProperties,
+		customUtilities,
 	} satisfies TailwindSyncPreview;
 };
 
@@ -183,6 +212,8 @@ const buildCanonicalSnapshot = ({
 	baselineDiffs,
 	syncedAt,
 	reviewRequired,
+	customProperties,
+	customUtilities,
 }: {
 	projectRoot: string;
 	cssPath: string;
@@ -194,8 +225,10 @@ const buildCanonicalSnapshot = ({
 	baselineDiffs: TailwindTokenDomainDiffs;
 	syncedAt: string;
 	reviewRequired: boolean;
-}): TailwindTokenStorageV2 => ({
-	version: 2,
+	customProperties: Record<string, string>;
+	customUtilities: TailwindCustomUtilityStorage[];
+}): TailwindTokenStorage => ({
+	version: 3,
 	metadata: {
 		cssPath: normalizeCssPath(cssPath, projectRoot),
 		syncedAt,
@@ -221,7 +254,9 @@ const buildCanonicalSnapshot = ({
 				},
 			},
 		]),
-	) as TailwindTokenStorageV2["domains"],
+	) as TailwindTokenStorage["domains"],
+	customProperties,
+	customUtilities,
 });
 
 const buildTailwindSyncResponse = ({
@@ -232,7 +267,7 @@ const buildTailwindSyncResponse = ({
 }: {
 	status: "ok" | "updated";
 	preview: TailwindSyncPreview;
-	storage: TailwindTokenStorageV2;
+	storage: TailwindTokenStorage;
 	system: { systemId: string; systemName: string; cssPath: string };
 }): TailwindSyncResponse => ({
 	status,
@@ -312,6 +347,8 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 			baselineDiffs: preview.baselineDiffs,
 			syncedAt: stored?.metadata.syncedAt ?? new Date().toISOString(),
 			reviewRequired: stored ? stored.metadata.reviewRequired : true,
+			customProperties: preview.customProperties,
+			customUtilities: preview.customUtilities,
 		});
 
 		if (
@@ -340,6 +377,8 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 			baselineDiff: preview.baselineDiff,
 			domainBaselineDiffs: preview.baselineDiffs,
 			reviewRequired: true,
+			customProperties: preview.customProperties,
+			customUtilities: preview.customUtilities,
 		});
 		const updated = await readDomainTokens(
 			projectRoot,
@@ -393,6 +432,146 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 	}
 });
 
+const TAILWIND_RESOLUTION_ERROR_STATUS: Record<
+	TailwindSystemResolutionError["code"],
+	number
+> = {
+	NO_SYSTEMS_CONFIGURED: 400,
+	UNKNOWN_SYSTEM: 404,
+	UNKNOWN_CSS_PATH: 404,
+	AMBIGUOUS_CSS_PATH: 409,
+	DUPLICATE_SYSTEM_KEY: 409,
+	INVALID_CSS_PATH: 400,
+	INVALID_SYSTEM_NAME: 400,
+};
+
+// Upper bound on distinct candidates a single /compile request may carry.
+// Server-side Tailwind compilation scales with candidate count, so this caps
+// the per-request work. A real design's unique class set is in the hundreds to
+// low thousands; this leaves generous headroom while rejecting abusive payloads.
+const MAX_COMPILE_CANDIDATES = 20_000;
+
+const readCompileCandidates = (body: unknown): string[] | null => {
+	if (!isRecord(body) || !Array.isArray(body.candidates)) {
+		return null;
+	}
+	// De-duplicate: the build cost is a function of the *distinct* candidate set,
+	// and arbitrary callers may repeat tokens.
+	const candidates = new Set<string>();
+	for (const candidate of body.candidates) {
+		if (typeof candidate !== "string") {
+			return null;
+		}
+		const trimmed = candidate.trim();
+		if (trimmed.length > 0) {
+			candidates.add(trimmed);
+		}
+	}
+	return [...candidates];
+};
+
+/**
+ * POST /compile — compile the system's full stylesheet (preflight + theme +
+ * the used utilities) for a set of candidate class names. Powers the
+ * `compiled` iframe render mode (the `@tailwindcss/browser` replacement).
+ */
+tailwindRoutes.post("/compile", async (c) => {
+	const projectRoot = c.get("projectRoot") as string;
+	const configPath = c.get("configPath") as string;
+
+	const body = await c.req.json().catch(() => null);
+	const candidates = readCompileCandidates(body);
+	if (!candidates) {
+		return jsonError("candidates must be an array of strings", 400);
+	}
+	if (candidates.length > MAX_COMPILE_CANDIDATES) {
+		return jsonError(
+			`Too many candidates: ${candidates.length} exceeds the limit of ${MAX_COMPILE_CANDIDATES}`,
+			413,
+		);
+	}
+	const themeOverrides =
+		isRecord(body) && typeof body.themeOverrides === "string"
+			? body.themeOverrides
+			: "";
+	// A target is optional: with none, compile baseline Tailwind so designs
+	// without a linked system still render with defaults.
+	const target = isRecord(body) ? readTailwindSyncTarget(body) : null;
+	const hasTarget =
+		isRecord(body) &&
+		(typeof body.systemId === "string" ||
+			typeof body.systemName === "string" ||
+			typeof body.cssPath === "string");
+	if (hasTarget && !target) {
+		return jsonError(
+			"Provide at most one of systemId, systemName, or cssPath",
+			400,
+		);
+	}
+
+	if (!target) {
+		try {
+			const css = await compileBaselineTailwindCss({ projectRoot, candidates });
+			return c.json({
+				systemId: null,
+				systemName: null,
+				cssPath: null,
+				candidateCount: candidates.length,
+				css,
+			});
+		} catch (error) {
+			// Mirror the targeted-compile path below: surface a controlled 500
+			// instead of letting the exception bubble as an unhandled error.
+			console.error(error);
+			return jsonError("Failed to compile Tailwind CSS", 500);
+		}
+	}
+
+	let config: unknown;
+	try {
+		config = await readJsonFile<unknown>(configPath);
+	} catch (error) {
+		const fsError = asErrnoException(error);
+		if (fsError.code === "ENOENT") {
+			return jsonError(`Config file not found at ${configPath}`, 404);
+		}
+		return jsonError("Failed to read trickroom config file", 500);
+	}
+	if (!isTrickroomConfig(config)) {
+		return jsonError("Invalid trickroom config file", 400);
+	}
+
+	try {
+		const resolvedTarget = await resolveConfiguredTailwindSystemTarget(
+			projectRoot,
+			config,
+			target,
+		);
+		const css = await compileTailwindCss({
+			projectRoot,
+			cssPath: resolvedTarget.cssPath,
+			candidates,
+			themeOverrides,
+		});
+		return c.json({
+			systemId: resolvedTarget.systemId,
+			systemName: resolvedTarget.systemName,
+			cssPath: resolvedTarget.cssPath,
+			candidateCount: candidates.length,
+			css,
+		});
+	} catch (error) {
+		if (error instanceof TailwindSystemResolutionError) {
+			return jsonError(
+				error.message,
+				TAILWIND_RESOLUTION_ERROR_STATUS[error.code],
+			);
+		}
+		console.error(error);
+		return jsonError("Failed to compile Tailwind CSS", 500);
+	}
+});
+
 const validateDomainOverride = (
 	domain: TailwindTokenDomain,
 	pattern: string,
@@ -412,7 +591,9 @@ const validateDomainOverride = (
 	// Longest namespace wins: --font must not claim --font-weight-* patterns
 	// (nor --text claim --text-shadow-*), which belong to the more specific
 	// domain and would otherwise be stored under the wrong domain.
-	for (const otherNamespace of Object.values(TAILWIND_TOKEN_DOMAIN_NAMESPACES)) {
+	for (const otherNamespace of Object.values(
+		TAILWIND_TOKEN_DOMAIN_NAMESPACES,
+	)) {
 		const otherNormalized = otherNamespace.toLowerCase();
 		if (
 			otherNormalized.length > normalizedNamespace.length &&
@@ -462,6 +643,69 @@ const isInvalidSystemStorageError = (error: unknown) =>
 	error instanceof DesignSystemStorageError &&
 	(error.code === "EMPTY_SYSTEM_KEY" || error.code === "INVALID_SYSTEM_KEY");
 
+const readStoredTokensForSystem = async (
+	projectRoot: string,
+	systemName: string,
+) => {
+	const system = await findDesignSystem(projectRoot, systemName);
+	const systemHandle = system?.manifest.systemId ?? systemName;
+	const stored = await readDomainTokens(projectRoot, systemHandle);
+
+	return {
+		system,
+		stored,
+	};
+};
+
+/**
+ * GET /systems/:systemName/tokens.html - Render stored tokens as static HTML.
+ */
+tailwindRoutes.get("/systems/:systemName/tokens.html", async (c) => {
+	const projectRoot = c.get("projectRoot") as string;
+	const systemName = c.req.param("systemName");
+
+	if (typeof systemName !== "string" || systemName.trim().length === 0) {
+		return jsonError("Invalid system name", 400);
+	}
+
+	try {
+		const { system, stored } = await readStoredTokensForSystem(
+			projectRoot,
+			systemName,
+		);
+
+		if (!stored) {
+			return jsonError(`No tokens stored for system "${systemName}"`, 404);
+		}
+
+		const systemId = system?.manifest.systemId ?? systemName;
+		const resolvedSystemName = system?.manifest.systemName ?? systemName;
+		const html = renderTailwindTokenHtml({
+			storage: stored,
+			system: {
+				systemId,
+				systemName: resolvedSystemName,
+				cssPath: system?.manifest.cssPath ?? stored.metadata.cssPath,
+			},
+		});
+		if (c.req.query("download") === "1") {
+			c.header(
+				"Content-Disposition",
+				`attachment; filename="${systemId.replace(/[^a-z0-9._-]+/gi, "-")}-tokens.html"`,
+			);
+		}
+		c.header("Cache-Control", "no-store");
+		return c.html(html);
+	} catch (error) {
+		if (isInvalidSystemStorageError(error)) {
+			return jsonError("Invalid system name", 400);
+		}
+
+		console.error(error);
+		return jsonError("Failed to render stored tokens", 500);
+	}
+});
+
 /**
  * GET /systems/:systemName/tokens - Retrieve stored tokens and overrides
  */
@@ -474,9 +718,10 @@ tailwindRoutes.get("/systems/:systemName/tokens", async (c) => {
 	}
 
 	try {
-		const system = await findDesignSystem(projectRoot, systemName);
-		const systemHandle = system?.manifest.systemId ?? systemName;
-		const stored = await readDomainTokens(projectRoot, systemHandle);
+		const { system, stored } = await readStoredTokensForSystem(
+			projectRoot,
+			systemName,
+		);
 
 		if (!stored) {
 			return jsonError(`No tokens stored for system "${systemName}"`, 404);
@@ -491,6 +736,8 @@ tailwindRoutes.get("/systems/:systemName/tokens", async (c) => {
 			tailwindBaselineVersion: stored.metadata.tailwindBaselineVersion,
 			reviewRequired: stored.metadata.reviewRequired,
 			domains: stored.domains,
+			customProperties: stored.customProperties,
+			customUtilities: stored.customUtilities,
 		});
 	} catch (error) {
 		if (isInvalidSystemStorageError(error)) {
@@ -568,6 +815,8 @@ tailwindRoutes.post("/systems/:systemName/tokens", async (c) => {
 			) as Partial<
 				Record<TailwindTokenDomain, TailwindMeaningfulTokenBaselineDiff>
 			>,
+			customProperties: stored.customProperties,
+			customUtilities: stored.customUtilities,
 			reviewRequired: false,
 			syncedAt: stored.metadata.syncedAt,
 		});
@@ -588,6 +837,8 @@ tailwindRoutes.post("/systems/:systemName/tokens", async (c) => {
 			tailwindBaselineVersion: updated.metadata.tailwindBaselineVersion,
 			reviewRequired: updated.metadata.reviewRequired,
 			domains: updated.domains,
+			customProperties: updated.customProperties,
+			customUtilities: updated.customUtilities,
 		});
 	} catch (error) {
 		if (isInvalidSystemStorageError(error)) {

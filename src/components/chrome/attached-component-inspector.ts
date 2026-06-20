@@ -1,5 +1,8 @@
 import type { DesignEntity } from "../../stores/design-store";
-import { isSystemComponentRootStale } from "../../utils/system-component-markers";
+import {
+	getSystemComponentStructuralMetadata,
+	isSystemComponentRootStale,
+} from "../../utils/system-component-markers";
 import {
 	getContainingSystemComponentSlot,
 	getElementSystemComponentMetadata,
@@ -10,6 +13,7 @@ import {
 	type SystemComponentInstanceMetadata,
 	type SystemComponentSlotContainment,
 } from "../../utils/system-component-ownership";
+import { variantSchemaHashMatchesDefaultBackfillMigration } from "../../utils/system-component-variant-defaults-migration";
 import type {
 	PublishedSystemComponentVersion,
 	SystemComponentRecord,
@@ -127,9 +131,14 @@ export const getAttachedComponentVersionStatus = (
 	const templateStale = isSystemComponentRootStale(rootProps, {
 		templateHash: publishedVersion.templateHash,
 	});
-	const variantStale = isSystemComponentRootStale(rootProps, {
-		variantSchemaHash: publishedVersion.variantSchemaHash,
-	});
+	const metadata = getSystemComponentStructuralMetadata(rootProps);
+	const variantStale =
+		metadata?.isRoot &&
+		metadata.variantSchemaHash !== publishedVersion.variantSchemaHash &&
+		!variantSchemaHashMatchesDefaultBackfillMigration(
+			metadata.variantSchemaHash,
+			publishedVersion.variants,
+		);
 
 	if (templateStale && variantStale) {
 		return "stale-both";

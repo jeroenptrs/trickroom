@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { listAuthoredCompounds } from "../../utils/system-component-compound-shape";
 import {
 	advanceCompoundDraftKeys,
 	advanceVariantDraftSchemaKeys,
@@ -344,6 +345,53 @@ describe("variantDraftsToSchema compound variants", () => {
 	});
 });
 
+describe("authored compounds list", () => {
+	it("lists normal authored compounds for focusable selection", () => {
+		const schema = {
+			axes: {
+				tone: { label: "Tone", values: { brand: { label: "Brand" } } },
+				size: { label: "Size", values: { lg: { label: "Large" } } },
+			},
+			compoundVariants: [
+				{
+					when: { tone: "brand", size: "lg" },
+					classesByPath: { root: "ring-2" },
+				},
+			],
+		};
+
+		const entries = listAuthoredCompounds(schema);
+		expect(entries).toEqual([
+			expect.objectContaining({
+				isAdvanced: false,
+				label: "Tone: Brand · Size: Large",
+			}),
+		]);
+	});
+
+	it("marks advanced compat compounds as read-only list rows", () => {
+		const schema = {
+			axes: {
+				tone: { label: "Tone", values: { brand: { label: "Brand" } } },
+				size: { label: "Size", values: { lg: { label: "Large" } } },
+			},
+			compoundVariants: [
+				{
+					when: { tone: ["brand"], size: "lg" },
+					classesByPath: { root: "ring-2" },
+				},
+			],
+		};
+
+		const [draft] = schemaToCompoundDrafts(schema);
+		expect(draft.isAdvancedCompat).toBe(true);
+
+		const [entry] = listAuthoredCompounds(schema);
+		expect(entry?.isAdvanced).toBe(true);
+		expect(entry?.advancedDiagnostic).toContain("array value");
+	});
+});
+
 describe("schemaToCompoundDrafts", () => {
 	it("maps when entries to conditions and records the original signature", () => {
 		const [draft] = schemaToCompoundDrafts({
@@ -362,6 +410,81 @@ describe("schemaToCompoundDrafts", () => {
 			["size", "lg"],
 		]);
 		expect(draft.originalWhenSignature).toBeDefined();
+	});
+
+	it("preserves array-valued when without collapsing to the first entry", () => {
+		const [draft] = schemaToCompoundDrafts({
+			axes: {
+				tone: {
+					label: "Tone",
+					values: { brand: {}, neutral: {} },
+				},
+				size: { label: "Size", values: { lg: {} } },
+			},
+			compoundVariants: [
+				{
+					when: { tone: ["brand", "neutral"], size: "lg" },
+					classesByPath: { root: "ring-2" },
+				},
+			],
+		});
+
+		expect(draft.isAdvancedCompat).toBe(true);
+		expect(draft.originalWhen).toEqual({
+			tone: ["brand", "neutral"],
+			size: "lg",
+		});
+		expect(draft.conditions).toEqual([
+			expect.objectContaining({ axisKey: "tone", valueKey: "brand|neutral" }),
+			expect.objectContaining({ axisKey: "size", valueKey: "lg" }),
+		]);
+	});
+
+	it("round-trips advanced compounds through variantDraftsToSchema via originalWhen", () => {
+		const existing = {
+			axes: {
+				tone: {
+					label: "Tone",
+					values: { brand: {}, neutral: {} },
+				},
+				size: { label: "Size", values: { lg: {} } },
+			},
+			compoundVariants: [
+				{
+					when: { tone: ["brand", "neutral"], size: "lg" },
+					classesByPath: { root: "ring-2" },
+				},
+			],
+		};
+		const variantDrafts: VariantAxisDraft[] = [
+			{
+				id: "axis-tone",
+				key: "tone",
+				originalKey: "tone",
+				label: "Tone",
+				defaultValue: "",
+				schemaDefaultValue: "",
+				values: [
+					{ id: "v-brand", key: "brand", originalKey: "brand", label: "" },
+					{ id: "v-neutral", key: "neutral", originalKey: "neutral", label: "" },
+				],
+			},
+			{
+				id: "axis-size",
+				key: "size",
+				originalKey: "size",
+				label: "Size",
+				defaultValue: "",
+				schemaDefaultValue: "",
+				values: [{ id: "v-lg", key: "lg", originalKey: "lg", label: "" }],
+			},
+		];
+		const [draft] = schemaToCompoundDrafts(existing);
+		const schema = variantDraftsToSchema(variantDrafts, existing, [draft]);
+		expect(schema?.compoundVariants?.[0]?.when).toEqual({
+			tone: ["brand", "neutral"],
+			size: "lg",
+		});
 	});
 });
 

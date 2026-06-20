@@ -1,19 +1,17 @@
 import { useCallback, useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
+import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
 import { useDesignSystemId } from "../../../stores/design-store";
 import {
 	buildPropertyModel,
 	type ModelOptions,
 	type StyleProperty,
 } from "../../../utils/tailwind-classname";
-import {
-	applyColorChange,
-	applyColorClear,
-} from "./colorPropertiesController";
 import { ColorPropertyControl } from "./ColorPropertyControl";
-import { StyleSection } from "./StyleSection";
+import { applyColorChange, applyColorClear } from "./colorPropertiesController";
 import { Segmented, type SegmentedOption, ValueField } from "./StyleControls";
 import { StyleOverrideRows } from "./StyleOverrideRows";
+import { StyleSection } from "./StyleSection";
 import { getStyleIntent, styleValueText } from "./styleSectionController";
 
 type BorderPropertiesProps = {
@@ -71,13 +69,17 @@ function borderRadiusUtility(value: string): string {
 	return value === "DEFAULT" ? "rounded" : `rounded-${value}`;
 }
 
-export function BorderProperties({ className, onChange }: BorderPropertiesProps) {
+export function BorderProperties({
+	className,
+	onChange,
+}: BorderPropertiesProps) {
 	const systemId = useDesignSystemId();
 	const resolved = useResolvedColorTokens(systemId);
+	const customUtilityRoots = useResolvedCustomUtilities(systemId);
 
 	const options = useMemo<ModelOptions>(
-		() => ({ colorTokens: resolved.names }),
-		[resolved.names],
+		() => ({ colorTokens: resolved.names, ...customUtilityRoots }),
+		[resolved.names, customUtilityRoots],
 	);
 
 	const model = useMemo(
@@ -95,7 +97,11 @@ export function BorderProperties({ className, onChange }: BorderPropertiesProps)
 	const radius = read("border.radius");
 
 	const borderWidthLabel =
-		borderWidth === "DEFAULT" ? "border" : borderWidth ? `border-${borderWidth}` : null;
+		borderWidth === "DEFAULT"
+			? "border"
+			: borderWidth
+				? `border-${borderWidth}`
+				: null;
 	const radiusLabel = radius
 		? radius === "DEFAULT"
 			? "rounded"
@@ -122,7 +128,10 @@ export function BorderProperties({ className, onChange }: BorderPropertiesProps)
 				}
 				onClear={(variants) =>
 					onChange(
-						applyColorClear(className, options, { property: "border", variants }),
+						applyColorClear(className, options, {
+							property: "border",
+							variants,
+						}),
 					)
 				}
 			/>

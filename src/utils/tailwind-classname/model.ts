@@ -93,10 +93,16 @@ export function buildPropertyModel(
 	const unknown: ParsedClass[] = [];
 
 	original.forEach((parsed, index) => {
+		// Pass the full classify context — notably the custom `@utility` roots — so
+		// a system's `text-interaction-*`/`bg-penn-app` classify as custom-functional
+		// (and land in `unknown`, preserved as-is) instead of being misread as a
+		// built-in `text-*`/`bg-*` utility and bucketed into an editable slot.
 		const intent = classifyParsedClass(parsed, {
 			colorTokens: options.colorTokens,
+			customFunctionalUtilityRoots: options.customFunctionalUtilityRoots,
+			customStaticUtilityRoots: options.customStaticUtilityRoots,
 		});
-		if (intent.kind === "unknown") {
+		if (intent.kind === "unknown" || intent.kind === "custom-functional") {
 			unknown.push(parsed);
 			return;
 		}

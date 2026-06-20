@@ -6,6 +6,7 @@ import {
 	Plus,
 	Save,
 	Search,
+	Trash2,
 	UploadCloud,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,9 +15,11 @@ import { systemComponentsUsageQueryOptions } from "../../queries/system-componen
 import {
 	copyPublishedSystemComponentToDraft,
 	createSystemComponentDraft,
+	deleteSystemComponent,
 	invalidateSystemComponents,
 	publishSystemComponent,
 	type SystemComponentSummary,
+	systemComponentQueryKey,
 	systemComponentQueryOptions,
 	systemComponentsQueryOptions,
 	updateSystemComponentDraft,
@@ -27,7 +30,9 @@ import {
 	componentDraftStore,
 	getComponentDraftTemplateHash,
 	isComponentDraftForComponent,
+	resetComponentDraftStore,
 	serializeComponentDraftState,
+	serializeComponentDraftVariants,
 	useComponentDraftComponentId,
 	useComponentDraftRevision,
 	useComponentDraftRootPath,
@@ -38,6 +43,7 @@ import {
 	componentEditorSessionStore,
 	isEditorMetadataChanged,
 	markEditorMetadataSaved,
+	resetComponentEditorSession,
 	setLoadedDraftHashes,
 	useEditorDraftConflict,
 	useEditorMetadataChanged,
@@ -47,6 +53,7 @@ import {
 } from "../../stores/component-editor-session-store";
 import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
 import { isSystemComponentSlug } from "../../utils/system-components";
+import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
@@ -64,6 +71,29 @@ import {
 	SystemEditorComponentContextPanel,
 	SystemEditorComponentContextSync,
 } from "./SystemEditorInspector";
+
+export function hasPublishableComponentDraftChanges({
+	hasDraft,
+	hasPublishedVersion,
+	draftTemplateHash,
+	draftVariantSchemaHash,
+	publishedTemplateHash,
+	publishedVariantSchemaHash,
+}: {
+	hasDraft: boolean;
+	hasPublishedVersion: boolean;
+	draftTemplateHash?: string | null;
+	draftVariantSchemaHash?: string | null;
+	publishedTemplateHash?: string | null;
+	publishedVariantSchemaHash?: string | null;
+}) {
+	return (
+		hasDraft &&
+		(!hasPublishedVersion ||
+			draftTemplateHash !== publishedTemplateHash ||
+			(draftVariantSchemaHash ?? null) !== (publishedVariantSchemaHash ?? null))
+	);
+}
 
 type ComponentUsageSummary = {
 	usedByCount: number;
@@ -184,6 +214,17 @@ function ComponentWorkspaceActions({
 	});
 	const record = componentQuery.data?.record;
 	const hasDraft = Boolean(record?.draft);
+	const currentPublishedVersion = record?.published?.currentVersion
+		? record.published.versions[record.published.currentVersion]
+		: null;
+	const hasPublishableChanges = hasPublishableComponentDraftChanges({
+		hasDraft,
+		hasPublishedVersion: Boolean(currentPublishedVersion),
+		draftTemplateHash: componentQuery.data?.draftTemplateHash,
+		draftVariantSchemaHash: componentQuery.data?.draftVariantSchemaHash,
+		publishedTemplateHash: currentPublishedVersion?.templateHash,
+		publishedVariantSchemaHash: currentPublishedVersion?.variantSchemaHash,
+	});
 	const draftMatchesComponent =
 		Boolean(componentId) && draftComponentId === componentId;
 	const hasUnsavedTemplateOrVariantChanges =
@@ -207,6 +248,7 @@ function ComponentWorkspaceActions({
 	const canPublish =
 		Boolean(componentQuery.data?.valid) &&
 		hasDraft &&
+		hasPublishableChanges &&
 		!hasUnsavedDraftChanges &&
 		variantsValid &&
 		errorDiagnostics.length === 0;
@@ -304,7 +346,7 @@ function ComponentWorkspaceActions({
 							}
 						: {}),
 					...(variantsDirty
-						? { variants: componentDraftStore.get().variants }
+						? { variants: serializeComponentDraftVariants(state) }
 						: {}),
 				});
 				if (
@@ -380,6 +422,9 @@ function ComponentWorkspaceActions({
 			}
 			if (hasUnsavedDraftChanges) {
 				throw new Error("Save the draft before publishing this version.");
+			}
+			if (!hasPublishableChanges) {
+				throw new Error("There are no draft changes to publish.");
 			}
 			if (!variantsValid) {
 				throw new Error("Resolve variant diagnostics before publishing.");
@@ -457,7 +502,9 @@ function ComponentWorkspaceActions({
 									? "Root layer required"
 									: hasUnsavedDraftChanges
 										? "Unsaved changes"
-										: "Draft saved"
+										: hasPublishableChanges
+											? "Draft saved"
+											: "No changes to publish"
 							: componentQuery.isPending
 								? "Loading draft"
 								: "No draft available"}
@@ -657,9 +704,20 @@ export function SystemEditorComponentsRail({
 	const [draftName, setDraftName] = useState("");
 	const [createError, setCreateError] = useState<string | null>(null);
 	const [copyDraftError, setCopyDraftError] = useState<string | null>(null);
+	const [deleteError, setDeleteError] = useState<string | null>(null);
 	const [activeComponentTab, setActiveComponentTab] =
 		useState<ComponentRailTab>("design");
 	const componentFilterRef = useRef<HTMLInputElement>(null);
+	const handleSelectComponent = useCallback(
+		(nextComponentId: string | null) => {
+			if (nextComponentId !== selectedComponentId) {
+				resetComponentDraftStore();
+				resetComponentEditorSession();
+			}
+			onSelectComponent(nextComponentId);
+		},
+		[onSelectComponent, selectedComponentId],
+	);
 
 	useEffect(() => {
 		if (selectedComponentId !== null) {
@@ -740,7 +798,7 @@ export function SystemEditorComponentsRail({
 		onSuccess: async (response) => {
 			setDraftName("");
 			setCreateError(null);
-			onSelectComponent(response.componentId);
+			handleSelectComponent(response.componentId);
 			await invalidateSystemComponents(
 				queryClient,
 				systemId,
@@ -783,7 +841,7 @@ export function SystemEditorComponentsRail({
 		},
 		onSuccess: async (response) => {
 			setCopyDraftError(null);
-			onSelectComponent(response.componentId);
+			handleSelectComponent(response.componentId);
 			await invalidateSystemComponents(
 				queryClient,
 				systemId,
@@ -792,6 +850,62 @@ export function SystemEditorComponentsRail({
 			);
 		},
 	});
+
+	const deleteComponentMutation = useMutation({
+		mutationFn: async (component: SystemComponentSummary) => {
+			const revision = componentsQuery.data?.revision;
+			if (!revision) {
+				throw new Error("Component manifest revision is not loaded yet.");
+			}
+
+			return deleteSystemComponent(systemId, component.componentId, {
+				expectedRevision: revision,
+			});
+		},
+		onMutate: () => setDeleteError(null),
+		onError: (error) => {
+			setDeleteError(
+				error instanceof Error ? error.message : "Failed to delete component.",
+			);
+		},
+		onSuccess: async (response) => {
+			setDeleteError(null);
+			if (selectedComponentId === response.componentId) {
+				handleSelectComponent(null);
+			}
+			queryClient.removeQueries({
+				queryKey: systemComponentQueryKey(
+					systemId,
+					response.componentId,
+					projectScope,
+				),
+			});
+			await invalidateSystemComponents(
+				queryClient,
+				systemId,
+				projectScope,
+				response.componentId,
+			);
+		},
+	});
+
+	const handleDeleteComponent = useCallback(
+		(component: SystemComponentSummary) => {
+			if (deleteComponentMutation.isPending) {
+				return;
+			}
+			const confirmed = window.confirm(
+				component.hasPublished
+					? `Delete "${component.name}" and all published versions? This cannot be undone.`
+					: `Delete "${component.name}"? This cannot be undone.`,
+			);
+			if (!confirmed) {
+				return;
+			}
+			deleteComponentMutation.mutate(component);
+		},
+		[deleteComponentMutation],
+	);
 
 	const handleCreateDraft = useCallback(() => {
 		const trimmed = draftName.trim();
@@ -835,7 +949,7 @@ export function SystemEditorComponentsRail({
 						type="button"
 						variant="block"
 						className="flex size-7 shrink-0 items-center justify-center p-0"
-						onClick={() => onSelectComponent(null)}
+						onClick={() => handleSelectComponent(null)}
 						title="Back to components"
 					>
 						<ArrowLeft className="size-4 text-slate-500" aria-hidden="true" />
@@ -851,6 +965,7 @@ export function SystemEditorComponentsRail({
 							{selectedSummary?.slug ?? selectedComponentId}
 						</span>
 					</div>
+					<OpenDesignTokensButton systemId={systemId} />
 					{selectedSummary ? (
 						<ComponentStatusBadge summary={selectedSummary} />
 					) : null}
@@ -860,7 +975,7 @@ export function SystemEditorComponentsRail({
 					onValueChange={(value) =>
 						setActiveComponentTab(value as ComponentRailTab)
 					}
-					className="min-h-0 flex-1 gap-0"
+					className="flex h-full min-h-0 flex-1 flex-col gap-0 overflow-hidden"
 				>
 					<TabsList variant="line" className="shrink-0 px-2">
 						<TabsTab value="design" variant="block" className="px-3 py-2">
@@ -876,11 +991,17 @@ export function SystemEditorComponentsRail({
 							Publish
 						</TabsTab>
 					</TabsList>
-					<TabsPanel value="design" className="min-h-0 flex-1">
+					<TabsPanel
+						value="design"
+						className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+					>
 						<ComponentDraftLayers componentId={selectedComponentId} embedded />
 					</TabsPanel>
-					<TabsPanel value="settings" className="min-h-0 flex-1">
-						<ScrollArea className="min-h-0 flex-1">
+					<TabsPanel
+						value="settings"
+						className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+					>
+						<ScrollArea className="h-full min-h-0">
 							<div className="px-3 py-3">
 								<SystemEditorComponentContextPanel
 									systemId={systemId}
@@ -891,8 +1012,11 @@ export function SystemEditorComponentsRail({
 							</div>
 						</ScrollArea>
 					</TabsPanel>
-					<TabsPanel value="variants" className="min-h-0 flex-1">
-						<ScrollArea className="min-h-0 flex-1">
+					<TabsPanel
+						value="variants"
+						className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+					>
+						<ScrollArea className="h-full min-h-0">
 							<div className="px-3 py-3">
 								<SystemEditorComponentContextPanel
 									systemId={systemId}
@@ -903,8 +1027,11 @@ export function SystemEditorComponentsRail({
 							</div>
 						</ScrollArea>
 					</TabsPanel>
-					<TabsPanel value="publish" className="min-h-0 flex-1">
-						<ScrollArea className="min-h-0 flex-1">
+					<TabsPanel
+						value="publish"
+						className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+					>
+						<ScrollArea className="h-full min-h-0">
 							<div className="px-3 py-3">
 								<SystemEditorComponentContextPanel
 									systemId={systemId}
@@ -985,6 +1112,14 @@ export function SystemEditorComponentsRail({
 					{copyDraftError}
 				</div>
 			) : null}
+			{deleteError ? (
+				<div
+					className="mx-2 mt-2 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+					role="alert"
+				>
+					{deleteError}
+				</div>
+			) : null}
 			{components.length === 0 ? (
 				<ComponentRailEmptyState />
 			) : filteredComponents.length === 0 ? (
@@ -1005,6 +1140,10 @@ export function SystemEditorComponentsRail({
 											copyPublishedMutation.isPending &&
 											copyPublishedMutation.variables?.componentId ===
 												component.componentId;
+										const isDeleting =
+											deleteComponentMutation.isPending &&
+											deleteComponentMutation.variables?.componentId ===
+												component.componentId;
 										const usage = usageByComponent.get(component.componentId);
 										return (
 											<li key={component.componentId}>
@@ -1013,7 +1152,7 @@ export function SystemEditorComponentsRail({
 														type="button"
 														variant="block"
 														onClick={() =>
-															onSelectComponent(component.componentId)
+															handleSelectComponent(component.componentId)
 														}
 														className="flex min-w-0 flex-1 items-start justify-between gap-2 px-2.5 py-2 text-left"
 													>
@@ -1053,6 +1192,21 @@ export function SystemEditorComponentsRail({
 															</span>
 														</Button>
 													) : null}
+													<Button
+														type="button"
+														variant="block"
+														flavor="warning"
+														className="flex w-8 shrink-0 items-center justify-center p-0"
+														disabled={deleteComponentMutation.isPending}
+														title="Delete component"
+														aria-label={`Delete ${component.name}`}
+														onClick={() => handleDeleteComponent(component)}
+													>
+														<Trash2 className="size-3.5" aria-hidden="true" />
+														<span className="sr-only">
+															{isDeleting ? "Deleting" : "Delete"}
+														</span>
+													</Button>
 												</div>
 											</li>
 										);

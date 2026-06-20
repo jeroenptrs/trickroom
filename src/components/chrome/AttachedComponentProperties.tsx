@@ -28,18 +28,20 @@ import { useProjectScope } from "../contexts";
 import { Button } from "../ui/button";
 import {
 	type AttachedComponentInspection,
+	type AttachedComponentVersionStatus,
 	attachedComponentVersionStatusLabel,
 	getAttachedComponentInspection,
 	getAttachedComponentVersionStatus,
 	getCurrentPublishedVersionForInstance,
 	getPublishedVersionForInstance,
 	isAttachedComponentStaleStatus,
-	type AttachedComponentVersionStatus,
 } from "./attached-component-inspector";
 
 type AttachedComponentPropertiesProps = {
 	inspection: AttachedComponentInspection;
 };
+
+const unsetVariantAxisValue = "__trickroom_unset_variant_axis__";
 
 function VariantAxisControl({
 	rootElementId,
@@ -52,9 +54,10 @@ function VariantAxisControl({
 	version: PublishedSystemComponentVersion;
 	axisKey: string;
 	axis: SystemComponentVariantAxis;
-	currentValue: string;
+	currentValue: string | undefined;
 }) {
 	const options = Object.entries(axis.values);
+	const selectValue = currentValue ?? unsetVariantAxisValue;
 
 	return (
 		<div className="flex flex-col gap-1 text-xs">
@@ -64,16 +67,19 @@ function VariantAxisControl({
 			<select
 				id={`component-variant-${axisKey}`}
 				className="w-full border-none bg-slate-200/60 px-1 py-0.5 text-xs text-slate-950 inset-shadow-[0_0_0_1px_transparent] focus:outline-none focus:inset-shadow-[0_0_0_1px_#67e8f9]"
-				value={currentValue}
+				value={selectValue}
 				onChange={(event) =>
 					setSystemComponentVariantValue(
 						rootElementId,
 						version,
 						axisKey,
-						event.currentTarget.value,
+						event.currentTarget.value === unsetVariantAxisValue
+							? null
+							: event.currentTarget.value,
 					)
 				}
 			>
+				<option value={unsetVariantAxisValue}>Unselected</option>
 				{options.map(([valueKey, value]) => (
 					<option key={valueKey} value={valueKey}>
 						{value.label ?? valueKey}
@@ -222,7 +228,9 @@ function AttachedComponentRootControls({
 				return false;
 			}
 			seen.add(key);
-			return diagnostic.severity === "review" || diagnostic.severity === "warning";
+			return (
+				diagnostic.severity === "review" || diagnostic.severity === "warning"
+			);
 		});
 	}, [migrationPreview]);
 	const updateBlocked =
@@ -345,10 +353,8 @@ function AttachedComponentRootControls({
 								axis={axis}
 								currentValue={
 									instance.variantValues[axisKey] ??
-									axis.defaultValue ??
 									version?.variants?.defaultValues?.[axisKey] ??
-									Object.keys(axis.values)[0] ??
-									""
+									axis.defaultValue
 								}
 							/>
 						))}

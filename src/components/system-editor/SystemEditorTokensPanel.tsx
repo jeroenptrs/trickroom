@@ -1,9 +1,16 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, EyeOff, RefreshCw, X } from "lucide-react";
 import {
-	type RefObject,
+	AlertTriangle,
+	Check,
+	Download,
+	EyeOff,
+	RefreshCw,
+	X,
+} from "lucide-react";
+import {
 	type ReactNode,
+	type RefObject,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -13,12 +20,14 @@ import {
 import type { TailwindSyncResult } from "../../hooks/useTailwindSyncController";
 import type { ProjectQueryScope } from "../../queries/project-scope";
 import {
+	type StoredTailwindCustomUtility,
 	type StoredTailwindTokensResponse,
 	saveAndConfirmTailwindTokens,
 	storedTailwindTokensQueryKey,
 	storedTailwindTokensQueryOptions,
 } from "../../queries/tailwind-sync-tokens";
 import { defaultTailwindTokensByDomain } from "../../utils/default-tailwind-tokens";
+import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
 import { computeColorOverrides } from "../../utils/tailwind-color-tokens";
 import {
 	computeTokenDomainOverrides,
@@ -29,7 +38,6 @@ import {
 	type TailwindTokenDomainDiffs,
 	type TailwindTokenEntry,
 } from "../../utils/tailwind-token-domains";
-import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
 import { useTailwindSyncController } from "../contexts";
 import { formatRelativeTime, pluralize } from "../project/project-view-utils";
 import { SystemDiffChips } from "../project/SystemDiffChips";
@@ -119,7 +127,6 @@ const baseColorTokenNames = new Set([
 	"current",
 	"currentColor",
 ]);
-
 
 const syncedTokenStatusConfig: Record<
 	SyncedTokenStatus,
@@ -515,6 +522,7 @@ function EmptyTokenState({
 }
 
 function TokenMasthead({
+	systemId,
 	systemName,
 	cssPath,
 	syncedAt,
@@ -526,7 +534,9 @@ function TokenMasthead({
 	isSyncing,
 	onSync,
 	syncDisabled,
+	canExport,
 }: {
+	systemId: string;
 	systemName: string;
 	cssPath: string;
 	syncedAt: string | null;
@@ -538,11 +548,13 @@ function TokenMasthead({
 	isSyncing: boolean;
 	onSync: () => void;
 	syncDisabled: boolean;
+	canExport: boolean;
 }) {
 	const syncLabel = syncedAt ? formatRelativeTime(syncedAt) : "never";
 	const versionLabel = baselineVersion
 		? `Tailwind ${baselineVersion}`
 		: "Tailwind";
+	const exportHref = `/api/trickroom/tailwind/systems/${encodeURIComponent(systemId)}/tokens.html?download=1`;
 
 	return (
 		<header className="border-b border-slate-200 bg-white">
@@ -573,19 +585,35 @@ function TokenMasthead({
 						{tokenCount.toLocaleString()} {pluralize(tokenCount, "token")} ·{" "}
 						{domainCount.toLocaleString()} {pluralize(domainCount, "domain")}
 					</div>
-					<Button
-						type="button"
-						variant="blockDark"
-						className="flex items-center gap-1.5 bg-slate-950 px-3 py-2"
-						onClick={onSync}
-						disabled={syncDisabled}
-					>
-						<RefreshCw
-							className={`size-3.5 ${isSyncing ? "animate-spin text-cyan-300" : ""}`}
-							aria-hidden="true"
-						/>
-						{isSyncing ? "Syncing..." : status === "idle" ? "Sync" : "Re-sync"}
-					</Button>
+					<div className="flex items-center gap-2">
+						{canExport ? (
+							<a
+								className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"
+								href={exportHref}
+								title="Export static HTML"
+							>
+								<Download className="size-3.5" aria-hidden="true" />
+								Export HTML
+							</a>
+						) : null}
+						<Button
+							type="button"
+							variant="blockDark"
+							className="flex items-center gap-1.5 bg-slate-950 px-3 py-2"
+							onClick={onSync}
+							disabled={syncDisabled}
+						>
+							<RefreshCw
+								className={`size-3.5 ${isSyncing ? "animate-spin text-cyan-300" : ""}`}
+								aria-hidden="true"
+							/>
+							{isSyncing
+								? "Syncing..."
+								: status === "idle"
+									? "Sync"
+									: "Re-sync"}
+						</Button>
+					</div>
 				</div>
 			</div>
 		</header>
@@ -2022,6 +2050,134 @@ function SyncedStatusTokenBrowser({
 	);
 }
 
+/**
+ * Read-only review of the custom `@utility` definitions and the CSS variables
+ * they consume — the data that lives outside the fixed token domains
+ * (`customProperties` / `customUtilities` in the v3 snapshot). Surfacing it here
+ * lets designers confirm what the system contributed beyond standard tokens.
+ */
+function CustomUtilitiesSection({
+	customProperties,
+	customUtilities,
+}: {
+	customProperties: StoredTailwindTokensResponse["customProperties"];
+	customUtilities: StoredTailwindTokensResponse["customUtilities"];
+}) {
+	const [collapsed, setCollapsed] = useState(true);
+	const variables = Object.entries(customProperties ?? {});
+	const utilities = customUtilities ?? [];
+
+	if (variables.length === 0 && utilities.length === 0) {
+		return null;
+	}
+
+	// Fold each utility into the domain(s) it affects (multi-tag). Utilities the
+	// inference couldn't place go under "uncategorized", listed last.
+	const UNCATEGORIZED = "uncategorized";
+	const byDomain = new Map<string, StoredTailwindCustomUtility[]>();
+	for (const utility of utilities) {
+		const keys =
+			utility.domains && utility.domains.length > 0
+				? utility.domains
+				: [UNCATEGORIZED];
+		for (const key of keys) {
+			const bucket = byDomain.get(key) ?? [];
+			bucket.push(utility);
+			byDomain.set(key, bucket);
+		}
+	}
+	const domainGroups = [...byDomain.entries()].sort(([left], [right]) => {
+		if (left === UNCATEGORIZED) return 1;
+		if (right === UNCATEGORIZED) return -1;
+		return left.localeCompare(right);
+	});
+
+	return (
+		<section className="border-t border-slate-200 px-10 py-6">
+			<button
+				type="button"
+				onClick={() => setCollapsed((value) => !value)}
+				className="flex w-full items-baseline gap-3 text-left"
+				aria-expanded={!collapsed}
+			>
+				<span className="font-mono text-[11px] text-slate-300">＊</span>
+				<Text variant="subtitle" className="text-[15px] text-slate-900">
+					Custom utilities
+				</Text>
+				<span className="text-[11px] text-slate-500">
+					@utility definitions grouped by the domain they affect
+				</span>
+				<span className="ml-auto font-mono text-[10px] text-slate-400">
+					{utilities.length.toLocaleString()}
+				</span>
+			</button>
+
+			{collapsed ? null : (
+				<div className="mt-5 flex flex-col gap-6">
+					{domainGroups.map(([domain, domainUtilities]) => (
+						<div key={domain} className="flex flex-col gap-2">
+							<p className="text-[11px] font-medium text-slate-500">
+								{domain === UNCATEGORIZED
+									? "Uncategorized"
+									: formatDomainLabel(domain)}{" "}
+								({domainUtilities.length})
+							</p>
+							<div className="flex flex-wrap gap-1">
+								{domainUtilities.map((utility) => {
+									const isFunctional = utility.kind !== "static";
+									const label = isFunctional
+										? `${utility.root}-*`
+										: utility.root;
+									const tooltip = isFunctional
+										? [
+												utility.consumedNamespaces.join(", "),
+												utility.completionValues.join(" · "),
+											]
+												.filter(Boolean)
+												.join("  •  ")
+										: undefined;
+									return (
+										<span
+											key={`${domain}:${utility.root}`}
+											title={tooltip}
+											className={
+												isFunctional
+													? "bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-800 ring-1 ring-slate-300 ring-inset"
+													: "bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700"
+											}
+										>
+											{label}
+										</span>
+									);
+								})}
+							</div>
+						</div>
+					))}
+
+					{variables.length > 0 ? (
+						<div className="flex flex-col gap-2">
+							<p className="text-[11px] font-medium text-slate-500">
+								Custom CSS variables ({variables.length})
+							</p>
+							<div className="flex flex-col gap-1">
+								{variables.map(([name, value]) => (
+									<div
+										key={name}
+										className="flex flex-wrap items-baseline gap-x-3 font-mono text-[11px]"
+									>
+										<span className="text-slate-900">{name}</span>
+										<span className="text-slate-500">{value}</span>
+									</div>
+								))}
+							</div>
+						</div>
+					) : null}
+				</div>
+			)}
+		</section>
+	);
+}
+
 export function SystemEditorTokensPanel({
 	isActive = true,
 	systemId,
@@ -2378,6 +2534,7 @@ export function SystemEditorTokensPanel({
 		return (
 			<div className="flex min-h-0 flex-1 flex-col bg-slate-50">
 				<TokenMasthead
+					systemId={systemId}
 					systemName={systemName}
 					cssPath={cssPath}
 					syncedAt={syncedAt}
@@ -2389,6 +2546,7 @@ export function SystemEditorTokensPanel({
 					isSyncing={isSyncing}
 					onSync={handleSync}
 					syncDisabled={isSyncing}
+					canExport={false}
 				/>
 				<div className="px-10 py-8 text-sm text-slate-500">
 					Loading token snapshot...
@@ -2401,6 +2559,7 @@ export function SystemEditorTokensPanel({
 		return (
 			<div className="flex min-h-0 flex-1 flex-col bg-slate-50">
 				<TokenMasthead
+					systemId={systemId}
 					systemName={systemName}
 					cssPath={cssPath}
 					syncedAt={syncedAt}
@@ -2412,6 +2571,7 @@ export function SystemEditorTokensPanel({
 					isSyncing={isSyncing}
 					onSync={handleSync}
 					syncDisabled={isSyncing}
+					canExport={false}
 				/>
 				<div
 					className="mx-10 my-8 flex items-start gap-3 border border-red-200 bg-red-50 px-4 py-4"
@@ -2435,6 +2595,7 @@ export function SystemEditorTokensPanel({
 	return (
 		<div className="flex min-h-0 flex-1 flex-col bg-slate-50 text-slate-950">
 			<TokenMasthead
+				systemId={systemId}
 				systemName={systemName}
 				cssPath={cssPath}
 				syncedAt={syncedAt}
@@ -2448,6 +2609,7 @@ export function SystemEditorTokensPanel({
 				isSyncing={isSyncing}
 				onSync={handleSync}
 				syncDisabled={isSyncing}
+				canExport={hasStoredSnapshot}
 			/>
 			{reviewRequired ? (
 				<ReviewBanner
@@ -2528,6 +2690,10 @@ export function SystemEditorTokensPanel({
 					) : (
 						<SyncedStatusTokenBrowser tokens={filteredSyncedTokens} />
 					)}
+					<CustomUtilitiesSection
+						customProperties={storedTokensQuery.data?.customProperties}
+						customUtilities={storedTokensQuery.data?.customUtilities}
+					/>
 				</div>
 			)}
 		</div>
