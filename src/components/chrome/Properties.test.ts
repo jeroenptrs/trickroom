@@ -17,6 +17,15 @@ import {
 import { designStore, normalizeDesign } from "../../stores/design-store";
 import type { ControlDefinition, Node, TrickroomDesign } from "../../types";
 import { assetIdProp, iconIdProp } from "../../utils/resource-props";
+import {
+	createFixturePublishedRecord,
+	FIXTURE_COMPONENT_ID,
+} from "../../utils/system-component-test-fixtures";
+import { getSystemComponentMarkerProps } from "../../utils/system-component-markers";
+import {
+	hashSystemComponentTemplate,
+	hashSystemComponentVariantSchema,
+} from "../../utils/system-components-validation";
 import { getPropertiesControlSurface, Properties } from "./Properties";
 
 function controlsFor(library: string, component: string) {
@@ -31,12 +40,32 @@ function controlsFor(library: string, component: string) {
 function renderPropertiesForSelection(
 	design: TrickroomDesign,
 	selectedId: string,
+	options?: {
+		systemId?: string;
+		componentQueryData?: ReturnType<typeof createFixturePublishedRecord>;
+	},
 ) {
 	designStore.setState({
 		...normalizeDesign(design),
 		selectedId,
+		systemId: options?.systemId ?? null,
 	});
 	const queryClient = new QueryClient();
+	if (options?.systemId && options.componentQueryData) {
+		queryClient.setQueryData(
+			["trickroom-system-component", options.systemId, FIXTURE_COMPONENT_ID],
+			{
+				systemId: options.systemId,
+				systemName: options.systemId,
+				revision: { version: 1, hash: "sha256:test" },
+				updatedAt: "2026-05-26T14:00:00.000Z",
+				componentId: FIXTURE_COMPONENT_ID,
+				record: options.componentQueryData,
+				diagnostics: [],
+				valid: true,
+			},
+		);
+	}
 
 	return renderToStaticMarkup(
 		React.createElement(
@@ -237,5 +266,482 @@ describe("Properties", () => {
 		expect(html).not.toContain("Object position");
 		expect(html).not.toContain("Loading");
 		expect(html).not.toContain("Decoding");
+	});
+
+	it("shows attached component controls on the instance root and hides registry mutation controls", () => {
+		const rootNode: Node = {
+			id: "component-root",
+			props: {
+				"data-trickroom-name": "Primary Button",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				...getSystemComponentMarkerProps({
+					systemId: "sys-core",
+					componentId: "cmp_11111111-1111-4111-8111-111111111111",
+					instanceId: "component-instance-1",
+					version: "1",
+					path: "root",
+					isRoot: true,
+					variantValues: { tone: "brand" },
+					overrides: { rootTarget: { className: "rounded-md" } },
+				}),
+			},
+			children: [],
+		};
+
+		const html = renderPropertiesForSelection(
+			{ name: "Component design", boards: [rootNode] },
+			rootNode.id,
+			{
+				systemId: "sys-core",
+				componentQueryData: createFixturePublishedRecord(),
+			},
+		);
+
+		expect(html).toContain("Detach component");
+		expect(html).toContain("Variants");
+		expect(html).toContain("Tone");
+		expect(html).not.toContain("Overrides");
+		expect(html).not.toContain("Label class");
+	});
+
+	it("does not show className overrides as a dedicated properties section", () => {
+		const rootNode: Node = {
+			id: "component-root",
+			props: {
+				"data-trickroom-name": "Primary Button",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				...getSystemComponentMarkerProps({
+					systemId: "sys-core",
+					componentId: FIXTURE_COMPONENT_ID,
+					instanceId: "component-instance-1",
+					version: "1",
+					path: "root",
+					isRoot: true,
+				}),
+			},
+			children: [],
+		};
+		const record = createFixturePublishedRecord();
+		const version = record.published?.versions["1"];
+		if (!version) {
+			throw new Error("Missing fixture version");
+		}
+
+		const html = renderPropertiesForSelection(
+			{ name: "Component design", boards: [rootNode] },
+			rootNode.id,
+			{
+				systemId: "sys-core",
+				componentQueryData: {
+					...record,
+					published: {
+						...record.published,
+						currentVersion: "1",
+						versions: {
+							"1": {
+								...version,
+								overrideTargets: {
+									rootTarget: {
+										targetId: "rootTarget",
+										label: "Root class",
+										path: "root",
+									},
+									labelTarget: {
+										targetId: "labelTarget",
+										label: "Label class",
+										path: "label",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		);
+
+		expect(html).not.toContain("Overrides");
+		expect(html).not.toContain("Root class");
+		expect(html).not.toContain("Label class");
+	});
+
+	it("enables update for a current-version instance missing hash markers", () => {
+		const v1Draft = {
+			root: {
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				children: [],
+			},
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						defaultValue: "neutral",
+						values: {
+							brand: { classesByPath: { root: "text-blue-600" } },
+							neutral: { classesByPath: { root: "text-zinc-700" } },
+						},
+					},
+				},
+			},
+		};
+		const v1Hash = hashSystemComponentTemplate(v1Draft);
+		const v1VariantHash = hashSystemComponentVariantSchema(v1Draft.variants);
+		const rootNode: Node = {
+			id: "component-root",
+			props: {
+				"data-trickroom-name": "Primary Button",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				...getSystemComponentMarkerProps({
+					systemId: "sys-core",
+					componentId: FIXTURE_COMPONENT_ID,
+					instanceId: "component-instance-1",
+					version: "1",
+					path: "root",
+					isRoot: true,
+					variantValues: { tone: "brand" },
+				}),
+			},
+			children: [],
+		};
+
+		const html = renderPropertiesForSelection(
+			{ name: "Component design", boards: [rootNode] },
+			rootNode.id,
+			{
+				systemId: "sys-core",
+				componentQueryData: createFixturePublishedRecord({
+					published: {
+						currentVersion: "1",
+						versions: {
+							"1": {
+								...v1Draft,
+								version: "1",
+								publishedAt: "2026-05-26T14:00:00.000Z",
+								templateHash: v1Hash,
+								variantSchemaHash: v1VariantHash,
+							},
+						},
+					},
+				}),
+			},
+		);
+
+		expect(html).toContain("Update component");
+		expect(html).toContain("Template and variants changed");
+		expect(html).not.toMatch(/Update component[^<]*disabled/);
+	});
+
+	it("shows stale component migration review and update controls on the instance root", () => {
+		const v1Draft = {
+			root: {
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				children: [],
+			},
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						defaultValue: "neutral",
+						values: {
+							brand: { classesByPath: { root: "text-blue-600" } },
+							neutral: { classesByPath: { root: "text-zinc-700" } },
+						},
+					},
+				},
+			},
+		};
+		const v1Hash = hashSystemComponentTemplate(v1Draft);
+		const v1VariantHash = hashSystemComponentVariantSchema(v1Draft.variants);
+		const v2Draft = {
+			...v1Draft,
+			root: {
+				...v1Draft.root,
+				className: "card-v2",
+			},
+		};
+		const v2Hash = hashSystemComponentTemplate(v2Draft);
+		const v2VariantHash = hashSystemComponentVariantSchema(v2Draft.variants);
+		const rootNode: Node = {
+			id: "component-root",
+			props: {
+				"data-trickroom-name": "Primary Button",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				...getSystemComponentMarkerProps({
+					systemId: "sys-core",
+					componentId: FIXTURE_COMPONENT_ID,
+					instanceId: "component-instance-1",
+					version: "1",
+					path: "root",
+					isRoot: true,
+					variantValues: { tone: "brand" },
+					templateHash: "sha256:stale",
+					variantSchemaHash: "sha256:stale",
+				}),
+			},
+			children: [],
+		};
+
+		const html = renderPropertiesForSelection(
+			{ name: "Component design", boards: [rootNode] },
+			rootNode.id,
+			{
+				systemId: "sys-core",
+				componentQueryData: createFixturePublishedRecord({
+					published: {
+						currentVersion: "2",
+						versions: {
+							"1": {
+								...v1Draft,
+								version: "1",
+								publishedAt: "2026-05-26T14:00:00.000Z",
+								templateHash: v1Hash,
+								variantSchemaHash: v1VariantHash,
+							},
+							"2": {
+								...v2Draft,
+								version: "2",
+								previousVersion: "1",
+								publishedAt: "2026-05-26T15:00:00.000Z",
+								templateHash: v2Hash,
+								variantSchemaHash: v2VariantHash,
+							},
+						},
+					},
+				}),
+			},
+		);
+
+		expect(html).toContain("Update component");
+		expect(html).toMatch(/Template and variants changed|Update available/);
+		expect(html).not.toContain("Manual updates are coming in a later wave");
+	});
+
+	it("shows read-only attached component context for owned internal nodes", () => {
+		const rootNode: Node = {
+			id: "component-root",
+			props: {
+				"data-trickroom-name": "Primary Button",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				...getSystemComponentMarkerProps({
+					systemId: "sys-core",
+					componentId: "cmp_11111111-1111-4111-8111-111111111111",
+					instanceId: "component-instance-1",
+					version: "1",
+					path: "root",
+					isRoot: true,
+				}),
+			},
+			children: [
+				{
+					id: "component-label",
+					props: {
+						"data-trickroom-name": "Label",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "text",
+						"data-trickroom-role": "text",
+						...getSystemComponentMarkerProps({
+							systemId: "sys-core",
+							componentId: "cmp_11111111-1111-4111-8111-111111111111",
+							instanceId: "component-instance-1",
+							version: "1",
+							path: "label",
+						}),
+					},
+					children: "Label",
+				},
+			],
+		};
+
+		const html = renderPropertiesForSelection(
+			{ name: "Component design", boards: [rootNode] },
+			"component-label",
+			{
+				systemId: "sys-core",
+				componentQueryData: createFixturePublishedRecord(),
+			},
+		);
+
+		expect(html).toContain("Attached component");
+		expect(html).toContain("Template path");
+		expect(html).toContain("label");
+		expect(html).not.toContain("Detach component");
+	});
+
+	it("keeps path-scoped className overrides out of the properties tab on owned internal component nodes", () => {
+		const rootNode: Node = {
+			id: "component-root",
+			props: {
+				"data-trickroom-name": "Primary Button",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				...getSystemComponentMarkerProps({
+					systemId: "sys-core",
+					componentId: FIXTURE_COMPONENT_ID,
+					instanceId: "component-instance-1",
+					version: "1",
+					path: "root",
+					isRoot: true,
+					overrides: { labelTarget: { className: "text-lg" } },
+				}),
+			},
+			children: [
+				{
+					id: "component-label",
+					props: {
+						"data-trickroom-name": "Label",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "text",
+						"data-trickroom-role": "text",
+						...getSystemComponentMarkerProps({
+							systemId: "sys-core",
+							componentId: FIXTURE_COMPONENT_ID,
+							instanceId: "component-instance-1",
+							version: "1",
+							path: "label",
+							overrides: { labelTarget: { className: "text-lg" } },
+						}),
+					},
+					children: "Label",
+				},
+			],
+		};
+		const record = createFixturePublishedRecord();
+		const version = record.published?.versions["1"];
+		if (!version) {
+			throw new Error("Missing fixture version");
+		}
+
+		const html = renderPropertiesForSelection(
+			{ name: "Component design", boards: [rootNode] },
+			"component-label",
+			{
+				systemId: "sys-core",
+				componentQueryData: {
+					...record,
+					published: {
+						...record.published,
+						currentVersion: "1",
+						versions: {
+							"1": {
+								...version,
+								overrideTargets: {
+									rootTarget: {
+										targetId: "rootTarget",
+										label: "Root class",
+										path: "root",
+									},
+									labelTarget: {
+										targetId: "labelTarget",
+										label: "Label class",
+										path: "label",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		);
+
+		expect(html).toContain("Template path");
+		expect(html).toContain("label");
+		expect(html).not.toContain("Overrides");
+		expect(html).not.toContain("Label class");
+		expect(html).not.toContain("Root class");
+		expect(html).not.toContain("Variants");
+		expect(html).not.toContain("Detach component");
+	});
+
+	it("routes text overrides into the normal content field on owned internal nodes", () => {
+		const rootNode: Node = {
+			id: "component-root",
+			props: {
+				"data-trickroom-name": "Primary Button",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				...getSystemComponentMarkerProps({
+					systemId: "sys-core",
+					componentId: FIXTURE_COMPONENT_ID,
+					instanceId: "component-instance-1",
+					version: "1",
+					path: "root",
+					isRoot: true,
+					overrides: { labelTarget: { text: "Save changes" } },
+				}),
+			},
+			children: [
+				{
+					id: "component-label",
+					props: {
+						"data-trickroom-name": "Label",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "text",
+						"data-trickroom-role": "text",
+						...getSystemComponentMarkerProps({
+							systemId: "sys-core",
+							componentId: FIXTURE_COMPONENT_ID,
+							instanceId: "component-instance-1",
+							version: "1",
+							path: "label",
+							overrides: { labelTarget: { text: "Save changes" } },
+						}),
+					},
+					children: "Label",
+				},
+			],
+		};
+		const record = createFixturePublishedRecord();
+		const version = record.published?.versions["1"];
+		if (!version) {
+			throw new Error("Missing fixture version");
+		}
+
+		const html = renderPropertiesForSelection(
+			{ name: "Component design", boards: [rootNode] },
+			"component-label",
+			{
+				systemId: "sys-core",
+				componentQueryData: {
+					...record,
+					published: {
+						...record.published,
+						currentVersion: "1",
+						versions: {
+							"1": {
+								...version,
+								overrideTargets: {
+									labelTarget: {
+										targetId: "labelTarget",
+										label: "Label text",
+										path: "label",
+										capabilities: ["className", "text"],
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		);
+
+		expect(html).toContain("Content");
+		expect(html).toContain('value="Save changes"');
+		expect(html).not.toContain("Overrides");
+		expect(html).not.toContain("Label text");
 	});
 });

@@ -12,7 +12,12 @@ import { buildDesignResourceUri } from "./mcp/resources";
 import { createTrickroomApp } from "./server";
 import { isTrickroomConfig, isTrickroomDesign } from "./server-utils";
 import type { Node, TrickroomDesign } from "./types";
+import { createDesignSystemStorage } from "./utils/design-system-store";
 import { assetIdProp } from "./utils/resource-props";
+import {
+	getSystemComponentMarkerProps,
+	systemComponentRootProp,
+} from "./utils/system-component-markers";
 
 const validDesign = {
 	name: "Valid Design",
@@ -43,6 +48,36 @@ const validDesign = {
 describe("server design validation", () => {
 	it("accepts the registry-backed serialized design shape", () => {
 		expect(isTrickroomDesign(validDesign)).toBe(true);
+	});
+
+	it("accepts explicit component migration policy values", () => {
+		expect(
+			isTrickroomDesign({
+				...validDesign,
+				componentMigrationPolicy: "auto",
+			}),
+		).toBe(true);
+		expect(
+			isTrickroomDesign({
+				...validDesign,
+				componentMigrationPolicy: "manual",
+			}),
+		).toBe(true);
+		expect(
+			isTrickroomDesign({
+				...validDesign,
+				componentMigrationPolicy: "inherit",
+			}),
+		).toBe(true);
+	});
+
+	it("rejects invalid component migration policy values", () => {
+		expect(
+			isTrickroomDesign({
+				...validDesign,
+				componentMigrationPolicy: "silent",
+			}),
+		).toBe(false);
 	});
 
 	// TODO: this can be deleted
@@ -1170,6 +1205,76 @@ describe("server design routes", () => {
 				"utf8",
 			).then(JSON.parse),
 		).resolves.toEqual(sourceDesign);
+	});
+
+	it("extracts a complete system component through the route using filesystem projectRoot linkage", async () => {
+		const { systemId } = await createDesignSystemStorage(tempProjectRoot, {
+			systemName: "Core",
+			cssPath: "src/core.css",
+		});
+		const sourceDesign: TrickroomDesign = {
+			name: "Component Source",
+			systemName: "Core",
+			boards: [
+				{
+					id: "component-root",
+					props: {
+						"data-trickroom-name": "Component Root",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						...getSystemComponentMarkerProps({
+							systemId,
+							componentId: "cmp_11111111-1111-4111-8111-111111111111",
+							instanceId: "component-instance-1",
+							version: "1",
+							path: "root",
+							isRoot: true,
+							variantValues: { tone: "brand" },
+							overrides: {},
+							templateHash: "sha256:template",
+							variantSchemaHash: "sha256:variants",
+						}),
+					},
+					children: [
+						{
+							id: "component-label",
+							props: {
+								"data-trickroom-name": "Component Label",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "text",
+								"data-trickroom-role": "text",
+								...getSystemComponentMarkerProps({
+									systemId,
+									componentId: "cmp_11111111-1111-4111-8111-111111111111",
+									instanceId: "component-instance-1",
+									version: "1",
+									path: "label",
+								}),
+							},
+							children: "Locked",
+						},
+					],
+				},
+			],
+		};
+		await writeDesign("component-source.json", sourceDesign);
+		const app = await importTestServer();
+
+		const response = await app.request("/api/trickroom/design/extract", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				sourceFile: "component-source.json",
+				targetFile: "component-target.json",
+				elementId: "component-root",
+			}),
+		});
+
+		expect(response.status).toBe(201);
+		const extracted = (await response.json()) as TrickroomDesign;
+		expect(extracted.boards[0].props[systemComponentRootProp]).toBe("true");
+		expect(extracted.systemName).toBe("Core");
 	});
 
 	it("rejects extracted subtrees with invalid inherited system or resources", async () => {

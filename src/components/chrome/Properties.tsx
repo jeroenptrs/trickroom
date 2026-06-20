@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { Box, Component, Type } from "lucide-react";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
 	getControlDefinitions,
 	resolveRegistryComponent,
 } from "../../libraries/registry";
 import { systemAssetsQueryOptions } from "../../queries/system-assets";
+import { systemComponentQueryOptions } from "../../queries/system-components";
 import { systemIconsQueryOptions } from "../../queries/system-icons";
 import { getRecipeControlTargets } from "../../recipes/controls";
 import { RECIPE_MARKER_PROP_KEYS } from "../../recipes/markers";
@@ -21,9 +22,21 @@ import {
 	updateElementProps,
 	updateElementText,
 	updateRecipeControl,
+	setSystemComponentOverrideAssetId,
+	setSystemComponentOverrideClassName,
+	setSystemComponentOverrideIconId,
+	setSystemComponentOverrideText,
 	useDesignSystemId,
 	useSelectedElement,
 } from "../../stores/design-store";
+import {
+	findOverrideTargetForCapability,
+	readSystemComponentOverrideValue,
+} from "../../utils/system-component-override-targets";
+import type {
+	PublishedSystemComponentVersion,
+	SystemComponentOverrideCapability,
+} from "../../utils/system-components";
 import type {
 	ControlDefinition,
 	JsonPrimitive,
@@ -36,6 +49,14 @@ import { InputField, TextareaField } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "../ui/tabs";
 import { Text } from "../ui/text";
+import {
+	AttachedComponentProperties,
+	useAttachedComponentInspection,
+} from "./AttachedComponentProperties";
+import {
+	canFreelyEditElementInDesignInspector,
+	getPublishedVersionForInstance,
+} from "./attached-component-inspector";
 import { DesignSystemPicker } from "./DesignSystemPicker";
 import { BackgroundProperties } from "./properties/BackgroundProperties";
 import { BorderProperties } from "./properties/BorderProperties";
@@ -109,7 +130,7 @@ export function getPropertiesControlSurface(
 
 const CONTENT_CONTROL_PROPS = new Set(["alt", "aria-label", "label", "title"]);
 
-function splitComponentControls(controls: ControlDefinition[]) {
+export function splitComponentControls(controls: ControlDefinition[]) {
 	const contentControls: ControlDefinition[] = [];
 	const propertyControls: ControlDefinition[] = [];
 
@@ -310,10 +331,12 @@ function AssetPicker({
 	elementId,
 	label,
 	value,
+	onChange,
 }: {
 	elementId: string;
 	label: string;
 	value: string;
+	onChange?: (assetId: string) => void;
 }) {
 	const systemId = useDesignSystemId();
 	const projectScope = useProjectScope();
@@ -334,9 +357,10 @@ function AssetPicker({
 				value={value}
 				disabled={!systemId || assetsQuery.isPending}
 				onChange={(event) =>
-					updateElementProps(elementId, {
-						[assetIdProp]: event.currentTarget.value,
-					})
+					(onChange ?? ((assetId) =>
+						updateElementProps(elementId, {
+							[assetIdProp]: assetId,
+						})))(event.currentTarget.value)
 				}
 			>
 				<option value="">
@@ -360,10 +384,12 @@ function IconPicker({
 	elementId,
 	label,
 	value,
+	onChange,
 }: {
 	elementId: string;
 	label: string;
 	value: string;
+	onChange?: (iconId: string) => void;
 }) {
 	const systemId = useDesignSystemId();
 	const projectScope = useProjectScope();
@@ -384,9 +410,10 @@ function IconPicker({
 				value={value}
 				disabled={!systemId || iconsQuery.isPending}
 				onChange={(event) =>
-					updateElementProps(elementId, {
-						[iconIdProp]: event.currentTarget.value,
-					})
+					(onChange ?? ((iconId) =>
+						updateElementProps(elementId, {
+							[iconIdProp]: iconId,
+						})))(event.currentTarget.value)
 				}
 			>
 				<option value="">
@@ -406,9 +433,137 @@ function IconPicker({
 	);
 }
 
+function ReadOnlyInspectorNotice({ message }: { message: string }) {
+	return <div className="px-3 py-3 text-xs text-slate-500">{message}</div>;
+}
+
+type AttachedComponentOverrideBinding = {
+	rootElementId: string;
+	version: PublishedSystemComponentVersion;
+	targetId: string;
+	capability: SystemComponentOverrideCapability;
+	value: string;
+};
+
+function useAttachedComponentOverrideBindings(
+	inspection: ReturnType<typeof useAttachedComponentInspection>,
+) {
+	const systemId = useDesignSystemId();
+	const projectScope = useProjectScope();
+	const componentId =
+		inspection.kind === "root" || inspection.kind === "owned-internal"
+			? inspection.instance.componentId
+			: null;
+	const componentQuery = useQuery({
+		...systemComponentQueryOptions(
+			systemId ?? "",
+			componentId ?? "",
+			projectScope,
+		),
+		enabled: Boolean(systemId && componentId),
+	});
+
+	return useMemo(() => {
+		const empty = {
+			className: null,
+			text: null,
+			icon: null,
+			asset: null,
+		} satisfies Record<
+			SystemComponentOverrideCapability,
+			AttachedComponentOverrideBinding | null
+		>;
+
+		if (inspection.kind !== "root" && inspection.kind !== "owned-internal") {
+			return empty;
+		}
+
+		const version = getPublishedVersionForInstance(
+			componentQuery.data?.record,
+			inspection.instance.version,
+		);
+		if (!version) {
+			return empty;
+		}
+
+		const templatePath =
+			inspection.kind === "root" ? "root" : inspection.templatePath;
+		const resolveBinding = (
+			capability: SystemComponentOverrideCapability,
+		): AttachedComponentOverrideBinding | null => {
+			const target = findOverrideTargetForCapability(
+				version,
+				templatePath,
+				capability,
+			);
+			if (!target) {
+				return null;
+			}
+			return {
+				rootElementId: inspection.rootElementId,
+				version,
+				targetId: target.targetId,
+				capability,
+				value:
+					readSystemComponentOverrideValue(
+						inspection.instance.overrides,
+						target.targetId,
+						capability,
+					) ?? "",
+			};
+		};
+
+		return {
+			className: resolveBinding("className"),
+			text: resolveBinding("text"),
+			icon: resolveBinding("icon"),
+			asset: resolveBinding("asset"),
+		};
+	}, [componentQuery.data?.record, inspection]);
+}
+
+function StyleClassControls({
+	className,
+	onChange,
+	elementId,
+}: {
+	className: string;
+	onChange: (next: string) => void;
+	elementId: string;
+}) {
+	return (
+		<div key={elementId} className="flex flex-col divide-y divide-slate-200">
+			<LayoutProperties className={className} onChange={onChange} />
+			<SizeProperties className={className} onChange={onChange} />
+			<StyleSection title="Spacing">
+				<SpacingProperties className={className} onChange={onChange} />
+			</StyleSection>
+			<TypographyProperties className={className} onChange={onChange} />
+			<BackgroundProperties className={className} onChange={onChange} />
+			<BorderProperties className={className} onChange={onChange} />
+			<EffectsProperties className={className} onChange={onChange} />
+			<FocusProperties className={className} onChange={onChange} />
+			<PositionProperties className={className} onChange={onChange} />
+			<TransformProperties className={className} onChange={onChange} />
+			<MotionProperties className={className} onChange={onChange} />
+			<VectorProperties className={className} onChange={onChange} />
+			<StructureProperties className={className} onChange={onChange} />
+			<MaskProperties className={className} onChange={onChange} />
+			<InteractionProperties className={className} onChange={onChange} />
+		</div>
+	);
+}
+
 export function Properties() {
 	const selectedElement = useSelectedElement();
 	const recipeControlTargets = useRecipeControlTargets();
+	const attachedInspection = useAttachedComponentInspection();
+	const overrideBindings =
+		useAttachedComponentOverrideBindings(attachedInspection);
+	const classOverride = overrideBindings.className;
+	const canFreelyEdit = useSelector(designStore, (state) =>
+		canFreelyEditElementInDesignInspector(state.entitiesById, selectedElement),
+	);
 
 	if (!selectedElement) {
 		return (
@@ -425,9 +580,25 @@ export function Properties() {
 		);
 	}
 
-	const className = selectedElement.props.className ?? "";
-	const onChangeClassName = (next: string) =>
-		updateElementClassName(selectedElement.id, next);
+	const className = classOverride
+		? classOverride.value
+		: (selectedElement.props.className ?? "");
+	const canEditClassName = canFreelyEdit || classOverride !== null;
+	const onChangeClassName = classOverride
+		? (next: string) =>
+				setSystemComponentOverrideClassName(
+					classOverride.rootElementId,
+					classOverride.version,
+					classOverride.targetId,
+					next,
+				)
+		: canFreelyEdit
+			? (next: string) => updateElementClassName(selectedElement.id, next)
+			: () => {};
+	const textOverride = overrideBindings.text;
+	const iconOverride = overrideBindings.icon;
+	const assetOverride = overrideBindings.asset;
+	const hasAttachedComponentContext = attachedInspection.kind !== "none";
 	const registryResolution = resolveRegistryComponent(
 		selectedElement.props["data-trickroom-library"],
 		selectedElement.props["data-trickroom-component"],
@@ -441,12 +612,19 @@ export function Properties() {
 	const { contentControls, propertyControls } =
 		splitComponentControls(componentControls);
 	const hasContentControls =
-		selectedElement.role === "text" ||
-		Boolean(assetControl) ||
-		Boolean(iconControl) ||
-		contentControls.length > 0;
+		(canFreelyEdit &&
+			(selectedElement.role === "text" ||
+				Boolean(assetControl) ||
+				Boolean(iconControl) ||
+				contentControls.length > 0)) ||
+		textOverride !== null ||
+		iconOverride !== null ||
+		assetOverride !== null;
 	const hasPropertyControls =
-		propertyControls.length > 0 || recipeControlTargets.length > 0;
+		canFreelyEdit &&
+		(propertyControls.length > 0 || recipeControlTargets.length > 0);
+	const hasRegistryPropertyControls =
+		canFreelyEdit && (hasContentControls || hasPropertyControls);
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
@@ -468,112 +646,105 @@ export function Properties() {
 				</TabsList>
 				<TabsPanel value="style" className="min-h-0 flex-1">
 					<ScrollArea className="h-full">
-						<div
-							key={selectedElement.id}
-							className="flex flex-col divide-y divide-slate-200"
-						>
-							<LayoutProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<SizeProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<StyleSection title="Spacing">
-								<SpacingProperties
+						{!canFreelyEdit ? (
+							!canEditClassName ? (
+								<ReadOnlyInspectorNotice message="Component-owned layers are structurally locked. This layer has no published className override." />
+							) : (
+								<StyleClassControls
 									className={className}
 									onChange={onChangeClassName}
+									elementId={selectedElement.id}
 								/>
-							</StyleSection>
-							<TypographyProperties
+							)
+						) : (
+							<StyleClassControls
 								className={className}
 								onChange={onChangeClassName}
+								elementId={selectedElement.id}
 							/>
-							<BackgroundProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<BorderProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<EffectsProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<FocusProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<PositionProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<TransformProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<MotionProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<VectorProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<StructureProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<MaskProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-							<InteractionProperties
-								className={className}
-								onChange={onChangeClassName}
-							/>
-						</div>
+						)}
 					</ScrollArea>
 				</TabsPanel>
 				<TabsPanel value="properties" className="min-h-0 flex-1">
 					<ScrollArea className="h-full">
 						<div className="flex flex-col divide-y divide-slate-200">
+							{hasAttachedComponentContext ? (
+								<AttachedComponentProperties inspection={attachedInspection} />
+							) : null}
 							{hasContentControls ? (
 								<InspectorSection title="Content">
-									{selectedElement.role === "text" ? (
+									{(canFreelyEdit && selectedElement.role === "text") ||
+									textOverride ? (
 										<InputField
 											type="text"
 											label="Content"
-											value={selectedElement.text}
-											onChange={(event) =>
-												updateElementText(
-													selectedElement.id,
-													event.currentTarget.value,
-												)
+											value={
+												textOverride
+													? textOverride.value
+													: selectedElement.text
 											}
+											onChange={(event) => {
+												const next = event.currentTarget.value;
+												if (textOverride) {
+													setSystemComponentOverrideText(
+														textOverride.rootElementId,
+														textOverride.version,
+														textOverride.targetId,
+														next,
+													);
+													return;
+												}
+												updateElementText(selectedElement.id, next);
+											}}
 										/>
 									) : null}
-									{assetControl ? (
+									{(canFreelyEdit && assetControl) || assetOverride ? (
 										<AssetPicker
 											elementId={selectedElement.id}
-											label={assetControl.label}
+											label={assetControl?.label ?? "Asset"}
 											value={
-												typeof selectedElement.props[assetIdProp] === "string"
-													? selectedElement.props[assetIdProp]
-													: ""
+												assetOverride
+													? assetOverride.value
+													: typeof selectedElement.props[assetIdProp] ===
+															"string"
+														? selectedElement.props[assetIdProp]
+														: ""
+											}
+											onChange={
+												assetOverride
+													? (assetId) =>
+															setSystemComponentOverrideAssetId(
+																assetOverride.rootElementId,
+																assetOverride.version,
+																assetOverride.targetId,
+																assetId,
+															)
+													: undefined
 											}
 										/>
 									) : null}
-									{iconControl ? (
+									{(canFreelyEdit && iconControl) || iconOverride ? (
 										<IconPicker
 											elementId={selectedElement.id}
-											label={iconControl.label}
+											label={iconControl?.label ?? "Icon"}
 											value={
-												typeof selectedElement.props[iconIdProp] === "string"
-													? selectedElement.props[iconIdProp]
-													: ""
+												iconOverride
+													? iconOverride.value
+													: typeof selectedElement.props[iconIdProp] ===
+															"string"
+														? selectedElement.props[iconIdProp]
+														: ""
+											}
+											onChange={
+												iconOverride
+													? (iconId) =>
+															setSystemComponentOverrideIconId(
+																iconOverride.rootElementId,
+																iconOverride.version,
+																iconOverride.targetId,
+																iconId,
+															)
+													: undefined
 											}
 										/>
 									) : null}
@@ -587,7 +758,7 @@ export function Properties() {
 									))}
 								</InspectorSection>
 							) : null}
-							{propertyControls.length > 0 ? (
+							{canFreelyEdit && propertyControls.length > 0 ? (
 								<InspectorSection title="Component">
 									{propertyControls.map((control) => (
 										<ComponentControl
@@ -599,7 +770,7 @@ export function Properties() {
 									))}
 								</InspectorSection>
 							) : null}
-							{recipeControlTargets.length > 0 ? (
+							{canFreelyEdit && recipeControlTargets.length > 0 ? (
 								<InspectorSection title="Recipe">
 									{recipeControlTargets.map(({ control, elementId, value }) => (
 										<ComponentControl
@@ -625,7 +796,7 @@ export function Properties() {
 									))}
 								</InspectorSection>
 							) : null}
-							{!hasContentControls && !hasPropertyControls ? (
+							{!hasAttachedComponentContext && !hasRegistryPropertyControls ? (
 								<div className="px-3 py-3 text-xs text-slate-500">
 									No editable properties
 								</div>
@@ -635,20 +806,37 @@ export function Properties() {
 				</TabsPanel>
 				<TabsPanel value="classes" className="min-h-0 flex-1">
 					<ScrollArea className="h-full">
-						<div className="flex flex-col gap-3 p-3">
-							{/* TODO: this should become somewhat of a combobox situation, but with tailwind intellisense */}
-							<TextareaField
-								label="Tailwind classnames"
-								value={className}
-								onChange={(event) =>
-									updateElementClassName(
-										selectedElement.id,
-										event.currentTarget.value,
-									)
-								}
-							/>
-							<ClassInventoryPanel className={className} />
-						</div>
+						{!canFreelyEdit ? (
+							!canEditClassName ? (
+								<ReadOnlyInspectorNotice message="Direct class editing is locked for component-owned layers. This layer has no published className override." />
+							) : (
+								<div className="flex flex-col gap-3 p-3">
+									<TextareaField
+										label="Tailwind classnames"
+										value={className}
+										onChange={(event) =>
+											onChangeClassName(event.currentTarget.value)
+										}
+									/>
+									<ClassInventoryPanel className={className} />
+								</div>
+							)
+						) : (
+							<div className="flex flex-col gap-3 p-3">
+								{/* TODO: this should become somewhat of a combobox situation, but with tailwind intellisense */}
+								<TextareaField
+									label="Tailwind classnames"
+									value={className}
+									onChange={(event) =>
+										updateElementClassName(
+											selectedElement.id,
+											event.currentTarget.value,
+										)
+									}
+								/>
+								<ClassInventoryPanel className={className} />
+							</div>
+						)}
 					</ScrollArea>
 				</TabsPanel>
 			</Tabs>

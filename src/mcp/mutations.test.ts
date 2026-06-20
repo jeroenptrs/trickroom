@@ -218,6 +218,11 @@ describe("MCP mutation tools", () => {
 					"renameDesignFile",
 					"addElement",
 					"addRecipe",
+					"addSystemComponent",
+					"updateSystemComponentInstance",
+					"migrateSystemComponentInstance",
+					"bulkMigrateSystemComponentUsages",
+					"detachSystemComponent",
 					"addSubtree",
 					"updateRecipeControl",
 					"updateRecipeInstance",
@@ -240,6 +245,13 @@ describe("MCP mutation tools", () => {
 					false,
 				);
 				expect(
+					toolsByName.get("addSystemComponent")?.annotations?.destructiveHint,
+				).toBe(false);
+				expect(
+					toolsByName.get("updateSystemComponentInstance")?.annotations
+						?.destructiveHint,
+				).toBe(false);
+				expect(
 					toolsByName.get("createDesignFile")?.annotations?.destructiveHint,
 				).toBe(false);
 				expect(
@@ -261,6 +273,7 @@ describe("MCP mutation tools", () => {
 					"moveElement",
 					"deleteElement",
 					"detachRecipeInstance",
+					"detachSystemComponent",
 				]) {
 					expect(
 						toolsByName.get(name)?.annotations?.destructiveHint,

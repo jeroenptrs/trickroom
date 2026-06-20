@@ -10,9 +10,9 @@ import {
 	applyDryRunOperation,
 	assertOperationAllowedByPolicy,
 	type DesignOperationName,
+	type DryRunOperationContext,
 	designOperationNameSchema,
 	validateDryRunOperationParameters,
-	type DryRunOperationContext,
 } from "./design-operations";
 import type { McpDesignIssue } from "./diagnostics";
 import {
@@ -87,6 +87,7 @@ const STEP_REFERENCE_PARAMETER_KEYS = new Set([
 	"targetParentId",
 	"sourceElementId",
 	"instanceId",
+	"rootElementId",
 ]);
 
 const resolveStepReferenceString = (
@@ -112,7 +113,7 @@ const resolveStepReferenceString = (
 		const resolved =
 			typeof step.summary.rootElementId === "string"
 				? step.summary.rootElementId
-				: step.rootElementId ?? step.changedElementId;
+				: (step.rootElementId ?? step.changedElementId);
 		if (typeof resolved !== "string") {
 			throw new DesignTransformError(
 				"INVALID_OPERATION_PARAMETERS",
@@ -240,6 +241,7 @@ const assertCrossFileCopySourceRevision = async (
 
 type OperationPlanDependencies = {
 	policy: McpPolicy;
+	projectRoot: string;
 	readDesignFile: (designFileId: string) => Promise<DesignFileRead>;
 	getProjectReference: () => Record<string, unknown>;
 	getDesignMetadata: (
@@ -253,7 +255,6 @@ type OperationPlanDependencies = {
 	assertResourceReferencesExist: (design: TrickroomDesign) => Promise<void>;
 	assertCanUseSubtreeComponents: (subtree: DesignNode) => void;
 };
-
 
 const findElementContext = (
 	design: TrickroomDesign,
@@ -430,7 +431,8 @@ export const executeOperationPlanDryRun = async (
 				deps.assertCanUseSubtreeComponents(sourceElement);
 			} else if (
 				operation !== "renameDesignFile" &&
-				operation !== "addSubtree"
+				operation !== "addSubtree" &&
+				operation !== "addSystemComponent"
 			) {
 				assertOperationAllowedByPolicy(
 					deps.policy,
@@ -442,6 +444,7 @@ export const executeOperationPlanDryRun = async (
 
 			const dryRunContext: DryRunOperationContext = {
 				designFileId: input.designFileId,
+				projectRoot: deps.projectRoot,
 				sourceDesigns: new Map(
 					[...sourceDesignReads.entries()].map(([id, sourceRead]) => [
 						id,
@@ -450,14 +453,17 @@ export const executeOperationPlanDryRun = async (
 				),
 			};
 
-			const result = applyDryRunOperation(
+			const result = await applyDryRunOperation(
 				candidateDesign,
 				operation,
 				params,
 				dryRunContext,
 			);
 
-			if (operation === "addSubtree" && result.changedElementId) {
+			if (
+				(operation === "addSubtree" || operation === "addSystemComponent") &&
+				result.changedElementId
+			) {
 				const insertedRoot = findElementContext(
 					result.design,
 					result.changedElementId,
@@ -465,7 +471,7 @@ export const executeOperationPlanDryRun = async (
 				if (!insertedRoot) {
 					throw new DesignTransformError(
 						"INVALID_OPERATION",
-						"Failed to validate inserted subtree root after applying plan step.",
+						`Failed to validate inserted ${operation} root after applying plan step.`,
 					);
 				}
 				deps.assertCanUseSubtreeComponents(insertedRoot);
@@ -653,6 +659,7 @@ export const createOperationPlanDependencies = (
 
 	return {
 		policy,
+		projectRoot: context.projectRoot,
 		readDesignFile: hooks.readDesignFileForTool,
 		getProjectReference: hooks.getProjectReference,
 		getDesignMetadata: hooks.getDesignMetadata,
@@ -660,11 +667,7 @@ export const createOperationPlanDependencies = (
 		assertResourceReferencesExist: hooks.assertResourceReferencesExist,
 		assertCanUseSubtreeComponents: hooks.assertCanUseSubtreeComponents,
 		canonicalizeDesignForStorage: hooks.canonicalizeDesignForStorage,
-		writeDesignFile: async (
-			designFileId,
-			design,
-			expectedRevision,
-		) => {
+		writeDesignFile: async (designFileId, design, expectedRevision) => {
 			const file = service.getFileForUuid(designFileId);
 			const write = await service.writeDesignFile(file, design, {
 				expectedRevision,

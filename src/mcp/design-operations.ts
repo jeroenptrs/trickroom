@@ -1,16 +1,16 @@
 import { z } from "zod";
-import {
-	isJsonPrimitive,
-	resolveRegistryRecipe,
-} from "../libraries/registry";
+import { isJsonPrimitive, resolveRegistryRecipe } from "../libraries/registry";
 import { findRecipeControlTargetElement } from "../recipes/controls";
 import {
 	applyAddElement,
 	applyAddRecipe,
 	applyAddSubtree,
+	applyAddSystemComponent,
 	applyCopySubtree,
 	applyDeleteElement,
 	applyDetachRecipeInstance,
+	applyDetachSystemComponent,
+	applyUpdateSystemComponentInstance,
 	applyMoveElement,
 	applyUpdateElementProps,
 	applyUpdateElementText,
@@ -21,12 +21,13 @@ import {
 	type ProposedSubtreeNode,
 } from "../services/design-transform-service";
 import type {
-	JsonPrimitive,
 	Node as DesignNode,
+	JsonPrimitive,
 	RecipeDefinition,
 	RecipeTemplateNode,
 	TrickroomDesign,
 } from "../types";
+import { getSystemComponentStructuralMetadata } from "../utils/system-component-markers";
 import {
 	assertCanUseComponent,
 	getComponentRef,
@@ -43,6 +44,9 @@ export const designOperationNameSchema = z.enum([
 	"renameDesignFile",
 	"addElement",
 	"addRecipe",
+	"addSystemComponent",
+	"updateSystemComponentInstance",
+	"detachSystemComponent",
 	"addSubtree",
 	"updateRecipeControl",
 	"updateRecipeInstance",
@@ -68,6 +72,7 @@ export type DryRunResult = {
 
 export type DryRunOperationContext = {
 	designFileId: string;
+	projectRoot: string;
 	sourceDesigns: ReadonlyMap<string, TrickroomDesign>;
 };
 
@@ -90,8 +95,56 @@ const addRecipeOperationParametersSchema = z.object({
 	recipe: z.string().min(1),
 });
 
+const addSystemComponentOperationParametersSchema = z.object({
+	parentId: z.string().min(1).nullable(),
+	index: z.number().int().min(0),
+	systemId: z.string().min(1),
+	componentId: z.string().min(1),
+	version: z.string().min(1).nullable().optional(),
+	variantValues: z.record(z.string(), z.string()).optional(),
+	overrides: z
+		.record(
+			z.string(),
+			z.object({
+				className: z.string().optional(),
+			}),
+		)
+		.optional(),
+});
+
 const detachRecipeInstanceOperationParametersSchema = z.object({
 	elementId: z.string().min(1),
+});
+
+const updateSystemComponentInstanceOperationParametersSchema = z.object({
+	rootElementId: z
+		.string()
+		.min(1)
+		.describe("Attached system component root element ID."),
+	variantValues: z
+		.record(z.string(), z.string())
+		.optional()
+		.describe("Variant axis values to merge into the instance."),
+	overrides: z
+		.record(
+			z.string(),
+			z.object({
+				className: z.string().optional(),
+			}),
+		)
+		.optional()
+		.describe(
+			"Override classNames keyed by declared override target id. Replaces the full override map when provided.",
+		),
+});
+
+const detachSystemComponentOperationParametersSchema = z.object({
+	elementId: z
+		.string()
+		.min(1)
+		.describe(
+			"Any element ID inside the attached system component instance to detach.",
+		),
 });
 
 const updateRecipeInstanceOperationParametersSchema = z.object({
@@ -220,6 +273,30 @@ export const validateDryRunOperationParameters = (
 		return parseOperationParameters(
 			operation,
 			addSubtreeOperationParametersSchema,
+			params,
+		);
+	}
+
+	if (operation === "addSystemComponent") {
+		return parseOperationParameters(
+			operation,
+			addSystemComponentOperationParametersSchema,
+			params,
+		);
+	}
+
+	if (operation === "updateSystemComponentInstance") {
+		return parseOperationParameters(
+			operation,
+			updateSystemComponentInstanceOperationParametersSchema,
+			params,
+		);
+	}
+
+	if (operation === "detachSystemComponent") {
+		return parseOperationParameters(
+			operation,
+			detachSystemComponentOperationParametersSchema,
 			params,
 		);
 	}
@@ -457,6 +534,90 @@ const assertCanUseRecipe = (policy: McpPolicy, recipe: RecipeDefinition) => {
 	}
 };
 
+const walkDesignTree = (
+	nodes: readonly DesignNode[],
+	visit: (node: DesignNode) => void,
+) => {
+	for (const node of nodes) {
+		visit(node);
+		if (Array.isArray(node.children)) {
+			walkDesignTree(node.children, visit);
+		}
+	}
+};
+
+const walkElementSubtree = (
+	node: DesignNode,
+	visit: (node: DesignNode) => void,
+) => {
+	visit(node);
+	if (Array.isArray(node.children)) {
+		for (const child of node.children) {
+			walkElementSubtree(child, visit);
+		}
+	}
+};
+
+const findSystemComponentInstanceRoot = (
+	design: TrickroomDesign,
+	instanceId: string,
+): DesignNode | null => {
+	let instanceRoot: DesignNode | null = null;
+	walkDesignTree(design.boards, (node) => {
+		if (instanceRoot) {
+			return;
+		}
+		const metadata = getSystemComponentStructuralMetadata(node.props);
+		if (metadata?.instanceId === instanceId && metadata.isRoot) {
+			instanceRoot = node;
+		}
+	});
+	return instanceRoot;
+};
+
+export const assertCanUseSystemComponentInstanceSubtree = (
+	policy: McpPolicy,
+	design: TrickroomDesign,
+	anchorElementId: string,
+) => {
+	const anchor = findElementContext(design, anchorElementId);
+	if (!anchor) {
+		throw new DesignTransformError(
+			"ELEMENT_NOT_FOUND",
+			`Element "${anchorElementId}" not found.`,
+		);
+	}
+
+	const anchorMetadata = getSystemComponentStructuralMetadata(anchor.element.props);
+	if (!anchorMetadata) {
+		throw new DesignTransformError(
+			"SYSTEM_COMPONENT_INSTANCE_NOT_FOUND",
+			`Element "${anchorElementId}" is not part of an attached system component instance.`,
+		);
+	}
+
+	const instanceRoot = findSystemComponentInstanceRoot(
+		design,
+		anchorMetadata.instanceId,
+	);
+	if (!instanceRoot) {
+		throw new DesignTransformError(
+			"SYSTEM_COMPONENT_INSTANCE_NOT_FOUND",
+			`System component instance "${anchorMetadata.instanceId}" was not found.`,
+		);
+	}
+
+	walkElementSubtree(instanceRoot, (node) => {
+		const library = node.props["data-trickroom-library"];
+		const component = node.props["data-trickroom-component"];
+		if (typeof library !== "string" || typeof component !== "string") {
+			return;
+		}
+
+		assertCanUseComponent(policy, library, component);
+	});
+};
+
 const getSubtreeStats = (root: DesignNode) => {
 	let nodeCount = 0;
 	let maxDepth = 0;
@@ -511,9 +672,28 @@ export const assertOperationAllowedByPolicy = (
 
 	if (
 		operation === "addSubtree" ||
+		operation === "addSystemComponent" ||
 		operation === "copySubtree" ||
 		operation === "renameDesignFile"
 	) {
+		return;
+	}
+
+	if (operation === "updateSystemComponentInstance") {
+		assertCanUseSystemComponentInstanceSubtree(
+			policy,
+			design,
+			requireStringParameter(params, "rootElementId"),
+		);
+		return;
+	}
+
+	if (operation === "detachSystemComponent") {
+		assertCanUseSystemComponentInstanceSubtree(
+			policy,
+			design,
+			requireStringParameter(params, "elementId"),
+		);
 		return;
 	}
 
@@ -561,12 +741,12 @@ export const assertOperationAllowedByPolicy = (
 	}
 };
 
-export const applyDryRunOperation = (
+export const applyDryRunOperation = async (
 	design: TrickroomDesign,
 	operation: DesignOperationName,
 	params: Record<string, unknown>,
 	context?: DryRunOperationContext,
-): DryRunResult => {
+): Promise<DryRunResult> => {
 	switch (operation) {
 		case "renameDesignFile": {
 			const name = requireStringParameter(params, "name");
@@ -627,6 +807,118 @@ export const applyDryRunOperation = (
 						instanceId: result.instanceId,
 						elementIdsByPath: result.elementIdsByPath,
 					},
+				},
+			};
+		}
+		case "addSystemComponent": {
+			if (!context) {
+				throw new DesignTransformError(
+					"INVALID_OPERATION_PARAMETERS",
+					'Operation "addSystemComponent" requires dry-run context with project root.',
+				);
+			}
+			const parentId = requireNullableStringParameter(params, "parentId");
+			const index = requireNumberParameter(params, "index");
+			const systemId = requireStringParameter(params, "systemId");
+			const componentId = requireStringParameter(params, "componentId");
+			const result = await applyAddSystemComponent(design, {
+				projectRoot: context.projectRoot,
+				parentId,
+				index,
+				systemId,
+				componentId,
+				version:
+					params.version === null
+						? null
+						: optionalStringParameter(params, "version"),
+				variantValues: params.variantValues as
+					| Record<string, string>
+					| undefined,
+				overrides: params.overrides as
+					| Record<string, { className?: string }>
+					| undefined,
+			});
+			return {
+				operation,
+				design: result.design,
+				changedElementId: result.changedElementId,
+				insertedElementIds: Object.values(result.elementIdsByPath),
+				summary: {
+					parentId,
+					index,
+					systemComponent: {
+						systemId: result.systemId,
+						componentId: result.componentId,
+						version: result.version,
+						instanceId: result.instanceId,
+						elementIdsByPath: result.elementIdsByPath,
+						variantValues: result.variantValues,
+						overrides: result.overrides,
+					},
+				},
+			};
+		}
+		case "updateSystemComponentInstance": {
+			if (!context) {
+				throw new DesignTransformError(
+					"INVALID_OPERATION_PARAMETERS",
+					'Operation "updateSystemComponentInstance" requires dry-run context with project root.',
+				);
+			}
+			const rootElementId = requireStringParameter(params, "rootElementId");
+			const result = await applyUpdateSystemComponentInstance(design, {
+				projectRoot: context.projectRoot,
+				rootElementId,
+				variantValues: params.variantValues as
+					| Record<string, string>
+					| undefined,
+				overrides: params.overrides as
+					| Record<string, { className?: string }>
+					| undefined,
+			});
+			return {
+				operation,
+				design: result.design,
+				changedElementId: result.changedElementId,
+				summary: {
+					rootElementId: result.rootElementId,
+					systemComponent: {
+						systemId: result.systemId,
+						componentId: result.componentId,
+						version: result.version,
+						instanceId: result.instanceId,
+					},
+					changedElementIds: result.changedElementIds,
+					variantValues: result.variantValues,
+					overrides: result.overrides,
+				},
+			};
+		}
+		case "detachSystemComponent": {
+			if (!context) {
+				throw new DesignTransformError(
+					"INVALID_OPERATION_PARAMETERS",
+					'Operation "detachSystemComponent" requires dry-run context with project root.',
+				);
+			}
+			const elementId = requireStringParameter(params, "elementId");
+			const result = await applyDetachSystemComponent(design, {
+				projectRoot: context.projectRoot,
+				elementId,
+			});
+			return {
+				operation,
+				design: result.design,
+				changedElementId: result.changedElementId,
+				summary: {
+					elementId,
+					systemComponent: {
+						systemId: result.systemId,
+						componentId: result.componentId,
+						instanceId: result.instanceId,
+						rootElementId: result.rootElementId,
+					},
+					detachedElementIds: result.detachedElementIds,
 				},
 			};
 		}
@@ -715,11 +1007,12 @@ export const applyDryRunOperation = (
 					`Source subtree depth ${stats.maxDepth} exceeds maxDepth ${options.maxDepth}.`,
 				);
 			}
-			const result = applyCopySubtree(sourceDesign, design, {
+			const result = await applyCopySubtree(sourceDesign, design, {
 				sourceElementId,
 				parentId,
 				index,
 				sameDesign,
+				projectRoot: context.projectRoot,
 			});
 			return {
 				operation,
@@ -886,7 +1179,10 @@ export const getCopySubtreeComponentRefs = (
 	sourceElementId: string,
 ) => {
 	const refs = new Set<string>();
-	const sourceElementContext = findElementContext(sourceDesign, sourceElementId);
+	const sourceElementContext = findElementContext(
+		sourceDesign,
+		sourceElementId,
+	);
 	if (!sourceElementContext) {
 		return refs;
 	}

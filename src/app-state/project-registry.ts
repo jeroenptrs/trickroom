@@ -4,9 +4,8 @@ import path from "node:path";
 import {
 	asErrnoException,
 	isRecord,
-	readJsonFile,
-	writeJsonFileAtomically,
 } from "../server-utils";
+import { readJsonFile, writeJsonFileAtomically } from "../server-file-utils";
 import { resolveTrickroomHome } from "./home";
 
 export type ProjectLocationRef = {

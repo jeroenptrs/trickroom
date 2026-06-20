@@ -365,6 +365,177 @@ Icon rules:
 - Unsafe SVG content is skipped during indexing and sanitized again before the SVG route returns content.
 - Design JSON stores `data-trickroom-icon-id`, not raw SVG.
 
+## System Component Manifest
+
+Path:
+
+```text
+<projectRoot>/.trickroom/systems/<safe-system-name>/components.json
+```
+
+Purpose:
+
+- Stores authored design-system components for one configured system.
+- Lives beside `system.json`, `tokens.json`, `assets.json`, and `icons.json` under the same system folder.
+- Is the source of truth for component metadata, draft templates, and published immutable versions.
+
+Handle-based resolution:
+
+- APIs, queries, and the manifest service resolve a system by **handle**, not by folder name alone.
+- A handle may be any of:
+  - `systemId` from `system.json` (preferred for automation),
+  - `systemName` (display name),
+  - `storageKey` (the safe folder key, for example `core`).
+- `findDesignSystem` tries those identities in that order. When a record exists, `components.json` is read from that record's folder.
+- When no record matches, Trickroom falls back to the legacy safe-key directory layout under `.trickroom/systems/<handle>/`.
+
+Example:
+
+```text
+.trickroom/systems/core/components.json
+```
+
+can be addressed as `sys_…` (system id), `Core` (system name), or `core` (storage key), as long as each resolves to the same stored system.
+
+Top-level shape:
+
+```ts
+type SystemComponentManifest = {
+  version: 1;
+  metadata: {
+    schemaVersion: 1;
+    createdAt: string;
+    updatedAt: string;
+  };
+  settings?: { autoMigrateComponents?: boolean };
+  migrationPolicy: {
+    allowAutomaticMigration: boolean;
+    maxAutomaticMigrationsPerRun: number;
+    requireExplicitReview: boolean;
+    preserveDrafts: boolean;
+  };
+  components: Record<string, SystemComponentRecord>;
+};
+```
+
+`components` record key invariant:
+
+- `components` is keyed by stable opaque `componentId` values such as `cmp_00000000-0000-4000-8000-000000000001`.
+- Every record must satisfy `record.componentId === key`.
+- Reads and writes reject manifests where the map key and `component.componentId` diverge.
+- `slug` is a separate human-facing identifier. Slugs must be unique within the manifest but are not map keys.
+- Display names, groups, and order are metadata only; they do not identify storage rows.
+
+Component record shape (simplified):
+
+```ts
+type SystemComponentRecord = {
+  componentId: string;
+  slug: string;
+  name: string;
+  description?: string;
+  group?: string;
+  order?: number;
+  createdAt: string;
+  updatedAt: string;
+  draft?: SystemComponentDraftPayload;
+  published?: {
+    currentVersion: string;
+    versions: Record<string, PublishedSystemComponentVersion>;
+  };
+};
+```
+
+Draft vs published semantics:
+
+- **Draft** is mutable workspace state on a component record. API routes can update draft template, slots, variants, override targets, and metadata without changing published history.
+- **Publish** snapshots the current draft into `published.versions[version]`, sets `published.currentVersion`, and stores immutable `templateHash` and `variantSchemaHash` values for that version.
+- Published versions are append-only for Phase 1. Editing a published version in place is not supported; create a new draft and publish again.
+- A component may have a draft only, published only, or both. Listing APIs expose `hasDraft` / `hasPublished` summaries for the SystemEditor catalog.
+- Draft edits never mutate an existing published version payload.
+
+Template path terminology:
+
+- Component templates reuse `RecipeTemplateNode` trees (the same shape recipes use).
+- `RecipeTemplateNode.path` is a **stable template identity**, not a slash-separated DOM path.
+- Valid examples: `root`, `label`, `icon`, `fallback`.
+- Invalid examples: `root/label`, `children/0/icon`.
+- Validation requires exactly one root node, conventionally with `path: "root"`, and unique non-empty paths across the tree.
+- Slots, variant class targets, and override targets reference these template paths via `hostPath` / `path` / `classesByPath` keys.
+
+Revision and hash write safety:
+
+- Every `components.json` revision is a content hash of the exact serialized file:
+
+```text
+sha256:<hex digest>
+```
+
+- Reads return `revision` with the manifest.
+- Writes require `expectedRevision` from the prior read. Stale revisions return `STALE_WRITE` and do not modify the file.
+- Writes are atomic: Trickroom writes a temporary JSON file and renames it into place.
+- Published versions also store deterministic `templateHash` and `variantSchemaHash` values so attached instances can detect template/schema drift. Usage scans compare the attached version and stored hashes with the current published component.
+
+System-component marker props:
+
+- Attached component instances stamp structural nodes with `data-trickroom-system-component-*` props (system id, component id, instance id, version, template path, slot name, variant values, overrides, and published hashes).
+- Generic element mutation tools reject writes to these marker keys.
+- Marker props are omitted when extracting partial subtrees out of a design.
+- Root nodes compare stored template/schema hashes against the currently published component during usage scanning and inspector review.
+- Instance override state is stored with the attached instance metadata, but override targets are path-scoped published capabilities (`className`, `text`, `icon`, `asset`). The inspector wires each capability into the matching component-owned layer's normal editing surface: className uses the Style and Classes tabs; text, icon, and asset use the usual Content controls. The instance root stays focused on variants, status, migration, and detach — there is no generic Overrides section.
+
+Ownership boundary rules:
+
+- Nodes inside an attached component instance are **component-owned** unless they are slot hosts or the instance root.
+- Component-owned structural nodes cannot be renamed, re-parented, or deleted through normal design edits.
+- Content may be inserted only into explicit slot hosts or outside the component boundary.
+- Non-root owned nodes cannot be moved across the component boundary.
+- Only the instance root may be deleted to remove the whole attached component.
+- SystemEditor draft authoring and design-file insertion both rely on the same ownership helpers.
+
+SystemEditor route and component workflow:
+
+- Route: `/system/:systemId` (see `src/components/Root.tsx`).
+- `:systemId` accepts either the stable `systemId` or the display `systemName`; the shell resolves the system from the loaded project systems list.
+- SystemEditor is a dedicated workspace shell with left navigation for **Components**, **Tokens**, **Assets**, and **Icons**, plus a right-hand inspector.
+- **Components**: create draft component records, author draft templates, slots, variants, and override targets, publish immutable versions, inspect usage counts, and review stale/hash-mismatch usages.
+- **Tokens**: read-only browse of stored synced token domains. **Token source-definition authoring is out of scope**; theme/CSS source files are edited outside Trickroom.
+- **Assets** and **Icons**: browse existing system catalogs using the same data as the project system detail pane.
+- Launch from the project system detail pane via **Open System Editor** (`getSystemEditorPath`).
+
+Design authoring and migration behavior:
+
+- Published components can be inserted into design files as attached instances. Inserted nodes carry component marker props and are governed by the ownership boundary rules above.
+- Instance updates change declared variant values and override target class names; component marker props remain internal and are blocked from generic element-prop mutation.
+- Extracting a complete attached component root into a new design preserves the attachment with a fresh instance id. Extracting a partial component-owned subtree strips component marker props so the extracted design is independent.
+- Detaching a component instance removes all system-component marker props from that instance and makes the former structural nodes normal editable design elements.
+- Stale detection reports attached instances whose referenced version is no longer current. Hash mismatches and unsafe migrations are surfaced as separate review signals from simple version staleness.
+- Manual migration (`migrateSystemComponentInstance` in MCP) updates one stale instance to the current published version when the migration is safe, or returns a review-required preview when `onlySafe` blocks the write.
+- Bulk migration (`bulkMigrateSystemComponentUsages` in MCP) scans a system, optional component, or design file. It is always explicit: MCP does not auto-apply migrations on read or publish. By default `onlySafe` is true, so safe migrations are applied and review-required or blocked instances are reported without writing them.
+- Automatic application inside the bulk migration helper runs only when callers pass `automatic: true`. That path requires `settings.autoMigrateComponents` on the component manifest and the design's `componentMigrationPolicy` to allow migration (`inherit` or `auto`; `manual` skips automatic writes). MCP bulk migration does not pass `automatic`, so MCP callers must invoke bulk or per-instance migration tools explicitly. The manifest `migrationPolicy` object is stored metadata and is not the runtime gate for automatic bulk migration.
+- The project REST API exposes component settings (`autoMigrateComponents`) and usage scans, but no migration execution route. Stale instances remain reportable whenever automatic settings are off and can still be migrated through explicit MCP tools.
+
+REST surface (project API):
+
+```text
+GET    /api/trickroom/systems/:systemHandle/components
+POST   /api/trickroom/systems/:systemHandle/components
+GET    /api/trickroom/systems/:systemHandle/components/usage
+POST   /api/trickroom/systems/:systemHandle/components/settings
+GET    /api/trickroom/systems/:systemHandle/components/:componentId
+GET    /api/trickroom/systems/:systemHandle/components/:componentId/usage
+GET    /api/trickroom/systems/:systemHandle/components/:componentId/used-by
+GET    /api/trickroom/systems/:systemHandle/components/:componentId/versions/:version/expand
+POST   /api/trickroom/systems/:systemHandle/components/:componentId/template
+POST   /api/trickroom/systems/:systemHandle/components/:componentId/slots
+POST   /api/trickroom/systems/:systemHandle/components/:componentId/variants
+POST   /api/trickroom/systems/:systemHandle/components/:componentId/override-targets
+POST   /api/trickroom/systems/:systemHandle/components/:componentId/metadata
+POST   /api/trickroom/systems/:systemHandle/components/:componentId/publish
+```
+
+`:systemHandle` follows the same id/name/storage-key resolution rules as manifest reads.
+
 ## MCP Audit Log
 
 Path:

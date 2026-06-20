@@ -91,8 +91,6 @@ export const components = {
 		description: "System-scoped sanitized SVG icon.",
 		defaultProps: {
 			[iconIdProp]: "",
-			className:
-				"inline-flex size-5 text-current [&>svg]:h-full [&>svg]:w-full",
 		},
 		controls: {
 			iconId: {

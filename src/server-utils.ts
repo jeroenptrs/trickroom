@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-import { link, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { isJsonPrimitive } from "./libraries/registry";
 import type {
 	Node,
@@ -18,46 +16,6 @@ export const asErrnoException = (error: unknown) =>
 
 export const jsonError = (error: string, status: number) => {
 	return Response.json({ error } satisfies ErrorResponse, { status });
-};
-
-export const readJsonFile = async <T>(filePath: string): Promise<T> => {
-	const contents = await readFile(filePath, "utf8");
-	return JSON.parse(contents) as T;
-};
-
-export const writeJsonFileAtomically = async (
-	filePath: string,
-	value: unknown,
-) => {
-	const contents = `${JSON.stringify(value, null, "\t")}\n`;
-	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-
-	try {
-		await writeFile(tempPath, contents, "utf8");
-		await rename(tempPath, filePath);
-		return contents;
-	} catch (error) {
-		await unlink(tempPath).catch(() => undefined);
-		throw error;
-	}
-};
-
-export const writeJsonFileExclusivelyAtomically = async (
-	filePath: string,
-	value: unknown,
-) => {
-	const contents = `${JSON.stringify(value, null, "\t")}\n`;
-	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-
-	try {
-		await writeFile(tempPath, contents, "utf8");
-		await link(tempPath, filePath);
-		await unlink(tempPath).catch(() => undefined);
-		return contents;
-	} catch (error) {
-		await unlink(tempPath).catch(() => undefined);
-		throw error;
-	}
 };
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -178,10 +136,19 @@ const isDesignSystemId = (
 			value.trim(),
 		));
 
+const isComponentMigrationPolicy = (
+	value: unknown,
+): value is TrickroomDesign["componentMigrationPolicy"] =>
+	value === undefined ||
+	value === "inherit" ||
+	value === "manual" ||
+	value === "auto";
+
 export const isTrickroomDesign = (value: unknown): value is TrickroomDesign =>
 	isRecord(value) &&
 	typeof value.name === "string" &&
 	isDesignSystemId(value.systemId) &&
 	isDesignSystemName(value.systemName) &&
+	isComponentMigrationPolicy(value.componentMigrationPolicy) &&
 	Array.isArray(value.boards) &&
 	value.boards.every(isSerializedElement);

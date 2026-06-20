@@ -1,31 +1,26 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	AlertTriangle,
 	Check,
 	ChevronDown,
 	ChevronRight,
 	Copy,
-	FileImage,
 	Folder,
-	Library,
-	PanelRightClose,
 	RefreshCw,
 	Save,
 	Search,
 	Trash2,
-	Upload,
 } from "lucide-react";
 import {
 	type ReactNode,
-	type RefObject,
 	useCallback,
 	useEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
+import { useNavigate } from "react-router";
 import { getTrickroomDesktopApi } from "../../desktop-api";
 import type { TailwindSyncResult } from "../../hooks/useTailwindSyncController";
 import {
@@ -35,15 +30,7 @@ import {
 import type { ProjectQueryScope } from "../../queries/project-scope";
 import { sessionQueryOptions } from "../../queries/projects";
 import {
-	createSystemAsset,
-	deleteSystemAsset,
-	type SystemAssetSummary,
-	systemAssetFileUrl,
-	systemAssetsQueryKey,
 	systemAssetsQueryOptions,
-	systemAssetUsedByQueryKey,
-	systemAssetUsedByQueryOptions,
-	updateSystemAsset,
 } from "../../queries/system-assets";
 import {
 	addSystemIconFolder,
@@ -103,11 +90,6 @@ function getCssBasename(cssPath: string) {
 	return cssPath.split(/[\\/]/).pop() || cssPath;
 }
 
-function getAssetNameFromPath(sourcePath: string) {
-	const basename = sourcePath.split(/[\\/]/).pop() || sourcePath;
-	return basename.replace(/\.[^.]+$/u, "") || basename;
-}
-
 function toProjectRelativePath(path: string, projectRoot: string) {
 	const normalizedPath = path.trim().replaceAll("\\", "/").replace(/\/+$/, "");
 	const normalizedRoot = projectRoot
@@ -150,6 +132,30 @@ function getSyncState(
 	return "synced";
 }
 
+export const getSystemEditorPath = (systemId: string) =>
+	`/system/${encodeURIComponent(systemId)}`;
+
+export function OpenSystemEditorAction({
+	systemId,
+	disabled,
+}: {
+	systemId: string;
+	disabled?: boolean;
+}) {
+	const navigate = useNavigate();
+
+	return (
+		<Button
+			type="button"
+			variant="block"
+			onClick={() => navigate(getSystemEditorPath(systemId))}
+			disabled={disabled}
+		>
+			Open in editor
+		</Button>
+	);
+}
+
 type TokenDiff = {
 	added: number;
 	overridden: number;
@@ -170,97 +176,6 @@ type TokenDiffSection = {
 
 type StoredTokenDomains = StoredTailwindTokensResponse["domains"];
 type TokenOverridesByDomain = Partial<Record<TailwindTokenDomain, string[]>>;
-
-const VIRTUAL_GRID_GAP = 12;
-const ASSET_GRID_MIN_COLUMN_WIDTH = 160;
-const ASSET_GRID_ROW_EXTRA_HEIGHT = 86;
-const ICON_GRID_MIN_COLUMN_WIDTH = 128;
-const ICON_GRID_ROW_HEIGHT = 158;
-const VIRTUAL_GRID_OVERSCAN = 4;
-
-function getVirtualGridColumnCount(
-	containerWidth: number,
-	minColumnWidth: number,
-) {
-	if (containerWidth <= 0) {
-		return 1;
-	}
-
-	return Math.max(
-		1,
-		Math.floor(
-			(containerWidth + VIRTUAL_GRID_GAP) / (minColumnWidth + VIRTUAL_GRID_GAP),
-		),
-	);
-}
-
-function useVirtualGrid<T>({
-	items,
-	minColumnWidth,
-	estimateRowHeight,
-	scrollElementRef,
-	getItemKey,
-}: {
-	items: readonly T[];
-	minColumnWidth: number;
-	estimateRowHeight: (columnWidth: number) => number;
-	scrollElementRef: RefObject<HTMLDivElement | null>;
-	getItemKey: (item: T) => string;
-}) {
-	const [containerElement, setContainerElement] =
-		useState<HTMLDivElement | null>(null);
-	const containerRef = useCallback((node: HTMLDivElement | null) => {
-		setContainerElement(node);
-	}, []);
-	const [containerWidth, setContainerWidth] = useState(0);
-	const [scrollMargin, setScrollMargin] = useState(0);
-	const columnCount = getVirtualGridColumnCount(containerWidth, minColumnWidth);
-	const columnWidth =
-		columnCount > 0
-			? Math.max(
-					minColumnWidth,
-					(containerWidth - VIRTUAL_GRID_GAP * (columnCount - 1)) / columnCount,
-				)
-			: minColumnWidth;
-	const rowHeight = estimateRowHeight(columnWidth);
-	const rowCount = Math.ceil(items.length / columnCount);
-	const rowVirtualizer = useVirtualizer({
-		count: rowCount,
-		getScrollElement: () => scrollElementRef.current,
-		estimateSize: () => rowHeight + VIRTUAL_GRID_GAP,
-		getItemKey: (index) => {
-			const firstItem = items[index * columnCount];
-			return firstItem ? getItemKey(firstItem) : index;
-		},
-		overscan: VIRTUAL_GRID_OVERSCAN,
-		scrollMargin,
-	});
-
-	useEffect(() => {
-		const container = containerElement;
-		if (!container) {
-			return;
-		}
-
-		const updateMeasurements = () => {
-			setContainerWidth(container.clientWidth);
-			setScrollMargin(container.offsetTop);
-		};
-		updateMeasurements();
-
-		const resizeObserver = new ResizeObserver(updateMeasurements);
-		resizeObserver.observe(container);
-		return () => resizeObserver.disconnect();
-	}, [containerElement]);
-
-	return {
-		columnCount,
-		containerRef,
-		rowHeight,
-		rowVirtualizer,
-		scrollMargin,
-	};
-}
 
 function cloneTokenOverridesByDomain(
 	overridesByDomain: TokenOverridesByDomain,
@@ -438,12 +353,6 @@ function SystemDetailTabBar() {
 			<TabsTab className={tabClassName} value="tokens">
 				Tokens
 			</TabsTab>
-			<TabsTab className={tabClassName} value="assets">
-				Assets
-			</TabsTab>
-			<TabsTab className={tabClassName} value="icons">
-				Icons
-			</TabsTab>
 			<TabsTab className={tabClassName} value="settings">
 				Settings
 			</TabsTab>
@@ -457,6 +366,7 @@ function SystemDetailHeader({
 	subline,
 	diff,
 	primaryAction,
+	secondaryAction,
 	errors,
 }: {
 	title: ReactNode;
@@ -464,6 +374,7 @@ function SystemDetailHeader({
 	subline: string;
 	diff: TokenDiff;
 	primaryAction?: ReactNode;
+	secondaryAction?: ReactNode;
 	errors?: ReactNode;
 }) {
 	const isSyncing = status === "syncing";
@@ -498,6 +409,11 @@ function SystemDetailHeader({
 					</div>
 					{errors}
 				</div>
+				{secondaryAction ? (
+					<div className="flex shrink-0 items-center gap-2">
+						{secondaryAction}
+					</div>
+				) : null}
 				{primaryAction ? (
 					<div className="flex shrink-0 items-center gap-2">
 						{primaryAction}
@@ -857,747 +773,6 @@ function SystemOverviewTokenMetricCard({
 				</div>
 				<TokenDiffMiniBar diff={diff} />
 			</div>
-		</div>
-	);
-}
-
-function SystemAssetsSubview({
-	projectScope,
-	scrollElementRef,
-	systemId,
-}: {
-	projectScope?: ProjectQueryScope;
-	scrollElementRef: RefObject<HTMLDivElement | null>;
-	systemId: string;
-}) {
-	const queryClient = useQueryClient();
-	const desktopApi = getTrickroomDesktopApi();
-	const sessionQuery = useQuery(sessionQueryOptions());
-	const assetsQuery = useQuery(
-		systemAssetsQueryOptions(systemId, projectScope),
-	);
-	const assets = assetsQuery.data?.assets ?? [];
-	const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
-	const [assetFilter, setAssetFilter] = useState("");
-	const [assetActionError, setAssetActionError] = useState<string | null>(null);
-	const [isPickingAsset, setIsPickingAsset] = useState(false);
-	const projectRoot = sessionQuery.data?.activeProject?.projectRoot ?? "";
-	const selectedAsset =
-		assets.find((asset) => asset.id === selectedAssetId) ?? null;
-	const assetCountLabel = assetsQuery.isPending
-		? "Loading"
-		: `${assets.length.toLocaleString()} asset${assets.length === 1 ? "" : "s"}`;
-	const normalizedAssetFilter = assetFilter.trim().toLowerCase();
-	const filteredAssets = useMemo(
-		() =>
-			normalizedAssetFilter
-				? assets.filter((asset) => {
-						const searchable =
-							`${asset.name} ${asset.id} ${asset.sourcePath} ${asset.mimeType}`.toLowerCase();
-						return searchable.includes(normalizedAssetFilter);
-					})
-				: assets,
-		[assets, normalizedAssetFilter],
-	);
-	const virtualGrid = useVirtualGrid({
-		items: filteredAssets,
-		minColumnWidth: ASSET_GRID_MIN_COLUMN_WIDTH,
-		estimateRowHeight: (columnWidth) =>
-			columnWidth + ASSET_GRID_ROW_EXTRA_HEIGHT,
-		scrollElementRef,
-		getItemKey: (asset) => asset.id,
-	});
-	const assetsQueryKey = systemAssetsQueryKey(systemId, projectScope);
-	const invalidateAssets = useCallback(async () => {
-		await queryClient.invalidateQueries({ queryKey: assetsQueryKey });
-	}, [assetsQueryKey, queryClient]);
-	const updateAssetMutation = useMutation({
-		mutationFn: ({ assetId, alt }: { assetId: string; alt: string | null }) =>
-			updateSystemAsset(systemId, assetId, { alt }),
-		onSuccess: invalidateAssets,
-	});
-	const createAssetMutation = useMutation({
-		mutationFn: (sourcePath: string) =>
-			createSystemAsset(systemId, {
-				name: getAssetNameFromPath(sourcePath),
-				sourcePath,
-			}),
-		onMutate: () => setAssetActionError(null),
-		onError: (error) => {
-			setAssetActionError(
-				error instanceof Error ? error.message : "Failed to add asset.",
-			);
-		},
-		onSuccess: async (response) => {
-			setAssetActionError(null);
-			setSelectedAssetId(response.asset.id);
-			await invalidateAssets();
-		},
-	});
-	const deleteAssetMutation = useMutation({
-		mutationFn: (assetId: string) => deleteSystemAsset(systemId, assetId),
-		onSuccess: async (_response, assetId) => {
-			setSelectedAssetId(null);
-			queryClient.removeQueries({
-				queryKey: systemAssetUsedByQueryKey(systemId, assetId, projectScope),
-				type: "inactive",
-			});
-			await invalidateAssets();
-		},
-	});
-	const pickAsset = async () => {
-		if (
-			!desktopApi ||
-			!projectRoot ||
-			isPickingAsset ||
-			createAssetMutation.isPending
-		) {
-			return;
-		}
-
-		setAssetActionError(null);
-		setIsPickingAsset(true);
-		try {
-			const result = await desktopApi.pickAssetFile(projectRoot);
-			if (!result.canceled) {
-				await createAssetMutation.mutateAsync(result.relativePath);
-			}
-		} catch (error) {
-			setAssetActionError(
-				error instanceof Error ? error.message : "Failed to choose asset file.",
-			);
-		} finally {
-			setIsPickingAsset(false);
-		}
-	};
-
-	useEffect(() => {
-		if (
-			selectedAssetId &&
-			!assets.some((asset) => asset.id === selectedAssetId)
-		) {
-			setSelectedAssetId(null);
-		}
-	}, [assets, selectedAssetId]);
-
-	if (assetsQuery.isPending) {
-		return (
-			<div className="flex flex-col gap-4">
-				<SystemAssetsToolbar
-					countLabel={assetCountLabel}
-					filter={assetFilter}
-					onFilterChange={setAssetFilter}
-					onAddAsset={pickAsset}
-					addAssetDisabled={!desktopApi || !projectRoot || isPickingAsset}
-					isAddingAsset={isPickingAsset || createAssetMutation.isPending}
-				/>
-				<div className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-3">
-					{[0, 1, 2].map((index) => (
-						<div
-							key={index}
-							className="flex min-w-0 animate-pulse flex-col border border-slate-200 bg-white"
-						>
-							<div className="aspect-square bg-slate-100" />
-							<div className="flex flex-col gap-2 border-t border-slate-100 px-3 py-2">
-								<div className="h-4 w-2/3 bg-slate-100" />
-								<div className="h-3 w-1/2 bg-slate-100" />
-							</div>
-						</div>
-					))}
-				</div>
-			</div>
-		);
-	}
-
-	if (assetsQuery.isError) {
-		return (
-			<div className="flex flex-col gap-4">
-				<SystemAssetsToolbar
-					countLabel="Unavailable"
-					filter={assetFilter}
-					onFilterChange={setAssetFilter}
-					onAddAsset={pickAsset}
-					addAssetDisabled={!desktopApi || !projectRoot || isPickingAsset}
-					isAddingAsset={isPickingAsset || createAssetMutation.isPending}
-				/>
-				<div className="border border-red-200 bg-red-50 px-4 py-4" role="alert">
-					<p className="text-sm font-medium text-red-950">
-						Failed to load assets
-					</p>
-					<p className="mt-1 text-xs text-red-700">
-						{(assetsQuery.error as Error).message}
-					</p>
-				</div>
-			</div>
-		);
-	}
-
-	return (
-		<div className="flex min-w-0 flex-col gap-4">
-			<SystemAssetsToolbar
-				countLabel={assetCountLabel}
-				filter={assetFilter}
-				onFilterChange={setAssetFilter}
-				onAddAsset={pickAsset}
-				addAssetDisabled={!desktopApi || !projectRoot || isPickingAsset}
-				isAddingAsset={isPickingAsset || createAssetMutation.isPending}
-			/>
-			{assetActionError ? (
-				<div className="border border-red-200 bg-red-50 px-4 py-3" role="alert">
-					<p className="text-sm font-medium text-red-950">
-						Failed to add asset
-					</p>
-					<p className="mt-1 text-xs text-red-700">{assetActionError}</p>
-				</div>
-			) : null}
-			<div className="flex min-w-0 flex-col gap-6 xl:flex-row">
-				<div className="min-w-0 flex-1">
-					{filteredAssets.length > 0 ? (
-						<div ref={virtualGrid.containerRef} className="relative w-full">
-							<div
-								className="relative w-full"
-								style={{
-									height: `${virtualGrid.rowVirtualizer.getTotalSize()}px`,
-								}}
-							>
-								{virtualGrid.rowVirtualizer
-									.getVirtualItems()
-									.map((virtualRow) => {
-										const rowAssets = filteredAssets.slice(
-											virtualRow.index * virtualGrid.columnCount,
-											virtualRow.index * virtualGrid.columnCount +
-												virtualGrid.columnCount,
-										);
-
-										return (
-											<div
-												key={virtualRow.key}
-												className="absolute left-0 top-0 grid w-full gap-3"
-												style={{
-													gridTemplateColumns: `repeat(${virtualGrid.columnCount}, minmax(0, 1fr))`,
-													height: `${virtualGrid.rowHeight}px`,
-													transform: `translateY(${
-														virtualRow.start - virtualGrid.scrollMargin
-													}px)`,
-												}}
-											>
-												{rowAssets.map((asset) => (
-													<SystemAssetCard
-														key={asset.id}
-														asset={asset}
-														systemId={systemId}
-														isSelected={asset.id === selectedAssetId}
-														onSelect={() => setSelectedAssetId(asset.id)}
-													/>
-												))}
-											</div>
-										);
-									})}
-							</div>
-						</div>
-					) : null}
-					{assets.length === 0 ? (
-						<div className="mt-3 flex flex-col items-center justify-center border border-dashed border-slate-300 bg-white px-4 py-10 text-center">
-							<FileImage className="size-6 text-slate-400" aria-hidden="true" />
-							<p className="mt-3 text-sm font-medium text-slate-900">
-								No assets registered
-							</p>
-							<p className="mt-1 max-w-md text-sm text-slate-500">
-								Register raster image assets to make them available to linked
-								designs.
-							</p>
-						</div>
-					) : filteredAssets.length === 0 ? (
-						<div className="mt-3 flex flex-col items-center justify-center border border-dashed border-slate-300 bg-white px-4 py-10 text-center">
-							<Search className="size-6 text-slate-400" aria-hidden="true" />
-							<p className="mt-3 text-sm font-medium text-slate-900">
-								No matching assets
-							</p>
-							<p className="mt-1 max-w-md text-sm text-slate-500">
-								Try a different name, path, type, or asset id.
-							</p>
-						</div>
-					) : null}
-				</div>
-				{selectedAsset ? (
-					<SystemAssetDetailPanel
-						key={selectedAsset.id}
-						asset={selectedAsset}
-						systemId={systemId}
-						onClose={() => setSelectedAssetId(null)}
-						onSaveAlt={(alt) =>
-							updateAssetMutation.mutateAsync({
-								assetId: selectedAsset.id,
-								alt: alt.trim().length > 0 ? alt : null,
-							})
-						}
-						onDelete={(assetId) => deleteAssetMutation.mutate(assetId)}
-						projectScope={projectScope}
-						isSaving={updateAssetMutation.isPending}
-						isDeleting={deleteAssetMutation.isPending}
-						error={
-							updateAssetMutation.isError
-								? (updateAssetMutation.error as Error).message
-								: deleteAssetMutation.isError
-									? (deleteAssetMutation.error as Error).message
-									: null
-						}
-					/>
-				) : null}
-			</div>
-		</div>
-	);
-}
-
-function SystemAssetsToolbar({
-	addAssetDisabled,
-	countLabel,
-	filter,
-	isAddingAsset,
-	onAddAsset,
-	onFilterChange,
-}: {
-	addAssetDisabled: boolean;
-	countLabel: string;
-	filter: string;
-	isAddingAsset: boolean;
-	onAddAsset: () => void;
-	onFilterChange: (value: string) => void;
-}) {
-	return (
-		<div className="flex items-center gap-2">
-			<div className="relative min-w-0 flex-1">
-				<Search
-					className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-500"
-					aria-hidden="true"
-				/>
-				<Input
-					variant="formCompact"
-					className="w-full px-7"
-					aria-label="Filter assets"
-					placeholder="Filter by name or path..."
-					value={filter}
-					onChange={(event) => onFilterChange(event.target.value)}
-				/>
-			</div>
-			<span className="sr-only" aria-live="polite">
-				{countLabel}
-			</span>
-			<Button
-				type="button"
-				variant="blockDark"
-				className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 disabled:opacity-100"
-				onClick={onAddAsset}
-				disabled={addAssetDisabled}
-			>
-				{isAddingAsset ? (
-					<RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
-				) : (
-					<Upload className="size-3.5" aria-hidden="true" />
-				)}
-				{isAddingAsset ? "Adding" : "Add asset"}
-			</Button>
-		</div>
-	);
-}
-
-function SystemAssetCard({
-	asset,
-	isSelected,
-	onSelect,
-	systemId,
-}: {
-	asset: SystemAssetSummary;
-	isSelected: boolean;
-	onSelect: () => void;
-	systemId: string;
-}) {
-	const dimensions =
-		asset.width && asset.height ? `${asset.width} x ${asset.height}` : null;
-	const typeLabel = formatAssetMimeType(asset.mimeType);
-	const metadata = [typeLabel, dimensions].filter(Boolean).join(" · ");
-	const updatedLabel = formatRelativeTime(asset.updatedAt);
-
-	return (
-		<button
-			type="button"
-			className="flex min-w-0 flex-col border border-slate-200 bg-white text-left hover:border-slate-300 focus-visible:border-cyan-500 focus-visible:outline-none disabled:opacity-60 data-[selected=true]:border-cyan-500"
-			data-selected={isSelected}
-			onClick={onSelect}
-			aria-pressed={isSelected}
-		>
-			<div className="flex aspect-square items-center justify-center overflow-hidden bg-slate-50 p-6">
-				<img
-					src={systemAssetFileUrl(systemId, asset.id)}
-					alt={asset.alt || asset.name}
-					className="h-full w-full object-contain"
-				/>
-			</div>
-			<div className="flex min-w-0 flex-1 flex-col gap-0.5 border-t border-slate-100 px-3 py-2">
-				<div className="flex min-w-0 items-start justify-between gap-2">
-					<div className="flex min-w-0 flex-col gap-0.5">
-						<span
-							className="truncate text-xs font-medium text-slate-900"
-							title={asset.name}
-						>
-							{asset.name}
-						</span>
-						<span className="font-mono text-[10px] text-slate-400">
-							{metadata || "Image asset"}
-						</span>
-					</div>
-				</div>
-				<div className="flex min-w-0 flex-col gap-0.5">
-					<span
-						className="truncate font-mono text-[10px] text-slate-500"
-						title={asset.sourcePath}
-					>
-						{asset.sourcePath}
-					</span>
-					<span className="font-mono text-[10px] text-slate-400">
-						Updated {updatedLabel}
-					</span>
-				</div>
-			</div>
-		</button>
-	);
-}
-
-function SystemAssetDetailPanel({
-	asset,
-	error,
-	isDeleting,
-	isSaving,
-	onClose,
-	onDelete,
-	onSaveAlt,
-	projectScope,
-	systemId,
-}: {
-	asset: SystemAssetSummary;
-	error: string | null;
-	isDeleting: boolean;
-	isSaving: boolean;
-	onClose: () => void;
-	onDelete: (assetId: string) => void;
-	onSaveAlt: (alt: string) => Promise<unknown>;
-	projectScope?: ProjectQueryScope;
-	systemId: string;
-}) {
-	const [altText, setAltText] = useState(asset.alt ?? "");
-	const usedByQuery = useQuery(
-		systemAssetUsedByQueryOptions(systemId, asset.id, projectScope),
-	);
-	const usedByCount = usedByQuery.data?.usedByCount ?? 0;
-	const dimensions =
-		asset.width && asset.height
-			? `${asset.width} x ${asset.height}`
-			: "Unknown";
-	const hasAltChanges = altText !== (asset.alt ?? "");
-	const deleteLabel = usedByQuery.isPending
-		? "Delete asset - checking usage"
-		: usedByQuery.isError
-			? "Delete asset - usage unavailable"
-			: usedByCount > 0
-				? `Delete asset - in use by ${usedByCount.toLocaleString()} reference${usedByCount === 1 ? "" : "s"}`
-				: "Delete asset";
-	const deleteDisabled =
-		isSaving ||
-		isDeleting ||
-		usedByQuery.isPending ||
-		usedByQuery.isError ||
-		usedByCount > 0;
-
-	useEffect(() => {
-		setAltText(asset.alt ?? "");
-	}, [asset.alt]);
-
-	const handleDelete = () => {
-		if (deleteDisabled) {
-			return;
-		}
-
-		const usageText =
-			usedByCount > 0
-				? ` It is currently in use by ${usedByCount.toLocaleString()} reference${usedByCount === 1 ? "" : "s"} and cannot be deleted until those references are removed.`
-				: "";
-		const confirmed = window.confirm(
-			`Delete asset "${asset.name}"?${usageText} This cannot be undone.`,
-		);
-		if (!confirmed || usedByCount > 0) {
-			return;
-		}
-
-		onDelete(asset.id);
-	};
-
-	return (
-		<aside className="flex min-h-0 min-w-0 flex-col gap-4 bg-white px-4 py-4 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 xl:w-72 xl:shrink-0">
-			<div className="flex aspect-square items-center justify-center overflow-hidden bg-slate-50 p-8">
-				<img
-					src={systemAssetFileUrl(systemId, asset.id)}
-					alt={asset.alt || asset.name}
-					className="h-full w-full object-contain"
-				/>
-			</div>
-			<div className="flex items-start justify-between gap-3">
-				<div className="min-w-0 flex flex-col gap-0.5">
-					<Text variant="eyebrow" className="text-slate-500">
-						Asset
-					</Text>
-					<p className="truncate text-base font-medium text-slate-950">
-						{asset.name}
-					</p>
-					<p className="truncate font-mono text-[10px] text-slate-500">
-						{asset.id}
-					</p>
-				</div>
-				<Button
-					type="button"
-					variant="block"
-					onClick={onClose}
-					aria-label="Close asset details"
-					className="shrink-0 p-2"
-				>
-					<PanelRightClose className="size-4" aria-hidden="true" />
-				</Button>
-			</div>
-			<div className="flex flex-col divide-y divide-slate-100">
-				<SystemAssetMetadataField label="MIME" value={asset.mimeType} mono />
-				<SystemAssetMetadataField label="Dimensions" value={dimensions} mono />
-				<SystemAssetMetadataField
-					label="Source"
-					value={asset.sourcePath}
-					mono
-				/>
-				<SystemAssetMetadataField
-					label="Updated"
-					value={new Date(asset.updatedAt).toLocaleString()}
-				/>
-			</div>
-			<TextareaField
-				label="Alt text"
-				value={altText}
-				onChange={(event) => setAltText(event.currentTarget.value)}
-				description="Stored in the system asset manifest."
-				variant="formCompact"
-				className="min-h-20 bg-white"
-			/>
-			{error ? (
-				<p className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-					{error}
-				</p>
-			) : null}
-			<div className="flex flex-col gap-1.5">
-				<Button
-					type="button"
-					variant="outlined"
-					className="flex items-center gap-2 px-3 py-2"
-					disabled={!hasAltChanges || isSaving}
-					onClick={() => {
-						void onSaveAlt(altText).catch(() => undefined);
-					}}
-				>
-					<Check className="size-4" aria-hidden="true" />
-					{isSaving ? "Saving" : "Save alt text"}
-				</Button>
-				<Button
-					type="button"
-					variant="outlined"
-					className="flex items-center gap-2 px-3 py-2"
-					disabled={!hasAltChanges || isSaving}
-					onClick={() => setAltText(asset.alt ?? "")}
-				>
-					Reset changes
-				</Button>
-				<Button
-					type="button"
-					variant="block"
-					flavor="warning"
-					className="flex items-center gap-2 px-3 py-2 text-red-700"
-					disabled={deleteDisabled}
-					onClick={handleDelete}
-				>
-					<Trash2 className="size-4" aria-hidden="true" />
-					{isDeleting ? "Deleting" : deleteLabel}
-				</Button>
-			</div>
-		</aside>
-	);
-}
-
-function SystemAssetMetadataField({
-	label,
-	mono = false,
-	value,
-}: {
-	label: string;
-	mono?: boolean;
-	value: string;
-}) {
-	return (
-		<div className="flex items-baseline justify-between gap-3 py-2">
-			<span className="text-xs text-slate-500">{label}</span>
-			<span
-				className={[
-					"min-w-0 truncate text-right text-xs text-slate-900",
-					mono ? "font-mono" : "",
-				].join(" ")}
-				title={value}
-			>
-				{value}
-			</span>
-		</div>
-	);
-}
-
-function formatAssetMimeType(mimeType: string) {
-	const subtype = mimeType.split("/")[1]?.split("+")[0];
-	return subtype ? subtype.toUpperCase() : mimeType;
-}
-
-function SystemIconPreview({
-	iconId,
-	name,
-	systemId,
-}: {
-	iconId: string;
-	name: string;
-	systemId: string;
-}) {
-	const [failed, setFailed] = useState(false);
-
-	if (failed) {
-		return <Library className="size-5 text-slate-400" aria-hidden="true" />;
-	}
-
-	return (
-		<img
-			alt={`${name} preview`}
-			className="size-7 object-contain text-slate-900"
-			loading="lazy"
-			src={`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/${encodeURIComponent(iconId)}/svg`}
-			onError={() => setFailed(true)}
-		/>
-	);
-}
-
-function SystemIconsSubview({
-	projectScope,
-	scrollElementRef,
-	systemId,
-}: {
-	projectScope?: ProjectQueryScope;
-	scrollElementRef: RefObject<HTMLDivElement | null>;
-	systemId: string;
-}) {
-	const iconsQuery = useQuery(systemIconsQueryOptions(systemId, projectScope));
-	const icons = iconsQuery.data?.icons ?? [];
-	const folders = iconsQuery.data?.iconFolderPaths ?? [];
-	const virtualGrid = useVirtualGrid({
-		items: icons,
-		minColumnWidth: ICON_GRID_MIN_COLUMN_WIDTH,
-		estimateRowHeight: () => ICON_GRID_ROW_HEIGHT,
-		scrollElementRef,
-		getItemKey: (icon) => icon.id,
-	});
-
-	if (iconsQuery.isPending) {
-		return <p className="px-4 py-6 text-sm text-slate-500">Loading icons...</p>;
-	}
-
-	if (iconsQuery.isError) {
-		return (
-			<div className="bg-red-500 px-3 py-2 text-xs text-white">
-				Failed to load icon libraries: {(iconsQuery.error as Error).message}
-			</div>
-		);
-	}
-
-	return (
-		<div className="flex flex-col gap-4">
-			<div className="flex items-baseline justify-between">
-				<Text variant="subtitle">Icon libraries</Text>
-				<span className="font-mono text-xs text-slate-500">
-					{icons.length} icons
-				</span>
-			</div>
-			<div className="flex flex-col border border-slate-200 bg-white">
-				<div className="flex items-baseline px-4 py-3 text-sm font-bold text-slate-950">
-					Folders
-				</div>
-				{folders.length === 0 ? (
-					<p className="border-t border-slate-100 px-4 py-5 text-sm text-slate-500">
-						No icon folders configured.
-					</p>
-				) : (
-					folders.map((folder) => (
-						<div
-							key={folder}
-							className="border-t border-slate-100 px-4 py-2 font-mono text-xs text-slate-700"
-						>
-							{folder}
-						</div>
-					))
-				)}
-			</div>
-			{icons.length === 0 ? (
-				<div className="border border-slate-200 bg-white px-4 py-8 text-sm text-slate-500">
-					No icons indexed for this system.
-				</div>
-			) : (
-				<div ref={virtualGrid.containerRef} className="relative w-full">
-					<div
-						className="relative w-full"
-						style={{
-							height: `${virtualGrid.rowVirtualizer.getTotalSize()}px`,
-						}}
-					>
-						{virtualGrid.rowVirtualizer.getVirtualItems().map((virtualRow) => {
-							const rowIcons = icons.slice(
-								virtualRow.index * virtualGrid.columnCount,
-								virtualRow.index * virtualGrid.columnCount +
-									virtualGrid.columnCount,
-							);
-
-							return (
-								<div
-									key={virtualRow.key}
-									className="absolute left-0 top-0 grid w-full gap-3"
-									style={{
-										gridTemplateColumns: `repeat(${virtualGrid.columnCount}, minmax(0, 1fr))`,
-										height: `${virtualGrid.rowHeight}px`,
-										transform: `translateY(${
-											virtualRow.start - virtualGrid.scrollMargin
-										}px)`,
-									}}
-								>
-									{rowIcons.map((icon) => (
-										<div
-											key={icon.id}
-											className="flex min-w-0 flex-col gap-2 border border-slate-200 bg-white px-3 py-3"
-										>
-											<div className="flex h-16 items-center justify-center bg-slate-50">
-												<SystemIconPreview
-													iconId={icon.id}
-													name={icon.name}
-													systemId={systemId}
-												/>
-											</div>
-											<span className="truncate text-sm font-medium text-slate-900">
-												{icon.name}
-											</span>
-											<span className="truncate font-mono text-[11px] text-slate-500">
-												{icon.paint} · {icon.sourcePath}
-											</span>
-										</div>
-									))}
-								</div>
-							);
-						})}
-					</div>
-				</div>
-			)}
 		</div>
 	);
 }
@@ -2959,6 +2134,12 @@ export function SystemDetailPane({
 						) : null}
 					</>
 				}
+				secondaryAction={
+					<OpenSystemEditorAction
+						systemId={systemId}
+						disabled={actionDisabled}
+					/>
+				}
 				primaryAction={primaryAction}
 			/>
 
@@ -3136,20 +2317,6 @@ export function SystemDetailPane({
 								No token snapshot is available yet.
 							</div>
 						)}
-					</TabsPanel>
-					<TabsPanel value="assets">
-						<SystemAssetsSubview
-							projectScope={projectScope}
-							scrollElementRef={detailViewportRef}
-							systemId={systemId}
-						/>
-					</TabsPanel>
-					<TabsPanel value="icons">
-						<SystemIconsSubview
-							projectScope={projectScope}
-							scrollElementRef={detailViewportRef}
-							systemId={systemId}
-						/>
 					</TabsPanel>
 					<TabsPanel value="settings">
 						<SystemSettingsSubview

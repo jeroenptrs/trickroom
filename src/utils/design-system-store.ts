@@ -10,8 +10,10 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { SYSTEM_COMPONENT_MANIFEST_FILE_NAME } from "./system-components.ts";
 
 export const DESIGN_SYSTEM_MANIFEST_VERSION = 1;
+export const DESIGN_SYSTEM_MANIFEST_FILE_NAME = "system.json";
 export const DESIGN_SYSTEM_ID_PREFIX = "sys_";
 
 export type DesignSystemManifest = {
@@ -66,6 +68,14 @@ export type DesignSystemSafeKeyCollision = {
 	safeKey: string;
 	systemNames: string[];
 };
+
+export type DesignSystemManifestFile = 
+	| typeof DESIGN_SYSTEM_MANIFEST_FILE_NAME
+	| typeof SYSTEM_COMPONENT_MANIFEST_FILE_NAME
+	| "tokens.json"
+	| "assets.json"
+	| "icons.json"
+	| "fonts.json";
 
 /**
  * Convert a system name to a filesystem-safe key.
@@ -187,7 +197,17 @@ export function resolveDesignSystemManifestPath(
 ): string {
 	return path.join(
 		resolveDesignSystemDir(projectRoot, systemName),
-		"system.json",
+		DESIGN_SYSTEM_MANIFEST_FILE_NAME,
+	);
+}
+
+export function resolveDesignSystemComponentsPath(
+	projectRoot: string,
+	systemName: string,
+): string {
+	return path.join(
+		resolveDesignSystemDir(projectRoot, systemName),
+		SYSTEM_COMPONENT_MANIFEST_FILE_NAME,
 	);
 }
 
@@ -313,11 +333,7 @@ export async function resolveDesignSystemFilePath(
 	projectRoot: string,
 	systemHandle: string,
 	fileName:
-		| "system.json"
-		| "tokens.json"
-		| "assets.json"
-		| "icons.json"
-		| "fonts.json",
+		| DesignSystemManifestFile,
 ): Promise<string> {
 	const record = await findDesignSystem(projectRoot, systemHandle);
 	if (record) {

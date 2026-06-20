@@ -9,7 +9,12 @@ import {
 import type { Props, TrickroomDesign } from "../types";
 import { assetIdProp } from "../utils/resource-props";
 import {
+	getSystemComponentMarkerProps,
+	systemComponentPathProp,
+} from "../utils/system-component-markers";
+import {
 	addElement,
+	addNodeTree,
 	addRecipe,
 	clearDirty,
 	deleteElement,
@@ -20,9 +25,11 @@ import {
 	isDesignCleanAtRevision,
 	moveElement,
 	normalizeDesign,
+	replaceElementWithNodeTree,
 	selectElement,
 	serializeDesignState,
 	updateElementProps,
+	updateElementText,
 } from "./design-store";
 
 const rootId = "root";
@@ -125,11 +132,96 @@ const topLevelTextFixture = {
 	],
 } satisfies TrickroomDesign;
 
+const systemMarkerProps = (
+	path: string,
+	options: { isRoot?: boolean; slotName?: string | null } = {},
+) =>
+	getSystemComponentMarkerProps({
+		systemId: "system-1",
+		componentId: "component-1",
+		instanceId: "component-instance-1",
+		version: "1",
+		path,
+		...options,
+	});
+
+const attachedComponentFixture = {
+	name: "Attached Component",
+	boards: [
+		{
+			id: "component-root",
+			props: {
+				"data-trickroom-name": "Component Root",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				...systemMarkerProps("root", { isRoot: true }),
+			},
+			children: [
+				{
+					id: "component-label",
+					props: {
+						"data-trickroom-name": "Component Label",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "text",
+						"data-trickroom-role": "text",
+						...systemMarkerProps("label"),
+					},
+					children: "Locked label",
+				},
+				{
+					id: "component-slot",
+					props: {
+						"data-trickroom-name": "Component Slot",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						...systemMarkerProps("slot", { slotName: "default" }),
+					},
+					children: [
+						{
+							id: "slot-text",
+							props: {
+								"data-trickroom-name": "Slot Text",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "text",
+								"data-trickroom-role": "text",
+							},
+							children: "Editable slot text",
+						},
+					],
+				},
+			],
+		},
+		{
+			id: "outside-root",
+			props: {
+				"data-trickroom-name": "Outside",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+			},
+			children: [],
+		},
+	],
+} satisfies TrickroomDesign;
+
 beforeEach(() => {
 	designStore.setState(() => normalizeDesign(fixture));
 });
 
 describe("design store transforms", () => {
+	it("preserves componentMigrationPolicy through normalize and serialize", () => {
+		const design = {
+			...fixture,
+			componentMigrationPolicy: "manual" as const,
+		};
+		const normalized = normalizeDesign(design);
+		expect(normalized.componentMigrationPolicy).toBe("manual");
+		expect(serializeDesignState(normalized).componentMigrationPolicy).toBe(
+			"manual",
+		);
+	});
+
 	it("normalizes legacy branch nodes and serializes explicit roles", () => {
 		const normalized = normalizeDesign(fixture);
 
@@ -152,6 +244,87 @@ describe("design store transforms", () => {
 		expect(JSON.stringify(serialized)).not.toContain("data-trickroom-type");
 		// TODO: this can be deleted
 		expect(JSON.stringify(serialized)).not.toContain('"type"');
+	});
+
+	it("replaces the selected subtree with an attached component instance", () => {
+		selectElement(containerId);
+
+		const didReplace = replaceElementWithNodeTree(containerId, {
+			id: "attached-root",
+			props: {
+				"data-trickroom-name": "Primary Button",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				...getSystemComponentMarkerProps({
+					systemId: "system-1",
+					componentId: "cmp_primary_button",
+					instanceId: "instance-1",
+					version: "1",
+					path: "root",
+					isRoot: true,
+					templateHash: "sha256:template",
+					variantSchemaHash: "sha256:variants",
+				}),
+			},
+			children: [
+				{
+					id: "attached-label",
+					props: {
+						"data-trickroom-name": "Label",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "text",
+						"data-trickroom-role": "text",
+						...getSystemComponentMarkerProps({
+							systemId: "system-1",
+							componentId: "cmp_primary_button",
+							instanceId: "instance-1",
+							version: "1",
+							path: "label",
+							templateHash: "sha256:template",
+							variantSchemaHash: "sha256:variants",
+						}),
+					},
+					children: "Button",
+				},
+			],
+		});
+
+		const state = designStore.get();
+		expect(didReplace).toBe(true);
+		expect(state.entitiesById[rootId]?.childIds).toEqual([
+			titleId,
+			"attached-root",
+			infoId,
+		]);
+		expect(state.entitiesById[containerId]).toBeUndefined();
+		expect(state.entitiesById[childOneId]).toBeUndefined();
+		expect(state.entitiesById["attached-root"]?.parentId).toBe(rootId);
+		expect(state.entitiesById["attached-label"]?.parentId).toBe(
+			"attached-root",
+		);
+		expect(state.selectedId).toBe("attached-root");
+		expect(state.entitiesById["attached-root"]?.props).toMatchObject({
+			"data-trickroom-system-component-system-id": "system-1",
+			"data-trickroom-system-component-id": "cmp_primary_button",
+			"data-trickroom-system-component-instance": "instance-1",
+			"data-trickroom-system-component-version": "1",
+			"data-trickroom-system-component-root": "true",
+		});
+	});
+
+	it("leaves the selected subtree intact when extraction replacement is declined", () => {
+		selectElement(containerId);
+		const before = serializeDesignState(designStore.get());
+
+		const state = designStore.get();
+
+		expect(serializeDesignState(state)).toEqual(before);
+		expect(state.selectedId).toBe(containerId);
+		expect(state.entitiesById[containerId]?.childIds).toEqual([
+			childOneId,
+			childTwoId,
+		]);
 	});
 
 	it("updates selected element props without mutating unrelated entities", () => {
@@ -333,29 +506,32 @@ describe("design store transforms", () => {
 	});
 
 	it("extracts a subtree to a standalone design with regenerated ids", () => {
+		let uuidIndex = 0;
 		const randomUuid = vi
 			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("new-container")
-			.mockReturnValueOnce("new-child-one")
-			.mockReturnValueOnce("new-child-two");
+			.mockImplementation(() => `new-id-${++uuidIndex}`);
 		designStore.setState((state) => ({ ...state, systemName: "Core" }));
 
-		const extracted = extractSubtreeToDesign(containerId);
+		try {
+			const extracted = extractSubtreeToDesign(containerId);
 
-		expect(extracted.name).toBe("Container");
-		expect(extracted.systemName).toBe("Core");
-		expect(extracted.boards).toHaveLength(1);
-		expect(extracted.boards[0].id).toBe("new-container");
-		expect(extracted.boards[0].id).not.toBe(containerId);
-		const children = extracted.boards[0].children as TrickroomDesign["boards"];
-		expect(children.map((child) => child.id)).toEqual([
-			"new-child-one",
-			"new-child-two",
-		]);
-		expect(children[0].children).toBe("Main area");
-		expect(children[1].children).toBe("Secondary area");
-
-		randomUuid.mockRestore();
+			expect(extracted.name).toBe("Container");
+			expect(extracted.systemName).toBe("Core");
+			expect(extracted.boards).toHaveLength(1);
+			expect(extracted.boards[0].id).not.toBe(containerId);
+			const children = extracted.boards[0]
+				.children as TrickroomDesign["boards"];
+			expect(children.map((child) => child.id)).not.toContain(childOneId);
+			expect(children.map((child) => child.id)).not.toContain(childTwoId);
+			expect(
+				new Set([extracted.boards[0].id, ...children.map((child) => child.id)])
+					.size,
+			).toBe(3);
+			expect(children[0].children).toBe("Main area");
+			expect(children[1].children).toBe("Secondary area");
+		} finally {
+			randomUuid.mockRestore();
+		}
 	});
 
 	it("uses shared extraction validation for blank requested names", () => {
@@ -628,6 +804,37 @@ describe("design store transforms", () => {
 		randomUuid.mockRestore();
 	});
 
+	it("does not add disallowed node trees inside allowlisted recipe slots", () => {
+		const randomUuid = vi
+			.spyOn(crypto, "randomUUID")
+			.mockReturnValueOnce("recipe-instance-1")
+			.mockReturnValueOnce("menu-root")
+			.mockReturnValueOnce("menu-trigger")
+			.mockReturnValueOnce("menu-portal")
+			.mockReturnValueOnce("menu-positioner")
+			.mockReturnValueOnce("menu-popup");
+		addRecipe({ library: "base-ui", recipe: "menu.default" }, containerId, 1);
+
+		const previousState = designStore.get();
+		addNodeTree(
+			{
+				id: "system-root",
+				props: {
+					"data-trickroom-name": "System Root",
+					"data-trickroom-library": "trickroom",
+					"data-trickroom-component": "container",
+				},
+				children: [],
+			},
+			"menu-popup",
+			0,
+		);
+
+		expect(designStore.get()).toEqual(previousState);
+
+		randomUuid.mockRestore();
+	});
+
 	it("does not add nested recipes inside recipe-owned non-slot structure", () => {
 		const randomUuid = vi
 			.spyOn(crypto, "randomUUID")
@@ -813,6 +1020,35 @@ describe("design store transforms", () => {
 		expect(designStore.get()).toEqual(previousState);
 	});
 
+	it("does not replace allowed slot contents with disallowed node trees inside allowlisted recipe slots", () => {
+		const randomUuid = vi
+			.spyOn(crypto, "randomUUID")
+			.mockReturnValueOnce("recipe-instance-1")
+			.mockReturnValueOnce("menu-root")
+			.mockReturnValueOnce("menu-trigger")
+			.mockReturnValueOnce("menu-portal")
+			.mockReturnValueOnce("menu-positioner")
+			.mockReturnValueOnce("menu-popup")
+			.mockReturnValueOnce("menu-item");
+		addRecipe({ library: "base-ui", recipe: "menu.default" }, containerId, 1);
+		addElement(baseUiComponent("menu.item"), "menu-popup", 0);
+		randomUuid.mockRestore();
+
+		const previousState = designStore.get();
+		const didReplace = replaceElementWithNodeTree("menu-item", {
+			id: "disallowed-root",
+			props: {
+				"data-trickroom-name": "Disallowed Root",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+			},
+			children: [],
+		});
+
+		expect(didReplace).toBe(false);
+		expect(designStore.get()).toEqual(previousState);
+	});
+
 	it("does not delete recipe-owned structural child nodes but allows slot content and recipe root deletion", () => {
 		const randomUuid = vi
 			.spyOn(crypto, "randomUUID")
@@ -844,6 +1080,49 @@ describe("design store transforms", () => {
 			childOneId,
 			childTwoId,
 		]);
+	});
+
+	it("protects attached component structure while allowing slot content edits", () => {
+		designStore.setState(() => normalizeDesign(attachedComponentFixture));
+
+		const previousState = designStore.get();
+		updateElementProps("component-label", { className: "text-blue-500" });
+		updateElementProps("component-label", {
+			[systemComponentPathProp]: "corrupted",
+		});
+		updateElementText("component-label", "Changed");
+		moveElement("component-label", null, 0);
+		deleteElement("component-label");
+		expect(designStore.get()).toEqual(previousState);
+
+		addElement(trickroomComponent("text"), "component-label", 0);
+		expect(designStore.get()).toEqual(previousState);
+
+		addNodeTree(
+			{
+				id: "inserted-tree",
+				props: {
+					"data-trickroom-name": "Inserted Tree",
+					"data-trickroom-library": "trickroom",
+					"data-trickroom-component": "container",
+				},
+				children: [],
+			},
+			"component-label",
+			0,
+		);
+		expect(designStore.get()).toEqual(previousState);
+
+		updateElementText("slot-text", "Changed slot text");
+		moveElement("slot-text", "outside-root", 0);
+		let state = designStore.get();
+		expect(state.entitiesById["slot-text"]?.text).toBe("Changed slot text");
+		expect(state.entitiesById["slot-text"]?.parentId).toBe("outside-root");
+		expect(state.entitiesById["component-slot"]?.childIds).toEqual([]);
+
+		deleteElement("slot-text");
+		state = designStore.get();
+		expect(state.entitiesById["slot-text"]).toBeUndefined();
 	});
 
 	it("detaches the whole recipe instance from a structural child and preserves selection", () => {

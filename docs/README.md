@@ -5,7 +5,7 @@ These docs are organized as a user guide first and implementation notes second. 
 ## Start Here
 
 1. [User Guide](./user-guide.md): what Trickroom does, key terms, Electron capabilities, normal workflows, and current limits.
-2. [Files And Safety](./project-files.md): every durable file Trickroom creates or edits, what it only reads, and what protections exist.
+2. [Files And Safety](./project-files.md): every durable file Trickroom creates or edits, including `components.json` and system-component revision rules, what it only reads, and what protections exist.
 3. [Agents And MCP](./mcp.md): what agents can ask Trickroom to do, which tools are read-only, which tools write, and which operations are destructive.
 
 ## Deeper Topics

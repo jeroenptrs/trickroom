@@ -195,6 +195,7 @@ export type TrickroomDesign = {
 	 * still include a derived `systemName` for display.
 	 */
 	systemName?: string | null;
+	componentMigrationPolicy?: "inherit" | "manual" | "auto";
 	boards: Node[];
 };
 

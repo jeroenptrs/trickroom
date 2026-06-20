@@ -4,6 +4,7 @@ import type { TrickroomDesign } from "../types";
 import {
 	assetIdProp,
 	collectDesignResourceReferences,
+	designReferencesSystemHandle,
 	getResourceKindForComponent,
 	iconIdProp,
 } from "./design-resource-references";
@@ -97,5 +98,59 @@ describe("design resource references", () => {
 				path: "boards[0].children[2]",
 			},
 		]);
+	});
+
+	it("matches designs by system id, name, and configured system metadata", () => {
+		const system = {
+			manifest: {
+				systemId: "sys_core",
+				systemName: "Core",
+				previousSystemNames: ["Legacy Core"],
+			},
+			storageKey: "core",
+		} as const;
+
+		expect(
+			designReferencesSystemHandle(
+				{ systemId: "sys_core", systemName: null },
+				"sys_core",
+				system,
+			),
+		).toBe(true);
+		expect(
+			designReferencesSystemHandle(
+				{ systemId: null, systemName: "Core" },
+				"sys_core",
+				system,
+			),
+		).toBe(false);
+		expect(
+			designReferencesSystemHandle(
+				{ systemName: "Legacy Core" },
+				"sys_core",
+				system,
+			),
+		).toBe(true);
+		expect(
+			designReferencesSystemHandle(
+				{ systemId: null, systemName: "Legacy Core" },
+				"sys_core",
+				system,
+			),
+		).toBe(false);
+		expect(
+			designReferencesSystemHandle(
+				{ systemId: null, systemName: "Other" },
+				"sys_core",
+				system,
+			),
+		).toBe(false);
+		expect(
+			designReferencesSystemHandle(
+				{ systemId: null, systemName: null },
+				"sys_core",
+				system,
+			),
+		).toBe(false);
 	});
 });

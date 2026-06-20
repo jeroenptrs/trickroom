@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { SystemComponentSummary } from "../../queries/system-components";
 import { expandRegistryRecipe } from "../../recipes/expansion";
 import { normalizeDesign } from "../../stores/design-store";
 import {
 	getRegistryPickerSections,
+	getUserComponentPickerSections,
 	getVisibleLayerRows,
 	resolveLayerInsertionPlacement,
 } from "./Layers";
@@ -117,6 +119,50 @@ describe("registry picker sections", () => {
 
 		expect(recipes?.map((item) => item.recipe)).toEqual([
 			"base-ui/avatar.default",
+		]);
+	});
+
+	it("lists only published user-authored components", () => {
+		const base = {
+			componentId: "cmp_11111111-1111-4111-8111-111111111111",
+			slug: "primary-button",
+			name: "Primary Button",
+			hasDraft: false,
+			hasPublished: true,
+			currentVersion: "1",
+			createdAt: "2026-05-26T10:00:00.000Z",
+			updatedAt: "2026-05-26T10:00:00.000Z",
+		} satisfies SystemComponentSummary;
+		const sections = getUserComponentPickerSections(
+			[
+				{ ...base, order: 2 },
+				{
+					...base,
+					componentId: "cmp_22222222-2222-4222-8222-222222222222",
+					slug: "draft-card",
+					name: "Draft Card",
+					hasDraft: true,
+					hasPublished: false,
+					currentVersion: undefined,
+					order: 1,
+				},
+				{
+					...base,
+					componentId: "cmp_33333333-3333-4333-8333-333333333333",
+					slug: "badge",
+					name: "Badge",
+					order: 1,
+				},
+			],
+			"",
+		);
+
+		expect(sections.map((section) => section.title)).toEqual([
+			"User authored components",
+		]);
+		expect(sections[0]?.items.map((item) => item.component.slug)).toEqual([
+			"badge",
+			"primary-button",
 		]);
 	});
 

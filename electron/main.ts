@@ -11,8 +11,8 @@ import {
 	Menu,
 	type MenuItemConstructorOptions,
 	type OpenDialogOptions,
-	session,
 } from "electron";
+import { getAppSession } from "./app-session";
 import { resolveInitialProjectRootFromArgs, validateProjectRoot, getElectronUserArgs } from "./argv";
 import { type BackendReady, BackendSupervisor } from "./backend-supervisor";
 import {
@@ -69,8 +69,6 @@ const registerTrickroomProtocol = () => {
 };
 
 const createSessionToken = () => randomBytes(32).toString("base64url");
-
-const getAppSession = () => session.fromPartition("trickroom-app");
 
 const normalizeRendererUrl = (value: string) => {
 	const url = new URL(value);

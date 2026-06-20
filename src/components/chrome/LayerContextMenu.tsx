@@ -22,6 +22,7 @@ import {
 	updateRecipeInstance,
 } from "../../stores/design-store";
 import { useProjectScope } from "../contexts";
+import { ExtractSystemComponentDialog } from "./ExtractSystemComponentDialog";
 
 const contextMenu = tv({
 	slots: {
@@ -57,6 +58,7 @@ function LayerContextMenu({
 	const queryClient = useQueryClient();
 	const projectScope = useProjectScope();
 	const [isStaleRecipe, setIsStaleRecipe] = useState(false);
+	const [extractComponentOpen, setExtractComponentOpen] = useState(false);
 	const handleOpenChange = useCallback(
 		(open: boolean) => {
 			if (!open || !recipeInstanceId) {
@@ -180,6 +182,12 @@ function LayerContextMenu({
 						>
 							<span className="truncate">Extract as {layerName}</span>
 						</ContextMenu.Item>
+						<ContextMenu.Item
+							className={item()}
+							onClick={() => setExtractComponentOpen(true)}
+						>
+							<span className="truncate">Extract as system component</span>
+						</ContextMenu.Item>
 						{isRecipeOwned ? (
 							<>
 								{isStaleRecipe ? (
@@ -207,6 +215,12 @@ function LayerContextMenu({
 					</ContextMenu.Popup>
 				</ContextMenu.Positioner>
 			</ContextMenu.Portal>
+			<ExtractSystemComponentDialog
+				open={extractComponentOpen}
+				onOpenChange={setExtractComponentOpen}
+				elementId={id}
+				layerName={layerName}
+			/>
 		</ContextMenu.Root>
 	);
 }

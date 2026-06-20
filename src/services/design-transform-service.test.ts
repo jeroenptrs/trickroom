@@ -1,21 +1,49 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	getRecipeMarkerProps,
 	RECIPE_MARKER_PROP_KEYS,
 	recipeInstanceProp,
 } from "../recipes/markers";
 import type { TrickroomDesign } from "../types";
+import { createDesignSystemStorage } from "../utils/design-system-store";
 import { assetIdProp } from "../utils/resource-props";
+import type { SystemComponentManifestRevision } from "../utils/system-component-manifest-service";
+import { readSystemComponentManifest } from "../utils/system-component-manifest-service";
+import {
+	getSystemComponentMarkerProps,
+	getSystemComponentStructuralMetadata,
+	SYSTEM_COMPONENT_MARKER_PROP_KEYS,
+	systemComponentIdProp,
+	systemComponentInstanceProp,
+	systemComponentPathProp,
+	systemComponentRootProp,
+	systemComponentVariantValuesProp,
+} from "../utils/system-component-markers";
+import {
+	createSystemComponentDraft,
+	publishSystemComponentDraft,
+	updateSystemComponentDraftOverrideTargets,
+	updateSystemComponentDraftTemplate,
+	updateSystemComponentDraftVariants,
+} from "../utils/system-component-operations";
 import {
 	applyAddElement,
 	applyAddSubtree,
+	applyAddSystemComponent,
+	applyDetachSystemComponent,
 	applyCopySubtree,
 	applyDeleteElement,
 	applyExtractSubtree,
 	applyMoveElement,
 	applyUpdateElementProps,
+	applyUpdateSystemComponentInstance,
 	applyUpdateElementText,
+	cloneBoardForMigrationTrial,
 	DesignTransformError,
+	normalizeDesignForMutation,
+	serializeFlatDesign,
 	validateProposedSubtreeForInsertion,
 } from "./design-transform-service";
 
@@ -218,6 +246,153 @@ const menuRecipeDesign = (): TrickroomDesign => ({
 									children: [],
 								},
 							],
+						},
+					],
+				},
+			],
+		},
+	],
+});
+
+const systemComponentSubtree = (
+	rootId: string,
+	systemId: string,
+	componentId: string,
+	instanceId: string,
+): TrickroomDesign["boards"][number] => ({
+	id: rootId,
+	props: {
+		"data-trickroom-name": `${rootId} Root`,
+		"data-trickroom-library": "trickroom" as const,
+		"data-trickroom-component": "container" as const,
+		"data-trickroom-role": "branch" as const,
+		...getSystemComponentMarkerProps({
+			systemId,
+			componentId,
+			instanceId,
+			version: "1",
+			path: "root",
+			isRoot: true,
+			variantValues: { tone: "brand" },
+			overrides: {},
+			templateHash: "sha256:template",
+			variantSchemaHash: "sha256:variants",
+		}),
+	},
+	children: [
+		{
+			id: `${rootId}-label`,
+			props: {
+				"data-trickroom-name": `${rootId} Label`,
+				"data-trickroom-library": "trickroom" as const,
+				"data-trickroom-component": "text" as const,
+				"data-trickroom-role": "text" as const,
+				...getSystemComponentMarkerProps({
+					systemId,
+					componentId,
+					instanceId,
+					version: "1",
+					path: "label",
+				}),
+			},
+			children: "Locked",
+		},
+	],
+});
+
+const multiSystemComponentDesign = (): TrickroomDesign => ({
+	name: "Multi System Components",
+	systemId: "sys-core",
+	boards: [
+		containerElement(
+			"wrapper",
+			[
+				systemComponentSubtree(
+					"component-a",
+					"sys-core",
+					"cmp_11111111-1111-4111-8111-111111111111",
+					"component-instance-a",
+				),
+				systemComponentSubtree(
+					"component-b",
+					"sys-alt",
+					"cmp_22222222-2222-4222-8222-222222222222",
+					"component-instance-b",
+				),
+			],
+			"Wrapper",
+		),
+	],
+});
+
+const systemComponentDesign = (): TrickroomDesign => ({
+	name: "Component Design",
+	systemId: "sys-core",
+	boards: [
+		{
+			id: "component-root",
+			props: {
+				"data-trickroom-name": "Component Root",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				...getSystemComponentMarkerProps({
+					systemId: "sys-core",
+					componentId: "cmp_11111111-1111-4111-8111-111111111111",
+					instanceId: "component-instance-1",
+					version: "1",
+					path: "root",
+					isRoot: true,
+					variantValues: { tone: "brand" },
+					overrides: {},
+					templateHash: "sha256:template",
+					variantSchemaHash: "sha256:variants",
+				}),
+			},
+			children: [
+				{
+					id: "component-label",
+					props: {
+						"data-trickroom-name": "Component Label",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "text",
+						"data-trickroom-role": "text",
+						...getSystemComponentMarkerProps({
+							systemId: "sys-core",
+							componentId: "cmp_11111111-1111-4111-8111-111111111111",
+							instanceId: "component-instance-1",
+							version: "1",
+							path: "label",
+						}),
+					},
+					children: "Locked",
+				},
+				{
+					id: "component-slot",
+					props: {
+						"data-trickroom-name": "Component Slot",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						...getSystemComponentMarkerProps({
+							systemId: "sys-core",
+							componentId: "cmp_11111111-1111-4111-8111-111111111111",
+							instanceId: "component-instance-1",
+							version: "1",
+							path: "slot",
+							slotName: "default",
+						}),
+					},
+					children: [
+						{
+							id: "component-slot-child",
+							props: {
+								"data-trickroom-name": "Slot Child",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "text",
+								"data-trickroom-role": "text",
+							},
+							children: "Editable",
 						},
 					],
 				},
@@ -597,6 +772,36 @@ describe("applyAddElement", () => {
 			(fallback?.children as TrickroomDesign["boards"]).map(
 				(child) => child.id,
 			),
+		).toContain(changedElementId);
+	});
+
+	it("rejects inserting into component-owned non-slot structure but allows component slots", () => {
+		const design = systemComponentDesign();
+
+		expect(() =>
+			applyAddElement(design, {
+				parentId: "component-root",
+				index: 0,
+				library: "trickroom",
+				component: "container",
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "COMPONENT_STRUCTURE_LOCKED",
+			}),
+		);
+
+		const { design: result, changedElementId } = applyAddElement(design, {
+			parentId: "component-slot",
+			index: 0,
+			library: "trickroom",
+			component: "text",
+			text: "Allowed",
+		});
+
+		const slot = findNode(result.boards, "component-slot");
+		expect(
+			(slot?.children as TrickroomDesign["boards"]).map((child) => child.id),
 		).toContain(changedElementId);
 	});
 
@@ -1194,6 +1399,67 @@ describe("applyUpdateElementProps", () => {
 			}),
 		);
 	});
+
+	it("rejects component marker props and generic component-owned prop edits", () => {
+		expect(() =>
+			applyUpdateElementProps(simpleDesign, {
+				elementId: "root",
+				props: {
+					[systemComponentIdProp]: "cmp_11111111-1111-4111-8111-111111111111",
+				},
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "INVALID_PROP_KEY",
+			}),
+		);
+
+		expect(() =>
+			applyUpdateElementProps(systemComponentDesign(), {
+				elementId: "component-label",
+				name: "Changed",
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "COMPONENT_STRUCTURAL_NODE_LOCKED",
+			}),
+		);
+	});
+});
+
+describe("componentMigrationPolicy preservation", () => {
+	it("preserves manual policy through normalize and serialize", () => {
+		const design = {
+			...simpleDesign,
+			componentMigrationPolicy: "manual" as const,
+		};
+		const flat = normalizeDesignForMutation(design);
+		expect(flat.componentMigrationPolicy).toBe("manual");
+		expect(serializeFlatDesign(flat).componentMigrationPolicy).toBe("manual");
+	});
+
+	it("preserves manual policy through applyUpdateElementText", () => {
+		const design = {
+			...simpleDesign,
+			componentMigrationPolicy: "manual" as const,
+		};
+		const { design: result } = applyUpdateElementText(design, {
+			elementId: "title",
+			text: "Updated text",
+		});
+		expect(result.componentMigrationPolicy).toBe("manual");
+	});
+
+	it("preserves manual policy through applyExtractSubtree", async () => {
+		const design = {
+			...simpleDesign,
+			componentMigrationPolicy: "manual" as const,
+		};
+		const { newDesign } = await applyExtractSubtree(design, {
+			elementId: "inner",
+		});
+		expect(newDesign.componentMigrationPolicy).toBe("manual");
+	});
 });
 
 describe("applyUpdateElementText", () => {
@@ -1281,6 +1547,28 @@ describe("applyUpdateElementText", () => {
 				code: "RECIPE_STRUCTURAL_NODE_LOCKED",
 			}),
 		);
+	});
+
+	it("rejects text updates on component-owned structural text nodes but allows slot content", () => {
+		const design = systemComponentDesign();
+
+		expect(() =>
+			applyUpdateElementText(design, {
+				elementId: "component-label",
+				text: "Changed",
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "COMPONENT_STRUCTURAL_NODE_LOCKED",
+			}),
+		);
+
+		const { design: result } = applyUpdateElementText(design, {
+			elementId: "component-slot-child",
+			text: "Changed",
+		});
+		const child = findNode(result.boards, "component-slot-child");
+		expect(child?.children).toBe("Changed");
 	});
 });
 
@@ -1440,6 +1728,41 @@ describe("applyMoveElement", () => {
 			}),
 		);
 	});
+
+	it("rejects moving component-owned internals and moving slot content into non-slot structure", () => {
+		const design = systemComponentDesign();
+
+		expect(() =>
+			applyMoveElement(design, {
+				elementId: "component-label",
+				targetParentId: null,
+				index: 0,
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "COMPONENT_STRUCTURAL_NODE_LOCKED",
+			}),
+		);
+
+		expect(() =>
+			applyMoveElement(design, {
+				elementId: "component-slot-child",
+				targetParentId: "component-root",
+				index: 0,
+			}),
+		).toThrow(
+			expect.objectContaining({
+				code: "COMPONENT_STRUCTURE_LOCKED",
+			}),
+		);
+
+		const { design: result } = applyMoveElement(design, {
+			elementId: "component-root",
+			targetParentId: null,
+			index: 0,
+		});
+		expect(result.boards[0].id).toBe("component-root");
+	});
 });
 
 describe("applyDeleteElement", () => {
@@ -1527,18 +1850,44 @@ describe("applyDeleteElement", () => {
 			"slot-child",
 		]);
 	});
+
+	it("rejects deleting component-owned internals but allows deleting the component root", () => {
+		const design = systemComponentDesign();
+
+		expect(() =>
+			applyDeleteElement(design, { elementId: "component-label" }),
+		).toThrow(
+			expect.objectContaining({
+				code: "COMPONENT_STRUCTURAL_NODE_LOCKED",
+			}),
+		);
+
+		const { design: result, deletedIds } = applyDeleteElement(design, {
+			elementId: "component-root",
+		});
+		expect(result.boards).toEqual([]);
+		expect(deletedIds).toEqual([
+			"component-root",
+			"component-label",
+			"component-slot",
+			"component-slot-child",
+		]);
+	});
 });
 
 describe("applyExtractSubtree", () => {
-	it("copies a subtree into a new design with regenerated ids and inherited system", () => {
+	it("copies a subtree into a new design with regenerated ids and inherited system", async () => {
 		const design: TrickroomDesign = {
 			...simpleDesign,
 			systemName: "Core",
 		};
 
-		const { newDesign, changedElementId, idMap } = applyExtractSubtree(design, {
-			elementId: "inner",
-		});
+		const { newDesign, changedElementId, idMap } = await applyExtractSubtree(
+			design,
+			{
+				elementId: "inner",
+			},
+		);
 
 		expect(newDesign.name).toBe("inner");
 		expect(newDesign.systemName).toBe("Core");
@@ -1558,49 +1907,49 @@ describe("applyExtractSubtree", () => {
 		});
 	});
 
-	it("uses the requested name and supports an explicit system override", () => {
-		const { newDesign } = applyExtractSubtree(simpleDesign, {
+	it("uses the requested name and supports an explicit system override", async () => {
+		const { newDesign } = await applyExtractSubtree(simpleDesign, {
 			elementId: "title",
 			name: "Heading Copy",
-			systemName: null,
+			systemId: null,
 		});
 
 		expect(newDesign.name).toBe("Heading Copy");
-		expect(newDesign.systemName).toBeNull();
+		expect(newDesign.systemId).toBeNull();
 		expect(newDesign.boards[0].props["data-trickroom-name"]).toBe("title");
 		expect(newDesign.boards[0].children).toBe("Hello");
 	});
 
-	it("falls back to Untitled when the source layer name is blank", () => {
+	it("falls back to Untitled when the source layer name is blank", async () => {
 		const blankText = textElement("blank", "Hello", "");
 		const design: TrickroomDesign = {
 			name: "Blank Name",
 			boards: [containerElement("root", [blankText])],
 		};
 
-		const { newDesign } = applyExtractSubtree(design, {
+		const { newDesign } = await applyExtractSubtree(design, {
 			elementId: "blank",
 		});
 
 		expect(newDesign.name).toBe("Untitled");
 	});
 
-	it("throws for missing elements and blank requested names", () => {
-		expect(() =>
+	it("throws for missing elements and blank requested names", async () => {
+		await expect(
 			applyExtractSubtree(simpleDesign, { elementId: "missing" }),
-		).toThrow(DesignTransformError);
-		expect(() =>
+		).rejects.toThrow(DesignTransformError);
+		await expect(
 			applyExtractSubtree(simpleDesign, { elementId: "title", name: " " }),
-		).toThrow(DesignTransformError);
-		expect(() =>
+		).rejects.toThrow(DesignTransformError);
+		await expect(
 			applyExtractSubtree(simpleDesign, {
 				elementId: "title",
 				systemName: " ",
 			}),
-		).toThrow(DesignTransformError);
+		).rejects.toThrow(DesignTransformError);
 	});
 
-	it("rejects duplicate element ids before extracting", () => {
+	it("rejects duplicate element ids before extracting", async () => {
 		const duplicateDesign: TrickroomDesign = {
 			name: "Duplicate IDs",
 			boards: [
@@ -1609,23 +1958,21 @@ describe("applyExtractSubtree", () => {
 			],
 		};
 
-		expect(() =>
+		await expect(
 			applyExtractSubtree(duplicateDesign, { elementId: "duplicate" }),
-		).toThrow(
-			expect.objectContaining({
-				name: "DesignTransformError",
-				code: "DUPLICATE_ELEMENT_ID",
-			}),
-		);
+		).rejects.toMatchObject({
+			name: "DesignTransformError",
+			code: "DUPLICATE_ELEMENT_ID",
+		});
 	});
 
-	it("does not treat inherited object property names as duplicate ids", () => {
+	it("does not treat inherited object property names as duplicate ids", async () => {
 		const design: TrickroomDesign = {
 			name: "Inherited Property ID",
 			boards: [textElement("toString", "Still valid", "Layer")],
 		};
 
-		const { newDesign } = applyExtractSubtree(design, {
+		const { newDesign } = await applyExtractSubtree(design, {
 			elementId: "toString",
 		});
 
@@ -1633,8 +1980,8 @@ describe("applyExtractSubtree", () => {
 		expect(newDesign.boards[0].children).toBe("Still valid");
 	});
 
-	it("preserves full recipe root attachment with a fresh instance id", () => {
-		const { newDesign } = applyExtractSubtree(avatarRecipeDesign(), {
+	it("preserves full recipe root attachment with a fresh instance id", async () => {
+		const { newDesign } = await applyExtractSubtree(avatarRecipeDesign(), {
 			elementId: "avatar-root",
 		});
 
@@ -1661,14 +2008,14 @@ describe("applyExtractSubtree", () => {
 		).toBe("Slot Child");
 	});
 
-	it("strips markers when extracting a partial recipe structural node", () => {
+	it("strips markers when extracting a partial recipe structural node", async () => {
 		const design = avatarRecipeDesign();
 		const image = design.boards[0].children[0];
 		image.props[assetIdProp] = "asset-avatar";
 		image.props.alt = "Ada avatar";
 		image.props.className = "rounded-full";
 
-		const { newDesign } = applyExtractSubtree(design, {
+		const { newDesign } = await applyExtractSubtree(design, {
 			elementId: "avatar-image",
 		});
 
@@ -1682,11 +2029,117 @@ describe("applyExtractSubtree", () => {
 			expect(root.props).not.toHaveProperty(markerProp);
 		}
 	});
+
+	it("preserves full system component root attachment with a fresh instance id", async () => {
+		const { newDesign } = await applyExtractSubtree(systemComponentDesign(), {
+			elementId: "component-root",
+		});
+
+		const root = newDesign.boards[0];
+		const label = (root.children as TrickroomDesign["boards"])[0];
+		const slot = (root.children as TrickroomDesign["boards"])[1];
+		const instanceId = root.props[systemComponentInstanceProp];
+
+		expect(instanceId).toEqual(expect.any(String));
+		expect(instanceId).not.toBe("component-instance-1");
+		expect(label.props[systemComponentInstanceProp]).toBe(instanceId);
+		expect(slot.props[systemComponentInstanceProp]).toBe(instanceId);
+		expect(root.props[systemComponentRootProp]).toBe("true");
+	});
+
+	it("strips markers when extracting a partial system component structural node", async () => {
+		const { newDesign } = await applyExtractSubtree(systemComponentDesign(), {
+			elementId: "component-label",
+		});
+
+		const root = newDesign.boards[0];
+		expect(root.props["data-trickroom-name"]).toBe("Component Label");
+		expect(root.children).toBe("Locked");
+		for (const markerProp of SYSTEM_COMPONENT_MARKER_PROP_KEYS) {
+			expect(root.props).not.toHaveProperty(markerProp);
+		}
+	});
+
+	it("rejects extracting a complete attached system component root into an unlinked design", async () => {
+		await expect(
+			applyExtractSubtree(systemComponentDesign(), {
+				elementId: "component-root",
+				systemId: null,
+			}),
+		).rejects.toMatchObject({
+			name: "DesignTransformError",
+			code: "DESIGN_NOT_LINKED_TO_SYSTEM",
+		});
+	});
+
+	it("rejects extract when preserving complete roots from multiple systems into a single-system target", async () => {
+		await expect(
+			applyExtractSubtree(multiSystemComponentDesign(), {
+				elementId: "wrapper",
+				systemId: "sys-core",
+			}),
+		).rejects.toMatchObject({
+			name: "DesignTransformError",
+			code: "DESIGN_NOT_LINKED_TO_SYSTEM",
+		});
+	});
+});
+
+describe("applyExtractSubtree projectRoot linkage", () => {
+	let projectRoot: string;
+	let systemId: string;
+
+	beforeEach(async () => {
+		projectRoot = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-extract-project-root-"),
+		);
+		const storage = await createDesignSystemStorage(projectRoot, {
+			systemName: "Core",
+			cssPath: "src/core.css",
+		});
+		systemId = storage.systemId;
+	});
+
+	afterEach(async () => {
+		await rm(projectRoot, { force: true, recursive: true });
+	});
+
+	it("validates preserved component linkage using the projectRoot path string", async () => {
+		const sourceDesign: TrickroomDesign = {
+			name: "Component Design",
+			systemName: "Core",
+			boards: [
+				systemComponentSubtree(
+					"component-root",
+					systemId,
+					"cmp_11111111-1111-4111-8111-111111111111",
+					"component-instance-1",
+				),
+			],
+		};
+
+		await expect(
+			applyExtractSubtree(sourceDesign, {
+				elementId: "component-root",
+				systemName: "Core",
+				projectRoot: { projectRoot } as unknown as string,
+			}),
+		).rejects.toThrow();
+
+		const { newDesign } = await applyExtractSubtree(sourceDesign, {
+			elementId: "component-root",
+			systemName: "Core",
+			projectRoot,
+		});
+
+		expect(newDesign.systemName).toBe("Core");
+		expect(newDesign.boards[0].props[systemComponentRootProp]).toBe("true");
+	});
 });
 
 describe("applyCopySubtree", () => {
-	it("copies a same-file subtree with fresh ids and renames only the copied root", () => {
-		const { design, rootElementId, idMap, inserted } = applyCopySubtree(
+	it("copies a same-file subtree with fresh ids and renames only the copied root", async () => {
+		const { design, rootElementId, idMap, inserted } = await applyCopySubtree(
 			simpleDesign,
 			simpleDesign,
 			{
@@ -1720,14 +2173,14 @@ describe("applyCopySubtree", () => {
 		expect(copyChildren[0].children).toBe("World");
 	});
 
-	it("copies across designs without renaming and preserves the target design metadata", () => {
+	it("copies across designs without renaming and preserves the target design metadata", async () => {
 		const targetDesign: TrickroomDesign = {
 			name: "Target Design",
 			systemName: "Target System",
 			boards: [containerElement("target-root")],
 		};
 
-		const { design, rootElementId } = applyCopySubtree(
+		const { design, rootElementId } = await applyCopySubtree(
 			simpleDesign,
 			targetDesign,
 			{
@@ -1746,51 +2199,57 @@ describe("applyCopySubtree", () => {
 		expect(copiedRoot.props["data-trickroom-name"]).toBe("inner");
 	});
 
-	it("rejects same-file copies into the source subtree", () => {
-		expect(() =>
+	it("rejects same-file copies into the source subtree", async () => {
+		await expect(
 			applyCopySubtree(simpleDesign, simpleDesign, {
 				sourceElementId: "root",
 				parentId: "inner",
 				index: 0,
 				sameDesign: true,
 			}),
-		).toThrow(
-			expect.objectContaining({
-				code: "CYCLE_DETECTED",
-			}),
-		);
+		).rejects.toMatchObject({
+			code: "CYCLE_DETECTED",
+		});
 	});
 
-	it("rejects partial recipe-owned copies", () => {
-		expect(() =>
+	it("rejects partial recipe-owned copies", async () => {
+		await expect(
 			applyCopySubtree(avatarRecipeDesign(), simpleDesign, {
 				sourceElementId: "avatar-image",
 				parentId: "root",
 				index: 0,
 			}),
-		).toThrow(
-			expect.objectContaining({
-				code: "RECIPE_STRUCTURAL_NODE_LOCKED",
-			}),
-		);
+		).rejects.toMatchObject({
+			code: "RECIPE_STRUCTURAL_NODE_LOCKED",
+		});
 	});
 
-	it("rejects copying a disallowed root into an allowlisted recipe slot", () => {
-		expect(() =>
+	it("rejects partial system component-owned copies", async () => {
+		await expect(
+			applyCopySubtree(systemComponentDesign(), simpleDesign, {
+				sourceElementId: "component-label",
+				parentId: "root",
+				index: 0,
+			}),
+		).rejects.toMatchObject({
+			code: "COMPONENT_STRUCTURE_LOCKED",
+		});
+	});
+
+	it("rejects copying a disallowed root into an allowlisted recipe slot", async () => {
+		await expect(
 			applyCopySubtree(simpleDesign, menuRecipeDesign(), {
 				sourceElementId: "inner",
 				parentId: "menu-popup",
 				index: 1,
 			}),
-		).toThrow(
-			expect.objectContaining({
-				code: "RECIPE_SLOT_DISALLOWED_CHILD",
-			}),
-		);
+		).rejects.toMatchObject({
+			code: "RECIPE_SLOT_DISALLOWED_CHILD",
+		});
 	});
 
-	it("preserves complete recipe root attachment with a fresh instance id", () => {
-		const { design, rootElementId } = applyCopySubtree(
+	it("preserves complete recipe root attachment with a fresh instance id", async () => {
+		const { design, rootElementId } = await applyCopySubtree(
 			avatarRecipeDesign(),
 			simpleDesign,
 			{
@@ -1823,7 +2282,69 @@ describe("applyCopySubtree", () => {
 		).toBe("Slot Child");
 	});
 
-	it("rejects duplicate source ids through normalization", () => {
+	it("preserves complete system component root attachment with a fresh instance id", async () => {
+		const linkedTarget: TrickroomDesign = {
+			...simpleDesign,
+			systemId: "sys-core",
+		};
+		const { design, rootElementId } = await applyCopySubtree(
+			systemComponentDesign(),
+			linkedTarget,
+			{
+				sourceElementId: "component-root",
+				parentId: "root",
+				index: 0,
+			},
+		);
+
+		const root = findNode(design.boards, rootElementId);
+		expect(root).not.toBeNull();
+		const children = root?.children as TrickroomDesign["boards"];
+		const label = children[0];
+		const slot = children[1];
+		const instanceId = root?.props[systemComponentInstanceProp];
+
+		expect(instanceId).toEqual(expect.any(String));
+		expect(instanceId).not.toBe("component-instance-1");
+		expect(label.props[systemComponentInstanceProp]).toBe(instanceId);
+		expect(slot.props[systemComponentInstanceProp]).toBe(instanceId);
+		expect(root?.props[systemComponentRootProp]).toBe("true");
+	});
+
+	it("rejects preserving complete system component roots into an unlinked target design", async () => {
+		await expect(
+			applyCopySubtree(systemComponentDesign(), simpleDesign, {
+				sourceElementId: "component-root",
+				parentId: "root",
+				index: 0,
+			}),
+		).rejects.toMatchObject({
+			name: "DesignTransformError",
+			code: "DESIGN_NOT_LINKED_TO_SYSTEM",
+		});
+	});
+
+	it("rejects copy when preserving complete roots from multiple systems into a single-system target", async () => {
+		await expect(
+			applyCopySubtree(
+				multiSystemComponentDesign(),
+				{
+					...simpleDesign,
+					systemId: "sys-core",
+				},
+				{
+					sourceElementId: "wrapper",
+					parentId: "root",
+					index: 0,
+				},
+			),
+		).rejects.toMatchObject({
+			name: "DesignTransformError",
+			code: "DESIGN_NOT_LINKED_TO_SYSTEM",
+		});
+	});
+
+	it("rejects duplicate source ids through normalization", async () => {
 		const duplicateDesign: TrickroomDesign = {
 			name: "Duplicate IDs",
 			boards: [
@@ -1832,17 +2353,442 @@ describe("applyCopySubtree", () => {
 			],
 		};
 
-		expect(() =>
+		await expect(
 			applyCopySubtree(duplicateDesign, simpleDesign, {
 				sourceElementId: "duplicate",
 				parentId: "root",
 				index: 0,
 			}),
-		).toThrow(
-			expect.objectContaining({
-				code: "DUPLICATE_ELEMENT_ID",
-			}),
+		).rejects.toMatchObject({
+			code: "DUPLICATE_ELEMENT_ID",
+		});
+	});
+});
+
+describe("applyAddSystemComponent", () => {
+	let projectRoot: string;
+	let systemId: string;
+	let coreLinkedDesign: TrickroomDesign;
+	let revision: SystemComponentManifestRevision;
+	let componentId: string;
+	const now = "2026-05-26T14:00:00.000Z";
+
+	beforeEach(async () => {
+		projectRoot = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-add-system-component-"),
 		);
+		const storage = await createDesignSystemStorage(projectRoot, {
+			systemName: "Core",
+			cssPath: "src/core.css",
+		});
+		systemId = storage.systemId;
+		coreLinkedDesign = {
+			...simpleDesign,
+			systemId,
+		};
+		const initial = await readSystemComponentManifest(projectRoot, systemId);
+		revision = initial.revision;
+		const created = await createSystemComponentDraft(
+			projectRoot,
+			systemId,
+			{ slug: "badge", name: "Badge" },
+			{ expectedRevision: revision, now },
+		);
+		componentId = created.componentId;
+		const afterTemplate = await updateSystemComponentDraftTemplate(
+			projectRoot,
+			systemId,
+			componentId,
+			{
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				className: "card",
+				children: [
+					{
+						path: "label",
+						library: "trickroom",
+						component: "text",
+						text: "Badge",
+						className: "label",
+					},
+				],
+			},
+			{ expectedRevision: created.revision, now },
+		);
+		const afterVariants = await updateSystemComponentDraftVariants(
+			projectRoot,
+			systemId,
+			componentId,
+			{
+				axes: {
+					tone: {
+						label: "Tone",
+						defaultValue: "neutral",
+						values: {
+							brand: { classesByPath: { root: "brand", label: "label-brand" } },
+							neutral: { classesByPath: { root: "neutral" } },
+						},
+					},
+				},
+			},
+			{ expectedRevision: afterTemplate.revision, now },
+		);
+		await updateSystemComponentDraftOverrideTargets(
+			projectRoot,
+			systemId,
+			componentId,
+			{
+				rootTarget: { targetId: "rootTarget", label: "Root", path: "root" },
+			},
+			{ expectedRevision: afterVariants.revision, now },
+		);
+		await publishSystemComponentDraft(projectRoot, systemId, componentId, {
+			expectedRevision: (
+				await readSystemComponentManifest(projectRoot, systemId)
+			).revision,
+			now,
+		});
+	});
+
+	afterEach(async () => {
+		await rm(projectRoot, { force: true, recursive: true });
+	});
+
+	it("rejects insertion when the design is not linked to the component system", async () => {
+		await expect(
+			applyAddSystemComponent(simpleDesign, {
+				projectRoot,
+				parentId: "root",
+				index: 0,
+				systemId,
+				componentId,
+			}),
+		).rejects.toMatchObject({
+			name: "DesignTransformError",
+			code: "DESIGN_NOT_LINKED_TO_SYSTEM",
+		});
+	});
+
+	it("inserts a published component with root/path/slot markers and instance state", async () => {
+		const result = await applyAddSystemComponent(coreLinkedDesign, {
+			projectRoot,
+			parentId: "root",
+			index: 0,
+			systemId,
+			componentId,
+			variantValues: { tone: "brand" },
+			overrides: { rootTarget: { className: "rounded-md" } },
+		});
+
+		const inserted = findNode(result.design.boards, result.changedElementId);
+		expect(inserted).not.toBeNull();
+		const rootMetadata = getSystemComponentStructuralMetadata(inserted?.props);
+		expect(rootMetadata).toMatchObject({
+			systemId,
+			componentId,
+			instanceId: result.instanceId,
+			version: "1",
+			path: "root",
+			isRoot: true,
+		});
+		expect(rootMetadata?.variantValues).toEqual({ tone: "brand" });
+		expect(rootMetadata?.overrides).toEqual({
+			rootTarget: { className: "rounded-md" },
+		});
+		expect(inserted?.props[systemComponentRootProp]).toBe("true");
+		expect(inserted?.props[systemComponentVariantValuesProp]).toBe(
+			JSON.stringify({ tone: "brand" }),
+		);
+		expect(result.elementIdsByPath).toMatchObject({
+			root: result.changedElementId,
+		});
+		const label = (inserted?.children as TrickroomDesign["boards"])[0];
+		expect(label?.props[systemComponentPathProp]).toBe("label");
+		expect(label?.props[systemComponentInstanceProp]).toBe(result.instanceId);
+		expect(label?.props[systemComponentRootProp]).toBeUndefined();
+	});
+
+	it("uses the manifest current version when version is omitted", async () => {
+		const result = await applyAddSystemComponent(coreLinkedDesign, {
+			projectRoot,
+			parentId: null,
+			index: 0,
+			systemId,
+			componentId,
+		});
+
+		expect(result.version).toBe("1");
+		expect(result.design.boards[0]?.id).toBe(result.changedElementId);
+	});
+
+	it("maps missing component and version failures to explicit transform errors", async () => {
+		await expect(
+			applyAddSystemComponent(coreLinkedDesign, {
+				projectRoot,
+				parentId: "root",
+				index: 0,
+				systemId,
+				componentId: "cmp_missing",
+			}),
+		).rejects.toMatchObject({
+			name: "DesignTransformError",
+			code: "UNKNOWN_SYSTEM_COMPONENT",
+		});
+
+		await expect(
+			applyAddSystemComponent(coreLinkedDesign, {
+				projectRoot,
+				parentId: "root",
+				index: 0,
+				systemId,
+				componentId,
+				version: "99",
+			}),
+		).rejects.toMatchObject({
+			name: "DesignTransformError",
+			code: "UNKNOWN_SYSTEM_COMPONENT_VERSION",
+		});
+	});
+
+	it("maps invalid instance state to an explicit transform error", async () => {
+		await expect(
+			applyAddSystemComponent(coreLinkedDesign, {
+				projectRoot,
+				parentId: "root",
+				index: 0,
+				systemId,
+				componentId,
+				variantValues: { tone: "missing" },
+			}),
+		).rejects.toMatchObject({
+			name: "DesignTransformError",
+			code: "INVALID_SYSTEM_COMPONENT_INSTANCE_STATE",
+		});
+	});
+
+	it("rejects insertion into recipe slots that disallow the component root", async () => {
+		await expect(
+			applyAddSystemComponent({ ...menuRecipeDesign(), systemId }, {
+				projectRoot,
+				parentId: "menu-popup",
+				index: 0,
+				systemId,
+				componentId,
+			}),
+		).rejects.toMatchObject({
+			name: "DesignTransformError",
+			code: "RECIPE_SLOT_DISALLOWED_CHILD",
+		});
+	});
+});
+
+describe("applyUpdateSystemComponentInstance", () => {
+	let projectRoot: string;
+	let systemId: string;
+	let componentId: string;
+
+	beforeEach(async () => {
+		projectRoot = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-update-system-component-"),
+		);
+		const storage = await createDesignSystemStorage(projectRoot, {
+			systemName: "Core",
+			cssPath: "src/core.css",
+		});
+		systemId = storage.systemId;
+		const initial = await readSystemComponentManifest(projectRoot, systemId);
+		const created = await createSystemComponentDraft(
+			projectRoot,
+			systemId,
+			{ slug: "badge", name: "Badge" },
+			{ expectedRevision: initial.revision, now: "2026-05-26T14:00:00.000Z" },
+		);
+		componentId = created.componentId;
+		const afterTemplate = await updateSystemComponentDraftTemplate(
+			projectRoot,
+			systemId,
+			componentId,
+			{
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				children: [
+					{
+						path: "label",
+						library: "trickroom",
+						component: "text",
+						text: "Badge",
+					},
+				],
+			},
+			{ expectedRevision: created.revision, now: "2026-05-26T14:00:00.000Z" },
+		);
+		await updateSystemComponentDraftVariants(
+			projectRoot,
+			systemId,
+			componentId,
+			{
+				axes: {
+					tone: {
+						label: "Tone",
+						defaultValue: "neutral",
+						values: {
+							brand: { classesByPath: { root: "brand" } },
+							neutral: { classesByPath: { root: "neutral" } },
+						},
+					},
+				},
+			},
+			{ expectedRevision: afterTemplate.revision, now: "2026-05-26T14:00:00.000Z" },
+		);
+		await publishSystemComponentDraft(projectRoot, systemId, componentId, {
+			expectedRevision: (await readSystemComponentManifest(projectRoot, systemId))
+				.revision,
+			now: "2026-05-26T14:00:00.000Z",
+		});
+	});
+
+	afterEach(async () => {
+		await rm(projectRoot, { force: true, recursive: true });
+	});
+
+	it("maps invalid variant values to INVALID_SYSTEM_COMPONENT_INSTANCE_STATE", async () => {
+		const added = await applyAddSystemComponent(
+			{ ...simpleDesign, systemId },
+			{
+				projectRoot,
+				parentId: "root",
+				index: 0,
+				systemId,
+				componentId,
+			},
+		);
+
+		await expect(
+			applyUpdateSystemComponentInstance(added.design, {
+				projectRoot,
+				rootElementId: added.changedElementId,
+				variantValues: { tone: "missing" },
+			}),
+		).rejects.toMatchObject({
+			name: "DesignTransformError",
+			code: "INVALID_SYSTEM_COMPONENT_INSTANCE_STATE",
+		});
+	});
+});
+
+describe("applyDetachSystemComponent", () => {
+	let projectRoot: string;
+	let systemId: string;
+	let componentId: string;
+
+	beforeEach(async () => {
+		projectRoot = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-detach-system-component-"),
+		);
+		const storage = await createDesignSystemStorage(projectRoot, {
+			systemName: "Core",
+			cssPath: "src/core.css",
+		});
+		systemId = storage.systemId;
+		const initial = await readSystemComponentManifest(projectRoot, systemId);
+		const created = await createSystemComponentDraft(
+			projectRoot,
+			systemId,
+			{ slug: "badge", name: "Badge" },
+			{ expectedRevision: initial.revision, now: "2026-05-26T14:00:00.000Z" },
+		);
+		componentId = created.componentId;
+		await updateSystemComponentDraftTemplate(
+			projectRoot,
+			systemId,
+			componentId,
+			{
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				children: [
+					{
+						path: "label",
+						library: "trickroom",
+						component: "text",
+						text: "Badge",
+					},
+				],
+			},
+			{ expectedRevision: created.revision, now: "2026-05-26T14:00:00.000Z" },
+		);
+		await publishSystemComponentDraft(projectRoot, systemId, componentId, {
+			expectedRevision: (await readSystemComponentManifest(projectRoot, systemId))
+				.revision,
+			now: "2026-05-26T14:00:00.000Z",
+		});
+	});
+
+	afterEach(async () => {
+		await rm(projectRoot, { force: true, recursive: true });
+	});
+
+	it("detaches instances even when the published version is missing", async () => {
+		const added = await applyAddSystemComponent(
+			{ ...simpleDesign, systemId },
+			{
+				projectRoot,
+				parentId: "root",
+				index: 0,
+				systemId,
+				componentId,
+			},
+		);
+		const staleVersionDesign: TrickroomDesign = {
+			...added.design,
+			boards: added.design.boards.map((board) => ({
+				...board,
+				children: (board.children as TrickroomDesign["boards"]).map((child) =>
+					child.id === added.changedElementId
+						? {
+								...child,
+								props: {
+									...child.props,
+									"data-trickroom-system-component-version": "missing-version",
+								},
+							}
+						: child,
+				),
+			})),
+		};
+
+		const detached = await applyDetachSystemComponent(staleVersionDesign, {
+			projectRoot,
+			elementId: added.changedElementId,
+		});
+
+		expect(detached.detachedElementIds).toContain(added.changedElementId);
+		const persistedRoot = findNode(detached.design.boards, added.changedElementId);
+		expect(persistedRoot?.props["data-trickroom-system-component-instance"]).toBeUndefined();
+	});
+});
+
+describe("cloneBoardForMigrationTrial", () => {
+	it("deep-clones nested prop objects so trial migration cannot mutate source boards", () => {
+		const nested = { marker: "keep" };
+		const sourceBoard = containerElement("board-with-nested-props");
+		sourceBoard.props = {
+			...sourceBoard.props,
+			"x-nested-test": nested as unknown as string,
+		};
+
+		const clonedBoard = cloneBoardForMigrationTrial(sourceBoard);
+		const clonedNested = (clonedBoard.props as Record<string, unknown>)[
+			"x-nested-test"
+		] as { marker: string };
+
+		expect(clonedNested).not.toBe(nested);
+		expect(clonedNested).toEqual({ marker: "keep" });
+
+		clonedNested.marker = "mutated";
+		expect(nested.marker).toBe("keep");
 	});
 });
 

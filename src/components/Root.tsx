@@ -18,6 +18,7 @@ import {
 import { Design } from "./Design";
 import { HomeShell } from "./HomeShell";
 import { OpenProjectPanel } from "./OpenProjectPanel";
+import { SystemEditor } from "./SystemEditor";
 import { Project } from "./Project";
 import {
 	getSystemAttentionSummary,
@@ -207,6 +208,7 @@ export function Root() {
 							<Routes>
 								<Route index element={<Project />} />
 								<Route path="design/:uuid" element={<Design />} />
+								<Route path="system/:systemId" element={<SystemEditor />} />
 								<Route path="new" element={<Navigate to="/" replace />} />
 							</Routes>
 						</main>

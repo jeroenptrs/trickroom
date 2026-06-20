@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/electron/main";
 import { app } from "electron";
 import { resolveNodeSentryEnvironment } from "../src/sentry/environment";
+import { getAppSession } from "./app-session";
 
 const readDsn = () =>
 	process.env.TRICKROOM_SENTRY_DSN?.trim() || process.env.SENTRY_DSN?.trim();
@@ -25,6 +26,7 @@ export const initElectronMainSentry = () => {
 
 	Sentry.init({
 		dsn,
+		getSessions: () => [getAppSession()],
 		environment: resolveNodeSentryEnvironment(
 			app.isPackaged ? "production" : "development",
 		),

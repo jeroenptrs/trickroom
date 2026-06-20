@@ -11,9 +11,11 @@ import {
 import path from "node:path";
 import {
 	isTrickroomDesign,
+} from "../server-utils";
+import {
 	writeJsonFileAtomically,
 	writeJsonFileExclusivelyAtomically,
-} from "../server-utils";
+} from "../server-file-utils";
 import type { Node, TrickroomDesign, TrickroomDesignSummary } from "../types";
 
 export type DesignFileServiceErrorCode =
@@ -33,7 +35,11 @@ export class DesignFileServiceError extends Error {
 	}
 }
 
-export type DesignFileRevision = `sha256:${string}`;
+export type {
+	DesignFileRevision,
+	DesignFileSummary,
+} from "./design-file-service.types";
+import type { DesignFileRevision, DesignFileSummary } from "./design-file-service.types";
 
 export type DesignJsonFileRead = {
 	file: string;
@@ -57,10 +63,6 @@ export type DesignFileWrite = {
 
 export type RevisionCheck = {
 	expectedRevision?: DesignFileRevision;
-};
-
-export type DesignFileSummary = TrickroomDesignSummary & {
-	revision: DesignFileRevision;
 };
 
 type DesignFileSummaryCacheEntry = {

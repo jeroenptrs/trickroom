@@ -46,6 +46,47 @@ import type {
 	Role,
 	TrickroomDesign,
 } from "../types";
+import { detachSystemComponentInstance } from "../utils/system-component-detach";
+import {
+	previewSystemComponentInstanceMigration,
+	resolveSystemComponentInstanceMigrationContext,
+	SystemComponentInstanceMigrationError,
+	updateStaleSystemComponentInstance,
+	type SystemComponentInstanceMigrationPreview,
+} from "../utils/system-component-instance-migration";
+import { readSystemComponentManifest } from "../utils/system-component-manifest-service";
+import {
+	SystemComponentMigrationError,
+	type SystemComponentMigrationMetadata,
+} from "../utils/system-component-migration";
+import {
+	assertValidSystemComponentInstanceOverrides,
+	expandPublishedSystemComponentVersion,
+	resolvePublishedSystemComponentVersion,
+	SystemComponentResolutionError,
+} from "../utils/system-component-expansion";
+import { updateSystemComponentInstanceOnRoots } from "../utils/system-component-instance-update";
+import type { SystemComponentInstanceOverrides } from "../utils/system-component-markers";
+import type { PublishedSystemComponentVersion } from "../utils/system-components";
+import {
+	getSystemComponentStructuralMetadata,
+	isSystemComponentMarkerPropKey,
+	omitSystemComponentMarkerProps,
+	systemComponentInstanceProp,
+} from "../utils/system-component-markers";
+import { designReferencesSystemHandle } from "../utils/design-resource-references";
+import { findDesignSystem } from "../utils/design-system-store";
+import {
+	canDeleteElementAcrossSystemComponentBoundary,
+	canInsertIntoSystemComponentBoundary,
+	canMoveElementAcrossSystemComponentBoundary,
+	canUpdateSystemComponentStructuralNode,
+	getElementSystemComponentMetadata,
+	getSystemComponentInstanceMetadata,
+	getSystemComponentOwnedStructuralIds,
+	isSystemComponentOwnedStructuralNode,
+	isSystemComponentRoot,
+} from "../utils/system-component-ownership";
 
 export type DesignTransformErrorCode =
 	| "ELEMENT_NOT_FOUND"
@@ -67,6 +108,15 @@ export type DesignTransformErrorCode =
 	| "MISSING_ICON_ID"
 	| "RECIPE_STRUCTURE_LOCKED"
 	| "RECIPE_STRUCTURAL_NODE_LOCKED"
+	| "COMPONENT_STRUCTURE_LOCKED"
+	| "COMPONENT_STRUCTURAL_NODE_LOCKED"
+	| "UNKNOWN_SYSTEM_COMPONENT"
+	| "UNKNOWN_SYSTEM_COMPONENT_VERSION"
+	| "DESIGN_NOT_LINKED_TO_SYSTEM"
+	| "SYSTEM_COMPONENT_INSTANCE_NOT_FOUND"
+	| "SYSTEM_COMPONENT_INSTANCE_NOT_STALE"
+	| "INVALID_SYSTEM_COMPONENT_INSTANCE_STATE"
+	| "SYSTEM_COMPONENT_MIGRATION_UNSAFE"
 	| "RECIPE_SLOT_DISALLOWED_CHILD"
 	| "RECIPE_INSTANCE_NOT_FOUND"
 	| "RECIPE_INSTANCE_NOT_STALE"
@@ -107,6 +157,7 @@ type FlatDesign = {
 	name: string;
 	systemId?: string | null;
 	systemName?: string | null;
+	componentMigrationPolicy?: TrickroomDesign["componentMigrationPolicy"];
 	rootIds: string[];
 	entitiesById: Record<string, FlatEntity>;
 };
@@ -168,6 +219,9 @@ export const normalizeDesignForMutation = (
 		...(design.systemName !== undefined
 			? { systemName: design.systemName }
 			: {}),
+		...(design.componentMigrationPolicy !== undefined
+			? { componentMigrationPolicy: design.componentMigrationPolicy }
+			: {}),
 		rootIds: design.boards.map((board) => board.id),
 		entitiesById,
 	};
@@ -201,6 +255,9 @@ export const serializeFlatDesign = (flat: FlatDesign): TrickroomDesign => ({
 	...(flat.systemId !== undefined ? { systemId: flat.systemId } : {}),
 	...(flat.systemId === undefined && flat.systemName !== undefined
 		? { systemName: flat.systemName }
+		: {}),
+	...(flat.componentMigrationPolicy !== undefined
+		? { componentMigrationPolicy: flat.componentMigrationPolicy }
 		: {}),
 	boards: flat.rootIds.map((rootId) =>
 		serializeEntity(rootId, flat.entitiesById),
@@ -270,6 +327,45 @@ const getRegistryDefinition = (
 	return resolution.definition;
 };
 
+const mapSystemComponentResolutionError = (
+	error: SystemComponentResolutionError,
+): DesignTransformError => {
+	switch (error.code) {
+		case "UNKNOWN_SYSTEM":
+			return new DesignTransformError("UNKNOWN_DESIGN_SYSTEM", error.message);
+		case "UNKNOWN_COMPONENT":
+			return new DesignTransformError(
+				"UNKNOWN_SYSTEM_COMPONENT",
+				error.message,
+			);
+		case "UNKNOWN_VERSION":
+			return new DesignTransformError(
+				"UNKNOWN_SYSTEM_COMPONENT_VERSION",
+				error.message,
+			);
+		case "INVALID_INSTANCE_STATE":
+			return new DesignTransformError(
+				"INVALID_SYSTEM_COMPONENT_INSTANCE_STATE",
+				error.message,
+			);
+		case "UNKNOWN_REGISTRY_LIBRARY":
+			return new DesignTransformError(
+				"UNKNOWN_REGISTRY_LIBRARY",
+				error.message,
+			);
+		case "UNKNOWN_REGISTRY_COMPONENT":
+			return new DesignTransformError(
+				"UNKNOWN_REGISTRY_COMPONENT",
+				error.message,
+			);
+		default:
+			return new DesignTransformError(
+				"INVALID_OPERATION_PARAMETERS",
+				error.message,
+			);
+	}
+};
+
 const assertRegistryRecipeExists = (library: string, recipe: string) => {
 	const resolution = resolveRegistryRecipe(library, recipe);
 	if (resolution.status === "unknown-library") {
@@ -327,6 +423,91 @@ export type AddRecipeMutationResult = MutationResult & {
 	recipeId: string;
 	instanceId: string;
 	elementIdsByPath: Record<string, string>;
+};
+
+export type AddSystemComponentParams = {
+	projectRoot: string;
+	parentId: string | null;
+	index: number;
+	systemId: string;
+	componentId: string;
+	/** Omit or pass null to use the component manifest currentVersion. */
+	version?: string | null;
+	variantValues?: Record<string, string>;
+	overrides?: SystemComponentInstanceOverrides;
+};
+
+export type AddSystemComponentMutationResult = MutationResult & {
+	systemId: string;
+	componentId: string;
+	version: string;
+	instanceId: string;
+	elementIdsByPath: Record<string, string>;
+	variantValues: Record<string, string>;
+	overrides: SystemComponentInstanceOverrides;
+};
+
+export type UpdateSystemComponentInstanceParams = {
+	projectRoot: string;
+	rootElementId: string;
+	variantValues?: Record<string, string>;
+	overrides?: SystemComponentInstanceOverrides;
+};
+
+export type UpdateSystemComponentInstanceMutationResult = MutationResult & {
+	systemId: string;
+	componentId: string;
+	version: string;
+	instanceId: string;
+	rootElementId: string;
+	changedElementIds: string[];
+	variantValues: Record<string, string>;
+	overrides: SystemComponentInstanceOverrides;
+};
+
+export type MigrateSystemComponentInstanceParams = {
+	projectRoot: string;
+	rootElementId: string;
+	onlySafe?: boolean;
+	dryRun?: boolean;
+};
+
+export type MigrateSystemComponentInstanceOutcome =
+	| "migrated"
+	| "review-required"
+	| "dry-run-preview";
+
+export type MigrateSystemComponentInstanceMutationResult = MutationResult & {
+	applied: boolean;
+	outcome: MigrateSystemComponentInstanceOutcome;
+	systemId: string;
+	componentId: string;
+	instanceId: string;
+	rootElementId: string;
+	fromVersion: string;
+	toVersion: string;
+	prospectiveDesign?: TrickroomDesign;
+	componentMigration?: SystemComponentMigrationMetadata;
+	preview?: Pick<
+		SystemComponentInstanceMigrationPreview,
+		| "classification"
+		| "migrationDiagnostics"
+		| "blocked"
+		| "blockMessage"
+	>;
+};
+
+export type DetachSystemComponentParams = {
+	projectRoot: string;
+	elementId: string;
+};
+
+export type DetachSystemComponentMutationResult = MutationResult & {
+	systemId: string;
+	componentId: string;
+	instanceId: string;
+	rootElementId: string | null;
+	detachedElementIds: string[];
 };
 
 export type AddSubtreeParams = {
@@ -513,6 +694,7 @@ export type ExtractSubtreeParams = {
 	name?: string;
 	systemId?: string | null;
 	systemName?: string | null;
+	projectRoot?: string;
 };
 
 export type ExtractSubtreeResult = {
@@ -526,6 +708,7 @@ export type CopySubtreeParams = {
 	parentId: string | null;
 	index: number;
 	sameDesign?: boolean;
+	projectRoot?: string;
 };
 
 export type CopySubtreeResult = MutationResult & {
@@ -569,6 +752,17 @@ const getRecipeLockGuidance = (
 	return `${rootGuidance} Use detachRecipeInstance when explicit detaching is available before changing recipe structure.`;
 };
 
+const getSystemComponentLockGuidance = (
+	entitiesById: Record<string, FlatEntity>,
+	elementId: string,
+) => {
+	const metadata = getSystemComponentInstanceMetadata(entitiesById, elementId);
+	const rootGuidance = metadata?.rootId
+		? ` Delete component root "${metadata.rootId}" to remove the whole component instance.`
+		: " Delete the component root to remove the whole component instance.";
+	return `${rootGuidance} Use component-level operations or detach the component before changing component-owned structure.`;
+};
+
 const assertCanInsertIntoRecipeStructure = (
 	entitiesById: Record<string, FlatEntity>,
 	parentId: string | null,
@@ -580,6 +774,20 @@ const assertCanInsertIntoRecipeStructure = (
 	throw new DesignTransformError(
 		"RECIPE_STRUCTURE_LOCKED",
 		`Cannot insert into recipe-owned structure "${parentId}". Add authored content to a declared recipe slot instead.${parentId ? getRecipeLockGuidance(entitiesById, parentId) : ""}`,
+	);
+};
+
+const assertCanInsertIntoSystemComponentStructure = (
+	entitiesById: Record<string, FlatEntity>,
+	parentId: string | null,
+) => {
+	if (canInsertIntoSystemComponentBoundary(entitiesById, parentId)) {
+		return;
+	}
+
+	throw new DesignTransformError(
+		"COMPONENT_STRUCTURE_LOCKED",
+		`Cannot insert into component-owned structure "${parentId}". Add authored content to a declared component slot instead.${parentId ? getSystemComponentLockGuidance(entitiesById, parentId) : ""}`,
 	);
 };
 
@@ -635,6 +843,35 @@ const assertCanMoveAcrossRecipeStructure = (
 	);
 };
 
+const assertCanMoveAcrossSystemComponentStructure = (
+	entitiesById: Record<string, FlatEntity>,
+	elementId: string,
+	targetParentId: string | null,
+) => {
+	if (
+		canMoveElementAcrossSystemComponentBoundary(
+			entitiesById,
+			elementId,
+			targetParentId,
+		)
+	) {
+		return;
+	}
+
+	const entity = entitiesById[elementId];
+	if (isSystemComponentOwnedStructuralNode(entity)) {
+		throw new DesignTransformError(
+			"COMPONENT_STRUCTURAL_NODE_LOCKED",
+			`Element "${elementId}" is component-owned structure and cannot be moved.${getSystemComponentLockGuidance(entitiesById, elementId)}`,
+		);
+	}
+
+	throw new DesignTransformError(
+		"COMPONENT_STRUCTURE_LOCKED",
+		`Cannot move element "${elementId}" into component-owned structure "${targetParentId}". Add authored content to a declared component slot instead.${targetParentId ? getSystemComponentLockGuidance(entitiesById, targetParentId) : ""}`,
+	);
+};
+
 const assertCanDeleteAcrossRecipeStructure = (
 	entitiesById: Record<string, FlatEntity>,
 	elementId: string,
@@ -646,6 +883,20 @@ const assertCanDeleteAcrossRecipeStructure = (
 	throw new DesignTransformError(
 		"RECIPE_STRUCTURAL_NODE_LOCKED",
 		`Element "${elementId}" is recipe-owned structure and cannot be deleted directly.${getRecipeLockGuidance(entitiesById, elementId)}`,
+	);
+};
+
+const assertCanDeleteAcrossSystemComponentStructure = (
+	entitiesById: Record<string, FlatEntity>,
+	elementId: string,
+) => {
+	if (canDeleteElementAcrossSystemComponentBoundary(entitiesById, elementId)) {
+		return;
+	}
+
+	throw new DesignTransformError(
+		"COMPONENT_STRUCTURAL_NODE_LOCKED",
+		`Element "${elementId}" is component-owned structure and cannot be deleted directly.${getSystemComponentLockGuidance(entitiesById, elementId)}`,
 	);
 };
 
@@ -689,6 +940,29 @@ const assertCanUpdateRecipeStructuralProps = (
 	);
 };
 
+const assertCanUpdateSystemComponentStructuralProps = (
+	entitiesById: Record<string, FlatEntity>,
+	elementId: string,
+	params: UpdateElementPropsParams,
+) => {
+	if (canUpdateSystemComponentStructuralNode(entitiesById, elementId)) {
+		return;
+	}
+
+	if (
+		params.name === undefined &&
+		params.className === undefined &&
+		Object.keys(params.props ?? {}).length === 0
+	) {
+		return;
+	}
+
+	throw new DesignTransformError(
+		"COMPONENT_STRUCTURAL_NODE_LOCKED",
+		`Element "${elementId}" is component-owned structure and cannot be changed through generic element prop updates.${getSystemComponentLockGuidance(entitiesById, elementId)}`,
+	);
+};
+
 const assertValidInstanceProps = (
 	props: Record<string, JsonPrimitive>,
 	definition: RegistryComponentDefinition,
@@ -705,6 +979,13 @@ const assertValidInstanceProps = (
 			throw new DesignTransformError(
 				"INVALID_PROP_KEY",
 				`Prop key "${key}" is system-owned and cannot be written through instance props.`,
+			);
+		}
+
+		if (isSystemComponentMarkerPropKey(key)) {
+			throw new DesignTransformError(
+				"INVALID_PROP_KEY",
+				`Prop key "${key}" is component-owned and cannot be written through generic element props.`,
 			);
 		}
 
@@ -1208,6 +1489,7 @@ const validateStrictInsertionTarget = (
 	if (parentId !== null) {
 		try {
 			assertCanInsertIntoRecipeStructure(flat.entitiesById, parentId);
+			assertCanInsertIntoSystemComponentStructure(flat.entitiesById, parentId);
 			if (candidate) {
 				assertRecipeSlotAllowsChild(flat.entitiesById, parentId, candidate);
 			}
@@ -1455,6 +1737,7 @@ export const applyAddElement = (
 			);
 		}
 		assertCanInsertIntoRecipeStructure(entitiesById, params.parentId);
+		assertCanInsertIntoSystemComponentStructure(entitiesById, params.parentId);
 		assertRecipeSlotAllowsChild(entitiesById, params.parentId, {
 			kind: "component",
 			library: params.library,
@@ -1555,6 +1838,7 @@ export const applyAddRecipe = (
 			);
 		}
 		assertCanInsertIntoRecipeStructure(entitiesById, params.parentId);
+		assertCanInsertIntoSystemComponentStructure(entitiesById, params.parentId);
 		assertRecipeSlotAllowsChild(entitiesById, params.parentId, {
 			kind: "recipe",
 			library: params.library,
@@ -1603,6 +1887,488 @@ export const applyAddRecipe = (
 	};
 };
 
+const assertDesignLinkedToSystemHandle = async (
+	projectRoot: string,
+	design: Pick<TrickroomDesign, "systemId" | "systemName">,
+	systemHandle: string,
+) => {
+	const system = await findDesignSystem(projectRoot, systemHandle);
+	if (!designReferencesSystemHandle(design, systemHandle, system)) {
+		const designHandle = design.systemId ?? design.systemName ?? null;
+		throw new DesignTransformError(
+			"DESIGN_NOT_LINKED_TO_SYSTEM",
+			designHandle === null
+				? `Cannot insert a system component from "${systemHandle}" because the design is not linked to a design system.`
+				: `Cannot insert a system component from "${systemHandle}" because the design is linked to "${designHandle}" instead.`,
+		);
+	}
+};
+
+export const applyAddSystemComponent = async (
+	design: TrickroomDesign,
+	params: AddSystemComponentParams,
+): Promise<AddSystemComponentMutationResult> => {
+	await assertDesignLinkedToSystemHandle(
+		params.projectRoot,
+		design,
+		params.systemId,
+	);
+
+	const flat = normalizeDesignForMutation(design);
+	const { entitiesById, rootIds } = flat;
+
+	if (params.parentId !== null) {
+		const parent = entitiesById[params.parentId];
+		if (!parent) {
+			throw new DesignTransformError(
+				"PARENT_NOT_FOUND",
+				`Parent element "${params.parentId}" not found.`,
+			);
+		}
+		assertCanInsertIntoRecipeStructure(entitiesById, params.parentId);
+		assertCanInsertIntoSystemComponentStructure(entitiesById, params.parentId);
+		if (!canHaveElementChildren(parent.role)) {
+			throw new DesignTransformError(
+				"PARENT_CANNOT_HAVE_CHILDREN",
+				`Cannot add a system component to ${parent.role} role element "${params.parentId}".`,
+			);
+		}
+	}
+
+	let expansion: Awaited<
+		ReturnType<typeof expandPublishedSystemComponentVersion>
+	>;
+	try {
+		expansion = await expandPublishedSystemComponentVersion(
+			params.projectRoot,
+			params.systemId,
+			params.componentId,
+			params.version,
+			{
+				createElementId: createDesignElementId,
+				createInstanceId: createDesignElementId,
+				variantValues: params.variantValues,
+				overrides: params.overrides,
+			},
+		);
+	} catch (error) {
+		if (error instanceof SystemComponentResolutionError) {
+			throw mapSystemComponentResolutionError(error);
+		}
+		throw error;
+	}
+	assertRecipeSlotAllowsChild(
+		entitiesById,
+		params.parentId,
+		getRecipeSlotCandidateFromProps(expansion.root.props),
+	);
+
+	const nextEntitiesById = { ...entitiesById };
+	normalizeNode(expansion.root, params.parentId, nextEntitiesById);
+
+	let nextRootIds = rootIds;
+	if (params.parentId === null) {
+		nextRootIds = insertAt(rootIds, expansion.root.id, params.index);
+	} else {
+		const parent = nextEntitiesById[params.parentId];
+		nextEntitiesById[params.parentId] = {
+			...parent,
+			childIds: insertAt(
+				parent.childIds ?? [],
+				expansion.root.id,
+				params.index,
+			),
+		};
+	}
+
+	return {
+		design: serializeFlatDesign({
+			...flat,
+			rootIds: nextRootIds,
+			entitiesById: nextEntitiesById,
+		}),
+		changedElementId: expansion.root.id,
+		systemId: expansion.systemId,
+		componentId: expansion.componentId,
+		version: expansion.version,
+		instanceId: expansion.instanceId,
+		elementIdsByPath: expansion.elementIdsByPath,
+		variantValues: expansion.variantValues,
+		overrides: expansion.overrides,
+	};
+};
+
+const resolveAttachedSystemComponentVersion = async (
+	projectRoot: string,
+	metadata: NonNullable<ReturnType<typeof getSystemComponentStructuralMetadata>>,
+) => {
+	try {
+		const resolved = await resolvePublishedSystemComponentVersion(
+			projectRoot,
+			metadata.systemId,
+			metadata.componentId,
+			metadata.version,
+		);
+		return resolved.version;
+	} catch (error) {
+		if (error instanceof SystemComponentResolutionError) {
+			throw mapSystemComponentResolutionError(error);
+		}
+		throw error;
+	}
+};
+
+export const applyUpdateSystemComponentInstance = async (
+	design: TrickroomDesign,
+	params: UpdateSystemComponentInstanceParams,
+): Promise<UpdateSystemComponentInstanceMutationResult> => {
+	const flat = normalizeDesignForMutation(design);
+	const entity = flat.entitiesById[params.rootElementId];
+	if (!entity) {
+		throw new DesignTransformError(
+			"ELEMENT_NOT_FOUND",
+			`Element "${params.rootElementId}" not found.`,
+		);
+	}
+
+	const metadata = getSystemComponentStructuralMetadata(entity.props);
+	if (!metadata?.isRoot) {
+		throw new DesignTransformError(
+			"SYSTEM_COMPONENT_INSTANCE_NOT_FOUND",
+			`Element "${params.rootElementId}" is not an attached system component root.`,
+		);
+	}
+
+	if (
+		params.variantValues === undefined &&
+		params.overrides === undefined
+	) {
+		throw new DesignTransformError(
+			"INVALID_OPERATION_PARAMETERS",
+			'At least one of "variantValues" or "overrides" must be provided.',
+		);
+	}
+
+	let version: PublishedSystemComponentVersion;
+	try {
+		version = await resolveAttachedSystemComponentVersion(
+			params.projectRoot,
+			metadata,
+		);
+
+		if (params.overrides !== undefined) {
+			assertValidSystemComponentInstanceOverrides(version, params.overrides);
+		}
+
+		const result = updateSystemComponentInstanceOnRoots(
+			design.boards,
+			params.rootElementId,
+			version,
+			{
+				...(params.variantValues !== undefined
+					? { variantValues: params.variantValues }
+					: {}),
+				...(params.overrides !== undefined
+					? { overrides: params.overrides }
+					: {}),
+			},
+		);
+		if (!result) {
+			throw new DesignTransformError(
+				"SYSTEM_COMPONENT_INSTANCE_NOT_FOUND",
+				`Element "${params.rootElementId}" is not an attached system component root.`,
+			);
+		}
+
+		return {
+			design: {
+				...design,
+				boards: result.roots,
+			},
+			changedElementId: result.rootElementId,
+			systemId: metadata.systemId,
+			componentId: metadata.componentId,
+			version: metadata.version,
+			instanceId: result.instanceId,
+			rootElementId: result.rootElementId,
+			changedElementIds: result.changedElementIds,
+			variantValues: result.variantValues,
+			overrides: result.overrides,
+		};
+	} catch (error) {
+		if (error instanceof SystemComponentResolutionError) {
+			throw mapSystemComponentResolutionError(error);
+		}
+		throw error;
+	}
+};
+
+const cloneNodeDeepForMigrationTrial = (node: Node): Node => ({
+	id: node.id,
+	props:
+		node.props === undefined || node.props === null
+			? node.props
+			: structuredClone(node.props),
+	children: Array.isArray(node.children)
+		? node.children.map(cloneNodeDeepForMigrationTrial)
+		: node.children,
+});
+
+export const cloneBoardForMigrationTrial = (board: Node): Node =>
+	cloneNodeDeepForMigrationTrial(board);
+
+const mapSystemComponentInstanceMigrationError = (
+	error: SystemComponentInstanceMigrationError,
+): DesignTransformError => {
+	switch (error.code) {
+		case "ELEMENT_NOT_FOUND":
+			return new DesignTransformError("ELEMENT_NOT_FOUND", error.message);
+		case "INSTANCE_NOT_FOUND":
+			return new DesignTransformError(
+				"SYSTEM_COMPONENT_INSTANCE_NOT_FOUND",
+				error.message,
+			);
+		case "INSTANCE_NOT_STALE":
+			return new DesignTransformError(
+				"SYSTEM_COMPONENT_INSTANCE_NOT_STALE",
+				error.message,
+			);
+		case "MISSING_TARGET_VERSION":
+			return new DesignTransformError(
+				"UNKNOWN_SYSTEM_COMPONENT_VERSION",
+				error.message,
+			);
+		default:
+			return new DesignTransformError(
+				"INVALID_SYSTEM_COMPONENT_INSTANCE_STATE",
+				error.message,
+			);
+	}
+};
+
+export const applyMigrateSystemComponentInstance = async (
+	design: TrickroomDesign,
+	params: MigrateSystemComponentInstanceParams,
+): Promise<MigrateSystemComponentInstanceMutationResult> => {
+	const flat = normalizeDesignForMutation(design);
+	const entity = flat.entitiesById[params.rootElementId];
+	if (!entity) {
+		throw new DesignTransformError(
+			"ELEMENT_NOT_FOUND",
+			`Element "${params.rootElementId}" not found.`,
+		);
+	}
+
+	const metadata = getSystemComponentStructuralMetadata(entity.props);
+	if (!metadata?.isRoot) {
+		throw new DesignTransformError(
+			"SYSTEM_COMPONENT_INSTANCE_NOT_FOUND",
+			`Element "${params.rootElementId}" is not an attached system component root.`,
+		);
+	}
+
+	const onlySafe = params.onlySafe !== false;
+	const dryRun = params.dryRun ?? false;
+
+	let manifestRead: Awaited<ReturnType<typeof readSystemComponentManifest>>;
+	try {
+		manifestRead = await readSystemComponentManifest(
+			params.projectRoot,
+			metadata.systemId,
+		);
+	} catch (error) {
+		throw new DesignTransformError(
+			"UNKNOWN_DESIGN_SYSTEM",
+			error instanceof Error
+				? error.message
+				: "Failed to read system component manifest.",
+		);
+	}
+
+	const migrationContext = resolveSystemComponentInstanceMigrationContext(
+		metadata,
+		manifestRead.manifest,
+	);
+	if (!migrationContext) {
+		throw new DesignTransformError(
+			"UNKNOWN_SYSTEM_COMPONENT_VERSION",
+			`Published component version metadata is unavailable for migration.`,
+		);
+	}
+
+	let preview: SystemComponentInstanceMigrationPreview;
+	try {
+		preview = previewSystemComponentInstanceMigration(
+			design.boards,
+			params.rootElementId,
+			migrationContext,
+		);
+	} catch (error) {
+		if (error instanceof SystemComponentInstanceMigrationError) {
+			throw mapSystemComponentInstanceMigrationError(error);
+		}
+		throw error;
+	}
+
+	const previewPayload = {
+		classification: preview.classification,
+		migrationDiagnostics: preview.migrationDiagnostics,
+		blocked: preview.blocked,
+		blockMessage: preview.blockMessage,
+	};
+
+	if (preview.blocked) {
+		throw new DesignTransformError(
+			"SYSTEM_COMPONENT_MIGRATION_UNSAFE",
+			preview.blockMessage ??
+				"Migration is blocked because authored content cannot be mapped safely.",
+		);
+	}
+
+	let trialMigration: ReturnType<typeof updateStaleSystemComponentInstance>;
+	try {
+		trialMigration = updateStaleSystemComponentInstance(
+			design.boards.map(cloneBoardForMigrationTrial),
+			params.rootElementId,
+			migrationContext,
+		);
+	} catch (error) {
+		if (error instanceof SystemComponentInstanceMigrationError) {
+			throw mapSystemComponentInstanceMigrationError(error);
+		}
+		if (error instanceof SystemComponentMigrationError) {
+			if (error.code === "MIGRATION_UNSAFE") {
+				throw new DesignTransformError(
+					"SYSTEM_COMPONENT_MIGRATION_UNSAFE",
+					error.message,
+				);
+			}
+			throw new DesignTransformError(
+				"INVALID_SYSTEM_COMPONENT_INSTANCE_STATE",
+				error.message,
+			);
+		}
+		throw error;
+	}
+
+	const migratedRootElementId = trialMigration.metadata.rootElementId;
+	const prospectiveDesign: TrickroomDesign = {
+		...design,
+		boards: trialMigration.roots,
+	};
+
+	if (
+		onlySafe &&
+		preview.classification.safety === "requires-review"
+	) {
+		return {
+			design,
+			prospectiveDesign,
+			changedElementId: trialMigration.changedElementId,
+			applied: false,
+			outcome: "review-required",
+			systemId: metadata.systemId,
+			componentId: metadata.componentId,
+			instanceId: metadata.instanceId,
+			rootElementId: migratedRootElementId,
+			fromVersion: migrationContext.sourceVersion.version,
+			toVersion: migrationContext.targetVersion.version,
+			preview: previewPayload,
+		};
+	}
+
+	if (dryRun) {
+		return {
+			design,
+			prospectiveDesign,
+			changedElementId: trialMigration.changedElementId,
+			applied: false,
+			outcome: "dry-run-preview",
+			systemId: metadata.systemId,
+			componentId: metadata.componentId,
+			instanceId: metadata.instanceId,
+			rootElementId: migratedRootElementId,
+			fromVersion: migrationContext.sourceVersion.version,
+			toVersion: migrationContext.targetVersion.version,
+			preview: previewPayload,
+		};
+	}
+
+	return {
+		design: prospectiveDesign,
+		changedElementId: trialMigration.changedElementId,
+		applied: true,
+		outcome: "migrated",
+		systemId: metadata.systemId,
+		componentId: metadata.componentId,
+		instanceId: metadata.instanceId,
+		rootElementId: migratedRootElementId,
+		fromVersion: migrationContext.sourceVersion.version,
+		toVersion: migrationContext.targetVersion.version,
+		componentMigration: trialMigration.metadata,
+		preview: previewPayload,
+	};
+};
+
+export const applyDetachSystemComponent = async (
+	design: TrickroomDesign,
+	params: DetachSystemComponentParams,
+): Promise<DetachSystemComponentMutationResult> => {
+	const flat = normalizeDesignForMutation(design);
+	if (!flat.entitiesById[params.elementId]) {
+		throw new DesignTransformError(
+			"ELEMENT_NOT_FOUND",
+			`Element "${params.elementId}" not found.`,
+		);
+	}
+
+	const metadata = getSystemComponentStructuralMetadata(
+		flat.entitiesById[params.elementId].props,
+	);
+	let version: PublishedSystemComponentVersion | undefined;
+	if (metadata) {
+		try {
+			const resolved = await resolvePublishedSystemComponentVersion(
+				params.projectRoot,
+				metadata.systemId,
+				metadata.componentId,
+				metadata.version,
+			);
+			version = resolved.version;
+		} catch (error) {
+			if (!(error instanceof SystemComponentResolutionError)) {
+				throw error;
+			}
+			version = undefined;
+		}
+	}
+
+	const result = detachSystemComponentInstance(
+		design.boards,
+		params.elementId,
+		version,
+	);
+	if (!result) {
+		throw new DesignTransformError(
+			"SYSTEM_COMPONENT_INSTANCE_NOT_FOUND",
+			`Element "${params.elementId}" is not part of an attached system component instance.`,
+		);
+	}
+
+	return {
+		design: {
+			...design,
+			boards: result.roots,
+		},
+		changedElementId: result.changedElementId,
+		systemId: result.systemId,
+		componentId: result.componentId,
+		instanceId: result.instanceId,
+		rootElementId: result.rootElementId,
+		detachedElementIds: result.detachedElementIds,
+	};
+};
+
 export const applyUpdateElementProps = (
 	design: TrickroomDesign,
 	params: UpdateElementPropsParams,
@@ -1628,6 +2394,11 @@ export const applyUpdateElementProps = (
 		params.elementId,
 		params,
 		definition,
+	);
+	assertCanUpdateSystemComponentStructuralProps(
+		flat.entitiesById,
+		params.elementId,
+		params,
 	);
 
 	const patch: Partial<Props> = { ...(params.props ?? {}) };
@@ -1718,6 +2489,13 @@ export const applyUpdateElementText = (
 		);
 	}
 
+	if (isSystemComponentOwnedStructuralNode(entity)) {
+		throw new DesignTransformError(
+			"COMPONENT_STRUCTURAL_NODE_LOCKED",
+			`Element "${params.elementId}" is component-owned structure and cannot have its text content changed directly.${getSystemComponentLockGuidance(flat.entitiesById, params.elementId)}`,
+		);
+	}
+
 	if (entity.role !== "text") {
 		throw new DesignTransformError(
 			"INVALID_TEXT_UPDATE",
@@ -1778,6 +2556,11 @@ export const applyMoveElement = (
 			params.elementId,
 			params.targetParentId,
 		);
+		assertCanMoveAcrossSystemComponentStructure(
+			entitiesById,
+			params.elementId,
+			params.targetParentId,
+		);
 		if (!canHaveElementChildren(targetParent.role)) {
 			throw new DesignTransformError(
 				"PARENT_CANNOT_HAVE_CHILDREN",
@@ -1788,6 +2571,11 @@ export const applyMoveElement = (
 
 	if (params.targetParentId === null) {
 		assertCanMoveAcrossRecipeStructure(entitiesById, params.elementId, null);
+		assertCanMoveAcrossSystemComponentStructure(
+			entitiesById,
+			params.elementId,
+			null,
+		);
 	}
 
 	const nextEntitiesById = {
@@ -1864,6 +2652,7 @@ export const applyDeleteElement = (
 	}
 
 	assertCanDeleteAcrossRecipeStructure(entitiesById, params.elementId);
+	assertCanDeleteAcrossSystemComponentStructure(entitiesById, params.elementId);
 
 	const deletedIds = new Set<string>();
 	collectDescendantIds(entitiesById, params.elementId, deletedIds);
@@ -1999,6 +2788,7 @@ const cloneEntitySubtree = (
 	targetEntitiesById: Record<string, FlatEntity>,
 	idMap: Record<string, string>,
 	recipeClonePolicy: RecipeClonePolicy,
+	systemComponentClonePolicy: SystemComponentClonePolicy,
 ) => {
 	const source = sourceEntitiesById[sourceId];
 	if (!source) {
@@ -2014,7 +2804,11 @@ const cloneEntitySubtree = (
 		...source,
 		id,
 		parentId,
-		props: cloneExtractedEntityProps(source, recipeClonePolicy),
+		props: cloneExtractedEntityProps(
+			source,
+			recipeClonePolicy,
+			systemComponentClonePolicy,
+		),
 	};
 	targetEntitiesById[id] = target;
 
@@ -2032,6 +2826,7 @@ const cloneEntitySubtree = (
 			targetEntitiesById,
 			idMap,
 			recipeClonePolicy,
+			systemComponentClonePolicy,
 		),
 	);
 	delete target.text;
@@ -2039,11 +2834,18 @@ const cloneEntitySubtree = (
 };
 
 type RecipeClonePolicy = {
-	preserveInstanceIds: Record<string, string>;
+	preserveInstanceIds: Record<string, string | null>;
 	stripInstanceIds: Set<string>;
 };
 
 type PartialRecipeCloneBehavior = "reject" | "strip";
+
+type SystemComponentClonePolicy = {
+	preserveInstanceIds: Record<string, string | null>;
+	stripInstanceIds: Set<string>;
+};
+
+type PartialSystemComponentCloneBehavior = "reject" | "strip";
 
 const collectSubtreeIds = (
 	rootId: string,
@@ -2116,7 +2918,7 @@ const getRecipeClonePolicy = (
 			);
 
 		if (hasCompleteRecipeStructure) {
-			policy.preserveInstanceIds[instanceId] = createDesignElementId();
+			policy.preserveInstanceIds[instanceId] = null;
 			continue;
 		}
 
@@ -2133,33 +2935,173 @@ const getRecipeClonePolicy = (
 	return policy;
 };
 
+const getSystemComponentClonePolicy = (
+	rootId: string,
+	entitiesById: Record<string, FlatEntity>,
+	partialBehavior: PartialSystemComponentCloneBehavior,
+): SystemComponentClonePolicy => {
+	const subtreeIds = collectSubtreeIds(rootId, entitiesById);
+	const instanceIds = new Set<string>();
+	for (const id of subtreeIds) {
+		const metadata = getElementSystemComponentMetadata(entitiesById[id]);
+		if (metadata) {
+			instanceIds.add(metadata.instanceId);
+		}
+	}
+
+	const policy: SystemComponentClonePolicy = {
+		preserveInstanceIds: {},
+		stripInstanceIds: new Set(),
+	};
+
+	for (const instanceId of instanceIds) {
+		const structuralIds = getSystemComponentOwnedStructuralIds(
+			entitiesById,
+			instanceId,
+		);
+		const hasCompleteStructure =
+			structuralIds.length > 0 &&
+			structuralIds.every((structuralId) => subtreeIds.has(structuralId)) &&
+			structuralIds.some((structuralId) =>
+				isSystemComponentRoot(entitiesById[structuralId]),
+			);
+
+		if (hasCompleteStructure) {
+			policy.preserveInstanceIds[instanceId] = null;
+			continue;
+		}
+
+		if (partialBehavior === "reject") {
+			throw new DesignTransformError(
+				"COMPONENT_STRUCTURE_LOCKED",
+				`Cannot copy subtree "${rootId}" because it contains only part of attached system component instance "${instanceId}". Copy the component root or detach the component before copying partial component-owned structure.`,
+			);
+		}
+
+		policy.stripInstanceIds.add(instanceId);
+	}
+
+	return policy;
+};
+
+const getPreservedSystemComponentSystemIds = (
+	policy: SystemComponentClonePolicy,
+	sourceEntitiesById: Record<string, FlatEntity>,
+): string[] => {
+	const systemIds = new Set<string>();
+
+	for (const instanceId of Object.keys(policy.preserveInstanceIds)) {
+		const structuralIds = getSystemComponentOwnedStructuralIds(
+			sourceEntitiesById,
+			instanceId,
+		);
+		const rootId = structuralIds.find((structuralId) =>
+			isSystemComponentRoot(sourceEntitiesById[structuralId]),
+		);
+		const metadata = rootId
+			? getElementSystemComponentMetadata(sourceEntitiesById[rootId])
+			: null;
+		if (metadata?.systemId) {
+			systemIds.add(metadata.systemId);
+		}
+	}
+
+	return [...systemIds];
+};
+
+const assertAllPreservedSystemComponentRootsTargetLinked = async (
+	projectRoot: string | undefined,
+	targetDesign: Pick<TrickroomDesign, "systemId" | "systemName">,
+	componentSystemIds: string[],
+) => {
+	for (const componentSystemId of componentSystemIds) {
+		await assertPreservedSystemComponentRootsTargetLinked(
+			projectRoot,
+			targetDesign,
+			componentSystemId,
+		);
+	}
+};
+
+const assertPreservedSystemComponentRootsTargetLinked = async (
+	projectRoot: string | undefined,
+	targetDesign: Pick<TrickroomDesign, "systemId" | "systemName">,
+	componentSystemId: string,
+) => {
+	if (projectRoot) {
+		await assertDesignLinkedToSystemHandle(
+			projectRoot,
+			targetDesign,
+			componentSystemId,
+		);
+		return;
+	}
+
+	if (!designReferencesSystemHandle(targetDesign, componentSystemId, null)) {
+		const designHandle = targetDesign.systemId ?? targetDesign.systemName ?? null;
+		throw new DesignTransformError(
+			"DESIGN_NOT_LINKED_TO_SYSTEM",
+			designHandle === null
+				? `Cannot preserve an attached system component from "${componentSystemId}" because the target design is not linked to a design system.`
+				: `Cannot preserve an attached system component from "${componentSystemId}" because the target design is linked to "${designHandle}" instead.`,
+		);
+	}
+};
+
 const cloneExtractedEntityProps = (
 	source: FlatEntity,
 	recipeClonePolicy: RecipeClonePolicy,
+	systemComponentClonePolicy: SystemComponentClonePolicy,
 ): Props => {
-	const props = { ...source.props };
+	let props = { ...source.props };
 	const metadata = getElementRecipeMetadata(source);
-	if (!metadata) {
-		return props;
+	if (metadata) {
+		if (
+			Object.hasOwn(recipeClonePolicy.preserveInstanceIds, metadata.instanceId)
+		) {
+			const targetInstanceId =
+				recipeClonePolicy.preserveInstanceIds[metadata.instanceId] ??
+				createDesignElementId();
+			recipeClonePolicy.preserveInstanceIds[metadata.instanceId] =
+				targetInstanceId;
+			props = { ...props, [recipeInstanceProp]: targetInstanceId };
+		} else if (recipeClonePolicy.stripInstanceIds.has(metadata.instanceId)) {
+			props = omitRecipeMarkerProps(props);
+		}
 	}
 
-	const targetInstanceId =
-		recipeClonePolicy.preserveInstanceIds[metadata.instanceId];
-	if (targetInstanceId) {
-		return { ...props, [recipeInstanceProp]: targetInstanceId };
-	}
-
-	if (recipeClonePolicy.stripInstanceIds.has(metadata.instanceId)) {
-		return omitRecipeMarkerProps(props);
+	const componentMetadata = getElementSystemComponentMetadata(source);
+	if (componentMetadata) {
+		if (
+			Object.hasOwn(
+				systemComponentClonePolicy.preserveInstanceIds,
+				componentMetadata.instanceId,
+			)
+		) {
+			const targetInstanceId =
+				systemComponentClonePolicy.preserveInstanceIds[
+					componentMetadata.instanceId
+				] ?? createDesignElementId();
+			systemComponentClonePolicy.preserveInstanceIds[
+				componentMetadata.instanceId
+			] = targetInstanceId;
+			props = { ...props, [systemComponentInstanceProp]: targetInstanceId };
+		} else if (
+			systemComponentClonePolicy.stripInstanceIds.has(
+				componentMetadata.instanceId,
+			)
+		) {
+			props = omitSystemComponentMarkerProps(props);
+		}
 	}
 
 	return props;
 };
 
-export const applyExtractSubtree = (
+export const applyExtractSubtree = async (
 	design: TrickroomDesign,
 	params: ExtractSubtreeParams,
-): ExtractSubtreeResult => {
+): Promise<ExtractSubtreeResult> => {
 	const flat = normalizeDesignForMutation(design);
 	const entity = flat.entitiesById[params.elementId];
 	if (!entity) {
@@ -2168,6 +3110,20 @@ export const applyExtractSubtree = (
 			`Element "${params.elementId}" not found.`,
 		);
 	}
+	const name = getExtractedDesignName(entity, params.name);
+	const targetSystemId =
+		params.systemId === undefined ? flat.systemId : params.systemId;
+	const targetSystemName =
+		params.systemId !== undefined
+			? undefined
+			: params.systemName === undefined
+				? flat.systemName
+				: normalizeExtractedSystemName(params.systemName);
+	const targetLinkageDesign: Pick<TrickroomDesign, "systemId" | "systemName"> =
+		{
+			...(targetSystemId !== undefined ? { systemId: targetSystemId } : {}),
+			...(targetSystemName !== undefined ? { systemName: targetSystemName } : {}),
+		};
 
 	const targetEntitiesById: Record<string, FlatEntity> = {};
 	const idMap: Record<string, string> = {};
@@ -2176,6 +3132,22 @@ export const applyExtractSubtree = (
 		flat.entitiesById,
 		"strip",
 	);
+	const systemComponentClonePolicy = getSystemComponentClonePolicy(
+		params.elementId,
+		flat.entitiesById,
+		"strip",
+	);
+	const preservedComponentSystemIds = getPreservedSystemComponentSystemIds(
+		systemComponentClonePolicy,
+		flat.entitiesById,
+	);
+	if (preservedComponentSystemIds.length > 0) {
+		await assertAllPreservedSystemComponentRootsTargetLinked(
+			params.projectRoot,
+			targetLinkageDesign,
+			preservedComponentSystemIds,
+		);
+	}
 	const rootId = cloneEntitySubtree(
 		params.elementId,
 		null,
@@ -2183,19 +3155,15 @@ export const applyExtractSubtree = (
 		targetEntitiesById,
 		idMap,
 		recipeClonePolicy,
+		systemComponentClonePolicy,
 	);
-	const systemId =
-		params.systemId === undefined ? flat.systemId : params.systemId;
-	const systemName =
-		params.systemId !== undefined
-			? undefined
-			: params.systemName === undefined
-				? flat.systemName
-				: normalizeExtractedSystemName(params.systemName);
 	const newDesign = serializeFlatDesign({
-		name: getExtractedDesignName(entity, params.name),
-		...(systemId !== undefined ? { systemId } : {}),
-		...(systemName !== undefined ? { systemName } : {}),
+		name,
+		...(targetSystemId !== undefined ? { systemId: targetSystemId } : {}),
+		...(targetSystemName !== undefined ? { systemName: targetSystemName } : {}),
+		...(flat.componentMigrationPolicy !== undefined
+			? { componentMigrationPolicy: flat.componentMigrationPolicy }
+			: {}),
 		rootIds: [rootId],
 		entitiesById: targetEntitiesById,
 	});
@@ -2246,6 +3214,7 @@ const assertValidCopyInsertionTarget = (
 	}
 
 	assertCanInsertIntoRecipeStructure(flat.entitiesById, parentId);
+	assertCanInsertIntoSystemComponentStructure(flat.entitiesById, parentId);
 	assertRecipeSlotAllowsChild(flat.entitiesById, parentId, candidate);
 	if (!canHaveElementChildren(parent.role)) {
 		throw new DesignTransformError(
@@ -2270,11 +3239,11 @@ const assertValidCopyInsertionTarget = (
 	}
 };
 
-export const applyCopySubtree = (
+export const applyCopySubtree = async (
 	sourceDesign: TrickroomDesign,
 	targetDesign: TrickroomDesign,
 	params: CopySubtreeParams,
-): CopySubtreeResult => {
+): Promise<CopySubtreeResult> => {
 	const sourceFlat = normalizeDesignForMutation(sourceDesign);
 	const targetFlat = normalizeDesignForMutation(targetDesign);
 	const sourceRoot = sourceFlat.entitiesById[params.sourceElementId];
@@ -2316,6 +3285,22 @@ export const applyCopySubtree = (
 		sourceFlat.entitiesById,
 		"reject",
 	);
+	const systemComponentClonePolicy = getSystemComponentClonePolicy(
+		params.sourceElementId,
+		sourceFlat.entitiesById,
+		"reject",
+	);
+	const preservedComponentSystemIds = getPreservedSystemComponentSystemIds(
+		systemComponentClonePolicy,
+		sourceFlat.entitiesById,
+	);
+	if (preservedComponentSystemIds.length > 0) {
+		await assertAllPreservedSystemComponentRootsTargetLinked(
+			params.projectRoot,
+			targetDesign,
+			preservedComponentSystemIds,
+		);
+	}
 	const rootElementId = cloneEntitySubtree(
 		params.sourceElementId,
 		params.parentId,
@@ -2323,6 +3308,7 @@ export const applyCopySubtree = (
 		targetEntitiesById,
 		idMap,
 		recipeClonePolicy,
+		systemComponentClonePolicy,
 	);
 
 	if (sameDesign) {

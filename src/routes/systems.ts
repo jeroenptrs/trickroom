@@ -51,6 +51,7 @@ import {
 	readSanitizedIconSvg,
 	syncIconManifest,
 } from "../utils/icon-manifest-service";
+import { registerSystemComponentRoutes } from "./system-components";
 
 export const systemsRoutes = new Hono();
 
@@ -1174,3 +1175,5 @@ systemsRoutes.get("/:systemName/icons/:iconId/svg", async (c) => {
 		return createIconErrorResponse(error);
 	}
 });
+
+registerSystemComponentRoutes(systemsRoutes, getProjectRoot, getRouteSystem);

@@ -7,17 +7,20 @@ import {
 	DesignSystemStorageError,
 	ensureDesignSystemManifest,
 	listDesignSystems,
+	resolveDesignSystemComponentsPath,
 	readDesignSystemManifest,
 	resolveDesignSystemAssetsPath,
 	resolveDesignSystemDir,
 	resolveDesignSystemIconsPath,
 	resolveDesignSystemManifestPath,
+	resolveDesignSystemFilePath,
 	resolveDesignSystemSafeKey,
 	resolveDesignSystemsDir,
 	resolveDesignSystemTokensPath,
 	systemNameToSafeKey,
 	writeDesignSystemManifest,
 } from "./design-system-store";
+import { SYSTEM_COMPONENT_MANIFEST_FILE_NAME } from "./system-components";
 
 const tempProjectRoots: string[] = [];
 
@@ -117,6 +120,15 @@ describe("system path helpers", () => {
 				"tokens.json",
 			),
 		);
+		expect(resolveDesignSystemComponentsPath("/project", "My System")).toBe(
+			path.join(
+				"/project",
+				".trickroom",
+				"systems",
+				"my-system",
+				SYSTEM_COMPONENT_MANIFEST_FILE_NAME,
+			),
+		);
 		expect(resolveDesignSystemAssetsPath("/project", "My System")).toBe(
 			path.join(
 				"/project",
@@ -128,6 +140,30 @@ describe("system path helpers", () => {
 		);
 		expect(resolveDesignSystemIconsPath("/project", "My System")).toBe(
 			path.join("/project", ".trickroom", "systems", "my-system", "icons.json"),
+		);
+	});
+
+	it("resolves components.json using system handle semantics", async () => {
+		const projectRoot = await createProjectRoot();
+		const manifest = await createDesignSystemStorage(projectRoot, {
+			systemName: "Core",
+			cssPath: "src/core.css",
+		});
+
+		await expect(
+			resolveDesignSystemFilePath(projectRoot, manifest.systemId, "components.json"),
+		).resolves.toBe(
+			path.join(projectRoot, ".trickroom", "systems", "core", "components.json"),
+		);
+		await expect(
+			resolveDesignSystemFilePath(projectRoot, "core", "components.json"),
+		).resolves.toBe(
+			path.join(projectRoot, ".trickroom", "systems", "core", "components.json"),
+		);
+		await expect(
+			resolveDesignSystemFilePath(projectRoot, "Core", "components.json"),
+		).resolves.toBe(
+			path.join(projectRoot, ".trickroom", "systems", "core", "components.json"),
 		);
 	});
 });

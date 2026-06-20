@@ -134,6 +134,8 @@ Design systems:
 - List stored design tokens for that linked system (all synced token domains, not color-only).
 - List, describe, and find usage of system-scoped raster assets and SVG icons.
 - Register or remove system assets and icon folders, and refresh asset metadata when policy allows.
+- List, describe, author, and publish system component drafts.
+- Scan stale attached system component usages and migrate safe stale usages.
 
 Design mutation:
 
@@ -141,14 +143,18 @@ Design mutation:
 - Extract a subtree into a new design file without modifying the source.
 - Rename a design file.
 - Add an element or attached recipe instance.
+- Add an attached system component instance from a published component.
 - Validate a candidate subtree insertion.
 - Validate copying an existing subtree from one design file into another.
 - Add an element or recipe subtree.
 - Copy a source subtree into another insertion point.
 - Update layer name, Tailwind class name, or registry-backed control props.
 - Update declared recipe controls on attached instances.
+- Update system component instance variants and override class names.
 - Migrate a stale attached recipe instance to the current registry template.
+- Migrate a stale attached system component instance to the current published version.
 - Detach an attached recipe instance so structural nodes become normal elements.
+- Detach an attached system component instance so structural nodes become normal elements.
 - Update text content.
 - Move an element.
 - Delete an element and descendants.
@@ -199,6 +205,9 @@ Read-only tools:
 | `describeIcon` | Describe one system icon by stable ID. |
 | `findAssetUsage` | Find design elements referencing system assets. |
 | `findIconUsage` | Find design elements referencing system icons. |
+| `listSystemComponents` | List authored components in a configured system with manifest revision metadata. |
+| `describeSystemComponent` | Describe one component record, draft hashes, validation diagnostics, and published versions. |
+| `listStaleSystemComponentUsages` | Read-only scan returning attached instances with stale referenced versions in `usages`. Hash-review signals appear in status counts and diagnostics, not in `usages` rows. |
 
 Project/session writes:
 
@@ -217,6 +226,9 @@ Design-system resource writes:
 | `addSystemIconFolder` | Adds a project-relative icon folder and refreshes the icon manifest | Low; extends icon discovery paths. |
 | `removeSystemIconFolder` | Removes one icon folder path from the system config | Medium; may shrink the generated icon catalog. |
 | `refreshSystemAssetMetadata` | Re-reads one asset file's image metadata | Low; updates stored dimensions/metadata only. |
+| `createSystemComponentDraft` | Adds one component draft record to `components.json` | Low; requires the current component manifest revision. |
+| `updateSystemComponentDraft` | Updates a component draft template, slots, variants, and/or override targets in `components.json` | Medium; changes future publishes but does not rewrite existing published versions. |
+| `publishSystemComponent` | Appends an immutable published component version in `components.json` | Medium; changes the current version used by new insertions and stale scans. |
 
 Design-file writes:
 
@@ -227,20 +239,25 @@ Design-file writes:
 | `renameDesignFile` | Design file `name` | Low; writes JSON. |
 | `addElement` | Adds one node | Low; grows the design tree. |
 | `addRecipe` | Expands and inserts one registry recipe instance | Medium; generates a multi-node attached structure. |
+| `addSystemComponent` | Expands and inserts one published system component instance | Medium; generates a multi-node attached structure with marker props. |
 | `addSubtree` | Inserts a candidate subtree, including optional recipes | Medium; generates fresh IDs and normalizes candidate insertion rules. |
 | `updateElementProps` | Updates `data-trickroom-name`, `className`, and/or registry-backed control props | Medium; can replace styling or component settings. |
 | `updateRecipeControl` | Updates a declared recipe control by instance/path/prop | Medium; can replace attached recipe component settings. |
+| `updateSystemComponentInstance` | Updates declared variant values and override target class names on an attached component root | Medium; re-expands the instance without generic marker edits. |
 | `updateRecipeInstance` | Migrates one stale attached recipe instance to the current template | Medium; can reshape recipe-owned structure while preserving mapped content. |
+| `migrateSystemComponentInstance` | Migrates one stale attached component instance to the current published version | Medium; safe migrations write by default, review-required migrations are reported unless `onlySafe` is false. |
+| `bulkMigrateSystemComponentUsages` | Migrates stale attached component usages for a system, optional component, or optional design file | Medium; `dryRun` previews without writes and `onlySafe` defaults to true. |
 | `detachRecipeInstance` | Removes recipe marker props from one attached instance | Medium; unlocks formerly recipe-owned nodes for normal mutation. |
+| `detachSystemComponent` | Removes component marker props from one attached instance | Medium; unlocks formerly component-owned nodes for normal mutation. |
 | `updateElementText` | Updates text role `children` | Medium; replaces text content. |
 | `moveElement` | Reorders or reparents one node | Medium; can significantly change hierarchy. |
 | `copySubtree` | Copies a subtree from a source design into a target design | Medium; copies structural data and validates cross-file revision/design-system constraints. |
 | `applyDesignOperations` | Applies an ordered operation list atomically with one persisted write | Medium; validates the full plan in memory before committing one revision. |
 | `deleteElement` | Removes one node and all descendants | High; cannot be undone by Trickroom itself. |
 
-Existing design-file writes require `expectedRevision`. `createDesignFile` and `extractSubtree` have no prior revision on the file they create; they use exclusive create semantics and fail if the chosen UUID already exists. Cross-file `copySubtree` also requires `sourceExpectedRevision` on the source design.
+Existing design-file writes require `expectedRevision`. `createDesignFile` and `extractSubtree` have no prior revision on the file they create; they use exclusive create semantics and fail if the chosen UUID already exists. Cross-file `copySubtree` also requires `sourceExpectedRevision` on the source design. System component manifest writes require the `revision` returned by `listSystemComponents` or `describeSystemComponent`.
 
-MCP annotations mark `renameDesignFile`, `updateElementProps`, `updateRecipeControl`, `updateRecipeInstance`, `detachRecipeInstance`, `updateElementText`, `moveElement`, and `deleteElement` as destructive write tools. `createDesignFile`, `extractSubtree`, `addElement`, `addRecipe`, `addSubtree`, and `copySubtree` are write tools but are annotated as non-destructive. `registerProject`, `selectProject`, and `openProject` are project/session-state writes and do not mutate design files. System resource write tools mutate design-system manifests under `.trickroom/systems/`, not design JSON files.
+MCP annotations mark `renameDesignFile`, `updateElementProps`, `updateRecipeControl`, `updateRecipeInstance`, `detachRecipeInstance`, `detachSystemComponent`, `updateElementText`, `moveElement`, and `deleteElement` as destructive write tools. `createDesignFile`, `extractSubtree`, `addElement`, `addRecipe`, `addSystemComponent`, `updateSystemComponentInstance`, `migrateSystemComponentInstance`, `bulkMigrateSystemComponentUsages`, `addSubtree`, and `copySubtree` are write tools but are annotated as non-destructive. `registerProject`, `selectProject`, and `openProject` are project/session-state writes and do not mutate design files. System resource write tools mutate design-system manifests under `.trickroom/systems/`, not design JSON files.
 
 ## Revision Workflow
 

@@ -1,0 +1,27 @@
+export type SystemComponentManifestDiagnosticSeverity = "error" | "warning";
+
+export type SystemComponentManifestDiagnosticCode =
+	| "DUPLICATE_COMPONENT_SLUG"
+	| "INVALID_COMPONENT_ID"
+	| "INVALID_COMPONENT_SLUG"
+	| "INVALID_CURRENT_VERSION"
+	| "INVALID_MIGRATION_HINT_REFERENCE"
+	| "INVALID_OVERRIDE_TARGET_PATH"
+	| "INVALID_OVERRIDE_TARGET_ID"
+	| "INVALID_PUBLISHED_VERSION_SHAPE"
+	| "INVALID_SLOT_DEFINITION"
+	| "INVALID_SLOT_HOST_PATH"
+	| "INVALID_TEMPLATE_PATH"
+	| "INVALID_TEMPLATE_ROOT"
+	| "INVALID_VARIANT_CLASS_TARGET_PATH"
+	| "MISMATCHED_PUBLISHED_HASH"
+	| "NON_ROOT_TEMPLATE_PATH"
+	| "UNCONVENTIONAL_ROOT_PATH";
+
+export type SystemComponentManifestDiagnostic = {
+	code: SystemComponentManifestDiagnosticCode;
+	severity: SystemComponentManifestDiagnosticSeverity;
+	message: string;
+	componentId?: string;
+	path?: string;
+};

@@ -6,9 +6,8 @@ import { upsertProjectLocation } from "./app-state/project-registry";
 import {
 	asErrnoException,
 	isTrickroomConfig,
-	readJsonFile,
-	writeJsonFileAtomically,
 } from "./server-utils";
+import { readJsonFile, writeJsonFileAtomically } from "./server-file-utils";
 import type { TrickroomConfig } from "./types";
 import { migrateConfiguredSystemsToManifests } from "./utils/design-system-store";
 

@@ -36,8 +36,8 @@ import {
 	isTrickroomConfig,
 	isTrickroomDesign,
 	jsonError,
-	readJsonFile,
 } from "./server-utils";
+import { readJsonFile } from "./server-file-utils";
 import {
 	createDesignFileService,
 	DesignFileServiceError,
@@ -58,6 +58,7 @@ import {
 	getResourceIdProp,
 	getResourceKindForComponent,
 } from "./utils/design-resource-references";
+import { scanDesignFileSystemComponentUsage } from "./utils/system-component-usage-scan";
 import {
 	DesignSystemStorageError,
 	findDesignSystem,
@@ -1002,6 +1003,50 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		}
 	});
 
+	app.get("/api/trickroom/design/system-component-usage", async (c) => {
+		const project = await resolveProjectForRequest();
+		if (!project) {
+			return createNoProjectResponse();
+		}
+
+		const file = c.req.query("file");
+		if (!file) {
+			return jsonError("Missing required query parameter: file", 400);
+		}
+
+		const systemHandle = c.req.query("systemId") ?? undefined;
+		const componentId = c.req.query("componentId") ?? undefined;
+		const version = c.req.query("version") ?? undefined;
+
+		try {
+			const result = await scanDesignFileSystemComponentUsage(
+				project.projectRoot,
+				file,
+				{
+					systemHandle,
+					componentId,
+					version,
+				},
+			);
+			return c.json({
+				designFile: file,
+				...result,
+			});
+		} catch (error) {
+			if (
+				error instanceof DesignFileServiceError &&
+				error.code === "INVALID_DESIGN_FILE_PATH"
+			) {
+				return jsonError(
+					"Design file path must be inside .trickroom/designs",
+					400,
+				);
+			}
+
+			return jsonError("Failed to scan design system component usage", 500);
+		}
+	});
+
 	app.get("/api/trickroom/designs", async (c) => {
 		const project = await resolveProjectForRequest();
 		if (!project) {
@@ -1112,9 +1157,10 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 
 		try {
 			const sourceRead = await designFileService.readDesignFile(sourceFile);
-			const result = applyExtractSubtree(sourceRead.design, {
+			const result = await applyExtractSubtree(sourceRead.design, {
 				elementId,
 				name,
+				projectRoot: project.projectRoot,
 			});
 			const canonicalDesign = await canonicalizeDesignSystemReferenceForStorage(
 				project,

@@ -1,4 +1,5 @@
 import { RECIPE_MARKER_PROP_KEYS } from "../recipes/markers";
+import { SYSTEM_COMPONENT_MARKER_PROP_KEYS } from "../utils/system-component-markers";
 import type {
 	ControlDefinition,
 	JsonPrimitive,
@@ -72,6 +73,7 @@ export const REGISTRY_REFERENCE_PROP_KEYS = new Set([
 export const SYSTEM_PROP_KEYS = new Set([
 	...REGISTRY_REFERENCE_PROP_KEYS,
 	...RECIPE_MARKER_PROP_KEYS,
+	...SYSTEM_COMPONENT_MARKER_PROP_KEYS,
 ]);
 
 export const isRegistryId = (value: unknown): value is RegistryId =>

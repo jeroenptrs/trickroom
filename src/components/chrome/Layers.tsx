@@ -13,6 +13,7 @@ import {
 import { announce } from "@atlaskit/pragmatic-drag-and-drop-live-region";
 import { Button as UnstyledButton } from "@base-ui/react/button";
 import { useKeyHold } from "@tanstack/react-hotkeys";
+import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	ChevronRight,
@@ -32,6 +33,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { toast } from "sonner";
 import { tv } from "tailwind-variants";
 import {
 	availableRegistries,
@@ -45,21 +47,31 @@ import {
 	resolveRegistryRecipe,
 } from "../../libraries/registry";
 import {
+	expandSystemComponent,
+	type SystemComponentSummary,
+	systemComponentsQueryOptions,
+} from "../../queries/system-components";
+import {
 	canInsertIntoRecipeBoundary,
 	getElementRecipeMetadata,
 	isRecipeOwnedStructuralNode,
 	isRecipeRoot,
 	isRecipeSlotHost,
 } from "../../recipes/ownership";
-import { isRecipeSlotInsertionAllowed } from "../../recipes/slot-allowlist";
+import {
+	getRecipeSlotCandidateFromProps,
+	isRecipeSlotInsertionAllowed,
+} from "../../recipes/slot-allowlist";
 import {
 	addElement,
+	addNodeTree,
 	addRecipe,
 	type DesignEntity,
 	designStore,
 	moveElement,
 	renameElement,
 	selectElement,
+	useDesignSystemId,
 	useElement,
 	useLayerSummary,
 	useLayerTreeSnapshot,
@@ -69,6 +81,7 @@ import type {
 	RecipeDefinition,
 	RegistryComponentDefinition,
 } from "../../types";
+import { useProjectScope } from "../contexts";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
@@ -191,6 +204,23 @@ type PickerItem =
 			definition: RecipeDefinition;
 	  };
 
+type UserComponentPickerItem = {
+	type: "system-component";
+	component: SystemComponentSummary;
+};
+
+type PickerSection = {
+	title: string;
+	items: PickerItem[];
+};
+
+type UserComponentPickerSection = {
+	title: string;
+	items: UserComponentPickerItem[];
+};
+
+type PickerSource = "user" | "trickroom" | "libraries";
+
 type LastAddedRef =
 	| ({ type: "component" } & ComponentRef)
 	| ({ type: "recipe" } & RecipeRef);
@@ -198,7 +228,7 @@ type LastAddedRef =
 export function getRegistryPickerSections(
 	library: RegistryId,
 	queryText: string,
-) {
+): PickerSection[] {
 	const query = queryText.trim().toLowerCase();
 	const registry = getRegistry(library);
 	const matches = ({
@@ -247,6 +277,42 @@ export function getRegistryPickerSections(
 		{ title: "Components", items: components },
 		{ title: "Recipes", items: recipes },
 	];
+}
+
+export function getUserComponentPickerSections(
+	components: readonly SystemComponentSummary[],
+	queryText: string,
+): UserComponentPickerSection[] {
+	const query = queryText.trim().toLowerCase();
+	const items = components
+		.filter((component) => component.hasPublished && component.currentVersion)
+		.filter((component) => {
+			if (!query) {
+				return true;
+			}
+
+			return (
+				component.componentId.toLowerCase().includes(query) ||
+				component.slug.toLowerCase().includes(query) ||
+				component.name.toLowerCase().includes(query) ||
+				(component.description?.toLowerCase().includes(query) ?? false) ||
+				(component.group?.toLowerCase().includes(query) ?? false)
+			);
+		})
+		.sort(
+			(left, right) =>
+				(left.order ?? Number.MAX_SAFE_INTEGER) -
+					(right.order ?? Number.MAX_SAFE_INTEGER) ||
+				(left.group ?? "").localeCompare(right.group ?? "") ||
+				left.name.localeCompare(right.name) ||
+				left.componentId.localeCompare(right.componentId),
+		)
+		.map((component) => ({
+			type: "system-component" as const,
+			component,
+		}));
+
+	return [{ title: "User authored components", items }];
 }
 
 type LayerProps = {
@@ -763,6 +829,8 @@ export function Layers({
 	const { rootIds, entitiesById } = useLayerTreeSnapshot();
 	const selectedElement = useSelectedElement();
 	const selectedParent = useElement(selectedElement?.parentId ?? "");
+	const systemId = useDesignSystemId();
+	const projectScope = useProjectScope();
 	const isAltPressed = useKeyHold("Alt");
 	const isShiftPressed = useKeyHold("Shift");
 	const scrollViewportRef = useRef<HTMLDivElement>(null);
@@ -771,8 +839,14 @@ export function Layers({
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [pickerIntent, setPickerIntent] = useState<PlacementIntent>("after");
 	const [componentQuery, setComponentQuery] = useState("");
+	const [selectedPickerSource, setSelectedPickerSource] =
+		useState<PickerSource>("user");
 	const [selectedLibrary, setSelectedLibrary] = useState<RegistryId>("base-ui");
 	const [lastAddedRef, setLastAddedRef] = useState<LastAddedRef | null>(null);
+	const systemComponentsQuery = useQuery({
+		...systemComponentsQueryOptions(systemId ?? "", projectScope),
+		enabled: Boolean(systemId),
+	});
 	const visibleLayerRows = useMemo(
 		() =>
 			getVisibleLayerRows({
@@ -794,13 +868,38 @@ export function Layers({
 		: isShiftPressed
 			? "before"
 			: "after";
-	const registryComponentGroups = useMemo(
-		() => availableRegistries.map((library) => ({ library })),
+	const pickerSources = useMemo(
+		() =>
+			[
+				{ source: "user" as const, label: "User authored" },
+				{ source: "trickroom" as const, label: "Trickroom builtins" },
+				{ source: "libraries" as const, label: "Other libraries" },
+			] satisfies Array<{ source: PickerSource; label: string }>,
 		[],
 	);
+	const libraryGroups = useMemo(
+		() =>
+			availableRegistries
+				.filter((library) => library !== "trickroom")
+				.map((library) => ({ library })),
+		[],
+	);
+	const effectiveSelectedLibrary =
+		selectedPickerSource === "trickroom" ? "trickroom" : selectedLibrary;
 	const pickerSections = useMemo(
-		() => getRegistryPickerSections(selectedLibrary, componentQuery),
-		[componentQuery, selectedLibrary],
+		() =>
+			selectedPickerSource === "user"
+				? getUserComponentPickerSections(
+						systemComponentsQuery.data?.components ?? [],
+						componentQuery,
+					)
+				: getRegistryPickerSections(effectiveSelectedLibrary, componentQuery),
+		[
+			componentQuery,
+			effectiveSelectedLibrary,
+			selectedPickerSource,
+			systemComponentsQuery.data?.components,
+		],
 	);
 	const toggleLayerOpen = useCallback((id: string) => {
 		setOpenById((current) => ({
@@ -884,6 +983,42 @@ export function Layers({
 			setPickerOpen(false);
 		},
 		[resolveInsertionPlacement],
+	);
+
+	const addChosenSystemComponent = useCallback(
+		async (component: SystemComponentSummary, intent: PlacementIntent) => {
+			const placement = resolveInsertionPlacement(intent);
+			if (!placement || !systemId || !component.currentVersion) {
+				return;
+			}
+
+			try {
+				const expansion = await expandSystemComponent(
+					systemId,
+					component.componentId,
+					component.currentVersion,
+				);
+				if (
+					!isRecipeSlotInsertionAllowed(
+						designStore.get().entitiesById,
+						placement.parentId,
+						getRecipeSlotCandidateFromProps(expansion.root.props),
+					)
+				) {
+					toast.error("This recipe slot does not allow that component.");
+					return;
+				}
+				addNodeTree(expansion.root, placement.parentId, placement.index);
+				setPickerOpen(false);
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Failed to add the system component.",
+				);
+			}
+		},
+		[resolveInsertionPlacement, systemId],
 	);
 
 	const handleAddLayer = useCallback(
@@ -1062,19 +1197,32 @@ export function Layers({
 						placeholder="Search components"
 						onChange={(event) => setComponentQuery(event.target.value)}
 					/>
-					<div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-1">
-						<div className="flex flex-col">
-							{registryComponentGroups.map((group) => (
+					<div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-1">
+						<div className="flex flex-col gap-1">
+							{pickerSources.map((source) => (
 								<Button
-									key={group.library}
+									key={source.source}
 									variant="block"
 									className="flex w-full justify-start px-1 py-1 text-xs"
-									onClick={() => setSelectedLibrary(group.library)}
-									isSelected={selectedLibrary === group.library}
+									onClick={() => setSelectedPickerSource(source.source)}
+									isSelected={selectedPickerSource === source.source}
 								>
-									{group.library}
+									{source.label}
 								</Button>
 							))}
+							{selectedPickerSource === "libraries"
+								? libraryGroups.map((group) => (
+										<Button
+											key={group.library}
+											variant="block"
+											className="flex w-full justify-start px-1 py-1 pl-3 text-xs"
+											onClick={() => setSelectedLibrary(group.library)}
+											isSelected={selectedLibrary === group.library}
+										>
+											{group.library}
+										</Button>
+									))
+								: null}
 						</div>
 						<div className="flex min-w-0 flex-col gap-1">
 							{pickerSections.map((section) => (
@@ -1091,13 +1239,18 @@ export function Layers({
 										</div>
 									) : (
 										section.items.map((item) => {
-											const itemAllowed = isPickerItemAllowed(item);
+											const itemAllowed =
+												item.type === "system-component"
+													? Boolean(systemId && item.component.currentVersion)
+													: isPickerItemAllowed(item);
 											return (
 												<Button
 													key={
-														item.type === "component"
-															? `component:${item.component}`
-															: `recipe:${item.recipe}`
+														item.type === "system-component"
+															? `system-component:${item.component.componentId}`
+															: item.type === "component"
+																? `component:${item.component}`
+																: `recipe:${item.recipe}`
 													}
 													variant="block"
 													className="flex w-full justify-start px-1 py-1 text-left text-xs"
@@ -1108,10 +1261,15 @@ export function Layers({
 															: "This recipe slot does not allow that child"
 													}
 													onClick={() => {
-														if (item.type === "component") {
+														if (item.type === "system-component") {
+															void addChosenSystemComponent(
+																item.component,
+																pickerIntent,
+															);
+														} else if (item.type === "component") {
 															addChosenComponent(
 																{
-																	library: selectedLibrary,
+																	library: effectiveSelectedLibrary,
 																	component: item.component,
 																},
 																pickerIntent,
@@ -1119,7 +1277,7 @@ export function Layers({
 														} else {
 															addChosenRecipe(
 																{
-																	library: selectedLibrary,
+																	library: effectiveSelectedLibrary,
 																	recipe: item.recipe,
 																},
 																pickerIntent,
@@ -1129,12 +1287,16 @@ export function Layers({
 												>
 													<span className="min-w-0">
 														<span className="block truncate font-medium">
-															{item.definition.label}
+															{item.type === "system-component"
+																? item.component.name
+																: item.definition.label}
 														</span>
 														<span className="block truncate text-slate-500">
-															{item.type === "component"
-																? item.definition.role
-																: "recipe"}
+															{item.type === "system-component"
+																? `${item.component.slug} · v${item.component.currentVersion}`
+																: item.type === "component"
+																	? item.definition.role
+																	: "recipe"}
 															{item.type === "component" &&
 															item.definition.controls
 																? ` · ${Object.keys(item.definition.controls).join(", ")}`

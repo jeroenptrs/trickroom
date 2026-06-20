@@ -4,8 +4,8 @@ import {
 	isRecord,
 	isTrickroomConfig,
 	jsonError,
-	readJsonFile,
 } from "../server-utils";
+import { readJsonFile } from "../server-file-utils";
 import {
 	defaultTailwindTokensByDomain,
 	defaultTailwindTokensVersion,

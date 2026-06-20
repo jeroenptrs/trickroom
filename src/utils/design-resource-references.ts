@@ -162,6 +162,31 @@ export async function findProjectResourceUsage(
 	return usages;
 }
 
+export function designReferencesSystemHandle(
+	design: Pick<TrickroomDesign | DesignFileSummary, "systemId" | "systemName">,
+	systemHandle: string,
+	system: Awaited<ReturnType<typeof findDesignSystem>>,
+): boolean {
+	if (design.systemId !== undefined) {
+		return design.systemId === systemHandle;
+	}
+
+	const summarySystemName = design.systemName ?? null;
+	if (!system) {
+		return summarySystemName === systemHandle;
+	}
+
+	const legacySystemNames = new Set([
+		system.manifest.systemName,
+		...(system.manifest.previousSystemNames ?? []),
+	]);
+	return (
+		summarySystemName !== null &&
+		(legacySystemNames.has(summarySystemName) ||
+			safeSystemNameMatchesStorageKey(summarySystemName, system.storageKey))
+	);
+}
+
 export async function findProjectSystemDesigns(
 	projectRoot: string,
 	systemHandle: string,
@@ -170,29 +195,9 @@ export async function findProjectSystemDesigns(
 	const summaries = await service.listDesignSummaries();
 	const system = await findDesignSystem(projectRoot, systemHandle);
 
-	return summaries.filter((summary) => {
-		const summarySystemId = summary.systemId ?? null;
-		const summarySystemName = summary.systemName ?? null;
-		if (!system) {
-			return (
-				summarySystemId === systemHandle || summarySystemName === systemHandle
-			);
-		}
-
-		const legacySystemNames = new Set([
-			system.manifest.systemName,
-			...(system.manifest.previousSystemNames ?? []),
-		]);
-		return (
-			summarySystemId === system.manifest.systemId ||
-			(summarySystemName !== null &&
-				(legacySystemNames.has(summarySystemName) ||
-					safeSystemNameMatchesStorageKey(
-						summarySystemName,
-						system.storageKey,
-					)))
-		);
-	});
+	return summaries.filter((summary) =>
+		designReferencesSystemHandle(summary, systemHandle, system),
+	);
 }
 
 function safeSystemNameMatchesStorageKey(
