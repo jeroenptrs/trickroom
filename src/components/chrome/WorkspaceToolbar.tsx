@@ -2,14 +2,28 @@ import { Menu } from "@base-ui/react/menu";
 import {
 	ChevronLeft,
 	ChevronRight,
+	Download,
 	LayoutGrid,
 	Monitor,
 	Smartphone,
 	Tablet,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useDesignRoots } from "../../stores/design-store";
-import { useIFrameView } from "../contexts";
+import { toast } from "sonner";
+import {
+	downloadExport,
+	type ExportBoard,
+	findBoardIdForEntity,
+	selectExportBoard,
+	toExportBoards,
+} from "../../export/client";
+import {
+	designStore,
+	serializeDesign,
+	useDesignRoots,
+	useSelectedId,
+} from "../../stores/design-store";
+import { useIFrameView, useProjectConfig } from "../contexts";
 import {
 	cycleResponsiveStageBoard,
 	getResponsiveStageBoardPosition,
@@ -342,6 +356,116 @@ function ResponsiveWidthControls() {
 	);
 }
 
+function ExportControl() {
+	const { mode, activeBoardId } = useResponsiveStage();
+	const projectName = useProjectConfig().name;
+	const selectedId = useSelectedId();
+	const [busy, setBusy] = useState(false);
+
+	const runExport = async (target: "all" | "active" | "selected") => {
+		const design = serializeDesign();
+		let boards: ExportBoard[];
+		if (target === "all") {
+			boards = toExportBoards(design.boards);
+		} else if (target === "active") {
+			boards = selectExportBoard(design.boards, activeBoardId);
+		} else {
+			const boardId = findBoardIdForEntity(
+				designStore.get().entitiesById,
+				selectedId,
+			);
+			boards = selectExportBoard(design.boards, boardId);
+		}
+
+		if (boards.length === 0) {
+			toast.error("No board to export.");
+			return;
+		}
+
+		setBusy(true);
+		try {
+			await downloadExport({
+				boards,
+				systemId: design.systemId ?? null,
+				projectName,
+				designName: design.name,
+			});
+			toast.success(
+				boards.length > 1
+					? `Exported ${boards.length} board artifacts.`
+					: "Artifact exported.",
+			);
+		} catch (error) {
+			console.error(error);
+			toast.error("Export failed.");
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	return (
+		<Menu.Root modal={false}>
+			<Menu.Trigger
+				render={(props, { open }) => (
+					<Button
+						{...props}
+						type="button"
+						variant="block"
+						isSelected={open}
+						disabled={busy}
+						className="flex h-7 items-center gap-1 px-2 py-0 text-[10px]"
+						aria-label="Export"
+						title="Export as a Trickroom Artifact"
+					>
+						<Download className="size-3.5 shrink-0" />
+						<span>Export</span>
+					</Button>
+				)}
+			/>
+			<Menu.Portal>
+				<Menu.Positioner sideOffset={4} align="end">
+					<Menu.Popup className="z-50 flex min-w-44 flex-col bg-slate-50 p-1 text-[11px] text-slate-700 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-visible:outline-none">
+						<div className="flex items-center gap-1.5 px-2 pt-0.5 pb-1 text-[9px] font-medium uppercase tracking-wider text-slate-400">
+							<span aria-hidden className="text-cyan-700">
+								▦
+							</span>
+							Artifact
+						</div>
+						{mode === "responsive" ? (
+							<Menu.Item
+								className="flex cursor-default items-center gap-2 px-2 py-1 data-[highlighted]:bg-slate-200/60"
+								onClick={() => runExport("active")}
+							>
+								Export this board
+							</Menu.Item>
+						) : (
+							<>
+								<Menu.Item
+									className="flex cursor-default items-center gap-2 px-2 py-1 data-[highlighted]:bg-slate-200/60"
+									onClick={() => runExport("all")}
+								>
+									Export all boards
+									<span className="ml-auto text-[10px] text-slate-400">
+										.zip
+									</span>
+								</Menu.Item>
+								{selectedId ? (
+									<Menu.Item
+										className="flex cursor-default items-center gap-2 px-2 py-1 data-[highlighted]:bg-slate-200/60"
+										onClick={() => runExport("selected")}
+									>
+										Export selected board
+									</Menu.Item>
+								) : null}
+							</>
+						)}
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
+	);
+}
+
 export function WorkspaceToolbar() {
 	const view = useIFrameView();
 	const { mode } = useResponsiveStage();
@@ -364,6 +488,7 @@ export function WorkspaceToolbar() {
 						{zoomLabel}
 					</span>
 				) : null}
+				<ExportControl />
 				<WorkspaceModeToggle />
 			</div>
 		</header>

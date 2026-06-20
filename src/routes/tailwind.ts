@@ -1,3 +1,4 @@
+import path from "node:path";
 import { Hono } from "hono";
 import { readJsonFile } from "../server-file-utils";
 import {
@@ -6,6 +7,7 @@ import {
 	isTrickroomConfig,
 	jsonError,
 } from "../server-utils";
+import { rewriteCssFontUrls } from "../utils/css-font-urls";
 import {
 	defaultTailwindTokensByDomain,
 	defaultTailwindTokensVersion,
@@ -14,6 +16,7 @@ import {
 	DesignSystemStorageError,
 	findDesignSystem,
 } from "../utils/design-system-store.ts";
+import { projectFontFileUrl } from "../utils/font-injection";
 import type {
 	TailwindColorTokenBaselineDiff,
 	TailwindTokensForPresentation,
@@ -42,6 +45,7 @@ import {
 	type TailwindTokenDomainDiffs,
 	type TailwindTokenDomains,
 } from "../utils/tailwind-token-domains";
+import { renderTailwindTokenHtml } from "../utils/tailwind-token-export";
 import {
 	areTokenStoragesEquivalent,
 	normalizeCssPath,
@@ -50,7 +54,6 @@ import {
 	type TailwindCustomUtilityStorage,
 	type TailwindTokenStorage,
 } from "../utils/tailwind-token-store";
-import { renderTailwindTokenHtml } from "../utils/tailwind-token-export";
 
 export const tailwindRoutes = new Hono();
 
@@ -547,12 +550,20 @@ tailwindRoutes.post("/compile", async (c) => {
 			config,
 			target,
 		);
-		const css = await compileTailwindCss({
+		const compiledCss = await compileTailwindCss({
 			projectRoot,
 			cssPath: resolvedTarget.cssPath,
 			candidates,
 			themeOverrides,
 		});
+		// Rewrite relative @font-face url()s (from the system's own CSS) to served
+		// font routes so the design iframe can actually load them.
+		const css = await rewriteCssFontUrls(
+			compiledCss,
+			path.dirname(path.resolve(projectRoot, resolvedTarget.cssPath)),
+			projectRoot,
+			(rel) => projectFontFileUrl(resolvedTarget.systemId, rel),
+		);
 		return c.json({
 			systemId: resolvedTarget.systemId,
 			systemName: resolvedTarget.systemName,

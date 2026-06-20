@@ -14,6 +14,7 @@ import {
 	readProjectRegistry,
 	upsertProjectLocation,
 } from "../app-state/project-registry";
+import { exportDesignBoards } from "../export/export-design";
 import {
 	availableRegistries,
 	CORE_PROP_KEYS,
@@ -5145,6 +5146,84 @@ Workflow:
 					payload,
 					summarizeDesignFileReadText(payload),
 				);
+			}),
+	);
+
+	server.registerTool(
+		"exportDesignHtml",
+		{
+			title: "Export Design to HTML",
+			description:
+				"Export one or more boards of a design file as self-contained, interactive HTML documents. Returns each board's complete HTML verbatim — the first content block is a JSON manifest, followed by one HTML document per board in the same order. Each document inlines the design system's compiled Tailwind and loads React + Base UI from a CDN (esm.sh), so it needs network access to that CDN to render. Omit boardIds to export every board.",
+			inputSchema: withProjectScopedInput({
+				designFileId: z.string().uuid().describe("Design file UUID."),
+				boardIds: z
+					.array(z.string().min(1))
+					.optional()
+					.describe(
+						"Board (root element) IDs to export. Omit or leave empty to export every board.",
+					),
+			}),
+			annotations: readOnlyClosedWorldAnnotations,
+		},
+		async ({ designFileId, boardIds, project }) =>
+			withPolicyErrorHandling(project, async (context) => {
+				assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
+				const read = await readDesignFileForTool(context, designFileId);
+				const requested = new Set(
+					(boardIds ?? []).filter((id) => id.length > 0),
+				);
+				const boards =
+					requested.size > 0
+						? read.design.boards.filter((board) => requested.has(board.id))
+						: read.design.boards;
+
+				if (boards.length === 0) {
+					return createToolErrorResult(
+						context,
+						"NO_MATCHING_BOARDS",
+						requested.size > 0
+							? "None of the requested boardIds match a board in this design file."
+							: "This design file has no boards to export.",
+						{
+							availableBoardIds: read.design.boards.map((board) => board.id),
+						},
+					);
+				}
+
+				const result = await exportDesignBoards({
+					projectRoot: context.projectRoot,
+					config: context.config,
+					boards,
+					systemId: read.design.systemId ?? null,
+					projectName: context.config.name,
+					designName: read.design.name,
+				});
+
+				const manifest = {
+					project: getProjectReference(context),
+					designFile: getDesignMetadata(designFileId, read),
+					exportedAt: result.epoch,
+					systemId: result.systemId,
+					artifacts: result.files.map((file) => ({
+						name: file.name,
+						filename: file.filename,
+						bytes: file.html.length,
+					})),
+					instructions:
+						"Each following content block is a complete standalone HTML document for one board, in the order listed above.",
+				};
+
+				return {
+					content: [
+						{ type: "text" as const, text: JSON.stringify(manifest, null, 2) },
+						...result.files.map((file) => ({
+							type: "text" as const,
+							text: file.html,
+						})),
+					],
+					structuredContent: manifest,
+				};
 			}),
 	);
 

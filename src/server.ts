@@ -28,16 +28,17 @@ import {
 	recipeLoadRepairHeaderName,
 	repairInvalidKnownRecipeInstances,
 } from "./recipes/repair";
+import { exportRoutes } from "./routes/export";
 import { systemsRoutes } from "./routes/systems";
 import { tailwindRoutes } from "./routes/tailwind";
 import { captureNodeException } from "./sentry/node";
+import { readJsonFile } from "./server-file-utils";
 import {
 	asErrnoException,
 	isTrickroomConfig,
 	isTrickroomDesign,
 	jsonError,
 } from "./server-utils";
-import { readJsonFile } from "./server-file-utils";
 import {
 	createDesignFileService,
 	DesignFileServiceError,
@@ -58,12 +59,12 @@ import {
 	getResourceIdProp,
 	getResourceKindForComponent,
 } from "./utils/design-resource-references";
-import { scanDesignFileSystemComponentUsage } from "./utils/system-component-usage-scan";
 import {
 	DesignSystemStorageError,
 	findDesignSystem,
 } from "./utils/design-system-store";
 import { normalizeIconId, readIcon } from "./utils/icon-manifest-service";
+import { scanDesignFileSystemComponentUsage } from "./utils/system-component-usage-scan";
 
 export type TrickroomActiveProject = TrickroomProjectContext & {
 	locationId: string;
@@ -679,10 +680,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 					summary.uuid.toLowerCase() === parsedUri.designId.toLowerCase(),
 			);
 			if (!designSummary) {
-				return jsonError(
-					`Design file "${parsedUri.designId}" not found.`,
-					404,
-				);
+				return jsonError(`Design file "${parsedUri.designId}" not found.`, 404);
 			}
 
 			return c.json({
@@ -826,6 +824,12 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 	app.use("/api/trickroom/systems", attachProjectToSystemsRequest);
 	app.use("/api/trickroom/systems/*", attachProjectToSystemsRequest);
 	app.route("/api/trickroom/systems", systemsRoutes);
+
+	// Export reuses the systems middleware: it needs projectRoot + config to
+	// resolve the system, read its tokens/icons/assets from disk, and compile.
+	app.use("/api/trickroom/export", attachProjectToSystemsRequest);
+	app.use("/api/trickroom/export/*", attachProjectToSystemsRequest);
+	app.route("/api/trickroom/export", exportRoutes);
 
 	app.get("/api/trickroom/project-root", async (c) => {
 		const project = await resolveProjectForRequest();
