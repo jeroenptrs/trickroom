@@ -28,7 +28,7 @@ export function Designs() {
 			const designUuid = crypto.randomUUID();
 			const designFile = getDesignFileForUuid(designUuid);
 			const design: TrickroomDesign = {
-				name: "Untitled Design",
+				name: "Untitled",
 				boards: [
 					{
 						id: crypto.randomUUID(),

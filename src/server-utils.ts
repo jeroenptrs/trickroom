@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { availableRegistries, getLibraryComponent } from "./libraries/registry";
 import type { Node, Props, TrickroomConfig, TrickroomDesign } from "./types";
 
@@ -6,7 +7,8 @@ export type ErrorResponse = {
 	error: string;
 };
 
-export const asErrnoException = (error: unknown) => error as NodeJS.ErrnoException;
+export const asErrnoException = (error: unknown) =>
+	error as NodeJS.ErrnoException;
 
 export const jsonError = (error: string, status: number) => {
 	return Response.json({ error } satisfies ErrorResponse, { status });
@@ -15,6 +17,23 @@ export const jsonError = (error: string, status: number) => {
 export const readJsonFile = async <T>(filePath: string): Promise<T> => {
 	const contents = await readFile(filePath, "utf8");
 	return JSON.parse(contents) as T;
+};
+
+export const writeJsonFileAtomically = async (
+	filePath: string,
+	value: unknown,
+) => {
+	const contents = `${JSON.stringify(value, null, "\t")}\n`;
+	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+
+	try {
+		await writeFile(tempPath, contents, "utf8");
+		await rename(tempPath, filePath);
+		return contents;
+	} catch (error) {
+		await unlink(tempPath).catch(() => undefined);
+		throw error;
+	}
 };
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -31,12 +50,18 @@ const isTrickroomSystems = (
 			cssPath.trim().length > 0,
 	);
 
+const isTrickroomMcpConfig = (
+	value: unknown,
+): value is NonNullable<TrickroomConfig["mcp"]> =>
+	isRecord(value) && typeof value.enabled === "boolean";
+
 export const isTrickroomConfig = (value: unknown): value is TrickroomConfig =>
 	isRecord(value) &&
 	typeof value.name === "string" &&
 	value.name.trim().length > 0 &&
 	!("tailwindRoot" in value) &&
-	(value.systems === undefined || isTrickroomSystems(value.systems));
+	(value.systems === undefined || isTrickroomSystems(value.systems)) &&
+	(value.mcp === undefined || isTrickroomMcpConfig(value.mcp));
 
 export const isTrickroomLibrary = (
 	value: unknown,

@@ -1120,4 +1120,50 @@ describe("tailwind POST /systems/:systemName/tokens", () => {
 			"--color-brand-*",
 		]);
 	});
+
+	it("round-trips granular red family and token overrides", async () => {
+		const { storeDomainTokens, readDomainTokens } = await import(
+			"../utils/tailwind-token-store"
+		);
+		await storeDomainTokens({
+			projectRoot: tempProjectRoot,
+			systemName: "core",
+			tokens: { "brand-500": "#123456" },
+			overrides: [],
+			tailwindBaselineVersion: "4.2.4",
+			cssPath: "src/theme.css",
+			baselineDiff: {
+				added: [{ name: "brand-500", value: "#123456", domain: "color" }],
+				overridden: [],
+				removed: [],
+			},
+			reviewRequired: true,
+		});
+		const app = await importTestServer();
+
+		const response = await app.request(
+			"/api/trickroom/tailwind/systems/core/tokens",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					domains: { color: { overrides: ["--color-red-50", "--color-red-*"] } },
+				}),
+			},
+		);
+
+		expect(response.status).toBe(200);
+		const json = await response.json();
+		expect(json.domains.color.overrides).toEqual([
+			"--color-red-*",
+			"--color-red-50",
+		]);
+		expect(json.domains.color.tokens).toEqual({ "brand-500": "#123456" });
+
+		const read = await readDomainTokens(tempProjectRoot, "core");
+		expect(read?.domains.color.overrides).toEqual([
+			"--color-red-*",
+			"--color-red-50",
+		]);
+	});
 });

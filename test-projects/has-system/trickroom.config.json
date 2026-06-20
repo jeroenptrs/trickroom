@@ -1,0 +1,9 @@
+{
+	"name": "Trickroom Test project",
+	"mcp": {
+		"enabled": true
+	},
+	"systems": {
+		"System": "./index.css"
+	}
+}

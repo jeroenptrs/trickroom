@@ -50,7 +50,7 @@ export function ColorPickerPopover({
 									type="button"
 									variant="block"
 									{...props}
-									className="flex items-center gap-2 text-xs text-left w-full"
+									className="flex items-center gap-2 text-xs text-left w-full hover:ring-2 hover:ring-blue-500"
 									onClick={(event) => {
 										props.onClick?.(event);
 										onClear();
@@ -63,7 +63,11 @@ export function ColorPickerPopover({
 						/>
 
 						<div className="flex flex-col gap-0.5">
-							<Text variant="label" render={<div />} className="px-1 text-gray-900/70">
+							<Text
+								variant="label"
+								render={<div />}
+								className="px-1 text-gray-900/70"
+							>
 								Universal
 							</Text>
 							<div className="flex flex-row gap-1 px-1">
@@ -76,7 +80,7 @@ export function ColorPickerPopover({
 												variant="block"
 												title={keyword}
 												{...props}
-												className="p-0"
+												className="p-0 h-4 hover:ring-2 hover:ring-blue-500"
 												onClick={(event) => {
 													props.onClick?.(event);
 													onPick({ kind: "keyword", keyword });
@@ -99,7 +103,11 @@ export function ColorPickerPopover({
 						<div className="flex flex-col gap-1.5">
 							{grouped.map(({ family, entries }) => (
 								<div key={family} className="flex flex-col gap-0.5">
-									<Text variant="label" render={<div />} className="px-1 capitalize text-gray-900/70">
+									<Text
+										variant="label"
+										render={<div />}
+										className="px-1 capitalize text-gray-900/70"
+									>
 										{family}
 									</Text>
 									<div className="flex flex-row flex-wrap gap-1 px-1">
@@ -112,7 +120,7 @@ export function ColorPickerPopover({
 														variant="block"
 														title={token}
 														{...props}
-														className="p-0"
+														className="p-0 h-4 hover:ring-2 hover:ring-blue-500"
 														onClick={(event) => {
 															props.onClick?.(event);
 															onPick({ kind: "token", token });

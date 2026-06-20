@@ -75,9 +75,21 @@ export function ColorPropertyControl({
 
 	return (
 		<div className="flex flex-col gap-1">
-			<Text variant="label" render={<div />} className="px-1">
-				{label}
-			</Text>
+			<div className="flex flex-row items-center justify-between">
+				<Text variant="label" render={<div />} className="px-1 shrink-0">
+					{label}
+				</Text>
+				{availableCommonVariants.length > 0 ? (
+					<AddVariantMenu
+						availableVariants={availableCommonVariants}
+						onAdd={(variant) => {
+							setDraftVariants((prev) =>
+								prev.includes(variant) ? prev : [...prev, variant],
+							);
+						}}
+					/>
+				) : null}
+			</div>
 			<div className="flex flex-col gap-0.5">
 				{slots.map(({ variantKey, variants, entry }) => {
 					const appearance = entry
@@ -91,25 +103,29 @@ export function ColorPropertyControl({
 							key={variantKey || "default"}
 							className="flex flex-row items-center gap-1.5 px-1"
 						>
-							<span className="text-xs text-gray-900/60 w-14 truncate shrink-0">
-								{variantKey || "default"}
-							</span>
-							<ColorPickerPopover
-								resolved={resolved}
-								onPick={(value) => handleSet(variants, value)}
-								onClear={() => handleClear(variants)}
-								trigger={
-									<span
-										className="flex flex-row items-center gap-1.5"
-										data-warning={isWarning ? "true" : undefined}
-									>
-										<ColorSwatch appearance={appearance} title={tokenLabel} />
-										<span className="text-xs text-gray-900 truncate max-w-32">
-											{tokenLabel}
-										</span>
+							<div className="flex flex-row items-center">
+								{variantKey ? (
+									<span className="text-xs text-gray-900 font-semibold w-fit truncate shrink-0">
+										{variantKey}:
 									</span>
-								}
-							/>
+								) : null}
+								<ColorPickerPopover
+									resolved={resolved}
+									onPick={(value) => handleSet(variants, value)}
+									onClear={() => handleClear(variants)}
+									trigger={
+										<span
+											className="flex flex-row items-center gap-1.5"
+											data-warning={isWarning ? "true" : undefined}
+										>
+											<ColorSwatch appearance={appearance} title={tokenLabel} />
+											<span className="text-xs text-gray-900 truncate max-w-32">
+												{tokenLabel}
+											</span>
+										</span>
+									}
+								/>
+							</div>
 							{entry ? (
 								<Button
 									type="button"
@@ -125,16 +141,6 @@ export function ColorPropertyControl({
 					);
 				})}
 			</div>
-			{availableCommonVariants.length > 0 ? (
-				<AddVariantMenu
-					availableVariants={availableCommonVariants}
-					onAdd={(variant) => {
-						setDraftVariants((prev) =>
-							prev.includes(variant) ? prev : [...prev, variant],
-						);
-					}}
-				/>
-			) : null}
 		</div>
 	);
 }
@@ -148,8 +154,11 @@ function AddVariantMenu({
 }) {
 	return (
 		<Menu.Root modal>
-			<Menu.Trigger className="flex flex-row items-center gap-1 text-xs text-gray-900/60 hover:bg-gray-200/60 px-1 py-0.5 self-start cursor-pointer">
-				<AddLine className="size-3 fill-gray-900/60" />
+			<Menu.Trigger
+				className="flex flex-row items-center gap-1 text-xs self-start cursor-pointer"
+				render={<Button variant="block" />}
+			>
+				<AddLine className="size-3 fill-gray-900" />
 				<span>variant</span>
 			</Menu.Trigger>
 			<Menu.Portal>

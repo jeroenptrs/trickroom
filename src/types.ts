@@ -30,6 +30,9 @@ export type Node = {
 export type TrickroomConfig = {
 	name: string;
 	systems?: Record<string, string>;
+	mcp?: {
+		enabled: boolean;
+	};
 };
 
 export type ProjectRoot = {

@@ -4,13 +4,16 @@ import {
 	RiFileReduceLine as FileReduce,
 	RiFileUploadLine as FileUpload,
 } from "@remixicon/react";
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { useMutation } from "@tanstack/react-query";
-import { useCallback, useEffect } from "react";
+import { useHotkey } from "@tanstack/react-hotkeys";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { saveDesignFile } from "../../queries/design-file";
 import {
 	clearDirty,
 	serializeDesign,
+	setDesignName,
 	useDesignName,
 	useDesignRevision,
 	useHasUnsavedChanges,
@@ -18,6 +21,7 @@ import {
 import type { TrickroomDesign } from "../../types";
 import { useIFrameView } from "../contexts";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import { Separator } from "../ui/separator";
 import { Text } from "../ui/text";
 import { Layers } from "./Layers";
@@ -114,8 +118,56 @@ function SaveControl({ designFile }: SaveControlProps) {
 	);
 }
 
-export function Sidebar({ designFile }: SidebarProps) {
+function DesignTitle() {
 	const designName = useDesignName();
+	const [isRenaming, setIsRenaming] = useState(false);
+	const [draftName, setDraftName] = useState("");
+	const cancelledRef = useRef(false);
+
+	const startRenaming = () => {
+		cancelledRef.current = false;
+		setDraftName(designName);
+		setIsRenaming(true);
+	};
+
+	const confirmRename = () => {
+		setDesignName(draftName);
+		setIsRenaming(false);
+	};
+
+	const cancelRename = () => {
+		cancelledRef.current = true;
+		setIsRenaming(false);
+	};
+
+	useHotkey("Enter", confirmRename, { enabled: isRenaming, ignoreInputs: false });
+	useHotkey("Escape", cancelRename, { enabled: isRenaming });
+
+	if (isRenaming) {
+		return (
+			<Input
+				variant="inline"
+				className="flex-1 min-w-0"
+				value={draftName}
+				onChange={(e) => setDraftName(e.target.value)}
+				onBlur={() => { if (!cancelledRef.current) confirmRename(); }}
+				onFocus={(e) => (e.target as HTMLInputElement).select()}
+				autoFocus
+			/>
+		);
+	}
+
+	return (
+		<ButtonPrimitive
+			className="flex-1 min-w-0 truncate font-semibold text-center hover:bg-gray-100 px-1 py-0.5 cursor-text focus-visible:outline-none"
+			onClick={startRenaming}
+		>
+			{designName}
+		</ButtonPrimitive>
+	);
+}
+
+export function Sidebar({ designFile }: SidebarProps) {
 	const navigate = useNavigate();
 
 	return (
@@ -129,9 +181,7 @@ export function Sidebar({ designFile }: SidebarProps) {
 					>
 						<ArrowLeft className="size-4 fill-gray-900" />
 					</Button>
-					<Text variant="subtitle" className="truncate">
-						{designName}
-					</Text>
+					<DesignTitle />
 					<SaveControl designFile={designFile} />
 				</div>
 				<Separator />

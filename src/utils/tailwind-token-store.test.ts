@@ -310,6 +310,31 @@ describe("tailwind-token-store", () => {
 			expect(read?.domains.color.overrides).toEqual(["--color-a", "--color-z"]);
 		});
 
+		it("persists granular overrides through round-trip and normalizes their sort order", async () => {
+			await storeDomainTokens({
+				projectRoot: testDir,
+				systemName: "core",
+				tokens: { "brand-500": "#123456" },
+				overrides: ["--color-red-50", "--color-*", "--color-red-*"],
+				tailwindBaselineVersion: "4.2.4",
+				cssPath: "src/theme.css",
+				baselineDiff: {
+					added: [{ name: "brand-500", value: "#123456", domain: "color" }],
+					overridden: [],
+					removed: [],
+				},
+				reviewRequired: false,
+			});
+
+			const read = await readDomainTokens(testDir, "core");
+
+			expect(read?.domains.color.overrides).toEqual([
+				"--color-*",
+				"--color-red-*",
+				"--color-red-50",
+			]);
+		});
+
 		it("returns null for missing storage", async () => {
 			await expect(
 				readDomainTokens(testDir, "nonexistent"),

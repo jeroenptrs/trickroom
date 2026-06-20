@@ -1,0 +1,37 @@
+{
+	"name": "Button Design",
+	"systemName": "System",
+	"boards": [
+		{
+			"id": "dd4a839a-72a1-46cd-b8eb-0d5317f785e5",
+			"props": {
+				"data-trickroom-name": "CTA Button",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"className": "inline-flex items-center justify-center rounded-md px-5 py-3 text-blue-950 shadow-sm transition-colors duration-150 hover:bg-yellow-300 hover:text-blue-900 active:bg-yellow-500 active:text-blue-950 bg-yellow-400"
+			},
+			"children": [
+				{
+					"id": "c470d789-6656-4bc0-a0da-798f2b3b1988",
+					"props": {
+						"data-trickroom-name": "CTA Copy",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "text",
+						"data-trickroom-role": "text",
+						"className": "text-sm font-semibold leading-none tracking-normal text-blue-950 transition-colors duration-150 hover:text-blue-900 active:text-blue-950"
+					},
+					"children": "Get started today"
+				}
+			]
+		},
+		{
+			"id": "a3e65fb5-d4cc-4ddb-a4aa-a5f998e7af2f",
+			"props": {
+				"data-trickroom-name": "Container",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container"
+			},
+			"children": []
+		}
+	]
+}

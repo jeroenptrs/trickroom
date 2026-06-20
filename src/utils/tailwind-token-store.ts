@@ -199,6 +199,25 @@ export async function readDomainTokens(
 	projectRoot: string,
 	systemName: string,
 ): Promise<TailwindTokenStorageV2 | null> {
+	return readDomainTokensInternal(projectRoot, systemName, {
+		canonicalize: true,
+	});
+}
+
+export async function readDomainTokensReadonly(
+	projectRoot: string,
+	systemName: string,
+): Promise<TailwindTokenStorageV2 | null> {
+	return readDomainTokensInternal(projectRoot, systemName, {
+		canonicalize: false,
+	});
+}
+
+async function readDomainTokensInternal(
+	projectRoot: string,
+	systemName: string,
+	options: { canonicalize: boolean },
+): Promise<TailwindTokenStorageV2 | null> {
 	const snapshotPath = resolveTokenSnapshotPath(projectRoot, systemName);
 
 	try {
@@ -210,7 +229,10 @@ export async function readDomainTokens(
 		}
 
 		const canonicalStorage = normalizeTailwindTokenStorage(data, projectRoot);
-		if (JSON.stringify(canonicalStorage) !== JSON.stringify(data)) {
+		if (
+			options.canonicalize &&
+			JSON.stringify(canonicalStorage) !== JSON.stringify(data)
+		) {
 			await writeJsonAtomically(snapshotPath, canonicalStorage);
 		}
 

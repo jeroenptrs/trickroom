@@ -10,7 +10,8 @@
 	},
 	"scripts": {
 		"dev": "pnpm generate:tailwind-tokens && vite",
-		"build": "pnpm generate:tailwind-tokens && tsc && vite build",
+		"build": "pnpm generate:tailwind-tokens && tsc && vite build && pnpm build:mcp",
+		"build:mcp": "vite build --config vite.mcp.config.ts",
 		"preview": "vite preview",
 		"generate:tailwind-tokens": "node --experimental-strip-types scripts/generate-tailwind-tokens.ts",
 		"test": "vitest run"
@@ -22,6 +23,7 @@
 		"@atlaskit/pragmatic-drag-and-drop-live-region": "^1.3.4",
 		"@base-ui/react": "^1.4.1",
 		"@hono/node-server": "^2.0.0",
+		"@modelcontextprotocol/sdk": "^1.29.0",
 		"@remixicon/react": "^4.9.0",
 		"@tailwindcss/browser": "^4.2.4",
 		"@tanstack/react-hotkeys": "^0.10.0",
@@ -35,7 +37,8 @@
 		"sonner": "^2.0.7",
 		"tailwind-merge": "^3.5.0",
 		"tailwind-variants": "^3.2.2",
-		"tailwindcss": "^4.2.4"
+		"tailwindcss": "^4.2.4",
+		"zod": "^4.4.3"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.4.14",
@@ -53,6 +56,7 @@
 		"dist"
 	],
 	"bin": {
-		"trickroom": "./bin/trickroom.js"
+		"trickroom": "./bin/trickroom.js",
+		"trickroom-mcp": "./bin/trickroom-mcp.js"
 	}
 }

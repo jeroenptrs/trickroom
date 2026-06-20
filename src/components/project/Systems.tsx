@@ -1,12 +1,13 @@
 import { RiInformationLine as Info } from "@remixicon/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { TailwindSyncResult } from "../../hooks/useTailwindSyncController";
 import {
 	saveAndConfirmTailwindTokens,
 	storedTailwindTokensQueryKey,
 	storedTailwindTokensQueryOptions,
 } from "../../queries/tailwind-sync-tokens";
+import { computeColorOverrides } from "../../utils/tailwind-color-tokens";
 import { useTailwindSyncController } from "../contexts";
 import { Button } from "../ui/button";
 import Checkbox from "../ui/checkbox";
@@ -30,12 +31,15 @@ function System({ system }: { system: TailwindSyncResult }) {
 	const syncController = useTailwindSyncController();
 	const [open, setOpen] = useState(false);
 	const [shouldInjectOverrides, setShouldInjectOverrides] = useState(false);
+	const [useBroadReset, setUseBroadReset] = useState(false);
 	const shouldHaveOverrides = Boolean(
 		(system?.data?.baselineDiff.removed ?? []).length,
 	);
 	// TODO: when more domains are supported this should probably include logic
-	// TODO - future: granularly parse overrides so it's not --color-* but --color-red-* etc. where necessary
-	const possibleOverrides = ["--color-*"];
+	const possibleOverrides = useMemo(
+		() => computeColorOverrides(system.data?.baselineDiff.removed ?? []),
+		[system.data?.baselineDiff.removed],
+	);
 	const systemName = system.data?.systemName ?? "";
 	const storedTokensQuery = useQuery({
 		...storedTailwindTokensQueryOptions(systemName),
@@ -69,6 +73,7 @@ function System({ system }: { system: TailwindSyncResult }) {
 		const storedOverrides =
 			storedTokensQuery.data?.domains.color.overrides ?? [];
 		setShouldInjectOverrides(storedOverrides.length > 0);
+		setUseBroadReset(storedOverrides.includes("--color-*"));
 	}, [open, storedTokensQuery.data]);
 
 	const saveError =
@@ -76,8 +81,12 @@ function System({ system }: { system: TailwindSyncResult }) {
 			? saveOverridesMutation.error.message
 			: null;
 	const storedOverrides = storedTokensQuery.data?.domains.color.overrides ?? [];
+	const displayedOverrides =
+		shouldHaveOverrides && useBroadReset ? ["--color-*"] : possibleOverrides;
 	const nextOverrides =
-		shouldHaveOverrides && shouldInjectOverrides ? possibleOverrides : [];
+		shouldHaveOverrides && shouldInjectOverrides
+			? displayedOverrides
+			: [];
 	const overridesChanged =
 		JSON.stringify(nextOverrides) !== JSON.stringify(storedOverrides);
 	const reviewRequired = Boolean(
@@ -166,20 +175,44 @@ function System({ system }: { system: TailwindSyncResult }) {
 									</div>
 								))}
 							</ScrollArea>
-							<div className="p-2 flex flex-row gap-1 items-center flex-wrap">
-								<Checkbox
-									checked={shouldInjectOverrides}
-									onCheckedChange={(checked) =>
-										setShouldInjectOverrides(Boolean(checked))
-									}
-									disabled={saveOverridesMutation.isPending}
-								/>
-								<span>Inject the following overrides:</span>
-								{possibleOverrides.map((override) => (
-									<pre className="bg-red-900 text-red-50 px-0.5" key={override}>
-										{override}
-									</pre>
-								))}
+							<div className="p-2 flex flex-col gap-1">
+								<div className="flex flex-row gap-1 items-center flex-wrap">
+									<Checkbox
+										checked={shouldInjectOverrides}
+										onCheckedChange={(checked) =>
+											setShouldInjectOverrides(Boolean(checked))
+										}
+										disabled={saveOverridesMutation.isPending}
+									/>
+									<span>Inject the following overrides:</span>
+									{displayedOverrides.map((override) => (
+										<pre
+											className="bg-red-900 text-red-50 px-0.5"
+											key={override}
+										>
+											{override}
+										</pre>
+									))}
+								</div>
+								<div className="flex flex-row gap-1 items-center">
+									<Checkbox
+										checked={useBroadReset}
+										onCheckedChange={(checked) =>
+											setUseBroadReset(Boolean(checked))
+										}
+										disabled={
+											!shouldInjectOverrides ||
+											saveOverridesMutation.isPending
+										}
+									/>
+									<span>
+										Use sweeping{" "}
+										<code className="bg-red-900 text-red-50 px-0.5">
+											--color-*
+										</code>{" "}
+										reset
+									</span>
+								</div>
 							</div>
 						</div>
 					) : null}

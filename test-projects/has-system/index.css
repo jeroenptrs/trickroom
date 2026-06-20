@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+@theme {
+	--color-red-*: initial;
+	--color-abc: #abcabc;
+}

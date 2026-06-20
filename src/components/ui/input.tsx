@@ -1,5 +1,6 @@
 import { Field } from "@base-ui/react/field";
 import { Input as InputPrimitive, type InputProps } from "@base-ui/react/input";
+import type { ComponentProps } from "react";
 import { tv } from "tailwind-variants";
 
 const input = tv({
@@ -61,4 +62,36 @@ function InputField({
 	);
 }
 
-export { Input, InputField };
+function TextareaField({
+	label,
+	description,
+	className,
+	...props
+}: Omit<ComponentProps<"textarea">, "className"> & {
+	className?: string;
+	label: string;
+	description?: string;
+}) {
+	return (
+		<Field.Root data-slot="field-root" className="text-xs flex flex-col gap-1">
+			<Field.Label data-slot="field-label" className="font-semibold">
+				{label}
+			</Field.Label>
+			<textarea
+				data-slot="field-control"
+				className={input({
+					className: ["min-h-24 resize-y leading-4", className],
+					variant: "block",
+				})}
+				{...props}
+			/>
+			{description ? (
+				<Field.Description className="text-gray-900/60 pt-0.5">
+					{description}
+				</Field.Description>
+			) : null}
+		</Field.Root>
+	);
+}
+
+export { Input, InputField, TextareaField };

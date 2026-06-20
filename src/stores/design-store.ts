@@ -528,6 +528,16 @@ export function useDesignName() {
 	return useSelector(designStore, (state) => state.name);
 }
 
+export function setDesignName(name: string) {
+	const trimmed = name.trim();
+	if (!trimmed) return;
+
+	designStore.setState((state) => {
+		if (state.name === trimmed) return state;
+		return { ...state, name: trimmed, designDirty: true, revision: state.revision + 1 };
+	});
+}
+
 export function useDesignSystemName() {
 	return useSelector(designStore, (state) => state.systemName);
 }

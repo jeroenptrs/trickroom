@@ -226,6 +226,52 @@ describe("saveAndConfirmTailwindTokens", () => {
 		expect(result.reviewRequired).toBe(false);
 	});
 
+	it("POSTs granular overrides with red family and token declarations", async () => {
+		const storedSnapshot = {
+			ok: true,
+			systemName: "core",
+			cssPath: "src/index.css",
+			syncedAt: "2026-05-03T12:00:00.000Z",
+			tailwindBaselineVersion: "4.2.4",
+			reviewRequired: false,
+			domains: {
+				color: {
+					tokens: { "brand-500": "#123456" },
+					overrides: ["--color-red-*", "--color-red-50"],
+					baselineDiff: {
+						added: [],
+						overridden: [],
+						removed: [],
+					},
+				},
+			},
+		};
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(jsonResponse(200, storedSnapshot));
+
+		const result = await saveAndConfirmTailwindTokens({
+			systemName: "core",
+			domains: { color: { overrides: ["--color-red-50", "--color-red-*"] } },
+		});
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/trickroom/tailwind/systems/core/tokens",
+			expect.objectContaining({
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					domains: { color: { overrides: ["--color-red-50", "--color-red-*"] } },
+				}),
+			}),
+		);
+		expect(result).toEqual(storedSnapshot);
+		expect(result.domains.color.overrides).toEqual([
+			"--color-red-*",
+			"--color-red-50",
+		]);
+	});
+
 	it("propagates HTTP errors instead of swallowing them", async () => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			jsonResponse(400, { error: "Invalid override pattern" }),
