@@ -4,6 +4,14 @@ Lossless parser (`parse.ts`) plus semantic utility domains that power the Style
 inspector. Unknown classes are preserved in original order and round-trip
 unchanged.
 
+## Persisted output policy
+
+Class resolution is render-composition and explanation metadata. It may mark
+tokens as shadowed, but storage and mutation paths must keep user-authored
+`className` strings in their authored order, including unknown tokens. Do not use
+resolver output to normalize persisted strings until an explicit migration or
+editor policy exists. The exported policy lives in `src/utils/class-layers.ts`.
+
 ## Slot identity
 
 Every recognised utility occupies one slot keyed by:
@@ -15,6 +23,22 @@ Every recognised utility occupies one slot keyed by:
 Mutations replace only the exact `(mode, property, variant)` slot. Shared helpers
 live in `slots.ts` (`resolveSlotTarget`, `formatWithVariantChain`,
 `replaceOrAppendRaw`, `removeRawAtIndex`).
+
+## Conflict Scope
+
+The shared resolver foundation treats a known utility's conflict identity as:
+
+- **utility group** — the classified semantic property, prefixed by intent kind
+  (for example `style:size.height`)
+- **modifier chain** — every Tailwind modifier before the utility body in source
+  order, joined with `:`
+
+Two utilities may shadow each other only when both the utility group and modifier
+chain match. Scoped utilities do not shadow unscoped utilities unless a future
+resolver rule explicitly models that relationship. For example,
+`data-[orientation=horizontal]:h-px` and `h-2` are distinct scopes, while
+`data-[orientation=horizontal]:h-px` and
+`data-[orientation=horizontal]:h-2` share one height scope.
 
 ## Adding a new utility domain
 
@@ -48,6 +72,7 @@ Do **not** put Tailwind-specific rules in `parse.ts`. The parser stays syntactic
 |------|------|
 | `parse.ts` | Lossless tokenization (modes, variants, important, arbitrary) |
 | `slots.ts` | Shared slot keys and className splice helpers |
+| `scope.ts` | Modifier-chain and utility-group conflict identity helpers |
 | `domains/index.ts` | Ordered domain registry and `classifyKnownUtility` |
 | `color.ts` | Color classifier |
 | `registry.ts` | Color prefix registry and non-color sibling rules |

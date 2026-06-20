@@ -52,3 +52,12 @@ export {
 	type SlotTarget,
 	slotKeysFromParsed,
 } from "./slots";
+export {
+	getModifierChain,
+	getUtilityConflictGroup,
+	getUtilityConflictScope,
+	sameModifierChain,
+	type ModifierChain,
+	type UtilityConflictScope,
+	utilityScopesMayConflict,
+} from "./scope";

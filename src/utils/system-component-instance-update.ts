@@ -1,8 +1,9 @@
 import {
-	getControlProps,
+	getMaterializedBaseClassProps,
+	MATERIALIZED_BASE_CLASS_PROP,
 	resolveRegistryComponent,
 } from "../libraries/registry";
-import type { Node, RecipeTemplateNode } from "../types";
+import type { Node, Props, RecipeTemplateNode } from "../types";
 import {
 	getSystemComponentMarkerProps,
 	getSystemComponentStructuralMetadata,
@@ -12,17 +13,15 @@ import {
 import { resolveSystemComponentOverrideValue } from "./system-component-override-targets";
 import { assetIdProp, iconIdProp } from "./resource-props";
 import {
+	resolveMaterializedSystemComponentClassComposition,
 	resolveSystemComponentClassName,
 	resolveSystemComponentVariantValues,
 } from "./system-component-resolution";
 import type { PublishedSystemComponentVersion } from "./system-components";
 
-// Mirrors expansion (expandTemplateNode): the resolved system className layers
-// on top of the node's registry default className (from `defaultProps`) and any
-// authored template props rather than replacing them. Without this, recomputing
-// a node's className (variant switch, detach) when the variant contributes none
-// would strip the registry default that expansion baked in at creation (e.g. the
-// icon's `size-5`).
+// Mirrors expansion (expandTemplateNode): the resolved system className wins
+// over authored template props, while empty resolved classes fall back to the
+// template's authored props.
 export const resolveInstanceNodeClassName = (
 	template: RecipeTemplateNode | undefined,
 	resolvedSystemClassName: string,
@@ -37,17 +36,88 @@ export const resolveInstanceNodeClassName = (
 	if (typeof templatePropsClassName === "string") {
 		return templatePropsClassName;
 	}
+	return undefined;
+};
+
+export const resolveMaterializedInstanceNodeClassProps = (
+	template: RecipeTemplateNode | undefined,
+	resolvedSystemClassName: string,
+): Partial<Props> => {
+	const className = resolveInstanceNodeClassName(
+		template,
+		resolvedSystemClassName,
+	);
+	if (!template) {
+		return className ? { className } : {};
+	}
 	const resolution = resolveRegistryComponent(
 		template.library,
 		template.component,
 	);
 	if (resolution.status === "known") {
-		const defaultClassName = getControlProps(resolution.definition).className;
-		if (typeof defaultClassName === "string") {
-			return defaultClassName;
-		}
+		return getMaterializedBaseClassProps(className, resolution.definition);
 	}
-	return undefined;
+	return className ? { className } : {};
+};
+
+export const resolveSystemComponentInstanceNodeClassProps = (
+	version: PublishedSystemComponentVersion,
+	template: RecipeTemplateNode | undefined,
+	path: string,
+	variantValues: Record<string, string>,
+	overrides: SystemComponentInstanceOverrides,
+	context: {
+		systemId?: string;
+		componentId?: string;
+		instanceId?: string;
+	},
+): Partial<Props> => {
+	if (!template) {
+		const className = resolveSystemComponentClassName(
+			version,
+			path,
+			undefined,
+			variantValues,
+			overrides,
+		);
+		return className ? { className } : {};
+	}
+	const resolution = resolveRegistryComponent(
+		template.library,
+		template.component,
+	);
+	const templatePropsClassName =
+		typeof template.props?.className === "string"
+			? template.props.className
+			: undefined;
+	if (resolution.status === "known") {
+		return resolveMaterializedSystemComponentClassComposition(
+			version,
+			path,
+			template.className,
+			templatePropsClassName,
+			variantValues,
+			overrides,
+			resolution.definition,
+			{
+				...context,
+				library: template.library,
+				component: template.component,
+			},
+		).props;
+	}
+
+	const className = resolveInstanceNodeClassName(
+		template,
+		resolveSystemComponentClassName(
+			version,
+			path,
+			template.className,
+			variantValues,
+			overrides,
+		) ?? "",
+	);
+	return className ? { className } : {};
 };
 
 const getTemplateNodesByPath = (root: RecipeTemplateNode) => {
@@ -164,25 +234,23 @@ export const updateSystemComponentInstanceOnRoots = (
 		}
 
 		const template = templatesByPath.get(metadata.path);
-		const templateClassName = template?.className;
-		const className = resolveSystemComponentClassName(
+		const classNameProps = resolveSystemComponentInstanceNodeClassProps(
 			version,
+			template,
 			metadata.path,
-			templateClassName,
 			variantValues,
 			overrides,
-		);
-		const effectiveClassName = resolveInstanceNodeClassName(
-			template,
-			className,
+			{
+				systemId: metadata.systemId,
+				componentId: metadata.componentId,
+				instanceId: metadata.instanceId,
+			},
 		);
 
 		const nextProps = { ...node.props };
-		if (typeof effectiveClassName === "string") {
-			nextProps.className = effectiveClassName;
-		} else {
-			delete nextProps.className;
-		}
+		delete nextProps.className;
+		delete nextProps[MATERIALIZED_BASE_CLASS_PROP];
+		Object.assign(nextProps, classNameProps);
 
 		if (metadata.isRoot) {
 			Object.assign(
@@ -236,6 +304,8 @@ export const updateSystemComponentInstanceOnRoots = (
 			nextProps.className !== node.props.className ||
 			nextProps[iconIdProp] !== node.props[iconIdProp] ||
 			nextProps[assetIdProp] !== node.props[assetIdProp] ||
+			nextProps[MATERIALIZED_BASE_CLASS_PROP] !==
+				node.props[MATERIALIZED_BASE_CLASS_PROP] ||
 			nextChildren !== node.children ||
 			metadata.isRoot
 		) {

@@ -268,13 +268,19 @@ module.exports = {
 				background: path.resolve(
 					__dirname,
 					"assets",
-					"trickroom-dmg-background-2x.png",
+					"trickroom-dmg-background-centered-2x.png",
 				),
 				icon: path.resolve(
 					__dirname,
 					"assets",
 					"trickroom-app-icon-final.icns",
 				),
+				window: {
+					size: {
+						width: 540,
+						height: 380,
+					},
+				},
 			},
 		},
 		{

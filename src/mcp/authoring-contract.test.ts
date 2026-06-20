@@ -54,6 +54,9 @@ describe("getDesignAuthoringContract planning payload", () => {
 			catalogHash: string;
 			registryHash: string;
 			recipeCatalogHash: string;
+			relatedContracts: {
+				systemComponentAuthoring: { tool: string };
+			};
 			registries: Array<{
 				library: string;
 				recipes: Array<{
@@ -70,6 +73,10 @@ describe("getDesignAuthoringContract planning payload", () => {
 
 		expect(contract.registryHash).toBe(contract.catalogHash);
 		expect(contract.recipeCatalogHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+		expect(contract.relatedContracts.systemComponentAuthoring.tool).toBe(
+			"getSystemComponentAuthoringContract",
+		);
+		expect(JSON.stringify(contract).length).toBeLessThan(80_000);
 		expect(second.structuredContent).toMatchObject({
 			catalogHash: contract.catalogHash,
 			registryHash: contract.registryHash,

@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import {
+	getRenderableProps,
+	MATERIALIZED_BASE_CLASS_PROP,
+	resolveRegistryComponent,
+} from "../libraries/registry";
 import type { Node } from "../types";
 import { expandResolvedSystemComponent } from "./system-component-expansion";
 import {
@@ -24,6 +29,8 @@ import {
 const systemId = "sys-core";
 const componentId = FIXTURE_COMPONENT_ID;
 const instanceId = "instance-1";
+const separatorBaseClassName =
+	"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full";
 
 const sourceVersionV1 = (): PublishedSystemComponentVersion => {
 	const root = {
@@ -374,6 +381,121 @@ describe("system-component-migration", () => {
 			componentId: FIXTURE_OTHER_COMPONENT_ID,
 			instanceId: "nested-instance",
 		});
+	});
+
+	it("materializes legacy seeded separator template classes without duplicating base classes", () => {
+		const root = {
+			path: "root",
+			library: "trickroom",
+			component: "container",
+			children: [
+				{
+					path: "separator",
+					library: "base-ui",
+					component: "separator",
+					className: `${separatorBaseClassName} bg-slate-200`,
+				},
+				{
+					path: "menuSeparator",
+					library: "base-ui",
+					component: "menu.separator",
+					props: {
+						className: `${separatorBaseClassName} opacity-70`,
+					},
+				},
+			],
+		};
+		const sourceDraft = { root };
+		const targetDraft = { root };
+		const source: PublishedSystemComponentVersion = {
+			...sourceDraft,
+			version: "1",
+			publishedAt: "2026-05-30T12:00:00.000Z",
+			templateHash: hashSystemComponentTemplate(sourceDraft),
+			variantSchemaHash: hashSystemComponentVariantSchema(),
+		};
+		const target: PublishedSystemComponentVersion = {
+			...targetDraft,
+			version: "2",
+			publishedAt: "2026-05-31T12:00:00.000Z",
+			templateHash: hashSystemComponentTemplate(targetDraft),
+			variantSchemaHash: hashSystemComponentVariantSchema(),
+			previousVersion: "1",
+		};
+		const staleRoot = expandResolvedSystemComponent(
+			{
+				systemId,
+				componentId,
+				record: {
+					componentId,
+					slug: "separators",
+					name: "Separators",
+					createdAt: "",
+					updatedAt: "",
+					published: {
+						currentVersion: "1",
+						versions: { "1": source },
+					},
+				},
+				version: source,
+			},
+			{
+				createInstanceId: () => instanceId,
+				createElementId: () => crypto.randomUUID(),
+			},
+		).root;
+
+		const result = migrateSystemComponentInstance([staleRoot], staleRoot.id, {
+			systemId,
+			componentId,
+			sourceVersion: source,
+			targetVersion: target,
+		});
+		const migratedChildren = result.roots[0].children as Node[];
+		const separator = migratedChildren.find(
+			(child) =>
+				getSystemComponentStructuralMetadata(child.props)?.path === "separator",
+		);
+		const menuSeparator = migratedChildren.find(
+			(child) =>
+				getSystemComponentStructuralMetadata(child.props)?.path ===
+				"menuSeparator",
+		);
+		const separatorDefinition = resolveRegistryComponent(
+			"base-ui",
+			"separator",
+		);
+		const menuSeparatorDefinition = resolveRegistryComponent(
+			"base-ui",
+			"menu.separator",
+		);
+		expect(separatorDefinition.status).toBe("known");
+		expect(menuSeparatorDefinition.status).toBe("known");
+		if (
+			separatorDefinition.status !== "known" ||
+			menuSeparatorDefinition.status !== "known"
+		) {
+			return;
+		}
+
+		expect(separator?.props.className).toBe(
+			`${separatorBaseClassName} bg-slate-200`,
+		);
+		expect(separator?.props[MATERIALIZED_BASE_CLASS_PROP]).toBe("true");
+		expect(menuSeparator?.props.className).toBe(
+			`${separatorBaseClassName} opacity-70`,
+		);
+		expect(menuSeparator?.props[MATERIALIZED_BASE_CLASS_PROP]).toBe("true");
+		expect(
+			getRenderableProps(separator?.props ?? {}, separatorDefinition.definition)
+				.className,
+		).toBe(`${separatorBaseClassName} bg-slate-200`);
+		expect(
+			getRenderableProps(
+				menuSeparator?.props ?? {},
+				menuSeparatorDefinition.definition,
+			).className,
+		).toBe(`${separatorBaseClassName} opacity-70`);
 	});
 
 	it("reports dropped overrides and refuses unsafe slot content loss", () => {

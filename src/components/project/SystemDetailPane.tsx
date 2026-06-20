@@ -1,15 +1,11 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-	AlertTriangle,
+	ArrowUpRight,
 	Check,
-	ChevronDown,
-	ChevronRight,
 	Copy,
-	Folder,
 	RefreshCw,
 	Save,
-	Search,
 	Trash2,
 } from "lucide-react";
 import {
@@ -29,17 +25,8 @@ import {
 } from "../../queries/config-file";
 import type { ProjectQueryScope } from "../../queries/project-scope";
 import { sessionQueryOptions } from "../../queries/projects";
-import {
-	systemAssetsQueryOptions,
-} from "../../queries/system-assets";
-import {
-	addSystemIconFolder,
-	removeSystemIconFolder,
-	syncSystemIconsMutation,
-	systemIconSvgQueriesQueryKey,
-	systemIconsQueryKey,
-	systemIconsQueryOptions,
-} from "../../queries/system-icons";
+import { systemAssetsQueryOptions } from "../../queries/system-assets";
+import { systemIconsQueryOptions } from "../../queries/system-icons";
 import { systemUsedByQueryOptions } from "../../queries/system-used-by";
 import {
 	deleteSystem,
@@ -65,9 +52,8 @@ import {
 import { useProjectScope, useTailwindSyncController } from "../contexts";
 import { Button } from "../ui/button";
 import { ConfirmationDialog } from "../ui/dialog";
-import { Input, TextareaField } from "../ui/input";
+import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
-import { Tabs, TabsList, TabsPanel, TabsTab } from "../ui/tabs";
 import { Text } from "../ui/text";
 import { formatRelativeTime } from "./project-view-utils";
 import { SystemDiffChips } from "./SystemDiffChips";
@@ -75,38 +61,9 @@ import {
 	SystemStatusBadge,
 	type SystemStatusBadgeState,
 } from "./SystemStatusBadge";
-import type { SystemTab } from "./SystemTabBar";
-import {
-	deriveTokenDomainPills,
-	filterAndGroupTokenRowsByDomain,
-	groupTokenRowsByDomain,
-	SystemTokenSwatch,
-	TokenDomainPills,
-	TokenDomainSectionList,
-	TokenFilterInput,
-} from "./SystemTokenRows";
 
 function getCssBasename(cssPath: string) {
 	return cssPath.split(/[\\/]/).pop() || cssPath;
-}
-
-function toProjectRelativePath(path: string, projectRoot: string) {
-	const normalizedPath = path.trim().replaceAll("\\", "/").replace(/\/+$/, "");
-	const normalizedRoot = projectRoot
-		.trim()
-		.replaceAll("\\", "/")
-		.replace(/\/+$/, "");
-
-	if (!normalizedPath || !normalizedRoot || normalizedPath === normalizedRoot) {
-		return null;
-	}
-
-	const rootPrefix = `${normalizedRoot}/`;
-	if (!normalizedPath.startsWith(rootPrefix)) {
-		return null;
-	}
-
-	return normalizedPath.slice(rootPrefix.length);
 }
 
 function getSyncState(
@@ -132,26 +89,42 @@ function getSyncState(
 	return "synced";
 }
 
-export const getSystemEditorPath = (systemId: string) =>
-	`/system/${encodeURIComponent(systemId)}`;
+export const getSystemEditorPath = (
+	systemId: string,
+	options?: { tab?: string },
+) => {
+	const path = `/system/${encodeURIComponent(systemId)}`;
+	return options?.tab ? `${path}?tab=${encodeURIComponent(options.tab)}` : path;
+};
 
 export function OpenSystemEditorAction({
 	systemId,
 	disabled,
+	reviewRequired = false,
 }: {
 	systemId: string;
 	disabled?: boolean;
+	reviewRequired?: boolean;
 }) {
 	const navigate = useNavigate();
 
 	return (
 		<Button
 			type="button"
-			variant="block"
-			onClick={() => navigate(getSystemEditorPath(systemId))}
+			variant="blockDark"
+			className="flex items-center gap-1.5 bg-slate-950"
+			onClick={() =>
+				navigate(
+					getSystemEditorPath(
+						systemId,
+						reviewRequired ? { tab: "tokens" } : undefined,
+					),
+				)
+			}
 			disabled={disabled}
 		>
-			Open in editor
+			<ArrowUpRight className="size-4" aria-hidden="true" />
+			Open system
 		</Button>
 	);
 }
@@ -160,18 +133,6 @@ type TokenDiff = {
 	added: number;
 	overridden: number;
 	removed: number;
-};
-
-type TokenDiffSectionTone = "added" | "overridden" | "removed" | "unchanged";
-
-type TokenDiffSection = {
-	key: TokenDiffSectionTone;
-	label: string;
-	count: number;
-	sections: ReturnType<typeof groupTokenRowsByDomain>;
-	emptyMessage: string;
-	domainEmptyMessage: string;
-	tone: TokenDiffSectionTone;
 };
 
 type StoredTokenDomains = StoredTailwindTokensResponse["domains"];
@@ -270,14 +231,6 @@ function collectStoredRemovedTokens(
 	);
 }
 
-function collectSyncUnchangedTokens(
-	baselineDiffs: TailwindTokenDomainDiffs | undefined,
-): TailwindOverriddenTokenEntry[] {
-	return TAILWIND_TOKEN_DOMAINS.flatMap(
-		(domain) => baselineDiffs?.[domain].unchanged ?? [],
-	);
-}
-
 function getStoredTokenOverridesByDomain(
 	domains: StoredTokenDomains | undefined,
 ) {
@@ -314,14 +267,6 @@ function computeSuggestedTokenOverridesByDomain(
 	return cloneTokenOverridesByDomain(overridesByDomain);
 }
 
-function flattenTokenOverridesByDomain(
-	overridesByDomain: TokenOverridesByDomain,
-) {
-	return TAILWIND_TOKEN_DOMAINS.flatMap(
-		(domain) => overridesByDomain[domain] ?? [],
-	);
-}
-
 function tokenOverridesByDomainChanged(
 	left: TokenOverridesByDomain,
 	right: TokenOverridesByDomain,
@@ -341,40 +286,19 @@ function toTokenSaveDomains(overridesByDomain: TokenOverridesByDomain) {
 	) as Record<TailwindTokenDomain, { overrides: string[] }>;
 }
 
-function SystemDetailTabBar() {
-	const tabClassName =
-		"px-3 py-2 text-sm font-medium text-slate-700 data-active:bg-cyan-100 data-active:text-cyan-900 not-disabled:hover:bg-slate-100 data-active:hover:bg-cyan-100";
-
-	return (
-		<TabsList className="flex flex-row flex-wrap border-b border-slate-200">
-			<TabsTab className={tabClassName} value="overview">
-				Overview
-			</TabsTab>
-			<TabsTab className={tabClassName} value="tokens">
-				Tokens
-			</TabsTab>
-			<TabsTab className={tabClassName} value="settings">
-				Settings
-			</TabsTab>
-		</TabsList>
-	);
-}
-
 function SystemDetailHeader({
 	title,
 	status,
 	subline,
 	diff,
-	primaryAction,
-	secondaryAction,
+	actions,
 	errors,
 }: {
 	title: ReactNode;
 	status: SystemStatusBadgeState;
 	subline: string;
 	diff: TokenDiff;
-	primaryAction?: ReactNode;
-	secondaryAction?: ReactNode;
+	actions?: ReactNode;
 	errors?: ReactNode;
 }) {
 	const isSyncing = status === "syncing";
@@ -409,290 +333,11 @@ function SystemDetailHeader({
 					</div>
 					{errors}
 				</div>
-				{secondaryAction ? (
-					<div className="flex shrink-0 items-center gap-2">
-						{secondaryAction}
-					</div>
-				) : null}
-				{primaryAction ? (
-					<div className="flex shrink-0 items-center gap-2">
-						{primaryAction}
-					</div>
+				{actions ? (
+					<div className="flex shrink-0 items-center gap-2">{actions}</div>
 				) : null}
 			</div>
 		</header>
-	);
-}
-
-const tokenDiffSectionHeaderClassNames: Record<TokenDiffSectionTone, string> = {
-	added: "bg-green-50",
-	overridden: "bg-amber-50",
-	removed: "bg-red-50",
-	unchanged: "bg-slate-50",
-};
-
-const tokenDiffSectionTitleClassNames: Record<TokenDiffSectionTone, string> = {
-	added: "text-green-900",
-	overridden: "text-amber-900",
-	removed: "text-red-900",
-	unchanged: "text-slate-900",
-};
-
-const tokenDiffSectionCountClassNames: Record<TokenDiffSectionTone, string> = {
-	added: "text-green-700",
-	overridden: "text-amber-700",
-	removed: "text-red-700",
-	unchanged: "text-slate-500",
-};
-
-function TokenDiffSectionCard({
-	section,
-	renderRows = true,
-	children,
-	isCollapsed = false,
-	onToggle,
-}: {
-	section: TokenDiffSection;
-	renderRows?: boolean;
-	children?: ReactNode;
-	isCollapsed?: boolean;
-	onToggle?: () => void;
-}) {
-	const effectiveCount = section.sections.reduce(
-		(rowCount, sectionDomain) => rowCount + sectionDomain.rows.length,
-		0,
-	);
-	const hasRows = effectiveCount > 0;
-	const canCollapse = typeof onToggle === "function";
-	const Icon = isCollapsed ? ChevronRight : ChevronDown;
-	const headerContent = (
-		<div className="flex items-center gap-2">
-			{canCollapse ? (
-				<Icon className="size-3.5 shrink-0 self-center" aria-hidden="true" />
-			) : null}
-			<Text
-				variant="subtitle"
-				className={tokenDiffSectionTitleClassNames[section.tone]}
-			>
-				{section.label}
-			</Text>
-			<span
-				className="size-1 rounded-full bg-current opacity-30"
-				aria-hidden="true"
-			/>
-			<span
-				className={`font-mono text-xs ${tokenDiffSectionCountClassNames[section.tone]}`}
-			>
-				{hasRows ? effectiveCount : section.count}
-			</span>
-		</div>
-	);
-
-	return (
-		<div className="flex flex-col border border-slate-200 bg-white">
-			{canCollapse ? (
-				<button
-					type="button"
-					className={`flex items-center px-4 py-3 text-left ${tokenDiffSectionHeaderClassNames[section.tone]} ${tokenDiffSectionTitleClassNames[section.tone]}`}
-					onClick={onToggle}
-					aria-expanded={!isCollapsed}
-				>
-					{headerContent}
-				</button>
-			) : (
-				<div
-					className={`flex items-center px-4 py-3 ${tokenDiffSectionHeaderClassNames[section.tone]} ${tokenDiffSectionTitleClassNames[section.tone]}`}
-				>
-					{headerContent}
-				</div>
-			)}
-			{isCollapsed ? null : (
-				<>
-					{renderRows && hasRows ? (
-						section.sections.map((domainSection) => (
-							<TokenDomainSectionList
-								key={domainSection.domain}
-								section={domainSection}
-								emptyMessage={section.domainEmptyMessage}
-							/>
-						))
-					) : renderRows ? (
-						<p className="px-4 py-6 text-sm text-slate-500">
-							{section.emptyMessage}
-						</p>
-					) : null}
-					{children}
-				</>
-			)}
-		</div>
-	);
-}
-
-function TokenSyncErrorCard({ message }: { message: string | null }) {
-	return (
-		<div className="flex flex-col border border-red-200 bg-white" role="alert">
-			<div className="flex items-baseline justify-between bg-red-50 px-3 py-2">
-				<div className="flex items-baseline gap-2">
-					<Text variant="subtitle" className="text-red-950">
-						Tokens
-					</Text>
-					<span className="font-mono text-xs text-red-700">Error</span>
-				</div>
-			</div>
-			<div className="flex items-start gap-3 border-t border-red-100 px-4 py-4">
-				<AlertTriangle
-					className="mt-0.5 size-4 shrink-0 text-red-600"
-					aria-hidden="true"
-				/>
-				<div className="flex min-w-0 flex-1 flex-col gap-1">
-					<Text variant="subtitle" className="text-red-950">
-						Token sync failed
-					</Text>
-					<p className="text-sm text-red-700">
-						{message ?? "The token sync did not complete."}
-					</p>
-				</div>
-			</div>
-		</div>
-	);
-}
-
-function ColorOverrideDeclarationRows({
-	overrides,
-	emptyMessage,
-}: {
-	overrides: readonly string[];
-	emptyMessage: string;
-}) {
-	if (overrides.length === 0) {
-		return <p className="px-4 py-6 text-sm text-slate-500">{emptyMessage}</p>;
-	}
-
-	return (
-		<div className="flex flex-wrap gap-1.5">
-			{overrides.map((override) => (
-				<code
-					key={override}
-					className="inline-flex min-w-0 max-w-full items-center truncate bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-900 inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
-				>
-					{override}: initial;
-				</code>
-			))}
-		</div>
-	);
-}
-
-function ColorOverridesBlock({
-	overrides,
-	description,
-}: {
-	overrides: readonly string[];
-	description: string;
-}) {
-	return (
-		<div className="flex flex-col gap-2 border-t border-slate-100 px-4 py-3">
-			<div className="flex items-baseline gap-2">
-				<span className="text-sm font-medium text-slate-900">
-					Override declarations
-				</span>
-				<span className="font-mono text-xs text-slate-500">
-					{overrides.length}
-				</span>
-			</div>
-			<p className="text-xs text-slate-600">{description}</p>
-			<ColorOverrideDeclarationRows
-				overrides={overrides}
-				emptyMessage="No override declarations are needed for these changes."
-			/>
-		</div>
-	);
-}
-
-function CompactTokenSectionList({
-	sections,
-	emptyMessage,
-}: {
-	sections: ReturnType<typeof groupTokenRowsByDomain>;
-	emptyMessage: string;
-}) {
-	const rows = sections.flatMap((section) =>
-		section.rows.map((row) => ({
-			...row,
-			key: `${section.domain}:${row.name}`,
-		})),
-	);
-
-	if (rows.length === 0) {
-		return <p className="px-4 py-6 text-sm text-slate-500">{emptyMessage}</p>;
-	}
-
-	return (
-		<div className="flex flex-wrap gap-1.5 border-t border-slate-100 px-4 py-3">
-			{rows.map((row) => (
-				<span
-					key={row.key}
-					className="inline-flex max-w-full items-center gap-1.5 bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-800 inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
-					title={`${row.name} ${row.value}`}
-				>
-					<SystemTokenSwatch value={row.value} />
-					<span className="min-w-0 truncate">{row.name}</span>
-				</span>
-			))}
-		</div>
-	);
-}
-
-function DenseTokenSectionList({
-	sections,
-	emptyMessage,
-}: {
-	sections: ReturnType<typeof groupTokenRowsByDomain>;
-	emptyMessage: string;
-}) {
-	const rowCount = sections.reduce(
-		(count, section) => count + section.rows.length,
-		0,
-	);
-
-	if (rowCount === 0) {
-		return <p className="px-4 py-6 text-sm text-slate-500">{emptyMessage}</p>;
-	}
-
-	return (
-		<div className="flex flex-col border-t border-slate-100">
-			{sections.map((section) => (
-				<div
-					key={section.domain}
-					className="border-t border-slate-100 px-4 py-3 first:border-t-0"
-				>
-					<div className="mb-2 flex items-baseline gap-2">
-						<span className="text-xs font-bold text-slate-500 uppercase">
-							{section.label}
-						</span>
-						<span className="font-mono text-[10px] text-slate-400">
-							{section.rows.length}
-						</span>
-					</div>
-					<div className="flex flex-wrap gap-1.5">
-						{section.rows.map((row) => (
-							<span
-								key={`${section.domain}:${row.name}`}
-								className="inline-flex min-w-0 max-w-full items-center gap-1.5 bg-slate-50 px-2 py-1 text-slate-900 inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
-								title={`${row.name}: ${row.value}`}
-							>
-								<SystemTokenSwatch value={row.value} />
-								<span className="max-w-40 truncate font-mono text-[11px]">
-									{row.name}
-								</span>
-								<span className="max-w-56 truncate border-l border-slate-200 pl-1.5 font-mono text-[10px] text-slate-500">
-									{row.value}
-								</span>
-							</span>
-						))}
-					</div>
-				</div>
-			))}
-		</div>
 	);
 }
 
@@ -1031,47 +676,30 @@ function SystemSettingsSubview({
 	const sessionQuery = useQuery(sessionQueryOptions());
 	const [draftName, setDraftName] = useState(systemDisplayName);
 	const [draftCssPath, setDraftCssPath] = useState(cssPath);
-	const [draftIconFolderPath, setDraftIconFolderPath] = useState("");
 	const [settingsActionError, setSettingsActionError] = useState<string | null>(
 		null,
 	);
 	const [isPickingCssPath, setIsPickingCssPath] = useState(false);
-	const [isPickingIconFolder, setIsPickingIconFolder] = useState(false);
 	const [copiedSystemId, setCopiedSystemId] = useState(false);
 	const systemIdCopyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
 		null,
 	);
-	const iconsQuery = useQuery(systemIconsQueryOptions(systemId, projectScope));
-	const folders = iconsQuery.data?.iconFolderPaths ?? [];
-	const iconCount = iconsQuery.data?.icons.length ?? 0;
-	const diagnosticCount = iconsQuery.data?.diagnostics.length ?? 0;
 	const projectRoot = sessionQuery.data?.activeProject?.projectRoot ?? "";
 	const canPickCssPath = Boolean(desktopApi) && Boolean(projectRoot);
-	const canPickIconFolder = Boolean(desktopApi) && Boolean(projectRoot);
 	const storageRoot = `.trickroom/systems/${systemId}`;
 	const tokenStoragePath = `${storageRoot}/tokens.json`;
 	const iconManifestPath = `${storageRoot}/icons.json`;
 	const assetManifestPath = `${storageRoot}/assets.json`;
-	const iconsQueryKey = systemIconsQueryKey(systemId, projectScope);
 	const storedTokensQueryKey = storedTailwindTokensQueryKey(
 		systemId,
 		projectScope,
 	);
-	const iconSvgQueriesKey = systemIconSvgQueriesQueryKey(systemId);
 	const invalidateSystemSettings = useCallback(async () => {
 		await Promise.all([
 			queryClient.invalidateQueries({ queryKey: systemsQueryKey }),
 			queryClient.invalidateQueries({ queryKey: configFileQueryKey }),
-			queryClient.invalidateQueries({ queryKey: iconsQueryKey }),
 		]);
-	}, [iconsQueryKey, queryClient]);
-	const invalidateSystemIconSvgs = useCallback(async () => {
-		queryClient.removeQueries({
-			queryKey: iconSvgQueriesKey,
-			type: "inactive",
-		});
-		await queryClient.invalidateQueries({ queryKey: iconSvgQueriesKey });
-	}, [iconSvgQueriesKey, queryClient]);
+	}, [queryClient]);
 	const clearSettingsActionError = () => setSettingsActionError(null);
 	const captureSettingsActionError = (error: unknown) => {
 		setSettingsActionError(
@@ -1101,50 +729,8 @@ function SystemSettingsSubview({
 			}
 		},
 	});
-	const addIconFolderMutation = useMutation({
-		mutationFn: (folderPath: string) =>
-			addSystemIconFolder({ systemId, folderPath }),
-		onMutate: clearSettingsActionError,
-		onError: captureSettingsActionError,
-		onSuccess: async (response) => {
-			clearSettingsActionError();
-			queryClient.setQueryData(iconsQueryKey, response);
-			setDraftIconFolderPath("");
-			await invalidateSystemIconSvgs();
-			await invalidateSystemSettings();
-		},
-	});
-	const removeIconFolderMutation = useMutation({
-		mutationFn: (folderPath: string) =>
-			removeSystemIconFolder({ systemId, folderPath }),
-		onMutate: clearSettingsActionError,
-		onError: captureSettingsActionError,
-		onSuccess: async (response) => {
-			clearSettingsActionError();
-			queryClient.setQueryData(iconsQueryKey, response);
-			await invalidateSystemIconSvgs();
-			await invalidateSystemSettings();
-		},
-	});
-	const reindexIconsMutation = useMutation({
-		mutationFn: () => syncSystemIconsMutation(systemId),
-		onMutate: clearSettingsActionError,
-		onError: captureSettingsActionError,
-		onSuccess: async (response) => {
-			clearSettingsActionError();
-			queryClient.setQueryData(iconsQueryKey, response);
-			await invalidateSystemIconSvgs();
-			await queryClient.invalidateQueries({ queryKey: iconsQueryKey });
-		},
-	});
-	const settingsError =
-		settingsActionError ??
-		(iconsQuery.error instanceof Error ? iconsQuery.error.message : null);
-	const isMutatingSettings =
-		updateSystemMutation.isPending ||
-		addIconFolderMutation.isPending ||
-		removeIconFolderMutation.isPending ||
-		reindexIconsMutation.isPending;
+	const settingsError = settingsActionError;
+	const isMutatingSettings = updateSystemMutation.isPending;
 	const settingsActionsDisabled = isMutatingSettings || disconnectDisabled;
 	const saveNameDisabled =
 		settingsActionsDisabled ||
@@ -1154,10 +740,7 @@ function SystemSettingsSubview({
 		settingsActionsDisabled ||
 		draftCssPath.trim().length === 0 ||
 		draftCssPath.trim() === cssPath;
-	const addIconFolderDisabled =
-		settingsActionsDisabled || draftIconFolderPath.trim().length === 0;
-	const pickerActionsDisabled =
-		settingsActionsDisabled || isPickingCssPath || isPickingIconFolder;
+	const pickerActionsDisabled = settingsActionsDisabled || isPickingCssPath;
 
 	useEffect(() => {
 		setDraftName(systemDisplayName);
@@ -1206,44 +789,6 @@ function SystemSettingsSubview({
 		} finally {
 			setIsPickingCssPath(false);
 		}
-	};
-
-	const addIconFolder = () => {
-		if (addIconFolderDisabled) return;
-		addIconFolderMutation.mutate(draftIconFolderPath.trim());
-	};
-
-	const pickIconFolder = async () => {
-		if (!desktopApi || !projectRoot || pickerActionsDisabled) {
-			return;
-		}
-
-		clearSettingsActionError();
-		setIsPickingIconFolder(true);
-		try {
-			const result = await desktopApi.pickProjectFolder();
-			if (!result.canceled) {
-				const relativePath = toProjectRelativePath(result.path, projectRoot);
-				if (!relativePath) {
-					setSettingsActionError("Choose an icon folder inside this project.");
-					return;
-				}
-				setDraftIconFolderPath(relativePath);
-			}
-		} catch (error) {
-			captureSettingsActionError(
-				error instanceof Error
-					? error
-					: new Error("Failed to choose icon folder."),
-			);
-		} finally {
-			setIsPickingIconFolder(false);
-		}
-	};
-
-	const reindexIcons = () => {
-		if (settingsActionsDisabled) return;
-		reindexIconsMutation.mutate();
 	};
 
 	const copySystemId = () => {
@@ -1394,116 +939,6 @@ function SystemSettingsSubview({
 				</div>
 			</SettingsSection>
 
-			<SettingsSection title="Icon Folders">
-				<div className="flex items-baseline justify-between gap-3">
-					<span className="text-sm text-slate-600">
-						{iconsQuery.isPending
-							? "Loading icon index..."
-							: iconsQuery.isError
-								? "Icon index unavailable"
-								: `${iconCount.toLocaleString()} icons indexed`}
-					</span>
-					<span className="font-mono text-xs text-slate-500">
-						{diagnosticCount} diagnostic{diagnosticCount === 1 ? "" : "s"}
-					</span>
-				</div>
-				<div className="flex items-center justify-between gap-3">
-					<p className="font-mono text-[10px] text-slate-500">
-						Re-index scans every configured icon folder for this system.
-					</p>
-					<Button
-						variant="outlined"
-						className="flex shrink-0 items-center gap-1.5 px-2.5 py-1"
-						onClick={reindexIcons}
-						disabled={settingsActionsDisabled}
-					>
-						<RefreshCw className="size-3.5" aria-hidden="true" />
-						{reindexIconsMutation.isPending ? "Indexing..." : "Re-index all"}
-					</Button>
-				</div>
-				<div className="flex flex-col">
-					{folders.length === 0 ? (
-						<p className="px-3 py-3 text-sm text-slate-500">
-							No icon folders configured.
-						</p>
-					) : (
-						folders.map((folder) => (
-							<div
-								key={folder}
-								className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-t border-slate-100 px-0 py-2 first:border-t-0"
-							>
-								<Folder className="size-4 text-slate-500" aria-hidden="true" />
-								<span
-									className="min-w-0 truncate font-mono text-xs text-slate-800"
-									title={folder}
-								>
-									{folder}
-								</span>
-								<Button
-									variant="outlined"
-									className="flex items-center gap-1.5 px-2.5 py-1 text-red-700"
-									onClick={() => removeIconFolderMutation.mutate(folder)}
-									disabled={settingsActionsDisabled}
-								>
-									<Trash2 className="size-3.5" aria-hidden="true" />
-									Remove
-								</Button>
-							</div>
-						))
-					)}
-					<div className="flex min-w-0 flex-col gap-1.5 border-t border-dashed border-slate-200 px-0 py-3">
-						<label
-							htmlFor="system-settings-icon-folder-path"
-							className="text-xs text-slate-500"
-						>
-							Icon folder path
-						</label>
-						<div className="flex min-w-0 items-stretch gap-2">
-							<div className="group flex min-w-0 flex-1 items-stretch inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500">
-								<Input
-									id="system-settings-icon-folder-path"
-									variant="formEmbedded"
-									className="min-w-0 flex-1 font-mono"
-									placeholder="src/icons"
-									value={draftIconFolderPath}
-									onChange={(event) =>
-										setDraftIconFolderPath(event.target.value)
-									}
-									onKeyDown={(event) => {
-										if (event.key === "Enter") addIconFolder();
-									}}
-									disabled={settingsActionsDisabled}
-								/>
-								{desktopApi ? (
-									<Button
-										type="button"
-										variant="block"
-										className="shrink-0 inset-shadow-[1px_0_0_0] inset-shadow-slate-200 group-focus-within:inset-shadow-cyan-500 not-disabled:hover:inset-shadow-[0_0_0_1px] not-disabled:active:inset-shadow-[0_0_0_1px] not-disabled:active:inset-shadow-cyan-500"
-										disabled={pickerActionsDisabled || !canPickIconFolder}
-										onClick={pickIconFolder}
-										title={
-											!canPickIconFolder
-												? "Project path unavailable."
-												: undefined
-										}
-									>
-										{isPickingIconFolder ? "Browsing" : "Browse"}
-									</Button>
-								) : null}
-							</div>
-							<Button
-								variant="outlined"
-								className="px-3 py-2"
-								onClick={addIconFolder}
-								disabled={addIconFolderDisabled}
-							>
-								Add
-							</Button>
-						</div>
-					</div>
-				</div>
-			</SettingsSection>
-
 			<SettingsSection title="Storage & Debug Paths">
 				<SettingsReadOnlyField label="System storage" value={storageRoot} />
 				<SettingsReadOnlyField
@@ -1567,10 +1002,6 @@ export function SystemDetailPane({
 		() => getStoredTokenOverridesByDomain(storedDomains),
 		[storedDomains],
 	);
-	const storedOverrides = useMemo(
-		() => flattenTokenOverridesByDomain(storedOverridesByDomain),
-		[storedOverridesByDomain],
-	);
 	const reviewRequired = Boolean(
 		data?.reviewRequired || storedTokensQuery.data?.reviewRequired,
 	);
@@ -1595,156 +1026,10 @@ export function SystemDetailPane({
 				: collectStoredRemovedTokens(storedDomains),
 		[data?.baselineDiffs, storedDomains],
 	);
-	const unchangedTokens = useMemo(
-		() => collectSyncUnchangedTokens(data?.baselineDiffs),
-		[data?.baselineDiffs],
-	);
-	const shouldHaveOverrides = removedTokens.length > 0;
 	const suggestedOverridesByDomain = useMemo(
 		() => computeSuggestedTokenOverridesByDomain(removedTokens),
 		[removedTokens],
 	);
-	const suggestedOverrides = useMemo(
-		() => flattenTokenOverridesByDomain(suggestedOverridesByDomain),
-		[suggestedOverridesByDomain],
-	);
-	const addedTokenSections = useMemo(
-		() =>
-			groupTokenRowsByDomain(
-				addedTokens,
-				(token) => ({
-					name: token.name,
-					value: token.value,
-				}),
-				{
-					getDomainLabel: (domain) => domain,
-				},
-			),
-		[addedTokens],
-	);
-	const overriddenTokenSections = useMemo(
-		() =>
-			groupTokenRowsByDomain(
-				overriddenTokens,
-				(token) => ({
-					name: token.name,
-					value: token.value,
-					valueLabel: (
-						<span className="inline-flex min-w-0 items-center gap-1.5">
-							<span className="truncate rounded-sm bg-red-50 px-1 text-red-700">
-								{token.defaultValue}
-							</span>
-							<span className="shrink-0 text-slate-400">→</span>
-							<span className="truncate rounded-sm bg-green-50 px-1 text-green-700">
-								{token.value}
-							</span>
-						</span>
-					),
-				}),
-				{
-					getDomainLabel: (domain) => domain,
-				},
-			),
-		[overriddenTokens],
-	);
-	const removedTokenSections = useMemo(
-		() =>
-			groupTokenRowsByDomain(
-				removedTokens,
-				(token) => ({
-					name: token.name,
-					value: token.defaultValue,
-				}),
-				{
-					getDomainLabel: (domain) => domain,
-				},
-			),
-		[removedTokens],
-	);
-	const unchangedTokenSections = useMemo(
-		() =>
-			groupTokenRowsByDomain(
-				unchangedTokens,
-				(token) => ({
-					name: token.name,
-					value: token.value,
-				}),
-				{
-					getDomainLabel: (domain) => domain,
-				},
-			),
-		[unchangedTokens],
-	);
-	const tokenDiffSections = useMemo<
-		Record<TokenDiffSectionTone, TokenDiffSection>
-	>(
-		() => ({
-			added: {
-				key: "added",
-				label: "Added",
-				count: addedTokens.length,
-				sections: addedTokenSections,
-				emptyMessage: "No added tokens in the latest sync.",
-				domainEmptyMessage: "No added tokens in this domain.",
-				tone: "added",
-			},
-			overridden: {
-				key: "overridden",
-				label: "Overridden",
-				count: overriddenTokens.length,
-				sections: overriddenTokenSections,
-				emptyMessage: "No overridden tokens in the latest sync.",
-				domainEmptyMessage: "No overridden tokens in this domain.",
-				tone: "overridden",
-			},
-			removed: {
-				key: "removed",
-				label: "Removed",
-				count: removedTokens.length,
-				sections: removedTokenSections,
-				emptyMessage: "No removed tokens in the latest sync.",
-				domainEmptyMessage: "No removed tokens in this domain.",
-				tone: "removed",
-			},
-			unchanged: {
-				key: "unchanged",
-				label: "Unchanged",
-				count: unchangedTokens.length,
-				sections: unchangedTokenSections,
-				emptyMessage: "No unchanged tokens in the latest sync.",
-				domainEmptyMessage: "No unchanged tokens in this domain.",
-				tone: "unchanged",
-			},
-		}),
-		[
-			addedTokens.length,
-			addedTokenSections,
-			overriddenTokens.length,
-			overriddenTokenSections,
-			removedTokens.length,
-			removedTokenSections,
-			unchangedTokens.length,
-			unchangedTokenSections,
-		],
-	);
-	const reviewTokenDiffSections = useMemo(
-		() => [
-			tokenDiffSections.added,
-			tokenDiffSections.overridden,
-			tokenDiffSections.removed,
-		],
-		[tokenDiffSections],
-	);
-	const [activeTab, setActiveTab] = useState<SystemTab>("overview");
-	const [tokenFilter, setTokenFilter] = useState("");
-	const [activeTokenDomains, setActiveTokenDomains] = useState<string[]>([]);
-	const [collapsedTokenDomains, setCollapsedTokenDomains] = useState<
-		readonly string[]
-	>([]);
-	const [isSyncedRemovedCollapsed, setIsSyncedRemovedCollapsed] =
-		useState(true);
-	const [isReviewRemovedCollapsed, setIsReviewRemovedCollapsed] =
-		useState(true);
 	const [isRenaming, setIsRenaming] = useState(false);
 	const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
 	const [isSettingsMutationPending, setIsSettingsMutationPending] =
@@ -1756,74 +1041,6 @@ export function SystemDetailPane({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const cancelledRef = useRef(false);
 	const selectedSystemIdRef = useRef(systemId);
-	const syncedTokens = useMemo(() => {
-		const storedTokenEntries = storedDomains
-			? Object.entries(storedDomains).flatMap(([domain, storage]) =>
-					Object.entries(storage.tokens).map(([name, value]) => ({
-						name,
-						value,
-						domain,
-					})),
-				)
-			: undefined;
-
-		return storedTokenEntries ?? data?.tokens;
-	}, [data?.tokens, storedDomains]);
-	const allSyncedTokenSections = useMemo(
-		() =>
-			filterAndGroupTokenRowsByDomain(
-				syncedTokens,
-				(token) => ({
-					name: token.name,
-					value: token.value,
-				}),
-				{
-					domainOrder: ["color"],
-					getDomainLabel: (domain) => domain,
-				},
-			),
-		[syncedTokens],
-	);
-	const syncedTokenSections = useMemo(
-		() =>
-			filterAndGroupTokenRowsByDomain(
-				syncedTokens,
-				(token) => ({
-					name: token.name,
-					value: token.value,
-				}),
-				{
-					filter: tokenFilter,
-					domainFilter: activeTokenDomains,
-					domainOrder: ["color"],
-					getDomainLabel: (domain) => domain,
-				},
-			),
-		[syncedTokens, tokenFilter, activeTokenDomains],
-	);
-	const tokenDomainPills = useMemo(
-		() =>
-			deriveTokenDomainPills({
-				sections: allSyncedTokenSections,
-				activeDomains: activeTokenDomains,
-			}),
-		[allSyncedTokenSections, activeTokenDomains],
-	);
-	const syncedAddedTokenSection = useMemo<TokenDiffSection>(
-		() => ({
-			key: "added",
-			label: "Added",
-			count: syncedTokenSections.reduce(
-				(count, section) => count + section.rows.length,
-				0,
-			),
-			sections: syncedTokenSections,
-			emptyMessage: "No tokens match the current filters.",
-			domainEmptyMessage: "No tokens in this domain.",
-			tone: "added",
-		}),
-		[syncedTokenSections],
-	);
 
 	const renameMutation = useMutation({
 		mutationFn: (nextSystemName: string) =>
@@ -1979,31 +1196,6 @@ export function SystemDetailPane({
 	const handleSync = () => {
 		void syncController.syncSystem(systemId);
 	};
-	const handleTokenDomainToggle = useCallback((domain: string) => {
-		setActiveTokenDomains((domains) => {
-			if (domains.length === 0) {
-				return [domain];
-			}
-
-			if (domains.includes(domain)) {
-				const nextDomains = domains.filter((activeDomain) => {
-					return activeDomain !== domain;
-				});
-				return nextDomains.length === 0 ? [] : nextDomains;
-			}
-
-			return [...domains, domain];
-		});
-	}, []);
-	const handleTokenSectionToggle = useCallback((domain: string) => {
-		setCollapsedTokenDomains((domains) => {
-			if (domains.includes(domain)) {
-				return domains.filter((collapsedDomain) => collapsedDomain !== domain);
-			}
-
-			return [...domains, domain];
-		});
-	}, []);
 
 	useHotkey("Enter", confirmRename, {
 		enabled: isRenaming,
@@ -2024,12 +1216,6 @@ export function SystemDetailPane({
 		}
 
 		selectedSystemIdRef.current = systemId;
-		setActiveTab("overview");
-		setTokenFilter("");
-		setActiveTokenDomains([]);
-		setCollapsedTokenDomains([]);
-		setIsSyncedRemovedCollapsed(true);
-		setIsReviewRemovedCollapsed(true);
 	}, [systemId]);
 	const actionError = renameError ?? deleteError;
 	const isSyncing = result.status === "pending";
@@ -2041,21 +1227,19 @@ export function SystemDetailPane({
 	const tokenDiff: TokenDiff = reviewRequired
 		? rawTokenDiff
 		: { added: 0, overridden: 0, removed: 0 };
-	const showSyncedTokenBrowser = syncState === "synced";
 	const syncErrorMessage =
 		result.error?.message ??
 		(storedTokensError
 			? `Failed to load token snapshot: ${storedTokensError}`
 			: null);
-	const syncedTokenCount = allSyncedTokenSections.reduce(
-		(count, section) => count + section.rows.length,
-		0,
-	);
-	const filteredSyncedTokenCount = syncedTokenSections.reduce(
-		(count, section) => count + section.rows.length,
-		0,
-	);
-	const primaryAction =
+	const syncActionLabel = isSyncing
+		? "Syncing system"
+		: syncState === "error"
+			? "Retry system sync"
+			: syncState === "synced"
+				? "Re-sync system"
+				: "Sync system";
+	const reviewAction =
 		syncState === "review" ? (
 			<Button
 				variant="blockDark"
@@ -2066,33 +1250,35 @@ export function SystemDetailPane({
 				<Check className="size-4" aria-hidden="true" />
 				{saveMutation.isPending ? "Confirming..." : "Confirm review"}
 			</Button>
-		) : (
-			<Button
-				variant="blockDark"
-				className="flex items-center gap-1.5 bg-slate-950"
-				onClick={handleSync}
-				disabled={isSyncing || actionDisabled}
-			>
-				<RefreshCw
-					className={`size-4 ${isSyncing ? "text-cyan-300 animate-spin" : ""}`}
-					aria-hidden="true"
+		) : null;
+	const headerActions = (
+		<>
+			{reviewAction}
+			<div className="flex shrink-0 items-center">
+				<OpenSystemEditorAction
+					systemId={systemId}
+					disabled={actionDisabled}
+					reviewRequired={reviewRequired}
 				/>
-				{isSyncing
-					? "Syncing..."
-					: syncState === "error"
-						? "Retry"
-						: syncState === "synced"
-							? "Re-sync"
-							: "Sync"}
-			</Button>
-		);
+				<Button
+					variant="block"
+					className="p-2.5"
+					onClick={handleSync}
+					disabled={isSyncing || actionDisabled}
+					aria-label={syncActionLabel}
+					title={syncActionLabel}
+				>
+					<RefreshCw
+						className={`size-4 ${isSyncing ? "text-cyan-500 animate-spin" : ""}`}
+						aria-hidden="true"
+					/>
+				</Button>
+			</div>
+		</>
+	);
 
 	return (
-		<Tabs
-			value={activeTab}
-			onValueChange={(value) => setActiveTab(value as SystemTab)}
-			className="flex h-full flex-col gap-0 overflow-hidden bg-slate-50 text-slate-950"
-		>
+		<div className="flex h-full flex-col gap-0 overflow-hidden bg-slate-50 text-slate-950">
 			<SystemDetailHeader
 				title={
 					isRenaming ? (
@@ -2132,207 +1318,39 @@ export function SystemDetailPane({
 						{actionError ? (
 							<p className="text-xs text-red-600">{actionError}</p>
 						) : null}
+						{saveError ? (
+							<p className="text-xs text-red-600">
+								Failed to save overrides: {saveError}
+							</p>
+						) : null}
 					</>
 				}
-				secondaryAction={
-					<OpenSystemEditorAction
-						systemId={systemId}
-						disabled={actionDisabled}
-					/>
-				}
-				primaryAction={primaryAction}
+				actions={headerActions}
 			/>
 
 			<ScrollArea className="min-h-0 flex-1" viewportRef={detailViewportRef}>
-				<div className="flex min-h-full flex-col gap-4 px-10 py-8">
-					<SystemDetailTabBar />
-
-					<TabsPanel value="overview">
-						<SystemOverviewSubview
-							cssPath={cssPath}
-							syncedAtLabel={editedTime}
-							tokenCount={tokenCount}
-							tokenDiff={tokenDiff}
-							projectScope={projectScope}
-							systemId={systemId}
-						/>
-					</TabsPanel>
-					<TabsPanel value="tokens" className="flex flex-col gap-4">
-						{showSyncedTokenBrowser ? (
-							<div className="flex flex-col gap-4">
-								{removedTokens.length > 0 || storedOverrides.length > 0 ? (
-									<TokenDiffSectionCard
-										section={tokenDiffSections.removed}
-										renderRows={false}
-										isCollapsed={isSyncedRemovedCollapsed}
-										onToggle={() =>
-											setIsSyncedRemovedCollapsed((collapsed) => !collapsed)
-										}
-									>
-										{storedOverrides.length > 0 ? (
-											<ColorOverridesBlock
-												overrides={storedOverrides}
-												description="Confirmed reset declarations added to the synced theme."
-											/>
-										) : null}
-										<CompactTokenSectionList
-											sections={removedTokenSections}
-											emptyMessage="No removed tokens in the latest sync."
-										/>
-									</TokenDiffSectionCard>
-								) : null}
-								{storedTokensQuery.isPending &&
-								allSyncedTokenSections.length === 0 ? (
-									<div className="border border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
-										Loading token snapshot...
-									</div>
-								) : storedTokensError ? (
-									<div className="border border-red-200 bg-red-50 px-4 py-6 text-sm text-red-600">
-										Failed to load token snapshot: {storedTokensError}
-									</div>
-								) : allSyncedTokenSections.length > 0 ? (
-									<TokenDiffSectionCard
-										section={syncedAddedTokenSection}
-										renderRows={false}
-									>
-										<div className="flex flex-col border-t border-slate-100">
-											<div className="flex items-center gap-2 px-4 py-3">
-												<div className="min-w-0 flex-1">
-													<TokenFilterInput
-														filter={tokenFilter}
-														onFilterChange={setTokenFilter}
-														onClear={() => setTokenFilter("")}
-													/>
-												</div>
-												<TokenDomainPills
-													pills={tokenDomainPills}
-													onToggle={handleTokenDomainToggle}
-													onClearAll={() => setActiveTokenDomains([])}
-												/>
-												{filteredSyncedTokenCount !== syncedTokenCount ? (
-													<span className="shrink-0 font-mono text-[10px] text-slate-500">
-														{filteredSyncedTokenCount.toLocaleString()} /{" "}
-														{syncedTokenCount.toLocaleString()}
-													</span>
-												) : null}
-											</div>
-											{syncedTokenSections.length === 0 ? (
-												<p className="px-4 py-6 text-sm text-slate-500">
-													No tokens match the current filters.
-												</p>
-											) : (
-												syncedTokenSections.map((section) => (
-													<TokenDomainSectionList
-														key={section.domain}
-														section={section}
-														emptyMessage="No tokens in this domain."
-														isCollapsed={collapsedTokenDomains.includes(
-															section.domain,
-														)}
-														onToggle={() =>
-															handleTokenSectionToggle(section.domain)
-														}
-													/>
-												))
-											)}
-										</div>
-									</TokenDiffSectionCard>
-								) : (
-									<div className="border border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
-										No stored tokens in this system.
-									</div>
-								)}
-							</div>
-						) : isSyncing ? (
-							<div className="flex flex-col border border-slate-200 bg-white">
-								<div className="flex items-baseline justify-between px-4 py-3">
-									<div className="flex items-baseline gap-2">
-										<Text variant="subtitle" className="text-slate-900">
-											Tokens
-										</Text>
-										<span className="font-mono text-xs text-slate-500">
-											{syncedTokenCount.toLocaleString()}
-										</span>
-									</div>
-									<span className="text-xs text-cyan-700">Syncing</span>
-								</div>
-								<div className="h-px overflow-hidden bg-cyan-100">
-									<div className="h-full w-1/2 animate-pulse bg-cyan-500" />
-								</div>
-								<p className="px-4 py-6 text-sm text-slate-500">
-									Syncing token snapshot...
-								</p>
-							</div>
-						) : syncState === "error" ? (
-							<TokenSyncErrorCard message={syncErrorMessage} />
-						) : reviewRequired ? (
-							<div className="flex flex-col gap-6">
-								{reviewTokenDiffSections.map((section) => (
-									<TokenDiffSectionCard
-										key={section.key}
-										section={section}
-										isCollapsed={
-											section.key === "removed" && isReviewRemovedCollapsed
-										}
-										onToggle={
-											section.key === "removed"
-												? () =>
-														setIsReviewRemovedCollapsed(
-															(collapsed) => !collapsed,
-														)
-												: undefined
-										}
-										renderRows={
-											section.key !== "added" &&
-											!(section.key === "removed" && shouldHaveOverrides)
-										}
-									>
-										{section.key === "added" ? (
-											<DenseTokenSectionList
-												sections={addedTokenSections}
-												emptyMessage="No added tokens in the latest sync."
-											/>
-										) : section.key === "removed" && shouldHaveOverrides ? (
-											<>
-												<ColorOverridesBlock
-													overrides={suggestedOverrides}
-													description="These reset declarations will be saved with the review so the synced theme reflects this system."
-												/>
-												<CompactTokenSectionList
-													sections={removedTokenSections}
-													emptyMessage="No removed tokens in the latest sync."
-												/>
-											</>
-										) : null}
-									</TokenDiffSectionCard>
-								))}
-								{saveError ? (
-									<div className="bg-red-500 px-3 py-2 text-xs text-white">
-										Failed to save overrides: {saveError}
-									</div>
-								) : null}
-							</div>
-						) : (
-							<div className="border border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
-								No token snapshot is available yet.
-							</div>
-						)}
-					</TabsPanel>
-					<TabsPanel value="settings">
-						<SystemSettingsSubview
-							cssPath={cssPath}
-							projectScope={projectScope}
-							systemDisplayName={systemDisplayName}
-							systemId={systemId}
-							onDisconnect={() => {
-								deleteMutation.reset();
-								setDisconnectDialogOpen(true);
-							}}
-							disconnectDisabled={actionDisabled}
-							isDisconnecting={deleteMutation.isPending}
-							onSettingsPendingChange={setIsSettingsMutationPending}
-						/>
-					</TabsPanel>
+				<div className="flex min-h-full flex-col gap-6 px-10 py-8">
+					<SystemOverviewSubview
+						cssPath={cssPath}
+						syncedAtLabel={editedTime}
+						tokenCount={tokenCount}
+						tokenDiff={tokenDiff}
+						projectScope={projectScope}
+						systemId={systemId}
+					/>
+					<SystemSettingsSubview
+						cssPath={cssPath}
+						projectScope={projectScope}
+						systemDisplayName={systemDisplayName}
+						systemId={systemId}
+						onDisconnect={() => {
+							deleteMutation.reset();
+							setDisconnectDialogOpen(true);
+						}}
+						disconnectDisabled={actionDisabled}
+						isDisconnecting={deleteMutation.isPending}
+						onSettingsPendingChange={setIsSettingsMutationPending}
+					/>
 				</div>
 			</ScrollArea>
 			<ConfirmationDialog
@@ -2358,6 +1376,6 @@ export function SystemDetailPane({
 				tone="destructive"
 				onAction={handleDelete}
 			/>
-		</Tabs>
+		</div>
 	);
 }

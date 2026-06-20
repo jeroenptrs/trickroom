@@ -5,12 +5,13 @@ import {
 	resolveRegistryComponent,
 } from "../libraries/registry";
 import type { Node, RecipeTemplateNode } from "../types";
+import { createClassLayers, flattenClassLayers } from "./class-layers.ts";
+import { assetIdProp, iconIdProp } from "./resource-props.ts";
 import {
 	getSystemComponentMarkerProps,
 	type SystemComponentInstanceOverrides,
 } from "./system-component-markers.ts";
 import { resolveSystemComponentOverrideValue } from "./system-component-override-targets.ts";
-import { assetIdProp, iconIdProp } from "./resource-props.ts";
 
 export {
 	resolveSystemComponentClassName,
@@ -19,7 +20,7 @@ export {
 } from "./system-component-resolution";
 
 import {
-	resolveSystemComponentClassName,
+	resolveMaterializedSystemComponentClassComposition,
 	resolveSystemComponentVariantValues,
 	SystemComponentResolutionError,
 } from "./system-component-resolution";
@@ -54,12 +55,6 @@ export type SystemComponentExpansionResult = {
 };
 
 const createId = () => globalThis.crypto.randomUUID();
-
-const joinClasses = (...entries: Array<string | undefined>) =>
-	entries
-		.flatMap((entry) => entry?.trim().split(/\s+/u) ?? [])
-		.filter(Boolean)
-		.join(" ");
 
 const getTemplateSlotName = (
 	version: PublishedSystemComponentVersion,
@@ -128,7 +123,15 @@ const expandAuthoredTemplateNode = (
 	const id = createElementId();
 	const role = definition.role;
 	const name = template.name ?? definition.label;
-	const className = joinClasses(template.className);
+	const className = flattenClassLayers(
+		createClassLayers([
+			{
+				source: "system-template",
+				className: template.className,
+				metadata: { path: template.path },
+			},
+		]),
+	);
 	const props = {
 		...getDefaultProps(template.library, template.component, definition, name),
 		...(template.props ?? {}),
@@ -175,12 +178,25 @@ const expandTemplateNode = (
 	elementIdsByPath[template.path] = id;
 	const role = definition.role;
 	const name = template.name ?? definition.label;
-	const className = resolveSystemComponentClassName(
+	const templatePropsClassName =
+		typeof template.props?.className === "string"
+			? template.props.className
+			: undefined;
+	const classComposition = resolveMaterializedSystemComponentClassComposition(
 		resolved.version,
 		template.path,
 		template.className,
+		templatePropsClassName,
 		variantValues,
 		overrides,
+		definition,
+		{
+			systemId: resolved.systemId,
+			componentId: resolved.componentId,
+			instanceId,
+			library: template.library,
+			component: template.component,
+		},
 	);
 	const iconOverride = resolveSystemComponentOverrideValue(
 		resolved.version,
@@ -197,7 +213,7 @@ const expandTemplateNode = (
 	const props = {
 		...getDefaultProps(template.library, template.component, definition, name),
 		...(template.props ?? {}),
-		...(className ? { className } : {}),
+		...classComposition.props,
 		...(iconOverride !== undefined ? { [iconIdProp]: iconOverride } : {}),
 		...(assetOverride !== undefined ? { [assetIdProp]: assetOverride } : {}),
 		"data-trickroom-name": name,

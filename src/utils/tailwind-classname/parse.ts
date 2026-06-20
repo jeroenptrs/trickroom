@@ -11,6 +11,11 @@ export type ParsedClass = {
 	/** The original token, byte-for-byte. */
 	raw: string;
 	/**
+	 * All modifier prefixes before the utility body in original order.
+	 * This is the exact Tailwind modifier chain used for conflict identity.
+	 */
+	modifiers: string[];
+	/**
 	 * Mode prefixes found in the variant chain (e.g. `dark`).
 	 * Modes are parsed and preserved so the round-trip is lossless,
 	 * but they are surfaced separately so the friendly UI can park
@@ -150,6 +155,7 @@ function parseSingleClass(
 
 	return {
 		raw,
+		modifiers: segments,
 		modes,
 		variants,
 		important,

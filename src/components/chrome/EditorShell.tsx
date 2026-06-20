@@ -27,6 +27,11 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Layers } from "./Layers";
 import { Properties } from "./Properties";
+import {
+	focusEditorRegion,
+	getKey,
+	useWindowKeyDown,
+} from "../../utils/editor-shortcuts";
 
 const AUTOSAVE_DELAY_MS = 1000;
 
@@ -78,6 +83,11 @@ function SaveControl({ designFile }: SaveControlProps) {
 			revision,
 		});
 	}, [revision, saveMutation]);
+
+	useHotkey("Mod+S", saveCurrentDesign, {
+		enabled: !saveMutation.isPending,
+		preventDefault: true,
+	});
 
 	useEffect(() => {
 		if (
@@ -239,14 +249,62 @@ function RightInspector() {
 }
 
 function EditorShellComponent({ designFile, children }: EditorShellProps) {
+	const navigate = useNavigate();
+	const handleFocusShortcut = useCallback(
+		(event: KeyboardEvent) => {
+			if (
+				(event.metaKey || event.ctrlKey) &&
+				!event.altKey &&
+				!event.shiftKey &&
+				event.key === "["
+			) {
+				navigate("/");
+				event.preventDefault();
+				return;
+			}
+
+			if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
+				return;
+			}
+
+			const key = getKey(event);
+			if (key === "1") {
+				focusEditorRegion("rail");
+			} else if (key === "2") {
+				focusEditorRegion("workspace");
+			} else if (key === "3") {
+				focusEditorRegion("inspector");
+			} else {
+				return;
+			}
+
+			event.preventDefault();
+		},
+		[navigate],
+	);
+
+	useWindowKeyDown(handleFocusShortcut);
+
 	return (
 		<div className="absolute inset-0 z-10 flex min-h-0 bg-slate-100 text-xs text-slate-950">
-			<LeftSidebar designFile={designFile} />
-			<main className="relative min-h-0 min-w-0 flex-1 bg-slate-100">
+			<div data-editor-region="rail" tabIndex={-1} className="flex min-h-0">
+				<LeftSidebar designFile={designFile} />
+			</div>
+			<main
+				data-editor-region="workspace"
+				tabIndex={-1}
+				className="relative min-h-0 min-w-0 flex-1 bg-slate-100 focus-visible:outline-none"
+			>
 				<div className="absolute inset-0">{children}</div>
 				<CanvasChrome />
 			</main>
-			<RightInspector />
+			<div
+				data-editor-region="inspector"
+				tabIndex={-1}
+				className="flex min-h-0 focus-visible:outline-none"
+			>
+				<RightInspector />
+			</div>
 		</div>
 	);
 }

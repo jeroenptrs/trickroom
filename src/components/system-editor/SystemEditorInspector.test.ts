@@ -382,6 +382,27 @@ describe("advanceCompoundDraftKeys", () => {
 });
 
 describe("validateVariantDrafts compound rules", () => {
+	it("allows variant value keys that start with a number", () => {
+		const drafts = twoAxisDrafts();
+		drafts[1] = {
+			...drafts[1],
+			values: [{ id: "v-2xs", key: "2xs", label: "2xs" }],
+		};
+
+		expect(validateVariantDrafts(drafts)).toEqual([]);
+	});
+
+	it("keeps variant axis keys identifier-like", () => {
+		const drafts = twoAxisDrafts();
+		drafts[1] = { ...drafts[1], key: "2size" };
+
+		expect(
+			validateVariantDrafts(drafts).some((message) =>
+				message.includes('Variant axis "2size" must start with a letter'),
+			),
+		).toBe(true);
+	});
+
 	it("accepts a compound that combines two valid conditions", () => {
 		expect(
 			validateVariantDrafts(twoAxisDrafts(), [

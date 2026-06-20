@@ -283,16 +283,16 @@ describe("SystemEditor", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("renders title, workspace tabs, and inspector shell for a known system id", () => {
+	it("renders title and workspace tabs without idle inspector chrome", () => {
 		const html = renderSystemEditor("/system/core");
 
 		expect(html).toContain("Core System");
-		expect(html).toContain("System Editor");
 		expect(html).toContain("Components");
 		expect(html).toContain("Tokens");
 		expect(html).toContain("Assets");
 		expect(html).toContain("Icons");
-		expect(html).toContain("Inspector");
+		expect(html).toContain("w-[300px]");
+		expect(html).not.toContain("Inspector");
 		expect(html).toContain("No components yet");
 	});
 
@@ -307,6 +307,14 @@ describe("SystemEditor", () => {
 
 		expect(html).toContain("Core System");
 		expect(html).not.toContain("No system found");
+	});
+
+	it("opens on the tokens tab from the route search param", () => {
+		const html = renderSystemEditor("/system/core?tab=tokens");
+
+		expect(html).toContain("Core Tokens");
+		expect(html).toContain("Synced");
+		expect(html).not.toContain("No components yet");
 	});
 
 	it("selects a component from the route search param", () => {
@@ -325,6 +333,10 @@ describe("SystemEditor", () => {
 		expect(html).toContain("New Button");
 		expect(html).toContain("Draft only");
 		expect(html).toContain("Save draft");
+		expect(html).toContain("Variants");
+		expect(html).not.toContain("Inspector");
+		expect(html).not.toContain("Core System");
+		expect(html).not.toContain("Tokens");
 		expect(html).not.toContain("Select an item on the Components page");
 	});
 });
@@ -339,7 +351,7 @@ describe("SystemEditor page panels", () => {
 	});
 
 	it("exposes tokens browse copy on the tokens tab", async () => {
-		const { SystemEditorComponentsPanel } = await import(
+		const { SystemEditorComponentsRail } = await import(
 			"./system-editor/SystemEditorComponentsPanel"
 		);
 		const { SystemEditorTokensPanel } = await import(
@@ -375,7 +387,7 @@ describe("SystemEditor page panels", () => {
 
 		const componentsHtml = renderToStaticMarkup(
 			<QueryClientProvider client={panelQueryClient}>
-				<SystemEditorComponentsPanel
+				<SystemEditorComponentsRail
 					systemId="core"
 					selectedComponentId={null}
 					onSelectComponent={() => {}}
@@ -384,12 +396,140 @@ describe("SystemEditor page panels", () => {
 		);
 		const tokensHtml = renderToStaticMarkup(
 			<QueryClientProvider client={panelQueryClient}>
-				<SystemEditorTokensPanel systemId="core" />
+				<TailwindSyncControllerContext.Provider value={syncControllerMock}>
+					<SystemEditorTokensPanel systemId="core" />
+				</TailwindSyncControllerContext.Provider>
 			</QueryClientProvider>,
 		);
 
-		expect(componentsHtml).toContain("Create draft");
-		expect(tokensHtml).toContain("Read-only review of stored token domains");
+		expect(componentsHtml).toContain("New component name");
+		expect(componentsHtml).toContain("Search components");
+		expect(tokensHtml).toContain("Core Tokens");
+		expect(tokensHtml).toContain("Synced");
+		expect(tokensHtml).toContain("GROUP BY");
+		expect(tokensHtml).toContain("#111111");
+		expect(tokensHtml).toContain("Hide defaults");
+		expect(tokensHtml).toContain("Custom colors");
+		expect(tokensHtml).toContain("Color Red");
+		expect(tokensHtml).toContain("Font families");
+		expect(tokensHtml).toContain("Text sizes");
+		expect(tokensHtml).toContain("Font weights");
+		expect(tokensHtml).toContain("Breakpoints");
+		expect(tokensHtml).toContain("Containers");
+		expect(tokensHtml).toContain("Radii");
+		expect(tokensHtml).toContain("Shadows");
+		expect(tokensHtml.indexOf("red-50")).toBeLessThan(
+			tokensHtml.indexOf("red-100"),
+		);
+	});
+
+	it("renders resource browser controls without dead view buttons", async () => {
+		const { SystemEditorAssetsPanel } = await import(
+			"./system-editor/SystemEditorAssetsPanel"
+		);
+		const { SystemEditorIconFoldersRail, SystemEditorIconsPanel } =
+			await import("./system-editor/SystemEditorIconsPanel");
+		const queryClient = new QueryClient({
+			defaultOptions: {
+				queries: { retry: false },
+				mutations: { retry: false },
+			},
+		});
+		queryClient.setQueryData(["trickroom-system-assets", "core"], {
+			systemId: "core",
+			systemName: "Core",
+			assets: [
+				{
+					id: "ast_app_icon",
+					name: "App Icon",
+					kind: "image",
+					sourcePath: "assets/app-icon.png",
+					mimeType: "image/png",
+					width: 1024,
+					height: 1024,
+					createdAt: "2026-05-26T00:00:00.000Z",
+					updatedAt: "2026-05-26T00:00:00.000Z",
+				},
+				{
+					id: "ast_hero",
+					name: "Hero",
+					kind: "image",
+					sourcePath: "assets/marketing/hero.jpg",
+					mimeType: "image/jpeg",
+					width: 1600,
+					height: 900,
+					createdAt: "2026-05-26T00:00:00.000Z",
+					updatedAt: "2026-05-26T00:00:00.000Z",
+				},
+			],
+		});
+		queryClient.setQueryData(["trickroom-system-icons", "core"], {
+			systemId: "core",
+			systemName: "Core",
+			indexedAt: "2026-05-26T00:00:00.000Z",
+			iconFolderPaths: ["src/icons"],
+			icons: [
+				{
+					id: "src/search",
+					name: "search",
+					sourcePath: "src/icons/search.svg",
+					paint: "stroke",
+					hash: "sha256:search",
+				},
+				{
+					id: "src/menu",
+					name: "menu",
+					sourcePath: "src/icons/menu.svg",
+					paint: "stroke",
+					hash: "sha256:menu",
+				},
+			],
+			diagnostics: [],
+		});
+		const scrollElementRef = { current: null };
+
+		const assetsHtml = renderToStaticMarkup(
+			<QueryClientProvider client={queryClient}>
+				<SystemEditorAssetsPanel
+					systemId="core"
+					scrollElementRef={scrollElementRef}
+					selectedAssetId={null}
+					onSelectAsset={() => {}}
+				/>
+			</QueryClientProvider>,
+		);
+		const iconsHtml = renderToStaticMarkup(
+			<QueryClientProvider client={queryClient}>
+				<SystemEditorIconsPanel
+					systemId="core"
+					scrollElementRef={scrollElementRef}
+					selectedIconId={null}
+					onSelectIcon={() => {}}
+				/>
+			</QueryClientProvider>,
+		);
+		const iconFoldersHtml = renderToStaticMarkup(
+			<QueryClientProvider client={queryClient}>
+				<SystemEditorIconFoldersRail systemId="core" />
+			</QueryClientProvider>,
+		);
+
+		expect(assetsHtml).toContain("Assets");
+		expect(assetsHtml).toContain("2 assets");
+		expect(assetsHtml).toContain("Group folders");
+		expect(assetsHtml).toContain("Add asset");
+		expect(assetsHtml).not.toContain("Grid");
+		expect(assetsHtml).not.toContain("List");
+		expect(iconsHtml).toContain("Icons");
+		expect(iconsHtml).toContain("2 icons");
+		expect(iconsHtml).toContain("Group folders");
+		expect(iconsHtml).not.toContain("Stroke");
+		expect(iconsHtml).not.toContain("Mixed");
+		expect(iconsHtml).not.toContain("Insert");
+		expect(iconFoldersHtml).toContain("Icon folders");
+		expect(iconFoldersHtml).toContain("src/icons");
+		expect(iconFoldersHtml).toContain("Re-index");
+		expect(iconFoldersHtml).toContain("Icon folder path");
 	});
 
 	it("creates a component draft through the component API", async () => {
@@ -409,7 +549,7 @@ describe("SystemEditor page panels", () => {
 			components: [],
 		});
 
-		const { SystemEditorComponentsPanel } = await import(
+		const { SystemEditorComponentsRail } = await import(
 			"./system-editor/SystemEditorComponentsPanel"
 		);
 		const { createSystemComponentDraft } = await import(
@@ -448,7 +588,7 @@ describe("SystemEditor page panels", () => {
 
 		const html = renderToStaticMarkup(
 			<QueryClientProvider client={queryClient}>
-				<SystemEditorComponentsPanel
+				<SystemEditorComponentsRail
 					systemId="core"
 					selectedComponentId={response.componentId}
 					onSelectComponent={() => {}}
@@ -505,12 +645,12 @@ describe("SystemEditor page panels", () => {
 			],
 		});
 
-		const { SystemEditorComponentsPanel } = await import(
+		const { SystemEditorComponentsRail } = await import(
 			"./system-editor/SystemEditorComponentsPanel"
 		);
 		const html = renderToStaticMarkup(
 			<QueryClientProvider client={queryClient}>
-				<SystemEditorComponentsPanel
+				<SystemEditorComponentsRail
 					systemId="core"
 					selectedComponentId={null}
 					onSelectComponent={() => {}}
@@ -645,12 +785,12 @@ describe("SystemEditor page panels", () => {
 			},
 		);
 
-		const { SystemEditorComponentsPanel } = await import(
+		const { SystemEditorComponentsRail } = await import(
 			"./system-editor/SystemEditorComponentsPanel"
 		);
 		const html = renderToStaticMarkup(
 			<QueryClientProvider client={queryClient}>
-				<SystemEditorComponentsPanel
+				<SystemEditorComponentsRail
 					systemId="core"
 					selectedComponentId={null}
 					onSelectComponent={() => {}}
@@ -740,12 +880,12 @@ describe("SystemEditor page panels", () => {
 			},
 		);
 
-		const { SystemEditorComponentsPanel } = await import(
+		const { SystemEditorComponentsRail } = await import(
 			"./system-editor/SystemEditorComponentsPanel"
 		);
 		const html = renderToStaticMarkup(
 			<QueryClientProvider client={queryClient}>
-				<SystemEditorComponentsPanel
+				<SystemEditorComponentsRail
 					systemId="core"
 					selectedComponentId={null}
 					onSelectComponent={() => {}}
@@ -869,17 +1009,15 @@ describe("SystemEditor page panels", () => {
 			},
 		);
 
-		const { SystemEditorInspector } = await import(
+		const { SystemEditorComponentContextPanel } = await import(
 			"./system-editor/SystemEditorInspector"
 		);
 		const html = renderToStaticMarkup(
 			<QueryClientProvider client={queryClient}>
-				<SystemEditorInspector
-					page="components"
+				<SystemEditorComponentContextPanel
 					systemId="core"
-					selectedComponentId="cmp_hash"
-					selectedAssetId={null}
-					selectedIconId={null}
+					componentId="cmp_hash"
+					mode="publish"
 				/>
 			</QueryClientProvider>,
 		);
@@ -955,7 +1093,7 @@ describe("SystemEditor page panels", () => {
 			},
 		);
 
-		const { SystemEditorInspector } = await import(
+		const { SystemEditorComponentContextPanel } = await import(
 			"./system-editor/SystemEditorInspector"
 		);
 		const { updateSystemComponentVariants } = await import(
@@ -964,12 +1102,10 @@ describe("SystemEditor page panels", () => {
 
 		const html = renderToStaticMarkup(
 			<QueryClientProvider client={queryClient}>
-				<SystemEditorInspector
-					page="components"
+				<SystemEditorComponentContextPanel
 					systemId="core"
-					selectedComponentId="cmp_button"
-					selectedAssetId={null}
-					selectedIconId={null}
+					componentId="cmp_button"
+					mode="variants"
 				/>
 			</QueryClientProvider>,
 		);
@@ -1073,22 +1209,19 @@ describe("SystemEditor page panels", () => {
 			},
 		);
 
-		const { SystemEditorInspector } = await import(
+		const { SystemEditorComponentContextPanel } = await import(
 			"./system-editor/SystemEditorInspector"
 		);
 		const html = renderToStaticMarkup(
 			<QueryClientProvider client={queryClient}>
-				<SystemEditorInspector
-					page="components"
+				<SystemEditorComponentContextPanel
 					systemId="core"
-					selectedComponentId="cmp_button"
-					selectedAssetId={null}
-					selectedIconId={null}
+					componentId="cmp_button"
+					mode="publish"
 				/>
 			</QueryClientProvider>,
 		);
 
-		expect(html).toContain("Publish draft");
 		expect(html).toContain("Generated version");
 		expect(html).toContain("sha256:draft-template");
 		expect(html).toContain("Current published");

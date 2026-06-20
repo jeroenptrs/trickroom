@@ -1,6 +1,14 @@
+import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Save, UploadCloud } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import {
+	ArrowLeft,
+	Pencil,
+	Plus,
+	Save,
+	Search,
+	UploadCloud,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectQueryScope } from "../../queries/project-scope";
 import { systemComponentsUsageQueryOptions } from "../../queries/system-component-usage";
 import {
@@ -22,6 +30,7 @@ import {
 	serializeComponentDraftState,
 	useComponentDraftComponentId,
 	useComponentDraftRevision,
+	useComponentDraftRootPath,
 	useComponentDraftTemplateDirty,
 	useComponentDraftVariantsDirty,
 } from "../../stores/component-draft-store";
@@ -36,9 +45,13 @@ import {
 	useLoadedDraftTemplateHash,
 	useLoadedDraftVariantSchemaHash,
 } from "../../stores/component-editor-session-store";
+import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
 import { isSystemComponentSlug } from "../../utils/system-components";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { ScrollArea } from "../ui/scroll-area";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "../ui/tabs";
+import { Text } from "../ui/text";
 import { ComponentDraftLayers } from "./ComponentDraftLayers";
 import { ComponentDraftStage } from "./ComponentDraftStage";
 import {
@@ -47,6 +60,10 @@ import {
 	nextUniqueComponentSlug,
 	slugifyComponentName,
 } from "./component-catalog";
+import {
+	SystemEditorComponentContextPanel,
+	SystemEditorComponentContextSync,
+} from "./SystemEditorInspector";
 
 type ComponentUsageSummary = {
 	usedByCount: number;
@@ -155,6 +172,7 @@ function ComponentWorkspaceActions({
 	const templateDirty = useComponentDraftTemplateDirty();
 	const variantsDirty = useComponentDraftVariantsDirty();
 	const draftComponentId = useComponentDraftComponentId();
+	const draftRootPath = useComponentDraftRootPath();
 	const metadataChanged = useEditorMetadataChanged();
 	const loadedDraftTemplateHash = useLoadedDraftTemplateHash();
 	const loadedDraftVariantSchemaHash = useLoadedDraftVariantSchemaHash();
@@ -174,6 +192,8 @@ function ComponentWorkspaceActions({
 		metadataChanged ||
 		hasUnsavedTemplateOrVariantChanges ||
 		Boolean(draftConflict);
+	const draftNeedsRoot =
+		draftMatchesComponent && templateDirty && !draftRootPath;
 	const diagnostics = componentQuery.data?.diagnostics ?? [];
 	const errorDiagnostics = diagnostics.filter(
 		(diagnostic) => diagnostic.severity === "error",
@@ -182,6 +202,7 @@ function ComponentWorkspaceActions({
 		hasDraft &&
 		!draftConflict &&
 		variantsValid &&
+		!draftNeedsRoot &&
 		(metadataChanged || hasUnsavedTemplateOrVariantChanges);
 	const canPublish =
 		Boolean(componentQuery.data?.valid) &&
@@ -258,6 +279,9 @@ function ComponentWorkspaceActions({
 					throw new Error(session.draftConflict);
 				}
 				const state = componentDraftStore.get();
+				if (templateDirty && !state.rootPath) {
+					throw new Error("Add a root layer before saving the draft.");
+				}
 				const savedTemplateHash = getComponentDraftTemplateHash(state);
 				savedDraftTemplate = templateDirty;
 				savedDraftVariants = variantsDirty;
@@ -400,34 +424,50 @@ function ComponentWorkspaceActions({
 		},
 	});
 
+	useHotkey(
+		"Mod+S",
+		() => {
+			if (
+				canSave &&
+				!saveDraftMutation.isPending &&
+				!componentQuery.isPending
+			) {
+				saveDraftMutation.mutate();
+			}
+		},
+		{
+			enabled: componentId !== null,
+			preventDefault: true,
+		},
+	);
+
 	if (!componentId) {
 		return null;
 	}
 
 	return (
-		<div className="flex shrink-0 flex-col gap-2 border-b border-slate-200 bg-slate-100 px-4 py-2">
-			<div className="flex min-h-8 flex-wrap items-center justify-between gap-2">
+		<div className="mt-auto flex shrink-0 flex-col gap-2 border-t border-slate-200 px-3 py-2">
+			<div className="flex flex-col gap-2">
 				<div className="min-w-0">
-					<p className="truncate text-xs font-medium text-slate-900">
-						{record?.name ?? "Component"}
-					</p>
 					<p className="truncate font-mono text-[10px] text-slate-500">
 						{hasDraft
 							? draftConflict
 								? "Server draft changed"
-								: hasUnsavedDraftChanges
-									? "Unsaved changes"
-									: "Draft saved"
+								: draftNeedsRoot
+									? "Root layer required"
+									: hasUnsavedDraftChanges
+										? "Unsaved changes"
+										: "Draft saved"
 							: componentQuery.isPending
 								? "Loading draft"
 								: "No draft available"}
 					</p>
 				</div>
-				<div className="flex shrink-0 items-center gap-2">
+				<div className="grid grid-cols-2 gap-2">
 					<Button
 						type="button"
 						variant="block"
-						className="flex items-center gap-1.5"
+						className="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs"
 						disabled={
 							!canSave ||
 							saveDraftMutation.isPending ||
@@ -440,8 +480,8 @@ function ComponentWorkspaceActions({
 					</Button>
 					<Button
 						type="button"
-						variant="blockDark"
-						className="bg-slate-900 flex items-center gap-1.5"
+						variant="filled"
+						className="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs"
 						disabled={
 							!canPublish ||
 							publishDraftMutation.isPending ||
@@ -495,7 +535,57 @@ function ComponentStatusBadge({
 	);
 }
 
-export function SystemEditorComponentsPanel({
+type ComponentRailTab = "design" | "settings" | "variants" | "publish";
+const COMPONENT_RAIL_TABS: ComponentRailTab[] = [
+	"design",
+	"settings",
+	"variants",
+	"publish",
+];
+
+function filterComponents(
+	components: readonly SystemComponentSummary[],
+	filter: string,
+) {
+	const normalizedFilter = filter.trim().toLowerCase();
+	if (!normalizedFilter) {
+		return components;
+	}
+
+	return components.filter((component) =>
+		[
+			component.name,
+			component.slug,
+			component.group ?? "",
+			component.currentVersion ? `v${component.currentVersion}` : "",
+		]
+			.join(" ")
+			.toLowerCase()
+			.includes(normalizedFilter),
+	);
+}
+
+function ComponentRailEmptyState() {
+	return (
+		<div className="mt-2 mx-2 flex flex-1 flex-col items-center justify-center border border-dashed border-slate-300 px-4 py-10 text-center">
+			<p className="text-sm font-medium text-slate-900">No components yet</p>
+			<p className="mt-1 max-w-sm text-sm text-slate-500">
+				Create a draft to start building the first system component in this
+				manifest.
+			</p>
+		</div>
+	);
+}
+
+function ComponentRailNoMatches() {
+	return (
+		<div className="mx-auto py-6 text-sm text-slate-500">
+			No components match the current search.
+		</div>
+	);
+}
+
+export function SystemEditorComponentsRail({
 	systemId,
 	projectScope,
 	selectedComponentId,
@@ -514,9 +604,18 @@ export function SystemEditorComponentsPanel({
 		systemComponentsUsageQueryOptions(systemId, projectScope),
 	);
 	const components = componentsQuery.data?.components ?? [];
+	const selectedSummary =
+		components.find(
+			(component) => component.componentId === selectedComponentId,
+		) ?? null;
+	const [componentFilter, setComponentFilter] = useState("");
+	const filteredComponents = useMemo(
+		() => filterComponents(components, componentFilter),
+		[componentFilter, components],
+	);
 	const groupedSections = useMemo(
-		() => groupComponentsByGroup(components),
-		[components],
+		() => groupComponentsByGroup(filteredComponents),
+		[filteredComponents],
 	);
 	const usageByComponent = useMemo(() => {
 		const byComponent = new Map<string, ComponentUsageSummary>();
@@ -558,6 +657,59 @@ export function SystemEditorComponentsPanel({
 	const [draftName, setDraftName] = useState("");
 	const [createError, setCreateError] = useState<string | null>(null);
 	const [copyDraftError, setCopyDraftError] = useState<string | null>(null);
+	const [activeComponentTab, setActiveComponentTab] =
+		useState<ComponentRailTab>("design");
+	const componentFilterRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		if (selectedComponentId !== null) {
+			setActiveComponentTab("design");
+		}
+	}, [selectedComponentId]);
+
+	const handleComponentTabShortcut = useCallback(
+		(event: KeyboardEvent) => {
+			if (
+				!event.ctrlKey ||
+				event.metaKey ||
+				event.altKey ||
+				event.key !== "Tab"
+			) {
+				return;
+			}
+
+			const currentIndex = COMPONENT_RAIL_TABS.indexOf(activeComponentTab);
+			const direction = event.shiftKey ? -1 : 1;
+			const nextIndex =
+				(currentIndex + direction + COMPONENT_RAIL_TABS.length) %
+				COMPONENT_RAIL_TABS.length;
+			setActiveComponentTab(COMPONENT_RAIL_TABS[nextIndex] ?? "design");
+			event.preventDefault();
+		},
+		[activeComponentTab],
+	);
+
+	useWindowKeyDown(handleComponentTabShortcut, {
+		enabled: selectedComponentId !== null,
+	});
+
+	const handleComponentFilterShortcut = useCallback((event: KeyboardEvent) => {
+		const key = getKey(event);
+		if (
+			key !== "/" &&
+			!((event.metaKey || event.ctrlKey) && !event.altKey && key === "f")
+		) {
+			return;
+		}
+
+		componentFilterRef.current?.focus();
+		componentFilterRef.current?.select();
+		event.preventDefault();
+	}, []);
+
+	useWindowKeyDown(handleComponentFilterShortcut, {
+		enabled: selectedComponentId === null,
+	});
 
 	const createDraftMutation = useMutation({
 		mutationFn: async (name: string) => {
@@ -651,7 +803,7 @@ export function SystemEditorComponentsPanel({
 
 	if (componentsQuery.isPending) {
 		return (
-			<div className="flex min-h-0 flex-1 flex-col px-5 py-4">
+			<div className="flex min-h-0 flex-1 flex-col px-3 py-4">
 				<p className="text-sm text-slate-500">Loading components...</p>
 			</div>
 		);
@@ -659,7 +811,7 @@ export function SystemEditorComponentsPanel({
 
 	if (componentsQuery.isError) {
 		return (
-			<div className="flex min-h-0 flex-1 flex-col px-5 py-4" role="alert">
+			<div className="flex min-h-0 flex-1 flex-col px-3 py-4" role="alert">
 				<p className="text-sm font-medium text-red-950">
 					Failed to load components
 				</p>
@@ -670,79 +822,183 @@ export function SystemEditorComponentsPanel({
 		);
 	}
 
-	return (
-		<div className="flex min-h-0 flex-1">
-			<div className="flex min-h-0 w-[360px] shrink-0 flex-col gap-4 px-5 py-4">
-				<div className="flex flex-wrap items-end gap-2">
-					<div className="min-w-[12rem] flex-1">
-						<label
-							htmlFor="system-editor-new-component-name"
-							className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500"
-						>
-							New component
-						</label>
-						<Input
-							id="system-editor-new-component-name"
-							variant="formCompact"
-							placeholder="Component name"
-							value={draftName}
-							onChange={(event) => setDraftName(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === "Enter") {
-									event.preventDefault();
-									handleCreateDraft();
-								}
-							}}
-						/>
-					</div>
+	if (selectedComponentId) {
+		return (
+			<div className="flex min-h-0 flex-1 flex-col">
+				<SystemEditorComponentContextSync
+					systemId={systemId}
+					projectScope={projectScope}
+					componentId={selectedComponentId}
+				/>
+				<header className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 px-2">
 					<Button
 						type="button"
-						variant="blockDark"
-						className="flex items-center gap-1.5"
+						variant="block"
+						className="flex size-7 shrink-0 items-center justify-center p-0"
+						onClick={() => onSelectComponent(null)}
+						title="Back to components"
+					>
+						<ArrowLeft className="size-4 text-slate-500" aria-hidden="true" />
+					</Button>
+					<div className="min-w-0 flex-1">
+						<Text
+							variant="label"
+							className="block truncate text-[13px] font-semibold text-slate-900"
+						>
+							{selectedSummary?.name ?? "Component"}
+						</Text>
+						<span className="block truncate font-mono text-[10px] text-slate-400">
+							{selectedSummary?.slug ?? selectedComponentId}
+						</span>
+					</div>
+					{selectedSummary ? (
+						<ComponentStatusBadge summary={selectedSummary} />
+					) : null}
+				</header>
+				<Tabs
+					value={activeComponentTab}
+					onValueChange={(value) =>
+						setActiveComponentTab(value as ComponentRailTab)
+					}
+					className="min-h-0 flex-1 gap-0"
+				>
+					<TabsList variant="line" className="shrink-0 px-2">
+						<TabsTab value="design" variant="block" className="px-3 py-2">
+							Design
+						</TabsTab>
+						<TabsTab value="settings" variant="block" className="px-3 py-2">
+							Settings
+						</TabsTab>
+						<TabsTab value="variants" variant="block" className="px-3 py-2">
+							Variants
+						</TabsTab>
+						<TabsTab value="publish" variant="block" className="px-3 py-2">
+							Publish
+						</TabsTab>
+					</TabsList>
+					<TabsPanel value="design" className="min-h-0 flex-1">
+						<ComponentDraftLayers componentId={selectedComponentId} embedded />
+					</TabsPanel>
+					<TabsPanel value="settings" className="min-h-0 flex-1">
+						<ScrollArea className="min-h-0 flex-1">
+							<div className="px-3 py-3">
+								<SystemEditorComponentContextPanel
+									systemId={systemId}
+									projectScope={projectScope}
+									componentId={selectedComponentId}
+									mode="settings"
+								/>
+							</div>
+						</ScrollArea>
+					</TabsPanel>
+					<TabsPanel value="variants" className="min-h-0 flex-1">
+						<ScrollArea className="min-h-0 flex-1">
+							<div className="px-3 py-3">
+								<SystemEditorComponentContextPanel
+									systemId={systemId}
+									projectScope={projectScope}
+									componentId={selectedComponentId}
+									mode="variants"
+								/>
+							</div>
+						</ScrollArea>
+					</TabsPanel>
+					<TabsPanel value="publish" className="min-h-0 flex-1">
+						<ScrollArea className="min-h-0 flex-1">
+							<div className="px-3 py-3">
+								<SystemEditorComponentContextPanel
+									systemId={systemId}
+									projectScope={projectScope}
+									componentId={selectedComponentId}
+									mode="publish"
+								/>
+							</div>
+						</ScrollArea>
+					</TabsPanel>
+				</Tabs>
+				<ComponentWorkspaceActions
+					systemId={systemId}
+					projectScope={projectScope}
+					componentId={selectedComponentId}
+				/>
+			</div>
+		);
+	}
+
+	return (
+		<div className="flex min-h-0 flex-1 flex-col">
+			<div className="flex shrink-0 flex-col gap-2 border-b border-slate-200 px-2 py-2">
+				<div className="relative">
+					<Search
+						className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-slate-500"
+						aria-hidden="true"
+					/>
+					<Input
+						ref={componentFilterRef}
+						variant="formCompact"
+						className="w-full px-7"
+						aria-label="Search components"
+						placeholder="Search components"
+						value={componentFilter}
+						onChange={(event) => setComponentFilter(event.target.value)}
+					/>
+				</div>
+				<div className="flex items-center gap-2">
+					<Input
+						id="system-editor-new-component-name"
+						variant="formCompact"
+						placeholder="New component name"
+						value={draftName}
+						onChange={(event) => setDraftName(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") {
+								event.preventDefault();
+								handleCreateDraft();
+							}
+						}}
+					/>
+					<Button
+						type="button"
+						variant="filled"
+						className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5"
 						disabled={!draftName.trim() || createDraftMutation.isPending}
 						onClick={handleCreateDraft}
 					>
 						<Plus className="size-3.5" aria-hidden="true" />
-						{createDraftMutation.isPending ? "Creating" : "Create draft"}
+						{createDraftMutation.isPending ? "Creating" : "New"}
 					</Button>
 				</div>
-				{createError ? (
-					<div
-						className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
-						role="alert"
-					>
-						{createError}
-					</div>
-				) : null}
-				{copyDraftError ? (
-					<div
-						className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
-						role="alert"
-					>
-						{copyDraftError}
-					</div>
-				) : null}
-				{components.length === 0 ? (
-					<div className="flex flex-1 flex-col items-center justify-center border border-dashed border-slate-300 bg-white px-4 py-10 text-center">
-						<p className="text-sm font-medium text-slate-900">
-							No components yet
-						</p>
-						<p className="mt-1 max-w-sm text-sm text-slate-500">
-							Create a draft to start building the first system component in
-							this manifest.
-						</p>
-					</div>
-				) : (
-					<div className="flex min-h-0 flex-1 flex-col gap-5">
+			</div>
+			{createError ? (
+				<div
+					className="mx-2 mt-2 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+					role="alert"
+				>
+					{createError}
+				</div>
+			) : null}
+			{copyDraftError ? (
+				<div
+					className="mx-2 mt-2 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+					role="alert"
+				>
+					{copyDraftError}
+				</div>
+			) : null}
+			{components.length === 0 ? (
+				<ComponentRailEmptyState />
+			) : filteredComponents.length === 0 ? (
+				<ComponentRailNoMatches />
+			) : (
+				<ScrollArea className="min-h-0 flex-1">
+					<div className="flex flex-col gap-4 px-2 py-3">
 						{groupedSections.map((section) => (
-							<section key={section.group} className="flex flex-col gap-2">
-								<h2 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+							<section key={section.group} className="flex flex-col gap-1">
+								<h2 className="px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
 									{section.group}
 								</h2>
-								<ul className="flex flex-col gap-1.5">
+								<ul className="flex flex-col gap-1">
 									{section.components.map((component) => {
-										const isSelected =
-											selectedComponentId === component.componentId;
 										const canCopyPublished =
 											component.hasPublished && !component.hasDraft;
 										const isCopying =
@@ -752,15 +1008,14 @@ export function SystemEditorComponentsPanel({
 										const usage = usageByComponent.get(component.componentId);
 										return (
 											<li key={component.componentId}>
-												<div className="flex items-stretch gap-1.5">
+												<div className="flex items-stretch gap-1">
 													<Button
 														type="button"
 														variant="block"
-														isSelected={isSelected}
 														onClick={() =>
 															onSelectComponent(component.componentId)
 														}
-														className="flex min-w-0 flex-1 items-start justify-between gap-3 px-3 py-2 text-left"
+														className="flex min-w-0 flex-1 items-start justify-between gap-2 px-2.5 py-2 text-left"
 													>
 														<span className="min-w-0 flex-1">
 															<span className="block truncate font-medium">
@@ -784,7 +1039,7 @@ export function SystemEditorComponentsPanel({
 														<Button
 															type="button"
 															variant="block"
-															className="flex w-9 shrink-0 items-center justify-center p-0"
+															className="flex w-8 shrink-0 items-center justify-center p-0"
 															disabled={copyPublishedMutation.isPending}
 															title="Create draft from published version"
 															aria-label={`Create draft from published version for ${component.name}`}
@@ -806,25 +1061,29 @@ export function SystemEditorComponentsPanel({
 							</section>
 						))}
 					</div>
-				)}
-			</div>
-			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-				<ComponentWorkspaceActions
-					systemId={systemId}
-					projectScope={projectScope}
-					componentId={selectedComponentId}
-				/>
-				<div className="flex min-h-0 flex-1">
-					{selectedComponentId ? (
-						<ComponentDraftLayers componentId={selectedComponentId} />
-					) : null}
-					<ComponentDraftStage
-						systemId={systemId}
-						componentId={selectedComponentId}
-						projectScope={projectScope}
-					/>
-				</div>
-			</div>
+				</ScrollArea>
+			)}
+		</div>
+	);
+}
+
+export function SystemEditorComponentsPanel({
+	systemId,
+	projectScope,
+	selectedComponentId,
+}: {
+	systemId: string;
+	projectScope?: ProjectQueryScope;
+	selectedComponentId: string | null;
+	onSelectComponent: (componentId: string | null) => void;
+}) {
+	return (
+		<div className="flex min-h-0 min-w-0 flex-1">
+			<ComponentDraftStage
+				systemId={systemId}
+				componentId={selectedComponentId}
+				projectScope={projectScope}
+			/>
 		</div>
 	);
 }

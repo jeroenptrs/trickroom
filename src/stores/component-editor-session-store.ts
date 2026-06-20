@@ -1,12 +1,11 @@
 import { createStore, shallow, useSelector } from "@tanstack/react-store";
 
 // Editing-session state shared between the workspace actions bar (which owns the
-// single "Save draft" button) and the inspector (which edits metadata + variant
-// schema). Both surfaces live far apart in the tree and the inspector unmounts
-// when a template node is selected, so this state cannot live in either
-// component. Keeping the loaded-draft hash baselines here makes them
-// single-owned, which is what prevents a save from one surface from looking like
-// an external change to the other.
+// single "Save draft" button) and the component rail context panes (which edit
+// metadata + variant schema). Those surfaces live far apart in the tree and
+// mount independently, so this state cannot live in either component. Keeping
+// the loaded-draft hash baselines here makes them single-owned, which prevents a
+// save from one surface from looking like an external change to the other.
 
 export type ComponentEditorMetadata = {
 	name: string;

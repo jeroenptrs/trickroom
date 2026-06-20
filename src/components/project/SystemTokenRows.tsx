@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Search, X } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, type RefObject, useState } from "react";
 import { Input } from "../ui/input";
 import { Text } from "../ui/text";
 
@@ -177,10 +177,12 @@ export function SystemTokenRow({ row }: { row: TokenRowValue }) {
 
 export function TokenFilterInput({
 	filter,
+	inputRef,
 	onFilterChange,
 	onClear,
 }: {
 	filter: string;
+	inputRef?: RefObject<HTMLInputElement | null>;
 	onFilterChange: (nextFilter: string) => void;
 	onClear?: () => void;
 }) {
@@ -193,6 +195,7 @@ export function TokenFilterInput({
 				aria-hidden="true"
 			/>
 			<Input
+				ref={inputRef}
 				variant="formCompact"
 				className="w-full px-7"
 				aria-label="Filter tokens"
@@ -236,38 +239,61 @@ export function TokenDomainPills({
 	pills,
 	onToggle,
 	onClearAll,
+	leadingControl,
 }: {
 	pills: readonly TokenDomainPill[];
 	onToggle: (domain: string) => void;
 	onClearAll?: () => void;
+	leadingControl?: ReactNode;
 }) {
+	const [isExpanded, setIsExpanded] = useState(false);
 	const allActive = pills.every((pill) => pill.isActive);
+	const collapsedLimit = 6;
+	const canCollapse = pills.length > collapsedLimit;
+	const visiblePills =
+		canCollapse && !isExpanded ? pills.slice(0, collapsedLimit) : pills;
+	const hiddenCount = Math.max(0, pills.length - visiblePills.length);
 
 	return (
-		<div className="flex flex-wrap gap-1.5">
+		<div
+			className={`flex min-w-0 flex-wrap justify-end gap-1.5 ${
+				isExpanded ? "max-w-full" : "max-w-[26rem]"
+			}`}
+		>
+			{leadingControl}
 			{onClearAll ? (
 				<button
 					type="button"
-					className={`px-2 py-1 text-xs font-medium ${allActive ? "bg-slate-900 text-white" : "bg-white text-slate-700 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"}`}
+					className={`shrink-0 px-2 py-1 text-xs font-medium ${allActive ? "bg-slate-900 text-white" : "bg-white text-slate-700 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"}`}
 					onClick={onClearAll}
 				>
 					All
 				</button>
 			) : null}
-			{pills.map((pill) => (
+			{visiblePills.map((pill) => (
 				<button
 					type="button"
 					key={pill.domain}
 					onClick={() => onToggle(pill.domain)}
 					aria-pressed={pill.isActive}
-					className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium ${pill.isActive ? "bg-slate-900 text-white" : "bg-white text-slate-700 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"}`}
+					className={`inline-flex min-w-0 items-center gap-1.5 px-2 py-1 text-xs font-medium ${pill.isActive ? "bg-slate-900 text-white" : "bg-white text-slate-700 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"}`}
 				>
-					<span>{pill.label}</span>
+					<span className="truncate">{pill.label}</span>
 					<span className="font-mono text-[10px] text-slate-400">
 						{pill.count}
 					</span>
 				</button>
 			))}
+			{canCollapse ? (
+				<button
+					type="button"
+					className="shrink-0 bg-white px-2 py-1 text-xs font-medium text-slate-700 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"
+					onClick={() => setIsExpanded((current) => !current)}
+					aria-expanded={isExpanded}
+				>
+					{isExpanded ? "Less" : `More ${hiddenCount}`}
+				</button>
+			) : null}
 		</div>
 	);
 }

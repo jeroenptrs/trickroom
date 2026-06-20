@@ -1,16 +1,11 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import {
-	type RefObject,
-	useCallback,
-	useEffect,
-	useState,
-} from "react";
+import { type RefObject, useCallback, useEffect, useState } from "react";
 
 export const VIRTUAL_GRID_GAP = 12;
 export const ASSET_GRID_MIN_COLUMN_WIDTH = 160;
-export const ASSET_GRID_ROW_EXTRA_HEIGHT = 86;
-export const ICON_GRID_MIN_COLUMN_WIDTH = 128;
-export const ICON_GRID_ROW_HEIGHT = 158;
+export const ASSET_GRID_ROW_EXTRA_HEIGHT = 66;
+export const ICON_GRID_MIN_COLUMN_WIDTH = 108;
+export const ICON_GRID_ROW_HEIGHT = 116;
 const VIRTUAL_GRID_OVERSCAN = 4;
 
 export function getVirtualGridColumnCount(

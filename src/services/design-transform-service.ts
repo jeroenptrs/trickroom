@@ -5,6 +5,7 @@ import {
 	getDefaultProps,
 	getDefaultText,
 	isValidControlValue,
+	migrateRegistryBaseClassProps,
 	normalizeRole,
 	resolveRegistryComponent,
 	resolveRegistryRecipe,
@@ -167,10 +168,14 @@ const normalizeNode = (
 	parentId: string | null,
 	entitiesById: Record<string, FlatEntity>,
 ) => {
-	const role = normalizeRole(node.props["data-trickroom-role"]);
+	const props = migrateRegistryBaseClassProps(node.props, {
+		materializeBaseClass:
+			getSystemComponentStructuralMetadata(node.props) !== null,
+	});
+	const role = normalizeRole(props["data-trickroom-role"]);
 	const entity: FlatEntity = {
 		id: node.id,
-		props: { ...node.props, "data-trickroom-role": role },
+		props: { ...props, "data-trickroom-role": role },
 		parentId,
 		role,
 	};

@@ -1,5 +1,7 @@
+import { useHotkey } from "@tanstack/react-hotkeys";
 import { FilePlus2, Palette, RefreshCw } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import type { TailwindSyncResult } from "../../hooks/useTailwindSyncController";
 import { useTailwindSyncController } from "../contexts";
 import { Button } from "../ui/button";
@@ -7,11 +9,12 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
 import { CreateSystemDialog } from "./CreateSystemDialog";
 import { pluralize } from "./project-view-utils";
-import { useScrollSelectedIntoView } from "./useScrollSelectedIntoView";
+import { getSystemEditorPath } from "./SystemDetailPane";
 import {
 	SystemStatusBadge,
 	type SystemStatusBadgeState,
 } from "./SystemStatusBadge";
+import { useScrollSelectedIntoView } from "./useScrollSelectedIntoView";
 
 function getCssBasename(cssPath: string | undefined) {
 	if (!cssPath) {
@@ -119,12 +122,14 @@ function System({
 	systemId,
 	isSelected,
 	onSelect,
+	onOpen,
 	selectedItemRef,
 }: {
 	system: TailwindSyncResult;
 	systemId: string;
 	isSelected: boolean;
 	onSelect: () => void;
+	onOpen: () => void;
 	selectedItemRef?: (element: HTMLElement | null) => void;
 }) {
 	const systems = useTailwindSyncController();
@@ -146,6 +151,7 @@ function System({
 			flavor={reviewRequired ? "warning" : undefined}
 			isSelected={isSelected}
 			onClick={onSelect}
+			onDoubleClick={onOpen}
 			className="flex w-full items-center gap-2 px-4 py-3 text-left"
 		>
 			<SystemStatusIndicator system={system} reviewRequired={reviewRequired} />
@@ -168,9 +174,30 @@ export function Systems({
 	onSelectSystem: (systemId: string | null) => void;
 }) {
 	const systems = useTailwindSyncController();
+	const navigate = useNavigate();
 	const systemEntries = Object.entries(systems.statusBySystem);
 	const [createDialogOpen, setCreateDialogOpen] = useState(false);
 	const setSelectedItemRef = useScrollSelectedIntoView(selectedSystemId);
+	const getOpenPath = (systemId: string) => {
+		const reviewRequired = Boolean(
+			systems.results[systemId]?.data?.reviewRequired,
+		);
+		return getSystemEditorPath(
+			systemId,
+			reviewRequired ? { tab: "tokens" } : undefined,
+		);
+	};
+
+	useHotkey(
+		"Enter",
+		() => {
+			if (selectedSystemId) {
+				navigate(getOpenPath(selectedSystemId));
+			}
+		},
+		{ enabled: selectedSystemId !== null },
+	);
+
 	return (
 		<>
 			<section className="flex flex-col flex-1 min-h-0 border-t border-slate-200">
@@ -216,6 +243,7 @@ export function Systems({
 									system={systems.results[systemId] ?? { status }}
 									isSelected={selectedSystemId === systemId}
 									onSelect={() => onSelectSystem(systemId)}
+									onOpen={() => navigate(getOpenPath(systemId))}
 									selectedItemRef={setSelectedItemRef}
 								/>
 							))}

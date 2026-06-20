@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { resolveRegistryComponent } from "../libraries/registry";
 import type { RecipeTemplateNode } from "../types";
+import { createClassLayers, flattenClassLayers } from "../utils/class-layers";
+import { resolveClassLayers } from "../utils/class-resolution";
+import { layerDropInsertionIndex } from "../utils/reorder-insertion-index";
 import { systemComponentTemplateHashProp } from "../utils/system-component-markers";
 import { hashComponentDraftSnapshot } from "../utils/system-component-template-hash";
 import {
@@ -15,6 +19,8 @@ import {
 	clearComponentDraftTemplateDirty,
 	componentDraftStore,
 	deleteTemplateNode,
+	getComponentDraftPreviewClassLayers,
+	getComponentDraftPreviewClassName,
 	getComponentDraftTemplateHash,
 	getCompoundClassNameForPath,
 	getEffectiveDraftNodeClassName,
@@ -318,6 +324,132 @@ describe("component draft store", () => {
 		expect(componentDraftStore.get().entitiesByPath.icon?.path).toBe("icon");
 	});
 
+	it("deletes the root template and allows adding a replacement root", () => {
+		resetComponentDraftStore();
+		hydrateComponentDraft({
+			componentId: FIXTURE_COMPONENT_ID,
+			root: complexComponentTemplateRoot(),
+			slots: {
+				default: {
+					name: "default",
+					hostPath: "root",
+				},
+			},
+			overrideTargets: {
+				labelTarget: {
+					targetId: "labelTarget",
+					label: "Label",
+					path: "label",
+				},
+			},
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: {
+							brand: {
+								classesByPath: {
+									root: "bg-blue-600",
+									label: "text-white",
+								},
+							},
+						},
+					},
+				},
+				compoundVariants: [
+					{
+						when: { tone: "brand" },
+						classesByPath: { icon: "size-4" },
+					},
+				],
+			},
+		});
+		selectTemplateNode("root");
+
+		deleteTemplateNode("root");
+
+		let state = componentDraftStore.get();
+		expect(state.rootPath).toBeNull();
+		expect(state.entitiesByPath).toEqual({});
+		expect(state.selectedPath).toBeNull();
+		expect(state.slots).toEqual({});
+		expect(state.overrideTargets).toEqual({});
+		expect(state.templateDirty).toBe(true);
+		expect(state.variantsDirty).toBe(true);
+		expect(
+			state.variants?.axes.tone.values.brand.classesByPath,
+		).toBeUndefined();
+		expect(state.variants?.compoundVariants?.[0]?.classesByPath).toEqual({});
+		expect(() => serializeComponentDraftState(state)).toThrow(
+			"Cannot serialize component draft without a root template.",
+		);
+
+		addTemplateNode({ library: "trickroom", component: "text" }, null, 0);
+
+		state = componentDraftStore.get();
+		expect(state.rootPath).toBe("root");
+		expect(state.entitiesByPath.root).toMatchObject({
+			path: "root",
+			component: "text",
+			parentPath: null,
+		});
+		expect(serializeComponentDraftState(state)).toMatchObject({
+			path: "root",
+			component: "text",
+		});
+	});
+
+	it("reorders the first sibling after a later sibling using layer-drop indices", () => {
+		resetComponentDraftStore();
+		hydrateFixture(complexComponentTemplateRoot());
+
+		addTemplateNode(
+			{ library: "trickroom", component: "text" },
+			"root",
+			1,
+			"middle",
+		);
+
+		const siblings =
+			componentDraftStore.get().entitiesByPath.root?.childPaths ?? [];
+		expect(siblings).toEqual(["label", "middle", "icon"]);
+
+		const index = layerDropInsertionIndex(siblings, "label", "after", "middle");
+		expect(index).toBe(1);
+
+		moveTemplateNode("label", "root", index);
+
+		expect(componentDraftStore.get().entitiesByPath.root?.childPaths).toEqual([
+			"middle",
+			"label",
+			"icon",
+		]);
+	});
+
+	it("shows the pre-adjustment after index would land at the end instead of between siblings", () => {
+		resetComponentDraftStore();
+		hydrateFixture(complexComponentTemplateRoot());
+
+		addTemplateNode(
+			{ library: "trickroom", component: "text" },
+			"root",
+			1,
+			"middle",
+		);
+
+		const siblings =
+			componentDraftStore.get().entitiesByPath.root?.childPaths ?? [];
+		const buggyIndex = siblings.indexOf("middle") + 1;
+
+		moveTemplateNode("label", "root", buggyIndex);
+
+		expect(componentDraftStore.get().entitiesByPath.root?.childPaths).toEqual([
+			"middle",
+			"icon",
+			"label",
+		]);
+	});
+
 	it("does not orphan a non-root node when moved to a null parent target", () => {
 		resetComponentDraftStore();
 		hydrateFixture(complexComponentTemplateRoot());
@@ -520,6 +652,368 @@ describe("component draft store", () => {
 			"text-blue-600",
 		);
 		expect(state.variantsDirty).toBe(true);
+	});
+
+	it("preserves authored class strings in draft base and variant storage", () => {
+		resetComponentDraftStore();
+		hydrateComponentDraft({
+			componentId: FIXTURE_COMPONENT_ID,
+			root: minimalComponentTemplateRoot(),
+			variants: {
+				axes: {
+					size: {
+						label: "Size",
+						defaultValue: "lg",
+						values: {
+							lg: { label: "Large" },
+						},
+					},
+				},
+			},
+		});
+		const baseClassName = "h-4 unknown-template-token h-6";
+		const variantClassName = "h-8 unknown-variant-token h-10";
+
+		updateTemplateNodeClassName("root", baseClassName);
+		setComponentDraftStyleTarget({
+			mode: "variant",
+			axisKey: "size",
+			valueKey: "lg",
+		});
+		setComponentDraftStyleClassName("root", variantClassName);
+
+		const state = componentDraftStore.get();
+		const layers = getComponentDraftPreviewClassLayers(state, "root");
+
+		expect(state.entitiesByPath.root?.className).toBe(baseClassName);
+		expect(state.variants?.axes.size.values.lg.classesByPath?.root).toBe(
+			variantClassName,
+		);
+		expect(serializeComponentDraftState(state).className).toBe(baseClassName);
+		expect(getComponentDraftPreviewClassName(state, "root")).toBe(
+			`${baseClassName} ${variantClassName}`,
+		);
+		expect(
+			resolveClassLayers(layers, { colorTokens: new Set<string>() })
+				.tokens.filter((token) => token.classToken.startsWith("h-"))
+				.map((token) => ({
+					classToken: token.classToken,
+					status: token.status,
+					shadowedBy: token.shadowedBy,
+				})),
+		).toEqual([
+			{ classToken: "h-4", status: "shadowed", shadowedBy: 2 },
+			{ classToken: "h-6", status: "shadowed", shadowedBy: 3 },
+			{ classToken: "h-8", status: "shadowed", shadowedBy: 5 },
+			{ classToken: "h-10", status: "active", shadowedBy: undefined },
+		]);
+	});
+
+	it("builds draft preview layers from the selected variant edit without changing the rendered class string", () => {
+		resetComponentDraftStore();
+		hydrateComponentDraft({
+			componentId: FIXTURE_COMPONENT_ID,
+			root: {
+				path: "root",
+				library: "base-ui",
+				component: "separator",
+				className: "h-4 unknown-template-token",
+			},
+			variants: {
+				axes: {
+					size: {
+						label: "Size",
+						values: {
+							lg: {
+								label: "Large",
+								classesByPath: { root: "h-6 unknown-variant-token" },
+							},
+						},
+					},
+				},
+			},
+		});
+		setComponentDraftStyleTarget({
+			mode: "variant",
+			axisKey: "size",
+			valueKey: "lg",
+		});
+
+		const state = componentDraftStore.get();
+		const layers = getComponentDraftPreviewClassLayers(state, "root");
+
+		expect(layers).toEqual([
+			{
+				source: "system-template",
+				className: "h-4 unknown-template-token",
+				metadata: {
+					componentId: FIXTURE_COMPONENT_ID,
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+				},
+			},
+			{
+				source: "system-variant",
+				className: "h-6 unknown-variant-token",
+				metadata: {
+					componentId: FIXTURE_COMPONENT_ID,
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+					axis: "size",
+					value: "lg",
+				},
+			},
+		]);
+		expect(flattenClassLayers(layers)).toBe(
+			getComponentDraftPreviewClassName(state, "root"),
+		);
+		expect(getComponentDraftPreviewClassName(state, "root")).toBe(
+			"h-4 unknown-template-token h-6 unknown-variant-token",
+		);
+		expect(
+			resolveClassLayers(layers, { colorTokens: new Set<string>() }).tokens.map(
+				(token) => ({
+					classToken: token.classToken,
+					source: token.layer.source,
+					status: token.status,
+					shadowedBy: token.shadowedBy,
+				}),
+			),
+		).toEqual([
+			{
+				classToken: "h-4",
+				source: "system-template",
+				status: "shadowed",
+				shadowedBy: 2,
+			},
+			{
+				classToken: "unknown-template-token",
+				source: "system-template",
+				status: "unknown",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "h-6",
+				source: "system-variant",
+				status: "active",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "unknown-variant-token",
+				source: "system-variant",
+				status: "unknown",
+				shadowedBy: undefined,
+			},
+		]);
+	});
+
+	it("resolves component draft preview-like base, template, compound, and selection layers with statuses", () => {
+		const separatorResolution = resolveRegistryComponent(
+			"base-ui",
+			"separator",
+		);
+		expect(separatorResolution.status).toBe("known");
+		if (separatorResolution.status !== "known") return;
+
+		resetComponentDraftStore();
+		hydrateComponentDraft({
+			componentId: FIXTURE_COMPONENT_ID,
+			root: {
+				path: "root",
+				library: "base-ui",
+				component: "separator",
+				className: "h-4 unknown-template-token",
+			},
+			variants: {
+				axes: {},
+				compoundVariants: [
+					{
+						when: {},
+						classesByPath: {
+							root: "h-8 data-[orientation=vertical]:w-2",
+						},
+					},
+				],
+			},
+		});
+		setComponentDraftStyleTarget({ mode: "compound", compoundIndex: 0 });
+
+		const draftLayers = getComponentDraftPreviewClassLayers(
+			componentDraftStore.get(),
+			"root",
+		);
+		const layers = createClassLayers([
+			{
+				source: "registry-base",
+				className: separatorResolution.definition.baseClassName,
+				metadata: {
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+				},
+			},
+			...draftLayers,
+			{
+				source: "authored",
+				className: "outline outline-2 unknown-selection-token",
+				metadata: {
+					componentId: FIXTURE_COMPONENT_ID,
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+					prop: "currentPreviewSelection",
+				},
+			},
+		]);
+		const resolution = resolveClassLayers(layers, {
+			colorTokens: new Set<string>(),
+		});
+
+		expect(
+			resolution.tokens.map((token) => ({
+				classToken: token.classToken,
+				source: token.layer.source,
+				status: token.status,
+				metadata: token.layer.metadata,
+				shadowedBy: token.shadowedBy,
+			})),
+		).toEqual([
+			{
+				classToken: "data-[orientation=vertical]:w-px",
+				source: "registry-base",
+				status: "shadowed",
+				metadata: {
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+				},
+				shadowedBy: 7,
+			},
+			{
+				classToken: "data-[orientation=vertical]:self-stretch",
+				source: "registry-base",
+				status: "active",
+				metadata: {
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+				},
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:h-px",
+				source: "registry-base",
+				status: "active",
+				metadata: {
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+				},
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:w-full",
+				source: "registry-base",
+				status: "active",
+				metadata: {
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+				},
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "h-4",
+				source: "system-template",
+				status: "shadowed",
+				metadata: {
+					componentId: FIXTURE_COMPONENT_ID,
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+				},
+				shadowedBy: 6,
+			},
+			{
+				classToken: "unknown-template-token",
+				source: "system-template",
+				status: "unknown",
+				metadata: {
+					componentId: FIXTURE_COMPONENT_ID,
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+				},
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "h-8",
+				source: "system-compound-variant",
+				status: "active",
+				metadata: {
+					componentId: FIXTURE_COMPONENT_ID,
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+					compoundIndex: 0,
+				},
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "data-[orientation=vertical]:w-2",
+				source: "system-compound-variant",
+				status: "active",
+				metadata: {
+					componentId: FIXTURE_COMPONENT_ID,
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+					compoundIndex: 0,
+				},
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "outline",
+				source: "authored",
+				status: "shadowed",
+				metadata: {
+					componentId: FIXTURE_COMPONENT_ID,
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+					prop: "currentPreviewSelection",
+				},
+				shadowedBy: 9,
+			},
+			{
+				classToken: "outline-2",
+				source: "authored",
+				status: "active",
+				metadata: {
+					componentId: FIXTURE_COMPONENT_ID,
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+					prop: "currentPreviewSelection",
+				},
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "unknown-selection-token",
+				source: "authored",
+				status: "unknown",
+				metadata: {
+					componentId: FIXTURE_COMPONENT_ID,
+					library: "base-ui",
+					component: "separator",
+					path: "root",
+					prop: "currentPreviewSelection",
+				},
+				shadowedBy: undefined,
+			},
+		]);
 	});
 
 	const hydrateCompoundFixture = () => {

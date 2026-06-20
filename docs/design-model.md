@@ -149,9 +149,11 @@ Persisted props include:
 - `data-trickroom-asset-id`: stable system asset ID for `trickroom/asset`.
 - `data-trickroom-icon-id`: stable system icon ID for `trickroom/icon`.
 
-Registries may provide default instance props. Base UI Separator uses this to
-inject orientation-dependent sizing classes into `className` when the element is
-created; after creation it is just an editable instance class string.
+Registries may provide default instance props. Base UI Separator exposes these in
+`defaults.props` (for example `orientation`) and exposes base rendering classes in
+`defaults.baseClassName` where applicable. When a separator is
+materialized in design snapshots, the base classes become part of the rendered
+`className` string, while the editable instance `className` remains separate.
 
 MCP exposes `data-trickroom-name` through the friendlier `name` alias.
 

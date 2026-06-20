@@ -3,9 +3,13 @@ import baseUiRecipes from "../libraries/base-ui/recipes";
 import {
 	CORE_PROP_KEYS,
 	getComponentIds,
+	getControlProps,
+	getDefaultProps,
 	getRecipe,
 	getRecipeIds,
+	getRenderableClassComposition,
 	getRenderableProps,
+	MATERIALIZED_BASE_CLASS_PROP,
 	resolveRegistryComponent,
 	resolveRegistryRecipe,
 	SYSTEM_PROP_KEYS,
@@ -96,6 +100,9 @@ const baseContainerProps = {
 	"data-trickroom-role": "branch",
 } satisfies Node["props"];
 
+const separatorBaseClassName =
+	"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full";
+
 const expectNoRecipeMarkers = (node: Node) => {
 	for (const key of recipeMarkerProps) {
 		expect(node.props).not.toHaveProperty(key);
@@ -124,6 +131,49 @@ const expandAvatarRecipe = (instanceId = "recipe-instance-1") => {
 	});
 };
 
+const expandSeparatorRecipe = (instanceId = "separator-recipe-instance") => {
+	const ids = [
+		"separator-recipe-root",
+		"separator-recipe-separator",
+		"separator-recipe-menu-separator",
+	];
+	const recipe: RecipeDefinition = {
+		id: "test/separator-components",
+		label: "Separator Components",
+		version: 1,
+		root: {
+			path: "root",
+			library: "trickroom",
+			component: "container",
+			children: [
+				{
+					path: "separator",
+					library: "base-ui",
+					component: "separator",
+					props: { className: "authored-separator" },
+				},
+				{
+					path: "menu-separator",
+					library: "base-ui",
+					component: "menu.separator",
+					props: { className: "authored-menu-separator" },
+				},
+			],
+		},
+	};
+
+	return expandRecipeDefinition(recipe, {
+		createRecipeInstanceId: () => instanceId,
+		createElementId: () => {
+			const id = ids.shift();
+			if (!id) {
+				throw new Error("missing separator test id");
+			}
+			return id;
+		},
+	});
+};
+
 describe("recipe system foundation", () => {
 	it("keeps existing component registry behavior while adding Avatar parts", () => {
 		expect(getComponentIds("trickroom")).toEqual([
@@ -133,9 +183,19 @@ describe("recipe system foundation", () => {
 			"text",
 		]);
 		expect(getComponentIds("base-ui")).toEqual([
+			"accordion.header",
+			"accordion.item",
+			"accordion.panel",
+			"accordion.root",
+			"accordion.trigger",
 			"avatar.fallback",
 			"avatar.image",
 			"avatar.root",
+			"button",
+			"collapsible.panel",
+			"collapsible.root",
+			"collapsible.trigger",
+			"input",
 			"menu.item",
 			"menu.popup",
 			"menu.portal",
@@ -143,14 +203,74 @@ describe("recipe system foundation", () => {
 			"menu.root",
 			"menu.separator",
 			"menu.trigger",
+			"radio-group",
+			"radio.indicator",
+			"radio.root",
 			"separator",
+			"switch.root",
+			"switch.thumb",
+			"toggle",
+			"toggle-group",
 		]);
 
 		const separator = resolveRegistryComponent("base-ui", "separator");
+		const menuSeparator = resolveRegistryComponent("base-ui", "menu.separator");
 		expect(separator).toMatchObject({
 			status: "known",
-			definition: { role: "leaf", label: "Separator" },
+			definition: {
+				role: "leaf",
+				label: "Separator",
+				baseClassName: separatorBaseClassName,
+				defaultProps: {
+					orientation: "horizontal",
+				},
+			},
 		});
+		expect(separator.definition).not.toHaveProperty("className");
+		expect(menuSeparator).toMatchObject({
+			status: "known",
+			definition: {
+				role: "leaf",
+				label: "Menu Separator",
+				baseClassName: separatorBaseClassName,
+				defaultProps: {
+					orientation: "horizontal",
+				},
+			},
+		});
+		expect(menuSeparator.definition).not.toHaveProperty("className");
+		expect(separator.definition).toHaveProperty("defaultProps");
+		expect(menuSeparator.definition).toHaveProperty("defaultProps");
+		expect(getControlProps(separator.definition).orientation).toBe(
+			"horizontal",
+		);
+		expect(getControlProps(menuSeparator.definition).orientation).toBe(
+			"horizontal",
+		);
+		expect(getControlProps(separator.definition)).not.toHaveProperty(
+			"className",
+		);
+		expect(getControlProps(menuSeparator.definition)).not.toHaveProperty(
+			"className",
+		);
+		expect(
+			getDefaultProps("base-ui", "separator", separator.definition),
+		).not.toHaveProperty("className");
+		expect(
+			getDefaultProps("base-ui", "menu.separator", menuSeparator.definition),
+		).not.toHaveProperty("className");
+		expect(
+			getRenderableProps(
+				getDefaultProps("base-ui", "separator", separator.definition),
+				separator.definition,
+			).className,
+		).toBe(separatorBaseClassName);
+		expect(
+			getRenderableProps(
+				getDefaultProps("base-ui", "menu.separator", menuSeparator.definition),
+				menuSeparator.definition,
+			).className,
+		).toBe(separatorBaseClassName);
 
 		const avatarRoot = resolveRegistryComponent("base-ui", "avatar.root");
 		const avatarImage = resolveRegistryComponent("base-ui", "avatar.image");
@@ -207,13 +327,220 @@ describe("recipe system foundation", () => {
 		);
 
 		expect(renderableProps).toMatchObject({
-			className: "h-px",
+			className: `${separatorBaseClassName} h-px`,
 			"data-trickroom-library": "base-ui",
 			"data-trickroom-component": "separator",
 		});
 		expect(renderableProps).not.toHaveProperty(recipeIdProp);
 		expect(renderableProps).not.toHaveProperty(recipeInstanceProp);
 		expect(renderableProps).not.toHaveProperty(recipePathProp);
+	});
+
+	it("prepends baseClassName when component has no materialized-base marker", () => {
+		const resolution = resolveRegistryComponent("trickroom", "container");
+		expect(resolution.status).toBe("known");
+		if (resolution.status !== "known") return;
+
+		const renderableProps = getRenderableProps(
+			{
+				className: "h-px",
+			},
+			{
+				...resolution.definition,
+				baseClassName: "w-full",
+			},
+		);
+
+		expect(renderableProps.className).toBe("w-full h-px");
+	});
+
+	it("skips baseClassName when materialized-base marker is present", () => {
+		const resolution = resolveRegistryComponent("trickroom", "container");
+		expect(resolution.status).toBe("known");
+		if (resolution.status !== "known") return;
+
+		const renderableProps = getRenderableProps(
+			{
+				className: "h-px",
+				[MATERIALIZED_BASE_CLASS_PROP]: "true",
+			},
+			{
+				...resolution.definition,
+				baseClassName: "w-full",
+			},
+		);
+
+		expect(renderableProps).toMatchObject({
+			className: "h-px",
+		});
+		expect(renderableProps).not.toHaveProperty(MATERIALIZED_BASE_CLASS_PROP);
+	});
+
+	it("preserves authored className even when suppressing baseClassName", () => {
+		const resolution = resolveRegistryComponent("trickroom", "container");
+		expect(resolution.status).toBe("known");
+		if (resolution.status !== "known") return;
+
+		const renderableProps = getRenderableProps(
+			{
+				className: "h-px",
+				[MATERIALIZED_BASE_CLASS_PROP]: "true",
+			},
+			{
+				...resolution.definition,
+				baseClassName: "w-full",
+			},
+		);
+
+		expect(renderableProps.className).toBe("h-px");
+	});
+
+	it("omits className when no base class and no authored className", () => {
+		const resolution = resolveRegistryComponent("trickroom", "container");
+		expect(resolution.status).toBe("known");
+		if (resolution.status !== "known") return;
+
+		const renderableProps = getRenderableProps(
+			{
+				"data-trickroom-name": "Container",
+			},
+			resolution.definition,
+		);
+
+		expect(renderableProps).not.toHaveProperty("className");
+	});
+
+	it("composes separator render classes through shared layers without changing output", () => {
+		const resolution = resolveRegistryComponent("base-ui", "separator");
+		expect(resolution.status).toBe("known");
+		if (resolution.status !== "known") return;
+
+		const props = {
+			...getDefaultProps("base-ui", "separator", resolution.definition),
+			className: "data-[orientation=horizontal]:h-2 unknown-separator-token",
+		};
+		const composition = getRenderableClassComposition(
+			props,
+			resolution.definition,
+		);
+
+		expect(composition.className).toBe(
+			`${separatorBaseClassName} data-[orientation=horizontal]:h-2 unknown-separator-token`,
+		);
+		expect(getRenderableProps(props, resolution.definition).className).toBe(
+			composition.className,
+		);
+		expect(composition.layers).toEqual([
+			{
+				source: "registry-base",
+				className: separatorBaseClassName,
+				metadata: { library: "base-ui", component: "separator" },
+			},
+			{
+				source: "authored",
+				className: "data-[orientation=horizontal]:h-2 unknown-separator-token",
+				metadata: { library: "base-ui", component: "separator" },
+			},
+		]);
+		expect(
+			composition.resolution.tokens.map((token) => ({
+				classToken: token.classToken,
+				source: token.layer.source,
+				status: token.status,
+				shadowedBy: token.shadowedBy,
+			})),
+		).toEqual([
+			{
+				classToken: "data-[orientation=vertical]:w-px",
+				source: "registry-base",
+				status: "active",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "data-[orientation=vertical]:self-stretch",
+				source: "registry-base",
+				status: "active",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:h-px",
+				source: "registry-base",
+				status: "shadowed",
+				shadowedBy: 4,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:w-full",
+				source: "registry-base",
+				status: "active",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:h-2",
+				source: "authored",
+				status: "active",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "unknown-separator-token",
+				source: "authored",
+				status: "unknown",
+				shadowedBy: undefined,
+			},
+		]);
+	});
+
+	it("composes menu separator and materialized snapshots without reapplying base classes", () => {
+		const resolution = resolveRegistryComponent("base-ui", "menu.separator");
+		expect(resolution.status).toBe("known");
+		if (resolution.status !== "known") return;
+
+		const liveProps = {
+			...getDefaultProps("base-ui", "menu.separator", resolution.definition),
+			className: "opacity-70",
+		};
+		const liveComposition = getRenderableClassComposition(
+			liveProps,
+			resolution.definition,
+		);
+		expect(liveComposition.className).toBe(
+			`${separatorBaseClassName} opacity-70`,
+		);
+		expect(liveComposition.layers.map((layer) => layer.source)).toEqual([
+			"registry-base",
+			"authored",
+		]);
+
+		const snapshotProps = {
+			...liveProps,
+			className: `${separatorBaseClassName} opacity-70`,
+			[MATERIALIZED_BASE_CLASS_PROP]: "true",
+		};
+		const snapshotComposition = getRenderableClassComposition(
+			snapshotProps,
+			resolution.definition,
+		);
+
+		expect(snapshotComposition.className).toBe(
+			`${separatorBaseClassName} opacity-70`,
+		);
+		expect(
+			getRenderableProps(snapshotProps, resolution.definition),
+		).toMatchObject({
+			className: `${separatorBaseClassName} opacity-70`,
+		});
+		expect(
+			getRenderableProps(snapshotProps, resolution.definition),
+		).not.toHaveProperty(MATERIALIZED_BASE_CLASS_PROP);
+		expect(snapshotComposition.layers).toEqual([
+			{
+				source: "materialized-snapshot",
+				className: `${separatorBaseClassName} opacity-70`,
+				metadata: { library: "base-ui", component: "menu.separator" },
+			},
+		]);
+		expect(
+			snapshotComposition.resolution.tokens.map((token) => token.status),
+		).toEqual(["active", "active", "active", "active", "active"]);
 	});
 
 	it("rejects recipe marker writes through normal mutation props", () => {
@@ -341,8 +668,15 @@ describe("recipe system foundation", () => {
 
 	it("discovers and resolves the Base UI recipes", () => {
 		expect(getRecipeIds("base-ui")).toEqual([
+			"base-ui/accordion.default",
+			"base-ui/accordion.item.default",
 			"base-ui/avatar.default",
+			"base-ui/collapsible.default",
 			"base-ui/menu.default",
+			"base-ui/radio-group.default",
+			"base-ui/radio.default",
+			"base-ui/switch.default",
+			"base-ui/toggle-group.default",
 		]);
 
 		const recipe = getRecipe("base-ui", "avatar.default");
@@ -922,6 +1256,322 @@ describe("recipe system foundation", () => {
 		expect(canDeleteElementAcrossRecipeBoundary(entities, "nested-image")).toBe(
 			false,
 		);
+	});
+
+	it("does not materialize separator base styling during recipe expansion", () => {
+		const expansion = expandSeparatorRecipe();
+		const [separator, menuSeparator] = expansion.root.children as Node[];
+		const separatorDefinition = resolveRegistryComponent(
+			"base-ui",
+			"separator",
+		).definition;
+		const menuSeparatorDefinition = resolveRegistryComponent(
+			"base-ui",
+			"menu.separator",
+		).definition;
+
+		expect(separator.props).not.toHaveProperty(MATERIALIZED_BASE_CLASS_PROP);
+		expect(menuSeparator.props).not.toHaveProperty(
+			MATERIALIZED_BASE_CLASS_PROP,
+		);
+		expect(separator.props.className).toBe("authored-separator");
+		expect(menuSeparator.props.className).toBe("authored-menu-separator");
+		expect(
+			getRenderableProps(separator.props, separatorDefinition),
+		).toMatchObject({
+			className: `${separatorBaseClassName} authored-separator`,
+		});
+		expect(
+			getRenderableProps(menuSeparator.props, menuSeparatorDefinition),
+		).toMatchObject({
+			className: `${separatorBaseClassName} authored-menu-separator`,
+		});
+
+		const liveSeparatorComposition = getRenderableClassComposition(
+			{
+				...separator.props,
+				className: "data-[orientation=horizontal]:h-2 authored-separator",
+			},
+			separatorDefinition,
+		);
+		expect(liveSeparatorComposition.className).toBe(
+			`${separatorBaseClassName} data-[orientation=horizontal]:h-2 authored-separator`,
+		);
+		expect(liveSeparatorComposition.layers).toEqual([
+			{
+				source: "registry-base",
+				className: separatorBaseClassName,
+				metadata: {
+					library: "base-ui",
+					component: "separator",
+					recipeId: "test/separator-components",
+					instanceId: "separator-recipe-instance",
+					path: "separator",
+				},
+			},
+			{
+				source: "authored",
+				className: "data-[orientation=horizontal]:h-2 authored-separator",
+				metadata: {
+					library: "base-ui",
+					component: "separator",
+					recipeId: "test/separator-components",
+					instanceId: "separator-recipe-instance",
+					path: "separator",
+				},
+			},
+		]);
+		expect(
+			liveSeparatorComposition.resolution.tokens.map((token) => ({
+				classToken: token.classToken,
+				source: token.layer.source,
+				metadata: token.layer.metadata,
+				status: token.status,
+				shadowedBy: token.shadowedBy,
+			})),
+		).toEqual([
+			{
+				classToken: "data-[orientation=vertical]:w-px",
+				source: "registry-base",
+				metadata: liveSeparatorComposition.layers[0].metadata,
+				status: "active",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "data-[orientation=vertical]:self-stretch",
+				source: "registry-base",
+				metadata: liveSeparatorComposition.layers[0].metadata,
+				status: "active",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:h-px",
+				source: "registry-base",
+				metadata: liveSeparatorComposition.layers[0].metadata,
+				status: "shadowed",
+				shadowedBy: 4,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:w-full",
+				source: "registry-base",
+				metadata: liveSeparatorComposition.layers[0].metadata,
+				status: "active",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:h-2",
+				source: "authored",
+				metadata: liveSeparatorComposition.layers[1].metadata,
+				status: "active",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "authored-separator",
+				source: "authored",
+				metadata: liveSeparatorComposition.layers[1].metadata,
+				status: "unknown",
+				shadowedBy: undefined,
+			},
+		]);
+	});
+
+	it("preserves authored recipe class order through expansion and detach", () => {
+		const authoredClassName =
+			"data-[orientation=horizontal]:h-2 unknown-recipe-token data-[orientation=horizontal]:h-4";
+		const recipe: RecipeDefinition = {
+			id: "test/persisted-class-order",
+			label: "Persisted Class Order",
+			version: 1,
+			root: {
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				children: [
+					{
+						path: "separator",
+						library: "base-ui",
+						component: "separator",
+						props: { className: authoredClassName },
+					},
+				],
+			},
+		};
+		const ids = ["recipe-root", "recipe-separator"];
+		const expansion = expandRecipeDefinition(recipe, {
+			createRecipeInstanceId: () => "recipe-instance",
+			createElementId: () => {
+				const id = ids.shift();
+				if (!id) throw new Error("missing recipe id");
+				return id;
+			},
+		});
+		const separator = expansion.root.children?.[0];
+		const separatorDefinition = resolveRegistryComponent(
+			"base-ui",
+			"separator",
+		).definition;
+
+		expect(separator?.props.className).toBe(authoredClassName);
+
+		const detachResult = detachRecipeInstance([expansion.root], "recipe-root");
+		expect(detachResult).not.toBeNull();
+		if (!detachResult) return;
+
+		const detachedSeparator = detachResult.roots[0].children?.[0];
+		const composition = getRenderableClassComposition(
+			detachedSeparator?.props ?? {},
+			separatorDefinition,
+		);
+
+		expect(detachedSeparator?.props.className).toBe(authoredClassName);
+		expect(composition.className).toBe(
+			`${separatorBaseClassName} ${authoredClassName}`,
+		);
+		expect(
+			composition.resolution.tokens
+				.filter((token) =>
+					token.classToken.startsWith("data-[orientation=horizontal]:h-"),
+				)
+				.map((token) => ({
+					classToken: token.classToken,
+					status: token.status,
+					shadowedBy: token.shadowedBy,
+				})),
+		).toEqual([
+			{
+				classToken: "data-[orientation=horizontal]:h-px",
+				status: "shadowed",
+				shadowedBy: 4,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:h-2",
+				status: "shadowed",
+				shadowedBy: 6,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:h-4",
+				status: "active",
+				shadowedBy: undefined,
+			},
+		]);
+	});
+
+	it("detaches separator recipes without materializing registry base classes or markers", () => {
+		const expansion = expandSeparatorRecipe();
+		const detachResult = detachRecipeInstance(
+			[expansion.root],
+			"separator-recipe-root",
+		);
+		expect(detachResult).not.toBeNull();
+		if (!detachResult) return;
+
+		const detachedRoot = detachResult.roots[0];
+		const [separator, menuSeparator] = detachedRoot.children as Node[];
+		const separatorDefinition = resolveRegistryComponent(
+			"base-ui",
+			"separator",
+		).definition;
+		const menuSeparatorDefinition = resolveRegistryComponent(
+			"base-ui",
+			"menu.separator",
+		).definition;
+
+		expectNoRecipeMarkers(detachedRoot);
+		expectNoRecipeMarkers(separator);
+		expectNoRecipeMarkers(menuSeparator);
+		expect(separator.props.className).toBe("authored-separator");
+		expect(menuSeparator.props.className).toBe("authored-menu-separator");
+		expect(
+			getRenderableProps(separator.props, separatorDefinition),
+		).toMatchObject({
+			className: `${separatorBaseClassName} authored-separator`,
+		});
+		expect(
+			getRenderableProps(menuSeparator.props, menuSeparatorDefinition),
+		).toMatchObject({
+			className: `${separatorBaseClassName} authored-menu-separator`,
+		});
+
+		const detachedSeparatorComposition = getRenderableClassComposition(
+			{
+				...separator.props,
+				className: "data-[orientation=horizontal]:h-2 authored-separator",
+			},
+			separatorDefinition,
+		);
+		expect(detachedSeparatorComposition.className).toBe(
+			`${separatorBaseClassName} data-[orientation=horizontal]:h-2 authored-separator`,
+		);
+		expect(detachedSeparatorComposition.layers).toEqual([
+			{
+				source: "registry-base",
+				className: separatorBaseClassName,
+				metadata: {
+					library: "base-ui",
+					component: "separator",
+				},
+			},
+			{
+				source: "authored",
+				className: "data-[orientation=horizontal]:h-2 authored-separator",
+				metadata: {
+					library: "base-ui",
+					component: "separator",
+				},
+			},
+		]);
+		expect(
+			detachedSeparatorComposition.resolution.tokens.map((token) => ({
+				classToken: token.classToken,
+				source: token.layer.source,
+				metadata: token.layer.metadata,
+				status: token.status,
+				shadowedBy: token.shadowedBy,
+			})),
+		).toEqual([
+			{
+				classToken: "data-[orientation=vertical]:w-px",
+				source: "registry-base",
+				metadata: detachedSeparatorComposition.layers[0].metadata,
+				status: "active",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "data-[orientation=vertical]:self-stretch",
+				source: "registry-base",
+				metadata: detachedSeparatorComposition.layers[0].metadata,
+				status: "active",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:h-px",
+				source: "registry-base",
+				metadata: detachedSeparatorComposition.layers[0].metadata,
+				status: "shadowed",
+				shadowedBy: 4,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:w-full",
+				source: "registry-base",
+				metadata: detachedSeparatorComposition.layers[0].metadata,
+				status: "active",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:h-2",
+				source: "authored",
+				metadata: detachedSeparatorComposition.layers[1].metadata,
+				status: "active",
+				shadowedBy: undefined,
+			},
+			{
+				classToken: "authored-separator",
+				source: "authored",
+				metadata: detachedSeparatorComposition.layers[1].metadata,
+				status: "unknown",
+				shadowedBy: undefined,
+			},
+		]);
 	});
 
 	it("validates an attached Avatar recipe instance", () => {

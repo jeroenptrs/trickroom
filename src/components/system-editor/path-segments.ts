@@ -10,10 +10,19 @@ export function getParentPathSegment(sourcePath: string) {
 export function groupItemsByPathSegment<T extends { sourcePath: string }>(
 	items: readonly T[],
 ): { segment: string; items: T[] }[] {
+	return groupItemsBySegment(items, (item) =>
+		getParentPathSegment(item.sourcePath),
+	);
+}
+
+export function groupItemsBySegment<T extends { name: string }>(
+	items: readonly T[],
+	getSegment: (item: T) => string,
+): { segment: string; items: T[] }[] {
 	const grouped = new Map<string, T[]>();
 
 	for (const item of items) {
-		const segment = getParentPathSegment(item.sourcePath);
+		const segment = getSegment(item);
 		const rows = grouped.get(segment) ?? [];
 		rows.push(item);
 		grouped.set(segment, rows);
@@ -37,7 +46,10 @@ export function resolveIconFolderSegment(
 	let bestMatch: string | null = null;
 
 	for (const folder of iconFolderPaths) {
-		const normalizedFolder = folder.trim().replaceAll("\\", "/").replace(/\/+$/, "");
+		const normalizedFolder = folder
+			.trim()
+			.replaceAll("\\", "/")
+			.replace(/\/+$/, "");
 		if (!normalizedFolder) {
 			continue;
 		}

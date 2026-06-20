@@ -87,6 +87,7 @@ describe("parseClassName", () => {
 
 	it("splits modes from variants", () => {
 		const [parsed] = parseClassName("md:dark:hover:bg-red-500");
+		expect(parsed.modifiers).toEqual(["md", "dark", "hover"]);
 		expect(parsed.modes).toEqual(["dark"]);
 		expect(parsed.variants).toEqual(["md", "hover"]);
 		expect(parsed.utility).toBe("bg-red-500");

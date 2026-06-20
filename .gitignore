@@ -10,3 +10,4 @@ assets/**/.DS_Store
 .junie
 .env
 .tmp-trickroom-mcp-fixture-*
+.antigravitycli

@@ -15,7 +15,7 @@ import {
 	type SystemComponentInstanceOverrides,
 } from "./system-component-markers";
 import {
-	resolveSystemComponentClassName,
+	resolveMaterializedSystemComponentClassComposition,
 	resolveSystemComponentVariantValues,
 } from "./system-component-resolution";
 import type {
@@ -1321,12 +1321,25 @@ export const migrateSystemComponentInstance = (
 		const sourcePath = sourcePathByTargetPath.get(template.path);
 		const previousReference = sourcePath ? oldByPath.get(sourcePath) : null;
 		const id = previousReference?.node.id ?? createElementId();
-		const className = resolveSystemComponentClassName(
+		const templatePropsClassName =
+			typeof template.props?.className === "string"
+				? template.props.className
+				: undefined;
+		const classComposition = resolveMaterializedSystemComponentClassComposition(
 			targetVersion,
 			template.path,
 			template.className,
+			templatePropsClassName,
 			variantMapping.variantValues,
 			overrideMapping.overrides,
+			resolution.definition,
+			{
+				systemId: input.systemId,
+				componentId: input.componentId,
+				instanceId: targetMetadata.instanceId,
+				library: template.library,
+				component: template.component,
+			},
 		);
 		const props = {
 			...getDefaultProps(
@@ -1336,7 +1349,7 @@ export const migrateSystemComponentInstance = (
 				template.name ?? resolution.definition.label,
 			),
 			...(template.props ?? {}),
-			...(className ? { className } : {}),
+			...classComposition.props,
 			"data-trickroom-name": template.name ?? resolution.definition.label,
 			"data-trickroom-library": template.library,
 			"data-trickroom-component": template.component,

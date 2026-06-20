@@ -48,4 +48,116 @@ describe("buildClassInventory", () => {
 			"p-4",
 		]);
 	});
+
+	it("preserves layer source metadata and resolver shadowed status", () => {
+		const inv = buildClassInventory(
+			{
+				layers: [
+					{ source: "registry-base", className: "p-1 text-red-500" },
+					{ source: "system-template", className: "p-2" },
+					{ source: "system-variant", className: "p-3" },
+					{ source: "system-compound-variant", className: "p-4" },
+					{ source: "instance-override", className: "p-5" },
+					{ source: "authored", className: "p-6 unknown-card" },
+				],
+			},
+			opts,
+		);
+
+		expect(
+			inv.items.map((item) => ({
+				raw: item.raw,
+				source: item.source,
+				status: item.status,
+				readOnly: item.readOnly,
+				shadowedBy: item.shadowedBy,
+			})),
+		).toEqual([
+			{
+				raw: "p-1",
+				source: "registry-base",
+				status: "shadowed",
+				readOnly: true,
+				shadowedBy: 2,
+			},
+			{
+				raw: "text-red-500",
+				source: "registry-base",
+				status: "active",
+				readOnly: true,
+				shadowedBy: undefined,
+			},
+			{
+				raw: "p-2",
+				source: "system-template",
+				status: "shadowed",
+				readOnly: true,
+				shadowedBy: 3,
+			},
+			{
+				raw: "p-3",
+				source: "system-variant",
+				status: "shadowed",
+				readOnly: true,
+				shadowedBy: 4,
+			},
+			{
+				raw: "p-4",
+				source: "system-compound-variant",
+				status: "shadowed",
+				readOnly: true,
+				shadowedBy: 5,
+			},
+			{
+				raw: "p-5",
+				source: "instance-override",
+				status: "shadowed",
+				readOnly: false,
+				shadowedBy: 6,
+			},
+			{
+				raw: "p-6",
+				source: "authored",
+				status: "active",
+				readOnly: false,
+				shadowedBy: undefined,
+			},
+			{
+				raw: "unknown-card",
+				source: "authored",
+				status: "unknown",
+				readOnly: false,
+				shadowedBy: undefined,
+			},
+		]);
+		expect(inv.conflicts[0].raws).toEqual([
+			"p-1",
+			"p-2",
+			"p-3",
+			"p-4",
+			"p-5",
+			"p-6",
+		]);
+	});
+
+	it("treats materialized base snapshots as read-only inventory input", () => {
+		const inv = buildClassInventory(
+			{
+				layers: [
+					{
+						source: "materialized-snapshot",
+						className: "h-px w-full authored-separator",
+					},
+				],
+			},
+			opts,
+		);
+
+		expect(inv.readOnly.map((item) => item.raw)).toEqual([
+			"h-px",
+			"w-full",
+			"authored-separator",
+		]);
+		expect(inv.items.every((item) => item.readOnly)).toBe(true);
+	});
 });

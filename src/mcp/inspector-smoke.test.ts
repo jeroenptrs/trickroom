@@ -26,6 +26,7 @@ const expectedReadToolNames = [
 	"listRegistryComponents",
 	"describeRegistryComponent",
 	"getDesignSystemForDesignFile",
+	"getSystemComponentAuthoringContract",
 	"listDesignTokens",
 ] as const;
 

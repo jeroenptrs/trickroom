@@ -9,18 +9,34 @@
  */
 
 import {
+	type ClassLayer,
+	createClassLayers,
+} from "../../../utils/class-layers";
+import {
+	type ClassResolution,
+	type ResolvedClassToken,
+	resolveClassLayers,
+} from "../../../utils/class-resolution";
+import {
 	classifyParsedClass,
 	type KnownUtilityIntent,
 	type ModelOptions,
-	parseClassName,
 } from "../../../utils/tailwind-classname";
 
 export type ClassCategory = "managed" | "arbitrary" | "unknown";
+export type ClassInventorySource = ClassLayer["source"];
+export type ClassInventoryStatus = "active" | "shadowed" | "unknown";
 
 export type InventoryItem = {
 	/** Original class token, byte-for-byte. */
 	raw: string;
 	category: ClassCategory;
+	source: ClassInventorySource;
+	sourceLabel: string;
+	layerIndex: number;
+	tokenIndex: number;
+	status: ClassInventoryStatus;
+	readOnly: boolean;
 	/** Namespaced property key for managed classes (e.g. `layout.display`). */
 	property?: string;
 	/** Variant key for managed classes (`""` = base). */
@@ -29,6 +45,7 @@ export type InventoryItem = {
 	modes?: string[];
 	/** True when a later class overrides this one in the same slot. */
 	shadowed?: boolean;
+	shadowedBy?: number;
 };
 
 export type ClassConflict = {
@@ -44,7 +61,19 @@ export type ClassInventory = {
 	arbitrary: InventoryItem[];
 	unknown: InventoryItem[];
 	conflicts: ClassConflict[];
+	hasLayerMetadata: boolean;
+	readOnly: InventoryItem[];
+	active: InventoryItem[];
+	shadowed: InventoryItem[];
 };
+
+export type ClassInventoryInput =
+	| string
+	| {
+			className?: string | null;
+			layers?: readonly ClassLayer[];
+			resolution?: ClassResolution;
+	  };
 
 function intentProperty(intent: KnownUtilityIntent): string {
 	switch (intent.kind) {
@@ -57,40 +86,128 @@ function intentProperty(intent: KnownUtilityIntent): string {
 	}
 }
 
+function sourceLabel(source: ClassInventorySource): string {
+	switch (source) {
+		case "registry-base":
+			return "Registry base";
+		case "system-template":
+			return "Template";
+		case "system-variant":
+			return "Variant";
+		case "system-compound-variant":
+			return "Compound";
+		case "instance-override":
+			return "Override";
+		case "authored":
+			return "Authored";
+		case "materialized-snapshot":
+			return "Materialized";
+	}
+}
+
+function isReadOnlySource(source: ClassInventorySource): boolean {
+	return (
+		source === "registry-base" ||
+		source === "system-template" ||
+		source === "system-variant" ||
+		source === "system-compound-variant" ||
+		source === "materialized-snapshot"
+	);
+}
+
+function getInventoryResolution(
+	input: ClassInventoryInput,
+	options: ModelOptions,
+): { resolution: ClassResolution; hasLayerMetadata: boolean } {
+	if (typeof input === "string") {
+		const layers = createClassLayers([
+			{ source: "authored", className: input },
+		]);
+		return {
+			resolution: resolveClassLayers(layers, options),
+			hasLayerMetadata: false,
+		};
+	}
+
+	if (input.resolution) {
+		return {
+			resolution: input.resolution,
+			hasLayerMetadata: true,
+		};
+	}
+
+	const layers =
+		input.layers ??
+		createClassLayers([{ source: "authored", className: input.className }]);
+	return {
+		resolution: resolveClassLayers(layers, options),
+		hasLayerMetadata: Boolean(input.layers),
+	};
+}
+
+function itemFromToken(
+	token: ResolvedClassToken,
+	options: ModelOptions,
+): InventoryItem {
+	const source = token.layer.source;
+	const base = {
+		raw: token.classToken,
+		source,
+		sourceLabel: sourceLabel(source),
+		layerIndex: token.layer.index,
+		tokenIndex: token.layer.tokenIndex,
+		status: token.status,
+		readOnly: isReadOnlySource(source),
+		shadowed: token.status === "shadowed" ? true : undefined,
+		shadowedBy: token.shadowedBy,
+	};
+	const intent =
+		token.intent ??
+		classifyParsedClass(token.parsed, { colorTokens: options.colorTokens });
+
+	if (intent.kind === "unknown") {
+		const category: ClassCategory =
+			token.parsed.arbitrary && token.parsed.prefix === ""
+				? "arbitrary"
+				: "unknown";
+		return { ...base, category };
+	}
+
+	return {
+		...base,
+		category: "managed",
+		property: intentProperty(intent),
+		variantKey: token.parsed.variants.join(":"),
+		modes: token.parsed.modes,
+	};
+}
+
 export function buildClassInventory(
-	className: string,
+	input: ClassInventoryInput,
 	options: ModelOptions,
 ): ClassInventory {
-	const parsed = parseClassName(className, options);
+	const { resolution, hasLayerMetadata } = getInventoryResolution(
+		input,
+		options,
+	);
 	const items: InventoryItem[] = [];
+
+	for (const token of resolution.tokens) {
+		items.push(itemFromToken(token, options));
+	}
+
 	const slots = new Map<string, { property: string; raws: string[] }>();
-
-	for (const cls of parsed) {
-		const intent = classifyParsedClass(cls, options);
-
-		if (intent.kind === "unknown") {
-			const category: ClassCategory =
-				cls.arbitrary && cls.prefix === "" ? "arbitrary" : "unknown";
-			items.push({ raw: cls.raw, category });
-			continue;
-		}
-
-		const property = intentProperty(intent);
-		const variantKey = cls.variants.join(":");
-		const slotKey = `${cls.modes.join(":")}|${property}|${variantKey}`;
+	for (const item of items) {
+		if (item.category !== "managed" || !item.property) continue;
+		const modeKey = (item.modes ?? []).join(":");
+		const variantKey = item.variantKey ?? "";
+		const slotKey = `${modeKey}|${item.property}|${variantKey}`;
 		const slot = slots.get(slotKey);
 		if (slot) {
-			slot.raws.push(cls.raw);
+			slot.raws.push(item.raw);
 		} else {
-			slots.set(slotKey, { property, raws: [cls.raw] });
+			slots.set(slotKey, { property: item.property, raws: [item.raw] });
 		}
-		items.push({
-			raw: cls.raw,
-			category: "managed",
-			property,
-			variantKey,
-			modes: cls.modes,
-		});
 	}
 
 	const conflicts: ClassConflict[] = [];
@@ -102,18 +219,6 @@ export function buildClassInventory(
 			slot: prefix ? `${prefix} · ${property}` : property,
 			raws,
 		});
-		const winner = raws[raws.length - 1];
-		for (const item of items) {
-			if (
-				item.category === "managed" &&
-				item.property === property &&
-				item.variantKey === variantKey &&
-				(item.modes ?? []).join(":") === modeKey &&
-				item.raw !== winner
-			) {
-				item.shadowed = true;
-			}
-		}
 	}
 
 	return {
@@ -122,5 +227,9 @@ export function buildClassInventory(
 		arbitrary: items.filter((item) => item.category === "arbitrary"),
 		unknown: items.filter((item) => item.category === "unknown"),
 		conflicts,
+		hasLayerMetadata,
+		readOnly: items.filter((item) => item.readOnly),
+		active: items.filter((item) => item.status === "active"),
+		shadowed: items.filter((item) => item.status === "shadowed"),
 	};
 }

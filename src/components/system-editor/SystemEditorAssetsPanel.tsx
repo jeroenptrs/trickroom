@@ -1,31 +1,32 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileImage, RefreshCw, Search, Upload } from "lucide-react";
+import { FileImage, FolderTree, RefreshCw, Search, Upload } from "lucide-react";
 import {
-		type RefObject,
-		useCallback,
-		useEffect,
-		useMemo,
-		useState,
+	type RefObject,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
 } from "react";
 import { getTrickroomDesktopApi } from "../../desktop-api";
 import type { ProjectQueryScope } from "../../queries/project-scope";
 import { sessionQueryOptions } from "../../queries/projects";
 import {
-		createSystemAsset,
-		type SystemAssetSummary,
-		systemAssetFileUrl,
-		systemAssetsQueryKey,
-		systemAssetsQueryOptions,
+	createSystemAsset,
+	type SystemAssetSummary,
+	systemAssetFileUrl,
+	systemAssetsQueryKey,
+	systemAssetsQueryOptions,
 } from "../../queries/system-assets";
-import { formatRelativeTime } from "../project/project-view-utils";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { groupItemsByPathSegment } from "./path-segments";
+import { getParentPathSegment, groupItemsByPathSegment } from "./path-segments";
 import {
-		ASSET_GRID_MIN_COLUMN_WIDTH,
-		ASSET_GRID_ROW_EXTRA_HEIGHT,
-		useVirtualGrid,
+	ASSET_GRID_MIN_COLUMN_WIDTH,
+	ASSET_GRID_ROW_EXTRA_HEIGHT,
+	useVirtualGrid,
 } from "./useVirtualGrid";
+import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
 
 function getAssetNameFromPath(sourcePath: string) {
 	const basename = sourcePath.split(/[\\/]/).pop() || sourcePath;
@@ -50,35 +51,42 @@ function SystemEditorAssetCard({
 }) {
 	const dimensions =
 		asset.width && asset.height ? `${asset.width} x ${asset.height}` : null;
-	const metadata = [formatAssetMimeType(asset.mimeType), dimensions]
-		.filter(Boolean)
-		.join(" · ");
+	const typeLabel = formatAssetMimeType(asset.mimeType);
+	const folderLabel = getParentPathSegment(asset.sourcePath);
 
 	return (
 		<button
 			type="button"
-			className="flex min-w-0 flex-col border border-slate-200 bg-white text-left hover:border-slate-300 focus-visible:border-cyan-500 focus-visible:outline-none data-[selected=true]:border-cyan-500"
+			className="grid h-full min-w-0 grid-rows-[minmax(0,1fr)_3.75rem] overflow-hidden border border-slate-200 bg-white text-left hover:border-slate-300 focus-visible:border-cyan-500 focus-visible:outline-none data-[selected=true]:border-cyan-500 data-[selected=true]:inset-shadow-[0_0_0_1px] data-[selected=true]:inset-shadow-cyan-500"
 			data-selected={isSelected}
 			onClick={onSelect}
 			aria-pressed={isSelected}
 		>
-			<div className="aspect-square bg-slate-50">
+			<div className="relative min-h-0 bg-slate-50">
+				<span className="absolute left-2 top-2 bg-white px-1.5 py-0.5 font-mono text-[9px] text-slate-500 inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
+					{typeLabel}
+				</span>
+				{dimensions ? (
+					<span className="absolute bottom-2 right-2 bg-white px-1.5 py-0.5 font-mono text-[9px] text-slate-500 inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
+						{dimensions}
+					</span>
+				) : null}
 				<img
 					alt={asset.alt || asset.name}
-					className="size-full object-contain"
+					className="size-full object-contain p-3"
 					loading="lazy"
 					src={systemAssetFileUrl(systemId, asset.id)}
 				/>
 			</div>
-			<div className="flex min-w-0 flex-col gap-0.5 border-t border-slate-100 px-3 py-2">
-				<span className="truncate text-sm font-medium text-slate-900">
+			<div className="flex min-h-0 min-w-0 flex-col justify-center gap-0.5 border-t border-slate-100 px-3 py-2">
+				<span className="truncate text-[13px] font-medium leading-4 text-slate-900">
 					{asset.name}
 				</span>
-				<span className="truncate font-mono text-[10px] text-slate-500">
-					{metadata}
-				</span>
-				<span className="truncate font-mono text-[10px] text-slate-400">
-					{formatRelativeTime(asset.updatedAt)}
+				<span
+					className="truncate font-mono text-[10px] leading-3 text-slate-500"
+					title={asset.sourcePath}
+				>
+					{folderLabel}
 				</span>
 			</div>
 		</button>
@@ -102,7 +110,7 @@ function VirtualAssetGrid({
 		items: assets,
 		minColumnWidth: ASSET_GRID_MIN_COLUMN_WIDTH,
 		estimateRowHeight: (columnWidth) =>
-			columnWidth + ASSET_GRID_ROW_EXTRA_HEIGHT,
+			columnWidth * 0.75 + ASSET_GRID_ROW_EXTRA_HEIGHT,
 		scrollElementRef,
 		getItemKey: (asset) => asset.id,
 	});
@@ -151,63 +159,96 @@ function VirtualAssetGrid({
 
 function SystemAssetsToolbar({
 	countLabel,
+	filteredCountLabel,
 	addAssetDisabled,
 	filter,
+	filterInputRef,
+	groupByFolder,
 	isAddingAsset,
 	onAddAsset,
 	onFilterChange,
+	onGroupByFolderChange,
 }: {
 	countLabel: string;
+	filteredCountLabel: string;
 	addAssetDisabled: boolean;
 	filter: string;
+	filterInputRef: RefObject<HTMLInputElement | null>;
+	groupByFolder: boolean;
 	isAddingAsset: boolean;
 	onAddAsset: () => void;
 	onFilterChange: (value: string) => void;
+	onGroupByFolderChange: (value: boolean) => void;
 }) {
 	return (
-		<div className="flex items-center gap-2">
-			<div className="relative min-w-0 flex-1">
-				<Search
-					className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-500"
-					aria-hidden="true"
-				/>
-				<Input
-					variant="formCompact"
-					className="w-full px-7"
-					aria-label="Filter assets"
-					placeholder="Filter by name or path..."
-					value={filter}
-					onChange={(event) => onFilterChange(event.target.value)}
-				/>
+		<div className="flex flex-col gap-3 border-b border-slate-200 pb-4">
+			<div className="flex items-center justify-between gap-3">
+				<div className="flex min-w-0 items-center gap-2">
+					<h1 className="truncate text-[15px] font-semibold text-slate-900">
+						Assets
+					</h1>
+					<span className="bg-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
+						{countLabel}
+					</span>
+				</div>
+				<Button
+					type="button"
+					variant={groupByFolder ? "filled" : "outlined"}
+					className="flex shrink-0 items-center gap-1.5 px-3 py-1.5"
+					onClick={() => onGroupByFolderChange(!groupByFolder)}
+					aria-pressed={groupByFolder}
+				>
+					<FolderTree className="size-3.5" aria-hidden="true" />
+					Group folders
+				</Button>
 			</div>
-			<span className="sr-only" aria-live="polite">
-				{countLabel}
-			</span>
-			<Button
-				type="button"
-				variant="blockDark"
-				className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5"
-				onClick={onAddAsset}
-				disabled={addAssetDisabled || isAddingAsset}
-			>
-				{isAddingAsset ? (
-					<RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
-				) : (
-					<Upload className="size-3.5" aria-hidden="true" />
-				)}
-				{isAddingAsset ? "Adding" : "Add asset"}
-			</Button>
+			<div className="flex items-center gap-2">
+				<div className="relative min-w-0 flex-1">
+					<Search
+						className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-500"
+						aria-hidden="true"
+					/>
+					<Input
+						ref={filterInputRef}
+						variant="formCompact"
+						className="w-full px-7"
+						aria-label="Filter assets"
+						placeholder="Filter by name or path..."
+						value={filter}
+						onChange={(event) => onFilterChange(event.target.value)}
+					/>
+				</div>
+				<span className="sr-only" aria-live="polite">
+					{filteredCountLabel}
+				</span>
+				<Button
+					type="button"
+					variant="filled"
+					className="flex shrink-0 items-center gap-1.5 px-3 py-1.5"
+					onClick={onAddAsset}
+					disabled={addAssetDisabled || isAddingAsset}
+				>
+					{isAddingAsset ? (
+						<RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
+					) : (
+						<Upload className="size-3.5" aria-hidden="true" />
+					)}
+					{isAddingAsset ? "Adding" : "Add asset"}
+				</Button>
+			</div>
 		</div>
 	);
 }
 
 export function SystemEditorAssetsPanel({
+	isActive = true,
 	systemId,
 	projectScope,
 	scrollElementRef,
 	selectedAssetId,
 	onSelectAsset,
 }: {
+	isActive?: boolean;
 	systemId: string;
 	projectScope?: ProjectQueryScope;
 	scrollElementRef: RefObject<HTMLDivElement | null>;
@@ -217,9 +258,13 @@ export function SystemEditorAssetsPanel({
 	const queryClient = useQueryClient();
 	const desktopApi = getTrickroomDesktopApi();
 	const sessionQuery = useQuery(sessionQueryOptions());
-	const assetsQuery = useQuery(systemAssetsQueryOptions(systemId, projectScope));
+	const assetsQuery = useQuery(
+		systemAssetsQueryOptions(systemId, projectScope),
+	);
 	const assets = assetsQuery.data?.assets ?? [];
+	const filterInputRef = useRef<HTMLInputElement>(null);
 	const [assetFilter, setAssetFilter] = useState("");
+	const [groupAssetsByFolder, setGroupAssetsByFolder] = useState(false);
 	const [assetActionError, setAssetActionError] = useState<string | null>(null);
 	const [isPickingAsset, setIsPickingAsset] = useState(false);
 	const projectRoot = sessionQuery.data?.activeProject?.projectRoot ?? "";
@@ -227,21 +272,24 @@ export function SystemEditorAssetsPanel({
 		? "Loading"
 		: `${assets.length.toLocaleString()} asset${assets.length === 1 ? "" : "s"}`;
 	const normalizedFilter = assetFilter.trim().toLowerCase();
-	const filteredAssets = useMemo(
-		() =>
-			normalizedFilter
-				? assets.filter((asset) => {
-					const searchable = `${asset.name} ${asset.id} ${asset.sourcePath} ${asset.mimeType}`
-						.toLowerCase();
+	const filteredAssets = useMemo(() => {
+		const matches = normalizedFilter
+			? assets.filter((asset) => {
+					const searchable =
+						`${asset.name} ${asset.id} ${asset.sourcePath} ${asset.mimeType}`.toLowerCase();
 					return searchable.includes(normalizedFilter);
 				})
-				: assets,
-			[assets, normalizedFilter],
-	);
+			: assets;
+
+		return [...matches].sort((left, right) =>
+			left.name.localeCompare(right.name),
+		);
+	}, [assets, normalizedFilter]);
 	const segmentedAssets = useMemo(
 		() => groupItemsByPathSegment(filteredAssets),
 		[filteredAssets],
 	);
+	const filteredCountLabel = `${filteredAssets.length.toLocaleString()} visible asset${filteredAssets.length === 1 ? "" : "s"}`;
 	const assetsQueryKey = systemAssetsQueryKey(systemId, projectScope);
 	const invalidateAssets = useCallback(async () => {
 		await queryClient.invalidateQueries({ queryKey: assetsQueryKey });
@@ -289,10 +337,35 @@ export function SystemEditorAssetsPanel({
 		} finally {
 			setIsPickingAsset(false);
 		}
-	}, [createAssetMutation, createAssetMutation.isPending, desktopApi, isPickingAsset, projectRoot]);
+	}, [
+		createAssetMutation,
+		createAssetMutation.isPending,
+		desktopApi,
+		isPickingAsset,
+		projectRoot,
+	]);
+
+	const handleFilterShortcut = useCallback((event: KeyboardEvent) => {
+		const key = getKey(event);
+		if (
+			key !== "/" &&
+			!((event.metaKey || event.ctrlKey) && !event.altKey && key === "f")
+		) {
+			return;
+		}
+
+		filterInputRef.current?.focus();
+		filterInputRef.current?.select();
+		event.preventDefault();
+	}, []);
+
+	useWindowKeyDown(handleFilterShortcut, { enabled: isActive });
 
 	useEffect(() => {
-		if (selectedAssetId && !assets.some((asset) => asset.id === selectedAssetId)) {
+		if (
+			selectedAssetId &&
+			!assets.some((asset) => asset.id === selectedAssetId)
+		) {
 			onSelectAsset(null);
 		}
 	}, [assets, onSelectAsset, selectedAssetId]);
@@ -302,9 +375,13 @@ export function SystemEditorAssetsPanel({
 			<div className="flex min-h-0 flex-col gap-4 px-5 py-4">
 				<SystemAssetsToolbar
 					countLabel={assetCountLabel}
+					filteredCountLabel={filteredCountLabel}
 					filter={assetFilter}
+					filterInputRef={filterInputRef}
+					groupByFolder={groupAssetsByFolder}
 					addAssetDisabled={!desktopApi || !projectRoot || isPickingAsset}
 					onFilterChange={setAssetFilter}
+					onGroupByFolderChange={setGroupAssetsByFolder}
 					onAddAsset={pickAsset}
 					isAddingAsset={isPickingAsset || createAssetMutation.isPending}
 				/>
@@ -331,9 +408,13 @@ export function SystemEditorAssetsPanel({
 			<div className="flex min-h-0 flex-col gap-4 px-5 py-4" role="alert">
 				<SystemAssetsToolbar
 					countLabel="Unavailable"
+					filteredCountLabel="Asset catalog unavailable"
 					filter={assetFilter}
+					filterInputRef={filterInputRef}
+					groupByFolder={groupAssetsByFolder}
 					addAssetDisabled={!desktopApi || !projectRoot || isPickingAsset}
 					onFilterChange={setAssetFilter}
+					onGroupByFolderChange={setGroupAssetsByFolder}
 					onAddAsset={pickAsset}
 					isAddingAsset={isPickingAsset || createAssetMutation.isPending}
 				/>
@@ -345,17 +426,24 @@ export function SystemEditorAssetsPanel({
 	}
 
 	return (
-			<div className="flex min-h-0 flex-1 flex-col gap-4 px-5 py-4">
+		<div className="flex min-h-0 flex-1 flex-col gap-4 px-5 py-4">
 			<SystemAssetsToolbar
 				countLabel={assetCountLabel}
+				filteredCountLabel={filteredCountLabel}
 				filter={assetFilter}
+				filterInputRef={filterInputRef}
+				groupByFolder={groupAssetsByFolder}
 				addAssetDisabled={!desktopApi || !projectRoot || isPickingAsset}
 				onFilterChange={setAssetFilter}
+				onGroupByFolderChange={setGroupAssetsByFolder}
 				onAddAsset={pickAsset}
 				isAddingAsset={isPickingAsset || createAssetMutation.isPending}
 			/>
 			{assetActionError ? (
-				<div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+				<div
+					className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+					role="alert"
+				>
 					{assetActionError}
 				</div>
 			) : null}
@@ -366,39 +454,52 @@ export function SystemEditorAssetsPanel({
 						No assets registered
 					</p>
 					<p className="mt-1 max-w-md text-sm text-slate-500">
-						Register raster image assets to make them available to linked designs.
+						Register raster image assets to make them available to linked
+						designs.
 					</p>
 				</div>
 			) : filteredAssets.length === 0 ? (
 				<div className="flex min-h-0 flex-1 flex-col items-center justify-center border border-dashed border-slate-300 bg-white px-4 py-10 text-center">
 					<Search className="size-6 text-slate-400" aria-hidden="true" />
-					<p className="mt-3 text-sm font-medium text-slate-900">No matching assets</p>
+					<p className="mt-3 text-sm font-medium text-slate-900">
+						No matching assets
+					</p>
 					<p className="mt-1 max-w-md text-sm text-slate-500">
 						Try a different name, path, type, or asset id.
 					</p>
 				</div>
 			) : (
 				<div className="flex min-h-0 flex-1 flex-col gap-6">
-					{segmentedAssets.map((segment) => (
-						<section key={segment.segment} className="flex flex-col gap-3">
-							<div className="flex items-baseline justify-between gap-3">
-								<h2 className="truncate font-mono text-[11px] font-semibold text-slate-700">
-									{segment.segment}
-								</h2>
-								<span className="shrink-0 text-[10px] text-slate-500">
-									{segment.items.length} asset
-									{segment.items.length === 1 ? "" : "s"}
-								</span>
-							</div>
-							<VirtualAssetGrid
-								assets={segment.items}
-								scrollElementRef={scrollElementRef}
-								selectedAssetId={selectedAssetId}
-								onSelectAsset={onSelectAsset}
-								systemId={systemId}
-							/>
-						</section>
-					))}
+					{groupAssetsByFolder ? (
+						segmentedAssets.map((segment) => (
+							<section key={segment.segment} className="flex flex-col gap-3">
+								<div className="flex items-baseline justify-between gap-3">
+									<h2 className="truncate font-mono text-[11px] font-semibold text-slate-700">
+										{segment.segment}
+									</h2>
+									<span className="shrink-0 text-[10px] text-slate-500">
+										{segment.items.length} asset
+										{segment.items.length === 1 ? "" : "s"}
+									</span>
+								</div>
+								<VirtualAssetGrid
+									assets={segment.items}
+									scrollElementRef={scrollElementRef}
+									selectedAssetId={selectedAssetId}
+									onSelectAsset={onSelectAsset}
+									systemId={systemId}
+								/>
+							</section>
+						))
+					) : (
+						<VirtualAssetGrid
+							assets={filteredAssets}
+							scrollElementRef={scrollElementRef}
+							selectedAssetId={selectedAssetId}
+							onSelectAsset={onSelectAsset}
+							systemId={systemId}
+						/>
+					)}
 				</div>
 			)}
 		</div>

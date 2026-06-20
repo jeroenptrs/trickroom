@@ -35,6 +35,7 @@ export type RegistryComponentDefinition = {
 	role: Role;
 	label: string;
 	description?: string;
+	baseClassName?: string;
 	controls?: Record<string, ControlDefinition>;
 	defaultProps?: Record<string, JsonPrimitive | undefined>;
 };

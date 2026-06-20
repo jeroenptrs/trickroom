@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { Box, Component, Type } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import {
 	getControlDefinitions,
+	getRenderableClassComposition,
 	resolveRegistryComponent,
 } from "../../libraries/registry";
 import { systemAssetsQueryOptions } from "../../queries/system-assets";
@@ -18,31 +19,37 @@ import {
 import {
 	type DesignEntity,
 	designStore,
-	updateElementClassName,
-	updateElementProps,
-	updateElementText,
-	updateRecipeControl,
 	setSystemComponentOverrideAssetId,
 	setSystemComponentOverrideClassName,
 	setSystemComponentOverrideIconId,
 	setSystemComponentOverrideText,
+	updateElementClassName,
+	updateElementProps,
+	updateElementText,
+	updateRecipeControl,
 	useDesignSystemId,
 	useSelectedElement,
 } from "../../stores/design-store";
-import {
-	findOverrideTargetForCapability,
-	readSystemComponentOverrideValue,
-} from "../../utils/system-component-override-targets";
-import type {
-	PublishedSystemComponentVersion,
-	SystemComponentOverrideCapability,
-} from "../../utils/system-components";
 import type {
 	ControlDefinition,
 	JsonPrimitive,
 	RecipeControlDefinition,
+	RecipeTemplateNode,
 } from "../../types";
+import type { ClassLayer } from "../../utils/class-layers";
 import { assetIdProp, iconIdProp } from "../../utils/resource-props";
+import {
+	findOverrideTargetForCapability,
+	readSystemComponentOverrideValue,
+} from "../../utils/system-component-override-targets";
+import {
+	resolveSystemComponentClassComposition,
+	resolveSystemComponentVariantValues,
+} from "../../utils/system-component-resolution";
+import type {
+	PublishedSystemComponentVersion,
+	SystemComponentOverrideCapability,
+} from "../../utils/system-components";
 import { useProjectScope } from "../contexts";
 import { Button } from "../ui/button";
 import { InputField, TextareaField } from "../ui/input";
@@ -75,6 +82,7 @@ import { StyleSection } from "./properties/StyleSection";
 import { TransformProperties } from "./properties/TransformProperties";
 import { TypographyProperties } from "./properties/TypographyProperties";
 import { VectorProperties } from "./properties/VectorProperties";
+import { useWindowKeyDown } from "../../utils/editor-shortcuts";
 
 type ComponentControlProps = {
 	elementId: string;
@@ -82,6 +90,9 @@ type ComponentControlProps = {
 	value: JsonPrimitive | undefined;
 	onChange?: (value: JsonPrimitive) => void;
 };
+
+type PropertiesTab = "style" | "properties" | "classes";
+const PROPERTIES_TABS: PropertiesTab[] = ["style", "properties", "classes"];
 
 export type PropertiesControlSurface = {
 	assetControl: ControlDefinition | null;
@@ -357,10 +368,13 @@ function AssetPicker({
 				value={value}
 				disabled={!systemId || assetsQuery.isPending}
 				onChange={(event) =>
-					(onChange ?? ((assetId) =>
-						updateElementProps(elementId, {
-							[assetIdProp]: assetId,
-						})))(event.currentTarget.value)
+					(
+						onChange ??
+						((assetId) =>
+							updateElementProps(elementId, {
+								[assetIdProp]: assetId,
+							}))
+					)(event.currentTarget.value)
 				}
 			>
 				<option value="">
@@ -410,10 +424,13 @@ function IconPicker({
 				value={value}
 				disabled={!systemId || iconsQuery.isPending}
 				onChange={(event) =>
-					(onChange ?? ((iconId) =>
-						updateElementProps(elementId, {
-							[iconIdProp]: iconId,
-						})))(event.currentTarget.value)
+					(
+						onChange ??
+						((iconId) =>
+							updateElementProps(elementId, {
+								[iconIdProp]: iconId,
+							}))
+					)(event.currentTarget.value)
 				}
 			>
 				<option value="">
@@ -441,6 +458,7 @@ type AttachedComponentOverrideBinding = {
 	rootElementId: string;
 	version: PublishedSystemComponentVersion;
 	targetId: string;
+	targetPath: string;
 	capability: SystemComponentOverrideCapability;
 	value: string;
 };
@@ -503,6 +521,7 @@ function useAttachedComponentOverrideBindings(
 				rootElementId: inspection.rootElementId,
 				version,
 				targetId: target.targetId,
+				targetPath: target.path,
 				capability,
 				value:
 					readSystemComponentOverrideValue(
@@ -520,6 +539,26 @@ function useAttachedComponentOverrideBindings(
 			asset: resolveBinding("asset"),
 		};
 	}, [componentQuery.data?.record, inspection]);
+}
+
+function getTemplateClassName(
+	version: PublishedSystemComponentVersion,
+	path: string,
+): string | undefined {
+	const visit = (node: RecipeTemplateNode): string | undefined => {
+		if (node.path === path) {
+			return node.className;
+		}
+		for (const child of node.children ?? []) {
+			const className = visit(child);
+			if (className !== undefined) {
+				return className;
+			}
+		}
+		return undefined;
+	};
+
+	return visit(version.root);
 }
 
 function StyleClassControls({
@@ -556,6 +595,7 @@ function StyleClassControls({
 
 export function Properties() {
 	const selectedElement = useSelectedElement();
+	const [activeTab, setActiveTab] = useState<PropertiesTab>("properties");
 	const recipeControlTargets = useRecipeControlTargets();
 	const attachedInspection = useAttachedComponentInspection();
 	const overrideBindings =
@@ -564,6 +604,31 @@ export function Properties() {
 	const canFreelyEdit = useSelector(designStore, (state) =>
 		canFreelyEditElementInDesignInspector(state.entitiesById, selectedElement),
 	);
+	const handlePropertiesTabShortcut = useCallback(
+		(event: KeyboardEvent) => {
+			if (
+				!event.ctrlKey ||
+				event.metaKey ||
+				event.altKey ||
+				event.key !== "Tab"
+			) {
+				return;
+			}
+
+			const currentIndex = PROPERTIES_TABS.indexOf(activeTab);
+			const direction = event.shiftKey ? -1 : 1;
+			const nextIndex =
+				(currentIndex + direction + PROPERTIES_TABS.length) %
+				PROPERTIES_TABS.length;
+			setActiveTab(PROPERTIES_TABS[nextIndex] ?? "properties");
+			event.preventDefault();
+		},
+		[activeTab],
+	);
+
+	useWindowKeyDown(handlePropertiesTabShortcut, {
+		enabled: selectedElement !== null,
+	});
 
 	if (!selectedElement) {
 		return (
@@ -607,6 +672,46 @@ export function Properties() {
 		registryResolution.status === "known"
 			? getControlDefinitions(registryResolution.definition)
 			: [];
+	const classInventoryLayers: readonly ClassLayer[] | undefined = classOverride
+		? resolveSystemComponentClassComposition(
+				classOverride.version,
+				classOverride.targetPath,
+				getTemplateClassName(classOverride.version, classOverride.targetPath),
+				resolveSystemComponentVariantValues(
+					classOverride.version.variants,
+					attachedInspection.kind === "root" ||
+						attachedInspection.kind === "owned-internal"
+						? attachedInspection.instance.variantValues
+						: {},
+				),
+				attachedInspection.kind === "root" ||
+					attachedInspection.kind === "owned-internal"
+					? attachedInspection.instance.overrides
+					: {},
+				{
+					systemId:
+						attachedInspection.kind === "root" ||
+						attachedInspection.kind === "owned-internal"
+							? attachedInspection.instance.systemId
+							: undefined,
+					componentId:
+						attachedInspection.kind === "root" ||
+						attachedInspection.kind === "owned-internal"
+							? attachedInspection.instance.componentId
+							: undefined,
+					instanceId:
+						attachedInspection.kind === "root" ||
+						attachedInspection.kind === "owned-internal"
+							? attachedInspection.instance.instanceId
+							: undefined,
+				},
+			).layers
+		: registryResolution.status === "known"
+			? getRenderableClassComposition(
+					selectedElement.props,
+					registryResolution.definition,
+				).layers
+			: undefined;
 	const { assetControl, iconControl, componentControls } =
 		getPropertiesControlSurface(controls);
 	const { contentControls, propertyControls } =
@@ -629,7 +734,11 @@ export function Properties() {
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<InspectorHeader element={selectedElement} />
-			<Tabs defaultValue="properties" className="min-h-0 flex-1 gap-0">
+			<Tabs
+				value={activeTab}
+				onValueChange={(value) => setActiveTab(value as PropertiesTab)}
+				className="min-h-0 flex-1 gap-0"
+			>
 				<TabsList
 					variant="block"
 					className="border-b border-slate-200 px-1 py-1"
@@ -679,9 +788,7 @@ export function Properties() {
 											type="text"
 											label="Content"
 											value={
-												textOverride
-													? textOverride.value
-													: selectedElement.text
+												textOverride ? textOverride.value : selectedElement.text
 											}
 											onChange={(event) => {
 												const next = event.currentTarget.value;
@@ -818,7 +925,10 @@ export function Properties() {
 											onChangeClassName(event.currentTarget.value)
 										}
 									/>
-									<ClassInventoryPanel className={className} />
+									<ClassInventoryPanel
+										className={className}
+										layers={classInventoryLayers}
+									/>
 								</div>
 							)
 						) : (
@@ -834,7 +944,10 @@ export function Properties() {
 										)
 									}
 								/>
-								<ClassInventoryPanel className={className} />
+								<ClassInventoryPanel
+									className={className}
+									layers={classInventoryLayers}
+								/>
 							</div>
 						)}
 					</ScrollArea>

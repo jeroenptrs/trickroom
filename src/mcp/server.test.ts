@@ -1475,13 +1475,40 @@ describe("trickroom MCP discovery tools", () => {
 					serializedChildren: "empty-array",
 				},
 				defaults: {
+					baseClassName:
+						"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
 					props: {
 						"data-trickroom-library": "base-ui",
 						"data-trickroom-component": "separator",
 						"data-trickroom-role": "leaf",
-						className:
-							"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
 						orientation: "horizontal",
+					},
+					children: [],
+				},
+			});
+
+			const menuSeparatorResult = await client.callTool({
+				name: "describeRegistryComponent",
+				arguments: {
+					library: "base-ui",
+					component: "menu.separator",
+				},
+			});
+			expect(menuSeparatorResult.structuredContent).toMatchObject({
+				library: "base-ui",
+				component: "menu.separator",
+				role: "leaf",
+				allowedChildren: {
+					kind: "none",
+					serializedChildren: "empty-array",
+				},
+				defaults: {
+					baseClassName:
+						"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
+					props: {
+						"data-trickroom-library": "base-ui",
+						"data-trickroom-component": "menu.separator",
+						"data-trickroom-role": "leaf",
 					},
 					children: [],
 				},
@@ -1647,7 +1674,6 @@ describe("trickroom MCP discovery tools", () => {
 									props: {
 										[assetIdProp]: "",
 										alt: "",
-										className: "h-full w-full object-cover",
 									},
 									content: {
 										kind: "none",

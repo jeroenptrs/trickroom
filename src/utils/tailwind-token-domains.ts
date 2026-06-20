@@ -77,6 +77,8 @@ export type TailwindMeaningfulTokenDomainDiffs = Record<
 	TailwindMeaningfulTokenBaselineDiff
 >;
 
+export type TailwindTokenResetOverrides = Record<TailwindTokenDomain, string[]>;
+
 export function emptyTailwindTokenDomains(): TailwindTokenDomains {
 	return Object.fromEntries(
 		TAILWIND_TOKEN_DOMAINS.map((domain) => [domain, {}]),
@@ -139,6 +141,7 @@ function resolveTailwindTokenDomainProperty(propertyName: string): {
 export function diffTailwindTokensAgainstDefaults(
 	tokensByDomain: TailwindTokenDomains,
 	defaultsByDomain: TailwindTokenDomains,
+	resetOverridesByDomain: Partial<TailwindTokenResetOverrides> = {},
 ): TailwindTokenDomainDiffs {
 	const diffs = {} as TailwindTokenDomainDiffs;
 	for (const domain of TAILWIND_TOKEN_DOMAINS) {
@@ -146,6 +149,7 @@ export function diffTailwindTokensAgainstDefaults(
 			domain,
 			tokensByDomain[domain] ?? {},
 			defaultsByDomain[domain] ?? {},
+			resetOverridesByDomain[domain] ?? [],
 		);
 	}
 	return diffs;
@@ -155,6 +159,7 @@ export function diffTailwindDomainTokensAgainstDefaults(
 	domain: TailwindTokenDomain,
 	tokens: TailwindTokenMap,
 	defaults: TailwindTokenMap,
+	resetOverrides: readonly string[] = [],
 ): TailwindTokenBaselineDiff {
 	const sortedTokens = createSortedTailwindTokenMap(Object.entries(tokens));
 	const defaultEntries = Object.entries(defaults).sort(([left], [right]) =>
@@ -165,6 +170,7 @@ export function diffTailwindDomainTokensAgainstDefaults(
 	const overridden: TailwindOverriddenTokenEntry[] = [];
 	const unchanged: TailwindOverriddenTokenEntry[] = [];
 	const removed: TailwindDefaultTokenEntry[] = [];
+	const resetOverrideSet = new Set(resetOverrides);
 
 	for (const [name, value] of Object.entries(sortedTokens)) {
 		const defaultValue = defaults[name];
@@ -186,7 +192,9 @@ export function diffTailwindDomainTokensAgainstDefaults(
 		if (name in sortedTokens) {
 			continue;
 		}
-		removed.push({ name, defaultValue, domain });
+		if (resetOverridesMatchToken(resetOverrideSet, domain, name)) {
+			removed.push({ name, defaultValue, domain });
+		}
 	}
 
 	return {
@@ -196,6 +204,80 @@ export function diffTailwindDomainTokensAgainstDefaults(
 		removed,
 		missingDefaultTokenNames: removed.map((token) => token.name),
 	};
+}
+
+function resetOverridesMatchToken(
+	resetOverrideSet: ReadonlySet<string>,
+	domain: TailwindTokenDomain,
+	name: string,
+) {
+	const propertyName = tokenDomainToCssPropertyName(domain, name);
+	if (resetOverrideSet.has(propertyName)) {
+		return true;
+	}
+
+	for (const resetOverride of resetOverrideSet) {
+		if (!resetOverride.endsWith("-*")) {
+			continue;
+		}
+		const prefix = resetOverride.slice(0, -1);
+		if (propertyName.startsWith(prefix)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+export function extractTailwindTokenResetOverrides(
+	designSystem: TailwindDesignSystem,
+): TailwindTokenResetOverrides {
+	const overrides = Object.fromEntries(
+		TAILWIND_TOKEN_DOMAINS.map((domain) => [domain, new Set<string>()]),
+	) as Record<TailwindTokenDomain, Set<string>>;
+	const seenSources = new Set<string>();
+
+	for (const [, token] of designSystem.theme.values) {
+		const source = token.src?.[0];
+		if (!source || typeof source.code !== "string") {
+			continue;
+		}
+		const sourceKey = `${source.file ?? ""}\0${source.code}`;
+		if (seenSources.has(sourceKey)) {
+			continue;
+		}
+		seenSources.add(sourceKey);
+
+		for (const resetProperty of extractInitialThemeProperties(source.code)) {
+			const match = resolveTailwindTokenDomainProperty(resetProperty);
+			if (!match) {
+				continue;
+			}
+			overrides[match.domain].add(resetProperty);
+		}
+	}
+
+	return Object.fromEntries(
+		TAILWIND_TOKEN_DOMAINS.map((domain) => [
+			domain,
+			[...overrides[domain]].sort((left, right) => left.localeCompare(right)),
+		]),
+	) as TailwindTokenResetOverrides;
+}
+
+function extractInitialThemeProperties(css: string): string[] {
+	const resetProperties: string[] = [];
+	const declarationPattern =
+		/(^|[;{\s])(--[a-z0-9\-*]+)\s*:\s*initial\s*(?:!important\s*)?[;}]/gi;
+
+	for (const match of css.matchAll(declarationPattern)) {
+		const property = match[2];
+		if (property) {
+			resetProperties.push(property);
+		}
+	}
+
+	return resetProperties;
 }
 
 export function extractTailwindTokensForPresentation(

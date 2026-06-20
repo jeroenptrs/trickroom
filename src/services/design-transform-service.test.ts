@@ -2,6 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	getRenderableProps,
+	MATERIALIZED_BASE_CLASS_PROP,
+	resolveRegistryComponent,
+	type RegistryId,
+	type RegistryResolution,
+} from "../libraries/registry";
+import {
 	getRecipeMarkerProps,
 	RECIPE_MARKER_PROP_KEYS,
 	recipeInstanceProp,
@@ -46,6 +53,21 @@ import {
 	serializeFlatDesign,
 	validateProposedSubtreeForInsertion,
 } from "./design-transform-service";
+
+const separatorBaseClassName =
+	"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full";
+
+const getKnownRegistryDefinition = (
+	library: RegistryId,
+	component: string,
+): Extract<RegistryResolution, { status: "known" }>["definition"] => {
+	const resolution = resolveRegistryComponent(library, component);
+	if (resolution.status !== "known") {
+		throw new Error(`${library}/${component} must resolve for this test`);
+	}
+
+	return resolution.definition;
+};
 
 const containerElement = (
 	id: string,
@@ -575,12 +597,47 @@ describe("applyAddElement", () => {
 				"data-trickroom-library": "base-ui",
 				"data-trickroom-component": "separator",
 				"data-trickroom-role": "leaf",
-				className:
-					"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
 				orientation: "horizontal",
 			},
 			children: [],
 		});
+		expect(separator?.props).not.toHaveProperty("className");
+		expect(
+			getRenderableProps(
+				separator?.props ?? {},
+				getKnownRegistryDefinition("base-ui", "separator"),
+			).className,
+		).toBe(separatorBaseClassName);
+	});
+
+	it("adds Base UI Menu Separator without persisting base className", () => {
+		const { design: result, changedElementId } = applyAddElement(simpleDesign, {
+			parentId: "root",
+			index: 1,
+			library: "base-ui",
+			component: "menu.separator",
+		});
+
+		const root = result.boards[0];
+		const children = root.children as TrickroomDesign["boards"];
+		const separator = children.find((child) => child.id === changedElementId);
+		expect(separator).toMatchObject({
+			props: {
+				"data-trickroom-name": "Menu Separator",
+				"data-trickroom-library": "base-ui",
+				"data-trickroom-component": "menu.separator",
+				"data-trickroom-role": "leaf",
+				orientation: "horizontal",
+			},
+			children: [],
+		});
+		expect(separator?.props).not.toHaveProperty("className");
+		expect(
+			getRenderableProps(
+				separator?.props ?? {},
+				getKnownRegistryDefinition("base-ui", "menu.separator"),
+			).className,
+		).toBe(separatorBaseClassName);
 	});
 
 	describe("props parameter", () => {
@@ -1459,6 +1516,110 @@ describe("componentMigrationPolicy preservation", () => {
 			elementId: "inner",
 		});
 		expect(newDesign.componentMigrationPolicy).toBe("manual");
+	});
+});
+
+describe("persisted registry base class migration", () => {
+	it("moves legacy seeded separator classes back to registry-owned base styling", () => {
+		const design = {
+			name: "Legacy separators",
+			boards: [
+				containerElement("root", [
+					{
+						id: "separator",
+						props: {
+							"data-trickroom-name": "Separator",
+							"data-trickroom-library": "base-ui",
+							"data-trickroom-component": "separator",
+							"data-trickroom-role": "leaf",
+							orientation: "horizontal",
+							className: `${separatorBaseClassName} bg-slate-200`,
+						},
+						children: [],
+					},
+					{
+						id: "menu-separator",
+						props: {
+							"data-trickroom-name": "Menu Separator",
+							"data-trickroom-library": "base-ui",
+							"data-trickroom-component": "menu.separator",
+							"data-trickroom-role": "leaf",
+							orientation: "horizontal",
+							className: separatorBaseClassName,
+						},
+						children: [],
+					},
+				]),
+			],
+		} satisfies TrickroomDesign;
+
+		const serialized = serializeFlatDesign(normalizeDesignForMutation(design));
+		const separator = findNode(serialized.boards, "separator");
+		const menuSeparator = findNode(serialized.boards, "menu-separator");
+
+		expect(separator?.props.className).toBe("bg-slate-200");
+		expect(separator?.props).not.toHaveProperty(MATERIALIZED_BASE_CLASS_PROP);
+		expect(menuSeparator?.props).not.toHaveProperty("className");
+		expect(menuSeparator?.props).not.toHaveProperty(
+			MATERIALIZED_BASE_CLASS_PROP,
+		);
+		expect(
+			getRenderableProps(
+				separator?.props ?? {},
+				getKnownRegistryDefinition("base-ui", "separator"),
+			).className,
+		).toBe(`${separatorBaseClassName} bg-slate-200`);
+		expect(
+			getRenderableProps(
+				menuSeparator?.props ?? {},
+				getKnownRegistryDefinition("base-ui", "menu.separator"),
+			).className,
+		).toBe(separatorBaseClassName);
+	});
+
+	it("materializes legacy seeded separator classes on attached system component snapshots", () => {
+		const design = {
+			name: "Legacy attached separator",
+			systemId: "sys_11111111-1111-4111-8111-111111111111",
+			boards: [
+				{
+					id: "separator",
+					props: {
+						"data-trickroom-name": "Separator",
+						"data-trickroom-library": "base-ui",
+						"data-trickroom-component": "separator",
+						"data-trickroom-role": "leaf",
+						orientation: "horizontal",
+						className: `${separatorBaseClassName} bg-slate-200`,
+						...getSystemComponentMarkerProps({
+							systemId: "sys_11111111-1111-4111-8111-111111111111",
+							componentId: "cmp_11111111-1111-4111-8111-111111111111",
+							instanceId: "instance-1",
+							version: "1",
+							path: "root",
+							isRoot: true,
+							templateHash: "sha256:template",
+							variantSchemaHash: "sha256:variants",
+						}),
+					},
+					children: [],
+				},
+			],
+		} satisfies TrickroomDesign;
+
+		const serialized = serializeFlatDesign(normalizeDesignForMutation(design));
+		const separator = serialized.boards[0];
+
+		expect(separator.props.className).toBe(
+			`${separatorBaseClassName} bg-slate-200`,
+		);
+		expect(separator.props[MATERIALIZED_BASE_CLASS_PROP]).toBe("true");
+		expect(
+			getRenderableProps(
+				separator.props,
+				getKnownRegistryDefinition("base-ui", "separator"),
+			).className,
+		).toBe(`${separatorBaseClassName} bg-slate-200`);
 	});
 });
 
@@ -2444,9 +2605,8 @@ describe("applyAddSystemComponent", () => {
 			{ expectedRevision: afterVariants.revision, now },
 		);
 		await publishSystemComponentDraft(projectRoot, systemId, componentId, {
-			expectedRevision: (
-				await readSystemComponentManifest(projectRoot, systemId)
-			).revision,
+			expectedRevision: (await readSystemComponentManifest(projectRoot, systemId))
+				.revision,
 			now,
 		});
 	});

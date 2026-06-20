@@ -1,7 +1,17 @@
 export type BaseUiComponents =
+	| "accordion.header"
+	| "accordion.item"
+	| "accordion.panel"
+	| "accordion.root"
+	| "accordion.trigger"
 	| "avatar.fallback"
 	| "avatar.image"
 	| "avatar.root"
+	| "button"
+	| "collapsible.panel"
+	| "collapsible.root"
+	| "collapsible.trigger"
+	| "input"
 	| "menu.item"
 	| "menu.popup"
 	| "menu.portal"
@@ -9,6 +19,22 @@ export type BaseUiComponents =
 	| "menu.root"
 	| "menu.separator"
 	| "menu.trigger"
-	| "separator";
+	| "radio-group"
+	| "radio.indicator"
+	| "radio.root"
+	| "separator"
+	| "switch.root"
+	| "switch.thumb"
+	| "toggle"
+	| "toggle-group";
 
-export type BaseUiRecipes = "avatar.default" | "menu.default";
+export type BaseUiRecipes =
+	| "accordion.default"
+	| "accordion.item.default"
+	| "avatar.default"
+	| "collapsible.default"
+	| "menu.default"
+	| "radio.default"
+	| "radio-group.default"
+	| "switch.default"
+	| "toggle-group.default";

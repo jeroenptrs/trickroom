@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+	diffTailwindDomainTokensAgainstDefaults,
 	computeTokenDomainOverrides,
+	extractTailwindTokenResetOverrides,
 	extractTailwindTokens,
 	normalizeTailwindTokenValue,
 	tokenDomainToCssPropertyName,
@@ -42,6 +44,108 @@ describe("computeTokenDomainOverrides", () => {
 				},
 			]),
 		).toEqual(["--radius-lg", "--spacing"]);
+	});
+});
+
+describe("diffTailwindDomainTokensAgainstDefaults", () => {
+	it("does not mark missing defaults as removed without reset declarations", () => {
+		expect(
+			diffTailwindDomainTokensAgainstDefaults(
+				"container",
+				{ "2xs": "18rem" },
+				{ sm: "24rem", md: "28rem" },
+			).removed,
+		).toEqual([]);
+	});
+
+	it("marks missing defaults as removed when a namespace reset exists", () => {
+		expect(
+			diffTailwindDomainTokensAgainstDefaults(
+				"inset-shadow",
+				{ base: "inset 0 0 0 1px var(--color-border)" },
+				{ xs: "inset 0 1px 1px rgb(0 0 0 / 0.05)" },
+				["--inset-shadow-*"],
+			).removed,
+		).toEqual([
+			{
+				name: "xs",
+				defaultValue: "inset 0 1px 1px rgb(0 0 0 / 0.05)",
+				domain: "inset-shadow",
+			},
+		]);
+	});
+
+	it("marks exact reset declarations as removed without resetting the whole namespace", () => {
+		expect(
+			diffTailwindDomainTokensAgainstDefaults(
+				"radius",
+				{ sm: "0.25rem" },
+				{ sm: "0.25rem", xl: "0.75rem", "2xl": "1rem" },
+				["--radius-xl"],
+			).removed,
+		).toEqual([
+			{
+				name: "xl",
+				defaultValue: "0.75rem",
+				domain: "radius",
+			},
+		]);
+	});
+
+	it("marks family wildcard reset declarations as removed", () => {
+		expect(
+			diffTailwindDomainTokensAgainstDefaults(
+				"color",
+				{ "brand-500": "#123456" },
+				{
+					"red-50": "#fee2e2",
+					"red-100": "#fecaca",
+					"blue-50": "#eff6ff",
+				},
+				["--color-red-*"],
+			).removed,
+		).toEqual([
+			{ name: "red-100", defaultValue: "#fecaca", domain: "color" },
+			{ name: "red-50", defaultValue: "#fee2e2", domain: "color" },
+		]);
+	});
+});
+
+describe("extractTailwindTokenResetOverrides", () => {
+	it("extracts exact and wildcard initial declarations from token source metadata", async () => {
+		const code = [
+			"@theme {",
+			"  --color-*: initial;",
+			"  --color-brand-500: #123456;",
+			"  --radius-xl: initial;",
+			"  --radius-sm: 0.25rem;",
+			"  --text-2xs: 0.6875rem;",
+			"}",
+		].join("\n");
+		const designSystem = {
+			theme: {
+				values: new Map([
+					[
+						"--color-brand-500",
+						{ value: "#123456", src: [{ file: "theme.css", code }] },
+					],
+					[
+						"--radius-sm",
+						{ value: "0.25rem", src: [{ file: "theme.css", code }] },
+					],
+				]),
+			},
+		};
+
+		expect(
+			extractTailwindTokenResetOverrides(
+				designSystem as Parameters<typeof extractTailwindTokenResetOverrides>[0],
+			),
+		).toMatchObject({
+			color: ["--color-*"],
+			radius: ["--radius-xl"],
+			text: [],
+		});
 	});
 });
 

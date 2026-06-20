@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, UploadCloud } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Plus, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { ProjectQueryScope } from "../../queries/project-scope";
@@ -9,8 +9,6 @@ import {
 } from "../../queries/system-assets";
 import { systemComponentUsageQueryOptions } from "../../queries/system-component-usage";
 import {
-	invalidateSystemComponents,
-	publishSystemComponent,
 	systemComponentQueryOptions,
 	systemComponentsQueryOptions,
 } from "../../queries/system-components";
@@ -92,7 +90,8 @@ export type CompoundVariantDraft = {
 	originalWhenSignature?: string;
 };
 
-const variantKeyPattern = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+const variantAxisKeyPattern = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+const variantValueKeyPattern = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 const createDraftId = () => Math.random().toString(36).slice(2, 9);
 
 // Compounds combine at least two axis conditions; the section is only useful
@@ -102,7 +101,8 @@ const COMPOUND_MIN_AXES = 2;
 function compoundWhenSignature(when: Record<string, string | string[]>) {
 	const normalized: Record<string, string | string[]> = {};
 	for (const axisKey of Object.keys(when).sort()) {
-		normalized[axisKey] = when[axisKey];
+		const value = when[axisKey];
+		normalized[axisKey] = Array.isArray(value) ? [...value].sort() : value;
 	}
 	return JSON.stringify(normalized);
 }
@@ -202,7 +202,7 @@ export function validateVariantDrafts(
 		const axisKey = axis.key.trim();
 		if (!axisKey) {
 			diagnostics.push(`Variant ${axisLabel} must include an axis key.`);
-		} else if (!variantKeyPattern.test(axisKey)) {
+		} else if (!variantAxisKeyPattern.test(axisKey)) {
 			diagnostics.push(
 				`Variant axis "${axisKey}" must start with a letter and use only letters, numbers, underscores, or hyphens.`,
 			);
@@ -226,9 +226,9 @@ export function validateVariantDrafts(
 				diagnostics.push(
 					`Variant value "${valueLabel}" on axis "${axisLabel}" must include a key.`,
 				);
-			} else if (!variantKeyPattern.test(valueKey)) {
+			} else if (!variantValueKeyPattern.test(valueKey)) {
 				diagnostics.push(
-					`Variant value "${valueKey}" on axis "${axisLabel}" must start with a letter and use only letters, numbers, underscores, or hyphens.`,
+					`Variant value "${valueKey}" on axis "${axisLabel}" must start with a letter or number and use only letters, numbers, underscores, or hyphens.`,
 				);
 			}
 			valueKeys.set(valueKey, (valueKeys.get(valueKey) ?? 0) + 1);
@@ -1049,7 +1049,12 @@ function VariantSchemaEditor({
 	);
 }
 
-function ComponentInspector({
+export type SystemEditorComponentContextPanelMode =
+	| "settings"
+	| "variants"
+	| "publish";
+
+export function SystemEditorComponentContextSync({
 	systemId,
 	componentId,
 	projectScope,
@@ -1058,7 +1063,112 @@ function ComponentInspector({
 	componentId: string;
 	projectScope?: ProjectQueryScope;
 }) {
-	const queryClient = useQueryClient();
+	const detailQuery = useQuery(
+		systemComponentQueryOptions(systemId, componentId, projectScope),
+	);
+	const templateDirty = useComponentDraftTemplateDirty();
+	const variantsDirty = useComponentDraftVariantsDirty();
+	const loadedDraftTemplateHash = useLoadedDraftTemplateHash();
+	const loadedDraftVariantSchemaHash = useLoadedDraftVariantSchemaHash();
+	const record = detailQuery.data?.record;
+
+	useEffect(() => {
+		if (!record) {
+			return;
+		}
+
+		syncEditorSessionMetadata({
+			componentId: record.componentId,
+			metadata: {
+				name: record.name,
+				slug: record.slug,
+				description: record.description ?? "",
+				group: record.group ?? "",
+				order: record.order === undefined ? "" : String(record.order),
+			},
+		});
+
+		if (!record.draft) {
+			setLoadedDraftHashes({ templateHash: null, variantSchemaHash: null });
+			setEditorDraftConflict(null);
+			return;
+		}
+
+		const serverDraftTemplateHash = detailQuery.data.draftTemplateHash ?? null;
+		const serverDraftVariantSchemaHash =
+			detailQuery.data.draftVariantSchemaHash ?? null;
+		const hydrateResult = hydrateComponentDraft({
+			componentId: record.componentId,
+			root: record.draft.root,
+			baseVersion: record.draft.baseVersion,
+			slots: record.draft.slots,
+			overrideTargets: record.draft.overrideTargets,
+			variants: record.draft.variants ?? null,
+		});
+
+		if (hydrateResult === "dirty-skipped") {
+			const {
+				hasConflict,
+				adoptTemplateBaseline,
+				adoptVariantSchemaBaseline,
+			} = evaluateComponentDraftServerConflict({
+				dirtyDraftMatchesComponent: isComponentDraftForComponent(
+					record.componentId,
+				),
+				templateDirty,
+				variantsDirty,
+				serverDraftTemplateHash,
+				serverDraftVariantSchemaHash,
+				loadedDraftTemplateHash,
+				loadedDraftVariantSchemaHash,
+			});
+
+			if (adoptTemplateBaseline) {
+				setLoadedDraftHashes({ templateHash: serverDraftTemplateHash });
+			}
+			if (adoptVariantSchemaBaseline) {
+				setLoadedDraftHashes({
+					variantSchemaHash: serverDraftVariantSchemaHash,
+				});
+			}
+
+			setEditorDraftConflict(
+				hasConflict
+					? "Component draft changed on the server while local edits are unsaved. Save or reload before continuing."
+					: null,
+			);
+			return;
+		}
+
+		setLoadedDraftHashes({
+			templateHash: serverDraftTemplateHash,
+			variantSchemaHash: serverDraftVariantSchemaHash,
+		});
+		setEditorDraftConflict(null);
+	}, [
+		detailQuery.data?.draftTemplateHash,
+		detailQuery.data?.draftVariantSchemaHash,
+		loadedDraftTemplateHash,
+		loadedDraftVariantSchemaHash,
+		record,
+		templateDirty,
+		variantsDirty,
+	]);
+
+	return null;
+}
+
+export function SystemEditorComponentContextPanel({
+	systemId,
+	componentId,
+	projectScope,
+	mode,
+}: {
+	systemId: string;
+	componentId: string;
+	projectScope?: ProjectQueryScope;
+	mode: SystemEditorComponentContextPanelMode;
+}) {
 	const listQuery = useQuery(
 		systemComponentsQueryOptions(systemId, projectScope),
 	);
@@ -1086,7 +1196,6 @@ function ComponentInspector({
 	const [compoundDrafts, setCompoundDrafts] = useState<CompoundVariantDraft[]>(
 		[],
 	);
-	const [publishError, setPublishError] = useState<string | null>(null);
 	const [loadedRecordIdentity, setLoadedRecordIdentity] = useState("");
 	const summary =
 		listQuery.data?.components.find(
@@ -1103,7 +1212,6 @@ function ComponentInspector({
 		const recordChanged = loadedRecordIdentity !== record.componentId;
 		if (recordChanged) {
 			setLoadedRecordIdentity(record.componentId);
-			setPublishError(null);
 		}
 
 		syncEditorSessionMetadata({
@@ -1241,52 +1349,6 @@ function ComponentInspector({
 	const nextPublishedVersion = String(
 		Math.max(0, ...versionHistory.map((entry) => Number(entry.version))) + 1,
 	);
-	const publishDraftMutation = useMutation({
-		mutationFn: async () => {
-			if (!record?.draft || !detailQuery.data) {
-				throw new Error("This component does not have a draft to publish.");
-			}
-			if (hasUnsavedDraftChanges) {
-				throw new Error("Save the draft before publishing this version.");
-			}
-			if (variantDiagnostics.length > 0) {
-				throw new Error(variantDiagnostics[0]);
-			}
-			if (errorDiagnostics.length > 0 || !detailQuery.data.valid) {
-				throw new Error(
-					errorDiagnostics[0]?.message ??
-						"Resolve validation diagnostics before publishing.",
-				);
-			}
-
-			return publishSystemComponent(systemId, componentId, {
-				expectedRevision: detailQuery.data.revision,
-			});
-		},
-		onMutate: () => setPublishError(null),
-		onError: async (error) => {
-			setPublishError(
-				error instanceof Error
-					? error.message
-					: "Failed to publish component draft.",
-			);
-			await invalidateSystemComponents(
-				queryClient,
-				systemId,
-				projectScope,
-				componentId,
-			);
-		},
-		onSuccess: async () => {
-			setPublishError(null);
-			await invalidateSystemComponents(
-				queryClient,
-				systemId,
-				projectScope,
-				componentId,
-			);
-		},
-	});
 
 	if (detailQuery.isPending || listQuery.isPending) {
 		return <p className="text-slate-500">Loading component details...</p>;
@@ -1345,6 +1407,225 @@ function ComponentInspector({
 			: hashMismatchCount > 0
 				? `${usedByCount} total, ${hashMismatchCount} hash mismatch${hashMismatchCount === 1 ? "" : "es"}`
 				: `${usedByCount} total across ${scannedDesignCount} scanned design${scannedDesignCount === 1 ? "" : "s"}`;
+	const variantStatusLabel = draftConflict
+		? "Server draft changed"
+		: variantDiagnostics.length > 0
+			? "Variant definitions need attention"
+			: metadataChanged || templateDirty || variantsChanged
+				? "Unsaved changes"
+				: "Saved";
+	const variantEditor = canEditDraft ? (
+		<form
+			className="flex flex-col gap-2"
+			onSubmit={(event) => {
+				event.preventDefault();
+			}}
+		>
+			<VariantSchemaEditor
+				diagnostics={variantDiagnostics}
+				drafts={currentVariantDrafts}
+				compoundDrafts={currentCompoundDrafts}
+				onChange={(nextDrafts, nextCompoundDrafts) => {
+					const nextVariants = variantDraftsToSchema(
+						nextDrafts,
+						componentDraftStore.get().variants,
+						nextCompoundDrafts,
+					);
+					replaceComponentDraftVariants(nextVariants);
+					setVariantDrafts(
+						advanceVariantDraftSchemaKeys(nextDrafts, nextVariants),
+					);
+					setCompoundDrafts(
+						advanceCompoundDraftKeys(nextCompoundDrafts, nextVariants),
+					);
+				}}
+			/>
+			<div className="flex items-center justify-between gap-2 pt-1">
+				<span className="text-[11px] text-slate-500">
+					{variantStatusLabel}
+				</span>
+			</div>
+			{draftConflict ? (
+				<p
+					className="border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-800"
+					role="alert"
+				>
+					{draftConflict}
+				</p>
+			) : null}
+		</form>
+	) : (
+		<div className="border border-slate-200 bg-white px-2 py-1.5">
+			<p className="text-[11px] font-medium text-slate-700">
+				No draft variants to edit.
+			</p>
+			<p className="mt-1 text-[11px] text-slate-500">
+				Create a draft before defining variant axes and compound variants.
+			</p>
+		</div>
+	);
+
+	if (mode === "variants") {
+		return (
+			<div className="flex flex-col gap-3">
+				<div>
+					<p className="font-medium text-slate-900">{record.name}</p>
+					<p className="font-mono text-[11px] text-slate-500">
+						{record.slug}
+					</p>
+				</div>
+				{variantEditor}
+			</div>
+		);
+	}
+
+	if (mode === "publish") {
+		return (
+			<div className="flex flex-col gap-3">
+				<div>
+					<p className="font-medium text-slate-900">{record.name}</p>
+					<p className="font-mono text-[11px] text-slate-500">
+						{record.slug}
+					</p>
+				</div>
+				<InspectorField
+					label="Status"
+					value={publicationStateLabel(publicationState)}
+				/>
+				<InspectorField label="Usage status" value={usageStatusLabel} />
+				<InspectorField label="Design usage" value={usageDetailLabel} />
+				<div className="border-t border-slate-200 pt-3">
+					<div className="mb-2 flex items-center justify-between gap-2">
+						<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+							Publish
+						</p>
+					</div>
+					{record.draft ? (
+						<div className="flex flex-col gap-1 border border-slate-200 bg-white px-2 py-1.5">
+							<InspectorField
+								label="Generated version"
+								value={nextPublishedVersion}
+							/>
+							{detailQuery.data.draftTemplateHash ? (
+								<InspectorField
+									label="Template hash"
+									value={detailQuery.data.draftTemplateHash}
+								/>
+							) : null}
+							{detailQuery.data.draftVariantSchemaHash ? (
+								<InspectorField
+									label="Variant schema hash"
+									value={detailQuery.data.draftVariantSchemaHash}
+								/>
+							) : null}
+							<p className="pt-1 text-[11px] text-slate-500">
+								{hasUnsavedDraftChanges
+									? "Save the draft before publishing."
+									: errorDiagnostics.length > 0 ||
+											variantDiagnostics.length > 0
+										? "Resolve validation diagnostics before publishing."
+										: warningDiagnostics.length > 0
+											? "Warnings are listed below. Review before publishing."
+											: "Draft is ready to publish."}
+							</p>
+						</div>
+					) : (
+						<div className="flex flex-col gap-1 border border-slate-200 bg-white px-2 py-1.5">
+							<p className="text-[11px] font-medium text-slate-700">
+								No draft available to publish.
+							</p>
+							<p className="text-[11px] text-slate-500">
+								Create or edit a draft first, then save it before publishing a
+								new version.
+							</p>
+						</div>
+					)}
+				</div>
+				{currentPublishedVersion ? (
+					<div className="border-t border-slate-200 pt-3">
+						<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+							Current published
+						</p>
+						<div className="mt-1 flex flex-col gap-1 border border-slate-200 bg-white px-2 py-1.5">
+							<InspectorField
+								label="Version"
+								value={currentPublishedVersion.version}
+							/>
+							<InspectorField
+								label="Published"
+								value={formatVersionTimestamp(
+									currentPublishedVersion.publishedAt,
+								)}
+							/>
+							<InspectorField
+								label="Template hash"
+								value={currentPublishedVersion.templateHash}
+							/>
+							<InspectorField
+								label="Variant schema hash"
+								value={currentPublishedVersion.variantSchemaHash}
+							/>
+						</div>
+					</div>
+				) : null}
+				{versionHistory.length > 0 ? (
+					<div className="border-t border-slate-200 pt-3">
+						<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+							Version history
+						</p>
+						<ul className="mt-1 flex max-h-52 flex-col gap-1 overflow-y-auto">
+							{versionHistory.map((version) => (
+								<li
+									key={version.version}
+									className="border border-slate-200 bg-white px-2 py-1.5"
+								>
+									<div className="flex items-center justify-between gap-2">
+										<span className="font-medium text-slate-900">
+											Version {version.version}
+										</span>
+										<span className="text-[11px] text-slate-500">
+											{version.version === record.published?.currentVersion
+												? "Current"
+												: version.previousVersion
+													? `After ${version.previousVersion}`
+													: "Initial"}
+										</span>
+									</div>
+									<p className="mt-1 text-[11px] text-slate-500">
+										{formatVersionTimestamp(version.publishedAt)}
+									</p>
+									<p className="mt-1 truncate font-mono text-[10px] text-slate-500">
+										{version.templateHash}
+									</p>
+								</li>
+							))}
+						</ul>
+					</div>
+				) : null}
+				<InspectorField
+					label="Validation"
+					value={detailQuery.data.valid ? "Valid" : "Needs attention"}
+				/>
+				{detailQuery.data.diagnostics.length > 0 ? (
+					<div className="border-t border-slate-200 pt-2">
+						<p className="text-[10px] uppercase tracking-wider text-slate-500">
+							Diagnostics
+						</p>
+						<ul className="mt-1 flex max-h-40 flex-col gap-1 overflow-y-auto">
+							{detailQuery.data.diagnostics.slice(0, 8).map((diagnostic) => (
+								<li
+									key={`${diagnostic.code}-${diagnostic.componentId ?? ""}-${diagnostic.path ?? ""}-${diagnostic.message}`}
+									className="text-[11px] text-amber-800"
+								>
+									{diagnostic.message}
+								</li>
+							))}
+						</ul>
+					</div>
+				) : null}
+			</div>
+		);
+	}
 
 	return (
 		<div className="flex flex-col gap-3">
@@ -1438,34 +1719,13 @@ function ComponentInspector({
 							/>
 						</label>
 					</div>
-					<VariantSchemaEditor
-						diagnostics={variantDiagnostics}
-						drafts={currentVariantDrafts}
-						compoundDrafts={currentCompoundDrafts}
-						onChange={(nextDrafts, nextCompoundDrafts) => {
-							const nextVariants = variantDraftsToSchema(
-								nextDrafts,
-								componentDraftStore.get().variants,
-								nextCompoundDrafts,
-							);
-							replaceComponentDraftVariants(nextVariants);
-							setVariantDrafts(
-								advanceVariantDraftSchemaKeys(nextDrafts, nextVariants),
-							);
-							setCompoundDrafts(
-								advanceCompoundDraftKeys(nextCompoundDrafts, nextVariants),
-							);
-						}}
-					/>
 					<div className="flex items-center justify-between gap-2 pt-1">
 						<span className="text-[11px] text-slate-500">
 							{draftConflict
 								? "Server draft changed"
-								: variantDiagnostics.length > 0
-									? "Variant definitions need attention"
-									: metadataChanged || templateDirty || variantsChanged
-										? "Unsaved changes — save from the toolbar"
-										: "Saved"}
+								: metadataChanged || templateDirty || variantsChanged
+									? "Unsaved changes"
+									: "Saved"}
 						</span>
 					</div>
 					{draftConflict ? (
@@ -1490,139 +1750,6 @@ function ComponentInspector({
 					label="Current version"
 					value={record.published.currentVersion}
 				/>
-			) : null}
-			<div className="border-t border-slate-200 pt-3">
-				<div className="mb-2 flex items-center justify-between gap-2">
-					<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-						Publish
-					</p>
-					{record.draft ? (
-						<Button
-							type="button"
-							variant="blockDark"
-							className="flex items-center gap-1 px-2 py-1 text-xs"
-							disabled={
-								publishDraftMutation.isPending ||
-								hasUnsavedDraftChanges ||
-								variantDiagnostics.length > 0 ||
-								errorDiagnostics.length > 0 ||
-								!detailQuery.data.valid
-							}
-							onClick={() => publishDraftMutation.mutate()}
-						>
-							<UploadCloud className="size-3" aria-hidden="true" />
-							{publishDraftMutation.isPending ? "Publishing" : "Publish draft"}
-						</Button>
-					) : null}
-				</div>
-				{record.draft ? (
-					<div className="flex flex-col gap-1 border border-slate-200 bg-white px-2 py-1.5">
-						<InspectorField
-							label="Generated version"
-							value={nextPublishedVersion}
-						/>
-						{detailQuery.data.draftTemplateHash ? (
-							<InspectorField
-								label="Template hash"
-								value={detailQuery.data.draftTemplateHash}
-							/>
-						) : null}
-						{detailQuery.data.draftVariantSchemaHash ? (
-							<InspectorField
-								label="Variant schema hash"
-								value={detailQuery.data.draftVariantSchemaHash}
-							/>
-						) : null}
-						<p className="pt-1 text-[11px] text-slate-500">
-							{hasUnsavedDraftChanges
-								? "Save the draft before publishing."
-								: errorDiagnostics.length > 0 || variantDiagnostics.length > 0
-									? "Resolve validation diagnostics before publishing."
-									: warningDiagnostics.length > 0
-										? "Warnings are listed below. Review before publishing."
-										: "Draft is ready to publish."}
-						</p>
-					</div>
-				) : (
-					<div className="flex flex-col gap-1 border border-slate-200 bg-white px-2 py-1.5">
-						<p className="text-[11px] font-medium text-slate-700">
-							No draft available to publish.
-						</p>
-						<p className="text-[11px] text-slate-500">
-							Create or edit a draft first, then save it before publishing a new
-							version.
-						</p>
-					</div>
-				)}
-				{publishError ? (
-					<p
-						className="mt-2 border border-red-200 bg-red-50 px-2 py-1.5 text-red-700"
-						role="alert"
-					>
-						{publishError}
-					</p>
-				) : null}
-			</div>
-			{currentPublishedVersion ? (
-				<div className="border-t border-slate-200 pt-3">
-					<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-						Current published
-					</p>
-					<div className="mt-1 flex flex-col gap-1 border border-slate-200 bg-white px-2 py-1.5">
-						<InspectorField
-							label="Version"
-							value={currentPublishedVersion.version}
-						/>
-						<InspectorField
-							label="Published"
-							value={formatVersionTimestamp(
-								currentPublishedVersion.publishedAt,
-							)}
-						/>
-						<InspectorField
-							label="Template hash"
-							value={currentPublishedVersion.templateHash}
-						/>
-						<InspectorField
-							label="Variant schema hash"
-							value={currentPublishedVersion.variantSchemaHash}
-						/>
-					</div>
-				</div>
-			) : null}
-			{versionHistory.length > 0 ? (
-				<div className="border-t border-slate-200 pt-3">
-					<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-						Version history
-					</p>
-					<ul className="mt-1 flex max-h-52 flex-col gap-1 overflow-y-auto">
-						{versionHistory.map((version) => (
-							<li
-								key={version.version}
-								className="border border-slate-200 bg-white px-2 py-1.5"
-							>
-								<div className="flex items-center justify-between gap-2">
-									<span className="font-medium text-slate-900">
-										Version {version.version}
-									</span>
-									<span className="text-[11px] text-slate-500">
-										{version.version === record.published?.currentVersion
-											? "Current"
-											: version.previousVersion
-												? `After ${version.previousVersion}`
-												: "Initial"}
-									</span>
-								</div>
-								<p className="mt-1 text-[11px] text-slate-500">
-									{formatVersionTimestamp(version.publishedAt)}
-								</p>
-								<p className="mt-1 truncate font-mono text-[10px] text-slate-500">
-									{version.templateHash}
-								</p>
-							</li>
-						))}
-					</ul>
-				</div>
 			) : null}
 			{record.group ? (
 				<InspectorField label="Group" value={record.group} />
@@ -1773,6 +1900,7 @@ export function SystemEditorInspector({
 	selectedComponentId,
 	selectedAssetId,
 	selectedIconId,
+	onClose,
 }: {
 	page: SystemEditorPage;
 	systemId: string;
@@ -1780,6 +1908,7 @@ export function SystemEditorInspector({
 	selectedComponentId: string | null;
 	selectedAssetId: string | null;
 	selectedIconId: string | null;
+	onClose: () => void;
 }) {
 	const selectedTemplatePath = useComponentDraftSelectedPath();
 	const draftComponentId = useComponentDraftComponentId();
@@ -1793,14 +1922,6 @@ export function SystemEditorInspector({
 		body = (
 			<ComponentDraftProperties
 				systemId={systemId}
-				projectScope={projectScope}
-			/>
-		);
-	} else if (page === "components" && selectedComponentId) {
-		body = (
-			<ComponentInspector
-				systemId={systemId}
-				componentId={selectedComponentId}
 				projectScope={projectScope}
 			/>
 		);
@@ -1841,9 +1962,23 @@ export function SystemEditorInspector({
 		selectedTemplateMatchesComponent;
 
 	return (
-		<aside className="flex min-h-0 w-[336px] shrink-0 flex-col border-l border-slate-200 bg-slate-50 text-xs">
-			<header className="flex h-12 shrink-0 items-center border-b border-slate-200 px-4 text-xs font-medium">
-				{isNodeInspector ? "Properties" : "Inspector"}
+		<aside
+			data-editor-region="inspector"
+			tabIndex={-1}
+			className="flex min-h-0 w-[336px] shrink-0 flex-col border-l border-slate-200 bg-slate-50 text-xs focus-visible:outline-none"
+		>
+			<header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-slate-200 px-4 text-xs font-medium">
+				<span>{isNodeInspector ? "Properties" : "Inspector"}</span>
+				<Button
+					type="button"
+					variant="block"
+					className="flex size-7 shrink-0 items-center justify-center p-0"
+					onClick={onClose}
+					title="Close inspector"
+				>
+					<X className="size-3.5 text-slate-500" aria-hidden="true" />
+					<span className="sr-only">Close inspector</span>
+				</Button>
 			</header>
 			<div
 				className={

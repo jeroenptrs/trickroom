@@ -24,7 +24,7 @@ import {
 	Type,
 } from "lucide-react";
 import {
-	type KeyboardEvent,
+	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent,
 	memo,
 	useCallback,
@@ -59,6 +59,14 @@ import {
 	isRecipeSlotHost,
 } from "../../recipes/ownership";
 import {
+	canInsertIntoSystemComponentBoundary,
+	getElementSystemComponentMetadata,
+	isSystemComponentOwnedStructuralNode,
+	isSystemComponentRoot,
+	isSystemComponentSlotHost,
+} from "../../utils/system-component-ownership";
+import { layerDropInsertionIndex } from "../../utils/reorder-insertion-index";
+import {
 	getRecipeSlotCandidateFromProps,
 	isRecipeSlotInsertionAllowed,
 } from "../../recipes/slot-allowlist";
@@ -66,6 +74,7 @@ import {
 	addElement,
 	addNodeTree,
 	addRecipe,
+	deleteElement,
 	type DesignEntity,
 	designStore,
 	moveElement,
@@ -88,6 +97,14 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
 import { Text } from "../ui/text";
 import { LayerContextMenu } from "./LayerContextMenu";
+import {
+	getKey,
+	getShortcutPlacementIntent,
+	hasCommandModifier,
+	isPeriodKey,
+	isShortcutLetter,
+	useWindowKeyDown,
+} from "../../utils/editor-shortcuts";
 
 const icon = tv({
 	base: "size-4 -ml-1 text-slate-400 transition-transform translate-y-px",
@@ -104,12 +121,20 @@ const icon = tv({
 		recipeOwned: {
 			true: "text-orange-500",
 		},
+		componentOwned: {
+			true: "text-emerald-500",
+		},
 	},
 	compoundVariants: [
 		{
 			selected: true,
 			recipeOwned: true,
 			className: "text-orange-700",
+		},
+		{
+			selected: true,
+			componentOwned: true,
+			className: "text-emerald-700",
 		},
 	],
 });
@@ -135,6 +160,9 @@ const layerRow = tv({
 		recipeOwned: {
 			true: "before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-orange-500 before:content-['']",
 		},
+		componentOwned: {
+			true: "before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-emerald-500 before:content-['']",
+		},
 		dragging: {
 			true: "opacity-40",
 		},
@@ -152,14 +180,35 @@ const layerRow = tv({
 			className:
 				"bg-orange-100 text-orange-950 inset-shadow-cyan-400 hover:bg-orange-100",
 		},
+		{
+			selected: false,
+			componentOwned: true,
+			className:
+				"bg-emerald-50 text-emerald-950 inset-shadow-emerald-200 hover:bg-emerald-100",
+		},
+		{
+			selected: true,
+			componentOwned: true,
+			className:
+				"bg-emerald-100 text-emerald-950 inset-shadow-cyan-400 hover:bg-emerald-100",
+		},
 	],
 });
 
-const slotCue = tv({
+const recipeSlotCue = tv({
 	base: "mr-1 flex size-4 shrink-0 items-center justify-center text-orange-500",
 	variants: {
 		selected: {
 			true: "text-orange-700",
+		},
+	},
+});
+
+const componentSlotCue = tv({
+	base: "mr-1 flex size-4 shrink-0 items-center justify-center text-emerald-500",
+	variants: {
+		selected: {
+			true: "text-emerald-700",
 		},
 	},
 });
@@ -319,9 +368,11 @@ type LayerProps = {
 	id: string;
 	depth: number;
 	designFile: string;
+	editRequestId: string | null;
 	hasTopSeparator: boolean;
 	open: boolean;
 	onDraggingChange: (isDragging: boolean) => void;
+	onEditRequestHandled: () => void;
 	onToggleOpen: (id: string) => void;
 };
 
@@ -427,11 +478,9 @@ function moveLayerByIntent(id: string, intent: LayerDropIntent) {
 
 	const revision = state.revision;
 	const index =
-		intent.type === "after"
-			? targetIndex + 1
-			: intent.type === "before"
-				? targetIndex
-				: (target.childIds?.length ?? 0);
+		intent.type === "inside"
+			? (target.childIds?.length ?? 0)
+			: layerDropInsertionIndex(siblings, id, intent.type, target.id);
 
 	moveElement(
 		id,
@@ -527,6 +576,9 @@ export function resolveLayerInsertionPlacement({
 	if (!canInsertIntoRecipeBoundary(entitiesById, placement.parentId)) {
 		return null;
 	}
+	if (!canInsertIntoSystemComponentBoundary(entitiesById, placement.parentId)) {
+		return null;
+	}
 
 	return placement;
 }
@@ -539,12 +591,20 @@ function getBlockedDropInstructions(
 ) {
 	const blockedInstructions: Instruction["type"][] = [];
 	const isRecipeOwned = isRecipeOwnedStructuralNode(entity);
+	const isComponentOwned = isSystemComponentOwnedStructuralNode(entity);
 
-	if (!canHaveChildren || (isRecipeOwned && !isRecipeSlotHost(entity))) {
+	if (
+		!canHaveChildren ||
+		(isRecipeOwned && !isRecipeSlotHost(entity)) ||
+		(isComponentOwned && !isSystemComponentSlotHost(entity))
+	) {
 		blockedInstructions.push("make-child");
 	}
 
-	if (isRecipeOwned && !isRecipeRoot(entity)) {
+	if (
+		(isRecipeOwned && !isRecipeRoot(entity)) ||
+		(isComponentOwned && !isSystemComponentRoot(entity))
+	) {
 		blockedInstructions.push("reorder-above", "reorder-below");
 	}
 
@@ -555,9 +615,11 @@ const Layer = memo(function Layer({
 	id,
 	depth,
 	designFile,
+	editRequestId,
 	hasTopSeparator,
 	open,
 	onDraggingChange,
+	onEditRequestHandled,
 	onToggleOpen,
 }: LayerProps) {
 	const [isEditing, setIsEditing] = useState(false);
@@ -573,9 +635,13 @@ const Layer = memo(function Layer({
 	const entity = useElement(id);
 	const hasChildren = layer.childIds.length > 0;
 	const isRecipeOwned = isRecipeOwnedStructuralNode(entity);
+	const isComponentOwned = isSystemComponentOwnedStructuralNode(entity);
 	const recipeMetadata = getElementRecipeMetadata(entity);
-	const canDragLayer = !isRecipeOwned || isRecipeRoot(entity);
-	const isSlotHost = isRecipeSlotHost(entity);
+	const canDragLayer =
+		(!isRecipeOwned || isRecipeRoot(entity)) &&
+		(!isComponentOwned || isSystemComponentRoot(entity));
+	const isRecipeSlotHostLayer = isRecipeSlotHost(entity);
+	const isComponentSlotHostLayer = isSystemComponentSlotHost(entity);
 	const className = !hasChildren ? "-ml-0.5" : undefined;
 
 	const toggleOpen = useCallback(() => {
@@ -623,6 +689,15 @@ const Layer = memo(function Layer({
 			setIsEditing(false);
 		}
 	}, [layer.isSelected]);
+
+	useEffect(() => {
+		if (editRequestId !== layer.id) {
+			return;
+		}
+
+		editLayer();
+		onEditRequestHandled();
+	}, [editLayer, editRequestId, layer.id, onEditRequestHandled]);
 
 	useEffect(() => {
 		if (!isEditing) {
@@ -728,7 +803,7 @@ const Layer = memo(function Layer({
 		updateDropIntent,
 	]);
 
-	const onInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+	const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
 		if (event.key === "Enter") {
 			event.preventDefault();
 			commitLayerName();
@@ -755,6 +830,7 @@ const Layer = memo(function Layer({
 					className={layerRow({
 						selected: layer.isSelected,
 						recipeOwned: isRecipeOwned,
+						componentOwned: isComponentOwned,
 						dragging,
 					})}
 					style={{ paddingLeft: `${4 + depth * INDENT_PER_LEVEL}px` }}
@@ -770,16 +846,27 @@ const Layer = memo(function Layer({
 									isEditing,
 									selected: layer.isSelected,
 									recipeOwned: isRecipeOwned,
+									componentOwned: isComponentOwned,
 								})}
 							/>
 						</UnstyledButton>
 					) : null}
-					{isSlotHost ? (
+					{isRecipeSlotHostLayer ? (
 						<span
 							aria-label="Recipe slot"
-							className={slotCue({ selected: layer.isSelected })}
+							className={recipeSlotCue({ selected: layer.isSelected })}
 							role="img"
 							title="Recipe slot"
+						>
+							<PanelTopOpen aria-hidden="true" className="size-3.5" />
+						</span>
+					) : null}
+					{isComponentSlotHostLayer ? (
+						<span
+							aria-label="Component slot"
+							className={componentSlotCue({ selected: layer.isSelected })}
+							role="img"
+							title="Component slot"
 						>
 							<PanelTopOpen aria-hidden="true" className="size-3.5" />
 						</span>
@@ -793,7 +880,11 @@ const Layer = memo(function Layer({
 							title={
 								canDragLayer
 									? `Drag ${layer.name}`
-									: `${layer.name} is recipe-owned structure`
+									: isRecipeOwned
+										? `${layer.name} is recipe-owned structure`
+										: isComponentOwned
+											? `${layer.name} is component-owned structure`
+											: layer.name
 							}
 						>
 							<span
@@ -843,6 +934,7 @@ export function Layers({
 		useState<PickerSource>("user");
 	const [selectedLibrary, setSelectedLibrary] = useState<RegistryId>("base-ui");
 	const [lastAddedRef, setLastAddedRef] = useState<LastAddedRef | null>(null);
+	const [editRequestId, setEditRequestId] = useState<string | null>(null);
 	const systemComponentsQuery = useQuery({
 		...systemComponentsQueryOptions(systemId ?? "", projectScope),
 		enabled: Boolean(systemId),
@@ -863,11 +955,14 @@ export function Layers({
 		getItemKey: (index) => visibleLayerRows[index]?.id ?? index,
 		overscan: isDraggingLayer ? LAYER_DRAG_OVERSCAN : LAYER_OVERSCAN,
 	});
-	const keyboardPlacementIntent: PlacementIntent = isAltPressed
-		? "inside"
-		: isShiftPressed
-			? "before"
-			: "after";
+	const keyboardPlacementIntent: PlacementIntent = getShortcutPlacementIntent({
+		altKey: isAltPressed,
+		shiftKey: isShiftPressed,
+	});
+	const effectivePickerIntent: PlacementIntent =
+		pickerOpen && (isAltPressed || isShiftPressed)
+			? keyboardPlacementIntent
+			: pickerIntent;
 	const pickerSources = useMemo(
 		() =>
 			[
@@ -926,10 +1021,10 @@ export function Layers({
 	const canInsertWithKeyboardIntent =
 		resolveInsertionPlacement(keyboardPlacementIntent) !== null;
 	const canInsertWithPickerIntent =
-		resolveInsertionPlacement(pickerIntent) !== null;
+		resolveInsertionPlacement(effectivePickerIntent) !== null;
 	const isPickerItemAllowed = useCallback(
 		(item: PickerItem) => {
-			const placement = resolveInsertionPlacement(pickerIntent);
+			const placement = resolveInsertionPlacement(effectivePickerIntent);
 			if (!placement) {
 				return false;
 			}
@@ -950,7 +1045,7 @@ export function Layers({
 						},
 			);
 		},
-		[pickerIntent, resolveInsertionPlacement, selectedLibrary],
+		[effectivePickerIntent, resolveInsertionPlacement, selectedLibrary],
 	);
 
 	const addChosenComponent = useCallback(
@@ -1021,12 +1116,8 @@ export function Layers({
 		[resolveInsertionPlacement, systemId],
 	);
 
-	const handleAddLayer = useCallback(
-		(
-			elementType: "container" | "text",
-			event: MouseEvent<HTMLButtonElement>,
-		) => {
-			const intent = getPlacementIntent(event);
+	const addBasicLayer = useCallback(
+		(elementType: "container" | "text", intent: PlacementIntent) => {
 			const placement = resolveInsertionPlacement(intent);
 			if (!placement) {
 				return;
@@ -1046,6 +1137,16 @@ export function Layers({
 		[resolveInsertionPlacement],
 	);
 
+	const handleAddLayer = useCallback(
+		(
+			elementType: "container" | "text",
+			event: MouseEvent<HTMLButtonElement>,
+		) => {
+			addBasicLayer(elementType, getPlacementIntent(event));
+		},
+		[addBasicLayer],
+	);
+
 	const handleOpenPicker = (event: MouseEvent<HTMLButtonElement>) => {
 		const intent = getPlacementIntent(event);
 		if (!resolveInsertionPlacement(intent)) {
@@ -1055,24 +1156,38 @@ export function Layers({
 		setPickerOpen((isOpen) => !isOpen);
 	};
 
+	const repeatLast = useCallback(
+		(intent: PlacementIntent) => {
+			if (!lastAddedRef) {
+				return;
+			}
+
+			const resolution =
+				lastAddedRef.type === "component"
+					? resolveRegistryComponent(
+							lastAddedRef.library,
+							lastAddedRef.component,
+						)
+					: resolveRegistryRecipe(lastAddedRef.library, lastAddedRef.recipe);
+			if (resolution.status !== "known") {
+				return;
+			}
+
+			if (lastAddedRef.type === "component") {
+				addChosenComponent(lastAddedRef, intent);
+			} else {
+				addChosenRecipe(lastAddedRef, intent);
+			}
+		},
+		[addChosenComponent, addChosenRecipe, lastAddedRef],
+	);
+
 	const handleRepeatLast = (event: MouseEvent<HTMLButtonElement>) => {
 		if (!lastAddedRef) {
 			return;
 		}
 
-		const resolution =
-			lastAddedRef.type === "component"
-				? resolveRegistryComponent(lastAddedRef.library, lastAddedRef.component)
-				: resolveRegistryRecipe(lastAddedRef.library, lastAddedRef.recipe);
-		if (resolution.status !== "known") {
-			return;
-		}
-
-		if (lastAddedRef.type === "component") {
-			addChosenComponent(lastAddedRef, getPlacementIntent(event));
-		} else {
-			addChosenRecipe(lastAddedRef, getPlacementIntent(event));
-		}
+		repeatLast(getPlacementIntent(event));
 	};
 
 	useEffect(() => {
@@ -1128,6 +1243,190 @@ export function Layers({
 			canScroll: ({ source }) => isLayerDragData(source.data),
 		});
 	}, []);
+
+	const selectVisibleLayerAtIndex = useCallback(
+		(index: number) => {
+			const row = visibleLayerRows[index];
+			if (!row) {
+				return false;
+			}
+
+			selectElement(row.id);
+			layerVirtualizer.scrollToIndex(index);
+			return true;
+		},
+		[layerVirtualizer, visibleLayerRows],
+	);
+
+	const selectRelativeLayer = useCallback(
+		(direction: 1 | -1) => {
+			if (visibleLayerRows.length === 0) {
+				return false;
+			}
+
+			const selectedIndex = selectedElement
+				? visibleLayerRows.findIndex((row) => row.id === selectedElement.id)
+				: -1;
+			const nextIndex =
+				selectedIndex === -1
+					? direction === 1
+						? 0
+						: visibleLayerRows.length - 1
+					: Math.min(
+							visibleLayerRows.length - 1,
+							Math.max(0, selectedIndex + direction),
+						);
+
+			return selectVisibleLayerAtIndex(nextIndex);
+		},
+		[selectedElement, selectVisibleLayerAtIndex, visibleLayerRows],
+	);
+
+	const expandOrEnterSelectedLayer = useCallback(() => {
+		if (!selectedElement) {
+			return selectVisibleLayerAtIndex(0);
+		}
+
+		const childIds = selectedElement.childIds ?? [];
+		if (childIds.length === 0) {
+			return false;
+		}
+
+		if (openById[selectedElement.id] === false) {
+			setOpenById((current) => ({ ...current, [selectedElement.id]: true }));
+			return true;
+		}
+
+		selectElement(childIds[0] ?? null);
+		return true;
+	}, [openById, selectVisibleLayerAtIndex, selectedElement]);
+
+	const collapseOrSelectParentLayer = useCallback(() => {
+		if (!selectedElement) {
+			return false;
+		}
+
+		if (
+			(selectedElement.childIds?.length ?? 0) > 0 &&
+			openById[selectedElement.id] !== false
+		) {
+			setOpenById((current) => ({ ...current, [selectedElement.id]: false }));
+			return true;
+		}
+
+		if (selectedElement.parentId) {
+			selectElement(selectedElement.parentId);
+			return true;
+		}
+
+		return false;
+	}, [openById, selectedElement]);
+
+	const moveSelectedLayerBy = useCallback(
+		(direction: 1 | -1) => {
+			if (!selectedElement) {
+				return false;
+			}
+
+			const siblings =
+				selectedElement.parentId === null
+					? rootIds
+					: (entitiesById[selectedElement.parentId]?.childIds ?? []);
+			const currentIndex = siblings.indexOf(selectedElement.id);
+			const nextIndex = currentIndex + direction;
+			if (
+				currentIndex === -1 ||
+				nextIndex < 0 ||
+				nextIndex >= siblings.length
+			) {
+				return false;
+			}
+
+			moveElement(selectedElement.id, selectedElement.parentId, nextIndex);
+			return true;
+		},
+		[entitiesById, rootIds, selectedElement],
+	);
+
+	const handleLayerShortcut = useCallback(
+		(event: KeyboardEvent) => {
+			if (
+				hasCommandModifier(event) &&
+				event.shiftKey &&
+				(event.key === "ArrowUp" || event.key === "ArrowDown")
+			) {
+				if (moveSelectedLayerBy(event.key === "ArrowDown" ? 1 : -1)) {
+					event.preventDefault();
+				}
+				return;
+			}
+
+			if (event.metaKey || event.ctrlKey) {
+				return;
+			}
+
+			const key = getKey(event);
+			const placementIntent = getShortcutPlacementIntent(event);
+			let handled = false;
+
+			if (event.key === "ArrowDown" || key === "j") {
+				handled = selectRelativeLayer(1);
+			} else if (event.key === "ArrowUp" || key === "k") {
+				handled = selectRelativeLayer(-1);
+			} else if (event.key === "ArrowRight" || key === "l") {
+				handled = expandOrEnterSelectedLayer();
+			} else if (event.key === "ArrowLeft" || key === "h") {
+				handled = collapseOrSelectParentLayer();
+			} else if (event.key === "Home") {
+				handled = selectVisibleLayerAtIndex(0);
+			} else if (event.key === "End") {
+				handled = selectVisibleLayerAtIndex(visibleLayerRows.length - 1);
+			} else if (key === "r" && selectedElement) {
+				setEditRequestId(selectedElement.id);
+				handled = true;
+			} else if (
+				(event.key === "Backspace" || event.key === "Delete") &&
+				selectedElement
+			) {
+				deleteElement(selectedElement.id);
+				handled = true;
+			} else if (!event.repeat && isShortcutLetter(event, "f")) {
+				addBasicLayer("container", placementIntent);
+				handled = true;
+			} else if (!event.repeat && isShortcutLetter(event, "t")) {
+				addBasicLayer("text", placementIntent);
+				handled = true;
+			} else if (!event.repeat && isShortcutLetter(event, "a")) {
+				if (resolveInsertionPlacement(placementIntent)) {
+					setPickerIntent(placementIntent);
+					setPickerOpen(true);
+					handled = true;
+				}
+			} else if (!event.repeat && isPeriodKey(event) && lastAddedRef) {
+				repeatLast(placementIntent);
+				handled = true;
+			}
+
+			if (handled) {
+				event.preventDefault();
+			}
+		},
+		[
+			addBasicLayer,
+			collapseOrSelectParentLayer,
+			expandOrEnterSelectedLayer,
+			lastAddedRef,
+			moveSelectedLayerBy,
+			repeatLast,
+			resolveInsertionPlacement,
+			selectRelativeLayer,
+			selectVisibleLayerAtIndex,
+			selectedElement,
+			visibleLayerRows.length,
+		],
+	);
+
+	useWindowKeyDown(handleLayerShortcut);
 
 	const selectionPath = useMemo(() => {
 		if (!selectedElement) {
@@ -1197,6 +1496,9 @@ export function Layers({
 						placeholder="Search components"
 						onChange={(event) => setComponentQuery(event.target.value)}
 					/>
+					<div className="px-1 font-mono text-[10px] text-slate-500">
+						Insert {effectivePickerIntent}
+					</div>
 					<div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-1">
 						<div className="flex flex-col gap-1">
 							{pickerSources.map((source) => (
@@ -1260,11 +1562,15 @@ export function Layers({
 															? undefined
 															: "This recipe slot does not allow that child"
 													}
-													onClick={() => {
+													onClick={(event) => {
+														const placementIntent =
+															event.altKey || event.shiftKey
+																? getShortcutPlacementIntent(event)
+																: effectivePickerIntent;
 														if (item.type === "system-component") {
 															void addChosenSystemComponent(
 																item.component,
-																pickerIntent,
+																placementIntent,
 															);
 														} else if (item.type === "component") {
 															addChosenComponent(
@@ -1272,7 +1578,7 @@ export function Layers({
 																	library: effectiveSelectedLibrary,
 																	component: item.component,
 																},
-																pickerIntent,
+																placementIntent,
 															);
 														} else {
 															addChosenRecipe(
@@ -1280,7 +1586,7 @@ export function Layers({
 																	library: effectiveSelectedLibrary,
 																	recipe: item.recipe,
 																},
-																pickerIntent,
+																placementIntent,
 															);
 														}
 													}}
@@ -1345,9 +1651,11 @@ export function Layers({
 									id={row.id}
 									depth={row.depth}
 									designFile={designFile}
+									editRequestId={editRequestId}
 									hasTopSeparator={row.hasTopSeparator}
 									open={openById[row.id] !== false}
 									onDraggingChange={handleLayerDraggingChange}
+									onEditRequestHandled={() => setEditRequestId(null)}
 									onToggleOpen={toggleLayerOpen}
 								/>
 							</div>

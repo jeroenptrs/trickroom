@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
 import { useDesignSystemId } from "../../../stores/design-store";
+import type { ClassLayer } from "../../../utils/class-layers";
 import type { ModelOptions } from "../../../utils/tailwind-classname";
 import { buildClassInventory } from "./classInventory";
 
@@ -10,7 +11,13 @@ import { buildClassInventory } from "./classInventory";
  * arbitrary-property classes. Sits above the raw Classes editor as a safety
  * net (#419); the textarea remains the escape hatch.
  */
-export function ClassInventoryPanel({ className }: { className: string }) {
+export function ClassInventoryPanel({
+	className,
+	layers,
+}: {
+	className: string;
+	layers?: readonly ClassLayer[];
+}) {
 	const systemId = useDesignSystemId();
 	const resolved = useResolvedColorTokens(systemId);
 	const options = useMemo<ModelOptions>(
@@ -18,8 +25,8 @@ export function ClassInventoryPanel({ className }: { className: string }) {
 		[resolved.names],
 	);
 	const inventory = useMemo(
-		() => buildClassInventory(className, options),
-		[className, options],
+		() => buildClassInventory(layers ? { layers } : className, options),
+		[className, layers, options],
 	);
 
 	if (inventory.items.length === 0) {
@@ -53,9 +60,39 @@ export function ClassInventoryPanel({ className }: { className: string }) {
 				/>
 			) : null}
 
+			{inventory.hasLayerMetadata ? (
+				<div className="flex flex-col gap-1">
+					<span className="text-[10px] text-slate-400">Resolved sources</span>
+					<div className="flex flex-wrap gap-1">
+						{inventory.items.map((item) => (
+							<span
+								key={`${item.layerIndex}:${item.tokenIndex}:${item.raw}`}
+								className={[
+									"truncate bg-slate-100 px-1.5 py-0.5 font-mono text-[10px]",
+									item.status === "shadowed"
+										? "text-slate-400 line-through"
+										: item.readOnly
+											? "text-slate-600"
+											: "text-slate-800",
+								].join(" ")}
+								title={`${item.sourceLabel}${item.readOnly ? " (read-only)" : ""}${item.status === "shadowed" ? " · shadowed" : ""}`}
+							>
+								<span className="font-sans text-[10px] text-slate-400">
+									{item.sourceLabel}:{" "}
+								</span>
+								{item.raw}
+							</span>
+						))}
+					</div>
+				</div>
+			) : null}
+
 			<span className="text-[10px] text-slate-400">
 				{inventory.managed.length} managed · {inventory.unknown.length}{" "}
 				unrecognized · {inventory.arbitrary.length} arbitrary
+				{inventory.shadowed.length > 0
+					? ` · ${inventory.shadowed.length} shadowed`
+					: ""}
 			</span>
 		</div>
 	);

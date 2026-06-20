@@ -20,11 +20,13 @@ import stageDoc from "../../iframe/shell.html?raw";
 import {
 	getRenderableProps,
 	resolveRenderableRegistryComponent,
+	type RenderableRegistryComponentDefinition,
 } from "../../libraries/render-registry";
 import { DesignSystemRenderContext } from "../../libraries/trickroom/render-context";
 import type { ProjectQueryScope } from "../../queries/project-scope";
 import { systemComponentQueryOptions } from "../../queries/system-components";
 import {
+	type ComponentDraftEntity,
 	hydrateComponentDraft,
 	resetComponentDraftStore,
 	selectTemplateNode,
@@ -50,6 +52,39 @@ type ComponentStageFrameProps = {
 	onMount: () => void;
 };
 
+export function getComponentDraftPreviewRenderableProps({
+	entity,
+	path,
+	previewClassName,
+	selectedPath,
+	definition,
+}: {
+	entity: ComponentDraftEntity;
+	path: string;
+	previewClassName: string;
+	selectedPath: string | null;
+	definition: RenderableRegistryComponentDefinition;
+}) {
+	return getRenderableProps(
+		{
+			...(entity.props ?? {}),
+			className: [
+				previewClassName,
+				selectedPath === path
+					? "outline outline-2 outline-offset-2 outline-cyan-500"
+					: null,
+			]
+				.filter(Boolean)
+				.join(" "),
+			"data-trickroom-name": entity.name ?? definition.label,
+			"data-trickroom-library": entity.library,
+			"data-trickroom-component": entity.component,
+			"data-trickroom-role": entity.role,
+		},
+		definition,
+	);
+}
+
 function SerializedDraftNode({ path }: { path: string }): ReactNode {
 	const entity = useComponentDraftEntity(path);
 	const childPaths = useComponentDraftChildPaths(path);
@@ -69,24 +104,13 @@ function SerializedDraftNode({ path }: { path: string }): ReactNode {
 		return null;
 	}
 
-	const props = getRenderableProps(
-		{
-			...(entity.props ?? {}),
-			className: [
-				previewClassName,
-				selectedPath === path
-					? "outline outline-2 outline-offset-2 outline-cyan-500"
-					: null,
-			]
-				.filter(Boolean)
-				.join(" "),
-			"data-trickroom-name": entity.name ?? resolution.definition.label,
-			"data-trickroom-library": entity.library,
-			"data-trickroom-component": entity.component,
-			"data-trickroom-role": entity.role,
-		},
-		resolution.definition,
-	);
+	const props = getComponentDraftPreviewRenderableProps({
+		entity,
+		path,
+		previewClassName,
+		selectedPath,
+		definition: resolution.definition,
+	});
 
 	const handleClick = (event: MouseEvent) => {
 		event.stopPropagation();
@@ -233,15 +257,15 @@ export function ComponentDraftStage({
 
 	if (!componentId) {
 		return (
-			<div className="flex min-h-0 flex-1 items-center justify-center border-l border-slate-200 bg-slate-100 px-6 text-center text-sm text-slate-500">
-				Select a component draft to open its stage.
+			<div className="flex min-h-0 flex-1 items-center justify-center bg-slate-100 px-6 text-center text-sm text-slate-500">
+				Select a component draft to open the editor.
 			</div>
 		);
 	}
 
 	if (componentQuery.isPending) {
 		return (
-			<div className="flex min-h-0 flex-1 items-center justify-center border-l border-slate-200 bg-slate-100 text-sm text-slate-500">
+			<div className="flex min-h-0 flex-1 items-center justify-center bg-slate-100 text-sm text-slate-500">
 				Loading component draft...
 			</div>
 		);
@@ -250,7 +274,7 @@ export function ComponentDraftStage({
 	if (componentQuery.isError) {
 		return (
 			<div
-				className="flex min-h-0 flex-1 flex-col justify-center border-l border-slate-200 bg-slate-100 px-6 text-sm"
+				className="flex min-h-0 flex-1 flex-col justify-center bg-slate-100 px-6 text-sm"
 				role="alert"
 			>
 				<p className="font-medium text-red-950">
@@ -265,7 +289,7 @@ export function ComponentDraftStage({
 
 	if (!componentQuery.data.record.draft) {
 		return (
-			<div className="flex min-h-0 flex-1 items-center justify-center border-l border-slate-200 bg-slate-100 px-6 text-center text-sm text-slate-500">
+			<div className="flex min-h-0 flex-1 items-center justify-center bg-slate-100 px-6 text-center text-sm text-slate-500">
 				This component does not have a draft.
 			</div>
 		);
@@ -274,7 +298,7 @@ export function ComponentDraftStage({
 	if (draftComponentId !== componentId) {
 		return (
 			<div
-				className="flex min-h-0 flex-1 flex-col justify-center border-l border-slate-200 bg-slate-100 px-6 text-sm"
+				className="flex min-h-0 flex-1 flex-col justify-center bg-slate-100 px-6 text-sm"
 				role="alert"
 			>
 				<p className="font-medium text-amber-950">
@@ -288,7 +312,7 @@ export function ComponentDraftStage({
 	}
 
 	return (
-		<div className="relative min-h-0 flex-1 overflow-hidden border-l border-slate-200 bg-slate-200">
+		<div className="relative min-h-0 flex-1 overflow-hidden bg-slate-200">
 			{stage}
 		</div>
 	);

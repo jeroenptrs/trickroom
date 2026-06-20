@@ -26,6 +26,7 @@ import {
 } from "../utils/tailwind-design-system";
 import {
 	diffTailwindTokensAgainstDefaults,
+	extractTailwindTokenResetOverrides,
 	extractTailwindTokensForPresentation as extractAllTailwindTokensForPresentation,
 	extractTailwindTokens,
 	isValidTokenDomain,
@@ -125,9 +126,12 @@ const syncTailwindTokensForLoadedDesignSystem = (
 	designSystem: TailwindDesignSystem,
 ) => {
 	const tokensByDomain = extractTailwindTokens(designSystem);
+	const resetOverridesByDomain =
+		extractTailwindTokenResetOverrides(designSystem);
 	const baselineDiffs = diffTailwindTokensAgainstDefaults(
 		tokensByDomain,
 		defaultTailwindTokensByDomainForRoute,
+		resetOverridesByDomain,
 	);
 	const baselineDiff = baselineDiffs.color;
 

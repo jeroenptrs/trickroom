@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
 	getControlProps,
+	getRenderableProps,
+	MATERIALIZED_BASE_CLASS_PROP,
 	resolveRegistryComponent,
 } from "../libraries/registry";
 import type { Node } from "../types";
@@ -186,7 +188,81 @@ describe("detachSystemComponentInstance", () => {
 		expectNoSystemComponentMarkers(root as Node);
 	});
 
-	it("keeps a sublayer's registry default className when detaching with no resolved system class", () => {
+	it("materializes registry base classes when detaching system components", () => {
+		const separatorResolution = resolveRegistryComponent("base-ui", "separator");
+		expect(separatorResolution.status).toBe("known");
+		if (separatorResolution.status !== "known") return;
+
+		const baseClassName = separatorResolution.definition.baseClassName;
+		expect(baseClassName).toBeTruthy();
+
+		const version: PublishedSystemComponentVersion = {
+			version: "1",
+			publishedAt: "2026-05-26T00:00:00.000Z",
+			root: {
+				path: "root",
+				library: "base-ui",
+				component: "separator",
+				className: "template-separator",
+			},
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						defaultValue: "neutral",
+						values: {
+							brand: { classesByPath: { root: "brand-separator" } },
+							neutral: {},
+						},
+					},
+				},
+			},
+			overrideTargets: {
+				rootTarget: { targetId: "rootTarget", label: "Root", path: "root" },
+			},
+			templateHash: "sha256:template",
+			variantSchemaHash: "sha256:variants",
+		};
+		const roots: Node[] = [
+			{
+				id: "root",
+				props: {
+					"data-trickroom-name": "Separator",
+					"data-trickroom-library": "base-ui",
+					"data-trickroom-component": "separator",
+					className: "stale-separator",
+					...getSystemComponentMarkerProps({
+						systemId: "sys-core",
+						componentId: "cmp_11111111-1111-4111-8111-111111111111",
+						instanceId: "instance-1",
+						version: "1",
+						path: "root",
+						isRoot: true,
+						variantValues: { tone: "brand" },
+						overrides: { rootTarget: { className: "override-separator" } },
+					}),
+				},
+				children: [],
+			},
+		];
+
+		const result = detachSystemComponentInstance(roots, "root", version);
+		const root = result?.roots[0];
+
+		expect(root?.props.className).toBe(
+			`${baseClassName} template-separator brand-separator override-separator`,
+		);
+		expect(root?.props[MATERIALIZED_BASE_CLASS_PROP]).toBe("true");
+		expect(root ? getSystemComponentStructuralMetadata(root.props) : null).toBe(
+			null,
+		);
+		expect(
+			getRenderableProps(root?.props ?? {}, separatorResolution.definition)
+				.className,
+		).toBe(root?.props.className);
+	});
+
+	it("does not preserve a fake icon className on detach when no resolved system class exists", () => {
 		const iconResolution = resolveRegistryComponent("trickroom", "icon");
 		if (iconResolution.status !== "known") {
 			throw new Error("trickroom/icon must resolve for this test");
@@ -194,7 +270,7 @@ describe("detachSystemComponentInstance", () => {
 		const iconDefaultClassName = getControlProps(
 			iconResolution.definition,
 		).className;
-		expect(typeof iconDefaultClassName).toBe("string");
+		expect(iconDefaultClassName).toBeUndefined();
 
 		const version: PublishedSystemComponentVersion = {
 			version: "1",
@@ -236,7 +312,6 @@ describe("detachSystemComponentInstance", () => {
 						props: {
 							...baseProps("Icon", "icon"),
 							"data-trickroom-icon-id": "icons-1/a-arrow-down",
-							className: iconDefaultClassName,
 							...getSystemComponentMarkerProps({
 								systemId: "sys-core",
 								componentId: "cmp_11111111-1111-4111-8111-111111111111",
@@ -255,7 +330,9 @@ describe("detachSystemComponentInstance", () => {
 		const icon = Array.isArray(result?.roots[0].children)
 			? result.roots[0].children[0]
 			: null;
-		expect(icon?.props.className).toBe(iconDefaultClassName);
+		expect(icon?.props.className).not.toBe("size-5");
+		expect(icon?.props).not.toHaveProperty("className");
+		expect(icon?.props.className).toBeUndefined();
 	});
 
 	it("preserves nested attached component markers inside slot content", () => {

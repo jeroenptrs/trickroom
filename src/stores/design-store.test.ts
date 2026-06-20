@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	getRenderableClassComposition,
+	getRenderableProps,
+	resolveRegistryComponent,
+	type RegistryId,
+	type RegistryResolution,
+} from "../libraries/registry";
+import {
 	recipeIdProp,
 	recipeInstanceProp,
 	recipePathProp,
@@ -12,6 +19,7 @@ import {
 	getSystemComponentMarkerProps,
 	systemComponentPathProp,
 } from "../utils/system-component-markers";
+import { layerDropInsertionIndex } from "../utils/reorder-insertion-index";
 import {
 	addElement,
 	addNodeTree,
@@ -48,6 +56,21 @@ const baseUiComponent = (component: Props["data-trickroom-component"]) => ({
 	"data-trickroom-library": "base-ui" as const,
 	"data-trickroom-component": component,
 });
+
+const separatorBaseClassName =
+	"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full";
+
+const getKnownRegistryDefinition = (
+	library: RegistryId,
+	component: string,
+): Extract<RegistryResolution, { status: "known" }>["definition"] => {
+	const resolution = resolveRegistryComponent(library, component);
+	if (resolution.status !== "known") {
+		throw new Error(`${library}/${component} must resolve for this test`);
+	}
+
+	return resolution.definition;
+};
 
 const fixture = {
 	name: "Test Design",
@@ -340,6 +363,67 @@ describe("design store transforms", () => {
 		expect(state.dirtyIds).toEqual({ [titleId]: true });
 	});
 
+	it("preserves authored class string order and unknown tokens on registry element updates", () => {
+		const randomUuid = vi
+			.spyOn(crypto, "randomUUID")
+			.mockReturnValueOnce("separator");
+		const authoredClassName =
+			"data-[orientation=horizontal]:h-2 unknown-separator-token data-[orientation=horizontal]:h-4";
+
+		addElement(baseUiComponent("separator"), containerId, 1);
+		updateElementProps("separator", { className: authoredClassName });
+
+		const state = designStore.get();
+		const separatorDefinition = getKnownRegistryDefinition(
+			"base-ui",
+			"separator",
+		);
+		const composition = getRenderableClassComposition(
+			state.entitiesById.separator?.props ?? {},
+			separatorDefinition,
+		);
+
+		expect(state.entitiesById.separator?.props.className).toBe(
+			authoredClassName,
+		);
+		expect(
+			serializeDesignState(state).boards[0].children?.[1]?.children?.[1]?.props
+				.className,
+		).toBe(authoredClassName);
+		expect(composition.className).toBe(
+			`${separatorBaseClassName} ${authoredClassName}`,
+		);
+		expect(
+			composition.resolution.tokens
+				.filter((token) =>
+					token.classToken.startsWith("data-[orientation=horizontal]:h-"),
+				)
+				.map((token) => ({
+					classToken: token.classToken,
+					status: token.status,
+					shadowedBy: token.shadowedBy,
+				})),
+		).toEqual([
+			{
+				classToken: "data-[orientation=horizontal]:h-px",
+				status: "shadowed",
+				shadowedBy: 4,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:h-2",
+				status: "shadowed",
+				shadowedBy: 6,
+			},
+			{
+				classToken: "data-[orientation=horizontal]:h-4",
+				status: "active",
+				shadowedBy: undefined,
+			},
+		]);
+
+		randomUuid.mockRestore();
+	});
+
 	it("clears dirty state after a successful save", () => {
 		selectElement(rootId);
 		updateElementProps(titleId, { className: "text-blue-500" });
@@ -417,6 +501,40 @@ describe("design store transforms", () => {
 			containerId,
 		]);
 		expect(state.entitiesById[infoId]?.parentId).toBe(rootId);
+	});
+
+	it("reorders the first sibling after a later sibling using layer-drop indices", () => {
+		const siblings = designStore.get().entitiesById[rootId]?.childIds ?? [];
+		expect(siblings).toEqual([titleId, containerId, infoId]);
+
+		const index = layerDropInsertionIndex(
+			siblings,
+			titleId,
+			"after",
+			containerId,
+		);
+		expect(index).toBe(1);
+
+		moveElement(titleId, rootId, index);
+
+		expect(designStore.get().entitiesById[rootId]?.childIds).toEqual([
+			containerId,
+			titleId,
+			infoId,
+		]);
+	});
+
+	it("shows the pre-adjustment after index would land at the end instead of between siblings", () => {
+		const siblings = designStore.get().entitiesById[rootId]?.childIds ?? [];
+		const buggyIndex = siblings.indexOf(containerId) + 1;
+
+		moveElement(titleId, rootId, buggyIndex);
+
+		expect(designStore.get().entitiesById[rootId]?.childIds).toEqual([
+			containerId,
+			infoId,
+			titleId,
+		]);
 	});
 
 	it("moves root elements to a requested root index", () => {
@@ -655,11 +773,50 @@ describe("design store transforms", () => {
 				"data-trickroom-library": "base-ui",
 				"data-trickroom-component": "separator",
 				"data-trickroom-role": "leaf",
-				className:
-					"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
 				orientation: "horizontal",
 			},
 		});
+		expect(state.entitiesById.separator?.props).not.toHaveProperty("className");
+		expect(
+			getRenderableProps(
+				state.entitiesById.separator?.props ?? {},
+				getKnownRegistryDefinition("base-ui", "separator"),
+			).className,
+		).toBe(separatorBaseClassName);
+
+		randomUuid.mockRestore();
+	});
+
+	it("adds Base UI Menu Separator without persisting base className", () => {
+		const randomUuid = vi
+			.spyOn(crypto, "randomUUID")
+			.mockReturnValueOnce("menu-separator");
+
+		addElement(baseUiComponent("menu.separator"), containerId, 1);
+
+		const state = designStore.get();
+		expect(state.entitiesById["menu-separator"]).toMatchObject({
+			id: "menu-separator",
+			parentId: containerId,
+			role: "leaf",
+			childIds: [],
+			props: {
+				"data-trickroom-name": "Menu Separator",
+				"data-trickroom-library": "base-ui",
+				"data-trickroom-component": "menu.separator",
+				"data-trickroom-role": "leaf",
+				orientation: "horizontal",
+			},
+		});
+		expect(state.entitiesById["menu-separator"]?.props).not.toHaveProperty(
+			"className",
+		);
+		expect(
+			getRenderableProps(
+				state.entitiesById["menu-separator"]?.props ?? {},
+				getKnownRegistryDefinition("base-ui", "menu.separator"),
+			).className,
+		).toBe(separatorBaseClassName);
 
 		randomUuid.mockRestore();
 	});

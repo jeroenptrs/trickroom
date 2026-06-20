@@ -286,6 +286,7 @@ export function CommandMenu() {
 				<BaseUiDialog.Portal>
 					<BaseUiDialog.Backdrop className="fixed inset-0 bg-slate-950/70 transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
 					<BaseUiDialog.Popup
+						data-shortcuts-disabled=""
 						aria-label={
 							page === "switcher" ? "Project switcher" : "Command menu"
 						}

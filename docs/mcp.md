@@ -466,6 +466,7 @@ The built-in registries currently include:
 | `trickroom` | `asset` | `leaf` | Empty array only. |
 | `trickroom` | `icon` | `leaf` | Empty array only. |
 | `base-ui` | `separator` | `leaf` | Empty array only. |
+| `base-ui` | `menu.separator` | `leaf` | Empty array only. |
 
 Writable instance props:
 
@@ -480,7 +481,10 @@ System-owned props:
 - `data-trickroom-component`
 - `data-trickroom-role`
 
-Base UI Separator supports one component-specific control:
+Registry-owned defaults are also surfaced in component descriptions, including
+`defaults.baseClassName` for Base UI separators.
+
+Base UI Separators share one component-specific control:
 
 ```json
 {
@@ -488,14 +492,16 @@ Base UI Separator supports one component-specific control:
   "component": "separator",
   "role": "leaf",
   "props": {
-    "orientation": "horizontal",
-    "className": "data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full"
+    "orientation": "horizontal"
   },
+  "baseClassName": "data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
   "children": []
 }
 ```
 
-Allowed `orientation` values are `horizontal` and `vertical`. Newly created Separator elements include the registry default `className` sizing boilerplate as an editable instance prop. Mutation tools accept JSON primitive prop values for declared controls and reject unknown props, system-owned props, and invalid control values.
+Allowed `orientation` values are `horizontal` and `vertical`. Base UI separators also include `base-ui/menu.separator` with the same shape.
+
+`defaults.baseClassName` is the registry-owned render styling, distinct from user-authored `className`. Project snapshots and mutation-facing `defaults.props` should use editable/writable props only; `className` in these contexts is the user-authored class surface, while base sizing classes are materialized at render time for the created instance.
 
 `trickroom/asset` supports `data-trickroom-asset-id` and `alt` as active registry-backed controls. Legacy controls `objectFit`, `objectPosition`, `loading`, and `decoding` remain accepted for compatibility with existing designs, but new compositions should avoid writing those registry props and use Tailwind `object-*` utilities via `className` for image behavior.
 

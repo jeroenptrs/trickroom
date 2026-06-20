@@ -291,4 +291,123 @@ describe("trickroom MCP system component tools", () => {
 			code: "DRAFT_HASH_MISMATCH",
 		});
 	});
+
+	it("publishes draft authoring shape information in MCP tool schemas", async () => {
+		const tools = await session.client.listTools();
+		const updateTool = tools.tools.find(
+			(tool) => tool.name === "updateSystemComponentDraft",
+		);
+		const createTool = tools.tools.find(
+			(tool) => tool.name === "createSystemComponentDraft",
+		);
+
+		expect(updateTool).toBeDefined();
+		expect(createTool).toBeDefined();
+
+		const updateSchema = JSON.stringify(
+			updateTool?.inputSchema.properties ?? {},
+		);
+		const createSchema = JSON.stringify(
+			createTool?.inputSchema.properties ?? {},
+		);
+
+		expect(updateSchema).toContain("path");
+		expect(updateSchema).toContain("classesByPath");
+		expect(updateSchema).toContain("targetId");
+		expect(createSchema).toContain("root");
+		expect(createSchema).toContain("overrideTargets");
+	});
+
+	it("returns structured diagnostics for malformed draft updates", async () => {
+		const initial = await session.client.callTool({
+			name: "listSystemComponents",
+			arguments: { systemName: "Core" },
+		});
+		const created = await session.client.callTool({
+			name: "createSystemComponentDraft",
+			arguments: {
+				systemName: "Core",
+				expectedRevision: initial.structuredContent?.revision,
+				slug: "malformed-test",
+				name: "Malformed Test",
+			},
+		});
+		const componentId = String(created.structuredContent?.componentId);
+
+		const malformed = await session.client.callTool({
+			name: "updateSystemComponentDraft",
+			arguments: {
+				systemName: "Core",
+				componentId,
+				expectedRevision: created.structuredContent?.revision,
+				root: {
+					library: "trickroom",
+					component: "container",
+				},
+				variants: {
+					axes: {
+						size: {
+							label: "Size",
+						},
+					},
+				},
+			},
+		});
+
+		expect(malformed.isError).toBe(true);
+		expect(malformed.structuredContent).toMatchObject({
+			status: "INVALID_OPERATION",
+			code: "VALIDATION_FAILED",
+			diagnostics: expect.arrayContaining([
+				expect.objectContaining({
+					code: "INVALID_SYSTEM_COMPONENT_DRAFT_INPUT",
+					path: "root.path",
+				}),
+				expect.objectContaining({
+					code: "INVALID_SYSTEM_COMPONENT_DRAFT_INPUT",
+					path: "variants.axes.size.values",
+				}),
+			]),
+		});
+	});
+
+	it("returns a compact system component draft authoring contract", async () => {
+		const result = await session.client.callTool({
+			name: "getSystemComponentAuthoringContract",
+			arguments: { systemName: "Core" },
+		});
+
+		expect(result.isError).not.toBe(true);
+		expect(result.structuredContent).toMatchObject({
+			schemaVersion: 1,
+			contract: "system-component-authoring",
+			system: {
+				requested: "Core",
+				configured: true,
+			},
+			shapes: {
+				root: expect.objectContaining({
+					type: "RecipeTemplateNode",
+				}),
+				variants: expect.objectContaining({
+					classesByPath: expect.stringContaining("template path"),
+				}),
+				overrideTargets: expect.objectContaining({
+					capabilities: ["className", "text", "icon", "asset"],
+				}),
+			},
+			validation: {
+				errorCode: "VALIDATION_FAILED",
+				diagnosticCode: "INVALID_SYSTEM_COMPONENT_DRAFT_INPUT",
+			},
+			examples: expect.arrayContaining([
+				expect.objectContaining({
+					tool: "createSystemComponentDraft",
+				}),
+			]),
+		});
+		expect(JSON.stringify(result.structuredContent).length).toBeLessThan(
+			12_000,
+		);
+	});
 });

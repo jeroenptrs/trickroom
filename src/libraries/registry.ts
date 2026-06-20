@@ -1,5 +1,7 @@
-import { RECIPE_MARKER_PROP_KEYS } from "../recipes/markers";
-import { SYSTEM_COMPONENT_MARKER_PROP_KEYS } from "../utils/system-component-markers";
+import {
+	getRecipeStructuralMetadata,
+	RECIPE_MARKER_PROP_KEYS,
+} from "../recipes/markers";
 import type {
 	ControlDefinition,
 	JsonPrimitive,
@@ -10,6 +12,17 @@ import type {
 	RegistryComponentDefinition,
 	Role,
 } from "../types";
+import {
+	type ClassLayer,
+	createClassLayers,
+	flattenClassLayers,
+} from "../utils/class-layers";
+import {
+	type ClassResolution,
+	type ResolveClassLayersOptions,
+	resolveClassLayers,
+} from "../utils/class-resolution";
+import { SYSTEM_COMPONENT_MARKER_PROP_KEYS } from "../utils/system-component-markers";
 import baseUiRegistry from "./base-ui/registry";
 import trickroomRegistry from "./trickroom/registry";
 
@@ -64,6 +77,9 @@ export const CORE_PROP_KEYS = new Set([
 	"data-trickroom-role",
 ]);
 
+export const MATERIALIZED_BASE_CLASS_PROP =
+	"data-trickroom-materialized-base-class";
+
 export const REGISTRY_REFERENCE_PROP_KEYS = new Set([
 	"data-trickroom-library",
 	"data-trickroom-component",
@@ -74,7 +90,145 @@ export const SYSTEM_PROP_KEYS = new Set([
 	...REGISTRY_REFERENCE_PROP_KEYS,
 	...RECIPE_MARKER_PROP_KEYS,
 	...SYSTEM_COMPONENT_MARKER_PROP_KEYS,
+	MATERIALIZED_BASE_CLASS_PROP,
 ]);
+
+const isBaseClassMaterialized = (props: Props): boolean =>
+	props[MATERIALIZED_BASE_CLASS_PROP] === "true";
+
+const hasClassValue = (value: string | undefined): value is string =>
+	typeof value === "string" && value.trim().length > 0;
+
+const splitClassName = (value: string | undefined): string[] =>
+	value?.trim().split(/\s+/u).filter(Boolean) ?? [];
+
+const defaultClassResolutionOptions = {
+	colorTokens: new Set<string>(),
+} satisfies ResolveClassLayersOptions;
+
+export type RegistryClassComposition = {
+	layers: ClassLayer[];
+	resolution: ClassResolution;
+	className: string | undefined;
+};
+
+export const stripBaseClassName = (
+	className: string | undefined,
+	baseClassName: string | undefined,
+): string | undefined => {
+	const classNames = splitClassName(className);
+	const baseClassNames = new Set(splitClassName(baseClassName));
+	if (classNames.length === 0 || baseClassNames.size === 0) {
+		return hasClassValue(className) ? className : undefined;
+	}
+
+	const authoredClassNames = classNames.filter(
+		(classToken) => !baseClassNames.has(classToken),
+	);
+	return authoredClassNames.length > 0
+		? authoredClassNames.join(" ")
+		: undefined;
+};
+
+export const getComposableClassName = (
+	className: string | undefined,
+	baseClassName: string | undefined,
+	isBaseClassMaterialized = false,
+): string | undefined => {
+	return getComposableClassComposition(
+		className,
+		baseClassName,
+		isBaseClassMaterialized,
+	).className;
+};
+
+export const getComposableClassComposition = (
+	className: string | undefined,
+	baseClassName: string | undefined,
+	isBaseClassMaterialized = false,
+	options: ResolveClassLayersOptions = defaultClassResolutionOptions,
+): RegistryClassComposition => {
+	const authoredClassName = isBaseClassMaterialized
+		? className
+		: stripBaseClassName(className, baseClassName);
+	const layers = createClassLayers(
+		isBaseClassMaterialized
+			? [{ source: "materialized-snapshot", className: authoredClassName }]
+			: [
+					{ source: "registry-base", className: baseClassName },
+					{ source: "authored", className: authoredClassName },
+				],
+	);
+
+	return {
+		layers,
+		resolution: resolveClassLayers(layers, options),
+		className: flattenClassLayers(layers),
+	};
+};
+
+export const getMaterializedBaseClassProps = (
+	className: string | undefined,
+	definition: RegistryComponentDefinition,
+): Partial<Props> => {
+	const materializedClassName = getComposableClassName(
+		className,
+		definition.baseClassName,
+		false,
+	);
+
+	return {
+		...(materializedClassName ? { className: materializedClassName } : {}),
+		...(hasClassValue(definition.baseClassName)
+			? { [MATERIALIZED_BASE_CLASS_PROP]: "true" }
+			: {}),
+	};
+};
+
+export const migrateRegistryBaseClassProps = (
+	props: Props,
+	options: { materializeBaseClass?: boolean } = {},
+): Props => {
+	const resolution = resolveRegistryComponent(
+		props["data-trickroom-library"],
+		props["data-trickroom-component"],
+	);
+	if (
+		resolution.status !== "known" ||
+		!hasClassValue(resolution.definition.baseClassName)
+	) {
+		return props;
+	}
+
+	const authoredClassName = stripBaseClassName(
+		typeof props.className === "string" ? props.className : undefined,
+		resolution.definition.baseClassName,
+	);
+	const nextProps = { ...props };
+
+	if (options.materializeBaseClass) {
+		const materializedClassName = getComposableClassName(
+			authoredClassName,
+			resolution.definition.baseClassName,
+			false,
+		);
+		if (materializedClassName) {
+			nextProps.className = materializedClassName;
+		} else {
+			delete nextProps.className;
+		}
+		nextProps[MATERIALIZED_BASE_CLASS_PROP] = "true";
+		return nextProps;
+	}
+
+	if (authoredClassName) {
+		nextProps.className = authoredClassName;
+	} else {
+		delete nextProps.className;
+	}
+	delete nextProps[MATERIALIZED_BASE_CLASS_PROP];
+	return nextProps;
+};
 
 export const isRegistryId = (value: unknown): value is RegistryId =>
 	typeof value === "string" &&
@@ -242,12 +396,70 @@ export function getRenderableProps(
 	const controlProps = new Set(
 		getControlDefinitions(definition).map((control) => control.prop),
 	);
+	const classComposition = getRenderableClassComposition(props, definition);
 
-	return Object.fromEntries(
+	const renderableProps = Object.fromEntries(
 		Object.entries(props).filter(
-			([key]) => CORE_PROP_KEYS.has(key) || controlProps.has(key),
+			([key]) =>
+				key !== MATERIALIZED_BASE_CLASS_PROP &&
+				(CORE_PROP_KEYS.has(key) || controlProps.has(key)) &&
+				key !== "className",
 		),
 	);
+
+	if (typeof classComposition.className === "string") {
+		renderableProps.className = classComposition.className;
+	}
+
+	return {
+		...renderableProps,
+	};
+}
+
+export function getRenderableClassComposition(
+	props: Props,
+	definition: RegistryComponentDefinition,
+	options: ResolveClassLayersOptions = defaultClassResolutionOptions,
+): RegistryClassComposition {
+	const composition = getComposableClassComposition(
+		typeof props.className === "string" ? props.className : undefined,
+		definition.baseClassName,
+		isBaseClassMaterialized(props),
+		options,
+	);
+	const recipeMetadata = getRecipeStructuralMetadata(props);
+	const metadata = {
+		...(typeof props["data-trickroom-library"] === "string"
+			? { library: props["data-trickroom-library"] }
+			: {}),
+		...(typeof props["data-trickroom-component"] === "string"
+			? { component: props["data-trickroom-component"] }
+			: {}),
+		...(recipeMetadata
+			? {
+					recipeId: recipeMetadata.recipeId,
+					instanceId: recipeMetadata.instanceId,
+					path: recipeMetadata.path,
+					...(recipeMetadata.slotName
+						? { slotName: recipeMetadata.slotName }
+						: {}),
+				}
+			: {}),
+	};
+	if (Object.keys(metadata).length === 0) {
+		return composition;
+	}
+
+	const layers = composition.layers.map((layer) => ({
+		...layer,
+		metadata: { ...metadata, ...layer.metadata },
+	}));
+
+	return {
+		layers,
+		resolution: resolveClassLayers(layers, options),
+		className: composition.className,
+	};
 }
 
 export function getControlByProp(

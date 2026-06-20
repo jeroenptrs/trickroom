@@ -6,12 +6,18 @@ import {
 	SYSTEM_PROP_KEYS,
 } from "../libraries/registry";
 import type { JsonPrimitive, Props, RecipeTemplateNode, Role } from "../types";
+import {
+	type ClassLayer,
+	createClassLayers,
+	flattenClassLayers,
+} from "../utils/class-layers";
 import { convertDesignSubtreeToComponentDraftRoot } from "../utils/design-subtree-to-component-draft";
-import { hashComponentDraftSnapshot } from "../utils/system-component-template-hash";
 import { inferOverrideTargetCapabilities } from "../utils/system-component-override-targets";
+import { hashComponentDraftSnapshot } from "../utils/system-component-template-hash";
 import type {
 	SystemComponentOverrideTarget,
 	SystemComponentSlotDefinition,
+	SystemComponentVariantAxis,
 	SystemComponentVariantSchema,
 } from "../utils/system-components";
 
@@ -483,6 +489,72 @@ export function getEffectiveDraftNodeClassName(
 	}
 
 	return state.entitiesByPath[path]?.className ?? "";
+}
+
+export function getComponentDraftPreviewClassLayers(
+	state: ComponentDraftStoreState,
+	path: string,
+): ClassLayer[] {
+	const entity = state.entitiesByPath[path];
+	if (!entity) {
+		return [];
+	}
+
+	const metadata = {
+		...(state.componentId ? { componentId: state.componentId } : {}),
+		library: entity.library,
+		component: entity.component,
+		path,
+	};
+
+	if (state.styleTarget.mode === "variant") {
+		const { axisKey, valueKey } = state.styleTarget;
+		return createClassLayers([
+			{
+				source: "system-template",
+				className: entity.className,
+				metadata,
+			},
+			{
+				source: "system-variant",
+				className: getVariantClassNameForPath(state, axisKey, valueKey, path),
+				metadata: { ...metadata, axis: axisKey, value: valueKey },
+			},
+		]);
+	}
+
+	if (state.styleTarget.mode === "compound") {
+		const { compoundIndex } = state.styleTarget;
+		return createClassLayers([
+			{
+				source: "system-template",
+				className: entity.className,
+				metadata,
+			},
+			{
+				source: "system-compound-variant",
+				className: getCompoundClassNameForPath(state, compoundIndex, path),
+				metadata: { ...metadata, compoundIndex },
+			},
+		]);
+	}
+
+	return createClassLayers([
+		{
+			source: "system-template",
+			className: entity.className,
+			metadata,
+		},
+	]);
+}
+
+export function getComponentDraftPreviewClassName(
+	state: ComponentDraftStoreState,
+	path: string,
+) {
+	return (
+		flattenClassLayers(getComponentDraftPreviewClassLayers(state, path)) ?? ""
+	);
 }
 
 export function setComponentDraftStyleTarget(
@@ -1047,18 +1119,24 @@ export function addTemplateNode(
 	selection: ComponentTemplateSelection,
 	targetParentPath: string | null,
 	index: number,
-	path = allocateTemplatePath(componentDraftStore.get().entitiesByPath),
+	path?: string,
 ) {
 	componentDraftStore.setState((state) => {
 		const targetParent = targetParentPath
 			? state.entitiesByPath[targetParentPath]
 			: null;
+		const nextPath =
+			path ??
+			allocateTemplatePath(
+				state.entitiesByPath,
+				targetParentPath === null ? "root" : "node",
+			);
 
 		if (targetParentPath && !canHaveChildren(targetParent)) {
 			return state;
 		}
 
-		if (state.entitiesByPath[path]) {
+		if (state.entitiesByPath[nextPath]) {
 			return state;
 		}
 
@@ -1066,24 +1144,28 @@ export function addTemplateNode(
 			return state;
 		}
 
-		const nextEntity = createTemplateEntity(path, selection, targetParentPath);
+		const nextEntity = createTemplateEntity(
+			nextPath,
+			selection,
+			targetParentPath,
+		);
 		const nextEntitiesByPath: Record<string, ComponentDraftEntity> = {
 			...state.entitiesByPath,
-			[path]: nextEntity,
+			[nextPath]: nextEntity,
 		};
 		const nextDirtyPaths: Record<string, true> = {
 			...state.dirtyPaths,
-			[path]: true,
+			[nextPath]: true,
 		};
 
 		let nextRootPath = state.rootPath;
 		if (targetParentPath === null) {
-			nextRootPath = path;
+			nextRootPath = nextPath;
 		} else if (targetParent) {
 			const parentChildPaths = targetParent.childPaths ?? [];
 			nextEntitiesByPath[targetParentPath] = {
 				...targetParent,
-				childPaths: insertAt(parentChildPaths, path, index),
+				childPaths: insertAt(parentChildPaths, nextPath, index),
 			};
 			nextDirtyPaths[targetParentPath] = true;
 		}
@@ -1092,7 +1174,7 @@ export function addTemplateNode(
 			...state,
 			rootPath: nextRootPath,
 			entitiesByPath: nextEntitiesByPath,
-			selectedPath: path,
+			selectedPath: nextPath,
 			dirtyPaths: nextDirtyPaths,
 			revision: state.revision + 1,
 		};
@@ -1131,6 +1213,85 @@ function collectDescendantPaths(
 	for (const childPath of entity?.childPaths ?? []) {
 		collectDescendantPaths(entitiesByPath, childPath, paths);
 	}
+}
+
+function removeDeletedVariantClassTargets(
+	variants: SystemComponentVariantSchema | null,
+	deletedPaths: Set<string>,
+) {
+	if (!variants) {
+		return variants;
+	}
+
+	let changed = false;
+	const nextAxes: SystemComponentVariantSchema["axes"] = {};
+
+	for (const [axisKey, axis] of Object.entries(variants.axes)) {
+		const nextValues: SystemComponentVariantAxis["values"] = {};
+
+		for (const [valueKey, value] of Object.entries(axis.values)) {
+			if (!value.classesByPath) {
+				nextValues[valueKey] = value;
+				continue;
+			}
+
+			const nextClassesByPath = Object.fromEntries(
+				Object.entries(value.classesByPath).filter(
+					([path]) => !deletedPaths.has(path),
+				),
+			);
+			if (
+				Object.keys(nextClassesByPath).length ===
+				Object.keys(value.classesByPath).length
+			) {
+				nextValues[valueKey] = value;
+				continue;
+			}
+
+			changed = true;
+			if (Object.keys(nextClassesByPath).length > 0) {
+				nextValues[valueKey] = {
+					...value,
+					classesByPath: nextClassesByPath,
+				};
+			} else {
+				const { classesByPath: _classesByPath, ...nextValue } = value;
+				nextValues[valueKey] = nextValue;
+			}
+		}
+
+		nextAxes[axisKey] = { ...axis, values: nextValues };
+	}
+
+	let nextCompoundVariants = variants.compoundVariants;
+	if (variants.compoundVariants) {
+		nextCompoundVariants = variants.compoundVariants.map((compoundVariant) => {
+			const nextClassesByPath = Object.fromEntries(
+				Object.entries(compoundVariant.classesByPath).filter(
+					([path]) => !deletedPaths.has(path),
+				),
+			);
+			if (
+				Object.keys(nextClassesByPath).length ===
+				Object.keys(compoundVariant.classesByPath).length
+			) {
+				return compoundVariant;
+			}
+
+			changed = true;
+			return { ...compoundVariant, classesByPath: nextClassesByPath };
+		});
+	}
+
+	if (!changed) {
+		return variants;
+	}
+
+	return {
+		...variants,
+		axes: nextAxes,
+		...(nextCompoundVariants ? { compoundVariants: nextCompoundVariants } : {}),
+	};
 }
 
 export function moveTemplateNode(
@@ -1208,7 +1369,7 @@ export function moveTemplateNode(
 export function deleteTemplateNode(path: string) {
 	componentDraftStore.setState((state) => {
 		const entity = state.entitiesByPath[path];
-		if (!entity || path === state.rootPath) {
+		if (!entity) {
 			return state;
 		}
 
@@ -1229,6 +1390,11 @@ export function deleteTemplateNode(path: string) {
 				([, slot]) => !deletedPaths.has(slot.hostPath),
 			),
 		);
+		const nextVariants = removeDeletedVariantClassTargets(
+			state.variants,
+			deletedPaths,
+		);
+		const isDeletingRoot = path === state.rootPath;
 
 		const dirtyTargetPath = entity.parentPath ?? path;
 		if (entity.parentPath) {
@@ -1241,19 +1407,29 @@ export function deleteTemplateNode(path: string) {
 			}
 		}
 
+		const nextDirtyPaths: Record<string, true> = Object.fromEntries(
+			Object.entries(state.dirtyPaths).filter(
+				([dirtyPath]) => !deletedPaths.has(dirtyPath),
+			),
+		);
+		if (!isDeletingRoot) {
+			nextDirtyPaths[dirtyTargetPath] = true;
+		}
+
 		return {
 			...state,
+			rootPath: isDeletingRoot ? null : state.rootPath,
 			entitiesByPath: nextEntitiesByPath,
 			overrideTargets: nextOverrideTargets,
 			slots: nextSlots,
+			variants: nextVariants,
+			variantsDirty: state.variantsDirty || nextVariants !== state.variants,
 			selectedPath:
 				state.selectedPath && deletedPaths.has(state.selectedPath)
 					? null
 					: state.selectedPath,
-			dirtyPaths: {
-				...state.dirtyPaths,
-				[dirtyTargetPath]: true,
-			},
+			dirtyPaths: nextDirtyPaths,
+			templateDirty: isDeletingRoot ? true : state.templateDirty,
 			revision: state.revision + 1,
 		};
 	});
@@ -1403,29 +1579,9 @@ export function useComponentDraftEffectiveClassName(path: string) {
 }
 
 export function useComponentDraftPreviewClassName(path: string) {
-	return useSelector(componentDraftStore, (state) => {
-		const baseClassName = state.entitiesByPath[path]?.className ?? "";
-		if (state.styleTarget.mode === "variant") {
-			const variantClassName = getVariantClassNameForPath(
-				state,
-				state.styleTarget.axisKey,
-				state.styleTarget.valueKey,
-				path,
-			);
-			return [baseClassName, variantClassName].filter(Boolean).join(" ");
-		}
-
-		if (state.styleTarget.mode === "compound") {
-			const compoundClassName = getCompoundClassNameForPath(
-				state,
-				state.styleTarget.compoundIndex,
-				path,
-			);
-			return [baseClassName, compoundClassName].filter(Boolean).join(" ");
-		}
-
-		return baseClassName;
-	});
+	return useSelector(componentDraftStore, (state) =>
+		getComponentDraftPreviewClassName(state, path),
+	);
 }
 
 export function useComponentDraftRootPath() {

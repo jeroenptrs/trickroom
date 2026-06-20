@@ -2,6 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Node } from "../types";
+import {
+	getRenderableProps,
+	MATERIALIZED_BASE_CLASS_PROP,
+	resolveRegistryComponent,
+} from "../libraries/registry";
 import { createDesignSystemStorage } from "./design-system-store";
 import {
 	expandPublishedSystemComponentVersion,
@@ -180,6 +185,74 @@ describe("system component expansion", () => {
 		});
 		const fallback = (body.children as Node[])[0];
 		expect(getElementSystemComponentMetadata(fallback)).toBeNull();
+	});
+
+	it("materializes registry base classes into attached system component snapshots", () => {
+		const separatorResolution = resolveRegistryComponent("base-ui", "separator");
+		expect(separatorResolution.status).toBe("known");
+		if (separatorResolution.status !== "known") return;
+
+		const baseClassName = separatorResolution.definition.baseClassName;
+		expect(baseClassName).toBeTruthy();
+
+		const version = {
+			version: "1",
+			publishedAt: "2026-05-26T14:00:00.000Z",
+			templateHash: "sha256:template",
+			variantSchemaHash: "sha256:variants",
+			root: {
+				path: "root",
+				library: "base-ui",
+				component: "separator",
+				className: "template-separator",
+			},
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						defaultValue: "neutral",
+						values: {
+							brand: { classesByPath: { root: "brand-separator" } },
+							neutral: {},
+						},
+					},
+				},
+			},
+			overrideTargets: {
+				rootTarget: { targetId: "rootTarget", label: "Root", path: "root" },
+			},
+		};
+
+		const result = expandResolvedSystemComponent(
+			{
+				systemId: "sys-core",
+				componentId,
+				record: {
+					componentId,
+					slug: "separator",
+					name: "Separator",
+					createdAt: "",
+					updatedAt: "",
+					published: { currentVersion: "1", versions: { "1": version } },
+				},
+				version,
+			},
+			{
+				createInstanceId: () => "instance-1",
+				createElementId: () => "separator-node",
+				variantValues: { tone: "brand" },
+				overrides: { rootTarget: { className: "override-separator" } },
+			},
+		);
+
+		expect(result.root.props.className).toBe(
+			`${baseClassName} template-separator brand-separator override-separator`,
+		);
+		expect(result.root.props[MATERIALIZED_BASE_CLASS_PROP]).toBe("true");
+		expect(
+			getRenderableProps(result.root.props, separatorResolution.definition)
+				.className,
+		).toBe(result.root.props.className);
 	});
 
 	it("rejects invalid instance state", () => {

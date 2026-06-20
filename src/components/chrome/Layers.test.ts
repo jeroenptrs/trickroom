@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SystemComponentSummary } from "../../queries/system-components";
 import { expandRegistryRecipe } from "../../recipes/expansion";
 import { normalizeDesign } from "../../stores/design-store";
+import { getSystemComponentMarkerProps } from "../../utils/system-component-markers";
 import {
 	getRegistryPickerSections,
 	getUserComponentPickerSections,
@@ -216,5 +217,108 @@ describe("registry picker sections", () => {
 				entitiesById: state.entitiesById,
 			}),
 		).toBeNull();
+	});
+
+	it("preflights picker placement against system component structural boundaries", () => {
+		const state = normalizeDesign({
+			name: "Component Placement",
+			boards: [
+				{
+					id: "component-root",
+					props: {
+						"data-trickroom-name": "Component Root",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						...getSystemComponentMarkerProps({
+							systemId: "system-1",
+							componentId: "component-1",
+							instanceId: "component-instance-1",
+							version: "1",
+							path: "root",
+							isRoot: true,
+						}),
+					},
+					children: [
+						{
+							id: "component-label",
+							props: {
+								"data-trickroom-name": "Component Label",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "text",
+								"data-trickroom-role": "text",
+								...getSystemComponentMarkerProps({
+									systemId: "system-1",
+									componentId: "component-1",
+									instanceId: "component-instance-1",
+									version: "1",
+									path: "label",
+								}),
+							},
+							children: "Locked label",
+						},
+						{
+							id: "component-slot",
+							props: {
+								"data-trickroom-name": "Component Slot",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "container",
+								"data-trickroom-role": "branch",
+								...getSystemComponentMarkerProps({
+									systemId: "system-1",
+									componentId: "component-1",
+									instanceId: "component-instance-1",
+									version: "1",
+									path: "slot",
+									slotName: "default",
+								}),
+							},
+							children: [
+								{
+									id: "slot-text",
+									props: {
+										"data-trickroom-name": "Slot Text",
+										"data-trickroom-library": "trickroom",
+										"data-trickroom-component": "text",
+										"data-trickroom-role": "text",
+									},
+									children: "Editable slot text",
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+
+		expect(
+			resolveLayerInsertionPlacement({
+				intent: "after",
+				rootIds: state.rootIds,
+				selectedElement: state.entitiesById["component-label"],
+				selectedParent: state.entitiesById["component-root"],
+				entitiesById: state.entitiesById,
+			}),
+		).toBeNull();
+
+		expect(
+			resolveLayerInsertionPlacement({
+				intent: "inside",
+				rootIds: state.rootIds,
+				selectedElement: state.entitiesById["component-slot"],
+				selectedParent: state.entitiesById["component-root"],
+				entitiesById: state.entitiesById,
+			}),
+		).toEqual({ parentId: "component-slot", index: 1 });
+
+		expect(
+			resolveLayerInsertionPlacement({
+				intent: "after",
+				rootIds: state.rootIds,
+				selectedElement: state.entitiesById["slot-text"],
+				selectedParent: state.entitiesById["component-slot"],
+				entitiesById: state.entitiesById,
+			}),
+		).toEqual({ parentId: "component-slot", index: 1 });
 	});
 });

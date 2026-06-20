@@ -126,12 +126,16 @@ import {
 	SystemComponentOperationsError,
 	updateSystemComponentDraft,
 } from "../utils/system-component-operations";
-import type {
-	SystemComponentDraftPayload,
-	SystemComponentOverrideTarget,
-	SystemComponentSlotDefinition,
-	SystemComponentVariantSchema,
-} from "../utils/system-components";
+import {
+	mcpPartialSystemComponentDraftPayloadInputSchema,
+	mcpRecipeTemplateNodeInputSchema,
+	mcpSystemComponentOverrideTargetsInputSchema,
+	mcpSystemComponentSlotsInputSchema,
+	mcpSystemComponentVariantSchemaInputSchema,
+	partialSystemComponentDraftPayloadSchema,
+	systemComponentDraftInputDiagnosticsFromZodError,
+	systemComponentDraftPatchSchema,
+} from "../utils/system-component-draft-schemas";
 import {
 	bulkMigrateProjectSystemComponentInstances,
 	type SystemComponentBulkMigrationReport,
@@ -223,9 +227,8 @@ const rejectedPersistentIdSchema = z
 	);
 
 const systemComponentManifestRevisionSchema = z
-	.custom<SystemComponentManifestRevision>(
-		(value) => typeof value === "string" && value.startsWith("sha256:"),
-	)
+	.string()
+	.startsWith("sha256:")
 	.describe("Current system component manifest revision from list/describe.");
 
 export const projectRefSchema: z.ZodType<TrickroomMcpProjectRef | undefined> = z
@@ -756,6 +759,9 @@ const getDefaultMetadata = (
 	definition: RegistryComponentDefinition,
 ) => {
 	return {
+		...(definition.baseClassName === undefined
+			? {}
+			: { baseClassName: definition.baseClassName }),
 		props: getDefaultProps(library, component, definition),
 		controlProps: getControlProps(definition),
 		children: role === "text" ? "Text" : [],
@@ -1779,6 +1785,65 @@ const describeComponent = (library: RegistryId, component: string) => {
 	};
 };
 
+const summarizeComponentForAuthoringContract = (
+	library: RegistryId,
+	component: string,
+) => {
+	const registry = getRegistryOrThrow(library);
+	if (!Object.hasOwn(registry, component)) {
+		throw new Error(
+			`Unknown component "${component}" in registry "${library}"`,
+		);
+	}
+
+	const definition = registry[component as keyof typeof registry];
+	const role = definition.role;
+	const controls = getControlDefinitions(definition);
+
+	return {
+		library,
+		component,
+		label: definition.label,
+		role,
+		builtIn: true,
+		readOnly: true,
+		description: definition.description ?? null,
+		allowedChildren: getAllowedChildrenMetadata(role),
+		composition: getCompositionMetadata(role),
+		content:
+			role === "text"
+				? {
+						kind: "text",
+						storage: "children",
+						updateTool: "updateElementText",
+					}
+				: role === "leaf"
+					? {
+							kind: "none",
+							storage: "children",
+							serializedChildren: [],
+						}
+					: {
+							kind: "children",
+							storage: "children",
+						},
+		writableProps: [
+			"className",
+			"data-trickroom-name",
+			...controls.map((control) => control.prop),
+		],
+		controlSummary: controls.map((control) => ({
+			name: control.prop,
+			prop: control.prop,
+			valueType: control.valueType,
+			input: control.input,
+			options: control.options ?? null,
+			visibility: control.visibility ?? null,
+		})),
+		inspectTool: "describeRegistryComponent",
+	};
+};
+
 const getRecipeTemplateNodes = (
 	template: RecipeTemplateNode,
 ): RecipeTemplateNode[] => [
@@ -2206,7 +2271,9 @@ const buildRegistryCatalogForContract = (
 	const componentsByLibrary = getRegistryIds().map((library) =>
 		getComponentIds(library)
 			.filter((component) => isComponentAllowed(policy, library, component))
-			.map((component) => describeComponent(library, component)),
+			.map((component) =>
+				summarizeComponentForAuthoringContract(library, component),
+			),
 	);
 	const recipesByLibrary =
 		includeRecipes === "summary"
@@ -2378,7 +2445,7 @@ const buildResourcePlanningContext = async (
 
 const buildAuthoringGuidance = () => ({
 	recommendedFirstCall:
-		"Call getDesignAuthoringContract with designFileId once before planning mutations.",
+		"Call getDesignAuthoringContract with designFileId once before planning design-file mutations. For system component draft authoring, call getSystemComponentAuthoringContract.",
 	mutationStrategy: [
 		{
 			prefer: "addRecipe",
@@ -2414,8 +2481,193 @@ const buildAuthoringGuidance = () => ({
 		"Inspect system assets and icons before setting canonical resource IDs.",
 		"Use listDesignTokens for full token lists; the contract only summarizes storage.",
 		"Use describeRegistryRecipe for full recipe templates and slot defaults.",
+		"Use getSystemComponentAuthoringContract before creating or updating system component drafts.",
 	],
 });
+
+const SYSTEM_COMPONENT_AUTHORING_PLACEHOLDER_REVISION =
+	"sha256:0000000000000000000000000000000000000000000000000000000000000000";
+const SYSTEM_COMPONENT_AUTHORING_PLACEHOLDER_TEMPLATE_HASH =
+	"sha256:1111111111111111111111111111111111111111111111111111111111111111";
+
+const SYSTEM_COMPONENT_AUTHORING_CONTRACT_EXAMPLES = [
+	{
+		tool: "createSystemComponentDraft",
+		description: "Create a component draft with a root template and variants.",
+		arguments: {
+			systemName: "Core",
+			expectedRevision: SYSTEM_COMPONENT_AUTHORING_PLACEHOLDER_REVISION,
+			slug: "status-pill",
+			name: "Status Pill",
+			draft: {
+				root: {
+					path: "root",
+					library: "trickroom",
+					component: "container",
+					className: "inline-flex items-center gap-2 rounded-full px-3 py-1",
+					children: [
+						{
+							path: "label",
+							library: "trickroom",
+							component: "text",
+							text: "Status",
+						},
+					],
+				},
+				variants: {
+					axes: {
+						tone: {
+							label: "Tone",
+							defaultValue: "neutral",
+							values: {
+								neutral: {
+									label: "Neutral",
+									classesByPath: { root: "bg-zinc-100 text-zinc-800" },
+								},
+								success: {
+									label: "Success",
+									classesByPath: { root: "bg-emerald-100 text-emerald-800" },
+								},
+							},
+						},
+					},
+					defaultValues: { tone: "neutral" },
+				},
+				overrideTargets: {
+					label: {
+						targetId: "label",
+						label: "Label",
+						path: "label",
+						capabilities: ["text", "className"],
+					},
+				},
+			},
+		},
+	},
+	{
+		tool: "updateSystemComponentDraft",
+		description: "Update draft override targets with optimistic hashes.",
+		arguments: {
+			systemName: "Core",
+			componentId: "cmp_00000000-0000-4000-8000-000000000001",
+			expectedRevision: SYSTEM_COMPONENT_AUTHORING_PLACEHOLDER_REVISION,
+			expectedDraftTemplateHash:
+				SYSTEM_COMPONENT_AUTHORING_PLACEHOLDER_TEMPLATE_HASH,
+			overrideTargets: {
+				root: {
+					targetId: "root",
+					label: "Root",
+					path: "root",
+					capabilities: ["className"],
+				},
+			},
+		},
+	},
+] as const;
+
+const getSystemComponentAuthoringContractPayload = async (
+	context: TrickroomMcpServerContext,
+	options: { systemName?: string; includeExamples?: boolean } = {},
+) => {
+	const systems = await listDesignSystems(context.projectRoot);
+	const selectedSystem =
+		options.systemName === undefined
+			? null
+			: (systems.find(
+					(system) =>
+						system.manifest.systemName === options.systemName ||
+						system.manifest.systemId === options.systemName,
+				) ?? null);
+
+	return {
+		project: getProjectReference(context),
+		schemaVersion: 1,
+		contract: "system-component-authoring",
+		system:
+			options.systemName === undefined
+				? null
+				: {
+						requested: options.systemName,
+						configured: selectedSystem !== null,
+						systemId: selectedSystem?.manifest.systemId ?? null,
+						systemName: selectedSystem?.manifest.systemName ?? null,
+					},
+		configuredSystems: systems.map((system) => ({
+			systemId: system.manifest.systemId,
+			systemName: system.manifest.systemName,
+		})),
+		recommendedFirstCall:
+			"Call getSystemComponentAuthoringContract before createSystemComponentDraft or updateSystemComponentDraft. Use listSystemComponents or describeSystemComponent for the current revision and draft hashes.",
+		tools: {
+			read: ["listSystemComponents", "describeSystemComponent"],
+			write: [
+				"createSystemComponentDraft",
+				"updateSystemComponentDraft",
+				"publishSystemComponent",
+			],
+		},
+		shapes: {
+			root: {
+				type: "RecipeTemplateNode",
+				required: ["path", "library", "component"],
+				optional: ["name", "className", "props", "text", "slot", "children"],
+				pathRules: [
+					'Use "root" for the root node path.',
+					"Every template path must be unique, non-empty, stable, and slashless.",
+					"slots, variants.classesByPath, and overrideTargets.path reference these paths.",
+				],
+				children:
+					"Recursive array of RecipeTemplateNode for branch-role nodes.",
+				props: "JSON-primitive registry control props only.",
+			},
+			slots: {
+				type: "Record<string, SystemComponentSlotDefinition>",
+				requiredPerSlot: ["name", "hostPath"],
+				optionalPerSlot: ["label", "defaultChildren", "history"],
+				rules: [
+					"Map key must match slot.name.",
+					"hostPath must reference a template path.",
+					"defaultChildren uses the same RecipeTemplateNode shape.",
+				],
+			},
+			variants: {
+				type: "SystemComponentVariantSchema",
+				required: ["axes"],
+				axisShape: {
+					required: ["label", "values"],
+					optional: ["defaultValue"],
+				},
+				valueShape: {
+					optional: ["label", "classesByPath"],
+				},
+				classesByPath:
+					"Record from template path to Tailwind class string. Paths must exist in root.",
+				compoundVariants:
+					"Array of { when: Record<axis, value | value[]>, classesByPath }.",
+				defaultValues: "Record from axis id to value id.",
+			},
+			overrideTargets: {
+				type: "Record<string, SystemComponentOverrideTarget>",
+				requiredPerTarget: ["targetId", "label", "path"],
+				optionalPerTarget: ["capabilities", "history"],
+				capabilities: ["className", "text", "icon", "asset"],
+				rules: [
+					"Map key must match target.targetId.",
+					"path must reference a template path.",
+					"capabilities defaults to className when omitted.",
+				],
+			},
+		},
+		validation: {
+			errorCode: "VALIDATION_FAILED",
+			diagnosticCode: "INVALID_SYSTEM_COMPONENT_DRAFT_INPUT",
+			note: "Malformed draft inputs return structured diagnostics with path and message fields.",
+		},
+		...((options.includeExamples ?? true)
+			? { examples: SYSTEM_COMPONENT_AUTHORING_CONTRACT_EXAMPLES }
+			: {}),
+	};
+};
 
 const getAuthoringContractPayload = async (
 	context: TrickroomMcpServerContext,
@@ -2492,7 +2744,14 @@ const getAuthoringContractPayload = async (
 		project: getProjectReference(context),
 		governance: getGovernanceSummary(policy),
 		schemaVersion: 1,
+		contract: "design-authoring",
 		designSchemaVersion: 1,
+		relatedContracts: {
+			systemComponentAuthoring: {
+				tool: "getSystemComponentAuthoringContract",
+				when: "Use for createSystemComponentDraft and updateSystemComponentDraft root, slot, variant, and override target payloads.",
+			},
+		},
 		catalogVersion: "builtin:trickroom:1",
 		catalogHash,
 		registryHash,
@@ -4190,12 +4449,14 @@ export const createTrickroomMcpServer = (
 		context: TrickroomMcpServerContext,
 		code: string,
 		message: string,
+		details: Record<string, unknown> = {},
 	): CallToolResult => {
 		const payload = {
 			status: "INVALID_OPERATION",
 			code,
 			message,
 			project: getProjectReference(context),
+			...details,
 		};
 		return {
 			content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
@@ -4203,6 +4464,19 @@ export const createTrickroomMcpServer = (
 			isError: true,
 		};
 	};
+
+	const createSystemComponentDraftInputErrorResult = (
+		context: TrickroomMcpServerContext,
+		error: z.ZodError,
+	): CallToolResult =>
+		createToolErrorResult(
+			context,
+			"VALIDATION_FAILED",
+			"System component draft input validation failed.",
+			{
+				diagnostics: systemComponentDraftInputDiagnosticsFromZodError(error),
+			},
+		);
 
 	const createProjectResolverErrorResult = (
 		error: TrickroomMcpProjectResolverError,
@@ -5343,11 +5617,45 @@ Workflow:
 	);
 
 	server.registerTool(
+		"getSystemComponentAuthoringContract",
+		{
+			title: "Get System Component Authoring Contract",
+			description:
+				"Return the compact authoring contract for system component drafts: root template nodes, slot maps, variant axes/classesByPath, override targets, validation diagnostics, and examples. Prefer this before createSystemComponentDraft or updateSystemComponentDraft.",
+			inputSchema: withProjectScopedInput({
+				systemName: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						"Optional configured design system name or id to echo availability context.",
+					),
+				includeExamples: z
+					.boolean()
+					.optional()
+					.describe(
+						"Include compact draft authoring examples. Defaults to true.",
+					),
+			}),
+			annotations: readOnlyClosedWorldAnnotations,
+		},
+		async ({ systemName, includeExamples, project }) =>
+			withPolicyErrorHandling(project, async (context) =>
+				createJsonResult(
+					await getSystemComponentAuthoringContractPayload(context, {
+						systemName,
+						includeExamples,
+					}),
+				),
+			),
+	);
+
+	server.registerTool(
 		"getDesignAuthoringContract",
 		{
 			title: "Get Design Authoring Contract",
 			description:
-				"Return the primary compact planning contract for agents: design grammar, registry component and recipe vocabulary, writable/system-owned props, composition and mutation rules, optional token/resource summaries, authoring guidance, and examples. Prefer this as the first planning call before mutations.",
+				"Return the primary compact planning contract for agents editing design files: design grammar, registry component and recipe vocabulary, writable/system-owned props, composition and mutation rules, optional token/resource summaries, authoring guidance, and examples. For system component draft authoring, use getSystemComponentAuthoringContract.",
 			inputSchema: withProjectScopedInput({
 				designFileId: z
 					.string()
@@ -5732,7 +6040,7 @@ Workflow:
 		{
 			title: "Create System Component Draft",
 			description:
-				"Create a new draft component definition in a system component manifest using an expected manifest revision.",
+				"Create a new draft component definition in a system component manifest using an expected manifest revision. Call getSystemComponentAuthoringContract before authoring draft payloads.",
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
@@ -5744,10 +6052,7 @@ Workflow:
 				description: z.string().optional(),
 				group: z.string().optional(),
 				order: z.number().finite().optional(),
-				draft: z
-					.any()
-					.optional()
-					.describe("Optional partial component draft payload."),
+				draft: mcpPartialSystemComponentDraftPayloadInputSchema,
 			}),
 			annotations: mutationAnnotations,
 		},
@@ -5766,6 +6071,16 @@ Workflow:
 				const policy = getMcpPolicy(context.config);
 				assertCanWriteProject(policy);
 				const system = await assertConfiguredSystem(context, systemName);
+				const parsedDraft =
+					draft === undefined
+						? undefined
+						: partialSystemComponentDraftPayloadSchema.safeParse(draft);
+				if (parsedDraft !== undefined && !parsedDraft.success) {
+					return createSystemComponentDraftInputErrorResult(
+						context,
+						parsedDraft.error,
+					);
+				}
 				const result = await createSystemComponentDraft(
 					context.projectRoot,
 					system.manifest.systemId,
@@ -5775,9 +6090,7 @@ Workflow:
 						description,
 						group,
 						order,
-						...(draft
-							? { draft: draft as Partial<SystemComponentDraftPayload> }
-							: {}),
+						...(parsedDraft !== undefined ? { draft: parsedDraft.data } : {}),
 					},
 					{ expectedRevision },
 				);
@@ -5796,7 +6109,7 @@ Workflow:
 		{
 			title: "Update System Component Draft",
 			description:
-				"Update a component draft template, slots, variants, or override targets using expected manifest revision and optional draft hashes.",
+				"Update a component draft template, slots, variants, or override targets using expected manifest revision and optional draft hashes. Call getSystemComponentAuthoringContract before authoring root, variants, slots, or overrideTargets.",
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
@@ -5809,10 +6122,10 @@ Workflow:
 				expectedRevision: systemComponentManifestRevisionSchema,
 				expectedDraftTemplateHash: z.string().optional(),
 				expectedDraftVariantSchemaHash: z.string().optional(),
-				root: z.any().optional(),
-				slots: z.record(z.string(), z.any()).nullable().optional(),
-				variants: z.any().nullable().optional(),
-				overrideTargets: z.record(z.string(), z.any()).nullable().optional(),
+				root: mcpRecipeTemplateNodeInputSchema,
+				slots: mcpSystemComponentSlotsInputSchema,
+				variants: mcpSystemComponentVariantSchemaInputSchema,
+				overrideTargets: mcpSystemComponentOverrideTargetsInputSchema,
 			}),
 			annotations: mutationAnnotations,
 		},
@@ -5832,32 +6145,23 @@ Workflow:
 				const policy = getMcpPolicy(context.config);
 				assertCanWriteProject(policy);
 				const system = await assertConfiguredSystem(context, systemName);
+				const parsedDraftPatch = systemComponentDraftPatchSchema.safeParse({
+					...(root !== undefined ? { root } : {}),
+					...(slots !== undefined ? { slots } : {}),
+					...(variants !== undefined ? { variants } : {}),
+					...(overrideTargets !== undefined ? { overrideTargets } : {}),
+				});
+				if (!parsedDraftPatch.success) {
+					return createSystemComponentDraftInputErrorResult(
+						context,
+						parsedDraftPatch.error,
+					);
+				}
 				await updateSystemComponentDraft(
 					context.projectRoot,
 					system.manifest.systemId,
 					componentId,
-					{
-						...(root !== undefined ? { root: root as RecipeTemplateNode } : {}),
-						...(slots !== undefined
-							? {
-									slots:
-										slots as
-											| Record<string, SystemComponentSlotDefinition>
-											| null,
-								}
-							: {}),
-						...(variants !== undefined
-							? { variants: variants as SystemComponentVariantSchema | null }
-							: {}),
-						...(overrideTargets !== undefined
-							? {
-									overrideTargets:
-										overrideTargets as
-											| Record<string, SystemComponentOverrideTarget>
-											| null,
-								}
-							: {}),
-					},
+					parsedDraftPatch.data,
 					{
 						expectedRevision,
 						expectedDraftTemplateHash,
@@ -5865,7 +6169,11 @@ Workflow:
 					},
 				);
 				return createJsonResult(
-					await systemComponentMutationPayload(context, systemName, componentId),
+					await systemComponentMutationPayload(
+						context,
+						systemName,
+						componentId,
+					),
 				);
 			}),
 	);

@@ -194,6 +194,10 @@ Base UI Separator example:
 }
 ```
 
+This serialized node shows the materialized `className` value for author-visible class
+state. The registry-owned base styling is exposed separately as
+`defaults.baseClassName` in MCP registry descriptions.
+
 ## Designs Gitkeep
 
 Path:
