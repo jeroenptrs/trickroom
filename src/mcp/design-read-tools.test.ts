@@ -244,6 +244,9 @@ describe("trickroom MCP design read tools", () => {
 			toolsByName.get("readDesignFile")?.inputSchema.properties,
 		).toHaveProperty("maxNodes");
 		expect(
+			toolsByName.get("readDesignFile")?.inputSchema.properties,
+		).toHaveProperty("responseFormat");
+		expect(
 			toolsByName.get("readElement")?.inputSchema.properties,
 		).toHaveProperty("elementId");
 		expect(
@@ -359,6 +362,27 @@ describe("trickroom MCP design read tools", () => {
 			],
 		});
 		expect(readResult.content[0]).toMatchObject({
+			type: "text",
+		});
+		const readText = (readResult.content[0] as { text: string }).text;
+		expect(() => JSON.parse(readText)).not.toThrow();
+		expect(JSON.parse(readText)).toMatchObject({
+			designFile: {
+				id: designFileId,
+			},
+			read: {
+				returnedNodeCount: 5,
+			},
+		});
+
+		const summaryReadResult = await client.callTool({
+			name: "readDesignFile",
+			arguments: {
+				designFileId,
+				responseFormat: "summary",
+			},
+		});
+		expect(summaryReadResult.content[0]).toMatchObject({
 			type: "text",
 			text: expect.stringContaining("Returned 5 nodes"),
 		});

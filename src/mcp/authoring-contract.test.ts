@@ -43,11 +43,17 @@ describe("getDesignAuthoringContract planning payload", () => {
 
 		const first = await session.client.callTool({
 			name: "getDesignAuthoringContract",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				includeRecipes: "summary",
+			},
 		});
 		const second = await session.client.callTool({
 			name: "getDesignAuthoringContract",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				includeRecipes: "summary",
+			},
 		});
 
 		const contract = first.structuredContent as {
@@ -105,6 +111,29 @@ describe("getDesignAuthoringContract planning payload", () => {
 			0,
 		);
 		expect(contract.examples.length).toBeGreaterThan(0);
+	});
+
+	it("keeps the default contract payload under 50KB", async () => {
+		const { session } = await createSession();
+
+		const result = await session.client.callTool({
+			name: "getDesignAuthoringContract",
+			arguments: { designFileId: trickroomMcpTestDesignUuid },
+		});
+
+		const contract = result.structuredContent as {
+			registries: Array<{ recipes?: unknown; components?: unknown }>;
+			resources?: unknown;
+		};
+
+		expect(JSON.stringify(contract).length).toBeLessThan(50_000);
+		expect(contract.resources).toBeUndefined();
+		expect(
+			contract.registries.every((registry) => registry.recipes === undefined),
+		).toBe(true);
+		expect(
+			contract.registries.every((registry) => Array.isArray(registry.components)),
+		).toBe(true);
 	});
 
 	it("filters recipes when component policy blocks recipe templates", async () => {
@@ -205,7 +234,10 @@ describe("getDesignAuthoringContract planning payload", () => {
 
 		const result = await session.client.callTool({
 			name: "getDesignAuthoringContract",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				includeResources: true,
+			},
 		});
 
 		expect(result.structuredContent).toMatchObject({

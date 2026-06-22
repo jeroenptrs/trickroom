@@ -187,6 +187,10 @@ import {
 	TrickroomMcpProjectResolverError,
 } from "./project-resolver";
 import {
+	type McpToolControl,
+	installMcpToolGroupControls,
+} from "./tool-group-controls";
+import {
 	buildDesignResourceUri,
 	parseDesignResourceUri,
 	slugifyDesignTitle,
@@ -205,6 +209,7 @@ export type TrickroomMcpServerOptions = {
 
 export type TrickroomMcpServer = McpServer & {
 	getActiveContextSnapshot: () => TrickroomMcpServerContext | null;
+	stopMcpToolGroupControls?: () => void;
 };
 
 const readOnlyClosedWorldAnnotations = {
@@ -603,6 +608,47 @@ const createSummaryTextResult = (
 	payload: Record<string, unknown>,
 	text: string,
 ): CallToolResult => createJsonResult(payload, { text });
+
+type McpReadResponseFormat = "json" | "summary";
+
+const mcpReadResponseFormatSchema = z
+	.enum(["json", "summary"])
+	.optional()
+	.describe(
+		'Response text format. "json" returns structured JSON in text (default). "summary" returns a short prose summary.',
+	);
+
+const createReadToolResult = (
+	payload: Record<string, unknown>,
+	responseFormat: McpReadResponseFormat,
+	summarize: (payload: Record<string, unknown>) => string,
+): CallToolResult => {
+	if (responseFormat === "summary") {
+		return createSummaryTextResult(payload, summarize(payload));
+	}
+
+	return createJsonResult(payload);
+};
+
+const stripHeavyTokenDiagnostics = <
+	T extends {
+		customUtilities?: unknown;
+	},
+>(
+	tokenDiagnostics: T | null,
+	includeTokenDiagnostics: boolean,
+): T | null => {
+	if (tokenDiagnostics === null || includeTokenDiagnostics) {
+		return tokenDiagnostics;
+	}
+
+	if (!Object.hasOwn(tokenDiagnostics, "customUtilities")) {
+		return tokenDiagnostics;
+	}
+
+	const { customUtilities: _customUtilities, ...rest } = tokenDiagnostics;
+	return rest as T;
+};
 
 const createProjectInfoResult = async (context: TrickroomMcpServerContext) => {
 	const systems = await listDesignSystems(context.projectRoot);
@@ -1769,6 +1815,28 @@ const describeComponent = (library: RegistryId, component: string) => {
 	};
 };
 
+const summarizeComponentCompactForAuthoringContract = (
+	library: RegistryId,
+	component: string,
+) => {
+	const registry = getRegistryOrThrow(library);
+	if (!Object.hasOwn(registry, component)) {
+		throw new Error(
+			`Unknown component "${component}" in registry "${library}"`,
+		);
+	}
+
+	const definition = registry[component as keyof typeof registry];
+
+	return {
+		library,
+		component,
+		label: definition.label,
+		role: definition.role,
+		inspectTool: "describeRegistryComponent",
+	};
+};
+
 const summarizeComponentForAuthoringContract = (
 	library: RegistryId,
 	component: string,
@@ -2101,12 +2169,14 @@ const createCatalogHash = (value: unknown) =>
 	`sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
 
 type AuthoringContractRecipeMode = "summary" | "none";
+type AuthoringContractRegistryComponentMode = "summary" | "full" | "none";
 
 type AuthoringContractOptions = {
 	designFileId?: string;
 	includeExamples?: boolean;
 	includeRecipes?: AuthoringContractRecipeMode;
 	includeResources?: boolean;
+	includeRegistryComponents?: AuthoringContractRegistryComponentMode;
 };
 
 const AUTHORING_CONTRACT_PLACEHOLDER_DESIGN_FILE_ID =
@@ -2247,13 +2317,29 @@ const summarizeRecipeForContract = (
 const buildRegistryCatalogForContract = (
 	policy: McpPolicy,
 	includeRecipes: AuthoringContractRecipeMode,
+	includeRegistryComponents: AuthoringContractRegistryComponentMode,
 ) => {
-	const componentsByLibrary = getRegistryIds().map((library) =>
-		getComponentIds(library)
-			.filter((component) => isComponentAllowed(policy, library, component))
-			.map((component) =>
-				summarizeComponentForAuthoringContract(library, component),
-			),
+	const allowedComponentsByLibrary = getRegistryIds().map((library) =>
+		getComponentIds(library).filter((component) =>
+			isComponentAllowed(policy, library, component),
+		),
+	);
+	const componentsByLibrary = allowedComponentsByLibrary.map(
+		(components, index) => {
+			const library = getRegistryIds()[index];
+			if (includeRegistryComponents === "none") {
+				return [];
+			}
+
+			return components.map((component) =>
+				includeRegistryComponents === "full"
+					? summarizeComponentForAuthoringContract(library, component)
+					: summarizeComponentCompactForAuthoringContract(
+							library,
+							component,
+						),
+			);
+		},
 	);
 	const recipesByLibrary =
 		includeRecipes === "summary"
@@ -2270,7 +2356,12 @@ const buildRegistryCatalogForContract = (
 		library,
 		builtIn: true,
 		readOnly: true,
-		components: componentsByLibrary[index],
+		...(includeRegistryComponents === "none"
+			? {
+					componentCount: allowedComponentsByLibrary[index].length,
+					listTool: "listRegistryComponents",
+				}
+			: { components: componentsByLibrary[index] }),
 		...(includeRecipes === "summary"
 			? { recipes: recipesByLibrary[index] }
 			: {}),
@@ -2669,8 +2760,9 @@ const getAuthoringContractPayload = async (
 	const {
 		designFileId,
 		includeExamples = true,
-		includeRecipes = "summary",
-		includeResources = true,
+		includeRecipes = "none",
+		includeResources = false,
+		includeRegistryComponents = "summary",
 	} = options;
 	const policy = getMcpPolicy(context.config);
 	if (designFileId !== undefined) {
@@ -2680,10 +2772,13 @@ const getAuthoringContractPayload = async (
 	const registriesPayload = buildRegistryCatalogForContract(
 		policy,
 		includeRecipes,
+		includeRegistryComponents,
 	);
 	const componentCatalog = registriesPayload.map((registry) => ({
 		library: registry.library,
-		components: registry.components,
+		...(includeRegistryComponents === "none"
+			? { componentCount: registry.componentCount ?? 0 }
+			: { components: registry.components ?? [] }),
 	}));
 	const recipeCatalog =
 		includeRecipes === "summary"
@@ -3562,7 +3657,9 @@ const readSubtreePayload = async (
 const validateDesignFilePayload = async (
 	context: TrickroomMcpServerContext,
 	designFileId: string,
+	options: { includeTokenDiagnostics?: boolean } = {},
 ) => {
+	const includeTokenDiagnostics = options.includeTokenDiagnostics ?? false;
 	assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
 	const service = createDesignFileService(context.projectRoot);
 	const read = await service.readJsonFile(service.getFileForUuid(designFileId));
@@ -3639,7 +3736,10 @@ const validateDesignFilePayload = async (
 		valid: issues.every((issue) => issue.severity !== "error"),
 		issues,
 		designSystem: await summarizeDesignSystemReference(context, systemHandle),
-		tokenDiagnostics: diagnostics.tokenSnapshot,
+		tokenDiagnostics: stripHeavyTokenDiagnostics(
+			diagnostics.tokenSnapshot,
+			includeTokenDiagnostics,
+		),
 		registryReferences,
 		elementCount: seenElementIds.size,
 		rootElementIds: design.boards.map((board) => board.id),
@@ -4332,6 +4432,17 @@ export const createTrickroomMcpServer = (
 				"Trickroom MCP exposes selected-project design workspace metadata, registry discovery, design-system token discovery, and high-level design mutation tools. Use listProjects and getSelectedProject to confirm context, then selectProject({ locationId }) for explicit project targeting (projectId is allowed but locationId is preferred), and registerProject only to add paths to the catalog. Creation uses exclusive create semantics. Existing-file mutation tools require an expectedRevision obtained from a prior read. On revision mismatch, re-read the design to get the current revision before retrying. Multi-project resources are addressed with trickroom://proj/<locationId>/design/<designId>.",
 		},
 	) as TrickroomMcpServer;
+
+	const mcpToolControls = new Map<string, McpToolControl>();
+	const registerMcpTool = server.registerTool.bind(server);
+	server.registerTool = ((name, config, handler) => {
+		const registered = registerMcpTool(name, config, handler);
+		mcpToolControls.set(name, {
+			enable: () => registered.enable(),
+			disable: () => registered.disable(),
+		});
+		return registered;
+	}) as typeof server.registerTool;
 
 	server.getActiveContextSnapshot = () => selectedContext;
 
@@ -5133,19 +5244,21 @@ Workflow:
 					.describe(
 						"Set true to permit depth above 4, maxNodes above 500, or an unbounded read when depth/maxNodes are omitted.",
 					),
+				responseFormat: mcpReadResponseFormatSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ designFileId, depth, maxNodes, allowLarge, project }) =>
+		async ({ designFileId, depth, maxNodes, allowLarge, responseFormat, project }) =>
 			withPolicyErrorHandling(project, async (context) => {
 				const payload = await readDesignFilePayload(context, designFileId, {
 					depth,
 					maxNodes,
 					allowLarge,
 				});
-				return createSummaryTextResult(
+				return createReadToolResult(
 					payload,
-					summarizeDesignFileReadText(payload),
+					responseFormat ?? "json",
+					summarizeDesignFileReadText,
 				);
 			}),
 	);
@@ -5251,6 +5364,7 @@ Workflow:
 					.describe(
 						"Include full text for text role elements. Defaults to true.",
 					),
+				responseFormat: mcpReadResponseFormatSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
@@ -5259,6 +5373,7 @@ Workflow:
 			rootElementId,
 			includeProps,
 			includeText,
+			responseFormat,
 			project,
 		}) =>
 			withPolicyErrorHandling(project, async (context) => {
@@ -5267,9 +5382,10 @@ Workflow:
 					includeProps,
 					includeText,
 				});
-				return createSummaryTextResult(
+				return createReadToolResult(
 					payload,
-					summarizeDesignGraphReadText(payload),
+					responseFormat ?? "json",
+					summarizeDesignGraphReadText,
 				);
 			}),
 	);
@@ -5323,10 +5439,19 @@ Workflow:
 					.describe(
 						"Set true to permit depth above 4, maxNodes above 500, or an unbounded read when depth/maxNodes are omitted.",
 					),
+				responseFormat: mcpReadResponseFormatSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ designFileId, elementId, depth, maxNodes, allowLarge, project }) =>
+		async ({
+			designFileId,
+			elementId,
+			depth,
+			maxNodes,
+			allowLarge,
+			responseFormat,
+			project,
+		}) =>
 			withPolicyErrorHandling(project, async (context) => {
 				const payload = await readSubtreePayload(
 					context,
@@ -5338,9 +5463,10 @@ Workflow:
 						allowLarge,
 					},
 				);
-				return createSummaryTextResult(
+				return createReadToolResult(
 					payload,
-					summarizeSubtreeReadText(payload),
+					responseFormat ?? "json",
+					summarizeSubtreeReadText,
 				);
 			}),
 	);
@@ -5353,13 +5479,21 @@ Workflow:
 				"Validate an existing design file without mutation, including payload integrity, duplicate element IDs, registry references, and design-system references.",
 			inputSchema: withProjectScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
+				includeTokenDiagnostics: z
+					.boolean()
+					.optional()
+					.describe(
+						"Include heavy token diagnostics such as custom utility catalogs. Defaults to false.",
+					),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ designFileId, project }) =>
+		async ({ designFileId, includeTokenDiagnostics, project }) =>
 			withPolicyErrorHandling(project, async (context) =>
 				createJsonResult(
-					await validateDesignFilePayload(context, designFileId),
+					await validateDesignFilePayload(context, designFileId, {
+						includeTokenDiagnostics,
+					}),
 				),
 			),
 	);
@@ -5752,13 +5886,19 @@ Workflow:
 					.enum(["summary", "none"])
 					.optional()
 					.describe(
-						"Include compact recipe summaries per registry. Defaults to summary.",
+						"Include compact recipe summaries per registry. Defaults to none.",
 					),
 				includeResources: z
 					.boolean()
 					.optional()
 					.describe(
-						"Include asset/icon planning summaries when designFileId resolves to a linked system. Defaults to true.",
+						"Include asset/icon planning summaries when designFileId resolves to a linked system. Defaults to false.",
+					),
+				includeRegistryComponents: z
+					.enum(["summary", "full", "none"])
+					.optional()
+					.describe(
+						"Include registry component vocabulary in the contract. summary returns compact entries; full includes controls and composition metadata. Defaults to summary.",
 					),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
@@ -5768,6 +5908,7 @@ Workflow:
 			includeExamples,
 			includeRecipes,
 			includeResources,
+			includeRegistryComponents,
 			project,
 		}) =>
 			withPolicyErrorHandling(project, async (context) =>
@@ -5777,6 +5918,7 @@ Workflow:
 						includeExamples,
 						includeRecipes,
 						includeResources,
+						includeRegistryComponents,
 					}),
 				),
 			),
@@ -9245,6 +9387,14 @@ Workflow:
 			});
 		},
 	);
+
+	if (trickroomHome) {
+		server.stopMcpToolGroupControls = installMcpToolGroupControls({
+			trickroomHome,
+			toolControls: mcpToolControls,
+			server,
+		});
+	}
 
 	return server;
 };

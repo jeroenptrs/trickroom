@@ -5,6 +5,11 @@ import { createInterface } from "node:readline/promises";
 import { Hono } from "hono";
 import { resolveTrickroomHome } from "./app-state/home";
 import {
+	parseMcpToolGroupSettingsPatch,
+	readTrickroomSettings,
+	updateMcpToolGroupSettings,
+} from "./app-state/settings";
+import {
 	clearActiveProjectLocation,
 	deleteProjectLocation,
 	getActiveProjectLocation,
@@ -13,6 +18,7 @@ import {
 	updateProjectLocationName,
 } from "./app-state/project-registry";
 import { parseDesignResourceUri } from "./mcp/resources";
+import { MCP_TOOL_GROUPS } from "./mcp/tool-groups";
 import {
 	getTrickroomProjectPaths,
 	normalizeTrickroomConfig,
@@ -953,6 +959,53 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return c.json(writtenConfig);
 		} catch {
 			return jsonError("Failed to update MCP settings", 500);
+		}
+	});
+
+	app.get("/api/trickroom/settings/mcp", async (c) => {
+		try {
+			const settings = await readTrickroomSettings(trickroomHome);
+			return c.json({
+				toolGroups: MCP_TOOL_GROUPS.map((group) => ({
+					id: group.id,
+					label: group.label,
+					description: group.description,
+					toolCount: group.tools.length,
+					enabled: settings.mcp.toolGroups[group.id],
+				})),
+			});
+		} catch {
+			return jsonError("Failed to read MCP tool group settings", 500);
+		}
+	});
+
+	app.put("/api/trickroom/settings/mcp", async (c) => {
+		const body = await c.req.json().catch(() => null);
+		if (!isRecord(body)) {
+			return jsonError("Invalid MCP tool group settings payload", 400);
+		}
+
+		const patch = parseMcpToolGroupSettingsPatch(body.toolGroups);
+		if (!patch) {
+			return jsonError(
+				'Invalid MCP tool group settings payload. Expected { "toolGroups": { "<groupId>": boolean } }.',
+				400,
+			);
+		}
+
+		try {
+			const settings = await updateMcpToolGroupSettings(patch, trickroomHome);
+			return c.json({
+				toolGroups: MCP_TOOL_GROUPS.map((group) => ({
+					id: group.id,
+					label: group.label,
+					description: group.description,
+					toolCount: group.tools.length,
+					enabled: settings.mcp.toolGroups[group.id],
+				})),
+			});
+		} catch {
+			return jsonError("Failed to update MCP tool group settings", 500);
 		}
 	});
 

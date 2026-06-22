@@ -281,6 +281,7 @@ export const startTrickroomMcpStdioServer = async () => {
 			}
 
 			watchersCleanedUp = true;
+			server.stopMcpToolGroupControls?.();
 			cleanupWatchers();
 			process.off("exit", cleanupWatchersOnce);
 		};

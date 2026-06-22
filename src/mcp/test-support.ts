@@ -210,6 +210,12 @@ export const createTrickroomMcpProjectFixture = async (
 				...(snapshot.domainBaselineDiffs
 					? { domainBaselineDiffs: snapshot.domainBaselineDiffs }
 					: {}),
+				...(snapshot.customProperties
+					? { customProperties: snapshot.customProperties }
+					: {}),
+				...(snapshot.customUtilities
+					? { customUtilities: snapshot.customUtilities }
+					: {}),
 			});
 		},
 		cleanup: () => rm(projectRoot, { force: true, recursive: true }),

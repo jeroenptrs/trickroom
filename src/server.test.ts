@@ -682,6 +682,35 @@ describe("server design routes", () => {
 		expect(response.status).toBe(400);
 	});
 
+	it("reads and updates global MCP tool group settings", async () => {
+		const app = createTrickroomApp({ trickroomHome: tempTrickroomHome });
+
+		const initialResponse = await app.request("/api/trickroom/settings/mcp");
+		expect(initialResponse.status).toBe(200);
+		const initial = (await initialResponse.json()) as {
+			toolGroups: Array<{ id: string; enabled: boolean }>;
+		};
+		expect(initial.toolGroups).toHaveLength(7);
+		expect(initial.toolGroups.every((group) => group.enabled)).toBe(true);
+
+		const updateResponse = await app.request("/api/trickroom/settings/mcp", {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				toolGroups: {
+					designWrite: false,
+				},
+			}),
+		});
+		expect(updateResponse.status).toBe(200);
+		const updated = (await updateResponse.json()) as {
+			toolGroups: Array<{ id: string; enabled: boolean }>;
+		};
+		expect(
+			updated.toolGroups.find((group) => group.id === "designWrite")?.enabled,
+		).toBe(false);
+	});
+
 	it("updates the project default system and applies it to new designs", async () => {
 		const app = createTrickroomApp({ trickroomHome: tempTrickroomHome });
 		await app.request("/api/trickroom/projects/open", {

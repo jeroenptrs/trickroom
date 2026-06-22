@@ -182,11 +182,11 @@ Read-only tools:
 | `resolveProject` | Resolve `projectId` or `locationId` to a local project location. |
 | `trickroom_project_info` | Return project root, config path, and systems. |
 | `listDesignFiles` | List visible design files with revisions, counts, and modified timestamps. |
-| `readDesignFile` | Read design metadata, board summaries, counts, and a bounded compact design tree. Defaults to depth 2 and 100 nodes. |
-| `readDesignGraph` | Read a flat graph and element addresses. |
+| `readDesignFile` | Read design metadata, board summaries, counts, and a bounded compact design tree. Defaults to depth 2 and 100 nodes. Returns parseable JSON in `text` by default; pass `responseFormat: "summary"` for a short prose summary. |
+| `readDesignGraph` | Read a flat graph and element addresses. Defaults to JSON in `text`; pass `responseFormat: "summary"` for prose. |
 | `readElement` | Read one element with context. |
-| `readSubtree` | Read one bounded element subtree. Defaults to depth 2 and 100 nodes. |
-| `validateDesignFile` | Validate an existing design without writing. |
+| `readSubtree` | Read one bounded element subtree. Defaults to depth 2 and 100 nodes. Returns JSON in `text` by default; pass `responseFormat: "summary"` for prose. |
+| `validateDesignFile` | Validate an existing design without writing. Omits heavy token `customUtilities` catalogs unless `includeTokenDiagnostics: true`. |
 | `validateOperation` | Dry-run one supported operation without writing. |
 | `validateOperationPlan` | Dry-run an ordered list of design operations against one starting revision without writing. |
 | `validateSubtree` | Dry-run one subtree insertion payload without writing. |
@@ -196,7 +196,7 @@ Read-only tools:
 | `describeRegistryComponent` | Describe one allowed component. |
 | `listRegistryRecipes` | List composable recipes and compact slot/structure metadata. |
 | `describeRegistryRecipe` | Describe one recipe's structure, slots, defaults, and controls. |
-| `getDesignAuthoringContract` | **Recommended first planning call.** Return compact grammar, registry component/recipe vocabulary, props, composition/mutation rules, authoring guidance, examples, and optional token/resource summaries for a linked design. |
+| `getDesignAuthoringContract` | **Recommended first planning call.** Return compact grammar, registry component vocabulary, props, composition/mutation rules, authoring guidance, and examples. Defaults omit recipe catalogs and linked-system resource summaries; pass `includeRecipes: "summary"` and/or `includeResources: true` when you need them. Registry components default to compact `summary` entries; use `includeRegistryComponents: "full"` for controls and composition metadata. |
 | `getDesignSystemForDesignFile` | Report linked system and token storage metadata. |
 | `listDesignTokens` | List stored tokens for the linked system. |
 | `listSystemAssets` | List system asset metadata without file bytes. |
@@ -417,6 +417,8 @@ This revision discipline prevents agents from overwriting newer app or user edit
 - Unknown or missing `trickroom/asset` IDs for linked systems.
 - Unknown or missing `trickroom/icon` IDs for linked systems.
 
+By default, `tokenDiagnostics` omits the heavy `customUtilities` catalog. Pass `includeTokenDiagnostics: true` when you need the full stored utility metadata for debugging or migration work.
+
 Class/token warnings include `domain`, `property`, `classToken`, `token`, `className`, `elementId`, and `path` when available. Common codes:
 
 - `UNKNOWN_COLOR_TOKEN`, `UNKNOWN_SPACING_TOKEN`, `UNKNOWN_FONT_TOKEN`, `UNKNOWN_TEXT_TOKEN`, `UNKNOWN_RADIUS_TOKEN`, `UNKNOWN_SHADOW_TOKEN`, `UNKNOWN_TAILWIND_TOKEN`
@@ -508,7 +510,9 @@ Allowed `orientation` values are `horizontal` and `vertical`. Base UI separators
 
 `trickroom/icon` supports `data-trickroom-icon-id` and optional `aria-label` as registry-backed controls. MCP icon discovery returns metadata only; raw SVG is served to the renderer through the sanitized app route, not through MCP catalog tools.
 
-Agents should call `getDesignAuthoringContract({ designFileId })` once before planning mutations. It returns compact registry component and recipe summaries, writable vs system-owned props, composition rules, mutation strategy guidance, examples, and (for linked systems) token/resource planning context without raw asset bytes, SVG, or full token lists. Use `describeRegistryComponent`, `describeRegistryRecipe`, `listDesignTokens`, `listSystemAssets`, and `listSystemIcons` when you need full detail for one item. Only `branch` role elements accept children; `text` and `leaf` role elements reject child insertion and reparenting.
+Agents should call `getDesignAuthoringContract({ designFileId })` once before planning mutations. The default payload stays compact: registry components in `summary` form, no recipe catalogs, and no linked-system asset/icon summaries. Pass `includeRecipes: "summary"` when you need composable recipe vocabulary, `includeResources: true` for asset/icon planning context, and `includeRegistryComponents: "full"` when you need per-component controls and composition metadata. It still returns writable vs system-owned props, composition rules, mutation strategy guidance, and examples. Use `describeRegistryComponent`, `describeRegistryRecipe`, `listDesignTokens`, `listSystemAssets`, and `listSystemIcons` when you need full detail for one item. Only `branch` role elements accept children; `text` and `leaf` role elements reject child insertion and reparenting.
+
+Bounded design reads (`readDesignFile`, `readDesignGraph`, `readSubtree`) return structured JSON in `text` by default so agents can consume results without relying on `structuredContent`. Pass `responseFormat: "summary"` when you only need a short prose recap.
 
 ## Resources
 

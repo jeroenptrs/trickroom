@@ -172,8 +172,10 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 				library: string;
 				components: Array<{
 					component: string;
-					composition: { kind: string; acceptsElementChildren: boolean };
-					content: { kind: string; updateTool?: string };
+					role?: string;
+					inspectTool?: string;
+					composition?: { kind: string; acceptsElementChildren: boolean };
+					content?: { kind: string; updateTool?: string };
 				}>;
 			}>;
 		};
@@ -184,6 +186,32 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			.find((registry) => registry.library === "trickroom")
 			?.components.find((component) => component.component === "text");
 		expect(textComponent).toMatchObject({
+			component: "text",
+			role: "text",
+			inspectTool: "describeRegistryComponent",
+		});
+
+		const fullResult = await session.client.callTool({
+			name: "getDesignAuthoringContract",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				includeRegistryComponents: "full",
+			},
+		});
+		const fullContract = fullResult.structuredContent as {
+			registries: Array<{
+				library: string;
+				components: Array<{
+					component: string;
+					composition: { kind: string; acceptsElementChildren: boolean };
+					content: { kind: string; updateTool?: string };
+				}>;
+			}>;
+		};
+		const fullTextComponent = fullContract.registries
+			.find((registry) => registry.library === "trickroom")
+			?.components.find((component) => component.component === "text");
+		expect(fullTextComponent).toMatchObject({
 			component: "text",
 			composition: {
 				kind: "none",

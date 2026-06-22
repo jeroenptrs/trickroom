@@ -173,6 +173,52 @@ describe("MCP expanded class/token diagnostics", () => {
 		);
 	});
 
+	it("omits heavy custom utility catalogs from validateDesignFile by default", async () => {
+		const { session } = await createSession({
+			tokenSnapshots: [
+				{
+					systemName: "Core",
+					cssPath: "src/index.css",
+					customUtilities: [
+						{
+							root: "text-interaction",
+							kind: "functional",
+							consumedNamespaces: ["--db-interaction"],
+							completionValues: ["lg", "sm"],
+							domains: ["typography"],
+						},
+					],
+				},
+			],
+		});
+
+		const defaultResult = await session.client.callTool({
+			name: "validateDesignFile",
+			arguments: { designFileId: trickroomMcpTestDesignUuid },
+		});
+		const defaultValidation = defaultResult.structuredContent as {
+			tokenDiagnostics: { customUtilities?: unknown } | null;
+		};
+		expect(defaultValidation.tokenDiagnostics).not.toBeNull();
+		expect(defaultValidation.tokenDiagnostics?.customUtilities).toBeUndefined();
+
+		const verboseResult = await session.client.callTool({
+			name: "validateDesignFile",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				includeTokenDiagnostics: true,
+			},
+		});
+		const verboseValidation = verboseResult.structuredContent as {
+			tokenDiagnostics: { customUtilities?: unknown[] } | null;
+		};
+		expect(verboseValidation.tokenDiagnostics?.customUtilities).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ root: "text-interaction" }),
+			]),
+		);
+	});
+
 	it("suppresses unknown spacing diagnostics for stored custom spacing tokens", async () => {
 		const { session } = await createSession({
 			designs: {
