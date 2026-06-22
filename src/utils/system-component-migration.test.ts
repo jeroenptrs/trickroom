@@ -77,6 +77,12 @@ const sourceVersionV1 = (): PublishedSystemComponentVersion => {
 		variants,
 		overrideTargets: {
 			rootTarget: { targetId: "rootTarget", label: "Root", path: "root" },
+			labelTarget: {
+				targetId: "labelTarget",
+				label: "Label text",
+				path: "label",
+				capabilities: ["text"],
+			},
 		},
 	};
 	return {
@@ -155,6 +161,12 @@ const targetVersionV2 = (): PublishedSystemComponentVersion => {
 						previousTargetId: "rootTarget",
 					},
 				],
+			},
+			labelTarget: {
+				targetId: "labelTarget",
+				label: "Label text",
+				path: "label",
+				capabilities: ["text"],
 			},
 		},
 		migrationHints: {
@@ -330,6 +342,43 @@ describe("system-component-migration", () => {
 			],
 		});
 		expect(result.metadata.diagnostics).toEqual([]);
+	});
+
+	it("materializes text overrides on migrated nodes instead of resetting to template defaults", () => {
+		const source = sourceVersionV1();
+		const target = targetVersionV2();
+		const staleRoot = expandStaleInstance(source, {
+			overrides: {
+				rootTarget: { className: "rounded-lg" },
+				labelTarget: { text: "Create" },
+			},
+		});
+
+		const labelBefore = (staleRoot.children as Node[]).find(
+			(child) =>
+				getSystemComponentStructuralMetadata(child.props)?.path === "label",
+		);
+		expect(labelBefore?.children).toBe("Create");
+
+		const result = migrateSystemComponentInstance([staleRoot], staleRoot.id, {
+			systemId,
+			componentId,
+			sourceVersion: source,
+			targetVersion: target,
+		});
+
+		const migratedRoot = result.roots[0];
+		const label = (migratedRoot.children as Node[]).find(
+			(child) =>
+				getSystemComponentStructuralMetadata(child.props)?.path === "label",
+		);
+
+		expect(label?.children).toBe("Create");
+		expect(
+			getSystemComponentStructuralMetadata(migratedRoot.props)?.overrides,
+		).toMatchObject({
+			labelTarget: { text: "Create" },
+		});
 	});
 
 	it("leaves new default-less target variant axes unset during migration", () => {

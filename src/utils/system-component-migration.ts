@@ -14,7 +14,12 @@ import {
 	getSystemComponentStructuralMetadata,
 	type SystemComponentInstanceOverrides,
 } from "./system-component-markers";
-import { isValidSystemComponentPropOverride } from "./system-component-override-targets";
+import { assetIdProp, iconIdProp } from "./resource-props";
+import {
+	isValidSystemComponentPropOverride,
+	resolveSystemComponentOverrideValue,
+	resolveSystemComponentTargetPropValues,
+} from "./system-component-override-targets";
 import {
 	resolveMaterializedSystemComponentClassComposition,
 	resolveSystemComponentVariantValues,
@@ -1379,6 +1384,29 @@ export const migrateSystemComponentInstance = (
 				component: template.component,
 			},
 		);
+		const iconOverride = resolveSystemComponentOverrideValue(
+			targetVersion,
+			template.path,
+			"icon",
+			overrideMapping.overrides,
+		);
+		const assetOverride = resolveSystemComponentOverrideValue(
+			targetVersion,
+			template.path,
+			"asset",
+			overrideMapping.overrides,
+		);
+		const propOverrides = resolveSystemComponentTargetPropValues(
+			targetVersion,
+			template,
+			overrideMapping.overrides,
+		);
+		const textOverride = resolveSystemComponentOverrideValue(
+			targetVersion,
+			template.path,
+			"text",
+			overrideMapping.overrides,
+		);
 		const props = {
 			...getDefaultProps(
 				template.library,
@@ -1388,6 +1416,9 @@ export const migrateSystemComponentInstance = (
 			),
 			...(template.props ?? {}),
 			...classComposition.props,
+			...propOverrides,
+			...(iconOverride !== undefined ? { [iconIdProp]: iconOverride } : {}),
+			...(assetOverride !== undefined ? { [assetIdProp]: assetOverride } : {}),
 			"data-trickroom-name": template.name ?? resolution.definition.label,
 			"data-trickroom-library": template.library,
 			"data-trickroom-component": template.component,
@@ -1457,7 +1488,7 @@ export const migrateSystemComponentInstance = (
 			props,
 			children:
 				role === "text"
-					? (template.text ?? getDefaultText(role) ?? "")
+					? (textOverride ?? template.text ?? getDefaultText(role) ?? "")
 					: role === "leaf"
 						? []
 						: [
