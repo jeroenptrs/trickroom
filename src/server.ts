@@ -53,7 +53,10 @@ import type {
 	TrickroomDesign,
 	TrickroomDesignSummary,
 } from "./types";
-import { normalizeAssetId, readAsset } from "./utils/asset-manifest-service";
+import {
+	applyProjectDefaultSystemToDesign,
+	setConfigDefaultSystemId,
+} from "./utils/project-default-system";
 import {
 	componentAllowsBlankResourceId,
 	getResourceIdProp,
@@ -352,6 +355,23 @@ const parseMcpSettingsPayload = (body: unknown) => {
 		return { enabled: true, mode } satisfies NonNullable<
 			TrickroomConfig["mcp"]
 		>;
+	}
+
+	return null;
+};
+
+const parseDefaultSystemPayload = (body: unknown) => {
+	if (!body || typeof body !== "object") {
+		return null;
+	}
+
+	const { systemId } = body as { systemId?: unknown };
+	if (systemId === null) {
+		return { systemId: null as const };
+	}
+
+	if (typeof systemId === "string" && systemId.trim().length > 0) {
+		return { systemId: systemId.trim() };
 	}
 
 	return null;
@@ -936,6 +956,46 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		}
 	});
 
+	app.put("/api/trickroom/config/default-system", async (c) => {
+		const project = await resolveProjectForRequest();
+		if (!project) {
+			return createNoProjectResponse();
+		}
+
+		const body = await c.req.json().catch(() => null);
+		const defaultSystemPayload = parseDefaultSystemPayload(body);
+		if (!defaultSystemPayload) {
+			return jsonError(
+				'Invalid default system payload. Expected { "systemId": string | null }.',
+				400,
+			);
+		}
+
+		if (defaultSystemPayload.systemId !== null) {
+			const system = await findDesignSystem(
+				project.projectRoot,
+				defaultSystemPayload.systemId,
+			);
+			if (!system) {
+				return jsonError(
+					`Unknown design system "${defaultSystemPayload.systemId}".`,
+					404,
+				);
+			}
+		}
+
+		try {
+			const writtenConfig = await writeProjectConfig(
+				project.projectRoot,
+				setConfigDefaultSystemId(project.config, defaultSystemPayload.systemId),
+			);
+			activeProject = { ...project, config: writtenConfig };
+			return c.json(writtenConfig);
+		} catch {
+			return jsonError("Failed to update default system", 500);
+		}
+	});
+
 	app.get("/api/trickroom/design", async (c) => {
 		const project = await resolveProjectForRequest();
 		if (!project) {
@@ -1233,9 +1293,14 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			if (!isTrickroomDesign(body)) {
 				return jsonError("Invalid trickroom design payload", 400);
 			}
+			const designWithDefault = await applyProjectDefaultSystemToDesign(
+				project.projectRoot,
+				project.config,
+				body,
+			);
 			const canonicalDesign = await canonicalizeDesignSystemReferenceForStorage(
 				project,
-				body,
+				designWithDefault,
 			);
 			await assertExtractedDesignReferencesExist(project, canonicalDesign);
 			const written = await designFileService.createDesignFile(

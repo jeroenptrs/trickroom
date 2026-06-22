@@ -8,6 +8,8 @@ import type { TailwindSyncResult } from "../../hooks/useTailwindSyncController";
 import {
 	configFileProjectQueryKey,
 	configFileQueryKey,
+	configFileQueryOptions,
+	updateProjectDefaultSystem,
 } from "../../queries/config-file";
 import type { ProjectQueryScope } from "../../queries/project-scope";
 import { sessionQueryOptions } from "../../queries/projects";
@@ -37,6 +39,7 @@ import {
 } from "../../utils/tailwind-token-domains";
 import { useProjectScope, useTailwindSyncController } from "../contexts";
 import { Alert } from "../ui/alert";
+import Checkbox from "../ui/checkbox";
 import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { CopyButton } from "../ui/copy-button";
@@ -470,6 +473,8 @@ function SystemSettingsSubview({
 		systemId,
 		projectScope,
 	);
+	const configQuery = useQuery(configFileQueryOptions(projectScope));
+	const isDefaultSystem = configQuery.data?.defaultSystemId === systemId;
 	const invalidateSystemSettings = useCallback(async () => {
 		await Promise.all([
 			queryClient.invalidateQueries({ queryKey: systemsQueryKey }),
@@ -505,8 +510,25 @@ function SystemSettingsSubview({
 			}
 		},
 	});
-	const settingsError = settingsActionError;
-	const isMutatingSettings = updateSystemMutation.isPending;
+	const updateDefaultSystemMutation = useMutation({
+		mutationFn: (nextIsDefault: boolean) =>
+			updateProjectDefaultSystem(nextIsDefault ? systemId : null),
+		onMutate: clearSettingsActionError,
+		onError: captureSettingsActionError,
+		onSuccess: async (config) => {
+			clearSettingsActionError();
+			queryClient.setQueryData(configFileProjectQueryKey(projectScope), config);
+			await queryClient.invalidateQueries({ queryKey: configFileQueryKey });
+			await queryClient.invalidateQueries({ queryKey: systemsQueryKey });
+		},
+	});
+	const settingsError =
+		settingsActionError ??
+		(updateDefaultSystemMutation.error instanceof Error
+			? updateDefaultSystemMutation.error.message
+			: null);
+	const isMutatingSettings =
+		updateSystemMutation.isPending || updateDefaultSystemMutation.isPending;
 	const settingsActionsDisabled = isMutatingSettings || disconnectDisabled;
 	const saveNameDisabled =
 		settingsActionsDisabled ||
@@ -619,6 +641,34 @@ function SystemSettingsSubview({
 						/>
 					}
 				/>
+			</DetailSection>
+
+			<DetailSection title="Project Default">
+				<label
+					htmlFor="system-settings-default"
+					className="flex items-start gap-3"
+				>
+					<Checkbox
+						id="system-settings-default"
+						checked={isDefaultSystem}
+						onCheckedChange={(checked) => {
+							if (checked === isDefaultSystem) {
+								return;
+							}
+							updateDefaultSystemMutation.mutate(checked === true);
+						}}
+						disabled={settingsActionsDisabled}
+					/>
+					<span className="flex min-w-0 flex-col gap-0.5">
+						<Text variant="label" tone="foreground">
+							Default system for new designs
+						</Text>
+						<Text tone="muted" className="text-[11px]">
+							New designs automatically link to this system. Only one system can
+							be default per project.
+						</Text>
+					</span>
+				</label>
 			</DetailSection>
 
 			<DetailSection title="Token Source">

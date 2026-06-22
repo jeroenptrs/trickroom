@@ -210,6 +210,16 @@ describe("server config validation", () => {
 			}),
 		).toBe(false);
 	});
+
+	it("accepts default system config fields", () => {
+		expect(
+			isTrickroomConfig({
+				name: "Valid Project",
+				defaultSystemId: "sys_00000000-0000-4000-8000-000000000000",
+				defaultSystemName: "Core",
+			}),
+		).toBe(true);
+	});
 });
 
 describe("server design routes", () => {
@@ -670,6 +680,78 @@ describe("server design routes", () => {
 		});
 
 		expect(response.status).toBe(400);
+	});
+
+	it("updates the project default system and applies it to new designs", async () => {
+		const app = createTrickroomApp({ trickroomHome: tempTrickroomHome });
+		await app.request("/api/trickroom/projects/open", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ path: tempProjectRoot }),
+		});
+
+		const createSystemResponse = await app.request("/api/trickroom/systems", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				systemName: "Core",
+				cssPath: "src/index.css",
+				setAsDefault: true,
+			}),
+		});
+		expect(createSystemResponse.status).toBe(201);
+		const createdSystem = (await createSystemResponse.json()) as {
+			systemId: string;
+			config: { defaultSystemId?: string };
+		};
+		expect(createdSystem.config.defaultSystemId).toBe(createdSystem.systemId);
+
+		const createDesignResponse = await app.request(
+			"/api/trickroom/design?file=default-linked.json",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					name: "Untitled",
+					boards: [],
+				}),
+			},
+		);
+		expect(createDesignResponse.status).toBe(201);
+		const createdDesign = (await createDesignResponse.json()) as {
+			systemId: string;
+		};
+		expect(createdDesign.systemId).toBe(createdSystem.systemId);
+
+		const explicitUnlinkedResponse = await app.request(
+			"/api/trickroom/design?file=explicit-unlinked.json",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					name: "Unlinked",
+					systemId: null,
+					boards: [],
+				}),
+			},
+		);
+		expect(explicitUnlinkedResponse.status).toBe(201);
+		await expect(explicitUnlinkedResponse.json()).resolves.toMatchObject({
+			systemId: null,
+		});
+
+		const defaultSystemResponse = await app.request(
+			"/api/trickroom/config/default-system",
+			{
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ systemId: null }),
+			},
+		);
+		expect(defaultSystemResponse.status).toBe(200);
+		await expect(defaultSystemResponse.json()).resolves.not.toHaveProperty(
+			"defaultSystemId",
+		);
 	});
 
 	it("closes the active project without clearing recent projects", async () => {

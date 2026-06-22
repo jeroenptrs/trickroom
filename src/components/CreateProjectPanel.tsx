@@ -20,6 +20,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { InputGroup, InputGroupButton } from "./ui/input-group";
 import { Text } from "./ui/text";
+import Checkbox from "./ui/checkbox";
 
 const systemNamePattern = /^[A-Za-z0-9_@-]+$/;
 
@@ -32,6 +33,7 @@ export function CreateProjectPanel() {
 	const [isPickingFolder, setIsPickingFolder] = useState(false);
 	const [systemName, setSystemName] = useState("");
 	const [systemCssPath, setSystemCssPath] = useState("");
+	const [setSystemAsDefault, setSetSystemAsDefault] = useState(true);
 	const [cssPickerError, setCssPickerError] = useState<string | null>(null);
 	const [isPickingCss, setIsPickingCss] = useState(false);
 	const [showSystem, setShowSystem] = useState(false);
@@ -59,10 +61,17 @@ export function CreateProjectPanel() {
 
 	const createProjectMutation = useMutation({
 		mutationFn: () => {
+			const trimmedSystemName = systemName.trim();
+			const trimmedSystemCssPath = systemCssPath.trim();
 			const config = {
 				name: name.trim(),
-				...(systemName.trim() && systemCssPath.trim()
-					? { systems: { [systemName.trim()]: systemCssPath.trim() } }
+				...(trimmedSystemName && trimmedSystemCssPath
+					? {
+							systems: { [trimmedSystemName]: trimmedSystemCssPath },
+							...(setSystemAsDefault
+								? { defaultSystemName: trimmedSystemName }
+								: {}),
+						}
 					: {}),
 			};
 
@@ -107,6 +116,7 @@ export function CreateProjectPanel() {
 			if (shown) {
 				setSystemName("");
 				setSystemCssPath("");
+				setSetSystemAsDefault(true);
 				setCssPickerError(null);
 			}
 			return !shown;
@@ -308,6 +318,29 @@ export function CreateProjectPanel() {
 								Optional. Path is relative to the project folder — e.g.{" "}
 								<code className="font-mono">src/index.css</code>.
 							</Text>
+							{systemName.trim() && systemCssPath.trim() ? (
+								<label
+									htmlFor="create-project-panel-default-system"
+									className="flex items-start gap-3"
+								>
+									<Checkbox
+										id="create-project-panel-default-system"
+										checked={setSystemAsDefault}
+										onCheckedChange={(checked) =>
+											setSetSystemAsDefault(checked === true)
+										}
+										disabled={inputsDisabled}
+									/>
+									<span className="flex min-w-0 flex-col gap-0.5">
+										<Text variant="label" tone="foreground">
+											Set as default system
+										</Text>
+										<Text tone="muted" className="text-[11px]">
+											New designs will automatically link to this system.
+										</Text>
+									</span>
+								</label>
+							) : null}
 							{hasPartialSystemLink ? (
 								<Alert variant="inline">
 									Provide both a design system name and CSS path, or leave both

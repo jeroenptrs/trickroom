@@ -169,6 +169,13 @@ export type TrickroomConfig = {
 	schemaVersion?: 1;
 	projectId?: string;
 	name: string;
+	/** Stable system id used when new designs omit an explicit system link. */
+	defaultSystemId?: string;
+	/**
+	 * Creation/migration helper resolved to `defaultSystemId` and omitted from
+	 * persisted config after legacy `systems` manifests are written.
+	 */
+	defaultSystemName?: string;
 	/**
 	 * Legacy input only. New writes migrate configured systems to
 	 * `.trickroom/systems/<initial-safe-name>/system.json`.

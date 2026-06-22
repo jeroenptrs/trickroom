@@ -30,6 +30,12 @@ import {
 	writeDesignSystemManifest,
 } from "../utils/design-system-store";
 import {
+	clearDefaultSystemIfMatches,
+	resolvePersistedDefaultSystemId,
+	setConfigDefaultSystemId,
+} from "../utils/project-default-system";
+import { writeProjectConfig } from "../project";
+import {
 	deleteFont,
 	FontManifestError,
 	type FontFace,
@@ -124,18 +130,24 @@ const createSystemStorageErrorResponse = (error: unknown) => {
 	return jsonError("Failed to process system request", 500);
 };
 
-const systemSummary = (system: DesignSystemRecord) => ({
+const systemSummary = (
+	system: DesignSystemRecord,
+	config: TrickroomConfig,
+) => ({
 	systemId: system.manifest.systemId,
 	systemName: system.manifest.systemName,
+	isDefault:
+		resolvePersistedDefaultSystemId(config) === system.manifest.systemId,
 	...(system.manifest.cssPath ? { cssPath: system.manifest.cssPath } : {}),
 	iconFolderPaths: system.manifest.iconFolderPaths ?? [],
 });
 
 systemsRoutes.get("/", async (c) => {
 	const projectRoot = getProjectRoot(c);
+	const config = getConfig(c);
 	try {
 		const systems = await listDesignSystems(projectRoot);
-		return c.json({ systems: systems.map(systemSummary) });
+		return c.json({ systems: systems.map((system) => systemSummary(system, config)) });
 	} catch (error) {
 		return createSystemStorageErrorResponse(error);
 	}
@@ -143,9 +155,10 @@ systemsRoutes.get("/", async (c) => {
 
 systemsRoutes.get("", async (c) => {
 	const projectRoot = getProjectRoot(c);
+	const config = getConfig(c);
 	try {
 		const systems = await listDesignSystems(projectRoot);
-		return c.json({ systems: systems.map(systemSummary) });
+		return c.json({ systems: systems.map((system) => systemSummary(system, config)) });
 	} catch (error) {
 		return createSystemStorageErrorResponse(error);
 	}
@@ -162,6 +175,7 @@ const createSystemRouteHandler = async (c: Context) => {
 
 	const systemName = validateSystemName(readString(body, "systemName") ?? "");
 	const cssPath = readString(body, "cssPath")?.trim();
+	const setAsDefault = body.setAsDefault === true;
 	if (!systemName || !cssPath) {
 		return jsonError("Request body must include systemName and cssPath", 400);
 	}
@@ -174,12 +188,18 @@ const createSystemRouteHandler = async (c: Context) => {
 			systemName,
 			cssPath,
 		});
+		const nextConfig = setAsDefault
+			? await writeProjectConfig(
+					projectRoot,
+					setConfigDefaultSystemId(config, manifest.systemId),
+				)
+			: config;
 		return c.json(
 			{
 				systemId: manifest.systemId,
 				systemName: manifest.systemName,
 				cssPath: manifest.cssPath,
-				config,
+				config: nextConfig,
 			},
 			201,
 		);
@@ -265,11 +285,19 @@ systemsRoutes.delete("/:systemName", async (c) => {
 
 	try {
 		await deleteDesignSystemStorage(projectRoot, system.manifest.systemId);
+		const nextConfig = clearDefaultSystemIfMatches(
+			config,
+			system.manifest.systemId,
+		);
+		const writtenConfig =
+			nextConfig === config
+				? config
+				: await writeProjectConfig(projectRoot, nextConfig);
 		return c.json({
 			ok: true,
 			systemId: system.manifest.systemId,
 			systemName: system.manifest.systemName,
-			config,
+			config: writtenConfig,
 		});
 	} catch (error) {
 		return createSystemStorageErrorResponse(error);

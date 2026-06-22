@@ -17,6 +17,7 @@ import {
 import { InputField } from "./ui/input";
 import { Separator } from "./ui/separator";
 import { Text } from "./ui/text";
+import Checkbox from "./ui/checkbox";
 
 const systemNamePattern = /^[A-Za-z0-9_@-]+$/;
 
@@ -24,6 +25,7 @@ export function CreateProject() {
 	const [name, setName] = useState("");
 	const [systemName, setSystemName] = useState("");
 	const [systemCssPath, setSystemCssPath] = useState("");
+	const [setSystemAsDefault, setSetSystemAsDefault] = useState(true);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
@@ -34,13 +36,21 @@ export function CreateProject() {
 		Boolean(systemName.trim()) && !systemNamePattern.test(systemName.trim());
 
 	const createProjectMutation = useMutation({
-		mutationFn: () =>
-			createConfigFile({
+		mutationFn: () => {
+			const trimmedSystemName = systemName.trim();
+			const trimmedSystemCssPath = systemCssPath.trim();
+			return createConfigFile({
 				name,
-				...(systemName.trim() && systemCssPath.trim()
-					? { systems: { [systemName.trim()]: systemCssPath.trim() } }
+				...(trimmedSystemName && trimmedSystemCssPath
+					? {
+							systems: { [trimmedSystemName]: trimmedSystemCssPath },
+							...(setSystemAsDefault
+								? { defaultSystemName: trimmedSystemName }
+								: {}),
+						}
 					: {}),
-			}),
+			});
+		},
 		onSuccess: async () => {
 			await queryClient.invalidateQueries({ queryKey: configFileQueryKey });
 			navigate("/", { replace: true });
@@ -124,6 +134,31 @@ export function CreateProject() {
 								Use only letters, numbers, dashes, underscores, and at-signs in
 								the design system name.
 							</div>
+						) : null}
+						{systemName.trim() && systemCssPath.trim() ? (
+							<label
+								htmlFor="create-project-default-system"
+								className="flex items-start gap-3"
+							>
+								<Checkbox
+									id="create-project-default-system"
+									checked={setSystemAsDefault}
+									onCheckedChange={(checked) =>
+										setSetSystemAsDefault(checked === true)
+									}
+									disabled={
+										createProjectMutation.isPending || configQuery.isPending
+									}
+								/>
+								<span className="flex min-w-0 flex-col gap-0.5">
+									<Text variant="label" tone="foreground">
+										Set as default system
+									</Text>
+									<Text tone="muted" className="text-[11px]">
+										New designs will automatically link to this system.
+									</Text>
+								</span>
+							</label>
 						) : null}
 						{createProjectMutation.isError ? (
 							<div className="bg-red-500 px-2 py-1 text-xs text-white w-fit">

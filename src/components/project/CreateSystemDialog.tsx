@@ -23,6 +23,7 @@ import { Input } from "../ui/input";
 import { InputGroup, InputGroupButton } from "../ui/input-group";
 import { Separator } from "../ui/separator";
 import { Text } from "../ui/text";
+import Checkbox from "../ui/checkbox";
 
 export function CreateSystemDialog({
 	open,
@@ -38,6 +39,7 @@ export function CreateSystemDialog({
 	const formId = useId();
 	const [systemName, setSystemName] = useState("");
 	const [cssPath, setCssPath] = useState("");
+	const [setAsDefault, setSetAsDefault] = useState(true);
 	const [cssPickerError, setCssPickerError] = useState<string | null>(null);
 	const [isPickingCss, setIsPickingCss] = useState(false);
 	const desktopApi = getTrickroomDesktopApi();
@@ -60,10 +62,12 @@ export function CreateSystemDialog({
 		if (open) {
 			mutation.reset();
 			setCssPickerError(null);
+			setSetAsDefault(true);
 			return;
 		}
 		setSystemName("");
 		setCssPath("");
+		setSetAsDefault(true);
 		setCssPickerError(null);
 	}, [open, mutation.reset]);
 
@@ -81,6 +85,7 @@ export function CreateSystemDialog({
 		mutation.mutate({
 			systemName: trimmedSystemName,
 			cssPath: trimmedCssPath,
+			setAsDefault,
 		});
 	};
 
@@ -186,6 +191,27 @@ export function CreateSystemDialog({
 										Trickroom indexes the @theme tokens declared in this file.
 									</Text>
 								</div>
+								<label
+									htmlFor={`${formId}-default`}
+									className="flex items-start gap-3"
+								>
+									<Checkbox
+										id={`${formId}-default`}
+										checked={setAsDefault}
+										onCheckedChange={(checked) =>
+											setSetAsDefault(checked === true)
+										}
+										disabled={mutation.isPending}
+									/>
+									<span className="flex min-w-0 flex-col gap-0.5">
+										<Text variant="label" tone="foreground">
+											Set as default system
+										</Text>
+										<Text tone="muted" className="text-[11px] leading-relaxed">
+											New designs will automatically link to this system.
+										</Text>
+									</span>
+								</label>
 							</div>
 							{errorMessage ? (
 								<Alert variant="panel" tone="danger">

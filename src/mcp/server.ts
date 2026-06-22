@@ -108,6 +108,7 @@ import {
 	listDesignSystems,
 	removeIconFolderPath,
 } from "../utils/design-system-store";
+import { applyProjectDefaultSystemToDesign } from "../utils/project-default-system";
 import {
 	IconManifestError,
 	normalizeIconId,
@@ -6661,7 +6662,7 @@ Workflow:
 		{
 			title: "Create Design File",
 			description:
-				"Create a new empty Trickroom design file with no boards. Add root boards afterwards with addElement/addRecipe/addSubtree using parentId: null — do not nest boards inside a wrapper layer. Pass systemName at creation when the design will use system components; a system cannot be linked via MCP afterwards. Uses exclusive create semantics instead of expectedRevision because the file must not already exist.",
+				"Create a new empty Trickroom design file with no boards. Add root boards afterwards with addElement/addRecipe/addSubtree using parentId: null — do not nest boards inside a wrapper layer. Pass systemName at creation when the design will use a specific system; omit systemName to inherit the project default system when configured, or pass null to explicitly create an unlinked design. Uses exclusive create semantics instead of expectedRevision because the file must not already exist.",
 			inputSchema: withProjectScopedInput({
 				name: z.string().min(1).describe("Design file name."),
 				systemName: z
@@ -6670,7 +6671,7 @@ Workflow:
 					.nullable()
 					.optional()
 					.describe(
-						"Optional configured design system name. Pass null to explicitly create an unlinked design.",
+						"Optional configured design system name. Omit to inherit the project default system when configured. Pass null to explicitly create an unlinked design.",
 					),
 				designFileId: z
 					.string()
@@ -6758,12 +6759,21 @@ Workflow:
 							normalizedSystemName === null
 								? null
 								: await assertConfiguredSystem(context, normalizedSystemName);
-						const design = createBlankDesign(
-							trimmedName,
-							normalizedSystemName === undefined
-								? undefined
-								: (system?.manifest.systemId ?? null),
+						const design = await applyProjectDefaultSystemToDesign(
+							context.projectRoot,
+							context.config,
+							createBlankDesign(
+								trimmedName,
+								normalizedSystemName === undefined
+									? undefined
+									: (system?.manifest.systemId ?? null),
+							),
 						);
+						const linkedSystem =
+							system ??
+							(design.systemId
+								? await findDesignSystem(context.projectRoot, design.systemId)
+								: null);
 						const write = await service.createDesignFile(file, design);
 						await notifyResourceListChanged();
 
@@ -6776,7 +6786,7 @@ Workflow:
 								file: write.file,
 								name: write.design.name,
 								systemId: write.design.systemId ?? null,
-								systemName: system?.manifest.systemName ?? null,
+								systemName: linkedSystem?.manifest.systemName ?? null,
 								revision: write.revision,
 							},
 							rootElementIds: write.design.boards.map((board) => board.id),

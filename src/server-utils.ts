@@ -64,6 +64,12 @@ export const isTrickroomConfig = (value: unknown): value is TrickroomConfig =>
 	value.name.trim().length > 0 &&
 	!("tailwindRoot" in value) &&
 	(value.systems === undefined || isTrickroomSystems(value.systems)) &&
+	(value.defaultSystemId === undefined ||
+		(typeof value.defaultSystemId === "string" &&
+			value.defaultSystemId.trim().length > 0)) &&
+	(value.defaultSystemName === undefined ||
+		(typeof value.defaultSystemName === "string" &&
+			value.defaultSystemName.trim().length > 0)) &&
 	(value.mcp === undefined || isTrickroomMcpConfig(value.mcp));
 
 const isTrickroomRole = (value: unknown): value is Role | undefined =>

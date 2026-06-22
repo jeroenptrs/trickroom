@@ -38,6 +38,18 @@ export const updateProjectMcpSettings = async (
 	return readJsonOrThrow<TrickroomConfig>(response);
 };
 
+export const updateProjectDefaultSystem = async (systemId: string | null) => {
+	const response = await fetch("/api/trickroom/config/default-system", {
+		method: "PUT",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ systemId }),
+	});
+
+	return readJsonOrThrow<TrickroomConfig>(response);
+};
+
 export const configFileQueryKey = ["trickroom-config"];
 
 export const configFileProjectQueryKey = (projectScope?: ProjectQueryScope) =>

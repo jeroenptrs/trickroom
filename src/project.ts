@@ -10,6 +10,10 @@ import {
 import { readJsonFile, writeJsonFileAtomically } from "./server-file-utils";
 import type { TrickroomConfig } from "./types";
 import { migrateConfiguredSystemsToManifests } from "./utils/design-system-store";
+import {
+	resolveDefaultSystemIdFromName,
+	setConfigDefaultSystemId,
+} from "./utils/project-default-system";
 
 export type TrickroomProjectPaths = {
 	projectRoot: string;
@@ -67,6 +71,12 @@ export const normalizeTrickroomConfig = (
 	schemaVersion: 1,
 	...(config.projectId ? { projectId: config.projectId.trim() } : {}),
 	name: config.name.trim(),
+	...(config.defaultSystemId
+		? { defaultSystemId: config.defaultSystemId.trim() }
+		: {}),
+	...(config.defaultSystemName
+		? { defaultSystemName: config.defaultSystemName.trim() }
+		: {}),
 	...(config.systems
 		? {
 				systems: Object.fromEntries(
@@ -104,10 +114,15 @@ export const normalizeTrickroomConfig = (
 		: {}),
 });
 
-const omitConfiguredSystems = (config: TrickroomConfig): TrickroomConfig => {
-	const { systems: _systems, ...withoutSystems } = config;
+const omitTransientConfigFields = (config: TrickroomConfig): TrickroomConfig => {
+	const {
+		systems: _systems,
+		defaultSystemName: _defaultSystemName,
+		...withoutTransientFields
+	} = config;
 	void _systems;
-	return withoutSystems;
+	void _defaultSystemName;
+	return withoutTransientFields;
 };
 
 export const readTrickroomConfig = async (configPath: string) =>
@@ -165,7 +180,16 @@ const writeProjectConfigAndSystemManifests = async (
 		paths.projectRoot,
 		configWithIdentity.systems,
 	);
-	const storedConfig = omitConfiguredSystems(configWithIdentity);
+	let storedConfig = omitTransientConfigFields(configWithIdentity);
+	if (configWithIdentity.defaultSystemName?.trim()) {
+		const defaultSystemId = await resolveDefaultSystemIdFromName(
+			paths.projectRoot,
+			configWithIdentity.defaultSystemName,
+		);
+		if (defaultSystemId) {
+			storedConfig = setConfigDefaultSystemId(storedConfig, defaultSystemId);
+		}
+	}
 	await writeJsonFileAtomically(paths.configPath, storedConfig);
 	return storedConfig;
 };

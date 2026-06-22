@@ -5,6 +5,7 @@ import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 export type SystemSummary = {
 	systemId: string;
 	systemName: string;
+	isDefault?: boolean;
 	cssPath?: string;
 	iconFolderPaths?: string[];
 };
@@ -74,16 +75,22 @@ export const updateSystem = async ({
 export const createSystem = async ({
 	systemName,
 	cssPath,
+	setAsDefault,
 }: {
 	systemName: string;
 	cssPath: string;
+	setAsDefault?: boolean;
 }) => {
 	const response = await fetch("/api/trickroom/systems", {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
 		},
-		body: JSON.stringify({ systemName, cssPath }),
+		body: JSON.stringify({
+			systemName,
+			cssPath,
+			...(setAsDefault ? { setAsDefault: true } : {}),
+		}),
 	});
 
 	return readJsonOrThrow<CreateSystemResponse>(response);
