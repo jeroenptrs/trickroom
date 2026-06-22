@@ -41,6 +41,10 @@ import {
 	useComponentDraftSelectedPath,
 } from "../../stores/component-draft-store";
 import { resolveStageDoc } from "../../utils/tailwind-render-mode";
+import {
+	getStagePreviewContainerClassName,
+	useStagePreviewDarkMode,
+} from "../../preview/stage-preview-dark-mode";
 import { Canvas } from "../stage/Canvas";
 
 const stageDoc = resolveStageDoc(stageDocRaw);
@@ -55,6 +59,7 @@ type ComponentStageFrameProps = {
 	iframeRef: RefObject<HTMLIFrameElement | null>;
 	systemId: string;
 	componentName: string;
+	previewDarkMode: boolean;
 	onMount: () => void;
 };
 
@@ -148,14 +153,20 @@ function SerializedDraftNode({ path }: { path: string }): ReactNode {
 	);
 }
 
-function ComponentDraftBoard({ componentName }: { componentName: string }) {
+function ComponentDraftBoard({
+	componentName,
+	previewDarkMode,
+}: {
+	componentName: string;
+	previewDarkMode: boolean;
+}) {
 	const rootPath = useComponentDraftRootPath();
 
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: clicking empty board space clears the draft node selection.
 		// biome-ignore lint/a11y/useKeyWithClickEvents: node selection is keyboard-accessible through layer rows and Escape clears selection.
 		<section
-			className="m-10 flex min-h-[360px] w-[720px] shrink-0 flex-col border border-slate-300 bg-white shadow-sm"
+			className={`m-10 flex min-h-[360px] w-[720px] shrink-0 flex-col border border-slate-300 bg-white shadow-sm ${getStagePreviewContainerClassName(previewDarkMode)}`}
 			data-component-board="single"
 			onClick={() => selectTemplateNode(null)}
 		>
@@ -173,6 +184,7 @@ const ComponentStageFrame = memo(function ComponentStageFrame({
 	iframeRef,
 	systemId,
 	componentName,
+	previewDarkMode,
 	onMount,
 }: ComponentStageFrameProps) {
 	return (
@@ -185,7 +197,10 @@ const ComponentStageFrame = memo(function ComponentStageFrame({
 		>
 			<main className="absolute inset-0 min-w-screen min-h-screen origin-top-left">
 				<DesignSystemRenderContext.Provider value={systemId}>
-					<ComponentDraftBoard componentName={componentName} />
+					<ComponentDraftBoard
+						componentName={componentName}
+						previewDarkMode={previewDarkMode}
+					/>
 				</DesignSystemRenderContext.Provider>
 			</main>
 			<Canvas />
@@ -250,6 +265,7 @@ export function ComponentDraftStage({
 	});
 
 	const componentName = componentQuery.data?.record.name ?? "Component draft";
+	const { enabled: previewDarkMode } = useStagePreviewDarkMode();
 	const stage = useMemo(
 		() => (
 			<ComponentStageFrame
@@ -257,10 +273,11 @@ export function ComponentDraftStage({
 				iframeRef={iframeRef}
 				systemId={systemId}
 				componentName={componentName}
+				previewDarkMode={previewDarkMode}
 				onMount={handleStageMount}
 			/>
 		),
-		[componentId, componentName, handleStageMount, systemId],
+		[componentId, componentName, handleStageMount, previewDarkMode, systemId],
 	);
 
 	if (!componentId) {

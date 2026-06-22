@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
+import { StagePreviewDarkModeProvider } from "../preview/stage-preview-dark-mode";
 import { systemsQueryOptions } from "../queries/systems";
 import {
 	selectTemplateNode,
@@ -330,7 +331,8 @@ export function SystemEditor() {
 
 	const systemId = selectedSystem.systemId;
 	return (
-		<div className="absolute inset-0 z-10 flex min-h-0 bg-slate-100 text-xs text-slate-950">
+		<StagePreviewDarkModeProvider key={selectedComponentId ?? "none"}>
+			<div className="absolute inset-0 z-10 flex min-h-0 bg-slate-100 text-xs text-slate-950">
 			<Tabs
 				value={activePage}
 				onValueChange={handlePageChange}
@@ -418,5 +420,6 @@ export function SystemEditor() {
 				) : null}
 			</Tabs>
 		</div>
+		</StagePreviewDarkModeProvider>
 	);
 }

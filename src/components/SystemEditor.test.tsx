@@ -4,6 +4,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TailwindSyncController } from "../hooks/useTailwindSyncController";
 import { systemsProjectQueryKey } from "../queries/systems";
+import { StagePreviewDarkModeProvider } from "../preview/stage-preview-dark-mode";
 import { TailwindSyncControllerContext } from "./contexts";
 import { SystemEditor } from "./SystemEditor";
 
@@ -1180,11 +1181,13 @@ describe("SystemEditor page panels", () => {
 
 		const html = renderToStaticMarkup(
 			<QueryClientProvider client={queryClient}>
-				<SystemEditorComponentContextPanel
-					systemId="core"
-					componentId="cmp_button"
-					mode="variants"
-				/>
+				<StagePreviewDarkModeProvider>
+					<SystemEditorComponentContextPanel
+						systemId="core"
+						componentId="cmp_button"
+						mode="variants"
+					/>
+				</StagePreviewDarkModeProvider>
 			</QueryClientProvider>,
 		);
 

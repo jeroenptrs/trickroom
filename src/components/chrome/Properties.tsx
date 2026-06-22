@@ -77,6 +77,9 @@ import {
 	getPublishedVersionForInstance,
 } from "./attached-component-inspector";
 import { DesignSystemPicker } from "./DesignSystemPicker";
+import {
+	StagePreviewDarkModeToggle,
+} from "../../preview/stage-preview-dark-mode";
 import { BackgroundProperties } from "./properties/BackgroundProperties";
 import { BorderProperties } from "./properties/BorderProperties";
 import { ClassCompositionPanel } from "./properties/ClassCompositionPanel";
@@ -783,6 +786,7 @@ export function Properties() {
 				</header>
 				<ScrollArea className="min-h-0 flex-1">
 					<div className="flex flex-col gap-4 p-3">
+						<StagePreviewDarkModeToggle />
 						<DesignSystemPicker />
 						<EmptyStateKbdMap />
 					</div>

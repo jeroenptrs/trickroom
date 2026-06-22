@@ -8,7 +8,7 @@ const getTokenReferenceUrl = (systemId: string) =>
 export function OpenDesignTokensButton({
 	systemId,
 	className,
-	iconClassName = "size-4 text-slate-500",
+	iconClassName = "size-4 text-slate-900",
 	title = "Open design tokens",
 }: {
 	systemId: string | null | undefined;

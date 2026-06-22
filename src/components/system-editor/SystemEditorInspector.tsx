@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { StagePreviewDarkModeToggle } from "../../preview/stage-preview-dark-mode";
 import type { ProjectQueryScope } from "../../queries/project-scope";
 import {
 	systemAssetFileUrl,
@@ -1242,6 +1243,7 @@ export function SystemEditorComponentContextPanel({
 					<p className="font-medium text-slate-900">{record.name}</p>
 					<p className="font-mono text-[11px] text-slate-500">{record.slug}</p>
 				</div>
+				<StagePreviewDarkModeToggle />
 				{variantEditor}
 			</div>
 		);

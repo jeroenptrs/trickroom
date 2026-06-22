@@ -39,6 +39,11 @@ import {
 	readResponsiveStageSessionWidth,
 	writeResponsiveStageSessionWidth,
 } from "../utils/responsive-stage-session";
+import {
+	getStagePreviewContainerClassName,
+	StagePreviewDarkModeProvider,
+	useStagePreviewDarkMode,
+} from "../preview/stage-preview-dark-mode";
 import { resolveStageDoc } from "../utils/tailwind-render-mode";
 import { EditorShell } from "./chrome/EditorShell";
 import { IFrameViewContext, useProjectScope } from "./contexts";
@@ -58,11 +63,13 @@ const stageDoc = resolveStageDoc(stageDocRaw);
 type StageFrameProps = {
 	iframeRef: RefObject<HTMLIFrameElement | null>;
 	onMount: () => void;
+	previewDarkMode: boolean;
 };
 
 export const StageFrame = memo(function StageFrame({
 	iframeRef,
 	onMount,
+	previewDarkMode,
 }: StageFrameProps) {
 	return (
 		<Frame
@@ -72,7 +79,9 @@ export const StageFrame = memo(function StageFrame({
 			contentDidMount={onMount}
 			className="h-full w-full border-none"
 		>
-			<main className="absolute inset-0 min-w-screen min-h-screen origin-top-left flex flex-row gap-4">
+			<main
+				className={`absolute inset-0 min-w-screen min-h-screen origin-top-left flex flex-row gap-4 ${getStagePreviewContainerClassName(previewDarkMode)}`}
+			>
 				<Artboards />
 			</main>
 
@@ -80,6 +89,26 @@ export const StageFrame = memo(function StageFrame({
 		</Frame>
 	);
 });
+
+function DesignStage({
+	iframeRef,
+	onMount,
+}: {
+	iframeRef: RefObject<HTMLIFrameElement | null>;
+	onMount: () => void;
+}) {
+	const { enabled: previewDarkMode } = useStagePreviewDarkMode();
+
+	return (
+		<ResponsiveStageFrameWrapper>
+			<StageFrame
+				iframeRef={iframeRef}
+				onMount={onMount}
+				previewDarkMode={previewDarkMode}
+			/>
+		</ResponsiveStageFrameWrapper>
+	);
+}
 
 export function Design() {
 	const { uuid } = useParams<{ uuid: string }>();
@@ -193,11 +222,7 @@ export function Design() {
 
 	const errorMessage = (designQuery.error as Error | null)?.message;
 	const stage = useMemo(
-		() => (
-			<ResponsiveStageFrameWrapper>
-				<StageFrame iframeRef={iframeRef} onMount={handleStageMount} />
-			</ResponsiveStageFrameWrapper>
-		),
+		() => <DesignStage iframeRef={iframeRef} onMount={handleStageMount} />,
 		[handleStageMount],
 	);
 	const setClampedResponsiveWidth = useCallback(
@@ -263,7 +288,9 @@ export function Design() {
 	return (
 		<IFrameViewContext.Provider value={view}>
 			<ResponsiveStageContext.Provider value={responsiveStage}>
-				<EditorShell designFile={designFile}>{stage}</EditorShell>
+				<StagePreviewDarkModeProvider key={designFile}>
+					<EditorShell designFile={designFile}>{stage}</EditorShell>
+				</StagePreviewDarkModeProvider>
 			</ResponsiveStageContext.Provider>
 		</IFrameViewContext.Provider>
 	);

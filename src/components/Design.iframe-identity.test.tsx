@@ -269,7 +269,11 @@ function ResponsiveStageFrameHarness({
 	return (
 		<ResponsiveStageContext.Provider value={responsiveStage}>
 			<ResponsiveStageFrameWrapper>
-				<StageFrame iframeRef={iframeRef} onMount={handleMount} />
+				<StageFrame
+					iframeRef={iframeRef}
+					onMount={handleMount}
+					previewDarkMode={false}
+				/>
 			</ResponsiveStageFrameWrapper>
 		</ResponsiveStageContext.Provider>
 	);
