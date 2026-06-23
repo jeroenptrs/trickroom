@@ -240,6 +240,16 @@ export const components = {
 			value: "checkbox",
 		},
 		controls: {
+			value: {
+				label: "Value",
+				description:
+					"Must be unique among the checkboxes of this group — duplicate values are indistinguishable on submission.",
+				input: "text",
+				prop: "value",
+				valueType: "string",
+				defaultValue: "checkbox",
+				uniqueAmongSiblings: true,
+			},
 			defaultChecked: {
 				label: "Default checked",
 				input: "switch",

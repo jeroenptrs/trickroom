@@ -341,6 +341,14 @@ const recipes = {
 			},
 		},
 		controls: {
+			value: {
+				label: "Value",
+				input: "text",
+				prop: "value",
+				valueType: "string",
+				defaultValue: "checkbox",
+				path: "root",
+			},
 			defaultChecked: {
 				label: "Default checked",
 				input: "switch",
