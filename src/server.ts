@@ -5,11 +5,6 @@ import { createInterface } from "node:readline/promises";
 import { Hono } from "hono";
 import { resolveTrickroomHome } from "./app-state/home";
 import {
-	parseMcpToolGroupSettingsPatch,
-	readTrickroomSettings,
-	updateMcpToolGroupSettings,
-} from "./app-state/settings";
-import {
 	clearActiveProjectLocation,
 	deleteProjectLocation,
 	getActiveProjectLocation,
@@ -17,6 +12,11 @@ import {
 	readProjectRegistry,
 	updateProjectLocationName,
 } from "./app-state/project-registry";
+import {
+	parseMcpToolGroupSettingsPatch,
+	readTrickroomSettings,
+	updateMcpToolGroupSettings,
+} from "./app-state/settings";
 import { parseDesignResourceUri } from "./mcp/resources";
 import { MCP_TOOL_GROUPS } from "./mcp/tool-groups";
 import {
@@ -35,6 +35,7 @@ import {
 	repairInvalidKnownRecipeInstances,
 } from "./recipes/repair";
 import { exportRoutes } from "./routes/export";
+import { registerProjectAndDesignMemoryRoutes } from "./routes/memory";
 import { systemsRoutes } from "./routes/systems";
 import { tailwindRoutes } from "./routes/tailwind";
 import { captureNodeException } from "./sentry/node";
@@ -60,10 +61,6 @@ import type {
 	TrickroomDesignSummary,
 } from "./types";
 import {
-	applyProjectDefaultSystemToDesign,
-	setConfigDefaultSystemId,
-} from "./utils/project-default-system";
-import {
 	componentAllowsBlankResourceId,
 	getResourceIdProp,
 	getResourceKindForComponent,
@@ -73,6 +70,10 @@ import {
 	findDesignSystem,
 } from "./utils/design-system-store";
 import { normalizeIconId, readIcon } from "./utils/icon-manifest-service";
+import {
+	applyProjectDefaultSystemToDesign,
+	setConfigDefaultSystemId,
+} from "./utils/project-default-system";
 import { scanDesignFileSystemComponentUsage } from "./utils/system-component-usage-scan";
 
 export type TrickroomActiveProject = TrickroomProjectContext & {
@@ -850,6 +851,10 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 	app.use("/api/trickroom/systems", attachProjectToSystemsRequest);
 	app.use("/api/trickroom/systems/*", attachProjectToSystemsRequest);
 	app.route("/api/trickroom/systems", systemsRoutes);
+
+	// Project- and design-scoped memory reuse the same project middleware to
+	// attach projectRoot + config before reading/writing memory manifests.
+	registerProjectAndDesignMemoryRoutes(app, attachProjectToSystemsRequest);
 
 	// Export reuses the systems middleware: it needs projectRoot + config to
 	// resolve the system, read its tokens/icons/assets from disk, and compile.

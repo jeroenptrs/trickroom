@@ -6,6 +6,7 @@ export const MCP_TOOL_GROUP_IDS = [
 	"registry",
 	"designSystems",
 	"systemComponents",
+	"memory",
 ] as const;
 
 export type McpToolGroupId = (typeof MCP_TOOL_GROUP_IDS)[number];
@@ -138,6 +139,20 @@ export const MCP_TOOL_GROUPS = [
 			"deleteSystemComponent",
 			"migrateSystemComponentInstance",
 			"bulkMigrateSystemComponentUsages",
+		],
+	},
+	{
+		id: "memory",
+		label: "Memory & notes",
+		description:
+			"Read and write durable steering/alignment notes scoped to a system, design, or the project.",
+		tools: [
+			"listMemoryNotes",
+			"getMemoryNote",
+			"addMemoryNote",
+			"updateMemoryNote",
+			"deleteMemoryNote",
+			"listReferenceTargets",
 		],
 	},
 ] as const satisfies readonly McpToolGroupDefinition[];

@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
+import { writeProjectConfig } from "../project";
 import { jsonError } from "../server-utils";
 import type { TrickroomConfig } from "../types";
 import {
@@ -25,20 +26,14 @@ import {
 	deleteDesignSystemStorage,
 	findDesignSystem,
 	listDesignSystems,
-	resolveDesignSystemSafeKey,
 	removeIconFolderPath,
+	resolveDesignSystemSafeKey,
 	writeDesignSystemManifest,
 } from "../utils/design-system-store";
 import {
-	clearDefaultSystemIfMatches,
-	resolvePersistedDefaultSystemId,
-	setConfigDefaultSystemId,
-} from "../utils/project-default-system";
-import { writeProjectConfig } from "../project";
-import {
 	deleteFont,
-	FontManifestError,
 	type FontFace,
+	FontManifestError,
 	type FontManifestFont,
 	importManagedFontFile,
 	readFont,
@@ -58,6 +53,12 @@ import {
 	readSanitizedIconSvg,
 	syncIconManifest,
 } from "../utils/icon-manifest-service";
+import {
+	clearDefaultSystemIfMatches,
+	resolvePersistedDefaultSystemId,
+	setConfigDefaultSystemId,
+} from "../utils/project-default-system";
+import { registerSystemMemoryRoutes } from "./memory";
 import { registerSystemComponentRoutes } from "./system-components";
 
 export const systemsRoutes = new Hono();
@@ -147,7 +148,9 @@ systemsRoutes.get("/", async (c) => {
 	const config = getConfig(c);
 	try {
 		const systems = await listDesignSystems(projectRoot);
-		return c.json({ systems: systems.map((system) => systemSummary(system, config)) });
+		return c.json({
+			systems: systems.map((system) => systemSummary(system, config)),
+		});
 	} catch (error) {
 		return createSystemStorageErrorResponse(error);
 	}
@@ -158,7 +161,9 @@ systemsRoutes.get("", async (c) => {
 	const config = getConfig(c);
 	try {
 		const systems = await listDesignSystems(projectRoot);
-		return c.json({ systems: systems.map((system) => systemSummary(system, config)) });
+		return c.json({
+			systems: systems.map((system) => systemSummary(system, config)),
+		});
 	} catch (error) {
 		return createSystemStorageErrorResponse(error);
 	}
@@ -795,7 +800,10 @@ systemsRoutes.get("/:systemName/fonts/managed-file", async (c) => {
 			return jsonError(`Managed font file not found for "${managedPath}"`, 404);
 		}
 		if (fsError.code === "EISDIR") {
-			return jsonError(`Managed font path is not a file for "${managedPath}"`, 400);
+			return jsonError(
+				`Managed font path is not a file for "${managedPath}"`,
+				400,
+			);
 		}
 
 		return createFontErrorResponse(error);
@@ -845,9 +853,13 @@ systemsRoutes.get("/:systemName/fonts", async (c) => {
 	const { systemId, systemName } = getRouteSystem(c);
 
 	try {
-		const syncResult = await syncFontsFromSystemStylesheet(projectRoot, systemId, {
-			onlyWhenEmpty: true,
-		});
+		const syncResult = await syncFontsFromSystemStylesheet(
+			projectRoot,
+			systemId,
+			{
+				onlyWhenEmpty: true,
+			},
+		);
 		const manifest = syncResult.manifest;
 		return c.json({
 			systemId,
@@ -877,7 +889,10 @@ systemsRoutes.post("/:systemName/fonts/sync-from-stylesheet", async (c) => {
 	const { systemId, systemName } = getRouteSystem(c);
 
 	try {
-		const syncResult = await syncFontsFromSystemStylesheet(projectRoot, systemId);
+		const syncResult = await syncFontsFromSystemStylesheet(
+			projectRoot,
+			systemId,
+		);
 		const manifest = syncResult.manifest;
 		return c.json({
 			systemId,
@@ -1209,3 +1224,4 @@ systemsRoutes.get("/:systemName/icons/:iconId/svg", async (c) => {
 });
 
 registerSystemComponentRoutes(systemsRoutes, getProjectRoot, getRouteSystem);
+registerSystemMemoryRoutes(systemsRoutes, getProjectRoot, getRouteSystem);

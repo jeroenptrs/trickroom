@@ -19,11 +19,15 @@ describe("MCP tool group controls", () => {
 	afterEach(async () => {
 		await Promise.all(sessions.splice(0).map((session) => session.close()));
 		await Promise.all(fixtures.splice(0).map((fixture) => fixture.cleanup()));
-		await Promise.all(tempHomes.splice(0).map((home) => rm(home, { force: true, recursive: true })));
+		await Promise.all(
+			tempHomes
+				.splice(0)
+				.map((home) => rm(home, { force: true, recursive: true })),
+		);
 	});
 
 	it("maps every registered MCP tool to a group", () => {
-		expect(MCP_TOOL_NAMES.length).toBe(66);
+		expect(MCP_TOOL_NAMES.length).toBe(72);
 	});
 
 	it("hides disabled tool groups from listTools", async () => {
@@ -44,6 +48,7 @@ describe("MCP tool group controls", () => {
 						registry: true,
 						designSystems: true,
 						systemComponents: true,
+						memory: true,
 					},
 				},
 			},

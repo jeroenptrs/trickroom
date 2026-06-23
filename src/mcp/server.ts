@@ -112,7 +112,6 @@ import {
 	listDesignSystems,
 	removeIconFolderPath,
 } from "../utils/design-system-store";
-import { applyProjectDefaultSystemToDesign } from "../utils/project-default-system";
 import {
 	IconManifestError,
 	normalizeIconId,
@@ -120,6 +119,24 @@ import {
 	readIconManifest,
 	syncIconManifest,
 } from "../utils/icon-manifest-service";
+import {
+	addMemoryNote,
+	deleteMemoryNote,
+	MEMORY_CATEGORIES,
+	type MemoryCategory,
+	MemoryManifestError,
+	type MemoryScope,
+	readMemoryManifest,
+	summarizeMemoryManifest,
+	updateMemoryNote,
+} from "../utils/memory-manifest-service";
+import {
+	collectMemoryReferenceWarnings,
+	listMemoryReferenceTargets,
+	MEMORY_REFERENCE_TYPES,
+	type MemoryReferenceType,
+} from "../utils/memory-references";
+import { applyProjectDefaultSystemToDesign } from "../utils/project-default-system";
 import {
 	bulkMigrateProjectSystemComponentInstances,
 	type SystemComponentBulkMigrationReport,
@@ -191,15 +208,15 @@ import {
 	TrickroomMcpProjectResolverError,
 } from "./project-resolver";
 import {
-	type McpToolControl,
-	installMcpToolGroupControls,
-} from "./tool-group-controls";
-import {
 	buildDesignResourceUri,
 	parseDesignResourceUri,
 	slugifyDesignTitle,
 } from "./resources";
 import { systemComponentInstanceOverrideSchema } from "./system-component-schemas";
+import {
+	installMcpToolGroupControls,
+	type McpToolControl,
+} from "./tool-group-controls";
 
 export type TrickroomMcpServerContext = TrickroomProjectContext & {
 	trickroomHome?: string;
@@ -669,6 +686,9 @@ const stripHeavyTokenDiagnostics = <
 
 const createProjectInfoResult = async (context: TrickroomMcpServerContext) => {
 	const systems = await listDesignSystems(context.projectRoot);
+	const projectMemory = await readMemoryManifest(context.projectRoot, {
+		kind: "project",
+	});
 	const payload = {
 		projectName: context.config.name,
 		projectId: context.config.projectId ?? null,
@@ -681,6 +701,9 @@ const createProjectInfoResult = async (context: TrickroomMcpServerContext) => {
 			systemName: system.manifest.systemName,
 			...(system.manifest.cssPath ? { cssPath: system.manifest.cssPath } : {}),
 		})),
+		memory: summarizeMemoryManifest(projectMemory.manifest),
+		memoryHint:
+			"Project memory captures why this project exists and how it should be steered. Call listMemoryNotes({ scope: { kind: 'project' } }) to read it before broad work.",
 	};
 
 	return createJsonResult(payload);
@@ -2351,10 +2374,7 @@ const buildRegistryCatalogForContract = (
 			return components.map((component) =>
 				includeRegistryComponents === "full"
 					? summarizeComponentForAuthoringContract(library, component)
-					: summarizeComponentCompactForAuthoringContract(
-							library,
-							component,
-						),
+					: summarizeComponentCompactForAuthoringContract(library, component),
 			);
 		},
 	);
@@ -2905,6 +2925,7 @@ const getAuthoringContractPayload = async (
 			"Registry-reference and recipe marker props are system-owned and must not be written through instance props.",
 			"Use updateElementText for text role content; text is stored in children, not props.",
 			"Only branch role elements accept child elements; text and leaf role elements reject child insertion and moves into them.",
+			"Before authoring, call listMemoryNotes for the relevant design, system, and project scopes to honor recorded intent, usage conventions, and constraints; capture durable rationale with addMemoryNote.",
 		],
 		authoringGuidance: buildAuthoringGuidance(),
 		...(includeExamples ? { examples: AUTHORING_CONTRACT_EXAMPLES } : {}),
@@ -4722,6 +4743,9 @@ export const createTrickroomMcpServer = (
 			if (error instanceof SystemComponentOperationsError) {
 				return createToolErrorResult(context, error.code, error.message);
 			}
+			if (error instanceof MemoryManifestError) {
+				return createToolErrorResult(context, error.code, error.message);
+			}
 			throw error;
 		}
 	};
@@ -4740,7 +4764,7 @@ export const createTrickroomMcpServer = (
 						text: `I need to edit the Trickroom design file "${designFileId}". Please guide me through a safe edit workflow:
 
 1. **Select MCP Project Scope**: Call 'getSelectedProject'. If no project is selected, call 'listProjects' and then 'selectProject' with a known 'locationId' from each listProjects entry (not just 'projectId') before any writes.
-2. **Read Current State**: Call 'listDesignFiles' to get the current 'revision', counts, and design metadata.
+2. **Read Current State**: Call 'listDesignFiles' to get the current 'revision', counts, and design metadata. Also call 'listMemoryNotes' with 'scope { kind: "design", designFileId }' (and the linked system + project scopes) to load steering notes, intent, and constraints before changing anything.
 3. **Load Authoring Contract**: Call 'getDesignAuthoringContract' with 'designFileId' once before planning mutations.
 4. **Understand Structure**: Call 'readDesignGraph' for parent/child relationships, element IDs, and addresses. Use 'readElement' or bounded 'readSubtree' only for local detail where the graph is insufficient.
 5. **Plan Registry Content**: If adding UI, use 'listRegistryComponents', 'listRegistryRecipes', 'describeRegistryComponent', and 'describeRegistryRecipe'. Prefer 'addRecipe' or 'addSubtree' for structured UI instead of hand-assembling many nodes with repeated 'addElement' calls.
@@ -4844,7 +4868,7 @@ Workflow for Multi-Step Refactoring:
 
 Discovery Steps (Read-Only):
 1. **Select MCP Project Scope**: Call 'getSelectedProject'. If no project is selected, call 'listProjects' and then 'selectProject' with a known 'locationId' from each listProjects entry (not just 'projectId') before discovery.
-2. **Metadata & Graph**: Call 'listDesignFiles' for revision and counts, then 'readDesignGraph' for structure, parent/child relationships, and element IDs. Use bounded 'readSubtree' only where local detail is needed.
+2. **Metadata, Memory & Graph**: Call 'listDesignFiles' for revision and counts, and 'listMemoryNotes' with 'scope { kind: "design", designFileId }' (plus linked system + project scopes) to ground the explanation in recorded intent and rationale. Then call 'readDesignGraph' for structure, parent/child relationships, and element IDs. Use bounded 'readSubtree' only where local detail is needed.
 3. **Authoring Contract**: Call 'getDesignAuthoringContract' to summarize writable vs system-owned props, composition rules, and mutation constraints.
 4. **Registry & Recipes**: Use 'listRegistries', registry component/recipe lists, and describe tools to explain which libraries, components, and attached recipes are in use.
 5. **Assets & Icons**: Call 'getDesignSystemForDesignFile', then 'listSystemAssets', 'listSystemIcons', and 'findAssetUsage' / 'findIconUsage' when resource references matter.
@@ -4922,7 +4946,7 @@ ${brief}
 Workflow:
 1. **Select MCP Project Scope**: Call 'getSelectedProject'. If no project is selected, call 'listProjects' and then 'selectProject' with a known 'locationId' from each listProjects entry (not just 'projectId') before any writes.
 2. **Create Design File**: Call 'createDesignFile' with a clear name${systemName ? ` and systemName "${systemName}"` : " (omit systemName only when an unlinked design is intentional — a system cannot be linked via MCP afterwards)"}${designFileId ? ` and designFileId "${designFileId}"` : ""}. Capture the returned 'revision' and design file ID. The new design starts with no boards.
-3. **Resolve Linked System**: Call 'getDesignSystemForDesignFile' on the new design. Only when a configured system is linked should you call system-scoped tools such as 'listDesignTokens', 'listSystemAssets', or 'listSystemIcons'.
+3. **Resolve Linked System**: Call 'getDesignSystemForDesignFile' on the new design. Only when a configured system is linked should you call system-scoped tools such as 'listDesignTokens', 'listSystemAssets', or 'listSystemIcons'. When a system is linked, call 'listMemoryNotes' with 'scope { kind: "system", systemName }' (and the project scope) to honor recorded usage conventions and constraints; record new design intent with 'addMemoryNote' under 'scope { kind: "design", designFileId }' once the design takes shape.
 4. **Load Authoring Contract**: Call 'getDesignAuthoringContract' for the new design file before planning content.
 5. **Build with Structure**: Create boards at the design root by passing 'parentId: null'; never wrap them in a shared top-level layer. Prefer 'addRecipe' and 'addSubtree' over many piecemeal 'addElement' calls. Use 'listRegistryRecipes' and describe tools to pick appropriate recipes.
 6. **Dry-Run Inserts**: Call 'validateSubtree' (or 'validateOperation' for single inserts) before committing larger structures.
@@ -5265,15 +5289,37 @@ Workflow:
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ designFileId, depth, maxNodes, allowLarge, responseFormat, project }) =>
+		async ({
+			designFileId,
+			depth,
+			maxNodes,
+			allowLarge,
+			responseFormat,
+			project,
+		}) =>
 			withPolicyErrorHandling(project, async (context) => {
 				const payload = await readDesignFilePayload(context, designFileId, {
 					depth,
 					maxNodes,
 					allowLarge,
 				});
+				const designMemory = await readMemoryManifest(context.projectRoot, {
+					kind: "design",
+					designId: designFileId,
+				});
+				const memorySummary = summarizeMemoryManifest(designMemory.manifest);
+				const payloadWithMemory = {
+					...payload,
+					memory: memorySummary,
+					...(memorySummary.noteCount > 0
+						? {
+								memoryHint:
+									"This design has memory notes describing its intent and rationale. Call listMemoryNotes({ scope: { kind: 'design', designFileId } }) before editing or explaining it.",
+							}
+						: {}),
+				};
 				return createReadToolResult(
-					payload,
+					payloadWithMemory,
 					responseFormat ?? "json",
 					summarizeDesignFileReadText,
 				);
@@ -5358,11 +5404,7 @@ Workflow:
 					});
 				} catch (error) {
 					if (error instanceof ExportDestinationError) {
-						return createToolErrorResult(
-							context,
-							error.code,
-							error.message,
-						);
+						return createToolErrorResult(context, error.code, error.message);
 					}
 					throw error;
 				}
@@ -5964,9 +6006,24 @@ Workflow:
 			annotations: readOnlyClosedWorldAnnotations,
 		},
 		async ({ designFileId, project }) =>
-			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(await getDesignSystemPayload(context, designFileId)),
-			),
+			withPolicyErrorHandling(project, async (context) => {
+				const payload = await getDesignSystemPayload(context, designFileId);
+				const systemId =
+					payload.designSystem === null ? null : payload.designSystem.systemId;
+				if (!systemId) {
+					return createJsonResult(payload);
+				}
+				const systemMemory = await readMemoryManifest(context.projectRoot, {
+					kind: "system",
+					systemHandle: systemId,
+				});
+				return createJsonResult({
+					...payload,
+					memory: summarizeMemoryManifest(systemMemory.manifest),
+					memoryHint:
+						"System memory captures usage conventions and constraints for this design system. Call listMemoryNotes({ scope: { kind: 'system', systemName } }) before authoring with it.",
+				});
+			}),
 	);
 
 	server.registerTool(
@@ -6702,6 +6759,441 @@ Workflow:
 					systemId: system.manifest.systemId,
 					systemName: system.manifest.systemName,
 					asset: { id: result.assetId, ...result.asset },
+				});
+			}),
+	);
+
+	const memoryCategorySchema = z
+		.enum([...MEMORY_CATEGORIES] as [MemoryCategory, ...MemoryCategory[]])
+		.describe(
+			"Note category. One of: intent, usage, conventions, constraints, decision, todo.",
+		);
+
+	const memoryScopeSchema = z
+		.discriminatedUnion("kind", [
+			z.object({
+				kind: z.literal("system"),
+				systemName: z
+					.string()
+					.min(1)
+					.describe("Configured design system name or id."),
+			}),
+			z.object({
+				kind: z.literal("design"),
+				designFileId: z.string().uuid().describe("Design file UUID."),
+			}),
+			z.object({ kind: z.literal("project") }),
+		])
+		.describe(
+			"Memory owner scope: a system, a design file, or the whole project. Reference tokens like {{design:<uuid>}} or {{component:<systemId>/<componentId>}} may be embedded in note bodies.",
+		);
+
+	type MemoryScopeInput = z.infer<typeof memoryScopeSchema>;
+
+	const resolveMemoryScope = async (
+		context: TrickroomMcpServerContext,
+		policy: McpPolicy,
+		scopeInput: MemoryScopeInput,
+	): Promise<{ scope: MemoryScope; reference: Record<string, unknown> }> => {
+		if (scopeInput.kind === "system") {
+			const system = await assertConfiguredSystem(
+				context,
+				scopeInput.systemName,
+			);
+			return {
+				scope: { kind: "system", systemHandle: system.manifest.systemId },
+				reference: {
+					kind: "system",
+					systemId: system.manifest.systemId,
+					systemName: system.manifest.systemName,
+				},
+			};
+		}
+		if (scopeInput.kind === "design") {
+			assertCanReadDesignFile(policy, scopeInput.designFileId);
+			return {
+				scope: { kind: "design", designId: scopeInput.designFileId },
+				reference: { kind: "design", designFileId: scopeInput.designFileId },
+			};
+		}
+		return { scope: { kind: "project" }, reference: { kind: "project" } };
+	};
+
+	const safeMemoryReferenceWarnings = async (
+		context: TrickroomMcpServerContext,
+		memoryScope: MemoryScope,
+		body: string,
+	) => {
+		try {
+			return await collectMemoryReferenceWarnings(
+				context.projectRoot,
+				memoryScope,
+				body,
+			);
+		} catch {
+			return [];
+		}
+	};
+
+	const auditMemoryWrite = async (
+		context: TrickroomMcpServerContext,
+		toolName: string,
+		scopeInput: MemoryScopeInput,
+		expectedRevision: string | null,
+		resultingRevision: string | null,
+	) => {
+		await appendMcpAuditLog(context, {
+			toolName,
+			operation: toolName,
+			projectRoot: context.projectRoot,
+			designFileId:
+				scopeInput.kind === "design" ? scopeInput.designFileId : null,
+			expectedRevision,
+			resultingRevision,
+			success: true,
+			status: "success",
+		});
+	};
+
+	server.registerTool(
+		"listMemoryNotes",
+		{
+			title: "List Memory Notes",
+			description:
+				"List durable memory/steering notes for a system, design, or project scope. Check for relevant notes before authoring or explaining work in that domain.",
+			inputSchema: withProjectScopedInput({ scope: memoryScopeSchema }),
+			annotations: readOnlyClosedWorldAnnotations,
+		},
+		async ({ scope, project }) =>
+			withPolicyErrorHandling(project, async (context) => {
+				const policy = getMcpPolicy(context.config);
+				const { scope: memoryScope, reference } = await resolveMemoryScope(
+					context,
+					policy,
+					scope,
+				);
+				const read = await readMemoryManifest(context.projectRoot, memoryScope);
+				const summary = summarizeMemoryManifest(read.manifest);
+				return createJsonResult({
+					status: "success",
+					project: getProjectReference(context),
+					scope: reference,
+					revision: read.revision,
+					exists: read.exists,
+					summary,
+					notes: Object.values(read.manifest.notes),
+				});
+			}),
+	);
+
+	server.registerTool(
+		"getMemoryNote",
+		{
+			title: "Get Memory Note",
+			description:
+				"Read one memory note by id from a system, design, or project scope.",
+			inputSchema: withProjectScopedInput({
+				scope: memoryScopeSchema,
+				noteId: z.string().min(1).describe("Memory note id."),
+			}),
+			annotations: readOnlyClosedWorldAnnotations,
+		},
+		async ({ scope, noteId, project }) =>
+			withPolicyErrorHandling(project, async (context) => {
+				const policy = getMcpPolicy(context.config);
+				const { scope: memoryScope, reference } = await resolveMemoryScope(
+					context,
+					policy,
+					scope,
+				);
+				const read = await readMemoryManifest(context.projectRoot, memoryScope);
+				const note = read.manifest.notes[noteId];
+				if (!note) {
+					return createToolErrorResult(
+						context,
+						"NOTE_NOT_FOUND",
+						`Memory note "${noteId}" was not found.`,
+						{ scope: reference, revision: read.revision },
+					);
+				}
+				return createJsonResult({
+					status: "success",
+					project: getProjectReference(context),
+					scope: reference,
+					revision: read.revision,
+					note,
+				});
+			}),
+	);
+
+	server.registerTool(
+		"addMemoryNote",
+		{
+			title: "Add Memory Note",
+			description:
+				"Add one durable memory/steering note to a system, design, or project scope. Bodies are markdown and may embed reference tokens like {{design:<uuid>}}.",
+			inputSchema: withProjectScopedInput({
+				scope: memoryScopeSchema,
+				category: memoryCategorySchema,
+				body: z.string().min(1).describe("Markdown note body."),
+				title: z.string().min(1).optional().describe("Optional note title."),
+				tags: z.array(z.string().min(1)).optional().describe("Optional tags."),
+				pinned: z.boolean().optional().describe("Pin the note to the top."),
+				order: z.number().optional().describe("Optional manual sort order."),
+				authorLabel: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Optional human-readable author label for attribution."),
+			}),
+			annotations: mutationAnnotations,
+		},
+		async ({
+			scope,
+			category,
+			body,
+			title,
+			tags,
+			pinned,
+			order,
+			authorLabel,
+			project,
+		}) =>
+			withPolicyErrorHandling(project, async (context) => {
+				const policy = getMcpPolicy(context.config);
+				assertCanWriteProject(policy);
+				const { scope: memoryScope, reference } = await resolveMemoryScope(
+					context,
+					policy,
+					scope,
+				);
+				const { read, note } = await addMemoryNote(
+					context.projectRoot,
+					memoryScope,
+					{
+						category,
+						body,
+						title,
+						tags,
+						pinned,
+						order,
+						author: {
+							kind: "agent",
+							...(authorLabel ? { label: authorLabel } : {}),
+						},
+					},
+				);
+				await auditMemoryWrite(
+					context,
+					"addMemoryNote",
+					scope,
+					null,
+					read.revision,
+				);
+				const referenceWarnings = await safeMemoryReferenceWarnings(
+					context,
+					memoryScope,
+					note.body,
+				);
+				return createJsonResult({
+					status: "success",
+					project: getProjectReference(context),
+					scope: reference,
+					newRevision: read.revision,
+					note,
+					referenceWarnings,
+				});
+			}),
+	);
+
+	server.registerTool(
+		"updateMemoryNote",
+		{
+			title: "Update Memory Note",
+			description:
+				"Update one memory note's fields. Requires the current expectedRevision from a prior read.",
+			inputSchema: withProjectScopedInput({
+				scope: memoryScopeSchema,
+				noteId: z.string().min(1).describe("Memory note id to update."),
+				expectedRevision: z
+					.string()
+					.startsWith("sha256:")
+					.describe("Current memory manifest revision from a prior read."),
+				category: memoryCategorySchema.optional(),
+				body: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Replacement markdown body."),
+				title: z
+					.string()
+					.nullable()
+					.optional()
+					.describe("Replacement title; null clears it."),
+				tags: z
+					.array(z.string().min(1))
+					.nullable()
+					.optional()
+					.describe("Replacement tags; null or empty clears them."),
+				pinned: z.boolean().nullable().optional(),
+				order: z.number().nullable().optional(),
+				authorLabel: z.string().min(1).optional(),
+			}),
+			annotations: mutationAnnotations,
+		},
+		async ({
+			scope,
+			noteId,
+			expectedRevision,
+			category,
+			body,
+			title,
+			tags,
+			pinned,
+			order,
+			authorLabel,
+			project,
+		}) =>
+			withPolicyErrorHandling(project, async (context) => {
+				const policy = getMcpPolicy(context.config);
+				assertCanWriteProject(policy);
+				const { scope: memoryScope, reference } = await resolveMemoryScope(
+					context,
+					policy,
+					scope,
+				);
+				const { read, note } = await updateMemoryNote(
+					context.projectRoot,
+					memoryScope,
+					noteId,
+					{
+						...(category !== undefined ? { category } : {}),
+						...(body !== undefined ? { body } : {}),
+						...(title !== undefined ? { title } : {}),
+						...(tags !== undefined ? { tags } : {}),
+						...(pinned !== undefined ? { pinned } : {}),
+						...(order !== undefined ? { order } : {}),
+						...(authorLabel
+							? { author: { kind: "agent", label: authorLabel } }
+							: {}),
+					},
+					{ expectedRevision },
+				);
+				await auditMemoryWrite(
+					context,
+					"updateMemoryNote",
+					scope,
+					expectedRevision,
+					read.revision,
+				);
+				const referenceWarnings = await safeMemoryReferenceWarnings(
+					context,
+					memoryScope,
+					note.body,
+				);
+				return createJsonResult({
+					status: "success",
+					project: getProjectReference(context),
+					scope: reference,
+					newRevision: read.revision,
+					note,
+					referenceWarnings,
+				});
+			}),
+	);
+
+	server.registerTool(
+		"deleteMemoryNote",
+		{
+			title: "Delete Memory Note",
+			description:
+				"Delete one memory note. Requires the current expectedRevision from a prior read.",
+			inputSchema: withProjectScopedInput({
+				scope: memoryScopeSchema,
+				noteId: z.string().min(1).describe("Memory note id to delete."),
+				expectedRevision: z
+					.string()
+					.startsWith("sha256:")
+					.describe("Current memory manifest revision from a prior read."),
+			}),
+			annotations: destructiveMutationAnnotations,
+		},
+		async ({ scope, noteId, expectedRevision, project }) =>
+			withPolicyErrorHandling(project, async (context) => {
+				const policy = getMcpPolicy(context.config);
+				assertCanWriteProject(policy);
+				const { scope: memoryScope, reference } = await resolveMemoryScope(
+					context,
+					policy,
+					scope,
+				);
+				const read = await deleteMemoryNote(
+					context.projectRoot,
+					memoryScope,
+					noteId,
+					{ expectedRevision },
+				);
+				await auditMemoryWrite(
+					context,
+					"deleteMemoryNote",
+					scope,
+					expectedRevision,
+					read.revision,
+				);
+				return createJsonResult({
+					status: "success",
+					project: getProjectReference(context),
+					scope: reference,
+					newRevision: read.revision,
+					noteId,
+					deleted: true,
+				});
+			}),
+	);
+
+	server.registerTool(
+		"listReferenceTargets",
+		{
+			title: "List Reference Targets",
+			description:
+				"List candidate reference targets (the MCP equivalent of editor intellisense) for embedding {{type:id}} tokens in memory note bodies. Design targets are available in any scope; component/token/asset/icon targets require a scope linked to a design system.",
+			inputSchema: withProjectScopedInput({
+				scope: memoryScopeSchema,
+				type: z
+					.enum([...MEMORY_REFERENCE_TYPES] as [
+						MemoryReferenceType,
+						...MemoryReferenceType[],
+					])
+					.describe(
+						"Reference type to list: design, component, token, asset, or icon.",
+					),
+				query: z
+					.string()
+					.optional()
+					.describe("Optional case-insensitive filter on id/label."),
+			}),
+			annotations: readOnlyClosedWorldAnnotations,
+		},
+		async ({ scope, type, query, project }) =>
+			withPolicyErrorHandling(project, async (context) => {
+				const policy = getMcpPolicy(context.config);
+				const { scope: memoryScope, reference } = await resolveMemoryScope(
+					context,
+					policy,
+					scope,
+				);
+				const targets = await listMemoryReferenceTargets(
+					context.projectRoot,
+					memoryScope,
+					type,
+					query ?? "",
+				);
+				return createJsonResult({
+					status: "success",
+					project: getProjectReference(context),
+					scope: reference,
+					type,
+					targets,
 				});
 			}),
 	);

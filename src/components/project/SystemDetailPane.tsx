@@ -39,9 +39,9 @@ import {
 } from "../../utils/tailwind-token-domains";
 import { useProjectScope, useTailwindSyncController } from "../contexts";
 import { Alert } from "../ui/alert";
-import Checkbox from "../ui/checkbox";
 import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
+import Checkbox from "../ui/checkbox";
 import { CopyButton } from "../ui/copy-button";
 import { DetailSection, DetailSectionRow } from "../ui/detail-section";
 import { EditableTitle } from "../ui/editable-title";
@@ -52,6 +52,7 @@ import { PaneHeader } from "../ui/pane-header";
 import { ReadOnlyField } from "../ui/readonly-field";
 import { ScrollArea } from "../ui/scroll-area";
 import { Text } from "../ui/text";
+import { MemoryNotesButton } from "./memory/MemoryNotesButton";
 import { formatRelativeTime } from "./project-view-utils";
 import { SystemDiffChips } from "./SystemDiffChips";
 import {
@@ -976,6 +977,13 @@ export function SystemDetailPane({
 		<>
 			{reviewAction}
 			<div className="flex shrink-0 items-center">
+				<MemoryNotesButton
+					scope={{ kind: "system", systemId }}
+					projectScope={projectScope}
+					title={systemDisplayName}
+					subtitle={systemId}
+					disabled={actionDisabled}
+				/>
 				<OpenSystemEditorAction
 					systemId={systemId}
 					disabled={actionDisabled}

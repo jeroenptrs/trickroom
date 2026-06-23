@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildDesignResourceUri } from "./mcp/resources";
 import { expandRegistryRecipe } from "./recipes/expansion";
 import {
 	RECIPE_MARKER_PROP_KEYS,
@@ -8,7 +9,6 @@ import {
 	recipePathProp,
 } from "./recipes/markers";
 import { recipeLoadRepairHeaderName } from "./recipes/repair";
-import { buildDesignResourceUri } from "./mcp/resources";
 import { createTrickroomApp } from "./server";
 import { isTrickroomConfig, isTrickroomDesign } from "./server-utils";
 import type { Node, TrickroomDesign } from "./types";
@@ -690,7 +690,7 @@ describe("server design routes", () => {
 		const initial = (await initialResponse.json()) as {
 			toolGroups: Array<{ id: string; enabled: boolean }>;
 		};
-		expect(initial.toolGroups).toHaveLength(7);
+		expect(initial.toolGroups).toHaveLength(8);
 		expect(initial.toolGroups.every((group) => group.enabled)).toBe(true);
 
 		const updateResponse = await app.request("/api/trickroom/settings/mcp", {
@@ -1097,10 +1097,7 @@ describe("server design routes", () => {
 					instanceId: "stale-recipe-instance",
 					rootElementId: "stale-avatar-root",
 					targetElementId: "stale-avatar-root",
-					detachedElementIds: [
-						"stale-avatar-root",
-						"stale-avatar-fallback",
-					],
+					detachedElementIds: ["stale-avatar-root", "stale-avatar-fallback"],
 					issueCodes: expect.arrayContaining([
 						"UNEXPECTED_RECIPE_PATH",
 						"RECIPE_NODE_CHILDREN_MISMATCH",
@@ -1113,9 +1110,7 @@ describe("server design routes", () => {
 		});
 		const body = (await response.json()) as TrickroomDesign;
 		expectNoRecipeMarkers(body.boards[0]);
-		await expect(readStoredDesign("stale-recipe.json")).resolves.toEqual(
-			body,
-		);
+		await expect(readStoredDesign("stale-recipe.json")).resolves.toEqual(body);
 	});
 
 	it("leaves unknown recipe ids untouched when there is no known repair", async () => {

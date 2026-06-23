@@ -540,6 +540,68 @@ POST   /api/trickroom/systems/:systemHandle/components/:componentId/publish
 
 `:systemHandle` follows the same id/name/storage-key resolution rules as manifest reads.
 
+## Memory Notes
+
+Memory notes are durable steering/alignment notes attached to a primitive. They capture why a thing exists, how it should be used, and what constrains it. Memory is authored agent-first via MCP and is never auto-injected into agent context; tools and prompts only hint that relevant notes may exist.
+
+Scopes and paths:
+
+```text
+<projectRoot>/.trickroom/memory.json                       # project scope
+<projectRoot>/.trickroom/designs/<uuid>.memory.json        # design scope (sibling of <uuid>.json)
+<projectRoot>/.trickroom/systems/<safe-system-name>/memory.json  # system scope
+```
+
+Design memory is stored in a sibling file rather than embedded in the design JSON so design diffs and memory diffs stay independent and design reads stay lean.
+
+Manifest shape:
+
+```ts
+type MemoryManifest = {
+  version: 1;
+  scope:
+    | { kind: "system"; id: string }   // systemId
+    | { kind: "design"; id: string }   // design uuid
+    | { kind: "project" };
+  metadata: { createdAt: string; updatedAt: string };
+  notes: Record<string, MemoryNote>;   // keyed by noteId
+};
+
+type MemoryNote = {
+  noteId: string;            // "note_<uuid>", and noteId === map key
+  title?: string;
+  body: string;              // markdown, stored verbatim
+  category:
+    | "intent"
+    | "usage"
+    | "conventions"
+    | "constraints"
+    | "decision"
+    | "todo";
+  tags?: string[];
+  pinned?: boolean;
+  order?: number;
+  createdAt: string;
+  updatedAt: string;
+  author: { kind: "agent" | "user"; label?: string };
+};
+```
+
+Rules:
+
+- `category` must be one of the six enum values; unknown categories are rejected (`INVALID_CATEGORY`).
+- `noteId` must equal its map key; divergent manifests are rejected (`INVALID_MANIFEST`).
+- Note bodies are stored verbatim. Reserved reference tokens like `{{design:<uuid>}}` or `{{component:<systemId>/<componentId>}}` are preserved as plain text; resolution/validation is a later phase.
+- Design scope ids must be a single path segment; `.`, `..`, slashes, and backslashes are rejected (`INVALID_SCOPE`).
+- System scope requires a configured system; unknown systems are rejected (`SCOPE_NOT_FOUND`).
+
+Revision and write safety:
+
+- Every `memory.json` revision is a content hash of the exact serialized file (`sha256:<hex digest>`).
+- An absent file reads as an empty manifest with a deterministic revision (fixed epoch timestamps), so a first write does not spuriously conflict.
+- `updateMemoryNote` and `deleteMemoryNote` require `expectedRevision`; stale revisions return `STALE_WRITE` and do not modify the file. `addMemoryNote` is append-only and does not require a revision.
+- Writes are atomic (temp file + rename) and serialized per file path.
+
 ## MCP Audit Log
 
 Path:

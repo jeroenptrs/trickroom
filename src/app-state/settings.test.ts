@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { McpToolGroupSettings } from "../mcp/tool-groups";
 import {
 	createDefaultTrickroomSettings,
 	readTrickroomSettings,
@@ -12,7 +13,11 @@ describe("trickroom app settings", () => {
 	const tempHomes: string[] = [];
 
 	afterEach(async () => {
-		await Promise.all(tempHomes.splice(0).map((home) => rm(home, { force: true, recursive: true })));
+		await Promise.all(
+			tempHomes
+				.splice(0)
+				.map((home) => rm(home, { force: true, recursive: true })),
+		);
 	});
 
 	const createHome = async () => {
@@ -60,7 +65,7 @@ describe("trickroom app settings", () => {
 						registry: true,
 						designSystems: true,
 						systemComponents: true,
-					},
+					} as McpToolGroupSettings,
 				},
 			},
 			trickroomHome,

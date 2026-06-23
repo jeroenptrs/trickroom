@@ -23,6 +23,7 @@ import { ReadOnlyField } from "../ui/readonly-field";
 import { ScrollArea } from "../ui/scroll-area";
 import { Text } from "../ui/text";
 import { DesignGlyph } from "./DesignGlyph";
+import { MemoryNotesButton } from "./memory/MemoryNotesButton";
 import { formatRelativeTime } from "./project-view-utils";
 
 export function DesignDetailPane({
@@ -136,6 +137,12 @@ export function DesignDetailPane({
 					}
 					actions={
 						<div className="flex shrink-0 items-center">
+							<MemoryNotesButton
+								scope={{ kind: "design", designId: design.uuid }}
+								projectScope={projectScope}
+								title={design.name}
+								subtitle={design.uuid}
+							/>
 							<Button
 								variant="filled"
 								className="flex items-center gap-1.5"

@@ -137,6 +137,12 @@ Design systems:
 - List, describe, author, and publish system component drafts.
 - Scan stale attached system component usages and migrate safe stale usages.
 
+Memory notes:
+
+- List and read durable steering/alignment notes for a system, design, or project scope.
+- Add notes, and update or delete them with revision safety.
+- Memory is never auto-injected; reads and prompts only hint that relevant notes may exist for the current domain.
+
 Design mutation:
 
 - Create a blank design file.
@@ -208,6 +214,8 @@ Read-only tools:
 | `listSystemComponents` | List authored components in a configured system with manifest revision metadata. |
 | `describeSystemComponent` | Describe one component record, draft hashes, validation diagnostics, and published versions. |
 | `listStaleSystemComponentUsages` | Read-only scan returning attached instances with stale referenced versions in `usages`. Hash-review signals appear in status counts and diagnostics, not in `usages` rows. |
+| `listMemoryNotes` | List memory/steering notes plus a category summary for a system, design, or project scope. |
+| `getMemoryNote` | Read one memory note by id from a system, design, or project scope. |
 
 Project/session writes:
 
@@ -230,6 +238,16 @@ Design-system resource writes:
 | `updateSystemComponentDraft` | Updates a component draft template, slots, variants, and/or override targets in `components.json` | Medium; changes future publishes but does not rewrite existing published versions. |
 | `publishSystemComponent` | Appends an immutable published component version in `components.json` | Medium; changes the current version used by new insertions and stale scans. |
 | `deleteSystemComponent` | Removes one component record from `components.json` | High; does not remove attached design instances, which may become stale or missing-component. |
+
+Memory note writes:
+
+All memory tools take a scope-discriminated union: `{ kind: "system", systemName }`, `{ kind: "design", designFileId }`, or `{ kind: "project" }`. Writes target the matching `memory.json` (see `docs/project-files.md`). Note bodies may embed reserved reference tokens like `{{design:<uuid>}}`; these are stored verbatim and not yet resolved.
+
+| Tool | Writes | Destructive risk |
+| --- | --- | --- |
+| `addMemoryNote` | Appends one note to the scoped `memory.json` | Low; append-only, does not require a prior revision. |
+| `updateMemoryNote` | Updates one note's fields | Medium; requires the current `expectedRevision` and returns `STALE_WRITE` on mismatch. |
+| `deleteMemoryNote` | Removes one note | High; requires `expectedRevision` and cannot be undone by Trickroom. |
 
 Design-file writes:
 
@@ -258,7 +276,7 @@ Design-file writes:
 
 Existing design-file writes require `expectedRevision`. `createDesignFile` and `extractSubtree` have no prior revision on the file they create; they use exclusive create semantics and fail if the chosen UUID already exists. Cross-file `copySubtree` also requires `sourceExpectedRevision` on the source design. System component manifest writes require the `revision` returned by `listSystemComponents` or `describeSystemComponent`.
 
-MCP annotations mark `renameDesignFile`, `updateElementProps`, `updateRecipeControl`, `updateRecipeInstance`, `detachRecipeInstance`, `detachSystemComponent`, `updateElementText`, `moveElement`, and `deleteElement` as destructive write tools. `createDesignFile`, `extractSubtree`, `addElement`, `addRecipe`, `addSystemComponent`, `updateSystemComponentInstance`, `migrateSystemComponentInstance`, `bulkMigrateSystemComponentUsages`, `addSubtree`, and `copySubtree` are write tools but are annotated as non-destructive. `registerProject`, `selectProject`, and `openProject` are project/session-state writes and do not mutate design files. System resource write tools mutate design-system manifests under `.trickroom/systems/`, not design JSON files.
+MCP annotations mark `renameDesignFile`, `updateElementProps`, `updateRecipeControl`, `updateRecipeInstance`, `detachRecipeInstance`, `detachSystemComponent`, `updateElementText`, `moveElement`, `deleteElement`, and `deleteMemoryNote` as destructive write tools. `addMemoryNote` and `updateMemoryNote` are write tools but are annotated as non-destructive. `createDesignFile`, `extractSubtree`, `addElement`, `addRecipe`, `addSystemComponent`, `updateSystemComponentInstance`, `migrateSystemComponentInstance`, `bulkMigrateSystemComponentUsages`, `addSubtree`, and `copySubtree` are write tools but are annotated as non-destructive. `registerProject`, `selectProject`, and `openProject` are project/session-state writes and do not mutate design files. System resource write tools mutate design-system manifests under `.trickroom/systems/`, not design JSON files.
 
 ## Revision Workflow
 

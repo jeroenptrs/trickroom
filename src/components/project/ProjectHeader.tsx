@@ -19,6 +19,7 @@ import { EditableTitle } from "../ui/editable-title";
 import { Kbd } from "../ui/kbd";
 import { Text } from "../ui/text";
 import { CommandMenu } from "./CommandMenu";
+import { MemoryNotesButton } from "./memory/MemoryNotesButton";
 
 type ProjectMcpMode = "off" | "read-only" | "read-write";
 
@@ -151,6 +152,13 @@ export function ProjectHeader() {
 			</div>
 			<div className="flex-1" />
 			<div className="flex items-center gap-3">
+				<MemoryNotesButton
+					scope={{ kind: "project" }}
+					projectScope={projectScope}
+					title={projectName}
+					subtitle={activeProject?.projectRoot}
+					variant="outlined"
+				/>
 				<div className="flex items-center gap-1.5">
 					<Text tone="faint" className="font-mono text-[10px]">
 						switch

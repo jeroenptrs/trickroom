@@ -87,6 +87,32 @@ When a design links to a system, Trickroom can:
 - Inject stored tokens into the design iframe.
 - Offer those token names in color controls.
 
+## Memory
+
+Memory (also called design notes) is durable steering and alignment context attached to a primitive. It answers why something exists, how it should be used, and what constrains it.
+
+Memory can be attached at three scopes, each stored as its own `memory.json` (see `docs/project-files.md` for paths and shape):
+
+- **Project**: why the project exists and how to steer broad work.
+- **System**: usage conventions and constraints for a design system.
+- **Design**: intent and rationale for a specific design file, stored in a sibling `<uuid>.memory.json`.
+
+Each note has a stable `noteId`, a markdown `body`, and a `category` from a fixed enum (`intent`, `usage`, `conventions`, `constraints`, `decision`, `todo`). Memory is authored agent-first via MCP and is never auto-injected into agent context — reads and prompts only hint that relevant notes may exist for the current domain.
+
+### Reserved reference grammar
+
+Note bodies may embed inline reference tokens so notes can point at related entities:
+
+```text
+{{design:<uuid>}}
+{{component:<systemId>/<componentId>}}
+{{token:<domain>/<name>}}
+{{asset:<assetId>}}
+{{icon:<iconId>}}
+```
+
+These tokens are reserved and stored verbatim. They are plain text today; parsing, validation, and editor intellisense/resolution are deferred to a later phase. Authors should use this grammar now so existing notes resolve automatically once support lands.
+
 ## Registry
 
 A registry describes components Trickroom can render and author.

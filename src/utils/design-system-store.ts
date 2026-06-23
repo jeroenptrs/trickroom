@@ -69,13 +69,14 @@ export type DesignSystemSafeKeyCollision = {
 	systemNames: string[];
 };
 
-export type DesignSystemManifestFile = 
+export type DesignSystemManifestFile =
 	| typeof DESIGN_SYSTEM_MANIFEST_FILE_NAME
 	| typeof SYSTEM_COMPONENT_MANIFEST_FILE_NAME
 	| "tokens.json"
 	| "assets.json"
 	| "icons.json"
-	| "fonts.json";
+	| "fonts.json"
+	| "memory.json";
 
 /**
  * Convert a system name to a filesystem-safe key.
@@ -332,8 +333,7 @@ export async function findDesignSystem(
 export async function resolveDesignSystemFilePath(
 	projectRoot: string,
 	systemHandle: string,
-	fileName:
-		| DesignSystemManifestFile,
+	fileName: DesignSystemManifestFile,
 ): Promise<string> {
 	const record = await findDesignSystem(projectRoot, systemHandle);
 	if (record) {
