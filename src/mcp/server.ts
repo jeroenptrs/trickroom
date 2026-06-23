@@ -16,6 +16,10 @@ import {
 } from "../app-state/project-registry";
 import { exportDesignBoards } from "../export/export-design";
 import {
+	ExportDestinationError,
+	writeExportArtifacts,
+} from "../export/write-export-artifacts";
+import {
 	availableRegistries,
 	CORE_PROP_KEYS,
 	getControlDefinitions,
@@ -215,6 +219,19 @@ export type TrickroomMcpServer = McpServer & {
 const readOnlyClosedWorldAnnotations = {
 	readOnlyHint: true,
 	openWorldHint: false,
+} as const;
+
+const mutationAnnotations = {
+	readOnlyHint: false,
+	openWorldHint: false,
+	idempotentHint: false,
+	destructiveHint: false,
+} as const;
+
+const destructiveMutationAnnotations = {
+	...mutationAnnotations,
+	destructiveHint: true,
+	idempotentHint: false,
 } as const;
 
 const jsonPrimitiveSchema = z.union([
@@ -5268,9 +5285,15 @@ Workflow:
 		{
 			title: "Export Design to HTML",
 			description:
-				"Export one or more boards of a design file as self-contained, interactive HTML documents. Returns each board's complete HTML verbatim — the first content block is a JSON manifest, followed by one HTML document per board in the same order. Each document inlines the design system's compiled Tailwind and loads React + Base UI from a CDN (esm.sh), so it needs network access to that CDN to render. Omit boardIds to export every board.",
+				"Export one or more boards of a design file to self-contained, interactive HTML on disk. One board writes a single .html file; multiple boards write one .zip containing one .html per board, matching the in-app export download behavior. Each document inlines the design system's compiled Tailwind and loads React + Base UI from a CDN (esm.sh), so it needs network access to that CDN to render. Absolute destinationDir paths are used as-is; project-relative paths resolve inside the project and must stay within the project root. Omit boardIds to export every board.",
 			inputSchema: withProjectScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
+				destinationDir: z
+					.string()
+					.min(1)
+					.describe(
+						"Folder path where export files are written. Absolute paths are used as-is. Relative paths resolve inside the project directory.",
+					),
 				boardIds: z
 					.array(z.string().min(1))
 					.optional()
@@ -5278,11 +5301,13 @@ Workflow:
 						"Board (root element) IDs to export. Omit or leave empty to export every board.",
 					),
 			}),
-			annotations: readOnlyClosedWorldAnnotations,
+			annotations: mutationAnnotations,
 		},
-		async ({ designFileId, boardIds, project }) =>
+		async ({ designFileId, destinationDir, boardIds, project }) =>
 			withPolicyErrorHandling(project, async (context) => {
-				assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
+				const policy = getMcpPolicy(context.config);
+				assertCanWriteProject(policy);
+				assertCanReadDesignFile(policy, designFileId);
 				const read = await readDesignFileForTool(context, designFileId);
 				const requested = new Set(
 					(boardIds ?? []).filter((id) => id.length > 0),
@@ -5314,30 +5339,33 @@ Workflow:
 					designName: read.design.name,
 				});
 
-				const manifest = {
-					project: getProjectReference(context),
-					designFile: getDesignMetadata(designFileId, read),
-					exportedAt: result.epoch,
-					systemId: result.systemId,
-					artifacts: result.files.map((file) => ({
-						name: file.name,
-						filename: file.filename,
-						bytes: file.html.length,
-					})),
-					instructions:
-						"Each following content block is a complete standalone HTML document for one board, in the order listed above.",
-				};
-
-				return {
-					content: [
-						{ type: "text" as const, text: JSON.stringify(manifest, null, 2) },
-						...result.files.map((file) => ({
-							type: "text" as const,
-							text: file.html,
-						})),
-					],
-					structuredContent: manifest,
-				};
+				try {
+					const written = await writeExportArtifacts(
+						context.projectRoot,
+						destinationDir,
+						context.config.name,
+						read.design.name,
+						result,
+					);
+					return createJsonResult({
+						status: "success",
+						project: getProjectReference(context),
+						designFile: getDesignMetadata(designFileId, read),
+						exportedAt: result.epoch,
+						systemId: result.systemId,
+						destinationDir: written.destinationDir,
+						artifacts: written.artifacts,
+					});
+				} catch (error) {
+					if (error instanceof ExportDestinationError) {
+						return createToolErrorResult(
+							context,
+							error.code,
+							error.message,
+						);
+					}
+					throw error;
+				}
 			}),
 	);
 
@@ -6238,19 +6266,6 @@ Workflow:
 				),
 			),
 	);
-
-	const mutationAnnotations = {
-		readOnlyHint: false,
-		openWorldHint: false,
-		idempotentHint: false,
-		destructiveHint: false,
-	} as const;
-
-	const destructiveMutationAnnotations = {
-		...mutationAnnotations,
-		destructiveHint: true,
-		idempotentHint: false,
-	} as const;
 
 	server.registerTool(
 		"createSystemComponentDraft",

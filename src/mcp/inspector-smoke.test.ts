@@ -37,6 +37,7 @@ const expectedMutationToolNames = [
 	"removeSystemAsset",
 	"refreshSystemAssetMetadata",
 	"createDesignFile",
+	"exportDesignHtml",
 	"renameDesignFile",
 	"addElement",
 	"updateElementProps",
@@ -308,6 +309,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 						"refreshSystemAssetMetadata",
 						"addElement",
 						"createDesignFile",
+						"exportDesignHtml",
 					].includes(name),
 				});
 			}
@@ -331,6 +333,10 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 				"name",
 				"systemName",
 				"designFileId",
+			]);
+			expectInputProperties(requireTool(toolsByName, "exportDesignHtml"), [
+				"designFileId",
+				"destinationDir",
 			]);
 			expectInputProperties(requireTool(toolsByName, "addSystemAsset"), [
 				"systemName",
