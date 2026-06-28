@@ -5,7 +5,7 @@ import type {
 	MemoryScopeRef,
 	MemorySummary,
 } from "../utils/memory-manifest-service.types";
-import type { ResolvedMemoryReference } from "../utils/memory-references";
+import type { ResolvedMemoryReference } from "../utils/memory-references.shared";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 

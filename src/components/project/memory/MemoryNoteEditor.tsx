@@ -4,7 +4,7 @@ import type {
 	MemoryCategory,
 	MemoryNote,
 } from "../../../utils/memory-manifest-service.types";
-import type { MemoryReferenceType } from "../../../utils/memory-references";
+import type { MemoryReferenceType } from "../../../utils/memory-references.shared";
 import {
 	type MemoryQueryScope,
 } from "../../../queries/memory";

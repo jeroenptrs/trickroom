@@ -2,7 +2,7 @@ import {
 	MEMORY_REFERENCE_TYPES,
 	type MemoryReferenceType,
 	type ResolvedMemoryReference,
-} from "../../../utils/memory-references";
+} from "../../../utils/memory-references.shared";
 
 export type ActiveReferenceTrigger =
 	| {
@@ -93,7 +93,9 @@ export function buildMemoryBodySegments(
 		return body.length > 0 ? [{ kind: "text", text: body }] : [];
 	}
 
-	const sorted = [...references].sort((left, right) => left.start - right.start);
+	const sorted = [...references].sort(
+		(left, right) => left.start - right.start,
+	);
 	const segments: MemoryBodySegment[] = [];
 	let cursor = 0;
 
@@ -102,7 +104,10 @@ export function buildMemoryBodySegments(
 			continue;
 		}
 		if (reference.start > cursor) {
-			segments.push({ kind: "text", text: body.slice(cursor, reference.start) });
+			segments.push({
+				kind: "text",
+				text: body.slice(cursor, reference.start),
+			});
 		}
 		segments.push({ kind: "reference", reference });
 		cursor = reference.end;
@@ -113,4 +118,4 @@ export function buildMemoryBodySegments(
 	}
 
 	return segments;
-};
+}

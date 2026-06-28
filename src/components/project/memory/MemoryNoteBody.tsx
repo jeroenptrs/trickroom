@@ -1,4 +1,4 @@
-import type { ResolvedMemoryReference } from "../../../utils/memory-references";
+import type { ResolvedMemoryReference } from "../../../utils/memory-references.shared";
 import { Chip } from "../../ui/chip";
 import { Text } from "../../ui/text";
 import { buildMemoryBodySegments } from "./memory-reference-editor";

@@ -4,7 +4,7 @@ import {
 	referenceTargetsQueryOptions,
 } from "../../../queries/memory";
 import type { ProjectQueryScope } from "../../../queries/project-scope";
-import type { MemoryReferenceType } from "../../../utils/memory-references";
+import type { MemoryReferenceType } from "../../../utils/memory-references.shared";
 import { Text } from "../../ui/text";
 import {
 	type ActiveReferenceTrigger,
