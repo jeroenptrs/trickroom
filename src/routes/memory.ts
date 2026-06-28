@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Context, Hono, MiddlewareHandler } from "hono";
 import { jsonError } from "../server-utils";
 import type { TrickroomConfig } from "../types";
+import type { MemoryNote } from "../utils/memory-manifest-service.types";
 import {
 	addMemoryNote,
 	deleteMemoryNote,
@@ -18,6 +19,7 @@ import {
 	listMemoryReferenceTargets,
 	MEMORY_REFERENCE_TYPES,
 	type MemoryReferenceType,
+	resolveMemoryNoteReferences,
 } from "../utils/memory-references";
 
 const getProjectRootFromContext = (c: Context) =>
@@ -175,6 +177,31 @@ const appendMemoryAuditLog = async (
 	);
 };
 
+const wantsResolvedReferences = (c: Context) =>
+	c.req.query("resolveReferences") === "true";
+
+const enrichNotesWithReferences = async (
+	projectRoot: string,
+	scope: MemoryScope,
+	notes: MemoryNote[],
+	resolveReferences: boolean,
+) => {
+	if (!resolveReferences) {
+		return notes;
+	}
+
+	return Promise.all(
+		notes.map(async (note) => ({
+			...note,
+			references: await resolveMemoryNoteReferences(
+				projectRoot,
+				scope,
+				note.body,
+			),
+		})),
+	);
+};
+
 const listMemoryResponse = async (
 	c: Context,
 	projectRoot: string,
@@ -182,12 +209,18 @@ const listMemoryResponse = async (
 	scopeRef: MemoryScopeRef,
 ) => {
 	const read = await readMemoryManifest(projectRoot, scope);
+	const notes = Object.values(read.manifest.notes);
 	return c.json({
 		scope: scopeRef,
 		revision: read.revision,
 		exists: read.exists,
 		summary: summarizeMemoryManifest(read.manifest),
-		notes: Object.values(read.manifest.notes),
+		notes: await enrichNotesWithReferences(
+			projectRoot,
+			scope,
+			notes,
+			wantsResolvedReferences(c),
+		),
 	});
 };
 
@@ -226,7 +259,17 @@ const getMemoryNoteResponse = async (
 	if (!note) {
 		return jsonError(`Memory note "${noteId}" was not found.`, 404);
 	}
-	return c.json({ scope: scopeRef, revision: read.revision, note });
+	const enriched = wantsResolvedReferences(c)
+		? {
+				...note,
+				references: await resolveMemoryNoteReferences(
+					projectRoot,
+					scope,
+					note.body,
+				),
+			}
+		: note;
+	return c.json({ scope: scopeRef, revision: read.revision, note: enriched });
 };
 
 const addMemoryNoteResponse = async (

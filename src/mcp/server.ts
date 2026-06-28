@@ -135,6 +135,7 @@ import {
 	listMemoryReferenceTargets,
 	MEMORY_REFERENCE_TYPES,
 	type MemoryReferenceType,
+	resolveMemoryNoteReferences,
 } from "../utils/memory-references";
 import { applyProjectDefaultSystemToDesign } from "../utils/project-default-system";
 import {
@@ -180,7 +181,13 @@ import {
 	normalizeUpdateElementPropsParameters,
 	validateDryRunOperationParameters,
 } from "./design-operations";
-import { getDesignDiagnostics, type McpDesignIssue } from "./diagnostics";
+import {
+	getDesignDiagnostics,
+	type McpDesignIssue,
+	type MutationResponseOptions,
+	shapeMutationDiagnostics,
+	stripHeavyTokenDiagnostics,
+} from "./diagnostics";
 import {
 	appendMcpAuditLog,
 	assertCanReadDesignFile,
@@ -198,6 +205,7 @@ import {
 	applyOperationPlan,
 	createOperationPlanDependencies,
 	executeOperationPlanDryRun,
+	mutationResponseOptionsSchema,
 	type operationPlanInputSchema,
 } from "./operation-plan";
 import {
@@ -662,26 +670,6 @@ const createReadToolResult = (
 	}
 
 	return createJsonResult(payload);
-};
-
-const stripHeavyTokenDiagnostics = <
-	T extends {
-		customUtilities?: unknown;
-	},
->(
-	tokenDiagnostics: T | null,
-	includeTokenDiagnostics: boolean,
-): T | null => {
-	if (tokenDiagnostics === null || includeTokenDiagnostics) {
-		return tokenDiagnostics;
-	}
-
-	if (!Object.hasOwn(tokenDiagnostics, "customUtilities")) {
-		return tokenDiagnostics;
-	}
-
-	const { customUtilities: _customUtilities, ...rest } = tokenDiagnostics;
-	return rest as T;
 };
 
 const createProjectInfoResult = async (context: TrickroomMcpServerContext) => {
@@ -2313,6 +2301,50 @@ const AUTHORING_CONTRACT_EXAMPLES = [
 			value: "end",
 		},
 	},
+	{
+		tool: "addSystemComponent",
+		description:
+			"Place a published system component instance. systemId comes from the linked design system manifest; componentId is the published component. Omit version for the current version. Set initial variant axes via variantValues; override slotted/text targets via overrides keyed by the component's override target id.",
+		arguments: {
+			...authoringContractWriteContext,
+			parentId: "board",
+			index: 0,
+			systemId: "core",
+			componentId: "button",
+			variantValues: { size: "md", tone: "primary" },
+			overrides: {
+				label: { text: "Save changes" },
+			},
+		},
+	},
+	{
+		tool: "updateSystemComponentInstance",
+		description:
+			"Update an attached system component instance in place. variantValues merges axis changes (omit unchanged axes); unsetVariantAxes clears axes back to schema defaults; overrides replaces the full override map. To change a component-owned prop that is not an exposed override target, edit the component itself or detachSystemComponent first.",
+		arguments: {
+			...authoringContractWriteContext,
+			rootElementId: "system-component-root-id",
+			variantValues: { tone: "secondary" },
+			overrides: {
+				label: { text: "Cancel" },
+			},
+		},
+	},
+	{
+		tool: "applyDesignOperations",
+		description:
+			'Commit an ordered batch atomically. Responses are minimal by default (error-severity issues only). Escalate verbosity per call via response: includeWarnings (scoped to affected elements unless warningScope:"file"), includeTokenDiagnostics for the full custom-utility catalog.',
+		arguments: {
+			...authoringContractWriteContext,
+			operations: [
+				{
+					operation: "updateElementProps",
+					parameters: { elementId: "board", className: "p-6 gap-4" },
+				},
+			],
+			response: { includeWarnings: true },
+		},
+	},
 ] as const;
 
 const summarizeRecipeForContract = (
@@ -2572,6 +2604,14 @@ const buildAuthoringGuidance = () => ({
 			when: "You can reuse an existing subtree from this or another design.",
 		},
 		{
+			prefer: "addSystemComponent",
+			when: "You are placing a published system component instance from the linked design system.",
+		},
+		{
+			prefer: "updateSystemComponentInstance",
+			when: "You are changing variant values or override targets on an attached system component instance.",
+		},
+		{
 			prefer: "validateOperation",
 			when: "A single operation target or parameters are uncertain.",
 		},
@@ -2590,7 +2630,23 @@ const buildAuthoringGuidance = () => ({
 		"Use listDesignTokens for full token lists; the contract only summarizes storage.",
 		"Use describeRegistryRecipe for full recipe templates and slot defaults.",
 		"Use getSystemComponentAuthoringContract before creating or updating system component drafts.",
+		"Write responses are minimal by default (error-severity issues only). Do not assume a clean write is silent on warnings — escalate when you need them.",
 	],
+	responseVerbosity: {
+		default:
+			"Write tools (applyDesignOperations, copySubtree, and single-element mutations) return only error-severity issues by default. Warnings and the full custom-utility token catalog are omitted to keep responses small.",
+		escalate: [
+			{
+				on: "applyDesignOperations and copySubtree",
+				how: 'Pass response: { includeWarnings: true } to include warnings (scoped to elements this write touched). Add warningScope: "file" for the whole design, and includeTokenDiagnostics: true for the full custom-utility catalog.',
+			},
+			{
+				on: "single-element mutations (addElement, addSubtree, updateElementProps, …)",
+				how: "These always return error issues only. To inspect warnings or the token catalog after such a write, call validateDesignFile (supports includeTokenDiagnostics) or readDesignGraph.",
+			},
+		],
+		when: "Escalate when a write succeeds but you need to confirm token/class health, are debugging unexpected styling, or are about to hand off; otherwise keep the default to minimize tokens.",
+	},
 });
 
 const SYSTEM_COMPONENT_AUTHORING_PLACEHOLDER_REVISION =
@@ -4775,7 +4831,7 @@ export const createTrickroomMcpServer = (
    - For single mutations, use the 'revision' from step 2 as 'expectedRevision'.
    - For every SUBSEQUENT mutation, you MUST use the 'newRevision' returned by the previous successful tool call (revision chaining).
    - If a tool returns 'REVISION_MISMATCH', do NOT guess. Call 'listDesignFiles' again to get the current revision, then retry with the updated 'expectedRevision'.
-9. **Validate & Verify**: Call 'validateDesignFile' after edits. Confirm only the edited area with 'readElement' or bounded 'readSubtree' unless a broader read-back is explicitly necessary.`,
+9. **Validate & Verify**: Write responses are minimal by default — they return only error-severity issues, not warnings or the token catalog. When you need to confirm token/class health after a write, either re-run the batch with 'response: { includeWarnings: true }' (add 'warningScope: "file"' and/or 'includeTokenDiagnostics: true' to widen) on 'applyDesignOperations'/'copySubtree', or call 'validateDesignFile' (supports 'includeTokenDiagnostics') for single-element writes. Confirm only the edited area with 'readElement' or bounded 'readSubtree' unless a broader read-back is explicitly necessary.`,
 					},
 				},
 			],
@@ -4896,7 +4952,7 @@ Discovery Steps (Read-Only):
 
 Workflow:
 1. **Select MCP Project Scope**: Call 'getSelectedProject'. If no project is selected, call 'listProjects' and then 'selectProject' with a known 'locationId' from each listProjects entry (not just 'projectId') before any writes.
-2. **Technical Validation**: Call 'validateDesignFile'.
+2. **Technical Validation**: Call 'validateDesignFile' (write responses are minimal by default, so this is where the full issue set lives; add 'includeTokenDiagnostics: true' only when you need the custom-utility catalog).
 3. **Analyze Issues by Category**: If 'valid' is false, group issues into structural, registry, recipe, token, asset, and icon diagnostics. If the design is already clean, do not perform any unnecessary mutations.
 4. **Targeted Re-Reads**: Use 'readDesignGraph' or bounded 'readSubtree' only where reported issues point to specific elements or subtrees.
 5. **Execute Fixes Deliberately**:
@@ -5034,7 +5090,7 @@ Workflow:
 4. **Get Revisions**: Call 'listDesignFiles' for the target 'revision'. When source and target design IDs differ, also capture the source design's current revision as 'sourceExpectedRevision'.
 5. **Dry-Run Copy**: Call 'validateCopySubtree' with source/target file IDs, '${sourceElementId}', target parent ${targetParentId ? `"${targetParentId}"` : "null"}, the chosen index, 'expectedRevision' on the target, and 'sourceExpectedRevision' whenever this is a cross-file copy.
 6. **Execute**:
-   - Use 'copySubtree' with the same revision fields as the dry-run (target 'expectedRevision'; include 'sourceExpectedRevision' for cross-file copies).
+   - Use 'copySubtree' with the same revision fields as the dry-run (target 'expectedRevision'; include 'sourceExpectedRevision' for cross-file copies). The response always returns the 'idMap' of old->new IDs; it is minimal otherwise — pass 'response: { includeWarnings: true }' (and 'includeTokenDiagnostics: true') only if you need diagnostics on the inserted subtree.
    - Use 'extractSubtree' instead when the goal is a new standalone design file cloned from the source subtree.
 7. **Revision Chaining**: Pass 'expectedRevision' on the target; chain 'newRevision' for any follow-up edits.
 8. **Validate & Verify**: Call 'validateDesignFile' on the target design and confirm the inserted region with bounded 'readSubtree'.`,
@@ -6855,16 +6911,64 @@ Workflow:
 		});
 	};
 
+	const enrichMemoryNotes = async (
+		context: TrickroomMcpServerContext,
+		memoryScope: MemoryScope,
+		notes: import("../utils/memory-manifest-service.types").MemoryNote[],
+		resolveReferences: boolean,
+	) => {
+		if (!resolveReferences) {
+			return notes;
+		}
+		return Promise.all(
+			notes.map(async (note) => ({
+				...note,
+				references: await resolveMemoryNoteReferences(
+					context.projectRoot,
+					memoryScope,
+					note.body,
+				),
+			})),
+		);
+	};
+
+	const enrichMemoryNote = async (
+		context: TrickroomMcpServerContext,
+		memoryScope: MemoryScope,
+		note: import("../utils/memory-manifest-service.types").MemoryNote,
+		resolveReferences: boolean,
+	) => {
+		if (!resolveReferences) {
+			return note;
+		}
+		return {
+			...note,
+			references: await resolveMemoryNoteReferences(
+				context.projectRoot,
+				memoryScope,
+				note.body,
+			),
+		};
+	};
+
 	server.registerTool(
 		"listMemoryNotes",
 		{
 			title: "List Memory Notes",
 			description:
 				"List durable memory/steering notes for a system, design, or project scope. Check for relevant notes before authoring or explaining work in that domain.",
-			inputSchema: withProjectScopedInput({ scope: memoryScopeSchema }),
+			inputSchema: withProjectScopedInput({
+				scope: memoryScopeSchema,
+				resolveReferences: z
+					.boolean()
+					.optional()
+					.describe(
+						"When true, attach per-note reference resolution for embedded {{type:id}} tokens.",
+					),
+			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ scope, project }) =>
+		async ({ scope, resolveReferences, project }) =>
 			withPolicyErrorHandling(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				const { scope: memoryScope, reference } = await resolveMemoryScope(
@@ -6874,6 +6978,12 @@ Workflow:
 				);
 				const read = await readMemoryManifest(context.projectRoot, memoryScope);
 				const summary = summarizeMemoryManifest(read.manifest);
+				const notes = await enrichMemoryNotes(
+					context,
+					memoryScope,
+					Object.values(read.manifest.notes),
+					resolveReferences === true,
+				);
 				return createJsonResult({
 					status: "success",
 					project: getProjectReference(context),
@@ -6881,7 +6991,7 @@ Workflow:
 					revision: read.revision,
 					exists: read.exists,
 					summary,
-					notes: Object.values(read.manifest.notes),
+					notes,
 				});
 			}),
 	);
@@ -6895,10 +7005,16 @@ Workflow:
 			inputSchema: withProjectScopedInput({
 				scope: memoryScopeSchema,
 				noteId: z.string().min(1).describe("Memory note id."),
+				resolveReferences: z
+					.boolean()
+					.optional()
+					.describe(
+						"When true, attach reference resolution for embedded {{type:id}} tokens in the note body.",
+					),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ scope, noteId, project }) =>
+		async ({ scope, noteId, resolveReferences, project }) =>
 			withPolicyErrorHandling(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				const { scope: memoryScope, reference } = await resolveMemoryScope(
@@ -6921,7 +7037,12 @@ Workflow:
 					project: getProjectReference(context),
 					scope: reference,
 					revision: read.revision,
-					note,
+					note: await enrichMemoryNote(
+						context,
+						memoryScope,
+						note,
+						resolveReferences === true,
+					),
 				});
 			}),
 	);
@@ -7236,12 +7357,19 @@ Workflow:
 		};
 	};
 
-	const getMutationWarnings = async (
+	// Shape post-write diagnostics for a mutation response. Minimal by default:
+	// error-severity issues plus a stripped token snapshot. Warnings and the
+	// heavy token catalog are opt-in via `options`; pass `affectedElementIds` to
+	// scope opt-in warnings to the elements this write touched. To inspect the
+	// full design after a single-element write, call validateDesignFile.
+	const getMutationDiagnostics = async (
 		context: TrickroomMcpServerContext,
 		design: TrickroomDesign,
+		options?: MutationResponseOptions,
+		affectedElementIds?: Iterable<string>,
 	) => {
 		const diagnostics = await getDesignDiagnostics(context, design);
-		return diagnostics.issues.filter((issue) => issue.severity === "warning");
+		return shapeMutationDiagnostics(diagnostics, options, affectedElementIds);
 	};
 
 	const auditToolResult = async (
@@ -7440,7 +7568,7 @@ Workflow:
 							},
 							rootElementIds: write.design.boards.map((board) => board.id),
 							elementTree: write.design.boards.map(compactElementTree),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -7627,7 +7755,7 @@ Workflow:
 							rootElementIds: write.design.boards.map((board) => board.id),
 							idMap: result.idMap,
 							elementTree: write.design.boards.map(compactElementTree),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -7747,7 +7875,7 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -7760,10 +7888,16 @@ Workflow:
 		{
 			title: "Copy Subtree",
 			description:
-				"Copy an existing source subtree into a target design. Requires expectedRevision for the target and sourceExpectedRevision for cross-file copies.",
-			inputSchema: validateCopySubtreePayloadSchema.extend(
-				projectScopedInputSchema,
-			),
+				"Copy an existing source subtree into a target design. Requires expectedRevision for the target and sourceExpectedRevision for cross-file copies. The idMap of old->new element IDs is always returned; warnings and token diagnostics are minimal by default and opt-in via the response field.",
+			inputSchema: validateCopySubtreePayloadSchema
+				.extend(projectScopedInputSchema)
+				.extend({
+					response: mutationResponseOptionsSchema
+						.optional()
+						.describe(
+							'Response verbosity controls. Minimal by default: only error-severity issues are returned. Set includeWarnings to surface warnings (scoped to the inserted subtree unless warningScope:"file"), and includeTokenDiagnostics to include the full custom-utility catalog.',
+						),
+				}),
 			annotations: {
 				...mutationAnnotations,
 				destructiveHint: false,
@@ -7774,6 +7908,7 @@ Workflow:
 			return withProjectContext(input.project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				const payload = input as ValidateCopySubtreePayload;
+				const responseOptions = input.response;
 				return withMutationErrorHandling(
 					context,
 					{
@@ -7813,6 +7948,10 @@ Workflow:
 							const invalidPayload = {
 								...validation,
 								status: "INVALID_OPERATION",
+								tokenDiagnostics: stripHeavyTokenDiagnostics(
+									validation.tokenDiagnostics ?? null,
+									responseOptions?.includeTokenDiagnostics ?? false,
+								),
 								...(firstError
 									? {
 											code: firstError.code,
@@ -7959,7 +8098,12 @@ Workflow:
 								result.rootElementId,
 							),
 							context: getMutationContext(result.design, result.rootElementId),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								responseOptions,
+								Object.values(result.idMap),
+							)),
 						});
 					},
 				);
@@ -8052,7 +8196,7 @@ Workflow:
 								),
 								revision: write.revision,
 							},
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -8065,7 +8209,7 @@ Workflow:
 		{
 			title: "Apply Design Operations",
 			description:
-				"Validate and commit an ordered list of design operations atomically against one expectedRevision. Performs exactly one persisted write when the full plan is valid and the starting revision still matches.",
+				"Validate and commit an ordered list of design operations atomically against one expectedRevision. Performs exactly one persisted write when the full plan is valid and the starting revision still matches. Responses are minimal by default (error-severity issues only); use the response field to opt into warnings and token diagnostics.",
 			inputSchema: withProjectScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
@@ -8097,6 +8241,11 @@ Workflow:
 					)
 					.min(1)
 					.describe("Ordered design operations to commit."),
+				response: mutationResponseOptionsSchema
+					.optional()
+					.describe(
+						'Response verbosity controls. Minimal by default: only error-severity issues are returned. Set includeWarnings to surface warnings (scoped to affected elements unless warningScope:"file"), and includeTokenDiagnostics to include the full custom-utility catalog.',
+					),
 			}),
 			annotations: {
 				...mutationAnnotations,
@@ -8104,7 +8253,7 @@ Workflow:
 				idempotentHint: false,
 			},
 		},
-		async ({ designFileId, expectedRevision, operations, project }) =>
+		async ({ designFileId, expectedRevision, operations, response, project }) =>
 			withProjectContext(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				return withMutationErrorHandling(
@@ -8126,6 +8275,8 @@ Workflow:
 								designFileId,
 								expectedRevision,
 								operations,
+								response,
+								project,
 							});
 							if (
 								result.status === "invalid" ||
@@ -8321,7 +8472,7 @@ Workflow:
 							newRevision: write.revision,
 							changedElement: element,
 							context: elementContext,
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -8442,7 +8593,7 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -8585,7 +8736,7 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -8715,7 +8866,7 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -8891,7 +9042,7 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -9095,7 +9246,7 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -9243,7 +9394,7 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -9359,7 +9510,7 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -9457,7 +9608,7 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -9558,7 +9709,7 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -9685,7 +9836,7 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -9785,7 +9936,7 @@ Workflow:
 								parentId: originalContext?.parentId ?? null,
 								parentContext: parentSiblings,
 							},
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);
@@ -9887,7 +10038,7 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							warnings: await getMutationWarnings(context, write.design),
+							...(await getMutationDiagnostics(context, write.design)),
 						});
 					},
 				);

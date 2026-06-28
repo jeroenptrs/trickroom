@@ -5,7 +5,9 @@ import { createDesignSystemStorage } from "./design-system-store";
 import {
 	addMemoryNote,
 	deleteMemoryNote,
+	migrateMemoryManifest,
 	type MemoryManifestError,
+	normalizeMemoryManifest,
 	readMemoryManifest,
 	updateMemoryNote,
 } from "./memory-manifest-service";
@@ -203,5 +205,36 @@ describe("memory manifest service", () => {
 			readMemoryManifest(projectRoot, { kind: "project" }),
 			"INVALID_MANIFEST",
 		);
+	});
+
+	it("rejects unsupported manifest versions after migration", () => {
+		expect(() =>
+			normalizeMemoryManifest(
+				{
+					version: 99,
+					scope: { kind: "project" },
+					metadata: {
+						createdAt: new Date(0).toISOString(),
+						updatedAt: new Date(0).toISOString(),
+					},
+					notes: {},
+				},
+				{ kind: "project" },
+				"path/memory.json",
+			),
+		).toThrow(/Unsupported memory manifest version/);
+	});
+
+	it("leaves version 1 manifests unchanged in migrateMemoryManifest", () => {
+		const manifest = {
+			version: 1,
+			scope: { kind: "project" },
+			metadata: {
+				createdAt: new Date(0).toISOString(),
+				updatedAt: new Date(0).toISOString(),
+			},
+			notes: {},
+		};
+		expect(migrateMemoryManifest(manifest)).toEqual(manifest);
 	});
 });

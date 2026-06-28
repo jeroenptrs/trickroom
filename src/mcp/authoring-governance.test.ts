@@ -316,13 +316,22 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		const revision = await getRevision(session);
+		// Warnings are opt-in via response.includeWarnings on batch writes.
 		const mutationResult = await session.client.callTool({
-			name: "updateElementProps",
+			name: "applyDesignOperations",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
-				elementId: "board",
-				className: "bg-missing-600",
+				operations: [
+					{
+						operation: "updateElementProps",
+						parameters: {
+							elementId: "board",
+							className: "bg-missing-600",
+						},
+					},
+				],
+				response: { includeWarnings: true },
 			},
 		});
 		expect(mutationResult.structuredContent).toMatchObject({
@@ -334,6 +343,111 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 				}),
 			]),
 		});
+	});
+
+	it("applies the minimal-default response contract and verbosity escalation", async () => {
+		const { session } = await createSession({
+			designs: {
+				[trickroomMcpTestDesignUuid]: diagnosticDesign,
+			},
+			tokenSnapshots: [
+				{
+					systemName: "Core",
+					cssPath: "src/index.css",
+					tokens: { "brand-500": "#2563eb" },
+					overrides: ["brand-500"],
+					reviewRequired: false,
+				},
+			],
+		});
+
+		const addBadElement = () => ({
+			operations: [
+				{
+					operation: "addElement",
+					parameters: {
+						parentId: "board",
+						index: 0,
+						library: "trickroom",
+						component: "text",
+						name: "Bad Token",
+						className: "bg-also-missing-500",
+						text: "bad",
+					},
+				},
+			],
+		});
+
+		// Default: error-severity issues only, no warnings, no heavy token catalog.
+		const defaultRevision = await getRevision(session);
+		const defaultResult = await session.client.callTool({
+			name: "applyDesignOperations",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				expectedRevision: defaultRevision,
+				...addBadElement(),
+			},
+		});
+		expect(defaultResult.structuredContent).toMatchObject({
+			status: "success",
+		});
+		expect(defaultResult.structuredContent).not.toHaveProperty("warnings");
+		const defaultContent = defaultResult.structuredContent as {
+			tokenDiagnostics?: { customUtilities?: unknown };
+		};
+		expect(defaultContent.tokenDiagnostics).not.toHaveProperty(
+			"customUtilities",
+		);
+
+		// includeWarnings with default scope: only warnings on touched elements;
+		// the board's pre-existing bad tokens are not echoed.
+		const affectedRevision = await getRevision(session);
+		const affectedResult = await session.client.callTool({
+			name: "applyDesignOperations",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				expectedRevision: affectedRevision,
+				...addBadElement(),
+				response: { includeWarnings: true },
+			},
+		});
+		const affected = affectedResult.structuredContent as {
+			warnings: Array<{ code: string; token?: string }>;
+		};
+		expect(affected.warnings).toContainEqual(
+			expect.objectContaining({
+				code: "UNKNOWN_COLOR_TOKEN",
+				token: "also-missing-500",
+			}),
+		);
+		expect(affected.warnings).not.toContainEqual(
+			expect.objectContaining({
+				code: "UNKNOWN_COLOR_TOKEN",
+				token: "missing-500",
+			}),
+		);
+
+		// warningScope "file": surfaces the whole design's warnings, including the
+		// board's pre-existing bad tokens.
+		const fileRevision = await getRevision(session);
+		const fileResult = await session.client.callTool({
+			name: "applyDesignOperations",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				expectedRevision: fileRevision,
+				...addBadElement(),
+				response: { includeWarnings: true, warningScope: "file" },
+			},
+		});
+		const file = fileResult.structuredContent as {
+			warnings: Array<{ code: string; token?: string }>;
+		};
+		expect(file.warnings).toContainEqual(
+			expect.objectContaining({
+				code: "UNKNOWN_COLOR_TOKEN",
+				token: "missing-500",
+			}),
+		);
 	});
 
 	it("treats Tailwind baseline colors as available when snapshots contain no meaningful tokens", async () => {
@@ -369,17 +483,25 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 
 		const revision = await getRevision(session);
 		const mutationResult = await session.client.callTool({
-			name: "addElement",
+			name: "applyDesignOperations",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
-				parentId: "board",
-				index: 0,
-				library: "trickroom",
-				component: "text",
-				name: "Baseline Token",
-				className: "bg-slate-50 text-slate-950 hover:bg-white",
-				text: "Baseline token",
+				operations: [
+					{
+						operation: "addElement",
+						parameters: {
+							parentId: "board",
+							index: 0,
+							library: "trickroom",
+							component: "text",
+							name: "Baseline Token",
+							className: "bg-slate-50 text-slate-950 hover:bg-white",
+							text: "Baseline token",
+						},
+					},
+				],
+				response: { includeWarnings: true },
 			},
 		});
 		const mutation = mutationResult.structuredContent as {
@@ -454,17 +576,25 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 
 		const revision = await getRevision(session);
 		const mutationResult = await session.client.callTool({
-			name: "addElement",
+			name: "applyDesignOperations",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
-				parentId: "board",
-				index: 0,
-				library: "trickroom",
-				component: "text",
-				name: "Removed Baseline Token",
-				className: "bg-slate-50 text-slate-950",
-				text: "Removed baseline token",
+				operations: [
+					{
+						operation: "addElement",
+						parameters: {
+							parentId: "board",
+							index: 0,
+							library: "trickroom",
+							component: "text",
+							name: "Removed Baseline Token",
+							className: "bg-slate-50 text-slate-950",
+							text: "Removed baseline token",
+						},
+					},
+				],
+				response: { includeWarnings: true },
 			},
 		});
 		const mutation = mutationResult.structuredContent as {

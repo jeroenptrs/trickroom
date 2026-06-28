@@ -214,8 +214,9 @@ Read-only tools:
 | `listSystemComponents` | List authored components in a configured system with manifest revision metadata. |
 | `describeSystemComponent` | Describe one component record, draft hashes, validation diagnostics, and published versions. |
 | `listStaleSystemComponentUsages` | Read-only scan returning attached instances with stale referenced versions in `usages`. Hash-review signals appear in status counts and diagnostics, not in `usages` rows. |
-| `listMemoryNotes` | List memory/steering notes plus a category summary for a system, design, or project scope. |
-| `getMemoryNote` | Read one memory note by id from a system, design, or project scope. |
+| `listMemoryNotes` | List memory/steering notes plus a category summary for a system, design, or project scope. Optional `resolveReferences: true` attaches per-note reference resolution (including `deepLink` for valid targets). |
+| `getMemoryNote` | Read one memory note by id from a system, design, or project scope. Optional `resolveReferences: true` attaches reference resolution for the note body (including `deepLink` for valid targets). |
+| `listReferenceTargets` | List candidate `{{type:id}}` reference targets for memory note intellisense in the current scope. |
 
 Project/session writes:
 
@@ -241,7 +242,7 @@ Design-system resource writes:
 
 Memory note writes:
 
-All memory tools take a scope-discriminated union: `{ kind: "system", systemName }`, `{ kind: "design", designFileId }`, or `{ kind: "project" }`. Writes target the matching `memory.json` (see `docs/project-files.md`). Note bodies may embed reserved reference tokens like `{{design:<uuid>}}`; these are stored verbatim and not yet resolved.
+All memory tools take a scope-discriminated union: `{ kind: "system", systemName }`, `{ kind: "design", designFileId }`, or `{ kind: "project" }`. Writes target the matching `memory.json` (see `docs/project-files.md`). Note bodies may embed canonical reference tokens like `{{design:<uuid>}}`; bodies are stored verbatim. `addMemoryNote` and `updateMemoryNote` return non-blocking `referenceWarnings` for unresolved tokens. `listMemoryNotes` and `getMemoryNote` accept optional `resolveReferences: true` to attach per-note resolution metadata.
 
 | Tool | Writes | Destructive risk |
 | --- | --- | --- |
@@ -301,6 +302,19 @@ Safe mutation sequence:
 This revision discipline prevents agents from overwriting newer app or user edits.
 
 ## Mutation Details
+
+### Write Response Verbosity
+
+Write tools return **minimal responses by default** to keep payloads small: only error-severity `issues` are included. Warnings and the heavy `customUtilities` token catalog are omitted unless requested.
+
+- `applyDesignOperations` and `copySubtree` accept a `response` object to escalate per call:
+  - `includeWarnings: true` — include warning-severity diagnostics, **scoped to the elements this write touched** (the inserted subtree for `copySubtree`).
+  - `warningScope: "file"` — when including warnings, return the whole design's warnings instead of only the affected elements.
+  - `includeTokenDiagnostics: true` — include the full custom-utility catalog in `tokenDiagnostics` (otherwise only the lightweight snapshot metadata is returned).
+- Single-element mutations (`addElement`, `addSubtree`, `updateElementProps`, `moveElement`, system-component and recipe writes, …) always return error issues only. To inspect warnings or the token catalog after such a write, call `validateDesignFile` (supports `includeTokenDiagnostics`) or `readDesignGraph`.
+- `copySubtree` always returns its `idMap` of old→new element IDs regardless of verbosity.
+
+Escalate when a write succeeds but you need to confirm token/class health, are debugging unexpected styling, or are about to hand off. Otherwise keep the default to minimize tokens.
 
 `createDesignFile`:
 
@@ -467,7 +481,7 @@ It returns predicted changed elements, context, deleted IDs, warnings, token dia
 - Returns `status`, `valid`, `operationCount`, per-step summaries, aggregate changed/deleted/inserted IDs, recipe expansion metadata, diagnostics, and suggested reads.
 - On failure, returns `failedStepIndex`, `failedOperation`, and diagnostics without writing.
 
-`applyDesignOperations` validates the same payload shape and performs exactly one persisted write when the full plan is valid and the starting revision still matches. It returns one `newRevision`, not per-step revisions.
+`applyDesignOperations` validates the same payload shape and performs exactly one persisted write when the full plan is valid and the starting revision still matches. It returns one `newRevision`, not per-step revisions. Unlike the verbose `validateOperationPlan` dry-run, its success response is minimal by default (error-severity issues only); opt into warnings/token diagnostics with the `response` object (see [Write Response Verbosity](#write-response-verbosity)).
 
 `validateSubtree` and `validateCopySubtree` return predicted diagnostics and stats without writing:
 

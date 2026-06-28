@@ -281,7 +281,7 @@ describe("MCP expanded class/token diagnostics", () => {
 		);
 	});
 
-	it("returns expanded diagnostics from mutation warnings", async () => {
+	it("omits warnings from single-element writes and surfaces them via validateDesignFile", async () => {
 		const { session } = await createSession({
 			designs: {
 				[trickroomMcpTestDesignUuid]: {
@@ -330,9 +330,22 @@ describe("MCP expanded class/token diagnostics", () => {
 			},
 		});
 
+		// Minimal-default contract: single-element writes echo only error-severity
+		// issues, never warnings. Diagnostics are reachable via validateDesignFile.
 		expect(mutationResult.structuredContent).toMatchObject({
 			status: "success",
-			warnings: expect.arrayContaining([
+		});
+		expect(mutationResult.structuredContent).not.toHaveProperty("warnings");
+
+		const validateResult = await session.client.callTool({
+			name: "validateDesignFile",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+			},
+		});
+
+		expect(validateResult.structuredContent).toMatchObject({
+			issues: expect.arrayContaining([
 				expect.objectContaining({
 					code: "UNKNOWN_FONT_TOKEN",
 					token: "missing",
@@ -397,7 +410,7 @@ describe("MCP expanded class/token diagnostics", () => {
 	it("skips unknown utility warnings when the design system CSS cannot be loaded", async () => {
 		const { session } = await createSession({
 			systemCss: {
-				Core: "@import \"./missing-tailwind.css\";\n",
+				Core: '@import "./missing-tailwind.css";\n',
 			},
 			designs: {
 				[trickroomMcpTestDesignUuid]: {

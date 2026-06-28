@@ -251,27 +251,40 @@ function normalizeAuthor(value: unknown): MemoryNoteAuthor {
 	return author;
 }
 
+export function migrateMemoryManifest(value: unknown): unknown {
+	if (!isRecord(value)) {
+		return value;
+	}
+
+	// Version hops run here before normalizeMemoryManifest enforces the current
+	// MEMORY_MANIFEST_VERSION. Example for a future bump:
+	// if (value.version === 1) return migrateMemoryManifestV1ToV2(value);
+
+	return value;
+}
+
 export function normalizeMemoryManifest(
 	value: unknown,
 	scopeRef: MemoryScopeRef,
 	manifestPath: string,
 ): MemoryManifest {
-	if (!isRecord(value)) {
+	const migrated = migrateMemoryManifest(value);
+	if (!isRecord(migrated)) {
 		throw new MemoryManifestError(
 			"INVALID_MANIFEST",
 			`Memory manifest at ${manifestPath} must be a JSON object.`,
 		);
 	}
 
-	if (value.version !== MEMORY_MANIFEST_VERSION) {
+	if (migrated.version !== MEMORY_MANIFEST_VERSION) {
 		throw new MemoryManifestError(
 			"INVALID_MANIFEST",
-			`Unsupported memory manifest version: ${String(value.version)}.`,
+			`Unsupported memory manifest version: ${String(migrated.version)}.`,
 		);
 	}
 
-	const metadata = isRecord(value.metadata) ? value.metadata : {};
-	const notesValue = value.notes;
+	const metadata = isRecord(migrated.metadata) ? migrated.metadata : {};
+	const notesValue = migrated.notes;
 	if (notesValue !== undefined && !isRecord(notesValue)) {
 		throw new MemoryManifestError(
 			"INVALID_MANIFEST",

@@ -5,6 +5,7 @@ import type {
 	MemoryScopeRef,
 	MemorySummary,
 } from "../utils/memory-manifest-service.types";
+import type { ResolvedMemoryReference } from "../utils/memory-references";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
@@ -38,18 +39,22 @@ export type MemoryQueryScope =
 	| { kind: "design"; designId: string }
 	| { kind: "project" };
 
+export type MemoryNoteWithReferences = MemoryNote & {
+	references?: ResolvedMemoryReference[];
+};
+
 export type MemoryListResponse = {
 	scope: MemoryScopeRef;
 	revision: string;
 	exists: boolean;
 	summary: MemorySummary;
-	notes: MemoryNote[];
+	notes: MemoryNoteWithReferences[];
 };
 
 export type MemoryNoteResponse = {
 	scope: MemoryScopeRef;
 	revision: string;
-	note: MemoryNote;
+	note: MemoryNoteWithReferences;
 };
 
 export type MemoryWriteResponse = {
@@ -116,18 +121,34 @@ export const memoryQueryKey = (
 		projectScope,
 	);
 
-const fetchMemoryNotes = async (scope: MemoryQueryScope) => {
-	const response = await fetch(memoryBaseUrl(scope));
+export type MemoryQueryOptions = {
+	resolveReferences?: boolean;
+};
+
+const fetchMemoryNotes = async (
+	scope: MemoryQueryScope,
+	options?: MemoryQueryOptions,
+) => {
+	const params = new URLSearchParams();
+	if (options?.resolveReferences) {
+		params.set("resolveReferences", "true");
+	}
+	const suffix = params.size > 0 ? `?${params.toString()}` : "";
+	const response = await fetch(`${memoryBaseUrl(scope)}${suffix}`);
 	return readJsonOrThrow<MemoryListResponse>(response);
 };
 
 export const memoryQueryOptions = (
 	scope: MemoryQueryScope,
 	projectScope?: ProjectQueryScope,
+	options?: MemoryQueryOptions,
 ) =>
 	queryOptions({
-		queryKey: memoryQueryKey(scope, projectScope),
-		queryFn: () => fetchMemoryNotes(scope),
+		queryKey: [
+			...memoryQueryKey(scope, projectScope),
+			options?.resolveReferences ? "resolved" : "plain",
+		],
+		queryFn: () => fetchMemoryNotes(scope, options),
 		retry: false,
 	});
 

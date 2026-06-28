@@ -14,7 +14,7 @@ import {
 	designOperationNameSchema,
 	validateDryRunOperationParameters,
 } from "./design-operations";
-import type { McpDesignIssue } from "./diagnostics";
+import { type McpDesignIssue, shapeMutationDiagnostics } from "./diagnostics";
 import {
 	assertCanReadDesignFile,
 	assertCanWriteDesignFile,
@@ -35,11 +35,20 @@ export const operationPlanStepSchema = z.object({
 	parameters: z.record(z.string(), z.unknown()).optional(),
 });
 
+export const mutationResponseOptionsSchema = z
+	.object({
+		includeWarnings: z.boolean().optional(),
+		warningScope: z.enum(["affected", "file"]).optional(),
+		includeTokenDiagnostics: z.boolean().optional(),
+	})
+	.strict();
+
 export const operationPlanInputSchema = z.object({
 	designFileId: z.string().uuid(),
 	expectedRevision: z.string().startsWith("sha256:"),
 	operations: z.array(operationPlanStepSchema).min(1),
 	project: projectRefSchema,
+	response: mutationResponseOptionsSchema.optional(),
 });
 
 export type OperationPlanInput = z.infer<typeof operationPlanInputSchema>;
@@ -63,8 +72,8 @@ export type OperationPlanResult = {
 	operationCount: number;
 	steps: OperationPlanStepOutput[];
 	issues: McpDesignIssue[];
-	warnings: McpDesignIssue[];
-	tokenDiagnostics: unknown;
+	warnings?: McpDesignIssue[];
+	tokenDiagnostics?: unknown;
 	changedElementIds: string[];
 	deletedIds: string[];
 	insertedElementIds: string[];
@@ -539,6 +548,10 @@ export const executeOperationPlanDryRun = async (
 	}
 
 	const diagnostics = await deps.getDesignDiagnostics(candidateDesign);
+	const shaped = shapeMutationDiagnostics(diagnostics, input.response, [
+		...changedElementIds,
+		...insertedElementIds,
+	]);
 
 	return {
 		status: "success",
@@ -547,11 +560,7 @@ export const executeOperationPlanDryRun = async (
 		designFile: deps.getDesignMetadata(input.designFileId, read),
 		operationCount: input.operations.length,
 		steps,
-		issues: diagnostics.issues,
-		warnings: diagnostics.issues.filter(
-			(issue) => issue.severity === "warning",
-		),
-		tokenDiagnostics: diagnostics.tokenSnapshot,
+		...shaped,
 		changedElementIds,
 		deletedIds,
 		insertedElementIds,

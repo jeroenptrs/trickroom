@@ -223,6 +223,31 @@ describe("memory routes", () => {
 		expect(list.summary.noteCount).toBe(1);
 	});
 
+	it("returns resolved references when resolveReferences=true", async () => {
+		const app = await importTestServer();
+
+		await app.request("/api/trickroom/memory", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				category: "usage",
+				body: "See {{design:11111111-1111-4111-8111-111111111111}}.",
+			}),
+		});
+
+		const listResponse = await app.request(
+			"/api/trickroom/memory?resolveReferences=true",
+		);
+		expect(listResponse.status).toBe(200);
+		const list = (await listResponse.json()) as {
+			notes: Array<{ references?: Array<{ status: string }> }>;
+		};
+		expect(list.notes[0]?.references?.[0]).toMatchObject({
+			status: "broken",
+			type: "design",
+		});
+	});
+
 	it("audits REST memory writes when audit logging is enabled", async () => {
 		await writeConfig({
 			mcp: { enabled: true, mode: "read-write", auditLog: true },

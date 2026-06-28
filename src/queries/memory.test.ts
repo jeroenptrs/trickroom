@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type MemoryQueryScope,
 	memoryQueryKey,
+	memoryQueryOptions,
 	referenceTargetsQueryKey,
 } from "./memory";
 
@@ -28,6 +29,14 @@ describe("memoryQueryKey", () => {
 			"project",
 			"loc_1",
 		]);
+	});
+
+	it("tags resolved reads in the query key", () => {
+		expect(
+			memoryQueryOptions({ kind: "project" }, undefined, {
+				resolveReferences: true,
+			}).queryKey,
+		).toContain("resolved");
 	});
 
 	it("namespaces reference-target keys by type and query", () => {

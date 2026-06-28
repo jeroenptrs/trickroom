@@ -187,6 +187,35 @@ describe("trickroom MCP memory tools", () => {
 		).toBe("string");
 	});
 
+	it("attaches resolved references when resolveReferences is true", async () => {
+		await open();
+		const scope = {
+			kind: "design",
+			designFileId: trickroomMcpTestDesignUuid,
+		} as const;
+		await session.client.callTool({
+			name: "addMemoryNote",
+			arguments: {
+				scope,
+				category: "usage",
+				body: `See {{design:${trickroomMcpTestDesignUuid}}} and {{design:99999999-9999-4999-8999-999999999999}}.`,
+			},
+		});
+
+		const list = await session.client.callTool({
+			name: "listMemoryNotes",
+			arguments: { scope, resolveReferences: true },
+		});
+		const notes = (list.structuredContent as { notes: Array<{ references: unknown[] }> })
+			.notes;
+		expect(notes[0]?.references).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ status: "valid", type: "design" }),
+				expect.objectContaining({ status: "broken", type: "design" }),
+			]),
+		);
+	});
+
 	it("blocks writes in read-only mode", async () => {
 		await open({ config: { mcp: { enabled: true, mode: "read-only" } } });
 		const result = await session.client.callTool({

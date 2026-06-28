@@ -66,6 +66,100 @@ export type DesignDiagnostics = {
 	} | null;
 };
 
+/**
+ * Verbosity controls for write/mutation tool responses. Defaults are minimal:
+ * only error-severity issues are returned, warnings and the heavy custom-utility
+ * token catalog are omitted unless explicitly opted into. Escalate per call when
+ * a write reports issues you need to inspect.
+ */
+export type MutationResponseOptions = {
+	/** Include warning-severity diagnostics. Defaults to false. */
+	includeWarnings?: boolean;
+	/**
+	 * When warnings are included, "affected" (default) limits them to elements
+	 * touched by this write; "file" returns warnings for the whole design.
+	 */
+	warningScope?: "affected" | "file";
+	/**
+	 * Include the heavy token diagnostics (custom utility catalog). Defaults to
+	 * false; the lightweight token snapshot metadata is always retained.
+	 */
+	includeTokenDiagnostics?: boolean;
+};
+
+/**
+ * Drop the heavy `customUtilities` catalog from a token snapshot unless the
+ * caller asked for it. The remaining snapshot metadata (counts, review flags) is
+ * small and always kept.
+ */
+export const stripHeavyTokenDiagnostics = <
+	T extends {
+		customUtilities?: unknown;
+	},
+>(
+	tokenDiagnostics: T | null,
+	includeTokenDiagnostics: boolean,
+): T | null => {
+	if (tokenDiagnostics === null || includeTokenDiagnostics) {
+		return tokenDiagnostics;
+	}
+
+	if (!Object.hasOwn(tokenDiagnostics, "customUtilities")) {
+		return tokenDiagnostics;
+	}
+
+	const { customUtilities: _customUtilities, ...rest } = tokenDiagnostics;
+	return rest as T;
+};
+
+export type ShapedMutationDiagnostics = {
+	issues: McpDesignIssue[];
+	warnings?: McpDesignIssue[];
+	tokenDiagnostics: unknown;
+};
+
+/**
+ * Shape a full design diagnostics result for a write response according to the
+ * minimal-default contract. Always returns error-severity `issues` and a
+ * (stripped-by-default) `tokenDiagnostics`; only attaches `warnings` when
+ * `includeWarnings` is set, scoped to `affectedElementIds` unless the caller
+ * requests `warningScope: "file"`.
+ */
+export const shapeMutationDiagnostics = (
+	diagnostics: { issues: McpDesignIssue[]; tokenSnapshot: unknown },
+	options: MutationResponseOptions | undefined,
+	affectedElementIds?: Iterable<string>,
+): ShapedMutationDiagnostics => {
+	const opts = options ?? {};
+	const shaped: ShapedMutationDiagnostics = {
+		issues: diagnostics.issues.filter((issue) => issue.severity === "error"),
+		tokenDiagnostics: stripHeavyTokenDiagnostics(
+			diagnostics.tokenSnapshot as { customUtilities?: unknown } | null,
+			opts.includeTokenDiagnostics ?? false,
+		),
+	};
+
+	if (opts.includeWarnings) {
+		const warnings = diagnostics.issues.filter(
+			(issue) => issue.severity === "warning",
+		);
+		if (opts.warningScope === "file" || affectedElementIds === undefined) {
+			shaped.warnings = warnings;
+		} else {
+			const affected = new Set(affectedElementIds);
+			// File-level warnings without an elementId (e.g. review-required,
+			// recipe diagnostics) are always surfaced; element-bound warnings are
+			// limited to elements this write touched.
+			shaped.warnings = warnings.filter(
+				(warning) =>
+					warning.elementId === undefined || affected.has(warning.elementId),
+			);
+		}
+	}
+
+	return shaped;
+};
+
 type TailwindUtilityInspector = (
 	candidate: string,
 ) => TailwindUtilityInspection;

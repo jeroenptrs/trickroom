@@ -97,21 +97,21 @@ Memory can be attached at three scopes, each stored as its own `memory.json` (se
 - **System**: usage conventions and constraints for a design system.
 - **Design**: intent and rationale for a specific design file, stored in a sibling `<uuid>.memory.json`.
 
-Each note has a stable `noteId`, a markdown `body`, and a `category` from a fixed enum (`intent`, `usage`, `conventions`, `constraints`, `decision`, `todo`). Memory is authored agent-first via MCP and is never auto-injected into agent context — reads and prompts only hint that relevant notes may exist for the current domain.
+Each note has a stable `noteId`, a markdown `body`, and a `category` from a fixed enum (`intent`, `usage`, `conventions`, `constraints`, `decision`, `todo`). Memory is authored via MCP and the project overview drawer UI; it is never auto-injected into agent context — reads and prompts only hint that relevant notes may exist for the current domain.
 
-### Reserved reference grammar
+### Reference grammar and resolution
 
 Note bodies may embed inline reference tokens so notes can point at related entities:
 
 ```text
 {{design:<uuid>}}
-{{component:<systemId>/<componentId>}}
+{{component:<componentId>}}
 {{token:<domain>/<name>}}
 {{asset:<assetId>}}
 {{icon:<iconId>}}
 ```
 
-These tokens are reserved and stored verbatim. They are plain text today; parsing, validation, and editor intellisense/resolution are deferred to a later phase. Authors should use this grammar now so existing notes resolve automatically once support lands.
+Tokens are stored verbatim. On write, Trickroom returns non-blocking `referenceWarnings` for tokens that do not resolve in the current scope. On read, REST (`?resolveReferences=true`) and MCP (`resolveReferences: true`) attach per-note `references` with `valid`, `broken`, or `unresolvable_scope` status and, for valid targets, a `deepLink` in-app route. The project overview memory drawer renders resolved tokens as chips (valid chips navigate via `deepLink`) and offers `{{` intellisense backed by the reference-targets endpoint / `listReferenceTargets` MCP tool.
 
 ## Registry
 

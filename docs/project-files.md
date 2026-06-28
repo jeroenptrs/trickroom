@@ -591,7 +591,7 @@ Rules:
 
 - `category` must be one of the six enum values; unknown categories are rejected (`INVALID_CATEGORY`).
 - `noteId` must equal its map key; divergent manifests are rejected (`INVALID_MANIFEST`).
-- Note bodies are stored verbatim. Reserved reference tokens like `{{design:<uuid>}}` or `{{component:<systemId>/<componentId>}}` are preserved as plain text; resolution/validation is a later phase.
+- Note bodies are stored verbatim. Bodies may embed canonical reference tokens such as `{{design:<uuid>}}`, `{{component:<id>}}`, `{{token:<domain>/<name>}}`, `{{asset:<id>}}`, and `{{icon:<id>}}`. Writes return non-blocking `referenceWarnings` for unresolved tokens; reads may pass `resolveReferences=true` (REST query param or MCP `resolveReferences` argument) to attach per-note resolution metadata without mutating stored bodies.
 - Design scope ids must be a single path segment; `.`, `..`, slashes, and backslashes are rejected (`INVALID_SCOPE`).
 - System scope requires a configured system; unknown systems are rejected (`SCOPE_NOT_FOUND`).
 
@@ -601,6 +601,41 @@ Revision and write safety:
 - An absent file reads as an empty manifest with a deterministic revision (fixed epoch timestamps), so a first write does not spuriously conflict.
 - `updateMemoryNote` and `deleteMemoryNote` require `expectedRevision`; stale revisions return `STALE_WRITE` and do not modify the file. `addMemoryNote` is append-only and does not require a revision.
 - Writes are atomic (temp file + rename) and serialized per file path.
+
+REST surface:
+
+| Scope | List / get | Create | Update | Delete | Reference targets |
+| --- | --- | --- | --- | --- | --- |
+| Project | `GET /api/trickroom/memory` | `POST /api/trickroom/memory` | `PATCH /api/trickroom/memory/:noteId` | `DELETE /api/trickroom/memory/:noteId` | `GET /api/trickroom/memory/reference-targets?type=&query=` |
+| Design | `GET /api/trickroom/designs/:designId/memory` | `POST …` | `PATCH …/:noteId` | `DELETE …/:noteId` | `GET …/reference-targets?type=&query=` |
+| System | `GET /api/trickroom/systems/:systemName/memory` | `POST …` | `PATCH …/:noteId` | `DELETE …/:noteId` | `GET …/reference-targets?type=&query=` |
+
+List/get responses accept `?resolveReferences=true` to attach per-note `references` arrays. Each resolved reference may include `deepLink` (an in-app route) for valid targets. REST writes are audit-logged when `mcp.auditLog` is enabled (`source: "rest"`).
+
+### Memory manifest migrations
+
+New `memory.json` files are written at `version: 1` (`MEMORY_MANIFEST_VERSION` in `memory-manifest-service.ts`).
+
+Read path:
+
+1. Parse JSON from disk.
+2. Run `migrateMemoryManifest` to rewrite older persisted shapes when the version is bumped.
+3. Run `normalizeMemoryManifest` to validate scope, notes, categories, and `noteId === key` invariants.
+4. Reject unsupported versions with `INVALID_MANIFEST` rather than partially loading unknown shapes.
+
+Write path:
+
+- All writers persist the current `MEMORY_MANIFEST_VERSION` via `serializeMemoryManifest`.
+- Content-hash revision (`sha256:…`) is computed from the exact serialized bytes after normalization.
+
+When bumping the manifest version:
+
+1. Increment `MEMORY_MANIFEST_VERSION` and add a `migrateVXToVY` hop in `migrateMemoryManifest`.
+2. Extend `normalizeMemoryManifest` for any new required fields or enum values.
+3. Add regression tests in `memory-manifest-service.test.ts` covering the migration hop and normalized output.
+4. Document the shape change in this section and in `docs/design-model.md` if the note model changes.
+
+There is no automatic backfill across scopes; each `memory.json` migrates independently on read/write.
 
 ## MCP Audit Log
 

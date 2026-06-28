@@ -479,7 +479,7 @@ describe("MCP mutation tools", () => {
 					recipeExpansions: Array<{ rootId: string }>;
 					changedElement: { id: string };
 					context: { elementId: string; parentId: string };
-					warnings: unknown[];
+					issues: unknown[];
 				};
 				expect(content.status).toBe("success");
 				expect(content.newRevision).toMatch(/^sha256:/);
@@ -502,7 +502,10 @@ describe("MCP mutation tools", () => {
 					parentId: "board",
 					index: 1,
 				});
-				expect(Array.isArray(content.warnings)).toBe(true);
+				// Minimal-default contract: writes echo error-severity issues only,
+				// never warnings, unless escalated.
+				expect(Array.isArray(content.issues)).toBe(true);
+				expect(content).not.toHaveProperty("warnings");
 
 				const boardResult = await session.client.callTool({
 					name: "readElement",

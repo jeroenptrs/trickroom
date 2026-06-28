@@ -30,6 +30,8 @@ export type ResolvedMemoryReference = MemoryReferenceToken & {
 	status: MemoryReferenceStatus;
 	label?: string;
 	detail?: string;
+	/** In-app route for valid targets (design editor or system editor). */
+	deepLink?: string;
 };
 
 export type MemoryReferenceWarning = {
@@ -68,6 +70,46 @@ export function parseMemoryReferences(body: string): MemoryReferenceToken[] {
 type ReferenceSystemContext = {
 	systemId: string;
 	systemName: string;
+};
+
+/** Builds an in-app navigation path for a resolved reference target. */
+export function buildMemoryReferenceDeepLink(
+	type: MemoryReferenceType,
+	targetId: string,
+	systemId?: string | null,
+): string | undefined {
+	if (type === "design") {
+		return `/design/${targetId}`;
+	}
+	if (!systemId) {
+		return undefined;
+	}
+	const systemPath = `/system/${encodeURIComponent(systemId)}`;
+	if (type === "component") {
+		return `${systemPath}?component=${encodeURIComponent(targetId)}`;
+	}
+	if (type === "token") {
+		return `${systemPath}?tab=tokens`;
+	}
+	if (type === "asset") {
+		return `${systemPath}?tab=assets`;
+	}
+	return `${systemPath}?tab=icons`;
+}
+
+const withDeepLink = (
+	reference: ResolvedMemoryReference,
+	systemId?: string | null,
+): ResolvedMemoryReference => {
+	if (reference.status !== "valid") {
+		return reference;
+	}
+	const deepLink = buildMemoryReferenceDeepLink(
+		reference.type,
+		reference.id,
+		reference.type === "design" ? null : systemId,
+	);
+	return deepLink ? { ...reference, deepLink } : reference;
 };
 
 type MemoryReferenceContext = {
@@ -153,9 +195,12 @@ async function resolveSystemScopedReference(
 			(component) =>
 				component.componentId === token.id || component.slug === token.id,
 		);
-		return match
-			? { ...token, status: "valid", label: match.name }
-			: { ...token, status: "broken" };
+		return withDeepLink(
+			match
+				? { ...token, status: "valid", label: match.name }
+				: { ...token, status: "broken" },
+			system.systemId,
+		);
 	}
 
 	if (token.type === "token") {
@@ -169,9 +214,12 @@ async function resolveSystemScopedReference(
 		const value =
 			domain && name ? domains?.[domain]?.tokens?.[name] : undefined;
 		if (value !== undefined) {
-			return { ...token, status: "valid", label: name, detail: value };
+			return withDeepLink(
+				{ ...token, status: "valid", label: name, detail: value },
+				system.systemId,
+			);
 		}
-		return { ...token, status: "broken" };
+		return withDeepLink({ ...token, status: "broken" }, system.systemId);
 	}
 
 	if (token.type === "asset") {
@@ -181,17 +229,23 @@ async function resolveSystemScopedReference(
 			token.id,
 		);
 		const asset = manifest.assets[normalized];
-		return asset
-			? { ...token, status: "valid", label: asset.name }
-			: { ...token, status: "broken" };
+		return withDeepLink(
+			asset
+				? { ...token, status: "valid", label: asset.name }
+				: { ...token, status: "broken" },
+			system.systemId,
+		);
 	}
 
 	const manifest = await readIconManifest(projectRoot, system.systemId);
 	const normalized = safeNormalize(() => normalizeIconId(token.id), token.id);
 	const icon = manifest.icons[normalized];
-	return icon
-		? { ...token, status: "valid", label: normalized }
-		: { ...token, status: "broken" };
+	return withDeepLink(
+		icon
+			? { ...token, status: "valid", label: normalized }
+			: { ...token, status: "broken" },
+		system.systemId,
+	);
 }
 
 const safeNormalize = (normalize: () => string, fallback: string): string => {
@@ -218,13 +272,15 @@ export async function resolveMemoryReferences(
 		if (token.type === "design") {
 			const lower = token.id.toLowerCase();
 			resolved.push(
-				context.designIds.has(lower)
-					? {
-							...token,
-							status: "valid",
-							label: context.designLabels.get(lower),
-						}
-					: { ...token, status: "broken" },
+				withDeepLink(
+					context.designIds.has(lower)
+						? {
+								...token,
+								status: "valid",
+								label: context.designLabels.get(lower),
+							}
+						: { ...token, status: "broken" },
+				),
 			);
 			continue;
 		}
@@ -357,6 +413,19 @@ const warningMessage = (reference: ResolvedMemoryReference): string | null => {
  * Parses + resolves references in a note body and returns non-blocking warnings
  * for anything that does not resolve. Bodies remain stored verbatim regardless.
  */
+/** Resolves every `{{type:id}}` token in a note body for read-side diagnostics. */
+export async function resolveMemoryNoteReferences(
+	projectRoot: string,
+	scope: MemoryScope,
+	body: string,
+): Promise<ResolvedMemoryReference[]> {
+	const tokens = parseMemoryReferences(body);
+	if (tokens.length === 0) {
+		return [];
+	}
+	return resolveMemoryReferences(projectRoot, scope, tokens);
+}
+
 export async function collectMemoryReferenceWarnings(
 	projectRoot: string,
 	scope: MemoryScope,

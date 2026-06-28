@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { TrickroomDesign } from "../types";
 import {
+	buildMemoryReferenceDeepLink,
 	collectMemoryReferenceWarnings,
 	listMemoryReferenceTargets,
 	parseMemoryReferences,
@@ -36,6 +37,26 @@ describe("parseMemoryReferences", () => {
 
 	it("ignores unknown types and empty ids", () => {
 		expect(parseMemoryReferences("{{unknown:x}} {{design:}}")).toHaveLength(0);
+	});
+});
+
+describe("buildMemoryReferenceDeepLink", () => {
+	it("builds design and system editor paths", () => {
+		expect(buildMemoryReferenceDeepLink("design", "uuid-1")).toBe(
+			"/design/uuid-1",
+		);
+		expect(
+			buildMemoryReferenceDeepLink("component", "cmp_btn", "sys_1"),
+		).toBe("/system/sys_1?component=cmp_btn");
+		expect(buildMemoryReferenceDeepLink("token", "color/brand", "sys_1")).toBe(
+			"/system/sys_1?tab=tokens",
+		);
+		expect(buildMemoryReferenceDeepLink("asset", "asset_1", "sys_1")).toBe(
+			"/system/sys_1?tab=assets",
+		);
+		expect(buildMemoryReferenceDeepLink("icon", "icon_1", "sys_1")).toBe(
+			"/system/sys_1?tab=icons",
+		);
 	});
 });
 
@@ -77,7 +98,11 @@ describe("resolveMemoryReferences", () => {
 			{ kind: "project" },
 			tokens,
 		);
-		expect(resolved[0]).toMatchObject({ status: "valid", label: "Design A" });
+		expect(resolved[0]).toMatchObject({
+			status: "valid",
+			label: "Design A",
+			deepLink: `/design/${designA}`,
+		});
 		expect(resolved[1]).toMatchObject({ status: "broken" });
 	});
 

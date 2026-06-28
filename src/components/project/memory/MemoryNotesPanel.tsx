@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NotebookPen, Pencil, Pin, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import {
 	createMemoryNote,
 	deleteMemoryNote,
 	invalidateMemory,
+	type MemoryNoteWithReferences,
 	type MemoryQueryScope,
 	type MemoryWriteResponse,
 	memoryQueryOptions,
@@ -21,6 +23,7 @@ import { EmptyState } from "../../ui/empty-state";
 import { ScrollArea } from "../../ui/scroll-area";
 import { Text } from "../../ui/text";
 import { type MemoryNoteDraft, MemoryNoteEditor } from "./MemoryNoteEditor";
+import { MemoryNoteBody } from "./MemoryNoteBody";
 import { MEMORY_CATEGORY_META } from "./memory-category-meta";
 import { sortMemoryNotes } from "./memory-note-utils";
 
@@ -33,11 +36,13 @@ function NoteCard({
 	note,
 	onEdit,
 	onDelete,
+	onNavigate,
 	disabled,
 }: {
-	note: MemoryNote;
+	note: MemoryNoteWithReferences;
 	onEdit: () => void;
 	onDelete: () => void;
+	onNavigate?: (path: string) => void;
 	disabled: boolean;
 }) {
 	const meta = MEMORY_CATEGORY_META[note.category];
@@ -79,9 +84,11 @@ function NoteCard({
 					</Button>
 				</div>
 			</div>
-			<Text className="whitespace-pre-wrap text-xs text-slate-700">
-				{note.body}
-			</Text>
+			<MemoryNoteBody
+				body={note.body}
+				references={note.references}
+				onNavigate={onNavigate}
+			/>
 			{note.tags && note.tags.length > 0 ? (
 				<div className="flex flex-wrap gap-1">
 					{note.tags.map((tag) => (
@@ -104,8 +111,11 @@ export function MemoryNotesPanel({
 	scope: MemoryQueryScope;
 	projectScope?: ProjectQueryScope;
 }) {
+	const navigate = useNavigate();
 	const queryClient = useQueryClient();
-	const memoryQuery = useQuery(memoryQueryOptions(scope, projectScope));
+	const memoryQuery = useQuery(
+		memoryQueryOptions(scope, projectScope, { resolveReferences: true }),
+	);
 	const [mode, setMode] = useState<"idle" | "create" | { editId: string }>(
 		"idle",
 	);
@@ -228,6 +238,8 @@ export function MemoryNotesPanel({
 
 					{mode === "create" ? (
 						<MemoryNoteEditor
+							scope={scope}
+							projectScope={projectScope}
 							isSubmitting={createMutation.isPending}
 							error={createError}
 							onSubmit={(draft) => createMutation.mutate(draft)}
@@ -249,6 +261,8 @@ export function MemoryNotesPanel({
 							<MemoryNoteEditor
 								key={note.noteId}
 								note={note}
+								scope={scope}
+								projectScope={projectScope}
 								isSubmitting={updateMutation.isPending}
 								error={updateError}
 								onSubmit={(draft) =>
@@ -261,6 +275,7 @@ export function MemoryNotesPanel({
 								key={note.noteId}
 								note={note}
 								disabled={isWriting}
+								onNavigate={(path) => navigate(path)}
 								onEdit={() => {
 									setWarnings([]);
 									updateMutation.reset();
