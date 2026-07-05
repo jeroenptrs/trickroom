@@ -140,6 +140,7 @@ const getMigrationClassificationInput = (
 		variantSchemaHash: metadata.variantSchemaHash,
 		variantValues: metadata.variantValues,
 		overrides: metadata.overrides,
+		versions: context.record.published?.versions,
 	};
 };
 

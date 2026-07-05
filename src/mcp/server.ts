@@ -2788,11 +2788,15 @@ const getSystemComponentAuthoringContractPayload = async (
 			slots: {
 				type: "Record<string, SystemComponentSlotDefinition>",
 				requiredPerSlot: ["name", "hostPath"],
-				optionalPerSlot: ["label", "defaultChildren", "history"],
+				optionalPerSlot: ["label", "insertIndex", "defaultChildren", "history"],
 				rules: [
 					"Map key must match slot.name.",
 					"hostPath must reference a template path.",
 					"defaultChildren uses the same RecipeTemplateNode shape.",
+					"Slot content renders after the host's declared template children by default (declared children first, then slot children).",
+					"insertIndex (non-negative integer) splices slot content into the host's declared children at that index, clamped to the declared-children length. Set it to 0 to place slot content before the declared children — for example an optional leading icon ahead of a fixed label.",
+					"Changing insertIndex on publish changes render order and marks existing instances stale; migration re-splices preserved authored slot content at the new version's insertIndex.",
+					'Legacy alternative to insertIndex: host the slot on a first-positioned wrapper node with className "contents" so appended slot content still renders ahead of sibling declared children.',
 				],
 			},
 			variants: {

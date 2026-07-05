@@ -85,6 +85,14 @@ export const systemComponentSlotDefinitionSchema: z.ZodType<SystemComponentSlotD
 				.string()
 				.min(1)
 				.describe("Template path that hosts inserted slot children."),
+			insertIndex: z
+				.number()
+				.int()
+				.nonnegative()
+				.optional()
+				.describe(
+					"Optional index within the host's declared children where slot content is spliced (clamped to declared-children length). Omitted appends after declared children.",
+				),
 			defaultChildren: z
 				.array(recipeTemplateNodeSchema)
 				.optional()

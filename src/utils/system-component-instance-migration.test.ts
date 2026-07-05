@@ -1,19 +1,22 @@
 import { describe, expect, it } from "vitest";
 import type { Node } from "../types";
 import { expandResolvedSystemComponent } from "./system-component-expansion";
-import { getSystemComponentMarkerProps } from "./system-component-markers";
-import { FIXTURE_COMPONENT_ID } from "./system-component-test-fixtures";
 import {
 	isSystemComponentInstanceMigrationUpdateBlocked,
 	previewSystemComponentInstanceMigration,
-	SystemComponentInstanceMigrationError,
+	type SystemComponentInstanceMigrationError,
 	updateStaleSystemComponentInstance,
 } from "./system-component-instance-migration";
+import { getSystemComponentMarkerProps } from "./system-component-markers";
+import { FIXTURE_COMPONENT_ID } from "./system-component-test-fixtures";
+import type {
+	PublishedSystemComponentVersion,
+	SystemComponentRecord,
+} from "./system-components";
 import {
 	hashSystemComponentTemplate,
 	hashSystemComponentVariantSchema,
 } from "./system-components-validation";
-import type { PublishedSystemComponentVersion, SystemComponentRecord } from "./system-components";
 
 const systemId = "sys-core";
 const componentId = FIXTURE_COMPONENT_ID;
@@ -201,6 +204,139 @@ describe("system-component-instance-migration", () => {
 				"data-trickroom-system-component-variant-schema-hash"
 			],
 		).toBe(target.variantSchemaHash);
+	});
+
+	it("re-splices preserved authored slot content at the target insertIndex", () => {
+		const sourceDraft = {
+			root: {
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				children: [],
+			},
+			slots: {
+				body: {
+					name: "body",
+					hostPath: "root",
+					defaultChildren: [
+						{
+							path: "icon",
+							library: "trickroom",
+							component: "text",
+							text: "Icon",
+						},
+					],
+				},
+			},
+		};
+		const source: PublishedSystemComponentVersion = {
+			...sourceDraft,
+			version: "1",
+			publishedAt: "2026-05-26T12:00:00.000Z",
+			templateHash: hashSystemComponentTemplate(sourceDraft),
+			variantSchemaHash: hashSystemComponentVariantSchema(),
+		};
+
+		const targetDraft = {
+			root: {
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				children: [
+					{
+						path: "label",
+						library: "trickroom",
+						component: "text",
+						text: "Label",
+					},
+				],
+			},
+			slots: {
+				body: {
+					name: "body",
+					hostPath: "root",
+					insertIndex: 0,
+					defaultChildren: [],
+				},
+			},
+		};
+		const target: PublishedSystemComponentVersion = {
+			...targetDraft,
+			version: "2",
+			previousVersion: "1",
+			publishedAt: "2026-05-26T13:00:00.000Z",
+			templateHash: hashSystemComponentTemplate(targetDraft),
+			variantSchemaHash: hashSystemComponentVariantSchema(),
+		};
+
+		const record = createRecord(source, target);
+		const expanded = expandResolvedSystemComponent(
+			{ systemId, componentId, record, version: source },
+			{ createInstanceId: () => "instance-1" },
+		);
+		const staleRoot = expanded.root;
+		staleRoot.props = {
+			...staleRoot.props,
+			...getSystemComponentMarkerProps({
+				systemId,
+				componentId,
+				instanceId: "instance-1",
+				version: source.version,
+				path: "root",
+				isRoot: true,
+				templateHash: "sha256:stale",
+				variantSchemaHash: source.variantSchemaHash,
+			}),
+		};
+
+		expect(
+			(staleRoot.children as Node[]).map((child) => child.children),
+		).toEqual(["Icon"]);
+
+		const result = updateStaleSystemComponentInstance(
+			[staleRoot],
+			staleRoot.id,
+			{
+				systemId,
+				componentId,
+				record,
+				sourceVersion: source,
+				targetVersion: target,
+			},
+		);
+
+		const migratedRoot = result.roots[0] as Node;
+		expect(
+			(migratedRoot.children as Node[]).map((child) => child.children),
+		).toEqual(["Icon", "Label"]);
+	});
+
+	it("marks instances stale when a slot insertIndex changes", () => {
+		const baseDraft = {
+			root: {
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				children: [],
+			},
+			slots: {
+				body: {
+					name: "body",
+					hostPath: "root",
+					defaultChildren: [],
+				},
+			},
+		};
+		const withInsertIndex = {
+			...baseDraft,
+			slots: {
+				body: { ...baseDraft.slots.body, insertIndex: 0 },
+			},
+		};
+
+		expect(hashSystemComponentTemplate(baseDraft)).not.toBe(
+			hashSystemComponentTemplate(withInsertIndex),
+		);
 	});
 
 	it("stamps hash markers for a current-version instance with missing hashes", () => {

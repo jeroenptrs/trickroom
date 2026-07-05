@@ -17,9 +17,37 @@ export type SystemComponentSlotDefinition = {
 	name: string;
 	label?: string;
 	hostPath: string;
+	/**
+	 * Index within the host node's declared template children at which slot
+	 * content is spliced. Clamped to the declared-children length. When omitted,
+	 * slot content is appended after the declared children (legacy behavior).
+	 */
+	insertIndex?: number;
 	defaultChildren?: RecipeTemplateNode[];
 	history?: SystemComponentSlotHistoryEntry[];
 };
+
+/**
+ * Combine a host node's declared template children with its slot children,
+ * splicing the slot children at `insertIndex` (clamped to the declared-children
+ * length). When `insertIndex` is omitted, slot children are appended — matching
+ * the legacy render order.
+ */
+export function spliceSlotChildren<T>(
+	declaredChildren: readonly T[],
+	slotChildren: readonly T[],
+	insertIndex?: number,
+): T[] {
+	if (insertIndex === undefined) {
+		return [...declaredChildren, ...slotChildren];
+	}
+	const clamped = Math.max(0, Math.min(insertIndex, declaredChildren.length));
+	return [
+		...declaredChildren.slice(0, clamped),
+		...slotChildren,
+		...declaredChildren.slice(clamped),
+	];
+}
 
 export type SystemComponentVariantValue = {
 	label?: string;

@@ -366,6 +366,70 @@ describe("system component expansion", () => {
 		).toBe(result.root.props.className);
 	});
 
+	const expandWithSlotInsertIndex = (insertIndex: number | undefined) => {
+		const version = {
+			version: "1",
+			publishedAt: "2026-05-26T14:00:00.000Z",
+			templateHash: "sha256:template",
+			variantSchemaHash: "sha256:variants",
+			root: {
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				children: [
+					{
+						path: "label",
+						library: "trickroom",
+						component: "text",
+						text: "Label",
+					},
+				],
+			},
+			slots: {
+				icon: {
+					name: "icon",
+					hostPath: "root",
+					...(insertIndex === undefined ? {} : { insertIndex }),
+					defaultChildren: [
+						{
+							path: "icon",
+							library: "trickroom",
+							component: "text",
+							text: "Icon",
+						},
+					],
+				},
+			},
+		};
+
+		const result = expandResolvedSystemComponent({
+			systemId: "sys-core",
+			componentId,
+			record: {
+				componentId,
+				slug: "chip",
+				name: "Chip",
+				createdAt: "",
+				updatedAt: "",
+				published: { currentVersion: "1", versions: { "1": version } },
+			},
+			version,
+		});
+		return (result.root.children as Node[]).map((child) => child.children);
+	};
+
+	it("splices slot default children at the slot insertIndex", () => {
+		expect(expandWithSlotInsertIndex(0)).toEqual(["Icon", "Label"]);
+	});
+
+	it("clamps slot insertIndex to the declared-children length", () => {
+		expect(expandWithSlotInsertIndex(99)).toEqual(["Label", "Icon"]);
+	});
+
+	it("appends slot content when insertIndex is omitted (backward compatible)", () => {
+		expect(expandWithSlotInsertIndex(undefined)).toEqual(["Label", "Icon"]);
+	});
+
 	it("rejects invalid instance state", () => {
 		expect(() =>
 			resolveSystemComponentVariantValues(

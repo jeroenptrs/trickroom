@@ -29,9 +29,10 @@ import {
 	resolveSystemComponentVariantValues,
 	SystemComponentResolutionError,
 } from "./system-component-resolution";
-import type {
-	PublishedSystemComponentVersion,
-	SystemComponentRecord,
+import {
+	type PublishedSystemComponentVersion,
+	type SystemComponentRecord,
+	spliceSlotChildren,
 } from "./system-components.ts";
 
 export type ResolvedPublishedSystemComponent = {
@@ -71,20 +72,19 @@ const getTemplateSlotName = (
 	)?.name ??
 	null;
 
-const getTemplateSlotDefaultChildren = (
+const getTemplateSlotDefinition = (
 	version: PublishedSystemComponentVersion,
 	template: RecipeTemplateNode,
 ) => {
 	const slotName = getTemplateSlotName(version, template);
 	if (!slotName) {
-		return [];
+		return null;
 	}
 
 	return (
-		(
-			version.slots?.[slotName] ??
-			Object.values(version.slots ?? {}).find((slot) => slot.name === slotName)
-		)?.defaultChildren ?? []
+		version.slots?.[slotName] ??
+		Object.values(version.slots ?? {}).find((slot) => slot.name === slotName) ??
+		null
 	);
 };
 
@@ -246,10 +246,8 @@ const expandTemplateNode = (
 		}),
 	};
 
-	const defaultSlotChildren = getTemplateSlotDefaultChildren(
-		resolved.version,
-		template,
-	);
+	const slotDefinition = getTemplateSlotDefinition(resolved.version, template);
+	const defaultSlotChildren = slotDefinition?.defaultChildren ?? [];
 	const textOverride = resolveSystemComponentOverrideValue(
 		resolved.version,
 		template.path,
@@ -261,8 +259,8 @@ const expandTemplateNode = (
 			? (textOverride ?? template.text ?? getDefaultText(role) ?? "")
 			: role === "leaf"
 				? []
-				: [
-						...(template.children ?? []).map((child) =>
+				: spliceSlotChildren(
+						(template.children ?? []).map((child) =>
 							expandTemplateNode(
 								resolved,
 								child,
@@ -274,7 +272,7 @@ const expandTemplateNode = (
 								false,
 							),
 						),
-						...defaultSlotChildren.map((child) =>
+						defaultSlotChildren.map((child) =>
 							expandAuthoredTemplateNode(
 								resolved.componentId,
 								resolved.version,
@@ -282,7 +280,8 @@ const expandTemplateNode = (
 								createElementId,
 							),
 						),
-					];
+						slotDefinition?.insertIndex,
+					);
 
 	return { id, props, children };
 };

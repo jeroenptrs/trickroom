@@ -1321,4 +1321,194 @@ describe("system-component-migration", () => {
 			),
 		).toBe(false);
 	});
+
+	const minimalVersion = (
+		version: string,
+		previousVersion?: string,
+	): PublishedSystemComponentVersion => {
+		const root = {
+			path: "root",
+			library: "trickroom",
+			component: "container",
+			className: `card-${version}`,
+			children: [],
+		};
+		const draft = { root };
+		return {
+			...draft,
+			version,
+			previousVersion,
+			publishedAt: "2026-05-26T12:00:00.000Z",
+			templateHash: hashSystemComponentTemplate(draft),
+			variantSchemaHash: hashSystemComponentVariantSchema(undefined),
+		};
+	};
+
+	it("downgrades missing history to info when a connected chain reaches fromVersion", () => {
+		const v1 = minimalVersion("1");
+		const v2 = minimalVersion("2", "1");
+		const v3 = minimalVersion("3", "2");
+		const v4 = minimalVersion("4", "3");
+		const versions = { "1": v1, "2": v2, "3": v3, "4": v4 };
+
+		const result = classifySystemComponentMigration({
+			componentId,
+			instanceId,
+			fromVersion: v1,
+			toVersion: v4,
+			versions,
+		});
+
+		expect(result.safety).toBe("safe");
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "MISSING_HISTORY",
+					severity: "info",
+					fromVersion: "1",
+					toVersion: "4",
+				}),
+			]),
+		);
+	});
+
+	it("keeps missing history at review severity when the chain is unreachable", () => {
+		const v1 = minimalVersion("1");
+		const v2 = minimalVersion("2");
+		const v4 = minimalVersion("4", "3");
+		const versions = { "1": v1, "2": v2, "4": v4 };
+
+		const result = classifySystemComponentMigration({
+			componentId,
+			instanceId,
+			fromVersion: v1,
+			toVersion: v4,
+			versions,
+		});
+
+		expect(result.safety).toBe("requires-review");
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "MISSING_HISTORY",
+					severity: "review",
+					fromVersion: "1",
+					toVersion: "4",
+				}),
+			]),
+		);
+	});
+
+	it("keeps missing history at review severity when no versions map is provided", () => {
+		const v1 = minimalVersion("1");
+		const v4 = minimalVersion("4", "3");
+
+		const result = classifySystemComponentMigration({
+			componentId,
+			instanceId,
+			fromVersion: v1,
+			toVersion: v4,
+		});
+
+		expect(result.safety).toBe("requires-review");
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "MISSING_HISTORY",
+					severity: "review",
+					fromVersion: "1",
+					toVersion: "4",
+				}),
+			]),
+		);
+	});
+
+	it("terminates and treats the chain as unreachable when previousVersion links cycle", () => {
+		const v1 = minimalVersion("1");
+		const v2 = minimalVersion("2", "3");
+		const v3 = minimalVersion("3", "2");
+		const v4 = minimalVersion("4", "3");
+		const versions = { "1": v1, "2": v2, "3": v3, "4": v4 };
+
+		const result = classifySystemComponentMigration({
+			componentId,
+			instanceId,
+			fromVersion: v1,
+			toVersion: v4,
+			versions,
+		});
+
+		expect(result.safety).toBe("requires-review");
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "MISSING_HISTORY",
+					severity: "review",
+				}),
+			]),
+		);
+	});
+
+	it("still escalates a chain-reachable migration that drops slot content", () => {
+		const source = {
+			...sourceVersionV1(),
+			overrideTargets: {
+				rootTarget: { targetId: "rootTarget", label: "Root", path: "root" },
+				labelTarget: {
+					targetId: "labelTarget",
+					label: "Label",
+					path: "label",
+				},
+			},
+		};
+		const bridged: PublishedSystemComponentVersion = {
+			...targetVersionV2(),
+			version: "5",
+			previousVersion: "4",
+			overrideTargets: {
+				surface: { targetId: "surface", label: "Surface", path: "root" },
+			},
+			migrationHints: {
+				overrideTargets: [
+					{ fromTargetId: "rootTarget", toTargetId: "surface" },
+					{ fromTargetId: "labelTarget", toTargetId: "surface" },
+				],
+			},
+		};
+		const intermediate = minimalVersion("4", "1");
+		const versions = {
+			"1": source,
+			"4": intermediate,
+			"5": bridged,
+		};
+
+		const result = classifySystemComponentMigration({
+			componentId,
+			instanceId,
+			fromVersion: source,
+			toVersion: bridged,
+			versions,
+			overrides: {
+				rootTarget: { className: "rounded-lg" },
+				labelTarget: { className: "text-lg" },
+			},
+		});
+
+		expect(result.safety).toBe("requires-review");
+		expect(result.diagnostics).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "MISSING_HISTORY",
+					severity: "info",
+					fromVersion: "1",
+					toVersion: "5",
+				}),
+				expect.objectContaining({
+					code: "OVERRIDE_MAPPING_CONFLICT",
+					targetId: "surface",
+					overrideTargetId: "rootTarget",
+				}),
+			]),
+		);
+	});
 });

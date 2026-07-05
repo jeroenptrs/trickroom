@@ -245,6 +245,19 @@ const validateSlots = (
 			`slot "${slot.name}" host`,
 		);
 
+		if (
+			slot.insertIndex !== undefined &&
+			(!Number.isInteger(slot.insertIndex) || slot.insertIndex < 0)
+		) {
+			pushDiagnostic(diagnostics, {
+				code: "INVALID_SLOT_DEFINITION",
+				severity: "error",
+				componentId,
+				path: slot.hostPath,
+				message: `Component "${componentId}" slot "${slot.name}" insertIndex must be a non-negative integer.`,
+			});
+		}
+
 		for (const historyEntry of slot.history ?? []) {
 			if (!versionIds.has(historyEntry.fromVersion)) {
 				pushDiagnostic(diagnostics, {

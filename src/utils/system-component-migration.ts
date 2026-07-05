@@ -5,6 +5,7 @@ import {
 	resolveRegistryComponent,
 } from "../libraries/registry";
 import type { Node, Props, RecipeTemplateNode } from "../types";
+import { assetIdProp, iconIdProp } from "./resource-props";
 import {
 	expandResolvedSystemComponent,
 	type ResolvedPublishedSystemComponent,
@@ -14,7 +15,6 @@ import {
 	getSystemComponentStructuralMetadata,
 	type SystemComponentInstanceOverrides,
 } from "./system-component-markers";
-import { assetIdProp, iconIdProp } from "./resource-props";
 import {
 	isValidSystemComponentPropOverride,
 	resolveSystemComponentOverrideValue,
@@ -33,6 +33,7 @@ import type {
 	SystemComponentVariantAxis,
 	SystemComponentVariantMigrationHint,
 } from "./system-components";
+import { spliceSlotChildren } from "./system-components";
 
 export type SystemComponentMigrationDiagnosticCode =
 	| "VARIANT_AXIS_DROPPED"
@@ -85,6 +86,7 @@ export type ClassifySystemComponentMigrationInput = {
 	variantSchemaHash?: string | null;
 	variantValues?: Record<string, string>;
 	overrides?: Record<string, unknown>;
+	versions?: Record<string, PublishedSystemComponentVersion>;
 };
 
 export type SystemComponentMigrationPathMapping = {
@@ -351,6 +353,43 @@ const reviewMigrationDiagnostic = (
 	severity: "review",
 });
 
+const infoMigrationDiagnostic = (
+	diagnostic: Omit<SystemComponentMigrationDiagnostic, "severity">,
+): SystemComponentMigrationDiagnostic => ({
+	...diagnostic,
+	severity: "info",
+});
+
+// Walks `previousVersion` links backward from `toVersion` to see whether
+// `fromVersionId` is a reachable ancestor, so skip-version migrations across
+// an unbroken chain of published versions aren't treated as missing history.
+const isVersionChainConnected = (
+	fromVersionId: string,
+	toVersion: PublishedSystemComponentVersion,
+	versions: Record<string, PublishedSystemComponentVersion> | undefined,
+): boolean => {
+	if (!versions) {
+		return false;
+	}
+	const visited = new Set<string>();
+	let current: PublishedSystemComponentVersion | undefined = toVersion;
+	while (current) {
+		const previousVersionId = current.previousVersion;
+		if (!previousVersionId) {
+			return false;
+		}
+		if (previousVersionId === fromVersionId) {
+			return true;
+		}
+		if (visited.has(previousVersionId)) {
+			return false;
+		}
+		visited.add(previousVersionId);
+		current = versions[previousVersionId];
+	}
+	return false;
+};
+
 const appendMigrationHashMismatchDiagnostics = (
 	input: ClassifySystemComponentMigrationInput,
 	diagnostics: SystemComponentMigrationDiagnostic[],
@@ -418,10 +457,20 @@ export const classifySystemComponentMigration = (
 		input.fromVersion.version !== input.toVersion.version &&
 		input.toVersion.previousVersion !== input.fromVersion.version
 	) {
+		const chainConnected = isVersionChainConnected(
+			input.fromVersion.version,
+			input.toVersion,
+			input.versions,
+		);
+		const buildMissingHistoryDiagnostic = chainConnected
+			? infoMigrationDiagnostic
+			: reviewMigrationDiagnostic;
 		diagnostics.push(
-			reviewMigrationDiagnostic({
+			buildMissingHistoryDiagnostic({
 				code: "MISSING_HISTORY",
-				message: `Published version "${input.toVersion.version}" does not declare "${input.fromVersion.version}" as its previous version.`,
+				message: chainConnected
+					? `Published version "${input.toVersion.version}" reaches "${input.fromVersion.version}" through a connected chain of intermediate published versions.`
+					: `Published version "${input.toVersion.version}" does not declare "${input.fromVersion.version}" as its previous version.`,
 				componentId: input.componentId,
 				fromVersion: input.fromVersion.version,
 				toVersion: input.toVersion.version,
@@ -1465,15 +1514,14 @@ export const migrateSystemComponentInstance = (
 			});
 		}
 
+		const targetSlot = getSlotDefinition(
+			targetVersion,
+			getTemplateSlotName(targetVersion, template) ?? "",
+		);
 		const authoredChildren = authoredChildrenByTargetPath.get(template.path);
-		const defaultChildren =
+		const slotChildren =
 			authoredChildren === undefined
-				? (
-						getSlotDefinition(
-							targetVersion,
-							getTemplateSlotName(targetVersion, template) ?? "",
-						)?.defaultChildren ?? []
-					).map((child) =>
+				? (targetSlot?.defaultChildren ?? []).map((child) =>
 						expandAuthoredTemplateNode(
 							input.componentId,
 							targetVersion,
@@ -1491,12 +1539,13 @@ export const migrateSystemComponentInstance = (
 					? (textOverride ?? template.text ?? getDefaultText(role) ?? "")
 					: role === "leaf"
 						? []
-						: [
-								...(template.children ?? []).map((child) =>
+						: spliceSlotChildren(
+								(template.children ?? []).map((child) =>
 									buildTargetNode(child, false),
 								),
-								...defaultChildren,
-							],
+								slotChildren,
+								targetSlot?.insertIndex,
+							),
 		};
 	};
 

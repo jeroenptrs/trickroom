@@ -1098,6 +1098,21 @@ function normalizeSlotDefinitions(
 		if (typeof rawSlot.label === "string" && rawSlot.label.trim().length > 0) {
 			slot.label = rawSlot.label.trim();
 		}
+		if (rawSlot.insertIndex !== undefined) {
+			if (
+				typeof rawSlot.insertIndex === "number" &&
+				Number.isInteger(rawSlot.insertIndex) &&
+				rawSlot.insertIndex >= 0
+			) {
+				slot.insertIndex = rawSlot.insertIndex;
+			} else {
+				diagnostics.push({
+					code: "INVALID_COMPONENT",
+					message: `Slot "${slotKey}" on component "${componentId}" insertIndex must be a non-negative integer.`,
+					path: `${basePath}.slots.${slotKey}.insertIndex`,
+				});
+			}
+		}
 		if (Array.isArray(rawSlot.defaultChildren)) {
 			slot.defaultChildren = rawSlot.defaultChildren
 				.map((child, index) =>
