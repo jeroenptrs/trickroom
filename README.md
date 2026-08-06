@@ -76,7 +76,7 @@ Enable MCP in `.trickroom/config.json`:
 Start the server:
 
 ```sh
-trickroom-mcp
+trickroom mcp
 ```
 
 Agents can list projects, open/switch the active project, create design files, read designs, inspect elements, validate files, discover component registries, read linked design-system tokens, dry-run operations, and mutate design files. Existing-file mutations require an `expectedRevision` from a prior read, so agents must re-read after conflicts instead of guessing.

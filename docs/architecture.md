@@ -25,7 +25,7 @@ Local HTTP API:
 
 MCP:
 
-- CLI: `bin/trickroom-mcp.js`
+- CLI: `bin/trickroom.js mcp`
 - Stdio runtime: `src/mcp/stdio.ts`
 - Tools and prompts: `src/mcp/server.ts`
 - Governance: `src/mcp/governance.ts`

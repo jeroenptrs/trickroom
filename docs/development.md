@@ -69,7 +69,7 @@ TRICKROOM_SESSION_TOKEN="choose-a-long-random-token" pnpm dev -- --host 0.0.0.0
 
 ```sh
 pnpm build:mcp
-node bin/trickroom-mcp.js
+node bin/trickroom.js mcp
 ```
 
 Projects opened through MCP must enable MCP in `.trickroom/config.json`.

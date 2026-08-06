@@ -13,7 +13,7 @@ import {
 import { Separator } from "./ui/separator";
 import { Text } from "./ui/text";
 
-const MCP_COMMAND = "trickroom-mcp";
+const MCP_COMMAND = "trickroom mcp";
 
 type Agent = {
 	id: string;
@@ -23,15 +23,14 @@ type Agent = {
 	removeCommand: string;
 };
 
-function buildAgents(mcpPath: string): Agent[] {
-	const quoted = `'${mcpPath}'`;
+function buildAgents(mcpCommand: string): Agent[] {
 	return [
 		{
 			id: "codex",
 			name: "Codex CLI",
 			description:
 				"Run this in your terminal to register the Trickroom MCP server with the Codex CLI.",
-			installCommand: `codex mcp add trickroom -- ${quoted}`,
+			installCommand: `codex mcp add trickroom -- ${mcpCommand}`,
 			removeCommand: "codex mcp remove trickroom",
 		},
 		{
@@ -39,7 +38,7 @@ function buildAgents(mcpPath: string): Agent[] {
 			name: "Claude Code",
 			description:
 				"Run this in your terminal to register the Trickroom MCP server with Claude Code.",
-			installCommand: `claude mcp add --scope user --transport stdio trickroom -- ${quoted}`,
+			installCommand: `claude mcp add --scope user --transport stdio trickroom -- ${mcpCommand}`,
 			removeCommand: "claude mcp remove --scope user trickroom",
 		},
 		{
@@ -47,7 +46,7 @@ function buildAgents(mcpPath: string): Agent[] {
 			name: "Amp",
 			description:
 				"Run this in your terminal to register the Trickroom MCP server with Amp.",
-			installCommand: `amp mcp add trickroom -- ${quoted}`,
+			installCommand: `amp mcp add trickroom -- ${mcpCommand}`,
 			removeCommand: "amp mcp remove trickroom",
 		},
 		{
@@ -55,7 +54,7 @@ function buildAgents(mcpPath: string): Agent[] {
 			name: "Gemini CLI",
 			description:
 				"Run this in your terminal to register the Trickroom MCP server with the Gemini CLI.",
-			installCommand: `gemini mcp add --scope user trickroom ${quoted}`,
+			installCommand: `gemini mcp add --scope user trickroom ${mcpCommand}`,
 			removeCommand: "gemini mcp remove --scope user trickroom",
 		},
 		{
@@ -63,7 +62,7 @@ function buildAgents(mcpPath: string): Agent[] {
 			name: "OpenCode",
 			description:
 				"Run this in your terminal to register the Trickroom MCP server with OpenCode.",
-			installCommand: `opencode mcp add trickroom -- ${quoted}`,
+			installCommand: `opencode mcp add trickroom -- ${mcpCommand}`,
 			removeCommand: "opencode mcp remove trickroom",
 		},
 		{
@@ -71,7 +70,7 @@ function buildAgents(mcpPath: string): Agent[] {
 			name: "Copilot CLI",
 			description:
 				"Run this in your terminal to register the Trickroom MCP server with the Copilot CLI.",
-			installCommand: `copilot mcp add trickroom -- ${quoted}`,
+			installCommand: `copilot mcp add trickroom -- ${mcpCommand}`,
 			removeCommand: "copilot mcp remove trickroom",
 		},
 	];

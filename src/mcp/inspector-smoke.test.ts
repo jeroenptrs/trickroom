@@ -243,7 +243,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 
 		return createTrickroomMcpStdioTestClient({
 			command: process.execPath,
-			args: [path.join(process.cwd(), "bin", "trickroom-mcp.js")],
+			args: [path.join(process.cwd(), "bin", "trickroom.js"), "mcp"],
 			cwd: fixture.projectRoot,
 			env: getStringEnv({
 				TRICKROOM_HOME: trickroomHome,
@@ -376,7 +376,8 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 		const result = spawnSync(
 			process.execPath,
 			[
-				path.join(process.cwd(), "bin", "trickroom-mcp.js"),
+				path.join(process.cwd(), "bin", "trickroom.js"),
+				"mcp",
 				path.join(process.cwd(), "does-not-exist"),
 			],
 			{

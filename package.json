@@ -64,7 +64,6 @@
 		"dist"
 	],
 	"bin": {
-		"trickroom": "./bin/trickroom.js",
-		"trickroom-mcp": "./bin/trickroom-mcp.js"
+		"trickroom": "./bin/trickroom.js"
 	}
 }
