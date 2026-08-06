@@ -1,6 +1,5 @@
 import { Terminal, X } from "lucide-react";
-import { useEffect, useState } from "react";
-import { getTrickroomDesktopApi } from "../desktop-api";
+import { useState } from "react";
 import { Button } from "./ui/button";
 import { CopyButton } from "./ui/copy-button";
 import {
@@ -14,10 +13,7 @@ import {
 import { Separator } from "./ui/separator";
 import { Text } from "./ui/text";
 
-// Fallback shown in non-desktop contexts (e.g. browser preview). The Electron
-// main process resolves the real path at runtime via getMcpHelperPath.
-const FALLBACK_MCP_PATH =
-	"/Applications/Trickroom.app/Contents/Resources/mcp-helper/mcp";
+const MCP_COMMAND = "trickroom-mcp";
 
 type Agent = {
 	id: string;
@@ -88,30 +84,7 @@ type MCPSetupDialogProps = {
 
 export function MCPSetupDialog({ open, onOpenChange }: MCPSetupDialogProps) {
 	const [selectedId, setSelectedId] = useState("codex");
-	const [mcpPath, setMcpPath] = useState(FALLBACK_MCP_PATH);
-
-	useEffect(() => {
-		const desktop = getTrickroomDesktopApi();
-		if (!desktop) {
-			return;
-		}
-		let cancelled = false;
-		desktop.getMcpHelperPath().then(
-			(path) => {
-				if (!cancelled && path) {
-					setMcpPath(path);
-				}
-			},
-			() => {
-				// Leave the fallback path in place if resolution fails.
-			},
-		);
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
-	const agents = buildAgents(mcpPath);
+	const agents = buildAgents(MCP_COMMAND);
 	const selected = agents.find((agent) => agent.id === selectedId) ?? agents[0];
 
 	return (

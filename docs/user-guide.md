@@ -22,7 +22,7 @@ The current app focuses on UI structure and Tailwind styling. It is not a bitmap
 
 Project:
 
-A local folder that contains `.trickroom/config.json`. Trickroom registers recently opened projects in per-user app state so the desktop app and MCP helper can find them again.
+A local folder that contains `.trickroom/config.json`. Trickroom registers recently opened projects in per-user app state so the browser app and MCP server can find them again.
 
 Design:
 
@@ -42,22 +42,17 @@ A component definition that Trickroom knows how to render and author. The built-
 
 ## Start A Project
 
-From the browser CLI:
+Start Trickroom with a project path:
 
 ```sh
 trickroom /path/to/project
 ```
 
-From the Electron app:
-
-- Use `File > Open Project`.
-- Use the "Choose folder" button when no project is active.
-- Open a recent project from the no-project screen.
-- Use `File > New Project` to create Trickroom metadata in an existing folder.
+In the browser app, enter a project path, open a recent project, or create Trickroom metadata in an existing folder.
 
 When a project is opened, Trickroom ensures the project has a stable `projectId` in `.trickroom/config.json` and registers the local path in `~/.trickroom/projects.json`.
 
-## What You Can Do In The Electron App
+## What You Can Do In The Browser App
 
 Project screen:
 
@@ -91,12 +86,11 @@ Design editor:
 - Rely on autosave after edits.
 - Manually save while there are unsaved changes.
 
-Desktop shell:
+Shared server:
 
-- Native folder picker through a narrow preload bridge.
-- `File > Open Project`, `File > New Project`, and `File > Close Project`.
-- Normal zoom and reload menu actions.
-- A supervised local backend process in packaged builds.
+- Local loopback use stays unauthenticated by default.
+- `trickroom --host 0.0.0.0 /path/to/project` generates and prints a tokenized bootstrap URL.
+- Opening the bootstrap URL once stores an HTTP-only cookie and redirects to the clean URL.
 
 ## Typical Workflow
 

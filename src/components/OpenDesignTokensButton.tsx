@@ -1,5 +1,4 @@
 import { SwatchBook } from "lucide-react";
-import { getTrickroomDesktopApi } from "../desktop-api";
 import { Button } from "./ui/button";
 
 const getTokenReferenceUrl = (systemId: string) =>
@@ -22,12 +21,6 @@ export function OpenDesignTokensButton({
 	}
 
 	const openTokens = () => {
-		const desktopApi = getTrickroomDesktopApi();
-		if (desktopApi) {
-			void desktopApi.openDesignTokens(normalizedSystemId);
-			return;
-		}
-
 		window.open(getTokenReferenceUrl(normalizedSystemId), "_blank", "noopener");
 	};
 

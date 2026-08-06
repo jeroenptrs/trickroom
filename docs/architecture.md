@@ -1,11 +1,10 @@
 # Architecture
 
-Trickroom has four runtime surfaces that all work against the same local project files:
+Trickroom has three runtime surfaces that work against the same local project files:
 
 1. React app for project selection and design editing.
-2. Hono HTTP API for browser/Electron app data access.
-3. Electron shell for packaged desktop use.
-4. Stdio MCP server for agent access.
+2. Hono HTTP API for browser app data access.
+3. Stdio MCP server for agent access.
 
 ## Runtime Map
 
@@ -17,23 +16,12 @@ React app:
 - Project home: `src/components/Project.tsx`
 - Design editor: `src/components/Design.tsx`
 
-Routes:
-
-- `/`: project home when a project is active.
-- `/design/:uuid`: design editor.
-- `/new`: project creation dialog.
-
 Local HTTP API:
 
-- Entry: `src/server.ts`
+- App entry: `src/server.ts`
+- Production entry: `src/server-entry.ts`
 - Prefix: `/api/trickroom`
 - Tailwind routes: `src/routes/tailwind.ts`
-
-Electron:
-
-- Main process: `electron/main.ts`
-- Preload bridge: `electron/preload.ts`
-- Backend supervisor: `electron/backend-supervisor.ts`
 
 MCP:
 
@@ -44,133 +32,52 @@ MCP:
 
 ## Project Session Flow
 
-Opening a project does two things:
+Opening a project ensures `.trickroom/config.json` exists with a stable `projectId` and registers the location in per-user app state. The Hono app keeps the active project in memory, and project-scoped routes resolve it before reading config, designs, or Tailwind snapshots.
 
-- Ensures `.trickroom/config.json` exists and has a stable `projectId`.
-- Registers the local location in the per-user registry.
+When `TRICKROOM_PROJECT_DIR` is set, startup opens that project. Otherwise the app starts without an active project and lets the UI open one by path.
 
-The Hono app stores the active project in memory. Project-scoped routes resolve that active project before reading config, designs, or Tailwind snapshots.
+## HTTP Authentication
 
-When `TRICKROOM_PROJECT_DIR` is set, startup opens that project. Otherwise the app can start with no active project and let the UI choose one.
+Loopback hosts such as `localhost`, `127.0.0.1`, and `::1` remain unauthenticated unless `TRICKROOM_SESSION_TOKEN` is explicitly configured. Binding the production server or Vite development server to a non-loopback host without that variable fails at startup.
+
+`trickroom --host <host>` sets the bind host. For a non-loopback host, it preserves an explicitly configured token or generates a cryptographically random one. The printed shared URL includes `?token=...` for bootstrap.
+
+On the first valid `GET` or `HEAD` request containing `?token=`, the Hono app:
+
+1. Sets `trickroom_session` as an HTTP-only, SameSite=Strict cookie scoped to `/`.
+2. Redirects to the same path and query string with `token` removed.
+3. Authenticates later requests with that cookie.
+
+The `x-trickroom-session` header remains available for non-browser clients. Invalid or missing credentials receive HTTP 403.
 
 ## HTTP API
 
-Routes under `/api/trickroom`:
-
-| Route | Purpose |
-| --- | --- |
-| `GET /health` | Runtime health and active project metadata. |
-| `GET /session` | Active project, registry active project, and recent projects. |
-| `POST /projects/open` | Open/register a project path. |
-| `POST /projects/close` | Clear the active project in this app session. |
-| `GET /project-root` | Return the active project root. |
-| `GET /config` | Read `.trickroom/config.json`. |
-| `POST /config` | Create project config when missing. |
-| `GET /design?file=...` | Read one design JSON file. |
-| `GET /designs` | List valid design summaries. |
-| `PUT /design?file=...` | Validate and write one design JSON file. |
-| `/tailwind/*` | Sync, read, and confirm Tailwind token snapshots. |
-
-In Electron mode, every API request must include the `trickroom_session` cookie matching `TRICKROOM_SESSION_TOKEN`. Browser CLI mode is a local unauthenticated server.
-
-## Electron Shell
-
-Packaged Electron builds run the same React app and Hono API, but the main process supervises the backend:
-
-- Parses an optional initial project path from argv.
-- Starts the built backend as a child process.
-- Forces the backend to bind to `127.0.0.1` on a dynamic port.
-- Waits for a structured ready payload.
-- Generates a random session token.
-- Sets an HTTP-only same-origin session cookie.
-- Creates a locked-down `BrowserWindow`.
-- Installs navigation guards, permission denial, and CSP.
-- Exposes only `pickProjectFolder()` through preload.
-- Stops the backend process before quit.
-
-The native menu calls the same HTTP project open/close routes as the React UI. Electron does not maintain a separate project model.
-
-Hot development mode can use `TRICKROOM_ELECTRON_RENDERER_URL` to point Electron at a loopback Vite server instead of starting the built backend.
+Routes under `/api/trickroom` include runtime health and session state, project open/close operations, config and design reads/writes, exports, systems, memory, and Tailwind synchronization. See `src/server.ts` and `src/routes/` for the source-of-truth route definitions.
 
 ## Browser Editor Flow
 
-The design route:
+The design route reads a design through the HTTP API, hydrates `designStore`, renders boards inside an iframe, and keeps editor chrome outside it. Dirty serialized state autosaves through the API. Linked system theme CSS is injected into the iframe when applicable.
 
-1. Reads the design file from `/api/trickroom/design`.
-2. Hydrates `designStore`.
-3. Renders artboards inside an iframe.
-4. Renders editor chrome outside the iframe.
-5. Injects linked system theme CSS into the iframe when applicable.
-6. Autosaves dirty serialized design state through `PUT /api/trickroom/design`.
-
-The iframe shell is:
-
-```text
-src/iframe/shell.html
-```
-
-It loads the Tailwind browser runtime from:
-
-```text
-public/tailwind/index.global.js
-```
+The iframe shell is `src/iframe/shell.html`; it loads the Tailwind browser runtime from `public/tailwind/index.global.js`.
 
 ## MCP Flow
 
-The MCP server is separate from the Hono app.
+The MCP server is separate from the Hono app. It can infer an MCP-enabled direct-child project from the working directory, or start without a selected project and use registry tools to discover and select one.
 
-Startup project selection:
-
-1. Infer a direct-child project from the process working directory when it contains a valid MCP-enabled `trickroom` project config.
-2. If no valid CWD project is found, start with no selected MCP project.
-3. Register additional local project roots with `registerProject`; select one for the MCP session with `selectProject`.
-
-Project-scoped tools operate on the session-selected project, not desktop app active-state switches. MCP startup and runtime still use the global project registry for discovery (`listProjects` and resource discovery), but no automatic retargeting happens when the desktop UI changes its active project.
-
-MCP design creation and mutations use the same design file service as the app-facing code, with additional policy checks. Creation uses exclusive file creation for new UUIDs; existing-file mutations require content-hash revisions.
+MCP creation and mutation use the same design-file services as the HTTP app, with additional governance checks. Existing-file mutations require content-hash revisions.
 
 ## Build Shape
 
-Package scripts:
-
-- `pnpm dev`: generate Tailwind baseline tokens, then start Vite.
-- `pnpm build`: build web runtime and MCP runtime.
-- `pnpm build:web-runtime`: generate tokens, run TypeScript, build the app/server runtime.
+- `pnpm dev`: generate Tailwind baseline tokens and start Vite.
+- `pnpm build`: build the web, server, and MCP runtimes.
+- `pnpm build:web-runtime`: generate tokens, typecheck, and build the client.
+- `pnpm build:server`: build `dist/index.js` from `src/server-entry.ts`.
 - `pnpm build:mcp`: build `dist/mcp-stdio.js`.
-- `pnpm build:electron`: build Electron main and preload bundles.
-- `pnpm build:desktop`: build web runtime, MCP runtime, and Electron bundles.
-- `pnpm desktop:package`: package with Electron Forge.
-- `pnpm desktop:make`: build and run Electron Forge makers.
 
-The custom Vite SPA server plugin in `plugin/spa-server`:
-
-- Serves Hono API routes in development.
-- Falls through to Vite for browser routes.
-- Builds the client to `dist/client`.
-- Builds the Hono app as server output.
-- Writes `dist/index.js`, which starts `@hono/node-server`.
-- Uses `TRICKROOM_HTTP_PORT` and `TRICKROOM_HTTP_HOST` at runtime.
-
-The MCP Vite config builds the stdio runtime as SSR output without clearing the app build output.
+The custom Vite SPA server plugin serves Hono routes during development and falls through to Vite for browser routes. Production uses `TRICKROOM_HTTP_PORT` and `TRICKROOM_HTTP_HOST` at runtime.
 
 ## Important Boundaries
 
-Project-owned state:
+Project-owned state lives in `.trickroom/`. Per-user project registry state lives under `~/.trickroom` by default. Runtime build output lives in `dist/`.
 
-- `.trickroom/config.json`
-- `.trickroom/designs/*.json`
-- `.trickroom/systems/*/system.json`
-- `.trickroom/systems/*/tokens.json`
-- `.trickroom/audit-log.jsonl`
-
-Per-user state:
-
-- `~/.trickroom/projects.json`
-
-Runtime/build output:
-
-- `dist/`
-- `dist-electron/`
-- `out/`
-
-Source-of-truth design state is not in Electron, not in browser local storage, and not in an external hosted service. It is the project files.
+The project files—not browser local storage or an external hosted service—are the source of truth.

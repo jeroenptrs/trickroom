@@ -36,7 +36,11 @@ Or pass a project directory:
 trickroom /path/to/project
 ```
 
-The browser runtime defaults to `http://localhost:18100/`. Packaged desktop builds show the same React app inside Electron, add native folder picking and app menus, and supervise the local backend process.
+The browser runtime defaults to `http://localhost:18100/`. Loopback use needs no authentication. To share it on a network, pass a non-loopback host; the CLI generates a session token and prints a one-time bootstrap URL:
+
+```sh
+trickroom --host 0.0.0.0 /path/to/project
+```
 
 ## Files Trickroom Writes
 
@@ -102,12 +106,6 @@ Build the browser runtime and MCP bundle:
 
 ```sh
 pnpm build
-```
-
-Build the full desktop runtime:
-
-```sh
-pnpm build:desktop
 ```
 
 ## License

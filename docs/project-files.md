@@ -150,7 +150,7 @@ New designs created by the app start with one root container:
 
 Write behavior:
 
-- The Electron/browser app creates design files from the project screen.
+- The browser app creates design files from the project screen.
 - The editor autosaves design files after dirty changes.
 - MCP `createDesignFile` creates blank design files when policy allows and refuses to overwrite existing UUIDs.
 - MCP mutation tools edit existing design files when policy and revisions allow.
@@ -667,7 +667,7 @@ Purpose:
 
 - Stores recent project locations.
 - Stores the last app-level active project and local location.
-- Lets the Electron app find the last app-level project, and lets MCP catalog, list, resolve, and select registered project locations.
+- Lets the browser app find the last app-level project, and lets MCP catalog, list, resolve, and select registered project locations.
 
 Shape:
 

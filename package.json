@@ -2,15 +2,11 @@
 	"name": "trickroom",
 	"version": "0.1.0",
 	"type": "module",
-	"main": "dist-electron/main/main.js",
 	"packageManager": "pnpm@10.33.2",
 	"license": "AGPL-3.0-only",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/jeroenptrs/trickroom.git"
-	},
-	"config": {
-		"forge": "./forge.config.cjs"
 	},
 	"scripts": {
 		"dev": "pnpm generate:tailwind-tokens && vite",
@@ -18,21 +14,10 @@
 		"build:web-runtime": "pnpm generate:tailwind-tokens && tsc && vite build",
 		"build:server": "vite build --config vite.server.config.ts",
 		"build:mcp": "vite build --config vite.mcp.config.ts",
-		"build:electron": "vite build --config vite.electron-main.config.ts && vite build --config vite.electron-preload.config.ts",
-		"build:desktop": "pnpm build:web-runtime && pnpm build:server && pnpm build:mcp && pnpm build:electron",
-		"electron:dev": "pnpm build:desktop && electron .",
-		"electron:dev:hot": "node --experimental-strip-types scripts/electron-dev-hot.ts",
-		"desktop:package": "pnpm build:desktop && electron-forge package",
-		"desktop:prepare-dmg-native": "node --experimental-strip-types scripts/prepare-dmg-native.ts",
-		"desktop:make": "pnpm build:desktop && pnpm desktop:prepare-dmg-native && electron-forge make",
 		"preview": "vite preview",
 		"generate:tailwind-tokens": "node --experimental-strip-types scripts/generate-tailwind-tokens.ts",
 		"test": "vitest run",
 		"typecheck": "tsc -b"
-	},
-	"dependencies": {
-		"@sentry/electron": "^7.13.0",
-		"@sentry/node": "^10.53.1"
 	},
 	"devDependencies": {
 		"@atlaskit/pragmatic-drag-and-drop": "^1.8.1",
@@ -41,12 +26,6 @@
 		"@atlaskit/pragmatic-drag-and-drop-live-region": "^1.3.4",
 		"@base-ui/react": "^1.5.0",
 		"@biomejs/biome": "2.4.14",
-		"@electron-forge/cli": "7.11.1",
-		"@electron-forge/maker-deb": "7.11.1",
-		"@electron-forge/maker-dmg": "7.11.1",
-		"@electron-forge/maker-rpm": "7.11.1",
-		"@electron-forge/maker-squirrel": "7.11.1",
-		"@electron-forge/maker-zip": "7.11.1",
 		"@fontsource/ibm-plex-mono": "^5.2.7",
 		"@fontsource/ibm-plex-sans": "^5.2.8",
 		"@hono/node-server": "^2.0.0",
@@ -62,12 +41,10 @@
 		"@types/react-dom": "^19.2.3",
 		"@vitejs/plugin-react": "^6.0.1",
 		"cmdk": "^1.1.1",
-		"electron": "42.0.1",
 		"fflate": "^0.8.3",
 		"hono": "^4.12.14",
 		"lucide-react": "^1.16.0",
 		"lucide-static": "^1.16.0",
-		"node-gyp": "^12.3.0",
 		"react": "^19.2.5",
 		"react-dom": "^19.2.5",
 		"react-frame-component": "^5.3.2",
@@ -84,9 +61,7 @@
 	},
 	"files": [
 		"bin",
-		"dist",
-		"dist-electron",
-		"electron/mcp-helper"
+		"dist"
 	],
 	"bin": {
 		"trickroom": "./bin/trickroom.js",

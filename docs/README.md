@@ -4,7 +4,7 @@ These docs are organized as a user guide first and implementation notes second. 
 
 ## Start Here
 
-1. [User Guide](./user-guide.md): what Trickroom does, key terms, Electron capabilities, normal workflows, and current limits.
+1. [User Guide](./user-guide.md): what Trickroom does, key terms, browser capabilities, normal workflows, and current limits.
 2. [Files And Safety](./project-files.md): every durable file Trickroom creates or edits, including `components.json` and system-component revision rules, what it only reads, and what protections exist.
 3. [Agents And MCP](./mcp.md): what agents can ask Trickroom to do, which tools are read-only, which tools write, and which operations are destructive.
 
@@ -12,7 +12,7 @@ These docs are organized as a user guide first and implementation notes second. 
 
 - [Concepts And Design Model](./design-model.md): project, design, system, registry, board, layer, element, props, and the "Design Is Code" philosophy.
 - [Tailwind Systems And Classname Editing](./tailwind-design-systems.md): Tailwind token snapshots, theme injection, and how class strings become reactive property controls.
-- [Architecture](./architecture.md): React app, Hono API, Electron shell, MCP server, build output, and runtime data flow.
+- [Architecture](./architecture.md): React app, Hono API, MCP server, authentication, build output, and runtime data flow.
 - [Development](./development.md): local setup, scripts, packaging, generated files, and test coverage.
 
 ## Quick Safety Summary
@@ -28,4 +28,4 @@ Trickroom writes project metadata under `.trickroom`, recent-project state under
 - `src/services/design-transform-service.ts`: MCP mutation semantics.
 - `src/mcp/server.ts`: MCP prompts, tools, policy, and audit logging.
 - `src/utils/tailwind-*`: Tailwind token sync, storage, theme CSS, and class-name modeling.
-- `electron/main.ts`: Electron backend supervision, native menu, folder picker, and security guard setup.
+- `src/server-entry.ts`: production HTTP server startup, host policy, and static app serving.

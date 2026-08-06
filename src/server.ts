@@ -3,6 +3,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Hono } from "hono";
+import { getCookie, setCookie } from "hono/cookie";
 import { resolveTrickroomHome } from "./app-state/home";
 import {
 	clearActiveProjectLocation,
@@ -38,7 +39,10 @@ import { exportRoutes } from "./routes/export";
 import { registerProjectAndDesignMemoryRoutes } from "./routes/memory";
 import { systemsRoutes } from "./routes/systems";
 import { tailwindRoutes } from "./routes/tailwind";
-import { captureNodeException } from "./sentry/node";
+import {
+	trickroomSessionCookieName,
+	trickroomSessionHeaderName,
+} from "./server-auth";
 import { readJsonFile } from "./server-file-utils";
 import {
 	asErrnoException,
@@ -91,9 +95,8 @@ export type TrickroomAppOptions = {
 	trickroomHome?: string;
 	initialProjectRoot?: string | null;
 	registerInitialProject?: boolean;
+	sessionToken?: string | null;
 };
-
-const electronSessionHeaderName = "x-trickroom-session";
 
 const toSessionProject = (
 	project: TrickroomActiveProject | ProjectLocationRef,
@@ -510,33 +513,43 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 	const app = new Hono();
 	const trickroomHome = options.trickroomHome ?? resolveTrickroomHome();
 	const registerInitialProject = options.registerInitialProject ?? true;
+	const sessionToken =
+		options.sessionToken === undefined
+			? process.env.TRICKROOM_SESSION_TOKEN?.trim()
+			: (options.sessionToken?.trim() ?? undefined);
 	let activeProject: TrickroomActiveProject | null = null;
 	let initialProjectPromise: Promise<void> | null = null;
 
 	app.onError((error, c) => {
-		captureNodeException(error, {
-			tags: {
-				route: c.req.path,
-			},
-			extra: {
-				method: c.req.method,
-			},
-		});
+		console.error(`${c.req.method} ${c.req.path}`, error);
 		return jsonError("Internal server error", 500);
 	});
 
 	app.use("*", async (c, next) => {
-		if (process.env.TRICKROOM_ELECTRON !== "1") {
+		if (!sessionToken) {
 			await next();
 			return;
 		}
 
-		const sessionToken = process.env.TRICKROOM_SESSION_TOKEN;
-		if (!sessionToken) {
-			return jsonError("Electron session token is not configured.", 500);
+		const bootstrapToken = c.req.query("token");
+		if (
+			(c.req.method === "GET" || c.req.method === "HEAD") &&
+			bootstrapToken === sessionToken
+		) {
+			const cleanUrl = new URL(c.req.url);
+			cleanUrl.searchParams.delete("token");
+			setCookie(c, trickroomSessionCookieName, sessionToken, {
+				httpOnly: true,
+				path: "/",
+				sameSite: "Strict",
+				secure: cleanUrl.protocol === "https:",
+			});
+			return c.redirect(`${cleanUrl.pathname}${cleanUrl.search}`);
 		}
 
-		const requestToken = c.req.header(electronSessionHeaderName);
+		const requestToken =
+			getCookie(c, trickroomSessionCookieName) ??
+			c.req.header(trickroomSessionHeaderName);
 		if (requestToken !== sessionToken) {
 			return jsonError("Forbidden", 403);
 		}
@@ -581,7 +594,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 
 		return c.json({
 			ok: true,
-			mode: process.env.TRICKROOM_ELECTRON === "1" ? "electron" : "browser",
+			mode: sessionToken ? "shared" : "local",
 			activeProject: activeProject ? toSessionProject(activeProject) : null,
 		});
 	});

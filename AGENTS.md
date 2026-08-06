@@ -58,9 +58,9 @@ When those conflict, preserve the code-native model and find the closest designe
 
 ## Working in this repo
 
-TypeScript + React 19 + Vite + Electron + Tailwind v4 + MCP server, managed with pnpm.
+TypeScript + React 19 + Vite + Hono + Tailwind v4 + MCP server, managed with pnpm.
 
-- `pnpm dev` — browser app (regenerates Tailwind tokens first); `pnpm electron:dev:hot` for the desktop shell
+- `pnpm dev` — browser app (regenerates Tailwind tokens first)
 - `pnpm test` — vitest, single run
 - `biome check --write` — lint + format (tabs, double quotes)
 - Typecheck with `tsc -b`. The bare `tsc` in build scripts checks nothing. There is a pre-existing error baseline; only errors in files you touched are yours.
@@ -74,4 +74,3 @@ Conventions and gotchas:
 - Persisted userland shapes need migrations — see `src/services/` for the revision and migration patterns (e.g. system components)
 
 Full docs in `docs/` — start at `docs/README.md`; `docs/architecture.md` for runtime layout, `docs/mcp.md` for agent tooling, `docs/development.md` for the complete script/packaging reference.
-
