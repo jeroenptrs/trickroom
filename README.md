@@ -27,16 +27,22 @@ npm install -g trickroom
 Open the current folder:
 
 ```sh
-trickroom .
+trickroom serve .
 ```
 
 Or pass a project directory:
 
 ```sh
-trickroom /path/to/project
+trickroom serve /path/to/project
 ```
 
-The browser runtime defaults to `http://localhost:18100/`. Packaged desktop builds show the same React app inside Electron, add native folder picking and app menus, and supervise the local backend process.
+Running `trickroom` without a command starts the server and opens the project selector.
+
+The browser runtime defaults to `http://localhost:18100/`. Loopback use needs no authentication. To share it on a network, pass a non-loopback host; the CLI generates a session token and includes it in the machine-readable ready line:
+
+```sh
+trickroom serve /path/to/project --host 0.0.0.0 --no-open
+```
 
 ## Files Trickroom Writes
 
@@ -72,7 +78,7 @@ Enable MCP in `.trickroom/config.json`:
 Start the server:
 
 ```sh
-trickroom-mcp
+trickroom mcp
 ```
 
 Agents can list projects, open/switch the active project, create design files, read designs, inspect elements, validate files, discover component registries, read linked design-system tokens, dry-run operations, and mutate design files. Existing-file mutations require an `expectedRevision` from a prior read, so agents must re-read after conflicts instead of guessing.
@@ -102,12 +108,6 @@ Build the browser runtime and MCP bundle:
 
 ```sh
 pnpm build
-```
-
-Build the full desktop runtime:
-
-```sh
-pnpm build:desktop
 ```
 
 ## License

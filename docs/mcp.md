@@ -7,10 +7,10 @@ The MCP server has one explicit session-selected project at a time. It starts fr
 ## Start MCP
 
 ```sh
-trickroom-mcp
+trickroom mcp
 ```
 
-On startup, MCP does not accept positional launch-path arguments. Start with `trickroom-mcp` from the desired project folder, and MCP will infer the local project when it is in its root.
+On startup, MCP does not accept positional launch-path arguments. Start with `trickroom mcp` from the desired project folder, and MCP will infer the local project when it is in its root.
 If no project is inferred from the current working directory, MCP starts without a selected project.
 To target another local project in the same session, register it with `registerProject`, then switch scope with `selectProject`.
 The per-user project registry still powers `listProjects`, but it no longer retargets existing MCP sessions when desktop UI project switches happen.
@@ -25,14 +25,6 @@ The target project must have MCP enabled:
   }
 }
 ```
-
-Packaged macOS desktop builds also include a headless helper:
-
-```sh
-out/Trickroom-darwin-arm64/Trickroom.app/Contents/Resources/mcp-helper/mcp
-```
-
-The helper runs under `ELECTRON_RUN_AS_NODE=1`, does not open a BrowserWindow, and keeps stdout reserved for MCP JSON-RPC. Diagnostics go to stderr.
 
 ## MCP Migration Notes
 

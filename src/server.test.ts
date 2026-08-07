@@ -334,7 +334,7 @@ describe("server design routes", () => {
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toEqual({
 			ok: true,
-			mode: "browser",
+			mode: "local",
 			activeProject: null,
 		});
 	});
@@ -347,7 +347,7 @@ describe("server design routes", () => {
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toMatchObject({
 			ok: true,
-			mode: "browser",
+			mode: "local",
 			activeProject: {
 				projectId: expect.any(String),
 				locationId: expect.any(String),
@@ -357,38 +357,59 @@ describe("server design routes", () => {
 		});
 	});
 
-	it("requires the session header in Electron mode", async () => {
-		const previousElectron = process.env.TRICKROOM_ELECTRON;
-		const previousToken = process.env.TRICKROOM_SESSION_TOKEN;
-		process.env.TRICKROOM_ELECTRON = "1";
-		process.env.TRICKROOM_SESSION_TOKEN = "test-token";
-		try {
-			const app = createTrickroomApp({ trickroomHome: tempTrickroomHome });
+	it("requires a session token when auth is configured", async () => {
+		const app = createTrickroomApp({
+			trickroomHome: tempTrickroomHome,
+			sessionToken: "test-token",
+		});
 
-			const forbidden = await app.request("/api/trickroom/health");
-			expect(forbidden.status).toBe(403);
-			await expect(forbidden.json()).resolves.toEqual({ error: "Forbidden" });
+		const forbidden = await app.request("/api/trickroom/health");
+		expect(forbidden.status).toBe(403);
+		await expect(forbidden.json()).resolves.toEqual({ error: "Forbidden" });
 
-			const allowed = await app.request("/api/trickroom/health", {
-				headers: { "x-trickroom-session": "test-token" },
-			});
-			expect(allowed.status).toBe(200);
-			await expect(allowed.json()).resolves.toMatchObject({
-				ok: true,
-				mode: "electron",
-			});
-		} finally {
-			if (previousElectron === undefined) {
-				delete process.env.TRICKROOM_ELECTRON;
-			} else {
-				process.env.TRICKROOM_ELECTRON = previousElectron;
-			}
-			if (previousToken === undefined) {
-				delete process.env.TRICKROOM_SESSION_TOKEN;
-			} else {
-				process.env.TRICKROOM_SESSION_TOKEN = previousToken;
-			}
-		}
+		const allowed = await app.request("/api/trickroom/health", {
+			headers: { "x-trickroom-session": "test-token" },
+		});
+		expect(allowed.status).toBe(200);
+		await expect(allowed.json()).resolves.toMatchObject({
+			ok: true,
+			mode: "shared",
+		});
+	});
+
+	it("bootstraps an HTTP-only cookie and redirects to a clean URL", async () => {
+		const app = createTrickroomApp({
+			trickroomHome: tempTrickroomHome,
+			sessionToken: "test token",
+		});
+
+		const bootstrap = await app.request(
+			"/api/trickroom/health?view=compact&token=test%20token",
+		);
+		expect(bootstrap.status).toBe(302);
+		expect(bootstrap.headers.get("location")).toBe(
+			"/api/trickroom/health?view=compact",
+		);
+		const cookie = bootstrap.headers.get("set-cookie");
+		expect(cookie).toContain("trickroom_session=test%20token");
+		expect(cookie).toContain("HttpOnly");
+		expect(cookie).toContain("SameSite=Strict");
+
+		const allowed = await app.request("/api/trickroom/health", {
+			headers: { cookie: cookie?.split(";", 1)[0] ?? "" },
+		});
+		expect(allowed.status).toBe(200);
+	});
+
+	it("does not bootstrap a cookie from an invalid token", async () => {
+		const app = createTrickroomApp({
+			trickroomHome: tempTrickroomHome,
+			sessionToken: "test-token",
+		});
+
+		const response = await app.request("/?token=wrong-token");
+		expect(response.status).toBe(403);
+		expect(response.headers.get("set-cookie")).toBeNull();
 	});
 
 	it("opens a project through the runtime registry flow", async () => {

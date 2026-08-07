@@ -1,13 +1,9 @@
-import "../sentry/mcp-init";
-import type { Writable } from "node:stream";
 import { existsSync, watch } from "node:fs";
 import path from "node:path";
+import type { Writable } from "node:stream";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { resolveTrickroomHome } from "../app-state/home";
-import {
-	getProjectRegistryPath,
-} from "../app-state/project-registry";
-import { captureNodeException } from "../sentry/node";
+import { getProjectRegistryPath } from "../app-state/project-registry";
 import {
 	inferMcpProjectContextFromCwd,
 	listMcpEnabledProjectContexts,
@@ -158,9 +154,7 @@ export const createResourceListWatchers = async (
 					watchPath,
 					designsDirectory,
 				});
-			} catch {
-				continue;
-			}
+			} catch {}
 		}
 
 		for (const [locationId, currentWatch] of designWatcherStops) {
@@ -316,7 +310,6 @@ export const main = async () => {
 	try {
 		process.exitCode = await runTrickroomMcpStdioServer();
 	} catch (error) {
-		captureNodeException(error, { tags: { phase: "mcp-main" } });
 		const message =
 			error instanceof Error ? (error.stack ?? error.message) : String(error);
 		process.stderr.write(`${message}\n`);

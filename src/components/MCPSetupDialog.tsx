@@ -1,6 +1,5 @@
 import { Terminal, X } from "lucide-react";
-import { useEffect, useState } from "react";
-import { getTrickroomDesktopApi } from "../desktop-api";
+import { useState } from "react";
 import { Button } from "./ui/button";
 import { CopyButton } from "./ui/copy-button";
 import {
@@ -14,10 +13,7 @@ import {
 import { Separator } from "./ui/separator";
 import { Text } from "./ui/text";
 
-// Fallback shown in non-desktop contexts (e.g. browser preview). The Electron
-// main process resolves the real path at runtime via getMcpHelperPath.
-const FALLBACK_MCP_PATH =
-	"/Applications/Trickroom.app/Contents/Resources/mcp-helper/mcp";
+const MCP_COMMAND = "trickroom mcp";
 
 type Agent = {
 	id: string;
@@ -27,15 +23,14 @@ type Agent = {
 	removeCommand: string;
 };
 
-function buildAgents(mcpPath: string): Agent[] {
-	const quoted = `'${mcpPath}'`;
+function buildAgents(mcpCommand: string): Agent[] {
 	return [
 		{
 			id: "codex",
 			name: "Codex CLI",
 			description:
 				"Run this in your terminal to register the Trickroom MCP server with the Codex CLI.",
-			installCommand: `codex mcp add trickroom -- ${quoted}`,
+			installCommand: `codex mcp add trickroom -- ${mcpCommand}`,
 			removeCommand: "codex mcp remove trickroom",
 		},
 		{
@@ -43,7 +38,7 @@ function buildAgents(mcpPath: string): Agent[] {
 			name: "Claude Code",
 			description:
 				"Run this in your terminal to register the Trickroom MCP server with Claude Code.",
-			installCommand: `claude mcp add --scope user --transport stdio trickroom -- ${quoted}`,
+			installCommand: `claude mcp add --scope user --transport stdio trickroom -- ${mcpCommand}`,
 			removeCommand: "claude mcp remove --scope user trickroom",
 		},
 		{
@@ -51,7 +46,7 @@ function buildAgents(mcpPath: string): Agent[] {
 			name: "Amp",
 			description:
 				"Run this in your terminal to register the Trickroom MCP server with Amp.",
-			installCommand: `amp mcp add trickroom -- ${quoted}`,
+			installCommand: `amp mcp add trickroom -- ${mcpCommand}`,
 			removeCommand: "amp mcp remove trickroom",
 		},
 		{
@@ -59,7 +54,7 @@ function buildAgents(mcpPath: string): Agent[] {
 			name: "Gemini CLI",
 			description:
 				"Run this in your terminal to register the Trickroom MCP server with the Gemini CLI.",
-			installCommand: `gemini mcp add --scope user trickroom ${quoted}`,
+			installCommand: `gemini mcp add --scope user trickroom ${mcpCommand}`,
 			removeCommand: "gemini mcp remove --scope user trickroom",
 		},
 		{
@@ -67,7 +62,7 @@ function buildAgents(mcpPath: string): Agent[] {
 			name: "OpenCode",
 			description:
 				"Run this in your terminal to register the Trickroom MCP server with OpenCode.",
-			installCommand: `opencode mcp add trickroom -- ${quoted}`,
+			installCommand: `opencode mcp add trickroom -- ${mcpCommand}`,
 			removeCommand: "opencode mcp remove trickroom",
 		},
 		{
@@ -75,7 +70,7 @@ function buildAgents(mcpPath: string): Agent[] {
 			name: "Copilot CLI",
 			description:
 				"Run this in your terminal to register the Trickroom MCP server with the Copilot CLI.",
-			installCommand: `copilot mcp add trickroom -- ${quoted}`,
+			installCommand: `copilot mcp add trickroom -- ${mcpCommand}`,
 			removeCommand: "copilot mcp remove trickroom",
 		},
 	];
@@ -88,30 +83,7 @@ type MCPSetupDialogProps = {
 
 export function MCPSetupDialog({ open, onOpenChange }: MCPSetupDialogProps) {
 	const [selectedId, setSelectedId] = useState("codex");
-	const [mcpPath, setMcpPath] = useState(FALLBACK_MCP_PATH);
-
-	useEffect(() => {
-		const desktop = getTrickroomDesktopApi();
-		if (!desktop) {
-			return;
-		}
-		let cancelled = false;
-		desktop.getMcpHelperPath().then(
-			(path) => {
-				if (!cancelled && path) {
-					setMcpPath(path);
-				}
-			},
-			() => {
-				// Leave the fallback path in place if resolution fails.
-			},
-		);
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
-	const agents = buildAgents(mcpPath);
+	const agents = buildAgents(MCP_COMMAND);
 	const selected = agents.find((agent) => agent.id === selectedId) ?? agents[0];
 
 	return (

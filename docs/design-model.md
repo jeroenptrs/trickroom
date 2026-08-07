@@ -301,4 +301,4 @@ The design model is intentionally narrow and inspectable:
 - Tailwind classes remain the canonical styling language.
 - Component registries create a path toward app-specific design building blocks.
 - System-scoped resources keep image paths and SVG source files outside design JSON while preserving stable asset/icon IDs on elements.
-- The same data can be edited by the Electron UI, browser UI, and MCP tools.
+- The same data can be edited by the browser UI and MCP tools.
