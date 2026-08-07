@@ -164,7 +164,7 @@ See [Agents And MCP](./mcp.md) for the full read-only/write/destructive tool map
 - The class-name parser recognizes more color families than the UI exposes.
 - Tailwind token sync currently stores color-domain tokens only.
 - MCP can create and edit design files but does not currently edit project config.
-- Browser API saves do not use MCP-style expected revisions; the browser editor relies on its local dirty revision tracking and autosave flow.
+- Browser and MCP writes both use content-hash revisions to prevent stale existing-file writes. When an external edit arrives while the browser is dirty, the editor asks whether to reload it or keep the local version.
 
 ## Practical Suggestions
 

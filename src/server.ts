@@ -2,8 +2,9 @@ import { createReadStream } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
+import { streamSSE } from "hono/streaming";
 import { resolveTrickroomHome } from "./app-state/home";
 import {
 	clearActiveProjectLocation,
@@ -54,10 +55,12 @@ import {
 	createDesignFileService,
 	DesignFileServiceError,
 } from "./services/design-file-service";
+import type { DesignFileRevision } from "./services/design-file-service.types";
 import {
 	applyExtractSubtree,
 	DesignTransformError,
 } from "./services/design-transform-service";
+import { ProjectFileEvents } from "./services/project-file-events";
 import type {
 	Node as DesignNode,
 	TrickroomConfig,
@@ -351,6 +354,12 @@ const getRequestProject = async (
 const createNoProjectResponse = () =>
 	jsonError("No Trickroom project is selected.", 409);
 
+const designRevisionHeaderName = "x-trickroom-revision";
+const expectedDesignRevisionHeaderName = "x-trickroom-expected-revision";
+
+const setDesignRevisionHeader = (c: Context, revision: DesignFileRevision) =>
+	c.header(designRevisionHeaderName, revision);
+
 const parseMcpSettingsPayload = (body: unknown) => {
 	if (!body || typeof body !== "object") {
 		return null;
@@ -519,6 +528,11 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			: (options.sessionToken?.trim() ?? undefined);
 	let activeProject: TrickroomActiveProject | null = null;
 	let initialProjectPromise: Promise<void> | null = null;
+	const projectFileEvents = new ProjectFileEvents();
+	const setActiveProject = (project: TrickroomActiveProject | null) => {
+		activeProject = project;
+		projectFileEvents.setProjectRoot(project?.projectRoot ?? null);
+	};
 
 	app.onError((error, c) => {
 		console.error(`${c.req.method} ${c.req.path}`, error);
@@ -565,15 +579,19 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				})
 			: readOrCreateProjectConfig(options.initialProjectRoot);
 		initialProjectPromise = openInitialProject.then((project) => {
-			activeProject = {
+			const openedProject: TrickroomActiveProject = {
 				projectRoot: project.projectRoot,
 				trickroomDir: project.trickroomDir,
 				configPath: project.configPath,
 				legacyConfigPath: project.legacyConfigPath,
 				designsDir: project.designsDir,
 				config: project.config,
-				locationId: "locationId" in project ? project.locationId : "loc_test",
+				locationId:
+					"locationId" in project && typeof project.locationId === "string"
+						? project.locationId
+						: "loc_test",
 			};
+			setActiveProject(openedProject);
 		});
 	}
 
@@ -616,6 +634,37 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		});
 	});
 
+	app.get("/api/trickroom/events", async (c) => {
+		const project = await resolveProjectForRequest();
+		if (!project) {
+			return createNoProjectResponse();
+		}
+		projectFileEvents.setProjectRoot(project.projectRoot);
+
+		return streamSSE(c, async (stream) => {
+			let resolveClosed: (() => void) | null = null;
+			const closed = new Promise<void>((resolve) => {
+				resolveClosed = resolve;
+			});
+			let sendQueue = Promise.resolve();
+			const enqueue = (event: string, data: string) => {
+				sendQueue = sendQueue
+					.then(() => stream.writeSSE({ event, data }))
+					.catch(() => resolveClosed?.());
+			};
+			const unsubscribe = projectFileEvents.subscribe((event) => {
+				enqueue("change", JSON.stringify(event));
+			});
+			const heartbeat = setInterval(() => enqueue("heartbeat", "{}"), 15_000);
+			stream.onAbort(() => resolveClosed?.());
+			enqueue("ready", JSON.stringify({ locationId: project.locationId }));
+
+			await closed;
+			clearInterval(heartbeat);
+			unsubscribe();
+		});
+	});
+
 	app.post("/api/trickroom/projects/open", async (c) => {
 		const body = await c.req.json().catch(() => null);
 		const projectPath =
@@ -643,7 +692,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				trickroomHome,
 				config,
 			});
-			activeProject = {
+			const openedProject: TrickroomActiveProject = {
 				projectRoot: project.projectRoot,
 				trickroomDir: project.trickroomDir,
 				configPath: project.configPath,
@@ -652,10 +701,11 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				config: project.config,
 				locationId: project.locationId,
 			};
+			setActiveProject(openedProject);
 
 			return c.json({
-				project: toSessionProject(activeProject),
-				configPath: activeProject.configPath,
+				project: toSessionProject(openedProject),
+				configPath: openedProject.configPath,
 				source: project.source,
 			});
 		} catch (error) {
@@ -703,7 +753,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				projectRoot: location.root,
 				trickroomHome,
 			});
-			activeProject = {
+			const openedProject: TrickroomActiveProject = {
 				projectRoot: project.projectRoot,
 				trickroomDir: project.trickroomDir,
 				configPath: project.configPath,
@@ -712,6 +762,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				config: project.config,
 				locationId: project.locationId,
 			};
+			setActiveProject(openedProject);
 
 			const designFileService = createDesignFileService(project.projectRoot);
 			const designSummaries = await designFileService.listDesignSummaries();
@@ -724,7 +775,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			}
 
 			return c.json({
-				project: toSessionProject(activeProject),
+				project: toSessionProject(openedProject),
 				designId: designSummary.uuid,
 				designFile: designSummary.file,
 			});
@@ -734,7 +785,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 	});
 
 	app.post("/api/trickroom/projects/close", async (c) => {
-		activeProject = null;
+		setActiveProject(null);
 		await clearActiveProjectLocation(trickroomHome);
 		return c.json({ activeProject: null });
 	});
@@ -751,7 +802,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		}
 
 		if (activeProject?.locationId === locationId) {
-			activeProject = null;
+			setActiveProject(null);
 		}
 
 		return c.json({
@@ -808,10 +859,10 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			}
 
 			if (activeProject?.locationId === locationId) {
-				activeProject = {
+				setActiveProject({
 					...activeProject,
 					config: writtenConfig,
-				};
+				});
 			}
 
 			return c.json({
@@ -940,7 +991,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				project.projectRoot,
 				config,
 			);
-			activeProject = { ...project, config: writtenConfig };
+			setActiveProject({ ...project, config: writtenConfig });
 			return c.json(writtenConfig, 201);
 		} catch {
 			return jsonError("Failed to create trickroom project", 500);
@@ -973,7 +1024,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				project.projectRoot,
 				nextConfig,
 			);
-			activeProject = { ...project, config: writtenConfig };
+			setActiveProject({ ...project, config: writtenConfig });
 			return c.json(writtenConfig);
 		} catch {
 			return jsonError("Failed to update MCP settings", 500);
@@ -1060,7 +1111,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				project.projectRoot,
 				setConfigDefaultSystemId(project.config, defaultSystemPayload.systemId),
 			);
-			activeProject = { ...project, config: writtenConfig };
+			setActiveProject({ ...project, config: writtenConfig });
 			return c.json(writtenConfig);
 		} catch {
 			return jsonError("Failed to update default system", 500);
@@ -1094,6 +1145,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				repair.report.repairedCount > 0 ||
 				JSON.stringify(canonicalDesign) !== JSON.stringify(read.value);
 			if (!shouldWrite) {
+				setDesignRevisionHeader(c, read.revision);
 				return c.json(await decorateDesignSystemReference(project, read.value));
 			}
 
@@ -1105,6 +1157,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			if (repair.report.repairedCount > 0) {
 				c.header(recipeLoadRepairHeaderName, JSON.stringify(repair.report));
 			}
+			setDesignRevisionHeader(c, written.revision);
 			return c.json(
 				await decorateDesignSystemReference(project, written.design),
 			);
@@ -1306,6 +1359,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				targetFile,
 				canonicalDesign,
 			);
+			setDesignRevisionHeader(c, written.revision);
 			return c.json(
 				await decorateDesignSystemReference(project, written.design),
 				201,
@@ -1378,6 +1432,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				file,
 				canonicalDesign,
 			);
+			setDesignRevisionHeader(c, written.revision);
 			return c.json(
 				await decorateDesignSystemReference(project, written.design),
 				201,
@@ -1435,10 +1490,15 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				body,
 			);
 			await assertExtractedDesignReferencesExist(project, canonicalDesign);
+			const expectedRevision = c.req.header(expectedDesignRevisionHeaderName) as
+				| DesignFileRevision
+				| undefined;
 			const written = await designFileService.writeDesignFile(
 				file,
 				canonicalDesign,
+				expectedRevision ? { expectedRevision } : {},
 			);
+			setDesignRevisionHeader(c, written.revision);
 			return c.json(
 				await decorateDesignSystemReference(project, written.design),
 			);
@@ -1451,6 +1511,12 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				error.code === "INVALID_DESIGN_PAYLOAD"
 			) {
 				return jsonError("Invalid trickroom design payload", 400);
+			}
+			if (
+				error instanceof DesignFileServiceError &&
+				error.code === "REVISION_MISMATCH"
+			) {
+				return jsonError("Design file changed since it was loaded", 409);
 			}
 
 			const fsError = asErrnoException(error);

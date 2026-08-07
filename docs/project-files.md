@@ -717,8 +717,11 @@ sha256:<hex digest>
 Browser editor:
 
 - Uses a local dirty revision counter.
+- Retains the last persisted content-hash revision returned by the HTTP API.
 - Autosaves after `1000ms`.
+- Sends the persisted revision with existing-file writes; stale writes receive HTTP 409 and do not overwrite disk state.
 - Clears dirty state only when the completed save still matches the current in-memory revision.
+- Subscribes to project file events. Clean designs reload from disk automatically; dirty designs pause autosave and ask whether to reload from disk or keep the local version.
 
 MCP:
 

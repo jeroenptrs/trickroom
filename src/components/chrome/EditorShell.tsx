@@ -1,6 +1,6 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { useHotkey } from "@tanstack/react-hotkeys";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, FileCheck, FileMinus, FileUp } from "lucide-react";
 import {
 	memo,
@@ -11,16 +11,21 @@ import {
 	useState,
 } from "react";
 import { useNavigate } from "react-router";
-import { saveDesignFile } from "../../queries/design-file";
+import { designFileQueryKey, saveDesignFile } from "../../queries/design-file";
+import type { DesignFileRevision } from "../../services/design-file-service.types";
 import {
 	clearDirty,
 	serializeDesign,
 	setDesignName,
+	setDesignSavePending,
+	setPersistedDesignRevision,
 	useDesignName,
 	useDesignRevision,
 	useDesignSystemId,
 	useDesignSystemName,
+	useExternalConflictPending,
 	useHasUnsavedChanges,
+	usePersistedDesignRevision,
 } from "../../stores/design-store";
 import type { TrickroomDesign } from "../../types";
 import {
@@ -28,6 +33,7 @@ import {
 	getKey,
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
+import { useProjectScope } from "../contexts";
 import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -40,6 +46,7 @@ const AUTOSAVE_DELAY_MS = 1000;
 type SaveRequest = {
 	design: TrickroomDesign;
 	revision: number;
+	persistedRevision: DesignFileRevision | null;
 };
 
 type SaveControlProps = {
@@ -52,29 +59,41 @@ type EditorShellProps = {
 };
 
 function SaveControl({ designFile }: SaveControlProps) {
+	const queryClient = useQueryClient();
+	const projectScope = useProjectScope();
 	const hasUnsavedChanges = useHasUnsavedChanges();
+	const conflictPending = useExternalConflictPending();
+	const persistedRevision = usePersistedDesignRevision();
 	const revision = useDesignRevision();
 	const saveErrorRevisionRef = useRef<number | null>(null);
 	const saveMutation = useMutation({
-		mutationFn: ({ design }: SaveRequest) => saveDesignFile(designFile, design),
-		onSuccess: (_savedDesign, request) => {
+		mutationFn: ({ design, persistedRevision }: SaveRequest) =>
+			saveDesignFile(designFile, design, persistedRevision),
+		onSuccess: (saved, request) => {
 			saveErrorRevisionRef.current = null;
+			setPersistedDesignRevision(saved.revision);
 			clearDirty(request.revision);
 		},
 		onError: (_error, request) => {
 			saveErrorRevisionRef.current = request.revision;
+			void queryClient.invalidateQueries({
+				queryKey: designFileQueryKey(designFile, projectScope),
+			});
 		},
+		onSettled: () => setDesignSavePending(false),
 	});
 	const saveCurrentDesign = useCallback(() => {
-		if (saveMutation.isPending) {
+		if (saveMutation.isPending || conflictPending) {
 			return;
 		}
 
+		setDesignSavePending(true);
 		saveMutation.mutate({
 			design: serializeDesign(),
 			revision,
+			persistedRevision,
 		});
-	}, [revision, saveMutation]);
+	}, [conflictPending, persistedRevision, revision, saveMutation]);
 
 	useHotkey("Mod+S", saveCurrentDesign, {
 		enabled: !saveMutation.isPending,
@@ -92,7 +111,12 @@ function SaveControl({ designFile }: SaveControlProps) {
 	}, [hasUnsavedChanges, revision, saveMutation]);
 
 	useEffect(() => {
-		if (!hasUnsavedChanges || saveMutation.isPending || saveMutation.isError) {
+		if (
+			!hasUnsavedChanges ||
+			conflictPending ||
+			saveMutation.isPending ||
+			saveMutation.isError
+		) {
 			return;
 		}
 
@@ -100,6 +124,7 @@ function SaveControl({ designFile }: SaveControlProps) {
 		return () => window.clearTimeout(timeout);
 	}, [
 		hasUnsavedChanges,
+		conflictPending,
 		saveCurrentDesign,
 		saveMutation.isError,
 		saveMutation.isPending,
@@ -126,7 +151,7 @@ function SaveControl({ designFile }: SaveControlProps) {
 			className="p-1"
 			title="Unsaved changes"
 			onClick={saveCurrentDesign}
-			disabled={!hasUnsavedChanges || saveMutation.isPending}
+			disabled={!hasUnsavedChanges || conflictPending || saveMutation.isPending}
 		>
 			<FileMinus className="size-4 text-current" />
 		</Button>
