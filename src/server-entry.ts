@@ -43,7 +43,17 @@ requireSessionTokenForHost(configuredHost, sessionToken);
 export let serverPort = configuredPort;
 export let serverUrl = `http://${urlHost}:${configuredPort}/`;
 
-export const serverReady = new Promise<void>((resolve) => {
+export type ServerReadyPayload = {
+	type: "trickroom:server-ready";
+	version: 1;
+	host: string;
+	port: number;
+	url: string;
+	token: string | null;
+	authenticated: boolean;
+};
+
+export const serverReady = new Promise<ServerReadyPayload>((resolve) => {
 	serve(
 		{ fetch: app.fetch, port: configuredPort, hostname: configuredHost },
 		(address) => {
@@ -54,22 +64,28 @@ export const serverReady = new Promise<void>((resolve) => {
 			serverUrl = sessionToken
 				? `${cleanUrl}?token=${encodeURIComponent(sessionToken)}`
 				: cleanUrl;
-			console.log(
-				`Running ${sessionToken ? "with session auth" : "locally"} ${cleanUrl}`,
-			);
-			const payload = {
+			if (process.env.TRICKROOM_CLI_MANAGED_OUTPUT !== "1") {
+				console.log(
+					`Running ${sessionToken ? "with session auth" : "locally"} ${cleanUrl}`,
+				);
+			}
+			const payload: ServerReadyPayload = {
 				type: "trickroom:server-ready" as const,
 				version: 1 as const,
 				port,
 				host: configuredHost,
-				url: cleanUrl,
+				url: serverUrl,
+				token: sessionToken ?? null,
 				authenticated: Boolean(sessionToken),
 			};
 			if (typeof process.send === "function") process.send(payload);
-			if (process.env.TRICKROOM_READY_JSON === "1") {
+			if (
+				process.env.TRICKROOM_READY_JSON === "1" &&
+				process.env.TRICKROOM_CLI_MANAGED_OUTPUT !== "1"
+			) {
 				process.stderr.write(`${JSON.stringify(payload)}\n`);
 			}
-			resolve();
+			resolve(payload);
 		},
 	);
 });

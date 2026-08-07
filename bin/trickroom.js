@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { resolveTrickroomCommand } from "./cli-command.js";
 import { setInitialProjectRoot } from "./project-root.js";
 import { configureServerOptions } from "./server-options.js";
 
@@ -47,14 +48,10 @@ const runMcp = async () => {
 	await runtime.main();
 };
 
-const runServer = async () => {
-	const silent = process.argv.includes("--silent");
-	const rawArgv = silent
-		? process.argv.filter((arg, index) => index < 2 || arg !== "--silent")
-		: process.argv;
+const runServer = async (argv) => {
 	let serverOptions;
 	try {
-		serverOptions = configureServerOptions(rawArgv);
+		serverOptions = configureServerOptions(argv);
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : String(error));
 		process.exitCode = 1;
@@ -62,30 +59,59 @@ const runServer = async () => {
 	}
 
 	setInitialProjectRoot(serverOptions.argv);
+	process.env.TRICKROOM_CLI_MANAGED_OUTPUT = "1";
 
 	const runtime = await import("../dist/index.js");
+	let ready;
 	if (runtime.serverReady && typeof runtime.serverReady.then === "function") {
-		await runtime.serverReady;
+		ready = await runtime.serverReady;
 	}
 
-	if (
-		serverOptions.sessionAuthEnabled &&
-		typeof runtime.serverUrl === "string"
-	) {
-		console.log(`Shared URL: ${runtime.serverUrl}`);
+	if (!ready) {
+		const port =
+			typeof runtime.serverPort === "number"
+				? runtime.serverPort
+				: serverOptions.port;
+		const url =
+			typeof runtime.serverUrl === "string"
+				? runtime.serverUrl
+				: `http://${serverOptions.host}:${port}/`;
+		ready = {
+			type: "trickroom:server-ready",
+			version: 1,
+			host: serverOptions.host,
+			port,
+			url,
+			token: serverOptions.token,
+			authenticated: serverOptions.sessionAuthEnabled,
+		};
 	}
 
-	if (!silent) {
-		if (typeof runtime.serverUrl === "string") {
-			openBrowser(runtime.serverUrl);
-		} else if (typeof runtime.serverPort === "number") {
-			openBrowser(`http://localhost:${runtime.serverPort}`);
-		}
+	process.stdout.write(`${JSON.stringify(ready)}\n`);
+
+	if (!serverOptions.silent) {
+		const displayUrl = new URL(ready.url);
+		displayUrl.search = "";
+		process.stderr.write(
+			`Trickroom ready at ${displayUrl.toString()}${ready.authenticated ? " (session auth enabled)" : ""}\n`,
+		);
+	}
+
+	if (!serverOptions.noOpen) {
+		openBrowser(ready.url);
 	}
 };
 
-if (process.argv[2] === "mcp") {
+let command;
+try {
+	command = resolveTrickroomCommand(process.argv);
+} catch (error) {
+	console.error(error instanceof Error ? error.message : String(error));
+	process.exitCode = 1;
+}
+
+if (command?.command === "mcp") {
 	await runMcp();
-} else {
-	await runServer();
+} else if (command?.command === "serve") {
+	await runServer(command.argv);
 }

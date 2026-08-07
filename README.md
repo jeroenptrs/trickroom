@@ -27,19 +27,21 @@ npm install -g trickroom
 Open the current folder:
 
 ```sh
-trickroom .
+trickroom serve .
 ```
 
 Or pass a project directory:
 
 ```sh
-trickroom /path/to/project
+trickroom serve /path/to/project
 ```
 
-The browser runtime defaults to `http://localhost:18100/`. Loopback use needs no authentication. To share it on a network, pass a non-loopback host; the CLI generates a session token and prints a one-time bootstrap URL:
+Running `trickroom` without a command starts the server and opens the project selector.
+
+The browser runtime defaults to `http://localhost:18100/`. Loopback use needs no authentication. To share it on a network, pass a non-loopback host; the CLI generates a session token and includes it in the machine-readable ready line:
 
 ```sh
-trickroom --host 0.0.0.0 /path/to/project
+trickroom serve /path/to/project --host 0.0.0.0 --no-open
 ```
 
 ## Files Trickroom Writes

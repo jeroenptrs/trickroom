@@ -20,6 +20,7 @@ Local HTTP API:
 
 - App entry: `src/server.ts`
 - Production entry: `src/server-entry.ts`
+- CLI: `bin/trickroom.js serve`
 - Prefix: `/api/trickroom`
 - Tailwind routes: `src/routes/tailwind.ts`
 
@@ -40,7 +41,7 @@ When `TRICKROOM_PROJECT_DIR` is set, startup opens that project. Otherwise the a
 
 Loopback hosts such as `localhost`, `127.0.0.1`, and `::1` remain unauthenticated unless `TRICKROOM_SESSION_TOKEN` is explicitly configured. Binding the production server or Vite development server to a non-loopback host without that variable fails at startup.
 
-`trickroom --host <host>` sets the bind host. For a non-loopback host, it preserves an explicitly configured token or generates a cryptographically random one. The printed shared URL includes `?token=...` for bootstrap.
+`trickroom serve --host <host>` sets the bind host. For a non-loopback host, it preserves an explicitly configured token or generates a cryptographically random one. Once listening, the CLI writes a structured ready record to stdout with the actual address and tokenized bootstrap URL.
 
 On the first valid `GET` or `HEAD` request containing `?token=`, the Hono app:
 

@@ -13,6 +13,11 @@ describe("configureServerOptions", () => {
 		expect(environment).toEqual({ TRICKROOM_HTTP_HOST: "127.0.0.1" });
 		expect(result).toEqual({
 			argv: ["node", "trickroom", "."],
+			host: "127.0.0.1",
+			port: 18100,
+			token: null,
+			noOpen: false,
+			silent: false,
 			generatedSessionToken: false,
 			sessionAuthEnabled: false,
 		});
@@ -32,6 +37,7 @@ describe("configureServerOptions", () => {
 		});
 		expect(result.generatedSessionToken).toBe(true);
 		expect(result.sessionAuthEnabled).toBe(true);
+		expect(result.token).toBe("generated-token");
 		expect(result.argv).toEqual(["node", "trickroom", "/project"]);
 	});
 
@@ -48,9 +54,70 @@ describe("configureServerOptions", () => {
 		expect(result.sessionAuthEnabled).toBe(true);
 	});
 
+	it("configures port, token, and browser behavior", () => {
+		const environment = {};
+		const result = configureServerOptions(
+			[
+				"node",
+				"trickroom",
+				"--port=0",
+				"--token",
+				"chosen-token",
+				"--no-open",
+				"/project",
+			],
+			environment,
+		);
+
+		expect(environment).toEqual({
+			TRICKROOM_HTTP_PORT: "0",
+			TRICKROOM_SESSION_TOKEN: "chosen-token",
+		});
+		expect(result).toMatchObject({
+			argv: ["node", "trickroom", "/project"],
+			port: 0,
+			token: "chosen-token",
+			noOpen: true,
+			silent: false,
+		});
+	});
+
+	it("makes silent mode imply no-open", () => {
+		const result = configureServerOptions(
+			["node", "trickroom", "--silent"],
+			{},
+		);
+
+		expect(result.silent).toBe(true);
+		expect(result.noOpen).toBe(true);
+	});
+
+	it.each([
+		"-1",
+		"65536",
+		"1.5",
+		"not-a-port",
+	])("rejects invalid port %s", (port) => {
+		expect(() =>
+			configureServerOptions(["node", "trickroom", "--port", port], {}),
+		).toThrow("--port must be an integer between 0 and 65535");
+	});
+
+	it("rejects unknown options", () => {
+		expect(() =>
+			configureServerOptions(["node", "trickroom", "--wat"], {}),
+		).toThrow('Unknown serve option "--wat"');
+	});
+
+	it("rejects multiple project paths", () => {
+		expect(() =>
+			configureServerOptions(["node", "trickroom", "/first", "/second"], {}),
+		).toThrow("at most one project path");
+	});
+
 	it("rejects a missing host value", () => {
 		expect(() =>
 			configureServerOptions(["node", "trickroom", "--host"], {}),
-		).toThrow("--host requires a hostname or IP address");
+		).toThrow("--host requires a value");
 	});
 });

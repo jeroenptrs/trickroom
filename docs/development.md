@@ -36,7 +36,7 @@ Production-style local CLI:
 
 ```sh
 pnpm build
-node bin/trickroom.js /path/to/project
+node bin/trickroom.js serve /path/to/project
 ```
 
 The default URL is `http://localhost:18100/`. Runtime variables are:
@@ -49,15 +49,31 @@ The default URL is `http://localhost:18100/`. Runtime variables are:
 | `TRICKROOM_PROJECT_DIR` | Initial project root. |
 | `TRICKROOM_HOME` | Per-user app-state directory. |
 
-Pass `--silent` to prevent automatic browser launch.
+Serve flags are:
+
+| Flag | Purpose |
+| --- | --- |
+| `--host <host>` | Bind to a hostname or IP address. |
+| `--port <port>` | Bind to a port; use `0` to select an available port. |
+| `--token <token>` | Enable HTTP session authentication with an explicit token. |
+| `--no-open` | Do not launch a browser; retain human status output. |
+| `--silent` | Do not launch a browser or print human status output. |
+
+After listening, the CLI writes one JSON ready record to stdout. Human status is written to stderr, so stdout remains machine-readable. The ready record includes the actual port, bootstrap URL, and session token when authentication is enabled.
+
+```json
+{"type":"trickroom:server-ready","version":1,"host":"localhost","port":18100,"url":"http://localhost:18100/?token=secret","token":"secret","authenticated":true}
+```
+
+`--silent` still emits this record because it is the automation contract.
 
 To share the server on a network:
 
 ```sh
-node bin/trickroom.js --host 0.0.0.0 /path/to/project
+node bin/trickroom.js serve /path/to/project --host 0.0.0.0 --no-open
 ```
 
-The CLI generates a token when one is not already configured and prints a bootstrap URL. Opening it once stores an HTTP-only cookie and redirects to a URL without the token. An explicit token can be supplied through `TRICKROOM_SESSION_TOKEN`.
+The CLI generates a token when one is not already configured. Opening the ready record's bootstrap URL once stores an HTTP-only cookie and redirects to a URL without the token. An explicit token can be supplied through `--token` or `TRICKROOM_SESSION_TOKEN`.
 
 Vite also rejects non-loopback development binds without `TRICKROOM_SESSION_TOKEN`:
 

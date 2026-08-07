@@ -45,8 +45,10 @@ A component definition that Trickroom knows how to render and author. The built-
 Start Trickroom with a project path:
 
 ```sh
-trickroom /path/to/project
+trickroom serve /path/to/project
 ```
+
+Run `trickroom` without a command to start the server and choose a project in the browser.
 
 In the browser app, enter a project path, open a recent project, or create Trickroom metadata in an existing folder.
 
@@ -89,7 +91,8 @@ Design editor:
 Shared server:
 
 - Local loopback use stays unauthenticated by default.
-- `trickroom --host 0.0.0.0 /path/to/project` generates and prints a tokenized bootstrap URL.
+- `trickroom serve /path/to/project --host 0.0.0.0` generates a token and prints a machine-readable ready line containing the tokenized bootstrap URL.
+- `--no-open` prevents browser launch while retaining human status output; `--silent` also suppresses human status output.
 - Opening the bootstrap URL once stores an HTTP-only cookie and redirects to the clean URL.
 
 ## Typical Workflow
