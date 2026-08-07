@@ -1,4 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
+import type { DesignFileRevision } from "../services/design-file-service.types";
 import type { TrickroomDesign, TrickroomDesignSummary } from "../types";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
@@ -14,10 +15,28 @@ export const designFileQueryKey = (
 	projectScope?: ProjectQueryScope,
 ) => withProjectQueryScope(["trickroom-design", file], projectScope);
 
+export type DesignFileSnapshot = {
+	design: TrickroomDesign;
+	revision: DesignFileRevision;
+};
+
+const revisionHeaderName = "x-trickroom-revision";
+const expectedRevisionHeaderName = "x-trickroom-expected-revision";
+
+const readDesignSnapshot = async (response: Response) => {
+	const design = await readJsonOrThrow<TrickroomDesign>(response);
+	const revision = response.headers.get(revisionHeaderName);
+	if (!revision?.startsWith("sha256:")) {
+		throw new Error("Design response did not include a valid revision");
+	}
+
+	return { design, revision: revision as DesignFileRevision };
+};
+
 const fetchDesignFile = async (file: string) => {
 	const query = new URLSearchParams({ file });
 	const response = await fetch(`/api/trickroom/design?${query.toString()}`);
-	return readJsonOrThrow<TrickroomDesign>(response);
+	return readDesignSnapshot(response);
 };
 
 const fetchDesignSummaries = async () => {
@@ -27,26 +46,37 @@ const fetchDesignSummaries = async () => {
 
 const saveQueues = new Map<string, Promise<unknown>>();
 
-const putDesignFile = async (file: string, design: TrickroomDesign) => {
+const putDesignFile = async (
+	file: string,
+	design: TrickroomDesign,
+	expectedRevision?: DesignFileRevision | null,
+) => {
 	const query = new URLSearchParams({ file });
 	const response = await fetch(`/api/trickroom/design?${query.toString()}`, {
 		method: "PUT",
 		headers: {
 			"Content-Type": "application/json",
+			...(expectedRevision
+				? { [expectedRevisionHeaderName]: expectedRevision }
+				: {}),
 		},
 		body: JSON.stringify(design),
 	});
 
-	return readJsonOrThrow<TrickroomDesign>(response);
+	return readDesignSnapshot(response);
 };
 
-export const saveDesignFile = (file: string, design: TrickroomDesign) => {
+export const saveDesignFile = (
+	file: string,
+	design: TrickroomDesign,
+	expectedRevision?: DesignFileRevision | null,
+) => {
 	const previousSave = saveQueues.get(file);
 	const queuedSave = previousSave
 		? previousSave
 				.catch(() => undefined)
-				.then(() => putDesignFile(file, design))
-		: putDesignFile(file, design);
+				.then(() => putDesignFile(file, design, expectedRevision))
+		: putDesignFile(file, design, expectedRevision);
 
 	saveQueues.set(file, queuedSave);
 	queuedSave.then(
@@ -66,8 +96,8 @@ export const saveDesignFile = (file: string, design: TrickroomDesign) => {
 };
 
 export const renameDesignFile = async (file: string, name: string) => {
-	const design = await fetchDesignFile(file);
-	return saveDesignFile(file, { ...design, name });
+	const snapshot = await fetchDesignFile(file);
+	return saveDesignFile(file, { ...snapshot.design, name }, snapshot.revision);
 };
 
 export const deleteDesignFile = async (file: string) => {

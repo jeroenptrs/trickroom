@@ -30,6 +30,7 @@ import {
 	getRecipeSlotCandidateFromProps,
 	isRecipeSlotInsertionAllowed,
 } from "../recipes/slot-allowlist";
+import type { DesignFileRevision } from "../services/design-file-service.types";
 import type {
 	JsonPrimitive,
 	Node,
@@ -100,6 +101,9 @@ export type DesignStoreState = {
 	dirtyIds: Record<string, true>;
 	designDirty: boolean;
 	revision: number;
+	persistedRevision?: DesignFileRevision | null;
+	externalConflictPending?: boolean;
+	designSavePending?: boolean;
 };
 
 const emptyState: DesignStoreState = {
@@ -110,6 +114,9 @@ const emptyState: DesignStoreState = {
 	dirtyIds: {},
 	designDirty: false,
 	revision: 0,
+	persistedRevision: null,
+	externalConflictPending: false,
+	designSavePending: false,
 };
 const emptyIds: string[] = [];
 
@@ -197,6 +204,9 @@ export function normalizeDesign(design: TrickroomDesign): DesignStoreState {
 		dirtyIds: {},
 		designDirty: false,
 		revision: 0,
+		persistedRevision: null,
+		externalConflictPending: false,
+		designSavePending: false,
 	};
 }
 
@@ -437,28 +447,77 @@ const isSameSerializedDesign = (
 	design: TrickroomDesign,
 ) => JSON.stringify(serializeDesignState(state)) === JSON.stringify(design);
 
-export function hydrateDesign(design: TrickroomDesign) {
+export function hydrateDesign(
+	design: TrickroomDesign,
+	persistedRevision?: DesignFileRevision,
+) {
 	designStore.setState((state) => {
 		if (hasDirtyChanges(state)) {
 			return state;
 		}
 
 		if (isSameSerializedDesign(state, design)) {
-			return state;
+			return persistedRevision && state.persistedRevision !== persistedRevision
+				? { ...state, persistedRevision }
+				: state;
 		}
-
-		// TODO: show popup that page was reloaded because changes were detected
 
 		const nextState = normalizeDesign(design);
 		return {
 			...nextState,
 			revision: state.revision + 1,
+			persistedRevision: persistedRevision ?? state.persistedRevision ?? null,
+			externalConflictPending: false,
+			designSavePending: false,
 			selectedId:
 				state.selectedId && nextState.entitiesById[state.selectedId]
 					? state.selectedId
 					: null,
 		};
 	});
+}
+
+export function forceHydrateDesign(
+	design: TrickroomDesign,
+	persistedRevision: DesignFileRevision,
+) {
+	designStore.setState((state) => {
+		const nextState = normalizeDesign(design);
+		return {
+			...nextState,
+			revision: state.revision + 1,
+			persistedRevision,
+			externalConflictPending: false,
+			selectedId:
+				state.selectedId && nextState.entitiesById[state.selectedId]
+					? state.selectedId
+					: null,
+		};
+	});
+}
+
+export function setPersistedDesignRevision(revision: DesignFileRevision) {
+	designStore.setState((state) =>
+		state.persistedRevision === revision
+			? state
+			: { ...state, persistedRevision: revision },
+	);
+}
+
+export function setExternalConflictPending(pending: boolean) {
+	designStore.setState((state) =>
+		state.externalConflictPending === pending
+			? state
+			: { ...state, externalConflictPending: pending },
+	);
+}
+
+export function setDesignSavePending(pending: boolean) {
+	designStore.setState((state) =>
+		state.designSavePending === pending
+			? state
+			: { ...state, designSavePending: pending },
+	);
 }
 
 export function selectElement(id: string | null) {
@@ -1747,6 +1806,21 @@ export function useLayerTreeSnapshot() {
 
 export function useHasUnsavedChanges() {
 	return useSelector(designStore, hasDirtyChanges);
+}
+
+export function usePersistedDesignRevision() {
+	return useSelector(designStore, (state) => state.persistedRevision ?? null);
+}
+
+export function useExternalConflictPending() {
+	return useSelector(
+		designStore,
+		(state) => state.externalConflictPending ?? false,
+	);
+}
+
+export function useDesignSavePending() {
+	return useSelector(designStore, (state) => state.designSavePending ?? false);
 }
 
 export function useDesignRevision() {

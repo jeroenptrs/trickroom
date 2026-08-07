@@ -30,6 +30,7 @@ import {
 	designStore,
 	detachRecipe,
 	extractSubtreeToDesign,
+	forceHydrateDesign,
 	hydrateDesign,
 	isDesignCleanAtRevision,
 	moveElement,
@@ -683,6 +684,29 @@ describe("design store transforms", () => {
 		const state = designStore.get();
 		expect(state.name).toBe(fixture.name);
 		expect(state.entitiesById[titleId]?.props.className).toBe("text-blue-500");
+	});
+
+	it("tracks the persisted content revision on clean hydration", () => {
+		const persistedRevision = `sha256:${"a".repeat(64)}` as const;
+		hydrateDesign(fixture, persistedRevision);
+
+		expect(designStore.get().persistedRevision).toBe(persistedRevision);
+	});
+
+	it("force reloads a disk snapshot and clears dirty state", () => {
+		const persistedRevision = `sha256:${"b".repeat(64)}` as const;
+		updateElementProps(titleId, { className: "text-blue-500" });
+
+		forceHydrateDesign(
+			{ ...fixture, name: "Changed by agent" },
+			persistedRevision,
+		);
+
+		const state = designStore.get();
+		expect(state.name).toBe("Changed by agent");
+		expect(state.dirtyIds).toEqual({});
+		expect(state.designDirty).toBe(false);
+		expect(state.persistedRevision).toBe(persistedRevision);
 	});
 
 	it("does not reset selection when hydrating the same serialized design", () => {

@@ -1,5 +1,6 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useQuery } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
 import {
 	memo,
 	type RefObject,
@@ -22,28 +23,36 @@ import { useResponsiveStageFrame } from "../hooks/useResponsiveStageFrame";
 import { useStageNavigation } from "../hooks/useStageNavigation";
 import stageDocRaw from "../iframe/shell.html?raw";
 import {
+	getStagePreviewContainerClassName,
+	StagePreviewDarkModeProvider,
+	useStagePreviewDarkMode,
+} from "../preview/stage-preview-dark-mode";
+import {
+	type DesignFileSnapshot,
 	designFileQueryOptions,
 	getDesignFileForUuid,
 } from "../queries/design-file";
 import {
 	designStore,
+	forceHydrateDesign,
 	hydrateDesign,
 	selectElement,
+	setExternalConflictPending,
+	setPersistedDesignRevision,
 	useDesignRoots,
+	useDesignSavePending,
 	useDesignSystemId,
+	useHasUnsavedChanges,
+	usePersistedDesignRevision,
 	useSelectedId,
 } from "../stores/design-store";
 import { markDesignOpened } from "../utils/design-activity";
+import { getDesignSyncDecision } from "../utils/design-live-sync";
 import {
 	getResponsiveStageSessionStorageKey,
 	readResponsiveStageSessionWidth,
 	writeResponsiveStageSessionWidth,
 } from "../utils/responsive-stage-session";
-import {
-	getStagePreviewContainerClassName,
-	StagePreviewDarkModeProvider,
-	useStagePreviewDarkMode,
-} from "../preview/stage-preview-dark-mode";
 import { resolveStageDoc } from "../utils/tailwind-render-mode";
 import { EditorShell } from "./chrome/EditorShell";
 import { IFrameViewContext, useProjectScope } from "./contexts";
@@ -57,6 +66,7 @@ import {
 import { ResponsiveStageFrameWrapper } from "./responsive-stage-frame";
 import { Artboards } from "./stage/Artboards";
 import { Canvas } from "./stage/Canvas";
+import { ConfirmationDialog } from "./ui/alert-dialog";
 
 const stageDoc = resolveStageDoc(stageDocRaw);
 
@@ -117,6 +127,8 @@ export function Design() {
 	const [didMount, setDidMount] = useState(false);
 	const [stageMode, setStageMode] = useState<ResponsiveStageMode>("canvas");
 	const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
+	const [externalSnapshot, setExternalSnapshot] =
+		useState<DesignFileSnapshot | null>(null);
 	const [responsiveWidth, setResponsiveWidth] = useState(() =>
 		readResponsiveStageSessionWidth(projectScope, designFile),
 	);
@@ -146,7 +158,10 @@ export function Design() {
 		...designFileQueryOptions(designFile ?? "", projectScope),
 		enabled: designFile !== null,
 	});
-	const design = designQuery.data;
+	const designSnapshot = designQuery.data;
+	const hasUnsavedChanges = useHasUnsavedChanges();
+	const persistedRevision = usePersistedDesignRevision();
+	const designSavePending = useDesignSavePending();
 
 	useEffect(() => {
 		if (uuid && designQuery.isSuccess) {
@@ -180,11 +195,55 @@ export function Design() {
 	}, [designFile, projectScope, responsiveSessionKey, responsiveWidth]);
 
 	useEffect(() => {
-		if (design) {
-			hydrateDesign(design);
-			setActiveBoardId(design.boards[0]?.id ?? null);
+		if (!designSnapshot) {
+			return;
 		}
-	}, [design]);
+		const decision = getDesignSyncDecision({
+			snapshotRevision: designSnapshot.revision,
+			persistedRevision,
+			hasUnsavedChanges,
+			savePending: designSavePending,
+		});
+		if (decision === "ignore") return;
+
+		if (decision === "conflict") {
+			setExternalSnapshot(designSnapshot);
+			setExternalConflictPending(true);
+			return;
+		}
+
+		hydrateDesign(designSnapshot.design, designSnapshot.revision);
+		setActiveBoardId(designSnapshot.design.boards[0]?.id ?? null);
+	}, [designSavePending, designSnapshot, hasUnsavedChanges, persistedRevision]);
+
+	useEffect(() => {
+		if (
+			externalSnapshot &&
+			!hasUnsavedChanges &&
+			externalSnapshot.revision === persistedRevision
+		) {
+			setExternalSnapshot(null);
+			setExternalConflictPending(false);
+		}
+	}, [externalSnapshot, hasUnsavedChanges, persistedRevision]);
+
+	const reloadExternalDesign = useCallback(() => {
+		if (!externalSnapshot) {
+			return;
+		}
+		forceHydrateDesign(externalSnapshot.design, externalSnapshot.revision);
+		setActiveBoardId(externalSnapshot.design.boards[0]?.id ?? null);
+		setExternalSnapshot(null);
+	}, [externalSnapshot]);
+
+	const keepLocalDesign = useCallback(() => {
+		if (!externalSnapshot) {
+			return;
+		}
+		setPersistedDesignRevision(externalSnapshot.revision);
+		setExternalConflictPending(false);
+		setExternalSnapshot(null);
+	}, [externalSnapshot]);
 
 	useEffect(() => {
 		setActiveBoardId((currentBoardId) =>
@@ -286,12 +345,25 @@ export function Design() {
 	}
 
 	return (
-		<IFrameViewContext.Provider value={view}>
-			<ResponsiveStageContext.Provider value={responsiveStage}>
-				<StagePreviewDarkModeProvider key={designFile}>
-					<EditorShell designFile={designFile}>{stage}</EditorShell>
-				</StagePreviewDarkModeProvider>
-			</ResponsiveStageContext.Provider>
-		</IFrameViewContext.Provider>
+		<>
+			<IFrameViewContext.Provider value={view}>
+				<ResponsiveStageContext.Provider value={responsiveStage}>
+					<StagePreviewDarkModeProvider key={designFile}>
+						<EditorShell designFile={designFile}>{stage}</EditorShell>
+					</StagePreviewDarkModeProvider>
+				</ResponsiveStageContext.Provider>
+			</IFrameViewContext.Provider>
+			<ConfirmationDialog
+				open={externalSnapshot !== null}
+				onOpenChange={() => undefined}
+				title="Design changed on disk"
+				description="Another browser or agent changed this design while you have unsaved edits. Reload the disk version or keep your local version and save it over the newer revision."
+				icon={<RefreshCw className="size-4" aria-hidden="true" />}
+				actionLabel="Reload from disk"
+				cancelLabel="Keep mine"
+				onAction={reloadExternalDesign}
+				onCancel={keepLocalDesign}
+			/>
+		</>
 	);
 }

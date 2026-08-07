@@ -339,6 +339,51 @@ describe("server design routes", () => {
 		});
 	});
 
+	it("opens an active project event stream", async () => {
+		const app = await importTestServer();
+		const controller = new AbortController();
+		const response = await app.request("/api/trickroom/events", {
+			signal: controller.signal,
+		});
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toContain("text/event-stream");
+		const reader = response.body?.getReader();
+		expect(reader).toBeDefined();
+		const firstChunk = await reader?.read();
+		expect(new TextDecoder().decode(firstChunk?.value)).toContain(
+			"event: ready",
+		);
+
+		controller.abort();
+		await reader?.cancel();
+	});
+
+	it("streams direct design-file edits to connected clients", async () => {
+		const app = await importTestServer();
+		const controller = new AbortController();
+		const response = await app.request("/api/trickroom/events", {
+			signal: controller.signal,
+		});
+		const reader = response.body?.getReader();
+		if (!reader) throw new Error("event stream body is unavailable");
+
+		try {
+			await reader.read();
+			await new Promise((resolve) => setTimeout(resolve, 150));
+			await writeDesign("live.json", validDesign);
+			const changeChunk = await reader.read();
+			const eventText = new TextDecoder().decode(changeChunk.value);
+
+			expect(eventText).toContain("event: change");
+			expect(eventText).toContain('"file":"designs/live.json"');
+			expect(eventText).toMatch(/"revision":"sha256:[a-f0-9]{64}"/);
+		} finally {
+			controller.abort();
+			await reader.cancel();
+		}
+	});
+
 	it("reports health with an initial active project", async () => {
 		const app = await importTestServer();
 
@@ -1020,6 +1065,9 @@ describe("server design routes", () => {
 		);
 
 		expect(response.status).toBe(200);
+		expect(response.headers.get("x-trickroom-revision")).toMatch(
+			/^sha256:[a-f0-9]{64}$/,
+		);
 		expect(response.headers.get(recipeLoadRepairHeaderName)).toBeNull();
 		const body = (await response.json()) as TrickroomDesign;
 		expect(body).toEqual(design);
@@ -1176,6 +1224,41 @@ describe("server design routes", () => {
 				"utf8",
 			).then(JSON.parse),
 		).resolves.toEqual(validDesign);
+	});
+
+	it("rejects a browser save when its disk revision is stale", async () => {
+		await writeDesign("concurrent.json", validDesign);
+		const app = await importTestServer();
+		const initialResponse = await app.request(
+			"/api/trickroom/design?file=concurrent.json",
+		);
+		const initialRevision = initialResponse.headers.get("x-trickroom-revision");
+		expect(initialRevision).toMatch(/^sha256:[a-f0-9]{64}$/);
+
+		const externalDesign = {
+			...validDesign,
+			name: "Changed by another client",
+		};
+		await writeDesign("concurrent.json", externalDesign);
+		const staleSave = await app.request(
+			"/api/trickroom/design?file=concurrent.json",
+			{
+				method: "PUT",
+				headers: {
+					"content-type": "application/json",
+					"x-trickroom-expected-revision": initialRevision ?? "",
+				},
+				body: JSON.stringify({ ...validDesign, name: "Stale browser" }),
+			},
+		);
+
+		expect(staleSave.status).toBe(409);
+		await expect(staleSave.json()).resolves.toEqual({
+			error: "Design file changed since it was loaded",
+		});
+		await expect(readStoredDesign("concurrent.json")).resolves.toEqual(
+			externalDesign,
+		);
 	});
 
 	it("creates design files exclusively through POST", async () => {

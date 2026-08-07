@@ -57,7 +57,9 @@ Routes under `/api/trickroom` include runtime health and session state, project 
 
 ## Browser Editor Flow
 
-The design route reads a design through the HTTP API, hydrates `designStore`, renders boards inside an iframe, and keeps editor chrome outside it. Dirty serialized state autosaves through the API. Linked system theme CSS is injected into the iframe when applicable.
+The design route reads a design and its content-hash revision through the HTTP API, hydrates `designStore`, renders boards inside an iframe, and keeps editor chrome outside it. Dirty serialized state autosaves through revision-checked API writes. Linked system theme CSS is injected into the iframe when applicable.
+
+The server watches design JSON and system-owned files under `.trickroom` and broadcasts settled changes through `GET /api/trickroom/events`. Browser clients use that SSE stream to refresh TanStack Query data. A clean open design hot-swaps to the new disk snapshot; a dirty design pauses autosave until the user chooses the disk or local version. The same event is broadcast to every connected browser client.
 
 The iframe shell is `src/iframe/shell.html`; it loads the Tailwind browser runtime from `public/tailwind/index.global.js`.
 

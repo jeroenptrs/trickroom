@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import { toast } from "sonner";
+import { useProjectFileEvents } from "../hooks/useProjectFileEvents";
 import { useTailwindSyncController } from "../hooks/useTailwindSyncController";
 import { configFileQueryOptions } from "../queries/config-file";
 import { getProjectQueryScope } from "../queries/project-scope";
@@ -18,8 +19,8 @@ import {
 import { Design } from "./Design";
 import { HomeShell } from "./HomeShell";
 import { OpenProjectPanel } from "./OpenProjectPanel";
-import { SystemEditor } from "./SystemEditor";
 import { Project } from "./Project";
+import { SystemEditor } from "./SystemEditor";
 import {
 	getSystemAttentionSummary,
 	getSystemAttentionToastIds,
@@ -51,6 +52,7 @@ export function Root() {
 	});
 	const projectDataReady =
 		hasActiveProject && configQuery.isSuccess && systemsQuery.isSuccess;
+	useProjectFileEvents(activeProjectScope, projectDataReady);
 	const projectSystems = projectDataReady ? systemsQuery.data.systems : [];
 	const syncController = useTailwindSyncController(
 		projectSystems,

@@ -65,5 +65,8 @@
 	],
 	"bin": {
 		"trickroom": "./bin/trickroom.js"
+	},
+	"dependencies": {
+		"chokidar": "^5.0.0"
 	}
 }

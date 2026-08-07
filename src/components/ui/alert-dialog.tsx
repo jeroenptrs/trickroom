@@ -150,6 +150,7 @@ function ConfirmationDialog({
 	actionType = "button",
 	actionForm,
 	onAction,
+	onCancel,
 	children,
 }: {
 	open: boolean;
@@ -165,6 +166,7 @@ function ConfirmationDialog({
 	actionType?: ComponentProps<"button">["type"];
 	actionForm?: string;
 	onAction?: ComponentProps<"button">["onClick"];
+	onCancel?: ComponentProps<"button">["onClick"];
 	children?: ReactNode;
 }) {
 	return (
@@ -178,10 +180,7 @@ function ConfirmationDialog({
 					>
 						<div className={confirmationHeader()}>
 							<div className={confirmationTitleGroup()}>
-								<span
-									className={confirmationIcon({ tone })}
-									aria-hidden="true"
-								>
+								<span className={confirmationIcon({ tone })} aria-hidden="true">
 									{icon}
 								</span>
 								<AlertDialogTitle className="p-0 text-sm font-medium text-slate-900">
@@ -208,6 +207,7 @@ function ConfirmationDialog({
 										type="button"
 										variant="block"
 										className={confirmationCancelButton()}
+										onClick={onCancel}
 									/>
 								}
 							>

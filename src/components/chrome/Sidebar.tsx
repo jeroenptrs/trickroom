@@ -1,29 +1,33 @@
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import {
 	RiArrowLeftLine as ArrowLeft,
 	RiFileCheckLine as FileCheck,
 	RiFileReduceLine as FileReduce,
 	RiFileUploadLine as FileUpload,
 } from "@remixicon/react";
-import { Button as ButtonPrimitive } from "@base-ui/react/button";
-import { useMutation } from "@tanstack/react-query";
 import { useHotkey } from "@tanstack/react-hotkeys";
+import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { saveDesignFile } from "../../queries/design-file";
+import type { DesignFileRevision } from "../../services/design-file-service.types";
 import {
 	clearDirty,
 	serializeDesign,
 	setDesignName,
+	setDesignSavePending,
+	setPersistedDesignRevision,
 	useDesignName,
 	useDesignRevision,
+	useExternalConflictPending,
 	useHasUnsavedChanges,
+	usePersistedDesignRevision,
 } from "../../stores/design-store";
 import type { TrickroomDesign } from "../../types";
 import { useIFrameView } from "../contexts";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Separator } from "../ui/separator";
-import { Text } from "../ui/text";
 import { Layers } from "./Layers";
 import { Properties } from "./Properties";
 
@@ -32,6 +36,7 @@ const AUTOSAVE_DELAY_MS = 1000;
 type SaveRequest = {
 	design: TrickroomDesign;
 	revision: number;
+	persistedRevision: DesignFileRevision | null;
 };
 
 type SaveControlProps = {
@@ -54,26 +59,38 @@ function Zoom() {
 
 function SaveControl({ designFile }: SaveControlProps) {
 	const hasUnsavedChanges = useHasUnsavedChanges();
+	const conflictPending = useExternalConflictPending();
+	const persistedRevision = usePersistedDesignRevision();
 	const revision = useDesignRevision();
 	const saveMutation = useMutation({
-		mutationFn: ({ design }: SaveRequest) => saveDesignFile(designFile, design),
-		onSuccess: (_savedDesign, request) => {
+		mutationFn: ({ design, persistedRevision }: SaveRequest) =>
+			saveDesignFile(designFile, design, persistedRevision),
+		onSuccess: (saved, request) => {
+			setPersistedDesignRevision(saved.revision);
 			clearDirty(request.revision);
 		},
+		onSettled: () => setDesignSavePending(false),
 	});
 	const saveCurrentDesign = useCallback(() => {
-		if (saveMutation.isPending) {
+		if (saveMutation.isPending || conflictPending) {
 			return;
 		}
 
+		setDesignSavePending(true);
 		saveMutation.mutate({
 			design: serializeDesign(),
 			revision,
+			persistedRevision,
 		});
-	}, [revision, saveMutation]);
+	}, [conflictPending, persistedRevision, revision, saveMutation]);
 
 	useEffect(() => {
-		if (!hasUnsavedChanges || saveMutation.isPending || saveMutation.isError) {
+		if (
+			!hasUnsavedChanges ||
+			conflictPending ||
+			saveMutation.isPending ||
+			saveMutation.isError
+		) {
 			return;
 		}
 
@@ -81,6 +98,7 @@ function SaveControl({ designFile }: SaveControlProps) {
 		return () => window.clearTimeout(timeout);
 	}, [
 		hasUnsavedChanges,
+		conflictPending,
 		saveCurrentDesign,
 		saveMutation.isError,
 		saveMutation.isPending,
@@ -103,7 +121,7 @@ function SaveControl({ designFile }: SaveControlProps) {
 			className="py-1"
 			title="Unsaved changes"
 			onClick={saveCurrentDesign}
-			disabled={!hasUnsavedChanges || saveMutation.isPending}
+			disabled={!hasUnsavedChanges || conflictPending || saveMutation.isPending}
 		>
 			<FileReduce className="fill-gray-900 size-4" />
 		</Button>
@@ -140,7 +158,10 @@ function DesignTitle() {
 		setIsRenaming(false);
 	};
 
-	useHotkey("Enter", confirmRename, { enabled: isRenaming, ignoreInputs: false });
+	useHotkey("Enter", confirmRename, {
+		enabled: isRenaming,
+		ignoreInputs: false,
+	});
 	useHotkey("Escape", cancelRename, { enabled: isRenaming });
 
 	if (isRenaming) {
@@ -150,7 +171,9 @@ function DesignTitle() {
 				className="flex-1 min-w-0"
 				value={draftName}
 				onChange={(e) => setDraftName(e.target.value)}
-				onBlur={() => { if (!cancelledRef.current) confirmRename(); }}
+				onBlur={() => {
+					if (!cancelledRef.current) confirmRename();
+				}}
 				onFocus={(e) => (e.target as HTMLInputElement).select()}
 				autoFocus
 			/>

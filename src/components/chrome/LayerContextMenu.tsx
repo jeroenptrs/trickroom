@@ -18,6 +18,7 @@ import {
 	detachRecipe,
 	isDesignCleanAtRevision,
 	serializeDesign,
+	setPersistedDesignRevision,
 	updateRecipeInstance,
 } from "../../stores/design-store";
 import { useProjectScope } from "../contexts";
@@ -102,15 +103,20 @@ function LayerContextMenu({
 			const sourceDesign = serializeDesign();
 
 			if (!isDesignCleanAtRevision(revision)) {
-				await saveDesignFile(designFile, sourceDesign);
+				const saved = await saveDesignFile(
+					designFile,
+					sourceDesign,
+					designStore.get().persistedRevision,
+				);
+				setPersistedDesignRevision(saved.revision);
 				clearDirty(revision);
 				queryClient.setQueryData(
 					designFileQueryKey(designFile, projectScope),
-					sourceDesign,
+					saved,
 				);
 			}
 
-			const extractedDesign = await extractDesignSubtreeToFile({
+			await extractDesignSubtreeToFile({
 				sourceFile: designFile,
 				targetFile,
 				elementId: id,
@@ -118,21 +124,18 @@ function LayerContextMenu({
 			});
 			return {
 				designUuid,
-				extractedDesign,
 				revision,
 				targetFile,
 			};
 		},
 		onSuccess: async ({
 			designUuid,
-			extractedDesign,
 			revision: extractRevision,
 			targetFile,
 		}) => {
-			queryClient.setQueryData(
-				designFileQueryKey(targetFile, projectScope),
-				extractedDesign,
-			);
+			queryClient.removeQueries({
+				queryKey: designFileQueryKey(targetFile, projectScope),
+			});
 			await queryClient.invalidateQueries({
 				queryKey: designSummariesQueryKey,
 			});

@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import type { ServerResponse, IncomingMessage } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 /**
  * Converts a Node.js IncomingMessage to a Web API Request object.
@@ -35,7 +35,9 @@ export const createRequestFromIncoming = async (
 	for (const [key, value] of Object.entries(req.headers)) {
 		if (value !== undefined) {
 			if (Array.isArray(value)) {
-				value.forEach((val) => headers.append(key, val));
+				value.forEach((val) => {
+					headers.append(key, val);
+				});
 			} else {
 				headers.append(key, value);
 			}
@@ -97,8 +99,23 @@ export const sendStream = async (
 	});
 	res.writeHead(resWeb.status, headers);
 	if (resWeb.body) {
-		for await (const chunk of resWeb.body as any) res.write(chunk);
+		const reader = resWeb.body.getReader();
+		const cancel = () => {
+			void reader.cancel();
+		};
+		res.once("close", cancel);
+		try {
+			while (!res.destroyed) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				res.write(value);
+			}
+		} finally {
+			res.off("close", cancel);
+			reader.releaseLock();
+		}
 	}
-	res.end();
+	if (!res.destroyed) {
+		res.end();
+	}
 };
-
