@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { type RefObject, useEffect } from "react";
 import { useProjectScope } from "../components/contexts";
 import {
-	systemFontsQueryOptions,
 	type SystemFontsResponse,
+	systemFontsQueryOptions,
 } from "../queries/system-fonts";
 import {
 	buildSystemFontInjectionPlan,
@@ -176,4 +176,6 @@ export function useInjectSystemFonts(
 		fontsQuery.data,
 		fontsQuery.isFetched,
 	]);
+
+	return didMount && (!enabled || fontsQuery.isFetched);
 }

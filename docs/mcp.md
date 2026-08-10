@@ -88,7 +88,7 @@ Policy effects:
 - Read tools enforce `allowedDesignFileIds`.
 - Creation and mutation tools enforce `mode`, `allowedDesignFileIds`, and component permissions.
 - Registry discovery filters or denies components based on `allowedComponents`.
-- Creation and mutation attempts append `.trickroom/audit-log.jsonl` when `auditLog` is true.
+- Creation, mutation, and screenshot attempts append `.trickroom/audit-log.jsonl` when `auditLog` is true.
 
 ## What Agents Can Ask MCP To Do
 
@@ -111,6 +111,8 @@ Design inspection:
 - Read a subtree with optional depth.
 - Validate a design file.
 - Dry-run one mutation without writing.
+- Capture a board or individual node as a PNG image block with light/dark theme and viewport presets.
+- Optionally persist a captured PNG to an explicit path when read-write policy allows it.
 
 Registry and authoring:
 
@@ -210,6 +212,15 @@ Read-only tools:
 | `getMemoryNote` | Read one memory note by id from a system, design, or project scope. Optional `resolveReferences: true` attaches reference resolution for the note body (including `deepLink` for valid targets). |
 | `listReferenceTargets` | List candidate `{{type:id}}` reference targets for memory note intellisense in the current scope. |
 
+Visual capture tools:
+
+| Tool | Behavior | Governance |
+| --- | --- | --- |
+| `screenshotBoard` | Renders one root board and returns PNG metadata plus an MCP image content block. Supports `mobile`, `tablet`, `desktop`, or explicit viewports and light/dark theme. | Always checks design read access. Inline capture works in read-only mode; `outputPath` requires read-write mode. |
+| `screenshotNode` | Infers the containing board, renders it, and crops the PNG to one persistent node ID. | Same policy as `screenshotBoard`. |
+
+Both tools require the optional `playwright-core` peer dependency and a locatable Chrome/Chromium. Install Chromium with `npx playwright-core install chromium`, set `TRICKROOM_CHROME_PATH`, or pass `executablePath`. Screenshot attempts are appended to the MCP audit log when auditing is enabled; PNG bytes are never written to the log.
+
 Project/session writes:
 
 | Tool | Writes | Notes |
@@ -269,7 +280,7 @@ Design-file writes:
 
 Existing design-file writes require `expectedRevision`. `createDesignFile` and `extractSubtree` have no prior revision on the file they create; they use exclusive create semantics and fail if the chosen UUID already exists. Cross-file `copySubtree` also requires `sourceExpectedRevision` on the source design. System component manifest writes require the `revision` returned by `listSystemComponents` or `describeSystemComponent`.
 
-MCP annotations mark `renameDesignFile`, `updateElementProps`, `updateRecipeControl`, `updateRecipeInstance`, `detachRecipeInstance`, `detachSystemComponent`, `updateElementText`, `moveElement`, `deleteElement`, and `deleteMemoryNote` as destructive write tools. `addMemoryNote` and `updateMemoryNote` are write tools but are annotated as non-destructive. `createDesignFile`, `extractSubtree`, `addElement`, `addRecipe`, `addSystemComponent`, `updateSystemComponentInstance`, `migrateSystemComponentInstance`, `bulkMigrateSystemComponentUsages`, `addSubtree`, and `copySubtree` are write tools but are annotated as non-destructive. `registerProject`, `selectProject`, and `openProject` are project/session-state writes and do not mutate design files. System resource write tools mutate design-system manifests under `.trickroom/systems/`, not design JSON files.
+MCP annotations mark `renameDesignFile`, `updateElementProps`, `updateRecipeControl`, `updateRecipeInstance`, `detachRecipeInstance`, `detachSystemComponent`, `updateElementText`, `moveElement`, `deleteElement`, and `deleteMemoryNote` as destructive write tools. `addMemoryNote` and `updateMemoryNote` are write tools but are annotated as non-destructive. `createDesignFile`, `extractSubtree`, `addElement`, `addRecipe`, `addSystemComponent`, `updateSystemComponentInstance`, `migrateSystemComponentInstance`, `bulkMigrateSystemComponentUsages`, `addSubtree`, and `copySubtree` are write tools but are annotated as non-destructive. `screenshotBoard` and `screenshotNode` are non-destructive, open-world tools because they may load remote font stylesheets and may optionally write an explicit output path. `registerProject`, `selectProject`, and `openProject` are project/session-state writes and do not mutate design files. System resource write tools mutate design-system manifests under `.trickroom/systems/`, not design JSON files.
 
 ## Revision Workflow
 
@@ -578,8 +589,8 @@ The MCP server exposes guided workflow prompts. Each prompt returns a user-messa
 | `edit_design_file` | Safe edits: project scope, revision, authoring contract, graph reads, recipes/subtrees, resource catalogs, dry-runs, revision chaining, validation. |
 | `add_component_to_design` | Add registry content via `addElement`, `addRecipe`, `addSubtree`, or `copySubtree` with contract and parent-role checks. |
 | `refactor_design_structure` | Graph-first multi-step refactors using move/delete/copy/extract/recipe tools; prefers `validateOperationPlan` + `applyDesignOperations` for atomic commits. |
-| `explain_design_file` | Read-only technical summary: graph, contract, registry/recipes, assets/icons, tokens, diagnostics; no rendered preview or raw bytes. |
-| `validate_design_changes` | Post-edit validation grouped by diagnostic category; dry-run fixes; no visual-readiness claims from MCP alone. |
+| `explain_design_file` | Read-only technical summary: graph, contract, registry/recipes, assets/icons, tokens, diagnostics, and screenshot-based visual review. Raw catalog resource bytes remain unavailable. |
+| `validate_design_changes` | Post-edit validation grouped by diagnostic category, dry-run fixes, and screenshot review of relevant changed regions. |
 | `create_design_file_from_brief` | Create a design from a brief using `createDesignFile`, structured inserts, and final validation. |
 | `add_media_or_icon` | Resolve design system catalogs, register assets/icons when needed, wire canonical resource IDs into elements. |
 | `reuse_design_subtree` | Copy or extract subtrees with `validateCopySubtree`, `copySubtree`, or `extractSubtree`. |

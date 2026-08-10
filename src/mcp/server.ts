@@ -49,6 +49,8 @@ import {
 	type RecipeInstanceValidationReport,
 	validateRecipeInstances,
 } from "../recipes/validation";
+import { CaptureHostManager } from "../screenshot/capture-host";
+import type { ScreenshotRequest, ScreenshotResult } from "../screenshot/types";
 import { migrateTrickroomDesign } from "../server-utils";
 import {
 	createDesignFileService,
@@ -234,11 +236,16 @@ export type TrickroomMcpServerContext = TrickroomProjectContext & {
 export type TrickroomMcpServerOptions = {
 	trickroomHome?: string;
 	projectResolver?: TrickroomMcpProjectResolver;
+	screenshotCapture?: (
+		context: TrickroomMcpServerContext,
+		request: ScreenshotRequest,
+	) => Promise<ScreenshotResult>;
 };
 
 export type TrickroomMcpServer = McpServer & {
 	getActiveContextSnapshot: () => TrickroomMcpServerContext | null;
 	stopMcpToolGroupControls?: () => void;
+	stopScreenshotHosts?: () => Promise<void>;
 };
 
 const readOnlyClosedWorldAnnotations = {
@@ -249,6 +256,13 @@ const readOnlyClosedWorldAnnotations = {
 const mutationAnnotations = {
 	readOnlyHint: false,
 	openWorldHint: false,
+	idempotentHint: false,
+	destructiveHint: false,
+} as const;
+
+const screenshotAnnotations = {
+	readOnlyHint: false,
+	openWorldHint: true,
 	idempotentHint: false,
 	destructiveHint: false,
 } as const;
@@ -4491,6 +4505,38 @@ export const createTrickroomMcpServer = (
 					}
 				: null,
 		});
+	const captureHosts = new CaptureHostManager();
+	const screenshotCapture =
+		options.screenshotCapture ??
+		(async (
+			context: TrickroomMcpServerContext,
+			request: ScreenshotRequest,
+		): Promise<ScreenshotResult> => {
+			const host = await captureHosts.get(context.projectRoot);
+			const response = await fetch(
+				new URL("api/trickroom/screenshot", host.url),
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(request),
+				},
+			);
+			const payload = (await response.json().catch(() => null)) as
+				| (ScreenshotResult & { error?: never; code?: never })
+				| { error?: string; code?: string }
+				| null;
+			if (!response.ok || !payload || "error" in payload) {
+				const error = new Error(
+					payload && "error" in payload && payload.error
+						? payload.error
+						: `Screenshot request failed with HTTP ${response.status}.`,
+				) as Error & { code?: string };
+				if (payload && "code" in payload && payload.code)
+					error.code = payload.code;
+				throw error;
+			}
+			return payload as ScreenshotResult;
+		});
 
 	const notifyResourceListChanged = async () => {
 		try {
@@ -4935,7 +4981,8 @@ Discovery Steps (Read-Only):
 5. **Assets & Icons**: Call 'getDesignSystemForDesignFile', then 'listSystemAssets', 'listSystemIcons', and 'findAssetUsage' / 'findIconUsage' when resource references matter.
 6. **Tokens**: Call 'listDesignTokens' and summarize token domains (not only color) available to the linked design system.
 7. **Validation & Diagnostics**: Call 'validateDesignFile' and report structural, registry, recipe, token, asset, and icon issues separately—including stale attached recipes or missing resources.
-8. **Synthesis**: Explain the design's purpose, expansion points, and broken references. Explicitly note that MCP does not return rendered previews or raw image/SVG bytes; visual review requires the Trickroom app or another preview path outside MCP.`,
+8. **Visual Review**: Call 'screenshotBoard' for relevant boards or 'screenshotNode' for focused regions, inspect the returned PNG image blocks, and distinguish visual observations from structural diagnostics.
+9. **Synthesis**: Explain the design's purpose, expansion points, broken references, and any visual findings. Raw catalog asset/image/SVG bytes are still not returned by resource discovery tools.`,
 					},
 				},
 			],
@@ -4966,7 +5013,8 @@ Workflow:
    - Pass the current revision as 'expectedRevision' to mutation tools and chain 'newRevision' across multiple fixes.
    - If a fix returns 'REVISION_MISMATCH', re-read metadata and retry with the new revision.
 6. **Final State Sync**: Call 'validateDesignFile' again after fixes, then confirm affected areas with scoped reads.
-7. **Final Report**: Confirm technical soundness from MCP diagnostics only. Do not claim visual or layout readiness unless a separate visual preview was inspected outside MCP.`,
+7. **Visual Review**: Call 'screenshotBoard' or 'screenshotNode' for the changed regions and inspect the returned PNG image blocks.
+8. **Final Report**: Separate structural diagnostics from visual observations and only claim visual or layout readiness for regions actually inspected.`,
 					},
 				},
 			],
@@ -5012,7 +5060,7 @@ Workflow:
 5. **Build with Structure**: Create boards at the design root by passing 'parentId: null'; never wrap them in a shared top-level layer. Prefer 'addRecipe' and 'addSubtree' over many piecemeal 'addElement' calls. Use 'listRegistryRecipes' and describe tools to pick appropriate recipes.
 6. **Dry-Run Inserts**: Call 'validateSubtree' (or 'validateOperation' for single inserts) before committing larger structures.
 7. **Execute with Revision Chaining**: Use 'expectedRevision' from creation (or the latest 'newRevision') for each write.
-8. **Validate & Report**: Call 'validateDesignFile' on the finished design. Note that MCP does not return rendered previews; mention this limitation in the final summary.`,
+8. **Validate & Review**: Call 'validateDesignFile' on the finished design, then call 'screenshotBoard' for each relevant board and inspect the returned PNG image blocks before reporting visual readiness.`,
 					},
 				},
 			],
@@ -5470,6 +5518,177 @@ Workflow:
 					throw error;
 				}
 			}),
+	);
+
+	const screenshotViewportSchema = z
+		.union([
+			z.enum(["mobile", "tablet", "desktop"]),
+			z.object({
+				width: z.number().int().min(1).max(3840),
+				height: z.number().int().min(1).max(2160),
+			}),
+		])
+		.optional()
+		.describe(
+			"Viewport preset or explicit CSS-pixel dimensions. Defaults to desktop (1440x900).",
+		);
+	const screenshotCommonInput = {
+		designFileId: z.string().uuid().describe("Design file UUID."),
+		viewport: screenshotViewportSchema,
+		theme: z.enum(["light", "dark"]).optional().describe("Defaults to light."),
+		outputPath: z
+			.string()
+			.min(1)
+			.optional()
+			.describe(
+				"Optional .png path. Relative paths resolve inside the project; absolute paths are explicit.",
+			),
+		executablePath: z
+			.string()
+			.min(1)
+			.optional()
+			.describe(
+				"Optional explicit Chrome/Chromium executable. TRICKROOM_CHROME_PATH is used otherwise.",
+			),
+	} as const;
+
+	const runScreenshotTool = async (
+		context: TrickroomMcpServerContext,
+		toolName: "screenshotBoard" | "screenshotNode",
+		request: ScreenshotRequest,
+	): Promise<CallToolResult> => {
+		const auditBase = {
+			toolName,
+			operation: toolName,
+			designFileId: request.designFileId,
+			details: {
+				boardId: request.boardId ?? null,
+				nodeId: request.nodeId ?? null,
+				viewport: request.viewport ?? "desktop",
+				theme: request.theme ?? "light",
+				outputPath: request.outputPath ?? null,
+			},
+		} satisfies Omit<McpAuditEntry, "success" | "status" | "projectRoot">;
+		let result: CallToolResult;
+		try {
+			const policy = getMcpPolicy(context.config);
+			assertCanReadDesignFile(policy, request.designFileId);
+			if (request.outputPath) assertCanWriteProject(policy);
+			const read = await readDesignFileForTool(context, request.designFileId);
+			if (request.boardId) {
+				const board = read.design.boards.find(
+					(candidate) => candidate.id === request.boardId,
+				);
+				if (!board) {
+					result = createToolErrorResult(
+						context,
+						"BOARD_NOT_FOUND",
+						`Board "${request.boardId}" was not found in design "${request.designFileId}".`,
+						{ availableBoardIds: read.design.boards.map((item) => item.id) },
+					);
+					await auditToolResult(context, auditBase, result);
+					return result;
+				}
+			}
+			if (request.nodeId) {
+				const element = findElementContext(read.design, request.nodeId);
+				const containingBoard = read.design.boards.find((board) =>
+					findElementContext(
+						{ ...read.design, boards: [board] },
+						request.nodeId ?? "",
+					),
+				);
+				if (!element || !containingBoard) {
+					result = createToolErrorResult(
+						context,
+						"NODE_NOT_FOUND",
+						`Node "${request.nodeId}" was not found in design "${request.designFileId}".`,
+					);
+					await auditToolResult(context, auditBase, result);
+					return result;
+				}
+				request.boardId = containingBoard.id;
+			}
+
+			const captured = await screenshotCapture(context, request);
+			const { base64, ...metadata } = captured;
+			const payload = {
+				status: "success",
+				project: getProjectReference(context),
+				designFile: getDesignMetadata(request.designFileId, read),
+				...metadata,
+			};
+			result = {
+				content: [
+					{ type: "text", text: JSON.stringify(payload, null, 2) },
+					{ type: "image", mimeType: "image/png", data: base64 },
+				],
+				structuredContent: payload,
+			};
+		} catch (error) {
+			if (error instanceof McpPolicyError) {
+				result = createPolicyDeniedResult(context, error);
+			} else if (error instanceof DesignFileServiceError) {
+				result = createToolErrorResult(context, error.code, error.message);
+			} else {
+				const code =
+					typeof error === "object" &&
+					error !== null &&
+					"code" in error &&
+					typeof error.code === "string"
+						? error.code
+						: "SCREENSHOT_FAILED";
+				result = createToolErrorResult(
+					context,
+					code,
+					error instanceof Error ? error.message : String(error),
+				);
+			}
+		}
+		await auditToolResult(context, auditBase, result);
+		return result;
+	};
+
+	server.registerTool(
+		"screenshotBoard",
+		{
+			title: "Screenshot Board",
+			description:
+				"Render one board through Trickroom's capture route and return a PNG image. Requires the optional playwright-core peer and a locatable Chrome/Chromium. Supplying outputPath also writes the PNG to disk.",
+			inputSchema: withProjectScopedInput({
+				...screenshotCommonInput,
+				boardId: z.string().min(1).describe("Root board element ID."),
+			}),
+			annotations: screenshotAnnotations,
+		},
+		async ({ project, boardId, ...input }) =>
+			withProjectContext(project, (context) =>
+				runScreenshotTool(context, "screenshotBoard", {
+					...input,
+					boardId,
+				}),
+			),
+	);
+
+	server.registerTool(
+		"screenshotNode",
+		{
+			title: "Screenshot Node",
+			description:
+				"Render and crop one design node through Trickroom's capture route, inferring its containing board, and return a PNG image. Requires the optional playwright-core peer and a locatable Chrome/Chromium. Supplying outputPath also writes the PNG to disk.",
+			inputSchema: withProjectScopedInput({
+				...screenshotCommonInput,
+				nodeId: z.string().min(1).describe("Persistent design node ID."),
+			}),
+			annotations: screenshotAnnotations,
+		},
+		async ({ project, nodeId, ...input }) =>
+			withProjectContext(project, (context) =>
+				runScreenshotTool(context, "screenshotNode", {
+					...input,
+					nodeId,
+				}),
+			),
 	);
 
 	server.registerTool(
@@ -10058,6 +10277,7 @@ Workflow:
 			server,
 		});
 	}
+	server.stopScreenshotHosts = () => captureHosts.close();
 
 	return server;
 };

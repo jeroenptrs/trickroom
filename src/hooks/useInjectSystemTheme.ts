@@ -108,5 +108,14 @@ export function useInjectSystemTheme(
 		logSystemFontTokens(normalized, stored.domains.font?.tokens);
 
 		upsertManagedThemeStyle(iframeDoc, css);
-	}, [iframeRef, didMount, enabled, tokensQuery.data, tokensQuery.isFetched]);
+	}, [
+		iframeRef,
+		didMount,
+		enabled,
+		normalized,
+		tokensQuery.data,
+		tokensQuery.isFetched,
+	]);
+
+	return didMount && (!enabled || tokensQuery.isFetched);
 }

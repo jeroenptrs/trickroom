@@ -63,11 +63,15 @@ The server watches design JSON and system-owned files under `.trickroom` and bro
 
 The iframe shell is `src/iframe/shell.html`; it loads the Tailwind browser runtime from `public/tailwind/index.global.js`.
 
+The chrome-less `/capture/:design/:board?` route reuses the same iframe shell and `Artboards` renderer. It exposes persistent node IDs as render-only DOM attributes and signals readiness only after design hydration, managed styles, Tailwind compilation, font stylesheets, and `document.fonts.ready` settle. `POST /api/trickroom/screenshot` drives this route through an optional Playwright/Chrome runtime and returns PNG data, optionally writing an explicit `.png` path.
+
 ## MCP Flow
 
 The MCP server is separate from the Hono app. It can infer an MCP-enabled direct-child project from the working directory, or start without a selected project and use registry tools to discover and select one.
 
 MCP creation and mutation use the same design-file services as the HTTP app, with additional governance checks. Existing-file mutations require content-hash revisions.
+
+MCP screenshot tools lazily start a loopback-only capture host fixed to the selected project, so visual capture does not depend on the browser app's active project. Inline capture is allowed by read-only policy; writing an `outputPath` requires read-write policy. Screenshot attempts are audit logged when project auditing is enabled.
 
 ## Build Shape
 

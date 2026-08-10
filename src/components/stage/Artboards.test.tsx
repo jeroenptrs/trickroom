@@ -76,7 +76,7 @@ describe("Artboards", () => {
 		expect(html).toContain(`data-trickroom-root-id="${boardOneId}"`);
 		expect(html).toContain(`data-trickroom-root-id="${boardTwoId}"`);
 		expect(html).toContain(
-			`data-trickroom-library="trickroom" data-trickroom-component="container" data-trickroom-role="branch" data-trickroom-root-id="${boardOneId}"`,
+			`data-trickroom-library="trickroom" data-trickroom-component="container" data-trickroom-role="branch" data-trickroom-node-id="${boardOneId}" data-trickroom-root-id="${boardOneId}"`,
 		);
 		expect(html).not.toContain(`data-trickroom-root-id="${boardOneId}"><div`);
 

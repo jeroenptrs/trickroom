@@ -38,6 +38,10 @@ import {
 } from "./recipes/repair";
 import { exportRoutes } from "./routes/export";
 import { registerProjectAndDesignMemoryRoutes } from "./routes/memory";
+import {
+	createScreenshotRoutes,
+	type ScreenshotCapture,
+} from "./routes/screenshot";
 import { systemsRoutes } from "./routes/systems";
 import { tailwindRoutes } from "./routes/tailwind";
 import {
@@ -100,6 +104,7 @@ export type TrickroomAppOptions = {
 	initialProjectRoot?: string | null;
 	registerInitialProject?: boolean;
 	sessionToken?: string | null;
+	screenshotCapture?: ScreenshotCapture;
 };
 
 const toSessionProject = (
@@ -926,6 +931,12 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 	app.use("/api/trickroom/export", attachProjectToSystemsRequest);
 	app.use("/api/trickroom/export/*", attachProjectToSystemsRequest);
 	app.route("/api/trickroom/export", exportRoutes);
+
+	app.use("/api/trickroom/screenshot", attachProjectToSystemsRequest);
+	app.route(
+		"/api/trickroom/screenshot",
+		createScreenshotRoutes(options.screenshotCapture),
+	);
 
 	app.get("/api/trickroom/project-root", async (c) => {
 		const project = await resolveProjectForRequest();

@@ -173,7 +173,8 @@ describe("trickroom MCP workflow prompts", () => {
 			expect(text).toContain("findIconUsage");
 			expect(text).toContain("listDesignTokens");
 			expect(text).toContain("validateDesignFile");
-			expect(text).toContain("does not return rendered previews");
+			expect(text).toContain("screenshotBoard");
+			expect(text).toContain("screenshotNode");
 		} finally {
 			await server.close();
 			await rm(projectRoot, { force: true, recursive: true });
@@ -190,11 +191,14 @@ describe("trickroom MCP workflow prompts", () => {
 			});
 			const text = prompt.messages[0].content.text;
 			expect(text).toContain("validateDesignFile");
-			expect(text).toContain("structural, registry, recipe, token, asset, and icon");
+			expect(text).toContain(
+				"structural, registry, recipe, token, asset, and icon",
+			);
 			expect(text).toContain("readDesignGraph");
 			expect(text).toContain("validateOperation");
 			expect(text).toContain("do not perform any unnecessary mutations");
-			expect(text).toContain("Do not claim visual");
+			expect(text).toContain("Visual Review");
+			expect(text).toContain("only claim visual or layout readiness");
 		} finally {
 			await server.close();
 			await rm(projectRoot, { force: true, recursive: true });
@@ -221,7 +225,8 @@ describe("trickroom MCP workflow prompts", () => {
 			expect(text).toContain("addRecipe");
 			expect(text).toContain("validateSubtree");
 			expect(text).toContain("validateDesignFile");
-			expect(text).toContain("does not return rendered previews");
+			expect(text).toContain("screenshotBoard");
+			expect(text).toContain("inspect the returned PNG image blocks");
 		} finally {
 			await server.close();
 			await rm(projectRoot, { force: true, recursive: true });

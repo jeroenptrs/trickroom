@@ -19,6 +19,15 @@ pnpm install
 | `pnpm build:web-runtime` | Generate tokens, typecheck, and build the client. |
 | `pnpm build:server` | Build the production Hono server. |
 | `pnpm build:mcp` | Build the stdio MCP output. |
+
+Screenshot support is optional. The published package declares `playwright-core` as an optional peer, while keeping it as a development dependency for this repository. Install it alongside Trickroom and provide Chrome/Chromium before using screenshot APIs or MCP tools:
+
+```sh
+pnpm add -D playwright-core
+pnpm exec playwright-core install chromium
+```
+
+An existing browser may instead be selected with `TRICKROOM_CHROME_PATH` or the screenshot request's `executablePath`. Both server builds keep `playwright-core` as a runtime external so normal Trickroom installation and startup do not bundle it.
 | `pnpm preview` | Preview the built client. |
 | `pnpm generate:tailwind-tokens` | Regenerate the Tailwind default color baseline. |
 | `pnpm test` | Run Vitest once. |

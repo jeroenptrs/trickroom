@@ -43,6 +43,7 @@ function SerializedElement({
 	}
 
 	const props = getRenderableProps(element.props, resolution.definition);
+	props["data-trickroom-node-id"] = id;
 	if (isRoot) {
 		props["data-trickroom-root-id"] = rootId;
 	}

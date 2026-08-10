@@ -79,5 +79,14 @@ export function useInjectSystemAssets(
 			data.assets.map((asset) => asset.id),
 		);
 		upsertManagedAssetStyle(iframeDoc, css);
-	}, [iframeRef, didMount, enabled, normalized, assetsQuery.data, assetsQuery.isFetched]);
+	}, [
+		iframeRef,
+		didMount,
+		enabled,
+		normalized,
+		assetsQuery.data,
+		assetsQuery.isFetched,
+	]);
+
+	return didMount && (!enabled || assetsQuery.isFetched);
 }

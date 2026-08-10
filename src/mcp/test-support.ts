@@ -21,6 +21,7 @@ import {
 import {
 	createTrickroomMcpServer,
 	type TrickroomMcpServerContext,
+	type TrickroomMcpServerOptions,
 } from "./server";
 
 export const trickroomMcpTestDesignUuid =
@@ -251,6 +252,7 @@ export const createTrickroomMcpTestClient = async (
 	context: TrickroomMcpServerContext,
 	options?: {
 		clientCapabilities?: Record<string, unknown>;
+		serverOptions?: TrickroomMcpServerOptions;
 	},
 ): Promise<TrickroomMcpClientSession> => {
 	const client = options?.clientCapabilities
@@ -259,7 +261,7 @@ export const createTrickroomMcpTestClient = async (
 				{ capabilities: options.clientCapabilities },
 			)
 		: new Client({ name: "trickroom-mcp-test", version: "0.1.0" });
-	const server = createTrickroomMcpServer(context);
+	const server = createTrickroomMcpServer(context, options?.serverOptions);
 	const [clientTransport, serverTransport] =
 		InMemoryTransport.createLinkedPair();
 
@@ -273,6 +275,7 @@ export const createTrickroomMcpTestClient = async (
 		close: async () => {
 			await client.close();
 			await server.close();
+			await server.stopScreenshotHosts?.();
 		},
 	};
 };

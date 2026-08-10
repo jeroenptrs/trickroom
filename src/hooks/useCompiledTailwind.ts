@@ -14,7 +14,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { shallow, useSelector } from "@tanstack/react-store";
-import { type RefObject, useEffect, useMemo, useRef } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { useProjectScope } from "../components/contexts";
 import {
 	getRenderableClassComposition,
@@ -141,6 +141,7 @@ export function useCompiledTailwind(
 	systemId: string | null | undefined,
 ) {
 	const enabled = isCompiledTailwindMode();
+	const [stylesReady, setStylesReady] = useState(!enabled);
 	const normalized =
 		typeof systemId === "string" && systemId.trim().length > 0
 			? systemId.trim()
@@ -182,6 +183,7 @@ export function useCompiledTailwind(
 		// Runs even without a system: the server compiles baseline Tailwind so
 		// the canvas is never left unstyled.
 		if (!enabled || !didMount) {
+			setStylesReady(!enabled && didMount);
 			return;
 		}
 		const doc = iframeRef.current?.contentDocument;
@@ -195,6 +197,7 @@ export function useCompiledTailwind(
 		// Monotonic id so a slow build for an older candidate set can't overwrite
 		// the style tag after a newer build has already applied.
 		let latestRequestId = 0;
+		setStylesReady(false);
 
 		const rebuild = async () => {
 			if (fellBackRef.current) {
@@ -218,6 +221,7 @@ export function useCompiledTailwind(
 				if (!cancelled && requestId === latestRequestId) {
 					upsertCompiledStyle(doc, css);
 					revealStyledContent(doc);
+					setStylesReady(true);
 				}
 			} catch (error) {
 				// Ignore a stale failure once a newer build is in flight.
@@ -236,6 +240,7 @@ export function useCompiledTailwind(
 					// The runtime compiles a beat later, but reveal now so a failed
 					// compile never leaves the canvas hidden indefinitely.
 					revealStyledContent(doc);
+					setStylesReady(true);
 				}
 			}
 		};
@@ -267,4 +272,6 @@ export function useCompiledTailwind(
 		designCandidateClassNames,
 		iframeRef,
 	]);
+
+	return stylesReady;
 }

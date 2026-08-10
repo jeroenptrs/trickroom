@@ -47,6 +47,8 @@ export const MCP_TOOL_GROUPS = [
 			"readElement",
 			"readSubtree",
 			"exportDesignHtml",
+			"screenshotBoard",
+			"screenshotNode",
 		],
 	},
 	{

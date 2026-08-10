@@ -38,6 +38,8 @@ const expectedMutationToolNames = [
 	"refreshSystemAssetMetadata",
 	"createDesignFile",
 	"exportDesignHtml",
+	"screenshotBoard",
+	"screenshotNode",
 	"renameDesignFile",
 	"addElement",
 	"updateElementProps",
@@ -104,11 +106,11 @@ const expectReadOnlyAnnotations = (tool: Tool) => {
 
 const expectWriteAnnotations = (
 	tool: Tool,
-	options: { destructiveHint: boolean },
+	options: { destructiveHint: boolean; openWorldHint?: boolean },
 ) => {
 	expect(tool.annotations, `Expected "${tool.name}" annotations`).toMatchObject(
 		{
-			openWorldHint: false,
+			openWorldHint: options.openWorldHint ?? false,
 			idempotentHint: false,
 			destructiveHint: options.destructiveHint,
 		},
@@ -303,6 +305,8 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 
 			for (const name of expectedMutationToolNames) {
 				expectWriteAnnotations(requireTool(toolsByName, name), {
+					openWorldHint:
+						name === "screenshotBoard" || name === "screenshotNode",
 					destructiveHint: ![
 						"addSystemIconFolder",
 						"addSystemAsset",
@@ -310,6 +314,8 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 						"addElement",
 						"createDesignFile",
 						"exportDesignHtml",
+						"screenshotBoard",
+						"screenshotNode",
 					].includes(name),
 				});
 			}
@@ -337,6 +343,14 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 			expectInputProperties(requireTool(toolsByName, "exportDesignHtml"), [
 				"designFileId",
 				"destinationDir",
+			]);
+			expectInputProperties(requireTool(toolsByName, "screenshotBoard"), [
+				"designFileId",
+				"boardId",
+			]);
+			expectInputProperties(requireTool(toolsByName, "screenshotNode"), [
+				"designFileId",
+				"nodeId",
 			]);
 			expectInputProperties(requireTool(toolsByName, "addSystemAsset"), [
 				"systemName",

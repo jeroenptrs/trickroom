@@ -647,11 +647,11 @@ Path:
 
 Purpose:
 
-- Records MCP creation and mutation attempts and outcomes when `mcp.auditLog` is true.
+- Records MCP creation, mutation, and screenshot attempts and outcomes when `mcp.auditLog` is true.
 
 Write behavior:
 
-- Appended by MCP mutation tools.
+- Appended by MCP mutation and screenshot tools. Screenshot metadata is recorded, but PNG bytes are never logged.
 - Not written for read-only tools.
 - Each entry is JSON Lines so it can be inspected or processed incrementally.
 

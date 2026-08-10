@@ -27,7 +27,7 @@ describe("MCP tool group controls", () => {
 	});
 
 	it("maps every registered MCP tool to a group", () => {
-		expect(MCP_TOOL_NAMES.length).toBe(72);
+		expect(MCP_TOOL_NAMES.length).toBe(74);
 	});
 
 	it("hides disabled tool groups from listTools", async () => {
