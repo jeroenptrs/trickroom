@@ -49,7 +49,7 @@ import {
 	type RecipeInstanceValidationReport,
 	validateRecipeInstances,
 } from "../recipes/validation";
-import { isTrickroomDesign } from "../server-utils";
+import { migrateTrickroomDesign } from "../server-utils";
 import {
 	createDesignFileService,
 	type DesignFileRead,
@@ -3762,8 +3762,9 @@ const validateDesignFilePayload = async (
 	const service = createDesignFileService(context.projectRoot);
 	const read = await service.readJsonFile(service.getFileForUuid(designFileId));
 	const issues: ValidationIssue[] = [];
+	const migration = migrateTrickroomDesign(read.value);
 
-	if (!isTrickroomDesign(read.value)) {
+	if (!migration) {
 		return {
 			project: getProjectReference(context),
 			designFile: {
@@ -3782,7 +3783,7 @@ const validateDesignFilePayload = async (
 		};
 	}
 
-	const design = read.value;
+	const design = migration.design;
 	const diagnostics = await getDesignDiagnostics(context, design);
 	issues.push(...diagnostics.issues);
 	const systemHandle = getDesignSystemHandle(design);

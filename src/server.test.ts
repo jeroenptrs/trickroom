@@ -1053,6 +1053,43 @@ describe("server design routes", () => {
 		});
 	});
 
+	it("migrates a legacy null component migration policy and returns its revision", async () => {
+		await writeDesign("legacy-policy.json", {
+			...validDesign,
+			componentMigrationPolicy: null,
+		});
+		const app = await importTestServer();
+
+		const response = await app.request(
+			"/api/trickroom/design?file=legacy-policy.json",
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("x-trickroom-revision")).toMatch(
+			/^sha256:[a-f0-9]{64}$/,
+		);
+		const body = (await response.json()) as TrickroomDesign;
+		expect(body).not.toHaveProperty("componentMigrationPolicy");
+		await expect(
+			readStoredDesign("legacy-policy.json"),
+		).resolves.not.toHaveProperty("componentMigrationPolicy");
+	});
+
+	it("returns 422 instead of a successful revisionless invalid design", async () => {
+		await writeDesign("invalid-design.json", { name: "Invalid" });
+		const app = await importTestServer();
+
+		const response = await app.request(
+			"/api/trickroom/design?file=invalid-design.json",
+		);
+
+		expect(response.status).toBe(422);
+		expect(response.headers.get("x-trickroom-revision")).toBeNull();
+		await expect(response.json()).resolves.toEqual({
+			error: "Invalid trickroom design payload",
+		});
+	});
+
 	it("returns valid attached recipe designs unchanged without repair metadata", async () => {
 		const design = createRecipeDesign([
 			expandAvatarRecipeForRoute("valid-avatar", "valid-recipe-instance"),

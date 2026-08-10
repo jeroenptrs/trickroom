@@ -10,13 +10,15 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import {
-	isTrickroomDesign,
-} from "../server-utils";
-import {
 	writeJsonFileAtomically,
 	writeJsonFileExclusivelyAtomically,
 } from "../server-file-utils";
-import type { Node, TrickroomDesign, TrickroomDesignSummary } from "../types";
+import { isTrickroomDesign, migrateTrickroomDesign } from "../server-utils";
+import type { Node, TrickroomDesign } from "../types";
+import type {
+	DesignFileRevision,
+	DesignFileSummary,
+} from "./design-file-service.types";
 
 export type DesignFileServiceErrorCode =
 	| "INVALID_DESIGN_FILE_PATH"
@@ -39,7 +41,6 @@ export type {
 	DesignFileRevision,
 	DesignFileSummary,
 } from "./design-file-service.types";
-import type { DesignFileRevision, DesignFileSummary } from "./design-file-service.types";
 
 export type DesignJsonFileRead = {
 	file: string;
@@ -208,7 +209,8 @@ export class DesignFileService {
 
 	async readDesignFile(file: string): Promise<DesignFileRead> {
 		const read = await this.readJsonFile(file);
-		if (!isTrickroomDesign(read.value)) {
+		const migration = migrateTrickroomDesign(read.value);
+		if (!migration) {
 			throw new DesignFileServiceError(
 				"INVALID_DESIGN_PAYLOAD",
 				"Invalid trickroom design payload",
@@ -219,7 +221,7 @@ export class DesignFileService {
 			file: read.file,
 			path: read.path,
 			uuid: this.getUuidFromFile(file),
-			design: read.value,
+			design: migration.design,
 			revision: read.revision,
 		};
 	}

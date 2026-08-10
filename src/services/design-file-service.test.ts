@@ -243,6 +243,28 @@ describe("DesignFileService", () => {
 		expect(firstRead.revision).toMatch(/^sha256:[a-f0-9]{64}$/);
 	});
 
+	it("reads and lists legacy null component migration policies canonically", async () => {
+		const designPath = service.resolveDesignFilePath("legacy-policy.json");
+		await mkdir(path.dirname(designPath), { recursive: true });
+		await writeFile(
+			designPath,
+			JSON.stringify({
+				...validDesign,
+				componentMigrationPolicy: null,
+			}),
+			"utf8",
+		);
+
+		const read = await service.readDesignFile("legacy-policy.json");
+		expect(read.design).not.toHaveProperty("componentMigrationPolicy");
+		await expect(service.listDesignSummaries()).resolves.toMatchObject([
+			{
+				file: "legacy-policy.json",
+				name: validDesign.name,
+			},
+		]);
+	});
+
 	it("writes validated designs atomically and returns the new revision", async () => {
 		await mkdir(service.designsDir, { recursive: true });
 

@@ -50,6 +50,7 @@ import {
 	isTrickroomConfig,
 	isTrickroomDesign,
 	jsonError,
+	migrateTrickroomDesign,
 } from "./server-utils";
 import {
 	createDesignFileService,
@@ -1132,16 +1133,18 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		const designFileService = createDesignFileService(project.projectRoot);
 		try {
 			const read = await designFileService.readJsonFile(file);
-			if (!isTrickroomDesign(read.value)) {
-				return c.json(read.value);
+			const migration = migrateTrickroomDesign(read.value);
+			if (!migration) {
+				return jsonError("Invalid trickroom design payload", 422);
 			}
 
-			const repair = repairInvalidKnownRecipeInstances(read.value);
+			const repair = repairInvalidKnownRecipeInstances(migration.design);
 			const canonicalDesign = await canonicalizeDesignSystemReferenceForStorage(
 				project,
 				repair.design,
 			);
 			const shouldWrite =
+				migration.migrated ||
 				repair.report.repairedCount > 0 ||
 				JSON.stringify(canonicalDesign) !== JSON.stringify(read.value);
 			if (!shouldWrite) {

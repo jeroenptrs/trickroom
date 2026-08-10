@@ -158,3 +158,28 @@ export const isTrickroomDesign = (value: unknown): value is TrickroomDesign =>
 	isComponentMigrationPolicy(value.componentMigrationPolicy) &&
 	Array.isArray(value.boards) &&
 	value.boards.every(isSerializedElement);
+
+export type TrickroomDesignMigrationResult = {
+	design: TrickroomDesign;
+	migrated: boolean;
+};
+
+export const migrateTrickroomDesign = (
+	value: unknown,
+): TrickroomDesignMigrationResult | null => {
+	let candidate = value;
+	let migrated = false;
+
+	if (isRecord(value) && value.componentMigrationPolicy === null) {
+		const { componentMigrationPolicy: _legacyPolicy, ...withoutLegacyPolicy } =
+			value;
+		candidate = withoutLegacyPolicy;
+		migrated = true;
+	}
+
+	if (!isTrickroomDesign(candidate)) {
+		return null;
+	}
+
+	return { design: candidate, migrated };
+};
