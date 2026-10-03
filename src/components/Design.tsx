@@ -151,7 +151,11 @@ export function Design() {
 		activeBoardId,
 		responsiveWidth,
 	});
-	useResponsiveStageFrame(iframeRef, { mode: stageMode, responsiveWidth });
+	useResponsiveStageFrame(
+		iframeRef,
+		{ mode: stageMode, responsiveWidth },
+		didMount,
+	);
 	useResponsiveBoardCycleShortcuts({
 		mode: stageMode,
 		rootIds,
