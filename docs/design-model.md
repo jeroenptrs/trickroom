@@ -13,7 +13,7 @@ Trickroom is built with Tailwind, React, and component libraries, and its output
 
 The same libraries used to build the application also define the vocabulary of the design output: Tailwind remains Tailwind, React remains the rendering model, and component libraries become registries that constrain what a design can contain.
 
-The app does not keep styling in a private canvas format. When the property sidebar changes a color, it is changing a Tailwind class string. When an agent adds a text layer, it is adding a registry-backed node to a JSON design tree.
+The app does not keep styling in a private canvas format. When you edit a layer's classes in the inspector, you are editing its Tailwind class string. When an agent adds a text layer, it is adding a registry-backed node to a JSON design tree.
 
 ## Project
 
@@ -277,20 +277,15 @@ MCP mutation services enforce the same structural rules and return explicit erro
 
 When no element is selected, the properties area shows the design-system picker.
 
-When an element is selected, the sidebar shows:
+When an element is selected, the sidebar shows one scrolling panel:
 
-- `Properties`: text content for text role elements plus color controls.
+- Classes: the element's own `className` as an editable text field with Tailwind autocomplete, plus read-only chips for classes inherited from a recipe, component, or variant.
+- Text content for text role elements.
 - Registry-declared controls such as Separator orientation.
 - Asset and icon selectors when the selected `trickroom/asset` or `trickroom/icon` element belongs to a design with a linked system.
-- `Classnames`: raw Tailwind class string editing.
+- Component instance controls (variants, overrides, update, detach) for attached components.
 
-The visible color controls currently edit:
-
-- Background color.
-- Text color.
-- Border color.
-
-The underlying class-name model recognizes more color utility families, which gives the app room to expose more controls later without changing the file format.
+See [The Inspector](./user-guide.md#the-inspector) for how the class field behaves.
 
 ## Why This Shape Matters
 

@@ -11,7 +11,7 @@ Trickroom helps you:
 - Create a Trickroom project in an existing project folder.
 - Create design files under `.trickroom/designs`.
 - Build a design tree from registered components.
-- Edit layers, names, text, Tailwind classes, and color properties.
+- Edit layers, names, text, and Tailwind classes.
 - Link a design to a configured Tailwind system.
 - Snapshot Tailwind color tokens from project CSS.
 - Let agents inspect and edit designs through MCP.
@@ -80,8 +80,7 @@ Design editor:
 - Drag layers to reorder or reparent them.
 - Right-click a layer and delete it.
 - Edit text content for text layers.
-- Edit raw Tailwind class names.
-- Edit background, text, and border color through property controls.
+- Edit a layer's Tailwind classes as free text, with autocomplete from the linked system (see [The Inspector](#the-inspector)).
 - Pan the canvas with the wheel.
 - Zoom with `Ctrl` or `Cmd` plus wheel.
 - Pan with middle mouse drag or Space plus left drag.
@@ -94,6 +93,28 @@ Shared server:
 - `trickroom serve /path/to/project --host 0.0.0.0` generates a token and prints a machine-readable ready line containing the tokenized bootstrap URL.
 - `--no-open` prevents browser launch while retaining human status output; `--silent` also suppresses human status output.
 - Opening the bootstrap URL once stores an HTTP-only cookie and redirects to the clean URL.
+
+## The Inspector
+
+The right-hand inspector shows the selected layer in one scrolling panel: its classes first, then its properties. The component editor's draft inspector uses the same layout.
+
+Classes:
+
+- The class field holds the layer's own `className`, written the way you would write it in code. It wraps, uses a monospace font, and accepts a pasted class string.
+- Changes are written when the field loses focus or on `Cmd`/`Ctrl` + `Enter`. `Escape` discards the edit and restores the stored value. Whitespace and line breaks are collapsed to single spaces when written.
+- Suggestions for the class under the caret come from the linked system's compiled Tailwind design system: every utility, including the project's theme tokens and custom `@utility` definitions, and every variant (`hover:`, `md:`, `dark:`, `group-hover:` …). Without a linked system, suggestions come from default Tailwind. Use the arrow keys to move through suggestions, `Enter` or `Tab` to accept, `Escape` to close the list, and `Ctrl` + `Space` to open it.
+- Classes Tailwind does not recognize get a wavy red underline and a line below the field, with a "did you mean" fix when a close match exists. Classes that a later class overrides (`p-4` followed by `p-6`) are listed with a one-click remove.
+- Classes the layer inherits are listed above the field as read-only chips, grouped by where they come from: **Recipe** (library base classes), **Component**, **Variant**, and **Compound variant**. A struck-through chip is overridden by a later class. On a component instance, the field edits the instance's class override, not the component.
+- In the component draft inspector, the **Style target** picker chooses which classes you edit: the base template, a variant value, or a compound variant. Each active target gets its own field.
+
+Properties:
+
+- Text content, asset and icon pickers, registry controls, and recipe controls for the selected layer.
+- On component instances: variant values, overrides, update and migration status, and detach.
+- In the component draft inspector: slot and override target settings.
+- With nothing selected: the design system picker, the dark-mode preview toggle, and the keyboard shortcut list.
+
+There are no visual style controls (color pickers, spacing boxes, and so on). Write the Tailwind classes directly, or have an agent write them through MCP.
 
 ## Typical Workflow
 
@@ -160,8 +181,6 @@ See [Agents And MCP](./mcp.md) for the full read-only/write/destructive tool map
 ## Current Limits
 
 - The built-in registry currently has `container` and `text`.
-- The visible color UI currently edits background, text, and border colors.
-- The class-name parser recognizes more color families than the UI exposes.
 - Tailwind token sync currently stores color-domain tokens only.
 - MCP can create and edit design files but does not currently edit project config.
 - Browser and MCP writes both use content-hash revisions to prevent stale existing-file writes. When an external edit arrives while the browser is dirty, the editor asks whether to reload it or keep the local version.

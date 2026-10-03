@@ -11,7 +11,7 @@ These docs are organized as a user guide first and implementation notes second. 
 ## Deeper Topics
 
 - [Concepts And Design Model](./design-model.md): project, design, system, registry, board, layer, element, props, and the "Design Is Code" philosophy.
-- [Tailwind Systems And Classname Editing](./tailwind-design-systems.md): Tailwind token snapshots, theme injection, and how class strings become reactive property controls.
+- [Tailwind Systems And Classname Editing](./tailwind-design-systems.md): Tailwind token snapshots, theme injection, and how the inspector completes and validates class strings.
 - [Architecture](./architecture.md): React app, Hono API, MCP server, authentication, build output, and runtime data flow.
 - [Development](./development.md): local setup, scripts, packaging, generated files, and test coverage.
 

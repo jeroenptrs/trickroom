@@ -61,6 +61,8 @@ The design route reads a design and its content-hash revision through the HTTP A
 
 The server watches design JSON and system-owned files under `.trickroom` and broadcasts settled changes through `GET /api/trickroom/events`. Browser clients use that SSE stream to refresh TanStack Query data. A clean open design hot-swaps to the new disk snapshot; a dirty design pauses autosave until the user chooses the disk or local version. The same event is broadcast to every connected browser client.
 
+The inspector edits a selected layer's `className` as text. Its autocomplete reads `GET /api/trickroom/tailwind/class-catalog` (every utility and variant of the linked system's compiled Tailwind design system, cached server-side) and checks unrecognized classes with `POST /api/trickroom/tailwind/class-inspect`.
+
 The iframe shell is `src/iframe/shell.html`; it loads the Tailwind browser runtime from `public/tailwind/index.global.js`.
 
 The chrome-less `/capture/:design/:board?` route reuses the same iframe shell and `Artboards` renderer. It exposes persistent node IDs as render-only DOM attributes and signals readiness only after design hydration, managed styles, Tailwind compilation, font stylesheets, and `document.fonts.ready` settle. `POST /api/trickroom/screenshot` drives this route through an optional Playwright/Chrome runtime and returns PNG data, optionally writing an explicit `.png` path.
