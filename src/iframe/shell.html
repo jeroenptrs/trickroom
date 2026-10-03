@@ -5,6 +5,14 @@
     <meta name="trickroom-viewport" content="width=device-width, initial-scale=1.0" />
     <script src="/tailwind/index.global.js"></script>
     <style>
+      /*
+       * Canvas boards sit side by side in one flex row. They never shrink to
+       * share the pane, and a board renders at least this wide unless it sets
+       * its own width (render-time only; nothing is written to the design).
+       */
+      :root {
+        --trickroom-canvas-board-default-width: 1280px;
+      }
       @layer base {
         html[data-trickroom-stage-mode="canvas"]
           .frame-content
@@ -12,7 +20,28 @@
           > [data-trickroom-library] {
           width: fit-content;
           height: fit-content;
+          flex-shrink: 0;
         }
+        /* Boards without any width, min-width, max-width or size utility. */
+        html[data-trickroom-stage-mode="canvas"]
+          .frame-content
+          > main
+          > [data-trickroom-root-id]:not(
+            [class^="w-"], [class*=" w-"], [class*=":w-"],
+            [class^="min-w-"], [class*=" min-w-"], [class*=":min-w-"],
+            [class^="max-w-"], [class*=" max-w-"], [class*=":max-w-"],
+            [class^="size-"], [class*=" size-"], [class*=":size-"],
+            [style*="width"]
+          ) {
+          min-width: var(--trickroom-canvas-board-default-width);
+        }
+      }
+      /*
+       * Percentage widths such as w-full resolve against main, so main gets the
+       * same floor. Unlayered so it wins over main's min-w-screen utility.
+       */
+      html[data-trickroom-stage-mode="canvas"] .frame-content > main {
+        min-width: max(100vw, var(--trickroom-canvas-board-default-width));
       }
       /*
        * Reveal-on-ready: in compiled mode the shell is marked
