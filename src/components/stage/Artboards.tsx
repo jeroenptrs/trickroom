@@ -14,18 +14,22 @@ import {
 	resolveResponsiveStageActiveBoardId,
 	useResponsiveStage,
 } from "../responsive-stage-context";
+import { resolveBoardSizing } from "./board-sizing";
 import { MissingRenderer } from "./MissingRenderer";
 
 type SerializedElementProps = {
 	id: string;
 	rootId: string;
 	isRoot?: boolean;
+	/** Canvas boards get the default width floor from the iframe shell. */
+	canvas?: boolean;
 };
 
 function SerializedElement({
 	id,
 	rootId,
 	isRoot = false,
+	canvas = false,
 }: SerializedElementProps): ReactNode {
 	const element = useElement(id);
 	const childIds = useChildren(id);
@@ -60,6 +64,12 @@ function SerializedElement({
 	props["data-trickroom-node-id"] = id;
 	if (isRoot) {
 		props["data-trickroom-root-id"] = rootId;
+		if (
+			canvas &&
+			resolveBoardSizing(props.className, props.style).defaultWidth
+		) {
+			props["data-trickroom-board-default-width"] = "";
+		}
 	}
 
 	if (element.role === "text") {
@@ -104,7 +114,13 @@ export const Artboards = memo(function Artboards() {
 	return (
 		<DesignSystemRenderContext.Provider value={systemId}>
 			{visibleRootIds.map((rootId) => (
-				<SerializedElement key={rootId} id={rootId} rootId={rootId} isRoot />
+				<SerializedElement
+					key={rootId}
+					id={rootId}
+					rootId={rootId}
+					isRoot
+					canvas={mode === "canvas"}
+				/>
 			))}
 		</DesignSystemRenderContext.Provider>
 	);

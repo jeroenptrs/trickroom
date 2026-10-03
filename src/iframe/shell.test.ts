@@ -37,16 +37,12 @@ describe("stage shell canvas boards", () => {
 		expect(boardRule?.body).toContain("flex-shrink: 0;");
 	});
 
-	it("only applies the default width to boards without a width utility", () => {
-		const defaultWidthRule = getCanvasRules().find(({ body }) =>
-			body.includes("min-width: var(--trickroom-canvas-board-default-width)"),
+	it("applies the default width to boards the renderer marks, not by class name", () => {
+		// Artboards decides from the board's resolved classes (see board-sizing).
+		expect(shellHtml).not.toMatch(/\[class[\^*]=/);
+		expect(shellHtml).toMatch(
+			/\[data-trickroom-board-default-width\]\s*\{\s*min-width: var\(--trickroom-canvas-board-default-width\);/,
 		);
-		for (const utility of ["w-", "min-w-", "max-w-", "size-"]) {
-			expect(defaultWidthRule?.selector).toContain(`[class^="${utility}"]`);
-			expect(defaultWidthRule?.selector).toContain(`[class*=" ${utility}"]`);
-			expect(defaultWidthRule?.selector).toContain(`[class*=":${utility}"]`);
-		}
-		expect(defaultWidthRule?.selector).toContain('[style*="width"]');
 	});
 
 	it("floors main at the default width so full-width boards stay desktop-sized", () => {

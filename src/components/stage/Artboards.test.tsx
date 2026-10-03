@@ -168,4 +168,69 @@ describe("Artboards", () => {
 		expect(html).toContain(`data-trickroom-root-id="${boardOneId}"`);
 		expect(html).toContain("Still visible");
 	});
+
+	it("marks canvas boards that need the default width", () => {
+		hydrateDesign({
+			name: "Board sizing test",
+			boards: [
+				{
+					id: "unsized",
+					props: {
+						"data-trickroom-name": "Unsized",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						className: "bg-white p-6",
+					},
+					children: [],
+				},
+				{
+					id: "sized",
+					props: {
+						"data-trickroom-name": "Sized",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						className: "w-[640px] h-[480px]",
+					},
+					children: [],
+				},
+				{
+					id: "fit",
+					props: {
+						"data-trickroom-name": "Fit",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						className: "w-fit",
+					},
+					children: [],
+				},
+			],
+		} satisfies TrickroomDesign);
+
+		const boardTag = (html: string, id: string) =>
+			html.match(
+				new RegExp(`<div[^>]*data-trickroom-root-id="${id}"[^>]*>`),
+			)?.[0] ?? "";
+
+		const canvas = renderArtboards({ mode: "canvas", activeBoardId: null });
+		expect(boardTag(canvas, "unsized")).toContain(
+			"data-trickroom-board-default-width",
+		);
+		expect(boardTag(canvas, "sized")).not.toContain(
+			"data-trickroom-board-default-width",
+		);
+		expect(boardTag(canvas, "fit")).not.toContain(
+			"data-trickroom-board-default-width",
+		);
+
+		const responsive = renderArtboards({
+			mode: "responsive",
+			activeBoardId: "unsized",
+		});
+		expect(boardTag(responsive, "unsized")).not.toContain(
+			"data-trickroom-board-default-width",
+		);
+	});
 });

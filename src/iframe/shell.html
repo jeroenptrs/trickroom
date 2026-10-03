@@ -7,8 +7,9 @@
     <style>
       /*
        * Canvas boards sit side by side in one flex row. They never shrink to
-       * share the pane, and a board renders at least this wide unless it sets
-       * its own width (render-time only; nothing is written to the design).
+       * share the pane, and boards the renderer (Artboards) marks as setting
+       * no width of their own render at least the default width.
+       * Render-time only; nothing is written to the design.
        */
       :root {
         --trickroom-canvas-board-default-width: 1280px;
@@ -22,17 +23,7 @@
           height: fit-content;
           flex-shrink: 0;
         }
-        /* Boards without any width, min-width, max-width or size utility. */
-        html[data-trickroom-stage-mode="canvas"]
-          .frame-content
-          > main
-          > [data-trickroom-root-id]:not(
-            [class^="w-"], [class*=" w-"], [class*=":w-"],
-            [class^="min-w-"], [class*=" min-w-"], [class*=":min-w-"],
-            [class^="max-w-"], [class*=" max-w-"], [class*=":max-w-"],
-            [class^="size-"], [class*=" size-"], [class*=":size-"],
-            [style*="width"]
-          ) {
+        [data-trickroom-board-default-width] {
           min-width: var(--trickroom-canvas-board-default-width);
         }
       }
