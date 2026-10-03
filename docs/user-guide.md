@@ -91,6 +91,11 @@ Shared server:
 
 - Local loopback use stays unauthenticated by default.
 - `trickroom serve /path/to/project --host 0.0.0.0` generates a token and prints a machine-readable ready line containing the tokenized bootstrap URL.
+- Because `0.0.0.0` is not an address a browser can open, the printed URL uses the machine's hostname instead. If that name doesn't resolve from the machine you browse from, set the host to print with `--public-host <host>`, `TRICKROOM_PUBLIC_HOST`, or once in `~/.trickroom/settings.json`:
+
+  ```json
+  { "version": 1, "mcp": { "toolGroups": {} }, "server": { "publicHost": "devbox.local" } }
+  ```
 - `--no-open` prevents browser launch while retaining human status output; `--silent` also suppresses human status output.
 - Opening the bootstrap URL once stores an HTTP-only cookie and redirects to the clean URL.
 

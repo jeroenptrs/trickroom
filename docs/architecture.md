@@ -43,6 +43,8 @@ Loopback hosts such as `localhost`, `127.0.0.1`, and `::1` remain unauthenticate
 
 `trickroom serve --host <host>` sets the bind host. For a non-loopback host, it preserves an explicitly configured token or generates a cryptographically random one. Once listening, the CLI writes a structured ready record to stdout with the actual address and tokenized bootstrap URL.
 
+URLs use a public host that is resolved separately from the bind host: `--public-host`, then `TRICKROOM_PUBLIC_HOST`, then `server.publicHost` in the user settings file, then inference (the machine hostname for a wildcard bind such as `0.0.0.0`, otherwise the bind host). `src/server-public-host.ts` holds this resolution. The token requirement is always decided on the bind host. The session cookie has no `Domain` attribute and requests are not checked against an expected `Host` or `Origin`, so a browser arriving through any name for the machine can bootstrap a session. See [Development](development.md#public-host) for an example settings file.
+
 On the first valid `GET` or `HEAD` request containing `?token=`, the Hono app:
 
 1. Sets `trickroom_session` as an HTTP-only, SameSite=Strict cookie scoped to `/`.

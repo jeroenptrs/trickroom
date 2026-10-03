@@ -16,6 +16,12 @@ export type TrickroomSettings = {
 	mcp: {
 		toolGroups: McpToolGroupSettings;
 	};
+	server?: TrickroomServerSettings;
+};
+
+export type TrickroomServerSettings = {
+	/** Host used in URLs printed and opened by `trickroom serve`. */
+	publicHost?: string;
 };
 
 export class TrickroomSettingsError extends Error {
@@ -36,17 +42,40 @@ export const createDefaultTrickroomSettings = (): TrickroomSettings => ({
 	},
 });
 
-const isMcpToolGroupSettings = (value: unknown): value is McpToolGroupSettings =>
+const isMcpToolGroupSettings = (
+	value: unknown,
+): value is McpToolGroupSettings =>
 	isRecord(value) &&
 	Object.entries(value).every(
 		([key, enabled]) => isMcpToolGroupId(key) && typeof enabled === "boolean",
 	);
 
-export const isTrickroomSettings = (value: unknown): value is TrickroomSettings =>
+const isTrickroomServerSettings = (
+	value: unknown,
+): value is TrickroomServerSettings =>
+	isRecord(value) &&
+	Object.entries(value).every(
+		([key, entry]) => key === "publicHost" && typeof entry === "string",
+	);
+
+export const isTrickroomSettings = (
+	value: unknown,
+): value is TrickroomSettings =>
 	isRecord(value) &&
 	value.version === 1 &&
 	isRecord(value.mcp) &&
-	isMcpToolGroupSettings(value.mcp.toolGroups);
+	isMcpToolGroupSettings(value.mcp.toolGroups) &&
+	(value.server === undefined || isTrickroomServerSettings(value.server));
+
+const normalizeTrickroomSettings = (
+	settings: TrickroomSettings,
+): TrickroomSettings => ({
+	version: 1,
+	mcp: {
+		toolGroups: normalizeMcpToolGroupSettings(settings.mcp.toolGroups),
+	},
+	...(settings.server ? { server: { ...settings.server } } : {}),
+});
 
 export const readTrickroomSettings = async (
 	trickroomHome = resolveTrickroomHome(),
@@ -61,12 +90,7 @@ export const readTrickroomSettings = async (
 			);
 		}
 
-		return {
-			version: 1,
-			mcp: {
-				toolGroups: normalizeMcpToolGroupSettings(settings.mcp.toolGroups),
-			},
-		};
+		return normalizeTrickroomSettings(settings);
 	} catch (error) {
 		const fsError = asErrnoException(error);
 		if (fsError.code === "ENOENT") {
@@ -87,12 +111,7 @@ export const writeTrickroomSettings = async (
 	settings: TrickroomSettings,
 	trickroomHome = resolveTrickroomHome(),
 ): Promise<TrickroomSettings> => {
-	const normalized: TrickroomSettings = {
-		version: 1,
-		mcp: {
-			toolGroups: normalizeMcpToolGroupSettings(settings.mcp.toolGroups),
-		},
-	};
+	const normalized = normalizeTrickroomSettings(settings);
 
 	await mkdir(trickroomHome, { recursive: true });
 	await writeJsonFileAtomically(
@@ -115,7 +134,7 @@ export const updateMcpToolGroupSettings = async (
 
 	return writeTrickroomSettings(
 		{
-			version: 1,
+			...current,
 			mcp: {
 				toolGroups: nextGroups,
 			},

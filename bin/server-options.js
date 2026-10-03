@@ -20,6 +20,14 @@ const isLoopbackHost = (host) => {
 	);
 };
 
+export const isWildcardHost = (host) =>
+	["0.0.0.0", "::", "0:0:0:0:0:0:0:0"].includes(
+		host
+			.trim()
+			.toLowerCase()
+			.replace(/^\[|\]$/g, ""),
+	);
+
 export const configureServerOptions = (
 	argv = process.argv,
 	environment = process.env,
@@ -27,6 +35,7 @@ export const configureServerOptions = (
 ) => {
 	const forwardedArgs = argv.slice(0, 2);
 	let configuredHost;
+	let configuredPublicHost;
 	let configuredPort;
 	let configuredToken;
 	let noOpen = false;
@@ -62,6 +71,21 @@ export const configureServerOptions = (
 			configuredHost = argument.slice("--host=".length);
 			if (!configuredHost) {
 				throw new Error("--host requires a value.");
+			}
+			continue;
+		}
+		if (argument === "--public-host") {
+			configuredPublicHost = requireOptionValue(
+				"--public-host",
+				argv[index + 1],
+			);
+			index += 1;
+			continue;
+		}
+		if (argument.startsWith("--public-host=")) {
+			configuredPublicHost = argument.slice("--public-host=".length);
+			if (!configuredPublicHost) {
+				throw new Error("--public-host requires a value.");
 			}
 			continue;
 		}
@@ -108,6 +132,11 @@ export const configureServerOptions = (
 	if (configuredHost) {
 		environment.TRICKROOM_HTTP_HOST = configuredHost;
 	}
+	if (configuredPublicHost) {
+		// The server validates this and resolves it against
+		// TRICKROOM_PUBLIC_HOST and settings; the flag takes precedence.
+		environment.TRICKROOM_CLI_PUBLIC_HOST = configuredPublicHost;
+	}
 	if (configuredPort !== undefined) {
 		environment.TRICKROOM_HTTP_PORT = String(configuredPort);
 	}
@@ -130,6 +159,9 @@ export const configureServerOptions = (
 	return {
 		argv: forwardedArgs,
 		host: effectiveHost,
+		publicHost:
+			configuredPublicHost ??
+			(environment.TRICKROOM_PUBLIC_HOST?.trim() || null),
 		port: effectivePort,
 		token: environment.TRICKROOM_SESSION_TOKEN?.trim() || null,
 		noOpen,

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { hostname } from "node:os";
 import { resolveTrickroomCommand } from "./cli-command.js";
 import { setInitialProjectRoot } from "./project-root.js";
-import { configureServerOptions } from "./server-options.js";
+import { configureServerOptions, isWildcardHost } from "./server-options.js";
 
 const openBrowser = (url) => {
 	try {
@@ -61,7 +62,14 @@ const runServer = async (argv) => {
 	setInitialProjectRoot(serverOptions.argv);
 	process.env.TRICKROOM_CLI_MANAGED_OUTPUT = "1";
 
-	const runtime = await import("../dist/index.js");
+	let runtime;
+	try {
+		runtime = await import("../dist/index.js");
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : String(error));
+		process.exitCode = 1;
+		return;
+	}
 	let ready;
 	if (runtime.serverReady && typeof runtime.serverReady.then === "function") {
 		ready = await runtime.serverReady;
@@ -72,14 +80,22 @@ const runServer = async (argv) => {
 			typeof runtime.serverPort === "number"
 				? runtime.serverPort
 				: serverOptions.port;
+		const publicHost =
+			typeof runtime.serverPublicHost === "string"
+				? runtime.serverPublicHost
+				: (serverOptions.publicHost ??
+					(isWildcardHost(serverOptions.host)
+						? hostname()
+						: serverOptions.host));
 		const url =
 			typeof runtime.serverUrl === "string"
 				? runtime.serverUrl
-				: `http://${serverOptions.host}:${port}/`;
+				: `http://${publicHost.includes(":") && !publicHost.startsWith("[") ? `[${publicHost}]` : publicHost}:${port}/`;
 		ready = {
 			type: "trickroom:server-ready",
 			version: 1,
 			host: serverOptions.host,
+			publicHost,
 			port,
 			url,
 			token: serverOptions.token,
