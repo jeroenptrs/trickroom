@@ -72,6 +72,7 @@ import type {
 	TrickroomDesign,
 	TrickroomDesignSummary,
 } from "./types";
+import { normalizeAssetId, readAsset } from "./utils/asset-manifest-service";
 import {
 	componentAllowsBlankResourceId,
 	getResourceIdProp,
