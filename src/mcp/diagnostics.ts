@@ -1,3 +1,5 @@
+import { resolveRegistryComponent } from "../libraries/registry";
+import { hasStageRenderer } from "../libraries/renderable-components";
 import { validateRecipeInstances } from "../recipes/validation";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
 import { readAssetManifest } from "../utils/asset-manifest-service";
@@ -110,6 +112,14 @@ export const isLikelyTypoWarning = (issue: McpDesignIssue) =>
 	/^UNKNOWN_[A-Z_]+_TOKEN$/u.test(issue.code);
 
 /**
+ * Warnings that surface on writes by default (for touched elements): likely
+ * typos, and elements the stage cannot render, which otherwise only show up
+ * as a placeholder in a screenshot.
+ */
+export const isDefaultSurfacedWarning = (issue: McpDesignIssue) =>
+	isLikelyTypoWarning(issue) || issue.code === "MISSING_RENDERER";
+
+/**
  * Drop the heavy `customUtilities` catalog from a token snapshot unless the
  * caller asked for it. The remaining snapshot metadata (counts, review flags) is
  * small and always kept.
@@ -147,8 +157,9 @@ export type ShapedMutationDiagnostics = {
  * `warningCount` for the warning scope, and a (stripped-by-default)
  * `tokenDiagnostics`. Warnings are scoped to `affectedElementIds` unless the
  * caller requests `warningScope: "file"` (or passes no affected ids). By
- * default only likely-typo warnings are attached; `includeWarnings: true`
- * attaches all of them and `includeWarnings: false` none.
+ * default only likely-typo and missing-renderer warnings are attached;
+ * `includeWarnings: true` attaches all of them and `includeWarnings: false`
+ * none.
  */
 export const shapeMutationDiagnostics = (
 	diagnostics: { issues: McpDesignIssue[]; tokenSnapshot: unknown },
@@ -183,12 +194,12 @@ export const shapeMutationDiagnostics = (
 	if (opts.includeWarnings === true) {
 		shaped.warnings = scopedWarnings;
 	} else if (opts.includeWarnings === undefined) {
-		const typoWarnings = scopedWarnings.filter(
+		const defaultWarnings = scopedWarnings.filter(
 			(warning) =>
-				warning.elementId !== undefined && isLikelyTypoWarning(warning),
+				warning.elementId !== undefined && isDefaultSurfacedWarning(warning),
 		);
-		if (typoWarnings.length > 0) {
-			shaped.warnings = typoWarnings;
+		if (defaultWarnings.length > 0) {
+			shaped.warnings = defaultWarnings;
 		}
 	}
 
@@ -390,6 +401,42 @@ const collectRecipeDiagnostics = (
 				...(elementId ? { elementId } : {}),
 			});
 		}
+	}
+};
+
+/**
+ * Elements whose registry component has no stage render component render as
+ * a "No renderer" placeholder in the editor and in screenshots. Unknown
+ * registry ids are already errors (UNKNOWN_REGISTRY_*) from design validation.
+ */
+const collectRendererDiagnostics = (
+	design: TrickroomDesign,
+	issues: ClassTokenDiagnostic[],
+) => {
+	const visit = (node: DesignNode, path: string) => {
+		const library = node.props["data-trickroom-library"];
+		const component = node.props["data-trickroom-component"];
+		if (
+			resolveRegistryComponent(library, component).status === "known" &&
+			!hasStageRenderer(library, component)
+		) {
+			issues.push({
+				severity: "warning",
+				code: "MISSING_RENDERER",
+				message: `"${library}/${component}" has no render component, so this element renders as a "No renderer" placeholder in the editor and in screenshots.`,
+				path,
+				elementId: node.id,
+			});
+		}
+		if (Array.isArray(node.children)) {
+			for (const [childIndex, child] of node.children.entries()) {
+				visit(child, `${path}.children[${childIndex}]`);
+			}
+		}
+	};
+
+	for (const [rootIndex, board] of design.boards.entries()) {
+		visit(board, `boards[${rootIndex}]`);
 	}
 };
 
@@ -865,6 +912,7 @@ export const getDesignDiagnostics = async (
 		: null;
 	const issues: ClassTokenDiagnostic[] = [];
 	collectRecipeDiagnostics(design, issues);
+	collectRendererDiagnostics(design, issues);
 	await collectResourceDiagnostics(context, design, issues);
 	if (systemHandle === null) {
 		return {

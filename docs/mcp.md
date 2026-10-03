@@ -357,7 +357,7 @@ Every write tool accepts an optional `response` object and returns, by default:
 
 - `issues`: error-severity diagnostics only.
 - `warningCount`: the number of warnings in scope, which by default means the elements this write touched (inserted, updated, moved, or re-expanded nodes) plus file-level warnings with no `elementId`.
-- `warnings`: only the likely-typo warnings on touched elements, `UNKNOWN_TAILWIND_UTILITY` and `UNKNOWN_*_TOKEN` (for example `UNKNOWN_COLOR_TOKEN`). The key is omitted when there are none. Fix these straight away; they are almost always class-name typos.
+- `warnings`: only the likely-typo warnings on touched elements, `UNKNOWN_TAILWIND_UTILITY` and `UNKNOWN_*_TOKEN` (for example `UNKNOWN_COLOR_TOKEN`), plus `MISSING_RENDERER` for touched elements the stage cannot render. The key is omitted when there are none. Fix these straight away; the first are almost always class-name typos, and a missing renderer means a screenshot shows a placeholder instead of the element.
 
 Escalate per call with `response`:
 
@@ -498,6 +498,7 @@ Escalate when `warningCount` is non-zero and you need to know why, when you are 
 - Duplicate element IDs.
 - Unknown registry libraries.
 - Unknown registry components.
+- Registry components without a stage render component (`MISSING_RENDERER` warning; the element renders as a "No renderer" placeholder in the editor and screenshots).
 - Registry role mismatches.
 - Unknown linked design systems.
 - Token/class diagnostics for linked systems, including spacing, typography, radius, shadow/blur tokens, and unknown Tailwind utilities when the linked CSS can be loaded.

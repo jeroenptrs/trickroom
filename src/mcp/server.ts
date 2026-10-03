@@ -336,7 +336,7 @@ const projectScopedInputSchema = {
 const mutationResponseInputSchema = mutationResponseOptionsSchema
 	.optional()
 	.describe(
-		'Response verbosity controls. Default: error issues, warningCount, and likely-typo warnings (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) on the elements this write touched. includeWarnings:true returns every warning in scope, includeWarnings:false none; warningScope:"file" widens the scope to the whole design; includeTokenDiagnostics adds the custom-utility catalog.',
+		'Response verbosity controls. Default: error issues, warningCount, and likely-typo (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) and MISSING_RENDERER warnings on the elements this write touched. includeWarnings:true returns every warning in scope, includeWarnings:false none; warningScope:"file" widens the scope to the whole design; includeTokenDiagnostics adds the custom-utility catalog.',
 	);
 
 const mutationScopedInputSchema = {
@@ -2817,7 +2817,7 @@ const buildAuthoringGuidance = () => ({
 		"Use listDesignTokens for full token lists; the contract only summarizes storage.",
 		"Use describeRegistryRecipe for full recipe templates and slot defaults.",
 		"Use getSystemComponentAuthoringContract before creating or updating system component drafts.",
-		"Every write returns warningCount. Likely-typo warnings (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) on the elements you touched are returned by default — fix them before moving on. Other warnings are counted, not listed; escalate with response.includeWarnings when warningCount is non-zero and you need them.",
+		"Every write returns warningCount. Likely-typo warnings (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) and MISSING_RENDERER (the stage shows a placeholder) on the elements you touched are returned by default — fix them before moving on. Other warnings are counted, not listed; escalate with response.includeWarnings when warningCount is non-zero and you need them.",
 	],
 	boards: {
 		rule: BOARD_GUIDANCE,
@@ -2851,7 +2851,7 @@ const buildAuthoringGuidance = () => ({
 	},
 	responseVerbosity: {
 		default:
-			"Write tools (applyDesignOperations, copySubtree, and single-element mutations) return error-severity issues, a warningCount scoped to the elements the write touched, and likely-typo warnings (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) on those elements. Other warnings and the full custom-utility token catalog are omitted to keep responses small.",
+			"Write tools (applyDesignOperations, copySubtree, and single-element mutations) return error-severity issues, a warningCount scoped to the elements the write touched, and likely-typo (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) and MISSING_RENDERER warnings on those elements. Other warnings and the full custom-utility token catalog are omitted to keep responses small.",
 		escalate: [
 			{
 				on: "every write tool (applyDesignOperations, copySubtree, addElement, addSubtree, updateElementProps, …)",

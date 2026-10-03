@@ -1,6 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TrickroomDesign } from "../types";
 import {
+	getDesignDiagnostics,
+	isDefaultSurfacedWarning,
 	isLikelyTypoWarning,
 	type McpDesignIssue,
 	shapeMutationDiagnostics,
@@ -13,6 +15,19 @@ import {
 	type TrickroomMcpProjectFixture,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
+
+// Every registry component currently has a renderer; pretend meter.track has
+// none so the MISSING_RENDERER diagnostic can be exercised.
+vi.mock("../libraries/renderable-components", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../libraries/renderable-components")>();
+	return {
+		...actual,
+		hasStageRenderer: (library: string, component: string) =>
+			component !== "meter.track" &&
+			actual.hasStageRenderer(library, component),
+	};
+});
 
 const expandedDiagnosticsDesign = {
 	name: "Expanded Diagnostics Design",
@@ -568,6 +583,75 @@ describe("MCP expanded class/token diagnostics", () => {
 				expect.objectContaining({ code: "UNKNOWN_TAILWIND_UTILITY" }),
 			]),
 		);
+	});
+});
+
+describe("missing renderer diagnostics", () => {
+	const node = (
+		id: string,
+		library: string,
+		component: string,
+		children: TrickroomDesign["boards"] = [],
+	): TrickroomDesign["boards"][number] => ({
+		id,
+		props: {
+			"data-trickroom-name": id,
+			"data-trickroom-library": library,
+			"data-trickroom-component": component,
+		},
+		children,
+	});
+
+	it("warns for elements whose registry component has no render component", async () => {
+		const design = {
+			name: "Missing renderer",
+			boards: [
+				node("board", "trickroom", "container", [
+					node("meter", "base-ui", "meter.root", [
+						node("track", "base-ui", "meter.track"),
+					]),
+				]),
+			],
+		} satisfies TrickroomDesign;
+
+		const diagnostics = await getDesignDiagnostics(
+			{ projectRoot: "/nonexistent" } as Parameters<
+				typeof getDesignDiagnostics
+			>[0],
+			design,
+		);
+
+		expect(diagnostics.issues).toEqual([
+			expect.objectContaining({
+				severity: "warning",
+				code: "MISSING_RENDERER",
+				path: "boards[0].children[0].children[0]",
+				elementId: "track",
+			}),
+		]);
+		expect(diagnostics.issues[0]?.message).toContain("base-ui/meter.track");
+	});
+
+	it("surfaces missing renderers on touched elements by default", () => {
+		const warning: McpDesignIssue = {
+			severity: "warning",
+			code: "MISSING_RENDERER",
+			message: "no renderer",
+			elementId: "track",
+		};
+		expect(isDefaultSurfacedWarning(warning)).toBe(true);
+		expect(isLikelyTypoWarning(warning)).toBe(false);
+
+		const diagnostics = { issues: [warning], tokenSnapshot: null };
+		expect(
+			shapeMutationDiagnostics(diagnostics, undefined, ["track"]),
+		).toMatchObject({ warningCount: 1, warnings: [warning] });
+		expect(shapeMutationDiagnostics(diagnostics, undefined, ["other"])).toEqual(
+			expect.objectContaining({ warningCount: 0 }),
+		);
+		expect(
+			shapeMutationDiagnostics(diagnostics, undefined, ["other"]),
+		).not.toHaveProperty("warnings");
 	});
 });
 
