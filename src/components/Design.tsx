@@ -47,7 +47,10 @@ import {
 	useSelectedId,
 } from "../stores/design-store";
 import { markDesignOpened } from "../utils/design-activity";
-import { getDesignSyncDecision } from "../utils/design-live-sync";
+import {
+	getDesignSyncDecision,
+	resolveActiveBoardAfterHydrate,
+} from "../utils/design-live-sync";
 import {
 	getResponsiveStageSessionStorageKey,
 	readResponsiveStageSessionWidth,
@@ -138,6 +141,9 @@ export function Design() {
 	);
 	const responsiveSessionKeyRef = useRef(responsiveSessionKey);
 	const skipNextResponsiveSessionSaveRef = useRef(false);
+	// The design file whose snapshot was last hydrated, so a live-sync reload of
+	// the open design can keep the active board instead of resetting it.
+	const hydratedDesignFileRef = useRef<string | null>(null);
 	const iframeRef = useRef<HTMLIFrameElement>(null);
 	const rootIds = useDesignRoots();
 	const view = useStageNavigation(iframeRef, didMount, {
@@ -194,6 +200,18 @@ export function Design() {
 		writeResponsiveStageSessionWidth(projectScope, designFile, responsiveWidth);
 	}, [designFile, projectScope, responsiveSessionKey, responsiveWidth]);
 
+	const applyHydratedActiveBoard = useCallback(
+		(snapshot: DesignFileSnapshot) => {
+			const isReload = hydratedDesignFileRef.current === designFile;
+			hydratedDesignFileRef.current = designFile;
+			const boardIds = snapshot.design.boards.map((board) => board.id);
+			setActiveBoardId((currentBoardId) =>
+				resolveActiveBoardAfterHydrate({ boardIds, currentBoardId, isReload }),
+			);
+		},
+		[designFile],
+	);
+
 	useEffect(() => {
 		if (!designSnapshot) {
 			return;
@@ -213,8 +231,14 @@ export function Design() {
 		}
 
 		hydrateDesign(designSnapshot.design, designSnapshot.revision);
-		setActiveBoardId(designSnapshot.design.boards[0]?.id ?? null);
-	}, [designSavePending, designSnapshot, hasUnsavedChanges, persistedRevision]);
+		applyHydratedActiveBoard(designSnapshot);
+	}, [
+		applyHydratedActiveBoard,
+		designSavePending,
+		designSnapshot,
+		hasUnsavedChanges,
+		persistedRevision,
+	]);
 
 	useEffect(() => {
 		if (
@@ -232,9 +256,9 @@ export function Design() {
 			return;
 		}
 		forceHydrateDesign(externalSnapshot.design, externalSnapshot.revision);
-		setActiveBoardId(externalSnapshot.design.boards[0]?.id ?? null);
+		applyHydratedActiveBoard(externalSnapshot);
 		setExternalSnapshot(null);
-	}, [externalSnapshot]);
+	}, [applyHydratedActiveBoard, externalSnapshot]);
 
 	const keepLocalDesign = useCallback(() => {
 		if (!externalSnapshot) {
