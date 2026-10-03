@@ -58,12 +58,19 @@ function useUnknownClasses(
 	systemId: string | null,
 	index: ClassCatalogIndex | null,
 	value: string,
+	typingToken: string | null,
 ) {
 	const projectScope = useProjectScope();
 	const deferredValue = useDeferredValue(value);
+	const deferredTypingToken = useDeferredValue(typingToken);
 	const candidates = useMemo(
-		() => (index ? getUninspectedClasses(index, deferredValue) : []),
-		[index, deferredValue],
+		() =>
+			index
+				? getUninspectedClasses(index, deferredValue).filter(
+						(candidate) => candidate !== deferredTypingToken,
+					)
+				: [],
+		[index, deferredValue, deferredTypingToken],
 	);
 	const inspectQuery = useQuery({
 		...tailwindClassInspectQueryOptions(systemId, candidates, projectScope),
@@ -119,7 +126,6 @@ export function ClassField({
 	const [activeIndex, setActiveIndex] = useState(0);
 	const index = useClassCatalogIndex(systemId);
 	const text = draft ?? value;
-	const unknown = useUnknownClasses(systemId, index, text);
 
 	const updateDraft = (next: string | null) => {
 		draftRef.current = next;
@@ -131,12 +137,17 @@ export function ClassField({
 	};
 
 	const token = useMemo(() => getTokenAtCursor(text, cursor), [text, cursor]);
+	// Don't judge the word still being typed; it's checked once the caret leaves.
+	const typingToken = draft !== null && token.value ? token.value : null;
+	const unknown = useUnknownClasses(systemId, index, text, typingToken);
 	const completions = useMemo<ClassCompletion[]>(
 		() =>
 			completionOpen && index ? getClassCompletions(index, token.value) : [],
 		[completionOpen, index, token.value],
 	);
 	const showCompletions = completions.length > 0;
+	const isFlagged = (value: string) =>
+		unknown.has(value) && value !== typingToken;
 
 	// Grow with the content instead of scrolling, so the underline backdrop
 	// stays aligned with the text.
@@ -228,8 +239,9 @@ export function ClassField({
 	};
 
 	const tokens = tokenizeClassName(text);
-	const unknownHints: ClassFieldHint[] = [...unknown.values()].map(
-		(inspection) => {
+	const unknownHints: ClassFieldHint[] = [...unknown.values()]
+		.filter((inspection) => isFlagged(inspection.candidate))
+		.map((inspection) => {
 			const suggestion = inspection.suggestions?.[0];
 			return {
 				token: inspection.candidate,
@@ -239,8 +251,7 @@ export function ClassField({
 					? { fix: { label: suggestion, replacement: suggestion } }
 					: {}),
 			};
-		},
-	);
+		});
 	const allHints = [...unknownHints, ...hints];
 
 	return (
@@ -258,7 +269,7 @@ export function ClassField({
 								<span key={`${entry.start}:${entry.value}`}>
 									<span
 										className={
-											unknown.has(entry.value)
+											isFlagged(entry.value)
 												? "underline decoration-red-500 decoration-wavy decoration-1 underline-offset-2"
 												: undefined
 										}

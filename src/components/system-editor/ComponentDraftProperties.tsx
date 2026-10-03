@@ -347,18 +347,6 @@ function getStyleTargetDescriptors(
 	return descriptors;
 }
 
-function styleTabsEqual(
-	left: ComponentDraftStyleTab,
-	right: ComponentDraftStyleTab,
-) {
-	if (left.kind !== right.kind) {
-		return false;
-	}
-	return left.kind !== "axis" || right.kind !== "axis"
-		? true
-		: left.axisKey === right.axisKey;
-}
-
 function styleTargetButtonClass(selected: boolean) {
 	return `border px-2 py-1 text-xs ${
 		selected
@@ -372,7 +360,6 @@ function StyleTargetSection() {
 	const styleTarget = useComponentDraftStyleTarget();
 	const axes = Object.entries(variants?.axes ?? {});
 	const selectedAxisEntries = getSelectedAxisEntries(variants, styleTarget);
-	const styleTabs = getStyleTargetDescriptors(variants, styleTarget);
 	const canDisableBase = selectedAxisEntries.length > 0;
 	const setAxisValue = (axisKey: string, valueKey: string) => {
 		const axisValues = { ...styleTarget.axisValues };
@@ -402,11 +389,6 @@ function StyleTargetSection() {
 			).sort((left, right) => left.localeCompare(right)),
 		});
 	};
-	const setActiveStyleTab = (tab: ComponentDraftStyleTab) =>
-		setComponentDraftStyleTarget({
-			...styleTarget,
-			activeTab: tab,
-		});
 	const toggleBase = () => {
 		if (styleTarget.base && !canDisableBase) {
 			return;
@@ -485,22 +467,6 @@ function StyleTargetSection() {
 						</div>
 					</div>
 				) : null}
-
-				<div className="flex flex-row flex-wrap gap-1 border-t border-slate-200 pt-2">
-					{styleTabs.map((target) => (
-						<button
-							key={target.id}
-							type="button"
-							className={styleTargetButtonClass(
-								styleTabsEqual(styleTarget.activeTab, target.tab),
-							)}
-							title={target.title}
-							onClick={() => setActiveStyleTab(target.tab)}
-						>
-							{target.label}
-						</button>
-					))}
-				</div>
 			</div>
 		</section>
 	);
@@ -520,7 +486,10 @@ function StyleTargetClassEditor({
 	// Same class field as the design inspector, one per active style target.
 	return (
 		<section className="flex flex-col border-b border-slate-200 last:border-b-0">
-			<span className="px-3 pt-2.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+			<span
+				className="px-3 pt-2.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400"
+				title={target.title}
+			>
 				{target.label}
 			</span>
 			<div className="px-3 pt-1 pb-3">
