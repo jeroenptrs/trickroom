@@ -334,16 +334,23 @@ Each step reports `changedElementId`, `rootElementId` (only when it differs), `i
 
 ### Write Response Verbosity
 
-Write tools return **minimal responses by default** to keep payloads small: only error-severity `issues` are included. Warnings and the heavy `customUtilities` token catalog are omitted unless requested.
+Every write tool accepts an optional `response` object and returns, by default:
 
-- `applyDesignOperations` and `copySubtree` accept a `response` object to escalate per call:
-  - `includeWarnings: true` — include warning-severity diagnostics, **scoped to the elements this write touched** (the inserted subtree for `copySubtree`).
-  - `warningScope: "file"` — when including warnings, return the whole design's warnings instead of only the affected elements.
-  - `includeTokenDiagnostics: true` — include the full custom-utility catalog in `tokenDiagnostics` (otherwise only the lightweight snapshot metadata is returned).
-- Single-element mutations (`addElement`, `addSubtree`, `updateElementProps`, `moveElement`, system-component and recipe writes, …) always return error issues only. To inspect warnings or the token catalog after such a write, call `validateDesignFile` (supports `includeTokenDiagnostics`) or `readDesignGraph`.
-- `copySubtree` always returns its `idMap` of old→new element IDs regardless of verbosity.
+- `issues`: error-severity diagnostics only.
+- `warningCount`: the number of warnings in scope, which by default means the elements this write touched (inserted, updated, moved, or re-expanded nodes) plus file-level warnings with no `elementId`.
+- `warnings`: only the likely-typo warnings on touched elements, `UNKNOWN_TAILWIND_UTILITY` and `UNKNOWN_*_TOKEN` (for example `UNKNOWN_COLOR_TOKEN`). The key is omitted when there are none. Fix these straight away; they are almost always class-name typos.
 
-Escalate when a write succeeds but you need to confirm token/class health, are debugging unexpected styling, or are about to hand off. Otherwise keep the default to minimize tokens.
+Escalate per call with `response`:
+
+- `includeWarnings: true`: return every warning in scope, not only typo warnings.
+- `includeWarnings: false`: omit `warnings` entirely. `warningCount` is still returned.
+- `warningScope: "file"`: widen the scope (count and listed warnings) to the whole design.
+- `includeTokenDiagnostics: true`: include the full custom-utility catalog in `tokenDiagnostics`. Otherwise only the lightweight snapshot metadata is returned. `applyDesignOperations` omits `tokenDiagnostics` entirely unless this is set.
+- `includeStepDetails: true` (`applyDesignOperations` only): return full per-step summaries.
+
+`copySubtree` always returns its `idMap` of old→new element IDs regardless of verbosity. `createDesignFile` and `extractSubtree` scope warnings to the whole new file; `renameDesignFile` and `deleteElement` touch no surviving elements, so their default scope only contains file-level warnings.
+
+Escalate when `warningCount` is non-zero and you need to know why, when you are debugging unexpected styling, or when you are about to hand off. Otherwise keep the default to minimize tokens.
 
 `createDesignFile`:
 

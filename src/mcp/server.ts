@@ -318,6 +318,24 @@ const projectScopedInputSchema = {
 	project: projectRefSchema,
 } as const;
 
+const mutationResponseInputSchema = mutationResponseOptionsSchema
+	.optional()
+	.describe(
+		'Response verbosity controls. Default: error issues, warningCount, and likely-typo warnings (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) on the elements this write touched. includeWarnings:true returns every warning in scope, includeWarnings:false none; warningScope:"file" widens the scope to the whole design; includeTokenDiagnostics adds the custom-utility catalog.',
+	);
+
+const mutationScopedInputSchema = {
+	...projectScopedInputSchema,
+	response: mutationResponseInputSchema,
+};
+
+const withMutationScopedInput = <Shape extends z.ZodRawShape>(
+	shape: Shape,
+) => ({
+	...shape,
+	...mutationScopedInputSchema,
+});
+
 const withProjectScopedInput = <Shape extends z.ZodRawShape>(shape: Shape) => ({
 	...shape,
 	...projectScopedInputSchema,
@@ -1569,6 +1587,19 @@ const walkElementTree = (
 	}
 };
 
+const getSubtreeElementIds = (
+	design: TrickroomDesign,
+	rootElementId: string,
+): string[] => {
+	const root = findElementContext(design, rootElementId)?.element;
+	if (!root) {
+		return [rootElementId];
+	}
+	const ids: string[] = [];
+	walkElementTree(root, (element) => ids.push(element.id));
+	return ids;
+};
+
 const assertCanUseSubtreeComponents = (
 	policy: McpPolicy,
 	subtree: DesignNode,
@@ -2356,7 +2387,7 @@ const AUTHORING_CONTRACT_EXAMPLES = [
 	{
 		tool: "applyDesignOperations",
 		description:
-			'Commit an ordered batch atomically. Responses are minimal by default (error-severity issues only). Escalate verbosity per call via response: includeWarnings (scoped to affected elements unless warningScope:"file"), includeTokenDiagnostics for the full custom-utility catalog.',
+			'Commit an ordered batch atomically. Responses are compact by default: newRevision, per-step created ids, error issues, warningCount, and likely-typo warnings (unknown utilities/tokens) on touched elements. Escalate per call via response: includeWarnings (all warnings in scope; warningScope:"file" widens it), includeTokenDiagnostics for the custom-utility catalog, includeStepDetails for full step summaries.',
 		arguments: {
 			...authoringContractWriteContext,
 			operations: [
@@ -2653,19 +2684,19 @@ const buildAuthoringGuidance = () => ({
 		"Use listDesignTokens for full token lists; the contract only summarizes storage.",
 		"Use describeRegistryRecipe for full recipe templates and slot defaults.",
 		"Use getSystemComponentAuthoringContract before creating or updating system component drafts.",
-		"Write responses are minimal by default (error-severity issues only). Do not assume a clean write is silent on warnings — escalate when you need them.",
+		"Every write returns warningCount. Likely-typo warnings (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) on the elements you touched are returned by default — fix them before moving on. Other warnings are counted, not listed; escalate with response.includeWarnings when warningCount is non-zero and you need them.",
 	],
 	responseVerbosity: {
 		default:
-			"Write tools (applyDesignOperations, copySubtree, and single-element mutations) return only error-severity issues by default. Warnings and the full custom-utility token catalog are omitted to keep responses small.",
+			"Write tools (applyDesignOperations, copySubtree, and single-element mutations) return error-severity issues, a warningCount scoped to the elements the write touched, and likely-typo warnings (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) on those elements. Other warnings and the full custom-utility token catalog are omitted to keep responses small.",
 		escalate: [
 			{
-				on: "applyDesignOperations and copySubtree",
-				how: 'Pass response: { includeWarnings: true } to include warnings (scoped to elements this write touched). Add warningScope: "file" for the whole design, and includeTokenDiagnostics: true for the full custom-utility catalog.',
+				on: "every write tool (applyDesignOperations, copySubtree, addElement, addSubtree, updateElementProps, …)",
+				how: 'Pass response: { includeWarnings: true } to include every warning in scope (elements this write touched). Add warningScope: "file" for the whole design, includeTokenDiagnostics: true for the full custom-utility catalog, or includeWarnings: false to drop even typo warnings.',
 			},
 			{
-				on: "single-element mutations (addElement, addSubtree, updateElementProps, …)",
-				how: "These always return error issues only. To inspect warnings or the token catalog after such a write, call validateDesignFile (supports includeTokenDiagnostics) or readDesignGraph.",
+				on: "after many writes",
+				how: "Call validateDesignFile (supports includeTokenDiagnostics) for the whole design's issue set.",
 			},
 		],
 		when: "Escalate when a write succeeds but you need to confirm token/class health, are debugging unexpected styling, or are about to hand off; otherwise keep the default to minimize tokens.",
@@ -4897,7 +4928,7 @@ export const createTrickroomMcpServer = (
    - For single mutations, use the 'revision' from step 2 as 'expectedRevision'.
    - For every SUBSEQUENT mutation, you MUST use the 'newRevision' returned by the previous successful tool call (revision chaining).
    - If a tool returns 'REVISION_MISMATCH', do NOT guess. Call 'listDesignFiles' again to get the current revision, then retry with the updated 'expectedRevision'.
-9. **Validate & Verify**: Write responses are minimal by default — they return only error-severity issues, not warnings or the token catalog. When you need to confirm token/class health after a write, either re-run the batch with 'response: { includeWarnings: true }' (add 'warningScope: "file"' and/or 'includeTokenDiagnostics: true' to widen) on 'applyDesignOperations'/'copySubtree', or call 'validateDesignFile' (supports 'includeTokenDiagnostics') for single-element writes. Confirm only the edited area with 'readElement' or bounded 'readSubtree' unless a broader read-back is explicitly necessary.`,
+9. **Validate & Verify**: Write responses are compact by default — error-severity issues, a 'warningCount', and likely-typo warnings (unknown Tailwind utilities or tokens) on the elements the write touched. Fix typo warnings immediately. When 'warningCount' is non-zero and you need the rest, pass 'response: { includeWarnings: true }' (add 'warningScope: "file"' and/or 'includeTokenDiagnostics: true' to widen) on any write tool, or call 'validateDesignFile' (supports 'includeTokenDiagnostics'). Confirm only the edited area with 'readElement' or bounded 'readSubtree' unless a broader read-back is explicitly necessary.`,
 					},
 				},
 			],
@@ -7679,7 +7710,7 @@ Workflow:
 			title: "Create Design File",
 			description:
 				"Create a new empty Trickroom design file with no boards. Add root boards afterwards with addElement/addRecipe/addSubtree using parentId: null — do not nest boards inside a wrapper layer. Pass systemName at creation when the design will use a specific system; omit systemName to inherit the project default system when configured, or pass null to explicitly create an unlinked design. Uses exclusive create semantics instead of expectedRevision because the file must not already exist.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				name: z.string().min(1).describe("Design file name."),
 				systemName: z
 					.string()
@@ -7703,7 +7734,7 @@ Workflow:
 				idempotentHint: false,
 			},
 		},
-		async ({ name, systemName, designFileId, project }) =>
+		async ({ name, systemName, designFileId, response, project }) =>
 			withProjectContext(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				const newDesignFileId = designFileId ?? randomUUID();
@@ -7807,7 +7838,11 @@ Workflow:
 							},
 							rootElementIds: write.design.boards.map((board) => board.id),
 							elementTree: write.design.boards.map(compactElementTree),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+							)),
 						});
 					},
 				);
@@ -7820,7 +7855,7 @@ Workflow:
 			title: "Extract Subtree",
 			description:
 				"Copy an element subtree into a new Trickroom design file with regenerated element IDs. The source design is not modified.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Source design file UUID."),
 				elementId: z
 					.string()
@@ -7861,6 +7896,7 @@ Workflow:
 			name,
 			systemName,
 			newDesignFileId,
+			response,
 			project,
 		}) =>
 			withProjectContext(project, async (context) => {
@@ -7994,7 +8030,11 @@ Workflow:
 							rootElementIds: write.design.boards.map((board) => board.id),
 							idMap: result.idMap,
 							elementTree: write.design.boards.map(compactElementTree),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+							)),
 						});
 					},
 				);
@@ -8007,7 +8047,7 @@ Workflow:
 			title: "Add Subtree",
 			description:
 				"Insert a candidate element or recipe subtree. Requires expectedRevision from a prior read.",
-			inputSchema: addSubtreePayloadSchema.extend(projectScopedInputSchema),
+			inputSchema: addSubtreePayloadSchema.extend(mutationScopedInputSchema),
 			annotations: {
 				...mutationAnnotations,
 				destructiveHint: false,
@@ -8021,6 +8061,7 @@ Workflow:
 			index,
 			subtree,
 			options,
+			response,
 			project,
 		}) => {
 			return withProjectContext(project, async (context) => {
@@ -8114,7 +8155,12 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								result.inserted.elementIds,
+							)),
 						});
 					},
 				);
@@ -8127,15 +8173,11 @@ Workflow:
 		{
 			title: "Copy Subtree",
 			description:
-				"Copy an existing source subtree into a target design. Requires expectedRevision for the target and sourceExpectedRevision for cross-file copies. The idMap of old->new element IDs is always returned; warnings and token diagnostics are minimal by default and opt-in via the response field.",
+				"Copy an existing source subtree into a target design. Requires expectedRevision for the target and sourceExpectedRevision for cross-file copies. The idMap of old->new element IDs is always returned; responses include warningCount and likely-typo warnings on the inserted subtree by default, with more via the response field.",
 			inputSchema: validateCopySubtreePayloadSchema
 				.extend(projectScopedInputSchema)
 				.extend({
-					response: mutationResponseOptionsSchema
-						.optional()
-						.describe(
-							'Response verbosity controls. Minimal by default: only error-severity issues are returned. Set includeWarnings to surface warnings (scoped to the inserted subtree unless warningScope:"file"), and includeTokenDiagnostics to include the full custom-utility catalog.',
-						),
+					response: mutationResponseInputSchema,
 				}),
 			annotations: {
 				...mutationAnnotations,
@@ -8356,7 +8398,7 @@ Workflow:
 			title: "Rename Design File",
 			description:
 				"Rename a design file by updating its design-level name. Requires expectedRevision from a prior read.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -8368,7 +8410,7 @@ Workflow:
 			}),
 			annotations: destructiveMutationAnnotations,
 		},
-		async ({ designFileId, expectedRevision, name, project }) => {
+		async ({ designFileId, expectedRevision, name, response, project }) => {
 			return withProjectContext(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				return withMutationErrorHandling(
@@ -8435,7 +8477,12 @@ Workflow:
 								),
 								revision: write.revision,
 							},
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								[],
+							)),
 						});
 					},
 				);
@@ -8448,7 +8495,7 @@ Workflow:
 		{
 			title: "Apply Design Operations",
 			description:
-				"Validate and commit an ordered list of design operations atomically against one expectedRevision. Performs exactly one persisted write when the full plan is valid and the starting revision still matches. Responses are minimal by default (error-severity issues only); use the response field to opt into warnings and token diagnostics.",
+				"Validate and commit an ordered list of design operations atomically against one expectedRevision. Performs exactly one persisted write when the full plan is valid and the starting revision still matches. Responses are compact by default: newRevision, per-step created ids (changedElementId, idMap for addSubtree tempIds, recipe roots), error issues, warningCount, and likely-typo warnings on touched elements; use the response field for all warnings, token diagnostics, or full step details.",
 			inputSchema: withProjectScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
@@ -8480,11 +8527,7 @@ Workflow:
 					)
 					.min(1)
 					.describe("Ordered design operations to commit."),
-				response: mutationResponseOptionsSchema
-					.optional()
-					.describe(
-						'Response verbosity controls. Minimal by default: only error-severity issues are returned. Set includeWarnings to surface warnings (scoped to affected elements unless warningScope:"file"), and includeTokenDiagnostics to include the full custom-utility catalog.',
-					),
+				response: mutationResponseInputSchema,
 			}),
 			annotations: {
 				...mutationAnnotations,
@@ -8553,7 +8596,7 @@ Workflow:
 			title: "Add Element",
 			description:
 				"Create a new registry element inside a design file. Requires expectedRevision from a prior read.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -8624,6 +8667,7 @@ Workflow:
 			className,
 			text,
 			props,
+			response,
 			project,
 		}) => {
 			return withProjectContext(project, async (context) => {
@@ -8712,7 +8756,12 @@ Workflow:
 							newRevision: write.revision,
 							changedElement: element,
 							context: elementContext,
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								[result.changedElementId],
+							)),
 						});
 					},
 				);
@@ -8726,7 +8775,7 @@ Workflow:
 			title: "Add Recipe",
 			description:
 				"Expand a built-in registry recipe into attached design elements. Requires expectedRevision from a prior read.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -8749,6 +8798,7 @@ Workflow:
 			index,
 			library,
 			recipe,
+			response,
 			project,
 		}) => {
 			return withProjectContext(project, async (context) => {
@@ -8833,7 +8883,12 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								Object.values(result.elementIdsByPath),
+							)),
 						});
 					},
 				);
@@ -8847,7 +8902,7 @@ Workflow:
 			title: "Add System Component",
 			description:
 				"Insert a published design-system component instance into a design file. Requires expectedRevision from a prior read.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -8874,6 +8929,7 @@ Workflow:
 			variantValues,
 			unsetVariantAxes,
 			overrides,
+			response,
 			project,
 		}) => {
 			return withProjectContext(project, async (context) => {
@@ -8976,7 +9032,12 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								Object.values(result.elementIdsByPath),
+							)),
 						});
 					},
 				);
@@ -8990,7 +9051,7 @@ Workflow:
 			title: "Update System Component Instance",
 			description:
 				"Update variant values, clear variant axes, and/or override classNames on an attached system component root. Component marker props cannot be edited through generic element tools.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -9013,6 +9074,7 @@ Workflow:
 			variantValues,
 			unsetVariantAxes,
 			overrides,
+			response,
 			project,
 		}) => {
 			return withProjectContext(project, async (context) => {
@@ -9106,7 +9168,12 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								getSubtreeElementIds(write.design, result.rootElementId),
+							)),
 						});
 					},
 				);
@@ -9120,7 +9187,7 @@ Workflow:
 			title: "Migrate System Component Instance",
 			description:
 				"Migrate one stale attached system component instance to the current published version using the same guarded domain rules as the UI. Blocked unsafe migrations are rejected. Review-required migrations are not written unless onlySafe is false.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -9157,6 +9224,7 @@ Workflow:
 			rootElementId,
 			onlySafe,
 			dryRun,
+			response,
 			project,
 		}) => {
 			return withProjectContext(project, async (context) => {
@@ -9282,7 +9350,12 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								getSubtreeElementIds(write.design, result.rootElementId),
+							)),
 						});
 					},
 				);
@@ -9389,7 +9462,7 @@ Workflow:
 			title: "Detach System Component",
 			description:
 				"Detach the attached system component instance containing the target element. Removes component marker props from the whole instance so former structural nodes can be mutated normally.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -9401,7 +9474,13 @@ Workflow:
 			}),
 			annotations: destructiveMutationAnnotations,
 		},
-		async ({ designFileId, expectedRevision, elementId, project }) => {
+		async ({
+			designFileId,
+			expectedRevision,
+			elementId,
+			response,
+			project,
+		}) => {
 			return withProjectContext(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				return withMutationErrorHandling(
@@ -9486,7 +9565,12 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								result.detachedElementIds,
+							)),
 						});
 					},
 				);
@@ -9500,7 +9584,7 @@ Workflow:
 			title: "Update Element Props",
 			description:
 				"Update allowed instance props on a design element: name, className, and/or registry-backed control props. Registry-reference props (library, component, role) cannot be changed.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -9551,6 +9635,7 @@ Workflow:
 			className,
 			props,
 			propUpdates,
+			response,
 			project,
 		}) => {
 			return withProjectContext(project, async (context) => {
@@ -9634,7 +9719,12 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								[result.changedElementId],
+							)),
 						});
 					},
 				);
@@ -9648,7 +9738,7 @@ Workflow:
 			title: "Update Recipe Control",
 			description:
 				"Update a declared recipe-level control by attached recipe instance ID and template path. This keeps the recipe attached and rejects undeclared structural props.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -9667,6 +9757,7 @@ Workflow:
 			path,
 			prop,
 			value,
+			response,
 			project,
 		}) => {
 			return withProjectContext(project, async (context) => {
@@ -9750,7 +9841,12 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								[result.changedElementId],
+							)),
 						});
 					},
 				);
@@ -9764,7 +9860,7 @@ Workflow:
 			title: "Update Recipe Instance",
 			description:
 				"Explicitly migrate a stale attached recipe instance to the current registry recipe template while preserving mutable settings and safely mapped authored slot contents.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -9776,7 +9872,13 @@ Workflow:
 			}),
 			annotations: destructiveMutationAnnotations,
 		},
-		async ({ designFileId, expectedRevision, elementId, project }) => {
+		async ({
+			designFileId,
+			expectedRevision,
+			elementId,
+			response,
+			project,
+		}) => {
 			return withProjectContext(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				return withMutationErrorHandling(
@@ -9848,7 +9950,12 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								getSubtreeElementIds(write.design, result.changedElementId),
+							)),
 						});
 					},
 				);
@@ -9862,7 +9969,7 @@ Workflow:
 			title: "Update Element Text",
 			description:
 				"Update the text content of a text role element. Only valid for elements with role 'text'.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -9878,7 +9985,14 @@ Workflow:
 			}),
 			annotations: destructiveMutationAnnotations,
 		},
-		async ({ designFileId, expectedRevision, elementId, text, project }) => {
+		async ({
+			designFileId,
+			expectedRevision,
+			elementId,
+			text,
+			response,
+			project,
+		}) => {
 			return withProjectContext(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				return withMutationErrorHandling(
@@ -9949,7 +10063,12 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								[result.changedElementId],
+							)),
 						});
 					},
 				);
@@ -9963,7 +10082,7 @@ Workflow:
 			title: "Move Element",
 			description:
 				"Move a design element to a new parent or position. Rejects cycles, non-branch parents, and missing targets.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -9995,6 +10114,7 @@ Workflow:
 			elementId,
 			targetParentId,
 			index,
+			response,
 			project,
 		}) => {
 			return withProjectContext(project, async (context) => {
@@ -10076,7 +10196,12 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								[result.changedElementId],
+							)),
 						});
 					},
 				);
@@ -10090,7 +10215,7 @@ Workflow:
 			title: "Delete Element",
 			description:
 				"Delete a design element and all its descendants. This operation cannot be undone.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -10102,7 +10227,13 @@ Workflow:
 			}),
 			annotations: destructiveMutationAnnotations,
 		},
-		async ({ designFileId, expectedRevision, elementId, project }) => {
+		async ({
+			designFileId,
+			expectedRevision,
+			elementId,
+			response,
+			project,
+		}) => {
 			return withProjectContext(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				return withMutationErrorHandling(
@@ -10176,7 +10307,12 @@ Workflow:
 								parentId: originalContext?.parentId ?? null,
 								parentContext: parentSiblings,
 							},
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								[],
+							)),
 						});
 					},
 				);
@@ -10190,7 +10326,7 @@ Workflow:
 			title: "Detach Recipe Instance",
 			description:
 				"Detach the attached recipe instance containing the target structural element. Removes recipe marker props from the whole instance so former structural nodes can be mutated normally.",
-			inputSchema: withProjectScopedInput({
+			inputSchema: withMutationScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z
 					.string()
@@ -10202,7 +10338,13 @@ Workflow:
 			}),
 			annotations: destructiveMutationAnnotations,
 		},
-		async ({ designFileId, expectedRevision, elementId, project }) => {
+		async ({
+			designFileId,
+			expectedRevision,
+			elementId,
+			response,
+			project,
+		}) => {
 			return withProjectContext(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				return withMutationErrorHandling(
@@ -10278,7 +10420,12 @@ Workflow:
 								result.design,
 								result.changedElementId,
 							),
-							...(await getMutationDiagnostics(context, write.design)),
+							...(await getMutationDiagnostics(
+								context,
+								write.design,
+								response,
+								result.detachedElementIds,
+							)),
 						});
 					},
 				);

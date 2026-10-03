@@ -378,7 +378,8 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			],
 		});
 
-		// Default: error-severity issues only, no warnings, no heavy token catalog.
+		// Default: error issues, a warning count, and typo warnings (unknown
+		// tokens/utilities) on touched elements only; no heavy token catalog.
 		const defaultRevision = await getRevision(session);
 		const defaultResult = await session.client.callTool({
 			name: "applyDesignOperations",
@@ -390,8 +391,14 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 		expect(defaultResult.structuredContent).toMatchObject({
 			status: "success",
+			warningCount: expect.any(Number),
+			warnings: [
+				expect.objectContaining({
+					code: "UNKNOWN_COLOR_TOKEN",
+					token: "also-missing-500",
+				}),
+			],
 		});
-		expect(defaultResult.structuredContent).not.toHaveProperty("warnings");
 		// applyDesignOperations omits token diagnostics entirely unless requested.
 		expect(defaultResult.structuredContent).not.toHaveProperty(
 			"tokenDiagnostics",

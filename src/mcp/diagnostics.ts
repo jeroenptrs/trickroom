@@ -68,12 +68,17 @@ export type DesignDiagnostics = {
 
 /**
  * Verbosity controls for write/mutation tool responses. Defaults are minimal:
- * only error-severity issues are returned, warnings and the heavy custom-utility
- * token catalog are omitted unless explicitly opted into. Escalate per call when
- * a write reports issues you need to inspect.
+ * error-severity issues, a `warningCount`, and only the "likely typo" warnings
+ * (unknown Tailwind utilities and unknown tokens) on elements this write
+ * touched. Other warnings and the heavy custom-utility token catalog are
+ * omitted unless explicitly opted into.
  */
 export type MutationResponseOptions = {
-	/** Include warning-severity diagnostics. Defaults to false. */
+	/**
+	 * Include all warning-severity diagnostics. When omitted, only likely-typo
+	 * warnings are returned; pass false to omit warnings entirely (the count is
+	 * still returned).
+	 */
 	includeWarnings?: boolean;
 	/**
 	 * When warnings are included, "affected" (default) limits them to elements
@@ -85,7 +90,18 @@ export type MutationResponseOptions = {
 	 * false; the lightweight token snapshot metadata is always retained.
 	 */
 	includeTokenDiagnostics?: boolean;
+	/** applyDesignOperations only: return full per-step summaries. */
+	includeStepDetails?: boolean;
 };
+
+/**
+ * Warning codes that almost always mean a typo in a class name: Tailwind
+ * cannot emit the utility, or the utility references a token the linked
+ * system does not define. These surface on writes by default.
+ */
+export const isLikelyTypoWarning = (issue: McpDesignIssue) =>
+	issue.code === "UNKNOWN_TAILWIND_UTILITY" ||
+	/^UNKNOWN_[A-Z_]+_TOKEN$/u.test(issue.code);
 
 /**
  * Drop the heavy `customUtilities` catalog from a token snapshot unless the
@@ -115,15 +131,18 @@ export const stripHeavyTokenDiagnostics = <
 export type ShapedMutationDiagnostics = {
 	issues: McpDesignIssue[];
 	warnings?: McpDesignIssue[];
+	warningCount: number;
 	tokenDiagnostics: unknown;
 };
 
 /**
  * Shape a full design diagnostics result for a write response according to the
- * minimal-default contract. Always returns error-severity `issues` and a
- * (stripped-by-default) `tokenDiagnostics`; only attaches `warnings` when
- * `includeWarnings` is set, scoped to `affectedElementIds` unless the caller
- * requests `warningScope: "file"`.
+ * minimal-default contract. Always returns error-severity `issues`, a
+ * `warningCount` for the warning scope, and a (stripped-by-default)
+ * `tokenDiagnostics`. Warnings are scoped to `affectedElementIds` unless the
+ * caller requests `warningScope: "file"` (or passes no affected ids). By
+ * default only likely-typo warnings are attached; `includeWarnings: true`
+ * attaches all of them and `includeWarnings: false` none.
  */
 export const shapeMutationDiagnostics = (
 	diagnostics: { issues: McpDesignIssue[]; tokenSnapshot: unknown },
@@ -131,29 +150,39 @@ export const shapeMutationDiagnostics = (
 	affectedElementIds?: Iterable<string>,
 ): ShapedMutationDiagnostics => {
 	const opts = options ?? {};
+	const allWarnings = diagnostics.issues.filter(
+		(issue) => issue.severity === "warning",
+	);
+	let scopedWarnings = allWarnings;
+	if (opts.warningScope !== "file" && affectedElementIds !== undefined) {
+		const affected = new Set(affectedElementIds);
+		// File-level warnings without an elementId (e.g. review-required,
+		// recipe diagnostics) are always in scope; element-bound warnings are
+		// limited to elements this write touched.
+		scopedWarnings = allWarnings.filter(
+			(warning) =>
+				warning.elementId === undefined || affected.has(warning.elementId),
+		);
+	}
+
 	const shaped: ShapedMutationDiagnostics = {
 		issues: diagnostics.issues.filter((issue) => issue.severity === "error"),
+		warningCount: scopedWarnings.length,
 		tokenDiagnostics: stripHeavyTokenDiagnostics(
 			diagnostics.tokenSnapshot as { customUtilities?: unknown } | null,
 			opts.includeTokenDiagnostics ?? false,
 		),
 	};
 
-	if (opts.includeWarnings) {
-		const warnings = diagnostics.issues.filter(
-			(issue) => issue.severity === "warning",
+	if (opts.includeWarnings === true) {
+		shaped.warnings = scopedWarnings;
+	} else if (opts.includeWarnings === undefined) {
+		const typoWarnings = scopedWarnings.filter(
+			(warning) =>
+				warning.elementId !== undefined && isLikelyTypoWarning(warning),
 		);
-		if (opts.warningScope === "file" || affectedElementIds === undefined) {
-			shaped.warnings = warnings;
-		} else {
-			const affected = new Set(affectedElementIds);
-			// File-level warnings without an elementId (e.g. review-required,
-			// recipe diagnostics) are always surfaced; element-bound warnings are
-			// limited to elements this write touched.
-			shaped.warnings = warnings.filter(
-				(warning) =>
-					warning.elementId === undefined || affected.has(warning.elementId),
-			);
+		if (typoWarnings.length > 0) {
+			shaped.warnings = typoWarnings;
 		}
 	}
 

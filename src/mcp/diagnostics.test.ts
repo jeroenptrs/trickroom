@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { TrickroomDesign } from "../types";
 import {
+	isLikelyTypoWarning,
+	type McpDesignIssue,
+	shapeMutationDiagnostics,
+} from "./diagnostics";
+import {
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
@@ -281,7 +286,7 @@ describe("MCP expanded class/token diagnostics", () => {
 		);
 	});
 
-	it("omits warnings from single-element writes and surfaces them via validateDesignFile", async () => {
+	it("returns typo warnings and a warning count from single-element writes", async () => {
 		const { session } = await createSession({
 			designs: {
 				[trickroomMcpTestDesignUuid]: {
@@ -330,12 +335,56 @@ describe("MCP expanded class/token diagnostics", () => {
 			},
 		});
 
-		// Minimal-default contract: single-element writes echo only error-severity
-		// issues, never warnings. Diagnostics are reachable via validateDesignFile.
+		// Default contract: likely-typo warnings (unknown tokens/utilities) on the
+		// touched element are returned; other warnings are only counted.
 		expect(mutationResult.structuredContent).toMatchObject({
 			status: "success",
+			warningCount: 2,
+			warnings: [
+				expect.objectContaining({
+					code: "UNKNOWN_FONT_TOKEN",
+					token: "missing",
+					elementId: "board",
+				}),
+			],
 		});
-		expect(mutationResult.structuredContent).not.toHaveProperty("warnings");
+
+		// includeWarnings: true returns every warning in scope.
+		const allWarningsResult = await session.client.callTool({
+			name: "updateElementProps",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				expectedRevision: await getRevision(session),
+				elementId: "board",
+				className: "font-missing rounded-[2rem]",
+				response: { includeWarnings: true },
+			},
+		});
+		const allWarnings = allWarningsResult.structuredContent as {
+			warnings: Array<{ code: string }>;
+			warningCount: number;
+		};
+		expect(allWarnings.warningCount).toBe(2);
+		expect(allWarnings.warnings.map((warning) => warning.code).sort()).toEqual([
+			"OUT_OF_SYSTEM_RADIUS",
+			"UNKNOWN_FONT_TOKEN",
+		]);
+
+		// includeWarnings: false drops the list but keeps the count.
+		const noWarningsResult = await session.client.callTool({
+			name: "updateElementProps",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				expectedRevision: await getRevision(session),
+				elementId: "board",
+				className: "font-missing rounded-[2rem]",
+				response: { includeWarnings: false },
+			},
+		});
+		expect(noWarningsResult.structuredContent).toMatchObject({
+			warningCount: 2,
+		});
+		expect(noWarningsResult.structuredContent).not.toHaveProperty("warnings");
 
 		const validateResult = await session.client.callTool({
 			name: "validateDesignFile",
@@ -455,5 +504,76 @@ describe("MCP expanded class/token diagnostics", () => {
 				expect.objectContaining({ code: "UNKNOWN_TAILWIND_UTILITY" }),
 			]),
 		);
+	});
+});
+
+describe("shapeMutationDiagnostics", () => {
+	const issues: McpDesignIssue[] = [
+		{
+			severity: "error",
+			code: "UNKNOWN_ICON_ID",
+			message: "e",
+			elementId: "a",
+		},
+		{
+			severity: "warning",
+			code: "UNKNOWN_TAILWIND_UTILITY",
+			message: "typo on touched",
+			elementId: "a",
+		},
+		{
+			severity: "warning",
+			code: "OUT_OF_SYSTEM_COLOR",
+			message: "arbitrary on touched",
+			elementId: "a",
+		},
+		{
+			severity: "warning",
+			code: "UNKNOWN_SPACING_TOKEN",
+			message: "typo elsewhere",
+			elementId: "b",
+		},
+		{
+			severity: "warning",
+			code: "DESIGN_SYSTEM_REVIEW_REQUIRED",
+			message: "file level",
+		},
+	];
+	const diagnostics = { issues, tokenSnapshot: null };
+
+	it("classifies unknown utilities and unknown tokens as likely typos", () => {
+		expect(
+			issues.filter(isLikelyTypoWarning).map((issue) => issue.code),
+		).toEqual(["UNKNOWN_TAILWIND_UTILITY", "UNKNOWN_SPACING_TOKEN"]);
+	});
+
+	it("returns touched-element typo warnings and an affected-scope count by default", () => {
+		const shaped = shapeMutationDiagnostics(diagnostics, undefined, ["a"]);
+		expect(shaped.issues.map((issue) => issue.code)).toEqual([
+			"UNKNOWN_ICON_ID",
+		]);
+		expect(shaped.warningCount).toBe(3);
+		expect(shaped.warnings?.map((warning) => warning.message)).toEqual([
+			"typo on touched",
+		]);
+	});
+
+	it("omits the warnings key when nothing touched has a typo", () => {
+		const shaped = shapeMutationDiagnostics(diagnostics, undefined, []);
+		expect(shaped.warningCount).toBe(1);
+		expect(shaped).not.toHaveProperty("warnings");
+	});
+
+	it("widens count and typo warnings to the file with warningScope file", () => {
+		const shaped = shapeMutationDiagnostics(
+			diagnostics,
+			{ warningScope: "file" },
+			["a"],
+		);
+		expect(shaped.warningCount).toBe(4);
+		expect(shaped.warnings?.map((warning) => warning.message)).toEqual([
+			"typo on touched",
+			"typo elsewhere",
+		]);
 	});
 });
