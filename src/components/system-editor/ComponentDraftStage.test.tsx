@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
 import {
 	MATERIALIZED_BASE_CLASS_PROP,
 	resolveRegistryComponent,
@@ -13,7 +14,24 @@ import {
 	setComponentDraftStyleTarget,
 } from "../../stores/component-draft-store";
 import { FIXTURE_COMPONENT_ID } from "../../utils/system-component-test-fixtures";
-import { getComponentDraftPreviewRenderableProps } from "./ComponentDraftStage";
+import {
+	getComponentDraftPreviewRenderableProps,
+	SerializedDraftNode,
+} from "./ComponentDraftStage";
+
+// Every registry component currently has a renderer; pretend meter.track has
+// none so the draft stage's placeholder path is exercised.
+vi.mock("../../libraries/render-registry", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../libraries/render-registry")>();
+	return {
+		...actual,
+		resolveRenderableRegistryComponent: (library: string, component: string) =>
+			component === "meter.track"
+				? { status: "unknown-component", library, component }
+				: actual.resolveRenderableRegistryComponent(library, component),
+	};
+});
 
 const separatorBaseClassName =
 	"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full";
@@ -187,5 +205,41 @@ describe("ComponentDraftStage", () => {
 		expect(props.className).toContain("h-6");
 		expect(props.className).toContain("text-blue-600");
 		expect(props.className).toContain("ring-2");
+	});
+
+	it("renders the missing-renderer placeholder for registry components without a renderer", () => {
+		resetComponentDraftStore();
+		hydrateComponentDraft({
+			componentId: FIXTURE_COMPONENT_ID,
+			root: {
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				children: [
+					{
+						path: "ghost",
+						library: "base-ui",
+						component: "meter.track",
+						children: [
+							{
+								path: "ghost-text",
+								library: "trickroom",
+								component: "text",
+								text: "Still visible",
+							},
+						],
+					},
+				],
+			},
+		});
+
+		const html = renderToStaticMarkup(<SerializedDraftNode path="root" />);
+
+		expect(html).toContain(
+			'data-trickroom-missing-renderer="base-ui/meter.track"',
+		);
+		expect(html).toContain("No renderer for base-ui/meter.track");
+		expect(html).toContain('data-component-draft-path="ghost"');
+		expect(html).toContain("Still visible");
 	});
 });
