@@ -4716,6 +4716,80 @@ describe("MCP mutation tools", () => {
 			}
 		});
 
+		it("returns a compact applyDesignOperations result with created ids", async () => {
+			const { session } = await setup();
+			try {
+				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
+				const result = await session.client.callTool({
+					name: "applyDesignOperations",
+					arguments: {
+						designFileId: trickroomMcpTestDesignUuid,
+						expectedRevision: revision,
+						operations: [
+							{
+								operation: "addSubtree",
+								parameters: {
+									parentId: "board",
+									index: 1,
+									subtree: {
+										tempId: "card",
+										library: "trickroom",
+										component: "container",
+										children: [
+											{
+												tempId: "label",
+												library: "trickroom",
+												component: "text",
+												text: "Label",
+											},
+										],
+									},
+								},
+							},
+						],
+					},
+				});
+
+				expect(result.isError).toBeFalsy();
+				const content = result.structuredContent as Record<string, unknown> & {
+					steps: Array<Record<string, unknown>>;
+					project: Record<string, unknown>;
+				};
+				expect(content).toMatchObject({
+					status: "success",
+					designFileId: trickroomMcpTestDesignUuid,
+					newRevision: expect.stringMatching(/^sha256:/),
+					steps: [
+						{
+							stepIndex: 0,
+							operation: "addSubtree",
+							changedElementId: expect.any(String),
+							idMap: {
+								card: expect.any(String),
+								label: expect.any(String),
+							},
+						},
+					],
+				});
+				expect(content.steps[0].idMap).toMatchObject({
+					card: content.steps[0].changedElementId,
+				});
+				expect(content.steps[0]).not.toHaveProperty("summary");
+				expect(content).not.toHaveProperty("insertedElementIds");
+				expect(content).not.toHaveProperty("recipeExpansions");
+				expect(content).not.toHaveProperty("designFile");
+				expect(content.project).not.toHaveProperty("projectRoot");
+
+				const text = (
+					result.content as Array<{ type: string; text: string }>
+				)[0].text;
+				expect(text).not.toContain("\n");
+				expect(JSON.parse(text)).toEqual(content);
+			} finally {
+				await session.close();
+			}
+		});
+
 		it("commits a valid plan with one revision change", async () => {
 			const { fixture, session } = await setup();
 			try {

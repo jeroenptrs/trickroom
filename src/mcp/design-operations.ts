@@ -37,12 +37,12 @@ import {
 	getComponentRef as getGovernanceComponentRef,
 	type McpPolicy,
 } from "./governance";
-import { systemComponentInstanceOverridesSchema } from "./system-component-schemas";
 import {
 	addSubtreeOptionsSchema,
 	proposedSubtreeNodeSchema,
 	validateCopySubtreeOptionsSchema,
 } from "./subtree-schemas";
+import { systemComponentInstanceOverridesSchema } from "./system-component-schemas";
 
 export const designOperationNameSchema = z.enum([
 	"renameDesignFile",
@@ -71,6 +71,8 @@ export type DryRunResult = {
 	deletedIds?: string[];
 	insertedElementIds?: string[];
 	recipeExpansions?: unknown[];
+	/** Generated ids keyed by addSubtree tempId, or by source id for copySubtree. */
+	idMap?: Record<string, string>;
 	summary: Record<string, unknown>;
 };
 
@@ -951,6 +953,7 @@ export const applyDryRunOperation = async (
 				changedElementId: result.changedElementId,
 				insertedElementIds: result.inserted.elementIds,
 				recipeExpansions: result.recipeExpansions,
+				idMap: result.idMap,
 				summary: {
 					parentId,
 					index,
@@ -1029,6 +1032,7 @@ export const applyDryRunOperation = async (
 				design: result.design,
 				changedElementId: result.changedElementId,
 				insertedElementIds: result.inserted.elementIds,
+				idMap: result.idMap,
 				summary: {
 					sourceDesignFileId,
 					sourceElementId,

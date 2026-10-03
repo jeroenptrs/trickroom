@@ -205,6 +205,7 @@ import {
 } from "./governance";
 import {
 	applyOperationPlan,
+	compactApplyOperationPlanResult,
 	createOperationPlanDependencies,
 	executeOperationPlanDryRun,
 	mutationResponseOptionsSchema,
@@ -654,7 +655,7 @@ const createJsonResult = (
 	content: [
 		{
 			type: "text",
-			text: options.text ?? JSON.stringify(payload, null, 2),
+			text: options.text ?? JSON.stringify(payload),
 		},
 	],
 	structuredContent: payload,
@@ -711,11 +712,19 @@ const createProjectInfoResult = async (context: TrickroomMcpServerContext) => {
 	return createJsonResult(payload);
 };
 
-const getProjectReference = (context: TrickroomMcpServerContext) => ({
+// Full project block: only returned by project-orientation tools (selection,
+// registration, resolution). Every other tool response carries the compact
+// reference below so responses do not repeat paths and names on each call.
+const getProjectDetails = (context: TrickroomMcpServerContext) => ({
 	projectId: context.config.projectId ?? null,
 	locationId: context.locationId ?? null,
 	projectRoot: context.projectRoot,
 	name: context.config.name,
+});
+
+const getProjectReference = (context: TrickroomMcpServerContext) => ({
+	projectId: context.config.projectId ?? null,
+	locationId: context.locationId ?? null,
 });
 
 const getDesignResourceLocationId = (context: TrickroomMcpServerContext) =>
@@ -3142,9 +3151,7 @@ const listDesignFilesPayload = async (context: TrickroomMcpServerContext) => {
 	);
 
 	return {
-		project: getProjectReference(context),
-		projectName: context.config.name,
-		projectRoot: context.projectRoot,
+		project: getProjectDetails(context),
 		governance: getGovernanceSummary(policy),
 		designFiles: decoratedDesignFiles,
 	};
@@ -3162,7 +3169,7 @@ const toDesignFileResources = (
 
 	return payload.designFiles.map((designFile) => {
 		const slug = slugifyDesignTitle(designFile.name) || "design";
-		const projectLabel = `${payload.projectName} (${locationId})`;
+		const projectLabel = `${payload.project.name} (${locationId})`;
 
 		return {
 			uri: buildDesignResourceUri(locationId, designFile.id, slug),
@@ -4138,7 +4145,15 @@ export const applyDesignOperationsPayload = async (
 	context: TrickroomMcpServerContext,
 	input: z.infer<typeof operationPlanInputSchema>,
 ) => {
-	return applyOperationPlan(createOperationPlanHooks(context), input);
+	const result = await applyOperationPlan(
+		createOperationPlanHooks(context),
+		input,
+	);
+	return {
+		status: result.status,
+		valid: result.valid,
+		payload: compactApplyOperationPlanResult(result, input),
+	};
 };
 
 type ValidateSubtreePayload = z.infer<typeof validateSubtreePayloadSchema>;
@@ -4656,7 +4671,7 @@ export const createTrickroomMcpServer = (
 						{
 							uri,
 							mimeType: "application/json",
-							text: JSON.stringify(payload, null, 2),
+							text: JSON.stringify(payload),
 						},
 					],
 				};
@@ -4695,7 +4710,7 @@ export const createTrickroomMcpServer = (
 			governance: getGovernanceSummary(policy),
 		};
 		return {
-			content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+			content: [{ type: "text", text: JSON.stringify(payload) }],
 			structuredContent: payload,
 			isError: true,
 		};
@@ -4715,7 +4730,7 @@ export const createTrickroomMcpServer = (
 			...details,
 		};
 		return {
-			content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+			content: [{ type: "text", text: JSON.stringify(payload) }],
 			structuredContent: payload,
 			isError: true,
 		};
@@ -4742,7 +4757,7 @@ export const createTrickroomMcpServer = (
 			...error.details,
 		};
 		return {
-			content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+			content: [{ type: "text", text: JSON.stringify(payload) }],
 			structuredContent: payload,
 			isError: true,
 		};
@@ -4785,14 +4800,14 @@ export const createTrickroomMcpServer = (
 		projectResolver.setDefaultContext(context);
 		await notifyResourceListChanged();
 		return createJsonResult({
-			project: getProjectReference(context),
+			project: getProjectDetails(context),
 			selected: true,
 		});
 	};
 
 	const createGetSelectedProjectResult = () =>
 		createJsonResult({
-			project: selectedContext ? getProjectReference(selectedContext) : null,
+			project: selectedContext ? getProjectDetails(selectedContext) : null,
 		});
 
 	const withProjectContext = async (
@@ -5198,7 +5213,7 @@ Workflow:
 				await registerProjectFromPath(projectPath);
 			await notifyResourceListChanged();
 			return createJsonResult({
-				project: getProjectReference(context),
+				project: getProjectDetails(context),
 				selected: false,
 				active: isRegistryActive,
 				migration:
@@ -5298,7 +5313,7 @@ Workflow:
 					...(projectId ? { projectId } : {}),
 				});
 				return createJsonResult({
-					project: getProjectReference(context),
+					project: getProjectDetails(context),
 				});
 			} catch (error) {
 				if (error instanceof TrickroomMcpProjectResolverError) {
@@ -5329,7 +5344,7 @@ Workflow:
 			const { context } = await registerProjectFromPath(projectPath);
 			await selectProjectFromRef({ locationId: context.locationId });
 			return createJsonResult({
-				project: getProjectReference(context),
+				project: getProjectDetails(context),
 				selected: true,
 				active: true,
 				migration:
@@ -5620,7 +5635,7 @@ Workflow:
 			};
 			result = {
 				content: [
-					{ type: "text", text: JSON.stringify(payload, null, 2) },
+					{ type: "text", text: JSON.stringify(payload) },
 					{ type: "image", mimeType: "image/png", data: base64 },
 				],
 				structuredContent: payload,
@@ -7558,7 +7573,7 @@ Workflow:
 			suggestedReads: ["readDesignFile", "readElement"],
 		};
 		return {
-			content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+			content: [{ type: "text", text: JSON.stringify(payload) }],
 			structuredContent: payload,
 			isError: true,
 		};
@@ -7575,7 +7590,7 @@ Workflow:
 			message: error.message,
 		};
 		return {
-			content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+			content: [{ type: "text", text: JSON.stringify(payload) }],
 			structuredContent: payload,
 			isError: true,
 		};
@@ -8187,7 +8202,7 @@ Workflow:
 								content: [
 									{
 										type: "text",
-										text: JSON.stringify(invalidPayload, null, 2),
+										text: JSON.stringify(invalidPayload),
 									},
 								],
 								structuredContent: invalidPayload,
@@ -8495,31 +8510,32 @@ Workflow:
 					async () => {
 						assertCanWriteDesignFile(policy, designFileId);
 						try {
-							const result = await applyDesignOperationsPayload(context, {
-								designFileId,
-								expectedRevision,
-								operations,
-								response,
-								project,
-							});
+							const { status, valid, payload } =
+								await applyDesignOperationsPayload(context, {
+									designFileId,
+									expectedRevision,
+									operations,
+									response,
+									project,
+								});
 							if (
-								result.status === "invalid" ||
-								result.status === "REVISION_MISMATCH" ||
-								result.status === "SOURCE_REVISION_MISMATCH" ||
-								(result.status === "success" && result.valid === false)
+								status === "invalid" ||
+								status === "REVISION_MISMATCH" ||
+								status === "SOURCE_REVISION_MISMATCH" ||
+								(status === "success" && valid === false)
 							) {
 								return {
 									content: [
 										{
 											type: "text",
-											text: JSON.stringify(result, null, 2),
+											text: JSON.stringify(payload),
 										},
 									],
-									structuredContent: result,
+									structuredContent: payload,
 									isError: true,
 								};
 							}
-							return createJsonResult(result);
+							return createJsonResult(payload);
 						} catch (error) {
 							if (error instanceof DesignTransformError) {
 								return createInvalidOperationResult(context, error);

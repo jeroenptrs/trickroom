@@ -40,6 +40,12 @@ export const mutationResponseOptionsSchema = z
 		includeWarnings: z.boolean().optional(),
 		warningScope: z.enum(["affected", "file"]).optional(),
 		includeTokenDiagnostics: z.boolean().optional(),
+		includeStepDetails: z
+			.boolean()
+			.optional()
+			.describe(
+				"applyDesignOperations only: return full per-step summaries and aggregate changed/inserted id lists instead of the compact per-step result.",
+			),
 	})
 	.strict();
 
@@ -62,6 +68,7 @@ export type OperationPlanStepOutput = {
 	deletedIds?: string[];
 	insertedElementIds?: string[];
 	recipeExpansions?: unknown[];
+	idMap?: Record<string, string>;
 };
 
 export type OperationPlanResult = {
@@ -510,6 +517,9 @@ export const executeOperationPlanDryRun = async (
 				...(result.recipeExpansions
 					? { recipeExpansions: result.recipeExpansions }
 					: {}),
+				...(result.idMap && Object.keys(result.idMap).length > 0
+					? { idMap: result.idMap }
+					: {}),
 			};
 			steps.push(stepOutput);
 
@@ -683,5 +693,103 @@ export const createOperationPlanDependencies = (
 			});
 			return { revision: write.revision };
 		},
+	};
+};
+
+type CompactRecipeExpansion = {
+	tempId?: string;
+	recipeId?: string;
+	rootElementId?: string;
+};
+
+const compactRecipeExpansions = (step: OperationPlanStepOutput) => {
+	const recipes: CompactRecipeExpansion[] = [];
+	for (const expansion of step.recipeExpansions ?? []) {
+		if (typeof expansion !== "object" || expansion === null) continue;
+		const entry = expansion as Record<string, unknown>;
+		recipes.push({
+			...(typeof entry.tempId === "string" ? { tempId: entry.tempId } : {}),
+			...(typeof entry.recipeId === "string"
+				? { recipeId: entry.recipeId }
+				: {}),
+			...(typeof entry.rootElementId === "string"
+				? { rootElementId: entry.rootElementId }
+				: {}),
+		});
+	}
+	const addedRecipe = step.summary.recipe as
+		| { id?: unknown; instanceId?: unknown }
+		| undefined;
+	if (step.operation === "addRecipe" && addedRecipe) {
+		recipes.push({
+			...(typeof addedRecipe.id === "string"
+				? { recipeId: addedRecipe.id }
+				: {}),
+			...(step.changedElementId
+				? { rootElementId: step.changedElementId }
+				: {}),
+		});
+	}
+	return recipes;
+};
+
+/**
+ * Compact a step for the applyDesignOperations response: the ids an agent
+ * needs to continue (changed/root ids, tempId maps, recipe roots), without
+ * echoing the submitted parameters or full recipe path maps.
+ */
+export const compactOperationPlanStep = (step: OperationPlanStepOutput) => {
+	const recipes = compactRecipeExpansions(step);
+	return {
+		stepIndex: step.stepIndex,
+		operation: step.operation,
+		...(step.changedElementId
+			? { changedElementId: step.changedElementId }
+			: {}),
+		...(step.rootElementId && step.rootElementId !== step.changedElementId
+			? { rootElementId: step.rootElementId }
+			: {}),
+		...(step.idMap ? { idMap: step.idMap } : {}),
+		...(recipes.length > 0 ? { recipes } : {}),
+		...(step.deletedIds ? { deletedCount: step.deletedIds.length } : {}),
+	};
+};
+
+/**
+ * Shape an applyDesignOperations result. The default is compact: new revision,
+ * per-step created ids, and diagnostics. Pass `includeStepDetails` to get the
+ * full validateOperationPlan-style result.
+ */
+export const compactApplyOperationPlanResult = (
+	result: OperationPlanResult,
+	input: Pick<OperationPlanInput, "designFileId" | "response">,
+): Record<string, unknown> => {
+	if (input.response?.includeStepDetails) {
+		return result as unknown as Record<string, unknown>;
+	}
+
+	const {
+		designFile: _designFile,
+		steps,
+		changedElementIds: _changedElementIds,
+		deletedIds,
+		insertedElementIds: _insertedElementIds,
+		recipeExpansions: _recipeExpansions,
+		suggestedReads,
+		tokenDiagnostics,
+		...rest
+	} = result;
+	const failed = result.status !== "success" || !result.valid;
+
+	return {
+		...rest,
+		designFileId: input.designFileId,
+		...(failed
+			? { suggestedReads }
+			: { steps: steps.map(compactOperationPlanStep) }),
+		...(!failed && deletedIds.length > 0
+			? { deletedCount: deletedIds.length }
+			: {}),
+		...(input.response?.includeTokenDiagnostics ? { tokenDiagnostics } : {}),
 	};
 };

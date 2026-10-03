@@ -103,7 +103,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 
 		expect(result.structuredContent).toMatchObject({
 			project: {
-				name: "Harness Project",
+				projectId: expect.any(String),
 			},
 			graph: {
 				rootElementIds: ["board"],
@@ -392,11 +392,9 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			status: "success",
 		});
 		expect(defaultResult.structuredContent).not.toHaveProperty("warnings");
-		const defaultContent = defaultResult.structuredContent as {
-			tokenDiagnostics?: { customUtilities?: unknown };
-		};
-		expect(defaultContent.tokenDiagnostics).not.toHaveProperty(
-			"customUtilities",
+		// applyDesignOperations omits token diagnostics entirely unless requested.
+		expect(defaultResult.structuredContent).not.toHaveProperty(
+			"tokenDiagnostics",
 		);
 
 		// includeWarnings with default scope: only warnings on touched elements;

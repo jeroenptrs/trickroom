@@ -306,6 +306,32 @@ This revision discipline prevents agents from overwriting newer app or user edit
 
 ## Mutation Details
 
+### Response Shape
+
+Every tool returns the same payload twice: minified JSON in the `text` content block and the parsed object in `structuredContent`.
+
+The full project block (`projectId`, `locationId`, `projectRoot`, `name`) is only returned by the orientation tools: `selectProject`, `getSelectedProject`/`getActiveProject`, `registerProject`, `resolveProject`, `openProject`, and `listDesignFiles`. `trickroom_project_info` returns the full project metadata. Every other response carries a compact `project: { projectId, locationId }` reference.
+
+`applyDesignOperations` returns a compact result by default:
+
+```json
+{
+  "status": "success",
+  "valid": true,
+  "project": { "projectId": "proj_…", "locationId": "loc_…" },
+  "designFileId": "…",
+  "operationCount": 2,
+  "newRevision": "sha256:…",
+  "steps": [
+    { "stepIndex": 0, "operation": "addSubtree", "changedElementId": "…", "idMap": { "card": "…", "label": "…" } },
+    { "stepIndex": 1, "operation": "addRecipe", "changedElementId": "…", "recipes": [{ "recipeId": "dialog.default", "rootElementId": "…" }] }
+  ],
+  "issues": []
+}
+```
+
+Each step reports `changedElementId`, `rootElementId` (only when it differs), `idMap` (addSubtree `tempId` → id, or copySubtree source id → new id), `recipes` (inserted recipe roots), and `deletedCount`. Failed plans report `failedStepIndex`, `failedOperation`, and `issues` without echoing earlier steps. Pass `response: { includeStepDetails: true }` to get the full per-step summaries and aggregate id lists (the `validateOperationPlan` shape).
+
 ### Write Response Verbosity
 
 Write tools return **minimal responses by default** to keep payloads small: only error-severity `issues` are included. Warnings and the heavy `customUtilities` token catalog are omitted unless requested.

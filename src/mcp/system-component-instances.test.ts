@@ -1262,6 +1262,7 @@ describe("trickroom MCP system component instance tools", () => {
 						},
 					},
 				],
+				response: { includeStepDetails: true },
 			},
 		});
 		expect(result.isError).not.toBe(true);
@@ -1576,6 +1577,7 @@ describe("trickroom MCP system component instance tools", () => {
 						},
 					},
 				],
+				response: { includeStepDetails: true },
 			},
 		});
 		expect(result.isError).not.toBe(true);
