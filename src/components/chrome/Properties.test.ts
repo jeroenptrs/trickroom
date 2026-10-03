@@ -292,6 +292,31 @@ describe("Properties", () => {
 		children: [],
 	};
 
+	it("edits a free layer's classes in one panel with no Style tab", () => {
+		const frame: Node = {
+			id: "frame",
+			props: {
+				"data-trickroom-name": "Card",
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				"data-trickroom-role": "branch",
+				className: "flex flex-col gap-4 p-4",
+			},
+			children: [],
+		};
+		const html = renderPropertiesForSelection(
+			{ name: "Frame", boards: [frame] },
+			frame.id,
+		);
+
+		expect(html).toMatch(
+			/<textarea[^>]*aria-label="Classes"[^>]*>flex flex-col gap-4 p-4<\/textarea>/,
+		);
+		expect(html).not.toContain('role="tab"');
+		expect(html).not.toContain("Layout");
+		expect(html).not.toContain("Typography");
+	});
+
 	it("shows asset picker and alt text controls when Avatar Image is selected", () => {
 		const html = renderPropertiesForSelection(
 			{ name: "Avatar recipe", boards: [avatarRootNode] },
@@ -661,9 +686,11 @@ describe("Properties", () => {
 		expect(html).toContain("Template path");
 		expect(html).toContain("label");
 		expect(html).not.toContain("Detach component");
+		expect(html).toContain("Class editing is locked");
+		expect(html).not.toContain("<textarea");
 	});
 
-	it("keeps path-scoped className overrides out of the properties tab on owned internal component nodes", () => {
+	it("routes path-scoped className overrides into the class field on owned internal component nodes", () => {
 		const rootNode: Node = {
 			id: "component-root",
 			props: {
@@ -747,6 +774,10 @@ describe("Properties", () => {
 		expect(html).not.toContain("Root class");
 		expect(html).not.toContain("Variants");
 		expect(html).not.toContain("Detach component");
+		expect(html).toContain("Instance classes");
+		expect(html).toMatch(
+			/<textarea[^>]*aria-label="Instance"[^>]*>text-lg<\/textarea>/,
+		);
 	});
 
 	it("routes text overrides into the normal content field on owned internal nodes", () => {
