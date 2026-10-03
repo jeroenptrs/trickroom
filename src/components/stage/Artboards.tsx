@@ -14,6 +14,7 @@ import {
 	resolveResponsiveStageActiveBoardId,
 	useResponsiveStage,
 } from "../responsive-stage-context";
+import { MissingRenderer } from "./MissingRenderer";
 
 type SerializedElementProps = {
 	id: string;
@@ -39,7 +40,20 @@ function SerializedElement({
 	);
 
 	if (resolution.status !== "known") {
-		return null;
+		return (
+			<MissingRenderer
+				library={resolution.library}
+				component={resolution.component}
+				data-trickroom-node-id={id}
+				data-trickroom-root-id={isRoot ? rootId : undefined}
+			>
+				{element.role === "text"
+					? element.text
+					: childIds.map((childId) => (
+							<SerializedElement key={childId} id={childId} rootId={rootId} />
+						))}
+			</MissingRenderer>
+		);
 	}
 
 	const props = getRenderableProps(element.props, resolution.definition);

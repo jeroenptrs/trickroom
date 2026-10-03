@@ -129,4 +129,43 @@ describe("Artboards", () => {
 
 		expect(renderableProps).not.toHaveProperty("data-trickroom-root-id");
 	});
+
+	it("renders a visible placeholder for components without a renderer", () => {
+		hydrateDesign({
+			name: "Missing renderer test",
+			boards: [
+				{
+					id: boardOneId,
+					props: {
+						"data-trickroom-name": "Board One",
+						"data-trickroom-library": "base-ui",
+						"data-trickroom-component": "not-a-component",
+						"data-trickroom-role": "branch",
+					},
+					children: [
+						{
+							id: "child-text",
+							props: {
+								"data-trickroom-name": "Text",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "text",
+								"data-trickroom-role": "text",
+							},
+							children: "Still visible",
+						},
+					],
+				},
+			],
+		} satisfies TrickroomDesign);
+
+		const html = renderArtboards({ mode: "canvas", activeBoardId: null });
+
+		expect(html).toContain(
+			'data-trickroom-missing-renderer="base-ui/not-a-component"',
+		);
+		expect(html).toContain("No renderer for base-ui/not-a-component");
+		expect(html).toContain(`data-trickroom-node-id="${boardOneId}"`);
+		expect(html).toContain(`data-trickroom-root-id="${boardOneId}"`);
+		expect(html).toContain("Still visible");
+	});
 });
