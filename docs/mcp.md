@@ -113,6 +113,7 @@ Design inspection:
 - Dry-run one mutation without writing.
 - Capture a board or individual node as a PNG image block with light/dark theme and viewport presets.
 - Optionally persist a captured PNG to an explicit path when read-write policy allows it.
+- Export boards to self-contained interactive HTML files on disk.
 
 Registry and authoring:
 
@@ -196,6 +197,7 @@ Read-only tools:
 | `describeRegistryComponent` | Describe one allowed component. |
 | `listRegistryRecipes` | List composable recipes and compact slot/structure metadata. |
 | `describeRegistryRecipe` | Describe one recipe's structure, slots, defaults, and controls. |
+| `getSystemComponentAuthoringContract` | Return the compact authoring contract for system component drafts: root template nodes, slot maps, variant axes and `classesByPath`, override targets, validation diagnostics, and examples (`includeExamples` defaults to true). Call before `createSystemComponentDraft` or `updateSystemComponentDraft`. Optional `systemName` adds availability context. |
 | `getDesignAuthoringContract` | **Recommended first planning call.** Return compact grammar, registry component vocabulary, props, composition/mutation rules, authoring guidance, and examples. Defaults omit recipe catalogs and linked-system resource summaries; pass `includeRecipes: "summary"` and/or `includeResources: true` when you need them. Registry components default to compact `summary` entries; use `includeRegistryComponents: "full"` for controls and composition metadata. |
 | `getDesignSystemForDesignFile` | Report linked system and token storage metadata. |
 | `listDesignTokens` | List stored tokens for the linked system. Optional `domain` (e.g. `color`, `spacing`), `query` (matches name and value), and `limit`. Always reports `totalCount`, `matchedCount`, `returnedCount`, and `truncated`; unknown domains fail with `UNKNOWN_TOKEN_DOMAIN` and the available domains. |
@@ -228,6 +230,12 @@ Project/session writes:
 | `registerProject` | `~/.trickroom/projects.json` | Registers a local path in app state without selecting MCP session scope. |
 | `selectProject` | MCP session context | Sets the active project used by project-scoped MCP tools. |
 | `openProject` | `~/.trickroom/projects.json` and MCP session state | **Deprecated alias**. Use `registerProject` + `selectProject` instead. |
+
+Export writes:
+
+| Tool | Writes | Notes |
+| --- | --- | --- |
+| `exportDesignHtml` | HTML files under `destinationDir` | Exports one or more boards (`boardIds`, all when omitted) to self-contained interactive HTML: one board writes one `.html`, several write one `.zip` with one `.html` per board, matching the in-app export. Inlines the system's compiled Tailwind and loads React + Base UI from the esm.sh CDN, so the files need network access to render. Absolute `destinationDir` paths are used as-is; relative paths resolve inside the project and must stay within it. Requires read-write policy and read access to the design. When none of the `boardIds` match, it fails with `NO_MATCHING_BOARDS` and the available boards. |
 
 Design-system resource writes:
 
@@ -655,6 +663,12 @@ trickroom://proj/<locationId>/design/<designId>
 - **Resource scope**: The resource list can include designs from multiple projects; `readResource` resolves URIs using the URI `locationId` segment.
 - **Project preference**: Use `locationId` (not `projectId`) in multi-project resource references.
 - **Notifications**: The server sends `list_changed` notifications on project switches, design creation/rename, and out-of-band changes to the design directory or registry.
+
+## Boards
+
+A board is one responsive screen, not one breakpoint. Build a screen once, with responsive Tailwind variants (`sm:`, `md:`, `lg:`), and review it by capturing the same board at the `mobile`, `tablet`, and `desktop` viewports with `screenshotBoard`. Do not create a desktop board and a mobile board for the same screen.
+
+Use separate boards for distinct views or interaction states: a page, the same page with a sheet open, the same page with a dialog open, or alternatives the user asked to compare. This guidance is part of `getDesignAuthoringContract` (`authoringGuidance.boards`), the server instructions, the `create_design_file_from_brief`, `edit_design_file`, and `add_component_to_design` prompts, and the `createDesignFile` and `screenshotBoard` descriptions.
 
 ## Prompts
 

@@ -227,6 +227,11 @@ describe("trickroom MCP workflow prompts", () => {
 			expect(text).toContain("validateDesignFile");
 			expect(text).toContain("screenshotBoard");
 			expect(text).toContain("inspect the returned PNG image blocks");
+			expect(text).toContain("Do not create separate boards per breakpoint");
+			expect(text).toContain("dialog open");
+			expect(client.getInstructions()).toContain(
+				"Do not create separate boards per breakpoint",
+			);
 		} finally {
 			await server.close();
 			await rm(projectRoot, { force: true, recursive: true });

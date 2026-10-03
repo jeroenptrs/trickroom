@@ -687,6 +687,11 @@ type ElementContext = {
 
 type ValidationIssue = McpDesignIssue;
 
+// Agents tend to create one board per breakpoint. Boards are not breakpoints:
+// one board is responsive and is reviewed at different viewport widths.
+const BOARD_GUIDANCE =
+	"One board is one responsive screen: build it once with responsive Tailwind variants (sm:, md:, lg:) and review it at different viewport widths (screenshotBoard viewport mobile/tablet/desktop). Do not create separate boards per breakpoint (no desktop board + mobile board). Use separate boards for distinct views or interaction states, e.g. a page, the same page with a sheet open, or with a dialog open.";
+
 const STEP_REFERENCE_GUIDANCE =
 	"Element id parameters (elementId, parentId, targetParentId, sourceElementId, instanceId, rootElementId) may reference earlier steps: $step:N (changed element), $step:N:rootElementId, $step:N:tempId:<tempId> (a node from an earlier addSubtree; for copySubtree, a source element id), $step:N:slot:<slotName> (the slot host of the recipe step N inserted, e.g. a dialog's popup content), and $step:N:tempId:<recipeTempId>:slot:<slotName> when a step inserted several recipes.";
 
@@ -2806,6 +2811,7 @@ const buildAuthoringGuidance = () => ({
 		},
 	],
 	rules: [
+		"Boards are views or interaction states, never breakpoints: build one responsive board and review it at several viewport widths.",
 		"Do not write registry-reference props or recipe marker props manually.",
 		"Inspect system assets and icons before setting canonical resource IDs.",
 		"Use listDesignTokens for full token lists; the contract only summarizes storage.",
@@ -2813,6 +2819,21 @@ const buildAuthoringGuidance = () => ({
 		"Use getSystemComponentAuthoringContract before creating or updating system component drafts.",
 		"Every write returns warningCount. Likely-typo warnings (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) on the elements you touched are returned by default — fix them before moving on. Other warnings are counted, not listed; escalate with response.includeWarnings when warningCount is non-zero and you need them.",
 	],
+	boards: {
+		rule: BOARD_GUIDANCE,
+		responsive:
+			"Express breakpoints inside the board with responsive class variants; a board's width comes from the viewport it is viewed at, not from the board itself.",
+		useSeparateBoardsFor: [
+			"distinct views or pages",
+			"interaction states such as a sheet, drawer, dialog, or menu open",
+			"alternative explorations the user asked to compare",
+		],
+		doNotUseSeparateBoardsFor: [
+			"breakpoints or device sizes (desktop/tablet/mobile)",
+		],
+		verify:
+			"Call screenshotBoard on the same board with viewport mobile, tablet, and desktop to review responsive behavior.",
+	},
 	stepReferences: {
 		appliesTo:
 			"applyDesignOperations and validateOperationPlan element id parameters: elementId, parentId, targetParentId, sourceElementId, instanceId, rootElementId.",
@@ -4902,8 +4923,7 @@ export const createTrickroomMcpServer = (
 				prompts: {},
 				resources: { listChanged: true },
 			},
-			instructions:
-				"Trickroom MCP exposes selected-project design workspace metadata, registry discovery, design-system token discovery, and high-level design mutation tools. Use listProjects and getSelectedProject to confirm context, then selectProject({ locationId }) for explicit project targeting (projectId is allowed but locationId is preferred), and registerProject only to add paths to the catalog. Creation uses exclusive create semantics. Existing-file mutation tools require an expectedRevision obtained from a prior read. On revision mismatch, re-read the design to get the current revision before retrying. Multi-project resources are addressed with trickroom://proj/<locationId>/design/<designId>.",
+			instructions: `Trickroom MCP exposes selected-project design workspace metadata, registry discovery, design-system token discovery, and high-level design mutation tools. Use listProjects and getSelectedProject to confirm context, then selectProject({ locationId }) for explicit project targeting (projectId is allowed but locationId is preferred), and registerProject only to add paths to the catalog. Creation uses exclusive create semantics. Existing-file mutation tools require an expectedRevision obtained from a prior read. On revision mismatch, re-read the design to get the current revision before retrying. Multi-project resources are addressed with trickroom://proj/<locationId>/design/<designId>. Boards: ${BOARD_GUIDANCE}`,
 		},
 	) as TrickroomMcpServer;
 
@@ -5208,7 +5228,7 @@ export const createTrickroomMcpServer = (
 2. **Read Current State**: Call 'listDesignFiles' to get the current 'revision', counts, and design metadata. Also call 'listMemoryNotes' with 'scope { kind: "design", designFileId }' (and the linked system + project scopes) to load steering notes, intent, and constraints before changing anything.
 3. **Load Authoring Contract**: Call 'getDesignAuthoringContract' with 'designFileId' once before planning mutations.
 4. **Understand Structure**: Call 'readDesignGraph' for parent/child relationships, element IDs, and addresses. Use 'readElement' or bounded 'readSubtree' only for local detail where the graph is insufficient.
-5. **Plan Registry Content**: If adding UI, use 'listRegistryComponents', 'listRegistryRecipes', 'describeRegistryComponent', and 'describeRegistryRecipe'. Prefer 'addRecipe' or 'addSubtree' for structured UI instead of hand-assembling many nodes with repeated 'addElement' calls.
+5. **Plan Registry Content**: If adding UI, use 'listRegistryComponents', 'listRegistryRecipes', 'describeRegistryComponent', and 'describeRegistryRecipe'. Prefer 'addRecipe' or 'addSubtree' for structured UI instead of hand-assembling many nodes with repeated 'addElement' calls. ${BOARD_GUIDANCE}
 6. **Inspect Resources**: If touching assets or icons, call 'listSystemAssets' and/or 'listSystemIcons' (and 'describeAsset' / 'describeIcon' as needed) before referencing resource-backed elements.
 7. **Dry-Run Uncertain Writes**: Use 'validateOperation' before risky single mutations. For larger multi-step refactors, use 'validateOperationPlan'; for larger inserted structures, use 'validateSubtree' or 'validateCopySubtree' before committing.
 8. **Execute Safely**:
@@ -5249,7 +5269,7 @@ Workflow:
    - 'addSubtree' for composed element or recipe trees.
    - 'copySubtree' when reusing an existing subtree from this or another design location.
 4. **Discovery**: Use 'listRegistryComponents', 'listRegistryRecipes', 'describeRegistryComponent', and 'describeRegistryRecipe' to confirm roles, allowed children, slots, and supported props.
-5. **Parent Check**: ${parentId ? `Call 'readElement' for "${parentId}" (or confirm via 'readDesignGraph')` : "If 'parentId' is provided, call 'readElement' or 'readDesignGraph'"} to verify the target parent is a 'branch' role element. If adding at the root, use 'parentId': null.
+5. **Parent Check**: ${parentId ? `Call 'readElement' for "${parentId}" (or confirm via 'readDesignGraph')` : "If 'parentId' is provided, call 'readElement' or 'readDesignGraph'"} to verify the target parent is a 'branch' role element. If adding at the root, use 'parentId': null; a root insert creates a new board. ${BOARD_GUIDANCE}
 6. **Resource Catalogs**: When adding asset- or icon-backed elements, call 'listSystemAssets' / 'listSystemIcons' (and describe tools as needed) and use canonical system resource IDs.
 7. **Get Revision**: Call 'listDesignFiles' for the current 'revision'. Use 'readDesignGraph' for insertion index context when needed.
 8. **Dry-Run**: Call 'validateOperation', 'validateSubtree', or 'validateCopySubtree' before committing uncertain inserts.
@@ -5391,10 +5411,10 @@ Workflow:
 2. **Create Design File**: Call 'createDesignFile' with a clear name${systemName ? ` and systemName "${systemName}"` : " (omit systemName only when an unlinked design is intentional — a system cannot be linked via MCP afterwards)"}${designFileId ? ` and designFileId "${designFileId}"` : ""}. Capture the returned 'revision' and design file ID. The new design starts with no boards.
 3. **Resolve Linked System**: Call 'getDesignSystemForDesignFile' on the new design. Only when a configured system is linked should you call system-scoped tools such as 'listDesignTokens', 'listSystemAssets', or 'listSystemIcons'. When a system is linked, call 'listMemoryNotes' with 'scope { kind: "system", systemName }' (and the project scope) to honor recorded usage conventions and constraints; record new design intent with 'addMemoryNote' under 'scope { kind: "design", designFileId }' once the design takes shape.
 4. **Load Authoring Contract**: Call 'getDesignAuthoringContract' for the new design file before planning content.
-5. **Build with Structure**: Create boards at the design root by passing 'parentId: null'; never wrap them in a shared top-level layer. Prefer 'addRecipe' and 'addSubtree' over many piecemeal 'addElement' calls. Use 'listRegistryRecipes' and describe tools to pick appropriate recipes.
+5. **Build with Structure**: Create boards at the design root by passing 'parentId: null'; never wrap them in a shared top-level layer. ${BOARD_GUIDANCE} Prefer 'addRecipe' and 'addSubtree' over many piecemeal 'addElement' calls. Use 'listRegistryRecipes' and describe tools to pick appropriate recipes.
 6. **Dry-Run Inserts**: Call 'validateSubtree' (or 'validateOperation' for single inserts) before committing larger structures.
 7. **Execute with Revision Chaining**: Use 'expectedRevision' from creation (or the latest 'newRevision') for each write.
-8. **Validate & Review**: Call 'validateDesignFile' on the finished design, then call 'screenshotBoard' for each relevant board and inspect the returned PNG image blocks before reporting visual readiness.`,
+8. **Validate & Review**: Call 'validateDesignFile' on the finished design, then call 'screenshotBoard' for each relevant board (at 'mobile', 'tablet', and 'desktop' viewports when the screen should be responsive) and inspect the returned PNG image blocks before reporting visual readiness.`,
 					},
 				},
 			],
@@ -6040,7 +6060,7 @@ Workflow:
 		{
 			title: "Screenshot Board",
 			description:
-				"Render one board through Trickroom's capture route and return a PNG image. Requires the optional playwright-core peer and a locatable Chrome/Chromium. Supplying outputPath also writes the PNG to disk.",
+				"Render one board through Trickroom's capture route and return a PNG image. Boards are responsive: capture the same board at viewport mobile, tablet, and desktop to review breakpoints instead of creating a board per breakpoint. Requires the optional playwright-core peer and a locatable Chrome/Chromium. Supplying outputPath also writes the PNG to disk.",
 			inputSchema: withProjectScopedInput({
 				...screenshotCommonInput,
 				boardId: z.string().min(1).describe("Root board element ID."),
@@ -8246,7 +8266,7 @@ Workflow:
 		{
 			title: "Create Design File",
 			description:
-				"Create a new empty Trickroom design file with no boards. Add root boards afterwards with addElement/addRecipe/addSubtree using parentId: null — do not nest boards inside a wrapper layer. Pass systemName at creation when the design will use a specific system; omit systemName to inherit the project default system when configured, or pass null to explicitly create an unlinked design. Uses exclusive create semantics instead of expectedRevision because the file must not already exist.",
+				"Create a new empty Trickroom design file with no boards. Add root boards afterwards with addElement/addRecipe/addSubtree using parentId: null — do not nest boards inside a wrapper layer. Boards are views or interaction states (page, sheet open, dialog open), not breakpoints: build one responsive board and review it at several viewport widths. Pass systemName at creation when the design will use a specific system; omit systemName to inherit the project default system when configured, or pass null to explicitly create an unlinked design. Uses exclusive create semantics instead of expectedRevision because the file must not already exist.",
 			inputSchema: withMutationScopedInput({
 				name: z.string().min(1).describe("Design file name."),
 				systemName: z

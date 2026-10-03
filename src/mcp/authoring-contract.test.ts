@@ -73,7 +73,12 @@ describe("getDesignAuthoringContract planning payload", () => {
 					markerGuidance: { inspectTool: string };
 				}>;
 			}>;
-			authoringGuidance: { mutationStrategy: unknown[] };
+			authoringGuidance: {
+				mutationStrategy: unknown[];
+				rules: string[];
+				boards: { rule: string; doNotUseSeparateBoardsFor: string[] };
+				stepReferences: { forms: Record<string, string> };
+			};
 			examples: unknown[];
 		};
 
@@ -111,6 +116,21 @@ describe("getDesignAuthoringContract planning payload", () => {
 			0,
 		);
 		expect(contract.examples.length).toBeGreaterThan(0);
+		expect(contract.authoringGuidance.boards.rule).toContain(
+			"Do not create separate boards per breakpoint",
+		);
+		expect(
+			contract.authoringGuidance.boards.doNotUseSeparateBoardsFor.join(" "),
+		).toContain("breakpoints");
+		expect(contract.authoringGuidance.rules[0]).toContain("never breakpoints");
+		expect(
+			Object.keys(contract.authoringGuidance.stepReferences.forms),
+		).toEqual(
+			expect.arrayContaining([
+				"$step:N:tempId:<tempId>",
+				"$step:N:slot:<slotName>",
+			]),
+		);
 	});
 
 	it("keeps the default contract payload under 50KB", async () => {
@@ -132,7 +152,9 @@ describe("getDesignAuthoringContract planning payload", () => {
 			contract.registries.every((registry) => registry.recipes === undefined),
 		).toBe(true);
 		expect(
-			contract.registries.every((registry) => Array.isArray(registry.components)),
+			contract.registries.every((registry) =>
+				Array.isArray(registry.components),
+			),
 		).toBe(true);
 	});
 
@@ -161,9 +183,9 @@ describe("getDesignAuthoringContract planning payload", () => {
 		const trickroom = contract.registries.find(
 			(registry) => registry.library === "trickroom",
 		);
-		expect(trickroom?.components.map((component) => component.component)).toEqual(
-			["text"],
-		);
+		expect(
+			trickroom?.components.map((component) => component.component),
+		).toEqual(["text"]);
 		expect(
 			contract.registries.every(
 				(registry) => (registry.recipes ?? []).length === 0,
@@ -178,7 +200,12 @@ describe("getDesignAuthoringContract planning payload", () => {
 			},
 		});
 
-		const imagePath = path.join(fixture.projectRoot, "src", "assets", "hero.png");
+		const imagePath = path.join(
+			fixture.projectRoot,
+			"src",
+			"assets",
+			"hero.png",
+		);
 		await mkdir(path.dirname(imagePath), { recursive: true });
 		await writeFile(
 			imagePath,
