@@ -160,6 +160,72 @@ describe("trickroom MCP memory tools", () => {
 		});
 	});
 
+	it("accepts shorthand memory scope shapes", async () => {
+		await open();
+		await session.client.callTool({
+			name: "addMemoryNote",
+			arguments: {
+				scope: { kind: "system", systemName: "Core" },
+				category: "conventions",
+				body: "Use brand tokens only.",
+			},
+		});
+		await session.client.callTool({
+			name: "addMemoryNote",
+			arguments: {
+				scope: { kind: "design", designFileId: trickroomMcpTestDesignUuid },
+				category: "intent",
+				body: "Design note.",
+			},
+		});
+
+		const shorthandScopes: Array<[unknown, Record<string, unknown>]> = [
+			["project", { kind: "project" }],
+			["system:Core", { kind: "system", systemName: "Core" }],
+			[{ systemId: "Core" }, { kind: "system", systemName: "Core" }],
+			[
+				{ kind: "system", name: "Core" },
+				{ kind: "system", systemName: "Core" },
+			],
+			// The fixture has one configured system, so the name can be inferred.
+			[{ kind: "system" }, { kind: "system", systemName: "Core" }],
+			[
+				`design:${trickroomMcpTestDesignUuid}`,
+				{ kind: "design", designFileId: trickroomMcpTestDesignUuid },
+			],
+			[
+				{ designId: trickroomMcpTestDesignUuid },
+				{ kind: "design", designFileId: trickroomMcpTestDesignUuid },
+			],
+			[
+				{ kind: "design", id: trickroomMcpTestDesignUuid },
+				{ kind: "design", designFileId: trickroomMcpTestDesignUuid },
+			],
+		];
+		for (const [scope, expected] of shorthandScopes) {
+			const list = await session.client.callTool({
+				name: "listMemoryNotes",
+				arguments: { scope },
+			});
+			expect(list.isError, JSON.stringify(scope)).toBeFalsy();
+			expect(list.structuredContent).toMatchObject({ scope: expected });
+		}
+	});
+
+	it("lists the accepted shapes when a memory scope cannot be resolved", async () => {
+		await open();
+		const list = await session.client.callTool({
+			name: "listMemoryNotes",
+			arguments: { scope: { kind: "design" } },
+		});
+		expect(list.isError).toBe(true);
+		expect(list.structuredContent).toMatchObject({
+			code: "INVALID_OPERATION_PARAMETERS",
+			message: expect.stringContaining('{ "kind": "design", "designFileId"'),
+			acceptedScopeShapes: expect.arrayContaining(['{ "kind": "project" }']),
+		});
+	});
+
 	it("surfaces design-scope memory in readDesignFile", async () => {
 		await open();
 		const scope = {
@@ -206,8 +272,9 @@ describe("trickroom MCP memory tools", () => {
 			name: "listMemoryNotes",
 			arguments: { scope, resolveReferences: true },
 		});
-		const notes = (list.structuredContent as { notes: Array<{ references: unknown[] }> })
-			.notes;
+		const notes = (
+			list.structuredContent as { notes: Array<{ references: unknown[] }> }
+		).notes;
 		expect(notes[0]?.references).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ status: "valid", type: "design" }),

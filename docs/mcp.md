@@ -245,7 +245,7 @@ Design-system resource writes:
 
 Memory note writes:
 
-All memory tools take a scope-discriminated union: `{ kind: "system", systemName }`, `{ kind: "design", designFileId }`, or `{ kind: "project" }`. Writes target the matching `memory.json` (see `docs/project-files.md`). Note bodies may embed canonical reference tokens like `{{design:<uuid>}}`; bodies are stored verbatim. `addMemoryNote` and `updateMemoryNote` return non-blocking `referenceWarnings` for unresolved tokens. `listMemoryNotes` and `getMemoryNote` accept optional `resolveReferences: true` to attach per-note resolution metadata.
+All memory tools take a scope: `{ kind: "system", systemName }`, `{ kind: "design", designFileId }`, or `{ kind: "project" }`. Shorthands are accepted too: the strings `"project"`, `"system:<name or id>"`, and `"design:<uuid>"`; `systemId`/`name` for `systemName` and `designId`/`id` for `designFileId`; `kind` may be omitted when `systemName` or `designFileId` is given; and `{ kind: "system" }` without a name uses the project's only configured system. Unresolvable scopes fail with `INVALID_OPERATION_PARAMETERS` and an `acceptedScopeShapes` list. Writes target the matching `memory.json` (see `docs/project-files.md`). Note bodies may embed canonical reference tokens like `{{design:<uuid>}}`; bodies are stored verbatim. `addMemoryNote` and `updateMemoryNote` return non-blocking `referenceWarnings` for unresolved tokens. `listMemoryNotes` and `getMemoryNote` accept optional `resolveReferences: true` to attach per-note resolution metadata.
 
 | Tool | Writes | Destructive risk |
 | --- | --- | --- |
@@ -423,7 +423,7 @@ Escalate when `warningCount` is non-zero and you need to know why, when you are 
 
 `validateCopySubtree`:
 
-- Validates cross-design or same-design subtree copy from `sourceDesignFileId` + `sourceElementId` into `targetDesignFileId`.
+- Validates cross-design or same-design subtree copy from `sourceDesignFileId` + `sourceElementId` into `targetDesignFileId`. `sourceDesignFileId` is optional and defaults to `targetDesignFileId` (same-file copy).
 - Requires:
   - `expectedRevision` for target design always.
   - `sourceExpectedRevision` whenever source and target design IDs are different.
@@ -433,7 +433,7 @@ Escalate when `warningCount` is non-zero and you need to know why, when you are 
 
 `copySubtree`:
 
-- Clones a source subtree and writes it into the target insertion location.
+- Clones a source subtree and writes it into the target insertion location. Omit `sourceDesignFileId` for a same-file copy.
 - Uses generated IDs for all cloned nodes.
 - Same-file copies optionally accept missing `sourceExpectedRevision` and append ` Copy` to the inserted root element name.
 - Cross-file copies require both revision fields (`expectedRevision`, `sourceExpectedRevision`) for consistency.
@@ -527,6 +527,12 @@ It returns predicted changed elements, context, deleted IDs, warnings, token dia
 - Supports plan-local step references such as `$step:0` and `$step:0:rootElementId` for later steps that depend on earlier insertions.
 - Returns `status`, `valid`, `operationCount`, per-step summaries, aggregate changed/deleted/inserted IDs, recipe expansion metadata, diagnostics, and suggested reads.
 - On failure, returns `failedStepIndex`, `failedOperation`, and diagnostics without writing.
+
+Batch parameters:
+
+- The `operations` field description in both tool schemas lists the parameter signature of every operation, and a step that fails with `INVALID_OPERATION_PARAMETERS` reports the operation's `expectedParameters` on its issue. `validateOperation` does the same for its `parameters`.
+- Parent ids accept either spelling: insertions (`addElement`, `addRecipe`, `addSystemComponent`, `addSubtree`, `copySubtree`) take `parentId` and also accept `targetParentId`; `moveElement` takes `targetParentId` and also accepts `parentId`.
+- Batch `copySubtree` defaults `sourceDesignFileId` to the design being edited, so same-file copies only need `sourceElementId`, `parentId`, and `index`.
 
 `applyDesignOperations` validates the same payload shape and performs exactly one persisted write when the full plan is valid and the starting revision still matches. It returns one `newRevision`, not per-step revisions. Unlike the verbose `validateOperationPlan` dry-run, its success response is minimal by default (error-severity issues only); opt into warnings/token diagnostics with the `response` object (see [Write Response Verbosity](#write-response-verbosity)).
 

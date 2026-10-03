@@ -191,8 +191,11 @@ import {
 	assertCanUseSystemComponentInstanceSubtree,
 	assertOperationAllowedByPolicy,
 	type DesignOperationName,
+	describeOperationParameterSignatures,
+	designOperationNameSchema,
 	getElementComponentReference,
 	normalizeUpdateElementPropsParameters,
+	OPERATION_PARAMETER_SIGNATURES,
 	validateDryRunOperationParameters,
 } from "./design-operations";
 import {
@@ -447,7 +450,13 @@ export const validateCopySubtreeOptionsSchema = z
 
 export const validateCopySubtreePayloadSchema = z
 	.object({
-		sourceDesignFileId: z.string().uuid().describe("Source design file UUID."),
+		sourceDesignFileId: z
+			.string()
+			.uuid()
+			.optional()
+			.describe(
+				"Source design file UUID. Defaults to targetDesignFileId (a same-file copy).",
+			),
 		sourceElementId: z
 			.string()
 			.min(1)
@@ -677,6 +686,27 @@ type ElementContext = {
 };
 
 type ValidationIssue = McpDesignIssue;
+
+const STEP_REFERENCE_GUIDANCE =
+	"Element id parameters (elementId, parentId, targetParentId, sourceElementId, instanceId, rootElementId) may reference earlier steps: $step:N (changed element), $step:N:rootElementId.";
+
+const createOperationPlanStepsInputSchema = (purpose: string) =>
+	z
+		.array(
+			z.object({
+				operation: designOperationNameSchema,
+				parameters: z
+					.record(z.string(), z.unknown())
+					.optional()
+					.describe(
+						"Parameters for this operation; see the per-operation signatures on the operations field.",
+					),
+			}),
+		)
+		.min(1)
+		.describe(
+			`${purpose} Parameters per operation (? = optional, primitive = string | number | boolean | null): ${describeOperationParameterSignatures()}. ${STEP_REFERENCE_GUIDANCE}`,
+		);
 
 const createJsonResult = (
 	payload: Record<string, unknown>,
@@ -4038,7 +4068,23 @@ const validateOperationPayload = async (
 ) => {
 	const policy = getMcpPolicy(context.config);
 	assertCanReadDesignFile(policy, designFileId);
-	const params = validateDryRunOperationParameters(operation, parameters);
+	let params: Record<string, unknown>;
+	try {
+		params = validateDryRunOperationParameters(operation, parameters, {
+			designFileId,
+		});
+	} catch (error) {
+		if (
+			error instanceof DesignTransformError &&
+			error.code === "INVALID_OPERATION_PARAMETERS"
+		) {
+			throw new DesignTransformError(error.code, error.message, {
+				...error.details,
+				expectedParameters: OPERATION_PARAMETER_SIGNATURES[operation],
+			});
+		}
+		throw error;
+	}
 	const read = await readDesignFileForTool(context, designFileId);
 
 	if (read.revision !== expectedRevision) {
@@ -4227,9 +4273,18 @@ export const applyDesignOperationsPayload = async (
 };
 
 type ValidateSubtreePayload = z.infer<typeof validateSubtreePayloadSchema>;
-type ValidateCopySubtreePayload = z.infer<
-	typeof validateCopySubtreePayloadSchema
->;
+type ValidateCopySubtreePayload = Omit<
+	z.infer<typeof validateCopySubtreePayloadSchema>,
+	"sourceDesignFileId"
+> & { sourceDesignFileId: string };
+
+/** Same-file copies may omit sourceDesignFileId; default it to the target. */
+const normalizeCopySubtreePayload = (
+	input: z.infer<typeof validateCopySubtreePayloadSchema>,
+): ValidateCopySubtreePayload => ({
+	...input,
+	sourceDesignFileId: input.sourceDesignFileId ?? input.targetDesignFileId,
+});
 
 const createSubtreeDiagnosticFromTransformError = (
 	error: DesignTransformError,
@@ -6024,7 +6079,9 @@ Workflow:
 				parameters: z
 					.record(z.string(), z.unknown())
 					.optional()
-					.describe("Operation-specific parameters matching the write tool."),
+					.describe(
+						`Operation-specific parameters (? = optional): ${describeOperationParameterSignatures()}.`,
+					),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
@@ -6067,31 +6124,9 @@ Workflow:
 					.string()
 					.startsWith("sha256:")
 					.describe("Current revision from a prior read."),
-				operations: z
-					.array(
-						z.object({
-							operation: z.enum([
-								"renameDesignFile",
-								"addElement",
-								"addRecipe",
-								"addSystemComponent",
-								"updateSystemComponentInstance",
-								"detachSystemComponent",
-								"addSubtree",
-								"updateElementProps",
-								"updateRecipeControl",
-								"updateRecipeInstance",
-								"updateElementText",
-								"moveElement",
-								"deleteElement",
-								"copySubtree",
-								"detachRecipeInstance",
-							]),
-							parameters: z.record(z.string(), z.unknown()).optional(),
-						}),
-					)
-					.min(1)
-					.describe("Ordered design operations to dry-run."),
+				operations: createOperationPlanStepsInputSchema(
+					"Ordered design operations to dry-run.",
+				),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
@@ -6164,7 +6199,7 @@ Workflow:
 				createJsonResult(
 					await validateCopySubtreePayload(
 						context,
-						input as ValidateCopySubtreePayload,
+						normalizeCopySubtreePayload(input),
 					),
 				),
 			),
@@ -7191,37 +7226,160 @@ Workflow:
 			"Note category. One of: intent, usage, conventions, constraints, decision, todo.",
 		);
 
+	const MEMORY_SCOPE_ACCEPTED_SHAPES = [
+		'{ "kind": "project" }',
+		'{ "kind": "system", "systemName": "<system name or id>" }',
+		'{ "kind": "design", "designFileId": "<design uuid>" }',
+		'"project"',
+		'"system:<system name or id>"',
+		'"design:<design uuid>"',
+	];
+
+	// Lenient on purpose: agents routinely send "project", { systemId }, or
+	// { kind: "design", id }. Normalization and errors live in
+	// normalizeMemoryScopeInput so failures can list the accepted shapes.
 	const memoryScopeSchema = z
-		.discriminatedUnion("kind", [
-			z.object({
-				kind: z.literal("system"),
-				systemName: z
-					.string()
-					.min(1)
-					.describe("Configured design system name or id."),
-			}),
-			z.object({
-				kind: z.literal("design"),
-				designFileId: z.string().uuid().describe("Design file UUID."),
-			}),
-			z.object({ kind: z.literal("project") }),
+		.union([
+			z.string().min(1),
+			z
+				.object({
+					kind: z.enum(["system", "design", "project"]).optional(),
+					systemName: z
+						.string()
+						.min(1)
+						.optional()
+						.describe("Configured design system name or id."),
+					designFileId: z
+						.string()
+						.min(1)
+						.optional()
+						.describe("Design file UUID."),
+				})
+				.passthrough(),
 		])
 		.describe(
-			"Memory owner scope: a system, a design file, or the whole project. Reference tokens like {{design:<uuid>}} or {{component:<systemId>/<componentId>}} may be embedded in note bodies.",
+			`Memory owner scope: a system, a design file, or the whole project. Accepted shapes: ${MEMORY_SCOPE_ACCEPTED_SHAPES.join(" | ")}. systemId/name are accepted for systemName and designId/id for designFileId; kind may be omitted when systemName or designFileId is given, and a system scope without a name uses the project's only configured system. Reference tokens like {{design:<uuid>}} or {{component:<systemId>/<componentId>}} may be embedded in note bodies.`,
 		);
 
 	type MemoryScopeInput = z.infer<typeof memoryScopeSchema>;
 
+	type NormalizedMemoryScopeInput =
+		| { kind: "system"; systemName?: string }
+		| { kind: "design"; designFileId: string }
+		| { kind: "project" };
+
+	const invalidMemoryScope = (reason: string, received: unknown) =>
+		new DesignTransformError(
+			"INVALID_OPERATION_PARAMETERS",
+			`Invalid memory scope: ${reason} Accepted shapes: ${MEMORY_SCOPE_ACCEPTED_SHAPES.join(" | ")}.`,
+			{
+				acceptedScopeShapes: MEMORY_SCOPE_ACCEPTED_SHAPES,
+				receivedScope: received,
+			},
+		);
+
+	const pickString = (record: Record<string, unknown>, keys: string[]) => {
+		for (const key of keys) {
+			const value = record[key];
+			if (typeof value === "string" && value.trim().length > 0) {
+				return value.trim();
+			}
+		}
+		return undefined;
+	};
+
+	const normalizeMemoryScopeInput = (
+		scopeInput: MemoryScopeInput,
+	): NormalizedMemoryScopeInput => {
+		let record: Record<string, unknown>;
+		if (typeof scopeInput === "string") {
+			const [kind, ...rest] = scopeInput.trim().split(":");
+			const value = rest.join(":").trim();
+			record = {
+				kind: kind.trim().toLowerCase(),
+				...(value ? { id: value } : {}),
+			};
+		} else {
+			record = scopeInput as Record<string, unknown>;
+		}
+
+		const systemName = pickString(record, [
+			"systemName",
+			"systemId",
+			"system",
+			...(record.kind === "system" ? ["name", "id"] : []),
+		]);
+		const designFileId = pickString(record, [
+			"designFileId",
+			"designId",
+			"design",
+			...(record.kind === "design" ? ["id"] : []),
+		]);
+		const kind =
+			typeof record.kind === "string"
+				? record.kind
+				: systemName !== undefined
+					? "system"
+					: designFileId !== undefined
+						? "design"
+						: undefined;
+
+		if (kind === "project") {
+			return { kind: "project" };
+		}
+		if (kind === "system") {
+			return { kind: "system", ...(systemName ? { systemName } : {}) };
+		}
+		if (kind === "design") {
+			if (designFileId === undefined) {
+				throw invalidMemoryScope(
+					"a design scope needs designFileId.",
+					scopeInput,
+				);
+			}
+			if (!z.string().uuid().safeParse(designFileId).success) {
+				throw invalidMemoryScope(
+					`designFileId "${designFileId}" is not a design file UUID.`,
+					scopeInput,
+				);
+			}
+			return { kind: "design", designFileId };
+		}
+		throw invalidMemoryScope(
+			kind === undefined
+				? "kind is missing."
+				: `unknown kind "${String(kind)}".`,
+			scopeInput,
+		);
+	};
+
 	const resolveMemoryScope = async (
 		context: TrickroomMcpServerContext,
 		policy: McpPolicy,
-		scopeInput: MemoryScopeInput,
+		rawScopeInput: MemoryScopeInput,
 	): Promise<{ scope: MemoryScope; reference: Record<string, unknown> }> => {
+		const scopeInput = normalizeMemoryScopeInput(rawScopeInput);
 		if (scopeInput.kind === "system") {
-			const system = await assertConfiguredSystem(
-				context,
-				scopeInput.systemName,
-			);
+			let systemName = scopeInput.systemName;
+			if (systemName === undefined) {
+				const systems = await listDesignSystems(context.projectRoot);
+				if (systems.length !== 1) {
+					throw new DesignTransformError(
+						"INVALID_OPERATION_PARAMETERS",
+						`Invalid memory scope: a system scope needs systemName when the project has ${systems.length} configured systems. Accepted shapes: ${MEMORY_SCOPE_ACCEPTED_SHAPES.join(" | ")}.`,
+						{
+							acceptedScopeShapes: MEMORY_SCOPE_ACCEPTED_SHAPES,
+							receivedScope: rawScopeInput,
+							availableSystems: systems.map((entry) => ({
+								systemId: entry.manifest.systemId,
+								systemName: entry.manifest.systemName,
+							})),
+						},
+					);
+				}
+				systemName = systems[0].manifest.systemId;
+			}
+			const system = await assertConfiguredSystem(context, systemName);
 			return {
 				scope: { kind: "system", systemHandle: system.manifest.systemId },
 				reference: {
@@ -7260,7 +7418,7 @@ Workflow:
 	const auditMemoryWrite = async (
 		context: TrickroomMcpServerContext,
 		toolName: string,
-		scopeInput: MemoryScopeInput,
+		memoryScope: MemoryScope,
 		expectedRevision: string | null,
 		resultingRevision: string | null,
 	) => {
@@ -7268,8 +7426,7 @@ Workflow:
 			toolName,
 			operation: toolName,
 			projectRoot: context.projectRoot,
-			designFileId:
-				scopeInput.kind === "design" ? scopeInput.designFileId : null,
+			designFileId: memoryScope.kind === "design" ? memoryScope.designId : null,
 			expectedRevision,
 			resultingRevision,
 			success: true,
@@ -7473,7 +7630,7 @@ Workflow:
 				await auditMemoryWrite(
 					context,
 					"addMemoryNote",
-					scope,
+					memoryScope,
 					null,
 					read.revision,
 				);
@@ -7569,7 +7726,7 @@ Workflow:
 				await auditMemoryWrite(
 					context,
 					"updateMemoryNote",
-					scope,
+					memoryScope,
 					expectedRevision,
 					read.revision,
 				);
@@ -7623,7 +7780,7 @@ Workflow:
 				await auditMemoryWrite(
 					context,
 					"deleteMemoryNote",
-					scope,
+					memoryScope,
 					expectedRevision,
 					read.revision,
 				);
@@ -8323,7 +8480,7 @@ Workflow:
 		async (input) => {
 			return withProjectContext(input.project, async (context) => {
 				const policy = getMcpPolicy(context.config);
-				const payload = input as ValidateCopySubtreePayload;
+				const payload = normalizeCopySubtreePayload(input);
 				const responseOptions = input.response;
 				return withMutationErrorHandling(
 					context,
@@ -8637,31 +8794,9 @@ Workflow:
 					.string()
 					.startsWith("sha256:")
 					.describe("Current revision from a prior read."),
-				operations: z
-					.array(
-						z.object({
-							operation: z.enum([
-								"renameDesignFile",
-								"addElement",
-								"addRecipe",
-								"addSystemComponent",
-								"updateSystemComponentInstance",
-								"detachSystemComponent",
-								"addSubtree",
-								"updateElementProps",
-								"updateRecipeControl",
-								"updateRecipeInstance",
-								"updateElementText",
-								"moveElement",
-								"deleteElement",
-								"copySubtree",
-								"detachRecipeInstance",
-							]),
-							parameters: z.record(z.string(), z.unknown()).optional(),
-						}),
-					)
-					.min(1)
-					.describe("Ordered design operations to commit."),
+				operations: createOperationPlanStepsInputSchema(
+					"Ordered design operations to commit.",
+				),
 				response: mutationResponseInputSchema,
 			}),
 			annotations: {

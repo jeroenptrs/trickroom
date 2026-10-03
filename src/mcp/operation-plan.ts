@@ -13,6 +13,7 @@ import {
 	type DesignOperationName,
 	type DryRunOperationContext,
 	designOperationNameSchema,
+	OPERATION_PARAMETER_SIGNATURES,
 	validateDryRunOperationParameters,
 } from "./design-operations";
 import { type McpDesignIssue, shapeMutationDiagnostics } from "./diagnostics";
@@ -375,6 +376,18 @@ const buildInvalidStepResult = (
 	suggestedReads: ["readDesignGraph", "readElement", "validateDesignFile"],
 });
 
+/** Show the valid parameter signature when a step's parameters are wrong. */
+const withExpectedParameters = (
+	operation: DesignOperationName,
+	error: DesignTransformError,
+): DesignTransformError =>
+	error.code === "INVALID_OPERATION_PARAMETERS"
+		? new DesignTransformError(error.code, error.message, {
+				...error.details,
+				expectedParameters: OPERATION_PARAMETER_SIGNATURES[operation],
+			})
+		: error;
+
 export const executeOperationPlanDryRun = async (
 	deps: OperationPlanDependencies,
 	input: OperationPlanInput,
@@ -406,6 +419,7 @@ export const executeOperationPlanDryRun = async (
 			const rawParams = validateDryRunOperationParameters(
 				operation,
 				step.parameters,
+				{ designFileId: input.designFileId },
 			);
 			const params = resolveStepReferencesInParameters(rawParams, steps);
 
@@ -546,12 +560,15 @@ export const executeOperationPlanDryRun = async (
 					stepIndex,
 					operation,
 					steps,
-					enrichElementLookupError(error, [
-						candidateDesign,
-						...[...sourceDesignReads.values()].map(
-							(sourceRead) => sourceRead.design,
-						),
-					]),
+					withExpectedParameters(
+						operation,
+						enrichElementLookupError(error, [
+							candidateDesign,
+							...[...sourceDesignReads.values()].map(
+								(sourceRead) => sourceRead.design,
+							),
+						]),
+					),
 					{
 						changedElementIds,
 						deletedIds,

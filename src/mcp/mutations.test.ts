@@ -4886,6 +4886,129 @@ describe("MCP mutation tools", () => {
 			}
 		});
 
+		it("defaults same-file copySubtree sources and accepts parent id aliases", async () => {
+			const { session } = await setup();
+			try {
+				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
+				const result = await session.client.callTool({
+					name: "applyDesignOperations",
+					arguments: {
+						designFileId: trickroomMcpTestDesignUuid,
+						expectedRevision: revision,
+						operations: [
+							{
+								operation: "copySubtree",
+								parameters: {
+									sourceElementId: "title",
+									targetParentId: "board",
+									index: 1,
+								},
+							},
+							{
+								operation: "moveElement",
+								parameters: {
+									elementId: "$step:0",
+									parentId: "board",
+									index: 0,
+								},
+							},
+						],
+					},
+				});
+				expect(result.isError).toBeFalsy();
+				expect(result.structuredContent).toMatchObject({
+					status: "success",
+					steps: [
+						{ operation: "copySubtree", idMap: { title: expect.any(String) } },
+						{ operation: "moveElement" },
+					],
+				});
+			} finally {
+				await session.close();
+			}
+		});
+
+		it("defaults the copySubtree tool source to the target design", async () => {
+			const { session } = await setup();
+			try {
+				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
+				const result = await session.client.callTool({
+					name: "copySubtree",
+					arguments: {
+						targetDesignFileId: trickroomMcpTestDesignUuid,
+						expectedRevision: revision,
+						sourceElementId: "title",
+						parentId: "board",
+						index: 1,
+					},
+				});
+				expect(result.isError).toBeFalsy();
+				expect(result.structuredContent).toMatchObject({
+					status: "success",
+					idMap: { title: expect.any(String) },
+				});
+			} finally {
+				await session.close();
+			}
+		});
+
+		it("shows the expected parameters when a step has invalid parameters", async () => {
+			const { session } = await setup();
+			try {
+				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
+				const result = await session.client.callTool({
+					name: "applyDesignOperations",
+					arguments: {
+						designFileId: trickroomMcpTestDesignUuid,
+						expectedRevision: revision,
+						operations: [
+							{
+								operation: "moveElement",
+								parameters: { elementId: "title", index: 0 },
+							},
+						],
+					},
+				});
+				expect(result.isError).toBe(true);
+				expect(result.structuredContent).toMatchObject({
+					failedStepIndex: 0,
+					issues: [
+						expect.objectContaining({
+							code: "INVALID_OPERATION_PARAMETERS",
+							expectedParameters:
+								"{ elementId: string, targetParentId: string | null, index: int }",
+						}),
+					],
+				});
+			} finally {
+				await session.close();
+			}
+		});
+
+		it("lists per-operation parameter signatures in the batch input schema", async () => {
+			const { session } = await setup();
+			try {
+				const { tools } = await session.client.listTools();
+				const tool = tools.find(
+					(entry) => entry.name === "applyDesignOperations",
+				);
+				const operations = (
+					tool?.inputSchema.properties as Record<
+						string,
+						{ description?: string }
+					>
+				).operations;
+				expect(operations.description).toContain(
+					"addElement { parentId: string | null, index: int, library: string, component: string",
+				);
+				expect(operations.description).toContain(
+					"copySubtree { sourceElementId",
+				);
+			} finally {
+				await session.close();
+			}
+		});
+
 		it("commits a valid plan with one revision change", async () => {
 			const { fixture, session } = await setup();
 			try {

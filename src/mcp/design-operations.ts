@@ -68,6 +68,49 @@ export const designOperationNameSchema = z.enum([
 
 export type DesignOperationName = z.infer<typeof designOperationNameSchema>;
 
+const SUBTREE_NODE_SIGNATURE =
+	'{ tempId?, library, component, name?, className?, text?, props?: { [prop]: primitive }, children?: Node[] } | { kind: "recipe", tempId?, library, recipe }';
+
+/**
+ * Compact parameter signature per batch operation. Shown in the
+ * applyDesignOperations/validateOperationPlan input schema descriptions and
+ * attached to INVALID_OPERATION_PARAMETERS errors so a model can see what is
+ * valid without another tool call. `?` marks optional parameters.
+ */
+export const OPERATION_PARAMETER_SIGNATURES: Record<
+	DesignOperationName,
+	string
+> = {
+	renameDesignFile: "{ name: string }",
+	addElement:
+		"{ parentId: string | null, index: int, library: string, component: string, name?: string, className?: string, text?: string, props?: { [prop]: primitive } }",
+	addRecipe:
+		"{ parentId: string | null, index: int, library: string, recipe: string }",
+	addSystemComponent:
+		"{ parentId: string | null, index: int, systemId: string, componentId: string, version?: string | null, variantValues?: { [axis]: string }, unsetVariantAxes?: string[], overrides?: { [overrideTargetId]: { className?, text?, props? } } }",
+	updateSystemComponentInstance:
+		"{ rootElementId: string, variantValues?: { [axis]: string }, unsetVariantAxes?: string[], overrides?: { [overrideTargetId]: { className?, text?, props? } } }",
+	detachSystemComponent: "{ elementId: string }",
+	addSubtree: `{ parentId: string | null, index: int, subtree: Node, options?: { maxNodes?, maxDepth?, allowRecipes? } } where Node = ${SUBTREE_NODE_SIGNATURE}`,
+	updateRecipeControl:
+		"{ instanceId: string, path: string, prop: string, value: primitive }",
+	updateRecipeInstance: "{ elementId: string }",
+	updateElementProps:
+		"{ elementId: string, name?: string, className?: string, props?: { [prop]: primitive }, propUpdates?: { name, value }[] }",
+	updateElementText: "{ elementId: string, text: string }",
+	moveElement:
+		"{ elementId: string, targetParentId: string | null, index: int }",
+	deleteElement: "{ elementId: string }",
+	copySubtree:
+		"{ sourceElementId: string, parentId: string | null, index: int, sourceDesignFileId?: uuid (defaults to this design), sourceExpectedRevision?: required for cross-file copies, options?: { maxNodes?, maxDepth? } }",
+	detachRecipeInstance: "{ elementId: string }",
+};
+
+export const describeOperationParameterSignatures = () =>
+	Object.entries(OPERATION_PARAMETER_SIGNATURES)
+		.map(([operation, signature]) => `${operation} ${signature}`)
+		.join("; ");
+
 export type DryRunResult = {
 	operation: DesignOperationName;
 	design: TrickroomDesign;
@@ -267,11 +310,66 @@ const parseOperationParameters = <Schema extends z.ZodTypeAny>(
 	return result.data;
 };
 
+const INSERT_OPERATIONS = new Set<DesignOperationName>([
+	"addElement",
+	"addRecipe",
+	"addSystemComponent",
+	"addSubtree",
+	"copySubtree",
+]);
+
+/**
+ * Accept the parameter names agents mix up between operations: insertions
+ * take `parentId`, moveElement takes `targetParentId`; either spelling works
+ * for both. Same-file copySubtree may omit sourceDesignFileId (it defaults to
+ * the design being edited). The canonical key wins when both are present.
+ */
+export const normalizeOperationParameterAliases = (
+	operation: DesignOperationName,
+	params: Record<string, unknown>,
+	defaults: { designFileId?: string } = {},
+): Record<string, unknown> => {
+	const normalized = { ...params };
+	if (INSERT_OPERATIONS.has(operation)) {
+		if (
+			normalized.parentId === undefined &&
+			normalized.targetParentId !== undefined
+		) {
+			normalized.parentId = normalized.targetParentId;
+		}
+		delete normalized.targetParentId;
+	}
+	if (operation === "moveElement") {
+		if (
+			normalized.targetParentId === undefined &&
+			normalized.parentId !== undefined
+		) {
+			normalized.targetParentId = normalized.parentId;
+		}
+		delete normalized.parentId;
+	}
+	if (operation === "copySubtree") {
+		if (
+			normalized.sourceDesignFileId === undefined &&
+			defaults.designFileId !== undefined
+		) {
+			normalized.sourceDesignFileId = defaults.designFileId;
+		}
+		delete normalized.targetDesignFileId;
+	}
+	return normalized;
+};
+
 export const validateDryRunOperationParameters = (
 	operation: DesignOperationName,
 	parameters: unknown,
+	defaults: { designFileId?: string } = {},
 ): Record<string, unknown> => {
-	const params = getOperationParameters(parameters);
+	const params = normalizeOperationParameterAliases(
+		operation,
+		getOperationParameters(parameters),
+		defaults,
+	);
 
 	if (operation === "addRecipe") {
 		return parseOperationParameters(
