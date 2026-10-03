@@ -17,6 +17,10 @@ import {
 	findDesignSystem,
 } from "../utils/design-system-store.ts";
 import { projectFontFileUrl } from "../utils/font-injection";
+import {
+	getCachedTailwindClassCatalog,
+	inspectTailwindClasses,
+} from "../utils/tailwind-class-catalog";
 import type {
 	TailwindColorTokenBaselineDiff,
 	TailwindTokensForPresentation,
@@ -30,6 +34,7 @@ import {
 	TailwindSystemResolutionError,
 } from "../utils/tailwind-design-system";
 import { createTailwindIntrospection } from "../utils/tailwind-introspection";
+import { serializeTailwindThemeDomains } from "../utils/tailwind-theme-css";
 import {
 	diffTailwindTokensAgainstDefaults,
 	extractTailwindTokensForPresentation as extractAllTailwindTokensForPresentation,
@@ -50,12 +55,17 @@ import {
 	areTokenStoragesEquivalent,
 	normalizeCssPath,
 	readDomainTokens,
+	readDomainTokensReadonly,
 	storeDomainTokens,
 	type TailwindCustomUtilityStorage,
 	type TailwindTokenStorage,
 } from "../utils/tailwind-token-store";
 
-export const tailwindRoutes = new Hono();
+type TailwindEnv = {
+	Variables: { projectRoot: string; configPath: string };
+};
+
+export const tailwindRoutes = new Hono<TailwindEnv>();
 
 const readTailwindSyncTarget = (
 	body: unknown,
@@ -580,6 +590,124 @@ tailwindRoutes.post("/compile", async (c) => {
 		}
 		console.error(error);
 		return jsonError("Failed to compile Tailwind CSS", 500);
+	}
+});
+
+// The class field validates what is typed into one layer's className; a few
+// hundred distinct tokens is already far beyond a hand-written class string.
+const MAX_INSPECT_CANDIDATES = 500;
+
+/**
+ * Resolve the design system the canvas renders a system with (entry CSS plus
+ * its stored theme), or baseline Tailwind when no system is given.
+ */
+const loadClassCatalogForRequest = async (
+	projectRoot: string,
+	configPath: string,
+	systemId: string | null,
+) => {
+	if (!systemId) {
+		return getCachedTailwindClassCatalog({ projectRoot, cssPath: null });
+	}
+
+	const config = await readJsonFile<unknown>(configPath);
+	if (!isTrickroomConfig(config)) {
+		throw new TailwindSystemResolutionError(
+			"NO_SYSTEMS_CONFIGURED",
+			"Invalid trickroom config file",
+		);
+	}
+	const resolvedTarget = await resolveConfiguredTailwindSystemTarget(
+		projectRoot,
+		config,
+		{ systemId },
+	);
+	const stored = await readDomainTokensReadonly(
+		projectRoot,
+		resolvedTarget.systemId,
+	);
+	const theme = stored
+		? serializeTailwindThemeDomains(stored.domains, stored.customProperties)
+		: "";
+	return getCachedTailwindClassCatalog({
+		projectRoot,
+		cssPath: resolvedTarget.cssPath,
+		themeOverrides: theme === "@theme {}" ? "" : theme,
+	});
+};
+
+const classCatalogErrorResponse = (error: unknown, fallback: string) => {
+	if (error instanceof TailwindSystemResolutionError) {
+		return jsonError(
+			error.message,
+			TAILWIND_RESOLUTION_ERROR_STATUS[error.code],
+		);
+	}
+	if (asErrnoException(error).code === "ENOENT") {
+		return jsonError("Config or system CSS file not found", 404);
+	}
+	console.error(error);
+	return jsonError(fallback, 500);
+};
+
+const readOptionalSystemId = (value: unknown) =>
+	typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+/**
+ * GET /class-catalog?systemId= — every utility class and variant the system's
+ * compiled Tailwind design system knows, for class-field autocomplete.
+ */
+tailwindRoutes.get("/class-catalog", async (c) => {
+	const projectRoot = c.get("projectRoot") as string;
+	const configPath = c.get("configPath") as string;
+	const systemId = readOptionalSystemId(c.req.query("systemId"));
+
+	try {
+		const { catalog } = await loadClassCatalogForRequest(
+			projectRoot,
+			configPath,
+			systemId,
+		);
+		return c.json({ systemId, ...catalog });
+	} catch (error) {
+		return classCatalogErrorResponse(error, "Failed to load Tailwind classes");
+	}
+});
+
+/**
+ * POST /class-inspect — which candidates the system's Tailwind design system
+ * compiles, with nearest valid classes for the ones it does not.
+ */
+tailwindRoutes.post("/class-inspect", async (c) => {
+	const projectRoot = c.get("projectRoot") as string;
+	const configPath = c.get("configPath") as string;
+
+	const body = await c.req.json().catch(() => null);
+	const candidates = readCompileCandidates(body);
+	if (!candidates) {
+		return jsonError("candidates must be an array of strings", 400);
+	}
+	if (candidates.length > MAX_INSPECT_CANDIDATES) {
+		return jsonError(
+			`Too many candidates: ${candidates.length} exceeds the limit of ${MAX_INSPECT_CANDIDATES}`,
+			413,
+		);
+	}
+
+	try {
+		const { designSystem, catalog } = await loadClassCatalogForRequest(
+			projectRoot,
+			configPath,
+			isRecord(body) ? readOptionalSystemId(body.systemId) : null,
+		);
+		return c.json({
+			results: inspectTailwindClasses(designSystem, catalog, candidates),
+		});
+	} catch (error) {
+		return classCatalogErrorResponse(
+			error,
+			"Failed to inspect Tailwind classes",
+		);
 	}
 });
 

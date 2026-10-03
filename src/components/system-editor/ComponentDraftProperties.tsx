@@ -38,13 +38,13 @@ import {
 	getOverrideableRegistryControls,
 	normalizeOverrideTargetCapabilities,
 } from "../../utils/system-component-override-targets";
+import { ClassCompositionPanel } from "../chrome/classes/ClassCompositionPanel";
 import {
 	getPropertiesControlSurface,
 	splitComponentControls,
 } from "../chrome/Properties";
 import { BackgroundProperties } from "../chrome/properties/BackgroundProperties";
 import { BorderProperties } from "../chrome/properties/BorderProperties";
-import { ClassCompositionPanel } from "../chrome/properties/ClassCompositionPanel";
 import { EffectsProperties } from "../chrome/properties/EffectsProperties";
 import { FocusProperties } from "../chrome/properties/FocusProperties";
 import { InteractionProperties } from "../chrome/properties/InteractionProperties";
@@ -552,9 +552,11 @@ function StyleTargetSection() {
 function StyleTargetClassEditor({
 	path,
 	target,
+	systemId,
 }: {
 	path: string;
 	target: StyleTargetDescriptor;
+	systemId: string;
 }) {
 	const className = useComponentDraftClassNameForStyleTab(target.tab, path);
 
@@ -565,13 +567,16 @@ function StyleTargetClassEditor({
 			<span className="px-3 pt-2.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
 				{target.label}
 			</span>
-			<ClassCompositionPanel
-				className={className}
-				editable
-				onChangeClassName={(next) =>
-					setDraftClassNameForStyleTab(target.tab, path, next)
-				}
-			/>
+			<div className="px-3 pt-1 pb-3">
+				<ClassCompositionPanel
+					className={className}
+					systemId={systemId}
+					label={`${target.label} classes`}
+					onChangeClassName={(next) =>
+						setDraftClassNameForStyleTab(target.tab, path, next)
+					}
+				/>
+			</div>
 		</section>
 	);
 }
@@ -1004,6 +1009,7 @@ export function ComponentDraftProperties({
 									key={target.id}
 									path={path}
 									target={target}
+									systemId={systemId}
 								/>
 							))}
 						</div>

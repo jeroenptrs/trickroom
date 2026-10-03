@@ -13,6 +13,7 @@ import {
 	getRenderableClassComposition,
 	resolveRegistryComponent,
 } from "../../libraries/registry";
+import { StagePreviewDarkModeToggle } from "../../preview/stage-preview-dark-mode";
 import { systemAssetsQueryOptions } from "../../queries/system-assets";
 import { systemComponentQueryOptions } from "../../queries/system-components";
 import { systemIconsQueryOptions } from "../../queries/system-icons";
@@ -76,13 +77,10 @@ import {
 	canFreelyEditElementInDesignInspector,
 	getPublishedVersionForInstance,
 } from "./attached-component-inspector";
+import { ClassCompositionPanel } from "./classes/ClassCompositionPanel";
 import { DesignSystemPicker } from "./DesignSystemPicker";
-import {
-	StagePreviewDarkModeToggle,
-} from "../../preview/stage-preview-dark-mode";
 import { BackgroundProperties } from "./properties/BackgroundProperties";
 import { BorderProperties } from "./properties/BorderProperties";
-import { ClassCompositionPanel } from "./properties/ClassCompositionPanel";
 import { DomainCustomUtilities } from "./properties/DomainCustomUtilities";
 import { EffectsProperties } from "./properties/EffectsProperties";
 import { FocusProperties } from "./properties/FocusProperties";
@@ -741,6 +739,7 @@ function EmptyStateKbdMap() {
 
 export function Properties() {
 	const selectedElement = useSelectedElement();
+	const systemId = useDesignSystemId() ?? null;
 	const [activeTab, setActiveTab] = useState<PropertiesTab>("properties");
 	const recipeControlTargets = useRecipeControlTargets();
 	const attachedInspection = useAttachedComponentInspection();
@@ -1148,22 +1147,27 @@ export function Properties() {
 							!canEditClassName ? (
 								<ReadOnlyInspectorNotice message="Direct class editing is locked for component-owned layers. This layer has no published className override." />
 							) : (
+								<div className="p-3">
+									<ClassCompositionPanel
+										className={className}
+										layers={classInventoryLayers}
+										systemId={systemId}
+										label="Instance"
+										onChangeClassName={onChangeClassName}
+									/>
+								</div>
+							)
+						) : (
+							<div className="p-3">
 								<ClassCompositionPanel
 									className={className}
 									layers={classInventoryLayers}
-									editable={true}
-									onChangeClassName={onChangeClassName}
+									systemId={systemId}
+									onChangeClassName={(next) =>
+										updateElementClassName(selectedElement.id, next)
+									}
 								/>
-							)
-						) : (
-							<ClassCompositionPanel
-								className={className}
-								layers={classInventoryLayers}
-								editable={true}
-								onChangeClassName={(next) =>
-									updateElementClassName(selectedElement.id, next)
-								}
-							/>
+							</div>
 						)}
 					</ScrollArea>
 				</TabsPanel>

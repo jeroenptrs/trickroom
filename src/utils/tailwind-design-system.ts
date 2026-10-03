@@ -394,17 +394,23 @@ async function getCompiledStylesheet(
 		from: rootPath,
 		loadStylesheet: trackingLoadStylesheet,
 	};
-	const compiled = await compile(source, loadOptions).catch((error: unknown) => {
-		if (!isMissingSpacingThemeVariableError(error)) {
-			throw error;
-		}
-		return compile(
-			`${source}\n@theme { --spacing: ${sanitizeSpacingThemeToken(defaultTailwindTokensByDomain.spacing.DEFAULT)}; }\n`,
-			loadOptions,
-		);
-	});
+	const compiled = await compile(source, loadOptions).catch(
+		(error: unknown) => {
+			if (!isMissingSpacingThemeVariableError(error)) {
+				throw error;
+			}
+			return compile(
+				`${source}\n@theme { --spacing: ${sanitizeSpacingThemeToken(defaultTailwindTokensByDomain.spacing.DEFAULT)}; }\n`,
+				loadOptions,
+			);
+		},
+	);
 
-	compiledStylesheetCache.set(rootPath, { themeOverrides, fileMtimes, compiled });
+	compiledStylesheetCache.set(rootPath, {
+		themeOverrides,
+		fileMtimes,
+		compiled,
+	});
 	return compiled;
 }
 
@@ -477,6 +483,78 @@ export async function compileBaselineTailwindCss({
 }): Promise<string> {
 	const compiled = await getBaselineCompiledStylesheet(projectRoot);
 	return compiled.build([...candidates]);
+}
+
+export type CanvasTailwindDesignSystem = {
+	designSystem: TailwindDesignSystem;
+	/** mtimeMs of the entry CSS plus every `@import`-ed file, keyed by abs path. */
+	fileMtimes: Map<string, number>;
+};
+
+/**
+ * Load the design system the canvas compiles with: the system's entry CSS
+ * (with `@import "tailwindcss"` ensured, as `compileTailwindCss` does) plus the
+ * appended live theme, or baseline Tailwind when `cssPath` is null. Reports
+ * every file it read so callers can cache against their mtimes.
+ */
+export async function loadCanvasTailwindDesignSystem({
+	projectRoot,
+	cssPath,
+	themeOverrides = "",
+}: {
+	projectRoot: string;
+	cssPath: string | null;
+	themeOverrides?: string;
+}): Promise<CanvasTailwindDesignSystem> {
+	const fileMtimes = new Map<string, number>();
+	let source = '@import "tailwindcss";\n';
+	let loadOptions = {
+		base: projectRoot,
+		from: path.join(projectRoot, "__trickroom_baseline__.css"),
+		loadStylesheet: async (id: string, base: string) => {
+			const result = await loadStylesheet(id, base);
+			const mtime = await statMtimeMs(result.path);
+			if (mtime !== null) {
+				fileMtimes.set(result.path, mtime);
+			}
+			return result;
+		},
+	};
+
+	if (cssPath !== null) {
+		const rootPath = resolveTailwindCssPath(projectRoot, cssPath);
+		const rawCss = await readFile(rootPath, "utf8");
+		const entryMtime = await statMtimeMs(rootPath);
+		if (entryMtime !== null) {
+			fileMtimes.set(rootPath, entryMtime);
+		}
+		source = TAILWIND_IMPORT_PATTERN.test(rawCss)
+			? rawCss
+			: `@import "tailwindcss";\n${rawCss}`;
+		if (themeOverrides.trim().length > 0) {
+			source += `\n${themeOverrides}\n`;
+		}
+		loadOptions = {
+			...loadOptions,
+			base: path.dirname(rootPath),
+			from: rootPath,
+		};
+	}
+
+	const designSystem = await __unstable__loadDesignSystem(
+		source,
+		loadOptions,
+	).catch((error: unknown) => {
+		if (!isMissingSpacingThemeVariableError(error)) {
+			throw error;
+		}
+		return __unstable__loadDesignSystem(
+			`${source}\n@theme { --spacing: ${sanitizeSpacingThemeToken(defaultTailwindTokensByDomain.spacing.DEFAULT)}; }\n`,
+			loadOptions,
+		);
+	});
+
+	return { designSystem, fileMtimes };
 }
 
 const unsafeCssThemeValuePattern = /[\x00-\x1f\x7f{};\r\n]/u;
