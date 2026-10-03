@@ -388,6 +388,68 @@ describe("trickroom MCP design read tools", () => {
 		});
 	});
 
+	it("includes className in compact trees and compact subtree reads", async () => {
+		const styledDesign = {
+			...readableDesign,
+			boards: [
+				{
+					...readableDesign.boards[0],
+					props: {
+						...readableDesign.boards[0].props,
+						className: "flex flex-col gap-4",
+					},
+					children: [
+						{
+							...readableDesign.boards[0].children[0],
+							props: {
+								...readableDesign.boards[0].children[0].props,
+								className: "text-lg",
+							},
+						},
+						readableDesign.boards[0].children[1],
+					],
+				},
+				readableDesign.boards[1],
+			],
+		} satisfies TrickroomDesign;
+		const { client } = await createSession({ [designFileId]: styledDesign });
+
+		const read = await client.callTool({
+			name: "readDesignFile",
+			arguments: { designFileId },
+		});
+		const tree = (
+			read.structuredContent as {
+				elementTree: Array<Record<string, unknown>>;
+			}
+		).elementTree;
+		expect(tree[0]).toMatchObject({
+			id: "board-a",
+			className: "flex flex-col gap-4",
+			children: [
+				{ id: "title", className: "text-lg" },
+				expect.not.objectContaining({ className: expect.anything() }),
+			],
+		});
+
+		const compactSubtree = await client.callTool({
+			name: "readSubtree",
+			arguments: { designFileId, elementId: "board-a", detail: "compact" },
+		});
+		const subtree = (
+			compactSubtree.structuredContent as { subtree: Record<string, unknown> }
+		).subtree;
+		expect(subtree).toMatchObject({
+			id: "board-a",
+			className: "flex flex-col gap-4",
+			children: [
+				{ id: "title", className: "text-lg", textPreview: "Launch ready" },
+				{ id: "cta" },
+			],
+		});
+		expect(subtree).not.toHaveProperty("props");
+	});
+
 	it("reads full elements with parent and sibling context", async () => {
 		const { client } = await createSession();
 

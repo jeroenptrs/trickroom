@@ -1172,6 +1172,14 @@ const getDesignSystemDisplayName = async (
 	(await summarizeDesignSystemReference(context, getDesignSystemHandle(design)))
 		?.systemName ?? null;
 
+// Compact trees carry the user-authored className so agents can see styling
+// without a detailed read; omitted when empty to keep payloads lean.
+const getCompactClassName = (node: DesignNode) =>
+	typeof node.props.className === "string" &&
+	node.props.className.trim().length > 0
+		? { className: node.props.className }
+		: {};
+
 const compactElementTree = (node: DesignNode): Record<string, unknown> => {
 	const isText = typeof node.children === "string";
 
@@ -1181,6 +1189,7 @@ const compactElementTree = (node: DesignNode): Record<string, unknown> => {
 		library: node.props["data-trickroom-library"],
 		component: node.props["data-trickroom-component"],
 		role: normalizeRole(node.props["data-trickroom-role"]),
+		...getCompactClassName(node),
 		...(isText
 			? {
 					textLength: node.children.length,
@@ -1208,6 +1217,7 @@ const compactElementTreeBounded = (
 			library: node.props["data-trickroom-library"],
 			component: node.props["data-trickroom-component"],
 			role: normalizeRole(node.props["data-trickroom-role"]),
+			...getCompactClassName(node),
 			textLength: node.children.length,
 			textPreview: getTextPreview(node.children),
 			truncated: false,
@@ -1240,6 +1250,7 @@ const compactElementTreeBounded = (
 		library: node.props["data-trickroom-library"],
 		component: node.props["data-trickroom-component"],
 		role: normalizeRole(node.props["data-trickroom-role"]),
+		...getCompactClassName(node),
 		childIds,
 		children,
 		truncated: stats.omittedNodeCount > omittedBefore,
@@ -3909,20 +3920,22 @@ const readSubtreePayload = async (
 	context: TrickroomMcpServerContext,
 	designFileId: string,
 	elementId: string,
-	options: TreeReadInput = {},
+	options: TreeReadInput & { detail?: "full" | "compact" } = {},
 ) => {
 	assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
 	const read = await readDesignFileForTool(context, designFileId);
 	const elementContext = getElementContextOrThrow(read.design, elementId);
-	const recipeSummariesByElementId = getRecipeAttachmentSummaries(read.design);
 	const bounds = createTreeReadBounds(options);
 	const stats = createTreeReadStats(bounds);
-	const subtree = detailedSubtree(
-		elementContext.element,
-		stats,
-		0,
-		recipeSummariesByElementId,
-	);
+	const subtree =
+		options.detail === "compact"
+			? compactElementTreeBounded(elementContext.element, stats)
+			: detailedSubtree(
+					elementContext.element,
+					stats,
+					0,
+					getRecipeAttachmentSummaries(read.design),
+				);
 
 	return {
 		project: getProjectReference(context),
@@ -6024,7 +6037,7 @@ Workflow:
 		{
 			title: "Read Subtree",
 			description:
-				"Read a bounded detailed element subtree rooted at the selected element. Defaults to depth 2 and 100 nodes; pass allowLarge to request deeper output.",
+				'Read a bounded detailed element subtree rooted at the selected element. Defaults to depth 2 and 100 nodes; pass allowLarge to request deeper output. Pass detail: "compact" for id/name/component/className/text-preview nodes without full props.',
 			inputSchema: withProjectScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				elementId: z.string().min(1).describe("Element ID inside the design."),
@@ -6048,6 +6061,12 @@ Workflow:
 					.describe(
 						"Set true to permit depth above 4, maxNodes above 500, or an unbounded read when depth/maxNodes are omitted.",
 					),
+				detail: z
+					.enum(["full", "compact"])
+					.optional()
+					.describe(
+						'"full" (default) returns every prop per node, recipe attachment summaries, and full text. "compact" returns the readDesignFile node shape: id, name, library, component, role, className, and a text preview.',
+					),
 				responseFormat: mcpReadResponseFormatSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
@@ -6058,6 +6077,7 @@ Workflow:
 			depth,
 			maxNodes,
 			allowLarge,
+			detail,
 			responseFormat,
 			project,
 		}) =>
@@ -6070,6 +6090,7 @@ Workflow:
 						depth,
 						maxNodes,
 						allowLarge,
+						detail,
 					},
 				);
 				return createReadToolResult(

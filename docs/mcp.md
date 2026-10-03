@@ -182,10 +182,10 @@ Read-only tools:
 | `resolveProject` | Resolve `projectId` or `locationId` to a local project location. |
 | `trickroom_project_info` | Return project root, config path, and systems. |
 | `listDesignFiles` | List visible design files with revisions, counts, and modified timestamps. |
-| `readDesignFile` | Read design metadata, board summaries, counts, and a bounded compact design tree. Defaults to depth 2 and 100 nodes. Returns parseable JSON in `text` by default; pass `responseFormat: "summary"` for a short prose summary. |
+| `readDesignFile` | Read design metadata, board summaries, counts, and a bounded compact design tree (id, name, library, component, role, non-empty `className`, text preview). Defaults to depth 2 and 100 nodes. Returns parseable JSON in `text` by default; pass `responseFormat: "summary"` for a short prose summary. |
 | `readDesignGraph` | Read a flat graph and element addresses. Defaults to JSON in `text`; pass `responseFormat: "summary"` for prose. |
 | `readElement` | Read one element with context. |
-| `readSubtree` | Read one bounded element subtree. Defaults to depth 2 and 100 nodes. Returns JSON in `text` by default; pass `responseFormat: "summary"` for prose. |
+| `readSubtree` | Read one bounded element subtree. Defaults to depth 2 and 100 nodes. `detail: "full"` (default) returns every prop per node; `detail: "compact"` returns the `readDesignFile` node shape, including `className`. Returns JSON in `text` by default; pass `responseFormat: "summary"` for prose. |
 | `validateDesignFile` | Validate an existing design without writing. Omits heavy token `customUtilities` catalogs unless `includeTokenDiagnostics: true`. |
 | `validateOperation` | Dry-run one supported operation without writing. |
 | `validateOperationPlan` | Dry-run an ordered list of design operations against one starting revision without writing. |
