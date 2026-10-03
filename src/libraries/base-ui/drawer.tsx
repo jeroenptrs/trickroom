@@ -5,7 +5,12 @@ import {
 	forwardRef,
 	useContext,
 } from "react";
-import { useFrame } from "react-frame-component";
+import {
+	CANVAS_OVERLAY_ROOT_PROPS,
+	useCanvasPopupProps,
+	useIsCanvasBoard,
+	useStagePortalContainer,
+} from "../stage-portal";
 import { renderFallback } from "./render-fallback";
 
 type DrawerProviderProps = ComponentPropsWithoutRef<typeof Drawer.Provider>;
@@ -36,9 +41,13 @@ export function DrawerProvider(props: DrawerProviderProps) {
 }
 
 export function DrawerRoot({ children, ...props }: DrawerRootProps) {
+	const canvas = useIsCanvasBoard();
+
 	return (
 		<DrawerRootRenderContext.Provider value={true}>
-			<Drawer.Root {...props}>{children}</Drawer.Root>
+			<Drawer.Root {...props} {...(canvas ? CANVAS_OVERLAY_ROOT_PROPS : {})}>
+				{children}
+			</Drawer.Root>
 		</DrawerRootRenderContext.Provider>
 	);
 }
@@ -58,12 +67,13 @@ export const DrawerTrigger = forwardRef<HTMLElement, DrawerTriggerProps>(
 export const DrawerPortal = forwardRef<HTMLDivElement, DrawerPortalProps>(
 	function DrawerPortal({ children, ...props }, ref) {
 		const isInsideDrawerRoot = useContext(DrawerRootRenderContext);
-		const { document: frameDocument } = useFrame();
+		const resolvedContainer = useStagePortalContainer(
+			props.container,
+			isInsideDrawerRoot,
+		);
 
 		if (isInsideDrawerRoot) {
-			const { container, ...portalProps } = props;
-			const resolvedContainer =
-				container === undefined ? frameDocument?.body : container;
+			const { container: _container, ...portalProps } = props;
 
 			return (
 				<DrawerPortalRenderContext.Provider value={true}>
@@ -124,9 +134,10 @@ export const DrawerViewport = forwardRef<HTMLDivElement, DrawerViewportProps>(
 export const DrawerPopup = forwardRef<HTMLDivElement, DrawerPopupProps>(
 	function DrawerPopup(props, ref) {
 		const isInsideDrawerRoot = useContext(DrawerRootRenderContext);
+		const popupProps = useCanvasPopupProps(props);
 
 		if (isInsideDrawerRoot) {
-			return <Drawer.Popup {...props} ref={ref} />;
+			return <Drawer.Popup {...popupProps} ref={ref} />;
 		}
 
 		return renderFallback("div", props, ref, [

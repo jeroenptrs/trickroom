@@ -45,6 +45,28 @@ describe("stage shell canvas boards", () => {
 		);
 	});
 
+	it("gives boards with an open overlay a default height", () => {
+		expect(
+			shellHtml.match(/--trickroom-canvas-board-default-height:/g),
+		).toHaveLength(1);
+		const overlayHeightRule = (mode: string) =>
+			shellHtml.match(
+				new RegExp(
+					`\\[data-trickroom-board-default-height="${mode}"\\]:has\\(\\s*> \\[data-trickroom-board-portal\\] > \\*\\s*\\)\\s*\\{([^}]*)\\}`,
+				),
+			)?.[1];
+		expect(overlayHeightRule("canvas")).toContain(
+			"min-height: var(--trickroom-canvas-board-default-height);",
+		);
+		expect(overlayHeightRule("viewport")).toContain("min-height: 100vh;");
+	});
+
+	it("makes each board the containing block for its fixed overlays", () => {
+		expect(shellHtml).toMatch(
+			/\.frame-content > main > \[data-trickroom-root-id\]\s*\{\s*contain: layout;/,
+		);
+	});
+
 	it("floors main at the default width so full-width boards stay desktop-sized", () => {
 		const mainRule = getCanvasRules().find(({ selector }) =>
 			selector.endsWith(".frame-content > main"),

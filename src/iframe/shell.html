@@ -7,12 +7,16 @@
     <style>
       /*
        * Canvas boards sit side by side in one flex row. They never shrink to
-       * share the pane, and boards the renderer (Artboards) marks as setting
-       * no width of their own render at least the default width.
+       * share the pane, and the board renderer (Artboards) marks boards that
+       * set no width or height of their own: those render at least the
+       * default width on the canvas, and while an overlay is open in them at
+       * least the default height on the canvas or the viewport height
+       * elsewhere (responsive view, capture), like a page would.
        * Render-time only; nothing is written to the design.
        */
       :root {
         --trickroom-canvas-board-default-width: 1280px;
+        --trickroom-canvas-board-default-height: 800px;
       }
       @layer base {
         html[data-trickroom-stage-mode="canvas"]
@@ -26,6 +30,29 @@
         [data-trickroom-board-default-width] {
           min-width: var(--trickroom-canvas-board-default-width);
         }
+        [data-trickroom-board-default-height="canvas"]:has(
+            > [data-trickroom-board-portal] > *
+          ) {
+          min-height: var(--trickroom-canvas-board-default-height);
+        }
+        [data-trickroom-board-default-height="viewport"]:has(
+            > [data-trickroom-board-portal] > *
+          ) {
+          min-height: 100vh;
+        }
+        /*
+         * Each board is the containing block for its fixed descendants, so
+         * overlays portalled into the board (and fixed layers authored in it)
+         * position against the board rather than the shared iframe viewport,
+         * and pan and zoom with it. Layout containment does not clip.
+         */
+        .frame-content > main > [data-trickroom-root-id] {
+          contain: layout;
+        }
+      }
+      /* The board portal host lets clicks through to the board; overlays don't. */
+      [data-trickroom-board-portal] > * {
+        pointer-events: auto;
       }
       /*
        * Percentage widths such as w-full resolve against main, so main gets the

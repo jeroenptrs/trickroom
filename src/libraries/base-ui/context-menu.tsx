@@ -5,7 +5,10 @@ import {
 	forwardRef,
 	useContext,
 } from "react";
-import { useFrame } from "react-frame-component";
+import {
+	useStagePortalContainer,
+	useStagePositionerProps,
+} from "../stage-portal";
 import { renderFallback } from "./render-fallback";
 
 type ContextMenuRootProps = ComponentPropsWithoutRef<typeof ContextMenu.Root>;
@@ -61,12 +64,13 @@ export const ContextMenuPortal = forwardRef<
 	ContextMenuPortalProps
 >(function ContextMenuPortal({ children, ...props }, ref) {
 	const isInsideContextMenuRoot = useContext(ContextMenuRootRenderContext);
-	const { document: frameDocument } = useFrame();
+	const resolvedContainer = useStagePortalContainer(
+		props.container,
+		isInsideContextMenuRoot,
+	);
 
 	if (isInsideContextMenuRoot) {
-		const { container, ...portalProps } = props;
-		const resolvedContainer =
-			container === undefined ? frameDocument?.body : container;
+		const { container: _container, ...portalProps } = props;
 
 		return (
 			<ContextMenuPortalRenderContext.Provider value="base">
@@ -96,6 +100,7 @@ export const ContextMenuPositioner = forwardRef<
 	HTMLDivElement,
 	ContextMenuPositionerProps
 >(function ContextMenuPositioner(props, ref) {
+	const stagePositionerProps = useStagePositionerProps(props);
 	const isInsideContextMenuRoot = useContext(ContextMenuRootRenderContext);
 	const contextMenuPortalRenderMode = useContext(
 		ContextMenuPortalRenderContext,
@@ -104,7 +109,7 @@ export const ContextMenuPositioner = forwardRef<
 	if (isInsideContextMenuRoot && contextMenuPortalRenderMode === "base") {
 		return (
 			<ContextMenuPositionerRenderContext.Provider value="base">
-				<ContextMenu.Positioner {...props} ref={ref} />
+				<ContextMenu.Positioner {...stagePositionerProps} ref={ref} />
 			</ContextMenuPositionerRenderContext.Provider>
 		);
 	}

@@ -169,7 +169,7 @@ describe("Artboards", () => {
 		expect(html).toContain("Still visible");
 	});
 
-	it("marks canvas boards that need the default width", () => {
+	it("marks canvas boards that need the default width and overlay height", () => {
 		hydrateDesign({
 			name: "Board sizing test",
 			boards: [
@@ -218,11 +218,17 @@ describe("Artboards", () => {
 		expect(boardTag(canvas, "unsized")).toContain(
 			"data-trickroom-board-default-width",
 		);
+		expect(boardTag(canvas, "unsized")).toContain(
+			'data-trickroom-board-default-height="canvas"',
+		);
 		expect(boardTag(canvas, "sized")).not.toContain(
-			"data-trickroom-board-default-width",
+			"data-trickroom-board-default-",
 		);
 		expect(boardTag(canvas, "fit")).not.toContain(
 			"data-trickroom-board-default-width",
+		);
+		expect(boardTag(canvas, "fit")).toContain(
+			'data-trickroom-board-default-height="canvas"',
 		);
 
 		const responsive = renderArtboards({
@@ -232,5 +238,14 @@ describe("Artboards", () => {
 		expect(boardTag(responsive, "unsized")).not.toContain(
 			"data-trickroom-board-default-width",
 		);
+		expect(boardTag(responsive, "unsized")).toContain(
+			'data-trickroom-board-default-height="viewport"',
+		);
+	});
+
+	it("renders no portal host until an overlay in the board asks for one", () => {
+		const html = renderArtboards({ mode: "canvas", activeBoardId: null });
+
+		expect(html).not.toContain("data-trickroom-board-portal");
 	});
 });

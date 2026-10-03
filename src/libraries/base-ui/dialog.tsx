@@ -5,7 +5,12 @@ import {
 	forwardRef,
 	useContext,
 } from "react";
-import { useFrame } from "react-frame-component";
+import {
+	CANVAS_OVERLAY_ROOT_PROPS,
+	useCanvasPopupProps,
+	useIsCanvasBoard,
+	useStagePortalContainer,
+} from "../stage-portal";
 import { renderFallback } from "./render-fallback";
 
 type DialogRootProps = ComponentPropsWithoutRef<typeof Dialog.Root>;
@@ -25,9 +30,13 @@ const DialogRootRenderContext = createContext(false);
 const DialogPortalRenderContext = createContext<DialogRenderMode>(null);
 
 export function DialogRoot({ children, ...props }: DialogRootProps) {
+	const canvas = useIsCanvasBoard();
+
 	return (
 		<DialogRootRenderContext.Provider value={true}>
-			<Dialog.Root {...props}>{children}</Dialog.Root>
+			<Dialog.Root {...props} {...(canvas ? CANVAS_OVERLAY_ROOT_PROPS : {})}>
+				{children}
+			</Dialog.Root>
 		</DialogRootRenderContext.Provider>
 	);
 }
@@ -51,12 +60,13 @@ export const DialogTrigger = forwardRef<HTMLButtonElement, DialogTriggerProps>(
 export const DialogPortal = forwardRef<HTMLDivElement, DialogPortalProps>(
 	function DialogPortal({ children, ...props }, ref) {
 		const isInsideDialogRoot = useContext(DialogRootRenderContext);
-		const { document: frameDocument } = useFrame();
+		const resolvedContainer = useStagePortalContainer(
+			props.container,
+			isInsideDialogRoot,
+		);
 
 		if (isInsideDialogRoot) {
-			const { container, ...portalProps } = props;
-			const resolvedContainer =
-				container === undefined ? frameDocument?.body : container;
+			const { container: _container, ...portalProps } = props;
 
 			return (
 				<DialogPortalRenderContext.Provider value="base">
@@ -112,9 +122,10 @@ export const DialogPopup = forwardRef<HTMLDivElement, DialogPopupProps>(
 	function DialogPopup(props, ref) {
 		const isInsideDialogRoot = useContext(DialogRootRenderContext);
 		const dialogPortalRenderMode = useContext(DialogPortalRenderContext);
+		const popupProps = useCanvasPopupProps(props);
 
 		if (isInsideDialogRoot && dialogPortalRenderMode === "base") {
-			return <Dialog.Popup {...props} ref={ref} />;
+			return <Dialog.Popup {...popupProps} ref={ref} />;
 		}
 
 		return renderFallback("div", props, ref, ["finalFocus", "initialFocus"]);

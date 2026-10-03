@@ -1,11 +1,17 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog";
+import { Dialog } from "@base-ui/react/dialog";
 import {
 	type ComponentPropsWithoutRef,
 	createContext,
 	forwardRef,
 	useContext,
 } from "react";
-import { useFrame } from "react-frame-component";
+import {
+	CANVAS_OVERLAY_ROOT_PROPS,
+	useCanvasPopupProps,
+	useIsCanvasBoard,
+	useStagePortalContainer,
+} from "../stage-portal";
 import { renderFallback } from "./render-fallback";
 
 type AlertDialogRootProps = ComponentPropsWithoutRef<typeof AlertDialog.Root>;
@@ -34,9 +40,23 @@ const AlertDialogPortalRenderContext =
 	createContext<AlertDialogRenderMode>(null);
 
 export function AlertDialogRoot({ children, ...props }: AlertDialogRootProps) {
+	const canvas = useIsCanvasBoard();
+
+	// Alert dialogs are always modal in Base UI. Its parts are Dialog parts, so
+	// the canvas renders a non-modal Dialog root instead (see useIsCanvasBoard);
+	// AlertDialogPopup keeps the alertdialog role.
 	return (
 		<AlertDialogRootRenderContext.Provider value={true}>
-			<AlertDialog.Root {...props}>{children}</AlertDialog.Root>
+			{canvas ? (
+				<Dialog.Root
+					{...(props as ComponentPropsWithoutRef<typeof Dialog.Root>)}
+					{...CANVAS_OVERLAY_ROOT_PROPS}
+				>
+					{children}
+				</Dialog.Root>
+			) : (
+				<AlertDialog.Root {...props}>{children}</AlertDialog.Root>
+			)}
 		</AlertDialogRootRenderContext.Provider>
 	);
 }
@@ -63,12 +83,13 @@ export const AlertDialogPortal = forwardRef<
 	AlertDialogPortalProps
 >(function AlertDialogPortal({ children, ...props }, ref) {
 	const isInsideAlertDialogRoot = useContext(AlertDialogRootRenderContext);
-	const { document: frameDocument } = useFrame();
+	const resolvedContainer = useStagePortalContainer(
+		props.container,
+		isInsideAlertDialogRoot,
+	);
 
 	if (isInsideAlertDialogRoot) {
-		const { container, ...portalProps } = props;
-		const resolvedContainer =
-			container === undefined ? frameDocument?.body : container;
+		const { container: _container, ...portalProps } = props;
 
 		return (
 			<AlertDialogPortalRenderContext.Provider value="base">
@@ -131,9 +152,17 @@ export const AlertDialogPopup = forwardRef<
 	const alertDialogPortalRenderMode = useContext(
 		AlertDialogPortalRenderContext,
 	);
+	const canvas = useIsCanvasBoard();
+	const popupProps = useCanvasPopupProps(props);
 
 	if (isInsideAlertDialogRoot && alertDialogPortalRenderMode === "base") {
-		return <AlertDialog.Popup {...props} ref={ref} />;
+		return (
+			<AlertDialog.Popup
+				{...(canvas ? { role: "alertdialog" } : {})}
+				{...popupProps}
+				ref={ref}
+			/>
+		);
 	}
 
 	return renderFallback("div", props, ref, ["finalFocus", "initialFocus"]);

@@ -6,7 +6,10 @@ import {
 	type Ref,
 	useContext,
 } from "react";
-import { useFrame } from "react-frame-component";
+import {
+	useStagePortalContainer,
+	useStagePositionerProps,
+} from "../stage-portal";
 
 type MenuRootProps = ComponentPropsWithoutRef<typeof Menu.Root>;
 type MenuTriggerProps = ComponentPropsWithoutRef<typeof Menu.Trigger>;
@@ -61,12 +64,13 @@ export const MenuTrigger = forwardRef<HTMLElement, MenuTriggerProps>(
 export const MenuPortal = forwardRef<HTMLDivElement, MenuPortalProps>(
 	function MenuPortal({ children, ...props }, ref) {
 		const isInsideMenuRoot = useContext(MenuRootRenderContext);
-		const { document: frameDocument } = useFrame();
+		const resolvedContainer = useStagePortalContainer(
+			props.container,
+			isInsideMenuRoot,
+		);
 
 		if (isInsideMenuRoot) {
-			const { container, ...portalProps } = props;
-			const resolvedContainer =
-				container === undefined ? frameDocument?.body : container;
+			const { container: _container, ...portalProps } = props;
 
 			return (
 				<MenuPortalRenderContext.Provider value={true}>
@@ -91,12 +95,13 @@ export const MenuPortal = forwardRef<HTMLDivElement, MenuPortalProps>(
 
 export const MenuPositioner = forwardRef<HTMLDivElement, MenuPositionerProps>(
 	function MenuPositioner(props, ref) {
+		const stagePositionerProps = useStagePositionerProps(props);
 		const isInsideMenuPortal = useContext(MenuPortalRenderContext);
 
 		if (isInsideMenuPortal) {
 			return (
 				<MenuPositionerRenderContext.Provider value={true}>
-					<Menu.Positioner {...props} ref={ref} />
+					<Menu.Positioner {...stagePositionerProps} ref={ref} />
 				</MenuPositionerRenderContext.Provider>
 			);
 		}

@@ -6,7 +6,10 @@ import {
 	type Ref,
 	useContext,
 } from "react";
-import { useFrame } from "react-frame-component";
+import {
+	useStagePortalContainer,
+	useStagePositionerProps,
+} from "../stage-portal";
 
 type PopoverRootProps = ComponentPropsWithoutRef<typeof Popover.Root>;
 type PopoverTriggerProps = ComponentPropsWithoutRef<typeof Popover.Trigger>;
@@ -71,12 +74,13 @@ export const PopoverTrigger = forwardRef<HTMLElement, PopoverTriggerProps>(
 export const PopoverPortal = forwardRef<HTMLDivElement, PopoverPortalProps>(
 	function PopoverPortal({ children, ...props }, ref) {
 		const isInsidePopoverRoot = useContext(PopoverRootRenderContext);
-		const { document: frameDocument } = useFrame();
+		const resolvedContainer = useStagePortalContainer(
+			props.container,
+			isInsidePopoverRoot,
+		);
 
 		if (isInsidePopoverRoot) {
-			const { container, ...portalProps } = props;
-			const resolvedContainer =
-				container === undefined ? frameDocument?.body : container;
+			const { container: _container, ...portalProps } = props;
 
 			return (
 				<PopoverPortalRenderContext.Provider value="base">
@@ -122,13 +126,14 @@ export const PopoverPositioner = forwardRef<
 	HTMLDivElement,
 	PopoverPositionerProps
 >(function PopoverPositioner(props, ref) {
+	const stagePositionerProps = useStagePositionerProps(props);
 	const isInsidePopoverRoot = useContext(PopoverRootRenderContext);
 	const popoverPortalRenderMode = useContext(PopoverPortalRenderContext);
 
 	if (isInsidePopoverRoot && popoverPortalRenderMode === "base") {
 		return (
 			<PopoverPositionerRenderContext.Provider value="base">
-				<Popover.Positioner {...props} ref={ref} />
+				<Popover.Positioner {...stagePositionerProps} ref={ref} />
 			</PopoverPositionerRenderContext.Provider>
 		);
 	}

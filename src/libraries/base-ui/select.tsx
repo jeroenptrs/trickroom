@@ -5,7 +5,10 @@ import {
 	forwardRef,
 	useContext,
 } from "react";
-import { useFrame } from "react-frame-component";
+import {
+	useStagePortalContainer,
+	useStagePositionerProps,
+} from "../stage-portal";
 import { renderFallback } from "./render-fallback";
 
 type SelectRootProps = ComponentPropsWithoutRef<typeof Select.Root>;
@@ -98,18 +101,19 @@ export const SelectIcon = forwardRef<HTMLSpanElement, SelectIconProps>(
 export const SelectPortal = forwardRef<HTMLDivElement, SelectPortalProps>(
 	function SelectPortal({ children, ...props }, ref) {
 		const isInsideSelectRoot = useContext(SelectRootRenderContext);
-		const { document: frameDocument } = useFrame();
+		const resolvedContainer = useStagePortalContainer(
+			props.container,
+			isInsideSelectRoot,
+		);
 
 		if (isInsideSelectRoot) {
 			// Base UI 1.5 dropped keepMounted on Select.Portal; strip the stale
 			// persisted prop so it doesn't spread onto the portal div.
 			const {
-				container,
+				container: _container,
 				keepMounted: _keepMounted,
 				...portalProps
 			} = props as SelectPortalProps & { keepMounted?: boolean };
-			const resolvedContainer =
-				container === undefined ? frameDocument?.body : container;
 
 			return (
 				<SelectPortalRenderContext.Provider value={true}>
@@ -150,13 +154,18 @@ export const SelectPositioner = forwardRef<
 	HTMLDivElement,
 	SelectPositionerProps
 >(function SelectPositioner(props, ref) {
+	// Item-aligned positioning places a fixed popup from viewport geometry,
+	// which can't follow a board's containing block or the canvas transform.
+	const stagePositionerProps = useStagePositionerProps(props, {
+		alignItemWithTrigger: false,
+	});
 	const isInsideSelectRoot = useContext(SelectRootRenderContext);
 	const isInsideSelectPortal = useContext(SelectPortalRenderContext);
 
 	if (isInsideSelectRoot && isInsideSelectPortal) {
 		return (
 			<SelectPositionerRenderContext.Provider value={true}>
-				<Select.Positioner {...props} ref={ref} />
+				<Select.Positioner {...stagePositionerProps} ref={ref} />
 			</SelectPositionerRenderContext.Provider>
 		);
 	}

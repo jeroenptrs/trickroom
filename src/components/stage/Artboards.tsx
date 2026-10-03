@@ -3,6 +3,10 @@ import {
 	getRenderableProps,
 	resolveRenderableRegistryComponent,
 } from "../../libraries/render-registry";
+import {
+	StageBoardPortalContext,
+	useStageBoardPortal,
+} from "../../libraries/stage-portal";
 import { DesignSystemRenderContext } from "../../libraries/trickroom/render-context";
 import {
 	useChildren,
@@ -17,20 +21,25 @@ import {
 import { resolveBoardSizing } from "./board-sizing";
 import { MissingRenderer } from "./MissingRenderer";
 
+type BoardRender = {
+	/** Canvas boards get the default width floor from the iframe shell. */
+	canvas: boolean;
+	/** The board's portal host, rendered ahead of the board's children. */
+	portalHost: ReactNode;
+};
+
 type SerializedElementProps = {
 	id: string;
 	rootId: string;
-	isRoot?: boolean;
-	/** Canvas boards get the default width floor from the iframe shell. */
-	canvas?: boolean;
+	board?: BoardRender;
 };
 
 function SerializedElement({
 	id,
 	rootId,
-	isRoot = false,
-	canvas = false,
+	board,
 }: SerializedElementProps): ReactNode {
+	const isRoot = board !== undefined;
 	const element = useElement(id);
 	const childIds = useChildren(id);
 
@@ -53,9 +62,12 @@ function SerializedElement({
 			>
 				{element.role === "text"
 					? element.text
-					: childIds.map((childId) => (
-							<SerializedElement key={childId} id={childId} rootId={rootId} />
-						))}
+					: withPortalHost(
+							board,
+							childIds.map((childId) => (
+								<SerializedElement key={childId} id={childId} rootId={rootId} />
+							)),
+						)}
 			</MissingRenderer>
 		);
 	}
@@ -64,11 +76,17 @@ function SerializedElement({
 	props["data-trickroom-node-id"] = id;
 	if (isRoot) {
 		props["data-trickroom-root-id"] = rootId;
-		if (
-			canvas &&
-			resolveBoardSizing(props.className, props.style).defaultWidth
-		) {
+		const sizing = resolveBoardSizing(props.className, props.style);
+		if (board.canvas && sizing.defaultWidth) {
 			props["data-trickroom-board-default-width"] = "";
+		}
+		// Only takes effect while an overlay is open in the board, so a
+		// backdrop and a centred dialog have room even when content is short:
+		// the canvas default height, or the viewport height elsewhere.
+		if (sizing.defaultHeight) {
+			props["data-trickroom-board-default-height"] = board.canvas
+				? "canvas"
+				: "viewport";
 		}
 	}
 
@@ -83,9 +101,41 @@ function SerializedElement({
 	return createElement(
 		resolution.definition.component,
 		props,
-		childIds.map((childId) => (
-			<SerializedElement key={childId} id={childId} rootId={rootId} />
-		)),
+		withPortalHost(
+			board,
+			childIds.map((childId) => (
+				<SerializedElement key={childId} id={childId} rootId={rootId} />
+			)),
+		),
+	);
+}
+
+function withPortalHost(board: BoardRender | undefined, children: ReactNode[]) {
+	return board?.portalHost ? [board.portalHost, ...children] : children;
+}
+
+/**
+ * A board root: the containing block and portal target for its own overlays,
+ * so an open dialog centres on its board and a sheet pins to its board's edge
+ * instead of the shared iframe viewport.
+ */
+function SerializedBoard({
+	rootId,
+	canvas,
+}: {
+	rootId: string;
+	canvas: boolean;
+}) {
+	const { value, host } = useStageBoardPortal(canvas);
+
+	return (
+		<StageBoardPortalContext.Provider value={value}>
+			<SerializedElement
+				id={rootId}
+				rootId={rootId}
+				board={{ canvas, portalHost: host }}
+			/>
+		</StageBoardPortalContext.Provider>
 	);
 }
 
@@ -114,11 +164,9 @@ export const Artboards = memo(function Artboards() {
 	return (
 		<DesignSystemRenderContext.Provider value={systemId}>
 			{visibleRootIds.map((rootId) => (
-				<SerializedElement
+				<SerializedBoard
 					key={rootId}
-					id={rootId}
 					rootId={rootId}
-					isRoot
 					canvas={mode === "canvas"}
 				/>
 			))}
