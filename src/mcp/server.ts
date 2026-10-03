@@ -3354,24 +3354,90 @@ const toDesignFileResources = (
 	});
 };
 
+type ListFilterInput = {
+	query?: string;
+	limit?: number;
+};
+
+const listQuerySchema = z
+	.string()
+	.optional()
+	.describe(
+		"Optional case-insensitive filter. Every whitespace-separated term must appear in the entry's id, name, or other text fields.",
+	);
+
+const listLimitSchema = z
+	.number()
+	.int()
+	.min(1)
+	.max(5000)
+	.optional()
+	.describe(
+		"Optional maximum number of entries to return. Omit to return every match.",
+	);
+
+/**
+ * Filter and cap a catalog list. Always reports totalCount (catalog size) and
+ * matchedCount (after query) so callers know what a limit or query hid.
+ */
+const filterCatalogList = <T>(
+	items: readonly T[],
+	{ query, limit }: ListFilterInput,
+	getSearchText: (item: T) => string,
+) => {
+	const terms = (query ?? "")
+		.toLowerCase()
+		.split(/\s+/u)
+		.filter((term) => term.length > 0);
+	const matched =
+		terms.length === 0
+			? items
+			: items.filter((item) => {
+					const text = getSearchText(item).toLowerCase();
+					return terms.every((term) => text.includes(term));
+				});
+	const returned = limit === undefined ? matched : matched.slice(0, limit);
+	return {
+		items: returned,
+		counts: {
+			totalCount: items.length,
+			matchedCount: matched.length,
+			returnedCount: returned.length,
+			truncated: returned.length < matched.length,
+		},
+	};
+};
+
+const getEntrySearchText = (entry: Record<string, unknown>) =>
+	Object.values(entry)
+		.filter((value): value is string => typeof value === "string")
+		.join(" ");
+
 const listSystemAssetsPayload = async (
 	context: TrickroomMcpServerContext,
 	systemName: string,
+	filter: ListFilterInput = {},
 ) => {
 	const system = await assertConfiguredSystem(context, systemName);
 	const manifest = await readAssetManifest(
 		context.projectRoot,
 		system.manifest.systemId,
 	);
+	const { items, counts } = filterCatalogList(
+		Object.entries(manifest.assets).map(([id, asset]) => ({
+			id,
+			...asset,
+		})),
+		filter,
+		getEntrySearchText,
+	);
 	return {
 		project: getProjectReference(context),
 		systemId: system.manifest.systemId,
 		systemName: system.manifest.systemName,
 		updatedAt: manifest.metadata.updatedAt,
-		assets: Object.entries(manifest.assets).map(([id, asset]) => ({
-			id,
-			...asset,
-		})),
+		...counts,
+		assets: items,
 	};
 };
 
@@ -3407,11 +3473,20 @@ const describeAssetPayload = async (
 const listSystemIconsPayload = async (
 	context: TrickroomMcpServerContext,
 	systemName: string,
+	filter: ListFilterInput = {},
 ) => {
 	const system = await assertConfiguredSystem(context, systemName);
 	const manifest = await readIconManifest(
 		context.projectRoot,
 		system.manifest.systemId,
+	);
+	const { items, counts } = filterCatalogList(
+		Object.entries(manifest.icons).map(([id, icon]) => ({
+			id,
+			...icon,
+		})),
+		filter,
+		getEntrySearchText,
 	);
 	return {
 		project: getProjectReference(context),
@@ -3419,10 +3494,8 @@ const listSystemIconsPayload = async (
 		systemName: system.manifest.systemName,
 		indexedAt: manifest.metadata.indexedAt,
 		iconFolderPaths: manifest.iconFolderPaths,
-		icons: Object.entries(manifest.icons).map(([id, icon]) => ({
-			id,
-			...icon,
-		})),
+		...counts,
+		icons: items,
 		diagnostics: manifest.diagnostics,
 	};
 };
@@ -3450,10 +3523,47 @@ const listSystemComponentsPayload = async (
 	};
 };
 
+/**
+ * Keep only the current published version's template by default; older
+ * versions are summarized (version, publishedAt, hashes) so callers can still
+ * see the history and opt into full templates with versions: "all".
+ */
+const limitPublishedVersions = (
+	record: Awaited<ReturnType<typeof describeSystemComponent>>["record"],
+	versions: "current" | "all",
+) => {
+	if (versions === "all" || !record.published) {
+		return { record };
+	}
+	const { currentVersion, versions: published } = record.published;
+	const versionHistory = Object.values(published).map((entry) => ({
+		version: entry.version,
+		publishedAt: entry.publishedAt,
+		templateHash: entry.templateHash,
+		variantSchemaHash: entry.variantSchemaHash,
+		...(entry.previousVersion !== undefined
+			? { previousVersion: entry.previousVersion }
+			: {}),
+	}));
+	return {
+		record: {
+			...record,
+			published: {
+				currentVersion,
+				versions: Object.hasOwn(published, currentVersion)
+					? { [currentVersion]: published[currentVersion] }
+					: {},
+			},
+		},
+		versionHistory,
+	};
+};
+
 const describeSystemComponentPayload = async (
 	context: TrickroomMcpServerContext,
 	systemName: string,
 	componentId: string,
+	versions: "current" | "all" = "current",
 ) => {
 	const system = await assertConfiguredSystem(context, systemName);
 	const result = await describeSystemComponent(
@@ -3461,6 +3571,7 @@ const describeSystemComponentPayload = async (
 		system.manifest.systemId,
 		componentId,
 	);
+	const limited = limitPublishedVersions(result.record, versions);
 	return {
 		project: getProjectReference(context),
 		systemId: system.manifest.systemId,
@@ -3468,7 +3579,10 @@ const describeSystemComponentPayload = async (
 		revision: result.revision,
 		updatedAt: result.updatedAt,
 		componentId: result.componentId,
-		record: result.record,
+		record: limited.record,
+		...(limited.versionHistory
+			? { versionHistory: limited.versionHistory }
+			: {}),
 		draftTemplateHash: result.draftTemplateHash,
 		draftVariantSchemaHash: result.draftVariantSchemaHash,
 		diagnostics: result.diagnostics,
@@ -6571,13 +6685,22 @@ Workflow:
 		{
 			title: "List Design Tokens",
 			description:
-				"List stored design tokens for the design system linked to a design file.",
+				"List stored design tokens for the design system linked to a design file. Pass domain (e.g. color, spacing, font), query, and/or limit to bound the list; totalCount and matchedCount are always reported.",
 			inputSchema: withProjectScopedInput({
 				designFileId: z.string().min(1).describe("Design file UUID."),
+				domain: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						"Optional token domain to list, e.g. color, spacing, font, text, radius, shadow. The domains summary is limited to it as well.",
+					),
+				query: listQuerySchema,
+				limit: listLimitSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ designFileId, project }) => {
+		async ({ designFileId, domain, query, limit, project }) => {
 			return withPolicyErrorHandling(project, async (context) => {
 				const designSystemPayload = await getDesignSystemPayload(
 					context,
@@ -6594,7 +6717,46 @@ Workflow:
 				const storedTokens = systemId
 					? await readDomainTokensReadonly(context.projectRoot, systemId)
 					: null;
-				const domains = storedTokens?.domains;
+				const allDomains = storedTokens?.domains;
+				if (
+					domain !== undefined &&
+					allDomains &&
+					!Object.hasOwn(allDomains, domain)
+				) {
+					const availableDomains = Object.keys(allDomains).sort();
+					const suggestions = suggestClosest(domain, availableDomains);
+					return createToolErrorResult(
+						context,
+						"UNKNOWN_TOKEN_DOMAIN",
+						`Unknown token domain "${domain}".${formatDidYouMean(suggestions)}`,
+						{ suggestions, availableDomains },
+					);
+				}
+				const domains =
+					allDomains && domain !== undefined
+						? { [domain]: allDomains[domain as keyof typeof allDomains] }
+						: allDomains;
+				const { items: tokens, counts } = filterCatalogList(
+					domains && storedTokens
+						? Object.entries(domains).flatMap(([tokenDomain, domainStorage]) =>
+								Object.entries(domainStorage.tokens).map(([name, value]) => ({
+									domain: tokenDomain,
+									category: getCategoryForTokenName(name),
+									name,
+									value,
+									overrideConfirmed: isTokenOverrideConfirmed(
+										tokenDomain,
+										name,
+										domainStorage.overrides,
+									),
+									syncedAt: storedTokens.metadata.syncedAt,
+									reviewRequired: storedTokens.metadata.reviewRequired,
+								})),
+							)
+						: [],
+					{ query, limit },
+					(token) => `${token.name} ${String(token.value)}`,
+				);
 
 				return createJsonResult({
 					...designSystemPayload,
@@ -6604,27 +6766,12 @@ Workflow:
 							: storedTokens
 								? "stored"
 								: "not_stored",
-					tokens: domains
-						? Object.entries(domains).flatMap(([domain, domainStorage]) =>
-								Object.entries(domainStorage.tokens).map(([name, value]) => ({
-									domain,
-									category: getCategoryForTokenName(name),
-									name,
-									value,
-									overrideConfirmed: isTokenOverrideConfirmed(
-										domain,
-										name,
-										domainStorage.overrides,
-									),
-									syncedAt: storedTokens.metadata.syncedAt,
-									reviewRequired: storedTokens.metadata.reviewRequired,
-								})),
-							)
-						: [],
+					...counts,
+					tokens,
 					domains: domains
 						? Object.fromEntries(
-								Object.entries(domains).map(([domain, domainStorage]) => [
-									domain,
+								Object.entries(domains).map(([tokenDomain, domainStorage]) => [
+									tokenDomain,
 									{
 										tokenCount: Object.keys(domainStorage.tokens).length,
 										overrides: domainStorage.overrides,
@@ -6643,18 +6790,22 @@ Workflow:
 		{
 			title: "List System Assets",
 			description:
-				"List system-scoped referenced raster image assets without exposing file bytes.",
+				"List system-scoped referenced raster image assets without exposing file bytes. Pass query and/or limit to bound large catalogs; totalCount and matchedCount are always reported.",
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
 					.min(1)
 					.describe("Configured design system name."),
+				query: listQuerySchema,
+				limit: listLimitSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ systemName, project }) =>
+		async ({ systemName, query, limit, project }) =>
 			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(await listSystemAssetsPayload(context, systemName)),
+				createJsonResult(
+					await listSystemAssetsPayload(context, systemName, { query, limit }),
+				),
 			),
 	);
 
@@ -6686,18 +6837,22 @@ Workflow:
 		{
 			title: "List System Icons",
 			description:
-				"List generated system-scoped SVG icon catalog metadata and diagnostics. Raw SVG is not returned.",
+				'List generated system-scoped SVG icon catalog metadata and diagnostics. Raw SVG is not returned. Pass query (e.g. "arrow left") and/or limit to bound large icon libraries; totalCount and matchedCount are always reported.',
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
 					.min(1)
 					.describe("Configured design system name."),
+				query: listQuerySchema,
+				limit: listLimitSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ systemName, project }) =>
+		async ({ systemName, query, limit, project }) =>
 			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(await listSystemIconsPayload(context, systemName)),
+				createJsonResult(
+					await listSystemIconsPayload(context, systemName, { query, limit }),
+				),
 			),
 	);
 
@@ -6751,23 +6906,30 @@ Workflow:
 		{
 			title: "Describe System Component",
 			description:
-				"Describe one stable component definition, including draft hashes, validation diagnostics, and current manifest revision.",
+				'Describe one stable component definition, including draft hashes, validation diagnostics, and current manifest revision. Returns only the current published version\'s template by default, with versionHistory summarizing older versions; pass versions: "all" for every published template.',
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
 					.min(1)
 					.describe("Configured design system name."),
 				componentId: z.string().min(1).describe("Stable system component id."),
+				versions: z
+					.enum(["current", "all"])
+					.optional()
+					.describe(
+						'"current" (default) returns only the current published version in record.published.versions plus a versionHistory summary; "all" returns every published version template.',
+					),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ systemName, componentId, project }) =>
+		async ({ systemName, componentId, versions, project }) =>
 			withPolicyErrorHandling(project, async (context) =>
 				createJsonResult(
 					await describeSystemComponentPayload(
 						context,
 						systemName,
 						componentId,
+						versions ?? "current",
 					),
 				),
 			),

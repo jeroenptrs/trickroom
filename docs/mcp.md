@@ -198,15 +198,15 @@ Read-only tools:
 | `describeRegistryRecipe` | Describe one recipe's structure, slots, defaults, and controls. |
 | `getDesignAuthoringContract` | **Recommended first planning call.** Return compact grammar, registry component vocabulary, props, composition/mutation rules, authoring guidance, and examples. Defaults omit recipe catalogs and linked-system resource summaries; pass `includeRecipes: "summary"` and/or `includeResources: true` when you need them. Registry components default to compact `summary` entries; use `includeRegistryComponents: "full"` for controls and composition metadata. |
 | `getDesignSystemForDesignFile` | Report linked system and token storage metadata. |
-| `listDesignTokens` | List stored tokens for the linked system. |
-| `listSystemAssets` | List system asset metadata without file bytes. |
+| `listDesignTokens` | List stored tokens for the linked system. Optional `domain` (e.g. `color`, `spacing`), `query` (matches name and value), and `limit`. Always reports `totalCount`, `matchedCount`, `returnedCount`, and `truncated`; unknown domains fail with `UNKNOWN_TOKEN_DOMAIN` and the available domains. |
+| `listSystemAssets` | List system asset metadata without file bytes. Optional `query` and `limit`; always reports the same counts. |
 | `describeAsset` | Describe one system asset by stable ID. |
-| `listSystemIcons` | List generated icon metadata and diagnostics without raw SVG. |
+| `listSystemIcons` | List generated icon metadata and diagnostics without raw SVG. Optional `query` (every term must match the id, name, or source path) and `limit`; always reports the same counts. |
 | `describeIcon` | Describe one system icon by stable ID. |
 | `findAssetUsage` | Find design elements referencing system assets. |
 | `findIconUsage` | Find design elements referencing system icons. |
 | `listSystemComponents` | List authored components in a configured system with manifest revision metadata. |
-| `describeSystemComponent` | Describe one component record, draft hashes, validation diagnostics, and published versions. |
+| `describeSystemComponent` | Describe one component record, draft hashes, and validation diagnostics. **Default changed:** `record.published.versions` now holds only the current published version, with a `versionHistory` summary (version, publishedAt, hashes) of all versions. Pass `versions: "all"` for every published template (the previous default). |
 | `listStaleSystemComponentUsages` | Read-only scan returning attached instances with stale referenced versions in `usages`. Hash-review signals appear in status counts and diagnostics, not in `usages` rows. |
 | `listMemoryNotes` | List memory/steering notes plus a category summary for a system, design, or project scope. Optional `resolveReferences: true` attaches per-note reference resolution (including `deepLink` for valid targets). |
 | `getMemoryNote` | Read one memory note by id from a system, design, or project scope. Optional `resolveReferences: true` attaches reference resolution for the note body (including `deepLink` for valid targets). |

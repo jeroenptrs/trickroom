@@ -270,6 +270,38 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 	});
 
+	it("describes only the current published version unless all versions are requested", async () => {
+		await publishBadgeVersion("Second");
+
+		const current = await session.client.callTool({
+			name: "describeSystemComponent",
+			arguments: { systemName: "Core", componentId },
+		});
+		const currentContent = current.structuredContent as {
+			record: {
+				published: {
+					currentVersion: string;
+					versions: Record<string, unknown>;
+				};
+			};
+			versionHistory: Array<{ version: string; templateHash: string }>;
+		};
+		expect(Object.keys(currentContent.record.published.versions)).toEqual([
+			currentContent.record.published.currentVersion,
+		]);
+		expect(currentContent.versionHistory).toHaveLength(2);
+
+		const all = await session.client.callTool({
+			name: "describeSystemComponent",
+			arguments: { systemName: "Core", componentId, versions: "all" },
+		});
+		const allContent = all.structuredContent as {
+			record: { published: { versions: Record<string, unknown> } };
+		};
+		expect(Object.keys(allContent.record.published.versions)).toHaveLength(2);
+		expect(all.structuredContent).not.toHaveProperty("versionHistory");
+	});
+
 	it("adds, updates, and detaches a published system component instance", async () => {
 		const revision = await getDesignRevision();
 
