@@ -610,13 +610,6 @@ export function getCompoundClassNameForWhen(
 		: "";
 }
 
-export function getEffectiveDraftNodeClassName(
-	state: ComponentDraftStoreState,
-	path: string,
-) {
-	return getDraftClassNameForStyleTab(state, state.styleTarget.activeTab, path);
-}
-
 export function getDraftClassNameForStyleTab(
 	state: ComponentDraftStoreState,
 	tab: ComponentDraftStyleTab,
@@ -877,14 +870,6 @@ export function updateCompoundClassesByWhen(
 			revision: state.revision + 1,
 		};
 	});
-}
-
-export function setComponentDraftStyleClassName(
-	path: string,
-	className: string,
-) {
-	const state = componentDraftStore.get();
-	setDraftClassNameForStyleTab(state.styleTarget.activeTab, path, className);
 }
 
 export function setDraftClassNameForStyleTab(
@@ -1776,12 +1761,6 @@ export function useComponentDraftStyleTarget() {
 	return useSelector(componentDraftStore, (state) => state.styleTarget, {
 		compare: shallow,
 	});
-}
-
-export function useComponentDraftEffectiveClassName(path: string) {
-	return useSelector(componentDraftStore, (state) =>
-		getEffectiveDraftNodeClassName(state, path),
-	);
 }
 
 export function useComponentDraftClassNameForStyleTab(

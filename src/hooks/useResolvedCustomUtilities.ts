@@ -69,35 +69,3 @@ export function useResolvedCustomUtilities(
 		};
 	}, [enabled, tokensQuery.data]);
 }
-
-const EMPTY_DOMAIN_INDEX: ReadonlyMap<string, readonly string[]> = new Map();
-
-/**
- * Maps each custom `@utility` root to the UI domain(s) it folds into, derived
- * from the synced snapshot. Used to surface a layer's custom utilities inside
- * the relevant property panel (e.g. `bg-penn-app` → background).
- */
-export function useCustomUtilityDomains(
-	systemId: string | null | undefined,
-): ReadonlyMap<string, readonly string[]> {
-	const trimmed = typeof systemId === "string" ? systemId.trim() : "";
-	const enabled = trimmed.length > 0;
-	const projectScope = useProjectScope();
-
-	const tokensQuery = useQuery({
-		...storedTailwindTokensQueryOptions(trimmed, projectScope),
-		enabled,
-	});
-
-	return useMemo(() => {
-		if (!enabled) return EMPTY_DOMAIN_INDEX;
-		const utilities = tokensQuery.data?.customUtilities;
-		if (!utilities || utilities.length === 0) return EMPTY_DOMAIN_INDEX;
-
-		const index = new Map<string, readonly string[]>();
-		for (const utility of utilities) {
-			index.set(utility.root, utility.domains ?? []);
-		}
-		return index;
-	}, [enabled, tokensQuery.data]);
-}

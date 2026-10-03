@@ -26,7 +26,6 @@ import {
 	getCompoundClassNameForPath,
 	getCompoundClassNameForWhen,
 	getDraftClassNameForStyleTab,
-	getEffectiveDraftNodeClassName,
 	hydrateComponentDraft,
 	isComponentDraftCleanAtRevision,
 	markTemplateNodeAsSlotHost,
@@ -40,7 +39,6 @@ import {
 	selectTemplateNode,
 	serializeComponentDraftState,
 	serializeComponentDraftVariants,
-	setComponentDraftStyleClassName,
 	setComponentDraftStyleTarget,
 	setDraftClassNameForStyleTab,
 	updateTemplateNodeClassName,
@@ -51,6 +49,19 @@ import {
 	updateTemplateNodeText,
 	updateVariantClassesByPath,
 } from "./component-draft-store";
+
+// What the inspector's class field writes and reads for the active style tab.
+const setComponentDraftStyleClassName = (path: string, className: string) =>
+	setDraftClassNameForStyleTab(
+		componentDraftStore.get().styleTarget.activeTab,
+		path,
+		className,
+	);
+
+const getEffectiveDraftNodeClassName = (
+	state: ReturnType<typeof componentDraftStore.get>,
+	path: string,
+) => getDraftClassNameForStyleTab(state, state.styleTarget.activeTab, path);
 
 const hydrateFixture = (root: RecipeTemplateNode) => {
 	hydrateComponentDraft({
