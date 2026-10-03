@@ -1,4 +1,5 @@
 import { normalizeRole } from "../libraries/registry";
+import { createElementNotFoundError } from "../services/element-lookup-hints";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
 
 export type DesignGraphOptions = {
@@ -141,7 +142,7 @@ export const buildDesignGraph = (
 	}
 
 	if (options.rootElementId !== undefined && !scopeReached) {
-		throw new Error(`Unknown element "${options.rootElementId}"`);
+		throw createElementNotFoundError(design, options.rootElementId);
 	}
 
 	return {

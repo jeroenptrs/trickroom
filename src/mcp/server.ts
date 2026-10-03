@@ -37,6 +37,11 @@ import {
 	SYSTEM_PROP_KEYS,
 } from "../libraries/registry";
 import {
+	describeUnknownRegistryComponent,
+	describeUnknownRegistryLibrary,
+	describeUnknownRegistryRecipe,
+} from "../libraries/registry-suggestions";
+import {
 	isMcpEnabled,
 	readMcpEnabledProjectContext,
 	TrickroomProjectConfigError,
@@ -83,6 +88,12 @@ import {
 	type ValidateSubtreeOptions,
 	validateProposedSubtreeForInsertion,
 } from "../services/design-transform-service";
+import {
+	createElementNotFoundError,
+	describeMissingElementId,
+	enrichElementLookupError,
+	getDesignLookupEntities,
+} from "../services/element-lookup-hints";
 import type {
 	Node as DesignNode,
 	RecipeDefinition,
@@ -140,6 +151,7 @@ import {
 	resolveMemoryNoteReferences,
 } from "../utils/memory-references";
 import { applyProjectDefaultSystemToDesign } from "../utils/project-default-system";
+import { formatDidYouMean, suggestClosest } from "../utils/suggestions";
 import {
 	bulkMigrateProjectSystemComponentInstances,
 	type SystemComponentBulkMigrationReport,
@@ -765,10 +777,27 @@ const getRegistryIds = () => [...availableRegistries].sort() as RegistryId[];
 
 const getRegistryOrThrow = (library: string) => {
 	if (!isRegistryId(library)) {
-		throw new Error(`Unknown registry library "${library}"`);
+		const unknown = describeUnknownRegistryLibrary(library);
+		throw new DesignTransformError(
+			"UNKNOWN_REGISTRY_LIBRARY",
+			unknown.message,
+			unknown.details,
+		);
 	}
 
 	return getRegistry(library);
+};
+
+const throwUnknownRegistryComponent = (
+	library: string,
+	component: string,
+): never => {
+	const unknown = describeUnknownRegistryComponent(library, component);
+	throw new DesignTransformError(
+		"UNKNOWN_REGISTRY_COMPONENT",
+		unknown.message,
+		unknown.details,
+	);
 };
 
 const getComponentIds = (library: RegistryId) =>
@@ -1354,7 +1383,7 @@ const getElementContextOrThrow = (
 ) => {
 	const context = findElementContext(design, elementId);
 	if (!context) {
-		throw new Error(`Unknown element "${elementId}"`);
+		throw createElementNotFoundError(design, elementId);
 	}
 
 	return context;
@@ -1418,9 +1447,19 @@ const assertConfiguredSystem = async (
 ) => {
 	const system = await findDesignSystem(context.projectRoot, systemHandle);
 	if (!system) {
+		const systems = await listDesignSystems(context.projectRoot);
+		const availableSystems = systems.map((entry) => ({
+			systemId: entry.manifest.systemId,
+			systemName: entry.manifest.systemName,
+		}));
+		const suggestions = suggestClosest(
+			systemHandle,
+			availableSystems.flatMap((entry) => [entry.systemName, entry.systemId]),
+		);
 		throw new DesignTransformError(
 			"UNKNOWN_DESIGN_SYSTEM",
-			`Design system "${systemHandle}" is not configured for this project.`,
+			`Design system "${systemHandle}" is not configured for this project.${formatDidYouMean(suggestions)}`,
+			{ suggestions, availableSystems },
 		);
 	}
 
@@ -1766,9 +1805,7 @@ const validateElementReferences = (
 const describeComponent = (library: RegistryId, component: string) => {
 	const registry = getRegistryOrThrow(library);
 	if (!Object.hasOwn(registry, component)) {
-		throw new Error(
-			`Unknown component "${component}" in registry "${library}"`,
-		);
+		throwUnknownRegistryComponent(library, component);
 	}
 
 	const definition = registry[component as keyof typeof registry];
@@ -1903,9 +1940,7 @@ const summarizeComponentCompactForAuthoringContract = (
 ) => {
 	const registry = getRegistryOrThrow(library);
 	if (!Object.hasOwn(registry, component)) {
-		throw new Error(
-			`Unknown component "${component}" in registry "${library}"`,
-		);
+		throwUnknownRegistryComponent(library, component);
 	}
 
 	const definition = registry[component as keyof typeof registry];
@@ -1925,9 +1960,7 @@ const summarizeComponentForAuthoringContract = (
 ) => {
 	const registry = getRegistryOrThrow(library);
 	if (!Object.hasOwn(registry, component)) {
-		throw new Error(
-			`Unknown component "${component}" in registry "${library}"`,
-		);
+		throwUnknownRegistryComponent(library, component);
 	}
 
 	const definition = registry[component as keyof typeof registry];
@@ -2186,10 +2219,16 @@ const summarizeRecipe = (library: RegistryId, recipe: RecipeDefinition) => {
 const getRecipeOrThrow = (library: string, recipe: string) => {
 	const resolution = resolveRegistryRecipe(library, recipe);
 	if (resolution.status !== "known") {
-		throw new Error(
+		const unknown =
 			resolution.status === "unknown-library"
-				? `Unknown registry library "${library}".`
-				: `Unknown recipe "${recipe}" in registry "${library}".`,
+				? describeUnknownRegistryLibrary(library)
+				: describeUnknownRegistryRecipe(library, recipe);
+		throw new DesignTransformError(
+			resolution.status === "unknown-library"
+				? "UNKNOWN_REGISTRY_LIBRARY"
+				: "UNKNOWN_REGISTRY_RECIPE",
+			unknown.message,
+			unknown.details,
 		);
 	}
 
@@ -4885,7 +4924,12 @@ export const createTrickroomMcpServer = (
 				return createPolicyDeniedResult(context, error);
 			}
 			if (error instanceof DesignTransformError) {
-				return createToolErrorResult(context, error.code, error.message);
+				return createToolErrorResult(
+					context,
+					error.code,
+					error.message,
+					error.details,
+				);
 			}
 			if (
 				error instanceof AssetManifestError ||
@@ -5527,6 +5571,10 @@ Workflow:
 							: "This design file has no boards to export.",
 						{
 							availableBoardIds: read.design.boards.map((board) => board.id),
+							availableBoards: read.design.boards.map((board) => ({
+								id: board.id,
+								name: getNodeName(board) ?? null,
+							})),
 						},
 					);
 				}
@@ -5598,6 +5646,48 @@ Workflow:
 			),
 	} as const;
 
+	// Unknown board ids always list the available boards (id + name), flag
+	// truncated ids, and point at screenshotNode when the id is a nested node.
+	const createBoardNotFoundResult = (
+		context: TrickroomMcpServerContext,
+		design: TrickroomDesign,
+		boardId: string,
+		designFileId: string,
+	): CallToolResult => {
+		const availableBoards = design.boards.map((board) => ({
+			id: board.id,
+			name: getNodeName(board) ?? null,
+		}));
+		const missing = describeMissingElementId(
+			design.boards,
+			boardId,
+			design.boards.map((board) => board.id),
+		);
+		const nestedElement = findElementContext(design, boardId);
+		const nestedHint = nestedElement
+			? ` "${boardId}" is a nested element, not a board; use screenshotNode to capture it.`
+			: "";
+		const truncatedHint =
+			missing.details.truncatedIdMatches || missing.details.nameMatches
+				? ` ${missing.hint}`
+				: "";
+		return createToolErrorResult(
+			context,
+			"BOARD_NOT_FOUND",
+			`Board "${boardId}" was not found in design "${designFileId}".${nestedHint}${truncatedHint}`,
+			{
+				availableBoardIds: availableBoards.map((board) => board.id),
+				availableBoards,
+				...(missing.details.truncatedIdMatches
+					? { truncatedIdMatches: missing.details.truncatedIdMatches }
+					: {}),
+				...(missing.details.nameMatches
+					? { nameMatches: missing.details.nameMatches }
+					: {}),
+			},
+		);
+	};
+
 	const runScreenshotTool = async (
 		context: TrickroomMcpServerContext,
 		toolName: "screenshotBoard" | "screenshotNode",
@@ -5626,11 +5716,11 @@ Workflow:
 					(candidate) => candidate.id === request.boardId,
 				);
 				if (!board) {
-					result = createToolErrorResult(
+					result = createBoardNotFoundResult(
 						context,
-						"BOARD_NOT_FOUND",
-						`Board "${request.boardId}" was not found in design "${request.designFileId}".`,
-						{ availableBoardIds: read.design.boards.map((item) => item.id) },
+						read.design,
+						request.boardId,
+						request.designFileId,
 					);
 					await auditToolResult(context, auditBase, result);
 					return result;
@@ -5645,10 +5735,16 @@ Workflow:
 					),
 				);
 				if (!element || !containingBoard) {
+					const missing = describeMissingElementId(
+						getDesignLookupEntities([read.design]),
+						request.nodeId,
+						read.design.boards.map((item) => item.id),
+					);
 					result = createToolErrorResult(
 						context,
 						"NODE_NOT_FOUND",
-						`Node "${request.nodeId}" was not found in design "${request.designFileId}".`,
+						`Node "${request.nodeId}" was not found in design "${request.designFileId}". ${missing.hint}`,
+						missing.details,
 					);
 					await auditToolResult(context, auditBase, result);
 					return result;
@@ -6109,7 +6205,7 @@ Workflow:
 			annotations: readOnlyClosedWorldAnnotations,
 		},
 		async ({ library, project }) =>
-			withProjectContext(project, async (context) => {
+			withPolicyErrorHandling(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				const selectedLibraries =
 					library === undefined ? getRegistryIds() : [library as RegistryId];
@@ -6177,7 +6273,7 @@ Workflow:
 			annotations: readOnlyClosedWorldAnnotations,
 		},
 		async ({ library, project }) =>
-			withProjectContext(project, async (context) => {
+			withPolicyErrorHandling(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				const selectedLibraries =
 					library === undefined ? getRegistryIds() : [library as RegistryId];
@@ -7619,6 +7715,7 @@ Workflow:
 			project: getProjectReference(context),
 			code: error.code,
 			message: error.message,
+			...error.details,
 		};
 		return {
 			content: [{ type: "text", text: JSON.stringify(payload) }],
@@ -7671,6 +7768,41 @@ Workflow:
 		});
 	};
 
+	// Element lookups fail deep inside transforms that only see one design;
+	// re-read the target (and copy source) here to add truncated-id and
+	// layer-name hints without threading designs through every throw site.
+	const enrichElementLookupErrorForAudit = async (
+		context: TrickroomMcpServerContext,
+		auditBase: Omit<McpAuditEntry, "success" | "status" | "projectRoot">,
+		error: DesignTransformError,
+	): Promise<DesignTransformError> => {
+		if (
+			error.code !== "ELEMENT_NOT_FOUND" &&
+			error.code !== "PARENT_NOT_FOUND"
+		) {
+			return error;
+		}
+		const sourceDesignFileId = auditBase.details?.sourceDesignFileId;
+		const designFileIds = [
+			...new Set(
+				[auditBase.designFileId, sourceDesignFileId].filter(
+					(id): id is string => typeof id === "string",
+				),
+			),
+		];
+		try {
+			const designs = await Promise.all(
+				designFileIds.map(
+					async (designFileId) =>
+						(await readDesignFileForTool(context, designFileId)).design,
+				),
+			);
+			return enrichElementLookupError(error, designs);
+		} catch {
+			return error;
+		}
+	};
+
 	const withMutationErrorHandling = async (
 		context: TrickroomMcpServerContext,
 		auditBase: Omit<McpAuditEntry, "success" | "status" | "projectRoot">,
@@ -7682,7 +7814,10 @@ Workflow:
 			return result;
 		} catch (error) {
 			if (error instanceof DesignTransformError) {
-				const result = createInvalidOperationResult(context, error);
+				const result = createInvalidOperationResult(
+					context,
+					await enrichElementLookupErrorForAudit(context, auditBase, error),
+				);
 				await auditToolResult(context, auditBase, result);
 				return result;
 			}

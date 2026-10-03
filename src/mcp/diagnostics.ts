@@ -13,6 +13,7 @@ import {
 	buildResolvedTokenContext,
 	type ResolvedTokenContext,
 } from "../utils/resolved-tailwind-domain-tokens";
+import { formatDidYouMean, suggestClosest } from "../utils/suggestions";
 import {
 	classifyParsedClass,
 	parseClassName,
@@ -20,7 +21,10 @@ import {
 	type StyleIntent,
 	type UtilityIntent,
 } from "../utils/tailwind-classname";
-import { loadTailwindDesignSystem } from "../utils/tailwind-design-system";
+import {
+	loadTailwindDesignSystem,
+	type TailwindDesignSystem,
+} from "../utils/tailwind-design-system";
 import {
 	TAILWIND_TOKEN_DOMAINS,
 	type TailwindTokenDomain,
@@ -50,6 +54,8 @@ export type ClassTokenDiagnostic = McpDesignIssue & {
 	token?: string;
 	property?: string;
 	domain?: TailwindTokenDomain | "tailwind";
+	/** Nearest valid class names, when cheaply available. */
+	suggestions?: string[];
 };
 
 export type DesignDiagnostics = {
@@ -189,9 +195,95 @@ export const shapeMutationDiagnostics = (
 	return shaped;
 };
 
-type TailwindUtilityInspector = (
+type TailwindUtilityInspector = {
+	inspect: (candidate: string) => TailwindUtilityInspection;
+	/** Nearest valid classes for an unsupported candidate, variants preserved. */
+	suggest: (candidate: string) => string[];
+};
+
+const classNameCache = new WeakMap<TailwindDesignSystem, string[]>();
+
+const getDesignSystemClassNames = (designSystem: TailwindDesignSystem) => {
+	let classNames = classNameCache.get(designSystem);
+	if (!classNames) {
+		classNames = designSystem.getClassList().map(([name]) => name);
+		classNameCache.set(designSystem, classNames);
+	}
+	return classNames;
+};
+
+/**
+ * Split `md:hover:!bg-red-500/50` into the variant prefix, important marker,
+ * utility root, and opacity modifier so suggestions only rewrite the utility.
+ */
+const splitCandidate = (candidate: string) => {
+	let depth = 0;
+	let variantEnd = -1;
+	for (let index = 0; index < candidate.length; index++) {
+		const char = candidate[index];
+		if (char === "[" || char === "(") depth++;
+		else if (char === "]" || char === ")") depth--;
+		else if (char === ":" && depth === 0) variantEnd = index;
+	}
+	const prefix = candidate.slice(0, variantEnd + 1);
+	let utility = candidate.slice(variantEnd + 1);
+	let important = "";
+	if (utility.startsWith("!")) {
+		important = "!";
+		utility = utility.slice(1);
+	} else if (utility.endsWith("!")) {
+		important = "!";
+		utility = utility.slice(0, -1);
+	}
+	const modifierIndex = utility.includes("[") ? -1 : utility.lastIndexOf("/");
+	const modifier = modifierIndex > 0 ? utility.slice(modifierIndex) : "";
+	const root = modifierIndex > 0 ? utility.slice(0, modifierIndex) : utility;
+	return { prefix, important, root, modifier };
+};
+
+export const suggestTailwindClasses = (
+	classNames: readonly string[],
 	candidate: string,
-) => TailwindUtilityInspection;
+): string[] => {
+	const { prefix, important, root, modifier } = splitCandidate(candidate);
+	if (root.length < 2 || root.includes("[")) {
+		return [];
+	}
+	const maxDistance = Math.max(1, Math.min(3, Math.floor(root.length / 3)));
+	const nearby = classNames.filter(
+		(name) => Math.abs(name.length - root.length) <= maxDistance,
+	);
+	return suggestClosest(root, nearby, {
+		limit: 3,
+		maxDistance,
+		prefixMatches: false,
+	}).map((name) => `${prefix}${important}${name}${modifier}`);
+};
+
+/** Replace the last occurrence of `token` in a class with each suggestion. */
+const suggestTokenClasses = (
+	classToken: string,
+	token: string,
+	tokenNames: Iterable<string>,
+): string[] => {
+	const index = classToken.lastIndexOf(token);
+	if (index < 0) return [];
+	return suggestClosest(token, tokenNames, {
+		limit: 3,
+		prefixMatches: false,
+	}).map(
+		(name) =>
+			`${classToken.slice(0, index)}${name}${classToken.slice(index + token.length)}`,
+	);
+};
+
+const withSuggestions = (suggestions: string[]) =>
+	suggestions.length > 0
+		? {
+				suggestions,
+				messageSuffix: formatDidYouMean(suggestions),
+			}
+		: { suggestions: undefined, messageSuffix: "" };
 
 type CustomUtilityRoots = {
 	customFunctionalUtilityRoots: readonly string[];
@@ -454,17 +546,22 @@ const collectColorDiagnostics = (
 		"path" | "elementId" | "className" | "classToken"
 	>,
 	parsedRaw: string,
+	colorTokens: ReadonlySet<string>,
 	issues: ClassTokenDiagnostic[],
 ) => {
 	if (intent.token && !intent.resolved) {
+		const { suggestions, messageSuffix } = withSuggestions(
+			suggestTokenClasses(parsedRaw, intent.token, colorTokens),
+		);
 		pushClassDiagnostic(issues, {
 			severity: "warning",
 			code: "UNKNOWN_COLOR_TOKEN",
-			message: `Class "${parsedRaw}" references unavailable color token "${intent.token}".`,
+			message: `Class "${parsedRaw}" references unavailable color token "${intent.token}".${messageSuffix}`,
 			...base,
 			token: intent.token,
 			property: intent.property,
 			domain: "color",
+			...(suggestions ? { suggestions } : {}),
 		});
 	}
 
@@ -499,14 +596,18 @@ const collectSpacingDiagnostics = (
 		return;
 	}
 
+	const { suggestions, messageSuffix } = withSuggestions(
+		suggestTokenClasses(parsedRaw, intent.value.value, spacingTokens),
+	);
 	pushClassDiagnostic(issues, {
 		severity: "warning",
 		code: "UNKNOWN_SPACING_TOKEN",
-		message: `Class "${parsedRaw}" references unavailable spacing token "${intent.value.value}".`,
+		message: `Class "${parsedRaw}" references unavailable spacing token "${intent.value.value}".${messageSuffix}`,
 		...base,
 		token: intent.value.value,
 		property: intent.property,
 		domain: "spacing",
+		...(suggestions ? { suggestions } : {}),
 	});
 };
 
@@ -532,14 +633,18 @@ const collectStyleDiagnostics = (
 			return;
 		}
 
+		const { suggestions, messageSuffix } = withSuggestions(
+			suggestTokenClasses(parsedRaw, tokenName, tokenNames),
+		);
 		pushClassDiagnostic(issues, {
 			severity: "warning",
 			code: unknownTokenCodeForDomain(domain),
-			message: `Class "${parsedRaw}" references unavailable ${domain} token "${tokenName}".`,
+			message: `Class "${parsedRaw}" references unavailable ${domain} token "${tokenName}".${messageSuffix}`,
 			...base,
 			token: tokenName,
 			property: intent.property,
 			domain,
+			...(suggestions ? { suggestions } : {}),
 		});
 		return;
 	}
@@ -569,17 +674,21 @@ const collectUnknownUtilityDiagnostics = (
 		return;
 	}
 
-	const inspection = inspectUtility(parsedRaw);
+	const inspection = inspectUtility.inspect(parsedRaw);
 	if (inspection.supported) {
 		return;
 	}
 
+	const { suggestions, messageSuffix } = withSuggestions(
+		inspectUtility.suggest(parsedRaw),
+	);
 	pushClassDiagnostic(issues, {
 		severity: "warning",
 		code: "UNKNOWN_TAILWIND_UTILITY",
-		message: `Class "${parsedRaw}" is not recognized as a supported Tailwind utility.`,
+		message: `Class "${parsedRaw}" is not recognized as a supported Tailwind utility.${messageSuffix}`,
 		...base,
 		domain: "tailwind",
+		...(suggestions ? { suggestions } : {}),
 	});
 };
 
@@ -616,7 +725,13 @@ const collectClassDiagnostics = (
 			switch (intent.kind) {
 				case "color":
 					if (includeTokenDomainDiagnostics) {
-						collectColorDiagnostics(intent, base, parsed.raw, issues);
+						collectColorDiagnostics(
+							intent,
+							base,
+							parsed.raw,
+							colorTokens,
+							issues,
+						);
 					}
 					break;
 				case "spacing":
@@ -637,6 +752,17 @@ const collectClassDiagnostics = (
 							base,
 							parsed.raw,
 							resolvedTokens,
+							issues,
+						);
+					}
+					// Style intents without a token domain are plain Tailwind core
+					// utilities (e.g. flex direction); the classifier accepts any
+					// value for them, so ask Tailwind whether it can emit the class.
+					if (!STYLE_PROPERTY_TO_TOKEN_DOMAIN[intent.property]) {
+						collectUnknownUtilityDiagnostics(
+							parsed.raw,
+							base,
+							inspectUtility,
 							issues,
 						);
 					}
@@ -715,8 +841,15 @@ const loadTailwindUtilityInspector = async (
 			projectRoot: context.projectRoot,
 			cssPath,
 		});
-		return (candidate) =>
-			inspectTailwindUtilityCandidate(designSystem, candidate);
+		return {
+			inspect: (candidate) =>
+				inspectTailwindUtilityCandidate(designSystem, candidate),
+			suggest: (candidate) =>
+				suggestTailwindClasses(
+					getDesignSystemClassNames(designSystem),
+					candidate,
+				),
+		};
 	} catch {
 		return null;
 	}

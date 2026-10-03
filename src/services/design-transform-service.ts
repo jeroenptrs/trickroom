@@ -13,6 +13,11 @@ import {
 	uniquifyControlPropsAmongSiblings,
 } from "../libraries/registry";
 import {
+	describeUnknownRegistryComponent,
+	describeUnknownRegistryLibrary,
+	describeUnknownRegistryRecipe,
+} from "../libraries/registry-suggestions";
+import {
 	findRecipeControlTargetElement,
 	getRecipeControlByPathAndProp,
 } from "../recipes/controls";
@@ -50,6 +55,7 @@ import type {
 } from "../types";
 import { designReferencesSystemHandle } from "../utils/design-resource-references";
 import { findDesignSystem } from "../utils/design-system-store";
+import { suggestClosest } from "../utils/suggestions";
 import { detachSystemComponentInstance } from "../utils/system-component-detach";
 import {
 	assertValidSystemComponentInstanceOverrides,
@@ -138,11 +144,23 @@ export type DesignTransformErrorCode =
 
 export class DesignTransformError extends Error {
 	readonly code: DesignTransformErrorCode;
+	/**
+	 * Optional structured hints for callers (nearest-match suggestions, valid
+	 * candidates). MCP tools spread these into error payloads.
+	 */
+	readonly details?: Record<string, unknown>;
 
-	constructor(code: DesignTransformErrorCode, message: string) {
+	constructor(
+		code: DesignTransformErrorCode,
+		message: string,
+		details?: Record<string, unknown>,
+	) {
 		super(message);
 		this.name = "DesignTransformError";
 		this.code = code;
+		if (details !== undefined) {
+			this.details = details;
+		}
 	}
 }
 
@@ -317,16 +335,20 @@ const getRegistryDefinition = (
 ): RegistryComponentDefinition => {
 	const resolution = resolveRegistryComponent(library, component);
 	if (resolution.status === "unknown-library") {
+		const unknown = describeUnknownRegistryLibrary(library);
 		throw new DesignTransformError(
 			"UNKNOWN_REGISTRY_LIBRARY",
-			`Unknown registry library "${library}".`,
+			unknown.message,
+			unknown.details,
 		);
 	}
 
 	if (resolution.status === "unknown-component") {
+		const unknown = describeUnknownRegistryComponent(library, component);
 		throw new DesignTransformError(
 			"UNKNOWN_REGISTRY_COMPONENT",
-			`Unknown component "${component}" in registry "${library}".`,
+			unknown.message,
+			unknown.details,
 		);
 	}
 
@@ -375,16 +397,20 @@ const mapSystemComponentResolutionError = (
 const assertRegistryRecipeExists = (library: string, recipe: string) => {
 	const resolution = resolveRegistryRecipe(library, recipe);
 	if (resolution.status === "unknown-library") {
+		const unknown = describeUnknownRegistryLibrary(library);
 		throw new DesignTransformError(
 			"UNKNOWN_REGISTRY_LIBRARY",
-			`Unknown registry library "${library}".`,
+			unknown.message,
+			unknown.details,
 		);
 	}
 
 	if (resolution.status === "unknown-recipe") {
+		const unknown = describeUnknownRegistryRecipe(library, recipe);
 		throw new DesignTransformError(
 			"UNKNOWN_REGISTRY_RECIPE",
-			`Unknown recipe "${recipe}" in registry "${library}".`,
+			unknown.message,
+			unknown.details,
 		);
 	}
 };
@@ -1922,6 +1948,71 @@ const assertDesignLinkedToSystemHandle = async (
 	}
 };
 
+/**
+ * Enrich an unknown system component error with the closest published
+ * components (by id, slug, or name) so the caller can retry without listing.
+ */
+const createUnknownSystemComponentError = async (
+	error: SystemComponentResolutionError,
+	projectRoot: string,
+	systemId: string,
+	componentId: string,
+): Promise<DesignTransformError> => {
+	let published: Array<{ componentId: string; slug: string; name: string }> =
+		[];
+	try {
+		const { manifest } = await readSystemComponentManifest(
+			projectRoot,
+			systemId,
+		);
+		published = Object.values(manifest.components)
+			.filter((component) => component.published !== undefined)
+			.map(({ componentId, slug, name }) => ({ componentId, slug, name }));
+	} catch {
+		return mapSystemComponentResolutionError(error);
+	}
+
+	const byLabel = new Map<string, string>();
+	for (const component of published) {
+		byLabel.set(component.componentId, component.componentId);
+		byLabel.set(component.slug, component.componentId);
+		byLabel.set(component.name, component.componentId);
+	}
+	const suggestions = [
+		...new Set(
+			suggestClosest(componentId, byLabel.keys(), { limit: 5 }).map(
+				(label) => byLabel.get(label) as string,
+			),
+		),
+	].slice(0, 3);
+	const describe = (id: string) => {
+		const component = published.find((entry) => entry.componentId === id);
+		return component ? `"${id}" (${component.name})` : `"${id}"`;
+	};
+	const hint =
+		suggestions.length > 0
+			? ` Did you mean ${suggestions.map(describe).join(", ")}? Pass the componentId, not the name.`
+			: published.length === 0
+				? " This system has no published components."
+				: "";
+
+	return new DesignTransformError(
+		"UNKNOWN_SYSTEM_COMPONENT",
+		`${error.message}${hint}`,
+		{
+			suggestions,
+			...(published.length <= 20
+				? {
+						availableComponents: published.map(({ componentId, name }) => ({
+							componentId,
+							name,
+						})),
+					}
+				: {}),
+		},
+	);
+};
+
 export const applyAddSystemComponent = async (
 	design: TrickroomDesign,
 	params: AddSystemComponentParams,
@@ -1980,6 +2071,14 @@ export const applyAddSystemComponent = async (
 		);
 	} catch (error) {
 		if (error instanceof SystemComponentResolutionError) {
+			if (error.code === "UNKNOWN_COMPONENT") {
+				throw await createUnknownSystemComponentError(
+					error,
+					params.projectRoot,
+					params.systemId,
+					params.componentId,
+				);
+			}
 			throw mapSystemComponentResolutionError(error);
 		}
 		throw error;

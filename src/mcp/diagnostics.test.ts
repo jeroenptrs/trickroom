@@ -4,6 +4,7 @@ import {
 	isLikelyTypoWarning,
 	type McpDesignIssue,
 	shapeMutationDiagnostics,
+	suggestTailwindClasses,
 } from "./diagnostics";
 import {
 	createTrickroomMcpProjectFixture,
@@ -456,6 +457,69 @@ describe("MCP expanded class/token diagnostics", () => {
 		);
 	});
 
+	it("suggests the nearest class for unknown utilities and tokens", async () => {
+		const { session } = await createSession({
+			designs: {
+				[trickroomMcpTestDesignUuid]: {
+					name: "Typo Design",
+					systemName: "Core",
+					boards: [
+						{
+							id: "board",
+							props: {
+								"data-trickroom-name": "Board",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "container",
+								className: "flex-colum md:itmes-center bg-brand-600",
+							},
+							children: [],
+						},
+					],
+				},
+			},
+			tokenSnapshots: [
+				{
+					systemName: "Core",
+					cssPath: "src/index.css",
+					tokens: { "brand-500": "#2563eb" },
+					overrides: ["brand-500"],
+					reviewRequired: false,
+				},
+			],
+		});
+
+		const validateResult = await session.client.callTool({
+			name: "validateDesignFile",
+			arguments: { designFileId: trickroomMcpTestDesignUuid },
+		});
+		const issues = (
+			validateResult.structuredContent as {
+				issues: Array<{
+					code: string;
+					classToken?: string;
+					suggestions?: string[];
+					message: string;
+				}>;
+			}
+		).issues;
+		const byToken = (classToken: string) =>
+			issues.find((issue) => issue.classToken === classToken);
+
+		expect(byToken("flex-colum")).toMatchObject({
+			code: "UNKNOWN_TAILWIND_UTILITY",
+			suggestions: expect.arrayContaining(["flex-col"]),
+		});
+		expect(byToken("md:itmes-center")).toMatchObject({
+			code: "UNKNOWN_TAILWIND_UTILITY",
+			suggestions: ["md:items-center"],
+			message: expect.stringContaining('Did you mean "md:items-center"?'),
+		});
+		expect(byToken("bg-brand-600")).toMatchObject({
+			code: "UNKNOWN_COLOR_TOKEN",
+			suggestions: expect.arrayContaining(["bg-brand-500"]),
+		});
+	});
+
 	it("skips unknown utility warnings when the design system CSS cannot be loaded", async () => {
 		const { session } = await createSession({
 			systemCss: {
@@ -575,5 +639,23 @@ describe("shapeMutationDiagnostics", () => {
 			"typo on touched",
 			"typo elsewhere",
 		]);
+	});
+});
+
+describe("suggestTailwindClasses", () => {
+	const classNames = ["flex", "flex-col", "items-center", "bg-red-500", "p-4"];
+
+	it("keeps variants, important markers, and opacity modifiers", () => {
+		expect(suggestTailwindClasses(classNames, "hover:!flex-colum")).toEqual([
+			"hover:!flex-col",
+		]);
+		expect(suggestTailwindClasses(classNames, "bg-red-50O/50")).toEqual([
+			"bg-red-500/50",
+		]);
+	});
+
+	it("skips arbitrary values and very short roots", () => {
+		expect(suggestTailwindClasses(classNames, "bg-[#fff]x")).toEqual([]);
+		expect(suggestTailwindClasses(classNames, "p")).toEqual([]);
 	});
 });

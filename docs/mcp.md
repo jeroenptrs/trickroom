@@ -332,6 +332,17 @@ The full project block (`projectId`, `locationId`, `projectRoot`, `name`) is onl
 
 Each step reports `changedElementId`, `rootElementId` (only when it differs), `idMap` (addSubtree `tempId` → id, or copySubtree source id → new id), `recipes` (inserted recipe roots), and `deletedCount`. Failed plans report `failedStepIndex`, `failedOperation`, and `issues` without echoing earlier steps. Pass `response: { includeStepDetails: true }` to get the full per-step summaries and aggregate id lists (the `validateOperationPlan` shape).
 
+### Actionable Errors
+
+Error payloads carry machine-readable hints next to `code` and `message` (the message repeats the hint in prose):
+
+- Unknown registry library, component, or recipe: `suggestions` (closest names), plus `availableLibraries`/`availableComponents`/`availableRecipes` when the list has at most 20 entries. A recipe name used as a component reports `recipeSuggestions`; a name that exists in the other library reports `foundInLibraries`.
+- Unknown system component (`UNKNOWN_SYSTEM_COMPONENT`): closest published `componentId`s in `suggestions`, matched by id, slug, or name, plus `availableComponents` for small systems.
+- Unknown design system: `suggestions` and `availableSystems`.
+- Unknown element or parent id (`ELEMENT_NOT_FOUND`, `PARENT_NOT_FOUND`, `NODE_NOT_FOUND`): `missingElementId`, `truncatedIdMatches` (full ids starting with the given value), `nameMatches` (elements whose layer name equals the given value), and `availableBoardIds` when nothing matched and the design has few boards. In `applyDesignOperations` these fields appear on the failing step's issue.
+- Unknown board (`BOARD_NOT_FOUND`, `NO_MATCHING_BOARDS`): always `availableBoardIds` and `availableBoards` (`{ id, name }`). A nested element id passed as a board points at `screenshotNode`.
+- Class diagnostics: `UNKNOWN_TAILWIND_UTILITY` and `UNKNOWN_*_TOKEN` warnings include `suggestions` with the nearest valid class from the loaded design system or token snapshot, keeping variants, `!`, and `/opacity` modifiers (`md:itmes-center` → `md:items-center`, `bg-brand-600` → `bg-brand-500`). Core utilities the classifier accepts loosely (for example `flex-colum`) are also checked against Tailwind when the linked CSS loads.
+
 ### Write Response Verbosity
 
 Every write tool accepts an optional `response` object and returns, by default:

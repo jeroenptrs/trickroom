@@ -5,6 +5,7 @@ import {
 	DesignFileServiceError,
 } from "../services/design-file-service";
 import { DesignTransformError } from "../services/design-transform-service";
+import { enrichElementLookupError } from "../services/element-lookup-hints";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
 import {
 	applyDryRunOperation,
@@ -362,6 +363,7 @@ const buildInvalidStepResult = (
 			severity: "error",
 			code: error.code,
 			message: error.message,
+			...error.details,
 		},
 	],
 	warnings: [],
@@ -544,7 +546,12 @@ export const executeOperationPlanDryRun = async (
 					stepIndex,
 					operation,
 					steps,
-					error,
+					enrichElementLookupError(error, [
+						candidateDesign,
+						...[...sourceDesignReads.values()].map(
+							(sourceRead) => sourceRead.design,
+						),
+					]),
 					{
 						changedElementIds,
 						deletedIds,

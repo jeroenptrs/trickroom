@@ -4790,6 +4790,102 @@ describe("MCP mutation tools", () => {
 			}
 		});
 
+		it("adds truncated-id and layer-name hints to unknown element errors", async () => {
+			const { session } = await setup();
+			try {
+				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
+				const batch = await session.client.callTool({
+					name: "applyDesignOperations",
+					arguments: {
+						designFileId: trickroomMcpTestDesignUuid,
+						expectedRevision: revision,
+						operations: [
+							{
+								operation: "addElement",
+								parameters: {
+									parentId: "boar",
+									index: 0,
+									library: "trickroom",
+									component: "text",
+									text: "Hi",
+								},
+							},
+						],
+					},
+				});
+				expect(batch.isError).toBe(true);
+				expect(batch.structuredContent).toMatchObject({
+					status: "invalid",
+					failedStepIndex: 0,
+					issues: [
+						expect.objectContaining({
+							code: "PARENT_NOT_FOUND",
+							missingElementId: "boar",
+							truncatedIdMatches: ["board"],
+							message: expect.stringContaining("truncated id"),
+						}),
+					],
+				});
+
+				const single = await session.client.callTool({
+					name: "updateElementText",
+					arguments: {
+						designFileId: trickroomMcpTestDesignUuid,
+						expectedRevision: revision,
+						elementId: "Title",
+						text: "Renamed",
+					},
+				});
+				expect(single.isError).toBe(true);
+				expect(single.structuredContent).toMatchObject({
+					code: "ELEMENT_NOT_FOUND",
+					nameMatches: [{ id: "title", name: "Title" }],
+					message: expect.stringContaining("layer name"),
+				});
+
+				const read = await session.client.callTool({
+					name: "readElement",
+					arguments: {
+						designFileId: trickroomMcpTestDesignUuid,
+						elementId: "titl",
+					},
+				});
+				expect(read.isError).toBe(true);
+				expect(read.structuredContent).toMatchObject({
+					code: "ELEMENT_NOT_FOUND",
+					truncatedIdMatches: ["title"],
+				});
+			} finally {
+				await session.close();
+			}
+		});
+
+		it("suggests registry components for unknown component names", async () => {
+			const { session } = await setup();
+			try {
+				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
+				const result = await session.client.callTool({
+					name: "addElement",
+					arguments: {
+						designFileId: trickroomMcpTestDesignUuid,
+						expectedRevision: revision,
+						parentId: "board",
+						index: 0,
+						library: "trickroom",
+						component: "contaner",
+					},
+				});
+				expect(result.isError).toBe(true);
+				expect(result.structuredContent).toMatchObject({
+					code: "UNKNOWN_REGISTRY_COMPONENT",
+					suggestions: ["container"],
+					message: expect.stringContaining('Did you mean "container"?'),
+				});
+			} finally {
+				await session.close();
+			}
+		});
+
 		it("commits a valid plan with one revision change", async () => {
 			const { fixture, session } = await setup();
 			try {

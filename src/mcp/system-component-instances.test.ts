@@ -249,6 +249,27 @@ describe("trickroom MCP system component instance tools", () => {
 		await fixture.cleanup();
 	});
 
+	it("suggests the component id when addSystemComponent gets a component name", async () => {
+		const result = await session.client.callTool({
+			name: "addSystemComponent",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				expectedRevision: await getDesignRevision(),
+				parentId: "board",
+				index: 0,
+				systemId,
+				componentId: "Badge",
+			},
+		});
+		expect(result.isError).toBe(true);
+		expect(result.structuredContent).toMatchObject({
+			code: "UNKNOWN_SYSTEM_COMPONENT",
+			suggestions: [componentId],
+			availableComponents: [{ componentId, name: "Badge" }],
+			message: expect.stringContaining("Pass the componentId"),
+		});
+	});
+
 	it("adds, updates, and detaches a published system component instance", async () => {
 		const revision = await getDesignRevision();
 

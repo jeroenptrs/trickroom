@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { isJsonPrimitive, resolveRegistryRecipe } from "../libraries/registry";
+import {
+	describeUnknownRegistryLibrary,
+	describeUnknownRegistryRecipe,
+} from "../libraries/registry-suggestions";
 import { findRecipeControlTargetElement } from "../recipes/controls";
 import {
 	applyAddElement,
@@ -665,15 +669,19 @@ export const assertOperationAllowedByPolicy = (
 		const recipe = requireStringParameter(params, "recipe");
 		const resolution = resolveRegistryRecipe(library, recipe);
 		if (resolution.status === "unknown-library") {
+			const unknown = describeUnknownRegistryLibrary(library);
 			throw new DesignTransformError(
 				"UNKNOWN_REGISTRY_LIBRARY",
-				`Unknown registry library "${library}".`,
+				unknown.message,
+				unknown.details,
 			);
 		}
 		if (resolution.status === "unknown-recipe") {
+			const unknown = describeUnknownRegistryRecipe(library, recipe);
 			throw new DesignTransformError(
 				"UNKNOWN_REGISTRY_RECIPE",
-				`Unknown recipe "${recipe}" in registry "${library}".`,
+				unknown.message,
+				unknown.details,
 			);
 		}
 		assertCanUseRecipe(policy, resolution.definition);
