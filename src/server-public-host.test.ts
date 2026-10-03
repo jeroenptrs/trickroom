@@ -3,7 +3,9 @@ import {
 	isWildcardHost,
 	PublicHostError,
 	parsePublicHost,
+	parsePublicUrl,
 	resolvePublicHost,
+	resolvePublicUrl,
 } from "./server-public-host";
 
 const hostname = () => "DevBox";
@@ -112,4 +114,73 @@ describe("isWildcardHost", () => {
 		["::1", false],
 	])("%s -> %s", (host, expected) =>
 		expect(isWildcardHost(host)).toBe(expected));
+});
+
+describe("resolvePublicUrl", () => {
+	it("returns null when nothing is configured", () => {
+		expect(resolvePublicUrl({})).toBeNull();
+		expect(resolvePublicUrl({ env: " ", settings: "" })).toBeNull();
+	});
+
+	it("follows flag > env > settings precedence", () => {
+		const all = {
+			flag: "https://flag.example",
+			env: "https://env.example",
+			settings: "https://settings.example",
+		};
+		expect(resolvePublicUrl(all)).toEqual({
+			url: "https://flag.example/",
+			host: "flag.example",
+			source: "flag",
+		});
+		expect(resolvePublicUrl({ ...all, flag: undefined })?.source).toBe("env");
+		expect(resolvePublicUrl({ settings: all.settings, env: "" })?.source).toBe(
+			"settings",
+		);
+	});
+
+	it("names the offending source in validation errors", () => {
+		expect(() =>
+			resolvePublicUrl({ settings: "https://devbox.example/trickroom" }),
+		).toThrow(
+			/server\.publicUrl in Trickroom settings .* must not contain a path/,
+		);
+		expect(() => resolvePublicUrl({ env: "devbox.example" })).toThrow(
+			/TRICKROOM_PUBLIC_URL "devbox.example" must be an absolute http or https URL/,
+		);
+	});
+});
+
+describe("parsePublicUrl", () => {
+	it.each([
+		[
+			"https://devcontainer-82761ffd7f4a.deltablue.io",
+			"https://devcontainer-82761ffd7f4a.deltablue.io/",
+			"devcontainer-82761ffd7f4a.deltablue.io",
+		],
+		["https://DevBox.Example/", "https://devbox.example/", "devbox.example"],
+		["https://devbox.example:443", "https://devbox.example/", "devbox.example"],
+		["http://devbox:8080", "http://devbox:8080/", "devbox"],
+		[
+			" http://192.168.1.20:18100/ ",
+			"http://192.168.1.20:18100/",
+			"192.168.1.20",
+		],
+		["https://[fe80::1]:8443", "https://[fe80::1]:8443/", "fe80::1"],
+	])("accepts %s", (value, url, host) =>
+		expect(parsePublicUrl(value, "test")).toEqual({ url, host }));
+
+	it.each([
+		["devbox.example", /absolute http or https URL/],
+		["ftp://devbox.example", /http or https/],
+		["https://user:pass@devbox.example", /credentials/],
+		["https://user@devbox.example", /credentials/],
+		["https://devbox.example/?a=1", /query string or fragment/],
+		["https://devbox.example/?", /query string or fragment/],
+		["https://devbox.example/#x", /query string or fragment/],
+		["https://devbox.example/trickroom/", /must not contain a path/],
+		["http://0.0.0.0:18100", /wildcard/],
+		["http://[::]:18100", /wildcard/],
+	])("rejects %s", (value, message) =>
+		expect(() => parsePublicUrl(value, "test")).toThrow(message));
 });

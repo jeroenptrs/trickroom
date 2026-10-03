@@ -6,11 +6,11 @@ import { defineConfig } from "vite";
 import spaServer from "./plugin/spa-server/index";
 import { resolveTrickroomHome } from "./src/app-state/home";
 import { requireSessionTokenForHost } from "./src/server-auth";
-import { resolvePublicHost } from "./src/server-public-host";
+import { resolvePublicHost, resolvePublicUrl } from "./src/server-public-host";
 
 // Reads the raw file rather than importing app-state/settings, which would
 // pull the MCP and Tailwind class modules into the node tsconfig project.
-const readSettingsPublicHost = async () => {
+const readServerSettings = async () => {
 	try {
 		const settings: unknown = JSON.parse(
 			await readFile(
@@ -18,12 +18,38 @@ const readSettingsPublicHost = async () => {
 				"utf8",
 			),
 		);
-		const publicHost = (settings as { server?: { publicHost?: unknown } })
-			?.server?.publicHost;
-		return typeof publicHost === "string" ? publicHost : undefined;
+		const server = (settings as { server?: Record<string, unknown> })?.server;
+		const read = (key: string) =>
+			typeof server?.[key] === "string" ? server[key] : undefined;
+		return { publicHost: read("publicHost"), publicUrl: read("publicUrl") };
 	} catch {
-		return undefined;
+		return {};
 	}
+};
+
+// Configured public URL and public host names; inference is not included.
+const configuredPublicHosts = async () => {
+	const settings = await readServerSettings();
+	const hosts: string[] = [];
+	const publicUrl = resolvePublicUrl({
+		env: process.env.TRICKROOM_PUBLIC_URL,
+		settings: settings.publicUrl,
+	});
+	if (publicUrl) {
+		hosts.push(publicUrl.host);
+	}
+	const env = process.env.TRICKROOM_PUBLIC_HOST;
+	if (env?.trim() || settings.publicHost?.trim()) {
+		hosts.push(
+			resolvePublicHost({
+				bindHost: "localhost",
+				env,
+				settings: settings.publicHost,
+				hostname: () => "",
+			}).host,
+		);
+	}
+	return hosts;
 };
 
 export default defineConfig({
@@ -39,26 +65,17 @@ export default defineConfig({
 		{
 			name: "require-shared-host-auth",
 			async config(config) {
-				// Vite blocks unknown Host headers; allow the configured public host.
-				const env = process.env.TRICKROOM_PUBLIC_HOST;
-				const settings = env?.trim()
-					? undefined
-					: await readSettingsPublicHost();
-				if (!env?.trim() && !settings?.trim()) {
+				// Vite blocks unknown Host headers; allow the configured public hosts.
+				const hosts = await configuredPublicHosts();
+				if (hosts.length === 0) {
 					return;
 				}
-				const { host } = resolvePublicHost({
-					bindHost: "localhost",
-					env,
-					settings,
-					hostname: () => "",
-				});
 				const allowedHosts = config.server?.allowedHosts;
 				if (allowedHosts === true) {
 					return;
 				}
 				return {
-					server: { allowedHosts: [...(allowedHosts ?? []), host] },
+					server: { allowedHosts: [...(allowedHosts ?? []), ...hosts] },
 				};
 			},
 			configResolved(config) {

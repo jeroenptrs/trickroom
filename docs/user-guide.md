@@ -96,6 +96,12 @@ Shared server:
   ```json
   { "version": 1, "mcp": { "toolGroups": {} }, "server": { "publicHost": "devbox.local" } }
   ```
+
+- Behind a reverse proxy, where the address you open has a different scheme or port than the one Trickroom listens on, set the full base URL instead with `--public-url <url>`, `TRICKROOM_PUBLIC_URL`, or `server.publicUrl`. It wins over the public host and is printed without Trickroom's own port:
+
+  ```json
+  { "version": 1, "mcp": { "toolGroups": {} }, "server": { "publicUrl": "https://devbox.example.com" } }
+  ```
 - `--no-open` prevents browser launch while retaining human status output; `--silent` also suppresses human status output.
 - Opening the bootstrap URL once stores an HTTP-only cookie and redirects to the clean URL.
 

@@ -45,6 +45,7 @@ import {
 import { systemsRoutes } from "./routes/systems";
 import { tailwindRoutes } from "./routes/tailwind";
 import {
+	isSecureRequest,
 	trickroomSessionCookieName,
 	trickroomSessionHeaderName,
 } from "./server-auth";
@@ -563,7 +564,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				httpOnly: true,
 				path: "/",
 				sameSite: "Strict",
-				secure: cleanUrl.protocol === "https:",
+				secure: isSecureRequest(cleanUrl, c.req.header("x-forwarded-proto")),
 			});
 			return c.redirect(`${cleanUrl.pathname}${cleanUrl.search}`);
 		}

@@ -439,11 +439,26 @@ describe("server design routes", () => {
 		expect(cookie).toContain("trickroom_session=test%20token");
 		expect(cookie).toContain("HttpOnly");
 		expect(cookie).toContain("SameSite=Strict");
+		expect(cookie).not.toContain("Secure");
 
 		const allowed = await app.request("/api/trickroom/health", {
 			headers: { cookie: cookie?.split(";", 1)[0] ?? "" },
 		});
 		expect(allowed.status).toBe(200);
+	});
+
+	it("marks the session cookie Secure behind an HTTPS proxy", async () => {
+		const app = createTrickroomApp({
+			trickroomHome: tempTrickroomHome,
+			sessionToken: "test-token",
+		});
+
+		const bootstrap = await app.request("/?token=test-token", {
+			headers: { "x-forwarded-proto": "https" },
+		});
+		expect(bootstrap.status).toBe(302);
+		expect(bootstrap.headers.get("location")).toBe("/");
+		expect(bootstrap.headers.get("set-cookie")).toContain("Secure");
 	});
 
 	it("does not bootstrap a cookie from an invalid token", async () => {

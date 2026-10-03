@@ -37,6 +37,16 @@ export const formatServerUrlHost = (host: string) => {
 	return isIP(normalized) === 6 ? `[${normalized}]` : normalized;
 };
 
+/**
+ * Whether the browser reached us over HTTPS, either directly or through a
+ * TLS-terminating proxy that sets X-Forwarded-Proto. The header is not
+ * authenticated, but it only decides whether the session cookie is marked
+ * Secure, so a spoofed value can only break the spoofing client's own session.
+ */
+export const isSecureRequest = (url: URL, forwardedProto: string | undefined) =>
+	url.protocol === "https:" ||
+	forwardedProto?.split(",", 1)[0]?.trim().toLowerCase() === "https";
+
 export const requireSessionTokenForHost = (
 	host: string,
 	sessionToken: string | undefined,

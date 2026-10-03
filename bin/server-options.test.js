@@ -15,6 +15,7 @@ describe("configureServerOptions", () => {
 			argv: ["node", "trickroom", "."],
 			host: "127.0.0.1",
 			publicHost: null,
+			publicUrl: null,
 			port: 18100,
 			token: null,
 			noOpen: false,
@@ -183,4 +184,41 @@ describe("configureServerOptions", () => {
 		" 0.0.0.0 ",
 	])("recognizes %s as a wildcard host", (host) =>
 		expect(isWildcardHost(host)).toBe(true));
+
+	it("forwards --public-url to the server and prefers it over TRICKROOM_PUBLIC_URL", () => {
+		const environment = { TRICKROOM_PUBLIC_URL: "https://from-env.example" };
+		const result = configureServerOptions(
+			[
+				"node",
+				"trickroom",
+				"--host=0.0.0.0",
+				"--public-url",
+				"https://from-flag.example",
+			],
+			environment,
+			() => "generated-token",
+		);
+
+		expect(environment.TRICKROOM_CLI_PUBLIC_URL).toBe(
+			"https://from-flag.example",
+		);
+		expect(result.publicUrl).toBe("https://from-flag.example");
+		expect(result.host).toBe("0.0.0.0");
+		expect(result.sessionAuthEnabled).toBe(true);
+		expect(
+			configureServerOptions(["node", "trickroom"], {
+				TRICKROOM_PUBLIC_URL: "https://from-env.example",
+			}).publicUrl,
+		).toBe("https://from-env.example");
+	});
+
+	it.each([
+		["node", "trickroom", "--public-url"],
+		["node", "trickroom", "--public-url", "--no-open"],
+		["node", "trickroom", "--public-url="],
+	])("requires a --public-url value", (...argv) => {
+		expect(() => configureServerOptions(argv, {})).toThrow(
+			"--public-url requires a value.",
+		);
+	});
 });

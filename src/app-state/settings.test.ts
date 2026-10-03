@@ -104,6 +104,7 @@ describe("trickroom app settings", () => {
 	it.each([
 		["a string", "devbox.local"],
 		["a non-string publicHost", { publicHost: 42 }],
+		["a non-string publicUrl", { publicUrl: ["https://devbox.example"] }],
 		["an unknown key", { publicHost: "devbox.local", port: 8080 }],
 	])("rejects a server section with %s", async (_label, server) => {
 		const trickroomHome = await createHome();
@@ -115,6 +116,25 @@ describe("trickroom app settings", () => {
 		const read = readTrickroomSettings(trickroomHome);
 		await expect(read).rejects.toBeInstanceOf(TrickroomSettingsError);
 		await expect(read).rejects.toThrow(/settings at .* are invalid/);
+	});
+
+	it("reads and preserves server.publicUrl alongside publicHost", async () => {
+		const trickroomHome = await createHome();
+		const server = {
+			publicHost: "devbox.local",
+			publicUrl: "https://devbox.example",
+		};
+		await writeRawSettings(trickroomHome, {
+			...createDefaultTrickroomSettings(),
+			server,
+		});
+
+		expect((await readTrickroomSettings(trickroomHome)).server).toEqual(server);
+		await updateMcpToolGroupSettings({ designWrite: false }, trickroomHome);
+		const onDisk = JSON.parse(
+			await readFile(getTrickroomSettingsPath(trickroomHome), "utf8"),
+		);
+		expect(onDisk.server).toEqual(server);
 	});
 
 	it("preserves server.publicHost when toggling MCP tool groups", async () => {

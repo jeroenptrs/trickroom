@@ -80,22 +80,30 @@ const runServer = async (argv) => {
 			typeof runtime.serverPort === "number"
 				? runtime.serverPort
 				: serverOptions.port;
+		const publicUrl =
+			runtime.serverPublicUrl !== undefined
+				? runtime.serverPublicUrl
+				: serverOptions.publicUrl && new URL("/", serverOptions.publicUrl).href;
 		const publicHost =
 			typeof runtime.serverPublicHost === "string"
 				? runtime.serverPublicHost
-				: (serverOptions.publicHost ??
-					(isWildcardHost(serverOptions.host)
-						? hostname()
-						: serverOptions.host));
+				: publicUrl
+					? new URL(publicUrl).hostname.replace(/^\[|\]$/g, "")
+					: (serverOptions.publicHost ??
+						(isWildcardHost(serverOptions.host)
+							? hostname()
+							: serverOptions.host));
 		const url =
 			typeof runtime.serverUrl === "string"
 				? runtime.serverUrl
-				: `http://${publicHost.includes(":") && !publicHost.startsWith("[") ? `[${publicHost}]` : publicHost}:${port}/`;
+				: (publicUrl ??
+					`http://${publicHost.includes(":") && !publicHost.startsWith("[") ? `[${publicHost}]` : publicHost}:${port}/`);
 		ready = {
 			type: "trickroom:server-ready",
 			version: 1,
 			host: serverOptions.host,
 			publicHost,
+			publicUrl: publicUrl || null,
 			port,
 			url,
 			token: serverOptions.token,

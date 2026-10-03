@@ -54,6 +54,7 @@ The default URL is `http://localhost:18100/`. Runtime variables are:
 | --- | --- |
 | `TRICKROOM_HTTP_PORT` | Built server port. |
 | `TRICKROOM_HTTP_HOST` | Built server bind host. |
+| `TRICKROOM_PUBLIC_URL` | Base URL used in printed, emitted, and opened URLs, e.g. behind a reverse proxy; see [Public host](#public-host). |
 | `TRICKROOM_PUBLIC_HOST` | Host used in printed, emitted, and opened URLs; see [Public host](#public-host). |
 | `TRICKROOM_SESSION_TOKEN` | Enables HTTP session authentication; required on non-loopback hosts. |
 | `TRICKROOM_PROJECT_DIR` | Initial project root. |
@@ -64,6 +65,7 @@ Serve flags are:
 | Flag | Purpose |
 | --- | --- |
 | `--host <host>` | Bind to a hostname or IP address. |
+| `--public-url <url>` | Base URL to show instead of the bind host and port, e.g. behind a reverse proxy; see [Public host](#public-host). |
 | `--public-host <host>` | Host to show in URLs instead of the bind host; see [Public host](#public-host). |
 | `--port <port>` | Bind to a port; use `0` to select an available port. |
 | `--token <token>` | Enable HTTP session authentication with an explicit token. |
@@ -73,10 +75,10 @@ Serve flags are:
 After listening, the CLI writes one JSON ready record to stdout. Human status is written to stderr, so stdout remains machine-readable. The ready record includes the actual port, bootstrap URL, and session token when authentication is enabled.
 
 ```json
-{"type":"trickroom:server-ready","version":1,"host":"localhost","publicHost":"localhost","port":18100,"url":"http://localhost:18100/?token=secret","token":"secret","authenticated":true}
+{"type":"trickroom:server-ready","version":1,"host":"localhost","publicHost":"localhost","publicUrl":null,"port":18100,"url":"http://localhost:18100/?token=secret","token":"secret","authenticated":true}
 ```
 
-`host` is the bind address. `publicHost` is the host used in `url`.
+`host` is the bind address. `publicHost` is the host used in `url`. `publicUrl` is the configured public base URL, or `null` when none is set.
 
 `--silent` still emits this record because it is the automation contract.
 
@@ -90,12 +92,15 @@ The CLI generates a token when one is not already configured. Opening the ready 
 
 ### Public host
 
-The bind host is often not an address another machine can open: `0.0.0.0` and `::` listen on every interface. URLs printed by `trickroom serve`, the ready record's `url`, and the browser it opens use a separate public host, resolved in this order:
+The bind host is often not an address another machine can open: `0.0.0.0` and `::` listen on every interface. URLs printed by `trickroom serve`, the ready record's `url`, and the browser it opens use a separate public address, resolved in this order:
 
-1. `--public-host <host>`
-2. `TRICKROOM_PUBLIC_HOST`
-3. `server.publicHost` in `~/.trickroom/settings.json` (or `$TRICKROOM_HOME/settings.json`)
-4. Inferred: for a wildcard bind host (`0.0.0.0`, `::`, `[::]`), the machine's hostname; otherwise the bind host itself.
+1. `--public-url <url>`
+2. `TRICKROOM_PUBLIC_URL`
+3. `server.publicUrl` in `~/.trickroom/settings.json` (or `$TRICKROOM_HOME/settings.json`)
+4. `--public-host <host>`
+5. `TRICKROOM_PUBLIC_HOST`
+6. `server.publicHost` in the same settings file
+7. Inferred: for a wildcard bind host (`0.0.0.0`, `::`, `[::]`), the machine's hostname; otherwise the bind host itself.
 
 To make a remote machine always print a URL you can open, set it once in the user settings file:
 
@@ -107,7 +112,23 @@ To make a remote machine always print a URL you can open, set it once in the use
 }
 ```
 
-The value must be a bare host name or IP address; a scheme, port, or path is rejected at startup. IPv6 addresses are bracketed in URLs automatically. The public host never affects authentication: a non-loopback bind host still requires a session token even if the public host is `localhost`. An unreadable settings file is reported and ignored, and the host is inferred.
+A public URL is used exactly as written: its scheme, host, and port replace the bind host and listening port, and the listening port is not appended. It must be `http` or `https` with an optional port; a path, query string, fragment, credentials, or wildcard host is rejected, because the app loads `/assets/` and `/api/` from the root of its origin. Use it when a reverse proxy terminates TLS in front of Trickroom:
+
+```sh
+trickroom serve /path/to/project --host 0.0.0.0 --public-url https://devbox.example.com
+```
+
+```json
+{
+  "version": 1,
+  "mcp": { "toolGroups": {} },
+  "server": { "publicUrl": "https://devbox.example.com" }
+}
+```
+
+The session cookie is marked `Secure` when the request arrives over HTTPS, either directly or through a proxy that sets `X-Forwarded-Proto: https`. Over plain HTTP it is not, so local HTTP use keeps working. If the proxy does not send `X-Forwarded-Proto`, the cookie is still set and sent over HTTPS, just without `Secure`.
+
+A public host must be a bare host name or IP address; a scheme, port, or path is rejected at startup. IPv6 addresses are bracketed in URLs automatically. Neither setting affects authentication: a non-loopback bind host still requires a session token even if the public host is `localhost`. An unreadable settings file is reported and ignored, and the host is inferred.
 
 Vite also rejects non-loopback development binds without `TRICKROOM_SESSION_TOKEN`:
 
@@ -115,7 +136,7 @@ Vite also rejects non-loopback development binds without `TRICKROOM_SESSION_TOKE
 TRICKROOM_SESSION_TOKEN="choose-a-long-random-token" pnpm dev -- --host 0.0.0.0
 ```
 
-In development, Vite prints its own `Local` and `Network` URLs (one per interface IP address, never `0.0.0.0`) and does not take `--public-host`. Vite rejects requests whose `Host` header is not an IP address, `localhost`, or a name in `server.allowedHosts`, so the dev config adds `TRICKROOM_PUBLIC_HOST` or the settings file's `server.publicHost` to `allowedHosts`.
+In development, Vite prints its own `Local` and `Network` URLs (one per interface IP address, never `0.0.0.0`) and does not take `--public-url` or `--public-host`. Vite rejects requests whose `Host` header is not an IP address, `localhost`, or a name in `server.allowedHosts`, so the dev config adds the hostname of `TRICKROOM_PUBLIC_URL` or `server.publicUrl`, and `TRICKROOM_PUBLIC_HOST` or `server.publicHost`, to `allowedHosts`.
 
 ## Running MCP Locally
 

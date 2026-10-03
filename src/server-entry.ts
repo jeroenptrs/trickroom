@@ -7,7 +7,7 @@ import { etag } from "hono/etag";
 import { readTrickroomSettings } from "./app-state/settings";
 import app from "./server";
 import { formatServerUrlHost, requireSessionTokenForHost } from "./server-auth";
-import { resolvePublicHost } from "./server-public-host";
+import { resolvePublicHost, resolvePublicUrl } from "./server-public-host";
 
 const clientPath = new URL("./client", import.meta.url).pathname;
 
@@ -43,29 +43,41 @@ const sessionToken = process.env.TRICKROOM_SESSION_TOKEN?.trim();
 // Auth policy is decided on the bind host; the public host only affects URLs.
 requireSessionTokenForHost(configuredHost, sessionToken);
 
-const readSettingsPublicHost = async () => {
+const readServerSettings = async () => {
 	try {
-		return (await readTrickroomSettings()).server?.publicHost;
+		return (await readTrickroomSettings()).server;
 	} catch (error) {
 		console.warn(
-			`${error instanceof Error ? error.message : String(error)} Ignoring server.publicHost.`,
+			`${error instanceof Error ? error.message : String(error)} Ignoring server.publicUrl and server.publicHost.`,
 		);
 		return undefined;
 	}
 };
 
-const publicHost = resolvePublicHost({
-	bindHost: configuredHost,
-	flag: process.env.TRICKROOM_CLI_PUBLIC_HOST,
-	env: process.env.TRICKROOM_PUBLIC_HOST,
-	settings: await readSettingsPublicHost(),
-	hostname: os.hostname,
-}).host;
-const urlHost = formatServerUrlHost(publicHost);
+const serverSettings = await readServerSettings();
+// A configured public URL wins over every public host source.
+const publicUrl =
+	resolvePublicUrl({
+		flag: process.env.TRICKROOM_CLI_PUBLIC_URL,
+		env: process.env.TRICKROOM_PUBLIC_URL,
+		settings: serverSettings?.publicUrl,
+	})?.url ?? null;
+const publicHost = publicUrl
+	? new URL(publicUrl).hostname.replace(/^\[|\]$/g, "")
+	: resolvePublicHost({
+			bindHost: configuredHost,
+			flag: process.env.TRICKROOM_CLI_PUBLIC_HOST,
+			env: process.env.TRICKROOM_PUBLIC_HOST,
+			settings: serverSettings?.publicHost,
+			hostname: os.hostname,
+		}).host;
+const baseUrlForPort = (port: number) =>
+	publicUrl ?? `http://${formatServerUrlHost(publicHost)}:${port}/`;
 
 export const serverPublicHost = publicHost;
+export const serverPublicUrl = publicUrl;
 export let serverPort = configuredPort;
-export let serverUrl = `http://${urlHost}:${configuredPort}/`;
+export let serverUrl = baseUrlForPort(configuredPort);
 
 export type ServerReadyPayload = {
 	type: "trickroom:server-ready";
@@ -74,6 +86,8 @@ export type ServerReadyPayload = {
 	host: string;
 	/** Host used in `url`; differs from `host` for wildcard binds or when configured. */
 	publicHost: string;
+	/** Configured public base URL, or null when `url` is built from `publicHost`. */
+	publicUrl: string | null;
 	port: number;
 	url: string;
 	token: string | null;
@@ -87,7 +101,7 @@ export const serverReady = new Promise<ServerReadyPayload>((resolve) => {
 			const port =
 				typeof address === "object" && address ? address.port : configuredPort;
 			serverPort = port;
-			const cleanUrl = `http://${urlHost}:${port}/`;
+			const cleanUrl = baseUrlForPort(port);
 			serverUrl = sessionToken
 				? `${cleanUrl}?token=${encodeURIComponent(sessionToken)}`
 				: cleanUrl;
@@ -102,6 +116,7 @@ export const serverReady = new Promise<ServerReadyPayload>((resolve) => {
 				port,
 				host: configuredHost,
 				publicHost,
+				publicUrl,
 				url: serverUrl,
 				token: sessionToken ?? null,
 				authenticated: Boolean(sessionToken),

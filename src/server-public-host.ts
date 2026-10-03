@@ -90,3 +90,82 @@ export const resolvePublicHost = ({
 	}
 	return { host: stripBrackets(bindHost.trim()), source: "inferred" };
 };
+
+export type ResolvedPublicUrl = {
+	/** Normalized base URL ending in `/`, e.g. `https://devbox.example/`. */
+	url: string;
+	/** The URL's hostname, unbracketed. */
+	host: string;
+	source: Exclude<PublicHostSource, "inferred">;
+};
+
+/**
+ * Validates a user-supplied public base URL: http(s), a host, and an optional
+ * port. Path prefixes are rejected because the client loads `/assets/` and
+ * `/api/` from the origin root.
+ */
+export const parsePublicUrl = (value: string, origin: string) => {
+	const trimmed = value.trim();
+	const fail = (reason: string): never => {
+		throw new PublicHostError(`${origin} "${value}" ${reason}.`);
+	};
+	let parsed: URL;
+	try {
+		parsed = new URL(trimmed);
+	} catch {
+		return fail(
+			'must be an absolute http or https URL (for example "https://devbox.example")',
+		);
+	}
+	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+		fail("must use http or https");
+	}
+	if (parsed.username || parsed.password) {
+		fail("must not contain credentials");
+	}
+	if (trimmed.includes("?") || trimmed.includes("#")) {
+		fail("must not contain a query string or fragment");
+	}
+	if (parsed.pathname !== "/") {
+		fail(
+			"must not contain a path; Trickroom has to be served from the root of its origin",
+		);
+	}
+	const host = stripBrackets(parsed.hostname);
+	if (!host || isWildcardHost(host)) {
+		fail("must name a host a browser can open, not a wildcard bind address");
+	}
+	return { url: `${parsed.protocol}//${parsed.host}/`, host };
+};
+
+/**
+ * Resolves the configured public base URL, or null when none is configured.
+ * Precedence: --public-url flag, TRICKROOM_PUBLIC_URL, settings
+ * `server.publicUrl`. A public URL takes precedence over every public host
+ * source.
+ */
+export const resolvePublicUrl = ({
+	flag,
+	env,
+	settings,
+}: {
+	flag?: string;
+	env?: string;
+	settings?: string;
+}): ResolvedPublicUrl | null => {
+	const candidates: [
+		ResolvedPublicUrl["source"],
+		string | undefined,
+		string,
+	][] = [
+		["flag", flag, "--public-url"],
+		["env", env, "TRICKROOM_PUBLIC_URL"],
+		["settings", settings, "server.publicUrl in Trickroom settings"],
+	];
+	for (const [source, value, origin] of candidates) {
+		if (value?.trim()) {
+			return { ...parsePublicUrl(value, origin), source };
+		}
+	}
+	return null;
+};

@@ -36,6 +36,7 @@ export const configureServerOptions = (
 	const forwardedArgs = argv.slice(0, 2);
 	let configuredHost;
 	let configuredPublicHost;
+	let configuredPublicUrl;
 	let configuredPort;
 	let configuredToken;
 	let noOpen = false;
@@ -89,6 +90,18 @@ export const configureServerOptions = (
 			}
 			continue;
 		}
+		if (argument === "--public-url") {
+			configuredPublicUrl = requireOptionValue("--public-url", argv[index + 1]);
+			index += 1;
+			continue;
+		}
+		if (argument.startsWith("--public-url=")) {
+			configuredPublicUrl = argument.slice("--public-url=".length);
+			if (!configuredPublicUrl) {
+				throw new Error("--public-url requires a value.");
+			}
+			continue;
+		}
 		if (argument === "--port") {
 			configuredPort = parsePort(requireOptionValue("--port", argv[index + 1]));
 			index += 1;
@@ -137,6 +150,10 @@ export const configureServerOptions = (
 		// TRICKROOM_PUBLIC_HOST and settings; the flag takes precedence.
 		environment.TRICKROOM_CLI_PUBLIC_HOST = configuredPublicHost;
 	}
+	if (configuredPublicUrl) {
+		// Validated by the server, like --public-host; wins over any public host.
+		environment.TRICKROOM_CLI_PUBLIC_URL = configuredPublicUrl;
+	}
 	if (configuredPort !== undefined) {
 		environment.TRICKROOM_HTTP_PORT = String(configuredPort);
 	}
@@ -162,6 +179,8 @@ export const configureServerOptions = (
 		publicHost:
 			configuredPublicHost ??
 			(environment.TRICKROOM_PUBLIC_HOST?.trim() || null),
+		publicUrl:
+			configuredPublicUrl ?? (environment.TRICKROOM_PUBLIC_URL?.trim() || null),
 		port: effectivePort,
 		token: environment.TRICKROOM_SESSION_TOKEN?.trim() || null,
 		noOpen,

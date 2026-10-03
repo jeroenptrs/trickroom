@@ -22,6 +22,8 @@ export type TrickroomSettings = {
 export type TrickroomServerSettings = {
 	/** Host used in URLs printed and opened by `trickroom serve`. */
 	publicHost?: string;
+	/** Base URL printed and opened by `trickroom serve`; wins over `publicHost`. */
+	publicUrl?: string;
 };
 
 export class TrickroomSettingsError extends Error {
@@ -55,7 +57,9 @@ const isTrickroomServerSettings = (
 ): value is TrickroomServerSettings =>
 	isRecord(value) &&
 	Object.entries(value).every(
-		([key, entry]) => key === "publicHost" && typeof entry === "string",
+		([key, entry]) =>
+			(key === "publicHost" || key === "publicUrl") &&
+			typeof entry === "string",
 	);
 
 export const isTrickroomSettings = (
