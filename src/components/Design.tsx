@@ -67,6 +67,11 @@ import {
 	shouldPreserveSelectionOnActiveBoard,
 } from "./responsive-stage-context";
 import { ResponsiveStageFrameWrapper } from "./responsive-stage-frame";
+import {
+	type ResponsiveStageZoom,
+	ResponsiveStageZoomContext,
+	resolveResponsiveStageScale,
+} from "./responsive-stage-zoom";
 import { Artboards } from "./stage/Artboards";
 import { Canvas } from "./stage/Canvas";
 import { ConfirmationDialog } from "./ui/alert-dialog";
@@ -135,6 +140,9 @@ export function Design() {
 	const [responsiveWidth, setResponsiveWidth] = useState(() =>
 		readResponsiveStageSessionWidth(projectScope, designFile),
 	);
+	const [responsiveZoom, setResponsiveZoom] =
+		useState<ResponsiveStageZoom>("fit");
+	const [responsiveFitScale, setResponsiveFitScale] = useState(1);
 	const responsiveSessionKey = useMemo(
 		() => getResponsiveStageSessionStorageKey(projectScope, designFile),
 		[designFile, projectScope],
@@ -189,6 +197,7 @@ export function Design() {
 		setResponsiveWidth(
 			readResponsiveStageSessionWidth(projectScope, designFile),
 		);
+		setResponsiveZoom("fit");
 	}, [designFile, projectScope, responsiveSessionKey]);
 
 	useEffect(() => {
@@ -347,6 +356,17 @@ export function Design() {
 		],
 	);
 
+	const responsiveStageZoom = useMemo(
+		() => ({
+			zoom: responsiveZoom,
+			fitScale: responsiveFitScale,
+			scale: resolveResponsiveStageScale(responsiveZoom, responsiveFitScale),
+			setZoom: setResponsiveZoom,
+			setFitScale: setResponsiveFitScale,
+		}),
+		[responsiveFitScale, responsiveZoom],
+	);
+
 	// TODO: make isLoading and hasError work with a rendered sidebar and iframe
 	if (!designFile) {
 		return (
@@ -376,9 +396,11 @@ export function Design() {
 		<>
 			<IFrameViewContext.Provider value={view}>
 				<ResponsiveStageContext.Provider value={responsiveStage}>
-					<StagePreviewDarkModeProvider key={designFile}>
-						<EditorShell designFile={designFile}>{stage}</EditorShell>
-					</StagePreviewDarkModeProvider>
+					<ResponsiveStageZoomContext.Provider value={responsiveStageZoom}>
+						<StagePreviewDarkModeProvider key={designFile}>
+							<EditorShell designFile={designFile}>{stage}</EditorShell>
+						</StagePreviewDarkModeProvider>
+					</ResponsiveStageZoomContext.Provider>
 				</ResponsiveStageContext.Provider>
 			</IFrameViewContext.Provider>
 			<ConfirmationDialog

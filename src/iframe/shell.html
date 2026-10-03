@@ -44,6 +44,21 @@
         min-width: max(100vw, var(--trickroom-canvas-board-default-width));
       }
       /*
+       * Responsive mode previews one board in a viewport that scrolls like a
+       * page: main grows with the board (instead of ending at 100vh), boards
+       * narrower than the viewport stay centered, and anything larger scrolls
+       * from the top-left. min-width: 100% keeps w-full boards clear of a
+       * classic scrollbar, as on a real page.
+       */
+      html[data-trickroom-stage-mode="responsive"] #trickroom-viewport {
+        overflow: auto;
+      }
+      html[data-trickroom-stage-mode="responsive"] .frame-content > main {
+        bottom: auto;
+        min-width: 100%;
+        justify-content: safe center;
+      }
+      /*
        * Reveal-on-ready: in compiled mode the shell is marked
        * data-trickroom-await-styles, so design content stays hidden until
        * useCompiledTailwind injects the first compiled stylesheet and sets
