@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { TrickroomDesign } from "../types";
+import { getMcpPolicy } from "./governance";
 import {
 	executeOperationPlanDryRun,
 	resolveStepReferencesInParameters,
@@ -8,8 +10,6 @@ import {
 	trickroomMcpTestDesign,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
-import { getMcpPolicy } from "./governance";
-import type { TrickroomDesign } from "../types";
 
 const targetDesignFileId = "10000000-0000-4000-8000-000000000021";
 const targetDesign: TrickroomDesign = {
@@ -80,6 +80,90 @@ describe("resolveStepReferencesInParameters", () => {
 			elementId: "title",
 			text: "$step:0",
 		});
+	});
+});
+
+describe("step references", () => {
+	const steps = [
+		{
+			stepIndex: 0,
+			operation: "addSubtree" as const,
+			summary: {},
+			changedElementId: "card-id",
+			rootElementId: "card-id",
+			idMap: { card: "card-id", first: "first-root", second: "second-root" },
+			recipes: [
+				{
+					tempId: "first",
+					recipeId: "base-ui/dialog.default",
+					rootElementId: "first-root",
+					slots: { content: "first-content", trigger: "first-trigger" },
+				},
+				{
+					tempId: "second",
+					recipeId: "base-ui/dialog.default",
+					rootElementId: "second-root",
+					slots: { content: "second-content", trigger: "second-trigger" },
+				},
+			],
+		},
+		{
+			stepIndex: 1,
+			operation: "addRecipe" as const,
+			summary: {},
+			changedElementId: "menu-root",
+			recipes: [
+				{
+					recipeId: "base-ui/menu.default",
+					rootElementId: "menu-root",
+					slots: { items: "menu-items" },
+				},
+			],
+		},
+	];
+
+	it("resolves tempIds, slots, and tempId-qualified slots", () => {
+		expect(
+			resolveStepReferencesInParameters(
+				{
+					elementId: "$step:0:tempId:card",
+					parentId: "$step:1:slot:items",
+					targetParentId: "$step:0:tempId:second:slot:content",
+				},
+				steps,
+			),
+		).toEqual({
+			elementId: "card-id",
+			parentId: "menu-items",
+			targetParentId: "second-content",
+		});
+	});
+
+	it("rejects ambiguous slots with the qualified form", () => {
+		expect(() =>
+			resolveStepReferencesInParameters(
+				{ parentId: "$step:0:slot:content" },
+				steps,
+			),
+		).toThrow(/\$step:0:tempId:<recipeTempId>:slot:content/u);
+	});
+
+	it("lists available tempIds and slots for unresolvable references", () => {
+		expect(() =>
+			resolveStepReferencesInParameters(
+				{ parentId: "$step:0:tempId:missing" },
+				steps,
+			),
+		).toThrow(/Available tempIds: card, first, second/u);
+		expect(() =>
+			resolveStepReferencesInParameters(
+				{ parentId: "$step:1:slot:content" },
+				steps,
+			),
+		).toThrow(/Available slots: items/u);
+		expect(() =>
+			resolveStepReferencesInParameters({ parentId: "$step:x" }, steps),
+		).toThrow(/malformed/u);
 	});
 });
 

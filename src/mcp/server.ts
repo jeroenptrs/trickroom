@@ -688,7 +688,7 @@ type ElementContext = {
 type ValidationIssue = McpDesignIssue;
 
 const STEP_REFERENCE_GUIDANCE =
-	"Element id parameters (elementId, parentId, targetParentId, sourceElementId, instanceId, rootElementId) may reference earlier steps: $step:N (changed element), $step:N:rootElementId.";
+	"Element id parameters (elementId, parentId, targetParentId, sourceElementId, instanceId, rootElementId) may reference earlier steps: $step:N (changed element), $step:N:rootElementId, $step:N:tempId:<tempId> (a node from an earlier addSubtree; for copySubtree, a source element id), $step:N:slot:<slotName> (the slot host of the recipe step N inserted, e.g. a dialog's popup content), and $step:N:tempId:<recipeTempId>:slot:<slotName> when a step inserted several recipes.";
 
 const createOperationPlanStepsInputSchema = (purpose: string) =>
 	z
@@ -2468,6 +2468,53 @@ const AUTHORING_CONTRACT_EXAMPLES = [
 			response: { includeWarnings: true },
 		},
 	},
+	{
+		tool: "applyDesignOperations",
+		description:
+			"Insert a dialog recipe and fill its slots in one batch. $step:0:slot:<slotName> resolves to the slot host the recipe in step 0 created; $step:1:tempId:<tempId> resolves to a node an earlier addSubtree created.",
+		arguments: {
+			...authoringContractWriteContext,
+			operations: [
+				{
+					operation: "addRecipe",
+					parameters: {
+						parentId: "board",
+						index: 0,
+						library: "base-ui",
+						recipe: "dialog.default",
+					},
+				},
+				{
+					operation: "addSubtree",
+					parameters: {
+						parentId: "$step:0:slot:content",
+						index: 0,
+						subtree: {
+							tempId: "body",
+							library: "trickroom",
+							component: "container",
+							className: "flex flex-col gap-4 p-6",
+							children: [
+								{
+									tempId: "heading",
+									library: "trickroom",
+									component: "text",
+									text: "Delete project?",
+								},
+							],
+						},
+					},
+				},
+				{
+					operation: "updateElementProps",
+					parameters: {
+						elementId: "$step:1:tempId:heading",
+						className: "text-lg font-semibold",
+					},
+				},
+			],
+		},
+	},
 ] as const;
 
 const summarizeRecipeForContract = (
@@ -2755,6 +2802,21 @@ const buildAuthoringGuidance = () => ({
 		"Use getSystemComponentAuthoringContract before creating or updating system component drafts.",
 		"Every write returns warningCount. Likely-typo warnings (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) on the elements you touched are returned by default — fix them before moving on. Other warnings are counted, not listed; escalate with response.includeWarnings when warningCount is non-zero and you need them.",
 	],
+	stepReferences: {
+		appliesTo:
+			"applyDesignOperations and validateOperationPlan element id parameters: elementId, parentId, targetParentId, sourceElementId, instanceId, rootElementId.",
+		forms: {
+			"$step:N": "The element step N changed or inserted (its root).",
+			"$step:N:rootElementId": "The root element of what step N inserted.",
+			"$step:N:tempId:<tempId>":
+				"The node with that tempId in step N's addSubtree (for copySubtree: the copy of that source element id).",
+			"$step:N:slot:<slotName>":
+				"The slot host of the recipe step N inserted, for filling recipe slots (e.g. a dialog's content) in the same batch.",
+			"$step:N:tempId:<recipeTempId>:slot:<slotName>":
+				"The slot host of one recipe when step N's addSubtree inserted several recipe nodes.",
+		},
+		note: "Use step references instead of bare tempIds; a bare tempId is not an element id. Slot names come from describeRegistryRecipe.",
+	},
 	responseVerbosity: {
 		default:
 			"Write tools (applyDesignOperations, copySubtree, and single-element mutations) return error-severity issues, a warningCount scoped to the elements the write touched, and likely-typo warnings (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) on those elements. Other warnings and the full custom-utility token catalog are omitted to keep responses small.",
@@ -6117,7 +6179,7 @@ Workflow:
 		{
 			title: "Validate Operation Plan",
 			description:
-				"Dry-run an ordered list of design operations against one starting revision without writing. Returns per-step summaries, aggregate change metadata, and final diagnostics. Later steps may reference earlier step outputs using $step:N or $step:N:rootElementId.",
+				"Dry-run an ordered list of design operations against one starting revision without writing. Returns per-step summaries, aggregate change metadata, and final diagnostics. Later steps may reference earlier step outputs using $step:N, $step:N:rootElementId, $step:N:tempId:<tempId>, or $step:N:slot:<slotName>.",
 			inputSchema: withProjectScopedInput({
 				designFileId: z.string().uuid().describe("Design file UUID."),
 				expectedRevision: z

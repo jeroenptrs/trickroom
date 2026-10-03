@@ -324,13 +324,13 @@ The full project block (`projectId`, `locationId`, `projectRoot`, `name`) is onl
   "newRevision": "sha256:…",
   "steps": [
     { "stepIndex": 0, "operation": "addSubtree", "changedElementId": "…", "idMap": { "card": "…", "label": "…" } },
-    { "stepIndex": 1, "operation": "addRecipe", "changedElementId": "…", "recipes": [{ "recipeId": "dialog.default", "rootElementId": "…" }] }
+    { "stepIndex": 1, "operation": "addRecipe", "changedElementId": "…", "recipes": [{ "recipeId": "base-ui/dialog.default", "rootElementId": "…", "slots": { "trigger": "…", "content": "…" } }] }
   ],
   "issues": []
 }
 ```
 
-Each step reports `changedElementId`, `rootElementId` (only when it differs), `idMap` (addSubtree `tempId` → id, or copySubtree source id → new id), `recipes` (inserted recipe roots), and `deletedCount`. Failed plans report `failedStepIndex`, `failedOperation`, and `issues` without echoing earlier steps. Pass `response: { includeStepDetails: true }` to get the full per-step summaries and aggregate id lists (the `validateOperationPlan` shape).
+Each step reports `changedElementId`, `rootElementId` (only when it differs), `idMap` (addSubtree `tempId` → id, or copySubtree source id → new id), `recipes` (inserted recipe instances: `tempId`, `recipeId`, `rootElementId`, and `slots` mapping slot name → slot host id), and `deletedCount`. Failed plans report `failedStepIndex`, `failedOperation`, and `issues` without echoing earlier steps. Pass `response: { includeStepDetails: true }` to get the full per-step summaries and aggregate id lists (the `validateOperationPlan` shape).
 
 ### Actionable Errors
 
@@ -524,7 +524,7 @@ It returns predicted changed elements, context, deleted IDs, warnings, token dia
 `validateOperationPlan` dry-runs an ordered list of supported operations against one starting revision:
 
 - Applies each step to an in-memory candidate design in order.
-- Supports plan-local step references such as `$step:0` and `$step:0:rootElementId` for later steps that depend on earlier insertions.
+- Supports plan-local step references for later steps that depend on earlier insertions (see [Step References](#step-references)).
 - Returns `status`, `valid`, `operationCount`, per-step summaries, aggregate changed/deleted/inserted IDs, recipe expansion metadata, diagnostics, and suggested reads.
 - On failure, returns `failedStepIndex`, `failedOperation`, and diagnostics without writing.
 
@@ -533,6 +533,32 @@ Batch parameters:
 - The `operations` field description in both tool schemas lists the parameter signature of every operation, and a step that fails with `INVALID_OPERATION_PARAMETERS` reports the operation's `expectedParameters` on its issue. `validateOperation` does the same for its `parameters`.
 - Parent ids accept either spelling: insertions (`addElement`, `addRecipe`, `addSystemComponent`, `addSubtree`, `copySubtree`) take `parentId` and also accept `targetParentId`; `moveElement` takes `targetParentId` and also accepts `parentId`.
 - Batch `copySubtree` defaults `sourceDesignFileId` to the design being edited, so same-file copies only need `sourceElementId`, `parentId`, and `index`.
+
+#### Step References
+
+In `validateOperationPlan` and `applyDesignOperations`, element id parameters (`elementId`, `parentId`, `targetParentId`, `sourceElementId`, `instanceId`, `rootElementId`) can point at nodes created by earlier steps in the same batch:
+
+| Reference | Resolves to |
+| --- | --- |
+| `$step:N` | The element step `N` changed or inserted (its root). Same as `$step:N:changedElementId`. |
+| `$step:N:rootElementId` | The root element of what step `N` inserted. |
+| `$step:N:tempId:<tempId>` | The node with that `tempId` in step `N`'s `addSubtree`. For `copySubtree` steps, the copy of that source element id. |
+| `$step:N:slot:<slotName>` | The slot host of the recipe step `N` inserted (`addRecipe`, or a single recipe node in `addSubtree`). |
+| `$step:N:tempId:<recipeTempId>:slot:<slotName>` | The slot host of one specific recipe when step `N` inserted several. |
+
+Slot names come from `describeRegistryRecipe` (for example `trigger` and `content` on `base-ui/dialog.default`). A malformed or unresolvable reference fails the step with `INVALID_OPERATION_PARAMETERS` and lists the accepted forms plus the step's `availableTempIds` or `availableSlots`. A step that fails because a bare tempId was passed as an element id gets `suggestedStepReferences`.
+
+Example: insert a dialog and fill its content slot in one batch:
+
+```json
+[
+  { "operation": "addRecipe", "parameters": { "parentId": "board", "index": 0, "library": "base-ui", "recipe": "dialog.default" } },
+  { "operation": "addSubtree", "parameters": { "parentId": "$step:0:slot:content", "index": 0, "subtree": { "tempId": "body", "library": "trickroom", "component": "container", "children": [{ "tempId": "heading", "library": "trickroom", "component": "text", "text": "Delete project?" }] } } },
+  { "operation": "updateElementProps", "parameters": { "elementId": "$step:1:tempId:heading", "className": "text-lg font-semibold" } }
+]
+```
+
+Each step in the response lists the `recipes` it inserted with their `slots` (slot name → host id), so follow-up batches can target slots directly.
 
 `applyDesignOperations` validates the same payload shape and performs exactly one persisted write when the full plan is valid and the starting revision still matches. It returns one `newRevision`, not per-step revisions. Unlike the verbose `validateOperationPlan` dry-run, its success response is minimal by default (error-severity issues only); opt into warnings/token diagnostics with the `response` object (see [Write Response Verbosity](#write-response-verbosity)).
 

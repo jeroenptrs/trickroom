@@ -5009,6 +5009,156 @@ describe("MCP mutation tools", () => {
 			}
 		});
 
+		it("inserts a dialog recipe and fills its slot in one batch", async () => {
+			const { fixture, session } = await setup();
+			try {
+				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
+				const result = await session.client.callTool({
+					name: "applyDesignOperations",
+					arguments: {
+						designFileId: trickroomMcpTestDesignUuid,
+						expectedRevision: revision,
+						operations: [
+							{
+								operation: "addRecipe",
+								parameters: {
+									parentId: "board",
+									index: 0,
+									library: "base-ui",
+									recipe: "dialog.default",
+								},
+							},
+							{
+								operation: "addSubtree",
+								parameters: {
+									parentId: "$step:0:slot:content",
+									index: 0,
+									subtree: {
+										tempId: "body",
+										library: "trickroom",
+										component: "container",
+										children: [
+											{
+												tempId: "heading",
+												library: "trickroom",
+												component: "text",
+												text: "Delete project?",
+											},
+										],
+									},
+								},
+							},
+							{
+								operation: "updateElementProps",
+								parameters: {
+									elementId: "$step:1:tempId:heading",
+									className: "text-lg",
+								},
+							},
+						],
+					},
+				});
+
+				expect(result.isError).toBeFalsy();
+				const content = result.structuredContent as {
+					steps: Array<{
+						changedElementId: string;
+						idMap?: Record<string, string>;
+						recipes?: Array<{
+							rootElementId: string;
+							slots: Record<string, string>;
+						}>;
+					}>;
+				};
+				const contentSlotId = content.steps[0].recipes?.[0].slots.content;
+				expect(contentSlotId).toEqual(expect.any(String));
+				expect(content.steps[2].changedElementId).toBe(
+					content.steps[1].idMap?.heading,
+				);
+
+				const persisted = await fixture.designFileService.readDesignFile(
+					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+				);
+				const find = (
+					nodes: TrickroomDesign["boards"],
+					id: string,
+				): TrickroomDesign["boards"][number] | undefined => {
+					for (const node of nodes) {
+						if (node.id === id) return node;
+						if (Array.isArray(node.children)) {
+							const found = find(node.children, id);
+							if (found) return found;
+						}
+					}
+					return undefined;
+				};
+				const slotHost = find(persisted.design.boards, contentSlotId as string);
+				expect(
+					Array.isArray(slotHost?.children) &&
+						slotHost.children.some(
+							(child) => child.id === content.steps[1].changedElementId,
+						),
+				).toBe(true);
+				const heading = find(
+					persisted.design.boards,
+					content.steps[1].idMap?.heading as string,
+				);
+				expect(heading?.props.className).toBe("text-lg");
+			} finally {
+				await session.close();
+			}
+		});
+
+		it("points bare tempIds at the step reference form", async () => {
+			const { session } = await setup();
+			try {
+				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
+				const result = await session.client.callTool({
+					name: "applyDesignOperations",
+					arguments: {
+						designFileId: trickroomMcpTestDesignUuid,
+						expectedRevision: revision,
+						operations: [
+							{
+								operation: "addSubtree",
+								parameters: {
+									parentId: "board",
+									index: 0,
+									subtree: {
+										tempId: "card",
+										library: "trickroom",
+										component: "container",
+									},
+								},
+							},
+							{
+								operation: "addElement",
+								parameters: {
+									parentId: "card",
+									index: 0,
+									library: "trickroom",
+									component: "text",
+									text: "Hi",
+								},
+							},
+						],
+					},
+				});
+				expect(result.isError).toBe(true);
+				expect(result.structuredContent).toMatchObject({
+					failedStepIndex: 1,
+					issues: [
+						expect.objectContaining({
+							code: "PARENT_NOT_FOUND",
+							suggestedStepReferences: ["$step:0:tempId:card"],
+						}),
+					],
+				});
+			} finally {
+				await session.close();
+			}
+		});
+
 		it("commits a valid plan with one revision change", async () => {
 			const { fixture, session } = await setup();
 			try {
