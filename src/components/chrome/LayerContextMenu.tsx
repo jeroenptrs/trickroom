@@ -108,6 +108,7 @@ function LayerContextMenu({
 				commitDesignSave(queryClient, {
 					designId,
 					projectScope,
+					sent: sourceDesign,
 					saved,
 					savedStoreRevision: revision,
 				});

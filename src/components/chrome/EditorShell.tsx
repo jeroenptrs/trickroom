@@ -11,7 +11,8 @@ import {
 	useState,
 } from "react";
 import { useNavigate } from "react-router";
-import { designFileQueryKey, saveDesignFile } from "../../queries/design-file";
+import { saveDesignFile } from "../../queries/design-file";
+import { requestDesignResync } from "../../queries/design-live-events";
 import { commitDesignSave } from "../../queries/design-save";
 import type { DesignFileRevision } from "../../services/design-file-service.types";
 import {
@@ -64,24 +65,34 @@ function SaveControl({ designId }: SaveControlProps) {
 	const conflictPending = useExternalConflictPending();
 	const persistedRevision = usePersistedDesignRevision();
 	const revision = useDesignRevision();
-	const saveErrorRevisionRef = useRef<number | null>(null);
+	// The store and persisted revisions a failed save was based on: autosave
+	// retries once either moves (a new edit, or a resync that caught up with
+	// the disk).
+	const saveErrorRef = useRef<{
+		revision: number;
+		persistedRevision: DesignFileRevision | null;
+	} | null>(null);
 	const saveMutation = useMutation({
 		mutationFn: ({ design, persistedRevision }: SaveRequest) =>
 			saveDesignFile(designId, design, persistedRevision),
 		onSuccess: (saved, request) => {
-			saveErrorRevisionRef.current = null;
+			saveErrorRef.current = null;
 			commitDesignSave(queryClient, {
 				designId,
 				projectScope,
+				sent: request.design,
 				saved,
 				savedStoreRevision: request.revision,
 			});
 		},
 		onError: (_error, request) => {
-			saveErrorRevisionRef.current = request.revision;
-			void queryClient.invalidateQueries({
-				queryKey: designFileQueryKey(designId, projectScope),
-			});
+			saveErrorRef.current = {
+				revision: request.revision,
+				persistedRevision: request.persistedRevision,
+			};
+			// A refused save (typically a revision mismatch) brings in what
+			// changed on disk; conflicts, if any, are then raised per board.
+			requestDesignResync(designId);
 		},
 		onSettled: () => setDesignSavePending(false),
 	});
@@ -104,14 +115,17 @@ function SaveControl({ designId }: SaveControlProps) {
 	});
 
 	useEffect(() => {
+		const failed = saveErrorRef.current;
 		if (
 			hasUnsavedChanges &&
 			saveMutation.isError &&
-			saveErrorRevisionRef.current !== revision
+			(!failed ||
+				failed.revision !== revision ||
+				failed.persistedRevision !== persistedRevision)
 		) {
 			saveMutation.reset();
 		}
-	}, [hasUnsavedChanges, revision, saveMutation]);
+	}, [hasUnsavedChanges, persistedRevision, revision, saveMutation]);
 
 	useEffect(() => {
 		if (

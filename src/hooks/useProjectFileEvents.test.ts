@@ -4,6 +4,7 @@ import {
 	designFileQueryKey,
 	designSummariesProjectQueryKey,
 } from "../queries/design-file";
+import { subscribeDesignEvents } from "../queries/design-live-events";
 import {
 	createFileEventCoalescer,
 	invalidateTrickroomFileEvent,
@@ -162,6 +163,35 @@ describe("design events at a revision the browser already has", () => {
 	});
 });
 
+describe("design events for a design open in the editor", () => {
+	it("hands the event to the editor instead of refetching the design", async () => {
+		const queryClient = new QueryClient();
+		const designKey = designFileQueryKey("home", "loc_1");
+		const summariesKey = designSummariesProjectQueryKey("loc_1");
+		seed(queryClient, designKey);
+		seed(queryClient, summariesKey);
+		const received: TrickroomFileEvent[] = [];
+		const unsubscribe = subscribeDesignEvents("home", (event) =>
+			received.push(event),
+		);
+		const event: TrickroomFileEvent = {
+			file: "designs/home",
+			designId: "home",
+			operation: "changed",
+			revision,
+			boards: [{ id: "b", revision: "b-2" }],
+			state: { manifest: "m", boards: [{ id: "b", revision: "b-2" }] },
+		};
+
+		await invalidateTrickroomFileEvent(queryClient, event, "loc_1");
+		unsubscribe();
+
+		expect(received).toEqual([event]);
+		expect(isInvalidated(queryClient, designKey)).toBe(false);
+		expect(isInvalidated(queryClient, summariesKey)).toBe(true);
+	});
+});
+
 describe("file event coalescing", () => {
 	afterEach(() => {
 		vi.useRealTimers();
@@ -190,6 +220,32 @@ describe("file event coalescing", () => {
 
 		vi.advanceTimersByTime(50);
 		expect(flushed).toEqual([changed("designs/home.json", 3)]);
+	});
+
+	it("names every board a burst of design events changed", () => {
+		vi.useFakeTimers();
+		const flushed: TrickroomFileEvent[] = [];
+		const coalescer = createFileEventCoalescer((event) => flushed.push(event));
+		const designEvent = (
+			n: number,
+			boards: { id: string; revision: string | null }[],
+		): TrickroomFileEvent => ({
+			...changed("designs/home", n),
+			designId: "home",
+			boards,
+		});
+
+		coalescer.push(designEvent(1, [{ id: "a", revision: "a-2" }]));
+		coalescer.push(designEvent(2, [{ id: "b", revision: "b-2" }]));
+		coalescer.push(designEvent(3, [{ id: "a", revision: "a-3" }]));
+		vi.advanceTimersByTime(50);
+
+		expect(flushed).toEqual([
+			designEvent(3, [
+				{ id: "a", revision: "a-3" },
+				{ id: "b", revision: "b-2" },
+			]),
+		]);
 	});
 
 	it("keeps files apart and groups system files", () => {

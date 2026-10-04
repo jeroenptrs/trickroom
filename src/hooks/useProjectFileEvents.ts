@@ -5,6 +5,7 @@ import {
 	designFileQueryKey,
 	designSummariesProjectQueryKey,
 } from "../queries/design-file";
+import { deliverDesignEvent } from "../queries/design-live-events";
 import {
 	editorChannelReady,
 	editorFocusRequests,
@@ -23,6 +24,11 @@ export type TrickroomFileEvent = {
 	designId?: string;
 	/** Boards that changed in this design event, with their new revision. */
 	boards?: { id: string; revision: string | null }[];
+	/** The manifest revision and every board's revision, in board order. */
+	state?: {
+		manifest: string;
+		boards: { id: string; revision: string }[];
+	};
 };
 
 const systemQueryPrefixes = new Set([
@@ -74,8 +80,10 @@ export async function invalidateTrickroomFileEvent(
 	projectScope?: ProjectQueryScope,
 ) {
 	if (event.designId !== undefined) {
-		// The whole design is refetched; `event.boards` names the boards that
-		// changed for clients that reload a single board.
+		// An editor that has the design open reloads only the changed boards;
+		// otherwise the whole design is refetched.
+		const delivered =
+			event.operation === "changed" && deliverDesignEvent(event);
 		const designKey = designFileQueryKey(event.designId, projectScope);
 		// The browser already holds this exact revision (typically its own
 		// save echoing back), so refetching the design would return the same
@@ -88,7 +96,7 @@ export async function invalidateTrickroomFileEvent(
 			queryClient.invalidateQueries({
 				queryKey: designSummariesProjectQueryKey(projectScope),
 			}),
-			alreadyHasRevision
+			alreadyHasRevision || delivered
 				? undefined
 				: queryClient.invalidateQueries({ queryKey: designKey }),
 			invalidatePrefixes(queryClient, designUsageQueryPrefixes),
@@ -115,8 +123,24 @@ const getCoalesceKey = (event: TrickroomFileEvent) =>
 	event.file.startsWith("systems/") ? "systems/" : event.file;
 
 /**
+ * Two events for the same design: the later one, naming every board either
+ * of them changed (the server lists boards changed since its previous event).
+ */
+const mergeDesignEvents = (
+	earlier: TrickroomFileEvent,
+	later: TrickroomFileEvent,
+): TrickroomFileEvent => {
+	if (!earlier.boards || !later.boards) {
+		return later;
+	}
+	const boards = new Map(earlier.boards.map((board) => [board.id, board]));
+	for (const board of later.boards) boards.set(board.id, board);
+	return { ...later, boards: [...boards.values()] };
+};
+
+/**
  * Collapses a burst of file events into one flush per key, carrying the latest
- * event. A flush happens once events for a key go quiet for `delayMs`, and at
+ * event (for a design, with every board the burst changed). A flush happens once events for a key go quiet for `delayMs`, and at
  * most `maxWaitMs` after the first event of the burst so a steady stream of
  * writes still refreshes the editor.
  */
@@ -150,7 +174,10 @@ export function createFileEventCoalescer(
 			const firstAt = previous?.firstAt ?? now;
 			const wait = Math.max(0, Math.min(delayMs, firstAt + maxWaitMs - now));
 			pending.set(key, {
-				event,
+				event:
+					previous && event.designId !== undefined
+						? mergeDesignEvents(previous.event, event)
+						: event,
 				firstAt,
 				timer: setTimeout(() => flushKey(key), wait),
 			});

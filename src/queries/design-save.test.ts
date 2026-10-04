@@ -2,59 +2,43 @@ import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { DesignFileRevision } from "../services/design-file-service.types";
 import {
-	clearDirty,
 	designStore,
 	forceHydrateDesign,
-	hydrateDesign,
 	serializeDesign,
 	setDesignName,
-	setPersistedDesignRevision,
+	updateElementProps,
 } from "../stores/design-store";
-import type { TrickroomDesign } from "../types";
-import { getDesignSyncDecision } from "../utils/design-live-sync";
+import type { Node, TrickroomDesign } from "../types";
 import { type DesignFileSnapshot, designFileQueryKey } from "./design-file";
 import { commitDesignSave } from "./design-save";
 
 const designId = "home";
 const projectScope = "loc_1";
 const queryKey = designFileQueryKey(designId, projectScope);
-const loadedRevision: DesignFileRevision = `sha256:${"a".repeat(64)}`;
-const savedRevision: DesignFileRevision = `sha256:${"b".repeat(64)}`;
+const loadedRevision: DesignFileRevision = "r2.loaded";
+const savedRevision: DesignFileRevision = "r2.saved";
+
+const board = (id: string, className = ""): Node => ({
+	id,
+	props: {
+		"data-trickroom-name": id,
+		"data-trickroom-library": "trickroom",
+		"data-trickroom-component": "container",
+		"data-trickroom-role": "branch",
+		className,
+	},
+	children: [],
+});
 
 const design: TrickroomDesign = {
 	name: "Before",
-	boards: [
-		{
-			id: "root",
-			props: {
-				"data-trickroom-name": "Root",
-				"data-trickroom-library": "trickroom",
-				"data-trickroom-component": "container",
-				"data-trickroom-role": "branch",
-			},
-			children: [],
-		},
-	],
+	boards: [board("root"), board("other")],
 };
 
-// Mirrors the snapshot effect in `Design.tsx`: what the editor does with the
-// cached query snapshot once the save is no longer pending.
-const syncCachedSnapshot = (queryClient: QueryClient) => {
-	const snapshot = queryClient.getQueryData<DesignFileSnapshot>(queryKey);
-	if (!snapshot) throw new Error("missing snapshot");
-	const state = designStore.get();
-	const decision = getDesignSyncDecision({
-		snapshotRevision: snapshot.revision,
-		persistedRevision: state.persistedRevision ?? null,
-		hasUnsavedChanges:
-			state.designDirty || Object.keys(state.dirtyIds).length > 0,
-		savePending: false,
-	});
-	if (decision === "reload") {
-		hydrateDesign(snapshot.design, snapshot.revision);
-	}
-	return decision;
-};
+const parts = (revisions: Record<string, string>, manifest = "m1") => ({
+	manifest,
+	boards: Object.entries(revisions).map(([id, revision]) => ({ id, revision })),
+});
 
 describe("committing a design save", () => {
 	let queryClient: QueryClient;
@@ -65,57 +49,39 @@ describe("committing a design save", () => {
 			design,
 			revision: loadedRevision,
 		} satisfies DesignFileSnapshot);
-		forceHydrateDesign(design, loadedRevision);
-		clearDirty();
+		forceHydrateDesign(
+			design,
+			loadedRevision,
+			parts({ root: "root-1", other: "other-1" }),
+		);
 	});
 
-	const saveCurrentDesign = () => {
-		const storeRevision = designStore.get().revision;
-		const saved: DesignFileSnapshot = {
-			design: serializeDesign(),
-			revision: savedRevision,
-		};
-		return { storeRevision, saved };
-	};
-
-	it("reproduces the revert when only the store learns about the save", () => {
-		setDesignName("After");
-		const { storeRevision } = saveCurrentDesign();
-
-		// The previous autosave success handler.
-		setPersistedDesignRevision(savedRevision);
-		clearDirty(storeRevision);
-
-		expect(syncCachedSnapshot(queryClient)).toBe("reload");
-		expect(designStore.get().name).toBe("Before");
-		expect(designStore.get().persistedRevision).toBe(loadedRevision);
+	const startSave = () => ({
+		sent: serializeDesign(),
+		savedStoreRevision: designStore.get().revision,
 	});
 
-	it("reproduces a false conflict when editing continued during the save", () => {
+	it("moves the cache, the persisted revision and the base to the save", () => {
 		setDesignName("After");
-		const { storeRevision } = saveCurrentDesign();
-		setDesignName("Later");
-
-		setPersistedDesignRevision(savedRevision);
-		clearDirty(storeRevision);
-
-		expect(syncCachedSnapshot(queryClient)).toBe("conflict");
-	});
-
-	it("keeps the saved design once the query cache moves with the store", () => {
-		setDesignName("After");
-		const { storeRevision, saved } = saveCurrentDesign();
+		const { sent, savedStoreRevision } = startSave();
 
 		commitDesignSave(queryClient, {
 			designId,
 			projectScope,
-			saved,
-			savedStoreRevision: storeRevision,
+			sent,
+			saved: {
+				design: sent,
+				revision: savedRevision,
+				parts: parts({ root: "root-1", other: "other-1" }, "m2"),
+			},
+			savedStoreRevision,
 		});
 
-		expect(syncCachedSnapshot(queryClient)).toBe("ignore");
-		expect(designStore.get().name).toBe("After");
-		expect(designStore.get().persistedRevision).toBe(savedRevision);
+		const state = designStore.get();
+		expect(state.name).toBe("After");
+		expect(state.persistedRevision).toBe(savedRevision);
+		expect(state.manifestDirtyAt).toBeNull();
+		expect(state.base?.manifest.name).toBe("After");
 		expect(
 			queryClient.getQueryData<DesignFileSnapshot>(queryKey)?.revision,
 		).toBe(savedRevision);
@@ -123,51 +89,74 @@ describe("committing a design save", () => {
 
 	it("leaves edits made during the save dirty without a conflict", () => {
 		setDesignName("After");
-		const { storeRevision, saved } = saveCurrentDesign();
+		const { sent, savedStoreRevision } = startSave();
 		setDesignName("Later");
 
 		commitDesignSave(queryClient, {
 			designId,
 			projectScope,
-			saved,
-			savedStoreRevision: storeRevision,
+			sent,
+			saved: { design: sent, revision: savedRevision },
+			savedStoreRevision,
 		});
 
-		expect(syncCachedSnapshot(queryClient)).toBe("ignore");
-		expect(designStore.get().name).toBe("Later");
-		expect(designStore.get().designDirty).toBe(true);
+		const state = designStore.get();
+		expect(state.name).toBe("Later");
+		expect(state.manifestDirtyAt).not.toBeNull();
+		expect(state.conflicts).toBeNull();
 	});
 
-	it("reloads a merged save that kept another writer's board", () => {
-		setDesignName("After");
-		const { storeRevision, saved } = saveCurrentDesign();
-		const mergedDesign = { ...saved.design, boards: [] };
+	it("applies another writer's board kept by a merged save without reloading", () => {
+		updateElementProps("root", { className: "p-2" });
+		const { sent, savedStoreRevision } = startSave();
+		const rootEntity = designStore.get().entitiesById.root;
+		const agentBoard = board("other", "bg-cyan-500");
 
 		commitDesignSave(queryClient, {
 			designId,
 			projectScope,
-			saved: { ...saved, design: mergedDesign, merged: true },
-			savedStoreRevision: storeRevision,
+			sent,
+			saved: {
+				design: { ...sent, boards: [sent.boards[0] as Node, agentBoard] },
+				revision: savedRevision,
+				merged: true,
+				parts: parts({ root: "root-2", other: "other-2" }),
+			},
+			savedStoreRevision,
 		});
 
-		expect(syncCachedSnapshot(queryClient)).toBe("reload");
-		expect(designStore.get().persistedRevision).toBe(savedRevision);
-		expect(serializeDesign().boards).toEqual([]);
+		const state = designStore.get();
+		expect(state.entitiesById.other?.props.className).toBe("bg-cyan-500");
+		expect(state.entitiesById.root).toBe(rootEntity);
+		expect(state.persistedRevision).toBe(savedRevision);
+		expect(state.dirtyBoards).toEqual({});
+		expect(state.conflicts).toBeNull();
 	});
 
-	it("asks before replacing edits made during a merged save", () => {
-		setDesignName("After");
-		const { storeRevision, saved } = saveCurrentDesign();
-		setDesignName("Later");
+	it("merges a merged save with edits made meanwhile to another board", () => {
+		updateElementProps("root", { className: "p-2" });
+		const { sent, savedStoreRevision } = startSave();
+		updateElementProps("root", { className: "p-4" });
+		const agentBoard = board("other", "bg-cyan-500");
 
 		commitDesignSave(queryClient, {
 			designId,
 			projectScope,
-			saved: { ...saved, merged: true },
-			savedStoreRevision: storeRevision,
+			sent,
+			saved: {
+				design: { ...sent, boards: [sent.boards[0] as Node, agentBoard] },
+				revision: savedRevision,
+				merged: true,
+				parts: parts({ root: "root-2", other: "other-2" }),
+			},
+			savedStoreRevision,
 		});
 
-		expect(syncCachedSnapshot(queryClient)).toBe("conflict");
-		expect(designStore.get().name).toBe("Later");
+		const state = designStore.get();
+		expect(state.entitiesById.root?.props.className).toBe("p-4");
+		expect(state.entitiesById.other?.props.className).toBe("bg-cyan-500");
+		expect(Object.keys(state.dirtyBoards ?? {})).toEqual(["root"]);
+		expect(state.persistedRevision).toBe(savedRevision);
+		expect(state.conflicts).toBeNull();
 	});
 });
