@@ -23,10 +23,12 @@ import {
 } from "../../utils/memory-manifest-service";
 import {
 	collectMemoryReferenceWarnings,
+	isDesignScopedReferenceType,
 	listMemoryReferenceTargets,
 	MEMORY_REFERENCE_TYPES,
 	type MemoryReferenceType,
 	resolveMemoryNoteReferences,
+	splitDesignScopedReferenceId,
 } from "../../utils/memory-references";
 import {
 	appendMcpAuditLog,
@@ -547,12 +549,29 @@ export const registerMemoryTools = (ctx: McpToolContext) => {
 			policy,
 			input.scope ?? "project",
 		);
-		const targets = await listMemoryReferenceTargets(
-			context.projectRoot,
-			memoryScope,
-			input.type,
-			input.query ?? "",
-		);
+		const allowed = policy.allowedDesignFileIds;
+		const targets = (
+			await listMemoryReferenceTargets(
+				context.projectRoot,
+				memoryScope,
+				input.type,
+				input.query ?? "",
+			)
+		).filter((target) => {
+			// Designs outside the allowlist are not listed, nor their boards
+			// and layers.
+			if (
+				allowed === null ||
+				(input.type !== "design" && !isDesignScopedReferenceType(input.type))
+			) {
+				return true;
+			}
+			const designId =
+				input.type === "design"
+					? target.id
+					: splitDesignScopedReferenceId(target.id)?.designId;
+			return designId !== undefined && allowed.has(designId);
+		});
 		return createJsonResult({
 			status: "success",
 			project: getProjectReference(context),
@@ -598,7 +617,7 @@ export const registerMemoryTools = (ctx: McpToolContext) => {
 					])
 					.optional()
 					.describe(
-						"List reference targets of this type: design, component, token, asset or icon.",
+						"List reference targets of this type. Ids: design <designId>, board <designId>/<boardId>, layer <designId>/<elementId> (layers of the design scope's design, or of the design a query <designId>/… names), component, token <domain>/<name>, asset, icon.",
 					),
 				query: z
 					.string()

@@ -35,6 +35,15 @@ describe("parseMemoryReferences", () => {
 		expect(body.slice(tokens[0]?.start, tokens[0]?.end)).toBe(tokens[0]?.raw);
 	});
 
+	it("extracts board and layer references", () => {
+		expect(
+			parseMemoryReferences("{{board:d1/b1}} then {{ layer : d1/el-2 }}"),
+		).toMatchObject([
+			{ type: "board", id: "d1/b1" },
+			{ type: "layer", id: "d1/el-2" },
+		]);
+	});
+
 	it("ignores unknown types and empty ids", () => {
 		expect(parseMemoryReferences("{{unknown:x}} {{design:}}")).toHaveLength(0);
 	});
@@ -64,6 +73,18 @@ describe("buildMemoryReferenceDeepLink", () => {
 			"/system/sys_1?tab=icons",
 		);
 	});
+
+	it("points board and layer references into their design", () => {
+		expect(buildMemoryReferenceDeepLink("board", "uuid-1/board-1")).toBe(
+			"/design/uuid-1?board=board-1",
+		);
+		expect(
+			buildMemoryReferenceDeepLink("layer", "uuid-1/layer-1", null, {
+				boardId: "board-1",
+			}),
+		).toBe("/design/uuid-1?board=board-1&layer=layer-1");
+		expect(buildMemoryReferenceDeepLink("layer", "layer-1")).toBeUndefined();
+	});
 });
 
 describe("resolveMemoryReferences", () => {
@@ -87,7 +108,23 @@ describe("resolveMemoryReferences", () => {
 		);
 		await writeDesign(designA, {
 			name: "Design A",
-			boards: [board("A")],
+			boards: [
+				{
+					...board("A"),
+					children: [
+						{
+							id: "cta",
+							props: {
+								"data-trickroom-name": "Primary CTA",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "text",
+								"data-trickroom-role": "text",
+							},
+							children: "Start",
+						},
+					],
+				},
+			],
 		} as TrickroomDesign);
 	});
 
@@ -130,6 +167,82 @@ describe("resolveMemoryReferences", () => {
 		);
 		expect(warnings).toHaveLength(1);
 		expect(warnings[0]).toMatchObject({ type: "design", status: "broken" });
+	});
+
+	it("resolves board and layer references with names and deep links", async () => {
+		const resolved = await resolveMemoryReferences(
+			tempProjectRoot,
+			{ kind: "project" },
+			parseMemoryReferences(
+				`{{board:${designA}/board}} {{layer:${designA}/cta}} {{layer:${designA}/gone}} {{layer:cta}} {{board:99999999-9999-4999-8999-999999999999/board}}`,
+			),
+		);
+		expect(resolved).toMatchObject([
+			{
+				status: "valid",
+				label: "A",
+				detail: "Design A",
+				deepLink: `/design/${designA}?board=board`,
+			},
+			{
+				status: "valid",
+				label: "Primary CTA",
+				detail: "Design A / A",
+				deepLink: `/design/${designA}?board=board&layer=cta`,
+			},
+			{ status: "broken" },
+			{ status: "broken" },
+			{ status: "broken" },
+		]);
+	});
+
+	it("warns about board and layer references that do not resolve", async () => {
+		const warnings = await collectMemoryReferenceWarnings(
+			tempProjectRoot,
+			{ kind: "project" },
+			`{{layer:${designA}/cta}} {{layer:${designA}/gone}} {{layer:cta}}`,
+		);
+		expect(warnings).toMatchObject([
+			{ type: "layer", id: `${designA}/gone`, status: "broken" },
+			{
+				type: "layer",
+				id: "cta",
+				message: expect.stringContaining("{{layer:<designId>/<elementId>}}"),
+			},
+		]);
+	});
+
+	it("lists board targets everywhere and layer targets of one design", async () => {
+		expect(
+			await listMemoryReferenceTargets(
+				tempProjectRoot,
+				{ kind: "project" },
+				"board",
+			),
+		).toEqual([{ id: `${designA}/board`, label: "A", detail: "Design A" }]);
+		expect(
+			await listMemoryReferenceTargets(
+				tempProjectRoot,
+				{ kind: "design", designId: designA },
+				"layer",
+				"cta",
+			),
+		).toEqual([{ id: `${designA}/cta`, label: "Primary CTA", detail: "A" }]);
+		expect(
+			await listMemoryReferenceTargets(
+				tempProjectRoot,
+				{ kind: "project" },
+				"layer",
+				`${designA}/primary`,
+			),
+		).toEqual([{ id: `${designA}/cta`, label: "Primary CTA", detail: "A" }]);
+		expect(
+			await listMemoryReferenceTargets(
+				tempProjectRoot,
+				{ kind: "project" },
+				"layer",
+			),
+		).toEqual([]);
 	});
 
 	it("lists design reference targets", async () => {

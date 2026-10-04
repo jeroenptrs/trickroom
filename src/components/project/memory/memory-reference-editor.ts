@@ -19,12 +19,15 @@ export type ActiveReferenceTrigger =
 			end: number;
 	  };
 
-const TRIGGER_PATTERN =
-	/\{\{\s*(?:(design|component|token|asset|icon)\s*:\s*)?([^}]*)$/;
+const TRIGGER_PATTERN = new RegExp(
+	`\\{\\{\\s*(?:(${MEMORY_REFERENCE_TYPES.join("|")})\\s*:\\s*)?([^}]*)$`,
+);
 
 export const MEMORY_REFERENCE_TYPE_LABELS: Record<MemoryReferenceType, string> =
 	{
 		design: "Design",
+		board: "Board",
+		layer: "Layer",
 		component: "Component",
 		token: "Token",
 		asset: "Asset",

@@ -358,7 +358,7 @@ const buildMemoryTopic = async (input: DesignGuideInput) => ({
 	write: [
 		`${TOOL.memoryWrite}({ action: "add", scope, category, title, body }) records what a later session needs: a decision and its reason, a constraint the user stated, a convention. Not progress logs or summaries of your work. Give it a title: the index shows it.`,
 		"Categories: intent, usage, conventions, constraints, decision, todo.",
-		`Bodies are markdown and may reference other entities, e.g. {{design:<uuid>}}; ${TOOL.memoryRead}({ scope, referenceType }) lists valid references.`,
+		`Bodies are markdown and may reference other entities: {{design:<designId>}}, {{board:<designId>/<boardId>}}, {{layer:<designId>/<elementId>}}, {{component:<id or slug>}}, {{token:<domain>/<name>}}, {{asset:<id>}}, {{icon:<id>}}. Reference the layer a decision is about rather than describing where it sits; the human gets a link that selects it. ${TOOL.memoryRead}({ scope, referenceType }) lists valid targets (layer: the design scope's layers, or query "<designId>/" for another design's); resolveReferences: true resolves them, and writes return referenceWarnings for ones that do not resolve.`,
 		`${TOOL.memoryWrite} action "update" changes a note with edits (append, prepend, exact-text replace) or a whole new body; "update" and "delete" take the note's revision from the index as expectedRevision.`,
 	],
 	noteCounts: await input.readMemoryCounts(),

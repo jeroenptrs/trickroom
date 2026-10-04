@@ -452,6 +452,68 @@ describe("trickroom MCP memory tools", () => {
 		);
 	});
 
+	it("resolves, lists and validates layer and board references", async () => {
+		await open();
+		const designFileId = trickroomMcpTestDesignUuid;
+		const scope = { kind: "design", designFileId } as const;
+
+		const targets = toolPayload(
+			await session.client.callTool({
+				name: "memory_read",
+				arguments: { scope, referenceType: "layer", query: "title" },
+			}),
+		);
+		expect(targets.targets).toEqual([
+			{ id: `${designFileId}/title`, label: "Title", detail: "Board" },
+		]);
+
+		const written = toolPayload(
+			await session.client.callTool({
+				name: "memory_write",
+				arguments: {
+					action: "add",
+					scope,
+					category: "decision",
+					body: `{{layer:${designFileId}/title}} stays one line on {{board:${designFileId}/board}}; {{layer:${designFileId}/removed}} was dropped.`,
+				},
+			}),
+		);
+		expect(written.referenceWarnings).toEqual([
+			expect.objectContaining({
+				type: "layer",
+				id: `${designFileId}/removed`,
+				status: "broken",
+			}),
+		]);
+
+		const read = toolPayload(
+			await session.client.callTool({
+				name: "memory_read",
+				arguments: {
+					scope,
+					noteIds: written.noteId,
+					resolveReferences: true,
+				},
+			}),
+		);
+		expect(read.notes[0].references).toMatchObject([
+			{
+				type: "layer",
+				status: "valid",
+				label: "Title",
+				detail: "Harness Design / Board",
+				deepLink: `/design/${designFileId}?board=board&layer=title`,
+			},
+			{
+				type: "board",
+				status: "valid",
+				label: "Board",
+				deepLink: `/design/${designFileId}?board=board`,
+			},
+			{ type: "layer", status: "broken" },
+		]);
+	});
+
 	it("blocks writes in read-only mode", async () => {
 		await open({ config: { mcp: { enabled: true, mode: "read-only" } } });
 		const result = await session.client.callTool({
