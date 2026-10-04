@@ -25,7 +25,8 @@ import {
 } from "./system-components-validation.ts";
 
 export type SystemComponentMutationOptions = {
-	expectedRevision: SystemComponentManifestRevision;
+	/** Opaque; compared with the current revision, never parsed. */
+	expectedRevision: string;
 	expectedDraftTemplateHash?: string;
 	expectedDraftVariantSchemaHash?: string;
 	now?: string;

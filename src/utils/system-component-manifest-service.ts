@@ -83,7 +83,8 @@ export type SystemComponentManifestRead = {
 };
 
 export type WriteSystemComponentManifestOptions = {
-	expectedRevision: SystemComponentManifestRevision;
+	/** Opaque; compared with the current revision, never parsed. */
+	expectedRevision: string;
 	now?: string;
 	/** When "replace", incoming.components fully replaces the stored map (used for deletions). */
 	componentsMerge?: "merge" | "replace";

@@ -293,38 +293,113 @@ export const systemComponentDraftPatchSchema = z
 	})
 	.strict();
 
+// Published MCP input shapes. Handlers validate with the strict schemas
+// above, and getSystemComponentAuthoringContract documents every field, so
+// these only outline the keys: no per-field descriptions, no migration
+// history (still accepted), and one shared class map.
+const docString = z.string();
+const docClassesByPath = z.record(docString, docString);
+const docTemplateNode: z.ZodType<RecipeTemplateNode> = z.lazy(() =>
+	z.object({
+		path: docString,
+		library: docString,
+		component: docString,
+		name: docString.optional(),
+		className: docString.optional(),
+		props: z.record(docString, jsonPrimitiveSchema).optional(),
+		text: docString.optional(),
+		slot: docString.optional(),
+		children: z.array(docTemplateNode).optional(),
+	}),
+);
+const docSlots = z.record(
+	docString,
+	z.object({
+		name: docString,
+		hostPath: docString,
+		label: docString.optional(),
+		insertIndex: z.number().optional(),
+		defaultChildren: z.array(docTemplateNode).optional(),
+	}),
+);
+const docVariants = z.object({
+	axes: z.record(
+		docString,
+		z.object({
+			label: docString,
+			defaultValue: docString.optional(),
+			values: z.record(
+				docString,
+				z.object({
+					label: docString.optional(),
+					classesByPath: docClassesByPath.optional(),
+				}),
+			),
+		}),
+	),
+	compoundVariants: z
+		.array(
+			z.object({
+				when: z.record(docString, z.union([docString, z.array(docString)])),
+				classesByPath: docClassesByPath,
+			}),
+		)
+		.optional(),
+	defaultValues: z.record(docString, docString).optional(),
+});
+const docOverrideTargets = z.record(
+	docString,
+	z.object({
+		targetId: docString,
+		label: docString,
+		path: docString,
+		capabilities: z.array(systemComponentOverrideCapabilitySchema).optional(),
+		props: z.array(docString).optional(),
+	}),
+);
+
 const publishAsShapeButValidateInHandler = <Schema extends z.ZodType>(
 	schema: Schema,
 ) => z.union([schema, z.unknown()]);
 
 export const mcpPartialSystemComponentDraftPayloadInputSchema =
-	publishAsShapeButValidateInHandler(partialSystemComponentDraftPayloadSchema)
+	publishAsShapeButValidateInHandler(
+		z.object({
+			baseVersion: docString.optional(),
+			root: docTemplateNode.optional(),
+			slots: docSlots.optional(),
+			props: z.record(docString, z.unknown()).optional(),
+			variants: docVariants.optional(),
+			overrideTargets: docOverrideTargets.optional(),
+			migrationHints: z.record(docString, z.unknown()).optional(),
+		}),
+	)
 		.optional()
 		.describe(
 			"Optional partial component draft payload. Call getSystemComponentAuthoringContract for shape details.",
 		);
 
 export const mcpRecipeTemplateNodeInputSchema =
-	publishAsShapeButValidateInHandler(recipeTemplateNodeSchema)
+	publishAsShapeButValidateInHandler(docTemplateNode)
 		.optional()
 		.describe(
 			"RecipeTemplateNode root template. Call getSystemComponentAuthoringContract for path and child rules.",
 		);
 
 export const mcpSystemComponentSlotsInputSchema =
-	publishAsShapeButValidateInHandler(systemComponentSlotsSchema)
+	publishAsShapeButValidateInHandler(docSlots)
 		.nullable()
 		.optional()
 		.describe("Slot map, null to clear slots.");
 
 export const mcpSystemComponentVariantSchemaInputSchema =
-	publishAsShapeButValidateInHandler(systemComponentVariantSchema)
+	publishAsShapeButValidateInHandler(docVariants)
 		.nullable()
 		.optional()
 		.describe("Variant schema, null to clear variants.");
 
 export const mcpSystemComponentOverrideTargetsInputSchema =
-	publishAsShapeButValidateInHandler(systemComponentOverrideTargetsSchema)
+	publishAsShapeButValidateInHandler(docOverrideTargets)
 		.nullable()
 		.optional()
 		.describe("Override target map, null to clear override targets.");
