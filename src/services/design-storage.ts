@@ -420,6 +420,44 @@ export const readDesignFiles = async (
 	throw new DesignStorageBusyError();
 };
 
+/**
+ * Reads one board file of a folder design as a consistent snapshot: its
+ * contents with the fingerprint they belong to (checked before and after
+ * reading). Null when the file does not exist.
+ */
+export const readBoardFile = async (
+	paths: DesignPaths,
+	boardId: string,
+): Promise<StoredFile | null> => {
+	const name = `${boardId}${jsonExtension}`;
+	const filePath = path.join(paths.boards, name);
+	for (let attempt = 0; attempt < maxConsistentReadAttempts; attempt += 1) {
+		const observedAt = Date.now();
+		const before = await statOrNull(filePath);
+		if (!before) {
+			return null;
+		}
+		const fingerprint = describeStat(name, before);
+		const settled = isSettledStat(before, observedAt);
+		let read: Awaited<ReturnType<typeof readBoardContents>>;
+		try {
+			read = await readBoardContents(filePath, fingerprint, settled);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+				continue;
+			}
+			throw error;
+		}
+		if (describeStat(name, await statOrNull(filePath)) === fingerprint) {
+			if (read.remember) {
+				rememberBoardContents(filePath, fingerprint, read.contents);
+			}
+			return { name, contents: read.contents, fingerprint, settled };
+		}
+	}
+	throw new DesignStorageBusyError();
+};
+
 /** Board id stored in a board file name. */
 export const getBoardIdFromFileName = (name: string) =>
 	name.slice(0, -jsonExtension.length);

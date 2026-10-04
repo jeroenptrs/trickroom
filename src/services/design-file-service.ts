@@ -83,7 +83,9 @@ import {
 	getDesignPaths,
 	inspectDesignStorage,
 	isSafeBoardId,
+	readBoardFile,
 	readDesignFiles,
+	type StoredFile,
 	serializeBoardFile,
 	serializeDesignManifest,
 	serializeJson,
@@ -662,37 +664,48 @@ const cachedBoardRevisions = (
 	);
 	return (board: Node) => {
 		const file = stored.get(board.id);
-		if (file === undefined) {
-			return undefined;
-		}
-		const key = getBoardFilePath(paths, board.id);
-		const cached = boardRevisionCache.get(key);
-		if (cached?.fingerprint === file.fingerprint) {
-			return cached.revision;
-		}
-		const fileHash = hashBoardFile(file.contents);
-		let revision = boardFileRevisionCache.get(fileHash);
-		if (revision === undefined) {
-			revision = calculateBoardRevision(board);
-			if (boardFileRevisionCache.size >= maxCachedBoardRevisions) {
-				boardFileRevisionCache.clear();
-			}
-			boardFileRevisionCache.set(fileHash, revision);
-		}
-		// A file changed moments ago may change again without its
-		// fingerprint changing (see `settledFileAgeMs`): only its bytes
-		// identify it until then.
-		if (file.settled) {
-			if (boardRevisionCache.size >= maxCachedBoardRevisions) {
-				boardRevisionCache.clear();
-			}
-			boardRevisionCache.set(key, {
-				fingerprint: file.fingerprint,
-				revision,
-			});
-		}
-		return revision;
+		return file === undefined
+			? undefined
+			: lookupBoardRevision(getBoardFilePath(paths, board.id), file, board);
 	};
+};
+
+/**
+ * The revision of `board`, which holds exactly the content of the board
+ * file `file` read from `filePath`: cached by the file's identity once it is
+ * settled, by its bytes before that, hashed otherwise.
+ */
+const lookupBoardRevision = (
+	filePath: string,
+	file: StoredFile,
+	board: Node,
+): DesignBoardRevision => {
+	const cached = boardRevisionCache.get(filePath);
+	if (cached?.fingerprint === file.fingerprint) {
+		return cached.revision;
+	}
+	const fileHash = hashBoardFile(file.contents);
+	let revision = boardFileRevisionCache.get(fileHash);
+	if (revision === undefined) {
+		revision = calculateBoardRevision(board);
+		if (boardFileRevisionCache.size >= maxCachedBoardRevisions) {
+			boardFileRevisionCache.clear();
+		}
+		boardFileRevisionCache.set(fileHash, revision);
+	}
+	// A file changed moments ago may change again without its fingerprint
+	// changing (see `settledFileAgeMs`): only its bytes identify it until
+	// then.
+	if (file.settled) {
+		if (boardRevisionCache.size >= maxCachedBoardRevisions) {
+			boardRevisionCache.clear();
+		}
+		boardRevisionCache.set(filePath, {
+			fingerprint: file.fingerprint,
+			revision,
+		});
+	}
+	return revision;
 };
 
 type CurrentDesign = NonNullable<
@@ -982,16 +995,14 @@ export class DesignFileService {
 		}
 		const state = await inspectDesignStorage(paths);
 		if (state.folder && !state.journal) {
-			let contents: string;
-			try {
-				contents = await readFile(getBoardFilePath(paths, boardId), "utf8");
-			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-					return null;
-				}
-				throw error;
+			const file = await readBoardFile(paths, boardId);
+			if (!file) {
+				return null;
 			}
-			const value = parseJson(contents, `${designId}/boards/${boardId}.json`);
+			const value = parseJson(
+				file.contents,
+				`${designId}/boards/${boardId}.json`,
+			);
 			const boardVersion = isRecord(value) ? getDesignFileVersion(value) : null;
 			if (boardVersion !== null && boardVersion > DESIGN_FILE_VERSION) {
 				throw new DesignFileServiceError(
@@ -1012,7 +1023,16 @@ export class DesignFileService {
 			return {
 				designId,
 				board: value.board,
-				revision: calculateBoardRevision(value.board),
+				// A board file without a version predates the folder layout's
+				// migrations, which could change its content when read whole.
+				revision:
+					boardVersion === DESIGN_FILE_VERSION
+						? lookupBoardRevision(
+								getBoardFilePath(paths, boardId),
+								file,
+								value.board,
+							)
+						: calculateBoardRevision(value.board),
 			};
 		}
 

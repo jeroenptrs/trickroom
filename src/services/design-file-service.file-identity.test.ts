@@ -162,6 +162,24 @@ describe("design file identity", () => {
 		expect(reread.design.boards[0]?.props["data-trickroom-name"]).toBe("Other");
 	});
 
+	it("rereads one board replaced moments ago by one that looks identical", async () => {
+		await service.createDesignFile("racy-board", design(board("a", "First")));
+		await freezeIdentity("racy-board", "a", 0);
+		const first = await service.readDesignBoard("racy-board", "a");
+		expect(first?.revision).toBe(
+			(await service.readDesignFile("racy-board")).boards[0]?.revision,
+		);
+
+		await replaceSameSize("racy-board", "a", "First", "Other");
+		const second = await service.readDesignBoard("racy-board", "a");
+
+		expect(second?.board.props["data-trickroom-name"]).toBe("Other");
+		expect(second?.revision).not.toBe(first?.revision);
+		expect(second?.revision).toBe(
+			(await service.readDesignFile("racy-board")).boards[0]?.revision,
+		);
+	});
+
 	it("reuses a settled file's cached contents and revision", async () => {
 		await service.createDesignFile("settled", design(board("a", "First")));
 		await freezeIdentity("settled", "a", settledFileAgeMs * 5);
