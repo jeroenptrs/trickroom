@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { writeJsonFileAtomically } from "../server-file-utils.ts";
 import {
 	findDesignSystem,
 	resolveDesignSystemFilePath,
@@ -403,18 +404,6 @@ async function runExclusiveMemoryWrite<T>(
 	return queuedWrite;
 }
 
-async function writeJsonAtomically(filePath: string, value: unknown) {
-	const contents = `${JSON.stringify(value, null, "\t")}\n`;
-	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-	try {
-		await writeFile(tempPath, contents, "utf8");
-		await rename(tempPath, filePath);
-	} catch (error) {
-		await unlink(tempPath).catch(() => undefined);
-		throw error;
-	}
-}
-
 async function mutateMemoryManifest(
 	projectRoot: string,
 	scope: MemoryScope,
@@ -473,7 +462,7 @@ async function mutateMemoryManifest(
 		const contents = serializeMemoryManifest(normalized);
 
 		await mkdir(path.dirname(manifestPath), { recursive: true });
-		await writeJsonAtomically(manifestPath, normalized);
+		await writeJsonFileAtomically(manifestPath, normalized);
 
 		return {
 			manifest: normalized,

@@ -1,15 +1,7 @@
 import { randomUUID } from "node:crypto";
-import {
-	mkdir,
-	readdir,
-	readFile,
-	rename,
-	rm,
-	stat,
-	unlink,
-	writeFile,
-} from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { writeJsonFileAtomically } from "../server-file-utils.ts";
 import { SYSTEM_COMPONENT_MANIFEST_FILE_NAME } from "./system-components.ts";
 
 export const DESIGN_SYSTEM_MANIFEST_VERSION = 1;
@@ -879,19 +871,6 @@ function parseDesignSystemManifestContents(
 			"INVALID_MANIFEST",
 			`Invalid design system manifest JSON at ${manifestPath}: ${message}`,
 		);
-	}
-}
-
-async function writeJsonFileAtomically(filePath: string, value: unknown) {
-	const contents = `${JSON.stringify(value, null, "\t")}\n`;
-	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-
-	try {
-		await writeFile(tempPath, contents, "utf8");
-		await rename(tempPath, filePath);
-	} catch (error) {
-		await unlink(tempPath).catch(() => undefined);
-		throw error;
 	}
 }
 

@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { writeJsonFileAtomically } from "../server-file-utils.ts";
 import { defaultTailwindTokensByDomain } from "./default-tailwind-tokens";
 import {
 	ensureDesignSystemManifest,
@@ -275,7 +275,7 @@ export async function storeDomainTokens(
 		}),
 	};
 
-	await writeJsonAtomically(snapshotPath, data);
+	await writeJsonFileAtomically(snapshotPath, data);
 }
 
 /**
@@ -327,7 +327,7 @@ async function readDomainTokensInternal(
 			options.canonicalize &&
 			JSON.stringify(canonicalStorage) !== JSON.stringify(data)
 		) {
-			await writeJsonAtomically(snapshotPath, canonicalStorage);
+			await writeJsonFileAtomically(snapshotPath, canonicalStorage);
 		}
 
 		return canonicalStorage;
@@ -557,22 +557,6 @@ function compareTokenEntriesByName(
 	right: { name: string },
 ): number {
 	return left.name.localeCompare(right.name);
-}
-
-async function writeJsonAtomically(
-	filePath: string,
-	data: TailwindTokenStorage,
-): Promise<void> {
-	const contents = `${JSON.stringify(data, null, "\t")}\n`;
-	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-
-	try {
-		await writeFile(tempPath, contents, "utf8");
-		await rename(tempPath, filePath);
-	} catch (error) {
-		await unlink(tempPath).catch(() => undefined);
-		throw error;
-	}
 }
 
 /**
