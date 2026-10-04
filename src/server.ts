@@ -55,8 +55,8 @@ import {
 	isTrickroomConfig,
 	isTrickroomDesign,
 	jsonError,
-	migrateTrickroomDesign,
 } from "./server-utils";
+import { DESIGN_FILE_VERSION } from "./services/design-file-schema";
 import {
 	createDesignFileService,
 	DesignFileServiceError,
@@ -363,6 +363,8 @@ const createNoProjectResponse = () =>
 	jsonError("No Trickroom project is selected.", 409);
 
 const designRevisionHeaderName = "x-trickroom-revision";
+/** Set on design reads whose stored version was migrated in memory. */
+const designMigrationHeaderName = "x-trickroom-design-migration";
 const expectedDesignRevisionHeaderName = "x-trickroom-expected-revision";
 
 const setDesignRevisionHeader = (c: Context, revision: DesignFileRevision) =>
@@ -1151,37 +1153,31 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			trickroomHome,
 		});
 		try {
-			const read = await designFileService.readJsonFile(file);
-			const migration = migrateTrickroomDesign(read.value);
-			if (!migration) {
-				return jsonError("Invalid trickroom design payload", 422);
-			}
-
-			const repair = repairInvalidKnownRecipeInstances(migration.design);
+			// Reads never write: version migration, recipe repair, and system
+			// reference canonicalisation happen in memory and are persisted by
+			// the next real write. The revision is the one of the bytes on disk,
+			// so that write's revision check still matches.
+			const read = await designFileService.readDesignFile(file);
+			const repair = repairInvalidKnownRecipeInstances(read.design);
 			const canonicalDesign = await canonicalizeDesignSystemReferenceForStorage(
 				project,
 				repair.design,
 			);
-			const shouldWrite =
-				migration.migrated ||
-				repair.report.repairedCount > 0 ||
-				JSON.stringify(canonicalDesign) !== JSON.stringify(read.value);
-			if (!shouldWrite) {
-				setDesignRevisionHeader(c, read.revision);
-				return c.json(await decorateDesignSystemReference(project, read.value));
-			}
-
-			const written = await designFileService.writeDesignFile(
-				file,
-				canonicalDesign,
-				{ expectedRevision: read.revision },
-			);
 			if (repair.report.repairedCount > 0) {
 				c.header(recipeLoadRepairHeaderName, JSON.stringify(repair.report));
 			}
-			setDesignRevisionHeader(c, written.revision);
+			if (read.migrated) {
+				c.header(
+					designMigrationHeaderName,
+					JSON.stringify({
+						fromVersion: read.storedVersion,
+						toVersion: DESIGN_FILE_VERSION,
+					}),
+				);
+			}
+			setDesignRevisionHeader(c, read.revision);
 			return c.json(
-				await decorateDesignSystemReference(project, written.design),
+				await decorateDesignSystemReference(project, canonicalDesign),
 			);
 		} catch (error) {
 			if (
@@ -1195,12 +1191,10 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			}
 			if (
 				error instanceof DesignFileServiceError &&
-				error.code === "REVISION_MISMATCH"
+				(error.code === "INVALID_DESIGN_PAYLOAD" ||
+					error.code === "UNSUPPORTED_DESIGN_VERSION")
 			) {
-				return jsonError(
-					"Design file changed while repairing recipe instances",
-					409,
-				);
+				return jsonError(error.message, 422);
 			}
 
 			const fsError = asErrnoException(error);
@@ -1297,6 +1291,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 						boardsCount: summary.boardsCount,
 						layersCount: summary.layersCount,
 						modifiedAt: summary.modifiedAt,
+						...(summary.diagnostic ? { diagnostic: summary.diagnostic } : {}),
 					} satisfies TrickroomDesignSummary;
 				}),
 			);
@@ -1554,6 +1549,12 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				error.code === "REVISION_MISMATCH"
 			) {
 				return jsonError("Design file changed since it was loaded", 409);
+			}
+			if (
+				error instanceof DesignFileServiceError &&
+				error.code === "UNSUPPORTED_DESIGN_VERSION"
+			) {
+				return jsonError(error.message, 422);
 			}
 			if (
 				error instanceof DesignFileServiceError &&

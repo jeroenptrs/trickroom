@@ -109,12 +109,13 @@ Purpose:
 
 - Stores one Trickroom design per JSON file.
 - Uses the UUID filename as the design handle in the app and MCP.
-- Stores the design name, optional linked system, and root boards.
+- Stores the schema version, design name, optional linked system, and root boards.
 
 Design shape:
 
 ```ts
 type TrickroomDesign = {
+  version?: 1; // written by Trickroom; absent in files from before versioning
   name: string;
   systemId?: string | null;
   systemName?: string | null;
@@ -132,6 +133,7 @@ New designs created by the app start with one root container:
 
 ```json
 {
+  "version": 1,
   "name": "Untitled",
   "boards": [
     {
@@ -155,6 +157,43 @@ Write behavior:
 - MCP `createDesignFile` creates blank design files when policy allows and refuses to overwrite existing UUIDs.
 - MCP mutation tools edit existing design files when policy and revisions allow.
 - Writes are atomic: existing-file saves write a temporary JSON file and rename it into place; exclusive creation links a temporary file only when the target UUID does not already exist.
+- Every write stores the current `version` and a stable top-level key order (`version`, `name`, `systemId`, `systemName`, `componentMigrationPolicy`, other keys, `boards`), tab-indented, so identical designs produce identical bytes.
+- Reading a design never writes it. Opening a design in the app or capturing a screenshot leaves the file, its revision, and the git worktree untouched.
+
+### Design file versions
+
+Design files carry a top-level `version` (`DESIGN_FILE_VERSION` in `src/services/design-file-schema.ts`, currently `1`). Files without one are version 0.
+
+Read path:
+
+1. Parse JSON from disk and hash the exact bytes for the revision.
+2. Run the ordered migration chain (`designFileMigrations`) from the stored version up to the current one, in memory.
+3. Validate the result as a design and drop `version`: designs in memory, in HTTP responses, and in MCP tools are always in the current shape.
+
+The HTTP design read additionally detaches invalid known recipe instances and canonicalises `systemName` to `systemId`, also in memory only. It returns the revision of the bytes on disk, so the next write's revision check matches, and sets `x-trickroom-design-migration: {"fromVersion":0,"toVersion":1}` when the stored version was older and `x-trickroom-recipe-repair` when recipes were repaired. The migrated and repaired shape is persisted by the next real write.
+
+Write path:
+
+- Writers may omit `version`; the service treats such a payload as the current shape and stamps the current version. A payload with an older version runs through the chain first.
+- A payload or an existing file with a version newer than this Trickroom supports is refused with `UNSUPPORTED_DESIGN_VERSION` (HTTP 422). Trickroom never down-converts a newer file.
+
+Versions:
+
+| Version | Change |
+| --- | --- |
+| 0 | Files written before versioning. `componentMigrationPolicy: null` is accepted and means "not set". |
+| 1 | Adds `version`. Drops `componentMigrationPolicy: null`. |
+
+Unreadable designs:
+
+- Listing designs includes files that cannot be opened instead of hiding them, so a design written by a newer Trickroom does not silently disappear. Summaries from `GET /api/trickroom/designs` carry a `diagnostic` with `code` `UNSUPPORTED_DESIGN_VERSION`, `INVALID_DESIGN_PAYLOAD`, or `INVALID_DESIGN_JSON`, a message, and the stored `version` when known. Opening one returns HTTP 422 with the same message.
+
+When adding a version:
+
+1. Bump `DESIGN_FILE_VERSION` and append a `{ from, to, migrate }` step to `designFileMigrations`. Steps must not mutate their input.
+2. If the step changes the on-disk layout, teach the design file service to read and write that layout; the in-memory design shape and the chain stay the same.
+3. Cover the step in `design-file-schema.test.ts` (from 0, idempotence, newer versions refused).
+4. Update the table above and `docs/design-model.md`.
 
 Path safety:
 
@@ -164,6 +203,7 @@ Path safety:
 
 Validation rules:
 
+- `version` may be omitted (version 0) or must be a supported version; newer versions are refused, not down-converted.
 - `name` must be a string.
 - `systemId` may be omitted, `null`, or a stable system id.
 - `systemName` is a legacy read/write compatibility field. New design writes store `systemId`; API responses may include `systemName` as display metadata.

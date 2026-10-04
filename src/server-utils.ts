@@ -1,4 +1,9 @@
 import { isJsonPrimitive } from "./libraries/registry";
+import {
+	DESIGN_FILE_VERSION,
+	type DesignFileVersionIssue,
+	migrateDesignFileValue,
+} from "./services/design-file-schema";
 import type {
 	Node,
 	Props,
@@ -152,6 +157,7 @@ const isComponentMigrationPolicy = (
 
 export const isTrickroomDesign = (value: unknown): value is TrickroomDesign =>
 	isRecord(value) &&
+	(value.version === undefined || value.version === DESIGN_FILE_VERSION) &&
 	typeof value.name === "string" &&
 	isDesignSystemId(value.systemId) &&
 	isDesignSystemName(value.systemName) &&
@@ -161,25 +167,56 @@ export const isTrickroomDesign = (value: unknown): value is TrickroomDesign =>
 
 export type TrickroomDesignMigrationResult = {
 	design: TrickroomDesign;
+	/** Whether the stored value was older than the current version. */
 	migrated: boolean;
+	/** Version found in the stored value (0 when it had none). */
+	fromVersion: number;
 };
 
+export type TrickroomDesignRead =
+	| ({ ok: true } & TrickroomDesignMigrationResult)
+	| ({ ok: false } & DesignFileVersionIssue);
+
+/**
+ * Brings a stored design value to the current version in memory and validates
+ * it. A missing `version` means a legacy (version 0) file. The returned design
+ * has no `version`: in memory a design is always in the current shape, and the
+ * design file service stamps the version when it writes.
+ */
+export const readTrickroomDesignValue = (
+	value: unknown,
+): TrickroomDesignRead => {
+	const migration = migrateDesignFileValue(value);
+	if (!migration.ok) {
+		return migration;
+	}
+
+	if (!isTrickroomDesign(migration.value)) {
+		return {
+			ok: false,
+			code: "INVALID_DESIGN_PAYLOAD",
+			message: "Invalid trickroom design payload",
+		};
+	}
+
+	const { version: _version, ...design } = migration.value;
+	return {
+		ok: true,
+		design,
+		migrated: migration.migrated,
+		fromVersion: migration.fromVersion,
+	};
+};
+
+/** `readTrickroomDesignValue` for callers that only need success or failure. */
 export const migrateTrickroomDesign = (
 	value: unknown,
 ): TrickroomDesignMigrationResult | null => {
-	let candidate = value;
-	let migrated = false;
-
-	if (isRecord(value) && value.componentMigrationPolicy === null) {
-		const { componentMigrationPolicy: _legacyPolicy, ...withoutLegacyPolicy } =
-			value;
-		candidate = withoutLegacyPolicy;
-		migrated = true;
-	}
-
-	if (!isTrickroomDesign(candidate)) {
+	const read = readTrickroomDesignValue(value);
+	if (!read.ok) {
 		return null;
 	}
 
-	return { design: candidate, migrated };
+	const { ok: _ok, ...result } = read;
+	return result;
 };

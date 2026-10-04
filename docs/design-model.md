@@ -41,14 +41,18 @@ A design is one JSON file:
 
 It stores:
 
+- `version`: the design file schema version, written first. Files without it are version 0 and still load.
 - `name`: display name in the app.
 - `systemId`: optional linked Tailwind system.
 - `boards`: top-level root elements.
+
+`version` is a storage detail: Trickroom migrates older files in memory when it reads them, never rewrites a file just because it was opened, and stamps the current version on the next save. Designs returned by the HTTP API and MCP tools are always in the current shape and omit `version`. See [Files And Safety](project-files.md#design-file-versions).
 
 Example:
 
 ```json
 {
+  "version": 1,
   "name": "Untitled",
   "systemId": "sys_00000000-0000-4000-8000-000000000000",
   "boards": [

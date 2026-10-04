@@ -2,7 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { TrickroomDesign } from "../types";
+import { DESIGN_FILE_VERSION } from "./design-file-schema";
 import {
+	calculateDesignFileRevision,
 	countDesignLayers,
 	createDesignFileService,
 	DesignFileServiceError,
@@ -88,7 +90,7 @@ describe("DesignFileService", () => {
 		).toThrow(DesignFileServiceError);
 	});
 
-	it("lists valid JSON design summaries in filename order and includes revisions", async () => {
+	it("lists JSON design summaries in filename order, flagging unreadable files", async () => {
 		await writeDesignFixture("b.json", { ...validDesign, name: "Design B" });
 		await writeDesignFixture("a.json", {
 			...validDesign,
@@ -124,6 +126,20 @@ describe("DesignFileService", () => {
 				layersCount: 1,
 				modifiedAt: expect.any(String),
 				revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+			},
+			{
+				uuid: "invalid",
+				file: "invalid.json",
+				name: "Invalid",
+				boardsCount: 0,
+				layersCount: 0,
+				modifiedAt: expect.any(String),
+				revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+				diagnostic: {
+					code: "INVALID_DESIGN_PAYLOAD",
+					message: expect.any(String),
+					version: 0,
+				},
 			},
 		]);
 		for (const summary of summaries) {
@@ -189,7 +205,13 @@ describe("DesignFileService", () => {
 			"utf8",
 		);
 
-		await expect(service.listDesignSummaries()).resolves.toEqual([]);
+		await expect(service.listDesignSummaries()).resolves.toMatchObject([
+			{
+				file: "cached.json",
+				name: "Invalid after cache with more bytes",
+				diagnostic: { code: "INVALID_DESIGN_PAYLOAD" },
+			},
+		]);
 	});
 
 	it("counts descendant layers recursively without counting board roots", () => {
@@ -276,7 +298,10 @@ describe("DesignFileService", () => {
 
 		expect(written.design).toEqual(validDesign);
 		expect(written.revision).toMatch(/^sha256:[a-f0-9]{64}$/);
-		expect(JSON.parse(contents)).toEqual(validDesign);
+		expect(JSON.parse(contents)).toEqual({
+			version: DESIGN_FILE_VERSION,
+			...validDesign,
+		});
 	});
 
 	it("creates the designs directory before writing a new design", async () => {
@@ -285,7 +310,7 @@ describe("DesignFileService", () => {
 		expect(written.path).toBe(service.resolveDesignFilePath("created.json"));
 		await expect(
 			readFile(written.path, "utf8").then(JSON.parse),
-		).resolves.toEqual(validDesign);
+		).resolves.toEqual({ version: DESIGN_FILE_VERSION, ...validDesign });
 	});
 
 	it("creates a design file exclusively without overwriting an existing file", async () => {
@@ -386,5 +411,129 @@ describe("DesignFileService", () => {
 				},
 			},
 		);
+	});
+
+	describe("schema versions", () => {
+		const readRaw = (file: string) =>
+			readFile(service.resolveDesignFilePath(file), "utf8");
+
+		const writeRaw = async (file: string, value: unknown) => {
+			const designPath = service.resolveDesignFilePath(file);
+			await mkdir(path.dirname(designPath), { recursive: true });
+			await writeFile(designPath, JSON.stringify(value), "utf8");
+		};
+
+		it("migrates a legacy file in memory without writing it", async () => {
+			await writeRaw("legacy.json", {
+				...validDesign,
+				componentMigrationPolicy: null,
+			});
+			const before = await readRaw("legacy.json");
+
+			const read = await service.readDesignFile("legacy.json");
+
+			expect(read.storedVersion).toBe(0);
+			expect(read.migrated).toBe(true);
+			expect(read.design).toEqual(validDesign);
+			expect(read.revision).toBe(calculateDesignFileRevision(before));
+			await expect(readRaw("legacy.json")).resolves.toBe(before);
+		});
+
+		it("persists the current version on the next write", async () => {
+			await writeRaw("legacy.json", validDesign);
+			const read = await service.readDesignFile("legacy.json");
+
+			const written = await service.writeDesignFile(
+				"legacy.json",
+				{ ...read.design, name: "Edited" },
+				{ expectedRevision: read.revision },
+			);
+
+			const contents = await readRaw("legacy.json");
+			expect(
+				contents.startsWith(
+					`{\n\t"version": ${DESIGN_FILE_VERSION},\n\t"name": "Edited"`,
+				),
+			).toBe(true);
+			expect(written.design).not.toHaveProperty("version");
+			const reread = await service.readDesignFile("legacy.json");
+			expect(reread.storedVersion).toBe(DESIGN_FILE_VERSION);
+			expect(reread.migrated).toBe(false);
+			expect(reread.revision).toBe(written.revision);
+		});
+
+		it("writes deterministic bytes regardless of key order", async () => {
+			const { boards, name, systemName } = validDesign;
+			await service.writeDesignFile("a.json", { boards, systemName, name });
+			await service.writeDesignFile("b.json", {
+				name,
+				version: DESIGN_FILE_VERSION,
+				systemName,
+				boards,
+			});
+
+			await expect(readRaw("a.json")).resolves.toBe(await readRaw("b.json"));
+		});
+
+		it("lists, refuses, and never down-converts a design from a newer Trickroom", async () => {
+			const newer = { ...validDesign, version: DESIGN_FILE_VERSION + 1 };
+			await writeRaw("newer.json", newer);
+			const before = await readRaw("newer.json");
+			const revision = calculateDesignFileRevision(before);
+
+			await expect(service.listDesignSummaries()).resolves.toEqual([
+				expect.objectContaining({
+					file: "newer.json",
+					name: validDesign.name,
+					revision,
+					diagnostic: {
+						code: "UNSUPPORTED_DESIGN_VERSION",
+						message: expect.stringContaining(
+							`version ${DESIGN_FILE_VERSION + 1}`,
+						),
+						version: DESIGN_FILE_VERSION + 1,
+					},
+				}),
+			]);
+			await expect(service.readDesignFile("newer.json")).rejects.toMatchObject({
+				code: "UNSUPPORTED_DESIGN_VERSION",
+			});
+			await expect(
+				service.writeDesignFile("newer.json", validDesign, {
+					expectedRevision: revision,
+				}),
+			).rejects.toMatchObject({ code: "UNSUPPORTED_DESIGN_VERSION" });
+			await expect(
+				service.writeDesignFile("newer.json", validDesign),
+			).rejects.toMatchObject({ code: "UNSUPPORTED_DESIGN_VERSION" });
+			await expect(readRaw("newer.json")).resolves.toBe(before);
+		});
+
+		it("rejects writes that carry a newer version", async () => {
+			await expect(
+				service.createDesignFile("payload.json", {
+					...validDesign,
+					version: DESIGN_FILE_VERSION + 1,
+				}),
+			).rejects.toMatchObject({ code: "UNSUPPORTED_DESIGN_VERSION" });
+		});
+
+		it("lists files that are not valid JSON", async () => {
+			await writeDesignFixture("valid.json");
+			await writeFile(
+				service.resolveDesignFilePath("broken.json"),
+				"{ not json",
+				"utf8",
+			);
+
+			await expect(service.listDesignSummaries()).resolves.toMatchObject([
+				{
+					file: "broken.json",
+					name: "broken",
+					diagnostic: { code: "INVALID_DESIGN_JSON" },
+				},
+				{ file: "valid.json", name: validDesign.name },
+			]);
+		});
 	});
 });

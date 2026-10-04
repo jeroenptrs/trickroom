@@ -1,3 +1,5 @@
+import type { DesignFileVersion } from "./services/design-file-schema";
+
 export type JsonPrimitive = string | number | boolean | null;
 
 export type Role = "branch" | "text" | "leaf";
@@ -191,6 +193,12 @@ export type TrickroomConfig = {
 };
 
 export type TrickroomDesign = {
+	/**
+	 * Design file schema version, a storage concern: the design file service
+	 * stamps the current version on every write and omits it from designs it
+	 * returns, which are always in the current shape. Writers may omit it.
+	 */
+	version?: DesignFileVersion;
 	name: string;
 	systemId?: string | null;
 	/**
@@ -211,4 +219,19 @@ export type TrickroomDesignSummary = {
 	boardsCount: number;
 	layersCount: number;
 	modifiedAt: string;
+	/**
+	 * Set when the file exists but cannot be opened, for example because a
+	 * newer Trickroom wrote it. Counts are then best-effort.
+	 */
+	diagnostic?: DesignFileDiagnostic;
+};
+
+export type DesignFileDiagnostic = {
+	code:
+		| "UNSUPPORTED_DESIGN_VERSION"
+		| "INVALID_DESIGN_PAYLOAD"
+		| "INVALID_DESIGN_JSON";
+	message: string;
+	/** Stored version, when the file declares one. */
+	version?: number;
 };

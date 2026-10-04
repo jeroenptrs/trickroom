@@ -15,13 +15,20 @@ import {
 	writeJsonFileAtomically,
 	writeJsonFileExclusivelyAtomically,
 } from "../server-file-utils";
-import { isTrickroomDesign, migrateTrickroomDesign } from "../server-utils";
-import type { Node, TrickroomDesign } from "../types";
+import { isTrickroomDesign, readTrickroomDesignValue } from "../server-utils";
+import type { DesignFileDiagnostic, Node, TrickroomDesign } from "../types";
 import {
 	type DesignFileLockOptions,
 	DesignFileLockTimeoutError,
 	withDesignFileLock,
 } from "./design-file-lock";
+import {
+	DESIGN_FILE_VERSION,
+	getDesignFileVersion,
+	migrateDesignFileValue,
+	orderDesignFileKeys,
+	unsupportedDesignVersionMessage,
+} from "./design-file-schema";
 import type {
 	DesignFileRevision,
 	DesignFileSummary,
@@ -31,6 +38,7 @@ export type DesignFileServiceErrorCode =
 	| "INVALID_DESIGN_FILE_PATH"
 	| "INVALID_DESIGN_UUID"
 	| "INVALID_DESIGN_PAYLOAD"
+	| "UNSUPPORTED_DESIGN_VERSION"
 	| "DESIGN_FILE_ALREADY_EXISTS"
 	| "DESIGN_FILE_LOCKED"
 	| "REVISION_MISMATCH";
@@ -59,13 +67,25 @@ export type DesignJsonFileRead = {
 
 export type DesignFileRead = Omit<DesignJsonFileRead, "value"> & {
 	uuid: string | null;
+	/**
+	 * The design migrated in memory to the current schema. Like every
+	 * in-memory design it has no `version`; writes stamp it.
+	 */
 	design: TrickroomDesign;
+	/**
+	 * Version stored on disk (0 for files without one). When it is older than
+	 * `DESIGN_FILE_VERSION`, `revision` still hashes the unmigrated bytes and
+	 * the next write persists the current shape.
+	 */
+	storedVersion: number;
+	migrated: boolean;
 };
 
 export type DesignFileWrite = {
 	file: string;
 	path: string;
 	uuid: string | null;
+	/** The written design in its in-memory shape (without `version`). */
 	design: TrickroomDesign;
 	revision: DesignFileRevision;
 };
@@ -146,6 +166,83 @@ const countDescendantLayers = (node: Node): number => {
 	}
 
 	return count;
+};
+
+/** Summaries with a diagnostic describe files that cannot be opened. */
+export const isReadableDesignSummary = <T extends { diagnostic?: unknown }>(
+	summary: T,
+) => summary.diagnostic === undefined;
+
+/**
+ * Validates a design handed to a writer and returns the exact object to store:
+ * migrated to the current version (a missing `version` means the caller
+ * already holds the current shape), with deterministic key order.
+ */
+export const prepareDesignForStorage = (design: unknown): TrickroomDesign => {
+	const migration = migrateDesignFileValue(design, {
+		missingVersion: DESIGN_FILE_VERSION,
+	});
+	if (!migration.ok) {
+		throw new DesignFileServiceError(migration.code, migration.message);
+	}
+	if (!isTrickroomDesign(migration.value)) {
+		throw new DesignFileServiceError(
+			"INVALID_DESIGN_PAYLOAD",
+			"Invalid trickroom design payload",
+		);
+	}
+
+	return orderDesignFileKeys(migration.value);
+};
+
+const withoutStorageVersion = ({
+	version: _version,
+	...design
+}: TrickroomDesign): TrickroomDesign => design;
+
+const parseStoredVersion = (contents: string) => {
+	try {
+		const value: unknown = JSON.parse(contents);
+		return typeof value === "object" && value !== null && !Array.isArray(value)
+			? getDesignFileVersion(value as Record<string, unknown>)
+			: null;
+	} catch {
+		return null;
+	}
+};
+
+const toDesignFileDiagnostic = (
+	error: unknown,
+	value: unknown,
+): DesignFileDiagnostic | null => {
+	if (error instanceof SyntaxError) {
+		return {
+			code: "INVALID_DESIGN_JSON",
+			message: `Design file is not valid JSON: ${error.message}`,
+		};
+	}
+	if (error instanceof DesignFileServiceError) {
+		const version =
+			typeof value === "object" && value !== null && !Array.isArray(value)
+				? getDesignFileVersion(value as Record<string, unknown>)
+				: null;
+		if (error.code === "UNSUPPORTED_DESIGN_VERSION") {
+			return {
+				code: "UNSUPPORTED_DESIGN_VERSION",
+				message: error.message,
+				...(version !== null ? { version } : {}),
+			};
+		}
+		if (error.code === "INVALID_DESIGN_PAYLOAD") {
+			return {
+				code: "INVALID_DESIGN_PAYLOAD",
+				message: error.message,
+				...(version !== null ? { version } : {}),
+			};
+		}
+	}
+
+	return null;
 };
 
 export const countDesignLayers = (design: TrickroomDesign) =>
@@ -272,20 +369,23 @@ export class DesignFileService {
 
 	async readDesignFile(file: string): Promise<DesignFileRead> {
 		const read = await this.readJsonFile(file);
-		const migration = migrateTrickroomDesign(read.value);
-		if (!migration) {
-			throw new DesignFileServiceError(
-				"INVALID_DESIGN_PAYLOAD",
-				"Invalid trickroom design payload",
-			);
+		return this.toDesignFileRead(read);
+	}
+
+	private toDesignFileRead(read: DesignJsonFileRead): DesignFileRead {
+		const design = readTrickroomDesignValue(read.value);
+		if (!design.ok) {
+			throw new DesignFileServiceError(design.code, design.message);
 		}
 
 		return {
 			file: read.file,
 			path: read.path,
-			uuid: this.getUuidFromFile(file),
-			design: migration.design,
+			uuid: this.getUuidFromFile(read.file),
+			design: design.design,
 			revision: read.revision,
+			storedVersion: design.fromVersion,
+			migrated: design.migrated,
 		};
 	}
 
@@ -355,10 +455,46 @@ export class DesignFileService {
 						return cachedSummary;
 					}
 
-					const read = await this.readDesignFile(file);
-					const uuid = read.uuid;
+					const uuid = this.getUuidFromFile(file);
 					if (!uuid) {
 						return null;
+					}
+
+					const contents = await readFile(designPath, "utf8");
+					const revision = calculateDesignFileRevision(contents);
+					let value: unknown;
+					let read: DesignFileRead;
+					try {
+						value = JSON.parse(contents);
+						read = this.toDesignFileRead({
+							file,
+							path: designPath,
+							value,
+							revision,
+						});
+					} catch (error) {
+						// Unreadable designs stay listed with the reason, so a file
+						// from a newer Trickroom does not silently disappear.
+						const diagnostic = toDesignFileDiagnostic(error, value);
+						if (!diagnostic) {
+							throw error;
+						}
+						const raw =
+							typeof value === "object" && value !== null
+								? (value as Record<string, unknown>)
+								: {};
+						const summary = {
+							uuid,
+							file,
+							name: typeof raw.name === "string" ? raw.name : uuid,
+							boardsCount: Array.isArray(raw.boards) ? raw.boards.length : 0,
+							layersCount: 0,
+							modifiedAt: fileStat.mtime.toISOString(),
+							revision,
+							diagnostic,
+						} satisfies DesignFileSummary;
+						this.setCachedSummary(designPath, fileStat, summary);
+						return summary;
 					}
 
 					const summary = {
@@ -396,27 +532,47 @@ export class DesignFileService {
 		revisionCheck: RevisionCheck = {},
 	): Promise<DesignFileWrite> {
 		const designPath = this.resolveDesignFilePath(file);
-		if (!isTrickroomDesign(design)) {
-			throw new DesignFileServiceError(
-				"INVALID_DESIGN_PAYLOAD",
-				"Invalid trickroom design payload",
-			);
-		}
+		const storedDesign = prepareDesignForStorage(design);
 
 		await mkdir(this.designsDir, { recursive: true });
 		const contents = await this.withWriteLock(designPath, async () => {
-			if (revisionCheck.expectedRevision !== undefined) {
-				const currentContents = await readFile(designPath, "utf8");
-				const currentRevision = calculateDesignFileRevision(currentContents);
-				if (currentRevision !== revisionCheck.expectedRevision) {
-					throw new DesignFileServiceError(
-						"REVISION_MISMATCH",
-						"Design file revision does not match the expected revision",
-					);
+			let currentContents: string | null = null;
+			try {
+				currentContents = await readFile(designPath, "utf8");
+			} catch (error) {
+				// Unconditional writes may create the file; revision-checked writes
+				// target an existing design and report it missing.
+				if (
+					revisionCheck.expectedRevision !== undefined ||
+					(error as NodeJS.ErrnoException).code !== "ENOENT"
+				) {
+					throw error;
 				}
 			}
 
-			return writeJsonFileAtomically(designPath, design);
+			if (
+				revisionCheck.expectedRevision !== undefined &&
+				currentContents !== null &&
+				calculateDesignFileRevision(currentContents) !==
+					revisionCheck.expectedRevision
+			) {
+				throw new DesignFileServiceError(
+					"REVISION_MISMATCH",
+					"Design file revision does not match the expected revision",
+				);
+			}
+
+			// Never down-convert a design written by a newer Trickroom.
+			const currentVersion =
+				currentContents === null ? null : parseStoredVersion(currentContents);
+			if (currentVersion !== null && currentVersion > DESIGN_FILE_VERSION) {
+				throw new DesignFileServiceError(
+					"UNSUPPORTED_DESIGN_VERSION",
+					unsupportedDesignVersionMessage(currentVersion),
+				);
+			}
+
+			return writeJsonFileAtomically(designPath, storedDesign);
 		});
 		this.deleteCachedSummary(designPath);
 		await DesignFileService.pruneSummaryCache();
@@ -424,7 +580,7 @@ export class DesignFileService {
 			file,
 			path: designPath,
 			uuid: this.getUuidFromFile(file),
-			design,
+			design: withoutStorageVersion(storedDesign),
 			revision: calculateDesignFileRevision(contents),
 		};
 	}
@@ -434,18 +590,13 @@ export class DesignFileService {
 		design: unknown,
 	): Promise<DesignFileWrite> {
 		const designPath = this.resolveDesignFilePath(file);
-		if (!isTrickroomDesign(design)) {
-			throw new DesignFileServiceError(
-				"INVALID_DESIGN_PAYLOAD",
-				"Invalid trickroom design payload",
-			);
-		}
+		const storedDesign = prepareDesignForStorage(design);
 
 		await mkdir(this.designsDir, { recursive: true });
 		let contents: string;
 		try {
 			contents = await this.withWriteLock(designPath, () =>
-				writeJsonFileExclusivelyAtomically(designPath, design),
+				writeJsonFileExclusivelyAtomically(designPath, storedDesign),
 			);
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "EEXIST") {
@@ -463,7 +614,7 @@ export class DesignFileService {
 			file,
 			path: designPath,
 			uuid: this.getUuidFromFile(file),
-			design,
+			design: withoutStorageVersion(storedDesign),
 			revision: calculateDesignFileRevision(contents),
 		};
 	}

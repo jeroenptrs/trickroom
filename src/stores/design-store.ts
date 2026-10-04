@@ -91,6 +91,7 @@ export type DesignEntity = {
 };
 
 export type DesignStoreState = {
+	version?: TrickroomDesign["version"];
 	name: string;
 	systemId?: string | null;
 	systemName?: string | null;
@@ -190,6 +191,7 @@ export function normalizeDesign(design: TrickroomDesign): DesignStoreState {
 	}
 
 	return {
+		...(design.version !== undefined ? { version: design.version } : {}),
 		name: design.name,
 		...(design.systemId !== undefined ? { systemId: design.systemId } : {}),
 		...(design.systemName !== undefined
@@ -235,6 +237,7 @@ function serializeEntity(
 
 export function serializeDesignState(state: DesignStoreState): TrickroomDesign {
 	return {
+		...(state.version !== undefined ? { version: state.version } : {}),
 		name: state.name,
 		...(state.systemId !== undefined ? { systemId: state.systemId } : {}),
 		...(state.systemId === undefined && state.systemName !== undefined
