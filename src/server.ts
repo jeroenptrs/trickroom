@@ -772,7 +772,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			};
 			setActiveProject(openedProject);
 
-			const designFileService = createDesignFileService(project.projectRoot);
+			const designFileService = createDesignFileService(project.projectRoot, {
+				trickroomHome,
+			});
 			const designSummaries = await designFileService.listDesignSummaries();
 			const designSummary = designSummaries.find(
 				(summary) =>
@@ -998,7 +1000,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		}
 
 		try {
-			const designFileService = createDesignFileService(project.projectRoot);
+			const designFileService = createDesignFileService(project.projectRoot, {
+				trickroomHome,
+			});
 			await mkdir(designFileService.designsDir, { recursive: true });
 			await writeFile(designFileService.designsGitkeepPath, "", { flag: "a" });
 			const writtenConfig = await writeProjectConfig(
@@ -1143,7 +1147,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return jsonError("Missing required query parameter: file", 400);
 		}
 
-		const designFileService = createDesignFileService(project.projectRoot);
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
 		try {
 			const read = await designFileService.readJsonFile(file);
 			const migration = migrateTrickroomDesign(read.value);
@@ -1257,7 +1263,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return createNoProjectResponse();
 		}
 
-		const designFileService = createDesignFileService(project.projectRoot);
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
 		try {
 			const designSummaries = await designFileService.listDesignSummaries();
 			const summaries = await Promise.all(
@@ -1344,7 +1352,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			throw error;
 		}
 
-		const designFileService = createDesignFileService(project.projectRoot);
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
 		try {
 			designFileService.resolveDesignFilePath(sourceFile);
 			designFileService.resolveDesignFilePath(targetFile);
@@ -1414,7 +1424,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return jsonError("Missing required query parameter: file", 400);
 		}
 
-		const designFileService = createDesignFileService(project.projectRoot);
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
 		try {
 			designFileService.resolveDesignFilePath(file);
 		} catch (error) {
@@ -1481,7 +1493,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return jsonError("Missing required query parameter: file", 400);
 		}
 
-		const designFileService = createDesignFileService(project.projectRoot);
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
 		try {
 			designFileService.resolveDesignFilePath(file);
 		} catch (error) {
@@ -1492,6 +1506,16 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return jsonError(
 				"Design file path must be inside .trickroom/designs",
 				400,
+			);
+		}
+
+		// Writes replace an existing design, so they must name the revision they
+		// were based on; new designs are created with POST.
+		const expectedRevision = c.req.header(expectedDesignRevisionHeaderName);
+		if (!expectedRevision?.startsWith("sha256:")) {
+			return jsonError(
+				`Missing ${expectedDesignRevisionHeaderName} header. Read the design first and send its revision.`,
+				428,
 			);
 		}
 
@@ -1506,13 +1530,10 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				body,
 			);
 			await assertExtractedDesignReferencesExist(project, canonicalDesign);
-			const expectedRevision = c.req.header(expectedDesignRevisionHeaderName) as
-				| DesignFileRevision
-				| undefined;
 			const written = await designFileService.writeDesignFile(
 				file,
 				canonicalDesign,
-				expectedRevision ? { expectedRevision } : {},
+				{ expectedRevision: expectedRevision as DesignFileRevision },
 			);
 			setDesignRevisionHeader(c, written.revision);
 			return c.json(
@@ -1533,6 +1554,15 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				error.code === "REVISION_MISMATCH"
 			) {
 				return jsonError("Design file changed since it was loaded", 409);
+			}
+			if (
+				error instanceof DesignFileServiceError &&
+				error.code === "DESIGN_FILE_LOCKED"
+			) {
+				return jsonError(
+					"Design file is being written by another process; retry shortly",
+					423,
+				);
 			}
 
 			const fsError = asErrnoException(error);
@@ -1556,7 +1586,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return jsonError("Missing required query parameter: file", 400);
 		}
 
-		const designFileService = createDesignFileService(project.projectRoot);
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
 		try {
 			await designFileService.deleteDesignFile(file);
 			return c.json({ ok: true });

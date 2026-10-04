@@ -1257,25 +1257,47 @@ describe("server design routes", () => {
 	});
 
 	it("writes valid design payloads through the extracted service", async () => {
-		await mkdir(path.join(tempProjectRoot, ".trickroom", "designs"), {
-			recursive: true,
-		});
+		await writeDesign("existing.json", { ...validDesign, name: "Before" });
 		const app = await importTestServer();
+		const read = await app.request("/api/trickroom/design?file=existing.json");
+		const revision = read.headers.get("x-trickroom-revision") ?? "";
 
-		const response = await app.request("/api/trickroom/design?file=new.json", {
-			method: "PUT",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(validDesign),
-		});
+		const response = await app.request(
+			"/api/trickroom/design?file=existing.json",
+			{
+				method: "PUT",
+				headers: {
+					"content-type": "application/json",
+					"x-trickroom-expected-revision": revision,
+				},
+				body: JSON.stringify(validDesign),
+			},
+		);
 
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toEqual(validDesign);
-		await expect(
-			readFile(
-				path.join(tempProjectRoot, ".trickroom", "designs", "new.json"),
-				"utf8",
-			).then(JSON.parse),
-		).resolves.toEqual(validDesign);
+		await expect(readStoredDesign("existing.json")).resolves.toEqual(
+			validDesign,
+		);
+	});
+
+	it("requires the expected revision header for design writes", async () => {
+		await writeDesign("existing.json", validDesign);
+		const app = await importTestServer();
+
+		const response = await app.request(
+			"/api/trickroom/design?file=existing.json",
+			{
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ ...validDesign, name: "Unconditional" }),
+			},
+		);
+
+		expect(response.status).toBe(428);
+		await expect(readStoredDesign("existing.json")).resolves.toEqual(
+			validDesign,
+		);
 	});
 
 	it("rejects a browser save when its disk revision is stale", async () => {

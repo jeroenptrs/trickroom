@@ -1,4 +1,6 @@
+/// <reference types="vitest/config" />
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -93,4 +95,9 @@ export default defineConfig({
 			entry: "./src/server.ts",
 		}),
 	],
+	test: {
+		// Keep test runs out of the developer's Trickroom home: services that
+		// default to it (design write locks, registry, settings) use this instead.
+		env: { TRICKROOM_HOME: path.join(os.tmpdir(), "trickroom-vitest-home") },
+	},
 });

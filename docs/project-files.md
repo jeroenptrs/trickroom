@@ -719,9 +719,10 @@ Browser editor:
 - Uses a local dirty revision counter.
 - Retains the last persisted content-hash revision returned by the HTTP API.
 - Autosaves after `1000ms`.
-- Sends the persisted revision with existing-file writes; stale writes receive HTTP 409 and do not overwrite disk state.
+- Sends the persisted revision with existing-file writes; stale writes receive HTTP 409 and do not overwrite disk state. `PUT /api/trickroom/design` without `x-trickroom-expected-revision` is rejected with HTTP 428; new designs are created with `POST`.
 - Clears dirty state only when the completed save still matches the current in-memory revision.
-- Subscribes to project file events. Clean designs reload from disk automatically; dirty designs pause autosave and ask whether to reload from disk or keep the local version.
+- Moves the cached design snapshot to the saved revision when a save completes, so its own write is never mistaken for an external change.
+- Subscribes to project file events. Events whose revision matches the snapshot the browser already has (its own save echoing back) do not refetch the design, and bursts of events for one file are coalesced into one refetch. Clean designs reload from disk automatically; dirty designs pause autosave and ask whether to reload from disk or keep the local version.
 
 MCP:
 
@@ -730,6 +731,15 @@ MCP:
 - The revision must come from a prior read.
 - If the file changed, the tool returns `REVISION_MISMATCH` and does not write.
 - The safe response is to re-read, re-plan if needed, and retry with the new revision.
+
+Write serialisation:
+
+- Every design write, create, and delete runs its read-check-write inside a per-design lock in the shared design file service, so the HTTP server and every MCP process get it. Of two writers holding the same expected revision, exactly one succeeds and the other receives a revision mismatch.
+- Within a process, writes to one design queue behind each other.
+- Across processes, the queue head holds a lockfile created exclusively (`open(path, "wx")`) containing its pid, hostname, a token, and the acquisition time.
+- Lockfiles live in the per-user home, not the project: `~/.trickroom/locks/designs/<hash>.lock` (or under `TRICKROOM_HOME`), where `<hash>` is derived from the design's absolute path with the project root resolved through `realpath`. They are never committed and never trigger the project file watchers. Every process writing a project must resolve the same Trickroom home.
+- A lock is stale when its holder pid no longer exists on the same host, or when it is older than 10 seconds. Stale locks are removed and acquisition retries. A writer gives up after 5 seconds; the HTTP API answers HTTP 423 and the service raises `DESIGN_FILE_LOCKED`.
+- A holder only removes the lockfile if it still contains its own token.
 
 ## What Trickroom Does Not Delete
 

@@ -5,16 +5,23 @@ import {
 	mkdir,
 	readdir,
 	readFile,
+	realpath,
 	stat,
 	unlink,
 } from "node:fs/promises";
 import path from "node:path";
+import { resolveTrickroomHome } from "../app-state/home";
 import {
 	writeJsonFileAtomically,
 	writeJsonFileExclusivelyAtomically,
 } from "../server-file-utils";
 import { isTrickroomDesign, migrateTrickroomDesign } from "../server-utils";
 import type { Node, TrickroomDesign } from "../types";
+import {
+	type DesignFileLockOptions,
+	DesignFileLockTimeoutError,
+	withDesignFileLock,
+} from "./design-file-lock";
 import type {
 	DesignFileRevision,
 	DesignFileSummary,
@@ -25,6 +32,7 @@ export type DesignFileServiceErrorCode =
 	| "INVALID_DESIGN_UUID"
 	| "INVALID_DESIGN_PAYLOAD"
 	| "DESIGN_FILE_ALREADY_EXISTS"
+	| "DESIGN_FILE_LOCKED"
 	| "REVISION_MISMATCH";
 
 export class DesignFileServiceError extends Error {
@@ -65,6 +73,21 @@ export type DesignFileWrite = {
 export type RevisionCheck = {
 	expectedRevision?: DesignFileRevision;
 };
+
+export type DesignFileServiceOptions = {
+	/**
+	 * Trickroom home holding write lockfiles (`<home>/locks/designs`), outside
+	 * the project so locks are never committed or watched. Defaults to
+	 * `TRICKROOM_HOME` or `~/.trickroom`; every process writing the same
+	 * project must resolve the same home.
+	 */
+	trickroomHome?: string;
+	lock?: Partial<DesignFileLockOptions>;
+};
+
+export const getDesignLockDirectory = (
+	trickroomHome = resolveTrickroomHome(),
+) => path.join(trickroomHome, "locks", "designs");
 
 type DesignFileSummaryCacheEntry = {
 	mtimeMs: number;
@@ -140,12 +163,52 @@ export class DesignFileService {
 	readonly projectRoot: string;
 	readonly designsDir: string;
 	readonly designsGitkeepPath: string;
+	private readonly lockOptions: DesignFileLockOptions;
+	private canonicalProjectRoot: Promise<string> | null = null;
 
-	constructor(projectRoot: string) {
+	constructor(projectRoot: string, options: DesignFileServiceOptions = {}) {
 		this.projectRoot = path.resolve(projectRoot);
 		this.designsDir = path.join(this.projectRoot, ".trickroom", "designs");
 		this.designsGitkeepPath = path.join(this.designsDir, ".gitkeep");
+		this.lockOptions = {
+			...options.lock,
+			lockDirectory:
+				options.lock?.lockDirectory ??
+				getDesignLockDirectory(options.trickroomHome),
+		};
 		void DesignFileService.pruneSummaryCache().catch(() => {});
+	}
+
+	/**
+	 * Runs a read-check-write sequence on one design while holding its
+	 * in-process queue and cross-process lock. The lock key resolves the project
+	 * root through `realpath` so processes that reach the project through
+	 * different symlinks still share one lock.
+	 */
+	private async withWriteLock<T>(
+		designPath: string,
+		operation: () => Promise<T>,
+	): Promise<T> {
+		this.canonicalProjectRoot ??= realpath(this.projectRoot).catch(
+			() => this.projectRoot,
+		);
+		const canonicalPath = path.join(
+			await this.canonicalProjectRoot,
+			path.relative(this.projectRoot, designPath),
+		);
+
+		try {
+			return await withDesignFileLock(
+				canonicalPath,
+				operation,
+				this.lockOptions,
+			);
+		} catch (error) {
+			if (error instanceof DesignFileLockTimeoutError) {
+				throw new DesignFileServiceError("DESIGN_FILE_LOCKED", error.message);
+			}
+			throw error;
+		}
 	}
 
 	private static async pruneSummaryCache(maxAgeMs = maxSummaryCacheAgeMs) {
@@ -340,19 +403,21 @@ export class DesignFileService {
 			);
 		}
 
-		if (revisionCheck.expectedRevision !== undefined) {
-			const currentContents = await readFile(designPath, "utf8");
-			const currentRevision = calculateDesignFileRevision(currentContents);
-			if (currentRevision !== revisionCheck.expectedRevision) {
-				throw new DesignFileServiceError(
-					"REVISION_MISMATCH",
-					"Design file revision does not match the expected revision",
-				);
-			}
-		}
-
 		await mkdir(this.designsDir, { recursive: true });
-		const contents = await writeJsonFileAtomically(designPath, design);
+		const contents = await this.withWriteLock(designPath, async () => {
+			if (revisionCheck.expectedRevision !== undefined) {
+				const currentContents = await readFile(designPath, "utf8");
+				const currentRevision = calculateDesignFileRevision(currentContents);
+				if (currentRevision !== revisionCheck.expectedRevision) {
+					throw new DesignFileServiceError(
+						"REVISION_MISMATCH",
+						"Design file revision does not match the expected revision",
+					);
+				}
+			}
+
+			return writeJsonFileAtomically(designPath, design);
+		});
 		this.deleteCachedSummary(designPath);
 		await DesignFileService.pruneSummaryCache();
 		return {
@@ -379,7 +444,9 @@ export class DesignFileService {
 		await mkdir(this.designsDir, { recursive: true });
 		let contents: string;
 		try {
-			contents = await writeJsonFileExclusivelyAtomically(designPath, design);
+			contents = await this.withWriteLock(designPath, () =>
+				writeJsonFileExclusivelyAtomically(designPath, design),
+			);
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "EEXIST") {
 				throw new DesignFileServiceError(
@@ -403,11 +470,13 @@ export class DesignFileService {
 
 	async deleteDesignFile(file: string) {
 		const designPath = this.resolveDesignFilePath(file);
-		await unlink(designPath);
+		await this.withWriteLock(designPath, () => unlink(designPath));
 		this.deleteCachedSummary(designPath);
 		await DesignFileService.pruneSummaryCache();
 	}
 }
 
-export const createDesignFileService = (projectRoot: string) =>
-	new DesignFileService(projectRoot);
+export const createDesignFileService = (
+	projectRoot: string,
+	options?: DesignFileServiceOptions,
+) => new DesignFileService(projectRoot, options);
