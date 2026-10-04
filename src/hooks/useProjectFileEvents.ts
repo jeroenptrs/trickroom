@@ -15,7 +15,8 @@ import type { ProjectQueryScope } from "../queries/project-scope";
 
 export type TrickroomFileEvent = {
 	file: string;
-	revision: `sha256:${string}` | null;
+	/** Opaque revision of the changed file, or null when it was deleted. */
+	revision: string | null;
 	operation: "changed" | "deleted";
 };
 

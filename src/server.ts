@@ -1548,7 +1548,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		// Writes replace an existing design, so they must name the revision they
 		// were based on; new designs are created with POST.
 		const expectedRevision = c.req.header(expectedDesignRevisionHeaderName);
-		if (!expectedRevision?.startsWith("sha256:")) {
+		if (!expectedRevision) {
 			return jsonError(
 				`Missing ${expectedDesignRevisionHeaderName} header. Read the design first and send its revision.`,
 				428,
@@ -1569,7 +1569,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			const written = await designFileService.writeDesignFile(
 				designId,
 				canonicalDesign,
-				{ expectedRevision: expectedRevision as DesignFileRevision },
+				{ expectedRevision },
 			);
 			setDesignRevisionHeader(c, written.revision);
 			return c.json(

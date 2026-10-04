@@ -684,7 +684,7 @@ export class DesignFileService {
 			: result.design;
 		try {
 			const write = await this.writeDesignFile(designId, design, {
-				expectedRevision: update.expectedRevision as DesignFileRevision,
+				expectedRevision: update.expectedRevision,
 			});
 			return { status: "written", read, result, write };
 		} catch (error) {

@@ -24,11 +24,11 @@ const expectedRevisionHeaderName = "x-trickroom-expected-revision";
 const readDesignSnapshot = async (response: Response) => {
 	const design = await readJsonOrThrow<TrickroomDesign>(response);
 	const revision = response.headers.get(revisionHeaderName);
-	if (!revision?.startsWith("sha256:")) {
-		throw new Error("Design response did not include a valid revision");
+	if (!revision) {
+		throw new Error("Design response did not include a revision");
 	}
 
-	return { design, revision: revision as DesignFileRevision };
+	return { design, revision };
 };
 
 const fetchDesignFile = async (designId: string) => {

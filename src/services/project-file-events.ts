@@ -5,7 +5,8 @@ import chokidar, { type FSWatcher } from "chokidar";
 
 export type TrickroomFileEvent = {
 	file: string;
-	revision: `sha256:${string}` | null;
+	/** Opaque revision of the changed file, or null when it was deleted. */
+	revision: string | null;
 	operation: "changed" | "deleted";
 };
 
@@ -13,7 +14,7 @@ export type TrickroomFileEventListener = (event: TrickroomFileEvent) => void;
 
 const DEFAULT_DEBOUNCE_MS = 75;
 
-const toRevision = (contents: Buffer): `sha256:${string}` =>
+const toRevision = (contents: Buffer): string =>
 	`sha256:${createHash("sha256").update(contents).digest("hex")}`;
 
 const normalizeRelativeFile = (projectRoot: string, filePath: string) =>
