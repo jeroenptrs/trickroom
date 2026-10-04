@@ -8,41 +8,28 @@ import {
 } from "../../utils/memory-manifest-service";
 import { systemComponentDraftInputDiagnosticsFromZodError } from "../../utils/system-component-draft-schemas";
 import { getMcpPolicy, type McpPolicyError } from "../governance";
-import { getGovernanceSummary, getProjectReference } from "../payloads/project";
+import {
+	getGovernanceSummary,
+	getProjectDetails,
+	getProjectReference,
+} from "../payloads/project";
 import type { TrickroomMcpProjectResolverError } from "../project-resolver";
 import type { TrickroomMcpServerContext } from "../server-types";
 
+// Text and structuredContent always carry the same minified payload.
 export const createJsonResult = (
 	payload: Record<string, unknown>,
-	options: { text?: string } = {},
 ): CallToolResult => ({
-	content: [
-		{
-			type: "text",
-			text: options.text ?? JSON.stringify(payload),
-		},
-	],
+	content: [{ type: "text", text: JSON.stringify(payload) }],
 	structuredContent: payload,
 });
 
-const createSummaryTextResult = (
+const createErrorResult = (
 	payload: Record<string, unknown>,
-	text: string,
-): CallToolResult => createJsonResult(payload, { text });
-
-type McpReadResponseFormat = "json" | "summary";
-
-export const createReadToolResult = (
-	payload: Record<string, unknown>,
-	responseFormat: McpReadResponseFormat,
-	summarize: (payload: Record<string, unknown>) => string,
-): CallToolResult => {
-	if (responseFormat === "summary") {
-		return createSummaryTextResult(payload, summarize(payload));
-	}
-
-	return createJsonResult(payload);
-};
+): CallToolResult => ({
+	...createJsonResult(payload),
+	isError: true,
+});
 
 export const createProjectInfoResult = async (
 	context: TrickroomMcpServerContext,
@@ -51,21 +38,25 @@ export const createProjectInfoResult = async (
 	const projectMemory = await readMemoryManifest(context.projectRoot, {
 		kind: "project",
 	});
+	const memory = summarizeMemoryManifest(projectMemory.manifest);
 	const payload = {
-		projectName: context.config.name,
-		projectId: context.config.projectId ?? null,
-		locationId: context.locationId ?? null,
-		projectRoot: context.projectRoot,
-		configPath: context.configPath,
-		mcpEnabled: true,
+		project: getProjectDetails(context),
+		governance: { mode: getMcpPolicy(context.config).mode },
+		...(context.config.defaultSystemId
+			? { defaultSystemId: context.config.defaultSystemId }
+			: {}),
 		configuredSystems: systems.map((system) => ({
 			systemId: system.manifest.systemId,
 			systemName: system.manifest.systemName,
 			...(system.manifest.cssPath ? { cssPath: system.manifest.cssPath } : {}),
 		})),
-		memory: summarizeMemoryManifest(projectMemory.manifest),
-		memoryHint:
-			"Project memory captures why this project exists and how it should be steered. Call listMemoryNotes({ scope: { kind: 'project' } }) to read it before broad work.",
+		...(memory.noteCount > 0
+			? {
+					memory,
+					memoryHint:
+						"Project memory captures why this project exists and how it should be steered. Call listMemoryNotes({ scope: { kind: 'project' } }) to read it before broad work.",
+				}
+			: {}),
 	};
 
 	return createJsonResult(payload);
@@ -83,11 +74,7 @@ export const createPolicyDeniedResult = (
 		project: getProjectReference(context),
 		governance: getGovernanceSummary(policy),
 	};
-	return {
-		content: [{ type: "text", text: JSON.stringify(payload) }],
-		structuredContent: payload,
-		isError: true,
-	};
+	return createErrorResult(payload);
 };
 
 export const createToolErrorResult = (
@@ -103,11 +90,7 @@ export const createToolErrorResult = (
 		project: getProjectReference(context),
 		...details,
 	};
-	return {
-		content: [{ type: "text", text: JSON.stringify(payload) }],
-		structuredContent: payload,
-		isError: true,
-	};
+	return createErrorResult(payload);
 };
 
 export const createSystemComponentDraftInputErrorResult = (
@@ -130,11 +113,7 @@ export const createProjectResolverErrorResult = (
 		status: error.code,
 		...error.details,
 	};
-	return {
-		content: [{ type: "text", text: JSON.stringify(payload) }],
-		structuredContent: payload,
-		isError: true,
-	};
+	return createErrorResult(payload);
 };
 
 export const createRevisionMismatchResult = (
@@ -148,14 +127,10 @@ export const createRevisionMismatchResult = (
 		currentRevision,
 		expectedRevision,
 		message:
-			"The design file was modified since your last read. Re-read the design file to get the current revision, then retry.",
-		suggestedReads: ["readDesignFile", "readElement"],
+			"The design file changed since your last read. Re-read the area you are editing, then retry with currentRevision.",
+		suggestedReads: ["readSubtree", "readElement"],
 	};
-	return {
-		content: [{ type: "text", text: JSON.stringify(payload) }],
-		structuredContent: payload,
-		isError: true,
-	};
+	return createErrorResult(payload);
 };
 
 export const createInvalidOperationResult = (
@@ -169,9 +144,5 @@ export const createInvalidOperationResult = (
 		message: error.message,
 		...error.details,
 	};
-	return {
-		content: [{ type: "text", text: JSON.stringify(payload) }],
-		structuredContent: payload,
-		isError: true,
-	};
+	return createErrorResult(payload);
 };

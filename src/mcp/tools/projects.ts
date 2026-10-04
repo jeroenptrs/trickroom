@@ -71,8 +71,7 @@ export const registerProjectTools = (ctx: McpToolContext) => {
 				project: getProjectDetails(context),
 				selected: false,
 				active: isRegistryActive,
-				migration:
-					"Use registerProject(path) and selectProject({ projectId | locationId }) to switch the MCP session project.",
+				hint: "Call selectProject({ locationId }) to use this project in this session.",
 			});
 		},
 	);
@@ -213,7 +212,7 @@ export const registerProjectTools = (ctx: McpToolContext) => {
 		{
 			title: "Project Info",
 			description:
-				"Return the current Trickroom project root, config path, and configured system names.",
+				"Return the selected project (ids, root, name), governance mode, default system, configured systems, and a project memory summary when notes exist.",
 			inputSchema: projectScopedInputSchema,
 			annotations: readOnlyClosedWorldAnnotations,
 		},

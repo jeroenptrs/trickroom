@@ -107,10 +107,11 @@ describe("trickroom MCP test support", () => {
 
 			expect(textContent).toBeDefined();
 			expect(JSON.parse(textContent?.text ?? "{}")).toMatchObject({
-				projectName: "Harness Project",
-				projectRoot: fixture.projectRoot,
-				configPath: fixture.configPath,
-				mcpEnabled: true,
+				project: {
+					name: "Harness Project",
+					projectRoot: fixture.projectRoot,
+				},
+				governance: { mode: expect.any(String) },
 				configuredSystems: [
 					expect.objectContaining({
 						systemId: expect.stringMatching(/^sys_/),
