@@ -423,6 +423,59 @@ describe("MCP expanded class/token diagnostics", () => {
 		});
 	});
 
+	it("only reports unknown tokens for classes the system's Tailwind cannot emit", async () => {
+		const { session } = await createSession({
+			systemCss: {
+				Core: '@import "tailwindcss";\n@theme {\n\t--shadow-elevation-md: 0 1px 2px rgb(0 0 0 / 0.2);\n}\n',
+			},
+			designs: {
+				[trickroomMcpTestDesignUuid]: {
+					name: "Static Utilities Design",
+					systemName: "Core",
+					boards: [
+						{
+							id: "board",
+							props: {
+								"data-trickroom-name": "Board",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "container",
+								className:
+									"group/sidebar rounded-full leading-none shadow-elevation-md bg-brand-600 rounded-missing",
+							},
+							children: [],
+						},
+					],
+				},
+			},
+			tokenSnapshots: [
+				{
+					systemName: "Core",
+					cssPath: "src/index.css",
+					tokens: { "brand-500": "#2563eb" },
+					overrides: ["brand-500"],
+					reviewRequired: false,
+				},
+			],
+		});
+
+		const validateResult = await session.client.callTool({
+			name: "validateDesignFile",
+			arguments: { designFileId: trickroomMcpTestDesignUuid },
+		});
+		const issues = (
+			validateResult.structuredContent as {
+				issues: Array<{ code: string; classToken?: string }>;
+			}
+		).issues;
+
+		expect(
+			issues.map((issue) => [issue.code, issue.classToken]).sort(),
+		).toEqual([
+			["UNKNOWN_COLOR_TOKEN", "bg-brand-600"],
+			["UNKNOWN_RADIUS_TOKEN", "rounded-missing"],
+		]);
+	});
+
 	it("emits unknown utility warnings without stored tokens when CSS loads", async () => {
 		const { session } = await createSession({
 			tokenSnapshots: [],

@@ -376,6 +376,46 @@ const ARBITRARY_WARN_DOMAINS = new Set<TailwindTokenDomain>([
 
 const IMPLICIT_SPACING_SCALE_PATTERN = /^(\d+|\d*\.\d+|px)$/u;
 
+/**
+ * `group`/`peer` marker classes, optionally named (`group/sidebar`): they mark
+ * an element for group-* and peer-* variants and emit no CSS of their own.
+ */
+const GROUP_MARKER_PATTERN = /^(group|peer)(\/[\w-]+)?$/u;
+
+/**
+ * The token snapshot only knows theme tokens, and the classifier only knows
+ * colors: static utilities (`rounded-full`, `leading-none`) and tokens of a
+ * sibling domain (`shadow-elevation-md`, a shadow token, read as a color) look
+ * unknown to it. A class the system's Tailwind build can emit references an
+ * available token, unless the system removed that token on purpose.
+ */
+type AvailableTokenCheck = (
+	domain: TailwindTokenDomain,
+	token: string,
+	candidate: string,
+) => boolean;
+
+const createAvailableTokenCheck = (
+	inspectUtility: TailwindUtilityInspector | null,
+	storedTokens: TailwindTokenStorage,
+): AvailableTokenCheck => {
+	if (!inspectUtility) {
+		return () => false;
+	}
+	const removed = new Set(
+		TAILWIND_TOKEN_DOMAINS.flatMap((domain) =>
+			(storedTokens.domains[domain]?.baselineDiff.removed ?? []).map(
+				(token) => `${domain}:${token.name}`,
+			),
+		),
+	);
+	return (domain, token, candidate) =>
+		!removed.has(`${domain}:${token}`) &&
+		inspectUtility.inspect(candidate).supported;
+};
+
+const noAvailableTokenCheck: AvailableTokenCheck = () => false;
+
 const collectRecipeDiagnostics = (
 	design: TrickroomDesign,
 	issues: ClassTokenDiagnostic[],
@@ -594,9 +634,14 @@ const collectColorDiagnostics = (
 	>,
 	parsedRaw: string,
 	colorTokens: ReadonlySet<string>,
+	isAvailableToken: AvailableTokenCheck,
 	issues: ClassTokenDiagnostic[],
 ) => {
-	if (intent.token && !intent.resolved) {
+	if (
+		intent.token &&
+		!intent.resolved &&
+		!isAvailableToken("color", intent.token, parsedRaw)
+	) {
 		const { suggestions, messageSuffix } = withSuggestions(
 			suggestTokenClasses(parsedRaw, intent.token, colorTokens),
 		);
@@ -632,6 +677,7 @@ const collectSpacingDiagnostics = (
 	>,
 	parsedRaw: string,
 	resolvedTokens: ResolvedTokenContext,
+	isAvailableToken: AvailableTokenCheck,
 	issues: ClassTokenDiagnostic[],
 ) => {
 	if (intent.value.kind !== "scale") {
@@ -639,7 +685,10 @@ const collectSpacingDiagnostics = (
 	}
 
 	const spacingTokens = resolvedTokens.spacing;
-	if (isSpacingScaleResolved(intent.value.value, spacingTokens)) {
+	if (
+		isSpacingScaleResolved(intent.value.value, spacingTokens) ||
+		isAvailableToken("spacing", intent.value.value, parsedRaw)
+	) {
 		return;
 	}
 
@@ -666,6 +715,7 @@ const collectStyleDiagnostics = (
 	>,
 	parsedRaw: string,
 	resolvedTokens: ResolvedTokenContext,
+	isAvailableToken: AvailableTokenCheck,
 	issues: ClassTokenDiagnostic[],
 ) => {
 	const domain = STYLE_PROPERTY_TO_TOKEN_DOMAIN[intent.property];
@@ -676,7 +726,10 @@ const collectStyleDiagnostics = (
 	if (intent.value.kind === "scale" || intent.value.kind === "keyword") {
 		const tokenName = intent.value.value;
 		const tokenNames = resolvedTokens[domain];
-		if (tokenNames.has(tokenName)) {
+		if (
+			tokenNames.has(tokenName) ||
+			isAvailableToken(domain, tokenName, parsedRaw)
+		) {
 			return;
 		}
 
@@ -717,7 +770,7 @@ const collectUnknownUtilityDiagnostics = (
 	inspectUtility: TailwindUtilityInspector | null,
 	issues: ClassTokenDiagnostic[],
 ) => {
-	if (!inspectUtility) {
+	if (!inspectUtility || GROUP_MARKER_PATTERN.test(parsedRaw)) {
 		return;
 	}
 
@@ -755,6 +808,7 @@ const collectClassDiagnostics = (
 	colorTokens: ReadonlySet<string>,
 	customUtilityRoots: CustomUtilityRoots,
 	inspectUtility: TailwindUtilityInspector | null,
+	isAvailableToken: AvailableTokenCheck,
 	issues: ClassTokenDiagnostic[],
 	options: CollectClassDiagnosticsOptions = {},
 ) => {
@@ -777,6 +831,7 @@ const collectClassDiagnostics = (
 							base,
 							parsed.raw,
 							colorTokens,
+							isAvailableToken,
 							issues,
 						);
 					}
@@ -788,6 +843,7 @@ const collectClassDiagnostics = (
 							base,
 							parsed.raw,
 							resolvedTokens,
+							isAvailableToken,
 							issues,
 						);
 					}
@@ -799,6 +855,7 @@ const collectClassDiagnostics = (
 							base,
 							parsed.raw,
 							resolvedTokens,
+							isAvailableToken,
 							issues,
 						);
 					}
@@ -835,6 +892,7 @@ const collectClassDiagnostics = (
 				colorTokens,
 				customUtilityRoots,
 				inspectUtility,
+				isAvailableToken,
 				issues,
 				options,
 			);
@@ -960,6 +1018,7 @@ export const getDesignDiagnostics = async (
 				emptyColorTokens,
 				EMPTY_CUSTOM_UTILITY_ROOTS,
 				inspectUtility,
+				noAvailableTokenCheck,
 				issues,
 				{ includeTokenDomainDiagnostics: false },
 			);
@@ -994,6 +1053,10 @@ export const getDesignDiagnostics = async (
 		system.manifest.cssPath ?? storedTokens.metadata.cssPath,
 	);
 
+	const isAvailableToken = createAvailableTokenCheck(
+		inspectUtility,
+		storedTokens,
+	);
 	for (const [rootIndex, board] of design.boards.entries()) {
 		collectClassDiagnostics(
 			board,
@@ -1002,6 +1065,7 @@ export const getDesignDiagnostics = async (
 			colorTokens,
 			customUtilityRoots,
 			inspectUtility,
+			isAvailableToken,
 			issues,
 		);
 	}
