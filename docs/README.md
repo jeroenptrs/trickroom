@@ -26,6 +26,6 @@ Trickroom writes project metadata under `.trickroom`, recent-project state under
 - `src/project.ts`: project config and path handling.
 - `src/services/design-file-service.ts`: design file path safety, validation, atomic writes, and revisions.
 - `src/services/design-transform-service.ts`: MCP mutation semantics.
-- `src/mcp/server.ts`: MCP prompts, tools, policy, and audit logging.
+- `src/mcp/tools/`: MCP tools, one module per tool group; `src/mcp/prompts.ts`: MCP prompts; `src/mcp/governance.ts`: policy and audit logging.
 - `src/utils/tailwind-*`: Tailwind token sync, storage, theme CSS, and class-name modeling.
 - `src/server-entry.ts`: production HTTP server startup, host policy, and static app serving.

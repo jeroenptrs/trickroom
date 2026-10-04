@@ -28,7 +28,9 @@ MCP:
 
 - CLI: `bin/trickroom.js mcp`
 - Stdio runtime: `src/mcp/stdio.ts`
-- Tools and prompts: `src/mcp/server.ts`
+- Server composition root: `src/mcp/server.ts`
+- Tools: `src/mcp/tools/` (one module per tool group)
+- Prompts: `src/mcp/prompts.ts`
 - Governance: `src/mcp/governance.ts`
 
 ## Project Session Flow

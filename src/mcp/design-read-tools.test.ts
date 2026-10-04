@@ -1,3 +1,5 @@
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { expandRegistryRecipe } from "../recipes/expansion";
 import { installAvatarLegacyPreviousTemplate } from "../recipes/legacy-avatar-template";
@@ -17,6 +19,7 @@ import {
 const designFileId = "10000000-0000-4000-8000-000000000061";
 const secondDesignFileId = "10000000-0000-4000-8000-000000000062";
 const invalidDesignFileId = "10000000-0000-4000-8000-000000000063";
+const futureDesignFileId = "10000000-0000-4000-8000-000000000064";
 
 const readableDesign = {
 	name: "Readable Design",
@@ -885,6 +888,61 @@ describe("trickroom MCP design read tools", () => {
 					elementId: "title",
 				}),
 			]),
+		});
+	});
+
+	it("reports designs from a newer Trickroom version in list and validate", async () => {
+		const { client } = await createSession();
+		const fixture = fixtures.at(-1);
+		if (!fixture) throw new Error("Missing fixture.");
+		await writeFile(
+			path.join(
+				fixture.projectRoot,
+				".trickroom",
+				"designs",
+				`${futureDesignFileId}.json`,
+			),
+			JSON.stringify({ ...readableDesign, name: "Future", version: 999 }),
+			"utf8",
+		);
+
+		const listResult = await client.callTool({
+			name: "listDesignFiles",
+			arguments: {},
+		});
+		expect(listResult.structuredContent).toMatchObject({
+			designFiles: expect.arrayContaining([
+				expect.objectContaining({
+					id: futureDesignFileId,
+					diagnostic: expect.objectContaining({
+						code: "UNSUPPORTED_DESIGN_VERSION",
+						version: 999,
+					}),
+				}),
+			]),
+		});
+		const listed = (
+			listResult.structuredContent as {
+				designFiles: Array<{ id: string; diagnostic?: unknown }>;
+			}
+		).designFiles;
+		expect(
+			listed.find((designFile) => designFile.id === designFileId),
+		).not.toHaveProperty("diagnostic");
+
+		const validateResult = await client.callTool({
+			name: "validateDesignFile",
+			arguments: { designFileId: futureDesignFileId },
+		});
+		expect(validateResult.structuredContent).toMatchObject({
+			valid: false,
+			issues: [
+				{
+					severity: "error",
+					code: "UNSUPPORTED_DESIGN_VERSION",
+					message: expect.stringContaining("999"),
+				},
+			],
 		});
 	});
 });

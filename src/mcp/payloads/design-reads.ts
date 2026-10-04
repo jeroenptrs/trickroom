@@ -93,6 +93,9 @@ export const listDesignFilesPayload = async (
 				layersCount: designFile.layersCount,
 				modifiedAt: designFile.modifiedAt,
 				revision: designFile.revision,
+				...(designFile.diagnostic !== undefined
+					? { diagnostic: designFile.diagnostic }
+					: {}),
 			};
 		}),
 	);

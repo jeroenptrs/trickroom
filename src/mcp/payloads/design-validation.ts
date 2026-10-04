@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { migrateTrickroomDesign } from "../../server-utils";
+import { readTrickroomDesignValue } from "../../server-utils";
 import { createDesignFileService } from "../../services/design-file-service";
 import {
 	applyCopySubtree,
@@ -72,9 +72,9 @@ export const validateDesignFilePayload = async (
 	const service = createDesignFileService(context.projectRoot);
 	const read = await service.readJsonFile(service.getFileForUuid(designFileId));
 	const issues: ValidationIssue[] = [];
-	const migration = migrateTrickroomDesign(read.value);
+	const migration = readTrickroomDesignValue(read.value);
 
-	if (!migration) {
+	if (!migration.ok) {
 		return {
 			project: getProjectReference(context),
 			designFile: {
@@ -86,8 +86,8 @@ export const validateDesignFilePayload = async (
 			issues: [
 				{
 					severity: "error",
-					code: "INVALID_DESIGN_PAYLOAD",
-					message: "File does not contain a valid Trickroom design payload.",
+					code: migration.code,
+					message: migration.message,
 				},
 			] satisfies ValidationIssue[],
 		};

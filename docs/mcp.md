@@ -13,7 +13,7 @@ trickroom mcp
 On startup, MCP does not accept positional launch-path arguments. Start with `trickroom mcp` from the desired project folder, and MCP will infer the local project when it is in its root.
 If no project is inferred from the current working directory, MCP starts without a selected project.
 To target another local project in the same session, register it with `registerProject`, then switch scope with `selectProject`.
-The per-user project registry still powers `listProjects`, but it no longer retargets existing MCP sessions when desktop UI project switches happen.
+The per-user project registry still powers `listProjects`, but it no longer retargets existing MCP sessions when the browser app switches projects.
 
 The target project must have MCP enabled:
 
@@ -41,7 +41,7 @@ This release keeps one MCP session-selection path:
 
 Important note for existing integrations:
 
-- `projects.json` `lastActiveProjectId` and `lastActiveLocationId` are app-level metadata for the desktop app's active project history. They do not automatically re-target MCP sessions.
+- `projects.json` `lastActiveProjectId` and `lastActiveLocationId` are app-level metadata for the browser app's active project history. They do not automatically re-target MCP sessions.
 
 ## Governance
 
@@ -715,6 +715,7 @@ Audit entries include the tool name, operation, project root, design file ID, ex
 
 - `src/mcp/tools/<group>.ts`: tool registrations, one file per group in `src/mcp/tool-groups.ts` (design writes are split into `design-write-batch.ts` and `design-write-nodes.ts`, screenshots live apart from `design-read.ts`).
 - `src/mcp/tools/context.ts`: per-session state (selected project, project resolver, screenshot capture) and the `withProjectContext` / `withPolicyErrorHandling` wrappers, passed to every register function.
-- `src/mcp/tools/results.ts`, `schemas.ts`, `operation-schemas.ts`, `annotations.ts`, `mutation-support.ts`: shared result builders, zod input schemas, tool annotations, and mutation error handling and auditing.
+- `src/mcp/tools/results.ts`, `schemas.ts`, `operation-schemas.ts`, `annotations.ts`, `mutation-support.ts`: shared result builders, zod input schemas (use `designFileIdSchema` and `expectedRevisionSchema` from `schemas.ts` for every design file id and revision parameter; revisions are opaque), tool annotations, and mutation error handling and auditing.
+- `src/mcp/tools/input-validation.ts`: formats tool input validation errors, one line per problem; installed on the server in `server.ts`.
 - `src/mcp/payloads/`: payload builders the tools call (design reads, validation, registry, authoring contracts, systems, system components).
 - `src/mcp/prompts.ts`, `src/mcp/server-instructions.ts`, `src/mcp/resource-handlers.ts`: prompts, server instructions, and `trickroom://` resource handlers.
