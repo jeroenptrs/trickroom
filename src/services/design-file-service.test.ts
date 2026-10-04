@@ -8,6 +8,7 @@ import {
 	countDesignLayers,
 	createDesignFileService,
 	DesignFileServiceError,
+	skipDesignUpdate,
 } from "./design-file-service";
 
 const validDesign = {
@@ -398,6 +399,95 @@ describe("DesignFileService", () => {
 			design: {
 				name: "Concurrent Update",
 			},
+		});
+	});
+
+	describe("updateDesignFile", () => {
+		it("applies a mutation to a fresh read and writes the prepared design", async () => {
+			await writeDesignFixture("updated");
+			const read = await service.readDesignFile("updated");
+
+			const outcome = await service.updateDesignFile("updated", {
+				expectedRevision: read.revision,
+				mutate: async (current) => ({
+					design: { ...current.design, name: "Mutated" },
+				}),
+				prepare: async (design) => ({ ...design, name: `${design.name}!` }),
+			});
+
+			expect(outcome).toMatchObject({
+				status: "written",
+				write: { design: { name: "Mutated!" } },
+			});
+			await expect(service.readDesignFile("updated")).resolves.toMatchObject({
+				design: { name: "Mutated!" },
+			});
+		});
+
+		it("reports a stale expected revision without mutating", async () => {
+			await writeDesignFixture("stale");
+			const before = await service.readDesignFile("stale");
+			await writeDesignFixture("stale", { ...validDesign, name: "Elsewhere" });
+			const current = await service.readDesignFile("stale");
+			let mutated = false;
+
+			const outcome = await service.updateDesignFile("stale", {
+				expectedRevision: before.revision,
+				mutate: async (read) => {
+					mutated = true;
+					return { design: read.design };
+				},
+			});
+
+			expect(mutated).toBe(false);
+			expect(outcome).toEqual({
+				status: "revision-mismatch",
+				expectedRevision: before.revision,
+				currentRevision: current.revision,
+			});
+		});
+
+		it("reports a lost write race with the revision now on disk", async () => {
+			await writeDesignFixture("raced-update");
+			const read = await service.readDesignFile("raced-update");
+
+			const outcome = await service.updateDesignFile("raced-update", {
+				expectedRevision: read.revision,
+				mutate: async (current) => {
+					// Another writer lands between this read and the write.
+					await writeDesignFixture("raced-update", {
+						...validDesign,
+						name: "Winner",
+					});
+					return { design: { ...current.design, name: "Loser" } };
+				},
+			});
+
+			const after = await service.readDesignFile("raced-update");
+			expect(outcome).toEqual({
+				status: "revision-mismatch",
+				expectedRevision: read.revision,
+				currentRevision: after.revision,
+			});
+			expect(after.design.name).toBe("Winner");
+		});
+
+		it("ends without writing when the mutation skips", async () => {
+			await writeDesignFixture("skipped");
+			const read = await service.readDesignFile("skipped");
+
+			const outcome = await service.updateDesignFile("skipped", {
+				expectedRevision: read.revision,
+				mutate: async () => skipDesignUpdate("nothing to do"),
+			});
+
+			expect(outcome).toMatchObject({
+				status: "skipped",
+				value: "nothing to do",
+			});
+			await expect(service.readDesignFile("skipped")).resolves.toMatchObject({
+				revision: read.revision,
+			});
 		});
 	});
 

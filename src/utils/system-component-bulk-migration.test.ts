@@ -1404,6 +1404,57 @@ describe("system-component-bulk-migration", () => {
 		expect(designReport?.revision).not.toBe(designReport?.nextRevision);
 	});
 
+	it("prepares and reports every persisted design write", async () => {
+		const record = createPublishedV1V2Record();
+		const systemId = await setupCoreSystem({
+			[FIXTURE_COMPONENT_ID]: record,
+		});
+		const v1 = publishedVersion(record, "1");
+		const designUuid = "00000000-0000-4000-8000-000000000022";
+		await writeDesign(
+			designUuid,
+			designWithAttachedComponent(
+				systemId,
+				FIXTURE_COMPONENT_ID,
+				"1",
+				"prepared-instance",
+				{
+					templateHash: v1.templateHash,
+					variantSchemaHash: v1.variantSchemaHash,
+				},
+			),
+		);
+		const before =
+			await createDesignFileService(tempProjectRoot).readDesignFile(designUuid);
+		const writes: unknown[] = [];
+
+		const report = await bulkMigrateProjectSystemComponentInstances(
+			tempProjectRoot,
+			{
+				systemHandle: systemId,
+				componentId: FIXTURE_COMPONENT_ID,
+				designFileId: designUuid,
+				prepareDesign: async (design) => ({ ...design, name: "Prepared" }),
+				onDesignWrite: async (write) => {
+					writes.push(write);
+				},
+			},
+		);
+
+		const after =
+			await createDesignFileService(tempProjectRoot).readDesignFile(designUuid);
+		expect(report.changedCount).toBe(1);
+		expect(after.design.name).toBe("Prepared");
+		expect(writes).toEqual([
+			{
+				designFileId: designUuid,
+				expectedRevision: before.revision,
+				resultingRevision: after.revision,
+				status: "success",
+			},
+		]);
+	});
+
 	it("reports the read revision used as the write guard when persist fails", async () => {
 		const record = createPublishedV1V2Record();
 		const systemId = await setupCoreSystem({

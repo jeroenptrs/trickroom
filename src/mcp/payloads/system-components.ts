@@ -26,13 +26,17 @@ import {
 } from "../../utils/system-components-validation";
 import { assertCanUseSystemComponentInstanceSubtree } from "../design-operations";
 import {
+	appendMcpAuditLog,
 	assertCanReadDesignFile,
 	assertCanWriteDesignFile,
 	assertCanWriteProject,
 	getMcpPolicy,
 } from "../governance";
 import type { TrickroomMcpServerContext } from "../server-types";
-import { assertConfiguredSystem } from "./design-system";
+import {
+	assertConfiguredSystem,
+	canonicalizeDesignSystemReferenceForStorage,
+} from "./design-system";
 import { getProjectReference } from "./project";
 
 const INDEX_DESCRIPTION_LENGTH = 80;
@@ -704,6 +708,19 @@ const bulkMigratePolicyAllowedSystemComponentUsages = async (
 		assertInstanceSubtreeAllowed: (design, elementId) => {
 			assertCanUseSystemComponentInstanceSubtree(policy, design, elementId);
 		},
+		prepareDesign: (design) =>
+			canonicalizeDesignSystemReferenceForStorage(context, design),
+		onDesignWrite: ({ status, message, ...write }) =>
+			appendMcpAuditLog(context, {
+				toolName: "bulkMigrateSystemComponentUsages",
+				operation: "bulkMigrateSystemComponentUsages",
+				projectId: context.config.projectId ?? null,
+				projectRoot: context.projectRoot,
+				...write,
+				success: status === "success",
+				status,
+				...(message ? { message } : {}),
+			}),
 	};
 
 	if (options.designFileId) {

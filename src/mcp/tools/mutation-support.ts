@@ -4,6 +4,7 @@ import {
 	type DesignFileRead,
 	type DesignFileService,
 	DesignFileServiceError,
+	skipDesignUpdate,
 } from "../../services/design-file-service";
 import { DesignTransformError } from "../../services/design-transform-service";
 import { enrichElementLookupError } from "../../services/element-lookup-hints";
@@ -187,11 +188,12 @@ type DesignFileWriteResult = Awaited<
 >;
 
 // The read, revision check, write, and race re-read shared by every design
-// mutation; the one place that reads and writes existing design files. Reads the design, rejects a stale expectedRevision,
-// applies `mutate`, writes the canonicalized design guarded by
-// expectedRevision, and reports a lost write race as REVISION_MISMATCH with
-// the revision now on disk. `load` runs after the read and before the
-// revision check, for mutations that also read another design file.
+// mutation run through the design file service's updateDesignFile. Reads the
+// design, rejects a stale expectedRevision, applies `mutate`, writes the
+// canonicalized design guarded by expectedRevision, and reports a lost write
+// race as REVISION_MISMATCH with the revision now on disk. `load` runs after
+// the read and before `mutate`, for mutations that also read another design
+// file.
 export const mutateDesignFile = async <
 	Result extends { design: TrickroomDesign },
 	Loaded = undefined,
@@ -217,53 +219,38 @@ export const mutateDesignFile = async <
 		) => Promise<CallToolResult>;
 	},
 ): Promise<CallToolResult> => {
-	const service = createDesignFileService(context.projectRoot);
-	const file = service.getFileForUuid(designFileId);
-	const read = await readDesignFileForTool(context, designFileId);
-	const loaded = steps.load
-		? await steps.load(read, (otherDesignFileId) =>
-				readDesignFileForTool(context, otherDesignFileId),
-			)
-		: (undefined as Loaded);
+	let loaded = undefined as Loaded;
+	const outcome = await createDesignFileService(
+		context.projectRoot,
+	).updateDesignFile(designFileId, {
+		expectedRevision,
+		read: () => readDesignFileForTool(context, designFileId),
+		mutate: async (read) => {
+			loaded = steps.load
+				? await steps.load(read, (otherDesignFileId) =>
+						readDesignFileForTool(context, otherDesignFileId),
+					)
+				: (undefined as Loaded);
+			const result = await steps.mutate(read, loaded);
+			return skippedDesignWrite in result
+				? skipDesignUpdate(result[skippedDesignWrite])
+				: result;
+		},
+		prepare: (design) =>
+			canonicalizeDesignSystemReferenceForStorage(context, design),
+	});
 
-	if (read.revision !== expectedRevision) {
+	if (outcome.status === "revision-mismatch") {
 		return createRevisionMismatchResult(
 			context,
-			read.revision,
-			expectedRevision,
+			outcome.currentRevision,
+			outcome.expectedRevision,
 		);
 	}
-
-	const result = await steps.mutate(read, loaded);
-	if (skippedDesignWrite in result) {
-		return result[skippedDesignWrite];
+	if (outcome.status === "skipped") {
+		return outcome.value;
 	}
-
-	let write: DesignFileWriteResult;
-	try {
-		const nextDesign = await canonicalizeDesignSystemReferenceForStorage(
-			context,
-			result.design,
-		);
-		write = await service.writeDesignFile(file, nextDesign, {
-			expectedRevision,
-		});
-	} catch (error) {
-		if (
-			error instanceof DesignFileServiceError &&
-			error.code === "REVISION_MISMATCH"
-		) {
-			const raceRead = await service.readJsonFile(file);
-			return createRevisionMismatchResult(
-				context,
-				raceRead.revision,
-				expectedRevision,
-			);
-		}
-		throw error;
-	}
-
-	return steps.respond(result, write, loaded);
+	return steps.respond(outcome.result, outcome.write, loaded);
 };
 
 /**
@@ -308,9 +295,8 @@ export const createDesignFileForTool = async (
 	designFileId: string,
 	design: TrickroomDesign,
 ) => {
-	const service = createDesignFileService(context.projectRoot);
-	return service.createDesignFile(
-		service.getFileForUuid(designFileId),
+	return createDesignFileService(context.projectRoot).createDesignFile(
+		designFileId,
 		await canonicalizeDesignSystemReferenceForStorage(context, design),
 	);
 };

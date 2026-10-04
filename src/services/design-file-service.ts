@@ -100,6 +100,47 @@ export type RevisionCheck = {
 	expectedRevision?: DesignFileRevision;
 };
 
+const skippedDesignUpdate = Symbol("skippedDesignUpdate");
+
+/** Returned by an `updateDesignFile` mutation to end it without writing. */
+export type DesignUpdateSkip<Value> = { [skippedDesignUpdate]: Value };
+
+export const skipDesignUpdate = <Value>(
+	value: Value,
+): DesignUpdateSkip<Value> => ({ [skippedDesignUpdate]: value });
+
+export type DesignFileUpdate<
+	Result extends { design: TrickroomDesign },
+	Skip,
+> = {
+	/** The revision the caller based its change on. */
+	expectedRevision: string;
+	/**
+	 * Applies the change to a fresh read. Runs again on a fresh read when
+	 * another writer wins the race between the read and the write, so it must
+	 * not have side effects.
+	 */
+	mutate: (read: DesignFileRead) => Promise<Result | DesignUpdateSkip<Skip>>;
+	/** Turns the mutated design into the one to store (for example canonicalising its system reference). */
+	prepare?: (design: TrickroomDesign) => Promise<TrickroomDesign>;
+	/** Reads the design; defaults to `readDesignFile`. */
+	read?: () => Promise<DesignFileRead>;
+};
+
+export type DesignFileUpdateOutcome<Result, Skip> =
+	| {
+			status: "written";
+			read: DesignFileRead;
+			result: Result;
+			write: DesignFileWrite;
+	  }
+	| { status: "skipped"; read: DesignFileRead; value: Skip }
+	| {
+			status: "revision-mismatch";
+			expectedRevision: string;
+			currentRevision: DesignFileRevision;
+	  };
+
 export type DesignFileServiceOptions = {
 	/**
 	 * Trickroom home holding write lockfiles (`<home>/locks/designs`), outside
@@ -608,6 +649,58 @@ export class DesignFileService {
 			design: withoutStorageVersion(storedDesign),
 			revision: calculateDesignFileRevision(contents),
 		};
+	}
+
+	/**
+	 * The read-check-write every caller that changes an existing design goes
+	 * through: reads the design, rejects a stale `expectedRevision`, applies
+	 * `mutate`, prepares the result for storage and writes it guarded by the
+	 * revision. A write that loses the race against another writer is reported
+	 * as a revision mismatch carrying the revision now on disk.
+	 */
+	async updateDesignFile<
+		Result extends { design: TrickroomDesign },
+		Skip = never,
+	>(
+		designId: string,
+		update: DesignFileUpdate<Result, Skip>,
+	): Promise<DesignFileUpdateOutcome<Result, Skip>> {
+		const read = await (update.read?.() ?? this.readDesignFile(designId));
+		if (read.revision !== update.expectedRevision) {
+			return {
+				status: "revision-mismatch",
+				expectedRevision: update.expectedRevision,
+				currentRevision: read.revision,
+			};
+		}
+
+		const result = await update.mutate(read);
+		if (skippedDesignUpdate in result) {
+			return { status: "skipped", read, value: result[skippedDesignUpdate] };
+		}
+
+		const design = update.prepare
+			? await update.prepare(result.design)
+			: result.design;
+		try {
+			const write = await this.writeDesignFile(designId, design, {
+				expectedRevision: update.expectedRevision as DesignFileRevision,
+			});
+			return { status: "written", read, result, write };
+		} catch (error) {
+			if (
+				error instanceof DesignFileServiceError &&
+				error.code === "REVISION_MISMATCH"
+			) {
+				const current = await this.readRawDesign(designId);
+				return {
+					status: "revision-mismatch",
+					expectedRevision: update.expectedRevision,
+					currentRevision: current.revision,
+				};
+			}
+			throw error;
+		}
 	}
 
 	async createDesignFile(
