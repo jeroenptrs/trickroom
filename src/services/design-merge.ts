@@ -4,6 +4,7 @@ import {
 	calculateManifestRevision,
 	type DecodedDesignRevision,
 	type DesignBoardRevision,
+	type DesignRevisionParts,
 	getDesignManifestFields,
 	hashBoardId,
 } from "./design-revision";
@@ -47,6 +48,8 @@ export type DesignWritePlan = {
 	/** Whether the stored design differs from `incoming` (other writers' changes were kept). */
 	merged: boolean;
 	conflict: DesignWriteConflict | null;
+	/** Revisions of `design`, so the caller does not hash it again. */
+	revisions: DesignRevisionParts;
 };
 
 type RevisionIndex = {
@@ -116,10 +119,18 @@ export const planDesignWrite = ({
 	base,
 	expected = base,
 	currentRevision,
+	incomingRevision,
 }: {
 	current: TrickroomDesign;
 	/** Supplies revisions of current boards already known, to skip hashing them. */
 	currentRevision?: (board: Node) => DesignBoardRevision | undefined;
+	/**
+	 * Supplies revisions of incoming boards known without hashing (for
+	 * example a board whose stored file it would rewrite byte for byte). It
+	 * must judge content, not object identity: callers may change a board in
+	 * place.
+	 */
+	incomingRevision?: (board: Node) => DesignBoardRevision | undefined;
 	incoming: TrickroomDesign;
 	/** What `incoming` was derived from; null when unknown (every change is checked strictly). */
 	base: DecodedDesignRevision | null;
@@ -152,8 +163,9 @@ export const planDesignWrite = ({
 		return expectedIndex?.byIdHash.get(idHash)?.revision === baseRevision;
 	};
 
-	// Boards.
+	// Boards, with the revision of each one stored.
 	const finalNodes = new Map<string, Node>();
+	const finalRevisions = new Map<string, DesignBoardRevision>();
 	const changedBoardIds: string[] = [];
 	const droppedIds = new Set<string>();
 	const incomingIds = new Set<string>();
@@ -162,19 +174,21 @@ export const planDesignWrite = ({
 	for (const board of incoming.boards) {
 		incomingIds.add(board.id);
 		const idHash = hashBoardId(board.id);
-		const incomingRevision = calculateBoardRevision(board);
+		const boardRevision =
+			incomingRevision?.(board) ?? calculateBoardRevision(board);
 		const currentBoard = currentById.get(board.id);
 		const baseEntry = baseIndex?.byIdHash.get(idHash);
 
 		if (baseEntry) {
-			if (incomingRevision === baseEntry.revision) {
+			if (boardRevision === baseEntry.revision) {
 				// Unchanged by the caller: keep what is on disk now.
 				if (!currentBoard) {
 					droppedIds.add(board.id);
 					merged = true;
 				} else {
 					finalNodes.set(board.id, currentBoard.node);
-					if (currentBoard.revision !== incomingRevision) merged = true;
+					finalRevisions.set(board.id, currentBoard.revision);
+					if (currentBoard.revision !== boardRevision) merged = true;
 				}
 				continue;
 			}
@@ -184,7 +198,8 @@ export const planDesignWrite = ({
 				staleBoardIds.add(board.id);
 			}
 			finalNodes.set(board.id, board);
-			if (currentBoard?.revision !== incomingRevision) {
+			finalRevisions.set(board.id, boardRevision);
+			if (currentBoard?.revision !== boardRevision) {
 				changedBoardIds.push(board.id);
 			}
 			continue;
@@ -192,13 +207,15 @@ export const planDesignWrite = ({
 
 		// A board the caller's base did not have.
 		if (currentBoard) {
-			if (currentBoard.revision !== incomingRevision) {
+			if (currentBoard.revision !== boardRevision) {
 				staleBoardIds.add(board.id);
 			}
 			finalNodes.set(board.id, currentBoard.node);
+			finalRevisions.set(board.id, currentBoard.revision);
 			continue;
 		}
 		finalNodes.set(board.id, board);
+		finalRevisions.set(board.id, boardRevision);
 		changedBoardIds.push(board.id);
 	}
 
@@ -233,6 +250,10 @@ export const planDesignWrite = ({
 				continue;
 			}
 			finalNodes.set(board.id, board);
+			finalRevisions.set(
+				board.id,
+				currentById.get(board.id)?.revision as DesignBoardRevision,
+			);
 			merged = true;
 		}
 	}
@@ -253,8 +274,11 @@ export const planDesignWrite = ({
 	} else if (expectedDiffers && expected?.manifest !== base.manifest) {
 		staleManifest = true;
 	}
-	const manifestChanged =
-		calculateManifestRevision(manifestSource) !== currentManifestRevision;
+	const manifestRevision =
+		manifestSource === incoming
+			? incomingManifestRevision
+			: currentManifestRevision;
+	const manifestChanged = manifestRevision !== currentManifestRevision;
 
 	// Order.
 	const currentSequence = current.boards
@@ -362,5 +386,12 @@ export const planDesignWrite = ({
 		orderChanged,
 		merged,
 		conflict,
+		revisions: {
+			manifest: manifestRevision,
+			boards: finalSequence.map((id) => ({
+				id,
+				revision: finalRevisions.get(id) as DesignBoardRevision,
+			})),
+		},
 	};
 };

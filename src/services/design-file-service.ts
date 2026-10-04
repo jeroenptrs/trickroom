@@ -641,6 +641,65 @@ const cachedBoardRevisions = (
 	};
 };
 
+type CurrentDesign = NonNullable<
+	Awaited<ReturnType<DesignFileService["readForWrite"]>>
+>;
+
+/** Board files serialized while planning a write, reused to store them. */
+type SerializedBoards = Map<Node, { order: string; contents: string }>;
+
+/**
+ * Board revisions for a write under the lock. Current boards are looked up
+ * in the board revision cache (or hashed once). An incoming board whose
+ * stored file it would rewrite byte for byte (same content, same order key)
+ * is unchanged and takes the current board's revision without being hashed.
+ * The check compares content, never object identity, so a board a caller
+ * changed in place is still seen as changed; its serialization is kept for
+ * storing it.
+ */
+const createWriteRevisions = (paths: DesignPaths, current: CurrentDesign) => {
+	const cached = cachedBoardRevisions(
+		paths,
+		current.files,
+		current.parsed.version,
+	);
+	const known = new Map<Node, DesignBoardRevision>();
+	const currentRevision = (board: Node) => {
+		let revision = known.get(board);
+		if (revision === undefined) {
+			revision = cached?.(board) ?? calculateBoardRevision(board);
+			known.set(board, revision);
+		}
+		return revision;
+	};
+	const serialized: SerializedBoards = new Map();
+	const currentBoards = new Map(
+		(current.design?.boards ?? []).map((board) => [board.id, board]),
+	);
+	const storedBoards =
+		current.files.layout === "folder" &&
+		current.parsed.version === DESIGN_FILE_VERSION
+			? new Map(
+					current.files.boards.map((file) => [
+						getBoardIdFromFileName(file.name),
+						file.contents,
+					]),
+				)
+			: new Map<string, string>();
+	const incomingRevision = (board: Node) => {
+		const stored = storedBoards.get(board.id);
+		const order = current.parsed.orders.get(board.id);
+		const currentBoard = currentBoards.get(board.id);
+		if (stored === undefined || !order || !currentBoard) {
+			return undefined;
+		}
+		const contents = serializeBoardFile(board, order);
+		serialized.set(board, { order, contents });
+		return contents === stored ? currentRevision(currentBoard) : undefined;
+	};
+	return { currentRevision, incomingRevision, serialized };
+};
+
 type StoredDesign = {
 	files: DesignFiles;
 	parsed: ParsedDesignFiles;
@@ -1172,12 +1231,15 @@ export class DesignFileService {
 			}
 
 			let plan: DesignWritePlan | null = null;
+			let serialized: SerializedBoards | undefined;
 			if (current?.design) {
+				const revisions = createWriteRevisions(paths, current);
+				serialized = revisions.serialized;
 				plan = this.planWrite(
 					current.design,
 					incoming,
 					revisionCheck,
-					cachedBoardRevisions(paths, current.files, current.parsed.version),
+					revisions,
 				);
 			} else if (
 				current &&
@@ -1199,11 +1261,12 @@ export class DesignFileService {
 			}
 
 			const next = plan?.design ?? incoming;
-			await this.storeDesign(paths, current, next, plan);
+			await this.storeDesign(paths, current, next, plan, serialized);
 			return { design: next, plan };
 		});
 		this.deleteCachedSummary(paths);
-		const parts = getDesignRevisionParts(written.design);
+		const parts =
+			written.plan?.revisions ?? getDesignRevisionParts(written.design);
 		return {
 			...this.describeLocation(paths, "folder"),
 			uuid: designId,
@@ -1228,7 +1291,13 @@ export class DesignFileService {
 		current: TrickroomDesign,
 		incoming: TrickroomDesign,
 		{ expectedRevision, baseRevision }: RevisionCheck,
-		currentRevision?: (board: Node) => DesignBoardRevision | undefined,
+		{
+			currentRevision,
+			incomingRevision,
+		}: Pick<
+			ReturnType<typeof createWriteRevisions>,
+			"currentRevision" | "incomingRevision"
+		>,
 	) {
 		if (expectedRevision === undefined) {
 			return planDesignWrite({
@@ -1238,6 +1307,7 @@ export class DesignFileService {
 					getDesignRevisionParts(current, currentRevision),
 				),
 				currentRevision,
+				incomingRevision,
 			});
 		}
 
@@ -1246,6 +1316,7 @@ export class DesignFileService {
 			current,
 			incoming,
 			currentRevision,
+			incomingRevision,
 			...(baseRevision !== undefined
 				? { base: decodeDesignRevision(baseRevision), expected }
 				: { base: expected }),
@@ -1278,10 +1349,11 @@ export class DesignFileService {
 		current: Awaited<ReturnType<DesignFileService["readForWrite"]>>,
 		next: TrickroomDesign,
 		plan: DesignWritePlan | null,
+		serialized?: SerializedBoards,
 	) {
 		await this.applyOperations(
 			paths,
-			await this.buildStoreOperations(paths, current, next, plan),
+			await this.buildStoreOperations(paths, current, next, plan, serialized),
 		);
 	}
 
@@ -1290,6 +1362,7 @@ export class DesignFileService {
 		current: Awaited<ReturnType<DesignFileService["readForWrite"]>>,
 		next: TrickroomDesign,
 		plan: DesignWritePlan | null,
+		serialized?: SerializedBoards,
 	): Promise<DesignFileOperations> {
 		const operations: DesignFileOperations = { writes: [], unlinks: [] };
 		const incremental =
@@ -1312,9 +1385,13 @@ export class DesignFileService {
 					changed.has(board.id) ||
 					current.parsed.orders.get(board.id) !== key
 				) {
+					const known = serialized?.get(board);
 					operations.writes.push({
 						path: getBoardFilePath(paths, board.id),
-						contents: serializeBoardFile(board, key),
+						contents:
+							known?.order === key
+								? known.contents
+								: serializeBoardFile(board, key),
 					});
 				}
 			}
