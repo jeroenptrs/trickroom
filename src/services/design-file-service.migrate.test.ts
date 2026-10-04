@@ -10,6 +10,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runMigrate } from "../cli/migrate";
 import type { Node } from "../types";
+import {
+	addMemoryNote,
+	readMemoryManifest,
+} from "../utils/memory-manifest-service";
 import { DESIGN_FILE_VERSION } from "./design-file-schema";
 import {
 	createDesignFileService,
@@ -312,6 +316,111 @@ describe("migrating designs to the folder layout", () => {
 				code: 1,
 				stderr: [expect.stringContaining("Unknown option --force")],
 			});
+		});
+	});
+
+	describe("design memory", () => {
+		const scope = (designId: string) => ({ kind: "design", designId }) as const;
+		const addNote = (designId: string, body: string) =>
+			addMemoryNote(projectRoot, scope(designId), { body, category: "intent" });
+		const noteBodies = async (designId: string) =>
+			Object.values(
+				(await readMemoryManifest(projectRoot, scope(designId))).manifest.notes,
+			).map((note) => note.body);
+
+		it("stays next to a legacy design and moves into the folder with it", async () => {
+			await writeLegacy("memo", v1Design);
+			await addNote("memo", "Why this exists");
+			await expect(listTree()).resolves.toEqual([
+				"memo.json",
+				"memo.memory.json",
+			]);
+			const before = await readMemoryManifest(projectRoot, scope("memo"));
+
+			const read = await service.readDesignFile("memo");
+			await service.writeDesignFile(
+				"memo",
+				{ ...read.design, name: "Converted" },
+				{ expectedRevision: read.revision },
+			);
+
+			await expect(listTree()).resolves.toEqual([
+				"memo/boards/c.json",
+				"memo/design.json",
+				"memo/memory.json",
+			]);
+			const after = await readMemoryManifest(projectRoot, scope("memo"));
+			expect(after.revision).toBe(before.revision);
+			expect(after.path).toBe(
+				path.join(service.designsDir, "memo", "memory.json"),
+			);
+		});
+
+		it("reads an old memory file next to a folder design and moves it on the next note", async () => {
+			await service.createDesignFile("late", { name: "Late", boards: [] });
+			await writeFile(
+				path.join(service.designsDir, "late.memory.json"),
+				JSON.stringify(
+					(await readMemoryManifest(projectRoot, scope("late"))).manifest,
+				),
+				"utf8",
+			);
+			await expect(noteBodies("late")).resolves.toEqual([]);
+
+			await addNote("late", "First");
+
+			await expect(noteBodies("late")).resolves.toEqual(["First"]);
+			await expect(listTree()).resolves.toEqual([
+				"late/design.json",
+				"late/memory.json",
+			]);
+		});
+
+		it("merges notes from an old memory file when reconciling", async () => {
+			await service.createDesignFile("notes", { name: "Notes", boards: [] });
+			await addNote("notes", "Folder note");
+			const folderMemory = await readFile(
+				path.join(service.designsDir, "notes", "memory.json"),
+				"utf8",
+			);
+			// Another branch added a note to the old file.
+			const old = JSON.parse(folderMemory);
+			old.notes.note_other = {
+				...(Object.values(old.notes)[0] as object),
+				noteId: "note_other",
+				body: "Old file note",
+			};
+			await writeFile(
+				path.join(service.designsDir, "notes.memory.json"),
+				JSON.stringify(old),
+				"utf8",
+			);
+
+			const result = await service.migrateDesign("notes");
+
+			expect(result).toMatchObject({
+				status: "reconciled",
+				filesRemoved: ["notes.memory.json"],
+				conflictFiles: [],
+			});
+			await expect(noteBodies("notes")).resolves.toEqual([
+				"Folder note",
+				"Old file note",
+			]);
+		});
+
+		it("is removed with its design", async () => {
+			await service.createDesignFile("doomed", { name: "Doomed", boards: [] });
+			await addNote("doomed", "Note");
+			await writeFile(
+				path.join(service.designsDir, "doomed.memory.json"),
+				"{}",
+				"utf8",
+			);
+
+			await service.deleteDesignFile("doomed");
+
+			await expect(listTree()).resolves.toEqual([]);
 		});
 	});
 });

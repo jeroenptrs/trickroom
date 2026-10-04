@@ -3,6 +3,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { TOOL } from "../mcp/tool-names";
 import { writeJsonFileAtomically } from "../server-file-utils.ts";
+import { createDesignFileService } from "../services/design-file-service.ts";
 import {
 	findDesignSystem,
 	resolveDesignSystemFilePath,
@@ -280,7 +281,12 @@ export function sortMemoryNotes<
 async function resolveMemoryLocation(
 	projectRoot: string,
 	scope: MemoryScope,
-): Promise<{ path: string; scopeRef: MemoryScopeRef }> {
+): Promise<{
+	path: string;
+	/** Where to read when `path` does not exist yet (design memory not moved yet). */
+	fallbackPath?: string;
+	scopeRef: MemoryScopeRef;
+}> {
 	if (scope.kind === "project") {
 		return {
 			path: path.join(path.resolve(projectRoot), ".trickroom", "memory.json"),
@@ -295,13 +301,12 @@ async function resolveMemoryLocation(
 				"Design id must be a single path segment.",
 			);
 		}
+		const location = await createDesignFileService(
+			projectRoot,
+		).getDesignMemoryLocation(scope.designId);
 		return {
-			path: path.join(
-				path.resolve(projectRoot),
-				".trickroom",
-				"designs",
-				`${scope.designId}.memory.json`,
-			),
+			path: location.path,
+			...(location.fallbackPath ? { fallbackPath: location.fallbackPath } : {}),
 			scopeRef: { kind: "design", id: scope.designId },
 		};
 	}
@@ -503,13 +508,14 @@ export async function readMemoryManifest(
 	projectRoot: string,
 	scope: MemoryScope,
 ): Promise<MemoryManifestRead> {
-	const { path: manifestPath, scopeRef } = await resolveMemoryLocation(
-		projectRoot,
-		scope,
-	);
+	const {
+		path: manifestPath,
+		fallbackPath,
+		scopeRef,
+	} = await resolveMemoryLocation(projectRoot, scope);
 
 	try {
-		const contents = await readFile(manifestPath, "utf8");
+		const contents = await readMemoryContents(manifestPath, fallbackPath);
 		const manifest = parseMemoryManifestContents(
 			contents,
 			scopeRef,
@@ -540,6 +546,24 @@ export async function readMemoryManifest(
 		throw error;
 	}
 }
+
+/** Reads a memory file, or its older location when it has not moved yet. */
+const readMemoryContents = async (
+	manifestPath: string,
+	fallbackPath: string | undefined,
+) => {
+	try {
+		return await readFile(manifestPath, "utf8");
+	} catch (error) {
+		if (
+			fallbackPath === undefined ||
+			(error as NodeJS.ErrnoException).code !== "ENOENT"
+		) {
+			throw error;
+		}
+		return readFile(fallbackPath, "utf8");
+	}
+};
 
 const memoryWriteQueues = new Map<string, Promise<unknown>>();
 
@@ -581,16 +605,27 @@ async function mutateMemoryManifest(
 	options: { expectedRevision?: string; now?: string; noteId?: string },
 	mutate: (manifest: MemoryManifest, now: string) => MemoryManifest,
 ): Promise<MemoryManifestRead> {
-	const { path: manifestPath, scopeRef } = await resolveMemoryLocation(
-		projectRoot,
-		scope,
-	);
+	const location = await resolveMemoryLocation(projectRoot, scope);
+	const { scopeRef } = location;
 
-	return runExclusiveMemoryWrite(manifestPath, async () => {
+	// Design memory belongs to the design: its writes take the design's lock
+	// (shared with the design files) and re-resolve where the memory lives
+	// under it, since a concurrent design write may just have moved it.
+	const designService =
+		scope.kind === "design" ? createDesignFileService(projectRoot) : null;
+	const runExclusive = <T>(operation: () => Promise<T>) =>
+		designService && scope.kind === "design"
+			? designService.withDesignLock(scope.designId, operation)
+			: runExclusiveMemoryWrite(location.path, operation);
+
+	return runExclusive(async () => {
+		const { path: manifestPath, fallbackPath } = designService
+			? await resolveMemoryLocation(projectRoot, scope)
+			: location;
 		let current: MemoryManifest;
 		let currentRevision: MemoryManifestRevision;
 		try {
-			const contents = await readFile(manifestPath, "utf8");
+			const contents = await readMemoryContents(manifestPath, fallbackPath);
 			current = parseMemoryManifestContents(contents, scopeRef, manifestPath);
 			currentRevision = memoryManifestRevision(contents);
 		} catch (error) {
@@ -658,8 +693,12 @@ async function mutateMemoryManifest(
 		const normalized = normalizeMemoryManifest(next, scopeRef, manifestPath);
 		const contents = serializeMemoryManifest(normalized);
 
-		await mkdir(path.dirname(manifestPath), { recursive: true });
-		await writeJsonFileAtomically(manifestPath, normalized);
+		if (designService && scope.kind === "design") {
+			await designService.writeDesignMemoryLocked(scope.designId, contents);
+		} else {
+			await mkdir(path.dirname(manifestPath), { recursive: true });
+			await writeJsonFileAtomically(manifestPath, normalized);
+		}
 
 		return {
 			manifest: normalized,

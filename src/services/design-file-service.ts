@@ -862,6 +862,40 @@ export class DesignFileService {
 		DesignFileService.summaryCache.delete(paths.folder);
 	}
 
+	/**
+	 * Where a design's memory notes live: `<id>/memory.json` once the design
+	 * uses the folder layout (falling back to the older `<id>.memory.json`
+	 * while that has not moved yet), `<id>.memory.json` before.
+	 */
+	async getDesignMemoryLocation(designId: string) {
+		const paths = this.getDesignPaths(designId);
+		const state = await inspectDesignStorage(paths);
+		return state.folder || state.journal
+			? { path: paths.memory, fallbackPath: paths.legacyMemory }
+			: { path: paths.legacyMemory, fallbackPath: null };
+	}
+
+	/**
+	 * Writes a design's memory file while holding the design lock (call it
+	 * from inside `withDesignLock`). Writing the folder location removes the
+	 * older `<id>.memory.json` in the same journaled step.
+	 */
+	async writeDesignMemoryLocked(designId: string, contents: string) {
+		const paths = this.getDesignPaths(designId);
+		const location = await this.getDesignMemoryLocation(designId);
+		await commitDesignOperations(
+			paths,
+			{
+				writes: [{ path: location.path, contents }],
+				unlinks:
+					location.fallbackPath && (await pathExists(location.fallbackPath))
+						? [location.fallbackPath]
+						: [],
+			},
+			this.journalHooks,
+		);
+	}
+
 	/** Ids of every design in `designs/`, in either layout, readable or not. */
 	async listDesignIds() {
 		let directoryEntries: Dirent<string>[];
@@ -1207,6 +1241,10 @@ export class DesignFileService {
 			}
 			if (current?.files.layout === "legacy") {
 				operations.unlinks.push(paths.legacy);
+				// Design memory moves into the folder with the design.
+				const memory = await planDesignMemoryMove(paths);
+				operations.writes.push(...memory.writes);
+				operations.unlinks.push(...memory.unlinks);
 			}
 		}
 
@@ -1329,7 +1367,10 @@ export class DesignFileService {
 					stored.design,
 					null,
 				);
-			} else if (files.legacyPresent) {
+			} else if (
+				files.legacyPresent ||
+				(await pathExists(paths.legacyMemory))
+			) {
 				const reconciled = await this.planReconcile(paths, stored);
 				if ("reason" in reconciled) {
 					return {
@@ -1384,6 +1425,14 @@ export class DesignFileService {
 	 * `migrateDesign`).
 	 */
 	private async planReconcile(paths: DesignPaths, folder: StoredDesign) {
+		if (!(await pathExists(paths.legacy))) {
+			// Only the old memory file is left next to the folder.
+			return {
+				design: folder.design,
+				operations: await planDesignMemoryMove(paths),
+				addedBoardIds: [] as string[],
+			};
+		}
 		let legacy: TrickroomDesign;
 		try {
 			const value = parseJson(
@@ -1493,6 +1542,9 @@ export class DesignFileService {
 			});
 		}
 		operations.unlinks.push(paths.legacy);
+		const memory = await planDesignMemoryMove(paths, conflictPath);
+		operations.writes.push(...memory.writes);
+		operations.unlinks.push(...memory.unlinks);
 		return { design, operations, addedBoardIds: addedIds };
 	}
 
@@ -1560,6 +1612,7 @@ export class DesignFileService {
 			// The legacy file goes first and the folder disappears in one rename,
 			// so an interrupted delete leaves a whole design, never part of one.
 			await unlinkIfPresent(paths.legacy);
+			await unlinkIfPresent(paths.legacyMemory);
 			const trash = path.join(
 				this.designsDir,
 				`.${designId}.deleted-${randomUUID()}`,
@@ -1577,6 +1630,86 @@ export class DesignFileService {
 		this.deleteCachedSummary(paths);
 	}
 }
+
+const pathExists = (filePath: string) =>
+	stat(filePath).then(
+		() => true,
+		() => false,
+	);
+
+const readTextOrNull = (filePath: string) =>
+	readFile(filePath, "utf8").catch((error: NodeJS.ErrnoException) => {
+		if (error.code === "ENOENT") return null;
+		throw error;
+	});
+
+/**
+ * Moves `<id>.memory.json` into `<id>/memory.json`. When both exist (for
+ * example after a merge), notes only the old file has are added, and the old
+ * file is saved as a conflict when a note differs or it cannot be merged.
+ */
+const planDesignMemoryMove = async (
+	paths: DesignPaths,
+	conflictPath: (name: string) => string = (name) =>
+		path.join(paths.conflicts, `${name}.json`),
+): Promise<DesignFileOperations> => {
+	const legacy = await readTextOrNull(paths.legacyMemory);
+	if (legacy === null) {
+		return { writes: [], unlinks: [] };
+	}
+	const unlinks = [paths.legacyMemory];
+	const current = await readTextOrNull(paths.memory);
+	if (current === null) {
+		return { writes: [{ path: paths.memory, contents: legacy }], unlinks };
+	}
+
+	const parseNotes = (contents: string) => {
+		try {
+			const value: unknown = JSON.parse(contents);
+			return isRecord(value) && isRecord(value.notes)
+				? { value, notes: value.notes }
+				: null;
+		} catch {
+			return null;
+		}
+	};
+	const legacyManifest = parseNotes(legacy);
+	const currentManifest = parseNotes(current);
+	if (!legacyManifest || !currentManifest) {
+		return {
+			writes: [{ path: conflictPath("memory"), contents: legacy }],
+			unlinks,
+		};
+	}
+	const added: Record<string, unknown> = {};
+	let conflicting = false;
+	for (const [noteId, note] of Object.entries(legacyManifest.notes)) {
+		if (!(noteId in currentManifest.notes)) {
+			added[noteId] = note;
+		} else if (!isDeepStrictEqual(currentManifest.notes[noteId], note)) {
+			conflicting = true;
+		}
+	}
+	return {
+		writes: [
+			...(Object.keys(added).length > 0
+				? [
+						{
+							path: paths.memory,
+							contents: serializeJson({
+								...currentManifest.value,
+								notes: { ...currentManifest.notes, ...added },
+							}),
+						},
+					]
+				: []),
+			...(conflicting
+				? [{ path: conflictPath("memory"), contents: legacy }]
+				: []),
+		],
+		unlinks,
+	};
+};
 
 const collectNodeIds = (node: Node, ids: Set<string>) => {
 	const stack = [node];
