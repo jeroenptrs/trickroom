@@ -43,4 +43,14 @@ describe("resolveTrickroomCommand", () => {
 			resolveTrickroomCommand(["node", "trickroom", "/project"]),
 		).toThrow('Use "trickroom serve [project]"');
 	});
+	it("selects install-browser and forwards its options", () => {
+		expect(
+			resolveTrickroomCommand([
+				"node",
+				"trickroom",
+				"install-browser",
+				"--with-deps",
+			]),
+		).toEqual({ command: "install-browser", args: ["--with-deps"] });
+	});
 });

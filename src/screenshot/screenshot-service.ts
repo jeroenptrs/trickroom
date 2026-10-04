@@ -1,7 +1,15 @@
-import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Browser, BrowserType } from "playwright-core";
+import {
+	getTrickroomSettingsPath,
+	readTrickroomSettings,
+} from "../app-state/settings";
+import {
+	type BrowserDetectionHost,
+	listBrowserCandidates,
+	nodeBrowserDetectionHost,
+} from "./browser-detection";
 import {
 	resolveScreenshotViewport,
 	type ScreenshotRequest,
@@ -9,6 +17,10 @@ import {
 } from "./types";
 
 const CAPTURE_TIMEOUT_MS = 30_000;
+const LAUNCH_TIMEOUT_MS = 20_000;
+
+/** The command agents and users run when no browser can be launched. */
+export const INSTALL_BROWSER_COMMAND = "npx trickroom install-browser";
 const MAX_VIEWPORT_WIDTH = 3840;
 const MAX_VIEWPORT_HEIGHT = 2160;
 const MAX_VIEWPORT_PIXELS = 16_000_000;
@@ -41,8 +53,7 @@ export type CaptureScreenshotOptions = {
 
 type PlaywrightRuntime = typeof import("playwright-core");
 
-let sharedBrowser: Browser | null = null;
-let sharedBrowserKey: string | null = null;
+let sharedBrowser: Promise<{ browser: Browser; key: string }> | null = null;
 
 async function loadPlaywrightCore(): Promise<PlaywrightRuntime> {
 	try {
@@ -50,7 +61,7 @@ async function loadPlaywrightCore(): Promise<PlaywrightRuntime> {
 	} catch {
 		throw new ScreenshotServiceError(
 			"SCREENSHOT_RUNTIME_MISSING",
-			"Screenshotting requires the optional playwright-core peer dependency. Install it in the project running Trickroom, then install Chrome/Chromium or set TRICKROOM_CHROME_PATH.",
+			`Screenshotting requires the optional playwright-core peer dependency. Install it in the project running Trickroom (for example \`npm install -D playwright-core\`), then run \`${INSTALL_BROWSER_COMMAND}\` if no Chrome/Chromium is installed.`,
 		);
 	}
 }
@@ -58,53 +69,108 @@ async function loadPlaywrightCore(): Promise<PlaywrightRuntime> {
 async function tryLaunch(
 	chromium: BrowserType,
 	options: Parameters<BrowserType["launch"]>[0],
-) {
+): Promise<{ browser: Browser } | { error: string }> {
 	try {
-		return await chromium.launch({ headless: true, ...options });
-	} catch {
-		return null;
+		return {
+			browser: await chromium.launch({
+				headless: true,
+				timeout: LAUNCH_TIMEOUT_MS,
+				...options,
+			}),
+		};
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return { error: message.split("\n")[0] ?? message };
 	}
+}
+
+type ConfiguredExecutable = { path: string; source: string };
+
+async function readConfiguredExecutablePath(
+	explicitExecutablePath?: string,
+): Promise<ConfiguredExecutable | null> {
+	const explicit = explicitExecutablePath?.trim();
+	if (explicit) return { path: explicit, source: "executablePath" };
+	const env = process.env.TRICKROOM_CHROME_PATH?.trim();
+	if (env) return { path: env, source: "TRICKROOM_CHROME_PATH" };
+	try {
+		const settings = await readTrickroomSettings();
+		const fromSettings = settings.screenshot?.executablePath?.trim();
+		if (fromSettings) {
+			return {
+				path: fromSettings,
+				source: `screenshot.executablePath in ${getTrickroomSettingsPath()}`,
+			};
+		}
+	} catch {
+		// An unreadable settings file must not block screenshots; fall through
+		// to detection.
+	}
+	return null;
+}
+
+function describeNoBrowser(tried: string[]) {
+	return [
+		"No Chrome/Chromium could be launched for screenshots.",
+		`Fix it once: run \`${INSTALL_BROWSER_COMMAND}\` in the project (downloads Playwright's Chromium), or save an installed browser with \`${INSTALL_BROWSER_COMMAND} --executable-path <path>\` (stored as screenshot.executablePath in ${getTrickroomSettingsPath()}).`,
+		tried.length > 0
+			? `Tried: ${tried.join("; ")}.`
+			: `Looked in the Playwright cache, system install paths and the chrome/msedge channels.`,
+	].join(" ");
 }
 
 async function launchBrowser(
 	playwright: PlaywrightRuntime,
-	explicitExecutablePath?: string,
+	configured: ConfiguredExecutable | null,
+	host: BrowserDetectionHost = nodeBrowserDetectionHost(),
 ): Promise<{ browser: Browser; key: string }> {
-	const configuredPath =
-		explicitExecutablePath?.trim() || process.env.TRICKROOM_CHROME_PATH?.trim();
-	if (configuredPath) {
-		if (!existsSync(configuredPath)) {
+	if (configured) {
+		if (!host.exists(configured.path)) {
 			throw new ScreenshotServiceError(
 				"CHROME_NOT_FOUND",
-				`Chrome executable was not found at "${configuredPath}".`,
+				`Chrome executable from ${configured.source} was not found at "${configured.path}". Fix the path, or run \`${INSTALL_BROWSER_COMMAND}\`.`,
 			);
 		}
-		const browser = await tryLaunch(playwright.chromium, {
-			executablePath: configuredPath,
+		const launched = await tryLaunch(playwright.chromium, {
+			executablePath: configured.path,
 		});
-		if (browser) return { browser, key: configuredPath };
+		if ("browser" in launched) {
+			return { browser: launched.browser, key: configured.path };
+		}
 		throw new ScreenshotServiceError(
 			"CHROME_NOT_FOUND",
-			`Chrome could not be launched from "${configuredPath}".`,
+			`Chrome from ${configured.source} ("${configured.path}") could not be launched: ${launched.error}`,
 		);
 	}
 
-	const bundledPath = playwright.chromium.executablePath();
-	if (bundledPath && existsSync(bundledPath)) {
-		const browser = await tryLaunch(playwright.chromium, {
-			executablePath: bundledPath,
-		});
-		if (browser) return { browser, key: bundledPath };
+	let bundledPath: string | null = null;
+	try {
+		bundledPath = playwright.chromium.executablePath();
+	} catch {
+		bundledPath = null;
 	}
-
-	for (const channel of ["chrome", "msedge"] as const) {
-		const browser = await tryLaunch(playwright.chromium, { channel });
-		if (browser) return { browser, key: `channel:${channel}` };
+	const tried: string[] = [];
+	for (const candidate of listBrowserCandidates(host, bundledPath)) {
+		const launched = await tryLaunch(
+			playwright.chromium,
+			"channel" in candidate
+				? { channel: candidate.channel }
+				: { executablePath: candidate.executablePath },
+		);
+		const key =
+			"channel" in candidate
+				? `channel:${candidate.channel}`
+				: candidate.executablePath;
+		if ("browser" in launched) return { browser: launched.browser, key };
+		// Channels that are simply not installed are not worth reporting.
+		if (!("channel" in candidate)) {
+			tried.push(`${key} (${candidate.source}: ${launched.error})`);
+		}
 	}
 
 	throw new ScreenshotServiceError(
 		"CHROME_NOT_FOUND",
-		"No compatible Chrome/Chromium installation was found. Install one with `npx playwright-core install chromium`, set TRICKROOM_CHROME_PATH, or pass executablePath.",
+		describeNoBrowser(tried),
 	);
 }
 
@@ -112,25 +178,37 @@ async function getBrowser(
 	playwright: PlaywrightRuntime,
 	executablePath?: string,
 ): Promise<Browser> {
-	const requestedKey =
-		executablePath?.trim() || process.env.TRICKROOM_CHROME_PATH?.trim() || null;
-	if (
-		sharedBrowser?.isConnected() &&
-		(requestedKey === null || sharedBrowserKey === requestedKey)
-	) {
-		return sharedBrowser;
+	const configured = await readConfiguredExecutablePath(executablePath);
+	for (;;) {
+		const current = sharedBrowser;
+		if (!current) break;
+		const launched = await current.catch(() => null);
+		// Another capture replaced the browser while this one waited.
+		if (sharedBrowser !== current) continue;
+		if (
+			launched?.browser.isConnected() &&
+			(!configured || launched.key === configured.path)
+		) {
+			return launched.browser;
+		}
+		sharedBrowser = null;
+		await launched?.browser.close().catch(() => undefined);
+		break;
 	}
-	if (sharedBrowser) await sharedBrowser.close().catch(() => undefined);
-	const launched = await launchBrowser(playwright, executablePath);
-	sharedBrowser = launched.browser;
-	sharedBrowserKey = launched.key;
-	return launched.browser;
+	// Set synchronously so concurrent captures share one launch.
+	const launch = launchBrowser(playwright, configured);
+	sharedBrowser = launch;
+	launch.catch(() => {
+		if (sharedBrowser === launch) sharedBrowser = null;
+	});
+	return (await launch).browser;
 }
 
 export async function closeScreenshotBrowser() {
-	if (sharedBrowser) await sharedBrowser.close().catch(() => undefined);
+	const current = sharedBrowser;
 	sharedBrowser = null;
-	sharedBrowserKey = null;
+	const launched = await current?.catch(() => null);
+	await launched?.browser.close().catch(() => undefined);
 }
 
 function validateRequest(request: ScreenshotRequest) {

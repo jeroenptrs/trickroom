@@ -156,4 +156,39 @@ describe("trickroom app settings", () => {
 		);
 		expect(onDisk.server).toEqual({ publicHost: "devbox.local" });
 	});
+	it("reads and preserves screenshot.executablePath", async () => {
+		const trickroomHome = await createHome();
+		const screenshot = { executablePath: "/usr/bin/chromium" };
+		await writeRawSettings(trickroomHome, {
+			...createDefaultTrickroomSettings(),
+			server: { publicHost: "devbox.local" },
+			screenshot,
+		});
+
+		expect((await readTrickroomSettings(trickroomHome)).screenshot).toEqual(
+			screenshot,
+		);
+		await updateMcpToolGroupSettings({ designWrite: false }, trickroomHome);
+		const onDisk = JSON.parse(
+			await readFile(getTrickroomSettingsPath(trickroomHome), "utf8"),
+		);
+		expect(onDisk.screenshot).toEqual(screenshot);
+		expect(onDisk.server).toEqual({ publicHost: "devbox.local" });
+	});
+
+	it.each([
+		["a string", "/usr/bin/chromium"],
+		["a non-string executablePath", { executablePath: 42 }],
+		["an unknown key", { executablePath: "/usr/bin/chromium", scale: 1 }],
+	])("rejects a screenshot section with %s", async (_label, screenshot) => {
+		const trickroomHome = await createHome();
+		await writeRawSettings(trickroomHome, {
+			...createDefaultTrickroomSettings(),
+			screenshot,
+		});
+
+		await expect(readTrickroomSettings(trickroomHome)).rejects.toBeInstanceOf(
+			TrickroomSettingsError,
+		);
+	});
 });

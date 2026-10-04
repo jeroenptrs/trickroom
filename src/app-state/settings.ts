@@ -17,6 +17,7 @@ export type TrickroomSettings = {
 		toolGroups: McpToolGroupSettings;
 	};
 	server?: TrickroomServerSettings;
+	screenshot?: TrickroomScreenshotSettings;
 };
 
 export type TrickroomServerSettings = {
@@ -24,6 +25,11 @@ export type TrickroomServerSettings = {
 	publicHost?: string;
 	/** Base URL printed and opened by `trickroom serve`; wins over `publicHost`. */
 	publicUrl?: string;
+};
+
+export type TrickroomScreenshotSettings = {
+	/** Chrome/Chromium used by MCP screenshots when no per-call path or env var is set. */
+	executablePath?: string;
 };
 
 export class TrickroomSettingsError extends Error {
@@ -62,6 +68,14 @@ const isTrickroomServerSettings = (
 			typeof entry === "string",
 	);
 
+const isTrickroomScreenshotSettings = (
+	value: unknown,
+): value is TrickroomScreenshotSettings =>
+	isRecord(value) &&
+	Object.entries(value).every(
+		([key, entry]) => key === "executablePath" && typeof entry === "string",
+	);
+
 export const isTrickroomSettings = (
 	value: unknown,
 ): value is TrickroomSettings =>
@@ -69,7 +83,9 @@ export const isTrickroomSettings = (
 	value.version === 1 &&
 	isRecord(value.mcp) &&
 	isMcpToolGroupSettings(value.mcp.toolGroups) &&
-	(value.server === undefined || isTrickroomServerSettings(value.server));
+	(value.server === undefined || isTrickroomServerSettings(value.server)) &&
+	(value.screenshot === undefined ||
+		isTrickroomScreenshotSettings(value.screenshot));
 
 const normalizeTrickroomSettings = (
 	settings: TrickroomSettings,
@@ -79,6 +95,7 @@ const normalizeTrickroomSettings = (
 		toolGroups: normalizeMcpToolGroupSettings(settings.mcp.toolGroups),
 	},
 	...(settings.server ? { server: { ...settings.server } } : {}),
+	...(settings.screenshot ? { screenshot: { ...settings.screenshot } } : {}),
 });
 
 export const readTrickroomSettings = async (

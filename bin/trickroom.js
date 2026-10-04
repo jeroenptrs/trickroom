@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import { hostname } from "node:os";
 import { resolveTrickroomCommand } from "./cli-command.js";
+import { runInstallBrowser } from "./install-browser.js";
 import { setInitialProjectRoot } from "./project-root.js";
 import { configureServerOptions, isWildcardHost } from "./server-options.js";
 
@@ -138,4 +139,6 @@ if (command?.command === "mcp") {
 	await runMcp();
 } else if (command?.command === "serve") {
 	await runServer(command.argv);
+} else if (command?.command === "install-browser") {
+	process.exitCode = await runInstallBrowser(command.args);
 }
