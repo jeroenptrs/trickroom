@@ -144,4 +144,7 @@ if (command?.command === "mcp") {
 } else if (command?.command === "migrate") {
 	const runtime = await import("../dist/migrate.js");
 	process.exitCode = await runtime.main(command.args);
+} else if (command?.command === "feedback") {
+	const runtime = await import("../dist/feedback.js");
+	process.exitCode = await runtime.main(command.args);
 }

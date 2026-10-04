@@ -55,6 +55,19 @@ describe("resolveTrickroomCommand", () => {
 		).toEqual({ command: "migrate", args: ["/project", "--dry-run"] });
 	});
 
+	it("selects feedback and forwards its options", () => {
+		expect(
+			resolveTrickroomCommand([
+				"node",
+				"trickroom",
+				"feedback",
+				"--since",
+				"7d",
+				"--calls",
+			]),
+		).toEqual({ command: "feedback", args: ["--since", "7d", "--calls"] });
+	});
+
 	it("selects install-browser and forwards its options", () => {
 		expect(
 			resolveTrickroomCommand([
