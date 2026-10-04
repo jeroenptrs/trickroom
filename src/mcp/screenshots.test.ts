@@ -3,12 +3,17 @@ import path from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ScreenshotRequest } from "../screenshot/types";
+import {
+	resolveScreenshotViewport,
+	type ScreenshotRequest,
+} from "../screenshot/types";
+import type { TrickroomDesign } from "../types";
 import {
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	trickroomMcpTestDesign,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
 
@@ -22,7 +27,11 @@ describe("MCP screenshot tools", () => {
 	});
 
 	async function open(
-		options: { readOnly?: boolean; auditLog?: boolean } = {},
+		options: {
+			readOnly?: boolean;
+			auditLog?: boolean;
+			designs?: Record<string, TrickroomDesign>;
+		} = {},
 	) {
 		const fixture = await createTrickroomMcpProjectFixture({
 			config: {
@@ -32,6 +41,7 @@ describe("MCP screenshot tools", () => {
 					auditLog: options.auditLog,
 				},
 			},
+			...(options.designs ? { designs: options.designs } : {}),
 		});
 		fixtures.push(fixture);
 		const requests: ScreenshotRequest[] = [];
@@ -40,22 +50,34 @@ describe("MCP screenshot tools", () => {
 			{
 				serverOptions: {
 					screenshotCapture: async (_context, request) => {
-						requests.push({ ...request });
+						requests.push(structuredClone(request));
+						const shots = request.shots ?? [
+							{ viewport: request.viewport, theme: request.theme },
+						];
 						return {
-							mimeType: "image/png",
-							base64: Buffer.from("test-png").toString("base64"),
-							bytes: 8,
-							width: 320,
-							height: 200,
-							designFileId: request.designFileId,
-							boardId: request.boardId ?? "board",
-							...(request.nodeId ? { nodeId: request.nodeId } : {}),
-							theme: request.theme ?? "light",
-							...(request.outputPath
-								? {
-										path: path.resolve(fixture.projectRoot, request.outputPath),
-									}
+							...(request.designFileId
+								? { designFileId: request.designFileId }
 								: {}),
+							boardId: request.boardId ?? "component",
+							...(request.nodeId ? { nodeId: request.nodeId } : {}),
+							captures: shots.map((shot) => ({
+								mimeType: "image/png" as const,
+								base64: Buffer.from("test-png").toString("base64"),
+								bytes: 8,
+								width: 320,
+								height: 200,
+								viewport: resolveScreenshotViewport(shot.viewport),
+								theme: shot.theme ?? "light",
+								scale: request.scale ?? 1,
+								...(request.outputPath
+									? {
+											path: path.resolve(
+												fixture.projectRoot,
+												request.outputPath,
+											),
+										}
+									: {}),
+							})),
 						};
 					},
 				},
@@ -94,10 +116,18 @@ describe("MCP screenshot tools", () => {
 			{
 				designFileId: trickroomMcpTestDesignUuid,
 				boardId: "board",
-				viewport: "mobile",
-				theme: "dark",
+				shots: [{ viewport: "mobile", theme: "dark" }],
+				scale: 0.5,
 			},
 		]);
+		// One short text block and the image: no JSON payload.
+		expect(result.content.map((item) => item.type)).toEqual(["text", "image"]);
+		expect(result.structuredContent).toBeUndefined();
+		const text =
+			result.content[0]?.type === "text" ? result.content[0].text : "";
+		expect(text).toContain("Harness Design");
+		expect(text).toContain("Board · mobile 390x844 · dark · 320x200px");
+		expect(text).not.toContain("base64");
 	});
 
 	it("infers the containing board for a node crop", async () => {
@@ -114,7 +144,11 @@ describe("MCP screenshot tools", () => {
 		)) as CallToolResult;
 
 		expect(result.isError).not.toBe(true);
-		expect(requests[0]).toMatchObject({ boardId: "board", nodeId: "title" });
+		expect(requests[0]).toMatchObject({
+			boardId: "board",
+			nodeId: "title",
+			scale: 1,
+		});
 	});
 
 	it("allows inline capture in read-only mode but governs persisted output", async () => {
@@ -163,5 +197,162 @@ describe("MCP screenshot tools", () => {
 				code: "MCP_READ_ONLY",
 			},
 		]);
+	});
+	const twoBoardDesignUuid = "00000000-0000-4000-8000-000000000002";
+	const twoBoardDesign = {
+		...trickroomMcpTestDesign,
+		name: "Two boards",
+		boards: [
+			...trickroomMcpTestDesign.boards,
+			{
+				id: "second",
+				props: {
+					"data-trickroom-name": "Second board",
+					"data-trickroom-library": "trickroom",
+					"data-trickroom-component": "container",
+				},
+				children: [],
+			},
+		],
+	} satisfies TrickroomDesign;
+
+	const callScreenshot = async (
+		session: TrickroomMcpClientSession,
+		name: string,
+		args: Record<string, unknown>,
+	) =>
+		(await session.client.callTool(
+			{ name, arguments: args },
+			CallToolResultSchema,
+		)) as CallToolResult;
+
+	it("captures several viewports and themes of a board in one request", async () => {
+		const { session, requests } = await open();
+		const result = await callScreenshot(session, "screenshotBoard", {
+			designFileId: trickroomMcpTestDesignUuid,
+			boardId: "board",
+			viewport: ["mobile", 1280],
+			theme: ["light", "dark"],
+			scale: 1,
+		});
+
+		expect(result.isError).not.toBe(true);
+		expect(requests).toHaveLength(1);
+		expect(requests[0]?.shots).toEqual([
+			{ viewport: "mobile", theme: "light" },
+			{ viewport: 1280, theme: "light" },
+			{ viewport: "mobile", theme: "dark" },
+			{ viewport: 1280, theme: "dark" },
+		]);
+		expect(result.content.map((item) => item.type)).toEqual([
+			"text",
+			...Array.from({ length: 4 }, () => ["text", "image"]).flat(),
+		]);
+		expect(result.content[1]).toMatchObject({
+			type: "text",
+			text: "[1] Board · mobile 390x844 · light · 320x200px",
+		});
+		expect(result.content[7]).toMatchObject({
+			type: "text",
+			text: "[4] Board · 1280x900 · dark · 320x200px",
+		});
+	});
+
+	it('captures every board with boardId "all" and suffixes output paths', async () => {
+		const { session, requests } = await open({
+			designs: { [twoBoardDesignUuid]: twoBoardDesign },
+		});
+		const result = await callScreenshot(session, "screenshotBoard", {
+			designFileId: twoBoardDesignUuid,
+			boardId: "all",
+			viewport: 1024,
+			outputPath: "captures/review.png",
+		});
+
+		expect(result.isError).not.toBe(true);
+		expect(requests.map((request) => request.boardId)).toEqual([
+			"board",
+			"second",
+		]);
+		expect(requests.map((request) => request.outputPath)).toEqual([
+			"captures/review-Board.png",
+			"captures/review-Second-board.png",
+		]);
+		expect(result.content.filter((item) => item.type === "image")).toHaveLength(
+			2,
+		);
+	});
+
+	it("reports an unknown board in a list with the available boards", async () => {
+		const { session, requests } = await open({
+			designs: { [twoBoardDesignUuid]: twoBoardDesign },
+		});
+		const result = await callScreenshot(session, "screenshotBoard", {
+			designFileId: twoBoardDesignUuid,
+			boardId: ["board", "missing"],
+		});
+
+		expect(result.isError).toBe(true);
+		expect(requests).toHaveLength(0);
+		expect(JSON.stringify(result.content)).toContain("BOARD_NOT_FOUND");
+		expect(JSON.stringify(result.content)).toContain("second");
+	});
+
+	it("bounds the number of images per call", async () => {
+		const { session, requests } = await open({
+			designs: { [twoBoardDesignUuid]: twoBoardDesign },
+		});
+		const result = await callScreenshot(session, "screenshotBoard", {
+			designFileId: twoBoardDesignUuid,
+			boardId: "all",
+			viewport: ["mobile", "tablet", "desktop", 1280],
+			theme: ["light", "dark"],
+		});
+
+		expect(result.isError).toBe(true);
+		expect(JSON.stringify(result.content)).toContain("TOO_MANY_SCREENSHOTS");
+		expect(requests).toHaveLength(0);
+	});
+
+	it("passes render warnings and crops through briefly", async () => {
+		const fixture = await createTrickroomMcpProjectFixture();
+		fixtures.push(fixture);
+		const session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+			{
+				serverOptions: {
+					screenshotCapture: async () => ({
+						boardId: "board",
+						captures: [
+							{
+								mimeType: "image/png",
+								base64: "cG5n",
+								bytes: 3,
+								width: 720,
+								height: 900,
+								viewport: { width: 1440, height: 900 },
+								theme: "light",
+								scale: 0.5,
+								cropped: { cssHeight: 4200, capturedCssHeight: 1800 },
+								warnings: [
+									"OVERLAY_CLIPPED: an open overlay extends past the captured area, so part of it is not in the image.",
+								],
+							},
+						],
+					}),
+				},
+			},
+		);
+		sessions.push(session);
+		const result = await callScreenshot(session, "screenshotBoard", {
+			designFileId: trickroomMcpTestDesignUuid,
+			boardId: "board",
+		});
+		const text =
+			result.content[0]?.type === "text" ? result.content[0].text : "";
+
+		expect(text).toContain("cropped to top 1800 of 4200 CSS px");
+		expect(text).toContain("Warnings: OVERLAY_CLIPPED");
+		expect(text).toContain("pass maxHeight");
 	});
 });
