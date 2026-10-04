@@ -63,7 +63,7 @@ describe("stage shell canvas boards", () => {
 
 	it("makes each board the containing block for its fixed overlays", () => {
 		expect(shellHtml).toMatch(
-			/\.frame-content > main > \[data-trickroom-root-id\]\s*\{\s*contain: layout;/,
+			/\.frame-content > main > \[data-trickroom-root-id\],\s*\[data-trickroom-draft-board\]\s*\{\s*contain: layout;/,
 		);
 	});
 

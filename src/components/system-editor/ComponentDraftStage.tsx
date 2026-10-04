@@ -23,6 +23,10 @@ import {
 	type RenderableRegistryComponentDefinition,
 	resolveRenderableRegistryComponent,
 } from "../../libraries/render-registry";
+import {
+	StageBoardPortalContext,
+	useStageBoardPortal,
+} from "../../libraries/stage-portal";
 import { DesignSystemRenderContext } from "../../libraries/trickroom/render-context";
 import {
 	getStagePreviewContainerClassName,
@@ -167,6 +171,13 @@ export function SerializedDraftNode({ path }: { path: string }): ReactNode {
 	);
 }
 
+/**
+ * The draft board. Like a design board on the canvas, its content area is the
+ * containing block and portal target for the draft's own overlays, so an open
+ * dialog centres on the board instead of the editor pane. The board sits on a
+ * pannable canvas next to editor chrome, so overlays use the canvas
+ * (non-modal) behaviour.
+ */
 function ComponentDraftBoard({
 	componentName,
 	previewDarkMode,
@@ -175,6 +186,7 @@ function ComponentDraftBoard({
 	previewDarkMode: boolean;
 }) {
 	const rootPath = useComponentDraftRootPath();
+	const { value: boardPortal, host: portalHost } = useStageBoardPortal(true);
 
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: clicking empty board space clears the draft node selection.
@@ -187,9 +199,15 @@ function ComponentDraftBoard({
 			<header className="flex h-9 shrink-0 items-center border-b border-slate-200 px-3 text-[11px] font-medium text-slate-500">
 				{componentName}
 			</header>
-			<div className="flex min-h-0 flex-1 items-center justify-center p-10">
-				{rootPath ? <SerializedDraftNode path={rootPath} /> : null}
-			</div>
+			<StageBoardPortalContext.Provider value={boardPortal}>
+				<div
+					className="flex min-h-0 flex-1 items-center justify-center p-10"
+					data-trickroom-draft-board=""
+				>
+					{portalHost}
+					{rootPath ? <SerializedDraftNode path={rootPath} /> : null}
+				</div>
+			</StageBoardPortalContext.Provider>
 		</section>
 	);
 }

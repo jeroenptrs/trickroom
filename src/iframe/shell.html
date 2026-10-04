@@ -44,9 +44,11 @@
          * Each board is the containing block for its fixed descendants, so
          * overlays portalled into the board (and fixed layers authored in it)
          * position against the board rather than the shared iframe viewport,
-         * and pan and zoom with it. Layout containment does not clip.
+         * and pan and zoom with it. Layout containment does not clip. The
+         * component draft stage marks its board's content area the same way.
          */
-        .frame-content > main > [data-trickroom-root-id] {
+        .frame-content > main > [data-trickroom-root-id],
+        [data-trickroom-draft-board] {
           contain: layout;
         }
       }
