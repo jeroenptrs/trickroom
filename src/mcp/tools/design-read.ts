@@ -30,6 +30,7 @@ import type { TrickroomMcpProjectRef } from "../project-resolver";
 import { TOOL } from "../tool-names";
 import {
 	ALWAYS_LOAD_META_KEY,
+	MAX_RESULT_SIZE_META_KEY,
 	mutationAnnotations,
 	readOnlyClosedWorldAnnotations,
 	SEARCH_HINT_META_KEY,
@@ -123,6 +124,9 @@ export const registerDesignReadTools = (ctx: McpToolContext) => {
 				[ALWAYS_LOAD_META_KEY]: true,
 				[SEARCH_HINT_META_KEY]:
 					"inspect tree layers elements board subtree outline element ids",
+				// Default reads stay bounded (an outline of 100 elements is about
+				// 20k characters); larger ones need allowLarge, asked for on purpose.
+				[MAX_RESULT_SIZE_META_KEY]: 150_000,
 			},
 		},
 		async ({

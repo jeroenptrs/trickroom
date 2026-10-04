@@ -6,7 +6,10 @@ import {
 	type TrickroomMcpProjectFixture,
 } from "./test-support";
 import { TOOL_NAMES } from "./tool-names";
-import { ALWAYS_LOAD_META_KEY } from "./tools/annotations";
+import {
+	ALWAYS_LOAD_META_KEY,
+	MAX_RESULT_SIZE_META_KEY,
+} from "./tools/annotations";
 
 // Clients truncate tool descriptions and server instructions beyond this.
 const CLIENT_TEXT_LIMIT = 2_048;
@@ -118,5 +121,18 @@ describe("MCP tool surface", () => {
 		]);
 		const size = JSON.stringify(alwaysLoaded).length;
 		expect(size).toBeLessThan(14_000);
+	});
+
+	it("raises the result size limit only where large results are asked for", async () => {
+		const tools = await listTools();
+		expect(
+			Object.fromEntries(
+				tools
+					.filter(
+						(tool) => tool._meta?.[MAX_RESULT_SIZE_META_KEY] !== undefined,
+					)
+					.map((tool) => [tool.name, tool._meta?.[MAX_RESULT_SIZE_META_KEY]]),
+			),
+		).toEqual({ guide: 60_000, design_read: 150_000 });
 	});
 });
