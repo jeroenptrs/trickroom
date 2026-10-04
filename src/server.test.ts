@@ -16,6 +16,7 @@ import {
 	calculateDesignFileRevision,
 	createDesignFileService,
 } from "./services/design-file-service";
+import { calculateManifestRevision } from "./services/design-revision";
 import { readStoredDesign as readStoredDesignFromService } from "./test-utils/design-files";
 import type { Node, TrickroomDesign } from "./types";
 import { createDesignSystemStorage } from "./utils/design-system-store";
@@ -1522,6 +1523,72 @@ describe("server design routes", () => {
 		const missing = await app.request(
 			"/api/trickroom/design/board?id=boards&board=nope",
 		);
+		expect(missing.status).toBe(404);
+	});
+
+	it("reports every part's revision on design reads, writes and the manifest", async () => {
+		const boardB = {
+			...validDesign.boards[0],
+			id: "board-b",
+			children: [],
+		} as Node;
+		await writeDesign("parts.json", {
+			...validDesign,
+			boards: [...validDesign.boards, boardB],
+		});
+		const app = await importTestServer();
+		const readState = (response: Response) =>
+			JSON.parse(
+				decodeURIComponent(
+					response.headers.get("x-trickroom-design-state") ?? "null",
+				),
+			);
+
+		const read =
+			await createDesignFileService(tempProjectRoot).readDesignFile("parts");
+		const expectedState = {
+			manifest: calculateManifestRevision(read.design),
+			boards: read.boards,
+		};
+		const response = await app.request("/api/trickroom/design?id=parts");
+		expect(readState(response)).toEqual(expectedState);
+
+		const manifest = await app.request(
+			"/api/trickroom/design/manifest?id=parts",
+		);
+		expect(manifest.status).toBe(200);
+		await expect(manifest.json()).resolves.toEqual({
+			revision: read.revision,
+			manifest: { name: validDesign.name },
+			manifestRevision: expectedState.manifest,
+			boards: read.boards,
+		});
+
+		const saved = await app.request("/api/trickroom/design?id=parts", {
+			method: "PUT",
+			headers: {
+				"content-type": "application/json",
+				"x-trickroom-expected-revision": read.revision,
+			},
+			body: JSON.stringify({
+				...read.design,
+				boards: [
+					read.design.boards[0],
+					{ ...boardB, props: { ...boardB.props, className: "p-4" } },
+				],
+			}),
+		});
+		expect(saved.status).toBe(200);
+		const written =
+			await createDesignFileService(tempProjectRoot).readDesignFile("parts");
+		expect(readState(saved)).toEqual({
+			manifest: expectedState.manifest,
+			boards: written.boards,
+		});
+		expect(written.boards[0]).toEqual(read.boards[0]);
+		expect(written.boards[1]).not.toEqual(read.boards[1]);
+
+		const missing = await app.request("/api/trickroom/design/manifest?id=nope");
 		expect(missing.status).toBe(404);
 	});
 

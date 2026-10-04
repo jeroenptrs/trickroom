@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import { createDesignFileService } from "./design-file-service";
+import { calculateManifestRevision } from "./design-revision";
 import { inspectDesignStorage } from "./design-storage";
 
 export type TrickroomFileEvent = {
@@ -25,6 +26,15 @@ export type TrickroomFileEvent = {
 	 * list boards; compare `revision` to see the design changed.
 	 */
 	boards?: { id: string; revision: string | null }[];
+	/**
+	 * Set on design events for a readable design: the manifest revision and
+	 * every board's revision in board order, so a client can tell exactly
+	 * which parts differ from what it holds, even across missed events.
+	 */
+	state?: {
+		manifest: string;
+		boards: { id: string; revision: string }[];
+	};
 };
 
 export type TrickroomFileEventListener = (event: TrickroomFileEvent) => void;
@@ -312,6 +322,10 @@ export class ProjectFileEvents {
 				revision: read.revision,
 				operation: "changed",
 				boards,
+				state: {
+					manifest: calculateManifestRevision(read.design),
+					boards: read.boards.map(({ id, revision }) => ({ id, revision })),
+				},
 			};
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") {

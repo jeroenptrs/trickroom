@@ -63,6 +63,7 @@ import {
 	DesignFileServiceError,
 } from "./services/design-file-service";
 import type { DesignFileRevision } from "./services/design-file-service.types";
+import { calculateManifestRevision } from "./services/design-revision";
 import {
 	applyExtractSubtree,
 	DesignTransformError,
@@ -391,6 +392,28 @@ const designMergedHeaderName = "x-trickroom-design-merged";
 
 const setDesignRevisionHeader = (c: Context, revision: DesignFileRevision) =>
 	c.header(designRevisionHeaderName, revision);
+
+/**
+ * The manifest revision and every board's revision, in board order, so the
+ * browser can tell which parts of a design a later change event touched.
+ * URI-encoded JSON: `{ manifest, boards: [{ id, revision }] }`.
+ */
+const designStateHeaderName = "x-trickroom-design-state";
+
+const setDesignStateHeader = (
+	c: Context,
+	design: TrickroomDesign,
+	boards: readonly { id: string; revision: string }[],
+) =>
+	c.header(
+		designStateHeaderName,
+		encodeURIComponent(
+			JSON.stringify({
+				manifest: calculateManifestRevision(design),
+				boards: boards.map(({ id, revision }) => ({ id, revision })),
+			}),
+		),
+	);
 
 const isInvalidDesignIdError = (error: unknown) =>
 	error instanceof DesignFileServiceError &&
@@ -1246,6 +1269,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				);
 			}
 			setDesignRevisionHeader(c, read.revision);
+			setDesignStateHeader(c, read.design, read.boards);
 			return c.json(
 				await decorateDesignSystemReference(project, canonicalDesign),
 			);
@@ -1312,6 +1336,59 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				return designNotFoundResponse(designId);
 			}
 			return jsonError("Failed to read trickroom design board", 500);
+		}
+	});
+
+	// The design's top-level fields with the revision of every part, without
+	// board contents, so a client can reload a renamed or relinked design
+	// without fetching its boards.
+	app.get("/api/trickroom/design/manifest", async (c) => {
+		const project = await resolveProjectForRequest();
+		if (!project) {
+			return createNoProjectResponse();
+		}
+
+		const designId = c.req.query("id");
+		if (!designId) {
+			return jsonError("Missing required query parameter: id", 400);
+		}
+
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
+		try {
+			const read = await designFileService.readDesignFile(designId);
+			const { boards: _boards, ...manifest } =
+				await decorateDesignSystemReference(
+					project,
+					await canonicalizeDesignSystemReferenceForStorage(project, {
+						...read.design,
+						boards: [],
+					}),
+				);
+			void _boards;
+			setDesignRevisionHeader(c, read.revision);
+			return c.json({
+				revision: read.revision,
+				manifest,
+				manifestRevision: calculateManifestRevision(read.design),
+				boards: read.boards.map(({ id, revision }) => ({ id, revision })),
+			});
+		} catch (error) {
+			if (isInvalidDesignIdError(error)) {
+				return invalidDesignIdResponse();
+			}
+			if (
+				error instanceof DesignFileServiceError &&
+				(error.code === "INVALID_DESIGN_PAYLOAD" ||
+					error.code === "UNSUPPORTED_DESIGN_VERSION")
+			) {
+				return jsonError(error.message, 422);
+			}
+			if (asErrnoException(error).code === "ENOENT") {
+				return designNotFoundResponse(designId);
+			}
+			return jsonError("Failed to read trickroom design manifest", 500);
 		}
 	});
 
@@ -1624,6 +1701,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				{ expectedRevision },
 			);
 			setDesignRevisionHeader(c, written.revision);
+			setDesignStateHeader(c, written.design, written.boards);
 			if (written.merged) {
 				c.header(designMergedHeaderName, "true");
 			}

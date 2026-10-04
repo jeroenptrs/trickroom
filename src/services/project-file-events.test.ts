@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Node, TrickroomDesign } from "../types";
 import { createDesignFileService } from "./design-file-service";
+import { calculateManifestRevision } from "./design-revision";
 import {
 	classifyTrickroomFile,
 	isWatchedTrickroomFile,
@@ -109,6 +110,10 @@ describe("project file events", () => {
 			operation: "changed",
 			revision: read.revision,
 			boards: [],
+			state: {
+				manifest: calculateManifestRevision(read.design),
+				boards: read.boards,
+			},
 		});
 
 		unsubscribeFirst();
@@ -177,6 +182,10 @@ describe("project file events", () => {
 			operation: "changed",
 			revision: written.revision,
 			boards: [{ id: "b", revision: written.boards[1]?.revision }],
+			state: {
+				manifest: calculateManifestRevision(written.design),
+				boards: written.boards,
+			},
 		});
 		unsubscribe();
 	});
