@@ -1656,14 +1656,25 @@ export const validateProposedSubtreeForInsertion = (
 };
 
 // A function declaration, not an arrow const, so callers narrow on `never`.
+// Throws the first error; when the subtree has several, all of them are
+// listed in `subtreeErrors` so a caller can fix the subtree in one go.
 function throwFirstSubtreeValidationError(
 	diagnostics: SubtreeDiagnostic[],
 ): never {
-	const diagnostic =
-		diagnostics.find((entry) => entry.severity === "error") ?? diagnostics[0];
+	const errors = diagnostics.filter((entry) => entry.severity === "error");
+	const diagnostic = errors[0] ?? diagnostics[0];
 	throw new DesignTransformError(
 		diagnostic.code as DesignTransformErrorCode,
 		diagnostic.message,
+		errors.length > 1
+			? {
+					subtreeErrors: errors.map(({ code, message, path }) => ({
+						code,
+						message,
+						path,
+					})),
+				}
+			: undefined,
 	);
 }
 

@@ -1311,6 +1311,34 @@ describe("applyAddSubtree", () => {
 		);
 	});
 
+	it("lists every subtree error when more than one is found", () => {
+		let error: unknown;
+		try {
+			applyAddSubtree(simpleDesign, {
+				parentId: "root",
+				index: 0,
+				subtree: {
+					library: "trickroom",
+					component: "container",
+					children: [
+						{ library: "trickroom", component: "contaner" },
+						{ library: "nope", component: "container" },
+					],
+				},
+			});
+		} catch (caught) {
+			error = caught;
+		}
+		expect(error).toBeInstanceOf(DesignTransformError);
+		const details = (error as DesignTransformError).details as {
+			subtreeErrors: Array<{ code: string; path: string }>;
+		};
+		expect(details.subtreeErrors.map((entry) => entry.path)).toEqual([
+			"/subtree/children/0",
+			"/subtree/children/1",
+		]);
+	});
+
 	it("validates the full subtree before allocating persistent IDs", () => {
 		let generatedCount = 0;
 		const randomUUIDSpy = vi.spyOn(globalThis.crypto, "randomUUID");
