@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Node, TrickroomDesign } from "../types";
@@ -97,6 +104,9 @@ describe("DesignFileService", () => {
 
 	const legacyPath = (designId: string) =>
 		path.join(service.designsDir, `${designId}.json`);
+
+	const readFolderFile = (designId: string, file: string) =>
+		readFile(path.join(service.designsDir, designId, file), "utf8");
 
 	const writeDesignFixture = async (
 		designId: string,
@@ -327,27 +337,31 @@ describe("DesignFileService", () => {
 		]);
 	});
 
-	it("writes validated designs atomically and returns the new revision", async () => {
-		await mkdir(service.designsDir, { recursive: true });
-
+	it("writes a design as a manifest plus one file per board", async () => {
 		const written = await service.writeDesignFile("created", validDesign);
-		const contents = await readFile(legacyPath("created"), "utf8");
 
 		expect(written.design).toEqual(validDesign);
 		expect(written.revision).toBe(calculateDesignRevision(validDesign));
-		expect(JSON.parse(contents)).toEqual({
-			version: DESIGN_FILE_VERSION,
-			...validDesign,
-		});
-	});
-
-	it("creates the designs directory before writing a new design", async () => {
-		const written = await service.writeDesignFile("created", validDesign);
-
-		expect(written.path).toBe(legacyPath("created"));
+		expect(written.path).toBe(path.join(service.designsDir, "created"));
+		expect(written.file).toBe("created/design.json");
+		await expect(readFolderFile("created", "design.json")).resolves.toBe(
+			`{\n\t"version": ${DESIGN_FILE_VERSION},\n\t"name": "Valid Design",\n\t"systemName": "Core"\n}\n`,
+		);
+		const { boards: _boards, ...manifest } = validDesign;
+		void _boards;
 		await expect(
-			readFile(written.path, "utf8").then(JSON.parse),
-		).resolves.toEqual({ version: DESIGN_FILE_VERSION, ...validDesign });
+			readFolderFile("created", "design.json").then(JSON.parse),
+		).resolves.toEqual({ version: DESIGN_FILE_VERSION, ...manifest });
+		await expect(
+			readFolderFile("created", "boards/root.json").then(JSON.parse),
+		).resolves.toEqual({
+			version: DESIGN_FILE_VERSION,
+			order: expect.any(String),
+			board: validDesign.boards[0],
+		});
+		await expect(readdir(path.join(service.designsDir))).resolves.toEqual([
+			"created",
+		]);
 	});
 
 	it("creates a design file exclusively without overwriting an existing file", async () => {
@@ -770,7 +784,7 @@ describe("DesignFileService", () => {
 			await expect(readRaw("legacy")).resolves.toBe(before);
 		});
 
-		it("persists the current version on the next write", async () => {
+		it("persists the current version and layout on the next write", async () => {
 			await writeRaw("legacy", validDesign);
 			const read = await service.readDesignFile("legacy");
 
@@ -780,12 +794,15 @@ describe("DesignFileService", () => {
 				{ expectedRevision: read.revision },
 			);
 
-			const contents = await readRaw("legacy");
+			const contents = await readFolderFile("legacy", "design.json");
 			expect(
 				contents.startsWith(
 					`{\n\t"version": ${DESIGN_FILE_VERSION},\n\t"name": "Edited"`,
 				),
 			).toBe(true);
+			await expect(readRaw("legacy")).rejects.toMatchObject({
+				code: "ENOENT",
+			});
 			expect(written.design).not.toHaveProperty("version");
 			const reread = await service.readDesignFile("legacy");
 			expect(reread.storedVersion).toBe(DESIGN_FILE_VERSION);
@@ -803,7 +820,11 @@ describe("DesignFileService", () => {
 				boards,
 			});
 
-			await expect(readRaw("a")).resolves.toBe(await readRaw("b"));
+			for (const file of ["design.json", "boards/root.json"]) {
+				await expect(readFolderFile("a", file)).resolves.toBe(
+					await readFolderFile("b", file),
+				);
+			}
 		});
 
 		it("lists, refuses, and never down-converts a design from a newer Trickroom", async () => {

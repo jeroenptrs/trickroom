@@ -9,6 +9,7 @@ import { readMcpEnabledProjectContext } from "../project";
 import { expandRegistryRecipe } from "../recipes/expansion";
 import { recipeIdProp, recipeInstanceProp } from "../recipes/markers";
 import { createTrickroomApp } from "../server";
+import { readStoredDesign } from "../test-utils/design-files";
 import type { TrickroomDesign } from "../types";
 import { storeDomainTokens } from "../utils/tailwind-token-store";
 import { createTrickroomMcpServer } from "./server";
@@ -799,28 +800,14 @@ describe("trickroom MCP discovery tools", () => {
 				},
 			});
 
-			const defaultDesign = JSON.parse(
-				await readFile(
-					path.join(
-						firstProjectRoot,
-						".trickroom",
-						"designs",
-						"11111111-1111-4111-8111-111111111111.json",
-					),
-					"utf8",
-				),
-			) as TrickroomDesign;
-			const explicitDesign = JSON.parse(
-				await readFile(
-					path.join(
-						secondProjectRoot,
-						".trickroom",
-						"designs",
-						"22222222-2222-4222-8222-222222222222.json",
-					),
-					"utf8",
-				),
-			) as TrickroomDesign;
+			const defaultDesign = await readStoredDesign(
+				firstProjectRoot,
+				"11111111-1111-4111-8111-111111111111",
+			);
+			const explicitDesign = await readStoredDesign(
+				secondProjectRoot,
+				"22222222-2222-4222-8222-222222222222",
+			);
 
 			expect(defaultDesign.boards[0].children).toHaveLength(1);
 			expect(explicitDesign.boards[0].children).toHaveLength(2);

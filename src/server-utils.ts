@@ -115,7 +115,7 @@ const isProps = (value: unknown): value is Props => {
 	);
 };
 
-const isSerializedElement = (value: unknown): value is Node => {
+export const isSerializedElement = (value: unknown): value is Node => {
 	if (!isRecord(value) || typeof value.id !== "string" || "type" in value) {
 		return false;
 	}

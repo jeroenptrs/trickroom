@@ -379,6 +379,7 @@ const createNoProjectResponse = () =>
 	jsonError("No Trickroom project is selected.", 409);
 
 const designRevisionHeaderName = "x-trickroom-revision";
+const designBoardRevisionHeaderName = "x-trickroom-board-revision";
 /** Set on design reads whose stored version was migrated in memory. */
 const designMigrationHeaderName = "x-trickroom-design-migration";
 const expectedDesignRevisionHeaderName = "x-trickroom-expected-revision";
@@ -1269,6 +1270,51 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		}
 	});
 
+	// One board with its revision, so a client can reload a single board
+	// after a change event names it.
+	app.get("/api/trickroom/design/board", async (c) => {
+		const project = await resolveProjectForRequest();
+		if (!project) {
+			return createNoProjectResponse();
+		}
+
+		const designId = c.req.query("id");
+		const boardId = c.req.query("board");
+		if (!designId || !boardId) {
+			return jsonError("Missing required query parameters: id, board", 400);
+		}
+
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
+		try {
+			const read = await designFileService.readDesignBoard(designId, boardId);
+			if (!read) {
+				return jsonError(
+					`Board "${boardId}" not found in design "${designId}"`,
+					404,
+				);
+			}
+			c.header(designBoardRevisionHeaderName, read.revision);
+			return c.json({ board: read.board, revision: read.revision });
+		} catch (error) {
+			if (isInvalidDesignIdError(error)) {
+				return invalidDesignIdResponse();
+			}
+			if (
+				error instanceof DesignFileServiceError &&
+				(error.code === "INVALID_DESIGN_PAYLOAD" ||
+					error.code === "UNSUPPORTED_DESIGN_VERSION")
+			) {
+				return jsonError(error.message, 422);
+			}
+			if (asErrnoException(error).code === "ENOENT") {
+				return designNotFoundResponse(designId);
+			}
+			return jsonError("Failed to read trickroom design board", 500);
+		}
+	});
+
 	app.get("/api/trickroom/design/system-component-usage", async (c) => {
 		const project = await resolveProjectForRequest();
 		if (!project) {
@@ -1348,6 +1394,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 						layersCount: summary.layersCount,
 						modifiedAt: summary.modifiedAt,
 						...(summary.diagnostic ? { diagnostic: summary.diagnostic } : {}),
+						...(summary.warnings ? { warnings: summary.warnings } : {}),
 					} satisfies TrickroomDesignSummary;
 				}),
 			);

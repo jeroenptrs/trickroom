@@ -57,6 +57,21 @@ describe("design file migration chain", () => {
 		});
 	});
 
+	it("migrates version 1 to version 2 without changing the in-memory shape", () => {
+		const v1 = { version: 1, name: "One", boards: [board] };
+
+		expect(migrateDesignFileValue(v1)).toEqual({
+			ok: true,
+			fromVersion: 1,
+			migrated: true,
+			value: { version: 2, name: "One", boards: [board] },
+		});
+		expect(readTrickroomDesignValue(v1)).toMatchObject({
+			ok: true,
+			design: { name: "One", boards: [board] },
+		});
+	});
+
 	it("keeps a set component migration policy when migrating from version 0", () => {
 		const result = migrateDesignFileValue({
 			...legacyDesign,

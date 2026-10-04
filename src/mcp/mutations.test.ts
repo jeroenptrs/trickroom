@@ -9,6 +9,7 @@ import {
 	recipeInstanceProp,
 	recipePathProp,
 } from "../recipes/markers";
+import { writeLegacyDesignFile } from "../test-utils/design-files";
 import type { Node, TrickroomDesign } from "../types";
 import { assetIdProp } from "../utils/resource-props";
 import {
@@ -1999,11 +2000,15 @@ describe("MCP mutation tools", () => {
 						allowedComponents: ["trickroom/container"],
 					},
 				},
-				designs: {
-					[trickroomMcpTestDesignUuid]: duplicateDesign,
-				},
+				designs: {},
 			});
 			fixtures.push(fixture);
+			// Duplicate ids only exist in designs written outside Trickroom.
+			await writeLegacyDesignFile(
+				fixture.projectRoot,
+				trickroomMcpTestDesignUuid,
+				duplicateDesign,
+			);
 			const policySession = await createTrickroomMcpTestClient(
 				await fixture.readMcpContext(),
 			);

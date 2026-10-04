@@ -203,7 +203,14 @@ export const validateDesignFilePayload = async (
 
 	const design = migration.design;
 	const diagnostics = await getDesignDiagnostics(context, design);
-	const issues: ValidationIssue[] = [...diagnostics.issues];
+	const issues: ValidationIssue[] = [
+		...diagnostics.issues,
+		...(read.warnings ?? []).map((warning) => ({
+			severity: "warning" as const,
+			code: warning.code,
+			message: warning.message,
+		})),
+	];
 	const systemHandle = getDesignSystemHandle(design);
 	if (
 		systemHandle !== null &&

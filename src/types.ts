@@ -230,6 +230,18 @@ export type TrickroomDesignSummary = {
 	 * newer Trickroom wrote it. Counts are then best-effort.
 	 */
 	diagnostic?: DesignFileDiagnostic;
+	/** Storage problems that do not stop the design from opening. */
+	warnings?: DesignStorageWarning[];
+};
+
+export type DesignStorageWarning = {
+	/**
+	 * `LEGACY_DESIGN_FILE_PRESENT`: both the design folder and an older
+	 * single-file copy exist; the folder is used until `trickroom migrate`
+	 * reconciles them.
+	 */
+	code: "LEGACY_DESIGN_FILE_PRESENT";
+	message: string;
 };
 
 export type DesignFileDiagnostic = {

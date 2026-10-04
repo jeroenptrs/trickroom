@@ -8,6 +8,7 @@ import {
 	createDesignFileService,
 	DesignFileServiceError,
 } from "../services/design-file-service";
+import { readStoredDesign } from "../test-utils/design-files";
 import { elementChildren, elementNodeAt } from "../test-utils/narrowing";
 import type { TrickroomDesign } from "../types";
 import { createDesignSystemStorage } from "./design-system-store";
@@ -721,28 +722,14 @@ describe("system-component-bulk-migration", () => {
 			"instance-b",
 		]);
 
-		const designA = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					"00000000-0000-4000-8000-000000000001.json",
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
-		const designB = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					"00000000-0000-4000-8000-000000000002.json",
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
+		const designA = await readStoredDesign(
+			tempProjectRoot,
+			"00000000-0000-4000-8000-000000000001",
+		);
+		const designB = await readStoredDesign(
+			tempProjectRoot,
+			"00000000-0000-4000-8000-000000000002",
+		);
 
 		expect(
 			elementNodeAt(designA.boards[0], 0).props[
@@ -799,17 +786,7 @@ describe("system-component-bulk-migration", () => {
 			}),
 		]);
 
-		const design = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					`${designUuid}.json`,
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
+		const design = await readStoredDesign(tempProjectRoot, designUuid);
 		expect(
 			elementNodeAt(design.boards[0], 0).props[
 				"data-trickroom-system-component-version"
@@ -936,17 +913,10 @@ describe("system-component-bulk-migration", () => {
 			}),
 		]);
 
-		const reviewDesign = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					`${reviewDesignUuid}.json`,
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
+		const reviewDesign = await readStoredDesign(
+			tempProjectRoot,
+			reviewDesignUuid,
+		);
 		expect(
 			elementNodeAt(reviewDesign.boards[0], 0).props[
 				"data-trickroom-system-component-version"
@@ -1000,28 +970,14 @@ describe("system-component-bulk-migration", () => {
 		expect(report.changedCount).toBe(1);
 		expect(report.changed[0]?.instanceId).toBe("scoped-instance");
 
-		const scopedDesign = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					"00000000-0000-4000-8000-000000000010.json",
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
-		const otherDesign = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					"00000000-0000-4000-8000-000000000011.json",
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
+		const scopedDesign = await readStoredDesign(
+			tempProjectRoot,
+			"00000000-0000-4000-8000-000000000010",
+		);
+		const otherDesign = await readStoredDesign(
+			tempProjectRoot,
+			"00000000-0000-4000-8000-000000000011",
+		);
 
 		expect(
 			elementNodeAt(scopedDesign.boards[0], 0).props[
@@ -1265,17 +1221,7 @@ describe("system-component-bulk-migration", () => {
 			}),
 		]);
 
-		const design = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					`${designUuid}.json`,
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
+		const design = await readStoredDesign(tempProjectRoot, designUuid);
 		expect(
 			elementNodeAt(design.boards[0], 0).props[
 				"data-trickroom-system-component-version"

@@ -21,7 +21,7 @@
  *    `docs/project-files.md`.
  */
 
-export const DESIGN_FILE_VERSION = 1;
+export const DESIGN_FILE_VERSION = 2;
 export type DesignFileVersion = typeof DESIGN_FILE_VERSION;
 
 /** Version assumed for files that have no `version` field. */
@@ -51,8 +51,19 @@ const migrateV0ToV1 = (value: DesignFileValue): DesignFileValue => {
 	};
 };
 
+/**
+ * v1 → v2: storage layout only. A design is stored as a folder with a
+ * manifest (`design.json`) and one file per board (see `design-storage.ts`);
+ * the in-memory shape is unchanged.
+ */
+const migrateV1ToV2 = (value: DesignFileValue): DesignFileValue => ({
+	...value,
+	version: 2,
+});
+
 export const designFileMigrations: readonly DesignFileMigration[] = [
 	{ from: 0, to: 1, migrate: migrateV0ToV1 },
+	{ from: 1, to: 2, migrate: migrateV1ToV2 },
 ];
 
 export const supportedDesignFileVersions: ReadonlySet<number> = new Set([

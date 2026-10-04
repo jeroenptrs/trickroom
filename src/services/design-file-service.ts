@@ -1,23 +1,26 @@
 import { createHash } from "node:crypto";
-import type { Dirent, Stats } from "node:fs";
+import type { Dirent } from "node:fs";
 import {
-	access,
 	mkdir,
 	readdir,
 	readFile,
 	realpath,
-	stat,
-	unlink,
+	rm,
 	writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 import { resolveTrickroomHome } from "../app-state/home";
 import {
-	writeJsonFileAtomically,
-	writeJsonFileExclusivelyAtomically,
-} from "../server-file-utils";
-import { isTrickroomDesign, readTrickroomDesignValue } from "../server-utils";
-import type { DesignFileDiagnostic, Node, TrickroomDesign } from "../types";
+	isSerializedElement,
+	isTrickroomDesign,
+	readTrickroomDesignValue,
+} from "../server-utils";
+import type {
+	DesignFileDiagnostic,
+	DesignStorageWarning,
+	Node,
+	TrickroomDesign,
+} from "../types";
 import {
 	type DesignFileLockOptions,
 	DesignFileLockTimeoutError,
@@ -34,14 +37,46 @@ import type {
 	DesignFileRevision,
 	DesignFileSummary,
 } from "./design-file-service.types";
-import { type DesignWriteConflict, planDesignWrite } from "./design-merge";
 import {
+	type DesignWriteConflict,
+	type DesignWritePlan,
+	planDesignWrite,
+} from "./design-merge";
+import {
+	assignOrderKeys,
+	compareStoredBoardOrder,
+	generateOrderKeysBetween,
+	isValidOrderKey,
+} from "./design-order";
+import {
+	calculateBoardRevision,
 	calculateDesignRevision,
 	type DesignBoardRevision,
 	decodeDesignRevision,
+	decodeDesignRevisionParts,
 	encodeDesignRevision,
 	getDesignRevisionParts,
 } from "./design-revision";
+import {
+	type DesignFileOperations,
+	type DesignFiles,
+	DesignJournalPendingError,
+	type DesignPaths,
+	DesignStorageBusyError,
+	ensureDesignFolders,
+	FOLDER_LAYOUT_VERSION,
+	getBoardFilePath,
+	getBoardIdFromFileName,
+	getDesignPaths,
+	inspectDesignStorage,
+	isSafeBoardId,
+	readDesignFiles,
+	serializeBoardFile,
+	serializeDesignManifest,
+	toDesignRelativePath,
+	unlinkIfPresent,
+	writeFileAtomically,
+} from "./design-storage";
 
 export type DesignFileServiceErrorCode =
 	| "INVALID_DESIGN_FILE_PATH"
@@ -106,6 +141,8 @@ export type DesignJsonFileRead = {
 	path: string;
 	value: unknown;
 	revision: DesignFileRevision;
+	/** Storage problems that do not stop the design from being read. */
+	warnings?: DesignStorageWarning[];
 };
 
 export type DesignBoardRevisionEntry = {
@@ -222,17 +259,22 @@ export const getDesignLockDirectory = (
 	trickroomHome = resolveTrickroomHome(),
 ) => path.join(trickroomHome, "locks", "designs");
 
+/** One board read on its own, for callers that reload a single board. */
+export type DesignBoardRead = {
+	designId: string;
+	board: Node;
+	revision: DesignBoardRevision;
+};
+
 type DesignFileSummaryCacheEntry = {
-	mtimeMs: number;
-	size: number;
+	fingerprint: string;
 	updatedAt: number;
 	summary: DesignFileSummary;
 };
 
 const maxSummaryCacheAgeMs = 30 * 60 * 1000;
 
-const getLegacyDesignFileName = (designId: string) => `${designId}.json`;
-
+/** Hash of exact bytes, for designs that cannot be parsed into a design. */
 export const calculateDesignFileRevision = (
 	contents: string,
 ): DesignFileRevision =>
@@ -243,13 +285,9 @@ export const isSafeDesignId = (designId: string) =>
 	designId === designId.trim() &&
 	designId !== "." &&
 	designId !== ".." &&
+	!designId.startsWith(".") &&
 	!designId.includes("/") &&
 	!designId.includes("\\");
-
-const isPathInsideDirectory = (filePath: string, directoryPath: string) => {
-	const allowedPrefix = `${directoryPath}${path.sep}`;
-	return filePath.startsWith(allowedPrefix);
-};
 
 const countDescendantLayers = (node: Node): number => {
 	if (!Array.isArray(node.children)) {
@@ -279,6 +317,30 @@ export const isReadableDesignSummary = <T extends { diagnostic?: unknown }>(
 ) => summary.diagnostic === undefined;
 
 /**
+ * Board ids name board files: each must be a safe file name, and no two may
+ * differ only in case (they would share a file on case-insensitive disks).
+ */
+const assertStorableBoardIds = (design: TrickroomDesign) => {
+	const seen = new Set<string>();
+	for (const board of design.boards) {
+		if (!isSafeBoardId(board.id)) {
+			throw new DesignFileServiceError(
+				"INVALID_DESIGN_PAYLOAD",
+				`Board id "${board.id}" cannot be used as a file name: use letters, digits, "-", "_" or "." (not first or last).`,
+			);
+		}
+		const folded = board.id.toLowerCase();
+		if (seen.has(folded)) {
+			throw new DesignFileServiceError(
+				"INVALID_DESIGN_PAYLOAD",
+				`Board id "${board.id}" is used by more than one board.`,
+			);
+		}
+		seen.add(folded);
+	}
+};
+
+/**
  * Validates a design handed to a writer and returns the exact object to store:
  * migrated to the current version (a missing `version` means the caller
  * already holds the current shape), with deterministic key order.
@@ -297,7 +359,9 @@ export const prepareDesignForStorage = (design: unknown): TrickroomDesign => {
 		);
 	}
 
-	return orderDesignFileKeys(migration.value);
+	const prepared = orderDesignFileKeys(migration.value);
+	assertStorableBoardIds(prepared);
+	return prepared;
 };
 
 const withoutStorageVersion = ({
@@ -305,20 +369,12 @@ const withoutStorageVersion = ({
 	...design
 }: TrickroomDesign): TrickroomDesign => design;
 
-const parseStoredVersion = (contents: string) => {
-	try {
-		const value: unknown = JSON.parse(contents);
-		return typeof value === "object" && value !== null && !Array.isArray(value)
-			? getDesignFileVersion(value as Record<string, unknown>)
-			: null;
-	} catch {
-		return null;
-	}
-};
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null && !Array.isArray(value);
 
 const toDesignFileDiagnostic = (
 	error: unknown,
-	value: unknown,
+	version: number | null,
 ): DesignFileDiagnostic | null => {
 	if (error instanceof SyntaxError) {
 		return {
@@ -326,25 +382,16 @@ const toDesignFileDiagnostic = (
 			message: `Design file is not valid JSON: ${error.message}`,
 		};
 	}
-	if (error instanceof DesignFileServiceError) {
-		const version =
-			typeof value === "object" && value !== null && !Array.isArray(value)
-				? getDesignFileVersion(value as Record<string, unknown>)
-				: null;
-		if (error.code === "UNSUPPORTED_DESIGN_VERSION") {
-			return {
-				code: "UNSUPPORTED_DESIGN_VERSION",
-				message: error.message,
-				...(version !== null ? { version } : {}),
-			};
-		}
-		if (error.code === "INVALID_DESIGN_PAYLOAD") {
-			return {
-				code: "INVALID_DESIGN_PAYLOAD",
-				message: error.message,
-				...(version !== null ? { version } : {}),
-			};
-		}
+	if (
+		error instanceof DesignFileServiceError &&
+		(error.code === "UNSUPPORTED_DESIGN_VERSION" ||
+			error.code === "INVALID_DESIGN_PAYLOAD")
+	) {
+		return {
+			code: error.code,
+			message: error.message,
+			...(version !== null ? { version } : {}),
+		};
 	}
 
 	return null;
@@ -355,6 +402,150 @@ export const countDesignLayers = (design: TrickroomDesign) =>
 		(count, board) => count + countDescendantLayers(board),
 		0,
 	);
+
+const legacyDesignFileWarning = (designId: string): DesignStorageWarning => ({
+	code: "LEGACY_DESIGN_FILE_PRESENT",
+	message: `Both designs/${designId}/ and the older designs/${designId}.json exist (for example after a git merge). The folder is used; run "trickroom migrate" to reconcile and remove the old file.`,
+});
+
+/** A design's stored files, parsed and checked, before migration. */
+type ParsedDesignFiles = {
+	layout: "folder" | "legacy";
+	/** The stored value assembled as one design object (with `version`). */
+	value: unknown;
+	/** Order key per board id (folder layout); null when missing or invalid. */
+	orders: Map<string, string | null>;
+	/** The highest version declared by any of the design's files. */
+	version: number | null;
+	/** Hash of every stored byte, for designs that cannot be read. */
+	fallbackRevision: DesignFileRevision;
+	/** Why the files do not form a design (before schema validation). */
+	problem: DesignFileServiceError | null;
+};
+
+const parseJson = (contents: string, label: string): unknown => {
+	try {
+		return JSON.parse(contents);
+	} catch (error) {
+		throw new SyntaxError(
+			`${label}: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
+};
+
+const parseDesignFiles = (
+	designId: string,
+	files: DesignFiles,
+): ParsedDesignFiles => {
+	if (files.layout === "legacy") {
+		const value = parseJson(files.contents, `${designId}.json`);
+		return {
+			layout: "legacy",
+			value,
+			orders: new Map(),
+			version: isRecord(value) ? getDesignFileVersion(value) : null,
+			fallbackRevision: calculateDesignFileRevision(files.contents),
+			problem: null,
+		};
+	}
+
+	const fallbackRevision = calculateDesignFileRevision(
+		[
+			files.manifest,
+			...files.boards.flatMap((board) => [board.name, board.contents]),
+		].join("\u0000"),
+	);
+	const manifest = parseJson(files.manifest, `${designId}/design.json`);
+	let problem: DesignFileServiceError | null = null;
+	const invalid = (message: string) => {
+		problem ??= new DesignFileServiceError("INVALID_DESIGN_PAYLOAD", message);
+	};
+	if (!isRecord(manifest)) {
+		invalid(`${designId}/design.json must contain a JSON object.`);
+	}
+	const manifestVersion = isRecord(manifest)
+		? getDesignFileVersion(manifest)
+		: null;
+	let version = manifestVersion;
+
+	const boards: { id: string; order: unknown; node: unknown }[] = [];
+	for (const file of files.boards) {
+		const boardId = getBoardIdFromFileName(file.name);
+		const label = `${designId}/boards/${file.name}`;
+		const value = parseJson(file.contents, label);
+		if (!isRecord(value) || !isRecord(value.board)) {
+			invalid(`${label} must contain { version, order, board }.`);
+			boards.push({ id: boardId, order: null, node: value });
+			continue;
+		}
+		const boardVersion = getDesignFileVersion(value);
+		if (boardVersion !== null && (version === null || boardVersion > version)) {
+			version = boardVersion;
+		}
+		if (value.board.id !== boardId) {
+			invalid(`${label} holds board "${String(value.board.id)}".`);
+		}
+		boards.push({ id: boardId, order: value.order, node: value.board });
+	}
+
+	if (version !== null && version > DESIGN_FILE_VERSION) {
+		problem = new DesignFileServiceError(
+			"UNSUPPORTED_DESIGN_VERSION",
+			unsupportedDesignVersionMessage(version),
+		);
+	} else if (
+		manifestVersion === null ||
+		manifestVersion < FOLDER_LAYOUT_VERSION
+	) {
+		invalid(
+			`${designId}/design.json must declare a version of at least ${FOLDER_LAYOUT_VERSION}.`,
+		);
+	}
+
+	boards.sort(compareStoredBoardOrder);
+	return {
+		layout: "folder",
+		value: {
+			...(isRecord(manifest) ? manifest : {}),
+			boards: boards.map((board) => board.node),
+		},
+		orders: new Map(
+			boards.map((board) => [
+				board.id,
+				isValidOrderKey(board.order) ? board.order : null,
+			]),
+		),
+		version,
+		fallbackRevision,
+		problem,
+	};
+};
+
+type StoredDesign = {
+	files: DesignFiles;
+	parsed: ParsedDesignFiles;
+	design: TrickroomDesign;
+	storedVersion: number;
+	migrated: boolean;
+};
+
+const toStoredDesign = (designId: string, files: DesignFiles): StoredDesign => {
+	const parsed = parseDesignFiles(designId, files);
+	if (parsed.problem) {
+		throw parsed.problem;
+	}
+	const read = readTrickroomDesignValue(parsed.value);
+	if (!read.ok) {
+		throw new DesignFileServiceError(read.code, read.message);
+	}
+	return {
+		files,
+		parsed,
+		design: read.design,
+		storedVersion: read.fromVersion,
+		migrated: read.migrated,
+	};
+};
 
 export class DesignFileService {
 	private static readonly summaryCache = new Map<
@@ -378,25 +569,29 @@ export class DesignFileService {
 				options.lock?.lockDirectory ??
 				getDesignLockDirectory(options.trickroomHome),
 		};
-		void DesignFileService.pruneSummaryCache().catch(() => {});
+		DesignFileService.pruneSummaryCache();
 	}
 
 	/**
-	 * Runs a read-check-write sequence on one design while holding its
-	 * in-process queue and cross-process lock. The lock key resolves the project
-	 * root through `realpath` so processes that reach the project through
-	 * different symlinks still share one lock.
+	 * Runs `operation` while holding the design's in-process queue and
+	 * cross-process lock, which covers every file of the design (manifest,
+	 * boards, memory and journal). The lock key resolves the project root
+	 * through `realpath` so processes that reach the project through different
+	 * symlinks still share one lock. It is derived from the legacy
+	 * `designs/<id>.json` path, so it is the same lock older Trickroom
+	 * versions take for the design.
 	 */
-	private async withWriteLock<T>(
-		designPath: string,
+	async withDesignLock<T>(
+		designId: string,
 		operation: () => Promise<T>,
 	): Promise<T> {
+		const paths = this.getDesignPaths(designId);
 		this.canonicalProjectRoot ??= realpath(this.projectRoot).catch(
 			() => this.projectRoot,
 		);
 		const canonicalPath = path.join(
 			await this.canonicalProjectRoot,
-			path.relative(this.projectRoot, designPath),
+			path.relative(this.projectRoot, paths.legacy),
 		);
 
 		try {
@@ -413,24 +608,13 @@ export class DesignFileService {
 		}
 	}
 
-	private static async pruneSummaryCache(maxAgeMs = maxSummaryCacheAgeMs) {
+	private static pruneSummaryCache(maxAgeMs = maxSummaryCacheAgeMs) {
 		const staleBefore = Date.now() - maxAgeMs;
-		const entries = Array.from(DesignFileService.summaryCache.entries());
-
-		await Promise.all(
-			entries.map(async ([designPath, entry]) => {
-				if (entry.updatedAt < staleBefore) {
-					DesignFileService.summaryCache.delete(designPath);
-					return;
-				}
-
-				try {
-					await access(designPath);
-				} catch {
-					DesignFileService.summaryCache.delete(designPath);
-				}
-			}),
-		);
+		for (const [key, entry] of DesignFileService.summaryCache) {
+			if (entry.updatedAt < staleBefore) {
+				DesignFileService.summaryCache.delete(key);
+			}
+		}
 	}
 
 	/** Creates `.trickroom/designs` with a `.gitkeep` so it survives commits. */
@@ -462,39 +646,67 @@ export class DesignFileService {
 		return this.assertDesignId(designId);
 	}
 
-	private getLegacyDesignPath(designId: string) {
-		const designPath = path.resolve(
-			this.designsDir,
-			getLegacyDesignFileName(this.assertDesignId(designId)),
-		);
-		if (!isPathInsideDirectory(designPath, this.designsDir)) {
-			throw new DesignFileServiceError(
-				"INVALID_DESIGN_UUID",
-				"Design id must be a single path segment",
-			);
-		}
+	/** Every path of a design's files. Only the service should use them. */
+	getDesignPaths(designId: string): DesignPaths {
+		return getDesignPaths(this.designsDir, this.assertDesignId(designId));
+	}
 
-		return designPath;
+	private describeLocation(paths: DesignPaths, layout: "folder" | "legacy") {
+		return layout === "folder"
+			? {
+					file: toDesignRelativePath(paths, paths.manifest),
+					path: paths.folder,
+				}
+			: { file: toDesignRelativePath(paths, paths.legacy), path: paths.legacy };
+	}
+
+	/**
+	 * Reads a design's files as one consistent snapshot. When the lock-free
+	 * read cannot get one (a multi-file write is in progress or was
+	 * interrupted), it takes the design lock and reads again.
+	 */
+	private async loadDesignFiles(paths: DesignPaths): Promise<DesignFiles> {
+		try {
+			return await readDesignFiles(paths);
+		} catch (error) {
+			if (
+				!(error instanceof DesignJournalPendingError) &&
+				!(error instanceof DesignStorageBusyError)
+			) {
+				throw error;
+			}
+		}
+		return this.withDesignLock(paths.designId, () =>
+			this.readDesignFilesLocked(paths),
+		);
+	}
+
+	/** Reads a design's files while holding its lock. */
+	private async readDesignFilesLocked(paths: DesignPaths) {
+		return readDesignFiles(paths);
 	}
 
 	/** The raw stored value of a design, before migration and validation. */
 	async readRawDesign(designId: string): Promise<DesignJsonFileRead> {
-		const designPath = this.getLegacyDesignPath(designId);
-		const contents = await readFile(designPath, "utf8");
-
-		const value: unknown = JSON.parse(contents);
-		const design = readTrickroomDesignValue(value);
+		const paths = this.getDesignPaths(designId);
+		const files = await this.loadDesignFiles(paths);
+		const parsed = parseDesignFiles(designId, files);
+		const design = parsed.problem
+			? null
+			: readTrickroomDesignValue(parsed.value);
 
 		return {
 			uuid: designId,
-			file: getLegacyDesignFileName(designId),
-			path: designPath,
-			value,
+			...this.describeLocation(paths, files.layout),
+			value: parsed.value,
 			// Designs that cannot be read fall back to a hash of the stored bytes,
 			// which still lets a caller replace exactly what it saw.
-			revision: design.ok
+			revision: design?.ok
 				? calculateDesignRevision(design.design)
-				: calculateDesignFileRevision(contents),
+				: parsed.fallbackRevision,
+			...(files.layout === "folder" && files.legacyPresent
+				? { warnings: [legacyDesignFileWarning(designId)] }
+				: {}),
 		};
 	}
 
@@ -504,66 +716,112 @@ export class DesignFileService {
 	}
 
 	async readDesignFile(designId: string): Promise<DesignFileRead> {
-		const read = await this.readRawDesign(designId);
-		return this.toDesignFileRead(read);
+		const paths = this.getDesignPaths(designId);
+		const stored = toStoredDesign(designId, await this.loadDesignFiles(paths));
+		return this.toDesignFileRead(paths, stored);
 	}
 
-	private toDesignFileRead(read: DesignJsonFileRead): DesignFileRead {
-		const design = readTrickroomDesignValue(read.value);
-		if (!design.ok) {
-			throw new DesignFileServiceError(design.code, design.message);
-		}
-
-		const parts = getDesignRevisionParts(design.design);
+	private toDesignFileRead(
+		paths: DesignPaths,
+		stored: StoredDesign,
+	): DesignFileRead {
+		const parts = getDesignRevisionParts(stored.design);
 		return {
-			uuid: read.uuid,
-			file: read.file,
-			path: read.path,
-			design: design.design,
+			uuid: paths.designId,
+			...this.describeLocation(paths, stored.files.layout),
+			design: stored.design,
 			revision: encodeDesignRevision(parts),
 			boards: parts.boards,
-			storedVersion: design.fromVersion,
-			migrated: design.migrated,
+			storedVersion: stored.storedVersion,
+			migrated: stored.migrated,
+			...(stored.files.layout === "folder" && stored.files.legacyPresent
+				? { warnings: [legacyDesignFileWarning(paths.designId)] }
+				: {}),
 		};
 	}
 
-	private getCachedSummary(
-		designPath: string,
-		fileStat: Stats,
-	): DesignFileSummary | null {
-		const cached = DesignFileService.summaryCache.get(designPath);
-		if (
-			cached &&
-			cached.mtimeMs === fileStat.mtimeMs &&
-			cached.size === fileStat.size
-		) {
+	/**
+	 * Reads one board with its revision. In the folder layout only that
+	 * board's file is read.
+	 */
+	async readDesignBoard(
+		designId: string,
+		boardId: string,
+	): Promise<DesignBoardRead | null> {
+		const paths = this.getDesignPaths(designId);
+		if (!isSafeBoardId(boardId)) {
+			return null;
+		}
+		const state = await inspectDesignStorage(paths);
+		if (state.folder && !state.journal) {
+			let contents: string;
+			try {
+				contents = await readFile(getBoardFilePath(paths, boardId), "utf8");
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+					return null;
+				}
+				throw error;
+			}
+			const value = parseJson(contents, `${designId}/boards/${boardId}.json`);
+			const boardVersion = isRecord(value) ? getDesignFileVersion(value) : null;
+			if (boardVersion !== null && boardVersion > DESIGN_FILE_VERSION) {
+				throw new DesignFileServiceError(
+					"UNSUPPORTED_DESIGN_VERSION",
+					unsupportedDesignVersionMessage(boardVersion),
+				);
+			}
+			if (
+				!isRecord(value) ||
+				!isSerializedElement(value.board) ||
+				value.board.id !== boardId
+			) {
+				throw new DesignFileServiceError(
+					"INVALID_DESIGN_PAYLOAD",
+					`${designId}/boards/${boardId}.json does not hold board "${boardId}".`,
+				);
+			}
+			return {
+				designId,
+				board: value.board,
+				revision: calculateBoardRevision(value.board),
+			};
+		}
+
+		const read = await this.readDesignFile(designId);
+		const board = read.design.boards.find((entry) => entry.id === boardId);
+		return board
+			? { designId, board, revision: calculateBoardRevision(board) }
+			: null;
+	}
+
+	private getCachedSummary(key: string, fingerprint: string) {
+		const cached = DesignFileService.summaryCache.get(key);
+		if (cached?.fingerprint === fingerprint) {
 			cached.updatedAt = Date.now();
 			return cached.summary;
 		}
-
 		return null;
 	}
 
 	private setCachedSummary(
-		designPath: string,
-		fileStat: Stats,
+		key: string,
+		fingerprint: string,
 		summary: DesignFileSummary,
 	) {
-		DesignFileService.summaryCache.set(designPath, {
-			mtimeMs: fileStat.mtimeMs,
-			size: fileStat.size,
+		DesignFileService.summaryCache.set(key, {
+			fingerprint,
 			updatedAt: Date.now(),
 			summary,
 		});
 	}
 
-	private deleteCachedSummary(designPath: string) {
-		DesignFileService.summaryCache.delete(designPath);
+	private deleteCachedSummary(paths: DesignPaths) {
+		DesignFileService.summaryCache.delete(paths.folder);
 	}
 
-	async listDesignSummaries(): Promise<DesignFileSummary[]> {
-		await DesignFileService.pruneSummaryCache();
-
+	/** Ids of every design in `designs/`, in either layout. */
+	private async listDesignIds() {
 		let directoryEntries: Dirent<string>[];
 		try {
 			directoryEntries = await readdir(this.designsDir, {
@@ -577,88 +835,54 @@ export class DesignFileService {
 			throw error;
 		}
 
-		const designIds = directoryEntries
-			.filter(
-				(entry) =>
-					entry.isFile() &&
-					entry.name.endsWith(".json") &&
-					!entry.name.endsWith(".memory.json"),
-			)
-			.map((entry) => entry.name.slice(0, -".json".length))
-			.filter(isSafeDesignId)
-			.sort();
+		const ids = new Set<string>();
+		for (const entry of directoryEntries) {
+			if (entry.name.startsWith(".")) {
+				continue;
+			}
+			if (entry.isDirectory()) {
+				ids.add(entry.name);
+			} else if (
+				entry.isFile() &&
+				entry.name.endsWith(".json") &&
+				!entry.name.endsWith(".memory.json")
+			) {
+				ids.add(entry.name.slice(0, -".json".length));
+			}
+		}
+		return [...ids].filter(isSafeDesignId).sort();
+	}
+
+	async listDesignSummaries(): Promise<DesignFileSummary[]> {
+		DesignFileService.pruneSummaryCache();
+		const designIds = await this.listDesignIds();
 
 		const summaries = await Promise.all(
 			designIds.map(async (uuid) => {
-				let designPath: string | null = null;
+				const paths = this.getDesignPaths(uuid);
 				try {
-					const file = getLegacyDesignFileName(uuid);
-					designPath = this.getLegacyDesignPath(uuid);
-					const fileStat = await stat(designPath);
-					const cachedSummary = this.getCachedSummary(designPath, fileStat);
-					if (cachedSummary) {
-						return cachedSummary;
+					const state = await inspectDesignStorage(paths);
+					if (!state.folder && !state.legacy && !state.journal) {
+						// A folder without design files (for example leftover
+						// conflicts) is not a design.
+						return null;
 					}
-
-					const contents = await readFile(designPath, "utf8");
-					const revision = calculateDesignFileRevision(contents);
-					let value: unknown;
-					let read: DesignFileRead;
-					try {
-						value = JSON.parse(contents);
-						read = this.toDesignFileRead({
-							uuid,
-							file,
-							path: designPath,
-							value,
-							revision,
-						});
-					} catch (error) {
-						// Unreadable designs stay listed with the reason, so a file
-						// from a newer Trickroom does not silently disappear.
-						const diagnostic = toDesignFileDiagnostic(error, value);
-						if (!diagnostic) {
-							throw error;
+					if (!state.journal) {
+						const cached = this.getCachedSummary(
+							paths.folder,
+							state.fingerprint,
+						);
+						if (cached) {
+							return cached;
 						}
-						const raw =
-							typeof value === "object" && value !== null
-								? (value as Record<string, unknown>)
-								: {};
-						const summary = {
-							uuid,
-							file,
-							name: typeof raw.name === "string" ? raw.name : uuid,
-							boardsCount: Array.isArray(raw.boards) ? raw.boards.length : 0,
-							layersCount: 0,
-							modifiedAt: fileStat.mtime.toISOString(),
-							revision,
-							diagnostic,
-						} satisfies DesignFileSummary;
-						this.setCachedSummary(designPath, fileStat, summary);
-						return summary;
 					}
 
-					const summary = {
-						uuid,
-						file,
-						name: read.design.name,
-						...(read.design.systemId !== undefined
-							? { systemId: read.design.systemId }
-							: {}),
-						...(read.design.systemName !== undefined
-							? { systemName: read.design.systemName }
-							: {}),
-						boardsCount: read.design.boards.length,
-						layersCount: countDesignLayers(read.design),
-						modifiedAt: fileStat.mtime.toISOString(),
-						revision: read.revision,
-					} satisfies DesignFileSummary;
-					this.setCachedSummary(designPath, fileStat, summary);
+					const files = await this.loadDesignFiles(paths);
+					const summary = this.summarizeDesignFiles(paths, files);
+					this.setCachedSummary(paths.folder, files.fingerprint, summary);
 					return summary;
 				} catch {
-					if (designPath) {
-						this.deleteCachedSummary(designPath);
-					}
+					this.deleteCachedSummary(paths);
 					return null;
 				}
 			}),
@@ -667,61 +891,138 @@ export class DesignFileService {
 		return summaries.filter((summary) => summary !== null);
 	}
 
+	private summarizeDesignFiles(
+		paths: DesignPaths,
+		files: DesignFiles,
+	): DesignFileSummary {
+		const location = this.describeLocation(paths, files.layout);
+		const modifiedAt = files.modifiedAt.toISOString();
+		const warnings =
+			files.layout === "folder" && files.legacyPresent
+				? { warnings: [legacyDesignFileWarning(paths.designId)] }
+				: {};
+		let parsed: ParsedDesignFiles | null = null;
+		try {
+			parsed = parseDesignFiles(paths.designId, files);
+			const stored = toStoredDesign(paths.designId, files);
+			const read = this.toDesignFileRead(paths, stored);
+			return {
+				uuid: paths.designId,
+				file: location.file,
+				name: read.design.name,
+				...(read.design.systemId !== undefined
+					? { systemId: read.design.systemId }
+					: {}),
+				...(read.design.systemName !== undefined
+					? { systemName: read.design.systemName }
+					: {}),
+				boardsCount: read.design.boards.length,
+				layersCount: countDesignLayers(read.design),
+				modifiedAt,
+				revision: read.revision,
+				...warnings,
+			};
+		} catch (error) {
+			// Unreadable designs stay listed with the reason, so a design from a
+			// newer Trickroom does not silently disappear.
+			const diagnostic = toDesignFileDiagnostic(error, parsed?.version ?? null);
+			if (!diagnostic) {
+				throw error;
+			}
+			const raw = isRecord(parsed?.value) ? parsed.value : {};
+			return {
+				uuid: paths.designId,
+				file: location.file,
+				name: typeof raw.name === "string" ? raw.name : paths.designId,
+				boardsCount: Array.isArray(raw.boards) ? raw.boards.length : 0,
+				layersCount: 0,
+				modifiedAt,
+				revision:
+					parsed?.fallbackRevision ??
+					calculateDesignFileRevision(
+						files.layout === "legacy" ? files.contents : files.manifest,
+					),
+				diagnostic,
+				...warnings,
+			};
+		}
+	}
+
+	/**
+	 * Reads the design for a write, holding the lock. Returns null when the
+	 * design does not exist.
+	 */
+	private async readForWrite(paths: DesignPaths) {
+		let files: DesignFiles;
+		try {
+			files = await this.readDesignFilesLocked(paths);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+				return null;
+			}
+			throw error;
+		}
+		const parsed = parseDesignFiles(paths.designId, files);
+		// Never down-convert a design written by a newer Trickroom.
+		if (parsed.version !== null && parsed.version > DESIGN_FILE_VERSION) {
+			throw new DesignFileServiceError(
+				"UNSUPPORTED_DESIGN_VERSION",
+				unsupportedDesignVersionMessage(parsed.version),
+			);
+		}
+		const read = parsed.problem ? null : readTrickroomDesignValue(parsed.value);
+		return {
+			files,
+			parsed,
+			design: read?.ok ? read.design : null,
+		};
+	}
+
 	async writeDesignFile(
 		designId: string,
 		design: unknown,
 		revisionCheck: RevisionCheck = {},
 	): Promise<DesignFileWrite> {
-		const designPath = this.getLegacyDesignPath(designId);
+		const paths = this.getDesignPaths(designId);
 		const incoming = withoutStorageVersion(prepareDesignForStorage(design));
 
-		await mkdir(this.designsDir, { recursive: true });
-		const written = await this.withWriteLock(designPath, async () => {
-			let currentContents: string | null = null;
-			try {
-				currentContents = await readFile(designPath, "utf8");
-			} catch (error) {
-				// Unconditional writes may create the file; revision-checked writes
-				// target an existing design and report it missing.
-				if (
-					revisionCheck.expectedRevision !== undefined ||
-					(error as NodeJS.ErrnoException).code !== "ENOENT"
-				) {
-					throw error;
-				}
+		const written = await this.withDesignLock(designId, async () => {
+			const current = await this.readForWrite(paths);
+			if (!current && revisionCheck.expectedRevision !== undefined) {
+				// Revision-checked writes target an existing design.
+				throw notFoundError(designId);
 			}
 
-			// Never down-convert a design written by a newer Trickroom.
-			const currentVersion =
-				currentContents === null ? null : parseStoredVersion(currentContents);
-			if (currentVersion !== null && currentVersion > DESIGN_FILE_VERSION) {
+			let plan: DesignWritePlan | null = null;
+			if (current?.design) {
+				plan = this.planWrite(current.design, incoming, revisionCheck);
+			} else if (
+				current &&
+				revisionCheck.expectedRevision !== undefined &&
+				revisionCheck.expectedRevision !== current.parsed.fallbackRevision
+			) {
+				// A design that cannot be read can only be replaced by a caller
+				// that saw exactly these bytes.
 				throw new DesignFileServiceError(
-					"UNSUPPORTED_DESIGN_VERSION",
-					unsupportedDesignVersionMessage(currentVersion),
+					"REVISION_MISMATCH",
+					"Design file revision does not match the expected revision",
+					{
+						currentRevision: current.parsed.fallbackRevision,
+						staleBoardIds: [],
+						manifest: false,
+						order: false,
+					},
 				);
 			}
 
-			const plan =
-				revisionCheck.expectedRevision === undefined || currentContents === null
-					? null
-					: this.planRevisionCheckedWrite(
-							currentContents,
-							incoming,
-							revisionCheck,
-						);
 			const next = plan?.design ?? incoming;
-			await writeJsonFileAtomically(
-				designPath,
-				orderDesignFileKeys({ ...next, version: DESIGN_FILE_VERSION }),
-			);
+			await this.storeDesign(paths, current, next, plan);
 			return { design: next, plan };
 		});
-		this.deleteCachedSummary(designPath);
-		await DesignFileService.pruneSummaryCache();
+		this.deleteCachedSummary(paths);
 		const parts = getDesignRevisionParts(written.design);
 		return {
-			file: getLegacyDesignFileName(designId),
-			path: designPath,
+			...this.describeLocation(paths, "folder"),
 			uuid: designId,
 			design: written.design,
 			revision: encodeDesignRevision(parts),
@@ -735,36 +1036,27 @@ export class DesignFileService {
 	}
 
 	/**
-	 * Merges a revision-checked write into the stored design, or throws
-	 * `REVISION_MISMATCH` naming what the caller changed that is stale.
+	 * Merges a write into the stored design. Revision-checked writes throw
+	 * `REVISION_MISMATCH` naming what the caller changed that is stale;
+	 * unconditional writes replace the design, compared against what is
+	 * stored only to find which files change.
 	 */
-	private planRevisionCheckedWrite(
-		currentContents: string,
+	private planWrite(
+		current: TrickroomDesign,
 		incoming: TrickroomDesign,
 		{ expectedRevision, baseRevision }: RevisionCheck,
 	) {
-		const current = readTrickroomDesignValue(JSON.parse(currentContents));
-		if (!current.ok) {
-			// A design that cannot be read can only be replaced by a caller that
-			// saw exactly these bytes.
-			if (calculateDesignFileRevision(currentContents) === expectedRevision) {
-				return null;
-			}
-			throw new DesignFileServiceError(
-				"REVISION_MISMATCH",
-				"Design file revision does not match the expected revision",
-				{
-					currentRevision: calculateDesignFileRevision(currentContents),
-					staleBoardIds: [],
-					manifest: false,
-					order: false,
-				},
-			);
+		if (expectedRevision === undefined) {
+			return planDesignWrite({
+				current,
+				incoming,
+				base: decodeDesignRevisionParts(getDesignRevisionParts(current)),
+			});
 		}
 
-		const expected = decodeDesignRevision(expectedRevision ?? "");
+		const expected = decodeDesignRevision(expectedRevision);
 		const plan = planDesignWrite({
-			current: current.design,
+			current,
 			incoming,
 			...(baseRevision !== undefined
 				? { base: decodeDesignRevision(baseRevision), expected }
@@ -773,7 +1065,7 @@ export class DesignFileService {
 		if (plan.conflict) {
 			const mismatch = {
 				...plan.conflict,
-				currentRevision: calculateDesignRevision(current.design),
+				currentRevision: calculateDesignRevision(current),
 			};
 			throw new DesignFileServiceError(
 				"REVISION_MISMATCH",
@@ -785,11 +1077,118 @@ export class DesignFileService {
 	}
 
 	/**
+	 * Writes `next` in the folder layout, touching only the files that change:
+	 * the manifest when a top-level field changed, a board file when its board
+	 * or its order key changed, and an unlink per deleted board. A design still
+	 * in the legacy layout (or one that could not be read) is written in full
+	 * and its legacy file removed. Must run under the design lock.
+	 */
+	private async storeDesign(
+		paths: DesignPaths,
+		current: Awaited<ReturnType<DesignFileService["readForWrite"]>>,
+		next: TrickroomDesign,
+		plan: DesignWritePlan | null,
+	) {
+		const operations: DesignFileOperations = { writes: [], unlinks: [] };
+		const incremental =
+			current !== null &&
+			current.files.layout === "folder" &&
+			current.design !== null &&
+			plan !== null;
+
+		if (incremental) {
+			const changed = new Set(plan.changedBoardIds);
+			const keys = assignOrderKeys(
+				next.boards.map((board) => ({
+					id: board.id,
+					key: current.parsed.orders.get(board.id) ?? null,
+				})),
+			);
+			for (const board of next.boards) {
+				const key = keys.get(board.id) as string;
+				if (
+					changed.has(board.id) ||
+					current.parsed.orders.get(board.id) !== key
+				) {
+					operations.writes.push({
+						path: getBoardFilePath(paths, board.id),
+						contents: serializeBoardFile(board, key),
+					});
+				}
+			}
+			if (
+				plan.manifestChanged ||
+				current.parsed.version !== DESIGN_FILE_VERSION
+			) {
+				operations.writes.push({
+					path: paths.manifest,
+					contents: serializeDesignManifest(next),
+				});
+			}
+			for (const boardId of plan.deletedBoardIds) {
+				operations.unlinks.push(getBoardFilePath(paths, boardId));
+			}
+		} else {
+			const keys = generateOrderKeysBetween(null, null, next.boards.length);
+			next.boards.forEach((board, index) => {
+				operations.writes.push({
+					path: getBoardFilePath(paths, board.id),
+					contents: serializeBoardFile(board, keys[index] as string),
+				});
+			});
+			operations.writes.push({
+				path: paths.manifest,
+				contents: serializeDesignManifest(next),
+			});
+			// Board files of an earlier, unreadable or half-written folder.
+			const kept = new Set(
+				next.boards.map((board) => getBoardFilePath(paths, board.id)),
+			);
+			const state = await inspectDesignStorage(paths);
+			for (const name of state.boardFiles) {
+				const boardPath = path.join(paths.boards, name);
+				if (!kept.has(boardPath)) {
+					operations.unlinks.push(boardPath);
+				}
+			}
+			if (current?.files.layout === "legacy") {
+				operations.unlinks.push(paths.legacy);
+			}
+		}
+
+		await this.applyOperations(paths, operations);
+	}
+
+	/**
+	 * Applies file operations: board files first, the manifest (which makes a
+	 * new folder a design) after them, unlinks last.
+	 */
+	private async applyOperations(
+		paths: DesignPaths,
+		operations: DesignFileOperations,
+	) {
+		if (operations.writes.length > 0) {
+			await ensureDesignFolders(paths);
+		}
+		const ordered = [
+			...operations.writes.filter((write) => write.path !== paths.manifest),
+			...operations.writes.filter((write) => write.path === paths.manifest),
+		];
+		for (const write of ordered) {
+			await writeFileAtomically(write.path, write.contents);
+		}
+		for (const unlinkPath of operations.unlinks) {
+			await unlinkIfPresent(unlinkPath);
+		}
+	}
+
+	/**
 	 * The read-check-write every caller that changes an existing design goes
-	 * through: reads the design, rejects a stale `expectedRevision`, applies
-	 * `mutate`, prepares the result for storage and writes it guarded by the
-	 * revision. A write that loses the race against another writer is reported
-	 * as a revision mismatch carrying the revision now on disk.
+	 * through: reads the design, applies `mutate` to that read, prepares the
+	 * result for storage and writes it checked against the caller's
+	 * `expectedRevision` at board level. A change to a board (or the manifest,
+	 * or the order) that another writer changed since the caller's revision is
+	 * reported as a revision mismatch carrying the revision now on disk.
 	 */
 	async updateDesignFile<
 		Result extends { design: TrickroomDesign },
@@ -839,31 +1238,24 @@ export class DesignFileService {
 		designId: string,
 		design: unknown,
 	): Promise<DesignFileWrite> {
-		const designPath = this.getLegacyDesignPath(designId);
-		const storedDesign = prepareDesignForStorage(design);
+		const paths = this.getDesignPaths(designId);
+		const created = withoutStorageVersion(prepareDesignForStorage(design));
 
-		await mkdir(this.designsDir, { recursive: true });
-		try {
-			await this.withWriteLock(designPath, () =>
-				writeJsonFileExclusivelyAtomically(designPath, storedDesign),
-			);
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+		await this.withDesignLock(designId, async () => {
+			const state = await inspectDesignStorage(paths);
+			if (state.folder || state.journal || state.legacy) {
 				throw new DesignFileServiceError(
 					"DESIGN_FILE_ALREADY_EXISTS",
-					`Design file already exists at ${designPath}`,
+					`Design "${designId}" already exists`,
 				);
 			}
-			throw error;
-		}
+			await this.storeDesign(paths, null, created, null);
+		});
 
-		this.deleteCachedSummary(designPath);
-		await DesignFileService.pruneSummaryCache();
-		const created = withoutStorageVersion(storedDesign);
+		this.deleteCachedSummary(paths);
 		const parts = getDesignRevisionParts(created);
 		return {
-			file: getLegacyDesignFileName(designId),
-			path: designPath,
+			...this.describeLocation(paths, "folder"),
 			uuid: designId,
 			design: created,
 			revision: encodeDesignRevision(parts),
@@ -875,12 +1267,23 @@ export class DesignFileService {
 	}
 
 	async deleteDesignFile(designId: string) {
-		const designPath = this.getLegacyDesignPath(designId);
-		await this.withWriteLock(designPath, () => unlink(designPath));
-		this.deleteCachedSummary(designPath);
-		await DesignFileService.pruneSummaryCache();
+		const paths = this.getDesignPaths(designId);
+		await this.withDesignLock(designId, async () => {
+			const state = await inspectDesignStorage(paths);
+			if (!state.folder && !state.legacy && !state.journal) {
+				throw notFoundError(designId);
+			}
+			await rm(paths.folder, { recursive: true, force: true });
+			await unlinkIfPresent(paths.legacy);
+		});
+		this.deleteCachedSummary(paths);
 	}
 }
+
+const notFoundError = (designId: string) =>
+	Object.assign(new Error(`Design "${designId}" not found`), {
+		code: "ENOENT",
+	});
 
 export const createDesignFileService = (
 	projectRoot: string,

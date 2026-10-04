@@ -16,6 +16,7 @@ import {
 	calculateDesignFileRevision,
 	createDesignFileService,
 } from "./services/design-file-service";
+import { readStoredDesign as readStoredDesignFromService } from "./test-utils/design-files";
 import type { Node, TrickroomDesign } from "./types";
 import { createDesignSystemStorage } from "./utils/design-system-store";
 import { assetIdProp } from "./utils/resource-props";
@@ -266,13 +267,8 @@ describe("server design routes", () => {
 	const readStoredDesignContents = (file: string) =>
 		readFile(path.join(tempProjectRoot, ".trickroom", "designs", file), "utf8");
 
-	const readStoredDesign = async (file: string) =>
-		JSON.parse(
-			await readFile(
-				path.join(tempProjectRoot, ".trickroom", "designs", file),
-				"utf8",
-			),
-		) as TrickroomDesign;
+	const readStoredDesign = (file: string) =>
+		readStoredDesignFromService(tempProjectRoot, file.replace(/\.json$/, ""));
 
 	const expandAvatarRecipeForRoute = (idPrefix: string, instanceId: string) => {
 		const ids = [
@@ -1457,6 +1453,37 @@ describe("server design routes", () => {
 		});
 	});
 
+	it("reads a single board with its revision", async () => {
+		const boardB = { ...validDesign.boards[0], id: "board-b" } as Node;
+		await writeDesign("boards.json", {
+			...validDesign,
+			boards: [...validDesign.boards, boardB],
+		});
+		const service = createDesignFileService(tempProjectRoot);
+		const read = await service.readDesignFile("boards");
+		await service.writeDesignFile("boards", read.design, {
+			expectedRevision: read.revision,
+		});
+		const app = await importTestServer();
+
+		const response = await app.request(
+			"/api/trickroom/design/board?id=boards&board=board-b",
+		);
+
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({
+			board: boardB,
+			revision: read.boards[1]?.revision,
+		});
+		expect(response.headers.get("x-trickroom-board-revision")).toBe(
+			read.boards[1]?.revision,
+		);
+		const missing = await app.request(
+			"/api/trickroom/design/board?id=boards&board=nope",
+		);
+		expect(missing.status).toBe(404);
+	});
+
 	it("creates design files exclusively through POST", async () => {
 		const app = await importTestServer();
 
@@ -1479,12 +1506,10 @@ describe("server design routes", () => {
 			error: "Design file already exists",
 		});
 
-		await expect(
-			readFile(
-				path.join(tempProjectRoot, ".trickroom", "designs", "new.json"),
-				"utf8",
-			).then(JSON.parse),
-		).resolves.toEqual({ version: DESIGN_FILE_VERSION, ...validDesign });
+		await expect(readStoredDesign("new.json")).resolves.toEqual({
+			version: DESIGN_FILE_VERSION,
+			...validDesign,
+		});
 	});
 
 	it("treats systemId null as an explicit disconnected design reference", async () => {
@@ -1537,12 +1562,9 @@ describe("server design routes", () => {
 
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toEqual({ ok: true });
-		await expect(
-			readFile(
-				path.join(tempProjectRoot, ".trickroom", "designs", "delete-me.json"),
-				"utf8",
-			),
-		).rejects.toMatchObject({ code: "ENOENT" });
+		await expect(readStoredDesign("delete-me.json")).rejects.toMatchObject({
+			code: "ENOENT",
+		});
 	});
 
 	it("extracts a subtree to a new design file through the route", async () => {
@@ -1594,18 +1616,13 @@ describe("server design routes", () => {
 		expect(extracted.boards[0].id).not.toBe("title");
 		const { systemName: _displaySystemName, ...storedExtracted } = extracted;
 		void _displaySystemName;
-		await expect(
-			readFile(
-				path.join(tempProjectRoot, ".trickroom", "designs", "target.json"),
-				"utf8",
-			).then(JSON.parse),
-		).resolves.toEqual({ version: DESIGN_FILE_VERSION, ...storedExtracted });
-		await expect(
-			readFile(
-				path.join(tempProjectRoot, ".trickroom", "designs", "source.json"),
-				"utf8",
-			).then(JSON.parse),
-		).resolves.toEqual(sourceDesign);
+		await expect(readStoredDesign("target.json")).resolves.toEqual({
+			version: DESIGN_FILE_VERSION,
+			...storedExtracted,
+		});
+		await expect(readStoredDesign("source.json")).resolves.toEqual(
+			sourceDesign,
+		);
 	});
 
 	it("extracts a complete system component through the route using filesystem projectRoot linkage", async () => {
