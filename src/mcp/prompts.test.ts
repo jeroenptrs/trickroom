@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { GetPromptResult } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it } from "vitest";
 import { readMcpEnabledProjectContext } from "../project";
 import { createTrickroomMcpServer } from "./server";
@@ -16,6 +17,11 @@ const expectedPromptNames = [
 	"add_media_or_icon",
 	"reuse_design_subtree",
 ] as const;
+
+const promptText = (prompt: GetPromptResult) => {
+	const content = prompt.messages[0].content;
+	return content.type === "text" ? content.text : "";
+};
 
 describe("trickroom MCP workflow prompts", () => {
 	const createProjectRoot = async () => {
@@ -36,10 +42,7 @@ describe("trickroom MCP workflow prompts", () => {
 	const createClient = async (projectRoot: string) => {
 		const context = await readMcpEnabledProjectContext(projectRoot);
 		const server = createTrickroomMcpServer(context);
-		const client = new Client(
-			{ name: "test-client", version: "0.0.0" },
-			{ capabilities: { prompts: {} } },
-		);
+		const client = new Client({ name: "test-client", version: "0.0.0" });
 		const [clientTransport, serverTransport] =
 			InMemoryTransport.createLinkedPair();
 		await Promise.all([
@@ -73,7 +76,7 @@ describe("trickroom MCP workflow prompts", () => {
 				name: "edit_design_file",
 				arguments: { designFileId },
 			});
-			const text = prompt.messages[0].content.text;
+			const text = promptText(prompt);
 			expect(text).toContain("listDesignFiles");
 			expect(text).toContain("getDesignAuthoringContract");
 			expect(text).toContain("readDesignGraph");
@@ -111,7 +114,7 @@ describe("trickroom MCP workflow prompts", () => {
 				name: "add_component_to_design",
 				arguments: { designFileId, parentId: "some-parent" },
 			});
-			const text = prompt.messages[0].content.text;
+			const text = promptText(prompt);
 			expect(text).toContain("addElement");
 			expect(text).toContain("addRecipe");
 			expect(text).toContain("addSubtree");
@@ -130,8 +133,8 @@ describe("trickroom MCP workflow prompts", () => {
 				name: "add_component_to_design",
 				arguments: { designFileId },
 			});
-			expect(rootPrompt.messages[0].content.text).toContain("'parentId': null");
-			expect(rootPrompt.messages[0].content.text).toContain("at the root");
+			expect(promptText(rootPrompt)).toContain("'parentId': null");
+			expect(promptText(rootPrompt)).toContain("at the root");
 		} finally {
 			await server.close();
 			await rm(projectRoot, { force: true, recursive: true });
@@ -146,7 +149,7 @@ describe("trickroom MCP workflow prompts", () => {
 				name: "refactor_design_structure",
 				arguments: { designFileId: "00000000-0000-0000-0000-000000000000" },
 			});
-			const text = prompt.messages[0].content.text;
+			const text = promptText(prompt);
 			expect(text).toContain("readDesignGraph");
 			expect(text).toContain("copySubtree");
 			expect(text).toContain("extractSubtree");
@@ -172,7 +175,7 @@ describe("trickroom MCP workflow prompts", () => {
 				name: "explain_design_file",
 				arguments: { designFileId: "00000000-0000-0000-0000-000000000000" },
 			});
-			const text = prompt.messages[0].content.text;
+			const text = promptText(prompt);
 			expect(text).toContain("readDesignGraph");
 			expect(text).toContain("getDesignAuthoringContract");
 			expect(text).toContain("listRegistries");
@@ -197,7 +200,7 @@ describe("trickroom MCP workflow prompts", () => {
 				name: "validate_design_changes",
 				arguments: { designFileId: "00000000-0000-0000-0000-000000000000" },
 			});
-			const text = prompt.messages[0].content.text;
+			const text = promptText(prompt);
 			expect(text).toContain("validateDesignFile");
 			expect(text).toContain(
 				"structural, registry, recipe, component, token, asset and icon",
@@ -224,7 +227,7 @@ describe("trickroom MCP workflow prompts", () => {
 					systemName: "default",
 				},
 			});
-			const text = prompt.messages[0].content.text;
+			const text = promptText(prompt);
 			expect(text).toContain("Landing page hero with CTA");
 			expect(text).toContain("createDesignFile");
 			expect(text).toContain("getDesignSystemForDesignFile");
@@ -257,7 +260,7 @@ describe("trickroom MCP workflow prompts", () => {
 					systemName: "brand",
 				},
 			});
-			const text = prompt.messages[0].content.text;
+			const text = promptText(prompt);
 			expect(text).toContain("listSystemAssets");
 			expect(text).toContain("listSystemIcons");
 			expect(text).toContain("addSystemAsset");
@@ -282,7 +285,7 @@ describe("trickroom MCP workflow prompts", () => {
 					targetParentId: "el-target-parent",
 				},
 			});
-			const text = prompt.messages[0].content.text;
+			const text = promptText(prompt);
 			expect(text).toContain("readDesignGraph");
 			expect(text).toContain("validateCopySubtree");
 			expect(text).toContain("sourceExpectedRevision");
