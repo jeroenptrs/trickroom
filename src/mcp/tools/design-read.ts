@@ -14,14 +14,14 @@ import {
 	getMcpPolicy,
 } from "../governance";
 import {
-	listDesignFilesPayload,
+	listDesignFilesToolPayload,
+	readDesignFileDefaults,
 	readDesignFilePayload,
+	readDesignGraphDefaults,
 	readDesignGraphPayload,
 	readElementPayload,
+	readSubtreeDefaults,
 	readSubtreePayload,
-	summarizeDesignFileReadText,
-	summarizeDesignGraphReadText,
-	summarizeSubtreeReadText,
 } from "../payloads/design-reads";
 import {
 	getDesignMetadata,
@@ -34,17 +34,48 @@ import {
 	readOnlyClosedWorldAnnotations,
 } from "./annotations";
 import type { McpToolContext } from "./context";
-import {
-	createJsonResult,
-	createReadToolResult,
-	createToolErrorResult,
-} from "./results";
+import { createJsonResult, createToolErrorResult } from "./results";
 import {
 	designFileIdSchema,
-	mcpReadResponseFormatSchema,
 	projectScopedInputSchema,
 	withProjectScopedInput,
 } from "./schemas";
+
+const depthSchema = (defaultDepth: number | null) =>
+	z
+		.number()
+		.int()
+		.min(0)
+		.max(20)
+		.optional()
+		.describe(
+			`Maximum descendant depth to include. Defaults to ${defaultDepth ?? "none"}.`,
+		);
+
+const maxNodesSchema = (defaultMaxNodes: number) =>
+	z
+		.number()
+		.int()
+		.min(1)
+		.max(5000)
+		.optional()
+		.describe(
+			`Maximum elements to include, taken breadth first. Defaults to ${defaultMaxNodes}; above 500 needs allowLarge.`,
+		);
+
+const allowLargeSchema = z
+	.boolean()
+	.optional()
+	.describe(
+		"Set true to permit depth above 4, maxNodes above 500, or an unbounded read when depth/maxNodes are omitted.",
+	);
+
+const detailSchema = z
+	.enum(["compact", "full"])
+	.optional()
+	.describe(
+		'"compact" (default): id, name (omitted when it is the component default), component ("<library>/<component>", "trickroom/" prefix omitted), className, text (cut at 160 chars, with textLength), props that are not markers or registry defaults, and systemComponent/recipe/slot instance summaries. "full": id, every stored prop including markers, and full text.',
+	);
 
 export const registerDesignFileReadTools = (ctx: McpToolContext) => {
 	const { server, withPolicyErrorHandling } = ctx;
@@ -54,13 +85,13 @@ export const registerDesignFileReadTools = (ctx: McpToolContext) => {
 		{
 			title: "List Design Files",
 			description:
-				"List project-scoped Trickroom design files with UUID handles, file metadata, names, design-system references, and revisions.",
+				"List design files with id, name, revision, systemId (names in `systems`), layer count, modifiedAt, and board ids/names. Unreadable files keep a `diagnostic`.",
 			inputSchema: projectScopedInputSchema,
 			annotations: readOnlyClosedWorldAnnotations,
 		},
 		async ({ project }) =>
 			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(await listDesignFilesPayload(context)),
+				createJsonResult(await listDesignFilesToolPayload(context)),
 			),
 	);
 
@@ -69,66 +100,54 @@ export const registerDesignFileReadTools = (ctx: McpToolContext) => {
 		{
 			title: "Read Design File",
 			description:
-				"Read design metadata, board summaries, counts, and a bounded compact element tree for one design file. Defaults to depth 2 and 100 nodes; pass allowLarge to request deeper output.",
+				"Read one design file: header with revision, a board index (id, name, elementCount), and a bounded compact element tree taken breadth first. Defaults to depth 2 and 50 nodes. Pass boardId to read one board. Elements with `more` have unread descendants; `read.next` gives the exact follow-up call.",
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
-				depth: z
-					.number()
-					.int()
-					.min(0)
-					.max(20)
-					.optional()
-					.describe("Maximum descendant depth to include. Defaults to 2."),
-				maxNodes: z
-					.number()
-					.int()
+				boardId: z
+					.string()
 					.min(1)
-					.max(5000)
-					.optional()
-					.describe("Maximum elements to include. Defaults to 100."),
-				allowLarge: z
-					.boolean()
 					.optional()
 					.describe(
-						"Set true to permit depth above 4, maxNodes above 500, or an unbounded read when depth/maxNodes are omitted.",
+						"Board (root element) id to read. Omit to read every board within the same bounds.",
 					),
-				responseFormat: mcpReadResponseFormatSchema,
+				depth: depthSchema(readDesignFileDefaults.depth),
+				maxNodes: maxNodesSchema(readDesignFileDefaults.maxNodes),
+				allowLarge: allowLargeSchema,
+				detail: detailSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
 		async ({
 			designFileId,
+			boardId,
 			depth,
 			maxNodes,
 			allowLarge,
-			responseFormat,
+			detail,
 			project,
 		}) =>
 			withPolicyErrorHandling(project, async (context) => {
 				const payload = await readDesignFilePayload(context, designFileId, {
+					boardId,
 					depth,
 					maxNodes,
 					allowLarge,
+					detail,
 				});
 				const designMemory = await readMemoryManifest(context.projectRoot, {
 					kind: "design",
 					designId: designFileId,
 				});
 				const memorySummary = summarizeMemoryManifest(designMemory.manifest);
-				const payloadWithMemory = {
-					...payload,
-					memory: memorySummary,
-					...(memorySummary.noteCount > 0
+				return createJsonResult(
+					memorySummary.noteCount > 0
 						? {
+								...payload,
+								memory: memorySummary,
 								memoryHint:
 									"This design has memory notes describing its intent and rationale. Call listMemoryNotes({ scope: { kind: 'design', designFileId } }) before editing or explaining it.",
 							}
-						: {}),
-				};
-				return createReadToolResult(
-					payloadWithMemory,
-					responseFormat ?? "json",
-					summarizeDesignFileReadText,
+						: payload,
 				);
 			}),
 	);
@@ -231,48 +250,62 @@ export const registerDesignTreeReadTools = (ctx: McpToolContext) => {
 		{
 			title: "Read Design Graph",
 			description:
-				"Read a flat graph representation of a design file with element IDs, parent/child maps, and canonical JSON Pointer-style addresses.",
+				"Read a flat, bounded outline of a design: elements keyed by id in breadth-first order with parentId, childCount, and the compact fields minus className (default 100 elements). Prefer readSubtree to inspect or style an area; use this for a structural overview. Scope with rootElementId (any element or board id).",
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
 				rootElementId: z
 					.string()
 					.min(1)
 					.optional()
-					.describe("Optional element ID to scope the graph to a subtree."),
+					.describe("Element or board id to scope the graph to its subtree."),
+				depth: depthSchema(readDesignGraphDefaults.depth),
+				maxNodes: maxNodesSchema(readDesignGraphDefaults.maxNodes),
+				allowLarge: allowLargeSchema,
 				includeProps: z
 					.boolean()
 					.optional()
-					.describe("Include full props for each element. Defaults to false."),
+					.describe(
+						"Replace compact fields with every stored prop, markers included. Defaults to false.",
+					),
 				includeText: z
 					.boolean()
 					.optional()
 					.describe(
-						"Include full text for text role elements. Defaults to true.",
+						"Include text (cut at 160 chars) for text elements. Defaults to true.",
 					),
-				responseFormat: mcpReadResponseFormatSchema,
+				includeAddresses: z
+					.boolean()
+					.optional()
+					.describe(
+						"Include each element's JSON Pointer address in the design file (/boards/0/children/1). Defaults to false.",
+					),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
 		async ({
 			designFileId,
 			rootElementId,
+			depth,
+			maxNodes,
+			allowLarge,
 			includeProps,
 			includeText,
-			responseFormat,
+			includeAddresses,
 			project,
 		}) =>
-			withPolicyErrorHandling(project, async (context) => {
-				const payload = await readDesignGraphPayload(context, designFileId, {
-					rootElementId,
-					includeProps,
-					includeText,
-				});
-				return createReadToolResult(
-					payload,
-					responseFormat ?? "json",
-					summarizeDesignGraphReadText,
-				);
-			}),
+			withPolicyErrorHandling(project, async (context) =>
+				createJsonResult(
+					await readDesignGraphPayload(context, designFileId, {
+						rootElementId,
+						depth,
+						maxNodes,
+						allowLarge,
+						includeProps,
+						includeText,
+						includeAddresses,
+					}),
+				),
+			),
 	);
 
 	server.registerTool(
@@ -280,17 +313,20 @@ export const registerDesignTreeReadTools = (ctx: McpToolContext) => {
 		{
 			title: "Read Element",
 			description:
-				"Read one full design element with props, text or child IDs, and parent/sibling context.",
+				"Read one element (compact by default: see readSubtree's detail), its childIds, and its placement: parentId, boardId, index, siblingCount.",
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
 				elementId: z.string().min(1).describe("Element ID inside the design."),
+				detail: detailSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ designFileId, elementId, project }) =>
+		async ({ designFileId, elementId, detail, project }) =>
 			withPolicyErrorHandling(project, async (context) =>
 				createJsonResult(
-					await readElementPayload(context, designFileId, elementId),
+					await readElementPayload(context, designFileId, elementId, {
+						detail,
+					}),
 				),
 			),
 	);
@@ -300,37 +336,14 @@ export const registerDesignTreeReadTools = (ctx: McpToolContext) => {
 		{
 			title: "Read Subtree",
 			description:
-				'Read a bounded detailed element subtree rooted at the selected element. Defaults to depth 2 and 100 nodes; pass allowLarge to request deeper output. Pass detail: "compact" for id/name/component/className/text-preview nodes without full props.',
+				"Read a bounded element subtree rooted at elementId, taken breadth first. Defaults to depth 3, 100 nodes, and compact nodes. Elements with `more` have unread descendants; `read.next` gives the exact follow-up call.",
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
 				elementId: z.string().min(1).describe("Element ID inside the design."),
-				depth: z
-					.number()
-					.int()
-					.min(0)
-					.max(20)
-					.optional()
-					.describe("Maximum descendant depth to include. Defaults to 2."),
-				maxNodes: z
-					.number()
-					.int()
-					.min(1)
-					.max(5000)
-					.optional()
-					.describe("Maximum elements to include. Defaults to 100."),
-				allowLarge: z
-					.boolean()
-					.optional()
-					.describe(
-						"Set true to permit depth above 4, maxNodes above 500, or an unbounded read when depth/maxNodes are omitted.",
-					),
-				detail: z
-					.enum(["full", "compact"])
-					.optional()
-					.describe(
-						'"full" (default) returns every prop per node, recipe attachment summaries, and full text. "compact" returns the readDesignFile node shape: id, name, library, component, role, className, and a text preview.',
-					),
-				responseFormat: mcpReadResponseFormatSchema,
+				depth: depthSchema(readSubtreeDefaults.depth),
+				maxNodes: maxNodesSchema(readSubtreeDefaults.maxNodes),
+				allowLarge: allowLargeSchema,
+				detail: detailSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
@@ -341,26 +354,17 @@ export const registerDesignTreeReadTools = (ctx: McpToolContext) => {
 			maxNodes,
 			allowLarge,
 			detail,
-			responseFormat,
 			project,
 		}) =>
-			withPolicyErrorHandling(project, async (context) => {
-				const payload = await readSubtreePayload(
-					context,
-					designFileId,
-					elementId,
-					{
+			withPolicyErrorHandling(project, async (context) =>
+				createJsonResult(
+					await readSubtreePayload(context, designFileId, elementId, {
 						depth,
 						maxNodes,
 						allowLarge,
 						detail,
-					},
-				);
-				return createReadToolResult(
-					payload,
-					responseFormat ?? "json",
-					summarizeSubtreeReadText,
-				);
-			}),
+					}),
+				),
+			),
 	);
 };

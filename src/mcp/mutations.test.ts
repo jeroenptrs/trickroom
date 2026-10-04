@@ -844,6 +844,7 @@ describe("MCP mutation tools", () => {
 				const copied = await session.client.callTool({
 					name: "readElement",
 					arguments: {
+						detail: "full",
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: content.rootElementId,
 					},
@@ -2499,6 +2500,7 @@ describe("MCP mutation tools", () => {
 				const readResult = await session.client.callTool({
 					name: "readElement",
 					arguments: {
+						detail: "full",
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: content.changedElement.id,
 					},
@@ -2771,6 +2773,7 @@ describe("MCP mutation tools", () => {
 				const readResult = await session.client.callTool({
 					name: "readElement",
 					arguments: {
+						detail: "full",
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: "board",
 					},
@@ -2852,6 +2855,7 @@ describe("MCP mutation tools", () => {
 				const readResult = await session.client.callTool({
 					name: "readElement",
 					arguments: {
+						detail: "full",
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: "board",
 					},
@@ -4055,6 +4059,7 @@ describe("MCP mutation tools", () => {
 				const rootRead = await session.client.callTool({
 					name: "readElement",
 					arguments: {
+						detail: "full",
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: expansion.elementIdsByPath.root,
 					},
@@ -4071,6 +4076,7 @@ describe("MCP mutation tools", () => {
 				const positionerRead = await session.client.callTool({
 					name: "readElement",
 					arguments: {
+						detail: "full",
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: expansion.elementIdsByPath.positioner,
 					},

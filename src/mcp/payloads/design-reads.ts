@@ -1,5 +1,7 @@
 import type { Resource } from "@modelcontextprotocol/sdk/types.js";
-import { createDesignFileService } from "../../services/design-file-service";
+import type { DesignFileRead } from "../../services/design-file-service";
+import { DesignTransformError } from "../../services/design-transform-service";
+import type { Node as DesignNode, TrickroomDesign } from "../../types";
 import { findDesignSystem } from "../../utils/design-system-store";
 import { buildDesignGraph } from "../design-graph";
 import { assertCanReadDesignFile, getMcpPolicy } from "../governance";
@@ -7,20 +9,22 @@ import { buildDesignResourceUri, slugifyDesignTitle } from "../resources";
 import type { TrickroomMcpServerContext } from "../server-types";
 import { summarizeDesignSystemReference } from "./design-system";
 import {
-	compactElementForestBounded,
-	compactElementTreeBounded,
 	createTreeReadBounds,
-	createTreeReadStats,
-	detailedElement,
-	detailedSubtree,
+	describeNode,
+	describeTreeRead,
+	findElementContext,
 	getDesignCounts,
 	getDesignMetadata,
 	getDesignSystemHandle,
 	getElementContextOrThrow,
+	getElementReadContext,
+	getNodeName,
 	getRecipeAttachmentSummaries,
-	getSiblingContext,
-	getTreeReadMetadata,
+	listVisibleDesignSummaries,
+	type NodeReadDetail,
+	readBoundedTree,
 	readDesignFileForTool,
+	readErrorCode,
 	summarizeBoard,
 	type TreeReadInput,
 } from "./design-tree";
@@ -50,60 +54,141 @@ export const readDesignSummaryPayload = async (
 		boards: read.design.boards.map(summarizeBoard),
 		counts: getDesignCounts(read.design),
 		nextSuggestedReads: [
-			"readDesignFile with depth/maxNodes for a bounded hierarchy",
+			"readDesignFile with boardId for one board's bounded compact tree",
+			"readSubtree with elementId for one area",
 			"readElement for one exact element",
-			"readSubtree with elementId and depth for scoped inspection",
-			"readDesignGraph with rootElementId for address lookup",
 		],
 	};
 };
 
+const countElements = (node: DesignNode): number =>
+	Array.isArray(node.children)
+		? node.children.reduce((count, child) => count + countElements(child), 1)
+		: 1;
+
+// Default bounds per read tool; maxNodes is taken breadth first.
+export const readDesignFileDefaults = { depth: 2, maxNodes: 50 };
+export const readSubtreeDefaults = { depth: 3, maxNodes: 100 };
+export const readDesignGraphDefaults = { depth: null, maxNodes: 100 };
+
+/** The compact design header every read returns. */
+const getDesignReadHeader = (designFileId: string, read: DesignFileRead) => ({
+	id: designFileId,
+	name: read.design.name,
+	revision: read.revision,
+});
+
+/**
+ * Lists design files with ids, names and revisions only: the shape resources
+ * and policy checks need. The listDesignFiles tool adds board ids and names.
+ */
 export const listDesignFilesPayload = async (
 	context: TrickroomMcpServerContext,
 ) => {
-	const service = createDesignFileService(context.projectRoot);
+	const designFiles = await listVisibleDesignSummaries(context);
+	return {
+		project: getProjectReference(context),
+		designFiles: designFiles.map((designFile) => ({
+			id: designFile.uuid,
+			name: designFile.name,
+			systemHandle: getDesignSystemHandle(designFile),
+			layersCount: designFile.layersCount,
+			modifiedAt: designFile.modifiedAt,
+			revision: designFile.revision,
+			...(designFile.diagnostic !== undefined
+				? { diagnostic: designFile.diagnostic }
+				: {}),
+		})),
+	};
+};
+
+type BoardIndexEntry = { id: string; name: string | null };
+
+// Board ids and names per design file, keyed by path and revision so repeat
+// listings only re-read designs that changed.
+const boardIndexCache = new Map<
+	string,
+	{ revision: string; boards: BoardIndexEntry[] }
+>();
+
+const getBoardIndex = async (
+	context: TrickroomMcpServerContext,
+	designFileId: string,
+	revision: string,
+): Promise<BoardIndexEntry[] | null> => {
+	const cacheKey = `${context.projectRoot}\0${designFileId}`;
+	const cached = boardIndexCache.get(cacheKey);
+	if (cached?.revision === revision) {
+		return cached.boards;
+	}
+	try {
+		const read = await readDesignFileForTool(context, designFileId);
+		const boards = read.design.boards.map((board) => ({
+			id: board.id,
+			name: getNodeName(board) ?? null,
+		}));
+		boardIndexCache.set(cacheKey, { revision: read.revision, boards });
+		return boards;
+	} catch {
+		return null;
+	}
+};
+
+export const listDesignFilesToolPayload = async (
+	context: TrickroomMcpServerContext,
+) => {
 	const policy = getMcpPolicy(context.config);
-	const designFiles = await service.listDesignSummaries();
-	const allowedDesignFiles = designFiles.filter(
-		(designFile) =>
-			policy.allowedDesignFileIds === null ||
-			policy.allowedDesignFileIds.has(designFile.uuid),
-	);
-	const decoratedDesignFiles = await Promise.all(
-		allowedDesignFiles.map(async (designFile) => {
-			const systemHandle = getDesignSystemHandle(designFile);
-			const system = systemHandle
-				? await findDesignSystem(context.projectRoot, systemHandle)
-				: null;
+	const { designFiles } = await listDesignFilesPayload(context);
+	const defaultSystemId = context.config.defaultSystemId ?? null;
+	const systems: Record<string, string> = {};
+	const entries = await Promise.all(
+		designFiles.map(async ({ systemHandle, ...designFile }) => {
+			let systemId: string | null = null;
+			if (systemHandle !== null) {
+				const system = await findDesignSystem(
+					context.projectRoot,
+					systemHandle,
+				);
+				systemId = system?.manifest.systemId ?? systemHandle;
+				systems[systemId] = system?.manifest.systemName ?? systemHandle;
+			}
+			const boards =
+				designFile.diagnostic === undefined
+					? await getBoardIndex(context, designFile.id, designFile.revision)
+					: null;
 			return {
-				id: designFile.uuid,
-				file: designFile.file,
+				id: designFile.id,
 				name: designFile.name,
-				systemId:
-					designFile.systemId !== undefined
-						? designFile.systemId
-						: (system?.manifest.systemId ?? null),
-				systemName:
-					systemHandle === null
-						? null
-						: (designFile.systemName ??
-							system?.manifest.systemName ??
-							systemHandle),
-				boardsCount: designFile.boardsCount,
+				revision: designFile.revision,
+				// Designs on the project default system omit systemId.
+				...(systemId !== null && systemId === defaultSystemId
+					? {}
+					: { systemId }),
 				layersCount: designFile.layersCount,
 				modifiedAt: designFile.modifiedAt,
-				revision: designFile.revision,
+				...(boards !== null ? { boards } : {}),
 				...(designFile.diagnostic !== undefined
 					? { diagnostic: designFile.diagnostic }
 					: {}),
 			};
 		}),
 	);
+	const governance = getGovernanceSummary(policy);
 
 	return {
-		project: getProjectDetails(context),
-		governance: getGovernanceSummary(policy),
-		designFiles: decoratedDesignFiles,
+		project: getProjectReference(context),
+		governance: {
+			mode: governance.mode,
+			...(governance.allowedDesignFileIds !== null
+				? { allowedDesignFileIds: governance.allowedDesignFileIds }
+				: {}),
+			...(governance.allowedComponents !== null
+				? { allowedComponents: governance.allowedComponents }
+				: {}),
+		},
+		defaultSystemId,
+		systems,
+		designFiles: entries,
 	};
 };
 
@@ -111,15 +196,15 @@ export const toDesignFileResources = (
 	context: TrickroomMcpServerContext,
 	payload: Awaited<ReturnType<typeof listDesignFilesPayload>>,
 ): Resource[] => {
-	const locationId =
-		getDesignResourceLocationId(context) ?? payload.project.locationId;
+	const project = getProjectDetails(context);
+	const locationId = getDesignResourceLocationId(context) ?? project.locationId;
 	if (!locationId) {
 		return [];
 	}
 
 	return payload.designFiles.map((designFile) => {
 		const slug = slugifyDesignTitle(designFile.name) || "design";
-		const projectLabel = `${payload.project.name} (${locationId})`;
+		const projectLabel = `${project.name} (${locationId})`;
 
 		return {
 			uri: buildDesignResourceUri(locationId, designFile.id, slug),
@@ -131,28 +216,99 @@ export const toDesignFileResources = (
 	});
 };
 
+const throwBoardNotFound = (
+	design: TrickroomDesign,
+	designFileId: string,
+	boardId: string,
+): never => {
+	const availableBoards = design.boards.map((board) => ({
+		id: board.id,
+		name: getNodeName(board) ?? null,
+	}));
+	const nested = findElementContext(design, boardId);
+	throw new DesignTransformError(
+		readErrorCode("BOARD_NOT_FOUND"),
+		`Board "${boardId}" was not found in design "${designFileId}".${
+			nested
+				? ` "${boardId}" is a nested element, not a board; use readSubtree to read it.`
+				: ""
+		}`,
+		{
+			availableBoardIds: availableBoards.map((board) => board.id),
+			availableBoards,
+		},
+	);
+};
+
+export type DesignReadOptions = TreeReadInput & {
+	detail?: NodeReadDetail;
+};
+
 export const readDesignFilePayload = async (
 	context: TrickroomMcpServerContext,
 	designFileId: string,
-	options: TreeReadInput = {},
+	options: DesignReadOptions & { boardId?: string } = {},
 ) => {
 	assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
 	const read = await readDesignFileForTool(context, designFileId);
-	const bounds = createTreeReadBounds(options);
-	const tree = compactElementForestBounded(read.design.boards, bounds);
+	const { design } = read;
+	const roots =
+		options.boardId === undefined
+			? design.boards
+			: [
+					design.boards.find((board) => board.id === options.boardId) ??
+						throwBoardNotFound(design, designFileId, options.boardId),
+				];
+	const bounds = createTreeReadBounds(options, readDesignFileDefaults);
+	const { tree, read: treeRead } = readBoundedTree(
+		roots,
+		bounds,
+		options.detail ?? "compact",
+		getRecipeAttachmentSummaries(design),
+	);
+	const omittedBoard = roots.find(
+		(board) => !tree.some((node) => node.id === board.id),
+	);
+	const truncatedElementId = treeRead.truncatedElementIds[0];
+	const system = await summarizeDesignSystemReference(
+		context,
+		getDesignSystemHandle(design),
+	);
+	const boards = design.boards.map((board) => ({
+		id: board.id,
+		name: getNodeName(board) ?? null,
+		elementCount: countElements(board),
+	}));
 
 	return {
 		project: getProjectReference(context),
-		designFile: getDesignMetadata(designFileId, read),
-		designSystem: await summarizeDesignSystemReference(
-			context,
-			getDesignSystemHandle(read.design),
+		designFile: {
+			...getDesignReadHeader(designFileId, read),
+			systemId: system?.systemId ?? null,
+			...(system ? { systemName: system.systemName } : {}),
+			...(system && !system.configured ? { systemConfigured: false } : {}),
+		},
+		elementCount: boards.reduce(
+			(count, board) => count + board.elementCount,
+			0,
 		),
-		rootElementIds: read.design.boards.map((board) => board.id),
-		boards: read.design.boards.map(summarizeBoard),
-		counts: getDesignCounts(read.design),
-		read: tree.read,
-		elementTree: tree.elementTree,
+		boards,
+		read: describeTreeRead(
+			bounds,
+			treeRead,
+			truncatedElementId !== undefined
+				? {
+						tool: "readSubtree",
+						args: { designFileId, elementId: truncatedElementId },
+					}
+				: omittedBoard !== undefined
+					? {
+							tool: "readDesignFile",
+							args: { designFileId, boardId: omittedBoard.id },
+						}
+					: null,
+		),
+		tree,
 	};
 };
 
@@ -160,16 +316,27 @@ export const readElementPayload = async (
 	context: TrickroomMcpServerContext,
 	designFileId: string,
 	elementId: string,
+	options: { detail?: NodeReadDetail } = {},
 ) => {
 	assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
 	const read = await readDesignFileForTool(context, designFileId);
 	const elementContext = getElementContextOrThrow(read.design, elementId);
+	const { element } = elementContext;
 
 	return {
 		project: getProjectReference(context),
-		designFile: getDesignMetadata(designFileId, read),
-		element: detailedElement(elementContext.element),
-		context: getSiblingContext(elementContext),
+		designFile: getDesignReadHeader(designFileId, read),
+		element: {
+			...describeNode(
+				element,
+				options.detail ?? "compact",
+				getRecipeAttachmentSummaries(read.design),
+			),
+			...(Array.isArray(element.children)
+				? { childIds: element.children.map((child) => child.id) }
+				: {}),
+		},
+		context: getElementReadContext(elementContext),
 	};
 };
 
@@ -177,127 +344,75 @@ export const readSubtreePayload = async (
 	context: TrickroomMcpServerContext,
 	designFileId: string,
 	elementId: string,
-	options: TreeReadInput & { detail?: "full" | "compact" } = {},
+	options: DesignReadOptions = {},
 ) => {
 	assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
 	const read = await readDesignFileForTool(context, designFileId);
 	const elementContext = getElementContextOrThrow(read.design, elementId);
-	const bounds = createTreeReadBounds(options);
-	const stats = createTreeReadStats(bounds);
-	const subtree =
-		options.detail === "compact"
-			? compactElementTreeBounded(elementContext.element, stats)
-			: detailedSubtree(
-					elementContext.element,
-					stats,
-					0,
-					getRecipeAttachmentSummaries(read.design),
-				);
+	const bounds = createTreeReadBounds(options, readSubtreeDefaults);
+	const { tree, read: treeRead } = readBoundedTree(
+		[elementContext.element],
+		bounds,
+		options.detail ?? "compact",
+		getRecipeAttachmentSummaries(read.design),
+	);
+	const truncatedElementId = treeRead.truncatedElementIds.find(
+		(id) => id !== elementId,
+	);
 
 	return {
 		project: getProjectReference(context),
-		designFile: getDesignMetadata(designFileId, read),
-		elementId,
-		depth: bounds.maxDepth,
-		read: getTreeReadMetadata(stats),
-		context: getSiblingContext(elementContext),
-		subtree,
+		designFile: getDesignReadHeader(designFileId, read),
+		read: describeTreeRead(bounds, treeRead, {
+			tool: "readSubtree",
+			args: {
+				designFileId,
+				elementId: truncatedElementId ?? elementId,
+				...(truncatedElementId === undefined
+					? {
+							maxNodes: Math.min(
+								(bounds.maxNodes ?? readSubtreeDefaults.maxNodes) * 2,
+								500,
+							),
+						}
+					: {}),
+			},
+		}),
+		context: getElementReadContext(elementContext),
+		subtree: tree[0],
 	};
 };
 
 export const readDesignGraphPayload = async (
 	context: TrickroomMcpServerContext,
 	designFileId: string,
-	options: {
+	options: TreeReadInput & {
 		rootElementId?: string;
 		includeProps?: boolean;
 		includeText?: boolean;
+		includeAddresses?: boolean;
 	},
 ) => {
 	assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
 	const read = await readDesignFileForTool(context, designFileId);
-	const recipeSummariesByElementId = getRecipeAttachmentSummaries(read.design);
-	const graph = buildDesignGraph(read.design, options);
+	const bounds = createTreeReadBounds(options, readDesignGraphDefaults);
+	const { returnedNodeCount, omittedNodeCount, truncatedElementIds, ...graph } =
+		buildDesignGraph(read.design, bounds, options);
+	const truncatedElementId = truncatedElementIds[0];
 
 	return {
 		project: getProjectReference(context),
-		designFile: getDesignMetadata(designFileId, read),
-		designSystem: await summarizeDesignSystemReference(
-			context,
-			getDesignSystemHandle(read.design),
+		designFile: getDesignReadHeader(designFileId, read),
+		read: describeTreeRead(
+			bounds,
+			{ returnedNodeCount, omittedNodeCount, truncatedElementIds },
+			truncatedElementId !== undefined
+				? {
+						tool: "readSubtree",
+						args: { designFileId, elementId: truncatedElementId },
+					}
+				: null,
 		),
-		graph: {
-			...graph,
-			elementsById: Object.fromEntries(
-				Object.entries(graph.elementsById).map(([elementId, node]) => {
-					const recipe = recipeSummariesByElementId.get(elementId);
-					return [
-						elementId,
-						recipe === undefined
-							? node
-							: {
-									...node,
-									recipe,
-								},
-					];
-				}),
-			),
-		},
+		graph,
 	};
-};
-
-export const summarizeDesignFileReadText = (
-	payload: Record<string, unknown>,
-) => {
-	const designFile = payload.designFile as {
-		id: string;
-		name: string;
-		revision: string;
-	};
-	const read = payload.read as {
-		returnedNodeCount: number;
-		omittedNodeCount: number;
-		truncated: boolean;
-		depth: number | null;
-		maxNodes: number | null;
-	};
-	const counts = payload.counts as {
-		boardsCount: number;
-		elementCount: number;
-	};
-
-	return `Design "${designFile.name}" (${designFile.id}) revision ${designFile.revision}: ${counts.boardsCount} boards, ${counts.elementCount} elements. Returned ${read.returnedNodeCount} nodes (depth=${read.depth ?? "unbounded"}, maxNodes=${read.maxNodes ?? "unbounded"}, truncated=${read.truncated}, omitted=${read.omittedNodeCount}).`;
-};
-
-export const summarizeSubtreeReadText = (payload: Record<string, unknown>) => {
-	const designFile = payload.designFile as {
-		id: string;
-		name: string;
-		revision: string;
-	};
-	const read = payload.read as {
-		returnedNodeCount: number;
-		omittedNodeCount: number;
-		truncated: boolean;
-		depth: number | null;
-		maxNodes: number | null;
-	};
-
-	return `Subtree "${payload.elementId}" in design "${designFile.name}" (${designFile.id}) revision ${designFile.revision}: returned ${read.returnedNodeCount} nodes (depth=${read.depth ?? "unbounded"}, maxNodes=${read.maxNodes ?? "unbounded"}, truncated=${read.truncated}, omitted=${read.omittedNodeCount}).`;
-};
-
-export const summarizeDesignGraphReadText = (
-	payload: Record<string, unknown>,
-) => {
-	const designFile = payload.designFile as {
-		id: string;
-		name: string;
-		revision: string;
-	};
-	const graph = payload.graph as {
-		rootElementIds: string[];
-		elementsById: Record<string, unknown>;
-	};
-
-	return `Design graph for "${designFile.name}" (${designFile.id}) revision ${designFile.revision}: ${graph.rootElementIds.length} roots, ${Object.keys(graph.elementsById).length} elements.`;
 };

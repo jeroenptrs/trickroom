@@ -1,4 +1,10 @@
-import { normalizeRole } from "../../libraries/registry";
+import {
+	CORE_PROP_KEYS,
+	getControlProps,
+	normalizeRole,
+	resolveRegistryComponent,
+	SYSTEM_PROP_KEYS,
+} from "../../libraries/registry";
 import { getElementRecipeMetadata } from "../../recipes/ownership";
 import {
 	type RecipeInstanceValidationReport,
@@ -8,9 +14,20 @@ import {
 	createDesignFileService,
 	type DesignFileRead,
 } from "../../services/design-file-service";
-import { DesignTransformError } from "../../services/design-transform-service";
+import {
+	DesignTransformError,
+	type DesignTransformErrorCode,
+} from "../../services/design-transform-service";
 import { createElementNotFoundError } from "../../services/element-lookup-hints";
-import type { Node as DesignNode, TrickroomDesign } from "../../types";
+import type {
+	Node as DesignNode,
+	JsonPrimitive,
+	RegistryComponentDefinition,
+	TrickroomDesign,
+} from "../../types";
+import { formatDidYouMean, suggestClosest } from "../../utils/suggestions";
+import { getSystemComponentStructuralMetadata } from "../../utils/system-component-markers";
+import { getMcpPolicy } from "../governance";
 import type { TrickroomMcpServerContext } from "../server-types";
 
 type ElementContext = {
@@ -19,6 +36,7 @@ type ElementContext = {
 	index: number | null;
 	rootIndex: number | null;
 	siblingIds: string[];
+	board: DesignNode;
 };
 
 export const getDesignSystemHandle = (
@@ -64,16 +82,10 @@ const getChildIds = (node: DesignNode) =>
 const getTextPreview = (text: string) =>
 	text.length <= 80 ? text : `${text.slice(0, 77)}...`;
 
-type TreeReadBounds = {
+export type TreeReadBounds = {
 	maxDepth: number | null;
 	maxNodes: number | null;
 	allowLarge: boolean;
-};
-
-type TreeReadStats = TreeReadBounds & {
-	returnedNodeCount: number;
-	omittedNodeCount: number;
-	truncated: boolean;
 };
 
 export type TreeReadInput = {
@@ -82,13 +94,18 @@ export type TreeReadInput = {
 	allowLarge?: boolean;
 };
 
-const defaultTreeReadDepth = 2;
-const defaultTreeReadMaxNodes = 100;
+type TreeReadDefaults = {
+	depth: number | null;
+	maxNodes: number;
+};
+
+const defaultTreeReadBounds: TreeReadDefaults = { depth: 2, maxNodes: 100 };
 const safeTreeReadMaxDepth = 4;
 const safeTreeReadMaxNodes = 500;
 
 export const createTreeReadBounds = (
 	input: TreeReadInput = {},
+	defaults: TreeReadDefaults = defaultTreeReadBounds,
 ): TreeReadBounds => {
 	const allowLarge = input.allowLarge === true;
 	if (
@@ -115,20 +132,13 @@ export const createTreeReadBounds = (
 	return {
 		maxDepth: allowLarge
 			? (input.depth ?? null)
-			: (input.depth ?? defaultTreeReadDepth),
+			: (input.depth ?? defaults.depth),
 		maxNodes: allowLarge
 			? (input.maxNodes ?? null)
-			: (input.maxNodes ?? defaultTreeReadMaxNodes),
+			: (input.maxNodes ?? defaults.maxNodes),
 		allowLarge,
 	};
 };
-
-export const createTreeReadStats = (bounds: TreeReadBounds): TreeReadStats => ({
-	...bounds,
-	returnedNodeCount: 0,
-	omittedNodeCount: 0,
-	truncated: false,
-});
 
 const countElementNodes = (node: DesignNode): number =>
 	Array.isArray(node.children)
@@ -173,23 +183,6 @@ export const getDesignCounts = (design: TrickroomDesign) => {
 		maxDepth,
 	};
 };
-
-const omitElementSubtree = (stats: TreeReadStats, node: DesignNode) => {
-	stats.omittedNodeCount += countElementNodes(node);
-	stats.truncated = true;
-};
-
-const hasTreeNodeBudget = (stats: TreeReadStats) =>
-	stats.maxNodes === null || stats.returnedNodeCount < stats.maxNodes;
-
-export const getTreeReadMetadata = (stats: TreeReadStats) => ({
-	depth: stats.maxDepth,
-	maxNodes: stats.maxNodes,
-	allowLarge: stats.allowLarge,
-	truncated: stats.truncated,
-	returnedNodeCount: stats.returnedNodeCount,
-	omittedNodeCount: stats.omittedNodeCount,
-});
 
 type RecipeAttachmentSummary = {
 	recipeId: string;
@@ -266,7 +259,7 @@ const getCompactClassName = (node: DesignNode) =>
 export const compactElementTree = (
 	node: DesignNode,
 ): Record<string, unknown> => {
-	const isText = typeof node.children === "string";
+	const { children } = node;
 
 	return {
 		id: node.id,
@@ -275,91 +268,15 @@ export const compactElementTree = (
 		component: node.props["data-trickroom-component"],
 		role: normalizeRole(node.props["data-trickroom-role"]),
 		...getCompactClassName(node),
-		...(isText
+		...(typeof children === "string"
 			? {
-					textLength: node.children.length,
-					textPreview: getTextPreview(node.children),
+					textLength: children.length,
+					textPreview: getTextPreview(children),
 				}
 			: {
 					childIds: getChildIds(node),
-					children: node.children.map(compactElementTree),
+					children: children.map(compactElementTree),
 				}),
-	};
-};
-
-export const compactElementTreeBounded = (
-	node: DesignNode,
-	stats: TreeReadStats,
-	currentDepth = 0,
-): Record<string, unknown> => {
-	stats.returnedNodeCount += 1;
-	const isText = typeof node.children === "string";
-
-	if (isText) {
-		return {
-			id: node.id,
-			name: getNodeName(node),
-			library: node.props["data-trickroom-library"],
-			component: node.props["data-trickroom-component"],
-			role: normalizeRole(node.props["data-trickroom-role"]),
-			...getCompactClassName(node),
-			textLength: node.children.length,
-			textPreview: getTextPreview(node.children),
-			truncated: false,
-		};
-	}
-
-	const childIds = getChildIds(node);
-	const depthTruncated =
-		stats.maxDepth !== null && currentDepth >= stats.maxDepth;
-	const children: Record<string, unknown>[] = [];
-	const omittedBefore = stats.omittedNodeCount;
-
-	if (depthTruncated) {
-		for (const child of node.children) {
-			omitElementSubtree(stats, child);
-		}
-	} else {
-		for (const child of node.children) {
-			if (!hasTreeNodeBudget(stats)) {
-				omitElementSubtree(stats, child);
-				continue;
-			}
-			children.push(compactElementTreeBounded(child, stats, currentDepth + 1));
-		}
-	}
-
-	return {
-		id: node.id,
-		name: getNodeName(node),
-		library: node.props["data-trickroom-library"],
-		component: node.props["data-trickroom-component"],
-		role: normalizeRole(node.props["data-trickroom-role"]),
-		...getCompactClassName(node),
-		childIds,
-		children,
-		truncated: stats.omittedNodeCount > omittedBefore,
-	};
-};
-
-export const compactElementForestBounded = (
-	nodes: DesignNode[],
-	bounds: TreeReadBounds,
-) => {
-	const stats = createTreeReadStats(bounds);
-	const elementTree: Record<string, unknown>[] = [];
-
-	for (const node of nodes) {
-		if (!hasTreeNodeBudget(stats)) {
-			omitElementSubtree(stats, node);
-			continue;
-		}
-		elementTree.push(compactElementTreeBounded(node, stats));
-	}
-
-	return {
-		elementTree,
-		read: getTreeReadMetadata(stats),
 	};
 };
 
@@ -377,64 +294,270 @@ export const summarizeBoard = (board: DesignNode) => {
 	};
 };
 
-export const detailedElement = (node: DesignNode) => ({
-	id: node.id,
-	props: node.props,
-	text: typeof node.children === "string" ? node.children : null,
-	childIds: getChildIds(node),
-});
+// Read node shapes. "compact" keeps what an agent needs to target a write:
+// id, a non-default layer name, `component` as "<library>/<component>" (the
+// `trickroom/` prefix is dropped), className, text, and props that are neither
+// Trickroom markers nor registry defaults. Instance markers collapse into a
+// short `systemComponent`/`recipe` summary plus `slot` on slot hosts. "full"
+// adds every stored prop, markers included.
+export type NodeReadDetail = "compact" | "full";
 
-export const detailedSubtree = (
+const compactTextLimit = 160;
+
+const getComponentRef = (node: DesignNode) => {
+	const library = node.props["data-trickroom-library"];
+	const component = node.props["data-trickroom-component"];
+	return library === "trickroom" ? component : `${library}/${component}`;
+};
+
+const registryDefinitionCache = new Map<
+	string,
+	{
+		definition: RegistryComponentDefinition;
+		defaults: Record<string, JsonPrimitive | undefined>;
+	} | null
+>();
+
+const getRegistryEntry = (node: DesignNode) => {
+	const library = node.props["data-trickroom-library"];
+	const component = node.props["data-trickroom-component"];
+	const key = `${library}/${component}`;
+	let entry = registryDefinitionCache.get(key);
+	if (entry === undefined) {
+		const resolution = resolveRegistryComponent(library, component);
+		entry =
+			resolution.status === "known"
+				? {
+						definition: resolution.definition,
+						defaults: getControlProps(resolution.definition),
+					}
+				: null;
+		registryDefinitionCache.set(key, entry);
+	}
+	return entry;
+};
+
+const getCompactText = (text: string) =>
+	text.length <= compactTextLimit
+		? { text }
+		: {
+				text: `${text.slice(0, compactTextLimit - 1)}\u2026`,
+				textLength: text.length,
+			};
+
+const getCompactProps = (
 	node: DesignNode,
-	stats: TreeReadStats,
-	currentDepth = 0,
-	recipeSummariesByElementId?: ReadonlyMap<string, RecipeAttachmentSummary>,
-): Record<string, unknown> => {
-	stats.returnedNodeCount += 1;
-	const recipe = recipeSummariesByElementId?.get(node.id);
+	defaults: Record<string, JsonPrimitive | undefined> | undefined,
+) => {
+	const props: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(node.props)) {
+		if (
+			value === undefined ||
+			CORE_PROP_KEYS.has(key) ||
+			SYSTEM_PROP_KEYS.has(key) ||
+			(defaults !== undefined && defaults[key] === value)
+		) {
+			continue;
+		}
+		props[key] = value;
+	}
+	return props;
+};
 
-	if (typeof node.children === "string") {
+const getInstanceSummary = (
+	node: DesignNode,
+	recipeSummaries: ReadonlyMap<string, RecipeAttachmentSummary> | undefined,
+) => {
+	const summary: Record<string, unknown> = {};
+	const systemComponent = getSystemComponentStructuralMetadata(node.props);
+	if (systemComponent?.isRoot) {
+		summary.systemComponent = {
+			id: systemComponent.componentId,
+			...(Object.keys(systemComponent.variantValues).length > 0
+				? { variants: systemComponent.variantValues }
+				: {}),
+			...(Object.keys(systemComponent.overrides).length > 0
+				? { overrides: systemComponent.overrides }
+				: {}),
+		};
+	}
+	// updateRecipeControl targets recipe nodes by instance id and template
+	// path, so every recipe-owned node carries both; the root adds the recipe
+	// id and any non-valid state.
+	const recipe = recipeSummaries?.get(node.id);
+	if (recipe) {
+		const isRoot =
+			recipe.rootElementId === node.id ||
+			(recipe.rootElementId === null && recipe.path === "root");
+		summary.recipe = isRoot
+			? {
+					id: recipe.recipeId,
+					instanceId: recipe.instanceId,
+					...(recipe.state === "attached-valid" ? {} : { state: recipe.state }),
+					...(recipe.state === "attached-stale"
+						? {
+								currentVersion: recipe.currentVersion,
+								matchedTemplateVersion: recipe.matchedTemplateVersion,
+							}
+						: {}),
+				}
+			: { instanceId: recipe.instanceId, path: recipe.path };
+	}
+	const slot = systemComponent?.slotName ?? recipe?.slotName ?? null;
+	if (slot !== null) {
+		summary.slot = slot;
+	}
+	return summary;
+};
+
+export const describeNode = (
+	node: DesignNode,
+	detail: NodeReadDetail,
+	recipeSummaries?: ReadonlyMap<string, RecipeAttachmentSummary>,
+): Record<string, unknown> => {
+	const isText = typeof node.children === "string";
+	if (detail === "full") {
+		const recipe = recipeSummaries?.get(node.id);
 		return {
-			...detailedElement(node),
+			id: node.id,
+			props: node.props,
 			...(recipe ? { recipe } : {}),
-			children: node.children,
-			truncated: false,
+			...(isText ? { text: node.children } : {}),
 		};
 	}
 
-	const depthTruncated =
-		stats.maxDepth !== null && currentDepth >= stats.maxDepth;
-	const children: Record<string, unknown>[] = [];
-	const omittedBefore = stats.omittedNodeCount;
+	const entry = getRegistryEntry(node);
+	const name = getNodeName(node);
+	const storedRole = node.props["data-trickroom-role"];
+	const props = getCompactProps(node, entry?.defaults);
+	return {
+		id: node.id,
+		...(name && name !== entry?.definition.label ? { name } : {}),
+		component: getComponentRef(node),
+		// Role is derivable from the registry; listed only when it is not.
+		...(entry === null
+			? { role: normalizeRole(storedRole) }
+			: storedRole !== undefined && storedRole !== entry.definition.role
+				? { role: storedRole }
+				: {}),
+		...getCompactClassName(node),
+		...(typeof node.children === "string" ? getCompactText(node.children) : {}),
+		...(Object.keys(props).length > 0 ? { props } : {}),
+		...getInstanceSummary(node, recipeSummaries),
+	};
+};
 
-	if (depthTruncated) {
-		for (const child of node.children) {
-			omitElementSubtree(stats, child);
-		}
-	} else {
-		for (const child of node.children) {
-			if (!hasTreeNodeBudget(stats)) {
-				omitElementSubtree(stats, child);
-				continue;
+/**
+ * Picks the nodes a bounded read returns, breadth first: every board/child at
+ * a shallow level is listed before anything deeper, so a node budget never
+ * spends itself on the first branch and hides its siblings.
+ */
+const selectNodesBreadthFirst = (
+	roots: readonly DesignNode[],
+	bounds: TreeReadBounds,
+) => {
+	const selected = new Set<DesignNode>();
+	let level: DesignNode[] = [...roots];
+	let depth = 0;
+	while (level.length > 0) {
+		const next: DesignNode[] = [];
+		for (const node of level) {
+			if (bounds.maxNodes !== null && selected.size >= bounds.maxNodes) {
+				return selected;
 			}
-			children.push(
-				detailedSubtree(
-					child,
-					stats,
-					currentDepth + 1,
-					recipeSummariesByElementId,
-				),
-			);
+			selected.add(node);
+			if (
+				Array.isArray(node.children) &&
+				(bounds.maxDepth === null || depth < bounds.maxDepth)
+			) {
+				next.push(...node.children);
+			}
+		}
+		level = next;
+		depth += 1;
+	}
+	return selected;
+};
+
+export type TreeRead = {
+	returnedNodeCount: number;
+	omittedNodeCount: number;
+	/** Ids of returned nodes with unread descendants, in document order. */
+	truncatedElementIds: string[];
+};
+
+/**
+ * Bounded tree read. Returned nodes nest their returned children; a node
+ * whose descendants were cut carries `more` (the omitted element count) so
+ * the agent can continue with readSubtree on that id.
+ */
+export const readBoundedTree = (
+	roots: readonly DesignNode[],
+	bounds: TreeReadBounds,
+	detail: NodeReadDetail,
+	recipeSummaries?: ReadonlyMap<string, RecipeAttachmentSummary>,
+) => {
+	const selected = selectNodesBreadthFirst(roots, bounds);
+	const read: TreeRead = {
+		returnedNodeCount: selected.size,
+		omittedNodeCount: 0,
+		truncatedElementIds: [],
+	};
+
+	const render = (node: DesignNode): Record<string, unknown> => {
+		const described = describeNode(node, detail, recipeSummaries);
+		if (!Array.isArray(node.children) || node.children.length === 0) {
+			return described;
+		}
+		const children: Record<string, unknown>[] = [];
+		let omitted = 0;
+		for (const child of node.children) {
+			if (selected.has(child)) {
+				children.push(render(child));
+			} else {
+				omitted += countElementNodes(child);
+			}
+		}
+		if (omitted > 0) {
+			read.omittedNodeCount += omitted;
+			read.truncatedElementIds.push(node.id);
+		}
+		return {
+			...described,
+			...(children.length > 0 ? { children } : {}),
+			...(omitted > 0 ? { more: omitted } : {}),
+		};
+	};
+
+	const tree: Record<string, unknown>[] = [];
+	for (const root of roots) {
+		if (selected.has(root)) {
+			tree.push(render(root));
+		} else {
+			read.omittedNodeCount += countElementNodes(root);
 		}
 	}
 
-	return {
-		...detailedElement(node),
-		...(recipe ? { recipe } : {}),
-		children,
-		truncated: stats.omittedNodeCount > omittedBefore,
-	};
+	return { tree, read };
 };
+
+export const describeTreeRead = (
+	bounds: TreeReadBounds,
+	read: TreeRead,
+	continueWith: Record<string, unknown> | null,
+) => ({
+	depth: bounds.maxDepth,
+	maxNodes: bounds.maxNodes,
+	returnedNodeCount: read.returnedNodeCount,
+	omittedNodeCount: read.omittedNodeCount,
+	truncated: read.omittedNodeCount > 0,
+	...(read.omittedNodeCount > 0 && continueWith !== null
+		? {
+				next: continueWith,
+				hint: "Elements with `more` have unread descendants: call readSubtree with their id (or raise depth/maxNodes).",
+			}
+		: {}),
+});
 
 export const findElementContext = (
 	design: TrickroomDesign,
@@ -446,6 +569,7 @@ export const findElementContext = (
 		index: number | null,
 		rootIndex: number | null,
 		siblingIds: string[],
+		board: DesignNode,
 	): ElementContext | null => {
 		if (node.id === elementId) {
 			return {
@@ -454,6 +578,7 @@ export const findElementContext = (
 				index,
 				rootIndex,
 				siblingIds,
+				board,
 			};
 		}
 
@@ -463,7 +588,14 @@ export const findElementContext = (
 
 		const childSiblingIds = node.children.map((child) => child.id);
 		for (const [childIndex, child] of node.children.entries()) {
-			const found = visit(child, node, childIndex, null, childSiblingIds);
+			const found = visit(
+				child,
+				node,
+				childIndex,
+				null,
+				childSiblingIds,
+				board,
+			);
 			if (found) {
 				return found;
 			}
@@ -474,7 +606,7 @@ export const findElementContext = (
 
 	const rootSiblingIds = design.boards.map((board) => board.id);
 	for (const [rootIndex, root] of design.boards.entries()) {
-		const found = visit(root, null, null, rootIndex, rootSiblingIds);
+		const found = visit(root, null, null, rootIndex, rootSiblingIds, root);
 		if (found) {
 			return found;
 		}
@@ -503,6 +635,17 @@ export const getSiblingContext = (context: ElementContext) => {
 	};
 };
 
+/** Placement of one element, without listing every sibling id. */
+export const getElementReadContext = (context: ElementContext) => {
+	const index = context.index ?? context.rootIndex ?? null;
+	return {
+		parentId: context.parent?.id ?? null,
+		...(context.parent === null ? {} : { boardId: context.board.id }),
+		index,
+		siblingCount: context.siblingIds.length,
+	};
+};
+
 export const getElementContextOrThrow = (
 	design: TrickroomDesign,
 	elementId: string,
@@ -522,17 +665,17 @@ export const getCompactElementSummary = (
 	const ctx = findElementContext(design, elementId);
 	if (!ctx) return null;
 	const node = ctx.element;
-	const isText = typeof node.children === "string";
+	const { children } = node;
 	return {
 		id: node.id,
 		name: node.props["data-trickroom-name"],
 		library: node.props["data-trickroom-library"],
 		component: node.props["data-trickroom-component"],
 		role: normalizeRole(node.props["data-trickroom-role"]),
-		...(isText
+		...(typeof children === "string"
 			? {
-					textLength: node.children.length,
-					textPreview: getTextPreview(node.children),
+					textLength: children.length,
+					textPreview: getTextPreview(children),
 				}
 			: {
 					childIds: getChildIds(node),
@@ -549,10 +692,72 @@ export const getMutationContext = (
 	return getSiblingContext(ctx);
 };
 
+// Design memory lives next to the design as `<uuid>.memory.json`; it is not a
+// design file and must not show up in design listings.
+const isDesignMemorySidecar = (file: string) => file.endsWith(".memory.json");
+
+/** Design summaries this session may read, without memory sidecars. */
+export const listVisibleDesignSummaries = async (
+	context: TrickroomMcpServerContext,
+) => {
+	const policy = getMcpPolicy(context.config);
+	const summaries = await createDesignFileService(
+		context.projectRoot,
+	).listDesignSummaries();
+	return summaries.filter(
+		(summary) =>
+			!isDesignMemorySidecar(summary.file) &&
+			(policy.allowedDesignFileIds === null ||
+				policy.allowedDesignFileIds.has(summary.uuid)),
+	);
+};
+
+// Read lookups reuse DesignTransformError so MCP error handling formats them,
+// but their codes are not design transform codes.
+export const readErrorCode = (code: "DESIGN_NOT_FOUND" | "BOARD_NOT_FOUND") =>
+	code as string as DesignTransformErrorCode;
+
+const maxListedDesignsInError = 25;
+
+const createDesignNotFoundError = async (
+	context: TrickroomMcpServerContext,
+	designFileId: string,
+) => {
+	const designs = (await listVisibleDesignSummaries(context)).map(
+		(summary) => ({ id: summary.uuid, name: summary.name }),
+	);
+	if (designs.length <= maxListedDesignsInError) {
+		return new DesignTransformError(
+			readErrorCode("DESIGN_NOT_FOUND"),
+			`Design file "${designFileId}" does not exist in this project. Use one of availableDesigns.`,
+			{ availableDesigns: designs },
+		);
+	}
+	const closestIds = new Set(
+		suggestClosest(
+			designFileId,
+			designs.map((design) => design.id),
+		),
+	);
+	const suggestions = designs.filter((design) => closestIds.has(design.id));
+	return new DesignTransformError(
+		readErrorCode("DESIGN_NOT_FOUND"),
+		`Design file "${designFileId}" does not exist in this project.${formatDidYouMean(suggestions.map((design) => design.id))} Call listDesignFiles for every design id.`,
+		{ suggestions, designCount: designs.length },
+	);
+};
+
 export const readDesignFileForTool = async (
 	context: TrickroomMcpServerContext,
 	designFileId: string,
 ) => {
 	const service = createDesignFileService(context.projectRoot);
-	return service.readDesignFile(service.getFileForUuid(designFileId));
+	try {
+		return await service.readDesignFile(service.getFileForUuid(designFileId));
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+			throw await createDesignNotFoundError(context, designFileId);
+		}
+		throw error;
+	}
 };

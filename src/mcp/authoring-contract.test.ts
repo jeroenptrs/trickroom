@@ -250,6 +250,7 @@ describe("getDesignAuthoringContract", () => {
 		const root = await call("readElement", {
 			designFileId: trickroomMcpTestDesignUuid,
 			elementId: payload.steps[0].changedElementId,
+			detail: "full",
 		});
 		expect(root.payload.element.props.defaultOpen).toBe(false);
 	});

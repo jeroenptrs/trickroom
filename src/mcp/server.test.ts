@@ -371,7 +371,6 @@ describe("trickroom MCP discovery tools", () => {
 			expect(designs.structuredContent).toMatchObject({
 				project: {
 					projectId: "proj_second",
-					name: "Second Project",
 				},
 				designFiles: [
 					{
@@ -458,7 +457,6 @@ describe("trickroom MCP discovery tools", () => {
 			expect(designs.structuredContent).toMatchObject({
 				project: {
 					projectId: "proj_first",
-					name: "First Project",
 				},
 				designFiles: [
 					{
@@ -546,7 +544,6 @@ describe("trickroom MCP discovery tools", () => {
 			expect(designs.structuredContent).toMatchObject({
 				project: {
 					projectId: "proj_app_open_mcp",
-					name: "MCP Selected Project",
 				},
 				designFiles: [
 					{
@@ -925,7 +922,6 @@ describe("trickroom MCP discovery tools", () => {
 			expect(designs.structuredContent).toMatchObject({
 				project: {
 					projectId: "proj_opened",
-					name: "Opened Project",
 				},
 				designFiles: [
 					{
@@ -1177,7 +1173,6 @@ describe("trickroom MCP discovery tools", () => {
 			expect(designs.structuredContent).toMatchObject({
 				project: {
 					projectId: "proj_select_second",
-					name: "Second Project",
 				},
 				designFiles: [
 					{
@@ -1277,7 +1272,6 @@ describe("trickroom MCP discovery tools", () => {
 			expect(designs.structuredContent).toMatchObject({
 				project: {
 					projectId: "proj_catalog_only",
-					name: "Catalog Project",
 				},
 				designFiles: [
 					{
@@ -1912,7 +1906,10 @@ describe("trickroom MCP discovery tools", () => {
 
 	it("resolves the design file system and lists stored tokens with sync metadata", async () => {
 		const projectRoot = await createProjectRoot();
-		await writeDesignFixture(projectRoot, "design-1");
+		await writeDesignFixture(
+			projectRoot,
+			"10000000-0000-4000-8000-0000000000d1",
+		);
 		await storeDomainTokens({
 			projectRoot,
 			systemName: "Core",
@@ -1943,14 +1940,13 @@ describe("trickroom MCP discovery tools", () => {
 			const systemResult = await client.callTool({
 				name: "getDesignSystemForDesignFile",
 				arguments: {
-					designFileId: "design-1",
+					designFileId: "10000000-0000-4000-8000-0000000000d1",
 				},
 			});
 			expect(systemResult.structuredContent).toMatchObject({
 				designFile: {
-					id: "design-1",
+					id: "10000000-0000-4000-8000-0000000000d1",
 					name: "Landing Page",
-					systemName: "Core",
 				},
 				designSystem: {
 					systemName: "Core",
@@ -1967,36 +1963,23 @@ describe("trickroom MCP discovery tools", () => {
 			const tokensResult = await client.callTool({
 				name: "listDesignTokens",
 				arguments: {
-					designFileId: "design-1",
+					designFileId: "10000000-0000-4000-8000-0000000000d1",
 				},
 			});
-			expect(tokensResult.structuredContent).toMatchObject({
+			expect(tokensResult.structuredContent).toEqual({
+				designFileId: "10000000-0000-4000-8000-0000000000d1",
+				systemId: expect.stringMatching(/^sys_/),
+				systemName: "Core",
 				storageStatus: "stored",
-				tokens: [
-					{
-						domain: "color",
-						category: "accent",
-						name: "accent-primary",
-						value: "#abcdef",
-						overrideConfirmed: true,
-						syncedAt: "2026-05-05T08:00:00.000Z",
-						reviewRequired: true,
-					},
-					{
-						domain: "color",
-						category: "brand",
-						name: "brand-500",
-						value: "#123456",
-						overrideConfirmed: true,
-						syncedAt: "2026-05-05T08:00:00.000Z",
-						reviewRequired: true,
-					},
-				],
-				domains: {
-					color: {
-						tokenCount: 2,
-						overrides: ["--color-accent-*", "brand-500"],
-					},
+				syncedAt: "2026-05-05T08:00:00.000Z",
+				reviewRequired: true,
+				domains: { color: 2 },
+				totalCount: 2,
+				matchedCount: 2,
+				returnedCount: 2,
+				truncated: false,
+				tokens: {
+					color: { "accent-primary": "#abcdef", "brand-500": "#123456" },
 				},
 			});
 		} finally {
@@ -2006,27 +1989,29 @@ describe("trickroom MCP discovery tools", () => {
 
 	it("treats systemId null as disconnected even when legacy systemName remains", async () => {
 		const projectRoot = await createProjectRoot();
-		await writeDesignFixture(projectRoot, "design-1", {
-			...validDesign,
-			systemId: null,
-			systemName: "Core",
-		});
+		await writeDesignFixture(
+			projectRoot,
+			"10000000-0000-4000-8000-0000000000d1",
+			{
+				...validDesign,
+				systemId: null,
+				systemName: "Core",
+			},
+		);
 		const { client, close } = await createClient(projectRoot);
 
 		try {
 			const systemResult = await client.callTool({
 				name: "getDesignSystemForDesignFile",
 				arguments: {
-					designFileId: "design-1",
+					designFileId: "10000000-0000-4000-8000-0000000000d1",
 				},
 			});
 
 			expect(systemResult.structuredContent).toMatchObject({
 				designFile: {
-					id: "design-1",
+					id: "10000000-0000-4000-8000-0000000000d1",
 					name: "Landing Page",
-					systemId: null,
-					systemName: null,
 				},
 				designSystem: null,
 			});

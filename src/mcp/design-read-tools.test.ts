@@ -248,7 +248,10 @@ describe("trickroom MCP design read tools", () => {
 		).toHaveProperty("maxNodes");
 		expect(
 			toolsByName.get("readDesignFile")?.inputSchema.properties,
-		).toHaveProperty("responseFormat");
+		).toHaveProperty("boardId");
+		expect(
+			toolsByName.get("readDesignFile")?.inputSchema.properties,
+		).not.toHaveProperty("responseFormat");
 		expect(
 			toolsByName.get("readElement")?.inputSchema.properties,
 		).toHaveProperty("elementId");
@@ -267,30 +270,44 @@ describe("trickroom MCP design read tools", () => {
 			name: "listDesignFiles",
 			arguments: {},
 		});
+		const { systems } = listResult.structuredContent as {
+			systems: Record<string, string>;
+		};
+		const coreSystemId = Object.keys(systems).find(
+			(systemId) => systems[systemId] === "Core",
+		);
+		expect(coreSystemId).toEqual(expect.stringMatching(/^sys_/));
 		expect(listResult.structuredContent).toMatchObject({
 			designFiles: [
 				{
 					id: designFileId,
-					file: `${designFileId}.json`,
 					name: "Readable Design",
-					systemName: "Core",
-					boardsCount: 2,
+					systemId: coreSystemId,
 					layersCount: 3,
 					modifiedAt: expect.any(String),
 					revision: expect.any(String),
+					boards: [
+						{ id: "board-a", name: "Board A" },
+						{ id: "board-b", name: "Board B" },
+					],
 				},
 				{
 					id: secondDesignFileId,
-					file: `${secondDesignFileId}.json`,
 					name: "Second Design",
-					systemName: null,
-					boardsCount: 2,
+					systemId: null,
 					layersCount: 3,
 					modifiedAt: expect.any(String),
 					revision: expect.any(String),
 				},
 			],
 		});
+		const listedDesign = (
+			listResult.structuredContent as {
+				designFiles: Array<Record<string, unknown>>;
+			}
+		).designFiles[0];
+		expect(listedDesign).not.toHaveProperty("file");
+		expect(listedDesign).not.toHaveProperty("systemName");
 
 		const readResult = await client.callTool({
 			name: "readDesignFile",
@@ -298,97 +315,203 @@ describe("trickroom MCP design read tools", () => {
 				designFileId,
 			},
 		});
-		expect(readResult.structuredContent).toMatchObject({
+		expect(readResult.structuredContent).toEqual({
+			project: expect.any(Object),
 			designFile: {
 				id: designFileId,
-				file: `${designFileId}.json`,
 				name: "Readable Design",
+				systemId: coreSystemId,
 				systemName: "Core",
 				revision: expect.any(String),
 			},
-			designSystem: {
-				systemName: "Core",
-				configured: true,
-				cssPath: "src/index.css",
-			},
-			rootElementIds: ["board-a", "board-b"],
+			elementCount: 5,
 			boards: [
-				{
-					id: "board-a",
-					name: "Board A",
-					childCount: 2,
-					descendantCount: 3,
-				},
-				{
-					id: "board-b",
-					name: "Board B",
-					childCount: 0,
-					descendantCount: 0,
-				},
+				{ id: "board-a", name: "Board A", elementCount: 4 },
+				{ id: "board-b", name: "Board B", elementCount: 1 },
 			],
-			counts: {
-				boardsCount: 2,
-				layersCount: 3,
-				elementCount: 5,
-				textLeavesCount: 2,
-			},
 			read: {
 				depth: 2,
-				maxNodes: 100,
+				maxNodes: 50,
 				truncated: false,
 				returnedNodeCount: 5,
 				omittedNodeCount: 0,
 			},
-			elementTree: [
+			tree: [
 				{
 					id: "board-a",
 					name: "Board A",
 					component: "container",
-					childIds: ["title", "cta"],
 					children: [
 						{
 							id: "title",
-							role: "text",
-							textPreview: "Launch ready",
-							textLength: 12,
+							name: "Title",
+							component: "text",
+							text: "Launch ready",
 						},
 						{
 							id: "cta",
-							childIds: ["cta-label"],
+							name: "CTA",
+							component: "container",
+							children: [
+								{
+									id: "cta-label",
+									name: "CTA Label",
+									component: "text",
+									text: "Start",
+								},
+							],
 						},
 					],
 				},
+				{ id: "board-b", name: "Board B", component: "container" },
+			],
+		});
+		const readText = (readResult.content as Array<{ text: string }>)[0].text;
+		expect(JSON.parse(readText)).toEqual(readResult.structuredContent);
+
+		const boardRead = await client.callTool({
+			name: "readDesignFile",
+			arguments: { designFileId, boardId: "board-b" },
+		});
+		expect(boardRead.structuredContent).toMatchObject({
+			boards: [{ id: "board-a" }, { id: "board-b" }],
+			tree: [{ id: "board-b" }],
+			read: { returnedNodeCount: 1 },
+		});
+
+		const missingBoard = await client.callTool({
+			name: "readDesignFile",
+			arguments: { designFileId, boardId: "cta" },
+		});
+		expect(missingBoard.isError).toBe(true);
+		expect(missingBoard.structuredContent).toMatchObject({
+			code: "BOARD_NOT_FOUND",
+			message: expect.stringContaining("use readSubtree"),
+			availableBoards: [
+				{ id: "board-a", name: "Board A" },
+				{ id: "board-b", name: "Board B" },
+			],
+		});
+	});
+
+	it("keeps design memory sidecars out of listDesignFiles", async () => {
+		const { client } = await createSession();
+		const fixture = fixtures[fixtures.length - 1];
+		await writeFile(
+			path.join(
+				fixture.projectRoot,
+				".trickroom",
+				"designs",
+				`${designFileId}.memory.json`,
+			),
+			JSON.stringify({ version: 1, notes: [] }),
+		);
+
+		const listResult = await client.callTool({
+			name: "listDesignFiles",
+			arguments: {},
+		});
+		const ids = (
+			listResult.structuredContent as { designFiles: Array<{ id: string }> }
+		).designFiles.map((designFile) => designFile.id);
+		expect(ids).toEqual([designFileId, secondDesignFileId]);
+	});
+
+	it("collapses instance markers and registry defaults in compact nodes", async () => {
+		const instanceDesign = {
+			name: "Instance Design",
+			systemName: "Core",
+			boards: [
 				{
-					id: "board-b",
-					childIds: [],
+					id: "board",
+					props: {
+						"data-trickroom-name": "Container",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-system-component-system-id": "sys_core",
+						"data-trickroom-system-component-id": "cmp_card",
+						"data-trickroom-system-component-instance": "instance-1",
+						"data-trickroom-system-component-version": "2",
+						"data-trickroom-system-component-path": "root",
+						"data-trickroom-system-component-root": "true",
+						"data-trickroom-system-component-variant-values": '{"size":"lg"}',
+						"data-trickroom-system-component-overrides": "{}",
+						"data-trickroom-system-component-template-hash": "sha256:a",
+						"data-trickroom-system-component-variant-schema-hash": "sha256:b",
+					},
+					children: [
+						{
+							id: "body",
+							props: {
+								"data-trickroom-name": "Body",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "container",
+								"data-trickroom-system-component-system-id": "sys_core",
+								"data-trickroom-system-component-id": "cmp_card",
+								"data-trickroom-system-component-instance": "instance-1",
+								"data-trickroom-system-component-version": "2",
+								"data-trickroom-system-component-path": "body",
+								"data-trickroom-system-component-slot": "body",
+							},
+							children: [],
+						},
+						{
+							id: "separator",
+							props: {
+								"data-trickroom-name": "Separator",
+								"data-trickroom-library": "base-ui",
+								"data-trickroom-component": "separator",
+								orientation: "vertical",
+								"aria-label": "Divider",
+							},
+							children: [],
+						},
+					],
+				},
+			],
+		} satisfies TrickroomDesign;
+		const { client } = await createSession({ [designFileId]: instanceDesign });
+
+		const read = await client.callTool({
+			name: "readSubtree",
+			arguments: { designFileId, elementId: "board" },
+		});
+		const subtree = (
+			read.structuredContent as { subtree: Record<string, unknown> }
+		).subtree;
+		expect(subtree).toEqual({
+			id: "board",
+			component: "container",
+			systemComponent: { id: "cmp_card", variants: { size: "lg" } },
+			children: [
+				{ id: "body", name: "Body", component: "container", slot: "body" },
+				{
+					id: "separator",
+					component: "base-ui/separator",
+					props: { orientation: "vertical", "aria-label": "Divider" },
 				},
 			],
 		});
-		expect(readResult.content[0]).toMatchObject({
-			type: "text",
-		});
-		const readText = (readResult.content[0] as { text: string }).text;
-		expect(() => JSON.parse(readText)).not.toThrow();
-		expect(JSON.parse(readText)).toMatchObject({
-			designFile: {
-				id: designFileId,
-			},
-			read: {
-				returnedNodeCount: 5,
-			},
-		});
+	});
 
-		const summaryReadResult = await client.callTool({
-			name: "readDesignFile",
-			arguments: {
-				designFileId,
-				responseFormat: "summary",
-			},
-		});
-		expect(summaryReadResult.content[0]).toMatchObject({
-			type: "text",
-			text: expect.stringContaining("Returned 5 nodes"),
-		});
+	it("returns DESIGN_NOT_FOUND with the available designs for an unknown id", async () => {
+		const { client } = await createSession();
+		const missingId = "10000000-0000-4000-8000-0000000000ff";
+
+		for (const name of ["readDesignFile", "readSubtree", "readElement"]) {
+			const result = await client.callTool({
+				name,
+				arguments: { designFileId: missingId, elementId: "board-a" },
+			});
+			expect(result.isError).toBe(true);
+			expect(result.structuredContent).toMatchObject({
+				code: "DESIGN_NOT_FOUND",
+				availableDesigns: expect.arrayContaining([
+					{ id: designFileId, name: "Readable Design" },
+				]),
+			});
+			expect(JSON.stringify(result.structuredContent)).not.toContain("ENOENT");
+		}
 	});
 
 	it("includes className in compact trees and compact subtree reads", async () => {
@@ -423,9 +546,9 @@ describe("trickroom MCP design read tools", () => {
 		});
 		const tree = (
 			read.structuredContent as {
-				elementTree: Array<Record<string, unknown>>;
+				tree: Array<Record<string, unknown>>;
 			}
-		).elementTree;
+		).tree;
 		expect(tree[0]).toMatchObject({
 			id: "board-a",
 			className: "flex flex-col gap-4",
@@ -437,7 +560,7 @@ describe("trickroom MCP design read tools", () => {
 
 		const compactSubtree = await client.callTool({
 			name: "readSubtree",
-			arguments: { designFileId, elementId: "board-a", detail: "compact" },
+			arguments: { designFileId, elementId: "board-a" },
 		});
 		const subtree = (
 			compactSubtree.structuredContent as { subtree: Record<string, unknown> }
@@ -446,14 +569,14 @@ describe("trickroom MCP design read tools", () => {
 			id: "board-a",
 			className: "flex flex-col gap-4",
 			children: [
-				{ id: "title", className: "text-lg", textPreview: "Launch ready" },
+				{ id: "title", className: "text-lg", text: "Launch ready" },
 				{ id: "cta" },
 			],
 		});
 		expect(subtree).not.toHaveProperty("props");
 	});
 
-	it("reads full elements with parent and sibling context", async () => {
+	it("reads compact elements with placement context and full props on request", async () => {
 		const { client } = await createSession();
 
 		const readResult = await client.callTool({
@@ -464,28 +587,41 @@ describe("trickroom MCP design read tools", () => {
 			},
 		});
 
-		expect(readResult.structuredContent).toMatchObject({
+		expect(readResult.structuredContent).toEqual({
+			project: expect.any(Object),
 			designFile: {
 				id: designFileId,
+				name: "Readable Design",
+				revision: expect.any(String),
 			},
 			element: {
 				id: "cta",
-				props: {
-					"data-trickroom-name": "CTA",
-					"data-trickroom-component": "container",
-				},
-				text: null,
+				name: "CTA",
+				component: "container",
 				childIds: ["cta-label"],
 			},
 			context: {
 				parentId: "board-a",
-				root: false,
+				boardId: "board-a",
 				index: 1,
-				rootIndex: null,
-				siblingIds: ["title", "cta"],
-				previousSiblingId: "title",
-				nextSiblingId: null,
+				siblingCount: 2,
 			},
+		});
+
+		const fullResult = await client.callTool({
+			name: "readElement",
+			arguments: { designFileId, elementId: "board-b", detail: "full" },
+		});
+		expect(fullResult.structuredContent).toMatchObject({
+			element: {
+				id: "board-b",
+				props: {
+					"data-trickroom-name": "Board B",
+					"data-trickroom-library": "trickroom",
+					"data-trickroom-component": "container",
+				},
+			},
+			context: { parentId: null, index: 1, siblingCount: 2 },
 		});
 	});
 
@@ -549,11 +685,16 @@ describe("trickroom MCP design read tools", () => {
 		expect(designRead.structuredContent).toMatchObject({
 			read: {
 				depth: 2,
-				maxNodes: 100,
+				maxNodes: 50,
 				truncated: true,
 				returnedNodeCount: 3,
 				omittedNodeCount: 1,
+				next: {
+					tool: "readSubtree",
+					args: { designFileId: deepDesignFileId, elementId: "level-2" },
+				},
 			},
+			tree: [{ id: "deep-board", children: [{ children: [{ more: 1 }] }] }],
 		});
 
 		const subtreeRead = await client.callTool({
@@ -561,10 +702,10 @@ describe("trickroom MCP design read tools", () => {
 			arguments: {
 				designFileId: deepDesignFileId,
 				elementId: "deep-board",
+				depth: 2,
 			},
 		});
 		expect(subtreeRead.structuredContent).toMatchObject({
-			depth: 2,
 			read: {
 				depth: 2,
 				maxNodes: 100,
@@ -583,7 +724,6 @@ describe("trickroom MCP design read tools", () => {
 			},
 		});
 		expect(unboundedSubtreeRead.structuredContent).toMatchObject({
-			depth: null,
 			read: {
 				depth: null,
 				maxNodes: null,
@@ -594,7 +734,7 @@ describe("trickroom MCP design read tools", () => {
 		});
 	});
 
-	it("reads detailed subtrees with an optional depth cap", async () => {
+	it("reads subtrees with an optional depth cap and full detail", async () => {
 		const { client } = await createSession();
 
 		const readResult = await client.callTool({
@@ -607,30 +747,34 @@ describe("trickroom MCP design read tools", () => {
 		});
 
 		expect(readResult.structuredContent).toMatchObject({
-			elementId: "board-a",
-			depth: 1,
+			read: { depth: 1, returnedNodeCount: 3, omittedNodeCount: 1 },
 			context: {
 				parentId: null,
-				root: true,
-				rootIndex: 0,
-				nextSiblingId: "board-b",
+				index: 0,
+				siblingCount: 2,
 			},
 			subtree: {
 				id: "board-a",
-				childIds: ["title", "cta"],
-				truncated: true,
+				children: [
+					{ id: "title", text: "Launch ready" },
+					{ id: "cta", more: 1 },
+				],
+			},
+		});
+
+		const fullRead = await client.callTool({
+			name: "readSubtree",
+			arguments: { designFileId, elementId: "cta", detail: "full" },
+		});
+		expect(fullRead.structuredContent).toMatchObject({
+			subtree: {
+				id: "cta",
+				props: { "data-trickroom-name": "CTA" },
 				children: [
 					{
-						id: "title",
-						text: "Launch ready",
-						children: "Launch ready",
-						truncated: false,
-					},
-					{
-						id: "cta",
-						childIds: ["cta-label"],
-						children: [],
-						truncated: true,
+						id: "cta-label",
+						props: { "data-trickroom-role": "text" },
+						text: "Start",
 					},
 				],
 			},
@@ -653,121 +797,58 @@ describe("trickroom MCP design read tools", () => {
 				},
 			});
 
-			const readContent = readResult.structuredContent as {
-				subtree: {
-					children: Array<{
-						id: string;
-						children?: Array<{
-							id: string;
-							recipe?: {
-								slotName: string | null;
-								path: string;
-								state: string;
-							};
-						}>;
-						recipe?: {
-							recipeId: string;
-							instanceId: string;
-							rootElementId: string | null;
-							path: string;
-							slotName: string | null;
-							state: string;
-						};
-					}>;
-				};
+			type ReadNode = {
+				id: string;
+				slot?: string;
+				recipe?: Record<string, unknown>;
+				children?: ReadNode[];
 			};
-
-			const validRoot = readContent.subtree.children.find(
-				(node) => node.id === recipeMetadataReadFixture.nodeIds.valid.root,
-			);
-			const invalidRoot = readContent.subtree.children.find(
-				(node) => node.id === recipeMetadataReadFixture.nodeIds.invalid.root,
-			);
-			const unknownRoot = readContent.subtree.children.find(
-				(node) => node.id === recipeMetadataReadFixture.nodeIds.unknown.root,
-			);
-			const staleRoot = readContent.subtree.children.find(
-				(node) => node.id === recipeMetadataReadFixture.nodeIds.stale.root,
-			);
-
-			expect(validRoot).toMatchObject({
-				id: recipeMetadataReadFixture.nodeIds.valid.root,
-				recipe: {
-					recipeId: "base-ui/avatar.default",
-					instanceId: recipeMetadataReadFixture.nodeIds.valid.instanceId,
-					rootElementId: recipeMetadataReadFixture.nodeIds.valid.root,
-					path: "root",
-					slotName: null,
-					state: "attached-valid",
-				},
-			});
-			expect(invalidRoot).toMatchObject({
-				id: recipeMetadataReadFixture.nodeIds.invalid.root,
-				recipe: {
-					recipeId: "base-ui/avatar.default",
-					instanceId: recipeMetadataReadFixture.nodeIds.invalid.instanceId,
-					rootElementId: null,
-					path: "root",
-					slotName: null,
-					state: "invalid-known",
-				},
-			});
-			expect(unknownRoot).toMatchObject({
-				id: recipeMetadataReadFixture.nodeIds.unknown.root,
-				recipe: {
-					recipeId: "base-ui/does-not-exist",
-					instanceId: recipeMetadataReadFixture.nodeIds.unknown.instanceId,
-					rootElementId: recipeMetadataReadFixture.nodeIds.unknown.root,
-					path: "root",
-					slotName: null,
-					state: "unknown-recipe",
-				},
-			});
-			expect(staleRoot).toMatchObject({
-				id: recipeMetadataReadFixture.nodeIds.stale.root,
-				recipe: {
-					recipeId: "base-ui/avatar.default",
-					instanceId: recipeMetadataReadFixture.nodeIds.stale.instanceId,
-					rootElementId: recipeMetadataReadFixture.nodeIds.stale.root,
-					path: "root",
-					slotName: null,
-					state: "attached-stale",
-					currentVersion: "1",
-					matchedTemplateVersion: "0.9",
-				},
-			});
-
+			const readContent = readResult.structuredContent as {
+				subtree: { children: ReadNode[] };
+			};
 			const findNodeById = (
-				nodes: ReadonlyArray<{
-					id: string;
-					children?: ReadonlyArray<{
-						id: string;
-						children?: Array<{ id: string }>;
-					}>;
-				}>,
+				nodes: readonly ReadNode[],
 				targetId: string,
-			): { recipe?: { slotName: string | null; path: string } } | null => {
+			): ReadNode | null => {
 				for (const node of nodes) {
 					if (node.id === targetId) {
 						return node;
 					}
-					if (node.children) {
-						const found = findNodeById(node.children, targetId);
-						if (found) {
-							return found;
-						}
+					const found = findNodeById(node.children ?? [], targetId);
+					if (found) {
+						return found;
 					}
 				}
 				return null;
 			};
+			const { nodeIds } = recipeMetadataReadFixture;
+			const nodes = readContent.subtree.children;
 
-			const validFallback = findNodeById(
-				readContent.subtree.children,
-				recipeMetadataReadFixture.nodeIds.valid.fallback,
-			);
-			expect(validFallback).toMatchObject({
+			expect(findNodeById(nodes, nodeIds.valid.root)?.recipe).toEqual({
+				id: "base-ui/avatar.default",
+				instanceId: nodeIds.valid.instanceId,
+			});
+			expect(findNodeById(nodes, nodeIds.invalid.root)?.recipe).toEqual({
+				id: "base-ui/avatar.default",
+				instanceId: nodeIds.invalid.instanceId,
+				state: "invalid-known",
+			});
+			expect(findNodeById(nodes, nodeIds.unknown.root)?.recipe).toEqual({
+				id: "base-ui/does-not-exist",
+				instanceId: nodeIds.unknown.instanceId,
+				state: "unknown-recipe",
+			});
+			expect(findNodeById(nodes, nodeIds.stale.root)?.recipe).toEqual({
+				id: "base-ui/avatar.default",
+				instanceId: nodeIds.stale.instanceId,
+				state: "attached-stale",
+				currentVersion: "1",
+				matchedTemplateVersion: "0.9",
+			});
+			expect(findNodeById(nodes, nodeIds.valid.fallback)).toMatchObject({
+				slot: "fallback",
 				recipe: {
-					slotName: "fallback",
+					instanceId: nodeIds.valid.instanceId,
 					path: "fallback",
 				},
 			});
@@ -790,49 +871,25 @@ describe("trickroom MCP design read tools", () => {
 
 			const graphContent = graphResult.structuredContent as {
 				graph: {
-					elementsById: Record<
-						string,
-						{
-							recipe?: {
-								state: string;
-								rootElementId: string | null;
-							};
-						}
-					>;
+					elementsById: Record<string, { recipe?: Record<string, unknown> }>;
 				};
 			};
-			const validElement =
-				graphContent.graph.elementsById[
-					recipeMetadataReadFixture.nodeIds.valid.root
-				];
-			const invalidElement =
-				graphContent.graph.elementsById[
-					recipeMetadataReadFixture.nodeIds.invalid.root
-				];
-			const unknownElement =
-				graphContent.graph.elementsById[
-					recipeMetadataReadFixture.nodeIds.unknown.root
-				];
-			const staleElement =
-				graphContent.graph.elementsById[
-					recipeMetadataReadFixture.nodeIds.stale.root
-				];
+			const { nodeIds } = recipeMetadataReadFixture;
+			const recipeOf = (elementId: string) =>
+				graphContent.graph.elementsById[elementId]?.recipe;
 
-			expect(validElement.recipe).toMatchObject({
-				state: "attached-valid",
-				rootElementId: recipeMetadataReadFixture.nodeIds.valid.root,
+			expect(recipeOf(nodeIds.valid.root)).toEqual({
+				id: "base-ui/avatar.default",
+				instanceId: nodeIds.valid.instanceId,
 			});
-			expect(invalidElement.recipe).toMatchObject({
+			expect(recipeOf(nodeIds.invalid.root)).toMatchObject({
 				state: "invalid-known",
-				rootElementId: null,
 			});
-			expect(unknownElement.recipe).toMatchObject({
+			expect(recipeOf(nodeIds.unknown.root)).toMatchObject({
 				state: "unknown-recipe",
-				rootElementId: recipeMetadataReadFixture.nodeIds.unknown.root,
 			});
-			expect(staleElement.recipe).toMatchObject({
+			expect(recipeOf(nodeIds.stale.root)).toMatchObject({
 				state: "attached-stale",
-				rootElementId: recipeMetadataReadFixture.nodeIds.stale.root,
 				currentVersion: "1",
 				matchedTemplateVersion: "0.9",
 			});

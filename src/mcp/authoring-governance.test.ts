@@ -90,14 +90,14 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			.designFile.revision;
 	};
 
-	it("reads a flat design graph with canonical addresses", async () => {
+	it("reads a bounded flat design graph with opt-in addresses", async () => {
 		const { session } = await createSession();
 
 		const result = await session.client.callTool({
 			name: "readDesignGraph",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
-				includeProps: true,
+				includeAddresses: true,
 			},
 		});
 
@@ -105,32 +105,58 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			project: {
 				projectId: expect.any(String),
 			},
+			read: {
+				depth: null,
+				maxNodes: 100,
+				truncated: false,
+				returnedNodeCount: 2,
+			},
 			graph: {
 				rootElementIds: ["board"],
-				parentIdByElementId: {
-					board: null,
-					title: "board",
-				},
-				childIdsByElementId: {
-					board: ["title"],
-					title: [],
-				},
-				addressByElementId: {
-					board: "/boards/0",
-					title: "/boards/0/children/0",
-				},
 				elementsById: {
+					board: { parentId: null, childCount: 1, address: "/boards/0" },
 					title: {
-						role: "text",
-						textPreview: "Harness fixture",
-						addresses: {
-							text: "/boards/0/children/0/children",
-							name: "/boards/0/children/0/props/data-trickroom-name",
-						},
+						parentId: "board",
+						component: "text",
+						text: "Harness fixture",
+						address: "/boards/0/children/0",
 					},
 				},
 			},
 		});
+
+		const bounded = await session.client.callTool({
+			name: "readDesignGraph",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				maxNodes: 1,
+				includeProps: true,
+			},
+		});
+		expect(bounded.structuredContent).toMatchObject({
+			read: {
+				maxNodes: 1,
+				truncated: true,
+				returnedNodeCount: 1,
+				omittedNodeCount: 1,
+				next: {
+					tool: "readSubtree",
+					args: { elementId: "board" },
+				},
+			},
+			graph: {
+				elementsById: {
+					board: {
+						more: 1,
+						props: { "data-trickroom-component": "container" },
+					},
+				},
+			},
+		});
+		expect(
+			(bounded.structuredContent as { graph: { elementsById: object } }).graph
+				.elementsById,
+		).not.toHaveProperty("title");
 	});
 
 	it("returns a model-facing authoring contract", async () => {
