@@ -115,7 +115,7 @@ Note bodies may embed inline reference tokens so notes can point at related enti
 {{icon:<iconId>}}
 ```
 
-Tokens are stored verbatim. On write, Trickroom returns non-blocking `referenceWarnings` for tokens that do not resolve in the current scope. On read, REST (`?resolveReferences=true`) and MCP (`resolveReferences: true`) attach per-note `references` with `valid`, `broken`, or `unresolvable_scope` status and, for valid targets, a `deepLink` in-app route. The project overview memory drawer renders resolved tokens as chips (valid chips navigate via `deepLink`) and offers `{{` intellisense backed by the reference-targets endpoint / `listReferenceTargets` MCP tool.
+Tokens are stored verbatim. On write, Trickroom returns non-blocking `referenceWarnings` for tokens that do not resolve in the current scope. On read, REST (`?resolveReferences=true`) and MCP (`resolveReferences: true`) attach per-note `references` with `valid`, `broken`, or `unresolvable_scope` status and, for valid targets, a `deepLink` in-app route. The project overview memory drawer renders resolved tokens as chips (valid chips navigate via `deepLink`) and offers `{{` intellisense backed by the reference-targets endpoint, which MCP exposes as `memory_read({ scope, referenceType })`.
 
 ## Registry
 

@@ -81,7 +81,7 @@ Start the server:
 trickroom mcp
 ```
 
-Agents can list projects, open/switch the active project, create design files, read designs, inspect elements, validate files, discover component registries, read linked design-system tokens, dry-run operations, and mutate design files. Existing-file mutations require an `expectedRevision` from a prior read, so agents must re-read after conflicts instead of guessing.
+The server exposes 22 tools in a few families: `project_*` (which project the session works in), `guide` (the authoring rules and reference), `design_*` (list, read, apply, validate, create, screenshot, export), `editor_*` (what the human has selected, and pointing their editor at changes), `memory_*`, `system_*` and `component_*`. All design changes go through `design_apply`, a batch of operations written at once against an `expectedRevision` from a prior read, so agents re-read after conflicts instead of guessing.
 
 For the full tool map and safety model, see [Agents And MCP](./docs/mcp.md).
 

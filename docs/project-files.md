@@ -154,8 +154,8 @@ Write behavior:
 
 - The browser app creates design files from the project screen.
 - The editor autosaves design files after dirty changes.
-- MCP `createDesignFile` creates blank design files when policy allows and refuses to overwrite existing UUIDs.
-- MCP mutation tools edit existing design files when policy and revisions allow.
+- MCP `design_create` creates design files when policy allows and refuses to overwrite existing UUIDs. Unlike the app's new designs, an MCP-created design starts without boards (or with a copy of an existing element as its board).
+- MCP `design_apply` edits existing design files when policy and revisions allow.
 - Writes are atomic: existing-file saves write a temporary JSON file and rename it into place; exclusive creation links a temporary file only when the target UUID does not already exist.
 - Every write stores the current `version` and a stable top-level key order (`version`, `name`, `systemId`, `systemName`, `componentMigrationPolicy`, other keys, `boards`), tab-indented, so identical designs produce identical bytes.
 - Reading a design never writes it. Opening a design in the app or capturing a screenshot leaves the file, its revision, and the git worktree untouched.
@@ -554,9 +554,9 @@ Design authoring and migration behavior:
 - Extracting a complete attached component root into a new design preserves the attachment with a fresh instance id. Extracting a partial component-owned subtree strips component marker props so the extracted design is independent.
 - Detaching a component instance removes all system-component marker props from that instance and makes the former structural nodes normal editable design elements.
 - Stale detection reports attached instances whose referenced version is no longer current. Hash mismatches and unsafe migrations are surfaced as separate review signals from simple version staleness.
-- Manual migration (`migrateSystemComponentInstance` in MCP) updates one stale instance to the current published version when the migration is safe, or returns a review-required preview when `onlySafe` blocks the write.
-- Bulk migration (`bulkMigrateSystemComponentUsages` in MCP) scans a system, optional component, or design file. It is always explicit: MCP does not auto-apply migrations on read or publish. By default `onlySafe` is true, so safe migrations are applied and review-required or blocked instances are reported without writing them.
-- Automatic application inside the bulk migration helper runs only when callers pass `automatic: true`. That path requires `settings.autoMigrateComponents` on the component manifest and the design's `componentMigrationPolicy` to allow migration (`inherit` or `auto`; `manual` skips automatic writes). MCP bulk migration does not pass `automatic`, so MCP callers must invoke bulk or per-instance migration tools explicitly. The manifest `migrationPolicy` object is stored metadata and is not the runtime gate for automatic bulk migration.
+- Manual migration (MCP `component_migrate` with a `rootElementId`) updates one stale instance to the current published version when the migration is safe, or returns a review-required preview when `onlySafe` blocks the write.
+- Bulk migration (MCP `component_migrate` without a `rootElementId`) scans a system, optional component, or design file. It is always explicit: MCP does not auto-apply migrations on read or publish. By default `onlySafe` is true, so safe migrations are applied and review-required or blocked instances are reported without writing them.
+- Automatic application inside the bulk migration helper runs only when callers pass `automatic: true`. That path requires `settings.autoMigrateComponents` on the component manifest and the design's `componentMigrationPolicy` to allow migration (`inherit` or `auto`; `manual` skips automatic writes). MCP bulk migration does not pass `automatic`, so MCP callers must run `component_migrate` explicitly, per instance or in bulk. The manifest `migrationPolicy` object is stored metadata and is not the runtime gate for automatic bulk migration.
 - The project REST API exposes component settings (`autoMigrateComponents`) and usage scans, but no migration execution route. Stale instances remain reportable whenever automatic settings are off and can still be migrated through explicit MCP tools.
 
 REST surface (project API):
@@ -639,7 +639,7 @@ Revision and write safety:
 
 - Every `memory.json` revision is a content hash of the exact serialized file (`sha256:<hex digest>`).
 - An absent file reads as an empty manifest with a deterministic revision (fixed epoch timestamps), so a first write does not spuriously conflict.
-- `updateMemoryNote` and `deleteMemoryNote` require `expectedRevision`; stale revisions return `STALE_WRITE` and do not modify the file. `addMemoryNote` is append-only and does not require a revision.
+- Note updates and deletes (`memory_write` actions `update` and `delete` in MCP) require `expectedRevision`; stale revisions return `STALE_WRITE` and do not modify the file. Adding a note is append-only and does not require a revision.
 - Writes are atomic (temp file + rename) and serialized per file path.
 
 REST surface:
@@ -723,7 +723,7 @@ type ProjectRegistry = {
 Write behavior:
 
 - Opening a project upserts its local location.
-- MCP `openProject` is a compatibility alias that registers a project location and selects it for the MCP session.
+- MCP `project_select` with a `path` registers a project location and selects it for the MCP session.
 - `lastActiveProjectId` and `lastActiveLocationId` are app-level registry values and do not select or retarget MCP sessions.
 - Closing a project in the app clears only the in-memory active project for that app session; it does not remove recent project history.
 
@@ -766,8 +766,8 @@ Browser editor:
 
 MCP:
 
-- `createDesignFile` creates a new UUID file with exclusive no-overwrite semantics.
-- Every existing-file mutation tool requires `expectedRevision`.
+- `design_create` creates a new UUID file with exclusive no-overwrite semantics.
+- `design_apply`, which makes every change to an existing design, requires `expectedRevision`.
 - The revision must come from a prior read.
 - If the file changed, the tool returns `REVISION_MISMATCH` and does not write.
 - The safe response is to re-read, re-plan if needed, and retry with the new revision.

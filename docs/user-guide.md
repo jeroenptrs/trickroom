@@ -176,23 +176,24 @@ Agents can safely ask:
 - Which registered project should be targeted (`locationId`)?
 
 For multi-project MCP sessions:
-- Call `listProjects` first to inspect available projects and their `locationId`.
-- Call `selectProject({ locationId })` to set the active MCP session project.
+- Call `project_list` first to see the session's project and the other registered projects with their `locationId`.
+- Call `project_select({ locationId })` to switch the MCP session project, or `project_select({ path })` for a project that is not registered yet.
 - Attach design resources using `trickroom://proj/<locationId>/design/<designId>` references.
 
-Agents can also mutate design files when policy allows:
+Agents can also change design files when policy allows, with `design_create` and `design_apply`:
 
-- Create a new blank design file.
-- Rename a design file.
-- Add an element.
-- Rename an element or update its class string.
-- Update text content.
-- Move an element.
-- Delete an element and all descendants.
+- Create a new design file, empty or from a copy of an existing element.
+- Add elements, recipes (dialogs, menus, selects) and design system component instances, and fill their slots.
+- Rename layers, update class strings, controls and text.
+- Move, copy or delete elements, and rename the design.
+
+`design_apply` takes an ordered list of operations and writes them as one change, or nothing if a step fails.
 
 Existing-design mutations require an `expectedRevision` from a previous read. If the file changed, the tool returns `REVISION_MISMATCH` and the agent must re-read before retrying. New design creation instead fails if the chosen UUID already exists.
 
-See [Agents And MCP](./mcp.md) for the full read-only/write/destructive tool map.
+Agents can also see what you have selected in the editor (`editor_context`) and point your editor at what they changed (`editor_focus`).
+
+See [Agents And MCP](./mcp.md) for the full tool map.
 
 ## Current Limits
 
@@ -206,5 +207,5 @@ See [Agents And MCP](./mcp.md) for the full read-only/write/destructive tool map
 - Commit `.trickroom` files if you want designs to move with the project.
 - Keep MCP in `read-only` mode until you are comfortable with the mutation workflow.
 - Enable `auditLog` before letting agents perform larger edit sessions.
-- Use `validateOperation` before a mutation when the target parent, role, or insertion point is uncertain.
-- Use `validateDesignFile` after multi-step agent edits.
+- Use `design_validate` with the planned operations before a write when the target parent, role, or insertion point is uncertain.
+- Use `design_validate` on the whole design after multi-step agent edits.

@@ -17,7 +17,7 @@ These docs are organized as a user guide first and implementation notes second. 
 
 ## Quick Safety Summary
 
-Trickroom writes project metadata under `.trickroom`, recent-project state under `~/.trickroom`, and no application source files. MCP writes are gated by project config, design-file allowlists, component allowlists, and content-hash revisions. `deleteElement` removes a subtree and cannot be undone by Trickroom itself.
+Trickroom writes project metadata under `.trickroom`, recent-project state under `~/.trickroom`, and no application source files. MCP writes are gated by project config, design-file allowlists, component allowlists, and content-hash revisions. A `deleteElement` operation removes a subtree and cannot be undone by Trickroom itself.
 
 ## Source Pointers
 
