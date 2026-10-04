@@ -34,7 +34,12 @@ describe("live project query invalidation", () => {
 
 		await invalidateTrickroomFileEvent(
 			queryClient,
-			{ file: "designs/home.json", operation: "changed", revision },
+			{
+				file: "designs/home",
+				designId: "home",
+				operation: "changed",
+				revision,
+			},
 			"loc_1",
 		);
 
@@ -69,15 +74,20 @@ describe("live project query invalidation", () => {
 	it("routes design memory changes to memory queries only", async () => {
 		const queryClient = new QueryClient();
 		const memoryKey = ["trickroom-memory", "design", "home", "loc_1"];
-		const designKey = designFileQueryKey("home.memory.json", "loc_1");
+		const designKey = designFileQueryKey("home", "loc_1");
 		seed(queryClient, memoryKey);
 		seed(queryClient, designKey);
 
-		await invalidateTrickroomFileEvent(queryClient, {
-			file: "designs/home.memory.json",
-			operation: "changed",
-			revision,
-		});
+		for (const file of [
+			"designs/home.memory.json",
+			"designs/home/memory.json",
+		]) {
+			await invalidateTrickroomFileEvent(queryClient, {
+				file,
+				operation: "changed",
+				revision,
+			});
+		}
 
 		expect(isInvalidated(queryClient, memoryKey)).toBe(true);
 		expect(isInvalidated(queryClient, designKey)).toBe(false);
@@ -98,7 +108,12 @@ describe("design events at a revision the browser already has", () => {
 
 		await invalidateTrickroomFileEvent(
 			queryClient,
-			{ file: "designs/home.json", operation: "changed", revision },
+			{
+				file: "designs/home",
+				designId: "home",
+				operation: "changed",
+				revision,
+			},
 			"loc_1",
 		);
 
@@ -115,9 +130,11 @@ describe("design events at a revision the browser already has", () => {
 		await invalidateTrickroomFileEvent(
 			queryClient,
 			{
-				file: "designs/home.json",
+				file: "designs/home",
+				designId: "home",
 				operation: "changed",
 				revision: otherRevision,
+				boards: [{ id: "board-a", revision: "0011223344556677" }],
 			},
 			"loc_1",
 		);
@@ -132,7 +149,12 @@ describe("design events at a revision the browser already has", () => {
 
 		await invalidateTrickroomFileEvent(
 			queryClient,
-			{ file: "designs/home.json", operation: "deleted", revision: null },
+			{
+				file: "designs/home",
+				designId: "home",
+				operation: "deleted",
+				revision: null,
+			},
 			"loc_1",
 		);
 

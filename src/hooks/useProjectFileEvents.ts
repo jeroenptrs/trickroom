@@ -14,10 +14,15 @@ import {
 import type { ProjectQueryScope } from "../queries/project-scope";
 
 export type TrickroomFileEvent = {
+	/** What changed, relative to `.trickroom`; `designs/<id>` for designs. */
 	file: string;
-	/** Opaque revision of the changed file, or null when it was deleted. */
+	/** Opaque revision of the file or design, or null when it was deleted. */
 	revision: string | null;
 	operation: "changed" | "deleted";
+	/** Set on design events. */
+	designId?: string;
+	/** Boards that changed in this design event, with their new revision. */
+	boards?: { id: string; revision: string | null }[];
 };
 
 const systemQueryPrefixes = new Set([
@@ -68,16 +73,10 @@ export async function invalidateTrickroomFileEvent(
 	event: TrickroomFileEvent,
 	projectScope?: ProjectQueryScope,
 ) {
-	if (event.file.startsWith("designs/")) {
-		const file = event.file.slice("designs/".length);
-		if (file.endsWith(".memory.json")) {
-			await invalidatePrefixes(queryClient, memoryQueryPrefixes);
-			return;
-		}
-		const designKey = designFileQueryKey(
-			file.replace(/\.json$/, ""),
-			projectScope,
-		);
+	if (event.designId !== undefined) {
+		// The whole design is refetched; `event.boards` names the boards that
+		// changed for clients that reload a single board.
+		const designKey = designFileQueryKey(event.designId, projectScope);
 		// The browser already holds this exact revision (typically its own
 		// save echoing back), so refetching the design would return the same
 		// bytes. Summaries and usage still change with every write.
@@ -94,6 +93,11 @@ export async function invalidateTrickroomFileEvent(
 				: queryClient.invalidateQueries({ queryKey: designKey }),
 			invalidatePrefixes(queryClient, designUsageQueryPrefixes),
 		]);
+		return;
+	}
+
+	if (event.file.startsWith("designs/") && event.file.endsWith("memory.json")) {
+		await invalidatePrefixes(queryClient, memoryQueryPrefixes);
 		return;
 	}
 

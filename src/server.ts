@@ -580,7 +580,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			: (options.sessionToken?.trim() ?? undefined);
 	let activeProject: TrickroomActiveProject | null = null;
 	let initialProjectPromise: Promise<void> | null = null;
-	const projectFileEvents = new ProjectFileEvents();
+	const projectFileEvents = new ProjectFileEvents(undefined, { trickroomHome });
 	const editorSessions = createEditorSessions();
 	const activeProjectListeners = new Set<
 		(project: TrickroomSessionProject | null) => void

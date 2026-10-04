@@ -162,6 +162,8 @@ export type DesignBoardRevisionEntry = {
 };
 
 export type DesignFileRead = Omit<DesignJsonFileRead, "value"> & {
+	/** `folder` for the current layout, `legacy` for a single-file design. */
+	layout: "folder" | "legacy";
 	/**
 	 * The design migrated in memory to the current schema. Like every
 	 * in-memory design it has no `version`; writes stamp it.
@@ -771,6 +773,7 @@ export class DesignFileService {
 		return {
 			uuid: paths.designId,
 			...this.describeLocation(paths, stored.files.layout),
+			layout: stored.files.layout,
 			design: stored.design,
 			revision: encodeDesignRevision(parts),
 			boards: parts.boards,

@@ -380,8 +380,11 @@ describe("server design routes", () => {
 			const eventText = new TextDecoder().decode(changeChunk.value);
 
 			expect(eventText).toContain("event: change");
-			expect(eventText).toContain('"file":"designs/live.json"');
-			expect(eventText).toMatch(/"revision":"sha256:[a-f0-9]{64}"/);
+			expect(eventText).toContain('"file":"designs/live"');
+			expect(eventText).toContain('"designId":"live"');
+			expect(eventText).toContain(
+				`"revision":"${(await createDesignFileService(tempProjectRoot).readDesignFile("live")).revision}"`,
+			);
 		} finally {
 			controller.abort();
 			await reader.cancel();
