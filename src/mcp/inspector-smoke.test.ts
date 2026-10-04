@@ -1,10 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { build } from "vite";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { upsertProjectLocation } from "../app-state/project-registry";
 import {
 	createTrickroomMcpProjectFixture,
@@ -205,12 +205,39 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 	const fixtures: TrickroomMcpProjectFixture[] = [];
 	const trickroomHomes: string[] = [];
 
+	// Build into a throwaway copy of bin/ + dist/ so the test never rewrites
+	// dist/mcp-stdio.js, which live MCP sessions load from this checkout. The
+	// directory stays inside the repo so external runtime deps resolve from
+	// node_modules.
+	let buildRoot = "";
+
 	beforeAll(async () => {
+		buildRoot = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-mcp-build-"),
+		);
+		const binSource = path.join(process.cwd(), "bin");
+		const binTarget = path.join(buildRoot, "bin");
+		await mkdir(binTarget);
+		for (const entry of await readdir(binSource)) {
+			if (entry.endsWith(".js") && !entry.endsWith(".test.js")) {
+				await copyFile(
+					path.join(binSource, entry),
+					path.join(binTarget, entry),
+				);
+			}
+		}
 		await build({
 			configFile: path.join(process.cwd(), "vite.mcp.config.ts"),
 			logLevel: "silent",
+			build: { outDir: path.join(buildRoot, "dist") },
 		});
 	}, 30_000);
+
+	afterAll(async () => {
+		if (buildRoot) {
+			await rm(buildRoot, { force: true, recursive: true });
+		}
+	});
 
 	afterEach(async () => {
 		await Promise.all([
@@ -245,7 +272,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 
 		return createTrickroomMcpStdioTestClient({
 			command: process.execPath,
-			args: [path.join(process.cwd(), "bin", "trickroom.js"), "mcp"],
+			args: [path.join(buildRoot, "bin", "trickroom.js"), "mcp"],
 			cwd: fixture.projectRoot,
 			env: getStringEnv({
 				TRICKROOM_HOME: trickroomHome,
