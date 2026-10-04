@@ -28,6 +28,7 @@ import {
 	registerDesignNodeEditTools,
 	registerDesignNodeInsertTools,
 } from "./tools/design-write-nodes";
+import { installToolInputValidation } from "./tools/input-validation";
 import { registerMemoryTools } from "./tools/memory";
 import { registerProjectTools } from "./tools/projects";
 import { registerRegistryTools } from "./tools/registry";
@@ -87,6 +88,7 @@ export const createTrickroomMcpServer = (
 			instructions: TRICKROOM_MCP_SERVER_INSTRUCTIONS,
 		},
 	) as TrickroomMcpServer;
+	installToolInputValidation(server);
 
 	const mcpToolControls = new Map<string, McpToolControl>();
 	const registerMcpTool = server.registerTool.bind(server);
