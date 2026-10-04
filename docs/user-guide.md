@@ -195,6 +195,13 @@ Agents can also see what you have selected in the editor (`editor_context`) and 
 
 See [Agents And MCP](./mcp.md) for the full tool map.
 
+### Working alongside an agent
+
+When an agent (or another tab, or a git checkout) changes the design you have open, the editor picks up only the boards that changed. Your selection, the board you are on, zoom and scroll stay where they are, and your unsaved edits to other boards are kept and saved as usual.
+
+- Changed boards get a **Changed** tag in the Layers panel, and changed layers a cyan square. In the responsive view, **N changed** next to the board navigation jumps to the next changed board. When a changed board is in view, its changed layers are outlined briefly. The markers clear a few seconds after you have seen the board, or as soon as you select or edit something in it.
+- If you and the agent changed the same board, the changes are merged layer by layer. You are only asked when both changed the same property or text of a layer (or moved things in ways that do not combine). The dialog lists each conflicting board; for each, **Take theirs** loads the version on disk and drops your edits to that board, **Keep mine** saves your version of that board over the one on disk. Other boards are not affected by either choice.
+
 ## Current Limits
 
 - The built-in registry currently has `container` and `text`.

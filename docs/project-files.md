@@ -190,7 +190,8 @@ A revision-checked write merges at board level against the revision the caller r
 - A board the caller changed or deleted must be unchanged on disk since `expectedRevision`; otherwise the write is refused with `REVISION_MISMATCH` and the stale boards are named (`mismatch.staleBoardIds`; the manifest and order are reported as `manifest` and `order`). The same holds for a changed manifest.
 - Boards another writer added are kept. Boards another writer deleted stay deleted, unless the caller changed them (a mismatch).
 - When the caller kept the relative order of the boards it knew, the order on disk wins and new boards slot in after their predecessor. When the caller reordered, its order wins unless the order on disk changed too (a mismatch).
-- The returned revision describes the merged state. The HTTP API sets `x-trickroom-design-merged: true` when the stored design kept changes the request did not have; the browser then treats the response as an external change.
+- The returned revision describes the merged state. The HTTP API sets `x-trickroom-design-merged: true` when the stored design kept changes the request did not have; the browser applies those changes from the response like any external change.
+- HTTP design reads and writes also report every part's revision in `x-trickroom-design-state` (URI-encoded JSON `{ manifest, boards: [{ id, revision }] }`), design change events carry the same as `state`, and `GET /api/trickroom/design/manifest?id=` returns the top-level fields with those revisions and no board contents. The browser compares these for equality to reload only the parts that changed; it never parses the design revision token.
 
 `updateDesignFile` (used by every MCP mutation and by bulk component migration) applies a mutation to a fresh read and writes it with the caller's revision as `expectedRevision` and the fresh read as the base: a mutation of board A succeeds when only board B changed since the caller's read.
 
@@ -813,13 +814,12 @@ Every design revision is an opaque token that combines a revision per board and 
 
 Browser editor:
 
-- Uses a local dirty revision counter.
-- Retains the last persisted revision returned by the HTTP API.
+- Tracks unsaved edits per board (including boards added or deleted locally), for board order and for the design's name and system, each stamped with the store revision of its latest edit.
+- Keeps a base: the last version of every board, the order and the top-level fields known to be on disk, with their revisions.
 - Autosaves the whole design after `1000ms`. The service writes only the boards that changed.
-- Sends the persisted revision with existing-design writes (`PUT /api/trickroom/design?id=<designId>` with `x-trickroom-expected-revision`; without it the write is rejected with HTTP 428; new designs are created with `POST`). A save that changes a board another writer changed since the browser read it receives HTTP 409 and does not overwrite disk state. A save of board A while another writer changed board B succeeds and keeps both.
-- Clears dirty state only when the completed save still matches the current in-memory revision.
-- Moves the cached design snapshot to the saved revision when a save completes, so its own write is never mistaken for an external change. A save that kept another writer's changes (`x-trickroom-design-merged`) is treated as an external change instead: a clean editor reloads it, a dirty one asks.
-- Subscribes to project file events. Events whose revision matches the snapshot the browser already has (its own save echoing back) do not refetch the design, and bursts of events for one design are coalesced into one refetch. Clean designs reload from disk automatically; dirty designs pause autosave and ask whether to reload from disk or keep the local version (keeping the local version replaces the whole design with it).
+- Sends the persisted revision with existing-design writes (`PUT /api/trickroom/design?id=<designId>` with `x-trickroom-expected-revision`; without it the write is rejected with HTTP 428; new designs are created with `POST`). A save that changes a board another writer changed since the browser read it receives HTTP 409 and does not overwrite disk state; the editor then compares revisions with the disk again and retries once it has caught up. A save of board A while another writer changed board B succeeds and keeps both.
+- Moves the base to what a completed save stored for every part it sent; edits made while the save was in flight stay dirty. A save that kept another writer's changes (`x-trickroom-design-merged`) applies them from the response without a reload.
+- Subscribes to project file events. An event for the open design fetches only the boards whose revision differs from the base (and the manifest when it changed); other boards, the selection and the view are untouched. A board with local edits that also changed on disk merges by layer; only changes to the same layer prop or text on both sides (or structure that does not merge) ask the human, per board, to take the disk version or keep the local one. Keeping the local one overwrites that board only, with the disk version as the expected revision. The persisted revision moves to the disk revision once the base matches it.
 
 MCP:
 
