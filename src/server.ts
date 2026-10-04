@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
-import { type Context, Hono } from "hono";
+import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { streamSSE } from "hono/streaming";
 import { resolveTrickroomHome } from "./app-state/home";
@@ -405,14 +405,16 @@ const parseMcpSettingsPayload = (body: unknown) => {
 	return null;
 };
 
-const parseDefaultSystemPayload = (body: unknown) => {
+const parseDefaultSystemPayload = (
+	body: unknown,
+): { systemId: string | null } | null => {
 	if (!body || typeof body !== "object") {
 		return null;
 	}
 
 	const { systemId } = body as { systemId?: unknown };
 	if (systemId === null) {
-		return { systemId: null as const };
+		return { systemId: null };
 	}
 
 	if (typeof systemId === "string" && systemId.trim().length > 0) {
@@ -517,13 +519,12 @@ const summarizeAuditLog = async (auditLogPath: string) => {
 		count += 1;
 		try {
 			const entry = JSON.parse(line) as { timestamp?: unknown };
-			const timestampTime =
-				typeof entry.timestamp === "string"
-					? Date.parse(entry.timestamp)
-					: Number.NaN;
+			const timestamp =
+				typeof entry.timestamp === "string" ? entry.timestamp : null;
+			const timestampTime = timestamp ? Date.parse(timestamp) : Number.NaN;
 			if (!Number.isNaN(timestampTime) && timestampTime > mostRecentTime) {
 				mostRecentTime = timestampTime;
-				mostRecentAt = entry.timestamp;
+				mostRecentAt = timestamp;
 			}
 		} catch {
 			// Invalid historical lines still count as audit entries.
@@ -544,8 +545,17 @@ const summarizeAuditLog = async (auditLogPath: string) => {
 	return summary;
 };
 
+/** Request variables the project middleware sets for the routes below it. */
+type TrickroomAppEnv = {
+	Variables: {
+		projectRoot: string;
+		configPath: string;
+		config: TrickroomConfig;
+	};
+};
+
 export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
-	const app = new Hono();
+	const app = new Hono<TrickroomAppEnv>();
 	const trickroomHome = options.trickroomHome ?? resolveTrickroomHome();
 	const registerInitialProject = options.registerInitialProject ?? true;
 	const sessionToken =
@@ -960,10 +970,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 	});
 	app.route("/api/trickroom/tailwind", tailwindRoutes);
 
-	const attachProjectToSystemsRequest = async (
-		c: Parameters<Parameters<typeof app.use>[1]>[0],
-		next: Parameters<Parameters<typeof app.use>[1]>[1],
-	) => {
+	const attachProjectToSystemsRequest: MiddlewareHandler<
+		TrickroomAppEnv
+	> = async (c, next) => {
 		const project = await resolveProjectForRequest().catch((error) => {
 			return createProjectErrorResponse(error);
 		});
@@ -998,15 +1007,6 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		"/api/trickroom/screenshot",
 		createScreenshotRoutes(options.screenshotCapture),
 	);
-
-	app.get("/api/trickroom/project-root", async (c) => {
-		const project = await resolveProjectForRequest();
-		if (!project) {
-			return createNoProjectResponse();
-		}
-
-		return c.json({ projectRoot: project.projectRoot });
-	});
 
 	app.get("/api/trickroom/config", async (c) => {
 		const project = await resolveProjectForRequest();

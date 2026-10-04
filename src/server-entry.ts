@@ -20,12 +20,12 @@ const isApiPath = (requestPath: string) =>
 
 app.use(
 	"/*",
-	(c, next) => {
+	async (c, next) => {
 		if (isApiPath(c.req.path)) {
 			c.header("spa-server", "false");
 			return c.notFound();
 		}
-		return next();
+		await next();
 	},
 	etag(),
 	serveStatic({ root: clientPath, index: "index.html" }),
