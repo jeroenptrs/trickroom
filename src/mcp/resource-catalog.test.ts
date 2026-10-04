@@ -31,7 +31,6 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		await writeAssetManifest(fixture.projectRoot, "Core", {
 			version: 1,
 			metadata: {
-				systemName: "Core",
 				updatedAt: "2026-05-15T00:00:00.000Z",
 			},
 			assets: {
@@ -613,13 +612,13 @@ describe("trickroom MCP design resource catalog", () => {
 		});
 		await upsertProjectLocation({
 			trickroomHome,
-			projectId: firstFixture.config.projectId,
+			projectId: firstFixture.config.projectId as string,
 			root: firstFixture.projectRoot,
 			name: firstFixture.config.name,
 		});
 		await upsertProjectLocation({
 			trickroomHome,
-			projectId: secondFixture.config.projectId,
+			projectId: secondFixture.config.projectId as string,
 			root: secondFixture.projectRoot,
 			name: secondFixture.config.name,
 		});
@@ -680,7 +679,9 @@ describe("trickroom MCP design resource catalog", () => {
 			uri: `trickroom://proj/proj_catalog_read/design/${trickroomMcpTestDesignUuid}`,
 		});
 
-		expect(JSON.parse(slugRead.contents[0].text as string)).toMatchObject({
+		expect(
+			JSON.parse((slugRead.contents[0] as { text: string }).text),
+		).toMatchObject({
 			payloadKind: "design-summary",
 			designFile: {
 				name: "Readable Design",
@@ -693,7 +694,9 @@ describe("trickroom MCP design resource catalog", () => {
 				},
 			],
 		});
-		expect(JSON.parse(bareRead.contents[0].text as string)).toMatchObject({
+		expect(
+			JSON.parse((bareRead.contents[0] as { text: string }).text),
+		).toMatchObject({
 			payloadKind: "design-summary",
 			designFile: {
 				name: "Readable Design",
@@ -727,13 +730,13 @@ describe("trickroom MCP design resource catalog", () => {
 		});
 		await upsertProjectLocation({
 			trickroomHome,
-			projectId: firstFixture.config.projectId,
+			projectId: firstFixture.config.projectId as string,
 			root: firstFixture.projectRoot,
 			name: firstFixture.config.name,
 		});
 		await upsertProjectLocation({
 			trickroomHome,
-			projectId: secondFixture.config.projectId,
+			projectId: secondFixture.config.projectId as string,
 			root: secondFixture.projectRoot,
 			name: secondFixture.config.name,
 		});
@@ -754,7 +757,9 @@ describe("trickroom MCP design resource catalog", () => {
 			throw new Error("Expected other project design resource to be listed.");
 		}
 		const read = await client.readResource({ uri: otherResource.uri });
-		expect(JSON.parse(read.contents[0].text as string)).toMatchObject({
+		expect(
+			JSON.parse((read.contents[0] as { text: string }).text),
+		).toMatchObject({
 			payloadKind: "design-summary",
 			designFile: {
 				name: "Readable Other Project Design",
@@ -789,7 +794,7 @@ describe("trickroom MCP design resource catalog", () => {
 		for (const fixture of [enabledFixture, disabledFixture]) {
 			await upsertProjectLocation({
 				trickroomHome,
-				projectId: fixture.config.projectId,
+				projectId: fixture.config.projectId as string,
 				root: fixture.projectRoot,
 				name: fixture.config.name,
 			});
@@ -837,14 +842,16 @@ describe("trickroom MCP design resource catalog", () => {
 			uri: `trickroom://proj/proj_catalog_rename/design/${trickroomMcpTestDesignUuid}`,
 		});
 		expect(
-			JSON.parse(readOriginalSlug.contents[0].text as string),
+			JSON.parse((readOriginalSlug.contents[0] as { text: string }).text),
 		).toMatchObject({
 			payloadKind: "design-summary",
 			designFile: {
 				name: "Renamed Title",
 			},
 		});
-		expect(JSON.parse(readBareId.contents[0].text as string)).toMatchObject({
+		expect(
+			JSON.parse((readBareId.contents[0] as { text: string }).text),
+		).toMatchObject({
 			payloadKind: "design-summary",
 			designFile: {
 				name: "Renamed Title",

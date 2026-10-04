@@ -937,7 +937,7 @@ describe("trickroom MCP discovery tools", () => {
 				version: "0.0.0",
 			},
 			{
-				capabilities: { resources: { listChanged: true } },
+				capabilities: {},
 			},
 		);
 		const [clientTransport, serverTransport] =

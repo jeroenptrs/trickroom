@@ -123,11 +123,16 @@ export const trickroomMcpTestDesign = {
 
 export type TrickroomMcpTokenSnapshotFixture = Omit<
 	StoreDomainTokensParams,
-	"projectRoot" | "tailwindBaselineVersion" | "tokens" | "baselineDiff"
+	| "projectRoot"
+	| "tailwindBaselineVersion"
+	| "tokens"
+	| "baselineDiff"
+	| "reviewRequired"
 > & {
 	tailwindBaselineVersion?: string;
 	tokens?: Record<string, string>;
 	baselineDiff?: StoreDomainTokensParams["baselineDiff"];
+	reviewRequired?: boolean;
 };
 
 export type TrickroomMcpProjectFixtureOptions = {

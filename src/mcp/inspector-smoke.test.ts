@@ -18,17 +18,26 @@ type ToolCallPayload = Record<string, unknown>;
 
 const expectedReadToolNames = [
 	"project_list",
+	"guide",
 	"design_list",
 	"design_read",
 	"design_validate",
-	"guide",
+	"editor_context",
+	"memory_read",
 	"system_read",
+	"component_read",
 ] as const;
 
 const expectedMutationToolNames = [
-	"system_update",
-	"design_create",
 	"design_apply",
+	"design_create",
+	"memory_write",
+	"system_update",
+	"component_draft_create",
+	"component_draft_update",
+	"component_publish",
+	"component_delete",
+	"component_migrate",
 ] as const;
 
 const expectedPromptNames = [
@@ -111,28 +120,11 @@ const requireStructuredPayload = async (
 	});
 
 	expect(result.isError, `Expected "${name}" call to succeed`).not.toBe(true);
-	expect(toolPayload(result)).toEqual(expect.any(Object));
-
-	const textContent = result.content.find((content) => content.type === "text");
-	expect(
-		textContent,
-		`Expected "${name}" to return text JSON content`,
-	).toBeDefined();
-
-	if (textContent?.type === "text") {
-		let parsedTextContent: unknown;
-		try {
-			parsedTextContent = JSON.parse(textContent.text);
-		} catch {
-			parsedTextContent = undefined;
-		}
-		if (parsedTextContent === undefined) {
-			expect(textContent.text.trim().length).toBeGreaterThan(0);
-		} else {
-			expect(parsedTextContent).toEqual(toolPayload(result));
-		}
-	}
-
+	// One minified JSON text block, no structuredContent.
+	expect(result.content).toEqual([
+		{ type: "text", text: expect.stringMatching(/^\{/u) },
+	]);
+	expect(result.structuredContent).toBeUndefined();
 	return toolPayload(result) as ToolCallPayload;
 };
 
@@ -270,7 +262,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 		});
 	};
 
-	it("starts over stdio and exposes the v1 tool and prompt contract", async () => {
+	it("starts over stdio and exposes the tool and prompt contract", async () => {
 		const fixture = await createFixture();
 		const session = await createStdioSession(fixture);
 
@@ -299,10 +291,16 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 				openWorldHint: true,
 			});
 
+			const destructiveWrites = new Set([
+				"design_apply",
+				"memory_write",
+				"system_update",
+				"component_delete",
+			]);
 			for (const name of expectedMutationToolNames) {
 				expectWriteAnnotations(requireTool(toolsByName, name), {
 					openWorldHint: false,
-					destructiveHint: name !== "design_create",
+					destructiveHint: destructiveWrites.has(name),
 				});
 			}
 
@@ -351,7 +349,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 				const promptNames = prompts.prompts.map((prompt) => prompt.name);
 
 				expect(promptNames).toEqual(
-					expect.arrayContaining(expectedPromptNames),
+					expect.arrayContaining([...expectedPromptNames]),
 				);
 			}
 		} finally {
@@ -391,6 +389,35 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 			expect(fixtureResource).toMatchObject({
 				mimeType: "application/json",
 			});
+
+			const projects = await requireStructuredPayload(
+				session.client,
+				"project_list",
+				{},
+			);
+			expect(projects).toMatchObject({
+				selected: { projectRoot: fixture.projectRoot },
+				governance: { mode: "read-write" },
+			});
+
+			const guideCore = await requireStructuredPayload(
+				session.client,
+				"guide",
+				{
+					designFileId: trickroomMcpTestDesignUuid,
+				},
+			);
+			expect(guideCore).toMatchObject({
+				design: { id: trickroomMcpTestDesignUuid },
+			});
+
+			// No Trickroom server runs in this temporary home: a status, not an error.
+			const editor = await requireStructuredPayload(
+				session.client,
+				"editor_context",
+				{},
+			);
+			expect(editor.status).toBe("no_server");
 
 			const designFiles = await requireStructuredPayload(
 				session.client,
