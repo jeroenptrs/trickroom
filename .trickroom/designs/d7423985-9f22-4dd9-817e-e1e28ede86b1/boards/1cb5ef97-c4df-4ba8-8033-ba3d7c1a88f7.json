@@ -1,0 +1,516 @@
+{
+	"version": 2,
+	"order": "8",
+	"board": {
+		"id": "1cb5ef97-c4df-4ba8-8033-ba3d7c1a88f7",
+		"props": {
+			"data-trickroom-name": "01 · Principles",
+			"data-trickroom-library": "trickroom",
+			"data-trickroom-component": "container",
+			"data-trickroom-role": "branch",
+			"className": "flex w-fit flex-col gap-6 bg-slate-50 p-8 font-sans text-slate-950"
+		},
+		"children": [
+			{
+				"id": "fd9b0f7b-02f6-421d-982d-98b8f45018e0",
+				"props": {
+					"data-trickroom-name": "Title block",
+					"data-trickroom-library": "trickroom",
+					"data-trickroom-component": "container",
+					"data-trickroom-role": "branch",
+					"className": "flex flex-col gap-1"
+				},
+				"children": [
+					{
+						"id": "56f73ff8-9d90-491a-9a9b-dd1e660d7d2c",
+						"props": {
+							"data-trickroom-name": "Title",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "text",
+							"data-trickroom-role": "text",
+							"className": "text-2xl font-semibold tracking-tight"
+						},
+						"children": "Right rail, redesigned"
+					},
+					{
+						"id": "10d65654-a1c2-4ac4-b4c8-37d6e7aa86c2",
+						"props": {
+							"data-trickroom-name": "Subtitle",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "text",
+							"data-trickroom-role": "text",
+							"className": "text-sm text-slate-500"
+						},
+						"children": "Style tab first — the same patterns extend to Properties, Classes, and the system editor rail."
+					}
+				]
+			},
+			{
+				"id": "8eee8a15-4f55-4482-869d-b2b556c03aa7",
+				"props": {
+					"data-trickroom-name": "Columns",
+					"data-trickroom-library": "trickroom",
+					"data-trickroom-component": "container",
+					"data-trickroom-role": "branch",
+					"className": "flex flex-row items-start gap-6"
+				},
+				"children": [
+					{
+						"id": "b70e5b67-19f2-431c-a823-4672e2ae5b6c",
+						"props": {
+							"data-trickroom-name": "Today card",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "container",
+							"data-trickroom-role": "branch",
+							"className": "flex w-96 flex-col gap-3 border border-slate-200 bg-white p-4"
+						},
+						"children": [
+							{
+								"id": "92b6faf3-6af3-4cff-96fd-ac2ca6db87c5",
+								"props": {
+									"data-trickroom-name": "Card title",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "text",
+									"data-trickroom-role": "text",
+									"className": "text-xs font-semibold uppercase tracking-wide text-slate-400"
+								},
+								"children": "Today"
+							},
+							{
+								"id": "d19c8283-a6f8-47a8-8255-922e051fcd0d",
+								"props": {
+									"data-trickroom-name": "Pain 1",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-start gap-2"
+								},
+								"children": [
+									{
+										"id": "8db9c7f3-c3e8-40d5-b0c3-35e735265b29",
+										"props": {
+											"data-trickroom-name": "Num",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "flex size-5 shrink-0 items-center justify-center bg-slate-100 text-xs font-medium text-slate-500"
+										},
+										"children": "1"
+									},
+									{
+										"id": "27d8bc92-5a13-46e5-a75b-e3a3a8f4e0d9",
+										"props": {
+											"data-trickroom-name": "Body",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-sm text-slate-600"
+										},
+										"children": "Override plumbing is always on: every property renders a Base chip, an add button, and a trash can — even when nothing is set."
+									}
+								]
+							},
+							{
+								"id": "2cf1c155-a107-4069-94ca-3a6e159bd136",
+								"props": {
+									"data-trickroom-name": "Pain 2",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-start gap-2"
+								},
+								"children": [
+									{
+										"id": "33fcb344-c685-43e7-a039-cee38383e244",
+										"props": {
+											"data-trickroom-name": "Num",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "flex size-5 shrink-0 items-center justify-center bg-slate-100 text-xs font-medium text-slate-500"
+										},
+										"children": "2"
+									},
+									{
+										"id": "077de5f4-f3ea-454a-aaa7-34448731fbca",
+										"props": {
+											"data-trickroom-name": "Body",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-sm text-slate-600"
+										},
+										"children": "Set and unset properties look identical, so finding what is actually styled means reading every control top to bottom."
+									}
+								]
+							},
+							{
+								"id": "8fcd9a55-7741-4de6-b0b0-53c239a86a90",
+								"props": {
+									"data-trickroom-name": "Pain 3",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-start gap-2"
+								},
+								"children": [
+									{
+										"id": "eaf75ce3-3f76-4bd9-8e66-7dd7acd432ef",
+										"props": {
+											"data-trickroom-name": "Num",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "flex size-5 shrink-0 items-center justify-center bg-slate-100 text-xs font-medium text-slate-500"
+										},
+										"children": "3"
+									},
+									{
+										"id": "b047ff85-44b8-40f1-8b86-dd4f4db8acfc",
+										"props": {
+											"data-trickroom-name": "Body",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-sm text-slate-600"
+										},
+										"children": "Text-label segments (Start / Center / End / Between) eat the rail's width, and paired W + H rows crush their inputs to three characters."
+									}
+								]
+							},
+							{
+								"id": "738a354c-7357-4a73-aedc-afbd1cf1cd01",
+								"props": {
+									"data-trickroom-name": "Pain 4",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-start gap-2"
+								},
+								"children": [
+									{
+										"id": "84ca5776-9862-447d-a646-18d53470d46f",
+										"props": {
+											"data-trickroom-name": "Num",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "flex size-5 shrink-0 items-center justify-center bg-slate-100 text-xs font-medium text-slate-500"
+										},
+										"children": "4"
+									},
+									{
+										"id": "dc628bd0-8eb2-4b2a-a275-006388d9eb53",
+										"props": {
+											"data-trickroom-name": "Body",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-sm text-slate-600"
+										},
+										"children": "Free-text values like \"4, full, [200px]\" assume you already know the Tailwind scale by heart."
+									}
+								]
+							},
+							{
+								"id": "6648e7aa-7566-45d9-918b-ac085fa6f3af",
+								"props": {
+									"data-trickroom-name": "Pain 5",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-start gap-2"
+								},
+								"children": [
+									{
+										"id": "4d64e02b-e477-4288-bb88-5e09e7e734d9",
+										"props": {
+											"data-trickroom-name": "Num",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "flex size-5 shrink-0 items-center justify-center bg-slate-100 text-xs font-medium text-slate-500"
+										},
+										"children": "5"
+									},
+									{
+										"id": "f6e63256-77ac-4076-af3b-3c1fbd858726",
+										"props": {
+											"data-trickroom-name": "Body",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-sm text-slate-600"
+										},
+										"children": "Nothing is spatial: padding is four abstract rows, alignment is two disconnected segments."
+									}
+								]
+							},
+							{
+								"id": "5bdc0396-7e24-4855-8679-0ff68dbb2fe1",
+								"props": {
+									"data-trickroom-name": "Pain 6",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-start gap-2"
+								},
+								"children": [
+									{
+										"id": "181378ad-2339-44bd-9911-0ce4eef20c07",
+										"props": {
+											"data-trickroom-name": "Num",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "flex size-5 shrink-0 items-center justify-center bg-slate-100 text-xs font-medium text-slate-500"
+										},
+										"children": "6"
+									},
+									{
+										"id": "057c5419-8070-4c64-8017-fd292ca70120",
+										"props": {
+											"data-trickroom-name": "Body",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-sm text-slate-600"
+										},
+										"children": "Sixteen domain sections, all expanded by default: the rail is a scroll marathon."
+									}
+								]
+							}
+						]
+					},
+					{
+						"id": "77d545b8-3831-4869-8adf-90ccb22eed96",
+						"props": {
+							"data-trickroom-name": "Direction card",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "container",
+							"data-trickroom-role": "branch",
+							"className": "flex w-96 flex-col gap-3 border border-slate-200 bg-white p-4"
+						},
+						"children": [
+							{
+								"id": "e3ef8c2c-ea4f-4030-a305-00c751a43507",
+								"props": {
+									"data-trickroom-name": "Card title",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "text",
+									"data-trickroom-role": "text",
+									"className": "text-xs font-semibold uppercase tracking-wide text-cyan-700"
+								},
+								"children": "Direction"
+							},
+							{
+								"id": "d22b4b3e-8db7-48eb-934d-c8ea6f5cb02b",
+								"props": {
+									"data-trickroom-name": "Principle 1",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-start gap-2"
+								},
+								"children": [
+									{
+										"id": "c48981dc-8efc-4bfb-a025-8fe4947aa4b5",
+										"props": {
+											"data-trickroom-name": "Num",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "flex size-5 shrink-0 items-center justify-center bg-cyan-100 text-xs font-medium text-cyan-900"
+										},
+										"children": "1"
+									},
+									{
+										"id": "966ab80a-07ec-4b36-98f2-1a1aa6420cd3",
+										"props": {
+											"data-trickroom-name": "Body",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-sm text-slate-600"
+										},
+										"children": "Values first, plumbing on demand. A row is label + control; override machinery only appears where overrides exist."
+									}
+								]
+							},
+							{
+								"id": "9376ccd5-45e9-4a1d-841f-c18eb6212afa",
+								"props": {
+									"data-trickroom-name": "Principle 2",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-start gap-2"
+								},
+								"children": [
+									{
+										"id": "5a192a27-7a4d-4294-a3e8-b72499ffc864",
+										"props": {
+											"data-trickroom-name": "Num",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "flex size-5 shrink-0 items-center justify-center bg-cyan-100 text-xs font-medium text-cyan-900"
+										},
+										"children": "2"
+									},
+									{
+										"id": "717c0e24-2a7e-46a9-9699-cfe0f3ae1ef2",
+										"props": {
+											"data-trickroom-name": "Body",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-sm text-slate-600"
+										},
+										"children": "Scope the panel, not every row. One Base / hover / md bar at the top; dots mark properties that vary in other scopes."
+									}
+								]
+							},
+							{
+								"id": "594494ba-d53a-47b9-b3c7-0461c02db080",
+								"props": {
+									"data-trickroom-name": "Principle 3",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-start gap-2"
+								},
+								"children": [
+									{
+										"id": "1ade9bd0-d69e-4dde-aac8-818c1702a0a2",
+										"props": {
+											"data-trickroom-name": "Num",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "flex size-5 shrink-0 items-center justify-center bg-cyan-100 text-xs font-medium text-cyan-900"
+										},
+										"children": "3"
+									},
+									{
+										"id": "b070e68c-755e-4b4c-ad01-b2d738e59e16",
+										"props": {
+											"data-trickroom-name": "Body",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-sm text-slate-600"
+										},
+										"children": "Only set properties render. Each section gets a searchable + menu for everything else, so empty state is one quiet header line."
+									}
+								]
+							},
+							{
+								"id": "2bda4165-e562-42da-b341-9e35c911af68",
+								"props": {
+									"data-trickroom-name": "Principle 4",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-start gap-2"
+								},
+								"children": [
+									{
+										"id": "90676716-3d02-47ce-8a96-d71a401dd4dd",
+										"props": {
+											"data-trickroom-name": "Num",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "flex size-5 shrink-0 items-center justify-center bg-cyan-100 text-xs font-medium text-cyan-900"
+										},
+										"children": "4"
+									},
+									{
+										"id": "837d04e3-e82e-4fe2-8a10-34582235a964",
+										"props": {
+											"data-trickroom-name": "Body",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-sm text-slate-600"
+										},
+										"children": "Token-first inputs. Type to filter the scale, see the resolved px, arrow-step through tokens; arbitrary values stay possible but explicit."
+									}
+								]
+							},
+							{
+								"id": "e4c49dc1-ab1b-40ff-8376-705aeec35948",
+								"props": {
+									"data-trickroom-name": "Principle 5",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-start gap-2"
+								},
+								"children": [
+									{
+										"id": "8250dce3-6827-4c58-8fb0-5cfa658ed7bf",
+										"props": {
+											"data-trickroom-name": "Num",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "flex size-5 shrink-0 items-center justify-center bg-cyan-100 text-xs font-medium text-cyan-900"
+										},
+										"children": "5"
+									},
+									{
+										"id": "00f2066f-dbd0-4cc5-be7c-b7eb83117d4d",
+										"props": {
+											"data-trickroom-name": "Body",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-sm text-slate-600"
+										},
+										"children": "Spatial where space is the subject: an alignment matrix, box-model padding, icon segments for direction and wrap."
+									}
+								]
+							},
+							{
+								"id": "d7cc6f44-c277-4aae-81a8-c4a45717c251",
+								"props": {
+									"data-trickroom-name": "Principle 6",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-start gap-2"
+								},
+								"children": [
+									{
+										"id": "cefd1b73-e954-4299-8809-ac618b601a3f",
+										"props": {
+											"data-trickroom-name": "Num",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "flex size-5 shrink-0 items-center justify-center bg-cyan-100 text-xs font-medium text-cyan-900"
+										},
+										"children": "6"
+									},
+									{
+										"id": "1fd51014-dc99-4a56-92ca-7165ea1a90cc",
+										"props": {
+											"data-trickroom-name": "Body",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-sm text-slate-600"
+										},
+										"children": "The classes are the receipts. Section summaries and a pinned inventory show the exact utilities a control produced — Design is Code, visibly."
+									}
+								]
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+}

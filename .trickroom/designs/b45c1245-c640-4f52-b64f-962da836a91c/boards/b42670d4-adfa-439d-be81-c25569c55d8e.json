@@ -1,0 +1,14 @@
+{
+	"version": 2,
+	"order": "4",
+	"board": {
+		"id": "b42670d4-adfa-439d-be81-c25569c55d8e",
+		"props": {
+			"data-trickroom-name": "Root",
+			"data-trickroom-library": "trickroom",
+			"data-trickroom-component": "container",
+			"data-trickroom-role": "branch"
+		},
+		"children": []
+	}
+}

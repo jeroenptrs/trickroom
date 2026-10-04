@@ -1,0 +1,404 @@
+{
+	"version": 2,
+	"order": "t",
+	"board": {
+		"id": "c489d2ee-7752-4a4b-be42-547b17286f0c",
+		"props": {
+			"data-trickroom-name": "Create Project Screen",
+			"data-trickroom-library": "trickroom",
+			"data-trickroom-component": "container",
+			"data-trickroom-role": "branch",
+			"className": "flex flex-col gap-4 mx-auto min-w-6xl w-full bg-slate-50 text-slate-950 px-12 py-16 items-center justify-center min-h-screen"
+		},
+		"children": [
+			{
+				"id": "046e7db6-3a13-44cc-9d66-7a1bd2259269",
+				"props": {
+					"data-trickroom-name": "Home Shell With Outlet",
+					"data-trickroom-library": "trickroom",
+					"data-trickroom-component": "container",
+					"data-trickroom-role": "branch",
+					"className": "flex min-h-[26rem] w-full max-w-5xl bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
+				},
+				"children": [
+					{
+						"id": "259b4aca-f9bd-43d6-8604-e099dc438be1",
+						"props": {
+							"data-trickroom-name": "Create Rail",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "container",
+							"data-trickroom-role": "branch",
+							"className": "flex w-56 shrink-0 flex-col gap-4 border-r border-slate-200 py-4"
+						},
+						"children": [
+							{
+								"id": "a0cb9c62-2420-45e5-9e92-d2ef020b0783",
+								"props": {
+									"data-trickroom-name": "Create Brand Row",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-center gap-2 px-5"
+								},
+								"children": [
+									{
+										"id": "90d2a30b-b5d2-4345-b755-3091814f67e1",
+										"props": {
+											"data-trickroom-asset-id": "ast_trickroom-app-icon-3",
+											"alt": "Trickroom logo",
+											"objectFit": "contain",
+											"objectPosition": "center",
+											"loading": "lazy",
+											"decoding": "async",
+											"data-trickroom-name": "Create Logo",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "asset",
+											"data-trickroom-role": "leaf",
+											"className": "size-6 shrink-0"
+										},
+										"children": []
+									},
+									{
+										"id": "cd3f1ef3-b730-4357-92ae-95798096a9b3",
+										"props": {
+											"data-trickroom-name": "Create Brand",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-base font-medium text-slate-900"
+										},
+										"children": "Trickroom"
+									}
+								]
+							},
+							{
+								"id": "8baf4564-59c1-48f7-b30c-00ce2e8e809c",
+								"props": {
+									"className": "data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full bg-slate-200",
+									"orientation": "horizontal",
+									"data-trickroom-name": "Create Rail Divider",
+									"data-trickroom-library": "base-ui",
+									"data-trickroom-component": "separator",
+									"data-trickroom-role": "leaf"
+								},
+								"children": []
+							},
+							{
+								"id": "02a99489-0901-44a7-8948-01f4b303aa89",
+								"props": {
+									"data-trickroom-name": "Create Rail Body",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex flex-1 flex-col gap-2 px-5"
+								},
+								"children": [
+									{
+										"id": "9d837a76-9ffc-4c08-a559-efde29ce83e8",
+										"props": {
+											"data-trickroom-name": "Create Rail Label",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-xs font-semibold"
+										},
+										"children": "Recent"
+									},
+									{
+										"id": "d816fe53-b224-49b4-9731-764a0efd9501",
+										"props": {
+											"data-trickroom-name": "Create Recent Row",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "-mx-2 px-2 py-2 text-sm font-medium hover:bg-slate-100"
+										},
+										"children": "Trickroom"
+									}
+								]
+							},
+							{
+								"id": "f05fa281-f390-4ccb-857c-080d0eaa0815",
+								"props": {
+									"data-trickroom-name": "Create MCP Button",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "text",
+									"data-trickroom-role": "text",
+									"className": "mx-5 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 px-3 py-2 text-center text-sm font-medium hover:bg-slate-100 active:bg-cyan-100 active:text-cyan-900"
+								},
+								"children": "MCP Setup"
+							}
+						]
+					},
+					{
+						"id": "e77575ea-b2cc-46aa-9ef8-b8f5e7d2280c",
+						"props": {
+							"data-trickroom-name": "Create Project Outlet",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "container",
+							"data-trickroom-role": "branch",
+							"className": "flex flex-1 flex-col justify-center gap-5 px-8 py-8"
+						},
+						"children": [
+							{
+								"id": "21d91ba9-8dfe-4a3c-a4f3-1ce1f0634577",
+								"props": {
+									"data-trickroom-name": "Create Outlet Title",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "text",
+									"data-trickroom-role": "text",
+									"className": "text-lg font-medium text-slate-900"
+								},
+								"children": "Start a new Trickroom project"
+							},
+							{
+								"id": "e542707e-5acc-44da-b983-0c52651be594",
+								"props": {
+									"data-trickroom-name": "Create Outlet Description",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "text",
+									"data-trickroom-role": "text",
+									"className": "-mt-3 text-sm text-slate-700"
+								},
+								"children": "Use the Home shell as the frame; swap only this outlet for project and design-system setup."
+							},
+							{
+								"id": "f8112260-cd25-4ae9-9ee4-8cf26015d04d",
+								"props": {
+									"data-trickroom-name": "Outlet Form Groups",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex flex-col gap-5"
+								},
+								"children": [
+									{
+										"id": "3a90d710-a047-4c61-850d-64efb9b1e24b",
+										"props": {
+											"data-trickroom-name": "Project Group",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "container",
+											"data-trickroom-role": "branch",
+											"className": "flex flex-col gap-2"
+										},
+										"children": [
+											{
+												"id": "c867be9a-640f-4caf-af5b-3d196dd98331",
+												"props": {
+													"data-trickroom-name": "Project Group Label",
+													"data-trickroom-library": "trickroom",
+													"data-trickroom-component": "text",
+													"data-trickroom-role": "text",
+													"className": "text-xs font-semibold text-slate-950"
+												},
+												"children": "Project"
+											},
+											{
+												"id": "87797232-9130-466e-9655-8fa384a782a7",
+												"props": {
+													"data-trickroom-name": "Project Row",
+													"data-trickroom-library": "trickroom",
+													"data-trickroom-component": "container",
+													"data-trickroom-role": "branch",
+													"className": "grid grid-cols-[minmax(0,12rem)_minmax(0,1fr)] gap-2"
+												},
+												"children": [
+													{
+														"id": "134e4e48-8f38-48f0-9997-5ec9473fe95b",
+														"props": {
+															"data-trickroom-name": "Project Name Input",
+															"data-trickroom-library": "trickroom",
+															"data-trickroom-component": "text",
+															"data-trickroom-role": "text",
+															"className": "inset-shadow-[0_0_0_1px] inset-shadow-slate-200 px-3 py-2 text-xs text-slate-500 focus:inset-shadow-cyan-500"
+														},
+														"children": "Project name"
+													},
+													{
+														"id": "e0ea9488-3fca-46b5-b50c-66ddd25f72f7",
+														"props": {
+															"data-trickroom-name": "Project Folder Picker",
+															"data-trickroom-library": "trickroom",
+															"data-trickroom-component": "container",
+															"data-trickroom-role": "branch",
+															"className": "group flex min-w-0 items-center inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500"
+														},
+														"children": [
+															{
+																"id": "869ce768-6f93-4ca8-a36c-6882f4594741",
+																"props": {
+																	"data-trickroom-icon-id": "lucide-static/folder-plus",
+																	"className": "ml-2 inline-flex size-4 shrink-0 text-slate-600 group-focus-within:text-cyan-900",
+																	"aria-label": "Project folder",
+																	"data-trickroom-name": "Project Folder Icon",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "icon",
+																	"data-trickroom-role": "leaf"
+																},
+																"children": []
+															},
+															{
+																"id": "a7809687-ce16-4c26-b928-0c610ce34e61",
+																"props": {
+																	"data-trickroom-name": "Project Folder Path",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "text",
+																	"data-trickroom-role": "text",
+																	"className": "flex-1 min-w-0 truncate px-2 py-2 text-xs text-slate-500"
+																},
+																"children": "/absolute/path/to/project"
+															},
+															{
+																"id": "3f8094f4-97c5-47fa-96c9-f4d15404b9f1",
+																"props": {
+																	"data-trickroom-name": "Project Folder Button",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "text",
+																	"data-trickroom-role": "text",
+																	"className": "shrink-0 inset-shadow-[1px_0_0_0] inset-shadow-slate-200 px-3 py-2 text-sm font-medium hover:bg-slate-100 active:bg-cyan-100 active:text-cyan-900 active:inset-shadow-cyan-500"
+																},
+																"children": "Choose"
+															}
+														]
+													}
+												]
+											}
+										]
+									},
+									{
+										"id": "027ba282-5edd-4ae3-981e-18688dfda691",
+										"props": {
+											"data-trickroom-name": "Design System Group",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "container",
+											"data-trickroom-role": "branch",
+											"className": "flex flex-col gap-2"
+										},
+										"children": [
+											{
+												"id": "f5bf48c0-c538-411e-bbb7-ea61c1a3863f",
+												"props": {
+													"data-trickroom-name": "Design System Group Label",
+													"data-trickroom-library": "trickroom",
+													"data-trickroom-component": "text",
+													"data-trickroom-role": "text",
+													"className": "text-xs font-semibold text-slate-950"
+												},
+												"children": "Design system"
+											},
+											{
+												"id": "4fabc638-6e2f-4bab-9146-c0426ef2f7f4",
+												"props": {
+													"data-trickroom-name": "Design System Row",
+													"data-trickroom-library": "trickroom",
+													"data-trickroom-component": "container",
+													"data-trickroom-role": "branch",
+													"className": "grid grid-cols-[minmax(0,12rem)_minmax(0,1fr)] gap-2"
+												},
+												"children": [
+													{
+														"id": "2ed807ca-d9ba-4aca-a93e-f1458a73abc2",
+														"props": {
+															"data-trickroom-name": "Design System Name Input",
+															"data-trickroom-library": "trickroom",
+															"data-trickroom-component": "text",
+															"data-trickroom-role": "text",
+															"className": "inset-shadow-[0_0_0_1px] inset-shadow-slate-200 px-3 py-2 text-xs text-slate-500 focus:inset-shadow-cyan-500"
+														},
+														"children": "System name"
+													},
+													{
+														"id": "b3faebca-868e-417e-9097-8c3b6a0f7470",
+														"props": {
+															"data-trickroom-name": "Design System CSS Picker",
+															"data-trickroom-library": "trickroom",
+															"data-trickroom-component": "container",
+															"data-trickroom-role": "branch",
+															"className": "group flex min-w-0 items-center inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500"
+														},
+														"children": [
+															{
+																"id": "d230ad89-35af-49ea-a15c-f0263931e88a",
+																"props": {
+																	"data-trickroom-icon-id": "lucide-static/file-plus-2",
+																	"className": "ml-2 inline-flex size-4 shrink-0 text-slate-600 group-focus-within:text-cyan-900",
+																	"aria-label": "Design system CSS file",
+																	"data-trickroom-name": "Design System CSS Icon",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "icon",
+																	"data-trickroom-role": "leaf"
+																},
+																"children": []
+															},
+															{
+																"id": "0550f0cf-0666-43f4-95f4-47354914cef3",
+																"props": {
+																	"data-trickroom-name": "Design System CSS Path",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "text",
+																	"data-trickroom-role": "text",
+																	"className": "flex-1 min-w-0 truncate px-2 py-2 text-xs text-slate-500"
+																},
+																"children": "src/index.css"
+															},
+															{
+																"id": "1dba9382-20b3-4416-9f26-9cf41ecc35a8",
+																"props": {
+																	"data-trickroom-name": "Design System CSS Button",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "text",
+																	"data-trickroom-role": "text",
+																	"className": "shrink-0 inset-shadow-[1px_0_0_0] inset-shadow-slate-200 px-3 py-2 text-sm font-medium hover:bg-slate-100 active:bg-cyan-100 active:text-cyan-900 active:inset-shadow-cyan-500"
+																},
+																"children": "Choose CSS"
+															}
+														]
+													}
+												]
+											}
+										]
+									}
+								]
+							},
+							{
+								"id": "8926f5db-fb34-472e-9f0e-e3a46ed9cf51",
+								"props": {
+									"data-trickroom-name": "Create Project Button",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-center justify-center gap-2 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 px-3 py-2 text-sm font-medium hover:bg-slate-100 active:bg-cyan-100 active:text-cyan-900 active:inset-shadow-cyan-500"
+								},
+								"children": [
+									{
+										"id": "a1a0b678-444d-46c0-ab88-55cef5edbf5f",
+										"props": {
+											"data-trickroom-icon-id": "lucide-static/plus",
+											"className": "inline-flex size-3.5 text-current",
+											"aria-label": "Create",
+											"data-trickroom-name": "Create Project Icon",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "icon",
+											"data-trickroom-role": "leaf"
+										},
+										"children": []
+									},
+									{
+										"id": "d769e15d-73d3-4518-bf5b-6fce121c5ac8",
+										"props": {
+											"data-trickroom-name": "Create Project Label",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text"
+										},
+										"children": "Create project"
+									}
+								]
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+}

@@ -1,0 +1,272 @@
+{
+	"version": 2,
+	"order": "p",
+	"board": {
+		"id": "561d0960-c44b-46ea-af9f-7e2504b410c1",
+		"props": {
+			"data-trickroom-name": "MCP Setup Dialog",
+			"data-trickroom-library": "trickroom",
+			"data-trickroom-component": "container",
+			"data-trickroom-role": "branch",
+			"className": "flex flex-col bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200 shadow-xl shadow-slate-900/10"
+		},
+		"children": [
+			{
+				"id": "a74548f4-9560-4494-8167-bcaaad4f3060",
+				"props": {
+					"data-trickroom-name": "P2 Dialog Header",
+					"data-trickroom-library": "trickroom",
+					"data-trickroom-component": "container",
+					"data-trickroom-role": "branch",
+					"className": "flex flex-row items-center justify-between px-4 py-3"
+				},
+				"children": [
+					{
+						"id": "25f8fd9f-9384-4efd-934c-56884b605c25",
+						"props": {
+							"data-trickroom-name": "P2 Title Group",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "container",
+							"data-trickroom-role": "branch",
+							"className": "flex flex-row items-center gap-2"
+						},
+						"children": [
+							{
+								"id": "29b9a399-7a41-484e-b4cd-0fd1bd3f5d58",
+								"props": {
+									"data-trickroom-name": "P2 Dialog Title",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "text",
+									"data-trickroom-role": "text",
+									"className": "text-sm font-medium text-slate-900"
+								},
+								"children": "MCP Setup"
+							}
+						]
+					},
+					{
+						"id": "690fb1ed-eec4-4983-ba4b-d852200859cc",
+						"props": {
+							"data-trickroom-icon-id": "lucide-static/x",
+							"className": "inline-flex size-4 text-slate-500",
+							"aria-label": "Close",
+							"data-trickroom-name": "P2 Close",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "icon",
+							"data-trickroom-role": "leaf"
+						},
+						"children": []
+					}
+				]
+			},
+			{
+				"id": "e1ba0869-3a61-4c08-b801-25eef054d03f",
+				"props": {
+					"data-trickroom-name": "P2 Tabs Row",
+					"data-trickroom-library": "trickroom",
+					"data-trickroom-component": "container",
+					"data-trickroom-role": "branch",
+					"className": "flex flex-row px-4 pb-3 flex-wrap"
+				},
+				"children": [
+					{
+						"id": "f11d7258-c379-4105-988f-af6bce279ec9",
+						"props": {
+							"data-trickroom-name": "P2 Tab 1",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "text",
+							"data-trickroom-role": "text",
+							"className": "bg-cyan-100 text-cyan-900 px-3 py-2 text-sm font-medium"
+						},
+						"children": "Claude Code"
+					},
+					{
+						"id": "9f8054e8-c1d7-4aad-8749-97ea649d54d3",
+						"props": {
+							"data-trickroom-name": "P2 Tab 2",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "text",
+							"data-trickroom-role": "text",
+							"className": "px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-cyan-100 active:text-cyan-900"
+						},
+						"children": "Cursor"
+					},
+					{
+						"id": "f18b579b-6021-4648-9661-1980d2071652",
+						"props": {
+							"data-trickroom-name": "P2 Tab 3",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "text",
+							"data-trickroom-role": "text",
+							"className": "px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-cyan-100 active:text-cyan-900"
+						},
+						"children": "Codex CLI"
+					},
+					{
+						"id": "5222f748-a8a9-4f01-a402-4fcd03a1f137",
+						"props": {
+							"data-trickroom-name": "P2 Tab 4",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "text",
+							"data-trickroom-role": "text",
+							"className": "px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-cyan-100 active:text-cyan-900"
+						},
+						"children": "Gemini CLI"
+					},
+					{
+						"id": "d0f997d4-511a-47cd-b493-5dfde7daa2de",
+						"props": {
+							"data-trickroom-name": "P2 Tab 5",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "text",
+							"data-trickroom-role": "text",
+							"className": "px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-cyan-100 active:text-cyan-900"
+						},
+						"children": "Copilot CLI"
+					},
+					{
+						"id": "53eaadd1-934b-4049-af15-237b86cb6f9a",
+						"props": {
+							"data-trickroom-name": "P2 Tab 6",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "text",
+							"data-trickroom-role": "text",
+							"className": "px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-cyan-100 active:text-cyan-900"
+						},
+						"children": "Cline"
+					}
+				]
+			},
+			{
+				"id": "cbf226ef-3390-4414-8ad2-728005628f83",
+				"props": {
+					"className": "h-px w-full bg-slate-200",
+					"orientation": "horizontal",
+					"data-trickroom-name": "P2 Tabs Divider",
+					"data-trickroom-library": "base-ui",
+					"data-trickroom-component": "separator",
+					"data-trickroom-role": "leaf"
+				},
+				"children": []
+			},
+			{
+				"id": "3decb07a-6bcc-4202-a506-f16cba12962c",
+				"props": {
+					"data-trickroom-name": "P2 Pane",
+					"data-trickroom-library": "trickroom",
+					"data-trickroom-component": "container",
+					"data-trickroom-role": "branch",
+					"className": "p-5 flex flex-col gap-3"
+				},
+				"children": [
+					{
+						"id": "6e64996e-7669-4c01-8a91-5a8453227052",
+						"props": {
+							"data-trickroom-name": "P2 Pane Desc",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "text",
+							"data-trickroom-role": "text",
+							"className": "text-xs text-slate-600"
+						},
+						"children": "Run this in your terminal to register the Trickroom MCP server with Claude Code."
+					},
+					{
+						"id": "6bbb18be-1980-4f3b-8216-b7f1a2f11375",
+						"props": {
+							"data-trickroom-name": "P2 Cmd Block",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "container",
+							"data-trickroom-role": "branch",
+							"className": "flex flex-row items-stretch bg-slate-900"
+						},
+						"children": [
+							{
+								"id": "8bf54b1c-2f6c-4d0a-85e3-551bcbb371cb",
+								"props": {
+									"data-trickroom-icon-id": "lucide-static/terminal",
+									"className": "inline-flex size-3.5 text-slate-100 self-center ml-3",
+									"aria-label": "Terminal",
+									"data-trickroom-name": "P2 Cmd Icon",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "icon",
+									"data-trickroom-role": "leaf"
+								},
+								"children": []
+							},
+							{
+								"id": "198fb7ad-1c10-4989-bb90-52a5bb24b582",
+								"props": {
+									"data-trickroom-name": "P2 Cmd Text",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "text",
+									"data-trickroom-role": "text",
+									"className": "flex-1 px-2 py-2.5 font-mono text-[11px] text-slate-100 truncate"
+								},
+								"children": "claude mcp add --transport stdio trickroom -- npx trickroom-mcp"
+							},
+							{
+								"id": "694b435c-c624-41a4-afcd-318fc10ddc49",
+								"props": {
+									"className": "data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full bg-slate-700",
+									"orientation": "vertical",
+									"data-trickroom-name": "Separator",
+									"data-trickroom-library": "base-ui",
+									"data-trickroom-component": "separator",
+									"data-trickroom-role": "leaf"
+								},
+								"children": []
+							},
+							{
+								"id": "7f665357-1ea3-4180-8336-ea61dfacf265",
+								"props": {
+									"data-trickroom-name": "P2 Copy Btn",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-100 hover:bg-slate-800 active:bg-cyan-100 active:text-cyan-900 active:[&_svg]:text-cyan-900"
+								},
+								"children": [
+									{
+										"id": "fb3f2763-9ff1-468b-ada8-82fd8d4192c1",
+										"props": {
+											"data-trickroom-icon-id": "lucide-static/copy",
+											"className": "inline-flex size-3.5 text-current",
+											"aria-label": "Copy",
+											"data-trickroom-name": "P2 Copy Icon",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "icon",
+											"data-trickroom-role": "leaf"
+										},
+										"children": []
+									},
+									{
+										"id": "150571a3-4f03-42a9-95d8-7ca282b2c782",
+										"props": {
+											"data-trickroom-name": "P2 Copy Label",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "font-medium"
+										},
+										"children": "Copy"
+									}
+								]
+							}
+						]
+					},
+					{
+						"id": "9214d7e5-9ef8-40ff-afe8-39d1dbecc8e3",
+						"props": {
+							"data-trickroom-name": "P2 Caveat",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "text",
+							"data-trickroom-role": "text",
+							"className": "text-[11px] text-slate-600 leading-relaxed"
+						},
+						"children": "If \"trickroom\" already exists, remove it first with claude mcp remove trickroom."
+					}
+				]
+			}
+		]
+	}
+}
