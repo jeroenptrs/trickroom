@@ -412,9 +412,9 @@ describe("getDesignAuthoringContract", () => {
 				topic: "examples",
 			})
 		).payload;
-		const listed = await call("listSystemComponents", { systemName: "Core" });
+		const listed = await call("component_read", { systemName: "Core" });
 		const created = await call(
-			"createSystemComponentDraft",
+			draftExamples[0].tool,
 			fill(draftExamples[0].arguments, {
 				"<manifest revision from your last read or write>":
 					listed.payload.revision,
@@ -423,7 +423,7 @@ describe("getDesignAuthoringContract", () => {
 		expect(created.result.isError).toBeFalsy();
 		const componentId = created.payload.componentId;
 		const published = await call(
-			"publishSystemComponent",
+			draftExamples[2].tool,
 			fill(draftExamples[2].arguments, {
 				"cmp_…": componentId,
 				"<manifest revision from your last read or write>":
@@ -519,7 +519,8 @@ describe("getDesignAuthoringContract", () => {
 
 	it("reports memory note counts", async () => {
 		const { call } = await createSession();
-		await call("addMemoryNote", {
+		await call("memory_write", {
+			action: "add",
 			scope: { kind: "design", designFileId: trickroomMcpTestDesignUuid },
 			category: "intent",
 			title: "Purpose",
@@ -590,7 +591,7 @@ describe("getSystemComponentAuthoringContract", () => {
 			},
 			overrides: { capabilities: ["className", "text", "icon", "asset"] },
 			examples: expect.arrayContaining([
-				expect.objectContaining({ tool: "createSystemComponentDraft" }),
+				expect.objectContaining({ tool: "component_draft_create" }),
 			]),
 		});
 	});

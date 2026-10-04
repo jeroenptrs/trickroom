@@ -33,7 +33,7 @@ describe("trickroom MCP memory tools", () => {
 		const scope = { kind: "project" } as const;
 
 		const empty = await session.client.callTool({
-			name: "listMemoryNotes",
+			name: "memory_read",
 			arguments: {},
 		});
 		expect(toolPayload(empty)).toMatchObject({
@@ -44,8 +44,9 @@ describe("trickroom MCP memory tools", () => {
 		});
 
 		const added = await session.client.callTool({
-			name: "addMemoryNote",
+			name: "memory_write",
 			arguments: {
+				action: "add",
 				scope,
 				category: "intent",
 				body: "This project exists to validate memory tooling.",
@@ -70,7 +71,7 @@ describe("trickroom MCP memory tools", () => {
 		const revisionAfterAdd = addedContent.newRevision;
 
 		const index = await session.client.callTool({
-			name: "listMemoryNotes",
+			name: "memory_read",
 			arguments: { scope },
 		});
 		expect(toolPayload(index)).toMatchObject({
@@ -93,22 +94,25 @@ describe("trickroom MCP memory tools", () => {
 		).not.toHaveProperty("body");
 
 		const fetched = await session.client.callTool({
-			name: "getMemoryNote",
-			arguments: { scope, noteId },
+			name: "memory_read",
+			arguments: { scope, noteIds: noteId },
 		});
 		expect(toolPayload(fetched)).toMatchObject({
 			status: "success",
-			note: {
-				noteId,
-				body: "This project exists to validate memory tooling.",
-				author: { kind: "agent" },
-				revision: revisionAfterAdd,
-			},
+			notes: [
+				{
+					noteId,
+					body: "This project exists to validate memory tooling.",
+					author: { kind: "agent" },
+					revision: revisionAfterAdd,
+				},
+			],
 		});
 
 		const updated = await session.client.callTool({
-			name: "updateMemoryNote",
+			name: "memory_write",
 			arguments: {
+				action: "update",
 				scope,
 				noteId,
 				expectedRevision: revisionAfterAdd,
@@ -128,8 +132,13 @@ describe("trickroom MCP memory tools", () => {
 		expect(revisionAfterUpdate).not.toBe(revisionAfterAdd);
 
 		const deleted = await session.client.callTool({
-			name: "deleteMemoryNote",
-			arguments: { scope, noteId, expectedRevision: revisionAfterUpdate },
+			name: "memory_write",
+			arguments: {
+				action: "delete",
+				scope,
+				noteId,
+				expectedRevision: revisionAfterUpdate,
+			},
 		});
 		expect(toolPayload(deleted)).toMatchObject({
 			status: "success",
@@ -139,7 +148,7 @@ describe("trickroom MCP memory tools", () => {
 		});
 
 		const finalList = await session.client.callTool({
-			name: "listMemoryNotes",
+			name: "memory_read",
 			arguments: { scope },
 		});
 		expect(toolPayload(finalList)).toMatchObject({
@@ -152,14 +161,15 @@ describe("trickroom MCP memory tools", () => {
 		await open();
 		const scope = { kind: "project" } as const;
 		const added = await session.client.callTool({
-			name: "addMemoryNote",
-			arguments: { scope, category: "usage", body: "first" },
+			name: "memory_write",
+			arguments: { action: "add", scope, category: "usage", body: "first" },
 		});
 		const noteId = String((toolPayload(added) as { noteId: string }).noteId);
 
 		const stale = await session.client.callTool({
-			name: "updateMemoryNote",
+			name: "memory_write",
 			arguments: {
+				action: "update",
 				scope,
 				noteId,
 				expectedRevision: "sha256:stale",
@@ -179,8 +189,9 @@ describe("trickroom MCP memory tools", () => {
 		await open();
 		const scope = { kind: "system", systemName: "Core" } as const;
 		await session.client.callTool({
-			name: "addMemoryNote",
+			name: "memory_write",
 			arguments: {
+				action: "add",
 				scope,
 				category: "conventions",
 				body: "Use brand tokens only.",
@@ -188,7 +199,7 @@ describe("trickroom MCP memory tools", () => {
 		});
 
 		const list = await session.client.callTool({
-			name: "listMemoryNotes",
+			name: "memory_read",
 			arguments: { scope },
 		});
 		expect(toolPayload(list)).toMatchObject({
@@ -201,16 +212,18 @@ describe("trickroom MCP memory tools", () => {
 	it("accepts shorthand memory scope shapes", async () => {
 		await open();
 		await session.client.callTool({
-			name: "addMemoryNote",
+			name: "memory_write",
 			arguments: {
+				action: "add",
 				scope: { kind: "system", systemName: "Core" },
 				category: "conventions",
 				body: "Use brand tokens only.",
 			},
 		});
 		await session.client.callTool({
-			name: "addMemoryNote",
+			name: "memory_write",
 			arguments: {
+				action: "add",
 				scope: { kind: "design", designFileId: trickroomMcpTestDesignUuid },
 				category: "intent",
 				body: "Design note.",
@@ -242,7 +255,7 @@ describe("trickroom MCP memory tools", () => {
 		];
 		for (const [scope, expected] of shorthandScopes) {
 			const list = await session.client.callTool({
-				name: "listMemoryNotes",
+				name: "memory_read",
 				arguments: { scope },
 			});
 			expect(list.isError, JSON.stringify(scope)).toBeFalsy();
@@ -256,16 +269,17 @@ describe("trickroom MCP memory tools", () => {
 		const add = async (body: string) =>
 			toolPayload(
 				await session.client.callTool({
-					name: "addMemoryNote",
-					arguments: { scope, category: "conventions", body },
+					name: "memory_write",
+					arguments: { action: "add", scope, category: "conventions", body },
 				}),
 			) as { noteId: string; newRevision: string };
 		const first = await add("Use brand tokens.");
 		const second = await add("Prefer flexbox.");
 
 		const appended = await session.client.callTool({
-			name: "updateMemoryNote",
+			name: "memory_write",
 			arguments: {
+				action: "update",
 				scope,
 				noteId: first.noteId,
 				expectedRevision: first.newRevision,
@@ -279,8 +293,9 @@ describe("trickroom MCP memory tools", () => {
 
 		// The second note's revision predates the first edit and still applies.
 		const replaced = await session.client.callTool({
-			name: "updateMemoryNote",
+			name: "memory_write",
 			arguments: {
+				action: "update",
 				scope,
 				noteId: second.noteId,
 				expectedRevision: second.newRevision,
@@ -290,8 +305,9 @@ describe("trickroom MCP memory tools", () => {
 		expect(replaced.isError).toBeFalsy();
 
 		const notFound = await session.client.callTool({
-			name: "updateMemoryNote",
+			name: "memory_write",
 			arguments: {
+				action: "update",
 				scope,
 				noteId: second.noteId,
 				expectedRevision: (toolPayload(replaced) as { newRevision: string })
@@ -306,7 +322,7 @@ describe("trickroom MCP memory tools", () => {
 		});
 
 		const both = await session.client.callTool({
-			name: "getMemoryNote",
+			name: "memory_read",
 			arguments: {
 				scope,
 				noteIds: [first.noteId, second.noteId, "note_missing"],
@@ -333,13 +349,13 @@ describe("trickroom MCP memory tools", () => {
 			[designScope, "Design note."],
 		] as const) {
 			await session.client.callTool({
-				name: "addMemoryNote",
-				arguments: { scope, category: "intent", body },
+				name: "memory_write",
+				arguments: { action: "add", scope, category: "intent", body },
 			});
 		}
 
 		const bundle = await session.client.callTool({
-			name: "listMemoryNotes",
+			name: "memory_read",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
 		expect(bundle.isError).toBeFalsy();
@@ -366,7 +382,7 @@ describe("trickroom MCP memory tools", () => {
 	it("lists the accepted shapes when a memory scope cannot be resolved", async () => {
 		await open();
 		const list = await session.client.callTool({
-			name: "listMemoryNotes",
+			name: "memory_read",
 			arguments: { scope: { kind: "design" } },
 		});
 		expect(list.isError).toBe(true);
@@ -384,8 +400,9 @@ describe("trickroom MCP memory tools", () => {
 			designFileId: trickroomMcpTestDesignUuid,
 		} as const;
 		await session.client.callTool({
-			name: "addMemoryNote",
+			name: "memory_write",
 			arguments: {
+				action: "add",
 				scope,
 				category: "intent",
 				body: "Hero board demonstrates the marketing layout.",
@@ -411,8 +428,9 @@ describe("trickroom MCP memory tools", () => {
 			designFileId: trickroomMcpTestDesignUuid,
 		} as const;
 		await session.client.callTool({
-			name: "addMemoryNote",
+			name: "memory_write",
 			arguments: {
+				action: "add",
 				scope,
 				category: "usage",
 				body: `See {{design:${trickroomMcpTestDesignUuid}}} and {{design:99999999-9999-4999-8999-999999999999}}.`,
@@ -420,7 +438,7 @@ describe("trickroom MCP memory tools", () => {
 		});
 
 		const list = await session.client.callTool({
-			name: "listMemoryNotes",
+			name: "memory_read",
 			arguments: { scope, resolveReferences: true },
 		});
 		const notes = (
@@ -437,8 +455,9 @@ describe("trickroom MCP memory tools", () => {
 	it("blocks writes in read-only mode", async () => {
 		await open({ config: { mcp: { enabled: true, mode: "read-only" } } });
 		const result = await session.client.callTool({
-			name: "addMemoryNote",
+			name: "memory_write",
 			arguments: {
+				action: "add",
 				scope: { kind: "project" },
 				category: "intent",
 				body: "should not persist",
@@ -454,8 +473,9 @@ describe("trickroom MCP memory tools", () => {
 	it("writes an audit entry when auditing is enabled", async () => {
 		await open({ config: { mcp: { enabled: true, auditLog: true } } });
 		await session.client.callTool({
-			name: "addMemoryNote",
+			name: "memory_write",
 			arguments: {
+				action: "add",
 				scope: { kind: "project" },
 				category: "todo",
 				body: "audited note",
@@ -467,7 +487,72 @@ describe("trickroom MCP memory tools", () => {
 			".trickroom",
 			"audit-log.jsonl",
 		);
-		const contents = await readFile(auditPath, "utf8");
-		expect(contents).toContain("addMemoryNote");
+		const entries = (await readFile(auditPath, "utf8"))
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		expect(entries.at(-1)).toMatchObject({
+			toolName: "memory_write",
+			operation: "add",
+			success: true,
+		});
+	});
+
+	it("explains what memory_read and memory_write need for each mode", async () => {
+		await open();
+		const call = async (name: string, args: Record<string, unknown>) => {
+			const result = await session.client.callTool({ name, arguments: args });
+			return { isError: result.isError, payload: toolPayload(result) };
+		};
+
+		const withoutScope = await call("memory_read", { noteIds: "note_x" });
+		expect(withoutScope).toMatchObject({
+			isError: true,
+			payload: { code: "INVALID_OPERATION_PARAMETERS" },
+		});
+
+		const added = await call("memory_write", {
+			action: "add",
+			scope: "project",
+			category: "decision",
+			body: "Flexbox first.",
+		});
+		const partly = await call("memory_read", {
+			scope: "project",
+			noteIds: [added.payload.noteId, "note_missing"],
+		});
+		expect(partly.payload).toMatchObject({
+			notes: [{ noteId: added.payload.noteId }],
+			missingNoteIds: ["note_missing"],
+		});
+		const missing = await call("memory_read", {
+			scope: "project",
+			noteIds: "note_missing",
+		});
+		expect(missing).toMatchObject({
+			isError: true,
+			payload: { code: "NOTE_NOT_FOUND" },
+		});
+
+		expect(
+			await call("memory_write", {
+				action: "add",
+				scope: "project",
+				body: "x",
+			}),
+		).toMatchObject({
+			isError: true,
+			payload: { message: expect.stringContaining("category") },
+		});
+		expect(
+			await call("memory_write", {
+				action: "delete",
+				scope: "project",
+				noteId: added.payload.noteId,
+			}),
+		).toMatchObject({
+			isError: true,
+			payload: { message: expect.stringContaining("expectedRevision") },
+		});
 	});
 });

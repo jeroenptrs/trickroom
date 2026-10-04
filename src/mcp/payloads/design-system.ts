@@ -5,17 +5,9 @@ import {
 	listDesignSystems,
 } from "../../utils/design-system-store";
 import { formatDidYouMean, suggestClosest } from "../../utils/suggestions";
-import { readDomainTokensReadonly } from "../../utils/tailwind-token-store";
 import { assertCanReadDesignFile, getMcpPolicy } from "../governance";
 import type { TrickroomMcpServerContext } from "../server-types";
 import { getDesignSystemHandle, readDesignFileForTool } from "./design-tree";
-
-export const getDesignSystemDisplayName = async (
-	context: TrickroomMcpServerContext,
-	design: TrickroomDesign,
-) =>
-	(await summarizeDesignSystemReference(context, getDesignSystemHandle(design)))
-		?.systemName ?? null;
 
 export const summarizeDesignSystemReference = async (
 	context: TrickroomMcpServerContext,
@@ -84,51 +76,48 @@ export const canonicalizeDesignSystemReferenceForStorage = async (
 	};
 };
 
-export const getDesignSystemPayload = async (
+/**
+ * The design system a tool works on: systemName (a name or id), else the
+ * system linked to designFileId, else the project default, else the only
+ * configured system.
+ */
+export const resolveToolSystem = async (
 	context: TrickroomMcpServerContext,
-	designFileId: string,
+	{ systemName, designFileId }: { systemName?: string; designFileId?: string },
 ) => {
-	assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
-	const read = await readDesignFileForTool(context, designFileId);
-	const systemHandle = getDesignSystemHandle(read.design);
-	const system = systemHandle
-		? await findDesignSystem(context.projectRoot, systemHandle)
-		: null;
-	const storedTokens = system
-		? await readDomainTokensReadonly(
-				context.projectRoot,
-				system.manifest.systemId,
-			)
-		: null;
-
-	return {
-		designFile: {
-			id: designFileId,
-			name: read.design.name,
-		},
-		designSystem: systemHandle
-			? {
-					systemId: system?.manifest.systemId ?? null,
-					systemName: system?.manifest.systemName ?? systemHandle,
-					configured: system !== null,
-					...(system?.manifest.cssPath
-						? { cssPath: system.manifest.cssPath }
-						: {}),
-					tokenStorage: storedTokens
-						? {
-								available: true,
-								syncedAt: storedTokens.metadata.syncedAt,
-								tailwindBaselineVersion:
-									storedTokens.metadata.tailwindBaselineVersion,
-								reviewRequired: storedTokens.metadata.reviewRequired,
-								...(storedTokens.metadata.cssPath !== system?.manifest.cssPath
-									? { cssPath: storedTokens.metadata.cssPath }
-									: {}),
-							}
-						: {
-								available: false,
-							},
-				}
-			: null,
-	};
+	if (systemName !== undefined) {
+		return assertConfiguredSystem(context, systemName);
+	}
+	if (designFileId !== undefined) {
+		assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
+		const read = await readDesignFileForTool(context, designFileId);
+		const handle = getDesignSystemHandle(read.design);
+		if (handle === null) {
+			throw new DesignTransformError(
+				"DESIGN_NOT_LINKED_TO_SYSTEM",
+				`Design "${read.design.name}" is not linked to a design system. Pass systemName instead.`,
+			);
+		}
+		return assertConfiguredSystem(context, handle);
+	}
+	const systems = await listDesignSystems(context.projectRoot);
+	const preferred =
+		systems.find(
+			(system) => system.manifest.systemId === context.config.defaultSystemId,
+		) ?? (systems.length === 1 ? systems[0] : undefined);
+	if (!preferred) {
+		throw new DesignTransformError(
+			"DESIGN_SYSTEM_REQUIRED",
+			systems.length === 0
+				? "This project has no design systems."
+				: `Pass systemName: the project has ${systems.length} design systems and no default.`,
+			{
+				availableSystems: systems.map((system) => ({
+					systemId: system.manifest.systemId,
+					systemName: system.manifest.systemName,
+				})),
+			},
+		);
+	}
+	return preferred;
 };

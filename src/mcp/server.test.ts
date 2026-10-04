@@ -1222,14 +1222,9 @@ describe("trickroom MCP discovery tools", () => {
 				"describeRegistryComponent",
 				"listRegistryRecipes",
 				"describeRegistryRecipe",
-				"getDesignSystemForDesignFile",
-				"listDesignTokens",
-				"listSystemAssets",
-				"describeAsset",
-				"listSystemIcons",
-				"describeIcon",
-				"findAssetUsage",
-				"findIconUsage",
+				"system_read",
+				"component_read",
+				"memory_read",
 			]) {
 				expect(toolsByName.get(name)?.annotations).toMatchObject({
 					readOnlyHint: true,
@@ -1252,9 +1247,9 @@ describe("trickroom MCP discovery tools", () => {
 			expect(
 				toolsByName.get("describeRegistryRecipe")?.inputSchema.properties,
 			).toHaveProperty("recipe");
-			expect(
-				toolsByName.get("getDesignSystemForDesignFile")?.inputSchema.properties,
-			).toHaveProperty("designFileId");
+			expect(toolsByName.get("system_read")?.inputSchema.required).toEqual([
+				"view",
+			]);
 			expect(
 				toolsByName.get("design_apply")?.inputSchema.properties,
 			).toHaveProperty("operations");
@@ -1853,37 +1848,28 @@ describe("trickroom MCP discovery tools", () => {
 		const { client, close } = await createClient(projectRoot);
 
 		try {
-			const systemResult = await client.callTool({
-				name: "getDesignSystemForDesignFile",
-				arguments: {
-					designFileId: "10000000-0000-4000-8000-0000000000d1",
-				},
-			});
-			expect(toolPayload(systemResult)).toMatchObject({
-				designFile: {
-					id: "10000000-0000-4000-8000-0000000000d1",
-					name: "Landing Page",
-				},
-				designSystem: {
-					systemName: "Core",
-					configured: true,
-					cssPath: "src/index.css",
-					tokenStorage: {
-						available: true,
-						syncedAt: "2026-05-05T08:00:00.000Z",
-						reviewRequired: true,
-					},
-				},
+			const listed = toolPayload(
+				await client.callTool({ name: "design_list", arguments: {} }),
+			);
+			const [systemId] = Object.keys(listed.systems);
+			expect(listed.designFiles).toMatchObject([
+				{ id: "10000000-0000-4000-8000-0000000000d1", systemId },
+			]);
+			expect(listed.systems[systemId]).toEqual({
+				name: "Core",
+				cssPath: "src/index.css",
+				tokens: { syncedAt: "2026-05-05T08:00:00.000Z", reviewRequired: true },
 			});
 
 			const tokensResult = await client.callTool({
-				name: "listDesignTokens",
+				name: "system_read",
 				arguments: {
+					view: "tokens",
 					designFileId: "10000000-0000-4000-8000-0000000000d1",
 				},
 			});
 			expect(toolPayload(tokensResult)).toEqual({
-				designFileId: "10000000-0000-4000-8000-0000000000d1",
+				project: expect.any(Object),
 				systemId: expect.stringMatching(/^sys_/),
 				systemName: "Core",
 				storageStatus: "stored",
@@ -1917,19 +1903,23 @@ describe("trickroom MCP discovery tools", () => {
 		const { client, close } = await createClient(projectRoot);
 
 		try {
-			const systemResult = await client.callTool({
-				name: "getDesignSystemForDesignFile",
+			const listed = toolPayload(
+				await client.callTool({ name: "design_list", arguments: {} }),
+			);
+			expect(listed.designFiles).toMatchObject([
+				{ id: "10000000-0000-4000-8000-0000000000d1", systemId: null },
+			]);
+
+			const tokens = await client.callTool({
+				name: "system_read",
 				arguments: {
+					view: "tokens",
 					designFileId: "10000000-0000-4000-8000-0000000000d1",
 				},
 			});
-
-			expect(toolPayload(systemResult)).toMatchObject({
-				designFile: {
-					id: "10000000-0000-4000-8000-0000000000d1",
-					name: "Landing Page",
-				},
-				designSystem: null,
+			expect(tokens.isError).toBe(true);
+			expect(toolPayload(tokens)).toMatchObject({
+				code: "DESIGN_NOT_LINKED_TO_SYSTEM",
 			});
 		} finally {
 			await close();

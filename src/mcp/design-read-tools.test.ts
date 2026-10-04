@@ -1017,8 +1017,13 @@ describe("trickroom MCP design read tools", () => {
 			"system:Core",
 		]) {
 			const added = await client.callTool({
-				name: "addMemoryNote",
-				arguments: { scope, category: "intent", body: "Why this exists." },
+				name: "memory_write",
+				arguments: {
+					action: "add",
+					scope,
+					category: "intent",
+					body: "Why this exists.",
+				},
 			});
 			expect(added.isError).toBeFalsy();
 		}

@@ -68,8 +68,8 @@ describe("trickroom MCP asset and icon catalogs", () => {
 
 	it("exposes asset and icon metadata without raw content", async () => {
 		const assets = await session.client.callTool({
-			name: "listSystemAssets",
-			arguments: { systemName: "Core" },
+			name: "system_read",
+			arguments: { view: "assets", systemName: "Core" },
 		});
 		expect(toolPayload(assets)).toMatchObject({
 			systemName: "Core",
@@ -77,16 +77,16 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		});
 
 		const asset = await session.client.callTool({
-			name: "describeAsset",
-			arguments: { systemName: "Core", assetId: "ast_hero" },
+			name: "system_read",
+			arguments: { view: "assets", systemName: "Core", id: "ast_hero" },
 		});
 		expect(toolPayload(asset)).toMatchObject({
 			asset: { id: "ast_hero", mimeType: "image/png" },
 		});
 
 		const icons = await session.client.callTool({
-			name: "listSystemIcons",
-			arguments: { systemName: "Core" },
+			name: "system_read",
+			arguments: { view: "icons", systemName: "Core" },
 		});
 		expect(toolPayload(icons)).toMatchObject({
 			systemName: "Core",
@@ -95,8 +95,8 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		expect(JSON.stringify(toolPayload(icons))).not.toContain("<svg");
 
 		const icon = await session.client.callTool({
-			name: "describeIcon",
-			arguments: { systemName: "Core", iconId: "src/search" },
+			name: "system_read",
+			arguments: { view: "icons", systemName: "Core", id: "src/search" },
 		});
 		expect(toolPayload(icon)).toMatchObject({
 			icon: { id: "src/search", paint: "stroke" },
@@ -158,8 +158,8 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		});
 
 		const assetUsage = await session.client.callTool({
-			name: "findAssetUsage",
-			arguments: { systemName: "Core", assetId: "ast_hero" },
+			name: "system_read",
+			arguments: { view: "asset_usage", systemName: "Core", id: "ast_hero" },
 		});
 		expect(toolPayload(assetUsage)).toMatchObject({
 			resourceId: "ast_hero",
@@ -174,16 +174,16 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		});
 
 		const iconUsage = await session.client.callTool({
-			name: "findIconUsage",
-			arguments: { systemName: "Core", iconId: "src/search" },
+			name: "system_read",
+			arguments: { view: "icon_usage", systemName: "Core", id: "src/search" },
 		});
 		expect(toolPayload(iconUsage)).toMatchObject({
 			designs: [{ elementIds: ["icon"] }],
 		});
 
 		const allAssetUsage = await session.client.callTool({
-			name: "findAssetUsage",
-			arguments: { systemName: "Core" },
+			name: "system_read",
+			arguments: { view: "asset_usage", systemName: "Core" },
 		});
 		expect(toolPayload(allAssetUsage)).toMatchObject({
 			resourceId: null,
@@ -247,8 +247,8 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		);
 
 		const assetUsage = await session.client.callTool({
-			name: "findAssetUsage",
-			arguments: { systemName: "Core", assetId: "ast_hero" },
+			name: "system_read",
+			arguments: { view: "asset_usage", systemName: "Core", id: "ast_hero" },
 		});
 
 		expect(toolPayload(assetUsage)).toMatchObject({
@@ -446,8 +446,8 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		});
 
 		const malformed = await session.client.callTool({
-			name: "describeAsset",
-			arguments: { systemName: "Core", assetId: "../secret" },
+			name: "system_read",
+			arguments: { view: "assets", systemName: "Core", id: "../secret" },
 		});
 		expect(malformed.isError).toBe(true);
 		expect(toolPayload(malformed)).toMatchObject({
@@ -471,6 +471,30 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		expect(toolPayload(invalid)).toMatchObject({
 			status: "INVALID_OPERATION",
 			code: "UNKNOWN_ASSET_ID",
+		});
+	});
+	it("addresses one design system by name, design, or the project default", async () => {
+		const byDefault = await session.client.callTool({
+			name: "system_read",
+			arguments: { view: "tokens" },
+		});
+		const byDesign = await session.client.callTool({
+			name: "system_read",
+			arguments: { view: "tokens", designFileId: trickroomMcpTestDesignUuid },
+		});
+		expect(toolPayload(byDefault).systemName).toBe("Core");
+		expect(toolPayload(byDesign).systemId).toBe(
+			toolPayload(byDefault).systemId,
+		);
+
+		const incomplete = await session.client.callTool({
+			name: "system_update",
+			arguments: { action: "add_asset", name: "Hero" },
+		});
+		expect(incomplete.isError).toBe(true);
+		expect(toolPayload(incomplete)).toMatchObject({
+			code: "INVALID_OPERATION_PARAMETERS",
+			missingParameters: ["sourcePath"],
 		});
 	});
 });

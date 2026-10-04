@@ -4,6 +4,7 @@ import {
 } from "../../utils/design-system-store";
 import { readSystemComponentManifest } from "../../utils/system-component-manifest-service";
 import type { TrickroomMcpServerContext } from "../server-types";
+import { TOOL } from "../tool-names";
 import { type GuideTopic, listGuideTopics } from "./topics";
 
 /**
@@ -30,22 +31,22 @@ export type SystemComponentGuideInput = {
 const PLACEHOLDER_REVISION = "<manifest revision from your last read or write>";
 
 const CORE_MODEL = [
-	"A system component is a user-owned, reusable component in a design system's component manifest. It has one draft you edit and published versions that designs place as instances (addSystemComponent).",
+	`A system component is a user-owned, reusable component in a design system's component manifest. It has one draft you edit and published versions that designs place as instances (the addSystemComponent operation of ${TOOL.designApply}).`,
 	'Its template is a tree of registry elements, the same node shape as a recipe template, where every node has a stable path. The root\'s path is "root".',
 	"Slots mark template nodes that accept instance content. Variant axes add classes per path for each value. Override targets name paths whose className, text, icon, asset or props an instance may override.",
 ];
 
 const CORE_RULES = [
-	"Writes take expectedRevision: the manifest revision from listSystemComponents or describeSystemComponent, or the newRevision of your last write. updateSystemComponentDraft also accepts expectedDraftTemplateHash and expectedDraftVariantSchemaHash (draftTemplateHash and draftVariantSchemaHash from describeSystemComponent) to guard against concurrent draft edits.",
+	`Writes take expectedRevision: the manifest revision from ${TOOL.componentRead}, or the revision your last write returned. ${TOOL.componentDraftUpdate} also accepts expectedDraftTemplateHash and expectedDraftVariantSchemaHash (draftTemplateHash and draftVariantSchemaHash from ${TOOL.componentRead} describe) to guard against concurrent draft edits.`,
 	"Paths are unique, non-empty and slashless. slots, variants.classesByPath and overrideTargets refer to template paths, so keep them stable.",
 	"Classes follow the design rules: Tailwind plus the system's tokens.",
-	"Publishing makes the draft the current version. Instances already placed keep their version and show as stale until migrated: listStaleSystemComponentUsages, migrateSystemComponentInstance, bulkMigrateSystemComponentUsages.",
+	`Publishing makes the draft the current version. Instances already placed keep their version and show as stale until migrated: ${TOOL.componentRead}({ view: "stale" }) finds them, ${TOOL.componentMigrate} moves them.`,
 ];
 
 const CORE_WORKFLOW = [
-	'Read: listSystemComponents({ systemName, query? }) for the manifest revision and a compact component index; describeSystemComponent({ systemName, componentId, source: "draft", include: ["template", "classes"] }) for a draft\'s template, variant classes and hashes before updating it.',
-	"Write: createSystemComponentDraft({ systemName, expectedRevision, slug, name, draft: { root, slots?, variants?, overrideTargets? } }), or updateSystemComponentDraft with only the parts to replace. Malformed input returns VALIDATION_FAILED with INVALID_SYSTEM_COMPONENT_DRAFT_INPUT diagnostics, each with a path and message.",
-	"Check and publish: screenshotBoard({ component }) renders a component, or a matrix of its variant values, without a design file. publishSystemComponent({ systemName, componentId, expectedRevision }) makes the draft current; place it in a design with addSystemComponent (getDesignAuthoringContract, components topic).",
+	`Read: ${TOOL.componentRead}({ systemName, query? }) for the manifest revision and a compact component index; ${TOOL.componentRead}({ componentId, source: "draft", include: ["template", "classes"] }) for a draft's template, variant classes and hashes before updating it.`,
+	`Write: ${TOOL.componentDraftCreate}({ systemName, expectedRevision, slug, name, draft: { root, slots?, variants?, overrideTargets? } }), or ${TOOL.componentDraftUpdate} with only the parts to replace. Malformed input returns VALIDATION_FAILED with INVALID_SYSTEM_COMPONENT_DRAFT_INPUT diagnostics, each with a path and message.`,
+	`Check and publish: ${TOOL.designScreenshot}({ component }) renders a component, or a matrix of its variant values, without a design file. ${TOOL.componentPublish}({ systemName, componentId, expectedRevision }) makes the draft current; place it in a design with ${TOOL.designApply} (${TOOL.guide} topic "components").`,
 ];
 
 const buildTemplateTopic = () => ({
@@ -100,7 +101,7 @@ const buildVariantsTopic = () => ({
 		"Array-valued when entries remain accepted for compatibility and are preserved as advanced shapes, but normal UI authoring should not collapse or expand them silently.",
 	],
 	instanceUpdates:
-		"Instances set axes with variantValues and clear them with unsetVariantAxes. Missing variantValues keys leave existing instance values unchanged. On addSystemComponent, unsetVariantAxes clears matching initial variantValues before schema defaults resolve.",
+		"Instances set axes with variantValues and clear them with unsetVariantAxes. Missing variantValues keys leave existing instance values unchanged. On the addSystemComponent operation, unsetVariantAxes clears matching initial variantValues before schema defaults resolve.",
 });
 
 const buildOverridesTopic = () => ({
@@ -121,7 +122,7 @@ const buildOverridesTopic = () => ({
 
 const buildExamplesTopic = () => [
 	{
-		tool: "createSystemComponentDraft",
+		tool: TOOL.componentDraftCreate,
 		description: "Create a component draft with a root template and variants.",
 		arguments: {
 			systemName: "Core",
@@ -174,14 +175,13 @@ const buildExamplesTopic = () => [
 		},
 	},
 	{
-		tool: "updateSystemComponentDraft",
+		tool: TOOL.componentDraftUpdate,
 		description: "Replace the draft's override targets, guarded by its hash.",
 		arguments: {
 			systemName: "Core",
 			componentId: "cmp_…",
 			expectedRevision: PLACEHOLDER_REVISION,
-			expectedDraftTemplateHash:
-				"<draftTemplateHash from describeSystemComponent>",
+			expectedDraftTemplateHash: `<draftTemplateHash from ${TOOL.componentRead}>`,
 			overrideTargets: {
 				root: {
 					targetId: "root",
@@ -193,7 +193,7 @@ const buildExamplesTopic = () => [
 		},
 	},
 	{
-		tool: "publishSystemComponent",
+		tool: TOOL.componentPublish,
 		description: "Publish the draft as the component's current version.",
 		arguments: {
 			systemName: "Core",

@@ -212,15 +212,10 @@ describe("MCP mutation tools", () => {
 				);
 
 				for (const name of [
-					"addSystemIconFolder",
-					"removeSystemIconFolder",
-					"addSystemAsset",
-					"removeSystemAsset",
-					"refreshSystemAssetMetadata",
+					"system_update",
 					"design_create",
 					"design_apply",
-					"migrateSystemComponentInstance",
-					"bulkMigrateSystemComponentUsages",
+					"component_migrate",
 				]) {
 					const tool = toolsByName.get(name);
 					expect(tool, `tool ${name} should exist`).toBeDefined();

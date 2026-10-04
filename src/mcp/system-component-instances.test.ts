@@ -51,13 +51,13 @@ describe("trickroom MCP system component instance tools", () => {
 		targetSession: TrickroomMcpClientSession = session,
 	) => {
 		const listed = await targetSession.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		systemId = String(toolPayload(listed)?.systemId);
 
 		const created = await targetSession.client.callTool({
-			name: "createSystemComponentDraft",
+			name: "component_draft_create",
 			arguments: {
 				systemName: "Core",
 				expectedRevision: toolPayload(listed)?.revision,
@@ -69,7 +69,7 @@ describe("trickroom MCP system component instance tools", () => {
 		componentId = String(toolPayload(created)?.componentId);
 
 		const updated = await targetSession.client.callTool({
-			name: "updateSystemComponentDraft",
+			name: "component_draft_update",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -110,7 +110,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		await targetSession.client.callTool({
-			name: "publishSystemComponent",
+			name: "component_publish",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -153,11 +153,11 @@ describe("trickroom MCP system component instance tools", () => {
 		targetSession: TrickroomMcpClientSession = session,
 	) => {
 		const listed = await targetSession.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		const updated = await targetSession.client.callTool({
-			name: "updateSystemComponentDraft",
+			name: "component_draft_update",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -181,7 +181,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		return targetSession.client.callTool({
-			name: "publishSystemComponent",
+			name: "component_publish",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -192,11 +192,11 @@ describe("trickroom MCP system component instance tools", () => {
 
 	const publishOptionalToneComponent = async () => {
 		const listed = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		const created = await session.client.callTool({
-			name: "createSystemComponentDraft",
+			name: "component_draft_create",
 			arguments: {
 				systemName: "Core",
 				expectedRevision: toolPayload(listed)?.revision,
@@ -225,7 +225,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 		const optionalComponentId = String(toolPayload(created)?.componentId);
 		await session.client.callTool({
-			name: "publishSystemComponent",
+			name: "component_publish",
 			arguments: {
 				systemName: "Core",
 				componentId: optionalComponentId,
@@ -270,7 +270,7 @@ describe("trickroom MCP system component instance tools", () => {
 		await publishBadgeVersion("Second");
 
 		const current = await session.client.callTool({
-			name: "describeSystemComponent",
+			name: "component_read",
 			arguments: { systemName: "Core", componentId },
 		});
 		expect(toolPayload(current)).toMatchObject({
@@ -285,7 +285,7 @@ describe("trickroom MCP system component instance tools", () => {
 		expect(toolPayload(current)).not.toHaveProperty("record");
 
 		const record = await session.client.callTool({
-			name: "describeSystemComponent",
+			name: "component_read",
 			arguments: { systemName: "Core", componentId, include: ["record"] },
 		});
 		const recordContent = toolPayload(record) as {
@@ -301,7 +301,7 @@ describe("trickroom MCP system component instance tools", () => {
 		]);
 
 		const all = await session.client.callTool({
-			name: "describeSystemComponent",
+			name: "component_read",
 			arguments: { systemName: "Core", componentId, versions: "all" },
 		});
 		const allContent = toolPayload(all) as {
@@ -450,8 +450,8 @@ describe("trickroom MCP system component instance tools", () => {
 		await addBadgeInstance();
 
 		const result = await session.client.callTool({
-			name: "listStaleSystemComponentUsages",
-			arguments: { systemName: "Core" },
+			name: "component_read",
+			arguments: { view: "stale", systemName: "Core" },
 		});
 
 		expect(result.isError).not.toBe(true);
@@ -632,8 +632,8 @@ describe("trickroom MCP system component instance tools", () => {
 		await publishBadgeVersion("Badge v2");
 
 		const result = await session.client.callTool({
-			name: "listStaleSystemComponentUsages",
-			arguments: { systemName: "Core", componentId },
+			name: "component_read",
+			arguments: { view: "stale", systemName: "Core", componentId },
 		});
 
 		expect(result.isError).not.toBe(true);
@@ -700,8 +700,8 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "listStaleSystemComponentUsages",
-			arguments: { systemName: "Core" },
+			name: "component_read",
+			arguments: { view: "stale", systemName: "Core" },
 		});
 
 		expect(result.isError).not.toBe(true);
@@ -760,8 +760,8 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "listStaleSystemComponentUsages",
-			arguments: { systemName: "Core" },
+			name: "component_read",
+			arguments: { view: "stale", systemName: "Core" },
 		});
 
 		expect(result.isError).not.toBe(true);
@@ -802,8 +802,8 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "listStaleSystemComponentUsages",
-			arguments: { systemName: "Core" },
+			name: "component_read",
+			arguments: { view: "stale", systemName: "Core" },
 		});
 
 		expect(result.isError).not.toBe(true);
@@ -837,8 +837,12 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "listStaleSystemComponentUsages",
-			arguments: { systemName: "Core", designFileId: secondDesignUuid },
+			name: "component_read",
+			arguments: {
+				view: "stale",
+				systemName: "Core",
+				designFileId: secondDesignUuid,
+			},
 		});
 
 		expect(result.isError).toBe(true);
@@ -1741,7 +1745,7 @@ describe("trickroom MCP system component instance tools", () => {
 		await publishBadgeVersion("Badge v2");
 
 		const result = await session.client.callTool({
-			name: "migrateSystemComponentInstance",
+			name: "component_migrate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revisionAfterAdd,
@@ -1795,11 +1799,11 @@ describe("trickroom MCP system component instance tools", () => {
 		const rootElementId = String(toolPayload(added).created[0].id);
 
 		const listed = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		const updated = await session.client.callTool({
-			name: "updateSystemComponentDraft",
+			name: "component_draft_update",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -1823,7 +1827,7 @@ describe("trickroom MCP system component instance tools", () => {
 			},
 		});
 		await session.client.callTool({
-			name: "publishSystemComponent",
+			name: "component_publish",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -1832,7 +1836,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const result = await session.client.callTool({
-			name: "migrateSystemComponentInstance",
+			name: "component_migrate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revisionAfterAdd,
@@ -1876,7 +1880,7 @@ describe("trickroom MCP system component instance tools", () => {
 		await publishBadgeVersion("Badge v2");
 
 		const result = await session.client.callTool({
-			name: "migrateSystemComponentInstance",
+			name: "component_migrate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: "sha256:stale-revision",
@@ -1909,7 +1913,7 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "migrateSystemComponentInstance",
+			name: "component_migrate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revisionAfterAdd,
@@ -1950,7 +1954,7 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "migrateSystemComponentInstance",
+			name: "component_migrate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revisionAfterAdd,
@@ -1976,12 +1980,8 @@ describe("trickroom MCP system component instance tools", () => {
 		await publishBadgeVersion("Badge v2");
 
 		const result = await session.client.callTool({
-			name: "bulkMigrateSystemComponentUsages",
-			arguments: {
-				systemName: "Core",
-				onlySafe: true,
-				includeInstances: true,
-			},
+			name: "component_migrate",
+			arguments: { systemName: "Core", onlySafe: true, includeInstances: true },
 		});
 
 		expect(result.isError).not.toBe(true);
@@ -2034,11 +2034,11 @@ describe("trickroom MCP system component instance tools", () => {
 		const revisionAfterAdd = String(toolPayload(added)?.newRevision);
 
 		const listed = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		const updated = await session.client.callTool({
-			name: "updateSystemComponentDraft",
+			name: "component_draft_update",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -2062,7 +2062,7 @@ describe("trickroom MCP system component instance tools", () => {
 			},
 		});
 		await session.client.callTool({
-			name: "publishSystemComponent",
+			name: "component_publish",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -2071,11 +2071,8 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const result = await session.client.callTool({
-			name: "bulkMigrateSystemComponentUsages",
-			arguments: {
-				systemName: "Core",
-				onlySafe: true,
-			},
+			name: "component_migrate",
+			arguments: { systemName: "Core", onlySafe: true },
 		});
 
 		expect(result.isError).not.toBe(true);
@@ -2097,7 +2094,7 @@ describe("trickroom MCP system component instance tools", () => {
 		expect(reviewRows[0]).not.toHaveProperty("preview");
 
 		const detailed = await session.client.callTool({
-			name: "bulkMigrateSystemComponentUsages",
+			name: "component_migrate",
 			arguments: { systemName: "Core", dryRun: true, includeInstances: true },
 		});
 		expect(toolPayload(detailed)).toMatchObject({
@@ -2159,7 +2156,7 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "bulkMigrateSystemComponentUsages",
+			name: "component_migrate",
 			arguments: { systemName: "Core" },
 		});
 
@@ -2203,7 +2200,7 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "migrateSystemComponentInstance",
+			name: "component_migrate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revisionAfterAdd,
@@ -2243,7 +2240,7 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "migrateSystemComponentInstance",
+			name: "component_migrate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revisionAfterAdd,
@@ -2282,7 +2279,7 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "bulkMigrateSystemComponentUsages",
+			name: "component_migrate",
 			arguments: { systemName: "Core" },
 		});
 
@@ -2335,7 +2332,7 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "bulkMigrateSystemComponentUsages",
+			name: "component_migrate",
 			arguments: { systemName: "Core" },
 		});
 
@@ -2381,11 +2378,8 @@ describe("trickroom MCP system component instance tools", () => {
 		await publishBadgeVersion("Badge v2");
 
 		const result = await session.client.callTool({
-			name: "bulkMigrateSystemComponentUsages",
-			arguments: {
-				systemName: "Core",
-				dryRun: true,
-			},
+			name: "component_migrate",
+			arguments: { systemName: "Core", dryRun: true },
 		});
 
 		expect(result.isError).not.toBe(true);
@@ -2432,11 +2426,8 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "bulkMigrateSystemComponentUsages",
-			arguments: {
-				systemName: "Core",
-				onlySafe: true,
-			},
+			name: "component_migrate",
+			arguments: { systemName: "Core", onlySafe: true },
 		});
 
 		expect(result.isError).toBe(true);
@@ -2469,11 +2460,8 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "bulkMigrateSystemComponentUsages",
-			arguments: {
-				systemName: "Core",
-				dryRun: true,
-			},
+			name: "component_migrate",
+			arguments: { systemName: "Core", dryRun: true },
 		});
 
 		expect(result.isError).not.toBe(true);
@@ -2512,7 +2500,7 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "bulkMigrateSystemComponentUsages",
+			name: "component_migrate",
 			arguments: {
 				systemName: "Core",
 				designFileId: trickroomMcpTestDesignUuid,
@@ -2558,11 +2546,8 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "bulkMigrateSystemComponentUsages",
-			arguments: {
-				systemName: "Core",
-				dryRun: true,
-			},
+			name: "component_migrate",
+			arguments: { systemName: "Core", dryRun: true },
 		});
 
 		expect(result.isError).not.toBe(true);
@@ -2600,11 +2585,8 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "bulkMigrateSystemComponentUsages",
-			arguments: {
-				systemName: "Core",
-				dryRun: true,
-			},
+			name: "component_migrate",
+			arguments: { systemName: "Core", dryRun: true },
 		});
 
 		expect(result.isError).not.toBe(true);
@@ -2641,7 +2623,7 @@ describe("trickroom MCP system component instance tools", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "bulkMigrateSystemComponentUsages",
+			name: "component_migrate",
 			arguments: { systemName: "Core", designFileId: secondDesignUuid },
 		});
 

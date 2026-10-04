@@ -77,8 +77,8 @@ describe("bounded MCP catalog lists", () => {
 		}
 
 		const all = await session.client.callTool({
-			name: "listSystemIcons",
-			arguments: { systemName: "Core" },
+			name: "system_read",
+			arguments: { view: "icons", systemName: "Core" },
 		});
 		expect(toolPayload(all)).toMatchObject({
 			totalCount: 3,
@@ -88,8 +88,13 @@ describe("bounded MCP catalog lists", () => {
 		});
 
 		const arrows = await session.client.callTool({
-			name: "listSystemIcons",
-			arguments: { systemName: "Core", query: "arrow", limit: 1 },
+			name: "system_read",
+			arguments: {
+				view: "icons",
+				systemName: "Core",
+				query: "arrow",
+				limit: 1,
+			},
 		});
 		expect(toolPayload(arrows)).toMatchObject({
 			totalCount: 3,
@@ -101,8 +106,14 @@ describe("bounded MCP catalog lists", () => {
 		});
 
 		const nextArrows = await session.client.callTool({
-			name: "listSystemIcons",
-			arguments: { systemName: "Core", query: "arrow", limit: 1, offset: 1 },
+			name: "system_read",
+			arguments: {
+				view: "icons",
+				systemName: "Core",
+				query: "arrow",
+				limit: 1,
+				offset: 1,
+			},
 		});
 		expect(toolPayload(nextArrows)).toMatchObject({
 			matchedCount: 2,
@@ -114,8 +125,8 @@ describe("bounded MCP catalog lists", () => {
 		expect(toolPayload(nextArrows)).not.toHaveProperty("next");
 
 		const assets = await session.client.callTool({
-			name: "listSystemAssets",
-			arguments: { systemName: "Core", query: "hero" },
+			name: "system_read",
+			arguments: { view: "assets", systemName: "Core", query: "hero" },
 		});
 		expect(toolPayload(assets)).toMatchObject({
 			totalCount: 2,
@@ -128,8 +139,8 @@ describe("bounded MCP catalog lists", () => {
 		const { session } = await createSession();
 
 		const all = await session.client.callTool({
-			name: "listDesignTokens",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			name: "system_read",
+			arguments: { view: "tokens", designFileId: trickroomMcpTestDesignUuid },
 		});
 		const allContent = toolPayload(all) as {
 			totalCount: number;
@@ -145,8 +156,9 @@ describe("bounded MCP catalog lists", () => {
 		).toBe(allContent.returnedCount);
 
 		const brand = await session.client.callTool({
-			name: "listDesignTokens",
+			name: "system_read",
 			arguments: {
+				view: "tokens",
 				designFileId: trickroomMcpTestDesignUuid,
 				domain: "color",
 				query: "brand",
@@ -171,8 +183,12 @@ describe("bounded MCP catalog lists", () => {
 		expect(Object.keys(brandContent.domains)).toEqual(["color"]);
 
 		const unknownDomain = await session.client.callTool({
-			name: "listDesignTokens",
-			arguments: { designFileId: trickroomMcpTestDesignUuid, domain: "colour" },
+			name: "system_read",
+			arguments: {
+				view: "tokens",
+				designFileId: trickroomMcpTestDesignUuid,
+				domain: "colour",
+			},
 		});
 		expect(unknownDomain.isError).toBe(true);
 		expect(toolPayload(unknownDomain)).toMatchObject({

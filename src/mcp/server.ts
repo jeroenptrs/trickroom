@@ -17,11 +17,7 @@ import {
 	registerDesignExportTools,
 	registerDesignReadTools,
 } from "./tools/design-read";
-import {
-	registerDesignSystemReadTools,
-	registerResourceUsageTools,
-	registerSystemResourceManifestTools,
-} from "./tools/design-systems";
+import { registerDesignSystemTools } from "./tools/design-systems";
 import { registerDesignValidationTools } from "./tools/design-validation";
 import { registerDesignBatchWriteTools } from "./tools/design-write-batch";
 import { installToolInputValidation } from "./tools/input-validation";
@@ -29,11 +25,7 @@ import { registerMemoryTools } from "./tools/memory";
 import { registerProjectTools } from "./tools/projects";
 import { registerRegistryTools } from "./tools/registry";
 import { registerScreenshotTools } from "./tools/screenshots";
-import {
-	registerSystemComponentDraftTools,
-	registerSystemComponentMigrationTools,
-	registerSystemComponentReadTools,
-} from "./tools/system-components";
+import { registerSystemComponentTools } from "./tools/system-components";
 
 export type {
 	TrickroomMcpServer,
@@ -100,14 +92,10 @@ export const createTrickroomMcpServer = (
 	registerDesignExportTools(ctx, registerScreenshotTools(ctx));
 	registerDesignValidationTools(ctx);
 	registerRegistryTools(ctx);
-	registerDesignSystemReadTools(ctx);
-	registerSystemComponentReadTools(ctx);
-	registerResourceUsageTools(ctx);
-	registerSystemComponentDraftTools(ctx);
-	registerSystemResourceManifestTools(ctx);
 	registerMemoryTools(ctx);
+	registerDesignSystemTools(ctx);
+	registerSystemComponentTools(ctx);
 	registerDesignBatchWriteTools(ctx);
-	registerSystemComponentMigrationTools(ctx);
 
 	const { trickroomHome, captureHosts } = ctx;
 	if (trickroomHome) {

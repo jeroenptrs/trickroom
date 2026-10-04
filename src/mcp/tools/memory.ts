@@ -42,10 +42,11 @@ import {
 } from "../payloads/design-tree";
 import { getProjectReference } from "../payloads/project";
 import type { TrickroomMcpServerContext } from "../server-types";
+import { TOOL } from "../tool-names";
 import {
 	destructiveMutationAnnotations,
-	mutationAnnotations,
 	readOnlyClosedWorldAnnotations,
+	SEARCH_HINT_META_KEY,
 } from "./annotations";
 import type { McpToolContext } from "./context";
 import { createJsonResult, createToolErrorResult } from "./results";
@@ -256,14 +257,14 @@ export const registerMemoryTools = (ctx: McpToolContext) => {
 
 	const auditMemoryWrite = async (
 		context: TrickroomMcpServerContext,
-		toolName: string,
+		operation: "add" | "update" | "delete",
 		memoryScope: MemoryScope,
 		expectedRevision: string | null,
 		resultingRevision: string | null,
 	) => {
 		await appendMcpAuditLog(context, {
-			toolName,
-			operation: toolName,
+			toolName: TOOL.memoryWrite,
+			operation,
 			projectRoot: context.projectRoot,
 			designFileId: memoryScope.kind === "design" ? memoryScope.designId : null,
 			expectedRevision,
@@ -376,162 +377,7 @@ export const registerMemoryTools = (ctx: McpToolContext) => {
 		return scopes;
 	};
 
-	server.registerTool(
-		"listMemoryNotes",
-		{
-			title: "List Memory Notes",
-			description:
-				"Index of durable memory/steering notes, without bodies: id, title, category, size, per-note revision, and a one-line summary. Defaults to the project scope. At the start of work on a design, pass designFileId to index the project, the design's linked system, and the design in one call. Read bodies with getMemoryNote.",
-			inputSchema: withProjectScopedInput({
-				scope: memoryScopeSchema.optional(),
-				designFileId: designFileIdSchema
-					.optional()
-					.describe(
-						"Index the project, this design's linked system, and this design together. Do not combine with scope.",
-					),
-				includeBodies: z
-					.boolean()
-					.optional()
-					.describe(
-						"When true, return full notes with bodies instead of the index. Prefer getMemoryNote for the notes you need.",
-					),
-				resolveReferences: z
-					.boolean()
-					.optional()
-					.describe(
-						"When true, attach per-note reference resolution for embedded {{type:id}} tokens.",
-					),
-			}),
-			annotations: readOnlyClosedWorldAnnotations,
-		},
-		async ({
-			scope,
-			designFileId,
-			includeBodies,
-			resolveReferences,
-			project,
-		}) =>
-			withPolicyErrorHandling(project, async (context) => {
-				const policy = getMcpPolicy(context.config);
-				const options = {
-					includeBodies: includeBodies === true,
-					resolveReferences: resolveReferences === true,
-				};
-				if (designFileId !== undefined) {
-					if (scope !== undefined) {
-						throw new DesignTransformError(
-							"INVALID_OPERATION_PARAMETERS",
-							"Pass either scope or designFileId to listMemoryNotes, not both. designFileId already includes the project, linked system, and design scopes.",
-						);
-					}
-					const scopes = await resolveDesignSessionScopes(
-						context,
-						policy,
-						designFileId,
-					);
-					return createJsonResult({
-						status: "success",
-						project: getProjectReference(context),
-						scopes: await Promise.all(
-							scopes.map((entry) =>
-								listScopeNotes(context, entry.scope, entry.reference, options),
-							),
-						),
-					});
-				}
-				const { scope: memoryScope, reference } = await resolveMemoryScope(
-					context,
-					policy,
-					scope ?? "project",
-				);
-				return createJsonResult({
-					status: "success",
-					project: getProjectReference(context),
-					...(await listScopeNotes(context, memoryScope, reference, options)),
-				});
-			}),
-	);
-
-	const MAX_NOTES_PER_GET = 20;
-
-	server.registerTool(
-		"getMemoryNote",
-		{
-			title: "Get Memory Note",
-			description: `Read memory note bodies by id from one scope: noteId for one note, or noteIds for up to ${MAX_NOTES_PER_GET}. Each note carries its revision for updateMemoryNote/deleteMemoryNote.`,
-			inputSchema: withProjectScopedInput({
-				scope: memoryScopeSchema,
-				noteId: z.string().min(1).optional().describe("Memory note id."),
-				noteIds: z
-					.array(z.string().min(1))
-					.min(1)
-					.max(MAX_NOTES_PER_GET)
-					.optional()
-					.describe("Several memory note ids from the same scope."),
-				resolveReferences: z
-					.boolean()
-					.optional()
-					.describe(
-						"When true, attach reference resolution for embedded {{type:id}} tokens in the note body.",
-					),
-			}),
-			annotations: readOnlyClosedWorldAnnotations,
-		},
-		async ({ scope, noteId, noteIds, resolveReferences, project }) =>
-			withPolicyErrorHandling(project, async (context) => {
-				if ((noteId === undefined) === (noteIds === undefined)) {
-					throw new DesignTransformError(
-						"INVALID_OPERATION_PARAMETERS",
-						"Pass exactly one of noteId or noteIds to getMemoryNote.",
-					);
-				}
-				const policy = getMcpPolicy(context.config);
-				const { scope: memoryScope, reference } = await resolveMemoryScope(
-					context,
-					policy,
-					scope,
-				);
-				const read = await readMemoryManifest(context.projectRoot, memoryScope);
-				const requested = [...new Set(noteIds ?? [noteId as string])];
-				const missingNoteIds = requested.filter(
-					(id) => !read.manifest.notes[id],
-				);
-				if (noteId !== undefined && missingNoteIds.length > 0) {
-					return createToolErrorResult(
-						context,
-						"NOTE_NOT_FOUND",
-						`Memory note "${noteId}" was not found in this scope. Call listMemoryNotes for the ids in each scope.`,
-						{ scope: reference },
-					);
-				}
-				const notes = await Promise.all(
-					requested
-						.map((id) => read.manifest.notes[id])
-						.filter((note) => note !== undefined)
-						.map((note) =>
-							withNoteReferences(
-								context,
-								memoryScope,
-								{ ...note, revision: memoryNoteRevision(note) },
-								note.body,
-								resolveReferences === true,
-							),
-						),
-				);
-				return createJsonResult({
-					status: "success",
-					project: getProjectReference(context),
-					scope: reference,
-					scopeRevision: read.revision,
-					...(noteId !== undefined
-						? { note: notes[0] }
-						: {
-								notes,
-								...(missingNoteIds.length > 0 ? { missingNoteIds } : {}),
-							}),
-				});
-			}),
-	);
+	const MAX_NOTES_PER_READ = 20;
 
 	const noteAcknowledgement = (
 		context: TrickroomMcpServerContext,
@@ -550,80 +396,6 @@ export const registerMemoryTools = (ctx: McpToolContext) => {
 			size: note.body.length,
 			...(referenceWarnings.length > 0 ? { referenceWarnings } : {}),
 		});
-
-	server.registerTool(
-		"addMemoryNote",
-		{
-			title: "Add Memory Note",
-			description:
-				"Add one durable memory/steering note to a system, design, or project scope. Bodies are markdown and may embed reference tokens like {{design:<uuid>}}. Returns noteId, the note's revision, and size.",
-			inputSchema: withProjectScopedInput({
-				scope: memoryScopeSchema,
-				category: memoryCategorySchema,
-				body: z.string().min(1).describe("Markdown note body."),
-				title: z.string().min(1).optional().describe("Optional note title."),
-				tags: z.array(z.string().min(1)).optional().describe("Optional tags."),
-				pinned: z.boolean().optional().describe("Pin the note to the top."),
-				order: z.number().optional().describe("Optional manual sort order."),
-				authorLabel: z
-					.string()
-					.min(1)
-					.optional()
-					.describe("Optional human-readable author label for attribution."),
-			}),
-			annotations: mutationAnnotations,
-		},
-		async ({
-			scope,
-			category,
-			body,
-			title,
-			tags,
-			pinned,
-			order,
-			authorLabel,
-			project,
-		}) =>
-			withPolicyErrorHandling(project, async (context) => {
-				const policy = getMcpPolicy(context.config);
-				assertCanWriteProject(policy);
-				const { scope: memoryScope, reference } = await resolveMemoryScope(
-					context,
-					policy,
-					scope,
-				);
-				const { read, note } = await addMemoryNote(
-					context.projectRoot,
-					memoryScope,
-					{
-						category,
-						body,
-						title,
-						tags,
-						pinned,
-						order,
-						author: {
-							kind: "agent",
-							...(authorLabel ? { label: authorLabel } : {}),
-						},
-					},
-				);
-				await auditMemoryWrite(
-					context,
-					"addMemoryNote",
-					memoryScope,
-					null,
-					read.revision,
-				);
-				return noteAcknowledgement(
-					context,
-					reference,
-					read,
-					note,
-					await safeMemoryReferenceWarnings(context, memoryScope, note.body),
-				);
-			}),
-	);
 
 	const memoryNoteEditSchema = z.discriminatedUnion("op", [
 		z
@@ -664,52 +436,285 @@ export const registerMemoryTools = (ctx: McpToolContext) => {
 			.strict(),
 	]);
 
+	const listNotesIndex = async (
+		context: TrickroomMcpServerContext,
+		policy: McpPolicy,
+		input: {
+			scope?: MemoryScopeInput;
+			designFileId?: string;
+			includeBodies?: boolean;
+			resolveReferences?: boolean;
+		},
+	) => {
+		const options = {
+			includeBodies: input.includeBodies === true,
+			resolveReferences: input.resolveReferences === true,
+		};
+		if (input.designFileId !== undefined) {
+			if (input.scope !== undefined) {
+				throw new DesignTransformError(
+					"INVALID_OPERATION_PARAMETERS",
+					"Pass either scope or designFileId, not both: designFileId already covers the project, the design's linked system and the design.",
+				);
+			}
+			const scopes = await resolveDesignSessionScopes(
+				context,
+				policy,
+				input.designFileId,
+			);
+			return createJsonResult({
+				status: "success",
+				project: getProjectReference(context),
+				scopes: await Promise.all(
+					scopes.map((entry) =>
+						listScopeNotes(context, entry.scope, entry.reference, options),
+					),
+				),
+			});
+		}
+		const { scope: memoryScope, reference } = await resolveMemoryScope(
+			context,
+			policy,
+			input.scope ?? "project",
+		);
+		return createJsonResult({
+			status: "success",
+			project: getProjectReference(context),
+			...(await listScopeNotes(context, memoryScope, reference, options)),
+		});
+	};
+
+	const readNotes = async (
+		context: TrickroomMcpServerContext,
+		policy: McpPolicy,
+		input: {
+			scope: MemoryScopeInput;
+			noteIds: string[];
+			resolveReferences?: boolean;
+		},
+	) => {
+		const { scope: memoryScope, reference } = await resolveMemoryScope(
+			context,
+			policy,
+			input.scope,
+		);
+		const read = await readMemoryManifest(context.projectRoot, memoryScope);
+		const requested = [...new Set(input.noteIds)];
+		const missingNoteIds = requested.filter((id) => !read.manifest.notes[id]);
+		if (missingNoteIds.length === requested.length) {
+			return createToolErrorResult(
+				context,
+				"NOTE_NOT_FOUND",
+				`Memory note ${missingNoteIds.map((id) => `"${id}"`).join(", ")} not found in this scope. Call ${TOOL.memoryRead} without noteIds for the ids in each scope.`,
+				{ scope: reference },
+			);
+		}
+		const notes = await Promise.all(
+			requested
+				.map((id) => read.manifest.notes[id])
+				.filter((note) => note !== undefined)
+				.map((note) =>
+					withNoteReferences(
+						context,
+						memoryScope,
+						{ ...note, revision: memoryNoteRevision(note) },
+						note.body,
+						input.resolveReferences === true,
+					),
+				),
+		);
+		return createJsonResult({
+			status: "success",
+			project: getProjectReference(context),
+			scope: reference,
+			scopeRevision: read.revision,
+			notes,
+			...(missingNoteIds.length > 0 ? { missingNoteIds } : {}),
+		});
+	};
+
+	const listTargets = async (
+		context: TrickroomMcpServerContext,
+		policy: McpPolicy,
+		input: {
+			scope?: MemoryScopeInput;
+			type: MemoryReferenceType;
+			query?: string;
+		},
+	) => {
+		const { scope: memoryScope, reference } = await resolveMemoryScope(
+			context,
+			policy,
+			input.scope ?? "project",
+		);
+		const targets = await listMemoryReferenceTargets(
+			context.projectRoot,
+			memoryScope,
+			input.type,
+			input.query ?? "",
+		);
+		return createJsonResult({
+			status: "success",
+			project: getProjectReference(context),
+			scope: reference,
+			type: input.type,
+			targets,
+		});
+	};
+
 	server.registerTool(
-		"updateMemoryNote",
+		TOOL.memoryRead,
 		{
-			title: "Update Memory Note",
-			description:
-				"Update one memory note. Change the body with edits (append, prepend, exact-text replace) rather than resending it; body replaces it whole. expectedRevision is the note's revision from listMemoryNotes/getMemoryNote (the scope revision also works), so edits to other notes in the scope do not conflict. Returns noteId, the new revision, and size.",
+			title: "Read Memory Notes",
+			description: `Read durable memory notes: intent, usage, conventions, constraints, decisions and todos recorded on the project, a design system or a design. Without noteIds: an index without bodies (id, title, category, size, per-note revision, one-line summary); designFileId indexes the project, the design's linked system and the design in one call, the way to start work on a design. With noteIds (one id or up to ${MAX_NOTES_PER_READ}) and scope: those notes' bodies with their revisions for ${TOOL.memoryWrite}. With referenceType: candidate {{type:id}} targets to embed in a note body. Notes are never added to your context on their own: read the ones that bear on your task and follow them.`,
 			inputSchema: withProjectScopedInput({
+				scope: memoryScopeSchema.optional(),
+				designFileId: designFileIdSchema
+					.optional()
+					.describe(
+						"Index the project, this design's linked system and this design together.",
+					),
+				noteIds: z
+					.union([
+						z.string().min(1),
+						z.array(z.string().min(1)).min(1).max(MAX_NOTES_PER_READ),
+					])
+					.optional()
+					.describe("Note id or ids to read in full, from one scope."),
+				includeBodies: z
+					.boolean()
+					.optional()
+					.describe(
+						"Index with full bodies. Prefer noteIds for the notes you need.",
+					),
+				resolveReferences: z
+					.boolean()
+					.optional()
+					.describe("Attach resolution of embedded {{type:id}} tokens."),
+				referenceType: z
+					.enum([...MEMORY_REFERENCE_TYPES] as [
+						MemoryReferenceType,
+						...MemoryReferenceType[],
+					])
+					.optional()
+					.describe(
+						"List reference targets of this type: design, component, token, asset or icon.",
+					),
+				query: z
+					.string()
+					.optional()
+					.describe("referenceType: case-insensitive filter on id or label."),
+			}),
+			annotations: readOnlyClosedWorldAnnotations,
+			_meta: {
+				[SEARCH_HINT_META_KEY]:
+					"notes steering intent decisions conventions constraints context rationale",
+			},
+		},
+		async ({
+			scope,
+			designFileId,
+			noteIds,
+			includeBodies,
+			resolveReferences,
+			referenceType,
+			query,
+			project,
+		}) =>
+			withPolicyErrorHandling(project, async (context) => {
+				const policy = getMcpPolicy(context.config);
+				if (referenceType !== undefined) {
+					return listTargets(context, policy, {
+						scope,
+						type: referenceType,
+						query,
+					});
+				}
+				if (noteIds !== undefined) {
+					if (scope === undefined) {
+						throw new DesignTransformError(
+							"INVALID_OPERATION_PARAMETERS",
+							"Reading notes by id needs their scope, as listed in the index.",
+						);
+					}
+					return readNotes(context, policy, {
+						scope,
+						noteIds: typeof noteIds === "string" ? [noteIds] : noteIds,
+						resolveReferences,
+					});
+				}
+				return listNotesIndex(context, policy, {
+					scope,
+					designFileId,
+					includeBodies,
+					resolveReferences,
+				});
+			}),
+	);
+
+	server.registerTool(
+		TOOL.memoryWrite,
+		{
+			title: "Write Memory Notes",
+			description: `Add, update or delete one memory note in a scope. action "add": category and a markdown body, ideally a title; record what a later session needs (a decision and its reason, a constraint the user stated, a convention), not progress logs. action "update": change the body with edits (append, prepend, exact-text replace) rather than resending it, or replace fields; expectedRevision is the note's revision from ${TOOL.memoryRead} (the scope revision also works), so edits to other notes do not conflict. action "delete": noteId and expectedRevision. Bodies may embed {{type:id}} references; unresolved ones come back as referenceWarnings. Returns noteId, the note's new revision and size.`,
+			inputSchema: withProjectScopedInput({
+				action: z.enum(["add", "update", "delete"]).describe("What to do."),
 				scope: memoryScopeSchema,
-				noteId: z.string().min(1).describe("Memory note id to update."),
-				expectedRevision: expectedRevisionSchema,
+				noteId: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("update, delete: the note's id."),
+				expectedRevision: expectedRevisionSchema
+					.optional()
+					.describe("update, delete: the note's revision."),
 				category: memoryCategorySchema.optional(),
+				body: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						"Markdown body: required to add; on update it replaces the body whole.",
+					),
 				edits: z
 					.array(memoryNoteEditSchema)
 					.min(1)
 					.optional()
 					.describe(
-						"Body edits applied in order. A replace whose oldText is missing or ambiguous fails without writing.",
+						"update: body edits applied in order. A replace whose oldText is missing or ambiguous fails without writing.",
 					),
-				body: z
-					.string()
-					.min(1)
-					.optional()
-					.describe("Replacement markdown body. Prefer edits for long notes."),
 				title: z
 					.string()
 					.nullable()
 					.optional()
-					.describe("Replacement title; null clears it."),
+					.describe("Note title; null clears it on update."),
 				tags: z
 					.array(z.string().min(1))
 					.nullable()
 					.optional()
-					.describe("Replacement tags; null or empty clears them."),
+					.describe("Tags; null or empty clears them on update."),
 				pinned: z.boolean().nullable().optional(),
 				order: z.number().nullable().optional(),
-				authorLabel: z.string().min(1).optional(),
+				authorLabel: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Human-readable author label."),
 			}),
-			annotations: mutationAnnotations,
+			annotations: destructiveMutationAnnotations,
+			_meta: {
+				[SEARCH_HINT_META_KEY]:
+					"note remember record decision convention constraint steering",
+			},
 		},
 		async ({
+			action,
 			scope,
 			noteId,
 			expectedRevision,
 			category,
-			edits,
 			body,
+			edits,
 			title,
 			tags,
 			pinned,
@@ -721,17 +726,92 @@ export const registerMemoryTools = (ctx: McpToolContext) => {
 				withMemoryErrorDetails(context, async () => {
 					const policy = getMcpPolicy(context.config);
 					assertCanWriteProject(policy);
+					const { scope: memoryScope, reference } = await resolveMemoryScope(
+						context,
+						policy,
+						scope,
+					);
+
+					if (action === "add") {
+						if (category === undefined || body === undefined) {
+							throw new DesignTransformError(
+								"INVALID_OPERATION_PARAMETERS",
+								'action "add" needs category and body.',
+							);
+						}
+						const { read, note } = await addMemoryNote(
+							context.projectRoot,
+							memoryScope,
+							{
+								category,
+								body,
+								title: title ?? undefined,
+								tags: tags ?? undefined,
+								pinned: pinned ?? undefined,
+								order: order ?? undefined,
+								author: {
+									kind: "agent",
+									...(authorLabel ? { label: authorLabel } : {}),
+								},
+							},
+						);
+						await auditMemoryWrite(
+							context,
+							"add",
+							memoryScope,
+							null,
+							read.revision,
+						);
+						return noteAcknowledgement(
+							context,
+							reference,
+							read,
+							note,
+							await safeMemoryReferenceWarnings(
+								context,
+								memoryScope,
+								note.body,
+							),
+						);
+					}
+
+					if (noteId === undefined || expectedRevision === undefined) {
+						throw new DesignTransformError(
+							"INVALID_OPERATION_PARAMETERS",
+							`action "${action}" needs noteId and expectedRevision.`,
+						);
+					}
+
+					if (action === "delete") {
+						const read = await deleteMemoryNote(
+							context.projectRoot,
+							memoryScope,
+							noteId,
+							{ expectedRevision },
+						);
+						await auditMemoryWrite(
+							context,
+							"delete",
+							memoryScope,
+							expectedRevision,
+							read.revision,
+						);
+						return createJsonResult({
+							status: "success",
+							project: getProjectReference(context),
+							scope: reference,
+							noteId,
+							deleted: true,
+							scopeRevision: read.revision,
+						});
+					}
+
 					if (body !== undefined && edits !== undefined) {
 						throw new DesignTransformError(
 							"INVALID_OPERATION_PARAMETERS",
 							"Pass either body (full replacement) or edits, not both.",
 						);
 					}
-					const { scope: memoryScope, reference } = await resolveMemoryScope(
-						context,
-						policy,
-						scope,
-					);
 					const { read, note } = await updateMemoryNote(
 						context.projectRoot,
 						memoryScope,
@@ -752,7 +832,7 @@ export const registerMemoryTools = (ctx: McpToolContext) => {
 					);
 					await auditMemoryWrite(
 						context,
-						"updateMemoryNote",
+						"update",
 						memoryScope,
 						expectedRevision,
 						read.revision,
@@ -772,100 +852,5 @@ export const registerMemoryTools = (ctx: McpToolContext) => {
 					);
 				}),
 			),
-	);
-
-	server.registerTool(
-		"deleteMemoryNote",
-		{
-			title: "Delete Memory Note",
-			description:
-				"Delete one memory note. expectedRevision is the note's revision from listMemoryNotes/getMemoryNote (the scope revision also works).",
-			inputSchema: withProjectScopedInput({
-				scope: memoryScopeSchema,
-				noteId: z.string().min(1).describe("Memory note id to delete."),
-				expectedRevision: expectedRevisionSchema,
-			}),
-			annotations: destructiveMutationAnnotations,
-		},
-		async ({ scope, noteId, expectedRevision, project }) =>
-			withPolicyErrorHandling(project, async (context) =>
-				withMemoryErrorDetails(context, async () => {
-					const policy = getMcpPolicy(context.config);
-					assertCanWriteProject(policy);
-					const { scope: memoryScope, reference } = await resolveMemoryScope(
-						context,
-						policy,
-						scope,
-					);
-					const read = await deleteMemoryNote(
-						context.projectRoot,
-						memoryScope,
-						noteId,
-						{ expectedRevision },
-					);
-					await auditMemoryWrite(
-						context,
-						"deleteMemoryNote",
-						memoryScope,
-						expectedRevision,
-						read.revision,
-					);
-					return createJsonResult({
-						status: "success",
-						project: getProjectReference(context),
-						scope: reference,
-						noteId,
-						deleted: true,
-						scopeRevision: read.revision,
-					});
-				}),
-			),
-	);
-
-	server.registerTool(
-		"listReferenceTargets",
-		{
-			title: "List Reference Targets",
-			description:
-				"List candidate reference targets (the MCP equivalent of editor intellisense) for embedding {{type:id}} tokens in memory note bodies. Design targets are available in any scope; component/token/asset/icon targets require a scope linked to a design system.",
-			inputSchema: withProjectScopedInput({
-				scope: memoryScopeSchema,
-				type: z
-					.enum([...MEMORY_REFERENCE_TYPES] as [
-						MemoryReferenceType,
-						...MemoryReferenceType[],
-					])
-					.describe(
-						"Reference type to list: design, component, token, asset, or icon.",
-					),
-				query: z
-					.string()
-					.optional()
-					.describe("Optional case-insensitive filter on id/label."),
-			}),
-			annotations: readOnlyClosedWorldAnnotations,
-		},
-		async ({ scope, type, query, project }) =>
-			withPolicyErrorHandling(project, async (context) => {
-				const policy = getMcpPolicy(context.config);
-				const { scope: memoryScope, reference } = await resolveMemoryScope(
-					context,
-					policy,
-					scope,
-				);
-				const targets = await listMemoryReferenceTargets(
-					context.projectRoot,
-					memoryScope,
-					type,
-					query ?? "",
-				);
-				return createJsonResult({
-					status: "success",
-					project: getProjectReference(context),
-					scope: reference,
-					type,
-					targets,
-				});
-			}),
 	);
 };

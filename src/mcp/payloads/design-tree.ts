@@ -69,12 +69,6 @@ export const createBlankDesign = (
 export const getNodeName = (node: DesignNode) =>
 	node.props["data-trickroom-name"];
 
-const getChildIds = (node: DesignNode) =>
-	Array.isArray(node.children) ? node.children.map((child) => child.id) : [];
-
-const getTextPreview = (text: string) =>
-	text.length <= 80 ? text : `${text.slice(0, 77)}...`;
-
 export type TreeReadBounds = {
 	maxDepth: number | null;
 	maxNodes: number | null;
@@ -213,30 +207,6 @@ const getCompactClassName = (node: DesignNode) =>
 	node.props.className.trim().length > 0
 		? { className: node.props.className }
 		: {};
-
-export const compactElementTree = (
-	node: DesignNode,
-): Record<string, unknown> => {
-	const { children } = node;
-
-	return {
-		id: node.id,
-		name: getNodeName(node),
-		library: node.props["data-trickroom-library"],
-		component: node.props["data-trickroom-component"],
-		role: normalizeRole(node.props["data-trickroom-role"]),
-		...getCompactClassName(node),
-		...(typeof children === "string"
-			? {
-					textLength: children.length,
-					textPreview: getTextPreview(children),
-				}
-			: {
-					childIds: getChildIds(node),
-					children: children.map(compactElementTree),
-				}),
-	};
-};
 
 // Read node shapes. "compact" keeps what an agent needs to target a write:
 // id, a non-default layer name, `component` as "<library>/<component>" (the
@@ -559,26 +529,6 @@ export const findElementContext = (
 	return null;
 };
 
-export const getSiblingContext = (context: ElementContext) => {
-	const currentIndex = context.index ?? context.rootIndex ?? null;
-
-	return {
-		parentId: context.parent?.id ?? null,
-		root: context.parent === null,
-		index: currentIndex,
-		rootIndex: context.rootIndex,
-		siblingIds: context.siblingIds,
-		previousSiblingId:
-			currentIndex === null || currentIndex <= 0
-				? null
-				: context.siblingIds[currentIndex - 1],
-		nextSiblingId:
-			currentIndex === null || currentIndex >= context.siblingIds.length - 1
-				? null
-				: context.siblingIds[currentIndex + 1],
-	};
-};
-
 /** Placement of one element, without listing every sibling id. */
 export const getElementReadContext = (context: ElementContext) => {
 	const index = context.index ?? context.rootIndex ?? null;
@@ -600,40 +550,6 @@ export const getElementContextOrThrow = (
 	}
 
 	return context;
-};
-
-export const getCompactElementSummary = (
-	design: TrickroomDesign,
-	elementId: string,
-) => {
-	const ctx = findElementContext(design, elementId);
-	if (!ctx) return null;
-	const node = ctx.element;
-	const { children } = node;
-	return {
-		id: node.id,
-		name: node.props["data-trickroom-name"],
-		library: node.props["data-trickroom-library"],
-		component: node.props["data-trickroom-component"],
-		role: normalizeRole(node.props["data-trickroom-role"]),
-		...(typeof children === "string"
-			? {
-					textLength: children.length,
-					textPreview: getTextPreview(children),
-				}
-			: {
-					childIds: getChildIds(node),
-				}),
-	};
-};
-
-export const getMutationContext = (
-	design: TrickroomDesign,
-	elementId: string,
-) => {
-	const ctx = findElementContext(design, elementId);
-	if (!ctx) return null;
-	return getSiblingContext(ctx);
 };
 
 // Design memory lives next to the design as `<uuid>.memory.json`; it is not a

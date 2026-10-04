@@ -21,7 +21,6 @@ import {
 	getDesignLookupEntities,
 } from "../../services/element-lookup-hints";
 import type { TrickroomDesign } from "../../types";
-import { listDesignSystems } from "../../utils/design-system-store";
 import { formatDidYouMean, suggestClosest } from "../../utils/suggestions";
 import { readSystemComponentManifest } from "../../utils/system-component-manifest-service";
 import type { SystemComponentVariantSchema } from "../../utils/system-components";
@@ -32,7 +31,7 @@ import {
 	type McpAuditEntry,
 	McpPolicyError,
 } from "../governance";
-import { assertConfiguredSystem } from "../payloads/design-system";
+import { resolveToolSystem } from "../payloads/design-system";
 import {
 	findElementContext,
 	getDesignHeader,
@@ -302,32 +301,9 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 		context: TrickroomMcpServerContext,
 		input: ComponentInput,
 	): Promise<CaptureTarget | CaptureFailure> => {
-		let systemHandle = input.systemName;
-		if (!systemHandle) {
-			const systems = await listDesignSystems(context.projectRoot);
-			const preferred =
-				systems.find(
-					(system) =>
-						system.manifest.systemId === context.config.defaultSystemId,
-				) ?? (systems.length === 1 ? systems[0] : undefined);
-			if (!preferred) {
-				return {
-					result: createToolErrorResult(
-						context,
-						"SYSTEM_REQUIRED",
-						"component.systemName is required: the project has several design systems and no default.",
-						{
-							availableSystems: systems.map((system) => ({
-								systemId: system.manifest.systemId,
-								systemName: system.manifest.systemName,
-							})),
-						},
-					),
-				};
-			}
-			systemHandle = preferred.manifest.systemId;
-		}
-		const system = await assertConfiguredSystem(context, systemHandle);
+		const system = await resolveToolSystem(context, {
+			systemName: input.systemName,
+		});
 		const systemId = system.manifest.systemId;
 		const manifest = (
 			await readSystemComponentManifest(context.projectRoot, systemId)

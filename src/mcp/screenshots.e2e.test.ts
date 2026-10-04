@@ -202,11 +202,11 @@ describe.runIf(process.env.TRICKROOM_SCREENSHOT_E2E === "1")(
 				await fixture.readMcpContext(),
 			);
 			const listed = await session.client.callTool({
-				name: "listSystemComponents",
+				name: "component_read",
 				arguments: { systemName: "Core" },
 			});
 			await session.client.callTool({
-				name: "createSystemComponentDraft",
+				name: "component_draft_create",
 				arguments: {
 					systemName: "Core",
 					expectedRevision: structured(listed).revision,

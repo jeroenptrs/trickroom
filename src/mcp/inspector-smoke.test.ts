@@ -24,17 +24,12 @@ const expectedReadToolNames = [
 	"listRegistries",
 	"listRegistryComponents",
 	"describeRegistryComponent",
-	"getDesignSystemForDesignFile",
 	"getSystemComponentAuthoringContract",
-	"listDesignTokens",
+	"system_read",
 ] as const;
 
 const expectedMutationToolNames = [
-	"addSystemIconFolder",
-	"removeSystemIconFolder",
-	"addSystemAsset",
-	"removeSystemAsset",
-	"refreshSystemAssetMetadata",
+	"system_update",
 	"design_create",
 	"design_apply",
 ] as const;
@@ -310,12 +305,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 			for (const name of expectedMutationToolNames) {
 				expectWriteAnnotations(requireTool(toolsByName, name), {
 					openWorldHint: false,
-					destructiveHint: ![
-						"addSystemIconFolder",
-						"addSystemAsset",
-						"refreshSystemAssetMetadata",
-						"design_create",
-					].includes(name),
+					destructiveHint: name !== "design_create",
 				});
 			}
 
@@ -351,13 +341,11 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 				"elementId",
 				"component",
 			]);
-			expectInputProperties(requireTool(toolsByName, "addSystemAsset"), [
+			expectInputProperties(requireTool(toolsByName, "system_update"), [
+				"action",
 				"systemName",
 				"name",
 				"sourcePath",
-			]);
-			expectInputProperties(requireTool(toolsByName, "addSystemIconFolder"), [
-				"systemName",
 				"folderPath",
 			]);
 

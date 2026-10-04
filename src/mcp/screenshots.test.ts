@@ -408,11 +408,11 @@ describe("MCP screenshot tools", () => {
 	it("captures a system component by slug, with a variant matrix", async () => {
 		const { session, requests } = await open();
 		const listed = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		const created = await session.client.callTool({
-			name: "createSystemComponentDraft",
+			name: "component_draft_create",
 			arguments: {
 				systemName: "Core",
 				expectedRevision: structured(listed).revision,

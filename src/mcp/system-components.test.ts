@@ -32,7 +32,7 @@ describe("trickroom MCP system component tools", () => {
 
 	it("lists, describes, updates, and publishes component drafts with revision metadata", async () => {
 		const emptyList = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		expect(toolPayload(emptyList)).toMatchObject({
@@ -43,7 +43,7 @@ describe("trickroom MCP system component tools", () => {
 		const initialRevision = String(toolPayload(emptyList)?.revision);
 
 		const created = await session.client.callTool({
-			name: "createSystemComponentDraft",
+			name: "component_draft_create",
 			arguments: {
 				systemName: "Core",
 				expectedRevision: initialRevision,
@@ -81,7 +81,7 @@ describe("trickroom MCP system component tools", () => {
 		);
 
 		const listed = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		expect(toolPayload(listed)).toMatchObject({
@@ -102,7 +102,7 @@ describe("trickroom MCP system component tools", () => {
 		).not.toHaveProperty("name");
 
 		const described = await session.client.callTool({
-			name: "describeSystemComponent",
+			name: "component_read",
 			arguments: { systemName: "Core", componentId },
 		});
 		expect(toolPayload(described)).toMatchObject({
@@ -116,7 +116,7 @@ describe("trickroom MCP system component tools", () => {
 		expect(toolPayload(described)).not.toHaveProperty("record");
 
 		const updated = await session.client.callTool({
-			name: "updateSystemComponentDraft",
+			name: "component_draft_update",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -162,7 +162,7 @@ describe("trickroom MCP system component tools", () => {
 		});
 
 		const draftDetail = await session.client.callTool({
-			name: "describeSystemComponent",
+			name: "component_read",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -194,7 +194,7 @@ describe("trickroom MCP system component tools", () => {
 		);
 
 		const published = await session.client.callTool({
-			name: "publishSystemComponent",
+			name: "component_publish",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -217,7 +217,7 @@ describe("trickroom MCP system component tools", () => {
 		expect(toolPayload(published)).not.toHaveProperty("draftState");
 
 		const record = await session.client.callTool({
-			name: "describeSystemComponent",
+			name: "component_read",
 			arguments: { systemName: "Core", componentId, versions: "all" },
 		});
 		expect(toolPayload(record)).toMatchObject({
@@ -229,7 +229,7 @@ describe("trickroom MCP system component tools", () => {
 
 	it("filters the component index by query and group", async () => {
 		const initial = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		let revision = (toolPayload(initial) as { revision: string }).revision;
@@ -239,7 +239,7 @@ describe("trickroom MCP system component tools", () => {
 			["card", "layout", "A surface for grouped content."],
 		] as const) {
 			const created = await session.client.callTool({
-				name: "createSystemComponentDraft",
+				name: "component_draft_create",
 				arguments: {
 					systemName: "Core",
 					expectedRevision: revision,
@@ -265,7 +265,7 @@ describe("trickroom MCP system component tools", () => {
 		}
 
 		const actions = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core", group: "Actions" },
 		});
 		expect(toolPayload(actions)).toMatchObject({
@@ -282,7 +282,7 @@ describe("trickroom MCP system component tools", () => {
 		});
 
 		const surface = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core", query: "SURFACE" },
 		});
 		expect(toolPayload(surface)).toMatchObject({
@@ -293,14 +293,14 @@ describe("trickroom MCP system component tools", () => {
 
 	it("rejects concurrent createSystemComponentDraft calls with the same expected revision", async () => {
 		const initial = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		const expectedRevision = String(toolPayload(initial)?.revision);
 
 		const [firstResult, secondResult] = await Promise.all([
 			session.client.callTool({
-				name: "createSystemComponentDraft",
+				name: "component_draft_create",
 				arguments: {
 					systemName: "Core",
 					expectedRevision,
@@ -309,7 +309,7 @@ describe("trickroom MCP system component tools", () => {
 				},
 			}),
 			session.client.callTool({
-				name: "createSystemComponentDraft",
+				name: "component_draft_create",
 				arguments: {
 					systemName: "Core",
 					expectedRevision,
@@ -335,7 +335,7 @@ describe("trickroom MCP system component tools", () => {
 		});
 
 		const listed = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		expect(toolPayload(listed)?.components).toHaveLength(1);
@@ -347,7 +347,7 @@ describe("trickroom MCP system component tools", () => {
 
 		const winnerId = String(toolPayload(successes[0]).componentId);
 		const described = await session.client.callTool({
-			name: "describeSystemComponent",
+			name: "component_read",
 			arguments: { systemName: "Core", componentId: winnerId },
 		});
 		expect(described.isError).not.toBe(true);
@@ -359,11 +359,11 @@ describe("trickroom MCP system component tools", () => {
 
 	it("fails stale manifest and draft-hash writes clearly", async () => {
 		const initial = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		const created = await session.client.callTool({
-			name: "createSystemComponentDraft",
+			name: "component_draft_create",
 			arguments: {
 				systemName: "Core",
 				expectedRevision: toolPayload(initial)?.revision,
@@ -374,7 +374,7 @@ describe("trickroom MCP system component tools", () => {
 		const componentId = String(toolPayload(created)?.componentId);
 
 		const staleCreate = await session.client.callTool({
-			name: "createSystemComponentDraft",
+			name: "component_draft_create",
 			arguments: {
 				systemName: "Core",
 				expectedRevision: toolPayload(initial)?.revision,
@@ -389,7 +389,7 @@ describe("trickroom MCP system component tools", () => {
 		});
 
 		const staleHash = await session.client.callTool({
-			name: "updateSystemComponentDraft",
+			name: "component_draft_update",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -408,10 +408,10 @@ describe("trickroom MCP system component tools", () => {
 	it("publishes draft authoring shape information in MCP tool schemas", async () => {
 		const tools = await session.client.listTools();
 		const updateTool = tools.tools.find(
-			(tool) => tool.name === "updateSystemComponentDraft",
+			(tool) => tool.name === "component_draft_update",
 		);
 		const createTool = tools.tools.find(
-			(tool) => tool.name === "createSystemComponentDraft",
+			(tool) => tool.name === "component_draft_create",
 		);
 
 		expect(updateTool).toBeDefined();
@@ -433,11 +433,11 @@ describe("trickroom MCP system component tools", () => {
 
 	it("deletes a component from the manifest with revision metadata", async () => {
 		const initial = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		const created = await session.client.callTool({
-			name: "createSystemComponentDraft",
+			name: "component_draft_create",
 			arguments: {
 				systemName: "Core",
 				expectedRevision: toolPayload(initial)?.revision,
@@ -448,7 +448,7 @@ describe("trickroom MCP system component tools", () => {
 		const componentId = String(toolPayload(created)?.componentId);
 
 		const deleted = await session.client.callTool({
-			name: "deleteSystemComponent",
+			name: "component_delete",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -467,7 +467,7 @@ describe("trickroom MCP system component tools", () => {
 		);
 
 		const listed = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		expect(toolPayload(listed)).toMatchObject({
@@ -476,7 +476,7 @@ describe("trickroom MCP system component tools", () => {
 		});
 
 		const described = await session.client.callTool({
-			name: "describeSystemComponent",
+			name: "component_read",
 			arguments: { systemName: "Core", componentId },
 		});
 		expect(described.isError).toBe(true);
@@ -487,11 +487,11 @@ describe("trickroom MCP system component tools", () => {
 
 	it("returns structured diagnostics for malformed draft updates", async () => {
 		const initial = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		const created = await session.client.callTool({
-			name: "createSystemComponentDraft",
+			name: "component_draft_create",
 			arguments: {
 				systemName: "Core",
 				expectedRevision: toolPayload(initial)?.revision,
@@ -502,7 +502,7 @@ describe("trickroom MCP system component tools", () => {
 		const componentId = String(toolPayload(created)?.componentId);
 
 		const malformed = await session.client.callTool({
-			name: "updateSystemComponentDraft",
+			name: "component_draft_update",
 			arguments: {
 				systemName: "Core",
 				componentId,
@@ -551,5 +551,31 @@ describe("trickroom MCP system component tools", () => {
 			topics: expect.objectContaining({ variants: expect.any(String) }),
 		});
 		expect(JSON.stringify(toolPayload(result)).length).toBeLessThan(6_000);
+	});
+
+	it("picks component_read's view from componentId and checks migrate input", async () => {
+		const index = toolPayload(
+			await session.client.callTool({ name: "component_read", arguments: {} }),
+		);
+		expect(index).toMatchObject({ systemName: "Core", components: [] });
+
+		const describeWithoutId = await session.client.callTool({
+			name: "component_read",
+			arguments: { view: "describe" },
+		});
+		expect(describeWithoutId.isError).toBe(true);
+		expect(toolPayload(describeWithoutId)).toMatchObject({
+			code: "INVALID_OPERATION_PARAMETERS",
+		});
+
+		const oneInstanceWithoutDesign = await session.client.callTool({
+			name: "component_migrate",
+			arguments: { rootElementId: "root" },
+		});
+		expect(oneInstanceWithoutDesign.isError).toBe(true);
+		expect(toolPayload(oneInstanceWithoutDesign)).toMatchObject({
+			code: "INVALID_OPERATION_PARAMETERS",
+			message: expect.stringContaining("designFileId and expectedRevision"),
+		});
 	});
 });

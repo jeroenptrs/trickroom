@@ -248,7 +248,7 @@ export const findResourceUsagePayload = async (
 		page,
 		() => "",
 		defaultUsageListLimit,
-		`Pass ${kind}Id to find one ${kind}'s usages, or offset for the next page.`,
+		`Pass id to find one ${kind}'s usages, or offset for the next page.`,
 	);
 	const designs = new Map<
 		string,
