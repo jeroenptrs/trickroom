@@ -18,6 +18,7 @@ import {
 } from "../../services/element-lookup-hints";
 import type { TrickroomDesign } from "../../types";
 import { listDesignSystems } from "../../utils/design-system-store";
+import { formatDidYouMean, suggestClosest } from "../../utils/suggestions";
 import { readSystemComponentManifest } from "../../utils/system-component-manifest-service";
 import type { SystemComponentVariantSchema } from "../../utils/system-components";
 import {
@@ -333,18 +334,14 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 			manifest.components[input.componentId] ??
 			records.find((candidate) => candidate.slug === input.componentId);
 		if (!record) {
+			const slugs = records.map((candidate) => candidate.slug);
+			const suggestions = suggestClosest(input.componentId, slugs);
 			return {
 				result: createToolErrorResult(
 					context,
 					"UNKNOWN_COMPONENT",
-					`System component "${input.componentId}" was not found in system "${system.manifest.systemName}". Pass a component id or slug from listSystemComponents.`,
-					{
-						availableComponents: records.map((candidate) => ({
-							componentId: candidate.componentId,
-							slug: candidate.slug,
-							name: candidate.name,
-						})),
-					},
+					`System component "${input.componentId}" was not found in system "${system.manifest.systemName}".${formatDidYouMean(suggestions)} Pass a component id or slug from listSystemComponents.`,
+					{ suggestions, availableSlugs: slugs },
 				),
 			};
 		}

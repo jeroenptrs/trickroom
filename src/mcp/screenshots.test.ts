@@ -355,4 +355,90 @@ describe("MCP screenshot tools", () => {
 		expect(text).toContain("Warnings: OVERLAY_CLIPPED");
 		expect(text).toContain("pass maxHeight");
 	});
+	it("captures a system component by slug, with a variant matrix", async () => {
+		const { session, requests } = await open();
+		const listed = await session.client.callTool({
+			name: "listSystemComponents",
+			arguments: { systemName: "Core" },
+		});
+		const created = await session.client.callTool({
+			name: "createSystemComponentDraft",
+			arguments: {
+				systemName: "Core",
+				expectedRevision: listed.structuredContent?.revision,
+				slug: "badge",
+				name: "Badge",
+				draft: {
+					root: {
+						path: "root",
+						library: "trickroom",
+						component: "text",
+						text: "Badge",
+					},
+					variants: {
+						axes: {
+							tone: {
+								label: "Tone",
+								defaultValue: "neutral",
+								values: { brand: {}, neutral: {} },
+							},
+						},
+					},
+				},
+			},
+		});
+		expect(created.isError).not.toBe(true);
+
+		const result = await callScreenshot(session, "screenshotBoard", {
+			component: { componentId: "badge", matrix: "tone", systemName: "Core" },
+			theme: ["light", "dark"],
+		});
+		expect(result.isError).not.toBe(true);
+		expect(requests).toEqual([
+			expect.objectContaining({
+				component: {
+					systemId: String(listed.structuredContent?.systemId),
+					componentId: String(created.structuredContent?.componentId),
+					source: "draft",
+					rows: "tone",
+				},
+				scale: 1,
+				shots: [{ theme: "light" }, { theme: "dark" }],
+			}),
+		]);
+		expect(requests[0]?.designFileId).toBeUndefined();
+		expect(result.content[1]).toMatchObject({
+			type: "text",
+			text: expect.stringContaining("[1] Badge (draft) · tone matrix"),
+		});
+
+		const unknownValue = await callScreenshot(session, "screenshotBoard", {
+			component: { componentId: "badge", variants: { tone: "loud" } },
+		});
+		expect(unknownValue.isError).toBe(true);
+		expect(JSON.stringify(unknownValue.content)).toContain(
+			"UNKNOWN_VARIANT_VALUE",
+		);
+		const unknownComponent = await callScreenshot(session, "screenshotBoard", {
+			component: { componentId: "badg" },
+		});
+		const unknownText =
+			unknownComponent.content[0]?.type === "text"
+				? unknownComponent.content[0].text
+				: "{}";
+		expect(JSON.parse(unknownText)).toMatchObject({
+			code: "UNKNOWN_COMPONENT",
+			suggestions: ["badge"],
+		});
+		expect(requests).toHaveLength(1);
+	});
+
+	it("needs a board or a component", async () => {
+		const { session } = await open();
+		const result = await callScreenshot(session, "screenshotBoard", {
+			designFileId: trickroomMcpTestDesignUuid,
+		});
+		expect(result.isError).toBe(true);
+		expect(JSON.stringify(result.content)).toContain("boardId");
+	});
 });

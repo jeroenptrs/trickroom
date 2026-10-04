@@ -33,25 +33,31 @@ const text = (id: string, value: string) =>
 
 /** A board with an open dialog whose popup sits at `popupClassName`. */
 const dialogBoard = (id: string, popupClassName: string) =>
-	node(id, "trickroom", "container", { className: "flex w-full flex-col p-4" }, [
-		text(`${id}-page`, "Page content"),
-		node(`${id}-root`, "base-ui", "dialog.root", { defaultOpen: true }, [
-			node(`${id}-portal`, "base-ui", "dialog.portal", {}, [
-				node(`${id}-backdrop`, "base-ui", "dialog.backdrop", {
-					className: "fixed inset-0 bg-[#00000080]",
-				}),
-				node(
-					`${id}-popup`,
-					"base-ui",
-					"dialog.popup",
-					{
-						className: `fixed w-[320px] bg-[#ffffff] p-4 ${popupClassName}`,
-					},
-					[text(`${id}-title`, "Dialog title")],
-				),
+	node(
+		id,
+		"trickroom",
+		"container",
+		{ className: "flex w-full flex-col p-4" },
+		[
+			text(`${id}-page`, "Page content"),
+			node(`${id}-root`, "base-ui", "dialog.root", { defaultOpen: true }, [
+				node(`${id}-portal`, "base-ui", "dialog.portal", {}, [
+					node(`${id}-backdrop`, "base-ui", "dialog.backdrop", {
+						className: "fixed inset-0 bg-[#00000080]",
+					}),
+					node(
+						`${id}-popup`,
+						"base-ui",
+						"dialog.popup",
+						{
+							className: `fixed w-[320px] bg-[#ffffff] p-4 ${popupClassName}`,
+						},
+						[text(`${id}-title`, "Dialog title")],
+					),
+				]),
 			]),
-		]),
-	]);
+		],
+	);
 
 const overlayDesignUuid = "00000000-0000-4000-8000-0000000000d1";
 const overlayDesign = {
@@ -184,6 +190,60 @@ describe.runIf(process.env.TRICKROOM_SCREENSHOT_E2E === "1")(
 
 			expect(result.isError).not.toBe(true);
 			expect(summary).toContain("OVERLAY_CLIPPED");
+		});
+
+		it("captures a system component variant matrix without a design file", async () => {
+			fixture = await createTrickroomMcpProjectFixture();
+			session = await createTrickroomMcpTestClient(
+				await fixture.readMcpContext(),
+			);
+			const listed = await session.client.callTool({
+				name: "listSystemComponents",
+				arguments: { systemName: "Core" },
+			});
+			await session.client.callTool({
+				name: "createSystemComponentDraft",
+				arguments: {
+					systemName: "Core",
+					expectedRevision: listed.structuredContent?.revision,
+					slug: "chip",
+					name: "Chip",
+					draft: {
+						root: {
+							path: "root",
+							library: "trickroom",
+							component: "text",
+							text: "Chip",
+							className: "inline-block px-2 py-1",
+						},
+						variants: {
+							axes: {
+								tone: {
+									label: "Tone",
+									defaultValue: "plain",
+									values: {
+										plain: { classesByPath: { root: "bg-[#eeeeee]" } },
+										loud: { classesByPath: { root: "bg-[#ff0066]" } },
+									},
+								},
+							},
+						},
+					},
+				},
+			});
+			const result = (await session.client.callTool(
+				{
+					name: "screenshotBoard",
+					arguments: { component: { componentId: "chip", matrix: "tone" } },
+				},
+				CallToolResultSchema,
+			)) as CallToolResult;
+			const image = result.content.find((item) => item.type === "image");
+
+			expect(result.isError).not.toBe(true);
+			expect(
+				image?.type === "image" ? imageSize(image.data).height : 0,
+			).toBeGreaterThan(60);
 		});
 	},
 );
