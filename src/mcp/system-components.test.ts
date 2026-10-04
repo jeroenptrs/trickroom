@@ -548,44 +548,10 @@ describe("trickroom MCP system component tools", () => {
 
 		expect(result.isError).not.toBe(true);
 		expect(result.structuredContent).toMatchObject({
-			schemaVersion: 1,
 			contract: "system-component-authoring",
-			system: {
-				requested: "Core",
-				configured: true,
-			},
-			shapes: {
-				root: expect.objectContaining({
-					type: "RecipeTemplateNode",
-				}),
-				variants: expect.objectContaining({
-					classesByPath: expect.stringContaining("template path"),
-					compoundVariants: expect.stringContaining("single string values"),
-					defaultValues: expect.stringContaining("real value ids"),
-					instanceUpdates: expect.stringContaining("unsetVariantAxes"),
-					rules: expect.arrayContaining([
-						expect.stringContaining("does not fabricate the first value"),
-						expect.stringContaining("duplicate signatures"),
-						expect.stringContaining("garbage-collected"),
-						expect.stringContaining("Array-valued when"),
-					]),
-				}),
-				overrideTargets: expect.objectContaining({
-					capabilities: ["className", "text", "icon", "asset"],
-				}),
-			},
-			validation: {
-				errorCode: "VALIDATION_FAILED",
-				diagnosticCode: "INVALID_SYSTEM_COMPONENT_DRAFT_INPUT",
-			},
-			examples: expect.arrayContaining([
-				expect.objectContaining({
-					tool: "createSystemComponentDraft",
-				}),
-			]),
+			system: { requested: "Core", configured: true },
+			topics: expect.objectContaining({ variants: expect.any(String) }),
 		});
-		expect(JSON.stringify(result.structuredContent).length).toBeLessThan(
-			12_000,
-		);
+		expect(JSON.stringify(result.structuredContent).length).toBeLessThan(6_000);
 	});
 });

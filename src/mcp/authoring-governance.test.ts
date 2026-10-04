@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { RECIPE_MARKER_PROP_KEYS } from "../recipes/markers";
 import type { TrickroomDesign } from "../types";
 import {
 	createTrickroomMcpProjectFixture,
@@ -166,88 +165,40 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			name: "getDesignAuthoringContract",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
-
-		expect(result.structuredContent).toMatchObject({
-			schemaVersion: 1,
-			designSchemaVersion: 1,
-			catalogVersion: "builtin:trickroom:1",
-			catalogHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
-			props: {
-				writableInstanceProps: ["className", "data-trickroom-name"],
-				fixedSystemProps: [
-					"data-trickroom-library",
-					"data-trickroom-component",
-					"data-trickroom-role",
-				],
-				systemOwnedProps: expect.arrayContaining([...RECIPE_MARKER_PROP_KEYS]),
-			},
-			compositionRules: {
-				roleInvariants: expect.arrayContaining([
-					expect.objectContaining({
-						role: "text",
-						acceptsElementChildren: false,
-					}),
-				]),
-			},
-		});
-		const contract = result.structuredContent as {
-			props: {
-				systemOwnedProps: string[];
-			};
-			registries: Array<{
-				library: string;
-				components: Array<{
-					component: string;
-					role?: string;
-					inspectTool?: string;
-					composition?: { kind: string; acceptsElementChildren: boolean };
-					content?: { kind: string; updateTool?: string };
-				}>;
-			}>;
+		const core = result.structuredContent as {
+			model: string[];
+			rules: string[];
+			governance: { mode: string };
 		};
-		expect(contract.props.systemOwnedProps).toEqual(
-			[...contract.props.systemOwnedProps].sort(),
-		);
-		const textComponent = contract.registries
-			.find((registry) => registry.library === "trickroom")
-			?.components.find((component) => component.component === "text");
-		expect(textComponent).toMatchObject({
-			component: "text",
-			role: "text",
-			inspectTool: "describeRegistryComponent",
-		});
+		expect(core.governance.mode).toBe("read-write");
+		expect(core.model.join(" ")).toContain("branch holds child elements");
+		expect(core.rules.join(" ")).toContain("data-trickroom-library");
 
-		const fullResult = await session.client.callTool({
+		const registryResult = await session.client.callTool({
 			name: "getDesignAuthoringContract",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				includeRegistryComponents: "full",
-			},
+			arguments: { topic: "registry", library: "trickroom" },
 		});
-		const fullContract = fullResult.structuredContent as {
-			registries: Array<{
-				library: string;
-				components: Array<{
-					component: string;
-					composition: { kind: string; acceptsElementChildren: boolean };
-					content: { kind: string; updateTool?: string };
-				}>;
-			}>;
+		const { registry } = registryResult.structuredContent as {
+			registry: {
+				writableProps: string;
+				elements: Array<{ component: string; role: string }>;
+			};
 		};
-		const fullTextComponent = fullContract.registries
-			.find((registry) => registry.library === "trickroom")
-			?.components.find((component) => component.component === "text");
-		expect(fullTextComponent).toMatchObject({
-			component: "text",
-			composition: {
-				kind: "none",
-				acceptsElementChildren: false,
-			},
-			content: {
-				kind: "text",
-				updateTool: "updateElementText",
-			},
-		});
+		expect(registry.writableProps).toContain("data-trickroom-name");
+		expect(registry.elements).toEqual(
+			expect.arrayContaining([
+				{
+					component: "trickroom/text",
+					label: "Text",
+					role: "text",
+					description: expect.any(String),
+				},
+				expect.objectContaining({
+					component: "trickroom/container",
+					role: "branch",
+				}),
+			]),
+		);
 	});
 
 	it("dry-runs operations without writing", async () => {
