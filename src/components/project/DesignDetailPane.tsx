@@ -11,6 +11,7 @@ import {
 } from "../../queries/design-file";
 import type { TrickroomDesignSummary } from "../../types";
 import { useProjectScope } from "../contexts";
+import { Alert } from "../ui/alert";
 import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { CopyButton } from "../ui/copy-button";
@@ -146,6 +147,7 @@ export function DesignDetailPane({
 							<Button
 								variant="filled"
 								className="flex items-center gap-1.5"
+								disabled={design.diagnostic !== undefined}
 								onClick={() => navigate(`/design/${design.uuid}`)}
 							>
 								<ArrowUpRight className="size-4" aria-hidden="true" />
@@ -163,6 +165,20 @@ export function DesignDetailPane({
 
 				<ScrollArea className="min-h-0 flex-1">
 					<div className="flex min-h-full flex-col gap-6 px-10 py-8">
+						{design.diagnostic ? (
+							<Alert variant="panel" tone="warning">
+								<span className="flex flex-col gap-1">
+									<span>This design cannot be opened.</span>
+									<span className="font-mono">{design.diagnostic.message}</span>
+									<span>
+										{design.diagnostic.code === "UNSUPPORTED_DESIGN_VERSION"
+											? ""
+											: "Restore the file, for example from version control. "}
+										Board and layer counts are best-effort.
+									</span>
+								</span>
+							</Alert>
+						) : null}
 						<div className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] gap-4">
 							<MetricCard
 								label="Boards"

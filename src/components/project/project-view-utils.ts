@@ -1,3 +1,5 @@
+import type { DesignFileDiagnostic } from "../../types";
+
 export const pluralize = (
 	count: number,
 	singular: string,
@@ -50,3 +52,16 @@ export const formatRelativeTime = (isoDate: string | null | undefined) => {
 	const elapsedYears = Math.floor(elapsedDays / 365);
 	return `${elapsedYears}y ago`;
 };
+
+const designDiagnosticLabels: Record<DesignFileDiagnostic["code"], string> = {
+	UNSUPPORTED_DESIGN_VERSION: "unsupported version",
+	INVALID_DESIGN_PAYLOAD: "invalid design",
+	INVALID_DESIGN_JSON: "invalid json",
+};
+
+/** Short label for a design file that cannot be opened. */
+export const getDesignDiagnosticLabel = (diagnostic: DesignFileDiagnostic) =>
+	diagnostic.code === "UNSUPPORTED_DESIGN_VERSION" &&
+	diagnostic.version !== undefined
+		? `v${diagnostic.version} unsupported`
+		: designDiagnosticLabels[diagnostic.code];
