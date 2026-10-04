@@ -16,7 +16,7 @@ import {
 	type DesignFileService,
 } from "./design-file-service";
 
-const board = (id: string, name = id): Node => ({
+const board = (id: string, name = id, children: Node[] = []): Node => ({
 	id,
 	props: {
 		"data-trickroom-name": name,
@@ -24,7 +24,7 @@ const board = (id: string, name = id): Node => ({
 		"data-trickroom-component": "container",
 		"data-trickroom-role": "branch",
 	},
-	children: [],
+	children,
 });
 
 const design = (...boards: Node[]): TrickroomDesign => ({
@@ -355,6 +355,40 @@ describe("design folder layout", () => {
 		).rejects.toMatchObject({ code: "INVALID_DESIGN_PAYLOAD" });
 		await expect(stat(folder("unsafe"))).rejects.toMatchObject({
 			code: "ENOENT",
+		});
+	});
+
+	it("refuses element ids used twice anywhere in the design", async () => {
+		const created = await service.createDesignFile(
+			"unique",
+			design(board("a", "A", [board("layer")]), board("b")),
+		);
+
+		await expect(
+			service.writeDesignFile(
+				"unique",
+				design(
+					board("a", "A", [board("layer")]),
+					board("b", "B", [board("layer")]),
+				),
+				{ expectedRevision: created.revision },
+			),
+		).rejects.toMatchObject({
+			code: "INVALID_DESIGN_PAYLOAD",
+			message: 'Element id "layer" is used more than once in the design.',
+		});
+		await expect(
+			service.createDesignFile("unique-2", design(board("a"), board("a"))),
+		).rejects.toMatchObject({ code: "INVALID_DESIGN_PAYLOAD" });
+		// Layers can become boards, so their ids must be safe file names too.
+		await expect(
+			service.writeDesignFile(
+				"unique",
+				design(board("a", "A", [board("x/y")])),
+			),
+		).rejects.toMatchObject({ code: "INVALID_DESIGN_PAYLOAD" });
+		await expect(service.readDesignFile("unique")).resolves.toMatchObject({
+			revision: created.revision,
 		});
 	});
 

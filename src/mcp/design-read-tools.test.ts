@@ -8,6 +8,7 @@ import {
 	recipePathProp,
 	recipeRootProp,
 } from "../recipes/markers";
+import { writeLegacyDesignFile } from "../test-utils/design-files";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
 import {
 	createTrickroomMcpProjectFixture,
@@ -899,9 +900,13 @@ describe("trickroom MCP design read tools", () => {
 	});
 
 	it("validates existing design files without mutation", async () => {
-		const { client } = await createSession({
-			[invalidDesignFileId]: unconfiguredSystemDesign,
-		});
+		const { client } = await createSession({});
+		// Duplicate ids only exist in designs written outside Trickroom.
+		await writeLegacyDesignFile(
+			(fixtures.at(-1) as TrickroomMcpProjectFixture).projectRoot,
+			invalidDesignFileId,
+			unconfiguredSystemDesign,
+		);
 
 		const validateResult = await client.callTool({
 			name: "design_validate",

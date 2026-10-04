@@ -355,26 +355,45 @@ export const isReadableDesignSummary = <T extends { diagnostic?: unknown }>(
 ) => summary.diagnostic === undefined;
 
 /**
- * Board ids name board files: each must be a safe file name, and no two may
- * differ only in case (they would share a file on case-insensitive disks).
+ * Element ids identify layers across a design, and board ids name board
+ * files (any layer can be promoted to a board): every id must be unique in
+ * the design and usable as a file name, and no two boards may differ only in
+ * case (they would share a file on case-insensitive disks). Checked on every
+ * write path, whatever validation the caller did.
  */
-const assertStorableBoardIds = (design: TrickroomDesign) => {
+const assertStorableIds = (design: TrickroomDesign) => {
 	const seen = new Set<string>();
+	const stack = [...design.boards];
+	while (stack.length > 0) {
+		const node = stack.pop() as Node;
+		if (!isSafeBoardId(node.id)) {
+			throw new DesignFileServiceError(
+				"INVALID_DESIGN_PAYLOAD",
+				`Element id "${node.id}" is not a safe single path segment: use letters, digits, "-", "_" or "." (not first or last).`,
+			);
+		}
+		if (seen.has(node.id)) {
+			throw new DesignFileServiceError(
+				"INVALID_DESIGN_PAYLOAD",
+				`Element id "${node.id}" is used more than once in the design.`,
+			);
+		}
+		seen.add(node.id);
+		if (Array.isArray(node.children)) {
+			stack.push(...node.children);
+		}
+	}
+
+	const boardFiles = new Set<string>();
 	for (const board of design.boards) {
-		if (!isSafeBoardId(board.id)) {
-			throw new DesignFileServiceError(
-				"INVALID_DESIGN_PAYLOAD",
-				`Board id "${board.id}" cannot be used as a file name: use letters, digits, "-", "_" or "." (not first or last).`,
-			);
-		}
 		const folded = board.id.toLowerCase();
-		if (seen.has(folded)) {
+		if (boardFiles.has(folded)) {
 			throw new DesignFileServiceError(
 				"INVALID_DESIGN_PAYLOAD",
-				`Board id "${board.id}" is used by more than one board.`,
+				`Board ids must differ in more than letter case: "${board.id}".`,
 			);
 		}
-		seen.add(folded);
+		boardFiles.add(folded);
 	}
 };
 
@@ -398,7 +417,7 @@ export const prepareDesignForStorage = (design: unknown): TrickroomDesign => {
 	}
 
 	const prepared = orderDesignFileKeys(migration.value);
-	assertStorableBoardIds(prepared);
+	assertStorableIds(prepared);
 	return prepared;
 };
 

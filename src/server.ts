@@ -1491,7 +1491,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			}
 			if (error instanceof DesignFileServiceError) {
 				if (error.code === "INVALID_DESIGN_PAYLOAD") {
-					return jsonError("Invalid trickroom design payload", 400);
+					return jsonError(error.message, 400);
 				}
 				if (error.code === "DESIGN_FILE_ALREADY_EXISTS") {
 					return jsonError("Design file already exists", 409);
@@ -1562,7 +1562,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			}
 			if (error instanceof DesignFileServiceError) {
 				if (error.code === "INVALID_DESIGN_PAYLOAD") {
-					return jsonError("Invalid trickroom design payload", 400);
+					return jsonError(error.message, 400);
 				}
 				if (error.code === "DESIGN_FILE_ALREADY_EXISTS") {
 					return jsonError("Design file already exists", 409);
@@ -1638,7 +1638,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				error instanceof DesignFileServiceError &&
 				error.code === "INVALID_DESIGN_PAYLOAD"
 			) {
-				return jsonError("Invalid trickroom design payload", 400);
+				return jsonError(error.message, 400);
 			}
 			if (
 				error instanceof DesignFileServiceError &&

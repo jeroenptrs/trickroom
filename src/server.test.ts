@@ -1410,6 +1410,7 @@ describe("server design routes", () => {
 		const boardB = {
 			...validDesign.boards[0],
 			id: "board-b",
+			children: [],
 		} as Node;
 		await writeDesign("merged.json", {
 			...validDesign,
@@ -1456,8 +1457,45 @@ describe("server design routes", () => {
 		});
 	});
 
+	it("rejects a browser save with duplicate or unsafe element ids", async () => {
+		await writeDesign("ids.json", validDesign);
+		const app = await importTestServer();
+		const read = await app.request("/api/trickroom/design?id=ids");
+		const revision = read.headers.get("x-trickroom-revision") ?? "";
+		const [root] = validDesign.boards;
+		const save = (design: TrickroomDesign) =>
+			app.request("/api/trickroom/design?id=ids", {
+				method: "PUT",
+				headers: {
+					"content-type": "application/json",
+					"x-trickroom-expected-revision": revision,
+				},
+				body: JSON.stringify(design),
+			});
+
+		const duplicate = await save({
+			...validDesign,
+			boards: [root as Node, { ...(root as Node), id: "second" }],
+		});
+		expect(duplicate.status).toBe(400);
+		await expect(duplicate.json()).resolves.toEqual({
+			error: 'Element id "title" is used more than once in the design.',
+		});
+
+		const unsafe = await save({
+			...validDesign,
+			boards: [{ ...(root as Node), id: "../escape", children: [] }],
+		});
+		expect(unsafe.status).toBe(400);
+		await expect(readStoredDesign("ids.json")).resolves.toEqual(validDesign);
+	});
+
 	it("reads a single board with its revision", async () => {
-		const boardB = { ...validDesign.boards[0], id: "board-b" } as Node;
+		const boardB = {
+			...validDesign.boards[0],
+			id: "board-b",
+			children: [],
+		} as Node;
 		await writeDesign("boards.json", {
 			...validDesign,
 			boards: [...validDesign.boards, boardB],
