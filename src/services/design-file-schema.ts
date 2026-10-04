@@ -46,7 +46,10 @@ const migrateV0ToV1 = (value: DesignFileValue): DesignFileValue => {
 	const { componentMigrationPolicy, ...rest } = value;
 	return {
 		...rest,
-		...(componentMigrationPolicy === null ? {} : { componentMigrationPolicy }),
+		...(componentMigrationPolicy === null ||
+		componentMigrationPolicy === undefined
+			? {}
+			: { componentMigrationPolicy }),
 		version: 1,
 	};
 };

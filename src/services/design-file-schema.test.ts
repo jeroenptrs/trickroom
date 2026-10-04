@@ -72,6 +72,18 @@ describe("design file migration chain", () => {
 		});
 	});
 
+	it("does not add a missing component migration policy when migrating from version 0", () => {
+		const { componentMigrationPolicy: _policy, ...withoutPolicy } =
+			legacyDesign;
+		void _policy;
+
+		const result = migrateDesignFileValue(withoutPolicy);
+
+		expect(
+			result.ok && Object.hasOwn(result.value, "componentMigrationPolicy"),
+		).toBe(false);
+	});
+
 	it("keeps a set component migration policy when migrating from version 0", () => {
 		const result = migrateDesignFileValue({
 			...legacyDesign,

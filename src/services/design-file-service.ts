@@ -66,6 +66,7 @@ import {
 	decodeDesignRevisionParts,
 	encodeDesignRevision,
 	getDesignRevisionParts,
+	stableStringify,
 } from "./design-revision";
 import {
 	type DesignFileOperations,
@@ -1434,7 +1435,8 @@ export class DesignFileService {
 			await this.applyOperations(paths, operations);
 			this.deleteCachedSummary(paths);
 			const after = toStoredDesign(designId, await readDesignFiles(paths));
-			result.verified = isDeepStrictEqual(after.design, expected);
+			result.verified =
+				stableStringify(after.design) === stableStringify(expected);
 			result.bytesAfter = await this.measureDesignBytes(paths);
 			return result;
 		};

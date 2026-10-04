@@ -36,6 +36,7 @@ const v0Design = {
 	componentMigrationPolicy: null,
 	boards: [board("a"), board("b")],
 };
+const v0DesignWithoutPolicy = { name: "Version 0 bare", boards: [board("z")] };
 const v1Design = { version: 1, name: "Version 1", boards: [board("c")] };
 
 describe("migrating designs to the folder layout", () => {
@@ -122,6 +123,15 @@ describe("migrating designs to the folder layout", () => {
 		expect(
 			after.every((read) => read.storedVersion === DESIGN_FILE_VERSION),
 		).toBe(true);
+	});
+
+	it("verifies a version 0 design without a migration policy", async () => {
+		await writeLegacy("bare", v0DesignWithoutPolicy);
+
+		await expect(service.migrateDesign("bare")).resolves.toMatchObject({
+			status: "converted",
+			verified: true,
+		});
 	});
 
 	it("is idempotent", async () => {
