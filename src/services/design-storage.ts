@@ -123,6 +123,8 @@ export type StoredFile = {
 	contents: string;
 	/** Identity of the file read (inode, size, times); changes with its bytes. */
 	fingerprint: string;
+	/** Whether `fingerprint` is settled (see `isSettledStat`). */
+	settled: boolean;
 };
 
 export type FolderDesignFiles = {
@@ -171,6 +173,26 @@ const describeStat = (name: string, fileStat: Stats | null) =>
 		? `${name}:${fileStat.ino}:${fileStat.size}:${fileStat.mtimeMs}:${fileStat.ctimeMs}`
 		: `${name}:-`;
 
+/**
+ * How long after its last change a file's identity (inode, size, times) is
+ * trusted to change with its bytes. File times have a granularity (from a
+ * few milliseconds up to two seconds, depending on the file system), and an
+ * atomic rename can reuse a just-freed inode, so a file replaced within one
+ * tick by one of the same size can look identical. Once a file is older
+ * than the coarsest granularity at the time it is observed, any later change
+ * gets a later time.
+ */
+export const settledFileAgeMs = 2_000;
+
+/**
+ * Whether a file observed at `observedAt` (taken before the stat) is old
+ * enough that its fingerprint identifies its contents (see
+ * `settledFileAgeMs`). Caches keyed on a fingerprint only take settled
+ * observations.
+ */
+export const isSettledStat = (fileStat: Stats, observedAt: number) =>
+	observedAt - Math.max(fileStat.mtimeMs, fileStat.ctimeMs) > settledFileAgeMs;
+
 export type DesignStorageState = {
 	/** `design.json` exists, so the folder layout applies. */
 	folder: boolean;
@@ -180,6 +202,8 @@ export type DesignStorageState = {
 	boardFiles: string[];
 	/** Fingerprint per entry of `boardFiles`. */
 	boardFingerprints: string[];
+	/** Whether each entry of `boardFiles` is settled (see `isSettledStat`). */
+	boardSettled: boolean[];
 	modifiedAt: Date;
 	/**
 	 * Changes whenever any file of the design is replaced or edited (atomic
@@ -191,6 +215,7 @@ export type DesignStorageState = {
 export const inspectDesignStorage = async (
 	paths: DesignPaths,
 ): Promise<DesignStorageState> => {
+	const observedAt = Date.now();
 	const [manifestStat, journalStat, legacyStat, boardEntries] =
 		await Promise.all([
 			statOrNull(paths.manifest),
@@ -217,6 +242,9 @@ export const inspectDesignStorage = async (
 		legacy: legacyStat !== null,
 		boardFiles,
 		boardFingerprints,
+		boardSettled: boardStats.map(
+			(boardStat) => boardStat !== null && isSettledStat(boardStat, observedAt),
+		),
 		modifiedAt: new Date(Math.max(0, ...stats.map((entry) => entry.mtimeMs))),
 		fingerprint: [
 			describeStat(designManifestFileName, manifestStat),
@@ -249,6 +277,71 @@ const notFound = (paths: DesignPaths) =>
 
 const maxConsistentReadAttempts = 5;
 
+const maxCachedBoardLength = 32 * 1024 * 1024;
+/**
+ * Contents of settled board files by path, valid while the file keeps the
+ * fingerprint it had when read. Strings are immutable, so a cached file is
+ * as good as a fresh read; only parsing it remains.
+ */
+const boardContentsCache = new Map<
+	string,
+	{ fingerprint: string; contents: string }
+>();
+let cachedBoardLength = 0;
+
+const forgetBoardContents = (filePath: string) => {
+	const cached = boardContentsCache.get(filePath);
+	if (cached) {
+		boardContentsCache.delete(filePath);
+		cachedBoardLength -= cached.contents.length;
+	}
+};
+
+const rememberBoardContents = (
+	filePath: string,
+	fingerprint: string,
+	contents: string,
+) => {
+	forgetBoardContents(filePath);
+	if (contents.length > maxCachedBoardLength / 4) {
+		return;
+	}
+	// Oldest first: Map iteration follows insertion order.
+	for (const [cachedPath, cached] of boardContentsCache) {
+		if (cachedBoardLength + contents.length <= maxCachedBoardLength) {
+			break;
+		}
+		boardContentsCache.delete(cachedPath);
+		cachedBoardLength -= cached.contents.length;
+	}
+	boardContentsCache.set(filePath, { fingerprint, contents });
+	cachedBoardLength += contents.length;
+};
+
+/**
+ * A board file's contents: from the cache when the file still has the
+ * settled fingerprint it was cached with, from disk otherwise. Returns what
+ * to cache once the read proves consistent.
+ */
+const readBoardContents = async (
+	filePath: string,
+	fingerprint: string,
+	settled: boolean,
+) => {
+	const cached = boardContentsCache.get(filePath);
+	if (cached?.fingerprint === fingerprint) {
+		// Refresh its place in the eviction order.
+		boardContentsCache.delete(filePath);
+		boardContentsCache.set(filePath, cached);
+		return { contents: cached.contents, remember: null };
+	}
+	const contents = await readFile(filePath, "utf8");
+	return {
+		contents,
+		remember: settled ? { filePath, fingerprint, contents } : null,
+	};
+};
+
 /**
  * Reads every file of a design as one consistent snapshot without taking the
  * design lock: the files are inspected before and after reading, and the read
@@ -268,17 +361,28 @@ export const readDesignFiles = async (
 		}
 
 		let files: DesignFiles;
+		const remember: {
+			filePath: string;
+			fingerprint: string;
+			contents: string;
+		}[] = [];
 		try {
 			files = before.folder
 				? {
 						layout: "folder",
 						manifest: await readFile(paths.manifest, "utf8"),
 						boards: await Promise.all(
-							before.boardFiles.map(async (name, index) => ({
-								name,
-								contents: await readFile(path.join(paths.boards, name), "utf8"),
-								fingerprint: before.boardFingerprints[index] as string,
-							})),
+							before.boardFiles.map(async (name, index) => {
+								const fingerprint = before.boardFingerprints[index] as string;
+								const settled = before.boardSettled[index] === true;
+								const read = await readBoardContents(
+									path.join(paths.boards, name),
+									fingerprint,
+									settled,
+								);
+								if (read.remember) remember.push(read.remember);
+								return { name, contents: read.contents, fingerprint, settled };
+							}),
 						),
 						legacyPresent: before.legacy,
 						modifiedAt: before.modifiedAt,
@@ -300,6 +404,16 @@ export const readDesignFiles = async (
 
 		const after = await inspectDesignStorage(paths);
 		if (after.fingerprint === before.fingerprint) {
+			// Cache only what this consistent snapshot read: a file replaced
+			// between the stat and the read would otherwise be cached under
+			// the fingerprint of the file it replaced.
+			for (const entry of remember) {
+				rememberBoardContents(
+					entry.filePath,
+					entry.fingerprint,
+					entry.contents,
+				);
+			}
 			return files;
 		}
 	}

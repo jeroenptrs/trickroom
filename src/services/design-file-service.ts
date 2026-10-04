@@ -62,6 +62,7 @@ import {
 	calculateDesignRevision,
 	calculateManifestRevision,
 	type DesignBoardRevision,
+	type DesignRevisionParts,
 	decodeDesignRevision,
 	decodeDesignRevisionParts,
 	encodeDesignRevision,
@@ -511,9 +512,19 @@ const parseJson = (contents: string, label: string): unknown => {
 	}
 };
 
+/**
+ * Supplies the parsed value of a board file without parsing it, when the
+ * caller already holds the same content (see `readForWrite`).
+ */
+type KnownBoardFile = (
+	boardId: string,
+	contents: string,
+) => Record<string, unknown> | undefined;
+
 const parseDesignFiles = (
 	designId: string,
 	files: DesignFiles,
+	knownBoardFile?: KnownBoardFile,
 ): ParsedDesignFiles => {
 	if (files.layout === "legacy") {
 		const value = parseJson(files.contents, `${designId}.json`);
@@ -546,12 +557,17 @@ const parseDesignFiles = (
 		? getDesignFileVersion(manifest)
 		: null;
 	let version = manifestVersion;
+	// Known values stand in for files only in a current design, which reading
+	// does not migrate (migrations rewrite nodes).
+	const known =
+		manifestVersion === DESIGN_FILE_VERSION ? knownBoardFile : undefined;
 
 	const boards: { id: string; order: unknown; node: unknown }[] = [];
 	for (const file of files.boards) {
 		const boardId = getBoardIdFromFileName(file.name);
 		const label = `${designId}/boards/${file.name}`;
-		const value = parseJson(file.contents, label);
+		const value =
+			known?.(boardId, file.contents) ?? parseJson(file.contents, label);
 		if (!isRecord(value) || !isRecord(value.board)) {
 			invalid(`${label} must contain { version, order, board }.`);
 			boards.push({ id: boardId, order: null, node: value });
@@ -606,6 +622,27 @@ const boardRevisionCache = new Map<
 	string,
 	{ fingerprint: string; revision: DesignBoardRevision }
 >();
+/**
+ * Board revisions by a hash of the board file's bytes. Hashing bytes is
+ * several times cheaper than hashing the board's content with sorted keys,
+ * and is sound whatever the file's times say, so it covers files changed
+ * too recently for `boardRevisionCache` (including the ones a write just
+ * stored, which the write seeds).
+ */
+const boardFileRevisionCache = new Map<string, DesignBoardRevision>();
+
+const hashBoardFile = (contents: string) =>
+	createHash("sha256").update(contents).digest("base64url");
+
+const rememberBoardFileRevision = (
+	contents: string,
+	revision: DesignBoardRevision,
+) => {
+	if (boardFileRevisionCache.size >= maxCachedBoardRevisions) {
+		boardFileRevisionCache.clear();
+	}
+	boardFileRevisionCache.set(hashBoardFile(contents), revision);
+};
 
 /**
  * Looks up board revisions of a current-version folder design by the
@@ -620,27 +657,40 @@ const cachedBoardRevisions = (
 	if (files.layout !== "folder" || version !== DESIGN_FILE_VERSION) {
 		return undefined;
 	}
-	const fingerprints = new Map(
-		files.boards.map((file) => [
-			getBoardIdFromFileName(file.name),
-			file.fingerprint,
-		]),
+	const stored = new Map(
+		files.boards.map((file) => [getBoardIdFromFileName(file.name), file]),
 	);
 	return (board: Node) => {
-		const fingerprint = fingerprints.get(board.id);
-		if (fingerprint === undefined) {
+		const file = stored.get(board.id);
+		if (file === undefined) {
 			return undefined;
 		}
 		const key = getBoardFilePath(paths, board.id);
 		const cached = boardRevisionCache.get(key);
-		if (cached?.fingerprint === fingerprint) {
+		if (cached?.fingerprint === file.fingerprint) {
 			return cached.revision;
 		}
-		const revision = calculateBoardRevision(board);
-		if (boardRevisionCache.size >= maxCachedBoardRevisions) {
-			boardRevisionCache.clear();
+		const fileHash = hashBoardFile(file.contents);
+		let revision = boardFileRevisionCache.get(fileHash);
+		if (revision === undefined) {
+			revision = calculateBoardRevision(board);
+			if (boardFileRevisionCache.size >= maxCachedBoardRevisions) {
+				boardFileRevisionCache.clear();
+			}
+			boardFileRevisionCache.set(fileHash, revision);
 		}
-		boardRevisionCache.set(key, { fingerprint, revision });
+		// A file changed moments ago may change again without its
+		// fingerprint changing (see `settledFileAgeMs`): only its bytes
+		// identify it until then.
+		if (file.settled) {
+			if (boardRevisionCache.size >= maxCachedBoardRevisions) {
+				boardRevisionCache.clear();
+			}
+			boardRevisionCache.set(key, {
+				fingerprint: file.fingerprint,
+				revision,
+			});
+		}
 		return revision;
 	};
 };
@@ -654,12 +704,9 @@ type SerializedBoards = Map<Node, { order: string; contents: string }>;
 
 /**
  * Board revisions for a write under the lock. Current boards are looked up
- * in the board revision cache (or hashed once). An incoming board whose
- * stored file it would rewrite byte for byte (same content, same order key)
- * is unchanged and takes the current board's revision without being hashed.
- * The check compares content, never object identity, so a board a caller
- * changed in place is still seen as changed; its serialization is kept for
- * storing it.
+ * in the board revision cache (or hashed once). An incoming board that
+ * `readForWrite` found stored byte for byte is unchanged and takes the
+ * current board's revision without being hashed.
  */
 const createWriteRevisions = (paths: DesignPaths, current: CurrentDesign) => {
 	const cached = cachedBoardRevisions(
@@ -676,33 +723,19 @@ const createWriteRevisions = (paths: DesignPaths, current: CurrentDesign) => {
 		}
 		return revision;
 	};
-	const serialized: SerializedBoards = new Map();
-	const currentBoards = new Map(
-		(current.design?.boards ?? []).map((board) => [board.id, board]),
-	);
-	const storedBoards =
-		current.files.layout === "folder" &&
-		current.parsed.version === DESIGN_FILE_VERSION
-			? new Map(
-					current.files.boards.map((file) => [
-						getBoardIdFromFileName(file.name),
-						file.contents,
-					]),
-				)
-			: new Map<string, string>();
-	const incomingRevision = (board: Node) => {
-		const stored = storedBoards.get(board.id);
-		const order = current.parsed.orders.get(board.id);
-		const currentBoard = currentBoards.get(board.id);
-		if (stored === undefined || !order || !currentBoard) {
-			return undefined;
-		}
-		const contents = serializeBoardFile(board, order);
-		serialized.set(board, { order, contents });
-		return contents === stored ? currentRevision(currentBoard) : undefined;
-	};
-	return { currentRevision, incomingRevision, serialized };
+	// An unchanged incoming board is the current board (it stands in for
+	// the stored file), so its revision is the current one.
+	const incomingRevision = (board: Node) =>
+		current.unchanged.has(board) ? currentRevision(board) : undefined;
+	return { currentRevision, incomingRevision };
 };
+
+/**
+ * The order key at the start of a board file as `serializeBoardFile` writes
+ * it, or null. Only a candidate: the caller compares whole files.
+ */
+const storedOrderKeyPattern =
+	/^\{\n\t"version": \d+,\n\t"order": "([0-9A-Za-z]+)",\n/;
 
 type StoredDesign = {
 	files: DesignFiles;
@@ -1192,8 +1225,15 @@ export class DesignFileService {
 	/**
 	 * Reads the design for a write, holding the lock. Returns null when the
 	 * design does not exist.
+	 *
+	 * A stored board file that `incoming` would rewrite byte for byte (same
+	 * board content, same order key) is not parsed: the incoming board stands
+	 * in for it and is listed in `unchanged`. The check compares content,
+	 * never object identity, so a board a caller changed in place is parsed
+	 * and seen as changed. Serializations made for the check are kept in
+	 * `serialized` to store changed boards without serializing them again.
 	 */
-	private async readForWrite(paths: DesignPaths) {
+	private async readForWrite(paths: DesignPaths, incoming?: TrickroomDesign) {
 		let files: DesignFiles;
 		try {
 			files = await this.readDesignFilesLocked(paths);
@@ -1203,7 +1243,31 @@ export class DesignFileService {
 			}
 			throw error;
 		}
-		const parsed = parseDesignFiles(paths.designId, files);
+		const incomingBoards = new Map(
+			(incoming?.boards ?? []).map((board) => [board.id, board]),
+		);
+		const unchanged = new Set<Node>();
+		const serialized: SerializedBoards = new Map();
+		const parsed = parseDesignFiles(
+			paths.designId,
+			files,
+			(boardId, contents) => {
+				const board = incomingBoards.get(boardId);
+				const order = board
+					? storedOrderKeyPattern.exec(contents)?.[1]
+					: undefined;
+				if (!board || order === undefined) {
+					return undefined;
+				}
+				const serializedBoard = serializeBoardFile(board, order);
+				serialized.set(board, { order, contents: serializedBoard });
+				if (serializedBoard !== contents) {
+					return undefined;
+				}
+				unchanged.add(board);
+				return { version: DESIGN_FILE_VERSION, order, board };
+			},
+		);
 		// Never down-convert a design written by a newer Trickroom.
 		if (parsed.version !== null && parsed.version > DESIGN_FILE_VERSION) {
 			throw new DesignFileServiceError(
@@ -1216,6 +1280,8 @@ export class DesignFileService {
 			files,
 			parsed,
 			design: read?.ok ? read.design : null,
+			unchanged,
+			serialized,
 		};
 	}
 
@@ -1228,17 +1294,15 @@ export class DesignFileService {
 		const incoming = withoutStorageVersion(prepareDesignForStorage(design));
 
 		const written = await this.withDesignLock(designId, async () => {
-			const current = await this.readForWrite(paths);
+			const current = await this.readForWrite(paths, incoming);
 			if (!current && revisionCheck.expectedRevision !== undefined) {
 				// Revision-checked writes target an existing design.
 				throw notFoundError(designId);
 			}
 
 			let plan: DesignWritePlan | null = null;
-			let serialized: SerializedBoards | undefined;
 			if (current?.design) {
 				const revisions = createWriteRevisions(paths, current);
-				serialized = revisions.serialized;
 				plan = this.planWrite(
 					current.design,
 					incoming,
@@ -1265,12 +1329,19 @@ export class DesignFileService {
 			}
 
 			const next = plan?.design ?? incoming;
-			await this.storeDesign(paths, current, next, plan, serialized);
-			return { design: next, plan };
+			const operations = await this.storeDesign(
+				paths,
+				current,
+				next,
+				plan,
+				current?.serialized,
+			);
+			return { design: next, plan, operations };
 		});
 		this.deleteCachedSummary(paths);
 		const parts =
 			written.plan?.revisions ?? getDesignRevisionParts(written.design);
+		this.rememberStoredBoards(paths, written.operations, parts);
 		return {
 			...this.describeLocation(paths, "folder"),
 			uuid: designId,
@@ -1350,20 +1421,49 @@ export class DesignFileService {
 	 */
 	private async storeDesign(
 		paths: DesignPaths,
-		current: Awaited<ReturnType<DesignFileService["readForWrite"]>>,
+		current: Pick<CurrentDesign, "files" | "parsed" | "design"> | null,
 		next: TrickroomDesign,
 		plan: DesignWritePlan | null,
 		serialized?: SerializedBoards,
 	) {
-		await this.applyOperations(
+		const operations = await this.buildStoreOperations(
 			paths,
-			await this.buildStoreOperations(paths, current, next, plan, serialized),
+			current,
+			next,
+			plan,
+			serialized,
 		);
+		await this.applyOperations(paths, operations);
+		return operations;
+	}
+
+	/**
+	 * Seeds the board revision cache with the board files a write stored, so
+	 * the next read does not hash them again while they are too fresh to be
+	 * identified by their times.
+	 */
+	private rememberStoredBoards(
+		paths: DesignPaths,
+		operations: DesignFileOperations,
+		parts: DesignRevisionParts,
+	) {
+		const revisions = new Map(
+			parts.boards.map((board) => [
+				getBoardFilePath(paths, board.id),
+				board.revision,
+			]),
+		);
+		for (const write of operations.writes) {
+			const revision = revisions.get(write.path);
+			if (revision !== undefined) {
+				rememberBoardFileRevision(write.contents, revision);
+			}
+		}
 	}
 
 	private async buildStoreOperations(
 		paths: DesignPaths,
-		current: Awaited<ReturnType<DesignFileService["readForWrite"]>>,
+		current: Pick<CurrentDesign, "files" | "parsed" | "design"> | null,
 		next: TrickroomDesign,
 		plan: DesignWritePlan | null,
 		serialized?: SerializedBoards,
