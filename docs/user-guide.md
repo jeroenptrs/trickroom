@@ -87,6 +87,11 @@ Design editor:
 - Rely on autosave after edits.
 - Manually save while there are unsaved changes.
 
+System editor:
+
+- Add an icon folder by its project-relative path, for example `src/icons`. Trickroom indexes the SVGs inside it.
+- Register an image asset by its project-relative path, for example `public/images/hero.png`. The file stays where it is. The browser has no file picker or upload, so the image has to be in the project already.
+
 Shared server:
 
 - Local loopback use stays unauthenticated by default.

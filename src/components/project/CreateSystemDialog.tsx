@@ -1,9 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FilePlus2, Plus, SwatchBook, X } from "lucide-react";
 import { type FormEvent, useEffect, useId, useState } from "react";
-import { getTrickroomDesktopApi } from "../../desktop-api";
 import { configFileQueryKey } from "../../queries/config-file";
-import { sessionQueryOptions } from "../../queries/projects";
 import {
 	type CreateSystemResponse,
 	createSystem,
@@ -11,6 +9,7 @@ import {
 } from "../../queries/systems";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
+import Checkbox from "../ui/checkbox";
 import {
 	Dialog,
 	DialogClose,
@@ -20,10 +19,9 @@ import {
 	DialogTitle,
 } from "../ui/dialog";
 import { Input } from "../ui/input";
-import { InputGroup, InputGroupButton } from "../ui/input-group";
+import { InputGroup } from "../ui/input-group";
 import { Separator } from "../ui/separator";
 import { Text } from "../ui/text";
-import Checkbox from "../ui/checkbox";
 
 export function CreateSystemDialog({
 	open,
@@ -35,16 +33,10 @@ export function CreateSystemDialog({
 	onCreated?: (system: CreateSystemResponse) => void;
 }) {
 	const queryClient = useQueryClient();
-	const sessionQuery = useQuery(sessionQueryOptions());
 	const formId = useId();
 	const [systemName, setSystemName] = useState("");
 	const [cssPath, setCssPath] = useState("");
 	const [setAsDefault, setSetAsDefault] = useState(true);
-	const [cssPickerError, setCssPickerError] = useState<string | null>(null);
-	const [isPickingCss, setIsPickingCss] = useState(false);
-	const desktopApi = getTrickroomDesktopApi();
-	const projectRoot = sessionQuery.data?.activeProject?.projectRoot ?? "";
-	const canPickCss = Boolean(desktopApi) && Boolean(projectRoot);
 
 	const mutation = useMutation({
 		mutationFn: createSystem,
@@ -61,14 +53,12 @@ export function CreateSystemDialog({
 	useEffect(() => {
 		if (open) {
 			mutation.reset();
-			setCssPickerError(null);
 			setSetAsDefault(true);
 			return;
 		}
 		setSystemName("");
 		setCssPath("");
 		setSetAsDefault(true);
-		setCssPickerError(null);
 	}, [open, mutation.reset]);
 
 	const trimmedSystemName = systemName.trim();
@@ -81,7 +71,6 @@ export function CreateSystemDialog({
 	const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (!canSubmit) return;
-		setCssPickerError(null);
 		mutation.mutate({
 			systemName: trimmedSystemName,
 			cssPath: trimmedCssPath,
@@ -89,29 +78,7 @@ export function CreateSystemDialog({
 		});
 	};
 
-	const handlePickCssFile = async () => {
-		if (!desktopApi || !projectRoot || mutation.isPending || isPickingCss) {
-			return;
-		}
-
-		setCssPickerError(null);
-		setIsPickingCss(true);
-		try {
-			const result = await desktopApi.pickCssFile(projectRoot);
-			if (!result.canceled) {
-				setCssPath(result.relativePath);
-			}
-		} catch (error) {
-			setCssPickerError(
-				error instanceof Error ? error.message : "Failed to choose CSS file.",
-			);
-		} finally {
-			setIsPickingCss(false);
-		}
-	};
-
-	const errorMessage =
-		cssPickerError ?? (mutation.error as Error | null)?.message;
+	const errorMessage = (mutation.error as Error | null)?.message;
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -173,19 +140,6 @@ export function CreateSystemDialog({
 											onChange={(event) => setCssPath(event.target.value)}
 											disabled={mutation.isPending}
 										/>
-										{desktopApi ? (
-											<InputGroupButton
-												disabled={
-													mutation.isPending || isPickingCss || !canPickCss
-												}
-												onClick={handlePickCssFile}
-												title={
-													!canPickCss ? "Project path unavailable." : undefined
-												}
-											>
-												{isPickingCss ? "Browsing" : "Browse"}
-											</InputGroupButton>
-										) : null}
 									</InputGroup>
 									<Text tone="muted" className="text-[11px] leading-relaxed">
 										Trickroom indexes the @theme tokens declared in this file.

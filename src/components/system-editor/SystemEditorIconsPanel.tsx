@@ -15,9 +15,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { getTrickroomDesktopApi } from "../../desktop-api";
 import type { ProjectQueryScope } from "../../queries/project-scope";
-import { sessionQueryOptions } from "../../queries/projects";
 import {
 	addSystemIconFolder,
 	removeSystemIconFolder,
@@ -27,6 +25,7 @@ import {
 	systemIconsQueryKey,
 	systemIconsQueryOptions,
 } from "../../queries/system-icons";
+import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
@@ -36,26 +35,6 @@ import {
 	ICON_GRID_ROW_HEIGHT,
 	useVirtualGrid,
 } from "./useVirtualGrid";
-import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
-
-function toProjectRelativePath(path: string, projectRoot: string) {
-	const normalizedPath = path.trim().replaceAll("\\", "/").replace(/\/+$/, "");
-	const normalizedRoot = projectRoot
-		.trim()
-		.replaceAll("\\", "/")
-		.replace(/\/+$/, "");
-
-	if (!normalizedPath || !normalizedRoot || normalizedPath === normalizedRoot) {
-		return null;
-	}
-
-	const rootPrefix = `${normalizedRoot}/`;
-	if (!normalizedPath.startsWith(rootPrefix)) {
-		return null;
-	}
-
-	return normalizedPath.slice(rootPrefix.length);
-}
 
 function getIconFolderLabel(
 	icon: SystemIconSummary,
@@ -268,8 +247,6 @@ export function SystemEditorIconFoldersRail({
 	projectScope?: ProjectQueryScope;
 }) {
 	const queryClient = useQueryClient();
-	const desktopApi = getTrickroomDesktopApi();
-	const sessionQuery = useQuery(sessionQueryOptions());
 	const iconsQuery = useQuery(systemIconsQueryOptions(systemId, projectScope));
 	const folders = iconsQuery.data?.iconFolderPaths ?? [];
 	const icons = iconsQuery.data?.icons ?? [];
@@ -277,11 +254,8 @@ export function SystemEditorIconFoldersRail({
 	const [iconFolderActionError, setIconFolderActionError] = useState<
 		string | null
 	>(null);
-	const [isPickingIconFolder, setIsPickingIconFolder] = useState(false);
-	const projectRoot = sessionQuery.data?.activeProject?.projectRoot ?? "";
 	const iconsQueryKey = systemIconsQueryKey(systemId, projectScope);
 	const iconSvgQueriesKey = systemIconSvgQueriesQueryKey(systemId);
-	const canPickIconFolder = Boolean(desktopApi) && Boolean(projectRoot);
 	const folderCounts = useMemo(() => {
 		const counts = new Map<string, number>();
 		for (const icon of icons) {
@@ -345,7 +319,6 @@ export function SystemEditorIconFoldersRail({
 		reindexIconsMutation.isPending;
 	const addIconFolderDisabled =
 		isMutatingIconFolders || draftIconFolderPath.trim().length === 0;
-	const pickerDisabled = isMutatingIconFolders || isPickingIconFolder;
 	const iconFolderError =
 		iconFolderActionError ??
 		(iconsQuery.error instanceof Error ? iconsQuery.error.message : null);
@@ -355,36 +328,6 @@ export function SystemEditorIconFoldersRail({
 			return;
 		}
 		addIconFolderMutation.mutate(draftIconFolderPath.trim());
-	};
-
-	const pickIconFolder = async () => {
-		if (!desktopApi || !projectRoot || pickerDisabled) {
-			return;
-		}
-
-		clearIconFolderActionError();
-		setIsPickingIconFolder(true);
-		try {
-			const result = await desktopApi.pickProjectFolder();
-			if (!result.canceled) {
-				const relativePath = toProjectRelativePath(result.path, projectRoot);
-				if (!relativePath) {
-					setIconFolderActionError(
-						"Choose an icon folder inside this project.",
-					);
-					return;
-				}
-				setDraftIconFolderPath(relativePath);
-			}
-		} catch (error) {
-			captureIconFolderActionError(
-				error instanceof Error
-					? error
-					: new Error("Failed to choose icon folder."),
-			);
-		} finally {
-			setIsPickingIconFolder(false);
-		}
 	};
 
 	return (
@@ -433,7 +376,7 @@ export function SystemEditorIconFoldersRail({
 						Icon folder path
 					</label>
 					<div className="flex min-w-0 items-stretch gap-2">
-						<div className="group flex min-w-0 flex-1 items-stretch inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500">
+						<div className="flex min-w-0 flex-1 items-stretch inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500">
 							<Input
 								id="system-editor-icon-folder-path"
 								variant="formEmbedded"
@@ -448,17 +391,6 @@ export function SystemEditorIconFoldersRail({
 								}}
 								disabled={isMutatingIconFolders}
 							/>
-							{desktopApi ? (
-								<Button
-									type="button"
-									variant="block"
-									className="shrink-0 px-2 py-1.5 text-xs inset-shadow-[1px_0_0_0] inset-shadow-slate-200 group-focus-within:inset-shadow-cyan-500"
-									disabled={pickerDisabled || !canPickIconFolder}
-									onClick={pickIconFolder}
-								>
-									{isPickingIconFolder ? "Browsing" : "Browse"}
-								</Button>
-							) : null}
 						</div>
 						<Button
 							type="button"

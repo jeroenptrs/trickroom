@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, Check, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { getTrickroomDesktopApi } from "../../desktop-api";
 import type { TailwindSyncResult } from "../../hooks/useTailwindSyncController";
 import {
 	configFileProjectQueryKey,
@@ -12,7 +11,6 @@ import {
 	updateProjectDefaultSystem,
 } from "../../queries/config-file";
 import type { ProjectQueryScope } from "../../queries/project-scope";
-import { sessionQueryOptions } from "../../queries/projects";
 import { systemAssetsQueryOptions } from "../../queries/system-assets";
 import { systemIconsQueryOptions } from "../../queries/system-icons";
 import { systemUsedByQueryOptions } from "../../queries/system-used-by";
@@ -46,7 +44,7 @@ import { CopyButton } from "../ui/copy-button";
 import { DetailSection, DetailSectionRow } from "../ui/detail-section";
 import { EditableTitle } from "../ui/editable-title";
 import { Input } from "../ui/input";
-import { InputGroup, InputGroupButton } from "../ui/input-group";
+import { InputGroup } from "../ui/input-group";
 import { MetricCard } from "../ui/metric-card";
 import { PaneHeader } from "../ui/pane-header";
 import { ReadOnlyField } from "../ui/readonly-field";
@@ -456,16 +454,11 @@ function SystemSettingsSubview({
 }) {
 	const queryClient = useQueryClient();
 	const syncController = useTailwindSyncController();
-	const desktopApi = getTrickroomDesktopApi();
-	const sessionQuery = useQuery(sessionQueryOptions());
 	const [draftName, setDraftName] = useState(systemDisplayName);
 	const [draftCssPath, setDraftCssPath] = useState(cssPath);
 	const [settingsActionError, setSettingsActionError] = useState<string | null>(
 		null,
 	);
-	const [isPickingCssPath, setIsPickingCssPath] = useState(false);
-	const projectRoot = sessionQuery.data?.activeProject?.projectRoot ?? "";
-	const canPickCssPath = Boolean(desktopApi) && Boolean(projectRoot);
 	const storageRoot = `.trickroom/systems/${systemId}`;
 	const tokenStoragePath = `${storageRoot}/tokens.json`;
 	const iconManifestPath = `${storageRoot}/icons.json`;
@@ -539,7 +532,6 @@ function SystemSettingsSubview({
 		settingsActionsDisabled ||
 		draftCssPath.trim().length === 0 ||
 		draftCssPath.trim() === cssPath;
-	const pickerActionsDisabled = settingsActionsDisabled || isPickingCssPath;
 
 	useEffect(() => {
 		setDraftName(systemDisplayName);
@@ -565,29 +557,6 @@ function SystemSettingsSubview({
 	const saveCssPath = () => {
 		if (saveCssPathDisabled) return;
 		updateSystemMutation.mutate({ cssPath: draftCssPath.trim() });
-	};
-
-	const pickCssPath = async () => {
-		if (!desktopApi || !projectRoot || pickerActionsDisabled) {
-			return;
-		}
-
-		clearSettingsActionError();
-		setIsPickingCssPath(true);
-		try {
-			const result = await desktopApi.pickCssFile(projectRoot);
-			if (!result.canceled) {
-				setDraftCssPath(result.relativePath);
-			}
-		} catch (error) {
-			captureSettingsActionError(
-				error instanceof Error
-					? error
-					: new Error("Failed to choose CSS file."),
-			);
-		} finally {
-			setIsPickingCssPath(false);
-		}
 	};
 
 	return (
@@ -692,17 +661,6 @@ function SystemSettingsSubview({
 								}}
 								disabled={settingsActionsDisabled}
 							/>
-							{desktopApi ? (
-								<InputGroupButton
-									disabled={pickerActionsDisabled || !canPickCssPath}
-									onClick={pickCssPath}
-									title={
-										!canPickCssPath ? "Project path unavailable." : undefined
-									}
-								>
-									{isPickingCssPath ? "Browsing" : "Browse"}
-								</InputGroupButton>
-							) : null}
 						</InputGroup>
 						<Button
 							variant="outlined"

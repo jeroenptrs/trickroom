@@ -2,47 +2,34 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FilePlus2, FolderPlus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { getTrickroomDesktopApi } from "../desktop-api";
 import {
 	configFileQueryKey,
 	configFileQueryOptions,
 	createConfigFile,
 } from "../queries/config-file";
-import {
-	openProject,
-	sessionQueryKey,
-	sessionQueryOptions,
-} from "../queries/projects";
+import { openProject, sessionQueryKey } from "../queries/projects";
 import { systemsQueryKey } from "../queries/systems";
 import { HttpError } from "../utils/readJsonOrThrow";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { InputGroup, InputGroupButton } from "./ui/input-group";
-import { Text } from "./ui/text";
 import Checkbox from "./ui/checkbox";
+import { Input } from "./ui/input";
+import { InputGroup } from "./ui/input-group";
+import { Text } from "./ui/text";
 
 const systemNamePattern = /^[A-Za-z0-9_@-]+$/;
 
 export function CreateProjectPanel() {
 	const [name, setName] = useState("");
 	const [projectFolder, setProjectFolder] = useState("");
-	const [folderPickerError, setFolderPickerError] = useState<string | null>(
-		null,
-	);
-	const [isPickingFolder, setIsPickingFolder] = useState(false);
 	const [systemName, setSystemName] = useState("");
 	const [systemCssPath, setSystemCssPath] = useState("");
 	const [setSystemAsDefault, setSetSystemAsDefault] = useState(true);
-	const [cssPickerError, setCssPickerError] = useState<string | null>(null);
-	const [isPickingCss, setIsPickingCss] = useState(false);
 	const [showSystem, setShowSystem] = useState(false);
 	const nameInputRef = useRef<HTMLInputElement>(null);
-	const desktopApi = getTrickroomDesktopApi();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const configQuery = useQuery(configFileQueryOptions());
-	const sessionQuery = useQuery(sessionQueryOptions());
 
 	const isNoProjectCreate =
 		configQuery.isError &&
@@ -53,11 +40,6 @@ export function CreateProjectPanel() {
 		Boolean(systemName.trim()) !== Boolean(systemCssPath.trim());
 	const hasInvalidSystemName =
 		Boolean(systemName.trim()) && !systemNamePattern.test(systemName.trim());
-
-	const cssPickerProjectRoot = isNoProjectCreate
-		? projectFolder.trim()
-		: (sessionQuery.data?.activeProject?.projectRoot ?? "");
-	const canPickCss = Boolean(desktopApi) && Boolean(cssPickerProjectRoot);
 
 	const createProjectMutation = useMutation({
 		mutationFn: () => {
@@ -117,57 +99,9 @@ export function CreateProjectPanel() {
 				setSystemName("");
 				setSystemCssPath("");
 				setSetSystemAsDefault(true);
-				setCssPickerError(null);
 			}
 			return !shown;
 		});
-	};
-
-	const handlePickProjectFolder = async () => {
-		if (!desktopApi || isPickingFolder || createProjectMutation.isPending) {
-			return;
-		}
-
-		setFolderPickerError(null);
-		setIsPickingFolder(true);
-		try {
-			const result = await desktopApi.pickProjectFolder();
-			if (!result.canceled) {
-				setProjectFolder(result.path);
-			}
-		} catch (error) {
-			setFolderPickerError(
-				error instanceof Error ? error.message : "Failed to choose folder.",
-			);
-		} finally {
-			setIsPickingFolder(false);
-		}
-	};
-
-	const handlePickCssFile = async () => {
-		if (
-			!desktopApi ||
-			isPickingCss ||
-			createProjectMutation.isPending ||
-			!canPickCss
-		) {
-			return;
-		}
-
-		setCssPickerError(null);
-		setIsPickingCss(true);
-		try {
-			const result = await desktopApi.pickCssFile(cssPickerProjectRoot);
-			if (!result.canceled) {
-				setSystemCssPath(result.relativePath);
-			}
-		} catch (error) {
-			setCssPickerError(
-				error instanceof Error ? error.message : "Failed to choose CSS file.",
-			);
-		} finally {
-			setIsPickingCss(false);
-		}
 	};
 
 	const createErrorMessage = (createProjectMutation.error as Error | null)
@@ -238,14 +172,6 @@ export function CreateProjectPanel() {
 									disabled={inputsDisabled}
 									className="min-w-0 flex-1 truncate"
 								/>
-								{desktopApi ? (
-									<InputGroupButton
-										disabled={inputsDisabled || isPickingFolder}
-										onClick={handlePickProjectFolder}
-									>
-										{isPickingFolder ? "Browsing" : "Browse"}
-									</InputGroupButton>
-								) : null}
 							</InputGroup>
 						</div>
 					) : null}
@@ -299,19 +225,6 @@ export function CreateProjectPanel() {
 										disabled={inputsDisabled}
 										className="min-w-0 flex-1 truncate"
 									/>
-									{desktopApi ? (
-										<InputGroupButton
-											disabled={inputsDisabled || isPickingCss || !canPickCss}
-											onClick={handlePickCssFile}
-											title={
-												!canPickCss
-													? "Browse for a project folder first."
-													: undefined
-											}
-										>
-											{isPickingCss ? "Browsing" : "Browse"}
-										</InputGroupButton>
-									) : null}
 								</InputGroup>
 							</div>
 							<Text tone="muted" className="text-[11px]">
@@ -353,9 +266,6 @@ export function CreateProjectPanel() {
 									in the design system name.
 								</Alert>
 							) : null}
-							{cssPickerError ? (
-								<Alert variant="inline">{cssPickerError}</Alert>
-							) : null}
 						</div>
 					) : (
 						<Text tone="muted" className="pl-7 font-mono text-[10px]">
@@ -364,9 +274,6 @@ export function CreateProjectPanel() {
 					)}
 				</div>
 
-				{folderPickerError ? (
-					<Alert variant="panel">{folderPickerError}</Alert>
-				) : null}
 				{createProjectMutation.isError ? (
 					<Alert variant="panel">
 						Failed to create project: {createErrorMessage}
