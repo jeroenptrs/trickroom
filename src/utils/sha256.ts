@@ -39,7 +39,7 @@ export function sha256Hex(input: string): string {
 	dataView.setUint32(paddedLength - 8, highBits, false);
 	dataView.setUint32(paddedLength - 4, lowBits, false);
 
-	const hash = [...INITIAL_HASH];
+	const hash: number[] = [...INITIAL_HASH];
 	const words = new Uint32Array(64);
 
 	for (let offset = 0; offset < paddedLength; offset += 64) {

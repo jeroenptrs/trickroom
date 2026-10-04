@@ -1651,16 +1651,17 @@ export const validateProposedSubtreeForInsertion = (
 	};
 };
 
-const throwFirstSubtreeValidationError = (
+// A function declaration, not an arrow const, so callers narrow on `never`.
+function throwFirstSubtreeValidationError(
 	diagnostics: SubtreeDiagnostic[],
-): never => {
+): never {
 	const diagnostic =
 		diagnostics.find((entry) => entry.severity === "error") ?? diagnostics[0];
 	throw new DesignTransformError(
 		diagnostic.code as DesignTransformErrorCode,
 		diagnostic.message,
 	);
-};
+}
 
 export const applyAddSubtree = (
 	design: TrickroomDesign,
@@ -2047,14 +2048,13 @@ export const applyAddSystemComponent = async (
 	let expansion: Awaited<
 		ReturnType<typeof expandPublishedSystemComponentVersion>
 	>;
-	const selectedVariantValues =
-		params.unsetVariantAxes === undefined
-			? params.variantValues
-			: { ...(params.variantValues ?? {}) };
+	let selectedVariantValues = params.variantValues;
 	if (params.unsetVariantAxes !== undefined) {
+		const remainingVariantValues = { ...(params.variantValues ?? {}) };
 		for (const axisKey of params.unsetVariantAxes) {
-			delete selectedVariantValues[axisKey];
+			delete remainingVariantValues[axisKey];
 		}
+		selectedVariantValues = remainingVariantValues;
 	}
 	try {
 		expansion = await expandPublishedSystemComponentVersion(

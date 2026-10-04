@@ -1,4 +1,4 @@
-import type { JsonPrimitive, Props } from "../types";
+import type { JsonPrimitive, PropRecord, Props } from "../types";
 import { assetIdProp, iconIdProp } from "./resource-props";
 
 export const systemComponentSystemIdProp =
@@ -75,7 +75,7 @@ export type SystemComponentStructuralMetadata = {
 };
 
 const getStringProp = (
-	props: Props | null | undefined,
+	props: PropRecord | null | undefined,
 	key: SystemComponentMarkerPropKey,
 ) => {
 	const value = props?.[key];
@@ -165,7 +165,7 @@ export const isSystemComponentMarkerPropKey = (
 	SYSTEM_COMPONENT_MARKER_PROP_KEYS.has(key);
 
 export const getSystemComponentStructuralMetadata = (
-	props: Props | null | undefined,
+	props: PropRecord | null | undefined,
 ): SystemComponentStructuralMetadata | null => {
 	const systemId = getStringProp(props, systemComponentSystemIdProp);
 	const componentId = getStringProp(props, systemComponentIdProp);
@@ -257,7 +257,7 @@ export const omitSystemComponentMarkerProps = (props: Props): Props => {
 };
 
 export const isSystemComponentRootStale = (
-	props: Props | null | undefined,
+	props: PropRecord | null | undefined,
 	current: { templateHash?: string; variantSchemaHash?: string },
 ) => {
 	const metadata = getSystemComponentStructuralMetadata(props);

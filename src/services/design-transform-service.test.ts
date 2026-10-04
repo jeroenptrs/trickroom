@@ -13,7 +13,8 @@ import {
 	RECIPE_MARKER_PROP_KEYS,
 	recipeInstanceProp,
 } from "../recipes/markers";
-import type { TrickroomDesign } from "../types";
+import { elementNodeAt } from "../test-utils/narrowing";
+import type { Node, TrickroomDesign } from "../types";
 import { createDesignSystemStorage } from "../utils/design-system-store";
 import { assetIdProp } from "../utils/resource-props";
 import type { SystemComponentManifestRevision } from "../utils/system-component-manifest-service";
@@ -604,7 +605,7 @@ describe("applyAddElement", () => {
 		expect(separator?.props).not.toHaveProperty("className");
 		expect(
 			getRenderableProps(
-				separator?.props ?? {},
+				elementNodeAt(separator).props,
 				getKnownRegistryDefinition("base-ui", "separator"),
 			).className,
 		).toBe(separatorBaseClassName);
@@ -634,7 +635,7 @@ describe("applyAddElement", () => {
 		expect(separator?.props).not.toHaveProperty("className");
 		expect(
 			getRenderableProps(
-				separator?.props ?? {},
+				elementNodeAt(separator).props,
 				getKnownRegistryDefinition("base-ui", "menu.separator"),
 			).className,
 		).toBe(separatorBaseClassName);
@@ -1608,13 +1609,13 @@ describe("persisted registry base class migration", () => {
 		);
 		expect(
 			getRenderableProps(
-				separator?.props ?? {},
+				elementNodeAt(separator).props,
 				getKnownRegistryDefinition("base-ui", "separator"),
 			).className,
 		).toBe(`${separatorBaseClassName} bg-slate-200`);
 		expect(
 			getRenderableProps(
-				menuSeparator?.props ?? {},
+				elementNodeAt(menuSeparator).props,
 				getKnownRegistryDefinition("base-ui", "menu.separator"),
 			).className,
 		).toBe(separatorBaseClassName);
@@ -2214,7 +2215,7 @@ describe("applyExtractSubtree", () => {
 
 	it("strips markers when extracting a partial recipe structural node", async () => {
 		const design = avatarRecipeDesign();
-		const image = design.boards[0].children[0];
+		const image = elementNodeAt(design.boards[0], 0);
 		image.props[assetIdProp] = "asset-avatar";
 		image.props.alt = "Ada avatar";
 		image.props.className = "rounded-full";
@@ -3015,7 +3016,7 @@ describe("applyDetachSystemComponent", () => {
 describe("cloneBoardForMigrationTrial", () => {
 	it("deep-clones nested prop objects so trial migration cannot mutate source boards", () => {
 		const nested = { marker: "keep" };
-		const sourceBoard = containerElement("board-with-nested-props");
+		const sourceBoard: Node = containerElement("board-with-nested-props");
 		sourceBoard.props = {
 			...sourceBoard.props,
 			"x-nested-test": nested as unknown as string,

@@ -19,6 +19,11 @@ import {
 	applyUpdateElementProps,
 	DesignTransformError,
 } from "../services/design-transform-service";
+import {
+	assertKnownResolution,
+	elementNodeAt,
+	knownRegistryDefinition,
+} from "../test-utils/narrowing";
 import type {
 	Node,
 	RecipeDefinition,
@@ -62,6 +67,14 @@ import {
 	isRecipeSlotChildAllowed,
 } from "./slot-allowlist";
 import { validateRecipeInstances } from "./validation";
+
+/** Props for a trickroom container with the required identity props. */
+const containerProps = (props: Partial<Node["props"]>): Node["props"] => ({
+	"data-trickroom-name": "Container",
+	"data-trickroom-library": "trickroom",
+	"data-trickroom-component": "container",
+	...props,
+});
 
 const emptyDesign = {
 	name: "Recipe Test",
@@ -380,6 +393,8 @@ describe("recipe system foundation", () => {
 
 		const separator = resolveRegistryComponent("base-ui", "separator");
 		const menuSeparator = resolveRegistryComponent("base-ui", "menu.separator");
+		assertKnownResolution(separator);
+		assertKnownResolution(menuSeparator);
 		expect(separator).toMatchObject({
 			status: "known",
 			definition: {
@@ -507,9 +522,9 @@ describe("recipe system foundation", () => {
 		if (resolution.status !== "known") return;
 
 		const renderableProps = getRenderableProps(
-			{
+			containerProps({
 				className: "h-px",
-			},
+			}),
 			{
 				...resolution.definition,
 				baseClassName: "w-full",
@@ -525,10 +540,10 @@ describe("recipe system foundation", () => {
 		if (resolution.status !== "known") return;
 
 		const renderableProps = getRenderableProps(
-			{
+			containerProps({
 				className: "h-px",
 				[MATERIALIZED_BASE_CLASS_PROP]: "true",
-			},
+			}),
 			{
 				...resolution.definition,
 				baseClassName: "w-full",
@@ -547,10 +562,10 @@ describe("recipe system foundation", () => {
 		if (resolution.status !== "known") return;
 
 		const renderableProps = getRenderableProps(
-			{
+			containerProps({
 				className: "h-px",
 				[MATERIALIZED_BASE_CLASS_PROP]: "true",
-			},
+			}),
 			{
 				...resolution.definition,
 				baseClassName: "w-full",
@@ -566,9 +581,9 @@ describe("recipe system foundation", () => {
 		if (resolution.status !== "known") return;
 
 		const renderableProps = getRenderableProps(
-			{
+			containerProps({
 				"data-trickroom-name": "Container",
-			},
+			}),
 			resolution.definition,
 		);
 
@@ -1570,14 +1585,11 @@ describe("recipe system foundation", () => {
 	it("does not materialize separator base styling during recipe expansion", () => {
 		const expansion = expandSeparatorRecipe();
 		const [separator, menuSeparator] = expansion.root.children as Node[];
-		const separatorDefinition = resolveRegistryComponent(
-			"base-ui",
-			"separator",
-		).definition;
-		const menuSeparatorDefinition = resolveRegistryComponent(
+		const separatorDefinition = knownRegistryDefinition("base-ui", "separator");
+		const menuSeparatorDefinition = knownRegistryDefinition(
 			"base-ui",
 			"menu.separator",
-		).definition;
+		);
 
 		expect(separator.props).not.toHaveProperty(MATERIALIZED_BASE_CLASS_PROP);
 		expect(menuSeparator.props).not.toHaveProperty(
@@ -1714,11 +1726,8 @@ describe("recipe system foundation", () => {
 				return id;
 			},
 		});
-		const separator = expansion.root.children?.[0];
-		const separatorDefinition = resolveRegistryComponent(
-			"base-ui",
-			"separator",
-		).definition;
+		const separator = elementNodeAt(expansion.root, 0);
+		const separatorDefinition = knownRegistryDefinition("base-ui", "separator");
 
 		expect(separator?.props.className).toBe(authoredClassName);
 
@@ -1726,7 +1735,7 @@ describe("recipe system foundation", () => {
 		expect(detachResult).not.toBeNull();
 		if (!detachResult) return;
 
-		const detachedSeparator = detachResult.roots[0].children?.[0];
+		const detachedSeparator = elementNodeAt(detachResult.roots[0], 0);
 		const composition = getRenderableClassComposition(
 			detachedSeparator?.props ?? {},
 			separatorDefinition,
@@ -1776,14 +1785,11 @@ describe("recipe system foundation", () => {
 
 		const detachedRoot = detachResult.roots[0];
 		const [separator, menuSeparator] = detachedRoot.children as Node[];
-		const separatorDefinition = resolveRegistryComponent(
-			"base-ui",
-			"separator",
-		).definition;
-		const menuSeparatorDefinition = resolveRegistryComponent(
+		const separatorDefinition = knownRegistryDefinition("base-ui", "separator");
+		const menuSeparatorDefinition = knownRegistryDefinition(
 			"base-ui",
 			"menu.separator",
-		).definition;
+		);
 
 		expectNoRecipeMarkers(detachedRoot);
 		expectNoRecipeMarkers(separator);
@@ -2286,7 +2292,7 @@ describe("recipe system foundation", () => {
 		const cases: Array<{
 			instanceId: string;
 			path: "root" | "fallback";
-			props: Node["props"];
+			props: Partial<Node["props"]>;
 		}> = [
 			{
 				instanceId: "recipe-instance-root-asset",
@@ -2381,7 +2387,7 @@ describe("recipe system foundation", () => {
 	});
 
 	it("supports v1.1 slot allowlist and control metadata without affecting Avatar behavior", () => {
-		const slotDefinition: RecipeSlotDefinition = {
+		const slotDefinition = {
 			name: "content",
 			label: "Content",
 			hostPath: "slot-host",
@@ -2403,7 +2409,7 @@ describe("recipe system foundation", () => {
 				previousTemplatePath: "avatar.fallback",
 				previousTemplateVersion: "1.0",
 			},
-		};
+		} satisfies RecipeSlotDefinition;
 
 		expect(
 			isRecipeSlotChildAllowed(slotDefinition.allowedChildren, {

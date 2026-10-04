@@ -161,6 +161,12 @@ export type Props = {
 	[prop: string]: JsonPrimitive | undefined;
 };
 
+/**
+ * Any element prop record, such as a partial `Props`. Readers that only look
+ * at their own keys (structural markers) accept this.
+ */
+export type PropRecord = Readonly<Record<string, JsonPrimitive | undefined>>;
+
 export type Node = {
 	id: string;
 	props: Props;

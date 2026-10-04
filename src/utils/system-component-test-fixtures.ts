@@ -1,6 +1,7 @@
 import type { RecipeTemplateNode } from "../types";
 import {
 	createEmptySystemComponentManifest,
+	type PublishedSystemComponentVersion,
 	SYSTEM_COMPONENT_EMPTY_TIMESTAMP,
 	type SystemComponentManifest,
 	type SystemComponentRecord,
@@ -10,8 +11,19 @@ import {
 	hashSystemComponentVariantSchema,
 } from "./system-components-validation";
 
-export const FIXTURE_COMPONENT_ID =
-	"cmp_11111111-1111-4111-8111-111111111111";
+/** The record's published `version`; throws when the fixture lacks it. */
+export function publishedVersion(
+	record: SystemComponentRecord,
+	version: string,
+): PublishedSystemComponentVersion {
+	const published = record.published?.versions[version];
+	if (!published) {
+		throw new Error(`Expected fixture record to publish version ${version}`);
+	}
+	return published;
+}
+
+export const FIXTURE_COMPONENT_ID = "cmp_11111111-1111-4111-8111-111111111111";
 
 export const FIXTURE_OTHER_COMPONENT_ID =
 	"cmp_22222222-2222-4222-8222-222222222222";

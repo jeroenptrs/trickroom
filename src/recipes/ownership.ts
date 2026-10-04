@@ -1,4 +1,4 @@
-import type { Node, Props } from "../types";
+import type { Node, PropRecord, Props } from "../types";
 import {
 	getRecipeStructuralMetadata,
 	type RecipeStructuralMetadata,
@@ -28,11 +28,7 @@ export type RecipeSlotContainment = {
 	instanceId: string;
 };
 
-type RecipeMetadataEntity =
-	| Pick<RecipeBoundaryEntity, "props">
-	| Pick<Node, "props">
-	| null
-	| undefined;
+type RecipeMetadataEntity = { props: PropRecord } | null | undefined;
 
 export const getElementRecipeMetadata = (entity: RecipeMetadataEntity) =>
 	getRecipeStructuralMetadata(entity?.props);

@@ -5,11 +5,11 @@ import {
 	isSystemComponentMarkerPropKey,
 	isSystemComponentRootStale,
 	omitSystemComponentMarkerProps,
+	SYSTEM_COMPONENT_MARKER_PROP_KEYS,
 	systemComponentIdProp,
 	systemComponentPathProp,
 	systemComponentRootProp,
 	systemComponentSystemIdProp,
-	SYSTEM_COMPONENT_MARKER_PROP_KEYS,
 } from "./system-component-markers";
 
 describe("system component markers", () => {
@@ -53,6 +53,8 @@ describe("system component markers", () => {
 		const props = {
 			className: "btn",
 			"data-trickroom-name": "Button",
+			"data-trickroom-library": "trickroom",
+			"data-trickroom-component": "container",
 			...getSystemComponentMarkerProps({
 				systemId: "sys_core",
 				componentId: "cmp_11111111-1111-4111-8111-111111111111",
@@ -66,6 +68,8 @@ describe("system component markers", () => {
 		expect(omitSystemComponentMarkerProps(props)).toEqual({
 			className: "btn",
 			"data-trickroom-name": "Button",
+			"data-trickroom-library": "trickroom",
+			"data-trickroom-component": "container",
 		});
 	});
 

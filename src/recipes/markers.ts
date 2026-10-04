@@ -1,4 +1,4 @@
-import type { Props } from "../types";
+import type { PropRecord, Props } from "../types";
 
 export const recipeIdProp = "data-trickroom-recipe-id";
 export const recipeInstanceProp = "data-trickroom-recipe-instance";
@@ -22,7 +22,7 @@ export type RecipeMarkerPropKey =
 	| typeof recipeSlotProp;
 
 const getStringProp = (
-	props: Props | null | undefined,
+	props: PropRecord | null | undefined,
 	key: RecipeMarkerPropKey,
 ) => {
 	const value = props?.[key];
@@ -38,7 +38,7 @@ export type RecipeStructuralMetadata = {
 };
 
 export const getRecipeStructuralMetadata = (
-	props: Props | null | undefined,
+	props: PropRecord | null | undefined,
 ): RecipeStructuralMetadata | null => {
 	const recipeId = getStringProp(props, recipeIdProp);
 	const instanceId = getStringProp(props, recipeInstanceProp);

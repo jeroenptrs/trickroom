@@ -162,10 +162,16 @@ export async function findProjectResourceUsage(
 	return usages;
 }
 
+/** The parts of a system record that identify it by name. */
+type SystemNameRecord = {
+	storageKey: string;
+	manifest: { systemName: string; previousSystemNames?: readonly string[] };
+};
+
 export function designReferencesSystemHandle(
 	design: Pick<TrickroomDesign | DesignFileSummary, "systemId" | "systemName">,
 	systemHandle: string,
-	system: Awaited<ReturnType<typeof findDesignSystem>>,
+	system: SystemNameRecord | null | undefined,
 ): boolean {
 	if (design.systemId !== undefined) {
 		return design.systemId === systemHandle;

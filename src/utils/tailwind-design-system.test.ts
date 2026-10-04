@@ -8,8 +8,13 @@ import {
 	resolveConfiguredTailwindSystemTarget,
 	resolveTailwindCssPath,
 	sanitizeSpacingThemeToken,
+	type TailwindDesignSystem,
 	TailwindSystemResolutionError,
 } from "./tailwind-design-system";
+
+/** The theme's variables, read through Tailwind's public `entries()`. */
+const themeValues = (designSystem: TailwindDesignSystem | undefined) =>
+	new Map(designSystem?.theme.entries());
 
 const tempProjectRoots: string[] = [];
 
@@ -111,13 +116,13 @@ describe("loadTailwindDesignSystem", () => {
 		});
 
 		expect(rootPath).toBe(path.join(projectRoot, "src", "index.css"));
-		expect(designSystem.theme.values.get("--color-test")?.value).toBe(
+		expect(themeValues(designSystem).get("--color-test")?.value).toBe(
 			"var(--color-package-1)",
 		);
-		expect(designSystem.theme.values.get("--color-package-1")?.value).toBe(
+		expect(themeValues(designSystem).get("--color-package-1")?.value).toBe(
 			"#123456",
 		);
-		expect(designSystem.theme.values.has("--color-blue-50")).toBe(false);
+		expect(themeValues(designSystem).has("--color-blue-50")).toBe(false);
 	});
 
 	it("loads token sources that clear --spacing while using Tailwind's spacing function", async () => {
@@ -146,8 +151,8 @@ describe("loadTailwindDesignSystem", () => {
 			cssPath: "src/index.css",
 		});
 
-		expect(designSystem.theme.values.get("--spacing")?.value).toBe("0.25rem");
-		expect(designSystem.theme.values.get("--spacing-content")?.value).toBe(
+		expect(themeValues(designSystem).get("--spacing")?.value).toBe("0.25rem");
+		expect(themeValues(designSystem).get("--spacing-content")?.value).toBe(
 			"12px",
 		);
 	});
@@ -216,7 +221,7 @@ describe("loadTailwindDesignSystemFromConfig", () => {
 
 		expect(loaded?.rootPath).toBe(path.join(projectRoot, "src", "index.css"));
 		expect(loaded?.systemName).toBe("Core");
-		expect(loaded?.designSystem.theme.values.has("--color-test")).toBe(true);
+		expect(themeValues(loaded?.designSystem).has("--color-test")).toBe(true);
 	});
 });
 

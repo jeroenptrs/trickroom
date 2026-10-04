@@ -183,7 +183,7 @@ const findPreviousTemplate = (
 	return previous
 		? previous
 		: String(recipe.version) === version
-			? { version: String(recipe.version), ...recipe }
+			? { ...recipe, version: String(recipe.version) }
 			: null;
 };
 
@@ -216,7 +216,7 @@ const getBaseProps = (
 	definition: RegistryComponentDefinition,
 	instanceId: string,
 	isRoot: boolean,
-) => {
+): Props => {
 	const name = getTemplateName(template, definition);
 	return {
 		...getDefaultProps(template.library, template.component, definition, name),
@@ -302,13 +302,13 @@ const getMappedCurrentPathByPreviousPath = (
 		}
 	}
 	for (const currentSlot of Object.values(current.slots ?? {})) {
-		const previousPath = currentSlot.history?.previousTemplatePath;
+		const history = currentSlot.history;
 		if (
-			previousPath &&
-			(!currentSlot.history.previousTemplateVersion ||
-				currentSlot.history.previousTemplateVersion === previous.version)
+			history?.previousTemplatePath &&
+			(!history.previousTemplateVersion ||
+				history.previousTemplateVersion === previous.version)
 		) {
-			map.set(previousPath, currentSlot.hostPath);
+			map.set(history.previousTemplatePath, currentSlot.hostPath);
 		}
 	}
 	return map;
@@ -578,8 +578,8 @@ export const updateStaleRecipeInstance = (
 			toVersion: String(recipe.version),
 			fromTemplateHash: getTemplateHash(previous),
 			toTemplateHash: getTemplateHash({
-				version: String(recipe.version),
 				...recipe,
+				version: String(recipe.version),
 			}),
 			preservedPaths,
 			remappedPaths,

@@ -4,11 +4,13 @@ import {
 	MATERIALIZED_BASE_CLASS_PROP,
 	resolveRegistryComponent,
 } from "../libraries/registry";
+import { elementNodeAt } from "../test-utils/narrowing";
 import type { Node } from "../types";
 import { expandResolvedSystemComponent } from "./system-component-expansion";
 import {
 	getSystemComponentMarkerProps,
 	getSystemComponentStructuralMetadata,
+	type SystemComponentInstanceOverrides,
 	systemComponentOverridesProp,
 } from "./system-component-markers";
 import {
@@ -20,7 +22,10 @@ import {
 	FIXTURE_COMPONENT_ID,
 	FIXTURE_OTHER_COMPONENT_ID,
 } from "./system-component-test-fixtures";
-import type { PublishedSystemComponentVersion } from "./system-components";
+import type {
+	PublishedSystemComponentVersion,
+	SystemComponentDraftPayload,
+} from "./system-components";
 import {
 	hashSystemComponentTemplate,
 	hashSystemComponentVariantSchema,
@@ -66,7 +71,7 @@ const sourceVersionV1 = (): PublishedSystemComponentVersion => {
 			},
 		},
 	};
-	const draft = {
+	const draft: SystemComponentDraftPayload = {
 		root,
 		slots: {
 			default: {
@@ -135,7 +140,7 @@ const targetVersionV2 = (): PublishedSystemComponentVersion => {
 		},
 		defaultValues: { appearance: "subtle" },
 	};
-	const draft = {
+	const draft: SystemComponentDraftPayload = {
 		root,
 		slots: {
 			default: {
@@ -196,7 +201,7 @@ const expandStaleInstance = (
 	source: PublishedSystemComponentVersion,
 	options?: {
 		variantValues?: Record<string, string>;
-		overrides?: Record<string, { className?: string }>;
+		overrides?: SystemComponentInstanceOverrides;
 		slotChild?: Node;
 	},
 ) => {
@@ -562,12 +567,14 @@ describe("system-component-migration", () => {
 		);
 		expect(menuSeparator?.props[MATERIALIZED_BASE_CLASS_PROP]).toBe("true");
 		expect(
-			getRenderableProps(separator?.props ?? {}, separatorDefinition.definition)
-				.className,
+			getRenderableProps(
+				elementNodeAt(separator).props,
+				separatorDefinition.definition,
+			).className,
 		).toBe(`${separatorBaseClassName} bg-slate-200`);
 		expect(
 			getRenderableProps(
-				menuSeparator?.props ?? {},
+				elementNodeAt(menuSeparator).props,
 				menuSeparatorDefinition.definition,
 			).className,
 		).toBe(`${separatorBaseClassName} opacity-70`);
