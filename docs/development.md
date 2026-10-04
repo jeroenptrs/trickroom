@@ -15,10 +15,11 @@ pnpm install
 | Script | Purpose |
 | --- | --- |
 | `pnpm dev` | Generate Tailwind baseline tokens, then start Vite. |
-| `pnpm build` | Build the web, server, and MCP runtimes. |
+| `pnpm build` | Build the web, server, MCP and migrate runtimes. |
 | `pnpm build:web-runtime` | Generate tokens, typecheck, and build the client. |
 | `pnpm build:server` | Build the production Hono server. |
 | `pnpm build:mcp` | Build the stdio MCP output. |
+| `pnpm build:migrate` | Build `dist/migrate.js` for `trickroom migrate`. |
 
 Screenshot support is optional. The published package declares `playwright-core` as an optional peer, while keeping it as a development dependency for this repository. Install it alongside Trickroom and provide Chrome/Chromium before using screenshot APIs or MCP tools:
 
@@ -137,6 +138,16 @@ TRICKROOM_SESSION_TOKEN="choose-a-long-random-token" pnpm dev -- --host 0.0.0.0
 ```
 
 In development, Vite prints its own `Local` and `Network` URLs (one per interface IP address, never `0.0.0.0`) and does not take `--public-url` or `--public-host`. Vite rejects requests whose `Host` header is not an IP address, `localhost`, or a name in `server.allowedHosts`, so the dev config adds the hostname of `TRICKROOM_PUBLIC_URL` or `server.publicUrl`, and `TRICKROOM_PUBLIC_HOST` or `server.publicHost`, to `allowedHosts`.
+
+## Migrating Design Storage
+
+```sh
+pnpm build:migrate
+node bin/trickroom.js migrate path/to/project --dry-run
+node bin/trickroom.js migrate path/to/project
+```
+
+Converts every design of a project to the folder layout and reconciles designs that exist in both layouts. See [Files And Safety](project-files.md#design-file-versions). Set `TRICKROOM_HOME` when trying it on a copy, so its lockfiles stay out of your own Trickroom home.
 
 ## Running MCP Locally
 

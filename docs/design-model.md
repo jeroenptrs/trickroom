@@ -33,42 +33,45 @@ Opening a project also registers its local path in per-user app state so recent 
 
 ## Design
 
-A design is one JSON file:
+A design is a folder with a manifest and one file per board:
 
 ```text
-<projectRoot>/.trickroom/designs/<uuid>.json
+<projectRoot>/.trickroom/designs/<designId>/
+  design.json            version, name, systemId
+  boards/<boardId>.json  version, order key, board tree
+  memory.json            memory notes
 ```
 
-It stores:
+In memory (and in the HTTP API and MCP tools) a design is one object:
 
-- `version`: the design file schema version, written first. Files without it are version 0 and still load.
 - `name`: display name in the app.
 - `systemId`: optional linked Tailwind system.
-- `boards`: top-level root elements.
+- `boards`: top-level root elements, in order.
 
-`version` is a storage detail: Trickroom migrates older files in memory when it reads them, never rewrites a file just because it was opened, and stamps the current version on the next save. Designs returned by the HTTP API and MCP tools are always in the current shape and omit `version`. See [Files And Safety](project-files.md#design-file-versions).
+Storing boards separately keeps diffs small and lets people and agents work on different boards of one design at the same time: each board has its own revision, a write that changes board A does not conflict with a change to board B, and two branches that each add a board merge without a conflict. Board order comes from an `order` key in each board file, so reordering or inserting a board rewrites only that board.
 
-Example:
+The files carry a `version`: Trickroom migrates older designs (including the single-file `designs/<id>.json` layout of versions 0 and 1) in memory when it reads them, never rewrites a design just because it was opened, and writes the current layout on the next save or when you run `trickroom migrate`. Designs returned by the HTTP API and MCP tools are always in the current shape and omit `version`. See [Files And Safety](project-files.md#design-files).
+
+Example board file:
 
 ```json
 {
-  "version": 1,
-  "name": "Untitled",
-  "systemId": "sys_00000000-0000-4000-8000-000000000000",
-  "boards": [
-    {
-      "id": "root",
-      "props": {
-        "data-trickroom-name": "Root",
-        "data-trickroom-library": "trickroom",
-        "data-trickroom-component": "container",
-        "className": "bg-white text-gray-900"
-      },
-      "children": []
-    }
-  ]
+  "version": 2,
+  "order": "V",
+  "board": {
+    "id": "root",
+    "props": {
+      "data-trickroom-name": "Root",
+      "data-trickroom-library": "trickroom",
+      "data-trickroom-component": "container",
+      "className": "bg-white text-gray-900"
+    },
+    "children": []
+  }
 }
 ```
+
+Element ids are unique within a design and must be usable as file names, since any layer can become a board.
 
 ## System
 
@@ -99,7 +102,7 @@ Memory can be attached at three scopes, each stored as its own `memory.json` (se
 
 - **Project**: why the project exists and how to steer broad work.
 - **System**: usage conventions and constraints for a design system.
-- **Design**: intent and rationale for a specific design file, stored in a sibling `<uuid>.memory.json`.
+- **Design**: intent and rationale for a specific design, stored in the design folder as `memory.json`.
 
 Each note has a stable `noteId`, a markdown `body`, and a `category` from a fixed enum (`intent`, `usage`, `conventions`, `constraints`, `decision`, `todo`). Memory is authored via MCP and the project overview drawer UI; it is never auto-injected into agent context — reads and prompts only hint that relevant notes may exist for the current domain.
 

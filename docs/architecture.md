@@ -63,7 +63,9 @@ Routes under `/api/trickroom` include runtime health and session state, project 
 
 The design route reads a design and its content-hash revision through the HTTP API, hydrates `designStore`, renders boards inside an iframe, and keeps editor chrome outside it. Dirty serialized state autosaves through revision-checked API writes. Linked system theme CSS is injected into the iframe when applicable.
 
-The server watches design JSON and system-owned files under `.trickroom` and broadcasts settled changes through `GET /api/trickroom/events`. Browser clients use that SSE stream to refresh TanStack Query data. A clean open design hot-swaps to the new disk snapshot; a dirty design pauses autosave until the user chooses the disk or local version. The same event is broadcast to every connected browser client.
+The server watches design files and system-owned files under `.trickroom` and broadcasts settled changes through `GET /api/trickroom/events`. Changes to the files of one design are batched into one event per design, emitted only when no journaled multi-file write is in progress, carrying the design id, its revision and the boards that changed with their revisions. Browser clients use that SSE stream to refresh TanStack Query data (the whole design is refetched). A clean open design hot-swaps to the new disk snapshot; a dirty design pauses autosave until the user chooses the disk or local version. The same event is broadcast to every connected browser client.
+
+The editor autosaves whole designs through `PUT /api/trickroom/design?id=<designId>`; the service writes only the boards that changed and keeps other writers' boards. When a save kept changes the browser did not have, the response says so (`x-trickroom-design-merged`) and the editor treats it as an external change. `GET /api/trickroom/design/board?id=&board=` returns a single board with its revision.
 
 The inspector edits a selected layer's `className` as text. Its autocomplete reads `GET /api/trickroom/tailwind/class-catalog` (every utility and variant of the linked system's compiled Tailwind design system, cached server-side) and checks unrecognized classes with `POST /api/trickroom/tailwind/class-inspect`.
 
@@ -98,7 +100,21 @@ Known limits:
 
 The MCP server is separate from the Hono app. It can infer an MCP-enabled direct-child project from the working directory, or start without a selected project and use registry tools to discover and select one.
 
-MCP creation and mutation use the same design-file services as the HTTP app, with additional governance checks. Existing-file mutations require content-hash revisions.
+MCP creation and mutation use the same design-file services as the HTTP app, with additional governance checks. Existing-design mutations require revisions and are checked per board: a mutation of one board succeeds when only other boards changed since the read. The MCP process watches `.trickroom/designs` recursively and refreshes its resource list when design files change.
+
+## Design Storage
+
+`DesignFileService` (`src/services/design-file-service.ts`) is the only code that knows where a design lives. Callers address designs by id and get the in-memory design; the service reads and writes the folder layout (`designs/<id>/design.json`, `boards/<boardId>.json`, `memory.json`), still reads the legacy single-file layout, and converts it on the first write.
+
+- `design-storage.ts`: paths, consistent lock-free reads of all of a design's files, file shapes.
+- `design-revision.ts`: per-board and manifest revisions and the composite design revision token.
+- `design-merge.ts`: plans a revision-checked write at board level (what to keep, what to write, what is stale).
+- `design-order.ts`: fractional order keys for boards.
+- `design-journal.ts`: the write-ahead journal for writes that change more than one file.
+- `updateDesignFile`: the read-check-write every mutation goes through (MCP tools and bulk component migration).
+- `migrateDesign` and `src/cli/migrate.ts`: `trickroom migrate`.
+
+See [Files And Safety](project-files.md#design-files) for the layout, revisions, journal and locking.
 
 MCP screenshot tools lazily start a loopback-only capture host fixed to the selected project, so visual capture does not depend on the browser app's active project. Inline capture is allowed by read-only policy; writing an `outputPath` requires read-write policy. Screenshot attempts are audit logged when project auditing is enabled.
 
@@ -160,6 +176,7 @@ Both list the discovery records, delete records whose process is gone (`process.
 - `pnpm build:web-runtime`: generate tokens, typecheck, and build the client.
 - `pnpm build:server`: build `dist/index.js` from `src/server-entry.ts`.
 - `pnpm build:mcp`: build `dist/mcp-stdio.js`.
+- `pnpm build:migrate`: build `dist/migrate.js`, run by `trickroom migrate`.
 
 The custom Vite SPA server plugin serves Hono routes during development and falls through to Vite for browser routes. Production uses `TRICKROOM_HTTP_PORT` and `TRICKROOM_HTTP_HOST` at runtime.
 

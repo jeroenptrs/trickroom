@@ -49,7 +49,7 @@ trickroom serve /path/to/project --host 0.0.0.0 --no-open
 Project-owned files:
 
 - `.trickroom/config.json`: project name, project ID, and MCP policy.
-- `.trickroom/designs/<uuid>.json`: design files.
+- `.trickroom/designs/<id>/`: one folder per design: `design.json`, one `boards/<boardId>.json` per board, and the design's `memory.json`.
 - `.trickroom/designs/.gitkeep`: created when initializing the designs directory.
 - `.trickroom/systems/<safe-system-name>/system.json`: system ID, display name, CSS path, and icon folders.
 - `.trickroom/systems/<safe-system-name>/tokens.json`: stored Tailwind color-token snapshots.

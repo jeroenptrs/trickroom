@@ -26,7 +26,7 @@ A local folder that contains `.trickroom/config.json`. Trickroom registers recen
 
 Design:
 
-A JSON file under `.trickroom/designs/<uuid>.json`. It has a name, an optional linked system, and top-level `boards` that contain a tree of elements.
+A folder under `.trickroom/designs/<id>/` with a `design.json` and one JSON file per board in `boards/`. It has a name, an optional linked system, and top-level `boards` that contain a tree of elements. Designs created by older versions of Trickroom (one `.trickroom/designs/<id>.json` file) still open and move to the folder layout when they are next saved, or all at once with `trickroom migrate`.
 
 System:
 
@@ -149,7 +149,7 @@ There are no visual style controls (color pickers, spacing boxes, and so on). Wr
 The short version:
 
 - Project config: `.trickroom/config.json`
-- Design files: `.trickroom/designs/<uuid>.json`
+- Designs: `.trickroom/designs/<id>/design.json` and `.trickroom/designs/<id>/boards/<boardId>.json`
 - System metadata and Tailwind token snapshots: `.trickroom/systems/<safe-system-name>/system.json` and `.trickroom/systems/<safe-system-name>/tokens.json`
 - MCP audit log, if enabled: `.trickroom/audit-log.jsonl`
 - Per-user recent project registry: `~/.trickroom/projects.json`
