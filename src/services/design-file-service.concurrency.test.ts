@@ -53,7 +53,47 @@ const service = createDesignFileService(projectRoot, { lock: { lockDirectory } }
 
 while (Date.now() < Number(startAt)) {}
 
-if (mode === "compete") {
+const withBoardClass = (design, boardId, className) => ({
+	...design,
+	boards: design.boards.map((board) =>
+		board.id === boardId
+			? { ...board, props: { ...board.props, className } }
+			: board,
+	),
+});
+
+if (mode === "board" || mode === "same-board" || mode === "update-board") {
+	// "board": a browser-style save of the whole design read at the shared
+	// revision, changing only this writer's board. "same-board": the same,
+	// but every writer changes board-0. "update-board": an MCP-style
+	// read-modify-write of this writer's board against the shared revision.
+	const boardId = mode === "same-board" ? "board-0" : label.replace("writer", "board");
+	try {
+		if (mode === "update-board") {
+			const outcome = await service.updateDesignFile(designId, {
+				expectedRevision: sharedRevision,
+				mutate: async (read) => ({
+					design: withBoardClass(read.design, boardId, label),
+				}),
+			});
+			console.log(JSON.stringify({
+				label,
+				outcome: outcome.status === "written" ? "written" : "REVISION_MISMATCH",
+			}));
+		} else {
+			const { design } = JSON.parse(process.env.SHARED_DESIGN);
+			await service.writeDesignFile(
+				designId,
+				withBoardClass(design, boardId, label),
+				{ expectedRevision: sharedRevision },
+			);
+			console.log(JSON.stringify({ label, outcome: "written" }));
+		}
+	} catch (error) {
+		if (!(error instanceof DesignFileServiceError)) throw error;
+		console.log(JSON.stringify({ label, outcome: error.code }));
+	}
+} else if (mode === "compete") {
 	// Every worker writes against the revision the parent read, as if they
 	// had all read the design before any of them wrote.
 	const { design } = await service.readDesignFile(designId);
@@ -129,9 +169,11 @@ describe("concurrent design writers in separate processes", () => {
 	});
 
 	const runWorkers = (
-		mode: "compete" | "append",
+		mode: "compete" | "append" | "board" | "same-board" | "update-board",
 		count: number,
 		sharedRevision = "",
+		sharedDesign?: TrickroomDesign,
+		labels = Array.from({ length: count }, (_, index) => `writer-${index}`),
 	) => {
 		const startAt = Date.now() + 1_500;
 		return Promise.all(
@@ -148,11 +190,17 @@ describe("concurrent design writers in separate processes", () => {
 						lockDirectory,
 						"home",
 						mode,
-						`writer-${index}`,
+						labels[index] as string,
 						String(startAt),
 						sharedRevision,
 					],
-					{ stdio: ["ignore", "pipe", "pipe"] },
+					{
+						stdio: ["ignore", "pipe", "pipe"],
+						env: {
+							...process.env,
+							SHARED_DESIGN: JSON.stringify({ design: sharedDesign ?? null }),
+						},
+					},
 				);
 				let stdout = "";
 				let stderr = "";
@@ -208,5 +256,85 @@ describe("concurrent design writers in separate processes", () => {
 
 		const writers = (await storedName()).split(",").sort();
 		expect(writers).toEqual(results.map((result) => result.label).sort());
+	}, 30_000);
+
+	const boardsDesign = (count: number): TrickroomDesign => ({
+		name: "Boards",
+		boards: Array.from({ length: count }, (_, index) => ({
+			...(design.boards[0] as TrickroomDesign["boards"][number]),
+			id: `board-${index}`,
+		})),
+	});
+
+	const boardClasses = async () =>
+		(
+			await createDesignFileService(projectRoot, {
+				lock: { lockDirectory },
+			}).readDesignFile("home")
+		).design.boards.map((board) => board.props.className ?? null);
+
+	it("lets writers on different boards all win from a shared revision", async () => {
+		const created = await createDesignFileService(projectRoot, {
+			lock: { lockDirectory },
+		}).createDesignFile("home", boardsDesign(4));
+
+		const results = await runWorkers(
+			"board",
+			4,
+			created.revision,
+			created.design,
+		);
+
+		expect(results.map((result) => result.outcome)).toEqual(
+			Array(4).fill("written"),
+		);
+		await expect(boardClasses()).resolves.toEqual([
+			"writer-0",
+			"writer-1",
+			"writer-2",
+			"writer-3",
+		]);
+	}, 30_000);
+
+	it("lets exactly one writer of the same board win from a shared revision", async () => {
+		const created = await createDesignFileService(projectRoot, {
+			lock: { lockDirectory },
+		}).createDesignFile("home", boardsDesign(2));
+
+		const results = await runWorkers(
+			"same-board",
+			5,
+			created.revision,
+			created.design,
+		);
+
+		const winners = results.filter((result) => result.outcome === "written");
+		expect(winners).toHaveLength(1);
+		expect(
+			results.filter((result) => result.outcome === "REVISION_MISMATCH"),
+		).toHaveLength(4);
+		await expect(boardClasses()).resolves.toEqual([winners[0]?.label, null]);
+	}, 30_000);
+
+	it("keeps both a browser save of one board and an agent update of another", async () => {
+		const service = createDesignFileService(projectRoot, {
+			lock: { lockDirectory },
+		});
+		const created = await service.createDesignFile("home", boardsDesign(2));
+
+		// The browser autosaves board 0 through a whole-design PUT while an
+		// agent updates board 1 through MCP, both from the same read.
+		const [browser, agent] = await Promise.all([
+			runWorkers("board", 1, created.revision, created.design, ["writer-0"]),
+			runWorkers("update-board", 1, created.revision, created.design, [
+				"writer-1",
+			]),
+		]);
+
+		expect([browser[0]?.outcome, agent[0]?.outcome]).toEqual([
+			"written",
+			"written",
+		]);
+		await expect(boardClasses()).resolves.toEqual(["writer-0", "writer-1"]);
 	}, 30_000);
 });
