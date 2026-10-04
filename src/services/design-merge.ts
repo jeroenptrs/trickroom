@@ -115,8 +115,11 @@ export const planDesignWrite = ({
 	incoming,
 	base,
 	expected = base,
+	currentRevision,
 }: {
 	current: TrickroomDesign;
+	/** Supplies revisions of current boards already known, to skip hashing them. */
+	currentRevision?: (board: Node) => DesignBoardRevision | undefined;
 	incoming: TrickroomDesign;
 	/** What `incoming` was derived from; null when unknown (every change is checked strictly). */
 	base: DecodedDesignRevision | null;
@@ -136,7 +139,7 @@ export const planDesignWrite = ({
 	for (const board of current.boards) {
 		currentById.set(board.id, {
 			node: board,
-			revision: calculateBoardRevision(board),
+			revision: currentRevision?.(board) ?? calculateBoardRevision(board),
 		});
 		currentByIdHash.set(hashBoardId(board.id), board.id);
 	}

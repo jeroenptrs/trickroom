@@ -579,6 +579,51 @@ const parseDesignFiles = (
 	};
 };
 
+const maxCachedBoardRevisions = 10_000;
+/** Board revisions by board file path, valid while the file is unchanged. */
+const boardRevisionCache = new Map<
+	string,
+	{ fingerprint: string; revision: DesignBoardRevision }
+>();
+
+/**
+ * Looks up board revisions of a current-version folder design by the
+ * identity of each board file, hashing (and caching) only boards whose file
+ * changed since it was last hashed.
+ */
+const cachedBoardRevisions = (
+	paths: DesignPaths,
+	files: DesignFiles,
+	version: number | null,
+) => {
+	if (files.layout !== "folder" || version !== DESIGN_FILE_VERSION) {
+		return undefined;
+	}
+	const fingerprints = new Map(
+		files.boards.map((file) => [
+			getBoardIdFromFileName(file.name),
+			file.fingerprint,
+		]),
+	);
+	return (board: Node) => {
+		const fingerprint = fingerprints.get(board.id);
+		if (fingerprint === undefined) {
+			return undefined;
+		}
+		const key = getBoardFilePath(paths, board.id);
+		const cached = boardRevisionCache.get(key);
+		if (cached?.fingerprint === fingerprint) {
+			return cached.revision;
+		}
+		const revision = calculateBoardRevision(board);
+		if (boardRevisionCache.size >= maxCachedBoardRevisions) {
+			boardRevisionCache.clear();
+		}
+		boardRevisionCache.set(key, { fingerprint, revision });
+		return revision;
+	};
+};
+
 type StoredDesign = {
 	files: DesignFiles;
 	parsed: ParsedDesignFiles;
@@ -789,7 +834,12 @@ export class DesignFileService {
 		paths: DesignPaths,
 		stored: StoredDesign,
 	): DesignFileRead {
-		const parts = getDesignRevisionParts(stored.design);
+		const parts = getDesignRevisionParts(
+			stored.design,
+			stored.migrated
+				? undefined
+				: cachedBoardRevisions(paths, stored.files, stored.parsed.version),
+		);
 		return {
 			uuid: paths.designId,
 			...this.describeLocation(paths, stored.files.layout),
@@ -1094,7 +1144,12 @@ export class DesignFileService {
 
 			let plan: DesignWritePlan | null = null;
 			if (current?.design) {
-				plan = this.planWrite(current.design, incoming, revisionCheck);
+				plan = this.planWrite(
+					current.design,
+					incoming,
+					revisionCheck,
+					cachedBoardRevisions(paths, current.files, current.parsed.version),
+				);
 			} else if (
 				current &&
 				revisionCheck.expectedRevision !== undefined &&
@@ -1144,12 +1199,16 @@ export class DesignFileService {
 		current: TrickroomDesign,
 		incoming: TrickroomDesign,
 		{ expectedRevision, baseRevision }: RevisionCheck,
+		currentRevision?: (board: Node) => DesignBoardRevision | undefined,
 	) {
 		if (expectedRevision === undefined) {
 			return planDesignWrite({
 				current,
 				incoming,
-				base: decodeDesignRevisionParts(getDesignRevisionParts(current)),
+				base: decodeDesignRevisionParts(
+					getDesignRevisionParts(current, currentRevision),
+				),
+				currentRevision,
 			});
 		}
 
@@ -1157,6 +1216,7 @@ export class DesignFileService {
 		const plan = planDesignWrite({
 			current,
 			incoming,
+			currentRevision,
 			...(baseRevision !== undefined
 				? { base: decodeDesignRevision(baseRevision), expected }
 				: { base: expected }),
@@ -1164,7 +1224,9 @@ export class DesignFileService {
 		if (plan.conflict) {
 			const mismatch = {
 				...plan.conflict,
-				currentRevision: calculateDesignRevision(current),
+				currentRevision: encodeDesignRevision(
+					getDesignRevisionParts(current, currentRevision),
+				),
 			};
 			throw new DesignFileServiceError(
 				"REVISION_MISMATCH",

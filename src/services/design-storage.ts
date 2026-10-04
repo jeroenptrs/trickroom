@@ -118,7 +118,12 @@ export const serializeDesignManifest = (design: TrickroomDesign) => {
 export const serializeBoardFile = (board: Node, order: string) =>
 	serializeJson({ version: DESIGN_FILE_VERSION, order, board });
 
-export type StoredFile = { name: string; contents: string };
+export type StoredFile = {
+	name: string;
+	contents: string;
+	/** Identity of the file read (inode, size, times); changes with its bytes. */
+	fingerprint: string;
+};
 
 export type FolderDesignFiles = {
 	layout: "folder";
@@ -173,6 +178,8 @@ export type DesignStorageState = {
 	journal: boolean;
 	legacy: boolean;
 	boardFiles: string[];
+	/** Fingerprint per entry of `boardFiles`. */
+	boardFingerprints: string[];
 	modifiedAt: Date;
 	/**
 	 * Changes whenever any file of the design is replaced or edited (atomic
@@ -201,19 +208,21 @@ export const inspectDesignStorage = async (
 	const stats = [manifestStat, legacyStat, ...boardStats].filter(
 		(entry): entry is Stats => entry !== null,
 	);
+	const boardFingerprints = boardFiles.map((name, index) =>
+		describeStat(name, boardStats[index] ?? null),
+	);
 	return {
 		folder: manifestStat !== null,
 		journal: journalStat !== null,
 		legacy: legacyStat !== null,
 		boardFiles,
+		boardFingerprints,
 		modifiedAt: new Date(Math.max(0, ...stats.map((entry) => entry.mtimeMs))),
 		fingerprint: [
 			describeStat(designManifestFileName, manifestStat),
 			describeStat(designJournalFileName, journalStat),
 			describeStat("legacy", legacyStat),
-			...boardFiles.map((name, index) =>
-				describeStat(name, boardStats[index] ?? null),
-			),
+			...boardFingerprints,
 		].join("|"),
 	};
 };
@@ -265,9 +274,10 @@ export const readDesignFiles = async (
 						layout: "folder",
 						manifest: await readFile(paths.manifest, "utf8"),
 						boards: await Promise.all(
-							before.boardFiles.map(async (name) => ({
+							before.boardFiles.map(async (name, index) => ({
 								name,
 								contents: await readFile(path.join(paths.boards, name), "utf8"),
+								fingerprint: before.boardFingerprints[index] as string,
 							})),
 						),
 						legacyPresent: before.legacy,

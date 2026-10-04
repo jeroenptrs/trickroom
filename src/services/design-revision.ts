@@ -47,17 +47,41 @@ export type DecodedDesignRevision = {
  * identically whatever order their keys were assembled in.
  */
 export const stableStringify = (value: unknown): string => {
-	if (value === null || typeof value !== "object") {
-		return JSON.stringify(value) ?? "null";
-	}
-	if (Array.isArray(value)) {
-		return `[${value.map((entry) => (entry === undefined ? "null" : stableStringify(entry))).join(",")}]`;
-	}
-	const record = value as Record<string, unknown>;
-	const keys = Object.keys(record)
-		.filter((key) => record[key] !== undefined)
-		.sort();
-	return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(",")}}`;
+	const out: string[] = [];
+	const write = (entry: unknown) => {
+		if (entry === null || typeof entry !== "object") {
+			out.push(JSON.stringify(entry) ?? "null");
+			return;
+		}
+		if (Array.isArray(entry)) {
+			out.push("[");
+			for (let index = 0; index < entry.length; index += 1) {
+				if (index > 0) out.push(",");
+				const item = entry[index];
+				if (item === undefined) {
+					out.push("null");
+				} else {
+					write(item);
+				}
+			}
+			out.push("]");
+			return;
+		}
+		const record = entry as Record<string, unknown>;
+		out.push("{");
+		let first = true;
+		for (const key of Object.keys(record).sort()) {
+			const item = record[key];
+			if (item === undefined) continue;
+			if (!first) out.push(",");
+			first = false;
+			out.push(JSON.stringify(key), ":");
+			write(item);
+		}
+		out.push("}");
+	};
+	write(value);
+	return out.join("");
 };
 
 const digest = (value: string) => createHash("sha256").update(value).digest();
@@ -87,13 +111,18 @@ export const calculateManifestRevision = (
 	design: TrickroomDesign | Record<string, unknown>,
 ) => hashHex(stableStringify(getDesignManifestFields(design)), 8);
 
+/**
+ * `knownRevision` may supply a board's revision without hashing it again,
+ * for example from a cache keyed on the board's unchanged file.
+ */
 export const getDesignRevisionParts = (
 	design: TrickroomDesign,
+	knownRevision?: (board: Node) => DesignBoardRevision | undefined,
 ): DesignRevisionParts => ({
 	manifest: calculateManifestRevision(design),
 	boards: design.boards.map((board) => ({
 		id: board.id,
-		revision: calculateBoardRevision(board),
+		revision: knownRevision?.(board) ?? calculateBoardRevision(board),
 	})),
 });
 
