@@ -28,7 +28,7 @@ The server sends instructions at initialize: what Trickroom is, the tool familie
 1. `project_list` shows the session's project (or `project_select` switches to another one).
 2. `memory_read({ designFileId })` indexes the notes on the project, the design's linked design system and the design; read the relevant ones with `noteIds`.
 3. `guide({ designFileId })` returns the core: model, rules, workflow, an example batch, and this design's revision, boards and design system. Fetch topics when the task needs them.
-4. Loop: `design_read` the area you change, `design_apply` one batch with `expectedRevision`, fix the warnings it returns, `design_screenshot` the changed boards at several viewports in one call, `design_validate` before handing off, and `editor_focus` to show the human what changed. When the human says "this", call `editor_context`.
+4. Loop: `design_read` the area you change, `design_apply` one batch with `expectedRevision` (checked per board: see [Revisions](#revisions)), fix the warnings it returns, `design_screenshot` the changed boards at several viewports in one call, `design_validate` before handing off, and `editor_focus` to show the human what changed. When the human says "this", call `editor_context`.
 
 ## Tools
 
@@ -39,8 +39,8 @@ R = read-only, W = writes. Reads and writes are separate tools because client pe
 | `project_list` | R | The session's project with governance, systems and a project memory summary, and every registered project (`selected`, `appActive`). | `project` to describe another registered project |
 | `project_select` | W | Make a project the session's project; a path registers it first. | `locationId` \| `projectId` \| `path` |
 | `guide` | R | The authoring guide: a core, or topics. Replaces the authoring contracts and the registry tools. | `topic`, `designFileId`, `systemName`, `library`, `name` |
-| `design_list` | R | Design files with revision, boards, layer count and memory note count, and the linked design systems. | |
-| `design_read` | R | A design or board (bounded tree), one element's subtree, or a flat outline. | `designFileId`, `boardId` \| `elementId`, `view`, `depth`, `maxNodes`, `allowLarge`, `detail` |
+| `design_list` | R | Design files with revision, boards (with their revisions), layer count, memory note count and storage warnings, and the linked design systems. | |
+| `design_read` | R | A design or one board (bounded tree; a board read reads only that board's file), one element's subtree, or a flat outline. | `designFileId`, `boardId` \| `elementId`, `view`, `depth`, `maxNodes`, `allowLarge`, `detail` |
 | `design_apply` | W | The one write tool for design content: ordered operations, validated together, one write. | `designFileId`, `expectedRevision`, `operations`, `response` |
 | `design_validate` | R | Validate a whole design, or dry-run operations against a revision. | `designFileId`, `operations`, `expectedRevision`, `response` |
 | `design_create` | W | Create a design, empty or from a copy of an existing element. | `name`, `systemName`, `designFileId`, `from` |
@@ -53,7 +53,7 @@ R = read-only, W = writes. Reads and writes are separate tools because client pe
 | `system_read` | R | Tokens, assets, icons and resource usage of a design system. | `view`, `systemName` \| `designFileId`, `id`, `domain`, `query`, `limit`, `offset` |
 | `system_update` | W | Register or remove assets and icon folders. | `action`, `systemName`, `assetId`, `name`, `sourcePath`, `folderPath` |
 | `component_read` | R | System component index, one component's interface, or stale instances. | `view`, `componentId`, `include`, `source` |
-| `component_draft_create` | W | Create a component draft. | `systemName`, `expectedRevision`, `slug`, `name`, `draft` |
+| `component_draft_create` | W | Create a component draft, or extract one from a design layer (optionally publishing it and replacing the layer with an instance). | `systemName`, `expectedRevision`, `slug`, `name`, `draft` \| `from` |
 | `component_draft_update` | W | Replace parts of a component draft. | `componentId`, `expectedRevision`, `root`, `slots`, `variants`, `overrideTargets` |
 | `component_publish` | W | Publish a draft as the component's current version. | `componentId`, `expectedRevision` |
 | `component_delete` | W | Delete a component (kept apart from publish: it is destructive). | `componentId`, `expectedRevision` |
@@ -78,7 +78,7 @@ Every project-scoped tool also takes an optional `project: { locationId }` (or `
 - `anthropic/searchHint`: keywords on tools whose names miss what an agent searches for (for example "screenshot image png render" on `design_screenshot`, "selection selected layer" on `editor_context`).
 - `anthropic/maxResultSizeChars`: `guide` (60,000; topics are requested on purpose) and `design_read` (150,000; reads past the default bounds need `allowLarge`).
 
-Descriptions stay under 2,048 characters; a test checks every tool.
+Descriptions stay under 2,048 characters (the longest, `component_draft_create`, is 1,100); a test checks every tool. `tools/list` is about 56,500 characters (the always-loaded four, about 10,300).
 
 ### Tool Groups
 
@@ -224,7 +224,7 @@ Bounded reads take elements breadth first, so a node budget never spends itself 
   "project": { "projectId": "proj_…", "locationId": "loc_…" },
   "designFileId": "…",
   "operationCount": 3,
-  "newRevision": "sha256:…",
+  "newRevision": "r2.…",
   "created": [
     { "step": 0, "id": "…", "slots": { "trigger": "…", "content": "…" } },
     { "step": 1, "id": "…", "idMap": { "body": "…", "heading": "…" } }
@@ -239,11 +239,12 @@ Bounded reads take elements breadth first, so a node budget never spends itself 
 
 - `created`: one entry per inserting step with the ids the caller could not know: the root `id`, the `idMap` of `addSubtree` tempIds, recipe `slots` (or `recipes` when a step inserted several), `nodeCount` for copies, and the copy's `idMap` when the step set `includeIdMap`. Updates, moves and deletes add nothing.
 - `deletedCount`: elements removed by the plan.
-- `issues`: error issues the plan introduced (empty on success). `preExistingErrorCount`: errors the design already had, which do not block writes.
+- `issues`: error issues the plan introduced (empty on success). `preExistingErrorCount`: errors the touched boards already had, which do not block writes.
+- Only the boards the plan touched are diagnosed: the boards whose content changed and the boards holding elements it touched without changing them. Issues on other boards are what they were before the batch; `design_validate` checks the whole design.
 - `warningCount` counts warnings on the elements the plan touched plus file-level warnings. `warnings` lists only likely typos (`UNKNOWN_TAILWIND_UTILITY`, `UNKNOWN_*_TOKEN`) and `MISSING_RENDERER` on touched elements, grouped by code and offending class. Fix them: the first are almost always class typos, and a missing renderer means screenshots show a placeholder.
 - `response: "full"` returns every warning on touched elements ungrouped, `tokenDiagnostics`, and `steps` (each step's summary, ids and recipe expansions) instead of `created`.
 
-A failing step stops the plan and nothing is written. The result has `isError: true`, `status: "INVALID_OPERATION"`, `failedStepIndex`, `failedOperation`, `code`, `message` and the error's hints; `INVALID_OPERATION_PARAMETERS` adds the operation's `expectedParameters` signature and any `unknownParameters`. A plan whose result would have new error issues is refused with `code: "PLAN_LEAVES_ERRORS"` and those `issues`.
+A failing step stops the plan and nothing is written. A step that fails while a board changed since `expectedRevision` (for example an element another writer removed) reports `REVISION_MISMATCH` naming those boards instead of the lookup error; a batch that changes a board another writer changed is refused the same way before it is diagnosed. The result has `isError: true`, `status: "INVALID_OPERATION"`, `failedStepIndex`, `failedOperation`, `code`, `message` and the error's hints; `INVALID_OPERATION_PARAMETERS` adds the operation's `expectedParameters` signature and any `unknownParameters`. A plan whose result would have new error issues is refused with `code: "PLAN_LEAVES_ERRORS"` and those `issues`.
 
 A batch that renames the design sends `resources/list_changed`.
 
@@ -256,7 +257,7 @@ All validation results share one shape:
   "status": "success",
   "valid": true,
   "designFileId": "…",
-  "revision": "sha256:…",
+  "revision": "r2.…",
   "summary": { "errors": 0, "warnings": 3, "codes": { "UNKNOWN_COLOR_TOKEN": 2, "UNKNOWN_TAILWIND_UTILITY": 1 } },
   "issues": [],
   "warnings": [{ "code": "…", "message": "…", "elementIds": ["…"], "count": 9 }]
@@ -266,7 +267,7 @@ All validation results share one shape:
 `issues` lists every error; `warnings` are grouped by code and class with at most five element ids per group (`count` gives the total). `response: "full"` lists warnings ungrouped and adds `tokenDiagnostics` (the custom-utility catalog), and for a file the root ids, design system and registry component usage.
 
 - Without `operations`: the whole file, including payload integrity (a design with an unsupported version reports `UNSUPPORTED_DESIGN_VERSION`), duplicate ids, registry and design-system references, asset and icon ids, recipe instances, and class tokens.
-- With `operations` and `expectedRevision`: a dry run of the same steps `design_apply` takes, with the same executor. It adds `operationCount`, `predicted` (what each step would do: insertions report where and `nodeCount`, without generated ids) and `deletedCount`, and scopes warnings to the touched elements. A failing step reports `status: "INVALID_OPERATION"`, `failedStepIndex` and `failedOperation` as a normal result. A stale `expectedRevision` reports `status: "REVISION_MISMATCH"` with `currentRevision`.
+- With `operations` and `expectedRevision`: a dry run of the same steps `design_apply` takes, with the same executor. It adds `operationCount`, `predicted` (what each step would do: insertions report where and `nodeCount`, without generated ids) and `deletedCount`, and scopes warnings to the touched elements. A failing step reports `status: "INVALID_OPERATION"`, `failedStepIndex` and `failedOperation` as a normal result. Only the boards the steps touch are diagnosed. The revision check is the write's: a dry-run based on an older revision passes when the boards it changes did not change since; otherwise it reports `status: "REVISION_MISMATCH"` with `currentRevision`, `staleBoards` and `next`, like the write.
 
 Class and token warning codes: `UNKNOWN_TAILWIND_UTILITY` (Tailwind cannot emit the class; checked when the system CSS loads), `UNKNOWN_COLOR_TOKEN`, `UNKNOWN_SPACING_TOKEN`, `UNKNOWN_FONT_TOKEN`, `UNKNOWN_TEXT_TOKEN`, `UNKNOWN_RADIUS_TOKEN`, `UNKNOWN_SHADOW_TOKEN`, `UNKNOWN_TAILWIND_TOKEN`, and `OUT_OF_SYSTEM_*` for arbitrary values that bypass the system. Typo warnings carry `suggestions` with the nearest valid class, keeping variants, `!` and `/opacity` (`md:itmes-center` → `md:items-center`).
 
@@ -274,7 +275,8 @@ Class and token warning codes: `UNKNOWN_TAILWIND_UTILITY` (Tailwind cannot emit 
 
 Tool errors are JSON with `isError: true`:
 
-- `REVISION_MISMATCH`: `currentRevision`, `expectedRevision`, and `suggestedReads: ["design_read"]`. Re-read, check what changed, retry.
+- `REVISION_MISMATCH`: `designFileId`, `currentRevision`, `expectedRevision`, `staleBoards` (id and name of each board your call changes that changed since your revision, or, when a step failed on a stale view, every board that changed; `deleted: true` when another writer removed it), `manifest: true` / `order: true` when your call changes the design's name or settings or reorders boards and those changed too, a `message`, and `next`: the reads that recover (one `design_read` with `boardId` per stale board, or the whole design when the manifest or order is stale). See [Revisions](#revisions).
+- `SOURCE_REVISION_MISMATCH` (a `copySubtree` step from another design): `currentSourceRevision`, `sourceExpectedRevision`, `staleSourceBoard` (the board copied from) and `next` (a `design_read` of that board).
 - `POLICY_DENIED`: `code` (`MCP_READ_ONLY`, `MCP_DESIGN_FILE_NOT_ALLOWED`, `MCP_COMPONENT_NOT_ALLOWED`) and the `governance` summary.
 - `INVALID_OPERATION`: `code`, `message` and hints next to them:
   - `DESIGN_NOT_FOUND`: `availableDesigns` (id, name) in small projects, otherwise the closest ids in `suggestions`.
@@ -296,19 +298,19 @@ Statuses of `editor_context` and `editor_focus` other than `ok` are not errors (
 
 ## Designs
 
-`design_list` lists design files: `id`, `name`, `revision`, `systemId` (left out when it is the project's `defaultSystemId`), `layersCount`, `modifiedAt`, `boards` (id, name), `memoryNotes` when the design has notes, and a `diagnostic` for unreadable files. `systems` describes each linked design system: `name`, `cssPath`, `tokens` (`syncedAt`, `reviewRequired` when set) or `null` when no snapshot is stored, and `memoryNotes`. A top-level `memoryNotes` counts the project's own notes.
+`design_list` lists design files: `id`, `name`, `revision`, `systemId` (left out when it is the project's `defaultSystemId`), `layersCount`, `modifiedAt`, `boards` (id, name, revision), `memoryNotes` when the design has notes, a `diagnostic` for unreadable files and `warnings` for storage problems that do not stop a design from opening (`LEGACY_DESIGN_FILE_PRESENT`: an older single-file copy sits next to the design's folder; see [Files And Safety](./project-files.md#design-file-versions)). It reads the design file service's summaries, which are cached on the fingerprint of each design's files, so a repeat listing only stats files that did not change. `systems` describes each linked design system: `name`, `cssPath`, `tokens` (`syncedAt`, `reviewRequired` when set) or `null` when no snapshot is stored, and `memoryNotes`. A top-level `memoryNotes` counts the project's own notes.
 
 `design_read`:
 
 | Call | Returns | Default bounds |
 | --- | --- | --- |
-| `{ designFileId }` | header (`id`, `name`, `revision`, system), board index (id, name, elementCount), and a tree of every board | depth 2, 50 nodes |
-| `{ designFileId, boardId }` | the same for one board | depth 2, 50 nodes |
+| `{ designFileId }` | header (`id`, `name`, `revision`, system), board index (id, name, revision, elementCount), and a tree of every board | depth 2, 50 nodes |
+| `{ designFileId, boardId }` | header, `board` (id, name, revision, elementCount) and that board's tree; no board index | depth 2, 50 nodes |
 | `{ designFileId, elementId }` | the element's subtree and its placement (`parentId`, `boardId`, `index`, `siblingCount`) | depth 3, 100 nodes |
 | `{ designFileId, elementId, depth: 0 }` | the element alone with its `childIds` and placement | |
 | `{ designFileId, view: "outline" }` | a flat index keyed by id with `parentId`, `childCount`, `more` and the compact fields minus `className`; scope with `boardId` or `elementId` | 100 elements, no depth limit |
 
-Depth above 4 or `maxNodes` above 500 need `allowLarge: true`. Passing both `boardId` and `elementId` is an error. Design and board reads add a `memory` summary and a hint when the design has notes.
+A board read reads only that board's file while the design's cached summary is current (its files unchanged since the summary was taken), and checks that the board's revision matches the summary, so the design revision it returns is consistent with the board; otherwise it reads the whole design once. Depth above 4 or `maxNodes` above 500 need `allowLarge: true`. Passing both `boardId` and `elementId` is an error. Design and board reads add a `memory` summary and a hint when the design has notes.
 
 `design_create` creates a design with exclusive-create semantics (an existing id fails with `DESIGN_FILE_ALREADY_EXISTS`). With `name` it starts with no boards: add boards with `design_apply` operations at `parentId: null`. With `from: { designFileId, elementId }` the new design's board is a copy of that element and its subtree with new ids; the source is not changed and `name` defaults to the element's layer name. `systemName` links a design system: omitted, the design inherits the project default (or the source's); `null` creates an unlinked design. It returns `newRevision`, `designFile: { id, name, revision }`, `system`, `boards` as compact nodes, the copy's `idMap` with `response: "full"`, and diagnostics on the new content.
 
@@ -362,7 +364,29 @@ A reference that does not resolve fails the step with `INVALID_OPERATION_PARAMET
 
 ## Revisions
 
-Revisions are opaque tokens: compare and pass them back, never parse them. Every write to an existing design takes `expectedRevision`: the `revision` from your last read or the `newRevision` of your last write. A stale one returns `REVISION_MISMATCH` with the current revision; nothing is written. A write that loses a race to another writer also reports `REVISION_MISMATCH`. Cross-design copies also check `sourceExpectedRevision`. Component manifest writes take the manifest revision from `component_read`; memory writes take the note's revision.
+Design revisions are opaque tokens (`r2.` followed by base64url): compare them and pass them back, never parse them. A design's revision combines the revision of its manifest (name, system and other top-level fields) and of every board, in board order; each board also has its own revision, which `design_list`, whole-design reads (board index) and board reads (`board.revision`) return. Component manifest and memory revisions are `sha256:` content hashes; component writes take the manifest revision from `component_read`, memory writes the note's revision.
+
+Every write to an existing design takes `expectedRevision`: the `revision` from your last read or the `newRevision` of your last write. It is checked per board (see [Design revisions](./project-files.md#design-revisions)):
+
+- Boards your call does not change may have changed since your revision: the write succeeds and keeps the other writers' changes. You do not need the latest revision to write to a board nobody else touched.
+- A board your call changes must be unchanged since your revision; so must the design's name and settings when your call changes them (`renameDesignFile`), and the board order when your call reorders boards. Otherwise nothing is written and the result is `REVISION_MISMATCH` with `staleBoards`, `manifest` or `order`.
+- A step that fails while a board changed since your revision (an element another writer removed or moved) is reported as `REVISION_MISMATCH` naming the changed boards, not as the lookup error.
+
+Recovery: call the reads in `next` (a `design_read` with `boardId` for each stale board, which reads only that board's file), redo your steps on what changed, and retry with `currentRevision` (or the revision those reads return). Boards you did not change need no re-read.
+
+```json
+{
+  "status": "REVISION_MISMATCH",
+  "designFileId": "…",
+  "currentRevision": "r2.…",
+  "expectedRevision": "r2.…",
+  "staleBoards": [{ "id": "…", "name": "Checkout" }],
+  "message": "Since your revision another writer changed board \"Checkout\" (…). Re-read only that board (next), redo your steps there, and retry with currentRevision. Boards you did not change need no re-read.",
+  "next": [{ "tool": "design_read", "args": { "designFileId": "…", "boardId": "…" } }]
+}
+```
+
+`design_validate` dry-runs apply the same check. Cross-design copies check `sourceExpectedRevision` the same way, on the source board the element is copied from only. A revision that is not an `r2.` token (an older `sha256:` revision) is compared with the whole design.
 
 ## Guide
 
@@ -380,10 +404,10 @@ Revisions are opaque tokens: compare and pass them back, never parse them. Every
 | `resources` | Images and icons from the design system. |
 | `overlays` | Boards with an open dialog, sheet, popover or select. |
 | `validation` | Warnings, dry-runs and error hints. |
-| `memory` | Reading and writing memory notes. |
+| `memory` | Reading and writing memory notes, and the `{{type:id}}` references they embed (boards and layers included). |
 | `examples` | Worked calls: new screen, dialog-open board, component instance, icons. |
-| `component-authoring` | Creating, changing or publishing system components: model, rules, workflow; `systemName` adds the system's component counts. |
-| `component-template`, `component-slots`, `component-variants`, `component-overrides`, `component-examples` | The parts of a component draft. |
+| `component-authoring` | Creating, changing, publishing or extracting (from a design layer) system components: model, rules, workflow; `systemName` adds the system's component counts. |
+| `component-template`, `component-slots`, `component-variants`, `component-overrides`, `component-examples` | The parts of a component draft; `component-examples` also extracts a layer and replaces it with an instance. |
 
 `library` and `name` filter `registry`, `recipes` and `components` (`name` matches a family first: `"dialog"` matches `dialog.*` but not `alert-dialog.*`). An unknown topic returns `UNKNOWN_TOPIC` with every topic and when to use it.
 
@@ -440,8 +464,10 @@ Scopes: `{ kind: "project" }`, `{ kind: "system", systemName }` and `{ kind: "de
 
 - Without `noteIds`: an index without bodies (`noteId`, `title`, `category`, `tags`, `pinned`, `updatedAt`, `size`, per-note `revision` and a one-line `summary`) with the scope's `revision`, `noteCount` and `categories`. `designFileId` indexes the project, the design's linked system and the design in one call (`scopes`); `scope` indexes one scope (the project by default). `includeBodies` returns full notes instead.
 - With `scope` and `noteIds` (one id or up to 20): those notes in full with their revisions. Missing ids are listed in `missingNoteIds`; when none exist the result is `NOTE_NOT_FOUND`.
-- With `scope` and `referenceType` (`design`, `component`, `token`, `asset`, `icon`): candidate `{{type:id}}` targets, filtered by `query`.
+- With `scope` and `referenceType` (`design`, `board`, `layer`, `component`, `token`, `asset`, `icon`): candidate `{{type:id}}` targets, filtered by `query`. `board` lists the boards of every design (the scope's design first); `layer` lists the layers of the design scope's design, or of the design a query of the form `<designId>/…` names. Designs outside `allowedDesignFileIds` are left out.
 - `resolveReferences: true` attaches resolution of embedded `{{type:id}}` tokens (`valid`, `broken`, `unresolvable_scope`, and a `deepLink` for valid targets).
+
+Reference syntax: `{{design:<designId>}}`, `{{board:<designId>/<boardId>}}`, `{{layer:<designId>/<elementId>}}`, `{{component:<id or slug>}}`, `{{token:<domain>/<name>}}`, `{{asset:<id>}}`, `{{icon:<id>}}`. Board and layer references name their design, so they resolve the same in every scope: a board resolves to its name (`label`) and design name (`detail`) with the link `/design/<designId>?board=<boardId>`; a layer to its layer name, `"<design> / <board>"` and `/design/<designId>?board=<boardId>&layer=<elementId>`, which opens the design with the layer selected. The memory editor suggests them after `{{board:` and `{{layer:` and renders them as links.
 
 `memory_write`:
 
@@ -449,7 +475,7 @@ Scopes: `{ kind: "project" }`, `{ kind: "system", systemName }` and `{ kind: "de
 - `action: "update"`: `noteId`, `expectedRevision`, and `edits` (applied in order: `{ op: "append", text }`, `{ op: "prepend", text }`, `{ op: "replace", oldText, newText, all? }`) or a whole new `body`, plus any field to replace (`null` clears `title` and `tags`). A replace whose `oldText` is missing or ambiguous fails without writing.
 - `action: "delete"`: `noteId` and `expectedRevision`.
 
-`expectedRevision` is the note's revision from the index (the scope revision also works), so edits to other notes in the scope do not conflict; a stale one returns `STALE_WRITE` with the current revisions. Writes return `noteId`, the note's `newRevision`, the `scopeRevision` and `size`, plus non-blocking `referenceWarnings` for unresolved tokens.
+`expectedRevision` is the note's revision from the index (the scope revision also works), so edits to other notes in the scope do not conflict; a stale one returns `STALE_WRITE` with the current revisions. Writes return `noteId`, the note's `newRevision`, the `scopeRevision` and `size`, plus non-blocking `referenceWarnings` for unresolved tokens (a board or layer reference without its design id gets a warning that shows the expected form).
 
 ## Design Systems
 
@@ -474,7 +500,31 @@ Lists page with `query` (every term must match the id, name, or path or value), 
 - `view: "describe"` (the default with `componentId`): one component's interface for placing and varying instances (variant axes with values and defaults, slots, override targets, props) from the current published version, or the draft when unpublished; the revision, draft hashes, version history and diagnostics. `include` adds `"template"` (root tree, raw slots and override targets), `"classes"` (variant schema with `classesByPath` and compound variants) or `"record"` (the stored record; `versions: "all"` keeps every published template). `source: "draft"` describes the draft.
 - `view: "stale"`: instances that use an older published version, with counts per status, component and design and the first rows (`limit`).
 
-`component_draft_create` and `component_draft_update` write drafts; `component_publish` makes the draft the current version (instances already placed stay on their version until migrated); `component_delete` removes a component, leaving placed instances as instances of a missing component. These writes acknowledge rather than echo: the component id, the new manifest `revision`, draft hashes, this component's diagnostics and a summary of what changed (`created`, `replaced` parts, or the published version and what changed since the previous one). Malformed draft input returns `VALIDATION_FAILED` with `INVALID_SYSTEM_COMPONENT_DRAFT_INPUT` diagnostics, each with a path. `component_draft_update` also takes `expectedDraftTemplateHash` and `expectedDraftVariantSchemaHash` to guard against concurrent draft edits. Read `guide({ topic: "component-authoring" })` before authoring.
+`component_draft_create` and `component_draft_update` write drafts (see [Extracting A Component From A Design](#extracting-a-component-from-a-design) for `from`); `component_publish` makes the draft the current version (instances already placed stay on their version until migrated); `component_delete` removes a component, leaving placed instances as instances of a missing component. These writes acknowledge rather than echo: the component id, the new manifest `revision`, draft hashes, this component's diagnostics and a summary of what changed (`created`, `replaced` parts, or the published version and what changed since the previous one). Malformed draft input returns `VALIDATION_FAILED` with `INVALID_SYSTEM_COMPONENT_DRAFT_INPUT` diagnostics, each with a path. `component_draft_update` also takes `expectedDraftTemplateHash` and `expectedDraftVariantSchemaHash` to guard against concurrent draft edits. Read `guide({ topic: "component-authoring" })` before authoring.
+
+### Extracting A Component From A Design
+
+`component_draft_create` with `from: { designFileId, elementId }` instead of `draft` promotes a designed layer to a component: the layer and its subtree become the draft's template (recipe and component instances inside become plain elements, reported in `extracted.strippedInstances`). `name` defaults to the layer name, `slug` to the name, and the system to the design's linked system. The result is the usual draft acknowledgement plus `extracted` (`designFileId`, `elementId`, `nodeCount`).
+
+By default only the draft is created and the design is not changed: a draft is unpublished, and only published versions can be placed. Review it (`design_screenshot` with `component` and `source: "draft"`), add variants, slots and override targets, publish it, then place it with `design_apply`.
+
+With `from.replace: true` and `from.expectedRevision` (the design's revision), the same call also publishes the draft and replaces the layer with an instance of the published version:
+
+```json
+{
+  "systemName": "Core",
+  "expectedRevision": "sha256:…",
+  "name": "Plan Card",
+  "from": { "designFileId": "…", "elementId": "…", "replace": true, "expectedRevision": "r2.…" }
+}
+```
+
+It returns the published component (`publishedVersion`) and `replaced`: the instance root (`instanceRootId`), the design's `newRevision` and the write's diagnostics.
+
+The call writes three times: the component manifest (create the draft), the manifest again (publish), then the design, through the `design_apply` path (`addSystemComponent` where the layer sits, then `deleteElement`; audited as `component_draft_create` / `extract`). Before the first write it checks what it can: read-write mode and the design allowlist, the components in the subtree against `allowedComponents`, that the layer's board did not change since `from.expectedRevision` (`REVISION_MISMATCH` otherwise), that the subtree is a valid template (`VALIDATION_FAILED` with `errors`), and, with a dry-run, that the layer can be replaced where it sits (a layer locked inside a recipe or component instance cannot). A failure after the first write can only come from another writer in between. Nothing is rolled back, since a draft or a published component is valid on its own; the result is the failing step's error with:
+
+- `partial`: `componentId`, `slug`, `created`, `published` (with `publishedVersion` and `manifestRevision` once published) and `replaced: false`;
+- `next`: the call that finishes the job: `component_publish` with the current manifest revision when publishing failed, or the `design_apply` batch that replaces the layer (with the current design revision when the write lost a race; re-read the board first).
 
 `component_migrate` moves stale instances to the current version with the app's safe / review-required / blocked rules. One instance: `designFileId`, `expectedRevision` and `rootElementId`; it returns `outcome`, the migration report, the instance root as a compact node and `newRevision`, or `REVIEW_REQUIRED` / `DRY_RUN` without writing. Bulk (no `rootElementId`): every stale instance in the system, narrowed by `componentId` and `designFileId`, design by design; it returns counts, a per-design rollup with new revisions, review-required instances and failures (`includeInstances` adds instance rows and previews). `onlySafe` (default true) leaves review-required instances unwritten; `dryRun` previews.
 
@@ -506,7 +556,7 @@ Prompt arguments are validated when the prompt is requested.
 
 ## Audit Logging
 
-With `mcp.auditLog: true`, MCP appends JSON Lines to `.trickroom/audit-log.jsonl` for `design_apply`, `design_create`, `component_migrate`, `memory_write`, `design_screenshot` and PNG exports. Each entry has the tool name (`toolName`), the operation (for `design_apply` the operation name or `"batch"`, with `operationCount` and `operations` in `details`; `create` / `extract`; `instance` / `bulk`; `add` / `update` / `delete`; `capture` / `png`), project root, design id, expected and resulting revision, status, success, and error code and message when it failed. Entries written before this release carry the old tool names. PNG bytes are never logged.
+With `mcp.auditLog: true`, MCP appends JSON Lines to `.trickroom/audit-log.jsonl` for `design_apply`, `design_create`, `component_migrate`, the design write of `component_draft_create` with `from.replace`, `memory_write`, `design_screenshot` and PNG exports. Each entry has the tool name (`toolName`), the operation (for `design_apply` the operation name or `"batch"`, with `operationCount` and `operations` in `details`; `create` / `extract` (also `component_draft_create`'s replacing write); `instance` / `bulk`; `add` / `update` / `delete`; `capture` / `png`), project root, design id, expected and resulting revision, status, success, and error code and message when it failed. Entries written before this release carry the old tool names. PNG bytes are never logged.
 
 ## Source Layout
 
@@ -516,9 +566,9 @@ With `mcp.auditLog: true`, MCP appends JSON Lines to `.trickroom/audit-log.jsonl
 - `src/mcp/tool-groups.ts`: the eight persisted tool groups.
 - `src/mcp/tools/`: tool registrations by family: `projects.ts`, `guide.ts`, `design-read.ts` (`design_list`, `design_read`, `design_export`), `design-write-batch.ts` (`design_apply`, `design_create`), `design-validation.ts`, `screenshots.ts`, `editor.ts`, `memory.ts`, `design-systems.ts` (`system_read`, `system_update`), `system-components.ts`.
 - `src/mcp/tools/context.ts`: per-session state (selected project, project resolver, screenshot capture, editor channel) and the `withProjectContext` / `withPolicyErrorHandling` wrappers.
-- `src/mcp/tools/results.ts`, `schemas.ts`, `operation-schemas.ts`, `annotations.ts` (annotation presets and the `_meta` keys), `mutation-support.ts` (the read, revision check and write shared by every design write, and auditing), `input-validation.ts` (one line per invalid argument).
+- `src/mcp/tools/results.ts` (including the `REVISION_MISMATCH` result with stale boards and recovery reads), `schemas.ts`, `operation-schemas.ts`, `annotations.ts` (annotation presets and the `_meta` keys), `mutation-support.ts` (the read, revision check and write shared by every design write, and auditing), `input-validation.ts` (one line per invalid argument).
 - `src/mcp/design-operations.ts` and `src/mcp/operation-plan.ts`: the operation catalogue (`DESIGN_OPERATION_PARAMETERS`), parameter validation and the executor behind `design_apply` and `design_validate`.
-- `src/mcp/payloads/`: payload builders the tools call (reads, validation and apply, guide, systems, system components, projects).
+- `src/mcp/payloads/`: payload builders the tools call (reads, validation and apply, guide, systems, system components, projects). `design-revisions.ts` holds the board-level revision helpers (which boards changed since a revision, whether one board is current, which boards a plan touched); `component-extraction.ts` the extract-to-component flow.
 - `src/mcp/guide/`: the guide's core and topics.
 - `src/mcp/prompts.ts`, `src/mcp/server-instructions.ts`, `src/mcp/resource-handlers.ts`: prompts, server instructions and `trickroom://` resources.
 - `src/mcp/test-support.ts`: fixtures and helpers for tests (`toolPayload` parses a result's JSON text; `applyOperation` calls `design_apply` with one operation).
