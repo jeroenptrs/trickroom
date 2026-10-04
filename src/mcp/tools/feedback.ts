@@ -22,7 +22,7 @@ export const registerFeedbackTools = (ctx: McpToolContext) => {
 		TOOL.feedbackSubmit,
 		{
 			title: "Submit Tool Feedback",
-			description: `Tell the Trickroom developers about friction with these MCP tools: a tool that blocked or misled you, an error you could not act on, output too large to use, a result that looked right but was not, or a capability you needed and could not find. Not for questions about design content. Only summary is required. Your last ${FEEDBACK_RECENT_CALLS} tool calls in this session (tool, outcome, duration, sizes; never arguments or results) are attached automatically, so do not repeat them. The report is stored on this machine in the user's Trickroom home for review; nothing is sent anywhere. Leave out secrets, file contents and design content.`,
+			description: `Report friction with these MCP tools to the Trickroom developers: a tool that blocked or misled you, an error you could not act on, unusable output, a wrong result, or a missing capability. Not for design content questions. Only summary is required; your last ${FEEDBACK_RECENT_CALLS} calls this session (tool, outcome, duration, sizes; never arguments or results) are attached, so do not repeat them. Stored on this machine for review; nothing is sent anywhere. Leave out secrets and design content.`,
 			inputSchema: {
 				summary: z
 					.string()
@@ -34,14 +34,12 @@ export const registerFeedbackTools = (ctx: McpToolContext) => {
 					.enum(FEEDBACK_CATEGORIES)
 					.optional()
 					.describe(
-						"error: a tool failed; confusing: unclear schema, name or message; missing_capability; output_too_large; slow; wrong_result: looked right but was not; docs: guide or description wrong; idea.",
+						"confusing: unclear schema, name or message; wrong_result: looked right but was not; docs: guide or description wrong.",
 					),
 				severity: z
 					.enum(FEEDBACK_SEVERITIES)
 					.optional()
-					.describe(
-						"blocker: you could not finish; friction: you found a workaround; minor.",
-					),
+					.describe("blocker: could not finish; friction: found a workaround."),
 				tools: z
 					.union([z.string(), z.array(z.string())])
 					.optional()
@@ -53,15 +51,12 @@ export const registerFeedbackTools = (ctx: McpToolContext) => {
 						`What you were trying to do and what happened (up to ${FEEDBACK_LIMITS.details} characters).`,
 					),
 				expected: z.string().optional().describe("What you expected instead."),
-				suggestion: z
-					.string()
-					.optional()
-					.describe("A fix or change that would have helped."),
+				suggestion: z.string().optional().describe("What would have helped."),
 			},
 			annotations: mutationAnnotations,
 			_meta: {
 				[SEARCH_HINT_META_KEY]:
-					"feedback report bug problem issue friction complaint broken confusing error tool improve suggestion",
+					"feedback report bug issue problem friction broken confusing improve",
 			},
 		},
 		async (input) => {
