@@ -16,7 +16,20 @@ Per-user app state belongs to the local machine:
 ~/.trickroom/
 ```
 
-You can override the per-user app-state location with `TRICKROOM_HOME`.
+You can override the per-user app-state location with `TRICKROOM_HOME`. It holds:
+
+```text
+~/.trickroom/
+  projects.json                 recent project locations (see Per-User Project Registry)
+  settings.json                 app settings: MCP tool groups, mcp.callLog, server and screenshot options
+  locks/designs/<hash>.lock     design write locks (see Concurrency And Revision Safety)
+  runtime/servers/<pid>.json    discovery records of running Trickroom servers
+  feedback/                     created on first use, 0700
+    feedback-YYYY-MM.jsonl      agent reports from feedback_submit (0600)
+    calls-YYYY-MM.jsonl         per-call log, only with mcp.callLog (0600)
+```
+
+Nothing under it is project data or is sent anywhere. The feedback files are JSON Lines with `"v": 1` entries; see [Feedback](mcp.md#feedback) for the format and `trickroom feedback` for reviewing them.
 
 ## Project Config
 

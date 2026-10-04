@@ -153,6 +153,7 @@ The short version:
 - System metadata and Tailwind token snapshots: `.trickroom/systems/<safe-system-name>/system.json` and `.trickroom/systems/<safe-system-name>/tokens.json`
 - MCP audit log, if enabled: `.trickroom/audit-log.jsonl`
 - Per-user recent project registry: `~/.trickroom/projects.json`
+- Agent feedback on the MCP tools, and the optional call log: `~/.trickroom/feedback/`
 
 Trickroom reads configured CSS files and imports to understand Tailwind tokens. It does not edit those CSS files or your app source files.
 
@@ -194,6 +195,10 @@ Existing-design mutations require an `expectedRevision` from a previous read. If
 Agents can also see what you have selected in the editor (`editor_context`) and point your editor at what they changed (`editor_focus`).
 
 See [Agents And MCP](./mcp.md) for the full tool map.
+
+### Reviewing agent feedback
+
+Agents can report friction with Trickroom's tools (an error they could not act on, output too large to use, a missing capability) through `feedback_submit`. Reports stay on your machine in `~/.trickroom/feedback/`, one JSON Lines file per month, each with the agent's last few tool calls (names, outcomes, durations and sizes; never arguments, results or design content). Run `trickroom feedback` to see the last 30 days: counts by category, tool and severity, then each report. Add `--since 2w`, `--tool design_apply` or `--category output_too_large` to narrow it, or `--json` for the raw entries. To also measure how agents use the tools without waiting for reports, set `"callLog": true` under `"mcp"` in `~/.trickroom/settings.json` (off by default) and run `trickroom feedback --calls` for calls, error rates, durations and output sizes per tool. The output is Markdown, so you can paste it into an agent conversation and ask what to fix first.
 
 ### Working alongside an agent
 

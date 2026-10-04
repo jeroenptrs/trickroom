@@ -187,6 +187,7 @@ Both list the discovery records, delete records whose process is gone (`process.
 - `pnpm build:server`: build `dist/index.js` from `src/server-entry.ts`.
 - `pnpm build:mcp`: build `dist/mcp-stdio.js`.
 - `pnpm build:migrate`: build `dist/migrate.js`, run by `trickroom migrate`.
+- `pnpm build:feedback`: build `dist/feedback.js`, run by `trickroom feedback`.
 
 The custom Vite SPA server plugin serves Hono routes during development and falls through to Vite for browser routes. Production uses `TRICKROOM_HTTP_PORT` and `TRICKROOM_HTTP_HOST` at runtime.
 

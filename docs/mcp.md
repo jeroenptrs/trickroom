@@ -1,6 +1,6 @@
 # Agents And MCP
 
-Trickroom includes a stdio MCP server so agents can read and change design files through structured tools instead of raw file edits. Coding agents are its main users, so there are only 22 tools in a few families, one write tool for design content, and a guide the agent reads once per session.
+Trickroom includes a stdio MCP server so agents can read and change design files through structured tools instead of raw file edits. Coding agents are its main users, so there are only 23 tools in a few families, one write tool for design content, a guide the agent reads once per session, and a way for agents to report friction with the tools themselves (`feedback_submit`).
 
 ## Start MCP
 
@@ -58,8 +58,9 @@ R = read-only, W = writes. Reads and writes are separate tools because client pe
 | `component_publish` | W | Publish a draft as the component's current version. | `componentId`, `expectedRevision` |
 | `component_delete` | W | Delete a component (kept apart from publish: it is destructive). | `componentId`, `expectedRevision` |
 | `component_migrate` | W | Move stale instances to the current version, one or in bulk. | `rootElementId` + `designFileId` + `expectedRevision`, or bulk filters |
+| `feedback_submit` | W | Report friction with the tools to the Trickroom developers; stored locally with the session's recent calls. See [Feedback](#feedback). | `summary`, `category`, `severity`, `tools`, `details`, `expected`, `suggestion` |
 
-Every project-scoped tool also takes an optional `project: { locationId }` (or `{ projectId }`) to work in another registered project without switching the session.
+Every project-scoped tool (all but `feedback_submit`) also takes an optional `project: { locationId }` (or `{ projectId }`) to work in another registered project without switching the session.
 
 ### Annotations And Client Hints
 
@@ -69,16 +70,16 @@ Every project-scoped tool also takes an optional `project: { locationId }` (or `
 | `design_screenshot` | true | | | true (renders may load remote fonts) |
 | `project_select`, `editor_focus` | false | false | true | false |
 | `design_apply`, `memory_write`, `system_update`, `component_delete` | false | true | false | false |
-| `design_create`, `component_draft_create`, `component_draft_update`, `component_publish`, `component_migrate` | false | false | false | false |
+| `design_create`, `component_draft_create`, `component_draft_update`, `component_publish`, `component_migrate`, `feedback_submit` | false | false | false | false |
 | `design_export` | false | true (overwrites files of the same name) | false | true (HTML loads React and Base UI from esm.sh) |
 
 `_meta` hints for clients that defer tool schemas:
 
 - `anthropic/alwaysLoad`: `project_list`, `guide`, `design_read`, `design_apply` (about 10k characters together).
-- `anthropic/searchHint`: keywords on tools whose names miss what an agent searches for (for example "screenshot image png render" on `design_screenshot`, "selection selected layer" on `editor_context`).
+- `anthropic/searchHint`: keywords on tools whose names miss what an agent searches for (for example "screenshot image png render" on `design_screenshot`, "selection selected layer" on `editor_context`, "feedback report bug issue" on `feedback_submit`).
 - `anthropic/maxResultSizeChars`: `guide` (60,000; topics are requested on purpose) and `design_read` (150,000; reads past the default bounds need `allowLarge`).
 
-Descriptions stay under 2,048 characters (the longest, `component_draft_create`, is 1,100); a test checks every tool. `tools/list` is about 56,500 characters (the always-loaded four, about 10,300).
+Descriptions stay under 2,048 characters (the longest, `component_draft_create`, is 1,100); a test checks every tool. `tools/list` is about 58,300 characters (the always-loaded four, about 10,300; `feedback_submit`, about 1,850).
 
 ### Tool Groups
 
@@ -86,7 +87,7 @@ The app's MCP settings switch tools on and off by group. The eight group ids are
 
 | Group | Tools |
 | --- | --- |
-| `projects` | `project_list`, `project_select`, `editor_context`, `editor_focus` |
+| `projects` | `project_list`, `project_select`, `editor_context`, `editor_focus`, `feedback_submit` |
 | `designRead` | `design_list`, `design_read`, `design_screenshot`, `design_export` |
 | `designWrite` | `design_apply`, `design_create` |
 | `designValidation` | `design_validate` |
@@ -95,9 +96,11 @@ The app's MCP settings switch tools on and off by group. The eight group ids are
 | `systemComponents` | `component_read`, `component_draft_create`, `component_draft_update`, `component_publish`, `component_delete`, `component_migrate` |
 | `memory` | `memory_read`, `memory_write` |
 
+`feedback_submit` is in `projects`, the group a session cannot work without (it holds `project_list` and `project_select`), so feedback stays available whenever Trickroom tools are. Switching `projects` off hides it too.
+
 ## Migrating From The Previous Tools
 
-This release replaced the 74 previous tools with 22. There are no aliases: calls to old names fail with "Tool not found". Batch operations kept their names (`addElement`, `copySubtree`, ...): they are now operations of `design_apply`.
+This release replaced the 74 previous tools with 22 (`feedback_submit`, added later, is the 23rd). There are no aliases: calls to old names fail with "Tool not found". Batch operations kept their names (`addElement`, `copySubtree`, ...): they are now operations of `design_apply`.
 
 | Old tool | New tool |
 | --- | --- |
@@ -287,6 +290,8 @@ Tool errors are JSON with `isError: true`:
   - `DESIGN_SYSTEM_REQUIRED`: a system tool needs `systemName` because the project has several systems and no default (`availableSystems`). `DESIGN_NOT_LINKED_TO_SYSTEM`: the design passed as `designFileId` has no system.
   - `UNKNOWN_TOPIC`: `availableTopics`.
 - Invalid arguments fail before the tool runs with one line per problem: `designFileId: required string, missing.`, `boardID: unknown parameter. Did you mean "boardId"?`, enum values with the nearest one, union shapes.
+
+The second consecutive failure of the same tool in a session (an error result or invalid arguments) also carries `feedbackHint`, pointing at `feedback_submit`: a field of the JSON payload, or a last line of an invalid-arguments message. It is added once per tool per session.
 
 Statuses of `editor_context` and `editor_focus` other than `ok` are not errors (see [Editor Tools](#editor-tools)).
 
@@ -554,6 +559,62 @@ Reading a design resource returns `payloadKind: "design-summary"`: the design he
 
 Prompt arguments are validated when the prompt is requested.
 
+## Feedback
+
+Agents are Trickroom's main users, so they can say where the tools get in their way. `feedback_submit` takes one required field, `summary` (one line), and optional `category` (`error`, `confusing`, `missing_capability`, `output_too_large`, `slow`, `wrong_result`, `docs`, `idea`), `severity` (`blocker`, `friction`, `minor`), `tools` (a name or a list), `details`, `expected` and `suggestion`. The server instructions and the guide core say when to use it: a tool blocked or misled the agent, returned something unusable, or lacked a capability it needed; not for questions about design content. A tool's second consecutive failure in a session carries a `feedbackHint` (see [Errors](#errors)).
+
+The result is a short acknowledgement: `status: "recorded"`, the entry `id`, `storedIn` (the file) and `attachedCalls`, plus `truncated` when fields were cut. When the file cannot be written the result is `status: "not_recorded"` with a one-line reason, not an error. Only invalid arguments (no `summary`, an unknown `category`) fail.
+
+Nothing leaves the machine. Entries are appended to `<TRICKROOM_HOME>/feedback/feedback-YYYY-MM.jsonl` (UTC month; the folder is created `0700`, files `0600`), one JSON object per line, each written with a single append so several MCP processes can share a file:
+
+```json
+{"v":1,"id":"1726dfce-…","t":"2026-10-04T11:24:48.759Z","trickroomVersion":"0.1.0","sessionId":"b4594c6a-…","client":{"name":"claude-code","version":"2.1.0"},"project":{"projectId":"proj_…","locationId":"loc_…"},"summary":"design_apply said the design does not exist; unclear how to start","category":"confusing","severity":"friction","tools":["design_apply"],"details":"…","expected":"…","suggestion":"…","recentCalls":[{"t":"2026-10-04T11:24:48.752Z","tool":"design_apply","outcome":"invalid_input","ms":1,"inChars":45,"outChars":291},{"t":"…","tool":"design_apply","outcome":"error","code":"DESIGN_NOT_FOUND","ms":2,"inChars":157,"outChars":295}]}
+```
+
+- The agent supplies `summary` through `suggestion`. `summary` is folded to one line and capped at 200 characters, `details` at 4,000, `expected` and `suggestion` at 1,000, `tools` at 10 names; the whole line stays under 12,000 characters. Cut fields are listed in `truncated`.
+- The server adds `v` (schema version, 1), `id`, `t`, `trickroomVersion`, `sessionId` (one per MCP server, so per process for `trickroom mcp`), `client` (name and version from the initialize handshake), `project` (the selected project's `projectId` and `locationId`, as in `projects.json`; no paths) and `recentCalls`.
+- `recentCalls` is the session's last 10 tool calls before the report, oldest first. The server records every `tools/call`, including calls rejected before a tool runs, in a per-session ring buffer of 20: `tool`, `outcome` (`ok`, `error` with the result's `code` or `status`, or `invalid_input` when the arguments failed the schema; `unknown_tool`, `tool_disabled` and `exception` cover the rest), `ms`, and `inChars` / `outChars` (characters of the arguments' JSON and of the result's text and image data). Arguments and results themselves are never kept.
+
+### Call Log
+
+Off by default. With `"callLog": true` under `mcp` in `<TRICKROOM_HOME>/settings.json`, every MCP session appends each call record to `<TRICKROOM_HOME>/feedback/calls-YYYY-MM.jsonl`, with `v`, `sessionId` and the client name, which gives usage numbers (which tools, how often, error rates, sizes, durations) without relying on agents to report. `TRICKROOM_MCP_CALL_LOG=1` (or `0`) overrides the setting for one session. The setting is read when the MCP server starts.
+
+```json
+{"version":1,"mcp":{"toolGroups":{…},"callLog":true}}
+```
+
+### Reviewing Feedback
+
+```sh
+trickroom feedback                      # last 30 days: counts, then reports newest first
+trickroom feedback --since 2w --tool design_apply
+trickroom feedback --category output_too_large
+trickroom feedback --calls              # add a per-tool table from the call log
+trickroom feedback --json               # raw entries
+```
+
+The command only reads. `--since` takes `30d`, `2w`, `12h` or a date (`2026-09-01`); `--tool` keeps reports that name the tool or whose attached calls failed in it; `--calls` adds calls, errors, invalid input, median and p95 duration, and median and max output size per tool. The output is Markdown, meant to be pasted into an agent conversation:
+
+```text
+# Trickroom MCP feedback since 2026-09-04 (30d)
+
+1 report from 1 session. Source: /home/me/.trickroom/feedback.
+
+- By category: confusing 1
+- By severity: friction 1
+- By tool: design_apply 1, design_list 1
+- By client: claude-code 1
+
+## 2026-10-04 11:24Z · confusing · friction · design_apply, design_list
+
+design_apply said the design does not exist but design_list showed none either; unclear how to start
+
+- expected: An error naming design_create when the project has no designs.
+- client: claude-code 2.1.0 · project: Shop (loc_8d77…) · trickroom 0.1.0 · session b4594c6a
+- recent calls: project_list ok 2ms 2→508 › design_list ok 1ms 2→180 › design_apply invalid_input 1ms 45→291 › design_apply DESIGN_NOT_FOUND 2ms 157→295
+- id: 1726dfce-1fae-4230-9511-8820c95b91ae
+```
+
 ## Audit Logging
 
 With `mcp.auditLog: true`, MCP appends JSON Lines to `.trickroom/audit-log.jsonl` for `design_apply`, `design_create`, `component_migrate`, the design write of `component_draft_create` with `from.replace`, `memory_write`, `design_screenshot` and PNG exports. Each entry has the tool name (`toolName`), the operation (for `design_apply` the operation name or `"batch"`, with `operationCount` and `operations` in `details`; `create` / `extract` (also `component_draft_create`'s replacing write); `instance` / `bulk`; `add` / `update` / `delete`; `capture` / `png`), project root, design id, expected and resulting revision, status, success, and error code and message when it failed. Entries written before this release carry the old tool names. PNG bytes are never logged.
@@ -564,8 +625,9 @@ With `mcp.auditLog: true`, MCP appends JSON Lines to `.trickroom/audit-log.jsonl
 
 - `src/mcp/tool-names.ts`: every tool name as a constant (`TOOL`), in list order. Strings that name a tool are built from these constants; a test scans descriptions, schemas, instructions, prompts, the guide and the string literals of `src/mcp` for retired or unknown tool names.
 - `src/mcp/tool-groups.ts`: the eight persisted tool groups.
-- `src/mcp/tools/`: tool registrations by family: `projects.ts`, `guide.ts`, `design-read.ts` (`design_list`, `design_read`, `design_export`), `design-write-batch.ts` (`design_apply`, `design_create`), `design-validation.ts`, `screenshots.ts`, `editor.ts`, `memory.ts`, `design-systems.ts` (`system_read`, `system_update`), `system-components.ts`.
-- `src/mcp/tools/context.ts`: per-session state (selected project, project resolver, screenshot capture, editor channel) and the `withProjectContext` / `withPolicyErrorHandling` wrappers.
+- `src/mcp/tools/`: tool registrations by family: `projects.ts`, `guide.ts`, `design-read.ts` (`design_list`, `design_read`, `design_export`), `design-write-batch.ts` (`design_apply`, `design_create`), `design-validation.ts`, `screenshots.ts`, `editor.ts`, `memory.ts`, `design-systems.ts` (`system_read`, `system_update`), `system-components.ts`, `feedback.ts`.
+- `src/mcp/tools/context.ts`: per-session state (selected project, project resolver, screenshot capture, editor channel, session id and call history) and the `withProjectContext` / `withPolicyErrorHandling` wrappers.
+- `src/mcp/call-history.ts`: records every `tools/call` (outcome, duration, sizes) in the session's ring buffer and the optional call log, and adds `feedbackHint` to a tool's second consecutive failure. `src/mcp/tools/feedback.ts` registers `feedback_submit`; `src/app-state/feedback.ts` holds the entry format and the JSON Lines storage, shared with `src/cli/feedback.ts` (`trickroom feedback`).
 - `src/mcp/tools/results.ts` (including the `REVISION_MISMATCH` result with stale boards and recovery reads), `schemas.ts`, `operation-schemas.ts`, `annotations.ts` (annotation presets and the `_meta` keys), `mutation-support.ts` (the read, revision check and write shared by every design write, and auditing), `input-validation.ts` (one line per invalid argument).
 - `src/mcp/design-operations.ts` and `src/mcp/operation-plan.ts`: the operation catalogue (`DESIGN_OPERATION_PARAMETERS`), parameter validation and the executor behind `design_apply` and `design_validate`.
 - `src/mcp/payloads/`: payload builders the tools call (reads, validation and apply, guide, systems, system components, projects). `design-revisions.ts` holds the board-level revision helpers (which boards changed since a revision, whether one board is current, which boards a plan touched); `component-extraction.ts` the extract-to-component flow.
