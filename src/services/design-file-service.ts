@@ -256,6 +256,10 @@ export type DesignFileUpdateOutcome<Result, Skip> =
 			currentRevision: DesignFileRevision;
 			/** Boards the caller changed that changed since its read. */
 			staleBoardIds: string[];
+			/** The caller changed the name or settings, which changed since its read. */
+			manifest: boolean;
+			/** The caller reordered boards, and the order changed since its read. */
+			order: boolean;
 	  };
 
 export type DesignFileServiceOptions = {
@@ -1419,6 +1423,8 @@ export class DesignFileService {
 					error.mismatch?.currentRevision ??
 					(await this.readRawDesign(designId)).revision,
 				staleBoardIds: error.mismatch?.staleBoardIds ?? [],
+				manifest: error.mismatch?.manifest ?? false,
+				order: error.mismatch?.order ?? false,
 			};
 		}
 	}

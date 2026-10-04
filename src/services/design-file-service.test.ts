@@ -166,9 +166,7 @@ describe("DesignFileService", () => {
 				layersCount: 1,
 				modifiedAt: expect.any(String),
 				revision: expect.stringMatching(/^r2\./),
-				boards: [
-					{ id: "root", name: "Root", revision: expect.any(String) },
-				],
+				boards: [{ id: "root", name: "Root", revision: expect.any(String) }],
 			},
 			{
 				uuid: "b",
@@ -179,9 +177,7 @@ describe("DesignFileService", () => {
 				layersCount: 1,
 				modifiedAt: expect.any(String),
 				revision: expect.stringMatching(/^r2\./),
-				boards: [
-					{ id: "root", name: "Root", revision: expect.any(String) },
-				],
+				boards: [{ id: "root", name: "Root", revision: expect.any(String) }],
 			},
 			{
 				uuid: "invalid",
@@ -689,6 +685,8 @@ describe("DesignFileService", () => {
 				expectedRevision: before.revision,
 				currentRevision: current.revision,
 				staleBoardIds: ["board-a"],
+				manifest: false,
+				order: false,
 			});
 			await expect(service.readDesignFile("stale")).resolves.toMatchObject({
 				revision: current.revision,
@@ -743,6 +741,8 @@ describe("DesignFileService", () => {
 				expectedRevision: read.revision,
 				currentRevision: after.revision,
 				staleBoardIds: ["board-b"],
+				manifest: false,
+				order: false,
 			});
 			expect(boardNames(after.design)).toEqual(["A", "B by winner"]);
 		});
