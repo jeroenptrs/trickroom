@@ -12,6 +12,11 @@ import {
 } from "../utils/system-components-validation";
 import {
 	assertCanUseSystemComponentInstanceSubtree,
+	DESIGN_OPERATION_PARAMETERS,
+	describeOperationCatalogue,
+	designOperationNameSchema,
+	OPERATION_PARAMETER_SHAPES,
+	OPERATION_PARAMETER_SIGNATURES,
 	validateDryRunOperationParameters,
 } from "./design-operations";
 import { getMcpPolicy, McpPolicyError } from "./governance";
@@ -217,5 +222,56 @@ describe("validateDryRunOperationParameters", () => {
 				},
 			},
 		});
+	});
+});
+
+describe("operation parameter catalogue", () => {
+	it("documents exactly the parameters each operation validates", () => {
+		for (const operation of designOperationNameSchema.options) {
+			const shape = OPERATION_PARAMETER_SHAPES[operation];
+			const documented = DESIGN_OPERATION_PARAMETERS[operation];
+			expect(
+				documented.map((parameter) => parameter.name).sort(),
+				operation,
+			).toEqual(Object.keys(shape).sort());
+			for (const parameter of documented) {
+				const field = shape[parameter.name as keyof typeof shape] as {
+					isOptional: () => boolean;
+				};
+				const key = `${operation}.${parameter.name}`;
+				// Defaulted from the batch's designFileId before validation.
+				const defaulted = key === "copySubtree.sourceDesignFileId";
+				expect(field.isOptional(), key).toBe(!parameter.required && !defaulted);
+			}
+		}
+	});
+
+	it("accepts the documented example of every parameter", () => {
+		for (const operation of designOperationNameSchema.options) {
+			const example = Object.fromEntries(
+				DESIGN_OPERATION_PARAMETERS[operation].map((parameter) => [
+					parameter.name,
+					parameter.example,
+				]),
+			);
+			if (operation === "copySubtree") {
+				example.sourceDesignFileId = "00000000-0000-4000-8000-000000000000";
+			}
+			expect(() =>
+				validateDryRunOperationParameters(operation, example),
+			).not.toThrow();
+		}
+	});
+
+	it("derives one catalogue line and one signature per operation", () => {
+		const lines = describeOperationCatalogue().split("\n");
+		expect(lines).toHaveLength(designOperationNameSchema.options.length);
+		expect(lines).toContain("addRecipe(parentId, index, library, recipe)");
+		expect(lines).toContain(
+			"addElement(parentId, index, library, component, …)",
+		);
+		expect(OPERATION_PARAMETER_SIGNATURES.moveElement).toBe(
+			"{ elementId: string, targetParentId: string | null, index: int }",
+		);
 	});
 });
