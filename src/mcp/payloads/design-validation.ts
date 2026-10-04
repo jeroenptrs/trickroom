@@ -36,6 +36,7 @@ import {
 } from "../tools/mutation-support";
 import {
 	createJsonResult,
+	createRevisionMismatchResult,
 	describeRevisionMismatch,
 	type RevisionMismatch,
 } from "../tools/results";
@@ -145,8 +146,8 @@ const createRevisionMismatchValidationResult = (
 };
 
 /**
- * Whether a dry-run based on `expectedRevision` would be refused: the same
- * board-level check design_apply's write makes. Steps on boards that did not
+ * Whether a plan based on `expectedRevision` would be refused: the same
+ * board-level check the design write makes. Steps on boards that did not
  * change since that revision pass, even when other boards did.
  */
 const checkDryRunRevision = (
@@ -535,6 +536,20 @@ export const applyDesignOperationsPayload = async (
 								...base,
 								...describeFailedPlanStep(execution),
 							}),
+					);
+				}
+				// A batch that changes a board another writer changed since the
+				// caller's revision would be refused by the write: say so now,
+				// before diagnosing it.
+				const mismatch = checkDryRunRevision(
+					designFileId,
+					read,
+					expectedRevision,
+					execution.design,
+				);
+				if (mismatch) {
+					return skipDesignWrite(
+						createRevisionMismatchResult(context, mismatch),
 					);
 				}
 				// Only the boards this batch changed are diagnosed: issues on the
