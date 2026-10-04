@@ -3,6 +3,7 @@ import {
 	createDesignFileService,
 	DesignFileServiceError,
 	type DesignFileSummary,
+	summarizeDesignBoards,
 } from "../services/design-file-service";
 import type { Node, TrickroomDesign } from "../types";
 import { findProjectSystemDesigns } from "./design-resource-references";
@@ -245,6 +246,7 @@ const readTargetedDesignSummary = async (
 				layersCount: 0,
 				modifiedAt: new Date().toISOString(),
 				revision: read.revision,
+				boards: summarizeDesignBoards(read),
 			},
 		};
 	} catch (error) {

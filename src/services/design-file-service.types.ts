@@ -8,4 +8,9 @@ export type DesignFileRevision = string;
 
 export type DesignFileSummary = TrickroomDesignSummary & {
 	revision: DesignFileRevision;
+	/**
+	 * Each board's id, layer name and revision, in board order. Empty for
+	 * designs that cannot be read.
+	 */
+	boards: { id: string; name: string | null; revision: string }[];
 };

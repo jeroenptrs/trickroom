@@ -166,6 +166,9 @@ describe("DesignFileService", () => {
 				layersCount: 1,
 				modifiedAt: expect.any(String),
 				revision: expect.stringMatching(/^r2\./),
+				boards: [
+					{ id: "root", name: "Root", revision: expect.any(String) },
+				],
 			},
 			{
 				uuid: "b",
@@ -176,6 +179,9 @@ describe("DesignFileService", () => {
 				layersCount: 1,
 				modifiedAt: expect.any(String),
 				revision: expect.stringMatching(/^r2\./),
+				boards: [
+					{ id: "root", name: "Root", revision: expect.any(String) },
+				],
 			},
 			{
 				uuid: "invalid",
@@ -185,6 +191,7 @@ describe("DesignFileService", () => {
 				layersCount: 0,
 				modifiedAt: expect.any(String),
 				revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+				boards: [],
 				diagnostic: {
 					code: "INVALID_DESIGN_PAYLOAD",
 					message: expect.any(String),

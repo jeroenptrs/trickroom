@@ -455,6 +455,19 @@ const toDesignFileDiagnostic = (
 	return null;
 };
 
+/** Each board's id, layer name and revision, as design summaries list them. */
+export const summarizeDesignBoards = (
+	read: Pick<DesignFileRead, "design" | "boards">,
+): DesignFileSummary["boards"] =>
+	read.boards.map((entry, index) => {
+		const name = read.design.boards[index]?.props["data-trickroom-name"];
+		return {
+			id: entry.id,
+			name: typeof name === "string" ? name : null,
+			revision: entry.revision,
+		};
+	});
+
 export const countDesignLayers = (design: TrickroomDesign) =>
 	design.boards.reduce(
 		(count, board) => count + countDescendantLayers(board),
@@ -1008,36 +1021,46 @@ export class DesignFileService {
 
 		const summaries = await Promise.all(
 			designIds.map(async (uuid) => {
-				const paths = this.getDesignPaths(uuid);
 				try {
-					const state = await inspectDesignStorage(paths);
-					if (!state.folder && !state.legacy && !state.journal) {
-						// A folder without design files (for example leftover
-						// conflicts) is not a design.
-						return null;
-					}
-					if (!state.journal) {
-						const cached = this.getCachedSummary(
-							paths.folder,
-							state.fingerprint,
-						);
-						if (cached) {
-							return cached;
-						}
-					}
-
-					const files = await this.loadDesignFiles(paths);
-					const summary = this.summarizeDesignFiles(paths, files);
-					this.setCachedSummary(paths.folder, files.fingerprint, summary);
-					return summary;
+					return await this.readDesignSummary(uuid);
 				} catch {
-					this.deleteCachedSummary(paths);
 					return null;
 				}
 			}),
 		);
 
 		return summaries.filter((summary) => summary !== null);
+	}
+
+	/**
+	 * One design's summary, or null when the folder holds no design files.
+	 * Cached on the fingerprint of the design's files, so a repeat call while
+	 * nothing changed only stats them.
+	 */
+	async readDesignSummary(designId: string): Promise<DesignFileSummary | null> {
+		const paths = this.getDesignPaths(designId);
+		try {
+			const state = await inspectDesignStorage(paths);
+			if (!state.folder && !state.legacy && !state.journal) {
+				// A folder without design files (for example leftover
+				// conflicts) is not a design.
+				return null;
+			}
+			if (!state.journal) {
+				const cached = this.getCachedSummary(paths.folder, state.fingerprint);
+				if (cached) {
+					return cached;
+				}
+			}
+
+			const files = await this.loadDesignFiles(paths);
+			const summary = this.summarizeDesignFiles(paths, files);
+			this.setCachedSummary(paths.folder, files.fingerprint, summary);
+			return summary;
+		} catch (error) {
+			this.deleteCachedSummary(paths);
+			throw error;
+		}
 	}
 
 	private summarizeDesignFiles(
@@ -1069,6 +1092,7 @@ export class DesignFileService {
 				layersCount: countDesignLayers(read.design),
 				modifiedAt,
 				revision: read.revision,
+				boards: summarizeDesignBoards(read),
 				...warnings,
 			};
 		} catch (error) {
@@ -1091,6 +1115,7 @@ export class DesignFileService {
 					calculateDesignFileRevision(
 						files.layout === "legacy" ? files.contents : files.manifest,
 					),
+				boards: [],
 				diagnostic,
 				...warnings,
 			};
