@@ -7,7 +7,6 @@ import {
 	designFileQueryKey,
 	designSummariesQueryKey,
 	extractDesignSubtreeToFile,
-	getDesignFileForUuid,
 	saveDesignFile,
 } from "../../queries/design-file";
 import { commitDesignSave } from "../../queries/design-save";
@@ -29,7 +28,7 @@ const { trigger, positioner, popup, item } = contextMenu();
 type LayerContextMenuProps = ContextMenu.Trigger.Props & {
 	className?: string;
 	id: string;
-	designFile: string;
+	designId: string;
 	isRecipeOwned: boolean;
 	layerName: string;
 	recipeInstanceId: string | null;
@@ -37,7 +36,7 @@ type LayerContextMenuProps = ContextMenu.Trigger.Props & {
 
 function LayerContextMenu({
 	id,
-	designFile,
+	designId,
 	isRecipeOwned,
 	layerName,
 	recipeInstanceId,
@@ -98,17 +97,16 @@ function LayerContextMenu({
 		mutationFn: async () => {
 			const revision = designStore.get().revision;
 			const designUuid = crypto.randomUUID();
-			const targetFile = getDesignFileForUuid(designUuid);
 			const sourceDesign = serializeDesign();
 
 			if (!isDesignCleanAtRevision(revision)) {
 				const saved = await saveDesignFile(
-					designFile,
+					designId,
 					sourceDesign,
 					designStore.get().persistedRevision,
 				);
 				commitDesignSave(queryClient, {
-					designFile,
+					designId,
 					projectScope,
 					saved,
 					savedStoreRevision: revision,
@@ -116,24 +114,19 @@ function LayerContextMenu({
 			}
 
 			await extractDesignSubtreeToFile({
-				sourceFile: designFile,
-				targetFile,
+				sourceDesignId: designId,
+				targetDesignId: designUuid,
 				elementId: id,
 				name: layerName,
 			});
 			return {
 				designUuid,
 				revision,
-				targetFile,
 			};
 		},
-		onSuccess: async ({
-			designUuid,
-			revision: extractRevision,
-			targetFile,
-		}) => {
+		onSuccess: async ({ designUuid, revision: extractRevision }) => {
 			queryClient.removeQueries({
-				queryKey: designFileQueryKey(targetFile, projectScope),
+				queryKey: designFileQueryKey(designUuid, projectScope),
 			});
 			await queryClient.invalidateQueries({
 				queryKey: designSummariesQueryKey,

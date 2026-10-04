@@ -14,19 +14,19 @@ import type { ProjectQueryScope } from "./project-scope";
 export function commitDesignSave(
 	queryClient: QueryClient,
 	{
-		designFile,
+		designId,
 		projectScope,
 		saved,
 		savedStoreRevision,
 	}: {
-		designFile: string;
+		designId: string;
 		projectScope?: ProjectQueryScope;
 		saved: DesignFileSnapshot;
 		/** Store revision that was serialized for this save. */
 		savedStoreRevision: number;
 	},
 ) {
-	queryClient.setQueryData(designFileQueryKey(designFile, projectScope), saved);
+	queryClient.setQueryData(designFileQueryKey(designId, projectScope), saved);
 	setPersistedDesignRevision(saved.revision);
 	clearDirty(savedStoreRevision);
 }

@@ -133,7 +133,7 @@ export async function findProjectResourceUsage(
 			continue;
 		}
 
-		const read = await service.readDesignFile(summary.file);
+		const read = await service.readDesignFile(summary.uuid);
 		for (const reference of collectDesignResourceReferences(read.design)) {
 			if (reference.kind !== kind) {
 				continue;

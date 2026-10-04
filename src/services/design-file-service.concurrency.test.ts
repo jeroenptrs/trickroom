@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -42,7 +42,7 @@ const [
 	serviceUrl,
 	projectRoot,
 	lockDirectory,
-	file,
+	designId,
 	mode,
 	label,
 	startAt,
@@ -56,9 +56,9 @@ while (Date.now() < Number(startAt)) {}
 if (mode === "compete") {
 	// Every worker writes against the revision the parent read, as if they
 	// had all read the design before any of them wrote.
-	const { design } = await service.readDesignFile(file);
+	const { design } = await service.readDesignFile(designId);
 	try {
-		await service.writeDesignFile(file, { ...design, name: label }, {
+		await service.writeDesignFile(designId, { ...design, name: label }, {
 			expectedRevision: sharedRevision,
 		});
 		console.log(JSON.stringify({ label, outcome: "written" }));
@@ -72,11 +72,11 @@ if (mode === "compete") {
 	let attempts = 0;
 	for (;;) {
 		attempts += 1;
-		const { revision, design } = await service.readDesignFile(file);
+		const { revision, design } = await service.readDesignFile(designId);
 		const writers = design.name ? design.name.split(",") : [];
 		try {
 			await service.writeDesignFile(
-				file,
+				designId,
 				{ ...design, name: [...writers, label].join(",") },
 				{ expectedRevision: revision },
 			);
@@ -146,7 +146,7 @@ describe("concurrent design writers in separate processes", () => {
 						pathToFileURL(servicePath).href,
 						projectRoot,
 						lockDirectory,
-						"home.json",
+						"home",
 						mode,
 						`writer-${index}`,
 						String(startAt),
@@ -178,18 +178,15 @@ describe("concurrent design writers in separate processes", () => {
 
 	const storedName = async () =>
 		(
-			JSON.parse(
-				await readFile(
-					path.join(projectRoot, ".trickroom", "designs", "home.json"),
-					"utf8",
-				),
-			) as TrickroomDesign
-		).name;
+			await createDesignFileService(projectRoot, {
+				lock: { lockDirectory },
+			}).readDesignFile("home")
+		).design.name;
 
 	it("lets exactly one writer win from a shared revision", async () => {
 		const { revision } = await createDesignFileService(projectRoot, {
 			lock: { lockDirectory },
-		}).createDesignFile("home.json", design);
+		}).createDesignFile("home", design);
 
 		const results = await runWorkers("compete", 6, revision);
 
@@ -205,7 +202,7 @@ describe("concurrent design writers in separate processes", () => {
 	it("loses no update when writers retry on mismatch", async () => {
 		await createDesignFileService(projectRoot, {
 			lock: { lockDirectory },
-		}).createDesignFile("home.json", design);
+		}).createDesignFile("home", design);
 
 		const results = await runWorkers("append", 6);
 

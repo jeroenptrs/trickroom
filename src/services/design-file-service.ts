@@ -8,6 +8,7 @@ import {
 	realpath,
 	stat,
 	unlink,
+	writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 import { resolveTrickroomHome } from "../app-state/home";
@@ -59,6 +60,12 @@ export type {
 } from "./design-file-service.types";
 
 export type DesignJsonFileRead = {
+	/** The design id. */
+	uuid: string;
+	/**
+	 * Where the design is stored, relative to `.trickroom/designs`. Informational
+	 * only: callers address designs by id.
+	 */
 	file: string;
 	path: string;
 	value: unknown;
@@ -66,7 +73,6 @@ export type DesignJsonFileRead = {
 };
 
 export type DesignFileRead = Omit<DesignJsonFileRead, "value"> & {
-	uuid: string | null;
 	/**
 	 * The design migrated in memory to the current schema. Like every
 	 * in-memory design it has no `version`; writes stamp it.
@@ -84,7 +90,7 @@ export type DesignFileRead = Omit<DesignJsonFileRead, "value"> & {
 export type DesignFileWrite = {
 	file: string;
 	path: string;
-	uuid: string | null;
+	uuid: string;
 	/** The written design in its in-memory shape (without `version`). */
 	design: TrickroomDesign;
 	revision: DesignFileRevision;
@@ -118,28 +124,20 @@ type DesignFileSummaryCacheEntry = {
 
 const maxSummaryCacheAgeMs = 30 * 60 * 1000;
 
-export const getDesignFileForUuid = (uuid: string) => `${uuid}.json`;
-
-export const getDesignUuidFromFile = (file: string) => {
-	if (!file.endsWith(".json")) {
-		return null;
-	}
-
-	return file.slice(0, -".json".length);
-};
+const getLegacyDesignFileName = (designId: string) => `${designId}.json`;
 
 export const calculateDesignFileRevision = (
 	contents: string,
 ): DesignFileRevision =>
 	`sha256:${createHash("sha256").update(contents).digest("hex")}`;
 
-const isSafeDesignUuid = (uuid: string) =>
-	uuid.trim().length > 0 &&
-	uuid === uuid.trim() &&
-	uuid !== "." &&
-	uuid !== ".." &&
-	!uuid.includes("/") &&
-	!uuid.includes("\\");
+export const isSafeDesignId = (designId: string) =>
+	designId.trim().length > 0 &&
+	designId === designId.trim() &&
+	designId !== "." &&
+	designId !== ".." &&
+	!designId.includes("/") &&
+	!designId.includes("\\");
 
 const isPathInsideDirectory = (filePath: string, directoryPath: string) => {
 	const allowedPrefix = `${directoryPath}${path.sep}`;
@@ -328,47 +326,71 @@ export class DesignFileService {
 		);
 	}
 
-	getFileForUuid(uuid: string) {
-		if (!isSafeDesignUuid(uuid)) {
+	/** Creates `.trickroom/designs` with a `.gitkeep` so it survives commits. */
+	async initializeDesignsDirectory() {
+		await mkdir(this.designsDir, { recursive: true });
+		await writeFile(this.designsGitkeepPath, "", { flag: "a" });
+	}
+
+	/**
+	 * Validates a design id: designs are addressed by id, and the id is a single
+	 * path segment inside `.trickroom/designs`.
+	 */
+	assertDesignId(designId: string) {
+		if (!isSafeDesignId(designId)) {
 			throw new DesignFileServiceError(
 				"INVALID_DESIGN_UUID",
-				"Design UUID must be a single path segment",
+				"Design id must be a single path segment",
 			);
 		}
 
-		return getDesignFileForUuid(uuid);
+		return designId;
 	}
 
-	getUuidFromFile(file: string) {
-		return getDesignUuidFromFile(file);
+	/**
+	 * @deprecated Designs are addressed by id; this returns the validated id.
+	 * Kept so callers that still pass `getFileForUuid(id)` keep working.
+	 */
+	getFileForUuid(designId: string) {
+		return this.assertDesignId(designId);
 	}
 
-	resolveDesignFilePath(file: string) {
-		const resolvedDesignPath = path.resolve(this.designsDir, file);
-		if (!isPathInsideDirectory(resolvedDesignPath, this.designsDir)) {
+	private getLegacyDesignPath(designId: string) {
+		const designPath = path.resolve(
+			this.designsDir,
+			getLegacyDesignFileName(this.assertDesignId(designId)),
+		);
+		if (!isPathInsideDirectory(designPath, this.designsDir)) {
 			throw new DesignFileServiceError(
-				"INVALID_DESIGN_FILE_PATH",
-				"Design file path must be inside .trickroom/designs",
+				"INVALID_DESIGN_UUID",
+				"Design id must be a single path segment",
 			);
 		}
 
-		return resolvedDesignPath;
+		return designPath;
 	}
 
-	async readJsonFile(file: string): Promise<DesignJsonFileRead> {
-		const designPath = this.resolveDesignFilePath(file);
+	/** The raw stored value of a design, before migration and validation. */
+	async readRawDesign(designId: string): Promise<DesignJsonFileRead> {
+		const designPath = this.getLegacyDesignPath(designId);
 		const contents = await readFile(designPath, "utf8");
 
 		return {
-			file,
+			uuid: designId,
+			file: getLegacyDesignFileName(designId),
 			path: designPath,
 			value: JSON.parse(contents),
 			revision: calculateDesignFileRevision(contents),
 		};
 	}
 
-	async readDesignFile(file: string): Promise<DesignFileRead> {
-		const read = await this.readJsonFile(file);
+	/** @deprecated Use `readRawDesign`. */
+	readJsonFile(designId: string) {
+		return this.readRawDesign(designId);
+	}
+
+	async readDesignFile(designId: string): Promise<DesignFileRead> {
+		const read = await this.readRawDesign(designId);
 		return this.toDesignFileRead(read);
 	}
 
@@ -379,9 +401,9 @@ export class DesignFileService {
 		}
 
 		return {
+			uuid: read.uuid,
 			file: read.file,
 			path: read.path,
-			uuid: this.getUuidFromFile(read.file),
 			design: design.design,
 			revision: read.revision,
 			storedVersion: design.fromVersion,
@@ -439,25 +461,27 @@ export class DesignFileService {
 			throw error;
 		}
 
-		const designFiles = directoryEntries
-			.filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-			.map((entry) => entry.name)
+		const designIds = directoryEntries
+			.filter(
+				(entry) =>
+					entry.isFile() &&
+					entry.name.endsWith(".json") &&
+					!entry.name.endsWith(".memory.json"),
+			)
+			.map((entry) => entry.name.slice(0, -".json".length))
+			.filter(isSafeDesignId)
 			.sort();
 
 		const summaries = await Promise.all(
-			designFiles.map(async (file) => {
+			designIds.map(async (uuid) => {
 				let designPath: string | null = null;
 				try {
-					designPath = this.resolveDesignFilePath(file);
+					const file = getLegacyDesignFileName(uuid);
+					designPath = this.getLegacyDesignPath(uuid);
 					const fileStat = await stat(designPath);
 					const cachedSummary = this.getCachedSummary(designPath, fileStat);
 					if (cachedSummary) {
 						return cachedSummary;
-					}
-
-					const uuid = this.getUuidFromFile(file);
-					if (!uuid) {
-						return null;
 					}
 
 					const contents = await readFile(designPath, "utf8");
@@ -467,6 +491,7 @@ export class DesignFileService {
 					try {
 						value = JSON.parse(contents);
 						read = this.toDesignFileRead({
+							uuid,
 							file,
 							path: designPath,
 							value,
@@ -527,11 +552,11 @@ export class DesignFileService {
 	}
 
 	async writeDesignFile(
-		file: string,
+		designId: string,
 		design: unknown,
 		revisionCheck: RevisionCheck = {},
 	): Promise<DesignFileWrite> {
-		const designPath = this.resolveDesignFilePath(file);
+		const designPath = this.getLegacyDesignPath(designId);
 		const storedDesign = prepareDesignForStorage(design);
 
 		await mkdir(this.designsDir, { recursive: true });
@@ -577,19 +602,19 @@ export class DesignFileService {
 		this.deleteCachedSummary(designPath);
 		await DesignFileService.pruneSummaryCache();
 		return {
-			file,
+			file: getLegacyDesignFileName(designId),
 			path: designPath,
-			uuid: this.getUuidFromFile(file),
+			uuid: designId,
 			design: withoutStorageVersion(storedDesign),
 			revision: calculateDesignFileRevision(contents),
 		};
 	}
 
 	async createDesignFile(
-		file: string,
+		designId: string,
 		design: unknown,
 	): Promise<DesignFileWrite> {
-		const designPath = this.resolveDesignFilePath(file);
+		const designPath = this.getLegacyDesignPath(designId);
 		const storedDesign = prepareDesignForStorage(design);
 
 		await mkdir(this.designsDir, { recursive: true });
@@ -611,16 +636,16 @@ export class DesignFileService {
 		this.deleteCachedSummary(designPath);
 		await DesignFileService.pruneSummaryCache();
 		return {
-			file,
+			file: getLegacyDesignFileName(designId),
 			path: designPath,
-			uuid: this.getUuidFromFile(file),
+			uuid: designId,
 			design: withoutStorageVersion(storedDesign),
 			revision: calculateDesignFileRevision(contents),
 		};
 	}
 
-	async deleteDesignFile(file: string) {
-		const designPath = this.resolveDesignFilePath(file);
+	async deleteDesignFile(designId: string) {
+		const designPath = this.getLegacyDesignPath(designId);
 		await this.withWriteLock(designPath, () => unlink(designPath));
 		this.deleteCachedSummary(designPath);
 		await DesignFileService.pruneSummaryCache();

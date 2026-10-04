@@ -1,18 +1,13 @@
-import { access } from "node:fs/promises";
-import path from "node:path";
 import { isTrickroomDesign } from "../server-utils";
 import {
 	createDesignFileService,
 	DesignFileServiceError,
 	type DesignFileSummary,
-	getDesignFileForUuid,
-	getDesignUuidFromFile,
 } from "../services/design-file-service";
 import type { Node, TrickroomDesign } from "../types";
 import { findProjectSystemDesigns } from "./design-resource-references";
 import { findDesignSystem } from "./design-system-store";
 import { readSystemComponentManifest } from "./system-component-manifest-service";
-import type { SystemComponentManifest } from "./system-components";
 import {
 	collectDesignAttachedSystemComponentUsages,
 	getSystemComponentInstanceVersionStatus,
@@ -25,7 +20,12 @@ import type {
 	SystemComponentUsageScanDiagnostic,
 	SystemComponentUsageScanResult,
 } from "./system-component-usage-scan.types";
+import type { SystemComponentManifest } from "./system-components";
 
+export {
+	collectDesignAttachedSystemComponentUsages,
+	getSystemComponentInstanceVersionStatus,
+} from "./system-component-usage-scan.core";
 export type {
 	DesignComponentMigrationPolicy,
 	SystemComponentInstanceUsage,
@@ -37,16 +37,10 @@ export type {
 	SystemComponentUsageScanResult,
 } from "./system-component-usage-scan.types";
 
-export {
-	collectDesignAttachedSystemComponentUsages,
-	getSystemComponentInstanceVersionStatus,
-} from "./system-component-usage-scan.core";
-
 export type ScanProjectSystemComponentUsageOptions = {
 	systemHandle?: string;
 	componentId?: string;
 	designFileId?: string;
-	designFile?: string;
 	version?: string;
 	validateManifest?: boolean;
 };
@@ -208,41 +202,17 @@ const appendManifestReferenceDiagnostics = (
 	}
 };
 
-const resolveTargetedDesignFileName = (
-	options: Pick<
-		ScanProjectSystemComponentUsageOptions,
-		"designFileId" | "designFile"
-	>,
-): string | null => {
-	if (options.designFile) {
-		return path.basename(options.designFile);
-	}
-	if (options.designFileId) {
-		return getDesignFileForUuid(options.designFileId);
-	}
-	return null;
-};
-
 const readTargetedDesignSummary = async (
 	projectRoot: string,
-	options: Pick<
-		ScanProjectSystemComponentUsageOptions,
-		"designFileId" | "designFile"
-	>,
+	designFileId: string,
 ): Promise<
 	| { kind: "summary"; summary: DesignFileSummary }
 	| { kind: "diagnostic"; diagnostic: SystemComponentUsageScanDiagnostic }
 	| { kind: "missing" }
 > => {
-	const fileName = resolveTargetedDesignFileName(options);
-	if (!fileName) {
-		return { kind: "missing" };
-	}
-
 	const service = createDesignFileService(projectRoot);
-	let designPath: string;
 	try {
-		designPath = service.resolveDesignFilePath(fileName);
+		service.assertDesignId(designFileId);
 	} catch (error) {
 		return {
 			kind: "diagnostic",
@@ -251,31 +221,19 @@ const readTargetedDesignSummary = async (
 				message:
 					error instanceof Error
 						? error.message
-						: "Design file path is invalid for usage scan.",
-				designFileId: options.designFileId,
-				designFile: fileName,
+						: "Design id is invalid for usage scan.",
+				designFileId,
 			},
 		};
 	}
 
 	try {
-		await access(designPath);
-	} catch {
-		return { kind: "missing" };
-	}
-
-	try {
-		const read = await service.readDesignFile(fileName);
-		const uuid =
-			read.uuid ??
-			options.designFileId ??
-			getDesignUuidFromFile(fileName) ??
-			fileName;
+		const read = await service.readDesignFile(designFileId);
 		return {
 			kind: "summary",
 			summary: {
-				uuid,
-				file: fileName,
+				uuid: read.uuid,
+				file: read.file,
 				name: read.design.name,
 				...(read.design.systemId !== undefined
 					? { systemId: read.design.systemId }
@@ -290,6 +248,9 @@ const readTargetedDesignSummary = async (
 			},
 		};
 	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+			return { kind: "missing" };
+		}
 		if (error instanceof DesignFileServiceError) {
 			return {
 				kind: "diagnostic",
@@ -299,9 +260,7 @@ const readTargetedDesignSummary = async (
 							? "INVALID_DESIGN_PAYLOAD"
 							: "DESIGN_READ_FAILED",
 					message: error.message,
-					designFileId:
-						options.designFileId ?? getDesignUuidFromFile(fileName) ?? undefined,
-					designFile: fileName,
+					designFileId,
 				},
 			};
 		}
@@ -314,9 +273,7 @@ const readTargetedDesignSummary = async (
 					error instanceof Error
 						? error.message
 						: "Failed to read design file for usage scan.",
-				designFileId:
-					options.designFileId ?? getDesignUuidFromFile(fileName) ?? undefined,
-				designFile: fileName,
+				designFileId,
 			},
 		};
 	}
@@ -326,11 +283,14 @@ export const resolveDesignSummariesForScan = async (
 	projectRoot: string,
 	options: Pick<
 		ScanProjectSystemComponentUsageOptions,
-		"designFileId" | "designFile" | "systemHandle"
+		"designFileId" | "systemHandle"
 	>,
 ): Promise<DesignFileSummary[]> => {
-	if (options.designFileId || options.designFile) {
-		const targeted = await readTargetedDesignSummary(projectRoot, options);
+	if (options.designFileId) {
+		const targeted = await readTargetedDesignSummary(
+			projectRoot,
+			options.designFileId,
+		);
 		if (targeted.kind === "summary") {
 			return [targeted.summary];
 		}
@@ -353,7 +313,7 @@ const readDesignForUsageScan = async (
 	const service = createDesignFileService(projectRoot);
 
 	try {
-		const read = await service.readDesignFile(summary.file);
+		const read = await service.readDesignFile(summary.uuid);
 		return read.design;
 	} catch (error) {
 		if (error instanceof DesignFileServiceError) {
@@ -391,8 +351,11 @@ export async function scanProjectSystemComponentUsage(
 	const instances: SystemComponentInstanceUsage[] = [];
 	const diagnostics: SystemComponentUsageScanDiagnostic[] = [];
 
-	if (summaries.length === 0 && (options.designFileId || options.designFile)) {
-		const targeted = await readTargetedDesignSummary(projectRoot, options);
+	if (summaries.length === 0 && options.designFileId) {
+		const targeted = await readTargetedDesignSummary(
+			projectRoot,
+			options.designFileId,
+		);
 		if (targeted.kind === "diagnostic") {
 			diagnostics.push(targeted.diagnostic);
 		} else {
@@ -400,11 +363,6 @@ export async function scanProjectSystemComponentUsage(
 				code: "DESIGN_READ_FAILED",
 				message: "Design file not found for usage scan.",
 				designFileId: options.designFileId,
-				designFile: options.designFile
-					? path.basename(options.designFile)
-					: options.designFileId
-						? getDesignFileForUuid(options.designFileId)
-						: options.designFile,
 			});
 		}
 	}
@@ -556,36 +514,10 @@ export async function scanProjectSystemComponentUsage(
 
 export const scanDesignFileSystemComponentUsage = async (
 	projectRoot: string,
-	designFile: string,
-	options: Omit<
-		ScanProjectSystemComponentUsageOptions,
-		"designFile" | "designFileId"
-	> = {},
-): Promise<SystemComponentUsageScanResult> => {
-	const normalizedDesignFile = path.basename(designFile.trim());
-	if (!normalizedDesignFile.endsWith(".json")) {
-		return {
-			instances: [],
-			diagnostics: [
-				{
-					code: "DESIGN_READ_FAILED",
-					message:
-						"Design file must be a .json file inside .trickroom/designs.",
-					designFile: normalizedDesignFile || designFile,
-				},
-			],
-			usedByCount: 0,
-			scannedDesignCount: 0,
-			statusCounts: emptyStatusCounts(),
-		};
-	}
-
-	const designFileId =
-		getDesignUuidFromFile(normalizedDesignFile) ?? options.designFileId;
-
-	return scanProjectSystemComponentUsage(projectRoot, {
+	designFileId: string,
+	options: Omit<ScanProjectSystemComponentUsageOptions, "designFileId"> = {},
+): Promise<SystemComponentUsageScanResult> =>
+	scanProjectSystemComponentUsage(projectRoot, {
 		...options,
-		designFile: normalizedDesignFile,
 		designFileId,
 	});
-};

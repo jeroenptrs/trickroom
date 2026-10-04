@@ -383,7 +383,7 @@ describe("system-component-usage-scan", () => {
 
 		const result = await scanDesignFileSystemComponentUsage(
 			tempProjectRoot,
-			"00000000-0000-4000-8000-000000000001.json",
+			"00000000-0000-4000-8000-000000000001",
 			{ systemHandle: systemId },
 		);
 
@@ -407,7 +407,7 @@ describe("system-component-usage-scan", () => {
 
 		const result = await scanDesignFileSystemComponentUsage(
 			tempProjectRoot,
-			"00000000-0000-4000-8000-000000000001.json",
+			"00000000-0000-4000-8000-000000000001",
 			{ systemHandle: systemId },
 		);
 
@@ -423,7 +423,7 @@ describe("system-component-usage-scan", () => {
 		);
 	});
 
-	it("resolves path-like design file references for per-design scans", async () => {
+	it("scans one design by id", async () => {
 		const systemId = await setupCoreSystem();
 		await writeDesign(
 			"00000000-0000-4000-8000-000000000001",
@@ -437,11 +437,7 @@ describe("system-component-usage-scan", () => {
 
 		const result = await scanDesignFileSystemComponentUsage(
 			tempProjectRoot,
-			path.join(
-				".trickroom",
-				"designs",
-				"00000000-0000-4000-8000-000000000001.json",
-			),
+			"00000000-0000-4000-8000-000000000001",
 			{ systemHandle: systemId },
 		);
 
@@ -477,7 +473,7 @@ describe("system-component-usage-scan", () => {
 
 		const result = await scanDesignFileSystemComponentUsage(
 			tempProjectRoot,
-			"00000000-0000-4000-8000-000000000001.json",
+			"00000000-0000-4000-8000-000000000001",
 			{ systemHandle: systemId },
 		);
 
@@ -527,7 +523,7 @@ describe("system-component-usage-scan", () => {
 
 		const result = await scanDesignFileSystemComponentUsage(
 			tempProjectRoot,
-			"00000000-0000-4000-8000-000000000001.json",
+			"00000000-0000-4000-8000-000000000001",
 			{ systemHandle: systemId },
 		);
 
@@ -580,7 +576,7 @@ describe("system-component-usage-scan", () => {
 
 		const result = await scanDesignFileSystemComponentUsage(
 			tempProjectRoot,
-			"00000000-0000-4000-8000-000000000001.json",
+			"00000000-0000-4000-8000-000000000001",
 			{ systemHandle: systemId },
 		);
 
@@ -646,7 +642,7 @@ describe("system-component-usage-scan", () => {
 
 		const result = await scanDesignFileSystemComponentUsage(
 			tempProjectRoot,
-			"00000000-0000-4000-8000-000000000001.json",
+			"00000000-0000-4000-8000-000000000001",
 			{ systemHandle: systemId },
 		);
 
@@ -791,14 +787,14 @@ describe("system-component-usage-scan", () => {
 	it("returns a design read diagnostic for invalid design file references", async () => {
 		const result = await scanDesignFileSystemComponentUsage(
 			tempProjectRoot,
-			".trickroom/designs/not-a-design.txt",
+			"../not-a-design",
 		);
 
 		expect(result.instances).toEqual([]);
 		expect(result.diagnostics).toEqual([
 			expect.objectContaining({
 				code: "DESIGN_READ_FAILED",
-				designFile: "not-a-design.txt",
+				designFileId: "../not-a-design",
 			}),
 		]);
 	});
@@ -820,14 +816,13 @@ describe("system-component-usage-scan", () => {
 
 		const result = await scanDesignFileSystemComponentUsage(
 			tempProjectRoot,
-			"00000000-0000-4000-8000-000000000099.json",
+			"00000000-0000-4000-8000-000000000099",
 		);
 
 		expect(result.instances).toEqual([]);
 		expect(result.diagnostics).toEqual([
 			expect.objectContaining({
 				code: "DESIGN_READ_FAILED",
-				designFile: "00000000-0000-4000-8000-000000000099.json",
 				designFileId: "00000000-0000-4000-8000-000000000099",
 			}),
 		]);
@@ -855,14 +850,14 @@ describe("system-component-usage-scan", () => {
 
 		const result = await scanDesignFileSystemComponentUsage(
 			tempProjectRoot,
-			"00000000-0000-4000-8000-000000000010.json",
+			"00000000-0000-4000-8000-000000000010",
 		);
 
 		expect(result.instances).toEqual([]);
 		expect(result.diagnostics).toEqual([
 			expect.objectContaining({
 				code: "INVALID_DESIGN_PAYLOAD",
-				designFile: "00000000-0000-4000-8000-000000000010.json",
+				designFileId: "00000000-0000-4000-8000-000000000010",
 			}),
 		]);
 	});

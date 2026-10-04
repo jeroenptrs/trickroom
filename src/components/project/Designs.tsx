@@ -8,7 +8,6 @@ import {
 	designFileQueryOptions,
 	designSummariesQueryKey,
 	designSummariesQueryOptions,
-	getDesignFileForUuid,
 } from "../../queries/design-file";
 import type { TrickroomDesign } from "../../types";
 import {
@@ -62,21 +61,20 @@ export function Designs({
 		[designs, normalizedFilter],
 	);
 
-	const prefetchDesignFile = (file: string) =>
-		queryClient.prefetchQuery(designFileQueryOptions(file, projectScope));
+	const prefetchDesignFile = (designId: string) =>
+		queryClient.prefetchQuery(designFileQueryOptions(designId, projectScope));
 
 	// TODO: when creating - add a secondary state requesting a name for the design file
 
 	const createDesignMutation = useMutation({
 		mutationFn: async () => {
 			const designUuid = crypto.randomUUID();
-			const designFile = getDesignFileForUuid(designUuid);
 			const design: TrickroomDesign = {
 				name: "Untitled",
 				boards: [],
 			};
 
-			await createDesignFile(designFile, design);
+			await createDesignFile(designUuid, design);
 			return designUuid;
 		},
 		onSuccess: async (designUuid) => {
@@ -211,7 +209,7 @@ export function Designs({
 								const dotHighlighted = isSelected || isActive;
 								return (
 									<Button
-										key={design.file}
+										key={design.uuid}
 										ref={isSelected ? setSelectedItemRef : undefined}
 										variant="block"
 										isSelected={isSelected}
@@ -247,7 +245,7 @@ export function Designs({
 										onPointerDown={() => setActiveUuid(design.uuid)}
 										onPointerUp={() => setActiveUuid(null)}
 										onPointerLeave={() => setActiveUuid(null)}
-										onMouseEnter={() => prefetchDesignFile(design.file)}
+										onMouseEnter={() => prefetchDesignFile(design.uuid)}
 									>
 										<div
 											className={`size-10 shrink-0 bg-[length:12px_12px] inset-shadow-[0_0_0_1px] ${dotHighlighted ? "inset-shadow-cyan-200" : "inset-shadow-slate-200"}`}

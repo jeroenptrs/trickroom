@@ -1373,7 +1373,7 @@ describe("system-component-bulk-migration", () => {
 		raw.revisionBump = "between-list-and-read";
 		await writeFile(designPath, JSON.stringify(raw), "utf8");
 
-		const readAfterBump = await service.readDesignFile(`${designUuid}.json`);
+		const readAfterBump = await service.readDesignFile(designUuid);
 		expect(readAfterBump.revision).not.toBe(staleSummary?.revision);
 
 		vi.spyOn(
@@ -1398,9 +1398,8 @@ describe("system-component-bulk-migration", () => {
 		expect(designReport?.revision).toBe(readAfterBump.revision);
 		expect(designReport?.revision).not.toBe(staleSummary?.revision);
 
-		const readAfterPersist = await createDesignFileService(
-			tempProjectRoot,
-		).readDesignFile(`${designUuid}.json`);
+		const readAfterPersist =
+			await createDesignFileService(tempProjectRoot).readDesignFile(designUuid);
 		expect(designReport?.nextRevision).toBe(readAfterPersist.revision);
 		expect(designReport?.revision).not.toBe(designReport?.nextRevision);
 	});
@@ -1428,9 +1427,7 @@ describe("system-component-bulk-migration", () => {
 		);
 
 		const service = createDesignFileService(tempProjectRoot);
-		const readBeforeMigrate = await service.readDesignFile(
-			`${designUuid}.json`,
-		);
+		const readBeforeMigrate = await service.readDesignFile(designUuid);
 
 		vi.spyOn(
 			designFileServiceModule,
@@ -1470,9 +1467,8 @@ describe("system-component-bulk-migration", () => {
 			}),
 		]);
 
-		const readAfterFailure = await createDesignFileService(
-			tempProjectRoot,
-		).readDesignFile(`${designUuid}.json`);
+		const readAfterFailure =
+			await createDesignFileService(tempProjectRoot).readDesignFile(designUuid);
 		expect(
 			elementNodeAt(readAfterFailure.design.boards[0], 0).props[
 				"data-trickroom-system-component-version"

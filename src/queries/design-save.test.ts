@@ -15,9 +15,9 @@ import { getDesignSyncDecision } from "../utils/design-live-sync";
 import { type DesignFileSnapshot, designFileQueryKey } from "./design-file";
 import { commitDesignSave } from "./design-save";
 
-const designFile = "home.json";
+const designId = "home";
 const projectScope = "loc_1";
-const queryKey = designFileQueryKey(designFile, projectScope);
+const queryKey = designFileQueryKey(designId, projectScope);
 const loadedRevision: DesignFileRevision = `sha256:${"a".repeat(64)}`;
 const savedRevision: DesignFileRevision = `sha256:${"b".repeat(64)}`;
 
@@ -107,7 +107,7 @@ describe("committing a design save", () => {
 		const { storeRevision, saved } = saveCurrentDesign();
 
 		commitDesignSave(queryClient, {
-			designFile,
+			designId,
 			projectScope,
 			saved,
 			savedStoreRevision: storeRevision,
@@ -127,7 +127,7 @@ describe("committing a design save", () => {
 		setDesignName("Later");
 
 		commitDesignSave(queryClient, {
-			designFile,
+			designId,
 			projectScope,
 			saved,
 			savedStoreRevision: storeRevision,

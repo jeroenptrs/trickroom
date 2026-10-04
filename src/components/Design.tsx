@@ -31,7 +31,6 @@ import {
 import {
 	type DesignFileSnapshot,
 	designFileQueryOptions,
-	getDesignFileForUuid,
 } from "../queries/design-file";
 import {
 	designStore,
@@ -149,7 +148,7 @@ function DesignStage({
 export function Design() {
 	const { uuid } = useParams<{ uuid: string }>();
 	const projectScope = useProjectScope();
-	const designFile = uuid ? getDesignFileForUuid(uuid) : null;
+	const designId = uuid ?? null;
 	const [didMount, setDidMount] = useState(false);
 	const stageMode = useStageMode();
 	const activeBoardId = useActiveBoardId();
@@ -160,24 +159,24 @@ export function Design() {
 		useState<ResponsiveStageZoom>("fit");
 	const [responsiveFitScale, setResponsiveFitScale] = useState(1);
 	const responsiveSessionKey = useMemo(
-		() => getResponsiveStageSessionStorageKey(projectScope, designFile),
-		[designFile, projectScope],
+		() => getResponsiveStageSessionStorageKey(projectScope, designId),
+		[designId, projectScope],
 	);
 	const responsiveSessionKeyRef = useRef(responsiveSessionKey);
 	// The stage view starts fresh for every visit to the design route, as it did
 	// when it was local state. Layout effects run before the stage's effects.
-	const initialStageViewRef = useRef({ projectScope, designFile });
+	const initialStageViewRef = useRef({ projectScope, designId });
 	useLayoutEffect(() => {
 		const initial = initialStageViewRef.current;
 		resetStageView(
-			readResponsiveStageSessionWidth(initial.projectScope, initial.designFile),
+			readResponsiveStageSessionWidth(initial.projectScope, initial.designId),
 		);
 		return () => resetStageView(RESPONSIVE_STAGE_DEFAULT_WIDTH);
 	}, []);
 	const skipNextResponsiveSessionSaveRef = useRef(false);
 	// The design file whose snapshot was last hydrated, so a live-sync reload of
 	// the open design can keep the active board instead of resetting it.
-	const hydratedDesignFileRef = useRef<string | null>(null);
+	const hydratedDesignIdRef = useRef<string | null>(null);
 	const iframeRef = useRef<HTMLIFrameElement>(null);
 	const rootIds = useDesignRoots();
 	const view = useStageNavigation(iframeRef, didMount, {
@@ -199,8 +198,8 @@ export function Design() {
 	});
 	const handleStageMount = useCallback(() => setDidMount(true), []);
 	const designQuery = useQuery({
-		...designFileQueryOptions(designFile ?? "", projectScope),
-		enabled: designFile !== null,
+		...designFileQueryOptions(designId ?? "", projectScope),
+		enabled: designId !== null,
 	});
 	const designSnapshot = designQuery.data;
 	const hasUnsavedChanges = useHasUnsavedChanges();
@@ -220,11 +219,9 @@ export function Design() {
 
 		responsiveSessionKeyRef.current = responsiveSessionKey;
 		skipNextResponsiveSessionSaveRef.current = true;
-		setResponsiveWidth(
-			readResponsiveStageSessionWidth(projectScope, designFile),
-		);
+		setResponsiveWidth(readResponsiveStageSessionWidth(projectScope, designId));
 		setResponsiveZoom("fit");
-	}, [designFile, projectScope, responsiveSessionKey]);
+	}, [designId, projectScope, responsiveSessionKey]);
 
 	useEffect(() => {
 		if (responsiveSessionKeyRef.current !== responsiveSessionKey) {
@@ -242,19 +239,19 @@ export function Design() {
 			return;
 		}
 
-		writeResponsiveStageSessionWidth(projectScope, designFile, responsiveWidth);
-	}, [designFile, projectScope, responsiveSessionKey, responsiveWidth]);
+		writeResponsiveStageSessionWidth(projectScope, designId, responsiveWidth);
+	}, [designId, projectScope, responsiveSessionKey, responsiveWidth]);
 
 	const applyHydratedActiveBoard = useCallback(
 		(snapshot: DesignFileSnapshot) => {
-			const isReload = hydratedDesignFileRef.current === designFile;
-			hydratedDesignFileRef.current = designFile;
+			const isReload = hydratedDesignIdRef.current === designId;
+			hydratedDesignIdRef.current = designId;
 			const boardIds = snapshot.design.boards.map((board) => board.id);
 			setActiveBoardId((currentBoardId) =>
 				resolveActiveBoardAfterHydrate({ boardIds, currentBoardId, isReload }),
 			);
 		},
-		[designFile],
+		[designId],
 	);
 
 	useEffect(() => {
@@ -320,7 +317,7 @@ export function Design() {
 		);
 	}, [rootIds]);
 
-	useDesignDeepLink({ designFile, hydratedDesignFileRef, rootIds });
+	useDesignDeepLink({ designId, hydratedDesignIdRef, rootIds });
 
 	const liveSystemId = useDesignSystemId();
 	const responsiveBreakpoints = useResolvedBreakpoints(liveSystemId);
@@ -378,7 +375,7 @@ export function Design() {
 	);
 
 	// TODO: make isLoading and hasError work with a rendered sidebar and iframe
-	if (!designFile) {
+	if (!designId) {
 		return (
 			<div className="absolute left-3 top-3 z-30 bg-red-500 px-2 py-1 text-xs text-white">
 				Missing design id
@@ -407,8 +404,8 @@ export function Design() {
 			<IFrameViewContext.Provider value={view}>
 				<ResponsiveStageContext.Provider value={responsiveStage}>
 					<ResponsiveStageZoomContext.Provider value={responsiveStageZoom}>
-						<StagePreviewDarkModeProvider key={designFile}>
-							<EditorShell designFile={designFile}>{stage}</EditorShell>
+						<StagePreviewDarkModeProvider key={designId}>
+							<EditorShell designId={designId}>{stage}</EditorShell>
 						</StagePreviewDarkModeProvider>
 					</ResponsiveStageZoomContext.Provider>
 				</ResponsiveStageContext.Provider>

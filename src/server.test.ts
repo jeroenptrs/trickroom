@@ -822,7 +822,7 @@ describe("server design routes", () => {
 		expect(createdSystem.config.defaultSystemId).toBe(createdSystem.systemId);
 
 		const createDesignResponse = await app.request(
-			"/api/trickroom/design?file=default-linked.json",
+			"/api/trickroom/design?id=default-linked",
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },
@@ -839,7 +839,7 @@ describe("server design routes", () => {
 		expect(createdDesign.systemId).toBe(createdSystem.systemId);
 
 		const explicitUnlinkedResponse = await app.request(
-			"/api/trickroom/design?file=explicit-unlinked.json",
+			"/api/trickroom/design?id=explicit-unlinked",
 			{
 				method: "POST",
 				headers: { "content-type": "application/json" },
@@ -1078,11 +1078,11 @@ describe("server design routes", () => {
 	it("keeps design reads scoped to the project designs directory", async () => {
 		const app = await importTestServer();
 
-		const response = await app.request("/api/trickroom/design?file=../x.json");
+		const response = await app.request("/api/trickroom/design?id=../x");
 
 		expect(response.status).toBe(400);
 		await expect(response.json()).resolves.toEqual({
-			error: "Design file path must be inside .trickroom/designs",
+			error: "Design id must be a single path segment",
 		});
 	});
 
@@ -1095,7 +1095,7 @@ describe("server design routes", () => {
 		const app = await importTestServer();
 
 		const response = await app.request(
-			"/api/trickroom/design?file=legacy-policy.json",
+			"/api/trickroom/design?id=legacy-policy",
 		);
 
 		expect(response.status).toBe(200);
@@ -1112,17 +1112,14 @@ describe("server design routes", () => {
 			before,
 		);
 
-		const save = await app.request(
-			"/api/trickroom/design?file=legacy-policy.json",
-			{
-				method: "PUT",
-				headers: {
-					"content-type": "application/json",
-					"x-trickroom-expected-revision": calculateDesignFileRevision(before),
-				},
-				body: JSON.stringify(body),
+		const save = await app.request("/api/trickroom/design?id=legacy-policy", {
+			method: "PUT",
+			headers: {
+				"content-type": "application/json",
+				"x-trickroom-expected-revision": calculateDesignFileRevision(before),
 			},
-		);
+			body: JSON.stringify(body),
+		});
 		expect(save.status).toBe(200);
 		const stored = await readStoredDesign("legacy-policy.json");
 		expect(stored).toMatchObject({ version: DESIGN_FILE_VERSION });
@@ -1136,9 +1133,7 @@ describe("server design routes", () => {
 		});
 		const app = await importTestServer();
 
-		const response = await app.request(
-			"/api/trickroom/design?file=current.json",
-		);
+		const response = await app.request("/api/trickroom/design?id=current");
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get("x-trickroom-design-migration")).toBeNull();
@@ -1151,13 +1146,13 @@ describe("server design routes", () => {
 		const before = await readStoredDesignContents("newer.json");
 		const app = await importTestServer();
 
-		const response = await app.request("/api/trickroom/design?file=newer.json");
+		const response = await app.request("/api/trickroom/design?id=newer");
 		expect(response.status).toBe(422);
 		await expect(response.json()).resolves.toEqual({
 			error: expect.stringContaining("newer than this Trickroom supports"),
 		});
 
-		const save = await app.request("/api/trickroom/design?file=newer.json", {
+		const save = await app.request("/api/trickroom/design?id=newer", {
 			method: "PUT",
 			headers: {
 				"content-type": "application/json",
@@ -1174,7 +1169,7 @@ describe("server design routes", () => {
 		const app = await importTestServer();
 
 		const response = await app.request(
-			"/api/trickroom/design?file=invalid-design.json",
+			"/api/trickroom/design?id=invalid-design",
 		);
 
 		expect(response.status).toBe(422);
@@ -1191,9 +1186,7 @@ describe("server design routes", () => {
 		await writeDesign("valid-recipe.json", design);
 		const app = await importTestServer();
 
-		const response = await app.request(
-			"/api/trickroom/design?file=valid-recipe.json",
-		);
+		const response = await app.request("/api/trickroom/design?id=valid-recipe");
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get("x-trickroom-revision")).toMatch(
@@ -1226,7 +1219,7 @@ describe("server design routes", () => {
 		const app = await importTestServer();
 
 		const response = await app.request(
-			"/api/trickroom/design?file=invalid-recipe.json",
+			"/api/trickroom/design?id=invalid-recipe",
 		);
 
 		expect(response.status).toBe(200);
@@ -1282,9 +1275,7 @@ describe("server design routes", () => {
 		await writeDesign("stale-recipe.json", design);
 		const app = await importTestServer();
 
-		const response = await app.request(
-			"/api/trickroom/design?file=stale-recipe.json",
-		);
+		const response = await app.request("/api/trickroom/design?id=stale-recipe");
 
 		expect(response.status).toBe(200);
 		const repairHeader = response.headers.get(recipeLoadRepairHeaderName);
@@ -1326,7 +1317,7 @@ describe("server design routes", () => {
 		const app = await importTestServer();
 
 		const response = await app.request(
-			"/api/trickroom/design?file=unknown-recipe.json",
+			"/api/trickroom/design?id=unknown-recipe",
 		);
 
 		expect(response.status).toBe(200);
@@ -1340,20 +1331,17 @@ describe("server design routes", () => {
 	it("writes valid design payloads through the extracted service", async () => {
 		await writeDesign("existing.json", { ...validDesign, name: "Before" });
 		const app = await importTestServer();
-		const read = await app.request("/api/trickroom/design?file=existing.json");
+		const read = await app.request("/api/trickroom/design?id=existing");
 		const revision = read.headers.get("x-trickroom-revision") ?? "";
 
-		const response = await app.request(
-			"/api/trickroom/design?file=existing.json",
-			{
-				method: "PUT",
-				headers: {
-					"content-type": "application/json",
-					"x-trickroom-expected-revision": revision,
-				},
-				body: JSON.stringify(validDesign),
+		const response = await app.request("/api/trickroom/design?id=existing", {
+			method: "PUT",
+			headers: {
+				"content-type": "application/json",
+				"x-trickroom-expected-revision": revision,
 			},
-		);
+			body: JSON.stringify(validDesign),
+		});
 
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toEqual(validDesign);
@@ -1367,14 +1355,11 @@ describe("server design routes", () => {
 		await writeDesign("existing.json", validDesign);
 		const app = await importTestServer();
 
-		const response = await app.request(
-			"/api/trickroom/design?file=existing.json",
-			{
-				method: "PUT",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ ...validDesign, name: "Unconditional" }),
-			},
-		);
+		const response = await app.request("/api/trickroom/design?id=existing", {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ ...validDesign, name: "Unconditional" }),
+		});
 
 		expect(response.status).toBe(428);
 		await expect(readStoredDesign("existing.json")).resolves.toEqual(
@@ -1386,7 +1371,7 @@ describe("server design routes", () => {
 		await writeDesign("concurrent.json", validDesign);
 		const app = await importTestServer();
 		const initialResponse = await app.request(
-			"/api/trickroom/design?file=concurrent.json",
+			"/api/trickroom/design?id=concurrent",
 		);
 		const initialRevision = initialResponse.headers.get("x-trickroom-revision");
 		expect(initialRevision).toMatch(/^sha256:[a-f0-9]{64}$/);
@@ -1396,17 +1381,14 @@ describe("server design routes", () => {
 			name: "Changed by another client",
 		};
 		await writeDesign("concurrent.json", externalDesign);
-		const staleSave = await app.request(
-			"/api/trickroom/design?file=concurrent.json",
-			{
-				method: "PUT",
-				headers: {
-					"content-type": "application/json",
-					"x-trickroom-expected-revision": initialRevision ?? "",
-				},
-				body: JSON.stringify({ ...validDesign, name: "Stale browser" }),
+		const staleSave = await app.request("/api/trickroom/design?id=concurrent", {
+			method: "PUT",
+			headers: {
+				"content-type": "application/json",
+				"x-trickroom-expected-revision": initialRevision ?? "",
 			},
-		);
+			body: JSON.stringify({ ...validDesign, name: "Stale browser" }),
+		});
 
 		expect(staleSave.status).toBe(409);
 		await expect(staleSave.json()).resolves.toEqual({
@@ -1420,7 +1402,7 @@ describe("server design routes", () => {
 	it("creates design files exclusively through POST", async () => {
 		const app = await importTestServer();
 
-		const response = await app.request("/api/trickroom/design?file=new.json", {
+		const response = await app.request("/api/trickroom/design?id=new", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify(validDesign),
@@ -1429,7 +1411,7 @@ describe("server design routes", () => {
 		expect(response.status).toBe(201);
 		await expect(response.json()).resolves.toEqual(validDesign);
 
-		const duplicate = await app.request("/api/trickroom/design?file=new.json", {
+		const duplicate = await app.request("/api/trickroom/design?id=new", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ ...validDesign, name: "Duplicate" }),
@@ -1467,9 +1449,7 @@ describe("server design routes", () => {
 		});
 		const app = await importTestServer();
 
-		const response = await app.request(
-			"/api/trickroom/design?file=disconnected.json",
-		);
+		const response = await app.request("/api/trickroom/design?id=disconnected");
 
 		expect(response.status).toBe(200);
 		const body = await response.json();
@@ -1493,12 +1473,9 @@ describe("server design routes", () => {
 		await writeDesign("delete-me.json", validDesign);
 		const app = await importTestServer();
 
-		const response = await app.request(
-			"/api/trickroom/design?file=delete-me.json",
-			{
-				method: "DELETE",
-			},
-		);
+		const response = await app.request("/api/trickroom/design?id=delete-me", {
+			method: "DELETE",
+		});
 
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toEqual({ ok: true });
@@ -1534,8 +1511,8 @@ describe("server design routes", () => {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
-				sourceFile: "source.json",
-				targetFile: "target.json",
+				sourceDesignId: "source",
+				targetDesignId: "target",
 				elementId: "title",
 			}),
 		});
@@ -1631,8 +1608,8 @@ describe("server design routes", () => {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
-				sourceFile: "component-source.json",
-				targetFile: "component-target.json",
+				sourceDesignId: "component-source",
+				targetDesignId: "component-target",
 				elementId: "component-root",
 			}),
 		});
@@ -1682,8 +1659,8 @@ describe("server design routes", () => {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
-				sourceFile: "missing-system.json",
-				targetFile: "missing-system-target.json",
+				sourceDesignId: "missing-system",
+				targetDesignId: "missing-system-target",
 				elementId: "title",
 			}),
 		});
@@ -1696,8 +1673,8 @@ describe("server design routes", () => {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
-				sourceFile: "missing-asset.json",
-				targetFile: "missing-asset-target.json",
+				sourceDesignId: "missing-asset",
+				targetDesignId: "missing-asset-target",
 				elementId: "asset",
 			}),
 		});

@@ -14,46 +14,46 @@
  */
 import {
 	createDesignFileService,
-	DesignFileServiceError,
 	type DesignFileRevision,
+	DesignFileServiceError,
 	type DesignFileSummary,
 } from "../services/design-file-service";
 import type { TrickroomDesign } from "../types";
 import {
+	type BulkMigrateDesignSystemComponentInstancesOptions,
 	bulkMigrateDesignSystemComponentInstances,
 	emptyDesignReport,
 	resolveAutomaticMigrationPolicy,
-	skipDesignForAutomaticPolicy,
-	toInstanceRef,
-	type BulkMigrateDesignSystemComponentInstancesOptions,
 	type SystemComponentBulkMigrationChangedInstance,
 	type SystemComponentBulkMigrationDesignReport,
 	type SystemComponentBulkMigrationFailedInstance,
 	type SystemComponentBulkMigrationFailureCode,
 	type SystemComponentBulkMigrationInstanceRef,
 	type SystemComponentBulkMigrationReviewRequiredInstance,
-	type SystemComponentBulkMigrationSkipReason,
 	type SystemComponentBulkMigrationSkippedInstance,
+	type SystemComponentBulkMigrationSkipReason,
+	skipDesignForAutomaticPolicy,
+	toInstanceRef,
 } from "./system-component-bulk-migration-design";
 import { readSystemComponentManifest } from "./system-component-manifest-service";
 import {
 	resolveDesignSummariesForScan,
-	scanProjectSystemComponentUsage,
 	type SystemComponentInstanceUsage,
 	type SystemComponentUsageScanDiagnostic,
+	scanProjectSystemComponentUsage,
 } from "./system-component-usage-scan";
 
 export {
-	bulkMigrateDesignSystemComponentInstances,
 	type BulkMigrateDesignSystemComponentInstancesOptions,
+	bulkMigrateDesignSystemComponentInstances,
 	type SystemComponentBulkMigrationChangedInstance,
 	type SystemComponentBulkMigrationDesignReport,
 	type SystemComponentBulkMigrationFailedInstance,
 	type SystemComponentBulkMigrationFailureCode,
 	type SystemComponentBulkMigrationInstanceRef,
 	type SystemComponentBulkMigrationReviewRequiredInstance,
-	type SystemComponentBulkMigrationSkipReason,
 	type SystemComponentBulkMigrationSkippedInstance,
+	type SystemComponentBulkMigrationSkipReason,
 } from "./system-component-bulk-migration-design";
 
 export type SystemComponentBulkMigrationReport = {
@@ -77,7 +77,6 @@ export type BulkMigrateProjectSystemComponentInstancesOptions = {
 	systemHandle: string;
 	componentId?: string;
 	designFileId?: string;
-	designFile?: string;
 	dryRun?: boolean;
 	onlySafe?: boolean;
 	persist?: boolean;
@@ -143,7 +142,7 @@ const mergeScanDiagnosticsIntoReport = (
 	>,
 	options: Pick<
 		BulkMigrateProjectSystemComponentInstancesOptions,
-		"componentId" | "designFileId" | "designFile" | "systemHandle"
+		"componentId" | "designFileId" | "systemHandle"
 	>,
 	summaryById: Map<string, DesignFileSummary>,
 ) => {
@@ -166,11 +165,7 @@ const mergeScanDiagnosticsIntoReport = (
 		if (!designReport) {
 			designReport = emptyDesignReport({
 				designFileId,
-				designFile:
-					diagnostic.designFile ??
-					summary?.file ??
-					options.designFile ??
-					"unknown",
+				designFile: diagnostic.designFile ?? summary?.file ?? "unknown",
 				designName: summary?.name ?? "unknown",
 			});
 			reportsByDesignId.set(designFileId, designReport);
@@ -236,7 +231,7 @@ const persistDesignMigration = async (
 
 	const service = createDesignFileService(projectRoot);
 	try {
-		const write = await service.writeDesignFile(summary.file, design, {
+		const write = await service.writeDesignFile(summary.uuid, design, {
 			expectedRevision: baseRevision,
 		});
 		return {
@@ -273,7 +268,7 @@ export async function bulkMigrateProjectSystemComponentInstances(
 		});
 		report.failures.push({
 			designFileId: options.designFileId ?? "unknown",
-			designFile: options.designFile ?? "unknown",
+			designFile: "unknown",
 			designName: "unknown",
 			elementId: "unknown",
 			instanceId: "unknown",
@@ -294,7 +289,6 @@ export async function bulkMigrateProjectSystemComponentInstances(
 		systemHandle: options.systemHandle,
 		componentId: options.componentId,
 		designFileId: options.designFileId,
-		designFile: options.designFile,
 		validateManifest: true,
 	});
 
@@ -318,13 +312,11 @@ export async function bulkMigrateProjectSystemComponentInstances(
 	}
 
 	const service = createDesignFileService(projectRoot);
-	const summaries =
-		options.designFileId || options.designFile
-			? await resolveDesignSummariesForScan(projectRoot, {
-					designFileId: options.designFileId,
-					designFile: options.designFile,
-				})
-			: await service.listDesignSummaries();
+	const summaries = options.designFileId
+		? await resolveDesignSummariesForScan(projectRoot, {
+				designFileId: options.designFileId,
+			})
+		: await service.listDesignSummaries();
 	const summaryById = new Map(
 		summaries.map((summary) => [summary.uuid, summary]),
 	);
@@ -345,7 +337,7 @@ export async function bulkMigrateProjectSystemComponentInstances(
 
 		let read: Awaited<ReturnType<typeof service.readDesignFile>>;
 		try {
-			read = await service.readDesignFile(summary.file);
+			read = await service.readDesignFile(summary.uuid);
 		} catch (error) {
 			const message =
 				error instanceof DesignFileServiceError

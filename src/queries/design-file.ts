@@ -4,16 +4,14 @@ import type { TrickroomDesign, TrickroomDesignSummary } from "../types";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
-export const getDesignFileForUuid = (uuid: string) => `${uuid}.json`;
-
 export const designSummariesQueryKey = ["trickroom-designs"];
 export const designSummariesProjectQueryKey = (
 	projectScope?: ProjectQueryScope,
 ) => withProjectQueryScope(designSummariesQueryKey, projectScope);
 export const designFileQueryKey = (
-	file: string,
+	designId: string,
 	projectScope?: ProjectQueryScope,
-) => withProjectQueryScope(["trickroom-design", file], projectScope);
+) => withProjectQueryScope(["trickroom-design", designId], projectScope);
 
 export type DesignFileSnapshot = {
 	design: TrickroomDesign;
@@ -33,8 +31,8 @@ const readDesignSnapshot = async (response: Response) => {
 	return { design, revision: revision as DesignFileRevision };
 };
 
-const fetchDesignFile = async (file: string) => {
-	const query = new URLSearchParams({ file });
+const fetchDesignFile = async (designId: string) => {
+	const query = new URLSearchParams({ id: designId });
 	const response = await fetch(`/api/trickroom/design?${query.toString()}`);
 	return readDesignSnapshot(response);
 };
@@ -47,11 +45,11 @@ const fetchDesignSummaries = async () => {
 const saveQueues = new Map<string, Promise<unknown>>();
 
 const putDesignFile = async (
-	file: string,
+	designId: string,
 	design: TrickroomDesign,
 	expectedRevision?: DesignFileRevision | null,
 ) => {
-	const query = new URLSearchParams({ file });
+	const query = new URLSearchParams({ id: designId });
 	const response = await fetch(`/api/trickroom/design?${query.toString()}`, {
 		method: "PUT",
 		headers: {
@@ -67,27 +65,27 @@ const putDesignFile = async (
 };
 
 export const saveDesignFile = (
-	file: string,
+	designId: string,
 	design: TrickroomDesign,
 	expectedRevision?: DesignFileRevision | null,
 ) => {
-	const previousSave = saveQueues.get(file);
+	const previousSave = saveQueues.get(designId);
 	const queuedSave = previousSave
 		? previousSave
 				.catch(() => undefined)
-				.then(() => putDesignFile(file, design, expectedRevision))
-		: putDesignFile(file, design, expectedRevision);
+				.then(() => putDesignFile(designId, design, expectedRevision))
+		: putDesignFile(designId, design, expectedRevision);
 
-	saveQueues.set(file, queuedSave);
+	saveQueues.set(designId, queuedSave);
 	queuedSave.then(
 		() => {
-			if (saveQueues.get(file) === queuedSave) {
-				saveQueues.delete(file);
+			if (saveQueues.get(designId) === queuedSave) {
+				saveQueues.delete(designId);
 			}
 		},
 		() => {
-			if (saveQueues.get(file) === queuedSave) {
-				saveQueues.delete(file);
+			if (saveQueues.get(designId) === queuedSave) {
+				saveQueues.delete(designId);
 			}
 		},
 	);
@@ -95,13 +93,17 @@ export const saveDesignFile = (
 	return queuedSave;
 };
 
-export const renameDesignFile = async (file: string, name: string) => {
-	const snapshot = await fetchDesignFile(file);
-	return saveDesignFile(file, { ...snapshot.design, name }, snapshot.revision);
+export const renameDesignFile = async (designId: string, name: string) => {
+	const snapshot = await fetchDesignFile(designId);
+	return saveDesignFile(
+		designId,
+		{ ...snapshot.design, name },
+		snapshot.revision,
+	);
 };
 
-export const deleteDesignFile = async (file: string) => {
-	const query = new URLSearchParams({ file });
+export const deleteDesignFile = async (designId: string) => {
+	const query = new URLSearchParams({ id: designId });
 	const response = await fetch(`/api/trickroom/design?${query.toString()}`, {
 		method: "DELETE",
 	});
@@ -110,10 +112,10 @@ export const deleteDesignFile = async (file: string) => {
 };
 
 export const createDesignFile = async (
-	file: string,
+	designId: string,
 	design: TrickroomDesign,
 ) => {
-	const query = new URLSearchParams({ file });
+	const query = new URLSearchParams({ id: designId });
 	const response = await fetch(`/api/trickroom/design?${query.toString()}`, {
 		method: "POST",
 		headers: {
@@ -126,13 +128,13 @@ export const createDesignFile = async (
 };
 
 export const extractDesignSubtreeToFile = async ({
-	sourceFile,
-	targetFile,
+	sourceDesignId,
+	targetDesignId,
 	elementId,
 	name,
 }: {
-	sourceFile: string;
-	targetFile: string;
+	sourceDesignId: string;
+	targetDesignId: string;
 	elementId: string;
 	name?: string;
 }) => {
@@ -142,8 +144,8 @@ export const extractDesignSubtreeToFile = async ({
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({
-			sourceFile,
-			targetFile,
+			sourceDesignId,
+			targetDesignId,
 			elementId,
 			...(name !== undefined ? { name } : {}),
 		}),
@@ -153,12 +155,12 @@ export const extractDesignSubtreeToFile = async ({
 };
 
 export const designFileQueryOptions = (
-	file: string,
+	designId: string,
 	projectScope?: ProjectQueryScope,
 ) =>
 	queryOptions({
-		queryKey: designFileQueryKey(file, projectScope),
-		queryFn: () => fetchDesignFile(file),
+		queryKey: designFileQueryKey(designId, projectScope),
+		queryFn: () => fetchDesignFile(designId),
 	});
 
 export const designSummariesQueryOptions = (projectScope?: ProjectQueryScope) =>

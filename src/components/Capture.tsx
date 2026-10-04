@@ -16,10 +16,7 @@ import { useInjectSystemFonts } from "../hooks/useInjectSystemFonts";
 import { useInjectSystemTheme } from "../hooks/useInjectSystemTheme";
 import stageDocRaw from "../iframe/shell.html?raw";
 import { getStagePreviewContainerClassName } from "../preview/stage-preview-dark-mode";
-import {
-	designFileQueryOptions,
-	getDesignFileForUuid,
-} from "../queries/design-file";
+import { designFileQueryOptions } from "../queries/design-file";
 import { systemComponentQueryOptions } from "../queries/system-components";
 import type { DesignFileRevision } from "../services/design-file-service.types";
 import { forceHydrateDesign, useDesignSystemId } from "../stores/design-store";
@@ -379,10 +376,9 @@ export function Capture() {
 	const [searchParams] = useSearchParams();
 	const nodeId = searchParams.get("node")?.trim() || undefined;
 	const projectScope = useProjectScope();
-	const designFile = designId ? getDesignFileForUuid(designId) : "";
 	const designQuery = useQuery({
-		...designFileQueryOptions(designFile, projectScope),
-		enabled: designFile.length > 0,
+		...designFileQueryOptions(designId ?? "", projectScope),
+		enabled: Boolean(designId),
 	});
 
 	if (!designId) {

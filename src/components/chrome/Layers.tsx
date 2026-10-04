@@ -104,7 +104,7 @@ const INDENT_PER_LEVEL = 12;
 type LayerProps = {
 	id: string;
 	depth: number;
-	designFile: string;
+	designId: string;
 	editRequestId: string | null;
 	hasTopSeparator: boolean;
 	open: boolean;
@@ -303,7 +303,7 @@ export function getBlockedDropInstructions(
 const Layer = memo(function Layer({
 	id,
 	depth,
-	designFile,
+	designId,
 	editRequestId,
 	hasTopSeparator,
 	open,
@@ -513,7 +513,7 @@ const Layer = memo(function Layer({
 		<div className={hasTopSeparator ? "border-t border-slate-200" : undefined}>
 			<LayerContextMenu
 				id={id}
-				designFile={designFile}
+				designId={designId}
 				isRecipeOwned={isRecipeOwned}
 				layerName={layer.name}
 				recipeInstanceId={recipeMetadata?.instanceId ?? null}
@@ -604,10 +604,10 @@ const Layer = memo(function Layer({
 });
 
 export function Layers({
-	designFile,
+	designId,
 	className,
 }: {
-	designFile: string;
+	designId: string;
 	className?: string;
 }) {
 	const { rootIds, entitiesById } = useLayerTreeSnapshot();
@@ -1086,7 +1086,7 @@ export function Layers({
 								<Layer
 									id={row.id}
 									depth={row.depth}
-									designFile={designFile}
+									designId={designId}
 									editRequestId={editRequestId}
 									hasTopSeparator={row.hasTopSeparator}
 									open={openById[row.id] !== false}

@@ -24,8 +24,8 @@ const isInvalidated = (
 describe("live project query invalidation", () => {
 	it("invalidates the changed design, summaries, and design usage", async () => {
 		const queryClient = new QueryClient();
-		const designKey = designFileQueryKey("home.json", "loc_1");
-		const otherDesignKey = designFileQueryKey("other.json", "loc_1");
+		const designKey = designFileQueryKey("home", "loc_1");
+		const otherDesignKey = designFileQueryKey("other", "loc_1");
 		const summariesKey = designSummariesProjectQueryKey("loc_1");
 		const usageKey = ["trickroom-system-components-usage", "sys_1", "loc_1"];
 		for (const key of [designKey, otherDesignKey, summariesKey, usageKey]) {
@@ -89,7 +89,7 @@ describe("design events at a revision the browser already has", () => {
 
 	it("skips the design refetch but still refreshes summaries and usage", async () => {
 		const queryClient = new QueryClient();
-		const designKey = designFileQueryKey("home.json", "loc_1");
+		const designKey = designFileQueryKey("home", "loc_1");
 		const summariesKey = designSummariesProjectQueryKey("loc_1");
 		const usageKey = ["trickroom-system-components-usage", "sys_1", "loc_1"];
 		queryClient.setQueryData(designKey, { design: {}, revision });
@@ -109,7 +109,7 @@ describe("design events at a revision the browser already has", () => {
 
 	it("refetches when the event carries a different revision", async () => {
 		const queryClient = new QueryClient();
-		const designKey = designFileQueryKey("home.json", "loc_1");
+		const designKey = designFileQueryKey("home", "loc_1");
 		queryClient.setQueryData(designKey, { design: {}, revision });
 
 		await invalidateTrickroomFileEvent(
@@ -127,7 +127,7 @@ describe("design events at a revision the browser already has", () => {
 
 	it("refetches deleted designs", async () => {
 		const queryClient = new QueryClient();
-		const designKey = designFileQueryKey("home.json", "loc_1");
+		const designKey = designFileQueryKey("home", "loc_1");
 		queryClient.setQueryData(designKey, { design: {}, revision });
 
 		await invalidateTrickroomFileEvent(

@@ -20,13 +20,13 @@ import {
  * way.
  */
 export function useDesignDeepLink({
-	designFile,
-	hydratedDesignFileRef,
+	designId,
+	hydratedDesignIdRef,
 	rootIds,
 }: {
-	designFile: string | null;
+	designId: string | null;
 	/** The design file whose snapshot `designStore` currently holds. */
-	hydratedDesignFileRef: RefObject<string | null>;
+	hydratedDesignIdRef: RefObject<string | null>;
 	rootIds: readonly string[];
 }) {
 	const [searchParams] = useSearchParams();
@@ -41,8 +41,8 @@ export function useDesignDeepLink({
 		}
 		// Wait for this design's snapshot; `rootIds` changes when it lands.
 		if (
-			!designFile ||
-			hydratedDesignFileRef.current !== designFile ||
+			!designId ||
+			hydratedDesignIdRef.current !== designId ||
 			rootIds.length === 0
 		) {
 			return;
@@ -81,8 +81,8 @@ export function useDesignDeepLink({
 		);
 	}, [
 		boardId,
-		designFile,
-		hydratedDesignFileRef,
+		designId,
+		hydratedDesignIdRef,
 		layerId,
 		location.key,
 		location.pathname,

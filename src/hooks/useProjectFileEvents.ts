@@ -73,7 +73,10 @@ export async function invalidateTrickroomFileEvent(
 			await invalidatePrefixes(queryClient, memoryQueryPrefixes);
 			return;
 		}
-		const designKey = designFileQueryKey(file, projectScope);
+		const designKey = designFileQueryKey(
+			file.replace(/\.json$/, ""),
+			projectScope,
+		);
 		// The browser already holds this exact revision (typically its own
 		// save echoing back), so refetching the design would return the same
 		// bytes. Summaries and usage still change with every write.

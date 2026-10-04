@@ -20,10 +20,10 @@ const normalizeScope = (projectScope: ProjectQueryScope) => {
 
 export function getResponsiveStageSessionStorageKey(
 	projectScope: ProjectQueryScope,
-	designFile: string | null | undefined,
+	designId: string | null | undefined,
 ) {
 	const normalizedDesignFile =
-		typeof designFile === "string" ? designFile.trim() : "";
+		typeof designId === "string" ? designId.trim() : "";
 	if (!normalizedDesignFile) {
 		return null;
 	}
@@ -84,7 +84,7 @@ function getSessionStorage() {
 
 export function readResponsiveStageSessionWidth(
 	projectScope: ProjectQueryScope,
-	designFile: string | null | undefined,
+	designId: string | null | undefined,
 ) {
 	const storage = getSessionStorage();
 	if (!storage) {
@@ -93,13 +93,13 @@ export function readResponsiveStageSessionWidth(
 
 	return readResponsiveStageSessionWidthFromStorage(
 		storage,
-		getResponsiveStageSessionStorageKey(projectScope, designFile),
+		getResponsiveStageSessionStorageKey(projectScope, designId),
 	);
 }
 
 export function writeResponsiveStageSessionWidth(
 	projectScope: ProjectQueryScope,
-	designFile: string | null | undefined,
+	designId: string | null | undefined,
 	width: number,
 ) {
 	const storage = getSessionStorage();
@@ -109,7 +109,7 @@ export function writeResponsiveStageSessionWidth(
 
 	writeResponsiveStageSessionWidthToStorage(
 		storage,
-		getResponsiveStageSessionStorageKey(projectScope, designFile),
+		getResponsiveStageSessionStorageKey(projectScope, designId),
 		width,
 	);
 }

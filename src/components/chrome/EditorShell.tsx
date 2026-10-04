@@ -49,15 +49,15 @@ type SaveRequest = {
 };
 
 type SaveControlProps = {
-	designFile: string;
+	designId: string;
 };
 
 type EditorShellProps = {
-	designFile: string;
+	designId: string;
 	children: ReactNode;
 };
 
-function SaveControl({ designFile }: SaveControlProps) {
+function SaveControl({ designId }: SaveControlProps) {
 	const queryClient = useQueryClient();
 	const projectScope = useProjectScope();
 	const hasUnsavedChanges = useHasUnsavedChanges();
@@ -67,11 +67,11 @@ function SaveControl({ designFile }: SaveControlProps) {
 	const saveErrorRevisionRef = useRef<number | null>(null);
 	const saveMutation = useMutation({
 		mutationFn: ({ design, persistedRevision }: SaveRequest) =>
-			saveDesignFile(designFile, design, persistedRevision),
+			saveDesignFile(designId, design, persistedRevision),
 		onSuccess: (saved, request) => {
 			saveErrorRevisionRef.current = null;
 			commitDesignSave(queryClient, {
-				designFile,
+				designId,
 				projectScope,
 				saved,
 				savedStoreRevision: request.revision,
@@ -80,7 +80,7 @@ function SaveControl({ designFile }: SaveControlProps) {
 		onError: (_error, request) => {
 			saveErrorRevisionRef.current = request.revision;
 			void queryClient.invalidateQueries({
-				queryKey: designFileQueryKey(designFile, projectScope),
+				queryKey: designFileQueryKey(designId, projectScope),
 			});
 		},
 		onSettled: () => setDesignSavePending(false),
@@ -229,7 +229,7 @@ function DesignTitle() {
 	);
 }
 
-function LeftSidebar({ designFile }: { designFile: string }) {
+function LeftSidebar({ designId }: { designId: string }) {
 	const navigate = useNavigate();
 	const systemName = useDesignSystemName();
 	const systemId = useDesignSystemId();
@@ -255,9 +255,9 @@ function LeftSidebar({ designFile }: { designFile: string }) {
 					</span>
 				</div>
 				<OpenDesignTokensButton systemId={systemId} />
-				<SaveControl designFile={designFile} />
+				<SaveControl designId={designId} />
 			</header>
-			<Layers designFile={designFile} className="flex-1" />
+			<Layers designId={designId} className="flex-1" />
 		</aside>
 	);
 }
@@ -272,7 +272,7 @@ function RightInspector() {
 	);
 }
 
-function EditorShellComponent({ designFile, children }: EditorShellProps) {
+function EditorShellComponent({ designId, children }: EditorShellProps) {
 	const navigate = useNavigate();
 	const handleFocusShortcut = useCallback(
 		(event: KeyboardEvent) => {
@@ -312,7 +312,7 @@ function EditorShellComponent({ designFile, children }: EditorShellProps) {
 	return (
 		<div className="absolute inset-0 z-10 flex min-h-0 bg-slate-100 text-xs text-slate-950">
 			<div data-editor-region="rail" tabIndex={-1} className="flex min-h-0">
-				<LeftSidebar designFile={designFile} />
+				<LeftSidebar designId={designId} />
 			</div>
 			<main
 				data-editor-region="workspace"

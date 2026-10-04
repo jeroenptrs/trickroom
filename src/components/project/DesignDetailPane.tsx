@@ -50,10 +50,10 @@ export function DesignDetailPane({
 	const systemName = design.systemName ?? "-";
 	const editedTime = formatRelativeTime(design.modifiedAt);
 	const renameMutation = useMutation({
-		mutationFn: (name: string) => renameDesignFile(design.file, name),
+		mutationFn: (name: string) => renameDesignFile(design.uuid, name),
 		onSuccess: async (renamedDesign) => {
 			queryClient.setQueryData(
-				designFileQueryKey(design.file, projectScope),
+				designFileQueryKey(design.uuid, projectScope),
 				renamedDesign,
 			);
 			await queryClient.invalidateQueries({
@@ -62,10 +62,10 @@ export function DesignDetailPane({
 		},
 	});
 	const deleteMutation = useMutation({
-		mutationFn: () => deleteDesignFile(design.file),
+		mutationFn: () => deleteDesignFile(design.uuid),
 		onSuccess: async () => {
 			queryClient.removeQueries({
-				queryKey: designFileQueryKey(design.file, projectScope),
+				queryKey: designFileQueryKey(design.uuid, projectScope),
 			});
 			await queryClient.invalidateQueries({
 				queryKey: designSummariesQueryKey,
@@ -251,7 +251,7 @@ export function DesignDetailPane({
 						</DetailSection>
 
 						<DetailSection title="Storage & Resource">
-							<ReadOnlyField label="Design file" value={design.file} />
+							<ReadOnlyField label="Design file" value={design.uuid} />
 							<ReadOnlyField
 								label="Resource URI"
 								value={resourceUri}
