@@ -17,6 +17,11 @@ import {
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
 
+/** Structured payload of a JSON tool result. */
+const structured = (result: unknown) =>
+	((result as { structuredContent?: unknown }).structuredContent ??
+		{}) as Record<string, unknown>;
+
 describe("MCP screenshot tools", () => {
 	const fixtures: TrickroomMcpProjectFixture[] = [];
 	const sessions: TrickroomMcpClientSession[] = [];
@@ -365,7 +370,7 @@ describe("MCP screenshot tools", () => {
 			name: "createSystemComponentDraft",
 			arguments: {
 				systemName: "Core",
-				expectedRevision: listed.structuredContent?.revision,
+				expectedRevision: structured(listed).revision,
 				slug: "badge",
 				name: "Badge",
 				draft: {
@@ -397,8 +402,8 @@ describe("MCP screenshot tools", () => {
 		expect(requests).toEqual([
 			expect.objectContaining({
 				component: {
-					systemId: String(listed.structuredContent?.systemId),
-					componentId: String(created.structuredContent?.componentId),
+					systemId: String(structured(listed).systemId),
+					componentId: String(structured(created).componentId),
 					source: "draft",
 					rows: "tone",
 				},
