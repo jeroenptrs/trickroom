@@ -88,7 +88,8 @@ const OPERATION_GUIDE: Record<
 	updateElementText: { purpose: "Replace the text of a text element." },
 	updateRecipeControl: {
 		purpose:
-			"Set a declared recipe control by instance id, path and prop. The instance id is the recipe's data-trickroom-recipe-instance value, not an element id; from a batch, use updateElementProps on the element at the control's path.",
+			"Set a declared recipe control. instanceId is any element of the instance ($step:N works) or the recipe instance id; path defaults to that element's template path.",
+		example: { instanceId: "$step:0", prop: "defaultOpen", value: false },
 	},
 	updateRecipeInstance: {
 		purpose:
@@ -132,7 +133,7 @@ const exampleParameters = (operation: DesignOperationName) =>
 	);
 
 export const buildOperationsTopic = () => ({
-	tools: `${TOOL.designApply}({ designFileId, expectedRevision, operations: [{ operation, parameters }], response? }) writes; validateOperationPlan takes the same steps and only dry-runs.`,
+	tools: `${TOOL.designApply}({ designFileId, expectedRevision, operations: [{ operation, parameters }], response? }) writes; ${TOOL.designValidate} takes the same steps and only dry-runs.`,
 	conventions: [
 		"name? marks an optional parameter. primitive = string | number | boolean | null.",
 		`Node = ${SUBTREE_NODE_SIGNATURE}`,

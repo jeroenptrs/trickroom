@@ -540,15 +540,16 @@ describe("trickroom MCP system component tools", () => {
 
 	it("returns a compact system component draft authoring contract", async () => {
 		const result = await session.client.callTool({
-			name: "getSystemComponentAuthoringContract",
-			arguments: { systemName: "Core" },
+			name: "guide",
+			arguments: { topic: "component-authoring", systemName: "Core" },
 		});
 
 		expect(result.isError).not.toBe(true);
-		expect(toolPayload(result)).toMatchObject({
-			contract: "system-component-authoring",
+		expect(toolPayload(result)["component-authoring"]).toMatchObject({
 			system: { requested: "Core", configured: true },
-			topics: expect.objectContaining({ variants: expect.any(String) }),
+			topics: expect.objectContaining({
+				"component-variants": expect.any(String),
+			}),
 		});
 		expect(JSON.stringify(toolPayload(result)).length).toBeLessThan(6_000);
 	});

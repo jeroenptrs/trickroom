@@ -7,16 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { upsertProjectLocation } from "../app-state/project-registry";
 import { readMcpEnabledProjectContext } from "../project";
 import { expandRegistryRecipe } from "../recipes/expansion";
-import {
-	recipeIdProp,
-	recipeInstanceProp,
-	recipePathProp,
-	recipeRootProp,
-	recipeSlotProp,
-} from "../recipes/markers";
+import { recipeIdProp, recipeInstanceProp } from "../recipes/markers";
 import { createTrickroomApp } from "../server";
 import type { TrickroomDesign } from "../types";
-import { assetIdProp } from "../utils/resource-props";
 import { storeDomainTokens } from "../utils/tailwind-token-store";
 import { createTrickroomMcpServer } from "./server";
 import { applyOperation, toolPayload } from "./test-support";
@@ -1217,11 +1210,7 @@ describe("trickroom MCP discovery tools", () => {
 			);
 
 			for (const name of [
-				"listRegistries",
-				"listRegistryComponents",
-				"describeRegistryComponent",
-				"listRegistryRecipes",
-				"describeRegistryRecipe",
+				"guide",
 				"system_read",
 				"component_read",
 				"memory_read",
@@ -1233,20 +1222,15 @@ describe("trickroom MCP discovery tools", () => {
 			}
 
 			expect(
-				toolsByName.get("describeRegistryComponent")?.inputSchema.properties,
-			).toHaveProperty("library");
-			expect(
-				toolsByName.get("describeRegistryComponent")?.inputSchema.properties,
-			).toHaveProperty("component");
-			expect(
-				toolsByName.get("listRegistryRecipes")?.inputSchema.properties,
-			).toHaveProperty("library");
-			expect(
-				toolsByName.get("describeRegistryRecipe")?.inputSchema.properties,
-			).toHaveProperty("library");
-			expect(
-				toolsByName.get("describeRegistryRecipe")?.inputSchema.properties,
-			).toHaveProperty("recipe");
+				Object.keys(toolsByName.get("guide")?.inputSchema.properties ?? {}),
+			).toEqual([
+				"topic",
+				"designFileId",
+				"systemName",
+				"library",
+				"name",
+				"project",
+			]);
 			expect(toolsByName.get("system_read")?.inputSchema.required).toEqual([
 				"view",
 			]);
@@ -1258,456 +1242,172 @@ describe("trickroom MCP discovery tools", () => {
 		}
 	});
 
-	it("lists and describes built-in registry components", async () => {
+	it("describes built-in registry elements in the guide's registry topic", async () => {
 		const projectRoot = await createProjectRoot();
 		const { client, close } = await createClient(projectRoot);
+		const registryTopic = async (args: Record<string, unknown>) =>
+			toolPayload(
+				await client.callTool({
+					name: "guide",
+					arguments: { topic: "registry", ...args },
+				}),
+			).registry;
 
 		try {
-			const listRegistriesResult = await client.callTool({
-				name: "listRegistries",
-				arguments: {},
-			});
-			expect(toolPayload(listRegistriesResult)).toMatchObject({
-				registries: expect.arrayContaining([
-					expect.objectContaining({
-						library: "base-ui",
-						builtIn: true,
-						readOnly: true,
-						componentCount: expect.any(Number),
-						components: expect.arrayContaining([
-							"avatar.fallback",
-							"avatar.image",
-							"avatar.root",
-							"menu.item",
-							"menu.popup",
-							"menu.portal",
-							"menu.positioner",
-							"menu.root",
-							"menu.separator",
-							"menu.trigger",
-							"separator",
-						]),
+			const index = await registryTopic({});
+			expect(index.libraries).toEqual([
+				expect.objectContaining({
+					library: "base-ui",
+					elementCount: expect.any(Number),
+					families: expect.objectContaining({
+						avatar: 3,
+						menu: expect.any(Number),
+						separator: 1,
 					}),
-					expect.objectContaining({
-						library: "trickroom",
-						builtIn: true,
-						readOnly: true,
-						componentCount: 4,
-						components: ["asset", "container", "icon", "text"],
-					}),
-				]),
-			});
+				}),
+				expect.objectContaining({ library: "trickroom" }),
+			]);
 
-			const componentsResult = await client.callTool({
-				name: "listRegistryComponents",
-				arguments: {
-					library: "trickroom",
-				},
-			});
-			const trickroomRegistry = (
-				toolPayload(componentsResult) as {
-					registries: { library: string; components: unknown[] }[];
-				}
-			).registries.find((registry) => registry.library === "trickroom");
-			const trickroomComponentSummaries = trickroomRegistry?.components.map(
-				(component) => {
-					const summary = component as {
-						component: string;
-						role: string;
-						allowedChildren: { kind: string };
-					};
-					return {
-						component: summary.component,
-						role: summary.role,
-						allowedChildren: { kind: summary.allowedChildren.kind },
-					};
-				},
-			);
-			expect(trickroomComponentSummaries).toEqual([
+			const trickroom = await registryTopic({ library: "trickroom" });
+			expect(
+				trickroom.elements.map(
+					(element: { component: string; role: string }) => [
+						element.component,
+						element.role,
+					],
+				),
+			).toEqual([
+				["trickroom/asset", "leaf"],
+				["trickroom/container", "branch"],
+				["trickroom/icon", "leaf"],
+				["trickroom/text", "text"],
+			]);
+			expect(trickroom.roles.text).toContain("updateElementText");
+
+			const separatorClasses =
+				"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full";
+			for (const name of ["separator", "menu.separator"]) {
+				const { elements } = await registryTopic({ library: "base-ui", name });
+				expect(elements).toContainEqual(
+					expect.objectContaining({
+						component: `base-ui/${name}`,
+						role: "leaf",
+						baseClassName: separatorClasses,
+					}),
+				);
+			}
+			const [separator] = (
+				await registryTopic({ library: "base-ui", name: "separator" })
+			).elements;
+			expect(separator.controls).toEqual([
 				{
-					component: "asset",
-					role: "leaf",
-					allowedChildren: { kind: "none" },
-				},
-				{
-					component: "container",
-					role: "branch",
-					allowedChildren: { kind: "nodes" },
-				},
-				{
-					component: "icon",
-					role: "leaf",
-					allowedChildren: { kind: "none" },
-				},
-				{
-					component: "text",
-					role: "text",
-					allowedChildren: { kind: "none" },
+					prop: "orientation",
+					type: "string",
+					options: ["horizontal", "vertical"],
+					default: "horizontal",
 				},
 			]);
 
-			const describeResult = await client.callTool({
-				name: "describeRegistryComponent",
-				arguments: {
-					library: "trickroom",
-					component: "text",
-				},
-			});
-			expect(toolPayload(describeResult)).toMatchObject({
-				library: "trickroom",
-				component: "text",
-				role: "text",
-				allowedChildren: {
-					kind: "none",
-					serializedChildren: "string",
-				},
-				defaults: {
-					props: {
-						"data-trickroom-library": "trickroom",
-						"data-trickroom-component": "text",
-						"data-trickroom-role": "text",
-					},
-					children: "Text",
-				},
-			});
-
-			const separatorResult = await client.callTool({
-				name: "describeRegistryComponent",
-				arguments: {
-					library: "base-ui",
-					component: "separator",
-				},
-			});
-			expect(toolPayload(separatorResult)).toMatchObject({
-				library: "base-ui",
-				component: "separator",
-				role: "leaf",
-				allowedChildren: {
-					kind: "none",
-					serializedChildren: "empty-array",
-				},
-				defaults: {
-					baseClassName:
-						"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
-					props: {
-						"data-trickroom-library": "base-ui",
-						"data-trickroom-component": "separator",
-						"data-trickroom-role": "leaf",
-						orientation: "horizontal",
-					},
-					children: [],
-				},
-			});
-
-			const menuSeparatorResult = await client.callTool({
-				name: "describeRegistryComponent",
-				arguments: {
-					library: "base-ui",
-					component: "menu.separator",
-				},
-			});
-			expect(toolPayload(menuSeparatorResult)).toMatchObject({
-				library: "base-ui",
-				component: "menu.separator",
-				role: "leaf",
-				allowedChildren: {
-					kind: "none",
-					serializedChildren: "empty-array",
-				},
-				defaults: {
-					baseClassName:
-						"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
-					props: {
-						"data-trickroom-library": "base-ui",
-						"data-trickroom-component": "menu.separator",
-						"data-trickroom-role": "leaf",
-					},
-					children: [],
-				},
-			});
-
-			const assetDescribeResult = await client.callTool({
-				name: "describeRegistryComponent",
-				arguments: {
-					library: "trickroom",
-					component: "asset",
-				},
-			});
-			const assetControls = (
-				toolPayload(assetDescribeResult) as {
-					controls: Array<{
-						prop: string;
-						visibility: string | null;
-						deprecationReason: string | null;
-					}>;
-				}
-			).controls;
-			expect(assetControls).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						prop: "objectFit",
-						visibility: "deprecated",
-						deprecationReason: expect.any(String),
-					}),
-					expect.objectContaining({
-						prop: "objectPosition",
-						visibility: "deprecated",
-						deprecationReason: expect.any(String),
-					}),
-					expect.objectContaining({
-						prop: "loading",
-						visibility: "deprecated",
-						deprecationReason: expect.any(String),
-					}),
-					expect.objectContaining({
-						prop: "decoding",
-						visibility: "deprecated",
-						deprecationReason: expect.any(String),
-					}),
-				]),
-			);
-			expect(assetControls).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						prop: "alt",
-						visibility: null,
-					}),
-				]),
-			);
+			const [asset] = (
+				await registryTopic({ library: "trickroom", name: "asset" })
+			).elements;
+			for (const prop of [
+				"objectFit",
+				"objectPosition",
+				"loading",
+				"decoding",
+			]) {
+				expect(asset.controls).toContainEqual(
+					expect.objectContaining({ prop, deprecated: expect.any(String) }),
+				);
+			}
+			expect(
+				asset.controls.find(
+					(control: { prop: string }) => control.prop === "alt",
+				),
+			).not.toHaveProperty("deprecated");
 		} finally {
 			await close();
 		}
 	});
 
-	it("lists and describes built-in registry recipes", async () => {
+	it("indexes and details built-in recipes in the guide's recipes topic", async () => {
 		const projectRoot = await createProjectRoot();
 		const { client, close } = await createClient(projectRoot);
+		const recipesTopic = async (args: Record<string, unknown>) =>
+			toolPayload(
+				await client.callTool({
+					name: "guide",
+					arguments: { topic: "recipes", ...args },
+				}),
+			).recipes;
 
 		try {
-			const recipesResult = await client.callTool({
-				name: "listRegistryRecipes",
-				arguments: {
-					library: "base-ui",
-				},
-			});
-			expect(toolPayload(recipesResult)).toMatchObject({
-				registries: expect.arrayContaining([
-					expect.objectContaining({
-						library: "base-ui",
-						recipes: expect.arrayContaining([
-							expect.objectContaining({
-								library: "base-ui",
-								recipe: "base-ui/avatar.default",
-								label: "Avatar",
-								version: 1,
-								root: {
-									library: "base-ui",
-									component: "avatar.root",
-									ref: "base-ui/avatar.root",
-								},
-								structure: {
-									nodeCount: 3,
-									paths: ["root", "image", "fallback"],
-								},
-								slots: [
-									{
-										name: "fallback",
-										label: "Fallback",
-										hostPath: "fallback",
-									},
-								],
-							}),
-							expect.objectContaining({
-								library: "base-ui",
-								recipe: "base-ui/menu.default",
-								label: "Menu",
-								version: 1,
-								root: {
-									library: "base-ui",
-									component: "menu.root",
-									ref: "base-ui/menu.root",
-								},
-								structure: {
-									nodeCount: 5,
-									paths: ["root", "trigger", "portal", "positioner", "popup"],
-								},
-								slots: [
-									{
-										name: "items",
-										label: "Items",
-										hostPath: "popup",
-									},
-									{
-										name: "trigger",
-										label: "Trigger",
-										hostPath: "trigger",
-									},
-								],
-							}),
-						]),
-					}),
+			const index = await recipesTopic({ library: "base-ui" });
+			expect(index.recipes).toEqual(
+				expect.arrayContaining([
+					"base-ui/avatar.default: Avatar. slots: fallback",
+					expect.stringMatching(
+						/^base-ui\/menu\.default: Menu\. slots: trigger, items\. controls: .*align@positioner/u,
+					),
 				]),
-			});
+			);
 
-			const describeResult = await client.callTool({
-				name: "describeRegistryRecipe",
-				arguments: {
-					library: "base-ui",
-					recipe: "avatar.default",
-				},
-			});
-			expect(toolPayload(describeResult)).toMatchObject({
-				library: "base-ui",
+			const [avatar] = (await recipesTopic({ name: "avatar" })).recipes;
+			expect(avatar).toMatchObject({
 				recipe: "base-ui/avatar.default",
-				localRecipe: "avatar.default",
 				label: "Avatar",
-				slots: [
-					{
-						name: "fallback",
-						label: "Fallback",
-						hostPath: "fallback",
-					},
-				],
-				structure: {
-					nodeCount: 3,
-					root: {
-						path: "root",
-						library: "base-ui",
-						component: "avatar.root",
-						role: "branch",
-						slot: null,
-						children: [
-							{
-								path: "image",
-								library: "base-ui",
-								component: "avatar.image",
-								role: "leaf",
-								defaults: {
-									props: {
-										[assetIdProp]: "",
-										alt: "",
-									},
-									content: {
-										kind: "none",
-										children: [],
-									},
-								},
-								contract: {
-									structuralNode: true,
-									lockedByRecipe: true,
-									slotHost: false,
-									authoredChildrenAllowed: false,
-								},
-							},
-							{
-								path: "fallback",
-								library: "base-ui",
-								component: "avatar.fallback",
-								role: "branch",
-								slot: "fallback",
-								contract: {
-									structuralNode: true,
-									lockedByRecipe: true,
-									slotHost: true,
-									authoredChildrenAllowed: true,
-								},
-							},
-						],
-					},
-				},
-				markerGuidance: {
-					systemOwned: true,
-					markerProps: [
-						recipeIdProp,
-						recipeInstanceProp,
-						recipeRootProp,
-						recipePathProp,
-						recipeSlotProp,
+				template: {
+					path: "root",
+					component: "base-ui/avatar.root",
+					children: [
+						{ path: "image", component: "base-ui/avatar.image" },
+						{
+							path: "fallback",
+							component: "base-ui/avatar.fallback",
+							slot: "fallback",
+						},
 					],
-					writableSurface: {
-						slots: ["fallback"],
-						controls: [],
-					},
 				},
+				slots: [{ name: "fallback", hostPath: "fallback" }],
 			});
-			expect(JSON.stringify(toolPayload(describeResult))).toContain(
-				"Do not pass recipe marker props to generic element mutation tools.",
-			);
-			expect(JSON.stringify(toolPayload(describeResult))).toContain(
-				"defaultsOmitMarkers",
-			);
+			// Marker props are Trickroom's; the guide never shows them.
+			expect(JSON.stringify(avatar)).not.toContain(recipeInstanceProp);
 
-			const menuDescribeResult = await client.callTool({
-				name: "describeRegistryRecipe",
-				arguments: {
-					library: "base-ui",
-					recipe: "menu.default",
-				},
-			});
-			expect(toolPayload(menuDescribeResult)).toMatchObject({
-				library: "base-ui",
+			const [menu] = (await recipesTopic({ name: "menu" })).recipes;
+			expect(menu).toMatchObject({
 				recipe: "base-ui/menu.default",
-				localRecipe: "menu.default",
-				label: "Menu",
+				template: {
+					path: "root",
+					children: [
+						{ path: "trigger", slot: "trigger" },
+						{
+							path: "portal",
+							children: [
+								{
+									path: "positioner",
+									children: [{ path: "popup", slot: "items" }],
+								},
+							],
+						},
+					],
+				},
 				slots: [
-					{
-						name: "items",
-						label: "Items",
-						hostPath: "popup",
-					},
-					{
-						name: "trigger",
-						label: "Trigger",
-						hostPath: "trigger",
-					},
+					{ name: "items", hostPath: "popup" },
+					{ name: "trigger", hostPath: "trigger" },
 				],
-				structure: {
-					nodeCount: 5,
-					root: {
-						path: "root",
-						library: "base-ui",
-						component: "menu.root",
-						children: [
-							{
-								path: "trigger",
-								component: "menu.trigger",
-								slot: "trigger",
-							},
-							{
-								path: "portal",
-								component: "menu.portal",
-								children: [
-									{
-										path: "positioner",
-										component: "menu.positioner",
-										children: [
-											{
-												path: "popup",
-												component: "menu.popup",
-												slot: "items",
-											},
-										],
-									},
-								],
-							},
-						],
-					},
-				},
-				markerGuidance: {
-					writableSurface: {
-						slots: ["items", "trigger"],
-						controls: [
-							"align",
-							"loopFocus",
-							"modal",
-							"openOnHover",
-							"orientation",
-							"side",
-							"sideOffset",
-						],
-					},
-				},
 			});
+			expect(
+				menu.controls.map((control: { prop: string }) => control.prop).sort(),
+			).toEqual([
+				"align",
+				"loopFocus",
+				"modal",
+				"openOnHover",
+				"orientation",
+				"side",
+				"sideOffset",
+			]);
 		} finally {
 			await close();
 		}

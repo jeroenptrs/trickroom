@@ -55,9 +55,9 @@ const CORE_RULES = [
 ];
 
 const CORE_WORKFLOW = [
-	"Read: the design block below has the revision and boards; readDesignGraph gives structure and ids, readSubtree the detail. If memoryNotes counts are non-zero, listMemoryNotes({ designFileId }) and read the notes that bear on your task.",
+	`Read: the design block below has the revision and boards; ${TOOL.designRead} with view "outline" gives structure and ids, with elementId the detail. If memoryNotes counts are non-zero, ${TOOL.memoryRead}({ designFileId }) and read the notes that bear on your task. When the human points at "this", ${TOOL.editorContext} says what they have open and selected.`,
 	`Write in batches: ${TOOL.designApply} runs ordered steps atomically and returns one newRevision. Steps reference elements created by earlier steps with $step:N:tempId:<tempId> or $step:N:slot:<slot>. Prefer a system component (it carries the system's styling), then a recipe, then hand-built elements.`,
-	'Check: fix warnings the write returns. screenshotBoard the changed boards with viewport: ["mobile", "tablet", "desktop"] in one call and look at the images (scale: 1 for fine detail). Then validateDesignFile.',
+	`Check: fix warnings the write returns. ${TOOL.designScreenshot} the changed boards with viewport: ["mobile", "tablet", "desktop"] in one call and look at the images (scale: 1 for fine detail). Then ${TOOL.designValidate}, and ${TOOL.editorFocus} to show the human what changed.`,
 ];
 
 const CORE_EXAMPLE = {
@@ -102,7 +102,7 @@ const CORE_EXAMPLE = {
 };
 
 const buildStepReferencesTopic = () => ({
-	appliesTo: `${TOOL.designApply} and validateOperationPlan parameters elementId, parentId, targetParentId, sourceElementId, instanceId and rootElementId.`,
+	appliesTo: `${TOOL.designApply} and ${TOOL.designValidate} parameters elementId, parentId, targetParentId, sourceElementId, instanceId and rootElementId.`,
 	forms: {
 		"$step:N": "The element step N changed or inserted (its root).",
 		"$step:N:rootElementId": "The root element step N inserted.",
@@ -117,7 +117,7 @@ const buildStepReferencesTopic = () => ({
 		"Steps are numbered from 0.",
 		"A bare tempId is not an element id: always use a $step reference.",
 		"Slot names come from the recipes topic. Each step result lists the recipes it inserted with their slot host ids, for follow-up batches.",
-		"$step:N resolves to an element id. updateRecipeControl's instanceId is a recipe instance id, so set controls from a batch with updateElementProps on the recipe root instead (recipes topic).",
+		"$step:N resolves to an element id; updateRecipeControl accepts it as instanceId, with path defaulting to that element's template path.",
 		"A reference that does not resolve fails the step with INVALID_OPERATION_PARAMETERS and lists the accepted forms with the step's available tempIds or slots.",
 	],
 	example: [
@@ -168,8 +168,7 @@ const buildBoardsTopic = () => ({
 	],
 	states:
 		'For an interaction state, copy the base board (copySubtree with parentId null) and change the copy. Name boards by view and state, e.g. "Settings · Delete dialog".',
-	review:
-		'screenshotBoard with viewport: ["mobile", "tablet", "desktop"] captures the board at each width in one call; breakpoint variants resolve against each viewport. boardId takes several ids or "all" (up to 12 images per call).',
+	review: `${TOOL.designScreenshot} with viewport: ["mobile", "tablet", "desktop"] captures the board at each width in one call; breakpoint variants resolve against each viewport. boardId takes several ids or "all" (up to 12 images per call).`,
 });
 
 const COMPONENTS_USAGE = [
@@ -179,9 +178,9 @@ const COMPONENTS_USAGE = [
 	"The instance's own elements are locked: no name, className, text or prop edits, no moves or deletes. Change the instance with updateSystemComponentInstance: variantValues merges, unsetVariantAxes clears, overrides replaces the whole map. Delete the instance root to remove it.",
 	"Slots accept your own elements: insert into the slot host. Reads mark slot hosts with slot.",
 	"To size or position an instance in its layout, use an override target with the className capability (often root), or wrap the instance in a container.",
-	"listStaleSystemComponentUsages finds instances of older versions; migrateSystemComponentInstance moves one to the current version.",
+	`${TOOL.componentRead}({ view: "stale" }) finds instances of older versions; ${TOOL.componentMigrate} moves them to the current version.`,
 	"detachSystemComponent turns the instance into plain elements that no longer follow the component. Only for a one-off the user asked for.",
-	"describeSystemComponent returns one component's interface: variant axes with values and defaults, slots, override targets and props. To create or change components, use getSystemComponentAuthoringContract.",
+	`${TOOL.componentRead}({ componentId }) returns one component's interface: variant axes with values and defaults, slots, override targets and props. To create or change components, read ${TOOL.guide}({ topic: "component-authoring" }).`,
 ];
 
 const describePublishedComponent = (component: SystemComponentRecord) => {
@@ -276,11 +275,11 @@ const buildTokensTopic = async (input: DesignGuideInput) => {
 			"UNKNOWN_TAILWIND_UTILITY: Tailwind cannot generate the class, usually a typo. Checked when the system's CSS loads.",
 			"UNKNOWN_<DOMAIN>_TOKEN (COLOR, SPACING, FONT, TEXT, RADIUS, SHADOW): the system's Tailwind build cannot emit the class because it names a theme token the system lacks, or one the system removed on purpose.",
 			"Both come back in the write response with suggestions holding the nearest valid class, keeping variants, ! and /opacity. Fix them.",
-			"OUT_OF_SYSTEM_<DOMAIN>: an arbitrary value such as bg-[#123456] or rounded-[7px] that bypasses the system. Counted in warningCount, listed with response: { includeWarnings: true }. Prefer a token unless the user asked for that exact value.",
+			'OUT_OF_SYSTEM_<DOMAIN>: an arbitrary value such as bg-[#123456] or rounded-[7px] that bypasses the system. Counted in warningCount, listed with response: "full". Prefer a token unless the user asked for that exact value.',
 		],
 		classes:
 			"Tokens are Tailwind v4 theme variables, so a token's domain gives its utilities: color brand-500 → bg-brand-500, text-brand-500, border-brand-500; spacing pad-lg → p-pad-lg, gap-pad-lg; radius md → rounded-md; text sm → text-sm; font sans → font-sans; shadow card → shadow-card; breakpoint tablet → the tablet: variant.",
-		list: "listDesignTokens({ designFileId, domain?, query?, limit? }) returns token names and values. Filter by domain and query: color domains are often large.",
+		list: `${TOOL.systemRead}({ view: "tokens", designFileId, domain?, query?, limit? }) returns token names and values. Filter by domain and query: color domains are often large.`,
 		system: system
 			? {
 					systemName: system.systemName,
@@ -300,15 +299,13 @@ const buildResourcesTopic = async (input: DesignGuideInput) => {
 	const system = await input.readSystem();
 	const counts = system ? await input.readResourceCounts() : null;
 	return {
-		assets:
-			"trickroom/asset (leaf) shows a raster image from the design system: set props data-trickroom-asset-id (from listSystemAssets) and alt. Fit and size it with className (object-cover, aspect-video, size-*). The objectFit, objectPosition, loading and decoding props are legacy: use classes.",
-		icons:
-			"trickroom/icon (leaf) shows an SVG icon from the design system: set data-trickroom-icon-id (from listSystemIcons) and, for icons that carry meaning, aria-label. Size it with className.",
+		assets: `trickroom/asset (leaf) shows a raster image from the design system: set props data-trickroom-asset-id (from ${TOOL.systemRead} view "assets") and alt. Fit and size it with className (object-cover, aspect-video, size-*). The objectFit, objectPosition, loading and decoding props are legacy: use classes.`,
+		icons: `trickroom/icon (leaf) shows an SVG icon from the design system: set data-trickroom-icon-id (from ${TOOL.systemRead} view "icons") and, for icons that carry meaning, aria-label. Size it with className.`,
 		rules: [
 			"The design must be linked to a design system, and the id must exist in its catalog; unknown ids are rejected.",
-			'listSystemAssets and listSystemIcons take systemName, query (e.g. "arrow left") and limit. describeAsset and describeIcon return one entry; findAssetUsage and findIconUsage show where one is used.',
+			`${TOOL.systemRead} views "assets" and "icons" take query (e.g. "arrow left") and limit; with id they return one entry, and views "asset_usage" and "icon_usage" show where one is used.`,
 			"MCP returns ids and metadata, never image bytes or SVG source.",
-			"addSystemAsset and addSystemIconFolder register new files when policy allows.",
+			`${TOOL.systemUpdate} registers new image files and icon folders when policy allows.`,
 		],
 		system: system
 			? {
@@ -339,14 +336,13 @@ const buildValidationTopic = () => ({
 		"Writes return newRevision, created ids, the error issues the write introduced, warningCount, and warnings: likely typos (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) and MISSING_RENDERER (the stage draws a placeholder) on the elements the write touched, grouped by code and class. warningCount also covers file-level warnings.",
 		"preExistingErrorCount counts errors the design already had. They do not block a write; a plan that adds errors is refused with PLAN_LEAVES_ERRORS.",
 		'response: "full" lists every warning on the touched elements ungrouped and adds token diagnostics and each step\'s summary.',
-		"validateDesignFile returns every issue in the design. Run it before handing off.",
+		`${TOOL.designValidate} without operations returns every issue in the design. Run it before handing off.`,
 	],
-	dryRuns:
-		"validateOperationPlan dry-runs a batch, validateOperation one operation, validateSubtree a subtree insert, validateCopySubtree a copy. None of them write or return generated ids.",
+	dryRuns: `${TOOL.designValidate} with operations and expectedRevision dry-runs the same steps ${TOOL.designApply} takes: one operation, a subtree insert, a copy or a whole batch. It never writes or returns generated ids; each step's \`predicted\` says what it would do.`,
 	errorHints: [
 		"Unknown library, component or recipe: suggestions and the available names.",
 		"Unknown element or parent id: truncatedIdMatches, nameMatches and, when nothing matched, availableBoardIds.",
-		"Unknown board: availableBoards. A nested element id passed as a board points at screenshotNode.",
+		"Unknown board: availableBoards. A nested element id passed as a board says to use elementId instead.",
 		"Unknown system component: suggestions with the closest componentIds.",
 		"REVISION_MISMATCH: someone else wrote. Re-read the revision, check what changed, then retry.",
 	],
@@ -355,15 +351,15 @@ const buildValidationTopic = () => ({
 const buildMemoryTopic = async (input: DesignGuideInput) => ({
 	what: "Memory notes are durable steering notes on the project, a design system or a design: intent, usage, conventions, constraints, decisions and todos. They are never added to your context automatically: you read them on purpose.",
 	read: [
-		"listMemoryNotes({ designFileId }) indexes the project, the design's linked system and the design in one call: id, title, category, size, revision and a one-line summary per note, no bodies. listMemoryNotes({ scope }) indexes one scope.",
-		"getMemoryNote({ scope, noteId }), or noteIds for up to 20 notes, returns bodies. Before writing, read the notes that bear on your task and follow them over your own preferences.",
+		`${TOOL.memoryRead}({ designFileId }) indexes the project, the design's linked system and the design in one call: id, title, category, size, revision and a one-line summary per note, no bodies. ${TOOL.memoryRead}({ scope }) indexes one scope.`,
+		`${TOOL.memoryRead}({ scope, noteIds }) with one id or up to 20 returns bodies. Before writing, read the notes that bear on your task and follow them over your own preferences.`,
 		'Scopes: { kind: "design", designFileId }, { kind: "system", systemName } and "project".',
 	],
 	write: [
-		"addMemoryNote({ scope, category, title, body }) records what a later session needs: a decision and its reason, a constraint the user stated, a convention. Not progress logs or summaries of your work. Give it a title: the index shows it.",
+		`${TOOL.memoryWrite}({ action: "add", scope, category, title, body }) records what a later session needs: a decision and its reason, a constraint the user stated, a convention. Not progress logs or summaries of your work. Give it a title: the index shows it.`,
 		"Categories: intent, usage, conventions, constraints, decision, todo.",
-		"Bodies are markdown and may reference other entities, e.g. {{design:<uuid>}}; listReferenceTargets lists valid references for a scope.",
-		"updateMemoryNote changes a note with edits (append, prepend, exact-text replace) or a whole new body; it and deleteMemoryNote take the note's revision from the index or getMemoryNote as expectedRevision.",
+		`Bodies are markdown and may reference other entities, e.g. {{design:<uuid>}}; ${TOOL.memoryRead}({ scope, referenceType }) lists valid references.`,
+		`${TOOL.memoryWrite} action "update" changes a note with edits (append, prepend, exact-text replace) or a whole new body; "update" and "delete" take the note's revision from the index as expectedRevision.`,
 	],
 	noteCounts: await input.readMemoryCounts(),
 });
@@ -373,9 +369,9 @@ const buildExamplesTopic = () => [
 		task: "New design with one responsive screen",
 		calls: [
 			{
-				tool: "createDesignFile",
+				tool: TOOL.designCreate,
 				arguments: { name: "Billing" },
-				note: "Returns the design id and newRevision. The design has no boards yet.",
+				note: "Returns designFile.id and newRevision. The design has no boards yet.",
 			},
 			{
 				tool: TOOL.designApply,
@@ -425,7 +421,7 @@ const buildExamplesTopic = () => [
 				},
 			},
 			{
-				tool: "screenshotBoard",
+				tool: TOOL.designScreenshot,
 				arguments: {
 					designFileId: "<design uuid>",
 					boardId: "<page id from idMap>",
@@ -521,8 +517,8 @@ const buildExamplesTopic = () => [
 		task: "Icon and image from the design system",
 		calls: [
 			{
-				tool: "listSystemIcons",
-				arguments: { systemName: "<system name>", query: "search", limit: 5 },
+				tool: TOOL.systemRead,
+				arguments: { view: "icons", query: "search", limit: 5 },
 			},
 			{
 				tool: TOOL.designApply,
@@ -634,6 +630,5 @@ export const buildDesignGuideCore = async (input: DesignGuideInput) => ({
 	example: CORE_EXAMPLE,
 	...(await buildDesignCoreFacts(input)),
 	topics: listGuideTopics(DESIGN_GUIDE_TOPICS),
-	topicUsage:
-		'Fetch with getDesignAuthoringContract({ designFileId, topic: "recipes" }) or topic: ["operations", "boards"]; name and library filter registry, recipes and components. Component drafts: getSystemComponentAuthoringContract.',
+	topicUsage: `Fetch with ${TOOL.guide}({ designFileId, topic: "recipes" }) or topic: ["operations", "boards"]; name and library filter registry, recipes and components. Creating or changing design system components: topic "component-authoring".`,
 });

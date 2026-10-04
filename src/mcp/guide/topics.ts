@@ -58,6 +58,17 @@ export const normalizeTopicRequest = (
 		? []
 		: [...new Set(typeof topic === "string" ? [topic] : topic)];
 
+/** Throw UNKNOWN_TOPIC, listing every valid topic, for names not in it. */
+export const assertKnownGuideTopics = (
+	requested: readonly string[],
+	available: Record<string, string>,
+) => {
+	const unknown = requested.filter((name) => !Object.hasOwn(available, name));
+	if (unknown.length > 0) {
+		throw new UnknownGuideTopicError(unknown, available);
+	}
+};
+
 /** Build the requested topics in request order, keyed by topic name. */
 export const buildGuideTopics = async <Name extends string, Input>(
 	topics: readonly GuideTopic<Name, Input>[],
@@ -67,10 +78,7 @@ export const buildGuideTopics = async <Name extends string, Input>(
 	const byName = new Map<string, GuideTopic<Name, Input>>(
 		topics.map((topic) => [topic.name, topic]),
 	);
-	const unknown = requested.filter((name) => !byName.has(name));
-	if (unknown.length > 0) {
-		throw new UnknownGuideTopicError(unknown, listGuideTopics(topics));
-	}
+	assertKnownGuideTopics(requested, listGuideTopics(topics));
 
 	const sections: Record<string, unknown> = {};
 	for (const name of requested) {

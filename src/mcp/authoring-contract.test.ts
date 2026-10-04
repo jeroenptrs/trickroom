@@ -41,7 +41,7 @@ const fill = <T>(value: T, replacements: Record<string, string>): T =>
 		),
 	);
 
-describe("getDesignAuthoringContract", () => {
+describe("guide", () => {
 	const fixtures: TrickroomMcpProjectFixture[] = [];
 	const sessions: TrickroomMcpClientSession[] = [];
 
@@ -73,20 +73,19 @@ describe("getDesignAuthoringContract", () => {
 	const contract = async (
 		call: Awaited<ReturnType<typeof createSession>>["call"],
 		args: Json = {},
-	) => (await call("getDesignAuthoringContract", args)).payload;
+	) => (await call("guide", args)).payload;
 
 	it("returns a small core with rules, workflow, design facts and the topic list", async () => {
 		const { call } = await createSession();
 
-		const { payload: core, size } = await call("getDesignAuthoringContract", {
+		const { payload: core, size } = await call("guide", {
 			designFileId: trickroomMcpTestDesignUuid,
 		});
 		const listed = await call("design_list");
 
 		expect(size).toBeLessThan(CORE_BUDGET);
 		expect(core).toMatchObject({
-			contract: "design-authoring",
-			schemaVersion: 2,
+			schemaVersion: 3,
 			design: {
 				id: trickroomMcpTestDesignUuid,
 				boardCount: 1,
@@ -141,7 +140,7 @@ describe("getDesignAuthoringContract", () => {
 		const { call } = await createSession();
 
 		for (const topic of DESIGN_GUIDE_TOPIC_NAMES) {
-			const { payload, size } = await call("getDesignAuthoringContract", {
+			const { payload, size } = await call("guide", {
 				designFileId: trickroomMcpTestDesignUuid,
 				topic,
 			});
@@ -163,7 +162,7 @@ describe("getDesignAuthoringContract", () => {
 
 		const outcome = await session.client
 			.callTool({
-				name: "getDesignAuthoringContract",
+				name: "guide",
 				arguments: { topic: "recipe" },
 			})
 			.then(
@@ -173,6 +172,24 @@ describe("getDesignAuthoringContract", () => {
 
 		expect(outcome).toContain("recipes");
 		expect(outcome).toContain("step-references");
+	});
+
+	it("mixes design and component-authoring topics in one call, in request order", async () => {
+		const { call } = await createSession();
+		const { payload } = await call("guide", {
+			topic: ["component-slots", "boards"],
+		});
+		expect(payload.topics).toEqual(["component-slots", "boards"]);
+		expect(Object.keys(payload).slice(-2)).toEqual([
+			"component-slots",
+			"boards",
+		]);
+		expect(payload["component-slots"]).toMatchObject({
+			requiredPerSlot: ["name", "hostPath"],
+		});
+
+		const core = await contract(call);
+		expect(core.topicUsage).toContain('"component-authoring"');
 	});
 
 	it("documents every batch operation with parameters and a valid example", async () => {
@@ -407,9 +424,9 @@ describe("getDesignAuthoringContract", () => {
 
 	it("lists published system components and places one as the examples show", async () => {
 		const { call } = await createSession();
-		const { examples: draftExamples } = (
-			await call("getSystemComponentAuthoringContract", {
-				topic: "examples",
+		const { "component-examples": draftExamples } = (
+			await call("guide", {
+				topic: "component-examples",
 			})
 		).payload;
 		const listed = await call("component_read", { systemName: "Core" });
@@ -534,7 +551,7 @@ describe("getDesignAuthoringContract", () => {
 	});
 });
 
-describe("getSystemComponentAuthoringContract", () => {
+describe("guide component-authoring topics", () => {
 	const fixtures: TrickroomMcpProjectFixture[] = [];
 	const sessions: TrickroomMcpClientSession[] = [];
 
@@ -552,32 +569,37 @@ describe("getSystemComponentAuthoringContract", () => {
 		sessions.push(session);
 
 		const core = await session.client.callTool({
-			name: "getSystemComponentAuthoringContract",
-			arguments: { systemName: "Core" },
+			name: "guide",
+			arguments: { topic: "component-authoring", systemName: "Core" },
 		});
-		expect(toolPayload(core)).toMatchObject({
-			contract: "system-component-authoring",
+		expect(toolPayload(core)["component-authoring"]).toMatchObject({
 			system: {
 				requested: "Core",
 				configured: true,
 				components: { componentCount: 0 },
 			},
 		});
-		expect(Object.keys((toolPayload(core) as Json).topics)).toEqual([
-			...SYSTEM_COMPONENT_GUIDE_TOPIC_NAMES,
-		]);
+		expect(
+			Object.keys((toolPayload(core) as Json)["component-authoring"].topics),
+		).toEqual(
+			SYSTEM_COMPONENT_GUIDE_TOPIC_NAMES.map((name) => `component-${name}`),
+		);
 		expect(
 			(core.content as Array<{ text: string }>)[0].text.length,
 		).toBeLessThan(CORE_BUDGET);
 
 		const topics = await session.client.callTool({
-			name: "getSystemComponentAuthoringContract",
-			arguments: { topic: [...SYSTEM_COMPONENT_GUIDE_TOPIC_NAMES] },
+			name: "guide",
+			arguments: {
+				topic: SYSTEM_COMPONENT_GUIDE_TOPIC_NAMES.map(
+					(name) => `component-${name}`,
+				),
+			},
 		});
 		expect(toolPayload(topics)).toMatchObject({
-			template: { type: "RecipeTemplateNode" },
-			slots: { requiredPerSlot: ["name", "hostPath"] },
-			variants: {
+			"component-template": { type: "RecipeTemplateNode" },
+			"component-slots": { requiredPerSlot: ["name", "hostPath"] },
+			"component-variants": {
 				classesByPath: expect.stringContaining("template path"),
 				compoundVariants: expect.stringContaining("single string values"),
 				defaultValues: expect.stringContaining("real value ids"),
@@ -589,8 +611,10 @@ describe("getSystemComponentAuthoringContract", () => {
 					expect.stringContaining("Array-valued when"),
 				]),
 			},
-			overrides: { capabilities: ["className", "text", "icon", "asset"] },
-			examples: expect.arrayContaining([
+			"component-overrides": {
+				capabilities: ["className", "text", "icon", "asset"],
+			},
+			"component-examples": expect.arrayContaining([
 				expect.objectContaining({ tool: "component_draft_create" }),
 			]),
 		});

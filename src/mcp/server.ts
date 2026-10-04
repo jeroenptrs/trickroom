@@ -20,10 +20,10 @@ import {
 import { registerDesignSystemTools } from "./tools/design-systems";
 import { registerDesignValidationTools } from "./tools/design-validation";
 import { registerDesignBatchWriteTools } from "./tools/design-write-batch";
+import { registerGuideTools } from "./tools/guide";
 import { installToolInputValidation } from "./tools/input-validation";
 import { registerMemoryTools } from "./tools/memory";
 import { registerProjectTools } from "./tools/projects";
-import { registerRegistryTools } from "./tools/registry";
 import { registerScreenshotTools } from "./tools/screenshots";
 import { registerSystemComponentTools } from "./tools/system-components";
 
@@ -91,7 +91,7 @@ export const createTrickroomMcpServer = (
 	registerDesignReadTools(ctx);
 	registerDesignExportTools(ctx, registerScreenshotTools(ctx));
 	registerDesignValidationTools(ctx);
-	registerRegistryTools(ctx);
+	registerGuideTools(ctx);
 	registerMemoryTools(ctx);
 	registerDesignSystemTools(ctx);
 	registerSystemComponentTools(ctx);

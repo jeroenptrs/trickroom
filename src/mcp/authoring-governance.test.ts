@@ -164,7 +164,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		const { session } = await createSession();
 
 		const result = await session.client.callTool({
-			name: "getDesignAuthoringContract",
+			name: "guide",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
 		const core = toolPayload(result) as {
@@ -177,7 +177,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		expect(core.rules.join(" ")).toContain("data-trickroom-library");
 
 		const registryResult = await session.client.callTool({
-			name: "getDesignAuthoringContract",
+			name: "guide",
 			arguments: { topic: "registry", library: "trickroom" },
 		});
 		const { registry } = toolPayload(registryResult) as {
@@ -663,39 +663,29 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			code: "MCP_DESIGN_FILE_NOT_ALLOWED",
 		});
 
-		const components = await session.client.callTool({
-			name: "listRegistryComponents",
-			arguments: { library: "trickroom" },
-		});
-		expect(toolPayload(components)).toMatchObject({
-			registries: [
-				{
-					components: [
-						expect.objectContaining({
-							component: "text",
-						}),
-					],
-				},
-			],
-		});
-		const listedComponents = (
-			toolPayload(components) as {
-				registries: Array<{ components: Array<{ component: string }> }>;
-			}
-		).registries[0].components.map((component) => component.component);
-		expect(listedComponents).not.toContain("container");
+		// The guide's registry topic lists only the components policy allows.
+		const registry = toolPayload(
+			await session.client.callTool({
+				name: "guide",
+				arguments: { topic: "registry", library: "trickroom" },
+			}),
+		).registry;
+		const listed = registry.elements.map(
+			(element: { component: string }) => element.component,
+		);
+		expect(listed).toContain("trickroom/text");
+		expect(listed).not.toContain("trickroom/container");
 
-		const deniedComponent = await session.client.callTool({
-			name: "describeRegistryComponent",
-			arguments: {
-				library: "trickroom",
-				component: "container",
-			},
-		});
-		expect(deniedComponent.isError).toBe(true);
-		expect(toolPayload(deniedComponent)).toMatchObject({
-			status: "POLICY_DENIED",
-			code: "MCP_COMPONENT_NOT_ALLOWED",
-		});
+		const denied = toolPayload(
+			await session.client.callTool({
+				name: "guide",
+				arguments: {
+					topic: "registry",
+					library: "trickroom",
+					name: "container",
+				},
+			}),
+		).registry;
+		expect(denied).toMatchObject({ matches: 0 });
 	});
 });

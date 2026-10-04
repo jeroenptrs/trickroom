@@ -5,7 +5,7 @@ import {
 import { readSystemComponentManifest } from "../../utils/system-component-manifest-service";
 import type { TrickroomMcpServerContext } from "../server-types";
 import { TOOL } from "../tool-names";
-import { type GuideTopic, listGuideTopics } from "./topics";
+import type { GuideTopic } from "./topics";
 
 /**
  * The system component authoring contract: a core for drafting, publishing
@@ -300,8 +300,12 @@ export const buildSystemComponentGuideCore = async (
 			systemId: system.manifest.systemId,
 			systemName: system.manifest.systemName,
 		})),
-		topics: listGuideTopics(SYSTEM_COMPONENT_GUIDE_TOPICS),
-		topicUsage:
-			'Fetch topics with getSystemComponentAuthoringContract({ topic: "variants" }) or several at once: topic: ["template", "slots"].',
+		topics: Object.fromEntries(
+			SYSTEM_COMPONENT_GUIDE_TOPICS.map((topic) => [
+				`component-${topic.name}`,
+				topic.when,
+			]),
+		),
+		topicUsage: `Fetch with ${TOOL.guide}({ topic: "component-variants" }) or several at once: topic: ["component-template", "component-slots"].`,
 	};
 };

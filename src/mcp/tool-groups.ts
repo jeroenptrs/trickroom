@@ -47,18 +47,10 @@ export const MCP_TOOL_GROUPS = [
 	},
 	{
 		id: "registry",
-		label: "Registry & contracts",
+		label: "Guide & registry",
 		description:
-			"Discover registry components/recipes and read authoring contracts for agents.",
-		tools: [
-			"listRegistries",
-			"listRegistryComponents",
-			"describeRegistryComponent",
-			"listRegistryRecipes",
-			"describeRegistryRecipe",
-			"getDesignAuthoringContract",
-			"getSystemComponentAuthoringContract",
-		],
+			"The authoring guide: design rules, operations, registry elements, recipes, and component authoring.",
+		tools: ["guide"],
 	},
 	{
 		id: "designSystems",

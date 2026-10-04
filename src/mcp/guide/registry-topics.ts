@@ -67,7 +67,9 @@ const describeControl = (control: ControlDefinition & { path?: string }) => ({
 	...(control.defaultValue === undefined
 		? {}
 		: { default: control.defaultValue }),
-	...(control.visibility === "deprecated" ? { deprecated: true } : {}),
+	...(control.visibility === "deprecated"
+		? { deprecated: control.deprecationReason ?? true }
+		: {}),
 	...(control.description ? { description: control.description } : {}),
 });
 
@@ -287,7 +289,7 @@ export const buildRecipesTopic = (
 		"Fill a slot by inserting into its host: parentId $step:N:slot:<slot> in the same batch, or the host id from the step result or a read (reads mark slot hosts with slot).",
 		"Slots start with default content, for example a dialog's title, description and close button. Default content is ordinary elements: edit, restyle or delete it.",
 		"Everything else is locked recipe structure: it cannot be moved, deleted, given text or given children. Its elements accept a new name, className and declared controls.",
-		"Set a control with updateElementProps on the element at the control's path, props: { <prop>: value }. The root path is the recipe root, which is the step's changedElementId ($step:N). updateRecipeControl does the same but takes the recipe instance id (data-trickroom-recipe-instance in readElement), not an element id.",
+		"Set a control with updateRecipeControl: instanceId is any element of the instance ($step:N for the recipe root), prop and value; path defaults to that element's template path. updateElementProps with props on the element at the control's path does the same.",
 		"Template classes are defaults such as bg-white or bg-black/20. When the design system lacks those tokens the write warns: restyle those elements with system classes.",
 		"Delete the recipe root to remove the instance. detachRecipeInstance turns it into plain elements; only do that for a structure the recipe cannot express.",
 	];
