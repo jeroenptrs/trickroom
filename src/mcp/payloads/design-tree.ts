@@ -295,9 +295,9 @@ const getInstanceSummary = (
 				: {}),
 		};
 	}
-	// updateRecipeControl targets recipe nodes by instance id and template
-	// path, so every recipe-owned node carries both; the root adds the recipe
-	// id and any non-valid state.
+	// Every recipe-owned node carries its instance id and template path, so a
+	// read tells which instance and which control path an element is; the
+	// root adds the recipe id and any non-valid state.
 	const recipe = recipeSummaries?.get(node.id);
 	if (recipe) {
 		const isRoot =

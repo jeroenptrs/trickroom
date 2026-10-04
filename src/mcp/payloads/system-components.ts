@@ -97,7 +97,7 @@ const matchesQuery = (record: SystemComponentRecord, query: string) => {
 
 /**
  * Compact component index: one short row per component so 100+ components
- * fit in one response. describeSystemComponent has the interface details.
+ * fit in one response. component_read describe has the interface details.
  */
 export const listSystemComponentsPayload = async (
 	context: TrickroomMcpServerContext,
@@ -428,7 +428,7 @@ const shapeSummary = (shape: ComponentShape) => ({
 /**
  * Write acknowledgement for draft and publish tools: ids, the new manifest
  * revision, hashes, this component's diagnostics, and a summary of what
- * changed. Never the full record; describeSystemComponent has that.
+ * changed. Never the full record; component_read describe with include "record" has that.
  */
 export const systemComponentMutationPayload = async (
 	context: TrickroomMcpServerContext,

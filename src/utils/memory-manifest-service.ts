@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { TOOL } from "../mcp/tool-names";
 import { writeJsonFileAtomically } from "../server-file-utils.ts";
 import {
 	findDesignSystem,
@@ -163,7 +164,7 @@ export function applyMemoryNoteBodyEdits(
 		if (occurrences === 0) {
 			throw new MemoryManifestError(
 				"EDIT_TEXT_NOT_FOUND",
-				`Edit ${editIndex}: oldText was not found in the note body. Copy it exactly from getMemoryNote, including whitespace and punctuation.`,
+				`Edit ${editIndex}: oldText was not found in the note body. Copy it exactly from ${TOOL.memoryRead}, including whitespace and punctuation.`,
 				{ editIndex, oldText: edit.oldText },
 			);
 		}
@@ -630,7 +631,7 @@ async function mutateMemoryManifest(
 				throw new MemoryManifestError(
 					"STALE_WRITE",
 					currentNoteRevision !== undefined
-						? `Memory note "${options.noteId}" changed since it was read (or the revision belongs to another note). Re-read it with getMemoryNote and retry with its current revision.`
+						? `Memory note "${options.noteId}" changed since it was read (or the revision belongs to another note). Re-read it with ${TOOL.memoryRead} and retry with its current revision.`
 						: `Memory manifest revision mismatch for ${manifestPath}. Re-read and retry with the current revision.`,
 					{
 						scopeRevision: currentRevision,

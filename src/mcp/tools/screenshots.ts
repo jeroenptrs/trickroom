@@ -176,7 +176,7 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 	};
 
 	// Unknown board ids always list the available boards (id + name), flag
-	// truncated ids, and point at screenshotNode when the id is a nested node.
+	// truncated ids, and point at elementId when the id is a nested node.
 	const createBoardNotFoundResult = (
 		context: TrickroomMcpServerContext,
 		design: TrickroomDesign,
@@ -319,7 +319,7 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 				result: createToolErrorResult(
 					context,
 					"UNKNOWN_COMPONENT",
-					`System component "${input.componentId}" was not found in system "${system.manifest.systemName}".${formatDidYouMean(suggestions)} Pass a component id or slug from listSystemComponents.`,
+					`System component "${input.componentId}" was not found in system "${system.manifest.systemName}".${formatDidYouMean(suggestions)} Pass a component id or slug from ${TOOL.componentRead}.`,
 					{ suggestions, availableSlugs: slugs },
 				),
 			};

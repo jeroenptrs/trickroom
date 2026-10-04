@@ -1,3 +1,4 @@
+import { TOOL } from "../mcp/tool-names";
 import type { Node, Props, TrickroomDesign } from "../types";
 import { DesignTransformError } from "./design-transform-service";
 
@@ -78,9 +79,7 @@ export const describeMissingElementId = (
 		boardIds.length > 0 &&
 		boardIds.length <= SMALL_BOARD_LIST;
 	if (hints.length === 0) {
-		hints.push(
-			"Use the full element id from readSubtree, readElement, or readDesignGraph.",
-		);
+		hints.push(`Use the full element id from ${TOOL.designRead}.`);
 	}
 
 	return {

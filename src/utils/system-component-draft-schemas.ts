@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TOOL } from "../mcp/tool-names";
 import type { RecipeTemplateNode } from "../types";
 import type {
 	SystemComponentDraftPayload,
@@ -294,7 +295,7 @@ export const systemComponentDraftPatchSchema = z
 	.strict();
 
 // Published MCP input shapes. Handlers validate with the strict schemas
-// above, and getSystemComponentAuthoringContract documents every field, so
+// above, and the guide's component topics document every field, so
 // these only outline the keys: no per-field descriptions, no migration
 // history (still accepted), and one shared class map.
 const docString = z.string();
@@ -376,14 +377,14 @@ export const mcpPartialSystemComponentDraftPayloadInputSchema =
 	)
 		.optional()
 		.describe(
-			"Optional partial component draft payload. Call getSystemComponentAuthoringContract for shape details.",
+			`Optional partial component draft payload. Shapes: ${TOOL.guide}({ topic: "component-authoring" }).`,
 		);
 
 export const mcpRecipeTemplateNodeInputSchema =
 	publishAsShapeButValidateInHandler(docTemplateNode)
 		.optional()
 		.describe(
-			"RecipeTemplateNode root template. Call getSystemComponentAuthoringContract for path and child rules.",
+			`RecipeTemplateNode root template. Path and child rules: ${TOOL.guide}({ topic: "component-template" }).`,
 		);
 
 export const mcpSystemComponentSlotsInputSchema =

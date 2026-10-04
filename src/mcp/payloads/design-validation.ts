@@ -300,7 +300,7 @@ const describePredictedStep = (step: OperationPlanStepOutput) => {
 
 /**
  * Dry-run operations against the current revision with the same executor as
- * applyDesignOperations, and report them in the shared validation shape.
+ * design_apply, and report them in the shared validation shape.
  */
 const validateOperations = async (
 	context: TrickroomMcpServerContext,
