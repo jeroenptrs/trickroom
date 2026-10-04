@@ -7,9 +7,11 @@ import {
 	realpath,
 	rename,
 	rm,
+	stat,
 	writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { resolveTrickroomHome } from "../app-state/home";
 import {
 	isSerializedElement,
@@ -46,6 +48,7 @@ import {
 import {
 	type DesignWriteConflict,
 	type DesignWritePlan,
+	insertAfterPredecessors,
 	planDesignWrite,
 } from "./design-merge";
 import {
@@ -57,6 +60,7 @@ import {
 import {
 	calculateBoardRevision,
 	calculateDesignRevision,
+	calculateManifestRevision,
 	type DesignBoardRevision,
 	decodeDesignRevision,
 	decodeDesignRevisionParts,
@@ -69,6 +73,7 @@ import {
 	DesignJournalPendingError,
 	type DesignPaths,
 	DesignStorageBusyError,
+	designConflictsDirectoryName,
 	ensureDesignFolders,
 	FOLDER_LAYOUT_VERSION,
 	getBoardFilePath,
@@ -79,6 +84,7 @@ import {
 	readDesignFiles,
 	serializeBoardFile,
 	serializeDesignManifest,
+	serializeJson,
 	toDesignRelativePath,
 	unlinkIfPresent,
 } from "./design-storage";
@@ -265,6 +271,29 @@ export type DesignFileServiceOptions = {
 export const getDesignLockDirectory = (
 	trickroomHome = resolveTrickroomHome(),
 ) => path.join(trickroomHome, "locks", "designs");
+
+/** What `migrateDesign` did (or, in a dry run, would do) to one design. */
+export type DesignMigrationResult = {
+	designId: string;
+	/**
+	 * `converted`: legacy file to folder. `reconciled`: folder and legacy file
+	 * merged, legacy file removed. `current`: nothing to do. `skipped`: the
+	 * design cannot be read (see `reason`) and was left alone.
+	 */
+	status: "converted" | "reconciled" | "current" | "skipped";
+	reason?: string;
+	name: string;
+	boardCount: number;
+	bytesBefore: number;
+	bytesAfter: number;
+	/** Paths relative to `designs/`. */
+	filesWritten: string[];
+	filesRemoved: string[];
+	addedBoardIds: string[];
+	conflictFiles: string[];
+	/** Whether the design read back identical in memory (not in dry runs). */
+	verified?: boolean;
+};
 
 /** One board read on its own, for callers that reload a single board. */
 export type DesignBoardRead = {
@@ -833,8 +862,8 @@ export class DesignFileService {
 		DesignFileService.summaryCache.delete(paths.folder);
 	}
 
-	/** Ids of every design in `designs/`, in either layout. */
-	private async listDesignIds() {
+	/** Ids of every design in `designs/`, in either layout, readable or not. */
+	async listDesignIds() {
 		let directoryEntries: Dirent<string>[];
 		try {
 			directoryEntries = await readdir(this.designsDir, {
@@ -1102,6 +1131,18 @@ export class DesignFileService {
 		next: TrickroomDesign,
 		plan: DesignWritePlan | null,
 	) {
+		await this.applyOperations(
+			paths,
+			await this.buildStoreOperations(paths, current, next, plan),
+		);
+	}
+
+	private async buildStoreOperations(
+		paths: DesignPaths,
+		current: Awaited<ReturnType<DesignFileService["readForWrite"]>>,
+		next: TrickroomDesign,
+		plan: DesignWritePlan | null,
+	): Promise<DesignFileOperations> {
 		const operations: DesignFileOperations = { writes: [], unlinks: [] };
 		const incremental =
 			current !== null &&
@@ -1169,7 +1210,7 @@ export class DesignFileService {
 			}
 		}
 
-		await this.applyOperations(paths, operations);
+		return operations;
 	}
 
 	private async applyOperations(
@@ -1234,6 +1275,249 @@ export class DesignFileService {
 		}
 	}
 
+	/**
+	 * Brings one design to the current layout: converts a legacy single-file
+	 * design to the folder layout, or reconciles a folder that coexists with
+	 * an older single file (for example after a git merge). Reconciling adds
+	 * boards that only the old file has, saves boards that differ to
+	 * `<id>/conflicts/<boardId>.json` (and differing top-level fields to
+	 * `conflicts/design.json`) and removes the old file. The folder's version
+	 * of everything wins. With `dryRun` nothing is written. Every write is one
+	 * journaled operation, and the design is read back and compared.
+	 */
+	async migrateDesign(
+		designId: string,
+		{ dryRun = false }: { dryRun?: boolean } = {},
+	): Promise<DesignMigrationResult> {
+		const paths = this.getDesignPaths(designId);
+		const run = async (): Promise<DesignMigrationResult> => {
+			const files = await readDesignFiles(paths);
+			const result: DesignMigrationResult = {
+				designId,
+				status: "current",
+				name: designId,
+				boardCount: 0,
+				bytesBefore: await this.measureDesignBytes(paths),
+				bytesAfter: 0,
+				filesWritten: [],
+				filesRemoved: [],
+				addedBoardIds: [],
+				conflictFiles: [],
+			};
+			let stored: StoredDesign;
+			try {
+				stored = toStoredDesign(designId, files);
+			} catch (error) {
+				return {
+					...result,
+					status: "skipped",
+					reason: error instanceof Error ? error.message : String(error),
+					bytesAfter: result.bytesBefore,
+				};
+			}
+			result.name = stored.design.name;
+			result.boardCount = stored.design.boards.length;
+
+			let operations: DesignFileOperations;
+			let expected: TrickroomDesign;
+			if (files.layout === "legacy") {
+				result.status = "converted";
+				expected = stored.design;
+				operations = await this.buildStoreOperations(
+					paths,
+					{ files, parsed: stored.parsed, design: stored.design },
+					stored.design,
+					null,
+				);
+			} else if (files.legacyPresent) {
+				const reconciled = await this.planReconcile(paths, stored);
+				if ("reason" in reconciled) {
+					return {
+						...result,
+						status: "skipped",
+						reason: reconciled.reason,
+						bytesAfter: result.bytesBefore,
+					};
+				}
+				result.status = "reconciled";
+				result.addedBoardIds = reconciled.addedBoardIds;
+				expected = reconciled.design;
+				operations = reconciled.operations;
+			} else {
+				return { ...result, bytesAfter: result.bytesBefore };
+			}
+
+			result.filesWritten = operations.writes.map((write) =>
+				toDesignRelativePath(paths, write.path),
+			);
+			result.filesRemoved = operations.unlinks.map((unlinkPath) =>
+				toDesignRelativePath(paths, unlinkPath),
+			);
+			result.conflictFiles = result.filesWritten.filter((file) =>
+				file.startsWith(`${designId}/${designConflictsDirectoryName}/`),
+			);
+			result.boardCount = expected.boards.length;
+			if (dryRun) {
+				result.bytesAfter =
+					result.bytesBefore +
+					operations.writes.reduce(
+						(total, write) => total + Buffer.byteLength(write.contents),
+						0,
+					) -
+					(await this.measureFiles(operations.unlinks));
+				return result;
+			}
+
+			await this.applyOperations(paths, operations);
+			this.deleteCachedSummary(paths);
+			const after = toStoredDesign(designId, await readDesignFiles(paths));
+			result.verified = isDeepStrictEqual(after.design, expected);
+			result.bytesAfter = await this.measureDesignBytes(paths);
+			return result;
+		};
+
+		return dryRun ? run() : this.withDesignLock(designId, run);
+	}
+
+	/**
+	 * Reconciles a folder design with the legacy file next to it (see
+	 * `migrateDesign`).
+	 */
+	private async planReconcile(paths: DesignPaths, folder: StoredDesign) {
+		let legacy: TrickroomDesign;
+		try {
+			const value = parseJson(
+				await readFile(paths.legacy, "utf8"),
+				`${paths.designId}.json`,
+			);
+			const read = readTrickroomDesignValue(value);
+			if (!read.ok) {
+				return {
+					reason: `The old ${paths.designId}.json cannot be read: ${read.message}`,
+				};
+			}
+			legacy = read.design;
+		} catch (error) {
+			return {
+				reason: error instanceof Error ? error.message : String(error),
+			};
+		}
+
+		const folderIds = new Set<string>();
+		for (const board of folder.design.boards) {
+			collectNodeIds(board, folderIds);
+		}
+		const folderBoards = new Map(
+			folder.design.boards.map((board) => [board.id, board]),
+		);
+		const added: Node[] = [];
+		const conflicts: Node[] = [];
+		for (const board of legacy.boards) {
+			const existing = folderBoards.get(board.id);
+			if (existing) {
+				if (
+					calculateBoardRevision(existing) !== calculateBoardRevision(board)
+				) {
+					conflicts.push(board);
+				}
+				continue;
+			}
+			// A board whose ids already exist elsewhere in the folder (for
+			// example demoted to a layer on the other branch) cannot be added.
+			const ids = collectNodeIds(board, new Set());
+			if (
+				!isSafeBoardId(board.id) ||
+				[...ids].some((id) => folderIds.has(id))
+			) {
+				conflicts.push(board);
+				continue;
+			}
+			for (const id of ids) folderIds.add(id);
+			added.push(board);
+		}
+
+		const addedIds = added.map((board) => board.id);
+		const sequence = insertAfterPredecessors(
+			folder.design.boards.map((board) => board.id),
+			addedIds,
+			legacy.boards.map((board) => board.id),
+		);
+		const addedById = new Map(added.map((board) => [board.id, board]));
+		const design: TrickroomDesign = {
+			...folder.design,
+			boards: sequence.map(
+				(id) => (folderBoards.get(id) ?? addedById.get(id)) as Node,
+			),
+		};
+		const operations = await this.buildStoreOperations(
+			paths,
+			{ files: folder.files, parsed: folder.parsed, design: folder.design },
+			design,
+			planDesignWrite({
+				current: folder.design,
+				incoming: design,
+				base: decodeDesignRevisionParts(getDesignRevisionParts(folder.design)),
+			}),
+		);
+
+		const existingConflicts = new Set(
+			(await readdir(paths.conflicts).catch(() => [] as string[])).map(
+				(name) => name,
+			),
+		);
+		const conflictPath = (name: string) => {
+			let candidate = `${name}.json`;
+			for (let index = 2; existingConflicts.has(candidate); index += 1) {
+				candidate = `${name}.${index}.json`;
+			}
+			existingConflicts.add(candidate);
+			return path.join(paths.conflicts, candidate);
+		};
+		for (const board of conflicts) {
+			operations.writes.push({
+				path: conflictPath(isSafeBoardId(board.id) ? board.id : "board"),
+				contents: serializeJson({
+					version: DESIGN_FILE_VERSION,
+					source: `${paths.designId}.json`,
+					board,
+				}),
+			});
+		}
+		if (
+			calculateManifestRevision(legacy) !==
+			calculateManifestRevision(folder.design)
+		) {
+			operations.writes.push({
+				path: conflictPath("design"),
+				contents: serializeDesignManifest(legacy),
+			});
+		}
+		operations.unlinks.push(paths.legacy);
+		return { design, operations, addedBoardIds: addedIds };
+	}
+
+	private async measureFiles(filePaths: readonly string[]) {
+		const sizes = await Promise.all(
+			filePaths.map((filePath) =>
+				stat(filePath).then(
+					(fileStat) => fileStat.size,
+					() => 0,
+				),
+			),
+		);
+		return sizes.reduce((total, size) => total + size, 0);
+	}
+
+	/** Bytes of a design's files: the legacy file, manifest and boards. */
+	private async measureDesignBytes(paths: DesignPaths) {
+		const state = await inspectDesignStorage(paths);
+		return this.measureFiles([
+			paths.legacy,
+			paths.manifest,
+			...state.boardFiles.map((name) => path.join(paths.boards, name)),
+		]);
+	}
+
 	async createDesignFile(
 		designId: string,
 		design: unknown,
@@ -1293,6 +1577,18 @@ export class DesignFileService {
 		this.deleteCachedSummary(paths);
 	}
 }
+
+const collectNodeIds = (node: Node, ids: Set<string>) => {
+	const stack = [node];
+	while (stack.length > 0) {
+		const current = stack.pop() as Node;
+		ids.add(current.id);
+		if (Array.isArray(current.children)) {
+			stack.push(...current.children);
+		}
+	}
+	return ids;
+};
 
 const notFoundError = (designId: string) =>
 	Object.assign(new Error(`Design "${designId}" not found`), {

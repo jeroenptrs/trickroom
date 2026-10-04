@@ -141,4 +141,7 @@ if (command?.command === "mcp") {
 	await runServer(command.argv);
 } else if (command?.command === "install-browser") {
 	process.exitCode = await runInstallBrowser(command.args);
+} else if (command?.command === "migrate") {
+	const runtime = await import("../dist/migrate.js");
+	process.exitCode = await runtime.main(command.args);
 }

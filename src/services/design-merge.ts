@@ -85,7 +85,7 @@ const restrict = (sequence: readonly string[], keep: ReadonlySet<string>) =>
  * that precedes it in `reference` and is already placed (or first when none
  * is).
  */
-const insertAfterPredecessors = (
+export const insertAfterPredecessors = (
 	sequence: string[],
 	extra: readonly string[],
 	reference: readonly string[],

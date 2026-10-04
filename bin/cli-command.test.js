@@ -43,6 +43,18 @@ describe("resolveTrickroomCommand", () => {
 			resolveTrickroomCommand(["node", "trickroom", "/project"]),
 		).toThrow('Use "trickroom serve [project]"');
 	});
+	it("selects migrate and forwards its arguments", () => {
+		expect(
+			resolveTrickroomCommand([
+				"node",
+				"trickroom",
+				"migrate",
+				"/project",
+				"--dry-run",
+			]),
+		).toEqual({ command: "migrate", args: ["/project", "--dry-run"] });
+	});
+
 	it("selects install-browser and forwards its options", () => {
 		expect(
 			resolveTrickroomCommand([
