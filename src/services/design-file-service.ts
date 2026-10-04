@@ -492,8 +492,11 @@ type ParsedDesignFiles = {
 	orders: Map<string, string | null>;
 	/** The highest version declared by any of the design's files. */
 	version: number | null;
-	/** Hash of every stored byte, for designs that cannot be read. */
-	fallbackRevision: DesignFileRevision;
+	/**
+	 * Hash of every stored byte, the revision of a design that cannot be
+	 * read. Computed on demand: readable designs never need it.
+	 */
+	fallbackRevision: () => DesignFileRevision;
 	/** Why the files do not form a design (before schema validation). */
 	problem: DesignFileServiceError | null;
 };
@@ -519,17 +522,18 @@ const parseDesignFiles = (
 			value,
 			orders: new Map(),
 			version: isRecord(value) ? getDesignFileVersion(value) : null,
-			fallbackRevision: calculateDesignFileRevision(files.contents),
+			fallbackRevision: () => calculateDesignFileRevision(files.contents),
 			problem: null,
 		};
 	}
 
-	const fallbackRevision = calculateDesignFileRevision(
-		[
-			files.manifest,
-			...files.boards.flatMap((board) => [board.name, board.contents]),
-		].join("\u0000"),
-	);
+	const fallbackRevision = () =>
+		calculateDesignFileRevision(
+			[
+				files.manifest,
+				...files.boards.flatMap((board) => [board.name, board.contents]),
+			].join("\u0000"),
+		);
 	const manifest = parseJson(files.manifest, `${designId}/design.json`);
 	let problem: DesignFileServiceError | null = null;
 	const invalid = (message: string) => {
@@ -888,7 +892,7 @@ export class DesignFileService {
 			// which still lets a caller replace exactly what it saw.
 			revision: design?.ok
 				? calculateDesignRevision(design.design)
-				: parsed.fallbackRevision,
+				: parsed.fallbackRevision(),
 			...(files.layout === "folder" && files.legacyPresent
 				? { warnings: [legacyDesignFileWarning(designId)] }
 				: {}),
@@ -1174,7 +1178,7 @@ export class DesignFileService {
 				layersCount: 0,
 				modifiedAt,
 				revision:
-					parsed?.fallbackRevision ??
+					parsed?.fallbackRevision() ??
 					calculateDesignFileRevision(
 						files.layout === "legacy" ? files.contents : files.manifest,
 					),
@@ -1244,7 +1248,7 @@ export class DesignFileService {
 			} else if (
 				current &&
 				revisionCheck.expectedRevision !== undefined &&
-				revisionCheck.expectedRevision !== current.parsed.fallbackRevision
+				revisionCheck.expectedRevision !== current.parsed.fallbackRevision()
 			) {
 				// A design that cannot be read can only be replaced by a caller
 				// that saw exactly these bytes.
@@ -1252,7 +1256,7 @@ export class DesignFileService {
 					"REVISION_MISMATCH",
 					"Design file revision does not match the expected revision",
 					{
-						currentRevision: current.parsed.fallbackRevision,
+						currentRevision: current.parsed.fallbackRevision(),
 						staleBoardIds: [],
 						manifest: false,
 						order: false,

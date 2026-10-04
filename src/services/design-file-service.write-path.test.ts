@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Node, TrickroomDesign } from "../types";
 import {
+	calculateDesignFileRevision,
 	createDesignFileService,
 	type DesignFileService,
 } from "./design-file-service";
@@ -210,5 +211,37 @@ describe("design write path", () => {
 			"b",
 		]);
 		expect(written.revision).toBe(reread.revision);
+	});
+
+	it("revisions an unreadable folder design by its bytes, and replaces it only with that revision", async () => {
+		await service.createDesignFile("broken", design(board("a"), board("b")));
+		const manifest = await readFile(
+			path.join(service.designsDir, "broken", "design.json"),
+			"utf8",
+		);
+		const boardA = await readFile(boardFile("broken", "a"), "utf8");
+		const invalid = '{ "version": 2, "order": "x", "board": { "id": "b" } }';
+		await writeFile(boardFile("broken", "b"), invalid);
+
+		const raw = await service.readRawDesign("broken");
+		expect(raw.revision).toBe(
+			calculateDesignFileRevision(
+				[manifest, "a.json", boardA, "b.json", invalid].join("\u0000"),
+			),
+		);
+		const summary = await service.readDesignSummary("broken");
+		expect(summary?.revision).toBe(raw.revision);
+
+		await expect(
+			service.writeDesignFile("broken", design(board("c")), {
+				expectedRevision: "sha256:0000",
+			}),
+		).rejects.toMatchObject({ code: "REVISION_MISMATCH" });
+		const written = await service.writeDesignFile(
+			"broken",
+			design(board("c")),
+			{ expectedRevision: raw.revision },
+		);
+		expect(written.design.boards.map((entry) => entry.id)).toEqual(["c"]);
 	});
 });
