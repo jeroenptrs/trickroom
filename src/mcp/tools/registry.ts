@@ -5,6 +5,12 @@ import {
 	getMcpPolicy,
 	isComponentAllowed,
 } from "../governance";
+import { DESIGN_GUIDE_TOPIC_NAMES } from "../guide/design-guide";
+import { SYSTEM_COMPONENT_GUIDE_TOPIC_NAMES } from "../guide/system-component-guide";
+import {
+	createTopicInputSchema,
+	UnknownGuideTopicError,
+} from "../guide/topics";
 import {
 	getAuthoringContractPayload,
 	getSystemComponentAuthoringContractPayload,
@@ -20,9 +26,10 @@ import {
 	isRecipeAllowed,
 	summarizeRecipe,
 } from "../payloads/registry";
+import type { TrickroomMcpServerContext } from "../server-types";
 import { readOnlyClosedWorldAnnotations } from "./annotations";
 import type { McpToolContext } from "./context";
-import { createJsonResult } from "./results";
+import { createJsonResult, createToolErrorResult } from "./results";
 import { designFileIdSchema, withProjectScopedInput } from "./schemas";
 
 export const registerRegistryTools = (ctx: McpToolContext) => {
@@ -178,37 +185,52 @@ export const registerRegistryTools = (ctx: McpToolContext) => {
 			}),
 	);
 
+	const runGuide = async (
+		project: Parameters<typeof withPolicyErrorHandling>[0],
+		build: (
+			context: TrickroomMcpServerContext,
+		) => Promise<Record<string, unknown>>,
+	) =>
+		withPolicyErrorHandling(project, async (context) => {
+			try {
+				return createJsonResult(await build(context));
+			} catch (error) {
+				if (error instanceof UnknownGuideTopicError) {
+					return createToolErrorResult(context, error.code, error.message, {
+						availableTopics: error.availableTopics,
+					});
+				}
+				throw error;
+			}
+		});
+
 	server.registerTool(
 		"getSystemComponentAuthoringContract",
 		{
 			title: "Get System Component Authoring Contract",
 			description:
-				"Return the compact authoring contract for system component drafts: root template nodes, slot maps, variant axes/classesByPath, override targets, validation diagnostics, and examples. Prefer this before createSystemComponentDraft or updateSystemComponentDraft.",
+				"Return the system component authoring contract: a short core (model, rules, workflow, topic list) without topic, or the requested topics. Call before createSystemComponentDraft or updateSystemComponentDraft.",
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
 					.min(1)
 					.optional()
 					.describe(
-						"Optional configured design system name or id to echo availability context.",
+						"Configured design system name or id, for its component counts and manifest revision.",
 					),
-				includeExamples: z
-					.boolean()
-					.optional()
-					.describe(
-						"Include compact draft authoring examples. Defaults to true.",
-					),
+				topic: createTopicInputSchema(
+					SYSTEM_COMPONENT_GUIDE_TOPIC_NAMES,
+					"Topic or topics to return instead of the core.",
+				).optional(),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ systemName, includeExamples, project }) =>
-			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(
-					await getSystemComponentAuthoringContractPayload(context, {
-						systemName,
-						includeExamples,
-					}),
-				),
+		async ({ systemName, topic, project }) =>
+			runGuide(project, (context) =>
+				getSystemComponentAuthoringContractPayload(context, {
+					systemName,
+					topic,
+				}),
 			),
 	);
 
@@ -217,58 +239,42 @@ export const registerRegistryTools = (ctx: McpToolContext) => {
 		{
 			title: "Get Design Authoring Contract",
 			description:
-				"Return the primary compact planning contract for agents editing design files: design grammar, registry component and recipe vocabulary, writable/system-owned props, composition and mutation rules, optional token/resource summaries, authoring guidance, and examples. For system component draft authoring, use getSystemComponentAuthoringContract.",
+				"Return the design authoring contract. Without topic: a short core with the design model, rules, workflow, project facts and a list of topics. With topic: only those topics. Call once with designFileId before the first design write in a session. For system component drafts use getSystemComponentAuthoringContract.",
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema
 					.optional()
 					.describe(
-						"Optional design file UUID used to include design-system, token, and resource planning context.",
+						"Design file UUID. Adds the design's revision, boards and linked design system to the core and to system-specific topics.",
 					),
-				includeExamples: z
-					.boolean()
+				topic: createTopicInputSchema(
+					DESIGN_GUIDE_TOPIC_NAMES,
+					"Topic or topics to return instead of the core.",
+				).optional(),
+				library: z
+					.string()
+					.min(1)
 					.optional()
 					.describe(
-						"Include compact machine-readable mutation examples. Defaults to true.",
+						"Registry library filter for the registry and recipes topics.",
 					),
-				includeRecipes: z
-					.enum(["summary", "none"])
+				name: z
+					.string()
+					.min(1)
 					.optional()
 					.describe(
-						"Include compact recipe summaries per registry. Defaults to none.",
-					),
-				includeResources: z
-					.boolean()
-					.optional()
-					.describe(
-						"Include asset/icon planning summaries when designFileId resolves to a linked system. Defaults to false.",
-					),
-				includeRegistryComponents: z
-					.enum(["summary", "full", "none"])
-					.optional()
-					.describe(
-						"Include registry component vocabulary in the contract. summary returns compact entries; full includes controls and composition metadata. Defaults to summary.",
+						'Name filter for the registry, recipes and components topics, e.g. "dialog" or "select.trigger".',
 					),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({
-			designFileId,
-			includeExamples,
-			includeRecipes,
-			includeResources,
-			includeRegistryComponents,
-			project,
-		}) =>
-			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(
-					await getAuthoringContractPayload(context, {
-						designFileId,
-						includeExamples,
-						includeRecipes,
-						includeResources,
-						includeRegistryComponents,
-					}),
-				),
+		async ({ designFileId, topic, library, name, project }) =>
+			runGuide(project, (context) =>
+				getAuthoringContractPayload(context, {
+					designFileId,
+					topic,
+					library,
+					name,
+				}),
 			),
 	);
 };
