@@ -393,7 +393,7 @@ describe("trickroom MCP memory tools", () => {
 		});
 
 		const read = await session.client.callTool({
-			name: "readDesignFile",
+			name: "design_read",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
 		expect(toolPayload(read)).toMatchObject({

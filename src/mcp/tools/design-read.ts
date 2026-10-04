@@ -4,6 +4,7 @@ import {
 	ExportDestinationError,
 	writeExportArtifacts,
 } from "../../export/write-export-artifacts";
+import { DesignTransformError } from "../../services/design-transform-service";
 import {
 	readMemoryManifest,
 	summarizeMemoryManifest,
@@ -15,12 +16,8 @@ import {
 } from "../governance";
 import {
 	listDesignFilesToolPayload,
-	readDesignFileDefaults,
 	readDesignFilePayload,
-	readDesignGraphDefaults,
 	readDesignGraphPayload,
-	readElementPayload,
-	readSubtreeDefaults,
 	readSubtreePayload,
 } from "../payloads/design-reads";
 import {
@@ -29,7 +26,9 @@ import {
 	readDesignFileForTool,
 } from "../payloads/design-tree";
 import { getProjectReference } from "../payloads/project";
+import { TOOL } from "../tool-names";
 import {
+	ALWAYS_LOAD_META_KEY,
 	mutationAnnotations,
 	readOnlyClosedWorldAnnotations,
 } from "./annotations";
@@ -41,51 +40,16 @@ import {
 	withProjectScopedInput,
 } from "./schemas";
 
-const depthSchema = (defaultDepth: number | null) =>
-	z
-		.number()
-		.int()
-		.min(0)
-		.max(20)
-		.optional()
-		.describe(
-			`Maximum descendant depth to include. Defaults to ${defaultDepth ?? "none"}.`,
-		);
+const elementIdSchema = z.string().min(1);
 
-const maxNodesSchema = (defaultMaxNodes: number) =>
-	z
-		.number()
-		.int()
-		.min(1)
-		.max(5000)
-		.optional()
-		.describe(
-			`Maximum elements to include, taken breadth first. Defaults to ${defaultMaxNodes}; above 500 needs allowLarge.`,
-		);
-
-const allowLargeSchema = z
-	.boolean()
-	.optional()
-	.describe(
-		"Set true to permit depth above 4, maxNodes above 500, or an unbounded read when depth/maxNodes are omitted.",
-	);
-
-const detailSchema = z
-	.enum(["compact", "full"])
-	.optional()
-	.describe(
-		'"compact" (default): id, name (omitted when it is the component default), component ("<library>/<component>", "trickroom/" prefix omitted), className, text (cut at 160 chars, with textLength), props that are not markers or registry defaults, and systemComponent/recipe/slot instance summaries. "full": id, every stored prop including markers, and full text.',
-	);
-
-export const registerDesignFileReadTools = (ctx: McpToolContext) => {
+export const registerDesignReadTools = (ctx: McpToolContext) => {
 	const { server, withPolicyErrorHandling } = ctx;
 
 	server.registerTool(
-		"listDesignFiles",
+		TOOL.designList,
 		{
 			title: "List Design Files",
-			description:
-				"List design files with id, name, revision, systemId (omitted when it is the project's defaultSystemId; names in `systems`), layer count, modifiedAt, and board ids/names. Unreadable files keep a `diagnostic`.",
+			description: `List the project's design files: id, name, revision, systemId (omitted when it is the project's defaultSystemId), layer count, modifiedAt, board ids and names, and memoryNotes when the design has notes. \`systems\` describes each linked design system: name, CSS entry, token snapshot (syncedAt, reviewRequired) and memoryNotes. Unreadable files keep a \`diagnostic\`.`,
 			inputSchema: projectScopedInputSchema,
 			annotations: readOnlyClosedWorldAnnotations,
 		},
@@ -96,30 +60,65 @@ export const registerDesignFileReadTools = (ctx: McpToolContext) => {
 	);
 
 	server.registerTool(
-		"readDesignFile",
+		TOOL.designRead,
 		{
-			title: "Read Design File",
-			description:
-				"Read one design file: header with revision, a board index (id, name, elementCount), and a bounded compact element tree taken breadth first. Defaults to depth 2 and 50 nodes. Pass boardId to read one board. Elements with `more` have unread descendants; `read.next` gives the exact follow-up call.",
+			title: "Read Design",
+			description: `Read a design file. Without elementId: the header (id, name, revision for your next write), a board index (id, name, elementCount) and a bounded tree of compact nodes taken breadth first (depth 2, 50 nodes); boardId reads one board. With elementId: that element's subtree (depth 3, 100 nodes) and its placement (parentId, boardId, index, siblingCount); depth 0 reads the element alone with its childIds. view "outline": a flat structure index keyed by id with parentId and childCount and no classes, for ids at a glance. A node with \`more\` has unread descendants; \`read.next\` is the exact follow-up call.`,
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
-				boardId: z
-					.string()
-					.min(1)
+				boardId: elementIdSchema
+					.optional()
+					.describe("Board (root element) id: read one board."),
+				elementId: elementIdSchema
 					.optional()
 					.describe(
-						"Board (root element) id to read. Omit to read every board within the same bounds.",
+						"Any element id, boards included: read its subtree and placement.",
 					),
-				depth: depthSchema(readDesignFileDefaults.depth),
-				maxNodes: maxNodesSchema(readDesignFileDefaults.maxNodes),
-				allowLarge: allowLargeSchema,
-				detail: detailSchema,
+				view: z
+					.enum(["tree", "outline"])
+					.optional()
+					.describe(
+						'"tree" (default) nests compact nodes. "outline" lists elements flat by id with parentId and childCount, without classes (100 elements, no depth limit).',
+					),
+				depth: z
+					.number()
+					.int()
+					.min(0)
+					.max(20)
+					.optional()
+					.describe(
+						"Descendant levels to include. Defaults to 2 for a design or board, 3 for an element.",
+					),
+				maxNodes: z
+					.number()
+					.int()
+					.min(1)
+					.max(5000)
+					.optional()
+					.describe(
+						"Elements to include, breadth first. Defaults to 50 for a design or board, 100 otherwise; above 500 needs allowLarge.",
+					),
+				allowLarge: z
+					.boolean()
+					.optional()
+					.describe(
+						"Permit depth above 4, maxNodes above 500, or unbounded reads.",
+					),
+				detail: z
+					.enum(["compact", "full"])
+					.optional()
+					.describe(
+						'"compact" (default): id, name (when not the component default), component ("<library>/<component>", "trickroom/" omitted), className, text (cut at 160 chars, with textLength), non-default props, and systemComponent/recipe/slot summaries. "full": id, every stored prop including markers, and full text.',
+					),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
+			_meta: { [ALWAYS_LOAD_META_KEY]: true },
 		},
 		async ({
 			designFileId,
 			boardId,
+			elementId,
+			view,
 			depth,
 			maxNodes,
 			allowLarge,
@@ -127,11 +126,34 @@ export const registerDesignFileReadTools = (ctx: McpToolContext) => {
 			project,
 		}) =>
 			withPolicyErrorHandling(project, async (context) => {
+				if (boardId !== undefined && elementId !== undefined) {
+					throw new DesignTransformError(
+						"INVALID_OPERATION_PARAMETERS",
+						"Pass boardId or elementId, not both: elementId reads any element, boards included.",
+					);
+				}
+				const bounds = { depth, maxNodes, allowLarge };
+				if (view === "outline") {
+					return createJsonResult(
+						await readDesignGraphPayload(context, designFileId, {
+							...bounds,
+							boardId,
+							rootElementId: elementId,
+							includeProps: detail === "full",
+						}),
+					);
+				}
+				if (elementId !== undefined) {
+					return createJsonResult(
+						await readSubtreePayload(context, designFileId, elementId, {
+							...bounds,
+							detail,
+						}),
+					);
+				}
 				const payload = await readDesignFilePayload(context, designFileId, {
+					...bounds,
 					boardId,
-					depth,
-					maxNodes,
-					allowLarge,
 					detail,
 				});
 				const designMemory = await readMemoryManifest(context.projectRoot, {
@@ -144,13 +166,16 @@ export const registerDesignFileReadTools = (ctx: McpToolContext) => {
 						? {
 								...payload,
 								memory: memorySummary,
-								memoryHint:
-									"This design has memory notes describing its intent and rationale. Call listMemoryNotes({ scope: { kind: 'design', designFileId } }) before editing or explaining it.",
+								memoryHint: `This design has memory notes on its intent and rationale. Call ${TOOL.memoryRead}({ designFileId }) before editing or explaining it.`,
 							}
 						: payload,
 				);
 			}),
 	);
+};
+
+export const registerDesignExportTools = (ctx: McpToolContext) => {
+	const { server, withPolicyErrorHandling } = ctx;
 
 	server.registerTool(
 		"exportDesignHtml",
@@ -239,132 +264,5 @@ export const registerDesignFileReadTools = (ctx: McpToolContext) => {
 					throw error;
 				}
 			}),
-	);
-};
-
-export const registerDesignTreeReadTools = (ctx: McpToolContext) => {
-	const { server, withPolicyErrorHandling } = ctx;
-
-	server.registerTool(
-		"readDesignGraph",
-		{
-			title: "Read Design Graph",
-			description:
-				"Read a flat, bounded outline of a design: elements keyed by id in breadth-first order with parentId, childCount, and the compact fields minus className (default 100 elements). Prefer readSubtree to inspect or style an area; use this for a structural overview. Scope with rootElementId (any element or board id).",
-			inputSchema: withProjectScopedInput({
-				designFileId: designFileIdSchema,
-				rootElementId: z
-					.string()
-					.min(1)
-					.optional()
-					.describe("Element or board id to scope the graph to its subtree."),
-				depth: depthSchema(readDesignGraphDefaults.depth),
-				maxNodes: maxNodesSchema(readDesignGraphDefaults.maxNodes),
-				allowLarge: allowLargeSchema,
-				includeProps: z
-					.boolean()
-					.optional()
-					.describe(
-						"Replace compact fields with every stored prop, markers included. Defaults to false.",
-					),
-				includeText: z
-					.boolean()
-					.optional()
-					.describe(
-						"Include text (cut at 160 chars) for text elements. Defaults to true.",
-					),
-				includeAddresses: z
-					.boolean()
-					.optional()
-					.describe(
-						"Include each element's JSON Pointer address in the design file (/boards/0/children/1). Defaults to false.",
-					),
-			}),
-			annotations: readOnlyClosedWorldAnnotations,
-		},
-		async ({
-			designFileId,
-			rootElementId,
-			depth,
-			maxNodes,
-			allowLarge,
-			includeProps,
-			includeText,
-			includeAddresses,
-			project,
-		}) =>
-			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(
-					await readDesignGraphPayload(context, designFileId, {
-						rootElementId,
-						depth,
-						maxNodes,
-						allowLarge,
-						includeProps,
-						includeText,
-						includeAddresses,
-					}),
-				),
-			),
-	);
-
-	server.registerTool(
-		"readElement",
-		{
-			title: "Read Element",
-			description:
-				"Read one element (compact by default: see readSubtree's detail), its childIds, and its placement: parentId, boardId, index, siblingCount.",
-			inputSchema: withProjectScopedInput({
-				designFileId: designFileIdSchema,
-				elementId: z.string().min(1).describe("Element ID inside the design."),
-				detail: detailSchema,
-			}),
-			annotations: readOnlyClosedWorldAnnotations,
-		},
-		async ({ designFileId, elementId, detail, project }) =>
-			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(
-					await readElementPayload(context, designFileId, elementId, {
-						detail,
-					}),
-				),
-			),
-	);
-
-	server.registerTool(
-		"readSubtree",
-		{
-			title: "Read Subtree",
-			description:
-				"Read a bounded element subtree rooted at elementId, taken breadth first. Defaults to depth 3, 100 nodes, and compact nodes. Elements with `more` have unread descendants; `read.next` gives the exact follow-up call.",
-			inputSchema: withProjectScopedInput({
-				designFileId: designFileIdSchema,
-				elementId: z.string().min(1).describe("Element ID inside the design."),
-				depth: depthSchema(readSubtreeDefaults.depth),
-				maxNodes: maxNodesSchema(readSubtreeDefaults.maxNodes),
-				allowLarge: allowLargeSchema,
-				detail: detailSchema,
-			}),
-			annotations: readOnlyClosedWorldAnnotations,
-		},
-		async ({
-			designFileId,
-			elementId,
-			depth,
-			maxNodes,
-			allowLarge,
-			detail,
-			project,
-		}) =>
-			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(
-					await readSubtreePayload(context, designFileId, elementId, {
-						depth,
-						maxNodes,
-						allowLarge,
-						detail,
-					}),
-				),
-			),
 	);
 };

@@ -10,8 +10,6 @@ import {
 export type DesignGraphOptions = {
 	rootElementId?: string;
 	includeProps?: boolean;
-	includeText?: boolean;
-	includeAddresses?: boolean;
 };
 
 type ElementGraphNode = Record<string, unknown> & {
@@ -29,7 +27,6 @@ export type DesignGraph = {
 type GraphEntry = {
 	node: DesignNode;
 	parentId: string | null;
-	address: string;
 };
 
 const findScopeEntry = (
@@ -43,11 +40,10 @@ const findScopeEntry = (
 		if (!Array.isArray(entry.node.children)) {
 			return null;
 		}
-		for (const [index, child] of entry.node.children.entries()) {
+		for (const child of entry.node.children) {
 			const found = visit({
 				node: child,
 				parentId: entry.node.id,
-				address: `${entry.address}/children/${index}`,
 			});
 			if (found) {
 				return found;
@@ -56,11 +52,10 @@ const findScopeEntry = (
 		return null;
 	};
 
-	for (const [index, board] of design.boards.entries()) {
+	for (const board of design.boards) {
 		const found = visit({
 			node: board,
 			parentId: null,
-			address: `/boards/${index}`,
 		});
 		if (found) {
 			return found;
@@ -89,16 +84,14 @@ export const buildDesignGraph = (
 		}
 		roots = [scope];
 	} else {
-		roots = design.boards.map((board, index) => ({
+		roots = design.boards.map((board) => ({
 			node: board,
 			parentId: null,
-			address: `/boards/${index}`,
 		}));
 	}
 
 	const recipeSummaries = getRecipeAttachmentSummaries(design);
 	const detail = options.includeProps === true ? "full" : "compact";
-	const includeText = options.includeText !== false;
 	const elementsById: Record<string, ElementGraphNode> = {};
 	const selected = new Set<DesignNode>();
 	const graph: DesignGraph = {
@@ -123,11 +116,7 @@ export const buildDesignGraph = (
 				detail,
 				recipeSummaries,
 			);
-			if (!includeText) {
-				delete described.text;
-				delete described.textLength;
-			}
-			// The graph is an outline: styling stays in readSubtree/readElement
+			// The outline is structure only: styling stays in the tree view
 			// unless every prop is requested.
 			delete described.className;
 			const children = Array.isArray(entry.node.children)
@@ -137,16 +126,12 @@ export const buildDesignGraph = (
 				parentId: entry.parentId,
 				...described,
 				...(children.length > 0 ? { childCount: children.length } : {}),
-				...(options.includeAddresses === true
-					? { address: entry.address }
-					: {}),
 			};
 			if (bounds.maxDepth === null || depth < bounds.maxDepth) {
-				for (const [index, child] of children.entries()) {
+				for (const child of children) {
 					next.push({
 						node: child,
 						parentId: entry.node.id,
-						address: `${entry.address}/children/${index}`,
 					});
 				}
 			}

@@ -342,7 +342,7 @@ describe("trickroom MCP asset and icon catalogs", () => {
 
 	it("allows MCP to add resources with existing ids and blank Avatar Image ids", async () => {
 		const read = await session.client.callTool({
-			name: "readDesignFile",
+			name: "design_read",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
 		const revision = (toolPayload(read) as { designFile: { revision: string } })

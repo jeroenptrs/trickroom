@@ -81,7 +81,7 @@ describe("getDesignAuthoringContract", () => {
 		const { payload: core, size } = await call("getDesignAuthoringContract", {
 			designFileId: trickroomMcpTestDesignUuid,
 		});
-		const listed = await call("listDesignFiles");
+		const listed = await call("design_list");
 
 		expect(size).toBeLessThan(CORE_BUDGET);
 		expect(core).toMatchObject({
@@ -257,12 +257,13 @@ describe("getDesignAuthoringContract", () => {
 		});
 		expect(result.isError).toBeFalsy();
 
-		const root = await call("readElement", {
+		const root = await call("design_read", {
 			designFileId: trickroomMcpTestDesignUuid,
 			elementId: payload.created[0].id,
+			depth: 0,
 			detail: "full",
 		});
-		expect(root.payload.element.props.defaultOpen).toBe(false);
+		expect(root.payload.subtree.props.defaultOpen).toBe(false);
 	});
 
 	it("indexes recipes and details one recipe by name", async () => {

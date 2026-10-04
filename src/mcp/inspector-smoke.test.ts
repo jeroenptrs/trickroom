@@ -18,10 +18,8 @@ type ToolCallPayload = Record<string, unknown>;
 
 const expectedReadToolNames = [
 	"trickroom_project_info",
-	"listDesignFiles",
-	"readDesignFile",
-	"readElement",
-	"readSubtree",
+	"design_list",
+	"design_read",
 	"validateDesignFile",
 	"listRegistries",
 	"listRegistryComponents",
@@ -346,11 +344,9 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 				});
 			}
 
-			expectInputProperties(requireTool(toolsByName, "readDesignFile"), [
+			expectInputProperties(requireTool(toolsByName, "design_read"), [
 				"designFileId",
-			]);
-			expectInputProperties(requireTool(toolsByName, "readElement"), [
-				"designFileId",
+				"boardId",
 				"elementId",
 			]);
 			expectInputProperties(requireTool(toolsByName, "design_apply"), [
@@ -434,14 +430,14 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 
 			const designFiles = await requireStructuredPayload(
 				session.client,
-				"listDesignFiles",
+				"design_list",
 				{},
 			);
 			expect(JSON.stringify(designFiles)).toContain(trickroomMcpTestDesignUuid);
 
 			const designFile = await requireStructuredPayload(
 				session.client,
-				"readDesignFile",
+				"design_read",
 				{
 					designFileId: trickroomMcpTestDesignUuid,
 				},
@@ -454,17 +450,18 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 
 			const element = await requireStructuredPayload(
 				session.client,
-				"readElement",
+				"design_read",
 				{
 					designFileId: trickroomMcpTestDesignUuid,
 					elementId: "title",
+					depth: 0,
 				},
 			);
 			expect(JSON.stringify(element)).toContain("Harness fixture");
 
 			const subtree = await requireStructuredPayload(
 				session.client,
-				"readSubtree",
+				"design_read",
 				{
 					designFileId: trickroomMcpTestDesignUuid,
 					elementId: "board",

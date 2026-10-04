@@ -14,10 +14,7 @@ import {
 	createDesignFileService,
 	type DesignFileRead,
 } from "../../services/design-file-service";
-import {
-	DesignTransformError,
-	type DesignTransformErrorCode,
-} from "../../services/design-transform-service";
+import { DesignTransformError } from "../../services/design-transform-service";
 import { createElementNotFoundError } from "../../services/element-lookup-hints";
 import type {
 	Node as DesignNode,
@@ -29,6 +26,7 @@ import { formatDidYouMean, suggestClosest } from "../../utils/suggestions";
 import { getSystemComponentStructuralMetadata } from "../../utils/system-component-markers";
 import { getMcpPolicy } from "../governance";
 import type { TrickroomMcpServerContext } from "../server-types";
+import { TOOL } from "../tool-names";
 
 type ElementContext = {
 	element: DesignNode;
@@ -440,7 +438,7 @@ export type TreeRead = {
 /**
  * Bounded tree read. Returned nodes nest their returned children; a node
  * whose descendants were cut carries `more` (the omitted element count) so
- * the agent can continue with readSubtree on that id.
+ * the agent can continue with an elementId read on that id.
  */
 export const readBoundedTree = (
 	roots: readonly DesignNode[],
@@ -505,7 +503,7 @@ export const describeTreeRead = (
 	...(read.omittedNodeCount > 0 && continueWith !== null
 		? {
 				next: continueWith,
-				hint: "Elements with `more` have unread descendants: call readSubtree with their id (or raise depth/maxNodes).",
+				hint: `Elements with \`more\` have unread descendants: call ${TOOL.designRead} with their id as elementId (or raise depth/maxNodes).`,
 			}
 		: {}),
 });
@@ -663,11 +661,6 @@ export const listVisibleDesignSummaries = async (
 	);
 };
 
-// Read lookups reuse DesignTransformError so MCP error handling formats them,
-// but their codes are not design transform codes.
-export const readErrorCode = (code: "DESIGN_NOT_FOUND" | "BOARD_NOT_FOUND") =>
-	code as string as DesignTransformErrorCode;
-
 const maxListedDesignsInError = 25;
 
 const createDesignNotFoundError = async (
@@ -679,7 +672,7 @@ const createDesignNotFoundError = async (
 	);
 	if (designs.length <= maxListedDesignsInError) {
 		return new DesignTransformError(
-			readErrorCode("DESIGN_NOT_FOUND"),
+			"DESIGN_NOT_FOUND",
 			`Design file "${designFileId}" does not exist in this project. Use one of availableDesigns.`,
 			{ availableDesigns: designs },
 		);
@@ -692,8 +685,8 @@ const createDesignNotFoundError = async (
 	);
 	const suggestions = designs.filter((design) => closestIds.has(design.id));
 	return new DesignTransformError(
-		readErrorCode("DESIGN_NOT_FOUND"),
-		`Design file "${designFileId}" does not exist in this project.${formatDidYouMean(suggestions.map((design) => design.id))} Call listDesignFiles for every design id.`,
+		"DESIGN_NOT_FOUND",
+		`Design file "${designFileId}" does not exist in this project.${formatDidYouMean(suggestions.map((design) => design.id))} Call ${TOOL.designList} for every design id.`,
 		{ suggestions, designCount: designs.length },
 	);
 };

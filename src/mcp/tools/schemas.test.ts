@@ -24,7 +24,7 @@ describe("shared MCP id and revision schemas", () => {
 		const result = designFileIdSchema.safeParse("Landing page");
 		expect(result.success).toBe(false);
 		expect(result.error?.issues[0]?.message).toBe(
-			"expected a design file UUID from listDesignFiles",
+			"expected a design file UUID from design_list",
 		);
 	});
 

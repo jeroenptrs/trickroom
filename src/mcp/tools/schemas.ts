@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { TrickroomMcpProjectRef } from "../project-resolver";
+import { TOOL } from "../tool-names";
 
 // Leaf module: operation-plan.ts, design-operations.ts and subtree-schemas.ts
 // import from here, so keep runtime imports out of it.
@@ -33,7 +34,7 @@ export const isDesignFileId = (value: string) =>
 export const designFileIdSchema = z
 	.string()
 	.refine(isDesignFileId, {
-		message: "expected a design file UUID from listDesignFiles",
+		message: `expected a design file UUID from ${TOOL.designList}`,
 	})
 	.describe("Design file UUID.");
 
@@ -98,10 +99,3 @@ export const withProjectScopedInput = <Shape extends z.ZodRawShape>(
 	...shape,
 	...projectScopedInputSchema,
 });
-
-export const mcpReadResponseFormatSchema = z
-	.enum(["json", "summary"])
-	.optional()
-	.describe(
-		'Response text format. "json" returns structured JSON in text (default). "summary" returns a short prose summary.',
-	);

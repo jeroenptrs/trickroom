@@ -89,8 +89,7 @@ describe("MCP tool group controls", () => {
 
 		const listToolsResult = await session.client.listTools();
 		const toolNames = listToolsResult.tools.map((tool) => tool.name);
-		expect(toolNames).toContain("readDesignFile");
-		expect(toolNames).not.toContain("addElement");
-		expect(toolNames).not.toContain("deleteElement");
+		expect(toolNames).toContain("design_read");
+		expect(toolNames).not.toContain("design_apply");
 	});
 });

@@ -366,7 +366,7 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const designs = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {},
 			});
 			expect(toolPayload(designs)).toMatchObject({
@@ -452,7 +452,7 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const designs = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {},
 			});
 			expect(toolPayload(designs)).toMatchObject({
@@ -539,7 +539,7 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const designs = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {},
 			});
 			expect(toolPayload(designs)).toMatchObject({
@@ -625,7 +625,7 @@ describe("trickroom MCP discovery tools", () => {
 
 		try {
 			const defaultDesigns = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {},
 			});
 			expect(toolPayload(defaultDesigns)).toMatchObject({
@@ -642,7 +642,7 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const explicitDesigns = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {
 					project: {
 						locationId: secondLocation.locationId,
@@ -666,7 +666,7 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const explicitRead = await client.callTool({
-				name: "readDesignFile",
+				name: "design_read",
 				arguments: {
 					project: {
 						locationId: secondLocation.locationId,
@@ -772,7 +772,7 @@ describe("trickroom MCP discovery tools", () => {
 
 		try {
 			const explicitRead = await client.callTool({
-				name: "readDesignFile",
+				name: "design_read",
 				arguments: {
 					project: {
 						locationId: secondLocation.locationId,
@@ -909,7 +909,7 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const designs = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {},
 			});
 			expect(toolPayload(designs)).toMatchObject({
@@ -1159,7 +1159,7 @@ describe("trickroom MCP discovery tools", () => {
 			).toBe(false);
 
 			const designs = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {},
 			});
 			expect(toolPayload(designs)).toMatchObject({
@@ -1258,7 +1258,7 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const designs = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {},
 			});
 			expect(toolPayload(designs)).toMatchObject({

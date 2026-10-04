@@ -1,3 +1,12 @@
+/** Clients that defer tool schemas load tools with this flag up front. */
+export const ALWAYS_LOAD_META_KEY = "anthropic/alwaysLoad";
+
+/** Extra search keywords for clients that find deferred tools by search. */
+export const SEARCH_HINT_META_KEY = "anthropic/searchHint";
+
+/** Largest result a client should accept from a tool before truncating. */
+export const MAX_RESULT_SIZE_META_KEY = "anthropic/maxResultSizeChars";
+
 export const readOnlyClosedWorldAnnotations = {
 	readOnlyHint: true,
 	openWorldHint: false,

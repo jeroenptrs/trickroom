@@ -76,7 +76,7 @@ describe("MCP mutation tools", () => {
 		designFileId: string,
 	): Promise<string> => {
 		const result = await session.client.callTool({
-			name: "readDesignFile",
+			name: "design_read",
 			arguments: { designFileId },
 		});
 		const content = toolPayload(result) as {
@@ -449,21 +449,22 @@ describe("MCP mutation tools", () => {
 					created.id,
 				);
 				expect(inserted.context).toMatchObject({ parentId: "board", index: 1 });
-				expect(inserted.element.childIds).toEqual([
+				expect(inserted.subtree.childIds).toEqual([
 					created.idMap["inserted-title"],
 				]);
 
 				const boardResult = await session.client.callTool({
-					name: "readElement",
+					name: "design_read",
 					arguments: {
+						depth: 0,
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: "board",
 					},
 				});
 				const boardContent = toolPayload(boardResult) as {
-					element: { childIds: string[] };
+					subtree: { childIds: string[] };
 				};
-				expect(boardContent.element.childIds[1]).toBe(created.id);
+				expect(boardContent.subtree.childIds[1]).toBe(created.id);
 
 				expect(await getRevision(session, trickroomMcpTestDesignUuid)).toBe(
 					content.newRevision,
@@ -779,15 +780,16 @@ describe("MCP mutation tools", () => {
 				expect(mapped.idMap).toEqual({ title: mapped.id });
 
 				const copied = await session.client.callTool({
-					name: "readElement",
+					name: "design_read",
 					arguments: {
+						depth: 0,
 						detail: "full",
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: copyId,
 					},
 				});
 				expect(toolPayload(copied)).toMatchObject({
-					element: {
+					subtree: {
 						id: copyId,
 						props: {
 							"data-trickroom-name": "Title Copy",
@@ -1355,7 +1357,7 @@ describe("MCP mutation tools", () => {
 				expect(persisted.design).not.toHaveProperty("systemName");
 
 				const listResult = await session.client.callTool({
-					name: "listDesignFiles",
+					name: "design_list",
 					arguments: {},
 				});
 				const listContent = toolPayload(listResult) as {
@@ -2139,7 +2141,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				const readResult = await session.client.callTool({
-					name: "readDesignFile",
+					name: "design_read",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 					},
@@ -2214,7 +2216,7 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 					content.created[0].id,
 				);
-				expect(added.element).toMatchObject({
+				expect(added.subtree).toMatchObject({
 					name: "Hero",
 					component: "container",
 				});
@@ -2248,7 +2250,7 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 					content.created[0].id,
 				);
-				expect(added.element).toMatchObject({
+				expect(added.subtree).toMatchObject({
 					component: "text",
 					text: "A subtitle paragraph",
 				});
@@ -2364,7 +2366,7 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 					toolPayload(result).created[0].id,
 				);
-				expect(changed.element.name).toBe("Via Props");
+				expect(changed.subtree.name).toBe("Via Props");
 			} finally {
 				await session.close();
 			}
@@ -2390,21 +2392,22 @@ describe("MCP mutation tools", () => {
 				expect(content.status).toBe("success");
 
 				const readResult = await session.client.callTool({
-					name: "readElement",
+					name: "design_read",
 					arguments: {
+						depth: 0,
 						detail: "full",
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: content.created[0].id,
 					},
 				});
 				const readContent = toolPayload(readResult) as {
-					element: { props: Record<string, unknown>; childIds: string[] };
+					subtree: { props: Record<string, unknown>; childIds: string[] };
 				};
-				expect(readContent.element.props["data-trickroom-component"]).toBe(
+				expect(readContent.subtree.props["data-trickroom-component"]).toBe(
 					"separator",
 				);
-				expect(readContent.element.props.orientation).toBe("vertical");
-				expect(readContent.element.childIds).toEqual([]);
+				expect(readContent.subtree.props.orientation).toBe("vertical");
+				expect(readContent.subtree.childIds).toEqual([]);
 			} finally {
 				await session.close();
 			}
@@ -2498,7 +2501,7 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 					toolPayload(result).created[0].id,
 				);
-				expect(changed.element.name).toBe("Shortcut Wins");
+				expect(changed.subtree.name).toBe("Shortcut Wins");
 			} finally {
 				await session.close();
 			}
@@ -2617,7 +2620,7 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 					"board",
 				);
-				expect(changed.element.name).toBe("Renamed Board");
+				expect(changed.subtree.name).toBe("Renamed Board");
 			} finally {
 				await session.close();
 			}
@@ -2647,23 +2650,24 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 					"board",
 				);
-				expect(changed.element.name).toBe("Props Renamed Board");
+				expect(changed.subtree.name).toBe("Props Renamed Board");
 
 				const readResult = await session.client.callTool({
-					name: "readElement",
+					name: "design_read",
 					arguments: {
+						depth: 0,
 						detail: "full",
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: "board",
 					},
 				});
 				const readContent = toolPayload(readResult) as {
-					element: { props: Record<string, unknown> };
+					subtree: { props: Record<string, unknown> };
 				};
-				expect(readContent.element.props["data-trickroom-name"]).toBe(
+				expect(readContent.subtree.props["data-trickroom-name"]).toBe(
 					"Props Renamed Board",
 				);
-				expect(readContent.element.props.className).toBe(
+				expect(readContent.subtree.props.className).toBe(
 					"grid grid-cols-2 gap-4",
 				);
 			} finally {
@@ -2699,7 +2703,7 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 					"board",
 				);
-				expect(changed.element.name).toBe("Raw Prop Renamed Board");
+				expect(changed.subtree.name).toBe("Raw Prop Renamed Board");
 			} finally {
 				await session.close();
 			}
@@ -2730,20 +2734,21 @@ describe("MCP mutation tools", () => {
 				expect(content.newRevision).not.toBe(revision);
 
 				const readResult = await session.client.callTool({
-					name: "readElement",
+					name: "design_read",
 					arguments: {
+						depth: 0,
 						detail: "full",
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: "board",
 					},
 				});
 				const readContent = toolPayload(readResult) as {
-					element: { props: Record<string, unknown> };
+					subtree: { props: Record<string, unknown> };
 				};
-				expect(readContent.element.props["data-trickroom-name"]).toBe(
+				expect(readContent.subtree.props["data-trickroom-name"]).toBe(
 					"Alias Renamed Board",
 				);
-				expect(readContent.element.props.className).toBe("flex flex-col gap-6");
+				expect(readContent.subtree.props.className).toBe("flex flex-col gap-6");
 			} finally {
 				await session.close();
 			}
@@ -2803,16 +2808,17 @@ describe("MCP mutation tools", () => {
 
 				expect(result.isError).toBeFalsy();
 				const readResult = await session.client.callTool({
-					name: "readElement",
+					name: "design_read",
 					arguments: {
+						depth: 0,
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: addContent.created[0].id,
 					},
 				});
 				const readContent = toolPayload(readResult) as {
-					element: { props: Record<string, unknown> };
+					subtree: { props: Record<string, unknown> };
 				};
-				expect(readContent.element.props.orientation).toBe("vertical");
+				expect(readContent.subtree.props.orientation).toBe("vertical");
 			} finally {
 				await session.close();
 			}
@@ -2896,7 +2902,7 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 					"title",
 				);
-				expect(changed.element.text).toBe("Updated text content");
+				expect(changed.subtree.text).toBe("Updated text content");
 			} finally {
 				await session.close();
 			}
@@ -3008,16 +3014,17 @@ describe("MCP mutation tools", () => {
 				expect(content.status).toBe("success");
 
 				const readResult = await session.client.callTool({
-					name: "readElement",
+					name: "design_read",
 					arguments: {
+						depth: 0,
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: "root",
 					},
 				});
 				const readContent = toolPayload(readResult) as {
-					element: { childIds: string[] };
+					subtree: { childIds: string[] };
 				};
-				expect(readContent.element.childIds).toEqual(["b", "a"]);
+				expect(readContent.subtree.childIds).toEqual(["b", "a"]);
 			} finally {
 				await session.close();
 			}
@@ -3305,16 +3312,17 @@ describe("MCP mutation tools", () => {
 				});
 
 				const readResult = await session.client.callTool({
-					name: "readElement",
+					name: "design_read",
 					arguments: {
+						depth: 0,
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: "board",
 					},
 				});
 				const readContent = toolPayload(readResult) as {
-					element: { childIds: string[] };
+					subtree: { childIds: string[] };
 				};
-				expect(readContent.element.childIds).not.toContain("title");
+				expect(readContent.subtree.childIds).not.toContain("title");
 			} finally {
 				await session.close();
 			}
@@ -3387,7 +3395,7 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 					rootId,
 				);
-				expect(added.element.component).toBe("base-ui/avatar.root");
+				expect(added.subtree.component).toBe("base-ui/avatar.root");
 				expect(added.context.parentId).toBe("board");
 
 				const persisted = await fixture.designFileService.readDesignFile(
@@ -3783,7 +3791,7 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 					"avatar-fallback",
 				);
-				expect(renamed.element.name).toBe("Initials Fallback");
+				expect(renamed.subtree.name).toBe("Initials Fallback");
 
 				const rootDeleteResult = await applyOperation(
 					session.client,
@@ -3901,15 +3909,16 @@ describe("MCP mutation tools", () => {
 				expect(sideOffsetResult.isError).toBeFalsy();
 
 				const rootRead = await session.client.callTool({
-					name: "readElement",
+					name: "design_read",
 					arguments: {
+						depth: 0,
 						detail: "full",
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: expansion.elementIdsByPath.root,
 					},
 				});
 				expect(toolPayload(rootRead)).toMatchObject({
-					element: {
+					subtree: {
 						props: {
 							modal: false,
 							[recipeInstanceProp]: "menu-instance-1",
@@ -3918,15 +3927,16 @@ describe("MCP mutation tools", () => {
 				});
 
 				const positionerRead = await session.client.callTool({
-					name: "readElement",
+					name: "design_read",
 					arguments: {
+						depth: 0,
 						detail: "full",
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: expansion.elementIdsByPath.positioner,
 					},
 				});
 				expect(toolPayload(positionerRead)).toMatchObject({
-					element: {
+					subtree: {
 						props: {
 							align: "end",
 							side: "top",
@@ -4746,8 +4756,9 @@ describe("MCP mutation tools", () => {
 				});
 
 				const read = await session.client.callTool({
-					name: "readElement",
+					name: "design_read",
 					arguments: {
+						depth: 0,
 						designFileId: trickroomMcpTestDesignUuid,
 						elementId: "titl",
 					},

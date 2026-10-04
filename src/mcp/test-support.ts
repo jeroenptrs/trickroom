@@ -75,7 +75,10 @@ export const applyOperation = (
 	});
 };
 
-/** One element read: its compact node with childIds, and its placement. */
+/**
+ * One element read (design_read, depth 0): the compact node with childIds in
+ * `subtree`, and its placement in `context`.
+ */
 export const readElementPayload = async (
 	client: Client,
 	designFileId: string,
@@ -83,8 +86,8 @@ export const readElementPayload = async (
 ) =>
 	toolPayload(
 		await client.callTool({
-			name: "readElement",
-			arguments: { designFileId, elementId },
+			name: TOOL.designRead,
+			arguments: { designFileId, elementId, depth: 0 },
 		}),
 	);
 

@@ -124,7 +124,7 @@ describe("trickroom MCP system component instance tools", () => {
 		designFileId = trickroomMcpTestDesignUuid,
 	) => {
 		const read = await targetSession.client.callTool({
-			name: "readDesignFile",
+			name: "design_read",
 			arguments: { designFileId },
 		});
 		return String(

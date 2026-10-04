@@ -14,8 +14,8 @@ import {
 } from "./tool-group-controls";
 import { createMcpToolContext } from "./tools/context";
 import {
-	registerDesignFileReadTools,
-	registerDesignTreeReadTools,
+	registerDesignExportTools,
+	registerDesignReadTools,
 } from "./tools/design-read";
 import {
 	registerDesignSystemReadTools,
@@ -106,9 +106,9 @@ export const createTrickroomMcpServer = (
 	// tools/list reports tools in registration order, so groups that were
 	// historically interleaved register in several slices to keep that order.
 	registerProjectTools(ctx);
-	registerDesignFileReadTools(ctx);
+	registerDesignReadTools(ctx);
+	registerDesignExportTools(ctx);
 	registerScreenshotTools(ctx);
-	registerDesignTreeReadTools(ctx);
 	registerDesignValidationTools(ctx);
 	registerRegistryTools(ctx);
 	registerDesignSystemReadTools(ctx);

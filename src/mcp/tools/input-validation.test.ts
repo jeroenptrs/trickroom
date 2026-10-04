@@ -47,7 +47,7 @@ describe("formatToolInputIssues", () => {
 		expect(
 			format(schema, { designFileId: "Landing", parentId: null, index: 0 }),
 		).toEqual([
-			'designFileId: expected a design file UUID from listDesignFiles, received string "Landing".',
+			'designFileId: expected a design file UUID from design_list, received string "Landing".',
 		]);
 	});
 
@@ -113,7 +113,7 @@ describe("tool input validation errors over MCP", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "readDesignFile",
+			name: "design_read",
 			arguments: { designFileID: trickroomMcpTestDesignUuid, boardID: "board" },
 		});
 
@@ -122,7 +122,7 @@ describe("tool input validation errors over MCP", () => {
 			{
 				type: "text",
 				text: [
-					"MCP error -32602: Input validation error: Invalid arguments for tool readDesignFile:",
+					"MCP error -32602: Input validation error: Invalid arguments for tool design_read:",
 					"- designFileId: required string, missing.",
 					'- designFileID: unknown parameter. Did you mean "designFileId"?',
 					'- boardID: unknown parameter. Did you mean "boardId"?',
@@ -138,7 +138,7 @@ describe("tool input validation errors over MCP", () => {
 		);
 
 		const result = await session.client.callTool({
-			name: "readDesignFile",
+			name: "design_read",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
 

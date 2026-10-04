@@ -84,21 +84,21 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 
 	const getRevision = async (session: TrickroomMcpClientSession) => {
 		const result = await session.client.callTool({
-			name: "readDesignFile",
+			name: "design_read",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
 		return (toolPayload(result) as { designFile: { revision: string } })
 			.designFile.revision;
 	};
 
-	it("reads a bounded flat design graph with opt-in addresses", async () => {
+	it("reads a bounded flat design outline", async () => {
 		const { session } = await createSession();
 
 		const result = await session.client.callTool({
-			name: "readDesignGraph",
+			name: "design_read",
 			arguments: {
+				view: "outline",
 				designFileId: trickroomMcpTestDesignUuid,
-				includeAddresses: true,
 			},
 		});
 
@@ -115,23 +115,23 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			graph: {
 				rootElementIds: ["board"],
 				elementsById: {
-					board: { parentId: null, childCount: 1, address: "/boards/0" },
+					board: { parentId: null, childCount: 1 },
 					title: {
 						parentId: "board",
 						component: "text",
 						text: "Harness fixture",
-						address: "/boards/0/children/0",
 					},
 				},
 			},
 		});
 
 		const bounded = await session.client.callTool({
-			name: "readDesignGraph",
+			name: "design_read",
 			arguments: {
+				view: "outline",
 				designFileId: trickroomMcpTestDesignUuid,
 				maxNodes: 1,
-				includeProps: true,
+				detail: "full",
 			},
 		});
 		expect(toolPayload(bounded)).toMatchObject({
@@ -141,7 +141,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 				returnedNodeCount: 1,
 				omittedNodeCount: 1,
 				next: {
-					tool: "readSubtree",
+					tool: "design_read",
 					args: { elementId: "board" },
 				},
 			},
@@ -639,7 +639,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		const listResult = await session.client.callTool({
-			name: "listDesignFiles",
+			name: "design_list",
 			arguments: {},
 		});
 		expect(toolPayload(listResult)).toMatchObject({
@@ -649,7 +649,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		const deniedRead = await session.client.callTool({
-			name: "readDesignFile",
+			name: "design_read",
 			arguments: { designFileId: secondDesignFileId },
 		});
 		expect(deniedRead.isError).toBe(true);

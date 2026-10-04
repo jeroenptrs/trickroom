@@ -79,7 +79,7 @@ describe("MCP expanded class/token diagnostics", () => {
 
 	const getRevision = async (session: TrickroomMcpClientSession) => {
 		const result = await session.client.callTool({
-			name: "readDesignFile",
+			name: "design_read",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
 		return (toolPayload(result) as { designFile: { revision: string } })
