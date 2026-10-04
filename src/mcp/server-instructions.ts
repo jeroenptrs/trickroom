@@ -17,6 +17,6 @@ Tools:
 
 Session start: ${TOOL.projectList} (or ${TOOL.projectSelect}), then ${TOOL.memoryRead}({ designFileId }) for the design you work on, then ${TOOL.guide}({ designFileId }).
 
-Loop: ${TOOL.designRead} the area you change (view "outline" for ids, elementId for detail); ${TOOL.designApply} one batch with expectedRevision from your last read or write; fix the warnings it returns; ${TOOL.designScreenshot} the changed boards at several viewports in one call and look; ${TOOL.designValidate} before handing off; ${TOOL.editorFocus} to show the human what changed. When the human says "this", call ${TOOL.editorContext}. On REVISION_MISMATCH, re-read and retry.
+Loop: ${TOOL.designRead} the area you change (view "outline" for ids, elementId for detail); ${TOOL.designApply} one batch with expectedRevision from your last read or write; fix the warnings it returns; ${TOOL.designScreenshot} the changed boards at several viewports in one call and look; ${TOOL.designValidate} before handing off; ${TOOL.editorFocus} to show the human what changed. When the human says "this", call ${TOOL.editorContext}. On REVISION_MISMATCH, re-read only the boards it names and retry.
 
 A board is one responsive screen or state, reviewed at several widths: never one board per breakpoint.`;

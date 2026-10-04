@@ -57,7 +57,7 @@ export const registerDesignReadTools = (ctx: McpToolContext) => {
 		TOOL.designList,
 		{
 			title: "List Design Files",
-			description: `List the project's design files: id, name, revision, systemId (omitted when it is the project's defaultSystemId), layer count, modifiedAt, board ids and names, and memoryNotes when the design has notes. \`systems\` describes each linked design system: name, CSS entry, token snapshot (syncedAt, reviewRequired) and memoryNotes. Unreadable files keep a \`diagnostic\`.`,
+			description: `List the project's design files: id, name, revision, systemId (omitted when it is the project's defaultSystemId), layer count, modifiedAt, boards (id, name, revision), and memoryNotes when the design has notes. \`systems\` describes each linked design system: name, CSS entry, token snapshot (syncedAt, reviewRequired) and memoryNotes. Unreadable files keep a \`diagnostic\`; storage problems that do not stop a design from opening are listed in \`warnings\`.`,
 			inputSchema: projectScopedInputSchema,
 			annotations: readOnlyClosedWorldAnnotations,
 		},
@@ -71,7 +71,7 @@ export const registerDesignReadTools = (ctx: McpToolContext) => {
 		TOOL.designRead,
 		{
 			title: "Read Design",
-			description: `Read a design file. Without elementId: the header (id, name, revision for your next write), a board index (id, name, elementCount) and a bounded tree of compact nodes taken breadth first (depth 2, 50 nodes); boardId reads one board. With elementId: that element's subtree (depth 3, 100 nodes) and its placement (parentId, boardId, index, siblingCount); depth 0 reads the element alone with its childIds. view "outline": a flat structure index keyed by id with parentId and childCount and no classes, for ids at a glance. A node with \`more\` has unread descendants; \`read.next\` is the exact follow-up call.`,
+			description: `Read a design file. Without elementId: the header (id, name, revision for your next write), a board index (id, name, revision, elementCount) and a bounded tree of compact nodes taken breadth first (depth 2, 50 nodes); boardId reads only that board: the header, \`board\` (id, name, revision, elementCount) and its tree. With elementId: that element's subtree (depth 3, 100 nodes) and its placement (parentId, boardId, index, siblingCount); depth 0 reads the element alone with its childIds. view "outline": a flat structure index keyed by id with parentId and childCount and no classes, for ids at a glance. A node with \`more\` has unread descendants; \`read.next\` is the exact follow-up call.`,
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
 				boardId: elementIdSchema

@@ -1,6 +1,10 @@
 import type { Resource } from "@modelcontextprotocol/sdk/types.js";
+import {
+	createDesignFileService,
+	type DesignFileRead,
+} from "../../services/design-file-service";
 import { DesignTransformError } from "../../services/design-transform-service";
-import type { TrickroomDesign } from "../../types";
+import type { Node as DesignNode, TrickroomDesign } from "../../types";
 import { findDesignSystem } from "../../utils/design-system-store";
 import { readMemoryManifest } from "../../utils/memory-manifest-service";
 import type { MemoryScope } from "../../utils/memory-manifest-service.types";
@@ -58,43 +62,15 @@ export const listDesignFilesPayload = async (
 			layersCount: designFile.layersCount,
 			modifiedAt: designFile.modifiedAt,
 			revision: designFile.revision,
+			boards: designFile.boards,
 			...(designFile.diagnostic !== undefined
 				? { diagnostic: designFile.diagnostic }
 				: {}),
+			...(designFile.warnings !== undefined
+				? { warnings: designFile.warnings }
+				: {}),
 		})),
 	};
-};
-
-type BoardIndexEntry = { id: string; name: string | null };
-
-// Board ids and names per design file, keyed by path and revision so repeat
-// listings only re-read designs that changed.
-const boardIndexCache = new Map<
-	string,
-	{ revision: string; boards: BoardIndexEntry[] }
->();
-
-const getBoardIndex = async (
-	context: TrickroomMcpServerContext,
-	designFileId: string,
-	revision: string,
-): Promise<BoardIndexEntry[] | null> => {
-	const cacheKey = `${context.projectRoot}\0${designFileId}`;
-	const cached = boardIndexCache.get(cacheKey);
-	if (cached?.revision === revision) {
-		return cached.boards;
-	}
-	try {
-		const read = await readDesignFileForTool(context, designFileId);
-		const boards = read.design.boards.map((board) => ({
-			id: board.id,
-			name: getNodeName(board) ?? null,
-		}));
-		boardIndexCache.set(cacheKey, { revision: read.revision, boards });
-		return boards;
-	} catch {
-		return null;
-	}
 };
 
 const countMemoryNotes = async (
@@ -157,12 +133,10 @@ export const listDesignFilesToolPayload = async (
 				systemId = system?.manifest.systemId ?? systemHandle;
 				systemHandles.set(systemId, systemHandle);
 			}
-			const [boards, memoryNotes] = await Promise.all([
-				designFile.diagnostic === undefined
-					? getBoardIndex(context, designFile.id, designFile.revision)
-					: null,
-				countMemoryNotes(context, { kind: "design", designId: designFile.id }),
-			]);
+			const memoryNotes = await countMemoryNotes(context, {
+				kind: "design",
+				designId: designFile.id,
+			});
 			return {
 				id: designFile.id,
 				name: designFile.name,
@@ -173,10 +147,15 @@ export const listDesignFilesToolPayload = async (
 					: { systemId }),
 				layersCount: designFile.layersCount,
 				modifiedAt: designFile.modifiedAt,
-				...(boards !== null ? { boards } : {}),
+				...(designFile.diagnostic === undefined
+					? { boards: designFile.boards }
+					: {}),
 				...(memoryNotes > 0 ? { memoryNotes } : {}),
 				...(designFile.diagnostic !== undefined
 					? { diagnostic: designFile.diagnostic }
+					: {}),
+				...(designFile.warnings !== undefined
+					? { warnings: designFile.warnings }
 					: {}),
 			};
 		}),
@@ -263,10 +242,11 @@ const throwBoardNotFound = (
 	);
 };
 
-const summarizeBoards = (design: TrickroomDesign) =>
-	design.boards.map((board) => ({
+const summarizeBoards = ({ design, boards }: DesignFileRead) =>
+	design.boards.map((board, index) => ({
 		id: board.id,
 		name: getNodeName(board) ?? null,
+		revision: boards[index]?.revision,
 		elementCount: countElementNodes(board),
 	}));
 
@@ -292,7 +272,7 @@ export const readDesignSummaryPayload = async (
 ) => {
 	assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
 	const read = await readDesignFileForTool(context, designFileId);
-	const boards = summarizeBoards(read.design);
+	const boards = summarizeBoards(read);
 
 	return {
 		payloadKind: "design-summary",
@@ -317,61 +297,136 @@ export type DesignReadOptions = TreeReadInput & {
 	detail?: NodeReadDetail;
 };
 
+/**
+ * One board with the design's header and revision, consistent with each
+ * other. While the design's cached summary is current (its files unchanged),
+ * only the board's own file is read; otherwise the whole design is.
+ */
+const readBoardForTool = async (
+	context: TrickroomMcpServerContext,
+	designFileId: string,
+	boardId: string,
+) => {
+	const service = createDesignFileService(context.projectRoot);
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		const summary = await service
+			.readDesignSummary(designFileId)
+			.catch(() => null);
+		const entry = summary?.boards.find((board) => board.id === boardId);
+		if (!summary || summary.diagnostic || !entry) {
+			// Missing designs and boards get their errors from the full read.
+			break;
+		}
+		const boardRead = await service.readDesignBoard(designFileId, boardId);
+		if (boardRead?.revision === entry.revision) {
+			return {
+				header: {
+					id: designFileId,
+					name: summary.name,
+					revision: summary.revision,
+				},
+				design: {
+					name: summary.name,
+					...(summary.systemId !== undefined
+						? { systemId: summary.systemId }
+						: {}),
+					...(summary.systemName !== undefined
+						? { systemName: summary.systemName }
+						: {}),
+					boards: [boardRead.board],
+				} satisfies TrickroomDesign,
+				revision: entry.revision,
+			};
+		}
+		// The board changed between the two reads: try again.
+	}
+	const read = await readDesignFileForTool(context, designFileId);
+	const index = read.design.boards.findIndex((board) => board.id === boardId);
+	const board =
+		read.design.boards[index] ??
+		throwBoardNotFound(read.design, designFileId, boardId);
+	return {
+		header: getDesignHeader(designFileId, read),
+		design: { ...read.design, boards: [board] },
+		revision: read.boards[index]?.revision,
+	};
+};
+
 export const readDesignFilePayload = async (
 	context: TrickroomMcpServerContext,
 	designFileId: string,
 	options: DesignReadOptions & { boardId?: string } = {},
 ) => {
 	assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
-	const read = await readDesignFileForTool(context, designFileId);
-	const { design } = read;
-	const roots =
-		options.boardId === undefined
-			? design.boards
-			: [
-					design.boards.find((board) => board.id === options.boardId) ??
-						throwBoardNotFound(design, designFileId, options.boardId),
-				];
 	const bounds = createTreeReadBounds(options, readDesignFileDefaults);
-	const { tree, read: treeRead } = readBoundedTree(
-		roots,
-		bounds,
-		options.detail ?? "compact",
-		getRecipeAttachmentSummaries(design),
-	);
-	const omittedBoard = roots.find(
-		(board) => !tree.some((node) => node.id === board.id),
-	);
-	const truncatedElementId = treeRead.truncatedElementIds[0];
-	const boards = summarizeBoards(design);
+	const readTree = (design: TrickroomDesign) => {
+		const { tree, read } = readBoundedTree(
+			design.boards,
+			bounds,
+			options.detail ?? "compact",
+			getRecipeAttachmentSummaries(design),
+		);
+		const omittedBoard = design.boards.find(
+			(board) => !tree.some((node) => node.id === board.id),
+		);
+		const truncatedElementId = read.truncatedElementIds[0];
+		return {
+			read: describeTreeRead(
+				bounds,
+				read,
+				truncatedElementId !== undefined
+					? {
+							tool: TOOL.designRead,
+							args: { designFileId, elementId: truncatedElementId },
+						}
+					: omittedBoard !== undefined
+						? {
+								tool: TOOL.designRead,
+								args: { designFileId, boardId: omittedBoard.id },
+							}
+						: null,
+			),
+			tree,
+		};
+	};
 
+	if (options.boardId !== undefined) {
+		const { header, design, revision } = await readBoardForTool(
+			context,
+			designFileId,
+			options.boardId,
+		);
+		const [board] = design.boards as [DesignNode];
+		return {
+			project: getProjectReference(context),
+			designFile: {
+				...header,
+				...(await getDesignReadSystem(context, design)),
+			},
+			board: {
+				id: board.id,
+				name: getNodeName(board) ?? null,
+				revision,
+				elementCount: countElementNodes(board),
+			},
+			...readTree(design),
+		};
+	}
+
+	const read = await readDesignFileForTool(context, designFileId);
+	const boards = summarizeBoards(read);
 	return {
 		project: getProjectReference(context),
 		designFile: {
 			...getDesignHeader(designFileId, read),
-			...(await getDesignReadSystem(context, design)),
+			...(await getDesignReadSystem(context, read.design)),
 		},
 		elementCount: boards.reduce(
 			(count, board) => count + board.elementCount,
 			0,
 		),
 		boards,
-		read: describeTreeRead(
-			bounds,
-			treeRead,
-			truncatedElementId !== undefined
-				? {
-						tool: TOOL.designRead,
-						args: { designFileId, elementId: truncatedElementId },
-					}
-				: omittedBoard !== undefined
-					? {
-							tool: TOOL.designRead,
-							args: { designFileId, boardId: omittedBoard.id },
-						}
-					: null,
-		),
-		tree,
+		...readTree(read.design),
 	};
 };
 

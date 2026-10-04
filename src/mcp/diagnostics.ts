@@ -457,11 +457,29 @@ const createAvailableTokenCheck = (
 
 const noAvailableTokenCheck: AvailableTokenCheck = () => false;
 
-const collectRecipeDiagnostics = (
+/** A board with its index in the design, so issue paths stay `boards[i]`. */
+type IndexedBoard = { board: DesignNode; index: number };
+
+/**
+ * The boards to diagnose: every board, or the ones in `boardIds`. Every
+ * check is local to a board (recipe instances and resource references live
+ * inside one), so a board's issues do not depend on the other boards.
+ */
+const selectBoards = (
 	design: TrickroomDesign,
+	boardIds: ReadonlySet<string> | undefined,
+): IndexedBoard[] =>
+	design.boards
+		.map((board, index) => ({ board, index }))
+		.filter(({ board }) => boardIds === undefined || boardIds.has(board.id));
+
+const collectRecipeDiagnostics = (
+	boards: readonly IndexedBoard[],
 	issues: ClassTokenDiagnostic[],
 ) => {
-	for (const instance of validateRecipeInstances(design.boards).instances) {
+	for (const instance of validateRecipeInstances(
+		boards.map(({ board }) => board),
+	).instances) {
 		if (instance.status === "attached-valid") {
 			continue;
 		}
@@ -491,7 +509,7 @@ const collectRecipeDiagnostics = (
  * registry ids are already errors (UNKNOWN_REGISTRY_*) from design validation.
  */
 const collectRendererDiagnostics = (
-	design: TrickroomDesign,
+	boards: readonly IndexedBoard[],
 	issues: ClassTokenDiagnostic[],
 ) => {
 	const visit = (node: DesignNode, path: string) => {
@@ -516,19 +534,33 @@ const collectRendererDiagnostics = (
 		}
 	};
 
-	for (const [rootIndex, board] of design.boards.entries()) {
-		visit(board, `boards[${rootIndex}]`);
+	for (const { board, index } of boards) {
+		visit(board, `boards[${index}]`);
 	}
 };
 
 const collectResourceDiagnostics = async (
 	context: TrickroomMcpServerContext,
 	design: TrickroomDesign,
+	boards: readonly IndexedBoard[],
 	issues: ClassTokenDiagnostic[],
 ) => {
-	const references = collectDesignResourceReferences(design).filter(
-		(reference) => reference.kind === "asset" || reference.kind === "icon",
-	);
+	const references = collectDesignResourceReferences({
+		...design,
+		boards: boards.map(({ board }) => board),
+	})
+		.filter(
+			(reference) => reference.kind === "asset" || reference.kind === "icon",
+		)
+		.map((reference) => ({
+			...reference,
+			// Paths count the selected boards; point them at the design's.
+			path: reference.path.replace(
+				/^boards\[(\d+)\]/u,
+				(_match, position: string) =>
+					`boards[${boards[Number(position)]?.index ?? position}]`,
+			),
+		}));
 	if (references.length === 0) {
 		return;
 	}
@@ -1001,18 +1033,25 @@ const loadTailwindUtilityInspector = async (
 	}
 };
 
+/**
+ * Diagnostics of a design: recipe instances, renderers, asset and icon
+ * references, and class tokens. `boardIds` limits them to those boards (for
+ * example the boards a write changed); file-level warnings are kept.
+ */
 export const getDesignDiagnostics = async (
 	context: TrickroomMcpServerContext,
 	design: TrickroomDesign,
+	options: { boardIds?: ReadonlySet<string> } = {},
 ): Promise<DesignDiagnostics> => {
 	const systemHandle = design.systemId ?? design.systemName ?? null;
 	const system = systemHandle
 		? await findDesignSystem(context.projectRoot, systemHandle)
 		: null;
+	const boards = selectBoards(design, options.boardIds);
 	const issues: ClassTokenDiagnostic[] = [];
-	collectRecipeDiagnostics(design, issues);
-	collectRendererDiagnostics(design, issues);
-	await collectResourceDiagnostics(context, design, issues);
+	collectRecipeDiagnostics(boards, issues);
+	collectRendererDiagnostics(boards, issues);
+	await collectResourceDiagnostics(context, design, boards, issues);
 	if (systemHandle === null) {
 		return {
 			issues,
@@ -1051,10 +1090,10 @@ export const getDesignDiagnostics = async (
 		const emptyResolvedTokens = createEmptyResolvedTokenContext();
 		const emptyColorTokens = new Set<string>();
 
-		for (const [rootIndex, board] of design.boards.entries()) {
+		for (const { board, index } of boards) {
 			collectClassDiagnostics(
 				board,
-				`boards[${rootIndex}]`,
+				`boards[${index}]`,
 				emptyResolvedTokens,
 				emptyColorTokens,
 				EMPTY_CUSTOM_UTILITY_ROOTS,
@@ -1098,10 +1137,10 @@ export const getDesignDiagnostics = async (
 		inspectUtility,
 		storedTokens,
 	);
-	for (const [rootIndex, board] of design.boards.entries()) {
+	for (const { board, index } of boards) {
 		collectClassDiagnostics(
 			board,
-			`boards[${rootIndex}]`,
+			`boards[${index}]`,
 			resolvedTokens,
 			colorTokens,
 			customUtilityRoots,

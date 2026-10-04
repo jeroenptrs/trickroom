@@ -4,6 +4,8 @@ import {
 	createDesignFileService,
 	type DesignFileRead,
 } from "../../services/design-file-service";
+import { planDesignWrite } from "../../services/design-merge";
+import { decodeDesignRevision } from "../../services/design-revision";
 import type { DesignTransformError } from "../../services/design-transform-service";
 import type { TrickroomDesign } from "../../types";
 import { findDesignSystem } from "../../utils/design-system-store";
@@ -28,10 +30,16 @@ import {
 import type { TrickroomMcpServerContext } from "../server-types";
 import {
 	createDesignOperationDependencies,
+	createStaleViewMismatchResult,
 	mutateDesignFile,
 	skipDesignWrite,
 } from "../tools/mutation-support";
-import { createJsonResult } from "../tools/results";
+import {
+	createJsonResult,
+	describeRevisionMismatch,
+	type RevisionMismatch,
+} from "../tools/results";
+import { diffDesignRevision, getTouchedBoardIds } from "./design-revisions";
 import { summarizeDesignSystemReference } from "./design-system";
 import { getDesignSystemHandle, readDesignFileForTool } from "./design-tree";
 import { getProjectReference } from "./project";
@@ -125,32 +133,69 @@ const createInvalidValidationResult = (
 
 const createRevisionMismatchValidationResult = (
 	context: TrickroomMcpServerContext,
+	mismatch: RevisionMismatch,
+) => {
+	const { message, ...details } = describeRevisionMismatch(mismatch);
+	return createValidationResult(context, {
+		status: "REVISION_MISMATCH",
+		designFileId: mismatch.designFileId,
+		issues: [{ severity: "error", code: "REVISION_MISMATCH", message }],
+		extra: details,
+	});
+};
+
+/**
+ * Whether a dry-run based on `expectedRevision` would be refused: the same
+ * board-level check design_apply's write makes. Steps on boards that did not
+ * change since that revision pass, even when other boards did.
+ */
+const checkDryRunRevision = (
 	designFileId: string,
 	read: DesignFileRead,
 	expectedRevision: string,
-) =>
-	createValidationResult(context, {
-		status: "REVISION_MISMATCH",
+	result: TrickroomDesign | null,
+): RevisionMismatch | null => {
+	if (read.revision === expectedRevision) {
+		return null;
+	}
+	const mismatch = {
 		designFileId,
-		issues: [
-			{
-				severity: "error",
-				code: "REVISION_MISMATCH",
-				message:
-					"The design changed since your last read. Re-read it and validate against its current revision.",
-			},
-		],
-		extra: { currentRevision: read.revision, expectedRevision },
+		currentRevision: read.revision,
+		expectedRevision,
+		design: read.design,
+	};
+	if (result === null) {
+		// A failing step may fail only because the caller's view is stale.
+		const changes = diffDesignRevision(expectedRevision, read);
+		return changes === null ||
+			changes.changedBoardIds.length > 0 ||
+			changes.removedBoardCount > 0
+			? { ...mismatch, staleBoardIds: changes?.changedBoardIds }
+			: null;
+	}
+	const { conflict } = planDesignWrite({
+		current: read.design,
+		incoming: result,
+		base: decodeDesignRevision(read.revision),
+		expected: decodeDesignRevision(expectedRevision),
 	});
+	return conflict ? { ...mismatch, ...conflict } : null;
+};
 
-/** Diagnostics on `design`, warnings scoped to the touched elements. */
+/**
+ * Diagnostics on the boards a plan changed, warnings scoped to the touched
+ * elements.
+ */
 const getScopedDesignIssues = async (
 	context: TrickroomMcpServerContext,
+	before: TrickroomDesign,
 	design: TrickroomDesign,
 	affectedElementIds: Iterable<string>,
 ) => {
 	const affected = new Set(affectedElementIds);
-	const diagnostics = await getDesignDiagnostics(context, design);
+	const diagnostics = await getDesignDiagnostics(context, design, {
+		boardIds: getTouchedBoardIds(before, design, affected),
+	});
 	return {
 		tokenSnapshot: diagnostics.tokenSnapshot,
 		issues: diagnostics.issues.filter(
@@ -166,9 +211,10 @@ const readRawDesignFile = async (
 	context: TrickroomMcpServerContext,
 	designFileId: string,
 ) => {
-	const service = createDesignFileService(context.projectRoot);
 	try {
-		return await service.readJsonFile(service.getFileForUuid(designFileId));
+		return await createDesignFileService(context.projectRoot).readRawDesign(
+			designFileId,
+		);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
 			// Throws the shared DESIGN_NOT_FOUND error for missing designs.
@@ -324,20 +370,20 @@ const validateOperations = async (
 ) => {
 	assertCanReadDesignFile(getMcpPolicy(context.config), input.designFileId);
 	const read = await readDesignFileForTool(context, input.designFileId);
-	if (read.revision !== input.expectedRevision) {
-		return createRevisionMismatchValidationResult(
-			context,
-			input.designFileId,
-			read,
-			input.expectedRevision,
-		);
-	}
-
 	const execution = await executeOperationPlan(
 		createDesignOperationDependencies(context),
 		input,
 		read.design,
 	);
+	const mismatch = checkDryRunRevision(
+		input.designFileId,
+		read,
+		input.expectedRevision,
+		execution.status === "success" ? execution.design : null,
+	);
+	if (mismatch) {
+		return createRevisionMismatchValidationResult(context, mismatch);
+	}
 	if (execution.status === "failed") {
 		const {
 			code: _code,
@@ -357,6 +403,7 @@ const validateOperations = async (
 
 	const scoped = await getScopedDesignIssues(
 		context,
+		read.design,
 		execution.design,
 		execution.affectedElementIds,
 	);
@@ -476,22 +523,37 @@ export const applyDesignOperationsPayload = async (
 				);
 				if (execution.status === "failed") {
 					return skipDesignWrite(
-						createErrorResult({
-							status: "INVALID_OPERATION",
-							valid: false,
-							...base,
-							...describeFailedPlanStep(execution),
-						}),
+						createStaleViewMismatchResult(
+							context,
+							designFileId,
+							read,
+							expectedRevision,
+						) ??
+							createErrorResult({
+								status: "INVALID_OPERATION",
+								valid: false,
+								...base,
+								...describeFailedPlanStep(execution),
+							}),
 					);
 				}
+				// Only the boards this batch changed are diagnosed: issues on the
+				// other boards are what they were before the batch.
+				const boardIds = getTouchedBoardIds(
+					read.design,
+					execution.design,
+					execution.affectedElementIds,
+				);
 				const shaped = shapeMutationDiagnostics(
-					await getDesignDiagnostics(context, execution.design),
+					await getDesignDiagnostics(context, execution.design, { boardIds }),
 					response,
 					execution.affectedElementIds,
 				);
 				const { introduced, preExistingCount } = await splitIntroducedErrors(
 					shaped.issues,
-					async () => (await getDesignDiagnostics(context, read.design)).issues,
+					async () =>
+						(await getDesignDiagnostics(context, read.design, { boardIds }))
+							.issues,
 				);
 				const diagnostics = {
 					...shaped,

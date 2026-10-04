@@ -419,8 +419,9 @@ export const DESIGN_OPERATION_PARAMETERS: Record<
 			name: "sourceExpectedRevision",
 			type: "string",
 			required: false,
-			description: "Source design revision; required for cross-design copies.",
-			example: "sha256:…",
+			description:
+				"Source design revision; required for cross-design copies. Only the board the copy reads from has to be unchanged since it.",
+			example: "r2.…",
 		},
 		{
 			name: "options",

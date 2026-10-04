@@ -283,8 +283,8 @@ describe("trickroom MCP design read tools", () => {
 					modifiedAt: expect.any(String),
 					revision: expect.any(String),
 					boards: [
-						{ id: "board-a", name: "Board A" },
-						{ id: "board-b", name: "Board B" },
+						{ id: "board-a", name: "Board A", revision: expect.any(String) },
+						{ id: "board-b", name: "Board B", revision: expect.any(String) },
 					],
 				},
 				{
@@ -322,8 +322,18 @@ describe("trickroom MCP design read tools", () => {
 			},
 			elementCount: 5,
 			boards: [
-				{ id: "board-a", name: "Board A", elementCount: 4 },
-				{ id: "board-b", name: "Board B", elementCount: 1 },
+				{
+					id: "board-a",
+					name: "Board A",
+					revision: expect.any(String),
+					elementCount: 4,
+				},
+				{
+					id: "board-b",
+					name: "Board B",
+					revision: expect.any(String),
+					elementCount: 1,
+				},
 			],
 			read: {
 				depth: 2,
@@ -369,11 +379,22 @@ describe("trickroom MCP design read tools", () => {
 			name: "design_read",
 			arguments: { designFileId, boardId: "board-b" },
 		});
+		const listedBoardB = listedDesign.boards as Array<{
+			id: string;
+			revision: string;
+		}>;
 		expect(toolPayload(boardRead)).toMatchObject({
-			boards: [{ id: "board-a" }, { id: "board-b" }],
+			designFile: { id: designFileId, revision: listedDesign.revision },
+			board: {
+				id: "board-b",
+				name: "Board B",
+				revision: listedBoardB[1]?.revision,
+				elementCount: 1,
+			},
 			tree: [{ id: "board-b" }],
 			read: { returnedNodeCount: 1 },
 		});
+		expect(toolPayload(boardRead)).not.toHaveProperty("boards");
 
 		const missingBoard = await client.callTool({
 			name: "design_read",

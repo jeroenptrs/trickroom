@@ -552,11 +552,7 @@ export const getElementContextOrThrow = (
 	return context;
 };
 
-// Design memory lives next to the design as `<uuid>.memory.json`; it is not a
-// design file and must not show up in design listings.
-const isDesignMemorySidecar = (file: string) => file.endsWith(".memory.json");
-
-/** Design summaries this session may read, without memory sidecars. */
+/** Design summaries this session may read. */
 export const listVisibleDesignSummaries = async (
 	context: TrickroomMcpServerContext,
 ) => {
@@ -566,9 +562,8 @@ export const listVisibleDesignSummaries = async (
 	).listDesignSummaries();
 	return summaries.filter(
 		(summary) =>
-			!isDesignMemorySidecar(summary.file) &&
-			(policy.allowedDesignFileIds === null ||
-				policy.allowedDesignFileIds.has(summary.uuid)),
+			policy.allowedDesignFileIds === null ||
+			policy.allowedDesignFileIds.has(summary.uuid),
 	);
 };
 
@@ -606,9 +601,10 @@ export const readDesignFileForTool = async (
 	context: TrickroomMcpServerContext,
 	designFileId: string,
 ) => {
-	const service = createDesignFileService(context.projectRoot);
 	try {
-		return await service.readDesignFile(service.getFileForUuid(designFileId));
+		return await createDesignFileService(context.projectRoot).readDesignFile(
+			designFileId,
+		);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
 			throw await createDesignNotFoundError(context, designFileId);

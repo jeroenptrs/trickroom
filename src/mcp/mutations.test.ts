@@ -461,7 +461,7 @@ describe("MCP mutation tools", () => {
 			const { fixture, session } = await setup();
 			try {
 				const original = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				const staleRevision =
 					"sha256:0000000000000000000000000000000000000000000000000000000000000000";
@@ -481,7 +481,7 @@ describe("MCP mutation tools", () => {
 				const content = toolPayload(result) as { status: string };
 				expect(content.status).toBe("REVISION_MISMATCH");
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.revision).toBe(original.revision);
 				expect(persisted.design).toEqual(original.design);
@@ -505,9 +505,7 @@ describe("MCP mutation tools", () => {
 			);
 			try {
 				const read = await deniedDesignFixture.designFileService.readDesignFile(
-					deniedDesignFixture.designFileService.getFileForUuid(
-						trickroomMcpTestDesignUuid,
-					),
+					trickroomMcpTestDesignUuid,
 				);
 				const result = await applyOperation(
 					deniedDesignSession.client,
@@ -961,9 +959,8 @@ describe("MCP mutation tools", () => {
 					session,
 					trickroomMcpTestDesignUuid,
 				);
-				const originalTarget = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(targetDesignFileId),
-				);
+				const originalTarget =
+					await fixture.designFileService.readDesignFile(targetDesignFileId);
 				const staleTargetRevision =
 					"sha256:0000000000000000000000000000000000000000000000000000000000000000";
 				const result = await applyOperation(session.client, "copySubtree", {
@@ -982,9 +979,8 @@ describe("MCP mutation tools", () => {
 					currentRevision: expect.any(String),
 					expectedRevision: staleTargetRevision,
 				});
-				const persistedTarget = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(targetDesignFileId),
-				);
+				const persistedTarget =
+					await fixture.designFileService.readDesignFile(targetDesignFileId);
 				expect(persistedTarget.revision).toBe(originalTarget.revision);
 				expect(persistedTarget.design).toEqual(originalTarget.design);
 			} finally {
@@ -1014,15 +1010,11 @@ describe("MCP mutation tools", () => {
 			try {
 				const sourceRead =
 					await sourceDeniedFixture.designFileService.readDesignFile(
-						sourceDeniedFixture.designFileService.getFileForUuid(
-							trickroomMcpTestDesignUuid,
-						),
+						trickroomMcpTestDesignUuid,
 					);
 				const targetRead =
 					await sourceDeniedFixture.designFileService.readDesignFile(
-						sourceDeniedFixture.designFileService.getFileForUuid(
-							targetDesignFileId,
-						),
+						targetDesignFileId,
 					);
 				const result = await applyOperation(
 					sourceDeniedSession.client,
@@ -1062,15 +1054,11 @@ describe("MCP mutation tools", () => {
 			try {
 				const sourceRead =
 					await targetDeniedFixture.designFileService.readDesignFile(
-						targetDeniedFixture.designFileService.getFileForUuid(
-							trickroomMcpTestDesignUuid,
-						),
+						trickroomMcpTestDesignUuid,
 					);
 				const targetRead =
 					await targetDeniedFixture.designFileService.readDesignFile(
-						targetDeniedFixture.designFileService.getFileForUuid(
-							targetDesignFileId,
-						),
+						targetDesignFileId,
 					);
 				const result = await applyOperation(
 					targetDeniedSession.client,
@@ -1193,9 +1181,8 @@ describe("MCP mutation tools", () => {
 					session,
 					trickroomMcpTestDesignUuid,
 				);
-				const originalTarget = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(targetDesignFileId),
-				);
+				const originalTarget =
+					await fixture.designFileService.readDesignFile(targetDesignFileId);
 				const result = await applyOperation(session.client, "copySubtree", {
 					sourceDesignFileId: trickroomMcpTestDesignUuid,
 					sourceElementId: "source-asset",
@@ -1211,9 +1198,8 @@ describe("MCP mutation tools", () => {
 					status: "INVALID_OPERATION",
 					code: "UNKNOWN_ASSET_ID",
 				});
-				const persistedTarget = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(targetDesignFileId),
-				);
+				const persistedTarget =
+					await fixture.designFileService.readDesignFile(targetDesignFileId);
 				expect(persistedTarget.revision).toBe(originalTarget.revision);
 				expect(persistedTarget.design).toEqual(originalTarget.design);
 			} finally {
@@ -1340,9 +1326,8 @@ describe("MCP mutation tools", () => {
 				// A new design starts without boards.
 				expect(content.boards).toEqual([]);
 
-				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(createdDesignFileId),
-				);
+				const persisted =
+					await fixture.designFileService.readDesignFile(createdDesignFileId);
 				expect(persisted.design).toMatchObject({
 					name: "Exploration",
 					systemId: expect.stringMatching(/^sys_/),
@@ -1386,7 +1371,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.design.name).toBe("Harness Design");
 			} finally {
@@ -1730,7 +1715,7 @@ describe("MCP mutation tools", () => {
 				expect(newBoardId).not.toBe("board");
 
 				const persistedTarget = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(extractedDesignFileId),
+					extractedDesignFileId,
 				);
 				expect(persistedTarget.design).toMatchObject({
 					name: "Board",
@@ -1760,7 +1745,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				const persistedSource = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				expect(persistedSource.design).toEqual(trickroomMcpTestDesign);
 			} finally {
@@ -1795,7 +1780,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(extractedDesignFileId),
+					extractedDesignFileId,
 				);
 				expect(persisted.design.name).toBe("Extracted Heading");
 				expect(persisted.design.systemId).toBeNull();
@@ -2113,7 +2098,7 @@ describe("MCP mutation tools", () => {
 				expect(content).not.toHaveProperty("created");
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.design.name).toBe("Renamed Design");
 			} finally {
@@ -3421,7 +3406,7 @@ describe("MCP mutation tools", () => {
 				expect(added.context.parentId).toBe("board");
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				const board = persisted.design.boards[0];
 				expect(Array.isArray(board.children)).toBe(true);
@@ -3484,7 +3469,7 @@ describe("MCP mutation tools", () => {
 				);
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.revision).toBe(revision);
 				expect(persisted.design).toEqual(trickroomMcpTestDesign);
@@ -3546,7 +3531,7 @@ describe("MCP mutation tools", () => {
 				).not.toHaveProperty("rootElementId");
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.revision).toBe(revision);
 				expect(persisted.design).toEqual(trickroomMcpTestDesign);
@@ -3603,7 +3588,7 @@ describe("MCP mutation tools", () => {
 				expect(content.predicted[0]).not.toHaveProperty("context");
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.revision).toBe(revision);
 				expect(persisted.design).toEqual(trickroomMcpTestDesign);
@@ -4066,9 +4051,7 @@ describe("MCP mutation tools", () => {
 					expect(step.summary.recipeMigration.toTemplateHash).toMatch(/^trh1:/);
 
 					const persisted = await fixture.designFileService.readDesignFile(
-						fixture.designFileService.getFileForUuid(
-							trickroomMcpTestDesignUuid,
-						),
+						trickroomMcpTestDesignUuid,
 					);
 					const root = persisted.design.boards[0];
 					const children = root.children as Node[];
@@ -4186,9 +4169,7 @@ describe("MCP mutation tools", () => {
 						],
 					});
 					const persisted = await fixture.designFileService.readDesignFile(
-						fixture.designFileService.getFileForUuid(
-							trickroomMcpTestDesignUuid,
-						),
+						trickroomMcpTestDesignUuid,
 					);
 					expect(persisted.revision).toBe(revision);
 					expect(JSON.stringify(persisted.design)).toContain("legacy-fallback");
@@ -4213,7 +4194,7 @@ describe("MCP mutation tools", () => {
 			try {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 				const before = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 
 				const result = await session.client.callTool({
@@ -4251,7 +4232,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				const after = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				expect(after.revision).toBe(revision);
 				expect(after.design).toEqual(before.design);
@@ -4309,7 +4290,7 @@ describe("MCP mutation tools", () => {
 				]);
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.revision).toBe(revision);
 				expect(JSON.stringify(persisted.design)).toContain(recipeInstanceProp);
@@ -4408,7 +4389,7 @@ describe("MCP mutation tools", () => {
 				expect(moveResult.isError).toBeFalsy();
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				const serialized = JSON.stringify(persisted.design);
 				expect(serialized).not.toContain(recipeInstanceProp);
@@ -4548,7 +4529,7 @@ describe("MCP mutation tools", () => {
 				expect(toolPayload(result)).not.toHaveProperty("steps");
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.revision).toBe(revision);
 				expect(persisted.design).toEqual(trickroomMcpTestDesign);
@@ -4599,7 +4580,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.revision).toBe(revision);
 			} finally {
@@ -5043,7 +5024,7 @@ describe("MCP mutation tools", () => {
 				expect(contentSlotId).toEqual(expect.any(String));
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				const find = (
 					nodes: TrickroomDesign["boards"],
@@ -5164,7 +5145,7 @@ describe("MCP mutation tools", () => {
 				expect(content.newRevision).not.toBe(revision);
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.revision).toBe(content.newRevision);
 				const board = persisted.design.boards[0];
@@ -5223,7 +5204,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.revision).not.toBe(staleRevision);
 			} finally {
@@ -5378,7 +5359,7 @@ describe("MCP mutation tools", () => {
 
 				expect(result.isError).toBeFalsy();
 				const persisted = await fixture.designFileService.readDesignFile(
-					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+					trickroomMcpTestDesignUuid,
 				);
 				const title = persisted.design.boards[0].children;
 				expect(Array.isArray(title)).toBe(true);

@@ -16,7 +16,12 @@ import {
 } from "./design-operations";
 import type { MutationResponseDetail } from "./diagnostics";
 import { assertCanReadDesignFile, type McpPolicy } from "./governance";
+import {
+	findBoardOfElement,
+	isBoardCurrent,
+} from "./payloads/design-revisions";
 import type { TrickroomMcpProjectRef } from "./project-resolver";
+import { TOOL } from "./tool-names";
 import {
 	designFileIdSchema,
 	expectedRevisionSchema,
@@ -611,14 +616,42 @@ const loadCopySource = async (
 		sourceRead = await deps.readDesignFile(sourceDesignFileId);
 		sourceDesignReads.set(sourceDesignFileId, sourceRead);
 	}
-	if (sourceRead.revision !== sourceExpectedRevision) {
+	// Only the board the copy reads from has to be unchanged since the
+	// caller's source revision; edits to the source's other boards are fine.
+	const sourceBoard = findBoardOfElement(
+		sourceRead.design,
+		String(params.sourceElementId),
+	);
+	if (
+		sourceRead.revision !== sourceExpectedRevision &&
+		(sourceBoard === null ||
+			!isBoardCurrent(sourceExpectedRevision, sourceRead, sourceBoard.id))
+	) {
+		const boardName = sourceBoard?.props["data-trickroom-name"];
 		throw new DesignTransformError(
 			"SOURCE_REVISION_MISMATCH",
-			"The copy source design changed since your last read. Re-read it and retry with its current revision.",
+			sourceBoard
+				? `The copy source board "${boardName ?? sourceBoard.id}" changed since your source revision. Re-read that board (next) and retry with its revision as sourceExpectedRevision.`
+				: "The copy source design changed since your source revision and the source element is not on any board. Re-read the source design and retry with its revision as sourceExpectedRevision.",
 			{
 				sourceDesignFileId,
 				currentSourceRevision: sourceRead.revision,
 				sourceExpectedRevision,
+				...(sourceBoard
+					? {
+							staleSourceBoard: {
+								id: sourceBoard.id,
+								name: typeof boardName === "string" ? boardName : null,
+							},
+						}
+					: {}),
+				next: {
+					tool: TOOL.designRead,
+					args: {
+						designFileId: sourceDesignFileId,
+						...(sourceBoard ? { boardId: sourceBoard.id } : {}),
+					},
+				},
 			},
 		);
 	}

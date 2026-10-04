@@ -243,7 +243,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revision);
 		expect(persisted.design.boards[0].children).toHaveLength(1);

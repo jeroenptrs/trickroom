@@ -480,9 +480,8 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 				},
 			);
 			expect(findRevision(createResult)).toEqual(expect.any(String));
-			const createdDesign = await fixture.designFileService.readDesignFile(
-				fixture.designFileService.getFileForUuid(createdDesignFileId),
-			);
+			const createdDesign =
+				await fixture.designFileService.readDesignFile(createdDesignFileId);
 			expect(createdDesign.design.name).toBe("Smoke Exploration");
 			expect(createdDesign.design.boards).toEqual([]);
 
@@ -513,7 +512,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 			expect(findRevision(addResult)).toEqual(expect.any(String));
 
 			const afterAdd = await fixture.designFileService.readDesignFile(
-				fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+				trickroomMcpTestDesignUuid,
 			);
 			expect(JSON.stringify(afterAdd.design)).toContain("Smoke copy");
 			expect(JSON.stringify(afterAdd.design)).toContain(
@@ -529,7 +528,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 			});
 
 			const afterMismatch = await fixture.designFileService.readDesignFile(
-				fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+				trickroomMcpTestDesignUuid,
 			);
 			expect(JSON.stringify(afterMismatch.design)).toContain("Harness fixture");
 			expect(JSON.stringify(afterMismatch.design)).not.toContain("Stale edit");

@@ -390,7 +390,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		const board = persisted.design.boards[0];
 		const detachedRoot = Array.isArray(board.children)
@@ -433,7 +433,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		const board = persisted.design.boards[0];
 		const updatedRoot = Array.isArray(board.children)
@@ -469,7 +469,7 @@ describe("trickroom MCP system component instance tools", () => {
 		const rootElementId = String(toolPayload(added).created[0].id);
 
 		const persistedSource = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		const sourceRoot = (
 			persistedSource.design.boards[0].children as Array<{
@@ -497,9 +497,8 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 		expect(extractedRoot.isError).not.toBe(true);
 		const extractedBoardId = toolPayload(extractedRoot).boards[0].id;
-		const extractedRootDesign = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(rootTargetId),
-		);
+		const extractedRootDesign =
+			await fixture.designFileService.readDesignFile(rootTargetId);
 		const clonedRoot = extractedRootDesign.design.boards[0];
 		expect(clonedRoot.props[systemComponentIdProp]).toBe(componentId);
 		expect(clonedRoot.props[systemComponentRootProp]).toBe("true");
@@ -525,9 +524,8 @@ describe("trickroom MCP system component instance tools", () => {
 			},
 		});
 		expect(extractedPartial.isError).not.toBe(true);
-		const partialDesign = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(partialTargetId),
-		);
+		const partialDesign =
+			await fixture.designFileService.readDesignFile(partialTargetId);
 		expectNoSystemComponentMarkers(partialDesign.design.boards[0]);
 	});
 
@@ -667,7 +665,7 @@ describe("trickroom MCP system component instance tools", () => {
 		expect(toolPayload(result)).not.toHaveProperty("diagnostics");
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 	});
@@ -1106,7 +1104,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revision);
 	});
@@ -1152,9 +1150,7 @@ describe("trickroom MCP system component instance tools", () => {
 
 			const persisted =
 				await restrictedFixture.designFileService.readDesignFile(
-					restrictedFixture.designFileService.getFileForUuid(
-						trickroomMcpTestDesignUuid,
-					),
+					trickroomMcpTestDesignUuid,
 				);
 			expect(persisted.revision).toBe(revision);
 		} finally {
@@ -1204,7 +1200,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(afterAddRevision);
 	});
@@ -1289,7 +1285,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revision);
 	});
@@ -1341,7 +1337,7 @@ describe("trickroom MCP system component instance tools", () => {
 		expect(toolPayload(result)?.newRevision).not.toBe(revision);
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(toolPayload(result)?.newRevision);
 	});
@@ -1387,9 +1383,7 @@ describe("trickroom MCP system component instance tools", () => {
 
 			const persisted =
 				await restrictedFixture.designFileService.readDesignFile(
-					restrictedFixture.designFileService.getFileForUuid(
-						trickroomMcpTestDesignUuid,
-					),
+					trickroomMcpTestDesignUuid,
 				);
 			expect(persisted.revision).toBe(revision);
 		} finally {
@@ -1435,7 +1429,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revision);
 	});
@@ -1487,7 +1481,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(afterAddRevision);
 		const board = persisted.design.boards[0];
@@ -1524,7 +1518,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revision);
 	});
@@ -1558,7 +1552,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revision);
 	});
@@ -1621,7 +1615,7 @@ describe("trickroom MCP system component instance tools", () => {
 		expect(steps[1].summary.detachedElementIds).toContain(rootElementId);
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revision);
 	});
@@ -1687,7 +1681,7 @@ describe("trickroom MCP system component instance tools", () => {
 		expect(toolPayload(result)?.newRevision).not.toBe(revision);
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(toolPayload(result)?.newRevision);
 		const board = persisted.design.boards[0];
@@ -1733,7 +1727,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revision);
 	});
@@ -1772,7 +1766,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).not.toBe(revisionAfterAdd);
 		const board = persisted.design.boards[0];
@@ -1862,7 +1856,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 		const board = persisted.design.boards[0];
@@ -1930,7 +1924,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 	});
@@ -1969,7 +1963,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 	});
@@ -2007,7 +2001,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		const migratedRoot = Array.isArray(persisted.design.boards[0].children)
 			? persisted.design.boards[0].children.find(
@@ -2110,7 +2104,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 		const staleRoot = Array.isArray(persisted.design.boards[0].children)
@@ -2216,7 +2210,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 	});
@@ -2255,7 +2249,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 	});
@@ -2291,7 +2285,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 		const staleRoot = Array.isArray(persisted.design.boards[0].children)
@@ -2395,7 +2389,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 		const staleRoot = Array.isArray(persisted.design.boards[0].children)
@@ -2437,7 +2431,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 	});
@@ -2477,7 +2471,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 	});
@@ -2522,7 +2516,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 	});
@@ -2561,7 +2555,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 	});
@@ -2603,7 +2597,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revisionAfterAdd);
 	});

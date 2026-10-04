@@ -10,10 +10,6 @@ import { DesignTransformError } from "../../services/design-transform-service";
 import { enrichElementLookupError } from "../../services/element-lookup-hints";
 import type { TrickroomDesign } from "../../types";
 import {
-	type DesignOperationName,
-	validateDryRunOperationParameters,
-} from "../design-operations";
-import {
 	getDesignDiagnostics,
 	type MutationResponseDetail,
 	shapeMutationDiagnostics,
@@ -24,11 +20,11 @@ import {
 	type McpAuditEntry,
 	McpPolicyError,
 } from "../governance";
+import type { OperationPlanDependencies } from "../operation-plan";
 import {
-	type DesignOperationExecution,
-	executeDesignOperation,
-	type OperationPlanDependencies,
-} from "../operation-plan";
+	diffDesignRevision,
+	getTouchedBoardIds,
+} from "../payloads/design-revisions";
 import { canonicalizeDesignSystemReferenceForStorage } from "../payloads/design-system";
 import { readDesignFileForTool } from "../payloads/design-tree";
 import {
@@ -47,16 +43,25 @@ import {
 // Shape post-write diagnostics for a mutation response: every error issue, a
 // warningCount, and grouped likely-typo warnings scoped to
 // `affectedElementIds` (the elements this write touched). "full" returns every
-// scoped warning and the token diagnostics. To inspect the full design, call
-// validateDesignFile.
+// scoped warning and the token diagnostics. With `affectedElementIds`, only
+// the boards holding them are diagnosed. To inspect the full design, call
+// design_validate.
 export const getMutationDiagnostics = async (
 	context: TrickroomMcpServerContext,
 	design: TrickroomDesign,
 	detail?: MutationResponseDetail,
 	affectedElementIds?: Iterable<string>,
 ) => {
-	const diagnostics = await getDesignDiagnostics(context, design);
-	return shapeMutationDiagnostics(diagnostics, detail, affectedElementIds);
+	const affected =
+		affectedElementIds === undefined ? undefined : [...affectedElementIds];
+	const diagnostics = await getDesignDiagnostics(
+		context,
+		design,
+		affected === undefined
+			? {}
+			: { boardIds: getTouchedBoardIds(design, design, affected) },
+	);
+	return shapeMutationDiagnostics(diagnostics, detail, affected);
 };
 
 /** Policy, project root and checks for executing design operations. */
@@ -172,6 +177,39 @@ export const withMutationErrorHandling = async (
 	}
 };
 
+/**
+ * A step that failed on a read newer than the caller's revision may have
+ * failed only because the caller's view is stale (for example an element
+ * another writer removed): report a revision mismatch naming the boards that
+ * changed, so the caller re-reads them. Returns null when no board changed
+ * (a change to just the name or settings cannot explain a failed step).
+ */
+export const createStaleViewMismatchResult = (
+	context: TrickroomMcpServerContext,
+	designFileId: string,
+	read: DesignFileRead,
+	expectedRevision: string,
+): CallToolResult | null => {
+	if (read.revision === expectedRevision) {
+		return null;
+	}
+	const changes = diffDesignRevision(expectedRevision, read);
+	if (
+		changes !== null &&
+		changes.changedBoardIds.length === 0 &&
+		changes.removedBoardCount === 0
+	) {
+		return null;
+	}
+	return createRevisionMismatchResult(context, {
+		designFileId,
+		currentRevision: read.revision,
+		expectedRevision,
+		staleBoardIds: changes?.changedBoardIds,
+		design: read.design,
+	});
+};
+
 const skippedDesignWrite = Symbol("skippedDesignWrite");
 
 type SkippedDesignWrite = { [skippedDesignWrite]: CallToolResult };
@@ -220,12 +258,14 @@ export const mutateDesignFile = async <
 	},
 ): Promise<CallToolResult> => {
 	let loaded = undefined as Loaded;
+	let lastRead: DesignFileRead | null = null;
 	const outcome = await createDesignFileService(
 		context.projectRoot,
 	).updateDesignFile(designFileId, {
 		expectedRevision,
 		read: () => readDesignFileForTool(context, designFileId),
 		mutate: async (read) => {
+			lastRead = read;
 			loaded = steps.load
 				? await steps.load(read, (otherDesignFileId) =>
 						readDesignFileForTool(context, otherDesignFileId),
@@ -238,17 +278,17 @@ export const mutateDesignFile = async <
 				// The operation may fail only because the caller's view is out of
 				// date (for example an element another writer removed): ask it to
 				// re-read instead of reporting the failure.
-				if (
-					error instanceof DesignTransformError &&
-					read.revision !== expectedRevision
-				) {
-					return skipDesignUpdate(
-						createRevisionMismatchResult(
-							context,
-							read.revision,
-							expectedRevision,
-						),
-					);
+				const mismatch =
+					error instanceof DesignTransformError
+						? createStaleViewMismatchResult(
+								context,
+								designFileId,
+								read,
+								expectedRevision,
+							)
+						: null;
+				if (mismatch) {
+					return skipDesignUpdate(mismatch);
 				}
 				throw error;
 			}
@@ -261,50 +301,21 @@ export const mutateDesignFile = async <
 	});
 
 	if (outcome.status === "revision-mismatch") {
-		return createRevisionMismatchResult(
-			context,
-			outcome.currentRevision,
-			outcome.expectedRevision,
-		);
+		return createRevisionMismatchResult(context, {
+			designFileId,
+			currentRevision: outcome.currentRevision,
+			expectedRevision: outcome.expectedRevision,
+			staleBoardIds: outcome.staleBoardIds,
+			manifest: outcome.manifest,
+			order: outcome.order,
+			design: (lastRead as DesignFileRead | null)?.design,
+		});
 	}
 	if (outcome.status === "skipped") {
 		return outcome.value;
 	}
 	return steps.respond(outcome.result, outcome.write, loaded);
 };
-
-/**
- * Validate parameters and execute one design operation inside
- * mutateDesignFile: the single-element write tools are thin wrappers over the
- * same implementation as the matching applyDesignOperations step.
- */
-export const mutateDesignWithOperation = (
-	context: TrickroomMcpServerContext,
-	target: { designFileId: string; expectedRevision: string },
-	operation: DesignOperationName,
-	parameters: Record<string, unknown>,
-	respond: (
-		execution: DesignOperationExecution,
-		write: DesignFileWriteResult,
-		before: TrickroomDesign,
-	) => Promise<CallToolResult>,
-): Promise<CallToolResult> =>
-	mutateDesignFile(context, target, {
-		mutate: async (read) => {
-			const params = validateDryRunOperationParameters(operation, parameters, {
-				designFileId: target.designFileId,
-			});
-			const execution = await executeDesignOperation(
-				createDesignOperationDependencies(context),
-				read.design,
-				operation,
-				params,
-				{ designFileId: target.designFileId },
-			);
-			return { design: execution.design, execution, before: read.design };
-		},
-		respond: (result, write) => respond(result.execution, write, result.before),
-	});
 
 /**
  * Create a new design file: canonicalize its system reference and write it

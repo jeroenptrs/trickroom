@@ -39,9 +39,7 @@ const createPlanDeps = async (
 		policy: getMcpPolicy(context.config),
 		projectRoot: context.projectRoot,
 		readDesignFile: async (designFileId) =>
-			fixture.designFileService.readDesignFile(
-				fixture.designFileService.getFileForUuid(designFileId),
-			),
+			fixture.designFileService.readDesignFile(designFileId),
 		assertResourceReferencesExist: async () => {},
 		assertCanUseSubtreeComponents: () => {},
 	};
@@ -50,10 +48,7 @@ const createPlanDeps = async (
 const readDesign = (
 	fixture: Awaited<ReturnType<typeof createTrickroomMcpProjectFixture>>,
 	designFileId: string,
-) =>
-	fixture.designFileService.readDesignFile(
-		fixture.designFileService.getFileForUuid(designFileId),
-	);
+) => fixture.designFileService.readDesignFile(designFileId);
 
 describe("resolveStepReferencesInParameters", () => {
 	it("preserves literal text values that look like step references", () => {

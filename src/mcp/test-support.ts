@@ -250,10 +250,7 @@ export const createTrickroomMcpProjectFixture = async (
 		},
 		writeDesign: async (uuid, design) => {
 			await mkdir(designFileService.designsDir, { recursive: true });
-			await designFileService.writeDesignFile(
-				designFileService.getFileForUuid(uuid),
-				design,
-			);
+			await designFileService.writeDesignFile(uuid, design);
 		},
 		writeSystemCss: async (cssPath, contents) => {
 			const systemCssPath = path.resolve(projectRoot, cssPath);

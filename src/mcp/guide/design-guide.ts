@@ -50,7 +50,7 @@ const CORE_RULES = [
 	BOARD_GUIDANCE,
 	"Classes are checked against Tailwind and the linked design system. Prefer its tokens (color token brand-500 gives bg-brand-500) to arbitrary values like bg-[#123456]. Writes return unknown classes and tokens as warnings with the nearest valid class: fix them.",
 	"Recipe and component structure is locked: no moving, deleting, retexting or inserting, except into declared slots. Change instances through slots, controls, variants and overrides; detach only when the user wants a one-off.",
-	"Writes to an existing design take expectedRevision: the revision from your last read or the newRevision of your last write. On REVISION_MISMATCH, re-read and retry; never guess.",
+	"Writes to an existing design take expectedRevision: the revision from your last read or the newRevision of your last write. It is checked per board: changes others made to boards you do not touch never block you. On REVISION_MISMATCH, re-read only the boards it names (next) and retry with currentRevision; never guess.",
 	"Never write data-trickroom-library, -component, -role or marker props; Trickroom owns them.",
 ];
 
@@ -333,8 +333,8 @@ const buildOverlaysTopic = (input: DesignGuideInput) => ({
 
 const buildValidationTopic = () => ({
 	writeResponses: [
-		"Writes return newRevision, created ids, the error issues the write introduced, warningCount, and warnings: likely typos (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) and MISSING_RENDERER (the stage draws a placeholder) on the elements the write touched, grouped by code and class. warningCount also covers file-level warnings.",
-		"preExistingErrorCount counts errors the design already had. They do not block a write; a plan that adds errors is refused with PLAN_LEAVES_ERRORS.",
+		"Writes return newRevision, created ids, the error issues the write introduced, warningCount, and warnings: likely typos (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) and MISSING_RENDERER (the stage draws a placeholder) on the elements the write touched, grouped by code and class. warningCount also covers file-level warnings. Only the boards the write touched are checked.",
+		"preExistingErrorCount counts errors the touched boards already had. They do not block a write; a plan that adds errors is refused with PLAN_LEAVES_ERRORS.",
 		'response: "full" lists every warning on the touched elements ungrouped and adds token diagnostics and each step\'s summary.',
 		`${TOOL.designValidate} without operations returns every issue in the design. Run it before handing off.`,
 	],
@@ -344,7 +344,7 @@ const buildValidationTopic = () => ({
 		"Unknown element or parent id: truncatedIdMatches, nameMatches and, when nothing matched, availableBoardIds.",
 		"Unknown board: availableBoards. A nested element id passed as a board says to use elementId instead.",
 		"Unknown system component: suggestions with the closest componentIds.",
-		"REVISION_MISMATCH: someone else wrote. Re-read the revision, check what changed, then retry.",
+		`REVISION_MISMATCH: someone else changed a board you change (staleBoards: id, name), or the design's name, settings or board order (manifest, order). Re-read only what it names (next: ${TOOL.designRead} calls with boardId), redo your steps there, then retry with currentRevision. Boards you do not touch never need a re-read. A copy whose source board changed fails with SOURCE_REVISION_MISMATCH and staleSourceBoard.`,
 	],
 });
 
