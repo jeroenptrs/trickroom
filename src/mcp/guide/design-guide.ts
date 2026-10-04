@@ -54,9 +54,9 @@ const CORE_RULES = [
 ];
 
 const CORE_WORKFLOW = [
-	"Read: the design block below has the revision and boards; readDesignGraph gives structure and ids, readSubtree the detail. If memoryNotes counts are non-zero, read those notes (memory topic) and follow them.",
+	"Read: the design block below has the revision and boards; readDesignGraph gives structure and ids, readSubtree the detail. If memoryNotes counts are non-zero, listMemoryNotes({ designFileId }) and read the notes that bear on your task.",
 	"Write in batches: applyDesignOperations runs ordered steps atomically and returns one newRevision. Steps reference elements created by earlier steps with $step:N:tempId:<tempId> or $step:N:slot:<slot>. Prefer a system component (it carries the system's styling), then a recipe, then hand-built elements.",
-	"Check: fix warnings the write returns, screenshotBoard each changed board at viewport mobile, tablet and desktop and look at the images, then validateDesignFile.",
+	'Check: fix warnings the write returns. screenshotBoard the changed boards with viewport: ["mobile", "tablet", "desktop"] in one call and look at the images (scale: 1 for fine detail). Then validateDesignFile.',
 ];
 
 const CORE_EXAMPLE = {
@@ -169,7 +169,7 @@ const buildBoardsTopic = () => ({
 	states:
 		'For an interaction state, copy the base board (copySubtree with parentId null) and change the copy. Name boards by view and state, e.g. "Settings · Delete dialog".',
 	review:
-		"screenshotBoard the board at viewport mobile, tablet and desktop. Breakpoint variants resolve against the screenshot viewport.",
+		'screenshotBoard with viewport: ["mobile", "tablet", "desktop"] captures the board at each width in one call; breakpoint variants resolve against each viewport. boardId takes several ids or "all" (up to 12 images per call).',
 });
 
 const COMPONENTS_USAGE = [
@@ -181,7 +181,7 @@ const COMPONENTS_USAGE = [
 	"To size or position an instance in its layout, use an override target with the className capability (often root), or wrap the instance in a container.",
 	"listStaleSystemComponentUsages finds instances of older versions; migrateSystemComponentInstance moves one to the current version.",
 	"detachSystemComponent turns the instance into plain elements that no longer follow the component. Only for a one-off the user asked for.",
-	"describeSystemComponent returns a component's current version in full. To create or change components, use getSystemComponentAuthoringContract.",
+	"describeSystemComponent returns one component's interface: variant axes with values and defaults, slots, override targets and props. To create or change components, use getSystemComponentAuthoringContract.",
 ];
 
 const describePublishedComponent = (component: SystemComponentRecord) => {
@@ -274,7 +274,7 @@ const buildTokensTopic = async (input: DesignGuideInput) => {
 		validation: [
 			"Every class a write sets is checked against Tailwind and the design's linked design system.",
 			"UNKNOWN_TAILWIND_UTILITY: Tailwind cannot generate the class, usually a typo. Checked when the system's CSS loads.",
-			"UNKNOWN_<DOMAIN>_TOKEN (COLOR, SPACING, FONT, TEXT, RADIUS, SHADOW): the class names a token the system does not have.",
+			"UNKNOWN_<DOMAIN>_TOKEN (COLOR, SPACING, FONT, TEXT, RADIUS, SHADOW): the system's Tailwind build cannot emit the class because it names a theme token the system lacks, or one the system removed on purpose.",
 			"Both come back in the write response with suggestions holding the nearest valid class, keeping variants, ! and /opacity. Fix them.",
 			"OUT_OF_SYSTEM_<DOMAIN>: an arbitrary value such as bg-[#123456] or rounded-[7px] that bypasses the system. Counted in warningCount, listed with response: { includeWarnings: true }. Prefer a token unless the user asked for that exact value.",
 		],
@@ -354,14 +354,15 @@ const buildValidationTopic = () => ({
 const buildMemoryTopic = async (input: DesignGuideInput) => ({
 	what: "Memory notes are durable steering notes on the project, a design system or a design: intent, usage, conventions, constraints, decisions and todos. They are never added to your context automatically: you read them on purpose.",
 	read: [
-		"listMemoryNotes({ scope }) returns the scope's note index; getMemoryNote({ scope, noteId }) returns a note's body. Before writing, read the notes that bear on your task and follow them over your own preferences.",
+		"listMemoryNotes({ designFileId }) indexes the project, the design's linked system and the design in one call: id, title, category, size, revision and a one-line summary per note, no bodies. listMemoryNotes({ scope }) indexes one scope.",
+		"getMemoryNote({ scope, noteId }), or noteIds for up to 20 notes, returns bodies. Before writing, read the notes that bear on your task and follow them over your own preferences.",
 		'Scopes: { kind: "design", designFileId }, { kind: "system", systemName } and "project".',
 	],
 	write: [
-		"addMemoryNote({ scope, category, title, body }) records what a later session needs: a decision and its reason, a constraint the user stated, a convention. Not progress logs or summaries of your work.",
+		"addMemoryNote({ scope, category, title, body }) records what a later session needs: a decision and its reason, a constraint the user stated, a convention. Not progress logs or summaries of your work. Give it a title: the index shows it.",
 		"Categories: intent, usage, conventions, constraints, decision, todo.",
 		"Bodies are markdown and may reference other entities, e.g. {{design:<uuid>}}; listReferenceTargets lists valid references for a scope.",
-		"updateMemoryNote and deleteMemoryNote take expectedRevision from your last read of that scope.",
+		"updateMemoryNote changes a note with edits (append, prepend, exact-text replace) or a whole new body; it and deleteMemoryNote take the note's revision from the index or getMemoryNote as expectedRevision.",
 	],
 	noteCounts: await input.readMemoryCounts(),
 });
@@ -427,9 +428,8 @@ const buildExamplesTopic = () => [
 				arguments: {
 					designFileId: "<design uuid>",
 					boardId: "<page id from idMap>",
-					viewport: "mobile",
+					viewport: ["mobile", "tablet", "desktop"],
 				},
-				note: "Repeat at tablet and desktop.",
 			},
 		],
 	},

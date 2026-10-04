@@ -9,13 +9,13 @@ const PROJECT_STEP =
 	"Call 'getSelectedProject'. If no project is selected, call 'listProjects', then 'selectProject' with an entry's 'locationId'.";
 
 const contractStep = (designFileId: string) =>
-	`Call 'getDesignAuthoringContract' with designFileId "${designFileId}". The core has the design's revision and boards, its design system, the rules, and the topics to fetch when you need them (e.g. 'recipes', 'components', 'operations'). If its memoryNotes counts are non-zero, read those notes with 'listMemoryNotes' and 'getMemoryNote' and follow them.`;
+	`Call 'getDesignAuthoringContract' with designFileId "${designFileId}". The core has the design's revision and boards, its design system, the rules, and the topics to fetch when you need them (e.g. 'recipes', 'components', 'operations'). If its memoryNotes counts are non-zero, call 'listMemoryNotes' with the designFileId, read the relevant notes with 'getMemoryNote', and follow them.`;
 
 const WRITE_STEP =
 	"Use 'applyDesignOperations' for all steps of a change in one batch, with the core's revision as 'expectedRevision'. Dry-run a risky batch with 'validateOperationPlan', or one operation with 'validateOperation'. Pass each write's 'newRevision' to the next (revision chaining). On 'REVISION_MISMATCH', re-read the revision with 'listDesignFiles' and retry; never guess.";
 
 const CHECK_STEP =
-	"Fix the warnings each write returns. Call 'screenshotBoard' for each changed board at viewport mobile, tablet and desktop and inspect the returned PNG image blocks, then call 'validateDesignFile'.";
+	"Fix the warnings each write returns. Call 'screenshotBoard' for the changed boards with viewport ['mobile', 'tablet', 'desktop'] in one call and inspect the returned PNG image blocks, then call 'validateDesignFile'.";
 
 export const registerTrickroomPrompts = (server: McpServer) => {
 	server.registerPrompt(

@@ -43,9 +43,9 @@ const CORE_RULES = [
 ];
 
 const CORE_WORKFLOW = [
-	"Read: listSystemComponents({ systemName }) for the revision and existing components; describeSystemComponent for one component's draft, hashes and current version.",
+	'Read: listSystemComponents({ systemName, query? }) for the manifest revision and a compact component index; describeSystemComponent({ systemName, componentId, source: "draft", include: ["template", "classes"] }) for a draft\'s template, variant classes and hashes before updating it.',
 	"Write: createSystemComponentDraft({ systemName, expectedRevision, slug, name, draft: { root, slots?, variants?, overrideTargets? } }), or updateSystemComponentDraft with only the parts to replace. Malformed input returns VALIDATION_FAILED with INVALID_SYSTEM_COMPONENT_DRAFT_INPUT diagnostics, each with a path and message.",
-	"Publish: publishSystemComponent({ systemName, componentId, expectedRevision }); then place it in a design with addSystemComponent (getDesignAuthoringContract, components topic).",
+	"Check and publish: screenshotBoard({ component }) renders a component, or a matrix of its variant values, without a design file. publishSystemComponent({ systemName, componentId, expectedRevision }) makes the draft current; place it in a design with addSystemComponent (getDesignAuthoringContract, components topic).",
 ];
 
 const buildTemplateTopic = () => ({
