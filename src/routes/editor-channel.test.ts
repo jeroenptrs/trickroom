@@ -157,6 +157,101 @@ describe("editor channel routes", () => {
 		await waitFor(async () => (await getContext(app)).clients.length === 0);
 	});
 
+	it("delivers a focus request to the most recently focused tab and returns its answer", async () => {
+		const app = await createApp();
+		const tabA = await connectTab(app, "tab-a");
+		const tabB = await connectTab(app, "tab-b");
+		const { projectId } = await getContext(app);
+		await postContext(app, {
+			clientId: "tab-a",
+			projectId,
+			focusedAt: Date.now() - 1_000,
+		});
+		await postContext(app, {
+			clientId: "tab-b",
+			projectId,
+			focusedAt: Date.now() - 10,
+		});
+
+		const focus = app.request("/api/trickroom/editor-focus", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				designFileId: "design-1",
+				boardId: "board-1",
+				elementId: "layer-1",
+			}),
+		});
+		const event = (await tabB.next("focus")) as { requestId: string };
+		expect(event).toEqual({
+			designFileId: "design-1",
+			boardId: "board-1",
+			elementId: "layer-1",
+			projectId,
+			requestId: expect.any(String),
+		});
+		const ack = await app.request("/api/trickroom/editor-focus/ack", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				clientId: "tab-b",
+				requestId: event.requestId,
+				status: "ok",
+				outcome: "revealed",
+			}),
+		});
+		await expect(ack.json()).resolves.toEqual({ ok: true });
+
+		const response = await focus;
+		await expect(response.json()).resolves.toEqual({
+			status: "ok",
+			clientId: "tab-b",
+			requestId: event.requestId,
+			outcome: "revealed",
+			message: null,
+		});
+		await tabA.close();
+	});
+
+	it("does not switch projects for a focus request on another project", async () => {
+		const app = await createApp();
+		const tab = await connectTab(app, "tab-a");
+		const { projectId } = await getContext(app);
+		await postContext(app, { clientId: "tab-a", projectId });
+
+		const response = await app.request("/api/trickroom/editor-focus", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				designFileId: "design-1",
+				projectId: "proj_other",
+			}),
+		});
+		await expect(response.json()).resolves.toMatchObject({
+			status: "browser_on_other_project",
+		});
+		await tab.close();
+	});
+
+	it("reports no_browser and rejects focus requests without a design", async () => {
+		const app = await createApp();
+		const missing = await app.request("/api/trickroom/editor-focus", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ elementId: "layer-1" }),
+		});
+		expect(missing.status).toBe(400);
+
+		const response = await app.request("/api/trickroom/editor-focus", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ designFileId: "design-1" }),
+		});
+		await expect(response.json()).resolves.toMatchObject({
+			status: "no_browser",
+		});
+	});
+
 	it("rejects malformed context reports", async () => {
 		const app = await createApp();
 		const response = await postContext(app, { clientId: "not valid!" });

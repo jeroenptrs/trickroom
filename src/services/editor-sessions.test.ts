@@ -138,3 +138,162 @@ describe("editor context reports", () => {
 		expect(isEditorClientId("x".repeat(129))).toBe(false);
 	});
 });
+
+describe("editor focus requests", () => {
+	const target = { designFileId: "design-2", boardId: null, elementId: "l1" };
+
+	/** Connects a tab that acknowledges every focus event it receives. */
+	const connectAcking = (
+		sessions: ReturnType<typeof createEditorSessions>,
+		clientId: string,
+		status: "ok" | "blocked_dirty" = "ok",
+	) => {
+		const received: unknown[] = [];
+		sessions.connect(clientId, (event, data) => {
+			if (event !== "focus") return;
+			const payload = JSON.parse(data) as { requestId: string };
+			received.push(payload);
+			queueMicrotask(() =>
+				sessions.acknowledgeFocus({
+					clientId,
+					requestId: payload.requestId,
+					status,
+					outcome: status === "ok" ? "navigated" : null,
+				}),
+			);
+		});
+		return received;
+	};
+
+	it("reports no_browser without connected tabs", async () => {
+		const sessions = createEditorSessions();
+		expect(
+			await sessions.requestFocus({ target, projectId: "proj_1" }),
+		).toMatchObject({ status: "no_browser", clientId: null });
+	});
+
+	it("sends focus only to the most recently focused tab on the project", async () => {
+		const clock = createClock();
+		const sessions = createEditorSessions({ now: clock.now });
+		const tabA = connectAcking(sessions, "tab-a");
+		const tabB = connectAcking(sessions, "tab-b");
+		const tabC = connectAcking(sessions, "tab-c");
+		sessions.report(
+			report({ clientId: "tab-a", focusedAt: 100, sentAt: clock.now() }),
+		);
+		sessions.report(
+			report({ clientId: "tab-b", focusedAt: 200, sentAt: clock.now() }),
+		);
+		// Focused last, but on another project.
+		sessions.report(
+			report({
+				clientId: "tab-c",
+				projectId: "proj_2",
+				focusedAt: 300,
+				sentAt: clock.now(),
+			}),
+		);
+
+		const response = await sessions.requestFocus({
+			target,
+			projectId: "proj_1",
+		});
+		expect(response).toMatchObject({
+			status: "ok",
+			clientId: "tab-b",
+			outcome: "navigated",
+		});
+		expect(tabA).toEqual([]);
+		expect(tabC).toEqual([]);
+		expect(tabB).toEqual([
+			{ ...target, projectId: "proj_1", requestId: response.requestId },
+		]);
+	});
+
+	it("targets an explicit tab", async () => {
+		const sessions = createEditorSessions();
+		connectAcking(sessions, "tab-a");
+		const tabB = connectAcking(sessions, "tab-b");
+		sessions.report(report({ clientId: "tab-a", focusedAt: 2, sentAt: 0 }));
+		sessions.report(report({ clientId: "tab-b", focusedAt: 1, sentAt: 0 }));
+
+		const response = await sessions.requestFocus({
+			target,
+			projectId: "proj_1",
+			clientId: "tab-b",
+		});
+		expect(response).toMatchObject({ status: "ok", clientId: "tab-b" });
+		expect(tabB).toHaveLength(1);
+		expect(
+			await sessions.requestFocus({
+				target,
+				projectId: "proj_1",
+				clientId: "tab-z",
+			}),
+		).toMatchObject({ status: "no_browser" });
+	});
+
+	it("reports browser_on_other_project when no tab shows the project", async () => {
+		const sessions = createEditorSessions();
+		const tab = connectAcking(sessions, "tab-a");
+		sessions.report(report({ projectId: "proj_2", sentAt: 0 }));
+
+		expect(
+			await sessions.requestFocus({ target, projectId: "proj_1" }),
+		).toMatchObject({ status: "browser_on_other_project" });
+		expect(tab).toEqual([]);
+	});
+
+	it("passes the tab's blocked_dirty answer through", async () => {
+		const sessions = createEditorSessions();
+		connectAcking(sessions, "tab-a", "blocked_dirty");
+		sessions.report(report({ sentAt: 0 }));
+
+		expect(
+			await sessions.requestFocus({ target, projectId: "proj_1" }),
+		).toMatchObject({ status: "blocked_dirty", clientId: "tab-a" });
+	});
+
+	it("reports stale when the tab does not acknowledge in time", async () => {
+		const sessions = createEditorSessions({ focusAckTimeoutMs: 20 });
+		sessions.connect("tab-a", () => undefined);
+		sessions.report(report({ sentAt: 0 }));
+
+		const response = await sessions.requestFocus({
+			target,
+			projectId: "proj_1",
+		});
+		expect(response).toMatchObject({ status: "stale", clientId: "tab-a" });
+		// A late acknowledgement is ignored.
+		expect(
+			sessions.acknowledgeFocus({
+				clientId: "tab-a",
+				requestId: response.requestId ?? "",
+				status: "ok",
+				outcome: "navigated",
+			}),
+		).toBe(false);
+	});
+
+	it("ignores acknowledgements from another tab", async () => {
+		const sessions = createEditorSessions({ focusAckTimeoutMs: 50 });
+		let requestId = "";
+		sessions.connect("tab-a", (event, data) => {
+			if (event === "focus") {
+				requestId = (JSON.parse(data) as { requestId: string }).requestId;
+			}
+		});
+		sessions.report(report({ sentAt: 0 }));
+
+		const pending = sessions.requestFocus({ target, projectId: "proj_1" });
+		expect(
+			sessions.acknowledgeFocus({
+				clientId: "tab-b",
+				requestId,
+				status: "ok",
+				outcome: "navigated",
+			}),
+		).toBe(false);
+		expect(await pending).toMatchObject({ status: "stale" });
+	});
+});

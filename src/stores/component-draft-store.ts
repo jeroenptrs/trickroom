@@ -267,6 +267,10 @@ const hasTemplateDirtyChanges = (state: ComponentDraftStoreState) =>
 const hasDirtyChanges = (state: ComponentDraftStoreState) =>
 	hasTemplateDirtyChanges(state) || state.variantsDirty;
 
+/** Whether the component draft open in the system editor has unsaved edits. */
+export const hasUnsavedComponentDraft = () =>
+	hasDirtyChanges(componentDraftStore.get());
+
 const stableVariantSchemaSignature = (
 	variants: SystemComponentVariantSchema | null,
 ) => JSON.stringify(variants ?? null);

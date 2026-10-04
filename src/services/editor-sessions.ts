@@ -1,6 +1,12 @@
+import { randomUUID } from "node:crypto";
 import type {
 	EditorClientContext,
 	EditorContextReport,
+	EditorFocusAck,
+	EditorFocusEvent,
+	EditorFocusOutcome,
+	EditorFocusResponse,
+	EditorFocusTarget,
 	EditorStageMode,
 } from "./editor-channel.types";
 
@@ -44,6 +50,32 @@ const readNullableNumber = (value: unknown) =>
 const readStageMode = (value: unknown): EditorStageMode | null =>
 	value === "canvas" || value === "responsive" ? value : null;
 
+const isFocusAckStatus = (value: unknown): value is EditorFocusAck["status"] =>
+	value === "ok" ||
+	value === "blocked_dirty" ||
+	value === "browser_on_other_project";
+
+const isFocusOutcome = (value: unknown): value is EditorFocusOutcome =>
+	value === "revealed" || value === "navigated" || value === "queued";
+
+/** Validates a tab's acknowledgement of a focus request. */
+export const parseEditorFocusAck = (value: unknown): EditorFocusAck | null => {
+	if (
+		!isRecord(value) ||
+		!isEditorClientId(value.clientId) ||
+		typeof value.requestId !== "string" ||
+		!isFocusAckStatus(value.status)
+	) {
+		return null;
+	}
+	return {
+		clientId: value.clientId,
+		requestId: value.requestId,
+		status: value.status,
+		outcome: isFocusOutcome(value.outcome) ? value.outcome : null,
+	};
+};
+
 /** Validates a tab's report; returns null when it is not one. */
 export const parseEditorContextReport = (
 	value: unknown,
@@ -72,12 +104,21 @@ export const parseEditorContextReport = (
 
 export type EditorSessions = ReturnType<typeof createEditorSessions>;
 
+/** How long a focus request waits for the tab to acknowledge it. */
+export const editorFocusAckTimeoutMs = 2_000;
+
 export const createEditorSessions = ({
 	now = () => Date.now(),
+	focusAckTimeoutMs = editorFocusAckTimeoutMs,
 }: {
 	now?: () => number;
+	focusAckTimeoutMs?: number;
 } = {}) => {
 	const clients = new Map<string, EditorClient>();
+	const pendingAcks = new Map<
+		string,
+		{ clientId: string; resolve: (ack: EditorFocusAck | null) => void }
+	>();
 
 	const pruneUnconnected = (at: number) => {
 		for (const [clientId, client] of clients) {
@@ -183,6 +224,113 @@ export const createEditorSessions = ({
 				),
 				mostRecentlyFocusedClientId: connected[0]?.clientId ?? null,
 			};
+		},
+
+		/**
+		 * Sends a `focus` event to one tab and waits for it to acknowledge. The
+		 * target is `clientId` when given, otherwise the most recently focused
+		 * tab showing `projectId`.
+		 */
+		async requestFocus({
+			target,
+			projectId,
+			clientId,
+		}: {
+			target: EditorFocusTarget;
+			projectId: string | null;
+			clientId?: string | null;
+		}): Promise<EditorFocusResponse> {
+			const result = (
+				status: EditorFocusResponse["status"],
+				message: string | null,
+				fields: Partial<EditorFocusResponse> = {},
+			): EditorFocusResponse => ({
+				status,
+				clientId: null,
+				requestId: null,
+				outcome: null,
+				message,
+				...fields,
+			});
+
+			const { connected } = listConnected();
+			if (connected.length === 0) {
+				return result("no_browser", "No browser tab is connected.");
+			}
+
+			const onProject = connected.filter(
+				(entry) => projectId === null || entry.context.projectId === projectId,
+			);
+			const chosen = clientId
+				? connected.find((entry) => entry.clientId === clientId)
+				: onProject[0];
+			if (!chosen) {
+				return clientId
+					? result("no_browser", `Browser tab "${clientId}" is not connected.`)
+					: result(
+							"browser_on_other_project",
+							"Every connected browser tab shows another project.",
+						);
+			}
+			if (projectId !== null && chosen.context.projectId !== projectId) {
+				return result(
+					"browser_on_other_project",
+					"The browser tab shows another project.",
+					{ clientId: chosen.clientId },
+				);
+			}
+
+			const client = clients.get(chosen.clientId);
+			if (!client) {
+				return result("no_browser", "The browser tab disconnected.");
+			}
+
+			const requestId = randomUUID();
+			const event: EditorFocusEvent = { ...target, requestId, projectId };
+			const ack = await new Promise<EditorFocusAck | null>((resolve) => {
+				const timer = setTimeout(() => {
+					pendingAcks.delete(requestId);
+					resolve(null);
+				}, focusAckTimeoutMs);
+				pendingAcks.set(requestId, {
+					clientId: chosen.clientId,
+					resolve: (value) => {
+						clearTimeout(timer);
+						pendingAcks.delete(requestId);
+						resolve(value);
+					},
+				});
+				for (const send of client.senders) {
+					send("focus", JSON.stringify(event));
+				}
+			});
+
+			if (!ack) {
+				return result(
+					"stale",
+					"The browser tab did not respond to the focus request.",
+					{ clientId: chosen.clientId, requestId },
+				);
+			}
+			return result(
+				ack.status,
+				ack.status === "blocked_dirty"
+					? "The browser tab has unsaved changes or a pending conflict in another design."
+					: ack.status === "browser_on_other_project"
+						? "The browser tab shows another project."
+						: null,
+				{ clientId: chosen.clientId, requestId, outcome: ack.outcome },
+			);
+		},
+
+		/** Resolves a pending focus request; false when it is unknown or expired. */
+		acknowledgeFocus(ack: EditorFocusAck) {
+			const pending = pendingAcks.get(ack.requestId);
+			if (!pending || pending.clientId !== ack.clientId) {
+				return false;
+			}
+			pending.resolve(ack);
+			return true;
 		},
 	};
 };

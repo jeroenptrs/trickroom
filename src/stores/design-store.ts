@@ -445,6 +445,15 @@ export function extractSubtreeToDesign(
 const hasDirtyChanges = (state: DesignStoreState) =>
 	state.designDirty || Object.keys(state.dirtyIds).length > 0;
 
+/**
+ * Whether leaving the open design now could lose work: unsaved edits, a save
+ * in flight or an unresolved conflict with the disk version.
+ */
+export const hasPendingDesignWork = (state = designStore.get()) =>
+	hasDirtyChanges(state) ||
+	(state.externalConflictPending ?? false) ||
+	(state.designSavePending ?? false);
+
 const isSameSerializedDesign = (
 	state: DesignStoreState,
 	design: TrickroomDesign,

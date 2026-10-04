@@ -4,6 +4,8 @@
 // Node-backed resolution lives in `memory-references.ts`, which re-exports
 // everything here.
 
+import { buildDesignPath, type DesignDeepLinkTarget } from "./design-deep-link";
+
 export const MEMORY_REFERENCE_TYPES = [
 	"design",
 	"component",
@@ -65,14 +67,18 @@ export function parseMemoryReferences(body: string): MemoryReferenceToken[] {
 	return tokens;
 }
 
-/** Builds an in-app navigation path for a resolved reference target. */
+/**
+ * Builds an in-app navigation path for a resolved reference target. Design
+ * links can point at a board and a layer inside the design.
+ */
 export function buildMemoryReferenceDeepLink(
 	type: MemoryReferenceType,
 	targetId: string,
 	systemId?: string | null,
+	designTarget?: DesignDeepLinkTarget,
 ): string | undefined {
 	if (type === "design") {
-		return `/design/${targetId}`;
+		return buildDesignPath(targetId, designTarget);
 	}
 	if (!systemId) {
 		return undefined;

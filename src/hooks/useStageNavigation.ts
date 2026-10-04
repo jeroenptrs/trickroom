@@ -12,6 +12,7 @@ import {
 	normalizeStageWheelDelta,
 } from "../components/responsive-stage-zoom";
 import { designStore } from "../stores/design-store";
+import { stageViewStore } from "../stores/stage-view-store";
 
 export type ViewState = {
 	x: number;
@@ -92,6 +93,70 @@ export function findStageRootBoard(
 	return boards[0] ?? null;
 }
 
+/**
+ * Finds the rendered element of a layer, or of its nearest rendered ancestor
+ * (library components do not always forward the node id to the DOM).
+ */
+export function findStageNodeElement(
+	world: ParentNode,
+	elementId: string,
+	entitiesById: Readonly<
+		Record<string, { parentId: string | null } | undefined>
+	>,
+) {
+	let id: string | null = elementId;
+	while (id) {
+		const element = world.querySelector<HTMLElement>(
+			`[data-trickroom-node-id="${CSS.escape(id)}"]`,
+		);
+		if (element) {
+			return element;
+		}
+		id = entitiesById[id]?.parentId ?? null;
+	}
+	return null;
+}
+
+/**
+ * In compiled Tailwind mode the stage shell hides content until the compiled
+ * CSS lands; geometry measured before that is the unstyled layout.
+ */
+export function isStageStylesReady(document: Document) {
+	const root = document.documentElement;
+	return (
+		!root.hasAttribute("data-trickroom-await-styles") ||
+		root.hasAttribute("data-trickroom-styles-ready")
+	);
+}
+
+/** Margin kept around an element that does not fit the viewport. */
+const REVEAL_MARGIN = 32;
+/** How long a reveal waits for its element to render and style. */
+const REVEAL_TIMEOUT_MS = 10_000;
+/** How long a reveal keeps following late layout shifts (fonts, styles). */
+const REVEAL_SETTLE_MS = 800;
+
+/**
+ * Canvas translation that centres a world-space rectangle in the viewport at
+ * the given scale. A rectangle larger than the viewport is aligned to its
+ * top-left corner (plus a margin) instead, so its start stays visible.
+ */
+export function centerRectInViewport(
+	rect: { x: number; y: number; width: number; height: number },
+	viewport: { width: number; height: number },
+	scale: number,
+) {
+	const axis = (start: number, size: number, available: number) =>
+		size * scale <= available - REVEAL_MARGIN * 2
+			? (available - size * scale) / 2 - start * scale
+			: REVEAL_MARGIN - start * scale;
+	return {
+		x: axis(rect.x, rect.width, viewport.width),
+		y: axis(rect.y, rect.height, viewport.height),
+		scale,
+	};
+}
+
 export function useStageNavigation(
 	iframeRef: RefObject<HTMLIFrameElement | null>,
 	didMount?: boolean,
@@ -151,6 +216,8 @@ export function useStageNavigation(
 			let panStartY = 0;
 			let startViewX = 0;
 			let startViewY = 0;
+			// Set by any pan or zoom; stops a reveal from re-centring under the user.
+			let userMovedView = false;
 
 			const getNavigationOptions = () => latestOptionsRef.current;
 
@@ -228,6 +295,19 @@ export function useStageNavigation(
 
 				commitView({ x, y, scale: nextScale });
 				return true;
+			};
+
+			// World-space geometry of an element: getBoundingClientRect reflects the
+			// current transform, so divide it back out.
+			const getWorldRect = (element: Element) => {
+				const rect = element.getBoundingClientRect();
+				const worldRect = world.getBoundingClientRect();
+				return {
+					x: (rect.left - worldRect.left) / currentView.scale,
+					y: (rect.top - worldRect.top) / currentView.scale,
+					width: rect.width / currentView.scale,
+					height: rect.height / currentView.scale,
+				};
 			};
 
 			// Entering responsive mode remembers the canvas view so leaving it puts
@@ -353,6 +433,7 @@ export function useStageNavigation(
 			};
 
 			const onPointerDown = (event: PointerEvent) => {
+				userMovedView = true;
 				if (
 					!shouldStartStagePan(
 						getNavigationOptions().mode,
@@ -395,6 +476,7 @@ export function useStageNavigation(
 			};
 
 			const onWheel = (event: WheelEvent) => {
+				userMovedView = true;
 				if (shouldZoomStageFromWheel(getNavigationOptions().mode, event)) {
 					event.preventDefault();
 					const zoomFactor = Math.exp(-event.deltaY * 0.0015);
@@ -442,9 +524,7 @@ export function useStageNavigation(
 			const awaitsStyles = document.documentElement.hasAttribute(
 				"data-trickroom-await-styles",
 			);
-			const stylesReady = () =>
-				!awaitsStyles ||
-				document.documentElement.hasAttribute("data-trickroom-styles-ready");
+			const stylesReady = () => isStageStylesReady(document);
 
 			const finishFit = () => {
 				fitDone = true;
@@ -511,6 +591,82 @@ export function useStageNavigation(
 				}
 			};
 
+			// Reveal requests (deep links and agent focus requests): centre the
+			// canvas on the element, or scroll it into view in responsive mode.
+			// The element may not be rendered or styled yet on a cold load, so
+			// this waits for it, then follows late layout shifts briefly unless
+			// the user moves the view.
+			let revealFrame = 0;
+			let handledRevealId: string | null = null;
+
+			const revealElement = (element: HTMLElement) => {
+				if (isCanvasMode()) {
+					commitView(
+						centerRectInViewport(
+							getWorldRect(element),
+							{ width: viewport.clientWidth, height: viewport.clientHeight },
+							currentView.scale,
+						),
+					);
+					return;
+				}
+				element.scrollIntoView({ block: "center", inline: "center" });
+			};
+
+			const getRectKey = (element: Element) => {
+				const rect = element.getBoundingClientRect();
+				return `${rect.left},${rect.top},${rect.width},${rect.height}`;
+			};
+
+			const startReveal = () => {
+				const reveal = stageViewStore.get().reveal;
+				if (!reveal || reveal.requestId === handledRevealId) {
+					return;
+				}
+				handledRevealId = reveal.requestId;
+				window.cancelAnimationFrame(revealFrame);
+				const startedAt = window.performance.now();
+				let settleUntil: number | null = null;
+				let lastRect = "";
+
+				const step = () => {
+					if (stageViewStore.get().reveal?.requestId !== reveal.requestId) {
+						return;
+					}
+					const time = window.performance.now();
+					const element = findStageNodeElement(
+						world,
+						reveal.elementId,
+						designStore.get().entitiesById,
+					);
+					if (settleUntil === null) {
+						if (!element || !stylesReady()) {
+							if (time - startedAt < REVEAL_TIMEOUT_MS) {
+								revealFrame = window.requestAnimationFrame(step);
+							}
+							return;
+						}
+						// The reveal replaces the initial first-board fit.
+						finishFit();
+						userMovedView = false;
+						settleUntil = time + REVEAL_SETTLE_MS;
+					}
+					if (!element || userMovedView || time > settleUntil) {
+						return;
+					}
+					// Compare against the geometry after the last reveal, which itself
+					// moves the element.
+					if (getRectKey(element) !== lastRect) {
+						revealElement(element);
+						lastRect = getRectKey(element);
+					}
+					revealFrame = window.requestAnimationFrame(step);
+				};
+				revealFrame = window.requestAnimationFrame(step);
+			};
+			const revealSubscription = stageViewStore.subscribe(startReveal);
+			startReveal();
+
 			let unsubscribeRoots: (() => void) | undefined;
 			if (designStore.get().rootIds.length > 0) {
 				startFitting();
@@ -551,6 +707,8 @@ export function useStageNavigation(
 				resizeObserver?.disconnect();
 				stylesReadyObserver?.disconnect();
 				unsubscribeRoots?.();
+				window.cancelAnimationFrame(revealFrame);
+				revealSubscription.unsubscribe();
 				if (
 					controllerRef.current?.enterResponsiveMode === enterResponsiveMode
 				) {

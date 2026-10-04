@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useParams } from "react-router";
 import { toast } from "sonner";
 import { useProjectFileEvents } from "../hooks/useProjectFileEvents";
 import { useTailwindSyncController } from "../hooks/useTailwindSyncController";
@@ -43,6 +43,15 @@ function SystemEditorFallback() {
 			Loading system editor
 		</div>
 	);
+}
+
+// One editor instance per design: its stage iframe, the hooks bound to it and
+// the stage view state belong to that design. Without the key, moving from one
+// design to another (a focus request, extracting a subtree) kept the stage
+// hooks bound to the previous design's iframe.
+function DesignRoute() {
+	const { uuid } = useParams<{ uuid: string }>();
+	return <Design key={uuid} />;
 }
 
 function HomeRoutes() {
@@ -233,7 +242,7 @@ export function Root() {
 							<Routes>
 								<Route index element={<Project />} />
 								<Route path="capture/:design/:board?" element={<Capture />} />
-								<Route path="design/:uuid" element={<Design />} />
+								<Route path="design/:uuid" element={<DesignRoute />} />
 								<Route
 									path="system/:systemId"
 									element={

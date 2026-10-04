@@ -45,3 +45,53 @@ export type EditorContextResponse = {
 	clients: EditorClientContext[];
 	mostRecentlyFocusedClientId: string | null;
 };
+
+/** What to show: a design, optionally a board and a layer in it. */
+export type EditorFocusTarget = {
+	designFileId: string;
+	boardId: string | null;
+	elementId: string | null;
+};
+
+/** `POST /api/trickroom/editor-focus` body. */
+export type EditorFocusRequest = EditorFocusTarget & {
+	/** Target tab; defaults to the most recently focused tab on the project. */
+	clientId?: string | null;
+	/** Project the target belongs to; defaults to the server's active project. */
+	projectId?: string | null;
+};
+
+/** Payload of the `focus` SSE event sent to one tab. */
+export type EditorFocusEvent = EditorFocusTarget & {
+	requestId: string;
+	projectId: string | null;
+};
+
+/**
+ * How the tab handled a focus request: `revealed` in the open design,
+ * `navigated` to another design, or `queued` until the hidden tab is shown.
+ */
+export type EditorFocusOutcome = "revealed" | "navigated" | "queued";
+
+/** `POST /api/trickroom/editor-focus/ack` body, sent by the tab. */
+export type EditorFocusAck = {
+	clientId: string;
+	requestId: string;
+	status: "ok" | "blocked_dirty" | "browser_on_other_project";
+	outcome: EditorFocusOutcome | null;
+};
+
+export type EditorFocusStatus =
+	| "ok"
+	| "no_browser"
+	| "browser_on_other_project"
+	| "blocked_dirty"
+	| "stale";
+
+export type EditorFocusResponse = {
+	status: EditorFocusStatus;
+	clientId: string | null;
+	requestId: string | null;
+	outcome: EditorFocusOutcome | null;
+	message: string | null;
+};

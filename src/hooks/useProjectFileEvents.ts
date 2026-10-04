@@ -6,9 +6,10 @@ import {
 	designSummariesProjectQueryKey,
 } from "../queries/design-file";
 import {
-	editorChannelEvents,
-	editorChannelReadyEvent,
+	editorChannelReady,
+	editorFocusRequests,
 	getProjectEventsUrl,
+	parseEditorFocusEvent,
 } from "../queries/editor-channel";
 import type { ProjectQueryScope } from "../queries/project-scope";
 
@@ -181,7 +182,7 @@ export function useProjectFileEvents(
 			hasConnectedRef.current = true;
 			// A (re)connected stream is a new presence on the server; the tab
 			// reports its editor context again.
-			editorChannelEvents.dispatchEvent(new Event(editorChannelReadyEvent));
+			editorChannelReady.emit();
 		};
 		const handleChange = (message: MessageEvent<string>) => {
 			let event: TrickroomFileEvent;
@@ -194,11 +195,20 @@ export function useProjectFileEvents(
 			coalescer.push(event);
 		};
 
+		const handleFocus = (message: MessageEvent<string>) => {
+			const request = parseEditorFocusEvent(message.data);
+			if (request) {
+				editorFocusRequests.emit(request);
+			}
+		};
+
 		source.addEventListener("ready", handleReady);
 		source.addEventListener("change", handleChange as EventListener);
+		source.addEventListener("focus", handleFocus as EventListener);
 		return () => {
 			source.removeEventListener("ready", handleReady);
 			source.removeEventListener("change", handleChange as EventListener);
+			source.removeEventListener("focus", handleFocus as EventListener);
 			source.close();
 			coalescer.dispose();
 		};

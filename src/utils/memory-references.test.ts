@@ -46,8 +46,14 @@ describe("buildMemoryReferenceDeepLink", () => {
 			"/design/uuid-1",
 		);
 		expect(
-			buildMemoryReferenceDeepLink("component", "cmp_btn", "sys_1"),
-		).toBe("/system/sys_1?component=cmp_btn");
+			buildMemoryReferenceDeepLink("design", "uuid-1", null, {
+				boardId: "board-1",
+				layerId: "layer-1",
+			}),
+		).toBe("/design/uuid-1?board=board-1&layer=layer-1");
+		expect(buildMemoryReferenceDeepLink("component", "cmp_btn", "sys_1")).toBe(
+			"/system/sys_1?component=cmp_btn",
+		);
 		expect(buildMemoryReferenceDeepLink("token", "color/brand", "sys_1")).toBe(
 			"/system/sys_1?tab=tokens",
 		);

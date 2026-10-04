@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import {
-	editorChannelEvents,
-	editorChannelReadyEvent,
+	editorChannelReady,
 	editorClientId,
 	postEditorContext,
 } from "../queries/editor-channel";
@@ -99,7 +98,6 @@ export function useEditorContextReporter({
 			// Hidden tabs may be throttled; send now rather than after a timer.
 			flush();
 		};
-		const onReady = () => flush(true);
 
 		const designSubscription = designStore.subscribe(schedule);
 		const stageSubscription = stageViewStore.subscribe(schedule);
@@ -107,7 +105,7 @@ export function useEditorContextReporter({
 		window.addEventListener("pointerdown", onInteraction, true);
 		window.addEventListener("keydown", onInteraction, true);
 		document.addEventListener("visibilitychange", onVisibilityChange);
-		editorChannelEvents.addEventListener(editorChannelReadyEvent, onReady);
+		const unsubscribeReady = editorChannelReady.subscribe(() => flush(true));
 		flush();
 
 		return () => {
@@ -118,7 +116,7 @@ export function useEditorContextReporter({
 			window.removeEventListener("pointerdown", onInteraction, true);
 			window.removeEventListener("keydown", onInteraction, true);
 			document.removeEventListener("visibilitychange", onVisibilityChange);
-			editorChannelEvents.removeEventListener(editorChannelReadyEvent, onReady);
+			unsubscribeReady();
 		};
 	}, [designFileId, enabled, projectId]);
 }

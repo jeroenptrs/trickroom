@@ -14,6 +14,7 @@ import {
 import Frame from "react-frame-component";
 import { useParams } from "react-router";
 import { useCompiledTailwind } from "../hooks/useCompiledTailwind";
+import { useDesignDeepLink } from "../hooks/useDesignDeepLink";
 import { useInjectSystemAssets } from "../hooks/useInjectSystemAssets";
 import { useInjectSystemFonts } from "../hooks/useInjectSystemFonts";
 import { useInjectSystemTheme } from "../hooks/useInjectSystemTheme";
@@ -83,6 +84,7 @@ import {
 } from "./responsive-stage-zoom";
 import { Artboards } from "./stage/Artboards";
 import { Canvas } from "./stage/Canvas";
+import { StageFocusHighlight } from "./stage/StageFocusHighlight";
 import { ConfirmationDialog } from "./ui/alert-dialog";
 
 const stageDoc = resolveStageDoc(stageDocRaw);
@@ -113,6 +115,7 @@ export const StageFrame = memo(function StageFrame({
 			</main>
 
 			<Canvas />
+			<StageFocusHighlight />
 		</Frame>
 	);
 });
@@ -316,6 +319,8 @@ export function Design() {
 			resolveResponsiveStageActiveBoardId(rootIds, currentBoardId),
 		);
 	}, [rootIds]);
+
+	useDesignDeepLink({ designFile, hydratedDesignFileRef, rootIds });
 
 	const liveSystemId = useDesignSystemId();
 	const responsiveBreakpoints = useResolvedBreakpoints(liveSystemId);

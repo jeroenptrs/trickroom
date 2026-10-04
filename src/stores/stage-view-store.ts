@@ -7,19 +7,28 @@ import {
 } from "../components/responsive-stage-context";
 
 // View state of the open design's stage. It lives outside `Design` so the
-// editor channel can report it. The design route resets it on mount, which
-// keeps the old per-mount `useState` behaviour.
+// editor channel can report it and focus requests can drive it. The design
+// route resets it on mount, which keeps the old per-mount `useState` behaviour.
+
+/** Asks the stage and the layers panel to bring an element into view. */
+export type StageRevealRequest = {
+	/** Distinguishes repeated requests for the same element. */
+	requestId: string;
+	elementId: string;
+};
 
 export type StageViewState = {
 	stageMode: ResponsiveStageMode;
 	activeBoardId: string | null;
 	responsiveWidth: number;
+	reveal: StageRevealRequest | null;
 };
 
 const initialState: StageViewState = {
 	stageMode: "canvas",
 	activeBoardId: null,
 	responsiveWidth: RESPONSIVE_STAGE_DEFAULT_WIDTH,
+	reveal: null,
 };
 
 export const stageViewStore = createStore<StageViewState>(initialState);
@@ -65,6 +74,10 @@ export function setResponsiveWidth(action: SetStateAction<number>) {
 	);
 }
 
+export function requestStageReveal(reveal: StageRevealRequest) {
+	update("reveal", reveal);
+}
+
 export function useStageMode() {
 	return useSelector(stageViewStore, (state) => state.stageMode);
 }
@@ -75,4 +88,8 @@ export function useActiveBoardId() {
 
 export function useResponsiveWidth() {
 	return useSelector(stageViewStore, (state) => state.responsiveWidth);
+}
+
+export function useStageReveal() {
+	return useSelector(stageViewStore, (state) => state.reveal);
 }
