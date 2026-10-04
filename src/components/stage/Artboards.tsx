@@ -34,7 +34,9 @@ type SerializedElementProps = {
 	board?: BoardRender;
 };
 
-function SerializedElement({
+// Memoised on its ids: an element re-renders only when its own entity or
+// child list changes in the store, not when a parent or sibling does.
+const SerializedElement = memo(function SerializedElementView({
 	id,
 	rootId,
 	board,
@@ -108,7 +110,7 @@ function SerializedElement({
 			)),
 		),
 	);
-}
+});
 
 function withPortalHost(board: BoardRender | undefined, children: ReactNode[]) {
 	return board?.portalHost ? [board.portalHost, ...children] : children;
@@ -119,7 +121,7 @@ function withPortalHost(board: BoardRender | undefined, children: ReactNode[]) {
  * so an open dialog centres on its board and a sheet pins to its board's edge
  * instead of the shared iframe viewport.
  */
-function SerializedBoard({
+const SerializedBoard = memo(function SerializedBoard({
 	rootId,
 	canvas,
 }: {
@@ -137,7 +139,7 @@ function SerializedBoard({
 			/>
 		</StageBoardPortalContext.Provider>
 	);
-}
+});
 
 export const Artboards = memo(function Artboards() {
 	const rootIds = useDesignRoots();

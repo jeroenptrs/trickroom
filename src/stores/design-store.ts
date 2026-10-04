@@ -145,10 +145,80 @@ function createComponentProps(
 	return getDefaultProps(library, component, definition, name);
 }
 
-function normalizeEntity(
+/** Deep equality for JSON values (props hold JSON-serializable data). */
+export function isSameJsonValue(left: unknown, right: unknown): boolean {
+	if (left === right) {
+		return true;
+	}
+	if (
+		left === null ||
+		right === null ||
+		typeof left !== "object" ||
+		typeof right !== "object"
+	) {
+		return false;
+	}
+	if (Array.isArray(left)) {
+		if (!Array.isArray(right) || left.length !== right.length) {
+			return false;
+		}
+		return left.every((item, index) => isSameJsonValue(item, right[index]));
+	}
+	if (Array.isArray(right)) {
+		return false;
+	}
+	const leftRecord = left as Record<string, unknown>;
+	const rightRecord = right as Record<string, unknown>;
+	const leftKeys = Object.keys(leftRecord).filter(
+		(key) => leftRecord[key] !== undefined,
+	);
+	const rightKeys = Object.keys(rightRecord).filter(
+		(key) => rightRecord[key] !== undefined,
+	);
+	return (
+		leftKeys.length === rightKeys.length &&
+		leftKeys.every((key) => isSameJsonValue(leftRecord[key], rightRecord[key]))
+	);
+}
+
+const isSameIdList = (left?: string[], right?: string[]) =>
+	left === right ||
+	(left !== undefined &&
+		right !== undefined &&
+		left.length === right.length &&
+		left.every((id, index) => id === right[index]));
+
+/**
+ * Returns `previous` when it describes the same node as `next`, so stores and
+ * subscribers comparing entities by reference see no change for nodes a
+ * reload did not touch.
+ */
+function reuseEntity(
+	next: DesignEntity,
+	previous: DesignEntity | undefined,
+): DesignEntity {
+	if (
+		!previous ||
+		previous.parentId !== next.parentId ||
+		previous.role !== next.role ||
+		previous.text !== next.text ||
+		!isSameIdList(previous.childIds, next.childIds) ||
+		!isSameJsonValue(previous.props, next.props)
+	) {
+		return next;
+	}
+	return previous;
+}
+
+/**
+ * Normalizes a node tree into `entitiesById`. With `previousEntitiesById`,
+ * structurally unchanged nodes keep their existing entity object.
+ */
+export function normalizeEntity(
 	data: Node,
 	parentId: string | null,
 	entitiesById: Record<string, DesignEntity>,
+	previousEntitiesById?: Record<string, DesignEntity>,
 ) {
 	const role = normalizeRole(data.props["data-trickroom-role"]);
 	const entity: DesignEntity = {
@@ -157,35 +227,31 @@ function normalizeEntity(
 		parentId,
 		role,
 	};
-
+	// Parents are inserted before their children, as callers iterate in order.
 	entitiesById[data.id] = entity;
 
 	if (role === "text") {
 		entity.text = typeof data.children === "string" ? data.children : "";
-		return;
-	}
-
-	if (role === "leaf") {
+	} else if (role === "leaf" || typeof data.children === "string") {
 		entity.childIds = [];
-		return;
+	} else {
+		entity.childIds = data.children.map((child) => child.id);
+		for (const child of data.children) {
+			normalizeEntity(child, data.id, entitiesById, previousEntitiesById);
+		}
 	}
 
-	if (typeof data.children === "string") {
-		entity.childIds = [];
-		return;
-	}
-
-	entity.childIds = data.children.map((child) => child.id);
-	for (const child of data.children) {
-		normalizeEntity(child, data.id, entitiesById);
-	}
+	entitiesById[data.id] = reuseEntity(entity, previousEntitiesById?.[data.id]);
 }
 
-export function normalizeDesign(design: TrickroomDesign): DesignStoreState {
+export function normalizeDesign(
+	design: TrickroomDesign,
+	previousEntitiesById?: Record<string, DesignEntity>,
+): DesignStoreState {
 	const entitiesById: Record<string, DesignEntity> = {};
 
 	for (const board of design.boards) {
-		normalizeEntity(board, null, entitiesById);
+		normalizeEntity(board, null, entitiesById, previousEntitiesById);
 	}
 
 	return {
@@ -282,7 +348,7 @@ export function hydrateDesign(
 				: state;
 		}
 
-		const nextState = normalizeDesign(design);
+		const nextState = normalizeDesign(design, state.entitiesById);
 		return {
 			...nextState,
 			revision: state.revision + 1,
@@ -302,7 +368,7 @@ export function forceHydrateDesign(
 	persistedRevision: DesignFileRevision,
 ) {
 	designStore.setState((state) => {
-		const nextState = normalizeDesign(design);
+		const nextState = normalizeDesign(design, state.entitiesById);
 		return {
 			...nextState,
 			revision: state.revision + 1,
@@ -907,10 +973,13 @@ export function detachRecipe(id: string) {
 			return state;
 		}
 
-		const nextState = normalizeDesign({
-			...serializeDesignState(state),
-			boards: result.roots,
-		});
+		const nextState = normalizeDesign(
+			{
+				...serializeDesignState(state),
+				boards: result.roots,
+			},
+			state.entitiesById,
+		);
 		const nextDirtyIds = {
 			...state.dirtyIds,
 		};
@@ -946,10 +1015,13 @@ export function detachSystemComponent(
 			return state;
 		}
 
-		const nextState = normalizeDesign({
-			...serializeDesignState(state),
-			boards: result.roots,
-		});
+		const nextState = normalizeDesign(
+			{
+				...serializeDesignState(state),
+				boards: result.roots,
+			},
+			state.entitiesById,
+		);
 		const nextDirtyIds = { ...state.dirtyIds };
 		for (const detachedElementId of result.detachedElementIds) {
 			nextDirtyIds[detachedElementId] = true;
@@ -982,10 +1054,13 @@ function applySystemComponentInstanceUpdate(
 		return state;
 	}
 
-	const nextState = normalizeDesign({
-		...serializeDesignState(state),
-		boards: result.roots,
-	});
+	const nextState = normalizeDesign(
+		{
+			...serializeDesignState(state),
+			boards: result.roots,
+		},
+		state.entitiesById,
+	);
 	const nextDirtyIds = { ...state.dirtyIds };
 	for (const changedElementId of result.changedElementIds) {
 		nextDirtyIds[changedElementId] = true;
@@ -1183,10 +1258,13 @@ export function updateSystemComponentInstance(
 			rootElementId,
 			context,
 		);
-		const nextState = normalizeDesign({
-			...serializeDesignState(state),
-			boards: result.roots,
-		});
+		const nextState = normalizeDesign(
+			{
+				...serializeDesignState(state),
+				boards: result.roots,
+			},
+			state.entitiesById,
+		);
 		const dirtyIds = { ...state.dirtyIds };
 		for (const mapping of [
 			...result.metadata.preservedPaths,
@@ -1216,7 +1294,7 @@ export function updateSystemComponentInstance(
 export function updateRecipeInstance(id: string) {
 	designStore.setState((state) => {
 		const result = updateStaleRecipeInstance(serializeDesignState(state), id);
-		const nextState = normalizeDesign(result.design);
+		const nextState = normalizeDesign(result.design, state.entitiesById);
 		const dirtyIds = { ...state.dirtyIds };
 		for (const mapping of [
 			...result.metadata.preservedPaths,
