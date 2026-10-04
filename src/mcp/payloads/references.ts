@@ -266,8 +266,15 @@ export const validateElementReferences = (
 				control,
 			]),
 		);
+		// Registry defaultProps (e.g. type="button" on triggers) are written onto
+		// every instance by getDefaultProps, so they are supported props too.
+		const defaultProps = resolution.definition.defaultProps ?? {};
 		for (const [propName, propValue] of Object.entries(node.props)) {
-			if (CORE_PROP_KEYS.has(propName) || SYSTEM_PROP_KEYS.has(propName)) {
+			if (
+				CORE_PROP_KEYS.has(propName) ||
+				SYSTEM_PROP_KEYS.has(propName) ||
+				(Object.hasOwn(defaultProps, propName) && !controlProps.has(propName))
+			) {
 				continue;
 			}
 
