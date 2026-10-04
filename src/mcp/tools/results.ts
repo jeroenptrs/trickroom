@@ -1,20 +1,12 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { z } from "zod";
 import type { DesignTransformError } from "../../services/design-transform-service";
-import { listDesignSystems } from "../../utils/design-system-store";
-import {
-	readMemoryManifest,
-	summarizeMemoryManifest,
-} from "../../utils/memory-manifest-service";
 import { systemComponentDraftInputDiagnosticsFromZodError } from "../../utils/system-component-draft-schemas";
 import { getMcpPolicy, type McpPolicyError } from "../governance";
-import {
-	getGovernanceSummary,
-	getProjectDetails,
-	getProjectReference,
-} from "../payloads/project";
+import { getGovernanceSummary, getProjectReference } from "../payloads/project";
 import type { TrickroomMcpProjectResolverError } from "../project-resolver";
 import type { TrickroomMcpServerContext } from "../server-types";
+import { TOOL } from "../tool-names";
 
 // One minified JSON text block. No tool declares an outputSchema, so the
 // payload is not repeated in structuredContent.
@@ -50,37 +42,6 @@ const createErrorResult = (
 	...createJsonResult(payload),
 	isError: true,
 });
-
-export const createProjectInfoResult = async (
-	context: TrickroomMcpServerContext,
-) => {
-	const systems = await listDesignSystems(context.projectRoot);
-	const projectMemory = await readMemoryManifest(context.projectRoot, {
-		kind: "project",
-	});
-	const memory = summarizeMemoryManifest(projectMemory.manifest);
-	const payload = {
-		project: getProjectDetails(context),
-		governance: { mode: getMcpPolicy(context.config).mode },
-		...(context.config.defaultSystemId
-			? { defaultSystemId: context.config.defaultSystemId }
-			: {}),
-		configuredSystems: systems.map((system) => ({
-			systemId: system.manifest.systemId,
-			systemName: system.manifest.systemName,
-			...(system.manifest.cssPath ? { cssPath: system.manifest.cssPath } : {}),
-		})),
-		...(memory.noteCount > 0
-			? {
-					memory,
-					memoryHint:
-						"Project memory captures why this project exists and how it should be steered. Call listMemoryNotes({ scope: { kind: 'project' } }) to read it before broad work.",
-				}
-			: {}),
-	};
-
-	return createJsonResult(payload);
-};
 
 export const createPolicyDeniedResult = (
 	context: TrickroomMcpServerContext,
@@ -148,7 +109,7 @@ export const createRevisionMismatchResult = (
 		expectedRevision,
 		message:
 			"The design file changed since your last read. Re-read the area you are editing, then retry with currentRevision.",
-		suggestedReads: ["readSubtree", "readElement"],
+		suggestedReads: [TOOL.designRead],
 	};
 	return createErrorResult(payload);
 };

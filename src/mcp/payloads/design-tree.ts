@@ -47,20 +47,15 @@ export const getDesignSystemHandle = (
 	return design.systemName ?? null;
 };
 
-export const getDesignMetadata = (
+/** The compact design header every read and write returns. */
+export const getDesignHeader = (
 	designFileId: string,
-	read: DesignFileRead,
-) => {
-	const systemHandle = getDesignSystemHandle(read.design);
-	return {
-		id: designFileId,
-		file: read.file,
-		name: read.design.name,
-		systemId: read.design.systemId ?? null,
-		systemName: systemHandle === null ? null : (read.design.systemName ?? null),
-		revision: read.revision,
-	};
-};
+	read: Pick<DesignFileRead, "design" | "revision">,
+) => ({
+	id: designFileId,
+	name: read.design.name,
+	revision: read.revision,
+});
 
 export const createBlankDesign = (
 	name: string,

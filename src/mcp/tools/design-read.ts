@@ -21,19 +21,26 @@ import {
 	readSubtreePayload,
 } from "../payloads/design-reads";
 import {
-	getDesignMetadata,
+	getDesignHeader,
 	getNodeName,
 	readDesignFileForTool,
 } from "../payloads/design-tree";
 import { getProjectReference } from "../payloads/project";
+import type { TrickroomMcpProjectRef } from "../project-resolver";
 import { TOOL } from "../tool-names";
 import {
 	ALWAYS_LOAD_META_KEY,
 	mutationAnnotations,
 	readOnlyClosedWorldAnnotations,
+	SEARCH_HINT_META_KEY,
 } from "./annotations";
 import type { McpToolContext } from "./context";
 import { createJsonResult, createToolErrorResult } from "./results";
+import type { registerScreenshotTools } from "./screenshots";
+
+/** PNG exports keep the whole board, up to the capture height limit. */
+const MAX_EXPORT_HEIGHT = 8000;
+
 import {
 	designFileIdSchema,
 	projectScopedInputSchema,
@@ -174,95 +181,143 @@ export const registerDesignReadTools = (ctx: McpToolContext) => {
 	);
 };
 
-export const registerDesignExportTools = (ctx: McpToolContext) => {
-	const { server, withPolicyErrorHandling } = ctx;
+export const registerDesignExportTools = (
+	ctx: McpToolContext,
+	screenshots: ReturnType<typeof registerScreenshotTools>,
+) => {
+	const { server, withPolicyErrorHandling, withProjectContext } = ctx;
+	const { viewport, theme, scale } = screenshots.screenshotCommonInput;
+
+	const exportHtml = async ({
+		designFileId,
+		destinationDir,
+		boardIds,
+		project,
+	}: {
+		designFileId: string;
+		destinationDir: string;
+		boardIds?: string[];
+		project?: TrickroomMcpProjectRef;
+	}) =>
+		withPolicyErrorHandling(project, async (context) => {
+			const policy = getMcpPolicy(context.config);
+			assertCanWriteProject(policy);
+			assertCanReadDesignFile(policy, designFileId);
+			const read = await readDesignFileForTool(context, designFileId);
+			const requested = new Set((boardIds ?? []).filter((id) => id.length > 0));
+			const boards =
+				requested.size > 0
+					? read.design.boards.filter((board) => requested.has(board.id))
+					: read.design.boards;
+
+			if (boards.length === 0) {
+				return createToolErrorResult(
+					context,
+					"NO_MATCHING_BOARDS",
+					requested.size > 0
+						? "None of the requested boardIds match a board in this design file."
+						: "This design file has no boards to export.",
+					{
+						availableBoardIds: read.design.boards.map((board) => board.id),
+						availableBoards: read.design.boards.map((board) => ({
+							id: board.id,
+							name: getNodeName(board) ?? null,
+						})),
+					},
+				);
+			}
+
+			const result = await exportDesignBoards({
+				projectRoot: context.projectRoot,
+				config: context.config,
+				boards,
+				systemId: read.design.systemId ?? null,
+				projectName: context.config.name,
+				designName: read.design.name,
+			});
+
+			try {
+				const written = await writeExportArtifacts(
+					context.projectRoot,
+					destinationDir,
+					context.config.name,
+					read.design.name,
+					result,
+				);
+				return createJsonResult({
+					status: "success",
+					project: getProjectReference(context),
+					designFile: getDesignHeader(designFileId, read),
+					exportedAt: result.epoch,
+					systemId: result.systemId,
+					destinationDir: written.destinationDir,
+					artifacts: written.artifacts,
+				});
+			} catch (error) {
+				if (error instanceof ExportDestinationError) {
+					return createToolErrorResult(context, error.code, error.message);
+				}
+				throw error;
+			}
+		});
 
 	server.registerTool(
-		"exportDesignHtml",
+		TOOL.designExport,
 		{
-			title: "Export Design to HTML",
-			description:
-				"Export one or more boards of a design file to self-contained, interactive HTML on disk. One board writes a single .html file; multiple boards write one .zip containing one .html per board, matching the in-app export download behavior. Each document inlines the design system's compiled Tailwind and loads React + Base UI from a CDN (esm.sh), so it needs network access to that CDN to render. Absolute destinationDir paths are used as-is; project-relative paths resolve inside the project and must stay within the project root. Omit boardIds to export every board.",
+			title: "Export Design",
+			description: `Write boards of a design to files on disk; omit boardIds for every board. format "html" (default): self-contained interactive HTML, one .html for one board or a .zip with one .html per board, as the in-app export; it inlines the design system's compiled Tailwind and loads React and Base UI from esm.sh, so it needs network access to render. format "png": one PNG per board, viewport and theme, at scale 1 and full height (up to 8000 CSS px), named <design>-<board>[-<viewport>-<theme>].png; it needs a Chrome or Chromium like ${TOOL.designScreenshot}. Absolute destinationDir paths are used as-is; relative ones resolve inside the project and must stay in it. Returns the written paths.`,
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
 				destinationDir: z
 					.string()
 					.min(1)
 					.describe(
-						"Folder path where export files are written. Absolute paths are used as-is. Relative paths resolve inside the project directory.",
+						"Folder to write to: absolute, or relative to the project root.",
 					),
 				boardIds: z
 					.array(z.string().min(1))
 					.optional()
-					.describe(
-						"Board (root element) IDs to export. Omit or leave empty to export every board.",
-					),
+					.describe("Boards to export. Omit or leave empty for every board."),
+				format: z
+					.enum(["html", "png"])
+					.optional()
+					.describe('"html" (default) or "png".'),
+				viewport: viewport.describe(
+					"png only: viewport preset, width, or { width, height }; an array writes one file each. Defaults to desktop.",
+				),
+				theme: theme.describe('png only: "light" (default), "dark", or both.'),
+				scale: scale.describe(
+					"png only: output pixels per CSS pixel. Defaults to 1.",
+				),
 			}),
-			annotations: mutationAnnotations,
+			annotations: {
+				...mutationAnnotations,
+				// Writing the same export again overwrites the same files.
+				idempotentHint: true,
+				// HTML exports load React and Base UI from a CDN; PNG renders may
+				// load remote fonts.
+				openWorldHint: true,
+			},
+			_meta: {
+				[SEARCH_HINT_META_KEY]:
+					"export html png save download file disk zip code handoff",
+			},
 		},
-		async ({ designFileId, destinationDir, boardIds, project }) =>
-			withPolicyErrorHandling(project, async (context) => {
-				const policy = getMcpPolicy(context.config);
-				assertCanWriteProject(policy);
-				assertCanReadDesignFile(policy, designFileId);
-				const read = await readDesignFileForTool(context, designFileId);
-				const requested = new Set(
-					(boardIds ?? []).filter((id) => id.length > 0),
+		async (input) => {
+			if (input.format === "png") {
+				return withProjectContext(input.project, (context) =>
+					screenshots.exportBoardPngs(context, {
+						designFileId: input.designFileId,
+						destinationDir: input.destinationDir,
+						boardIds: input.boardIds,
+						viewport: input.viewport,
+						theme: input.theme,
+						scale: input.scale,
+						maxHeight: MAX_EXPORT_HEIGHT,
+					}),
 				);
-				const boards =
-					requested.size > 0
-						? read.design.boards.filter((board) => requested.has(board.id))
-						: read.design.boards;
-
-				if (boards.length === 0) {
-					return createToolErrorResult(
-						context,
-						"NO_MATCHING_BOARDS",
-						requested.size > 0
-							? "None of the requested boardIds match a board in this design file."
-							: "This design file has no boards to export.",
-						{
-							availableBoardIds: read.design.boards.map((board) => board.id),
-							availableBoards: read.design.boards.map((board) => ({
-								id: board.id,
-								name: getNodeName(board) ?? null,
-							})),
-						},
-					);
-				}
-
-				const result = await exportDesignBoards({
-					projectRoot: context.projectRoot,
-					config: context.config,
-					boards,
-					systemId: read.design.systemId ?? null,
-					projectName: context.config.name,
-					designName: read.design.name,
-				});
-
-				try {
-					const written = await writeExportArtifacts(
-						context.projectRoot,
-						destinationDir,
-						context.config.name,
-						read.design.name,
-						result,
-					);
-					return createJsonResult({
-						status: "success",
-						project: getProjectReference(context),
-						designFile: getDesignMetadata(designFileId, read),
-						exportedAt: result.epoch,
-						systemId: result.systemId,
-						destinationDir: written.destinationDir,
-						artifacts: written.artifacts,
-					});
-				} catch (error) {
-					if (error instanceof ExportDestinationError) {
-						return createToolErrorResult(context, error.code, error.message);
-					}
-					throw error;
-				}
-			}),
+			}
+			return exportHtml(input);
+		},
 	);
 };

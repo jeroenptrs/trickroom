@@ -40,7 +40,7 @@ const runMcp = async () => {
 		.filter((arg) => !arg.startsWith("--"));
 	if (positionalArgs.length > 0) {
 		console.error(
-			"trickroom mcp does not accept positional arguments. Start it without positional arguments from the target project root, or use registerProject then selectProject for an explicit MCP session target.",
+			"trickroom mcp does not accept positional arguments. Start it from the target project root, or switch projects within the session with the project_select tool (locationId or path).",
 		);
 		process.exitCode = 1;
 		return;

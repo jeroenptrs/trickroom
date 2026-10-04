@@ -95,7 +95,7 @@ describe("MCP screenshot tools", () => {
 		const { session, requests } = await open();
 		const result = (await session.client.callTool(
 			{
-				name: "screenshotBoard",
+				name: "design_screenshot",
 				arguments: {
 					designFileId: trickroomMcpTestDesignUuid,
 					boardId: "board",
@@ -138,10 +138,10 @@ describe("MCP screenshot tools", () => {
 		const { session, requests } = await open();
 		const result = (await session.client.callTool(
 			{
-				name: "screenshotNode",
+				name: "design_screenshot",
 				arguments: {
 					designFileId: trickroomMcpTestDesignUuid,
-					nodeId: "title",
+					elementId: "title",
 				},
 			},
 			CallToolResultSchema,
@@ -162,7 +162,7 @@ describe("MCP screenshot tools", () => {
 		});
 		const inline = (await session.client.callTool(
 			{
-				name: "screenshotBoard",
+				name: "design_screenshot",
 				arguments: {
 					designFileId: trickroomMcpTestDesignUuid,
 					boardId: "board",
@@ -172,11 +172,12 @@ describe("MCP screenshot tools", () => {
 		)) as CallToolResult;
 		const persisted = (await session.client.callTool(
 			{
-				name: "screenshotBoard",
+				name: "design_export",
 				arguments: {
 					designFileId: trickroomMcpTestDesignUuid,
-					boardId: "board",
-					outputPath: "captures/board.png",
+					boardIds: ["board"],
+					destinationDir: "captures",
+					format: "png",
 				},
 			},
 			CallToolResultSchema,
@@ -194,9 +195,10 @@ describe("MCP screenshot tools", () => {
 			.split("\n")
 			.map((line) => JSON.parse(line) as Record<string, unknown>);
 		expect(entries).toMatchObject([
-			{ toolName: "screenshotBoard", success: true },
+			{ toolName: "design_screenshot", operation: "capture", success: true },
 			{
-				toolName: "screenshotBoard",
+				toolName: "design_export",
+				operation: "png",
 				success: false,
 				code: "MCP_READ_ONLY",
 			},
@@ -232,7 +234,7 @@ describe("MCP screenshot tools", () => {
 
 	it("captures several viewports and themes of a board in one request", async () => {
 		const { session, requests } = await open();
-		const result = await callScreenshot(session, "screenshotBoard", {
+		const result = await callScreenshot(session, "design_screenshot", {
 			designFileId: trickroomMcpTestDesignUuid,
 			boardId: "board",
 			viewport: ["mobile", 1280],
@@ -262,15 +264,14 @@ describe("MCP screenshot tools", () => {
 		});
 	});
 
-	it('captures every board with boardId "all" and suffixes output paths', async () => {
+	it('captures every board with boardId "all"', async () => {
 		const { session, requests } = await open({
 			designs: { [twoBoardDesignUuid]: twoBoardDesign },
 		});
-		const result = await callScreenshot(session, "screenshotBoard", {
+		const result = await callScreenshot(session, "design_screenshot", {
 			designFileId: twoBoardDesignUuid,
 			boardId: "all",
 			viewport: 1024,
-			outputPath: "captures/review.png",
 		});
 
 		expect(result.isError).not.toBe(true);
@@ -278,20 +279,65 @@ describe("MCP screenshot tools", () => {
 			"board",
 			"second",
 		]);
-		expect(requests.map((request) => request.outputPath)).toEqual([
-			"captures/review-Board.png",
-			"captures/review-Second-board.png",
-		]);
+		expect(requests.every((request) => !request.outputPath)).toBe(true);
 		expect(result.content.filter((item) => item.type === "image")).toHaveLength(
 			2,
 		);
+	});
+
+	it("exports board PNGs to disk through design_export", async () => {
+		const { fixture, session, requests } = await open({
+			designs: { [twoBoardDesignUuid]: twoBoardDesign },
+		});
+		const result = await callScreenshot(session, "design_export", {
+			designFileId: twoBoardDesignUuid,
+			destinationDir: "captures",
+			format: "png",
+			viewport: ["mobile", "desktop"],
+		});
+
+		expect(result.isError).not.toBe(true);
+		expect(requests).toMatchObject([
+			{
+				boardId: "board",
+				outputPath: "captures/Two-boards-Board.png",
+				scale: 1,
+				maxHeight: 8000,
+				shots: [
+					{ viewport: "mobile", theme: "light" },
+					{ viewport: "desktop", theme: "light" },
+				],
+			},
+			{ boardId: "second", outputPath: "captures/Two-boards-Second-board.png" },
+		]);
+		// An export answers with the written files, not images.
+		expect(result.content.map((item) => item.type)).toEqual(["text"]);
+		expect(toolPayload(result)).toMatchObject({
+			status: "success",
+			designFile: { id: twoBoardDesignUuid, name: "Two boards" },
+			format: "png",
+			files: [
+				{
+					boardId: "board",
+					viewport: "mobile",
+					theme: "light",
+					path: path.resolve(
+						fixture.projectRoot,
+						"captures/Two-boards-Board.png",
+					),
+				},
+				{ boardId: "board", viewport: "desktop" },
+				{ boardId: "second", viewport: "mobile" },
+				{ boardId: "second", viewport: "desktop" },
+			],
+		});
 	});
 
 	it("reports an unknown board in a list with the available boards", async () => {
 		const { session, requests } = await open({
 			designs: { [twoBoardDesignUuid]: twoBoardDesign },
 		});
-		const result = await callScreenshot(session, "screenshotBoard", {
+		const result = await callScreenshot(session, "design_screenshot", {
 			designFileId: twoBoardDesignUuid,
 			boardId: ["board", "missing"],
 		});
@@ -306,7 +352,7 @@ describe("MCP screenshot tools", () => {
 		const { session, requests } = await open({
 			designs: { [twoBoardDesignUuid]: twoBoardDesign },
 		});
-		const result = await callScreenshot(session, "screenshotBoard", {
+		const result = await callScreenshot(session, "design_screenshot", {
 			designFileId: twoBoardDesignUuid,
 			boardId: "all",
 			viewport: ["mobile", "tablet", "desktop", 1280],
@@ -348,7 +394,7 @@ describe("MCP screenshot tools", () => {
 			},
 		);
 		sessions.push(session);
-		const result = await callScreenshot(session, "screenshotBoard", {
+		const result = await callScreenshot(session, "design_screenshot", {
 			designFileId: trickroomMcpTestDesignUuid,
 			boardId: "board",
 		});
@@ -393,7 +439,7 @@ describe("MCP screenshot tools", () => {
 		});
 		expect(created.isError).not.toBe(true);
 
-		const result = await callScreenshot(session, "screenshotBoard", {
+		const result = await callScreenshot(session, "design_screenshot", {
 			component: { componentId: "badge", matrix: "tone", systemName: "Core" },
 			theme: ["light", "dark"],
 		});
@@ -416,16 +462,20 @@ describe("MCP screenshot tools", () => {
 			text: expect.stringContaining("[1] Badge (draft) · tone matrix"),
 		});
 
-		const unknownValue = await callScreenshot(session, "screenshotBoard", {
+		const unknownValue = await callScreenshot(session, "design_screenshot", {
 			component: { componentId: "badge", variants: { tone: "loud" } },
 		});
 		expect(unknownValue.isError).toBe(true);
 		expect(JSON.stringify(unknownValue.content)).toContain(
 			"UNKNOWN_VARIANT_VALUE",
 		);
-		const unknownComponent = await callScreenshot(session, "screenshotBoard", {
-			component: { componentId: "badg" },
-		});
+		const unknownComponent = await callScreenshot(
+			session,
+			"design_screenshot",
+			{
+				component: { componentId: "badg" },
+			},
+		);
 		const unknownText =
 			unknownComponent.content[0]?.type === "text"
 				? unknownComponent.content[0].text
@@ -439,7 +489,7 @@ describe("MCP screenshot tools", () => {
 
 	it("needs a board or a component", async () => {
 		const { session } = await open();
-		const result = await callScreenshot(session, "screenshotBoard", {
+		const result = await callScreenshot(session, "design_screenshot", {
 			designFileId: trickroomMcpTestDesignUuid,
 		});
 		expect(result.isError).toBe(true);

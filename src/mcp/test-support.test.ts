@@ -84,8 +84,8 @@ describe("trickroom MCP test support", () => {
 			expect(tools.tools).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({
-						name: "trickroom_project_info",
-						title: "Project Info",
+						name: "project_list",
+						title: "List Projects",
 						annotations: expect.objectContaining({
 							readOnlyHint: true,
 							openWorldHint: false,
@@ -95,10 +95,7 @@ describe("trickroom MCP test support", () => {
 			);
 
 			const result = (await session.client.callTool(
-				{
-					name: "trickroom_project_info",
-					arguments: {},
-				},
+				{ name: "project_list", arguments: {} },
 				CallToolResultSchema,
 			)) as CallToolResult;
 			const textContent = result.content.find(
@@ -110,7 +107,7 @@ describe("trickroom MCP test support", () => {
 			expect(result.content).toHaveLength(1);
 			expect(result.structuredContent).toBeUndefined();
 			expect(JSON.parse(textContent?.text ?? "{}")).toMatchObject({
-				project: {
+				selected: {
 					name: "Harness Project",
 					projectRoot: fixture.projectRoot,
 				},

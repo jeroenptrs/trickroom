@@ -217,8 +217,7 @@ describe("MCP mutation tools", () => {
 					"addSystemAsset",
 					"removeSystemAsset",
 					"refreshSystemAssetMetadata",
-					"createDesignFile",
-					"extractSubtree",
+					"design_create",
 					"design_apply",
 					"migrateSystemComponentInstance",
 					"bulkMigrateSystemComponentUsages",
@@ -230,10 +229,7 @@ describe("MCP mutation tools", () => {
 				}
 
 				expect(
-					toolsByName.get("createDesignFile")?.annotations?.destructiveHint,
-				).toBe(false);
-				expect(
-					toolsByName.get("extractSubtree")?.annotations?.destructiveHint,
+					toolsByName.get("design_create")?.annotations?.destructiveHint,
 				).toBe(false);
 				// One write tool covers deletes and detaches, so it is destructive.
 				expect(toolsByName.get("design_apply")?.annotations).toMatchObject({
@@ -1315,7 +1311,7 @@ describe("MCP mutation tools", () => {
 		});
 	});
 
-	describe("createDesignFile", () => {
+	describe("design_create", () => {
 		const createdDesignFileId = "10000000-0000-4000-8000-000000000002";
 		const secondCreatedDesignFileId = "10000000-0000-4000-8000-000000000003";
 
@@ -1323,7 +1319,7 @@ describe("MCP mutation tools", () => {
 			const { fixture, session } = await setup();
 			try {
 				const result = await session.client.callTool({
-					name: "createDesignFile",
+					name: "design_create",
 					arguments: {
 						designFileId: createdDesignFileId,
 						name: "Exploration",
@@ -1332,32 +1328,21 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = toolPayload(result) as {
-					status: string;
-					newRevision: string;
-					designFile: {
-						id: string;
-						file: string;
-						name: string;
-						systemId: string | null;
-						systemName: string | null;
-						revision: string;
-					};
-					rootElementIds: string[];
-					elementTree: Array<{ component: string; role: string }>;
-				};
+				const content = toolPayload(result);
 				expect(content.status).toBe("success");
 				expect(content.newRevision).toEqual(expect.any(String));
-				expect(content.designFile).toMatchObject({
+				// A compact header: no file path, no tree.
+				expect(content.designFile).toEqual({
 					id: createdDesignFileId,
-					file: `${createdDesignFileId}.json`,
 					name: "Exploration",
-					systemId: expect.stringMatching(/^sys_/),
-					systemName: "Core",
 					revision: content.newRevision,
 				});
-				expect(content.rootElementIds).toHaveLength(0);
-				expect(content.elementTree).toEqual([]);
+				expect(content.system).toEqual({
+					systemId: expect.stringMatching(/^sys_/),
+					systemName: "Core",
+				});
+				// A new design starts without boards.
+				expect(content.boards).toEqual([]);
 
 				const persisted = await fixture.designFileService.readDesignFile(
 					fixture.designFileService.getFileForUuid(createdDesignFileId),
@@ -1391,7 +1376,7 @@ describe("MCP mutation tools", () => {
 			const { fixture, session } = await setup();
 			try {
 				const result = await session.client.callTool({
-					name: "createDesignFile",
+					name: "design_create",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						name: "Overwrite Attempt",
@@ -1429,7 +1414,7 @@ describe("MCP mutation tools", () => {
 			);
 			try {
 				const result = await session.client.callTool({
-					name: "createDesignFile",
+					name: "design_create",
 					arguments: {
 						designFileId: createdDesignFileId,
 						name: "Read Only Denied",
@@ -1452,8 +1437,8 @@ describe("MCP mutation tools", () => {
 					.map((line) => JSON.parse(line) as Record<string, unknown>);
 				expect(entries).toContainEqual(
 					expect.objectContaining({
-						toolName: "createDesignFile",
-						operation: "createDesignFile",
+						toolName: "design_create",
+						operation: "create",
 						designFileId: createdDesignFileId,
 						expectedRevision: null,
 						success: false,
@@ -1481,7 +1466,7 @@ describe("MCP mutation tools", () => {
 			const session = await createTrickroomMcpTestClient(context);
 			try {
 				const generatedDenied = await session.client.callTool({
-					name: "createDesignFile",
+					name: "design_create",
 					arguments: {
 						name: "Generated Denied",
 						systemName: "Missing",
@@ -1494,7 +1479,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				const created = await session.client.callTool({
-					name: "createDesignFile",
+					name: "design_create",
 					arguments: {
 						designFileId: createdDesignFileId,
 						name: "Allowed Exploration",
@@ -1526,9 +1511,9 @@ describe("MCP mutation tools", () => {
 			);
 			try {
 				// Empty creation uses no components, so component allowlists do not
-				// gate createDesignFile itself — only subsequent inserts.
+				// gate design_create itself — only subsequent inserts.
 				const created = await componentSession.client.callTool({
-					name: "createDesignFile",
+					name: "design_create",
 					arguments: {
 						designFileId: secondCreatedDesignFileId,
 						name: "Component Allowlist Ignored",
@@ -1537,7 +1522,7 @@ describe("MCP mutation tools", () => {
 				expect(created.isError).toBeFalsy();
 				expect(toolPayload(created)).toMatchObject({
 					status: "success",
-					rootElementIds: [],
+					boards: [],
 				});
 			} finally {
 				await componentSession.close();
@@ -1559,7 +1544,7 @@ describe("MCP mutation tools", () => {
 			);
 			try {
 				const result = await session.client.callTool({
-					name: "createDesignFile",
+					name: "design_create",
 					arguments: {
 						designFileId: createdDesignFileId,
 						name: "Audited Exploration",
@@ -1568,7 +1553,7 @@ describe("MCP mutation tools", () => {
 				expect(result.isError).toBeFalsy();
 
 				const duplicate = await session.client.callTool({
-					name: "createDesignFile",
+					name: "design_create",
 					arguments: {
 						designFileId: createdDesignFileId,
 						name: "Duplicate Audited Exploration",
@@ -1586,8 +1571,8 @@ describe("MCP mutation tools", () => {
 					.map((line) => JSON.parse(line) as Record<string, unknown>);
 				expect(entries).toContainEqual(
 					expect.objectContaining({
-						toolName: "createDesignFile",
-						operation: "createDesignFile",
+						toolName: "design_create",
+						operation: "create",
 						designFileId: createdDesignFileId,
 						expectedRevision: null,
 						success: true,
@@ -1597,8 +1582,8 @@ describe("MCP mutation tools", () => {
 				);
 				expect(entries).toContainEqual(
 					expect.objectContaining({
-						toolName: "createDesignFile",
-						operation: "createDesignFile",
+						toolName: "design_create",
+						operation: "create",
 						designFileId: createdDesignFileId,
 						expectedRevision: null,
 						success: false,
@@ -1611,11 +1596,28 @@ describe("MCP mutation tools", () => {
 			}
 		});
 
+		it("needs a name unless it starts from an element", async () => {
+			const { session } = await setup();
+			try {
+				const result = await session.client.callTool({
+					name: "design_create",
+					arguments: { designFileId: createdDesignFileId },
+				});
+				expect(result.isError).toBe(true);
+				expect(toolPayload(result)).toMatchObject({
+					code: "INVALID_OPERATION_PARAMETERS",
+					message: expect.stringContaining("name"),
+				});
+			} finally {
+				await session.close();
+			}
+		});
+
 		it("rejects unknown design systems", async () => {
 			const { session } = await setup();
 			try {
 				const result = await session.client.callTool({
-					name: "createDesignFile",
+					name: "design_create",
 					arguments: {
 						designFileId: createdDesignFileId,
 						name: "Unknown System",
@@ -1637,7 +1639,7 @@ describe("MCP mutation tools", () => {
 			const { session } = await setup();
 			try {
 				const blankName = await session.client.callTool({
-					name: "createDesignFile",
+					name: "design_create",
 					arguments: {
 						designFileId: createdDesignFileId,
 						name: "   ",
@@ -1650,7 +1652,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				const blankSystem = await session.client.callTool({
-					name: "createDesignFile",
+					name: "design_create",
 					arguments: {
 						designFileId: createdDesignFileId,
 						name: "Blank System",
@@ -1671,7 +1673,7 @@ describe("MCP mutation tools", () => {
 			const { session, notifications } = await setupWithNotificationClient();
 			try {
 				const result = await session.client.callTool({
-					name: "createDesignFile",
+					name: "design_create",
 					arguments: {
 						designFileId: createdDesignFileId,
 						name: "Notified Exploration",
@@ -1682,7 +1684,7 @@ describe("MCP mutation tools", () => {
 				expect(notifications).toHaveLength(1);
 
 				const duplicate = await session.client.callTool({
-					name: "createDesignFile",
+					name: "design_create",
 					arguments: {
 						designFileId: createdDesignFileId,
 						name: "Duplicate Notified Exploration",
@@ -1696,66 +1698,40 @@ describe("MCP mutation tools", () => {
 		});
 	});
 
-	describe("extractSubtree", () => {
+	describe("design_create from an element", () => {
 		const extractedDesignFileId = "10000000-0000-4000-8000-000000000012";
 
 		it("copies a source subtree to a new design file without mutating the source", async () => {
 			const { fixture, session } = await setup();
 			try {
 				const result = await session.client.callTool({
-					name: "extractSubtree",
+					name: "design_create",
 					arguments: {
-						designFileId: trickroomMcpTestDesignUuid,
-						elementId: "board",
-						newDesignFileId: extractedDesignFileId,
+						designFileId: extractedDesignFileId,
+						from: {
+							designFileId: trickroomMcpTestDesignUuid,
+							elementId: "board",
+						},
 					},
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = toolPayload(result) as {
-					status: string;
-					newRevision: string;
-					designFile: {
-						id: string;
-						file: string;
-						name: string;
-						systemName: string | null;
-						revision: string;
-					};
-					sourceDesignFile: { id: string; revision: string };
-					rootElementIds: string[];
-					idMap: Record<string, string>;
-					elementTree: Array<{
-						id: string;
-						name: string;
-						children: Array<{ id: string; textPreview: string }>;
-					}>;
-				};
+				const content = toolPayload(result);
 				expect(content.status).toBe("success");
 				expect(content.newRevision).toEqual(expect.any(String));
-				expect(content.designFile).toMatchObject({
+				expect(content.designFile).toEqual({
 					id: extractedDesignFileId,
-					file: `${extractedDesignFileId}.json`,
 					name: "Board",
-					systemName: "Core",
 					revision: content.newRevision,
 				});
-				expect(content.sourceDesignFile.id).toBe(trickroomMcpTestDesignUuid);
-				expect(content.idMap.board).toBe(content.rootElementIds[0]);
-				expect(content.idMap.board).not.toBe("board");
-				expect(content.idMap.title).not.toBe("title");
-				expect(content.elementTree).toEqual([
-					expect.objectContaining({
-						id: content.idMap.board,
-						name: "Board",
-						children: [
-							expect.objectContaining({
-								id: content.idMap.title,
-								textPreview: "Harness fixture",
-							}),
-						],
-					}),
+				expect(content.system).toMatchObject({ systemName: "Core" });
+				// The new board as one compact node; the id map is opt-in.
+				expect(content.boards).toEqual([
+					{ id: expect.any(String), name: "Board", component: "container" },
 				]);
+				expect(content).not.toHaveProperty("idMap");
+				const newBoardId = content.boards[0].id;
+				expect(newBoardId).not.toBe("board");
 
 				const persistedTarget = await fixture.designFileService.readDesignFile(
 					fixture.designFileService.getFileForUuid(extractedDesignFileId),
@@ -1765,12 +1741,27 @@ describe("MCP mutation tools", () => {
 					systemId: expect.stringMatching(/^sys_/),
 				});
 				expect(persistedTarget.design).not.toHaveProperty("systemName");
-				expect(persistedTarget.design.boards[0].id).toBe(content.idMap.board);
-				expect(persistedTarget.design.boards[0].id).not.toBe("board");
+				expect(persistedTarget.design.boards[0].id).toBe(newBoardId);
 				const persistedChildren = persistedTarget.design.boards[0]
 					.children as TrickroomDesign["boards"];
-				expect(persistedChildren[0].id).toBe(content.idMap.title);
+				expect(persistedChildren[0].id).not.toBe("title");
 				expect(persistedChildren[0].children).toBe("Harness fixture");
+
+				const withMap = await session.client.callTool({
+					name: "design_create",
+					arguments: {
+						from: {
+							designFileId: trickroomMcpTestDesignUuid,
+							elementId: "board",
+						},
+						response: "full",
+					},
+				});
+				const mapped = toolPayload(withMap);
+				expect(mapped.idMap).toEqual({
+					board: mapped.boards[0].id,
+					title: expect.any(String),
+				});
 
 				const persistedSource = await fixture.designFileService.readDesignFile(
 					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
@@ -1785,13 +1776,15 @@ describe("MCP mutation tools", () => {
 			const { fixture, session } = await setup();
 			try {
 				const result = await session.client.callTool({
-					name: "extractSubtree",
+					name: "design_create",
 					arguments: {
-						designFileId: trickroomMcpTestDesignUuid,
-						elementId: "title",
 						name: "Extracted Heading",
 						systemName: null,
-						newDesignFileId: extractedDesignFileId,
+						designFileId: extractedDesignFileId,
+						from: {
+							designFileId: trickroomMcpTestDesignUuid,
+							elementId: "title",
+						},
 					},
 				});
 
@@ -1801,8 +1794,8 @@ describe("MCP mutation tools", () => {
 					designFile: {
 						id: extractedDesignFileId,
 						name: "Extracted Heading",
-						systemName: null,
 					},
+					system: null,
 				});
 
 				const persisted = await fixture.designFileService.readDesignFile(
@@ -1821,11 +1814,13 @@ describe("MCP mutation tools", () => {
 			const { session } = await setup();
 			try {
 				const result = await session.client.callTool({
-					name: "extractSubtree",
+					name: "design_create",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
-						elementId: "title",
-						newDesignFileId: trickroomMcpTestDesignUuid,
+						from: {
+							designFileId: trickroomMcpTestDesignUuid,
+							elementId: "title",
+						},
 					},
 				});
 
@@ -1843,12 +1838,14 @@ describe("MCP mutation tools", () => {
 			const { session } = await setup();
 			try {
 				const result = await session.client.callTool({
-					name: "extractSubtree",
+					name: "design_create",
 					arguments: {
-						designFileId: trickroomMcpTestDesignUuid,
-						elementId: "title",
 						systemName: " ",
-						newDesignFileId: extractedDesignFileId,
+						designFileId: extractedDesignFileId,
+						from: {
+							designFileId: trickroomMcpTestDesignUuid,
+							elementId: "title",
+						},
 					},
 				});
 
@@ -1882,10 +1879,12 @@ describe("MCP mutation tools", () => {
 			);
 			try {
 				const generatedDenied = await policySession.client.callTool({
-					name: "extractSubtree",
+					name: "design_create",
 					arguments: {
-						designFileId: trickroomMcpTestDesignUuid,
-						elementId: "title",
+						from: {
+							designFileId: trickroomMcpTestDesignUuid,
+							elementId: "title",
+						},
 					},
 				});
 				expect(generatedDenied.isError).toBe(true);
@@ -1895,11 +1894,13 @@ describe("MCP mutation tools", () => {
 				});
 
 				const componentDenied = await policySession.client.callTool({
-					name: "extractSubtree",
+					name: "design_create",
 					arguments: {
-						designFileId: trickroomMcpTestDesignUuid,
-						elementId: "board",
-						newDesignFileId: allowedTextTargetId,
+						designFileId: allowedTextTargetId,
+						from: {
+							designFileId: trickroomMcpTestDesignUuid,
+							elementId: "board",
+						},
 					},
 				});
 				expect(componentDenied.isError).toBe(true);
@@ -1909,11 +1910,13 @@ describe("MCP mutation tools", () => {
 				});
 
 				const allowed = await policySession.client.callTool({
-					name: "extractSubtree",
+					name: "design_create",
 					arguments: {
-						designFileId: trickroomMcpTestDesignUuid,
-						elementId: "title",
-						newDesignFileId: allowedTextTargetId,
+						designFileId: allowedTextTargetId,
+						from: {
+							designFileId: trickroomMcpTestDesignUuid,
+							elementId: "title",
+						},
 					},
 				});
 				expect(allowed.isError).toBeFalsy();
@@ -1946,11 +1949,13 @@ describe("MCP mutation tools", () => {
 			);
 			try {
 				const result = await policySession.client.callTool({
-					name: "extractSubtree",
+					name: "design_create",
 					arguments: {
-						designFileId: trickroomMcpTestDesignUuid,
-						elementId: "board",
-						newDesignFileId: targetId,
+						designFileId: targetId,
+						from: {
+							designFileId: trickroomMcpTestDesignUuid,
+							elementId: "board",
+						},
 					},
 				});
 
@@ -2009,11 +2014,13 @@ describe("MCP mutation tools", () => {
 			);
 			try {
 				const result = await policySession.client.callTool({
-					name: "extractSubtree",
+					name: "design_create",
 					arguments: {
-						designFileId: trickroomMcpTestDesignUuid,
-						elementId: "duplicate",
-						newDesignFileId: targetId,
+						designFileId: targetId,
+						from: {
+							designFileId: trickroomMcpTestDesignUuid,
+							elementId: "duplicate",
+						},
 					},
 				});
 
@@ -2042,11 +2049,13 @@ describe("MCP mutation tools", () => {
 			);
 			try {
 				const result = await session.client.callTool({
-					name: "extractSubtree",
+					name: "design_create",
 					arguments: {
-						designFileId: trickroomMcpTestDesignUuid,
-						elementId: "title",
-						newDesignFileId: extractedDesignFileId,
+						designFileId: extractedDesignFileId,
+						from: {
+							designFileId: trickroomMcpTestDesignUuid,
+							elementId: "title",
+						},
 					},
 				});
 				expect(result.isError).toBeFalsy();
@@ -2061,8 +2070,8 @@ describe("MCP mutation tools", () => {
 					.map((line) => JSON.parse(line) as Record<string, unknown>);
 				expect(entries).toContainEqual(
 					expect.objectContaining({
-						toolName: "extractSubtree",
-						operation: "extractSubtree",
+						toolName: "design_create",
+						operation: "extract",
 						designFileId: extractedDesignFileId,
 						expectedRevision: null,
 						success: true,

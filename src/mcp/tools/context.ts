@@ -15,7 +15,6 @@ import { IconManifestError } from "../../utils/icon-manifest-service";
 import { MemoryManifestError } from "../../utils/memory-manifest-service";
 import { SystemComponentOperationsError } from "../../utils/system-component-operations";
 import { McpPolicyError } from "../governance";
-import { getProjectDetails } from "../payloads/project";
 import {
 	createTrickroomMcpProjectResolver,
 	type TrickroomMcpProjectRef,
@@ -26,8 +25,8 @@ import type {
 	TrickroomMcpServerContext,
 	TrickroomMcpServerOptions,
 } from "../server-types";
+import { TOOL } from "../tool-names";
 import {
-	createJsonResult,
 	createPolicyDeniedResult,
 	createProjectResolverErrorResult,
 	createToolErrorResult,
@@ -101,7 +100,7 @@ export const createMcpToolContext = (
 		if (!context) {
 			throw new TrickroomProjectConfigError(
 				"CONFIG_NOT_FOUND",
-				"No Trickroom MCP project is selected. Call selectProject with a projectId or locationId, or start MCP from a folder with a direct .trickroom/config.json.",
+				`No Trickroom MCP project is selected. Call ${TOOL.projectSelect} with a locationId from ${TOOL.projectList} or a project path, or start MCP from a folder with a direct .trickroom/config.json.`,
 			);
 		}
 
@@ -133,7 +132,8 @@ export const createMcpToolContext = (
 		return { context, isRegistryActive };
 	};
 
-	const selectProjectFromRef = async (ref: {
+	/** Make a registered project this session's project. */
+	const selectProject = async (ref: {
 		locationId?: string;
 		projectId?: string;
 	}) => {
@@ -144,16 +144,8 @@ export const createMcpToolContext = (
 		selectedContext = context;
 		projectResolver.setDefaultContext(context);
 		await notifyResourceListChanged();
-		return createJsonResult({
-			project: getProjectDetails(context),
-			selected: true,
-		});
+		return context;
 	};
-
-	const createGetSelectedProjectResult = () =>
-		createJsonResult({
-			project: selectedContext ? getProjectDetails(selectedContext) : null,
-		});
 
 	const withProjectContext = async (
 		project: TrickroomMcpProjectRef | undefined,
@@ -232,8 +224,7 @@ export const createMcpToolContext = (
 		notifyResourceListChanged,
 		getActiveContext,
 		registerProjectFromPath,
-		selectProjectFromRef,
-		createGetSelectedProjectResult,
+		selectProject,
 		withProjectContext,
 		withPolicyErrorHandling,
 	};

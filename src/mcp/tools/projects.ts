@@ -1,222 +1,161 @@
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { readProjectRegistry } from "../../app-state/project-registry";
-import { getProjectDetails } from "../payloads/project";
+import { TrickroomProjectConfigError } from "../../project";
+import { getProjectDetails, getProjectInfo } from "../payloads/project";
 import { TrickroomMcpProjectResolverError } from "../project-resolver";
-import { readOnlyClosedWorldAnnotations } from "./annotations";
-import type { McpToolContext } from "./context";
+import type { TrickroomMcpServerContext } from "../server-types";
+import { TOOL } from "../tool-names";
 import {
-	createJsonResult,
-	createProjectInfoResult,
-	createProjectResolverErrorResult,
-} from "./results";
-import { projectScopedInputSchema } from "./schemas";
+	ALWAYS_LOAD_META_KEY,
+	readOnlyClosedWorldAnnotations,
+	SEARCH_HINT_META_KEY,
+} from "./annotations";
+import type { McpToolContext } from "./context";
+import { createJsonResult, createProjectResolverErrorResult } from "./results";
+import { projectRefSchema } from "./schemas";
+
+const createProjectErrorResult = (
+	code: string,
+	message: string,
+): CallToolResult => ({
+	...createJsonResult({ status: "INVALID_OPERATION", code, message }),
+	isError: true,
+});
+
+/** Resolver and config errors are answers, not crashes: report them. */
+const withProjectErrors = async (
+	fn: () => Promise<CallToolResult>,
+): Promise<CallToolResult> => {
+	try {
+		return await fn();
+	} catch (error) {
+		if (error instanceof TrickroomMcpProjectResolverError) {
+			return createProjectResolverErrorResult(error);
+		}
+		if (error instanceof TrickroomProjectConfigError) {
+			return createProjectErrorResult(error.code, error.message);
+		}
+		throw error;
+	}
+};
 
 export const registerProjectTools = (ctx: McpToolContext) => {
 	const {
 		server,
 		trickroomHome,
 		projectResolver,
-		notifyResourceListChanged,
+		getSelectedContext,
 		registerProjectFromPath,
-		selectProjectFromRef,
-		createGetSelectedProjectResult,
-		withPolicyErrorHandling,
+		selectProject,
 	} = ctx;
 
 	server.registerTool(
-		"listProjects",
+		TOOL.projectList,
 		{
 			title: "List Projects",
-			description:
-				"List projects registered in Trickroom app state with stable project and local location references. `activeProjectId` and `activeLocationId` are registry app-state values (not the MCP session selection).",
-			annotations: readOnlyClosedWorldAnnotations,
-		},
-		async () => {
-			const registry = await readProjectRegistry(trickroomHome);
-			return createJsonResult({
-				activeProjectId: registry.lastActiveProjectId ?? null,
-				activeLocationId: registry.lastActiveLocationId ?? null,
-				projects: registry.locations.map((location) => ({
-					projectId: location.projectId,
-					locationId: location.locationId,
-					projectRoot: location.root,
-					name: location.name,
-					lastOpenedAt: location.lastOpenedAt,
-					active: location.locationId === registry.lastActiveLocationId,
-				})),
-			});
-		},
-	);
-
-	server.registerTool(
-		"registerProject",
-		{
-			title: "Register Project",
-			description:
-				"Register a local Trickroom project path in app state without changing session selection.",
+			description: `Start here. Returns this session's selected project (ids, root, name) with what working in it needs: governance mode, default design system, configured systems, and a project memory summary when notes exist. \`projects\` lists every registered Trickroom project with projectId, locationId and root; \`selected\` marks this session's, \`appActive\` the one the browser app last opened. Pass project to get the same information for another registered project without selecting it. Switch with ${TOOL.projectSelect}.`,
 			inputSchema: {
-				path: z.string().min(1).describe("Local project root path to open."),
-			},
-			annotations: {
-				readOnlyHint: false,
-				openWorldHint: false,
-				idempotentHint: true,
-			},
-		},
-		async ({ path: projectPath }) => {
-			const { context, isRegistryActive } =
-				await registerProjectFromPath(projectPath);
-			await notifyResourceListChanged();
-			return createJsonResult({
-				project: getProjectDetails(context),
-				selected: false,
-				active: isRegistryActive,
-				hint: "Call selectProject({ locationId }) to use this project in this session.",
-			});
-		},
-	);
-
-	server.registerTool(
-		"selectProject",
-		{
-			title: "Select Project",
-			description: "Select a registered project for MCP session-scoped tools.",
-			inputSchema: {
-				locationId: z
-					.string()
-					.min(1)
-					.optional()
-					.describe("Local Trickroom project location ID."),
-				projectId: z
-					.string()
-					.min(1)
-					.optional()
-					.describe(
-						"Stable Trickroom project ID. Ambiguous IDs require locationId.",
-					),
-			},
-			annotations: {
-				readOnlyHint: false,
-				openWorldHint: false,
-				idempotentHint: true,
-			},
-		},
-		async ({ locationId, projectId }) => {
-			try {
-				return await selectProjectFromRef({
-					...(locationId ? { locationId } : {}),
-					...(projectId ? { projectId } : {}),
-				});
-			} catch (error) {
-				if (error instanceof TrickroomMcpProjectResolverError) {
-					return createProjectResolverErrorResult(error);
-				}
-				throw error;
-			}
-		},
-	);
-
-	server.registerTool(
-		"getSelectedProject",
-		{
-			title: "Get Selected Project",
-			description:
-				"Return the project currently selected for MCP session-scoped tools.",
-			annotations: readOnlyClosedWorldAnnotations,
-		},
-		createGetSelectedProjectResult,
-	);
-
-	server.registerTool(
-		"getActiveProject",
-		{
-			title: "Get Active Project",
-			description:
-				"Compatibility alias for getSelectedProject. Prefer getSelectedProject for MCP session visibility.",
-			annotations: readOnlyClosedWorldAnnotations,
-		},
-		createGetSelectedProjectResult,
-	);
-
-	server.registerTool(
-		"resolveProject",
-		{
-			title: "Resolve Project",
-			description:
-				"Resolve a registered project reference to an MCP-enabled local project location.",
-			inputSchema: {
-				locationId: z
-					.string()
-					.min(1)
-					.optional()
-					.describe("Local Trickroom project location ID."),
-				projectId: z
-					.string()
-					.min(1)
-					.optional()
-					.describe(
-						"Stable Trickroom project ID. Ambiguous IDs require locationId.",
-					),
+				project: projectRefSchema.describe(
+					"A registered project ({ locationId } or { projectId }) to describe instead of the selected one.",
+				),
 			},
 			annotations: readOnlyClosedWorldAnnotations,
-		},
-		async ({ locationId, projectId }) => {
-			try {
-				const context = await projectResolver.resolveProject({
-					...(locationId ? { locationId } : {}),
-					...(projectId ? { projectId } : {}),
-				});
-				return createJsonResult({
-					project: getProjectDetails(context),
-				});
-			} catch (error) {
-				if (error instanceof TrickroomMcpProjectResolverError) {
-					return createProjectResolverErrorResult(error);
-				}
-
-				throw error;
-			}
-		},
-	);
-
-	server.registerTool(
-		"openProject",
-		{
-			title: "Open Project",
-			description:
-				"Deprecated alias that registers and selects a local project for this MCP session. Use registerProject + selectProject instead.",
-			inputSchema: {
-				path: z.string().min(1).describe("Local project root path to open."),
+			_meta: {
+				[ALWAYS_LOAD_META_KEY]: true,
+				[SEARCH_HINT_META_KEY]:
+					"project info session selected current workspace systems governance",
 			},
-			annotations: {
-				readOnlyHint: false,
-				openWorldHint: false,
-				idempotentHint: true,
-			},
-		},
-		async ({ path: projectPath }) => {
-			const { context } = await registerProjectFromPath(projectPath);
-			await selectProjectFromRef({ locationId: context.locationId });
-			return createJsonResult({
-				project: getProjectDetails(context),
-				selected: true,
-				active: true,
-				migration:
-					"Deprecated alias: use registerProject(path) then selectProject({ projectId | locationId }) for explicit project selection.",
-			});
-		},
-	);
-
-	server.registerTool(
-		"trickroom_project_info",
-		{
-			title: "Project Info",
-			description:
-				"Return the selected project (ids, root, name), governance mode, default system, configured systems, and a project memory summary when notes exist.",
-			inputSchema: projectScopedInputSchema,
-			annotations: readOnlyClosedWorldAnnotations,
 		},
 		async ({ project }) =>
-			withPolicyErrorHandling(project, createProjectInfoResult),
+			withProjectErrors(async () => {
+				const registry = await readProjectRegistry(trickroomHome);
+				const selected = getSelectedContext();
+				const described: TrickroomMcpServerContext | null =
+					project?.locationId || project?.projectId
+						? await projectResolver.resolveProject(project)
+						: selected;
+				return createJsonResult({
+					selected: selected ? getProjectDetails(selected) : null,
+					...(described && described !== selected
+						? { project: getProjectDetails(described) }
+						: {}),
+					...(described
+						? await getProjectInfo(described)
+						: {
+								hint: `No project is selected for this session. Call ${TOOL.projectSelect} with a locationId below, or with the path of a project that is not listed.`,
+							}),
+					projects: registry.locations.map((location) => ({
+						projectId: location.projectId,
+						locationId: location.locationId,
+						projectRoot: location.root,
+						name: location.name,
+						lastOpenedAt: location.lastOpenedAt,
+						...(selected?.locationId === location.locationId
+							? { selected: true }
+							: {}),
+						...(location.locationId === registry.lastActiveLocationId
+							? { appActive: true }
+							: {}),
+					})),
+				});
+			}),
+	);
+
+	server.registerTool(
+		TOOL.projectSelect,
+		{
+			title: "Select Project",
+			description: `Make a project this session's project: every other tool then works in it. Pass a locationId (preferred) or projectId from ${TOOL.projectList}, or the path of a local project root to register it first. The project needs .trickroom/config.json with mcp.enabled. Returns the project and the same information as ${TOOL.projectList}.`,
+			inputSchema: {
+				locationId: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Registered project location id."),
+				projectId: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Stable project id. Ambiguous ids need locationId."),
+				path: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Local project root to register and select."),
+			},
+			annotations: {
+				readOnlyHint: false,
+				destructiveHint: false,
+				idempotentHint: true,
+				openWorldHint: false,
+			},
+			_meta: {
+				[SEARCH_HINT_META_KEY]:
+					"switch open register project workspace folder path",
+			},
+		},
+		async ({ locationId, projectId, path }) =>
+			withProjectErrors(async () => {
+				const byId = locationId !== undefined || projectId !== undefined;
+				if (byId === (path !== undefined)) {
+					return createProjectErrorResult(
+						"INVALID_OPERATION_PARAMETERS",
+						"Pass a locationId or projectId to select a registered project, or a path to register one; not both, not neither.",
+					);
+				}
+				let ref = { locationId, projectId };
+				if (path !== undefined) {
+					const { context } = await registerProjectFromPath(path);
+					ref = { locationId: context.locationId, projectId: undefined };
+				}
+				const context = await selectProject(ref);
+				return createJsonResult({
+					project: getProjectDetails(context),
+					selected: true,
+					...(path !== undefined ? { registered: true } : {}),
+					...(await getProjectInfo(context)),
+				});
+			}),
 	);
 };

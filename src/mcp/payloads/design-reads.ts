@@ -1,5 +1,4 @@
 import type { Resource } from "@modelcontextprotocol/sdk/types.js";
-import type { DesignFileRead } from "../../services/design-file-service";
 import { DesignTransformError } from "../../services/design-transform-service";
 import type { TrickroomDesign } from "../../types";
 import { findDesignSystem } from "../../utils/design-system-store";
@@ -18,6 +17,7 @@ import {
 	describeNode,
 	describeTreeRead,
 	findElementContext,
+	getDesignHeader,
 	getDesignSystemHandle,
 	getElementContextOrThrow,
 	getElementReadContext,
@@ -40,13 +40,6 @@ import {
 export const readDesignFileDefaults = { depth: 2, maxNodes: 50 };
 export const readSubtreeDefaults = { depth: 3, maxNodes: 100 };
 export const readDesignGraphDefaults = { depth: null, maxNodes: 100 };
-
-/** The compact design header every read returns. */
-const getDesignReadHeader = (designFileId: string, read: DesignFileRead) => ({
-	id: designFileId,
-	name: read.design.name,
-	revision: read.revision,
-});
 
 /**
  * Lists design files with ids, names and revisions only: the shape resources
@@ -305,7 +298,7 @@ export const readDesignSummaryPayload = async (
 		payloadKind: "design-summary",
 		project: getProjectReference(context),
 		designFile: {
-			...getDesignReadHeader(designFileId, read),
+			...getDesignHeader(designFileId, read),
 			...(await getDesignReadSystem(context, read.design)),
 		},
 		elementCount: boards.reduce(
@@ -355,7 +348,7 @@ export const readDesignFilePayload = async (
 	return {
 		project: getProjectReference(context),
 		designFile: {
-			...getDesignReadHeader(designFileId, read),
+			...getDesignHeader(designFileId, read),
 			...(await getDesignReadSystem(context, design)),
 		},
 		elementCount: boards.reduce(
@@ -395,7 +388,7 @@ export const readElementPayload = async (
 
 	return {
 		project: getProjectReference(context),
-		designFile: getDesignReadHeader(designFileId, read),
+		designFile: getDesignHeader(designFileId, read),
 		element: {
 			...describeNode(
 				element,
@@ -436,7 +429,7 @@ export const readSubtreePayload = async (
 	if (bounds.maxDepth === 0) {
 		return {
 			project: getProjectReference(context),
-			designFile: getDesignReadHeader(designFileId, read),
+			designFile: getDesignHeader(designFileId, read),
 			context: getElementReadContext(elementContext),
 			subtree: Array.isArray(element.children)
 				? { ...subtree, childIds: element.children.map((child) => child.id) }
@@ -446,7 +439,7 @@ export const readSubtreePayload = async (
 
 	return {
 		project: getProjectReference(context),
-		designFile: getDesignReadHeader(designFileId, read),
+		designFile: getDesignHeader(designFileId, read),
 		read: describeTreeRead(bounds, treeRead, {
 			tool: TOOL.designRead,
 			args: {
@@ -495,7 +488,7 @@ export const readDesignGraphPayload = async (
 
 	return {
 		project: getProjectReference(context),
-		designFile: getDesignReadHeader(designFileId, read),
+		designFile: getDesignHeader(designFileId, read),
 		read: describeTreeRead(
 			bounds,
 			{ returnedNodeCount, omittedNodeCount, truncatedElementIds },

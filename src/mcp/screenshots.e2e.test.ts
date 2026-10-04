@@ -99,10 +99,10 @@ describe.runIf(process.env.TRICKROOM_SCREENSHOT_E2E === "1")(
 			);
 			const result = (await session.client.callTool(
 				{
-					name: "screenshotNode",
+					name: "design_screenshot",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
-						nodeId: "title",
+						elementId: "title",
 						viewport: { width: 800, height: 600 },
 					},
 				},
@@ -128,7 +128,7 @@ describe.runIf(process.env.TRICKROOM_SCREENSHOT_E2E === "1")(
 			);
 			const result = (await session.client.callTool(
 				{
-					name: "screenshotBoard",
+					name: "design_screenshot",
 					arguments: {
 						designFileId: overlayDesignUuid,
 						boardId: "centered",
@@ -155,10 +155,10 @@ describe.runIf(process.env.TRICKROOM_SCREENSHOT_E2E === "1")(
 
 			const popup = (await session.client.callTool(
 				{
-					name: "screenshotNode",
+					name: "design_screenshot",
 					arguments: {
 						designFileId: overlayDesignUuid,
-						nodeId: "centered-popup",
+						elementId: "centered-popup",
 						viewport: "mobile",
 					},
 				},
@@ -180,7 +180,7 @@ describe.runIf(process.env.TRICKROOM_SCREENSHOT_E2E === "1")(
 			);
 			const result = (await session.client.callTool(
 				{
-					name: "screenshotBoard",
+					name: "design_screenshot",
 					arguments: {
 						designFileId: overlayDesignUuid,
 						boardId: "offboard",
@@ -237,7 +237,7 @@ describe.runIf(process.env.TRICKROOM_SCREENSHOT_E2E === "1")(
 			});
 			const result = (await session.client.callTool(
 				{
-					name: "screenshotBoard",
+					name: "design_screenshot",
 					arguments: { component: { componentId: "chip", matrix: "tone" } },
 				},
 				CallToolResultSchema,

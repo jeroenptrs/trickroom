@@ -22,38 +22,22 @@ export const MCP_TOOL_GROUPS = [
 	{
 		id: "projects",
 		label: "Project & session",
-		description:
-			"List, register, and select Trickroom projects for this MCP session.",
-		tools: [
-			"listProjects",
-			"registerProject",
-			"selectProject",
-			"getSelectedProject",
-			"getActiveProject",
-			"resolveProject",
-			"openProject",
-			"trickroom_project_info",
-		],
+		description: "List and select Trickroom projects for this MCP session.",
+		tools: ["project_list", "project_select"],
 	},
 	{
 		id: "designRead",
 		label: "Design inspection",
 		description:
 			"List and read design files, capture screenshots, and export boards to disk.",
-		tools: [
-			"design_list",
-			"design_read",
-			"exportDesignHtml",
-			"screenshotBoard",
-			"screenshotNode",
-		],
+		tools: ["design_list", "design_read", "design_screenshot", "design_export"],
 	},
 	{
 		id: "designWrite",
 		label: "Design mutation",
 		description:
 			"Create design files and apply design operations: insert, update, move, copy, delete, rename.",
-		tools: ["createDesignFile", "extractSubtree", "design_apply"],
+		tools: ["design_apply", "design_create"],
 	},
 	{
 		id: "designValidation",

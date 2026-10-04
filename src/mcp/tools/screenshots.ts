@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { suffixOutputPath } from "../../screenshot/screenshot-service";
@@ -10,7 +11,10 @@ import {
 	type ScreenshotTheme,
 	type ScreenshotViewportInput,
 } from "../../screenshot/types";
-import { DesignFileServiceError } from "../../services/design-file-service";
+import {
+	type DesignFileRead,
+	DesignFileServiceError,
+} from "../../services/design-file-service";
 import { DesignTransformError } from "../../services/design-transform-service";
 import {
 	describeMissingElementId,
@@ -31,14 +35,21 @@ import {
 import { assertConfiguredSystem } from "../payloads/design-system";
 import {
 	findElementContext,
+	getDesignHeader,
 	getNodeName,
 	readDesignFileForTool,
 } from "../payloads/design-tree";
+import { getProjectReference } from "../payloads/project";
 import type { TrickroomMcpServerContext } from "../server-types";
-import { screenshotAnnotations } from "./annotations";
+import { TOOL } from "../tool-names";
+import { SEARCH_HINT_META_KEY } from "./annotations";
 import type { McpToolContext } from "./context";
 import { auditToolResult } from "./mutation-support";
-import { createPolicyDeniedResult, createToolErrorResult } from "./results";
+import {
+	createJsonResult,
+	createPolicyDeniedResult,
+	createToolErrorResult,
+} from "./results";
 import { designFileIdSchema, withProjectScopedInput } from "./schemas";
 
 /** Images per call, across targets, viewports and themes. */
@@ -148,13 +159,6 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 			.describe(
 				"Crop targets taller than this many CSS px, keeping the top. Defaults to two viewport heights.",
 			),
-		outputPath: z
-			.string()
-			.min(1)
-			.optional()
-			.describe(
-				"Optional .png path. Relative paths resolve inside the project; absolute paths are explicit. With several captures, a board and viewport/theme suffix is added per image.",
-			),
 		executablePath: z
 			.string()
 			.min(1)
@@ -169,7 +173,6 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 		theme?: ScreenshotTheme | ScreenshotTheme[];
 		scale?: number;
 		maxHeight?: number;
-		outputPath?: string;
 		executablePath?: string;
 	};
 
@@ -192,7 +195,7 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 		);
 		const nestedElement = findElementContext(design, boardId);
 		const nestedHint = nestedElement
-			? ` "${boardId}" is a nested element, not a board; use screenshotNode to capture it.`
+			? ` "${boardId}" is a nested element, not a board; capture it with elementId.`
 			: "";
 		const truncatedHint =
 			missing.details.truncatedIdMatches || missing.details.nameMatches
@@ -409,21 +412,27 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 		};
 	};
 
-	const runScreenshotTool = async (
+	/** Where design_export writes PNGs; design_screenshot returns images. */
+	type CaptureOutput =
+		| { kind: "inline" }
+		| { kind: "files"; destinationDir: string };
+
+	const runCapture = async (
 		context: TrickroomMcpServerContext,
-		toolName: "screenshotBoard" | "screenshotNode",
+		toolName: string,
 		input: CommonInput & {
 			designFileId?: string;
 			boardIds?: string[] | "all";
 			nodeIds?: string[];
 			component?: ComponentInput;
 		},
+		output: CaptureOutput,
 	): Promise<CallToolResult> => {
 		const viewports = toList(input.viewport) ?? [undefined];
 		const themes = toList(input.theme) ?? ["light" as const];
 		const auditBase = {
 			toolName,
-			operation: toolName,
+			operation: output.kind === "files" ? "png" : "capture",
 			designFileId: input.designFileId ?? null,
 			details: {
 				boardIds: input.boardIds ?? null,
@@ -432,16 +441,19 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 				viewports: viewports.map(describeScreenshotViewport),
 				themes,
 				scale: input.scale ?? null,
-				outputPath: input.outputPath ?? null,
+				...(output.kind === "files"
+					? { destinationDir: output.destinationDir }
+					: {}),
 			},
 		} satisfies Omit<McpAuditEntry, "success" | "status" | "projectRoot">;
 		let result: CallToolResult;
 		try {
 			const policy = getMcpPolicy(context.config);
-			if (input.outputPath) assertCanWriteProject(policy);
+			if (output.kind === "files") assertCanWriteProject(policy);
 
 			let targets: CaptureTarget[] | CaptureFailure;
 			let designName: string | null = null;
+			let designRead: DesignFileRead | null = null;
 			if (input.component) {
 				const target = await resolveComponentTarget(context, input.component);
 				targets = "result" in target ? target : [target];
@@ -450,24 +462,32 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 					result: createToolErrorResult(
 						context,
 						"INVALID_SCREENSHOT_REQUEST",
-						"Pass designFileId with boardId, or component to capture a system component.",
+						"Pass designFileId with boardId or elementId, or component to capture a system component.",
+					),
+				};
+			} else if (input.boardIds && input.nodeIds) {
+				targets = {
+					result: createToolErrorResult(
+						context,
+						"INVALID_SCREENSHOT_REQUEST",
+						"Pass boardId or elementId, not both.",
 					),
 				};
 			} else {
 				assertCanReadDesignFile(policy, input.designFileId);
-				const read = await readDesignFileForTool(context, input.designFileId);
-				designName = read.design.name;
+				designRead = await readDesignFileForTool(context, input.designFileId);
+				designName = designRead.design.name;
 				targets = input.nodeIds
 					? resolveNodeTargets(
 							context,
-							read.design,
+							designRead.design,
 							input.designFileId,
 							input.nodeIds,
 						)
 					: input.boardIds
 						? resolveBoardTargets(
 								context,
-								read.design,
+								designRead.design,
 								input.designFileId,
 								input.boardIds,
 							)
@@ -475,7 +495,7 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 								result: createToolErrorResult(
 									context,
 									"INVALID_SCREENSHOT_REQUEST",
-									'Pass boardId: a board id, several ids, or "all".',
+									'Pass boardId (a board id, several, or "all") or elementId.',
 								),
 							};
 			}
@@ -489,7 +509,7 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 				result = createToolErrorResult(
 					context,
 					"TOO_MANY_SCREENSHOTS",
-					`${targets.length} target(s) × ${viewports.length} viewport(s) × ${themes.length} theme(s) is ${total} images; one call returns at most ${MAX_SCREENSHOTS_PER_CALL}. Split the call, or capture fewer boards or viewports.`,
+					`${targets.length} target(s) × ${viewports.length} viewport(s) × ${themes.length} theme(s) is ${total} images; one call takes at most ${MAX_SCREENSHOTS_PER_CALL}. Split the call, or capture fewer boards or viewports.`,
 				);
 				await auditToolResult(context, auditBase, result);
 				return result;
@@ -501,6 +521,13 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 					theme,
 				})),
 			);
+			const basePath =
+				output.kind === "files"
+					? path.join(
+							output.destinationDir,
+							`${(designName ?? "design").replace(/[^a-zA-Z0-9._-]+/g, "-")}.png`,
+						)
+					: null;
 			const captured = await mapWithConcurrency(
 				targets,
 				CAPTURE_CONCURRENCY,
@@ -510,26 +537,44 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 						shots,
 						scale:
 							input.scale ??
-							(toolName === "screenshotBoard" && !input.component
+							(output.kind === "inline" && input.boardIds && !input.component
 								? DEFAULT_BOARD_SCALE
 								: DEFAULT_DETAIL_SCALE),
 						...(input.maxHeight !== undefined
 							? { maxHeight: input.maxHeight }
 							: {}),
-						...(input.outputPath
-							? {
-									outputPath:
-										targets.length === 1
-											? input.outputPath
-											: suffixOutputPath(input.outputPath, target.label),
-								}
+						...(basePath
+							? { outputPath: suffixOutputPath(basePath, target.label) }
 							: {}),
 						...(input.executablePath
 							? { executablePath: input.executablePath }
 							: {}),
 					}),
 			);
-			result = createScreenshotResult(designName, targets, captured, shots);
+			result =
+				output.kind === "files" && designRead && input.designFileId
+					? createJsonResult({
+							status: "success",
+							project: getProjectReference(context),
+							designFile: getDesignHeader(input.designFileId, designRead),
+							format: "png",
+							files: captured.flatMap((entry, targetIndex) =>
+								entry.captures.map((image, shotIndex) => ({
+									boardId: targets[targetIndex]?.request.boardId ?? null,
+									viewport: describeScreenshotViewport(
+										shots[shotIndex]?.viewport,
+									),
+									theme: image.theme,
+									width: image.width,
+									height: image.height,
+									path: image.path ?? null,
+									...(image.warnings?.length
+										? { warnings: image.warnings }
+										: {}),
+								})),
+							),
+						})
+					: createScreenshotResult(designName, targets, captured, shots);
 		} catch (error) {
 			if (error instanceof McpPolicyError) {
 				result = createPolicyDeniedResult(context, error);
@@ -537,7 +582,12 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 				error instanceof DesignFileServiceError ||
 				error instanceof DesignTransformError
 			) {
-				result = createToolErrorResult(context, error.code, error.message);
+				result = createToolErrorResult(
+					context,
+					error.code,
+					error.message,
+					error instanceof DesignTransformError ? error.details : {},
+				);
 			} else {
 				const code =
 					typeof error === "object" &&
@@ -562,7 +612,7 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 			componentId: z
 				.string()
 				.min(1)
-				.describe("System component id or slug (listSystemComponents)."),
+				.describe(`System component id or slug (${TOOL.componentRead}).`),
 			systemName: z
 				.string()
 				.min(1)
@@ -590,70 +640,88 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 				),
 		})
 		.describe(
-			"Capture a system component on its own instead of a design board: designFileId and boardId are then not used.",
+			"Capture a system component on its own instead of a design: designFileId, boardId and elementId are then not used.",
 		);
 
+	const targetIdsSchema = z.union([
+		z.string().min(1),
+		z.array(z.string().min(1)).min(1).max(MAX_SCREENSHOTS_PER_CALL),
+	]);
+
 	server.registerTool(
-		"screenshotBoard",
+		TOOL.designScreenshot,
 		{
-			title: "Screenshot Board",
-			description:
-				'Render boards through Trickroom\'s capture route and return one PNG image block per capture, after one short text block listing what each image is. Boards are responsive: review one board at several widths in one call (viewport: ["mobile", "desktop"]) instead of creating a board per breakpoint. boardId takes one id, several, or "all"; theme takes ["light", "dark"]. Up to 12 images per call. Boards default to scale 0.5 (pass scale: 1 to check fine detail). Pass component to capture a system component (one variant combination, or a matrix of axis values) without a design file. Requires the optional playwright-core peer and a Chrome/Chromium (`npx trickroom install-browser`). outputPath also writes the PNGs to disk.',
+			title: "Screenshot Design",
+			description: `Render boards, elements or a system component and look at them: one PNG image block per capture, after a short text block saying what each image is. Boards are responsive: review one board at several widths in one call (viewport: ["mobile", "tablet", "desktop"]) instead of a board per breakpoint. boardId takes one id, several, or "all"; elementId crops to elements, inferring their board; theme takes ["light", "dark"]. At most ${MAX_SCREENSHOTS_PER_CALL} images per call. Boards default to scale 0.5 (pass 1 for fine detail), elements and components to 1; targets taller than two viewports are cropped to the top (maxHeight). component captures a system component, one variant combination or a matrix of axis values, without a design file. Warnings flag elements without a renderer and overlays clipped by the board. Needs a Chrome or Chromium: \`npx trickroom install-browser\`. To save PNGs to disk use ${TOOL.designExport}.`,
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema
 					.optional()
 					.describe("Design file UUID. Required unless component is set."),
 				boardId: z
-					.union([
-						z.string().min(1),
-						z.array(z.string().min(1)).min(1).max(MAX_SCREENSHOTS_PER_CALL),
-					])
+					.union([z.literal("all"), targetIdsSchema])
 					.optional()
-					.describe(
-						'Root board id, an array of board ids, or "all" for every board in the design. Required unless component is set.',
-					),
+					.describe('Board id, an array of board ids, or "all".'),
+				elementId: targetIdsSchema
+					.optional()
+					.describe("Element id or ids to crop to; their board is inferred."),
 				component: componentInputSchema.optional(),
 				...screenshotCommonInput,
 			}),
-			annotations: screenshotAnnotations,
+			annotations: {
+				readOnlyHint: true,
+				// Renders may load remote font stylesheets.
+				openWorldHint: true,
+			},
+			_meta: {
+				[SEARCH_HINT_META_KEY]:
+					"screenshot image png render capture visual preview look viewport",
+			},
 		},
-		async ({ project, boardId, ...input }) =>
+		async ({ project, boardId, elementId, ...input }) =>
 			withProjectContext(project, (context) =>
-				runScreenshotTool(context, "screenshotBoard", {
-					...input,
-					...(boardId !== undefined
-						? { boardIds: boardId === "all" ? "all" : (toList(boardId) ?? []) }
-						: {}),
-				}),
+				runCapture(
+					context,
+					TOOL.designScreenshot,
+					{
+						...input,
+						...(boardId !== undefined
+							? {
+									boardIds: boardId === "all" ? "all" : (toList(boardId) ?? []),
+								}
+							: {}),
+						...(elementId !== undefined
+							? { nodeIds: toList(elementId) ?? [] }
+							: {}),
+					},
+					{ kind: "inline" },
+				),
 			),
 	);
 
-	server.registerTool(
-		"screenshotNode",
-		{
-			title: "Screenshot Node",
-			description:
-				"Render and crop design nodes through Trickroom's capture route, inferring each node's containing board, and return one PNG image block per capture. nodeId takes one id or several; viewport and theme take arrays like screenshotBoard. Requires the optional playwright-core peer and a Chrome/Chromium (`npx trickroom install-browser`). outputPath also writes the PNGs to disk.",
-			inputSchema: withProjectScopedInput({
-				designFileId: designFileIdSchema,
-				nodeId: z
-					.union([
-						z.string().min(1),
-						z.array(z.string().min(1)).min(1).max(MAX_SCREENSHOTS_PER_CALL),
-					])
-					.describe("Persistent design node id, or an array of ids."),
-				...screenshotCommonInput,
-			}),
-			annotations: screenshotAnnotations,
-		},
-		async ({ project, nodeId, ...input }) =>
-			withProjectContext(project, (context) =>
-				runScreenshotTool(context, "screenshotNode", {
+	return {
+		/** Write board PNGs to disk for design_export. */
+		exportBoardPngs: (
+			context: TrickroomMcpServerContext,
+			input: CommonInput & {
+				designFileId: string;
+				boardIds?: string[];
+				destinationDir: string;
+			},
+		) =>
+			runCapture(
+				context,
+				TOOL.designExport,
+				{
 					...input,
-					nodeIds: toList(nodeId) ?? [],
-				}),
+					boardIds:
+						input.boardIds && input.boardIds.length > 0
+							? input.boardIds
+							: "all",
+				},
+				{ kind: "files", destinationDir: input.destinationDir },
 			),
-	);
+		screenshotCommonInput,
+	};
 };
 
 type ComponentInput = {
@@ -752,7 +820,7 @@ function createScreenshotResult(
 	});
 	if (images.some(({ image }) => image.cropped)) {
 		warnings.push(
-			"Cropped images keep the top of the target; pass maxHeight (up to 8000) or capture lower sections with screenshotNode.",
+			"Cropped images keep the top of the target; pass maxHeight (up to 8000) or capture lower sections by elementId.",
 		);
 	}
 	// A single capture is described in the summary; several get a label

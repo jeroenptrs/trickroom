@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { expandRegistryRecipe } from "../recipes/expansion";
@@ -1070,6 +1070,40 @@ describe("trickroom MCP design read tools", () => {
 		expect(both.isError).toBe(true);
 		expect(toolPayload(both)).toMatchObject({
 			code: "INVALID_OPERATION_PARAMETERS",
+		});
+	});
+
+	it("exports boards to HTML on disk and names unknown boards", async () => {
+		const { client } = await createSession();
+		const fixture = fixtures[fixtures.length - 1];
+
+		const exported = await client.callTool({
+			name: "design_export",
+			arguments: {
+				designFileId,
+				destinationDir: "exports",
+				boardIds: ["board-a"],
+			},
+		});
+		expect(exported.isError).toBeFalsy();
+		const payload = toolPayload(exported);
+		expect(payload).toMatchObject({
+			status: "success",
+			designFile: { id: designFileId, name: "Readable Design" },
+			destinationDir: path.join(fixture.projectRoot, "exports"),
+		});
+		expect(payload.artifacts).toHaveLength(1);
+		const html = await readFile(payload.artifacts[0].path, "utf8");
+		expect(html).toContain("Launch ready");
+
+		const missing = await client.callTool({
+			name: "design_export",
+			arguments: { designFileId, destinationDir: "exports", boardIds: ["x"] },
+		});
+		expect(missing.isError).toBe(true);
+		expect(toolPayload(missing)).toMatchObject({
+			code: "NO_MATCHING_BOARDS",
+			availableBoardIds: ["board-a", "board-b"],
 		});
 	});
 });

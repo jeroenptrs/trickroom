@@ -279,7 +279,7 @@ describe("trickroom MCP discovery tools", () => {
 		}
 	});
 
-	it("retargets project-scoped tools when openProject is called", async () => {
+	it("retargets project-scoped tools when project_select registers a path", async () => {
 		const trickroomHome = await mkdtemp(
 			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
 		);
@@ -326,39 +326,39 @@ describe("trickroom MCP discovery tools", () => {
 
 		try {
 			const initialProject = await client.callTool({
-				name: "getActiveProject",
+				name: "project_list",
 				arguments: {},
 			});
 			expect(toolPayload(initialProject)).toMatchObject({
-				project: {
+				selected: {
 					projectId: "proj_first",
 					name: "First Project",
 				},
 			});
 
 			const openResult = await client.callTool({
-				name: "openProject",
+				name: "project_select",
 				arguments: {
 					path: secondProjectRoot,
 				},
 			});
 			expect(toolPayload(openResult)).toMatchObject({
-				active: true,
 				selected: true,
+				registered: true,
 				project: {
 					projectId: "proj_second",
 					name: "Second Project",
 					projectRoot: secondProjectRoot,
 				},
-				migration: expect.stringContaining("registerProject"),
+				governance: { mode: "read-write" },
 			});
 
 			const activeProject = await client.callTool({
-				name: "getActiveProject",
+				name: "project_list",
 				arguments: {},
 			});
 			expect(toolPayload(activeProject)).toMatchObject({
-				project: {
+				selected: {
 					projectId: "proj_second",
 					name: "Second Project",
 					projectRoot: secondProjectRoot,
@@ -440,11 +440,11 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const activeProject = await client.callTool({
-				name: "getActiveProject",
+				name: "project_list",
 				arguments: {},
 			});
 			expect(toolPayload(activeProject)).toMatchObject({
-				project: {
+				selected: {
 					projectId: "proj_first",
 					name: "First Project",
 					projectRoot: firstProjectRoot,
@@ -527,11 +527,11 @@ describe("trickroom MCP discovery tools", () => {
 			expect(openResponse.status).toBe(200);
 
 			const selectedProject = await client.callTool({
-				name: "getSelectedProject",
+				name: "project_list",
 				arguments: {},
 			});
 			expect(toolPayload(selectedProject)).toMatchObject({
-				project: {
+				selected: {
 					projectId: "proj_app_open_mcp",
 					name: "MCP Selected Project",
 					projectRoot: firstProjectRoot,
@@ -842,7 +842,7 @@ describe("trickroom MCP discovery tools", () => {
 		}
 	});
 
-	it("lets openProject establish the active project when the session starts empty", async () => {
+	it("lets project_select establish the project when the session starts empty", async () => {
 		const trickroomHome = await mkdtemp(
 			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
 		);
@@ -877,36 +877,29 @@ describe("trickroom MCP discovery tools", () => {
 		try {
 			expect(
 				toolPayload(
-					await client.callTool({
-						name: "getActiveProject",
-						arguments: {},
-					}),
+					await client.callTool({ name: "project_list", arguments: {} }),
 				),
 			).toMatchObject({
-				project: null,
+				selected: null,
+				hint: expect.stringContaining("project_select"),
 			});
 
 			await client.callTool({
-				name: "openProject",
+				name: "project_select",
 				arguments: {
 					path: projectRoot,
 				},
 			});
 
 			const projects = await client.callTool({
-				name: "listProjects",
+				name: "project_list",
 				arguments: {},
 			});
 			expect(toolPayload(projects)).toMatchObject({
-				activeProjectId: null,
-				activeLocationId: null,
-				projects: [
-					{
-						projectId: "proj_opened",
-						active: false,
-					},
-				],
+				selected: { projectId: "proj_opened" },
+				projects: [{ projectId: "proj_opened", selected: true }],
 			});
+			expect(toolPayload(projects).projects[0]).not.toHaveProperty("appActive");
 
 			const designs = await client.callTool({
 				name: "design_list",
@@ -929,7 +922,7 @@ describe("trickroom MCP discovery tools", () => {
 		}
 	});
 
-	it("notifies resource-list changes when openProject succeeds", async () => {
+	it("notifies resource-list changes when project_select registers a path", async () => {
 		const trickroomHome = await mkdtemp(
 			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
 		);
@@ -969,13 +962,13 @@ describe("trickroom MCP discovery tools", () => {
 
 		try {
 			const openResult = await client.callTool({
-				name: "openProject",
+				name: "project_select",
 				arguments: {
 					path: projectRoot,
 				},
 			});
 			expect(toolPayload(openResult)).toMatchObject({
-				active: true,
+				registered: true,
 				project: {
 					projectId: "proj_opened_notified",
 					name: "Opened Project",
@@ -989,67 +982,7 @@ describe("trickroom MCP discovery tools", () => {
 		}
 	});
 
-	it("notifies resource-list changes when registerProject succeeds", async () => {
-		const trickroomHome = await mkdtemp(
-			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
-		);
-		tempProjectRoots.push(trickroomHome);
-		const projectRoot = await createProjectRoot({
-			name: "Registered Project",
-			projectId: "proj_registered_notified",
-		});
-		await writeDesignFixture(
-			projectRoot,
-			"44444444-4444-4444-8444-444444444444",
-			{ ...validDesign, name: "Registered Design" },
-		);
-
-		const server = createTrickroomMcpServer(null, { trickroomHome });
-		const client = new Client(
-			{
-				name: "trickroom-test-client",
-				version: "0.0.0",
-			},
-			{
-				capabilities: { resources: { listChanged: true } },
-			},
-		);
-		const [clientTransport, serverTransport] =
-			InMemoryTransport.createLinkedPair();
-
-		const notifications: string[] = [];
-		client.setNotificationHandler(ResourceListChangedNotificationSchema, () => {
-			notifications.push("resource-list-changed");
-		});
-
-		await Promise.all([
-			server.connect(serverTransport),
-			client.connect(clientTransport),
-		]);
-
-		try {
-			const registerResult = await client.callTool({
-				name: "registerProject",
-				arguments: {
-					path: projectRoot,
-				},
-			});
-			expect(toolPayload(registerResult)).toMatchObject({
-				selected: false,
-				project: {
-					projectId: "proj_registered_notified",
-					name: "Registered Project",
-					projectRoot,
-				},
-			});
-			expect(notifications).toHaveLength(1);
-		} finally {
-			await client.close();
-			await server.close();
-		}
-	});
-
-	it("switches MCP session selection with selectProject without mutating registry active project", async () => {
+	it("switches MCP session selection with project_select without mutating registry active project", async () => {
 		const trickroomHome = await mkdtemp(
 			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
 		);
@@ -1111,7 +1044,7 @@ describe("trickroom MCP discovery tools", () => {
 
 		try {
 			const selectResult = await client.callTool({
-				name: "selectProject",
+				name: "project_select",
 				arguments: {
 					projectId: "proj_select_second",
 				},
@@ -1126,37 +1059,39 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const selectedProject = await client.callTool({
-				name: "getSelectedProject",
+				name: "project_list",
 				arguments: {},
 			});
 			expect(toolPayload(selectedProject)).toMatchObject({
-				project: {
+				selected: {
 					projectId: "proj_select_second",
 					projectRoot: secondProjectRoot,
 				},
 			});
 
 			const listProjectsResult = await client.callTool({
-				name: "listProjects",
+				name: "project_list",
 				arguments: {},
 			});
-			expect(toolPayload(listProjectsResult)).toMatchObject({
-				activeProjectId: "proj_select_first",
-				activeLocationId: firstLocation.locationId,
+			const listed = toolPayload(listProjectsResult).projects as Array<{
+				projectId: string;
+				locationId: string;
+				selected?: boolean;
+				appActive?: boolean;
+			}>;
+			// The browser app's active project stays the first one.
+			expect(
+				listed.find((project) => project.projectId === "proj_select_first"),
+			).toMatchObject({
+				locationId: firstLocation.locationId,
+				appActive: true,
 			});
 			expect(
-				Array.isArray(
-					(toolPayload(listProjectsResult) as { projects: unknown[] }).projects,
-				),
-			).toBe(true);
+				listed.find((project) => project.projectId === "proj_select_second"),
+			).toMatchObject({ selected: true });
 			expect(
-				(
-					toolPayload(listProjectsResult) as {
-						projects: { projectId: string; active: boolean }[];
-					}
-				).projects.find((project) => project.projectId === "proj_select_second")
-					?.active,
-			).toBe(false);
+				listed.find((project) => project.projectId === "proj_select_second"),
+			).not.toHaveProperty("appActive");
 
 			const designs = await client.callTool({
 				name: "design_list",
@@ -1179,99 +1114,92 @@ describe("trickroom MCP discovery tools", () => {
 		}
 	});
 
-	it("keeps registerProject catalog-only and lets selectProject switch the MCP session", async () => {
+	it("describes another registered project and validates project_select input", async () => {
 		const trickroomHome = await mkdtemp(
 			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
 		);
 		tempProjectRoots.push(trickroomHome);
-		const projectRoot = await createProjectRoot({
-			name: "Catalog Project",
-			projectId: "proj_catalog_only",
+		const firstProjectRoot = await createProjectRoot({
+			name: "First Project",
+			projectId: "proj_info_first",
 		});
-		await writeDesignFixture(
-			projectRoot,
-			"33333333-3333-4333-8333-333333333333",
-			{ ...validDesign, name: "Catalog Design" },
-		);
-
-		const server = createTrickroomMcpServer(null, { trickroomHome });
-		const client = new Client(
-			{
-				name: "trickroom-test-client",
-				version: "0.0.0",
-			},
-			{
-				capabilities: {},
-			},
-		);
+		const secondProjectRoot = await createProjectRoot({
+			name: "Second Project",
+			projectId: "proj_info_second",
+			mcp: { enabled: true, mode: "read-only" },
+		});
+		const disabledRoot = await createProjectRoot({
+			name: "Disabled Project",
+			projectId: "proj_info_disabled",
+			mcp: { enabled: false },
+		});
+		const { location: secondLocation } = await upsertProjectLocation({
+			trickroomHome,
+			projectId: "proj_info_second",
+			root: secondProjectRoot,
+			name: "Second Project",
+			markActive: false,
+		});
+		const server = createTrickroomMcpServer({
+			...(await readMcpEnabledProjectContext(firstProjectRoot)),
+			trickroomHome,
+		});
+		const client = new Client({ name: "test", version: "0.0.0" });
 		const [clientTransport, serverTransport] =
 			InMemoryTransport.createLinkedPair();
-
 		await Promise.all([
 			server.connect(serverTransport),
 			client.connect(clientTransport),
 		]);
 
 		try {
-			const initialProject = await client.callTool({
-				name: "getSelectedProject",
-				arguments: {},
+			const described = toolPayload(
+				await client.callTool({
+					name: "project_list",
+					arguments: { project: { locationId: secondLocation.locationId } },
+				}),
+			);
+			expect(described).toMatchObject({
+				selected: { projectId: "proj_info_first" },
+				project: {
+					projectId: "proj_info_second",
+					projectRoot: secondProjectRoot,
+				},
+				governance: { mode: "read-only" },
+				configuredSystems: [{ systemName: "Core" }],
 			});
-			expect(toolPayload(initialProject)).toMatchObject({ project: null });
 
-			const registerResult = await client.callTool({
-				name: "registerProject",
+			const unknown = await client.callTool({
+				name: "project_list",
+				arguments: { project: { locationId: "loc_missing" } },
+			});
+			expect(unknown.isError).toBe(true);
+
+			const both = await client.callTool({
+				name: "project_select",
 				arguments: {
-					path: projectRoot,
+					locationId: secondLocation.locationId,
+					path: secondProjectRoot,
 				},
 			});
-			expect(toolPayload(registerResult)).toMatchObject({
-				selected: false,
-				active: false,
-				project: {
-					projectId: "proj_catalog_only",
-					projectRoot,
-					name: "Catalog Project",
-				},
+			expect(both.isError).toBe(true);
+			expect(toolPayload(both)).toMatchObject({
+				code: "INVALID_OPERATION_PARAMETERS",
 			});
 
-			const stillUnselected = await client.callTool({
-				name: "getSelectedProject",
-				arguments: {},
+			const disabled = await client.callTool({
+				name: "project_select",
+				arguments: { path: disabledRoot },
 			});
-			expect(toolPayload(stillUnselected)).toMatchObject({
-				project: null,
-			});
+			expect(disabled.isError).toBe(true);
+			expect(toolPayload(disabled)).toMatchObject({ code: "MCP_DISABLED" });
 
-			const selectResult = await client.callTool({
-				name: "selectProject",
-				arguments: {
-					projectId: "proj_catalog_only",
-				},
-			});
-			expect(toolPayload(selectResult)).toMatchObject({
-				selected: true,
-				project: {
-					projectId: "proj_catalog_only",
-					projectRoot,
-				},
-			});
-
-			const designs = await client.callTool({
-				name: "design_list",
-				arguments: {},
-			});
-			expect(toolPayload(designs)).toMatchObject({
-				project: {
-					projectId: "proj_catalog_only",
-				},
-				designFiles: [
-					{
-						id: "33333333-3333-4333-8333-333333333333",
-						name: "Catalog Design",
-					},
-				],
-			});
+			// Neither failure changed the session's project.
+			expect(
+				toolPayload(
+					await client.callTool({ name: "project_list", arguments: {} }),
+				).selected,
+			).toMatchObject({ projectId: "proj_info_first" });
 		} finally {
 			await client.close();
 			await server.close();

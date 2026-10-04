@@ -97,8 +97,7 @@ export const createTrickroomMcpServer = (
 	// historically interleaved register in several slices to keep that order.
 	registerProjectTools(ctx);
 	registerDesignReadTools(ctx);
-	registerDesignExportTools(ctx);
-	registerScreenshotTools(ctx);
+	registerDesignExportTools(ctx, registerScreenshotTools(ctx));
 	registerDesignValidationTools(ctx);
 	registerRegistryTools(ctx);
 	registerDesignSystemReadTools(ctx);

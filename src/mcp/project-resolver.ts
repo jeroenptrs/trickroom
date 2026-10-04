@@ -11,6 +11,7 @@ import {
 	TrickroomProjectConfigError,
 	type TrickroomProjectContext,
 } from "../project";
+import { TOOL } from "./tool-names";
 
 export type TrickroomMcpProjectContext = TrickroomProjectContext & {
 	trickroomHome?: string;
@@ -186,8 +187,7 @@ export const createTrickroomMcpProjectResolver = ({
 
 			throw new TrickroomMcpProjectResolverError({
 				code: "MISSING_PROJECT_REF",
-				message:
-					"No MCP project reference was supplied. Call resolveProject with projectId or locationId, or start MCP from a folder with a valid .trickroom config.",
+				message: `No MCP project reference was supplied. Pass a projectId or locationId from ${TOOL.projectList}, or start MCP from a folder with a valid .trickroom config.`,
 			});
 		}
 

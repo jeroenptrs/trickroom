@@ -5,6 +5,8 @@ import {
 	DesignTransformError,
 	normalizeDesignForMutation,
 } from "../../services/design-transform-service";
+import { createElementNotFoundError } from "../../services/element-lookup-hints";
+import type { TrickroomDesign } from "../../types";
 import { findDesignSystem } from "../../utils/design-system-store";
 import { applyProjectDefaultSystemToDesign } from "../../utils/project-default-system";
 import {
@@ -15,10 +17,11 @@ import {
 } from "../governance";
 import { assertConfiguredSystem } from "../payloads/design-system";
 import {
-	compactElementTree,
 	createBlankDesign,
+	describeNode,
 	findElementContext,
-	getDesignMetadata,
+	getDesignHeader,
+	getRecipeAttachmentSummaries,
 	readDesignFileForTool,
 } from "../payloads/design-tree";
 import { applyDesignOperationsPayload } from "../payloads/design-validation";
@@ -28,7 +31,11 @@ import {
 	assertResourceReferencesExist,
 } from "../payloads/references";
 import { TOOL } from "../tool-names";
-import { mutationAnnotations } from "./annotations";
+import {
+	ALWAYS_LOAD_META_KEY,
+	mutationAnnotations,
+	SEARCH_HINT_META_KEY,
+} from "./annotations";
 import type { McpToolContext } from "./context";
 import {
 	createDesignFileForTool,
@@ -49,55 +56,77 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 	const { server, notifyResourceListChanged, withProjectContext } = ctx;
 
 	server.registerTool(
-		"createDesignFile",
+		TOOL.designCreate,
 		{
 			title: "Create Design File",
-			description:
-				"Create a new empty Trickroom design file with no boards. Add root boards afterwards with addElement/addRecipe/addSubtree using parentId: null — do not nest boards inside a wrapper layer. Boards are views or interaction states (page, sheet open, dialog open), not breakpoints: build one responsive board and review it at several viewport widths. Pass systemName at creation when the design will use a specific system; omit systemName to inherit the project default system when configured, or pass null to explicitly create an unlinked design. Uses exclusive create semantics instead of expectedRevision because the file must not already exist.",
+			description: `Create a design file. With a name it starts empty: add boards with ${TOOL.designApply} (parentId null). A board is one responsive view or interaction state (page, sheet open, dialog open), not a breakpoint. With from: { designFileId, elementId }, the new design starts with a copy of that element and its subtree as its board, with new ids; the source is not changed, and name defaults to the element's layer name. systemName links a design system: omit it to inherit the project default (or the source design's), pass null for none. Returns the new design's id, name and revision (newRevision, for your first write), its boards as compact nodes, and warnings on the new content.`,
 			inputSchema: withMutationScopedInput({
-				name: z.string().min(1).describe("Design file name."),
+				name: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Design name. Required unless from is set."),
 				systemName: z
 					.string()
 					.min(1)
 					.nullable()
 					.optional()
 					.describe(
-						"Optional configured design system name. Omit to inherit the project default system when configured. Pass null to explicitly create an unlinked design.",
+						"Design system name or id. Omit to inherit; null for an unlinked design.",
 					),
 				designFileId: designFileIdSchema
 					.optional()
 					.describe(
-						"Optional UUID to use for the new design file. Required when allowedDesignFileIds restricts MCP to explicit IDs.",
+						"UUID for the new design. Required when policy restricts design ids.",
 					),
+				from: z
+					.object({
+						designFileId: designFileIdSchema.describe("Source design."),
+						elementId: z
+							.string()
+							.min(1)
+							.describe("Element to copy with its subtree."),
+					})
+					.strict()
+					.optional()
+					.describe("Start from a copy of an existing element."),
 			}),
 			annotations: {
 				...mutationAnnotations,
 				destructiveHint: false,
 				idempotentHint: false,
 			},
+			_meta: {
+				[SEARCH_HINT_META_KEY]:
+					"new design file extract copy subtree into new design",
+			},
 		},
-		async ({ name, systemName, designFileId, response, project }) =>
+		async ({ name, systemName, designFileId, from, response, project }) =>
 			withProjectContext(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				const newDesignFileId = designFileId ?? randomUUID();
-				const requestedSystemName = systemName ?? null;
-				const normalizedAuditSystemName =
-					typeof systemName === "string"
-						? systemName.trim()
-						: requestedSystemName;
+				const normalizedSystemName =
+					typeof systemName === "string" ? systemName.trim() : systemName;
 
 				return withMutationErrorHandling(
 					context,
 					{
-						toolName: "createDesignFile",
-						operation: "createDesignFile",
+						toolName: TOOL.designCreate,
+						operation: from ? "extract" : "create",
 						projectId: context.config.projectId ?? null,
 						designFileId: newDesignFileId,
 						expectedRevision: null,
 						details: {
-							systemName: normalizedAuditSystemName,
-							requestedSystemName,
+							requestedName: name ?? null,
+							requestedSystemName:
+								systemName === undefined ? "inherit" : normalizedSystemName,
 							requestedDesignFileId: designFileId ?? null,
+							...(from
+								? {
+										sourceDesignFileId: from.designFileId,
+										sourceElementId: from.elementId,
+									}
+								: {}),
 						},
 					},
 					async () => {
@@ -113,264 +142,107 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 						) {
 							throw new McpPolicyError(
 								"MCP_DESIGN_FILE_NOT_ALLOWED",
-								"MCP design file creation requires a designFileId listed in allowedDesignFileIds when project policy restricts design files.",
+								"Creating a design needs a designFileId listed in allowedDesignFileIds when project policy restricts design files.",
 							);
 						}
-
+						if (from) {
+							assertCanReadDesignFile(policy, from.designFileId);
+						}
 						assertCanWriteDesignFile(policy, newDesignFileId);
 
-						const trimmedName = name.trim();
-						if (trimmedName.length === 0) {
+						const trimmedName = name?.trim();
+						if (trimmedName === "" || (trimmedName === undefined && !from)) {
 							throw new DesignTransformError(
 								"INVALID_OPERATION_PARAMETERS",
-								'Parameter "name" must not be blank.',
+								from
+									? 'Parameter "name" must not be blank.'
+									: 'Parameter "name" is required unless from is set, and must not be blank.',
 							);
 						}
-
-						const normalizedSystemName =
-							systemName === undefined || systemName === null
-								? systemName
-								: systemName.trim();
 						if (normalizedSystemName === "") {
 							throw new DesignTransformError(
 								"INVALID_OPERATION_PARAMETERS",
 								'Parameter "systemName" must not be blank when provided.',
 							);
 						}
-						if (normalizedSystemName) {
-							await assertConfiguredSystem(context, normalizedSystemName);
+						const requestedSystem = normalizedSystemName
+							? await assertConfiguredSystem(context, normalizedSystemName)
+							: null;
+
+						let design: TrickroomDesign;
+						let idMap: Record<string, string> | undefined;
+						if (from) {
+							const sourceRead = await readDesignFileForTool(
+								context,
+								from.designFileId,
+							);
+							normalizeDesignForMutation(sourceRead.design);
+							const sourceElement = findElementContext(
+								sourceRead.design,
+								from.elementId,
+							);
+							if (!sourceElement) {
+								throw createElementNotFoundError(
+									sourceRead.design,
+									from.elementId,
+								);
+							}
+							assertCanUseSubtreeComponents(policy, sourceElement.element);
+							const result = await applyExtractSubtree(sourceRead.design, {
+								elementId: from.elementId,
+								name: trimmedName,
+								...(normalizedSystemName === undefined
+									? {}
+									: {
+											systemId: requestedSystem?.manifest.systemId ?? null,
+										}),
+								projectRoot: context.projectRoot,
+							});
+							await assertResourceReferencesExist(context, result.newDesign);
+							design = result.newDesign;
+							idMap = result.idMap;
+						} else {
+							design = await applyProjectDefaultSystemToDesign(
+								context.projectRoot,
+								context.config,
+								createBlankDesign(
+									trimmedName as string,
+									normalizedSystemName === undefined
+										? undefined
+										: (requestedSystem?.manifest.systemId ?? null),
+								),
+							);
 						}
 
-						const system =
-							normalizedSystemName === undefined ||
-							normalizedSystemName === null
-								? null
-								: await assertConfiguredSystem(context, normalizedSystemName);
-						const design = await applyProjectDefaultSystemToDesign(
-							context.projectRoot,
-							context.config,
-							createBlankDesign(
-								trimmedName,
-								normalizedSystemName === undefined
-									? undefined
-									: (system?.manifest.systemId ?? null),
-							),
-						);
-						const linkedSystem =
-							system ??
-							(design.systemId
-								? await findDesignSystem(context.projectRoot, design.systemId)
-								: null);
 						const write = await createDesignFileForTool(
 							context,
 							newDesignFileId,
 							design,
 						);
 						await notifyResourceListChanged();
+						const system = write.design.systemId
+							? await findDesignSystem(
+									context.projectRoot,
+									write.design.systemId,
+								)
+							: null;
+						const recipeSummaries = getRecipeAttachmentSummaries(write.design);
 
 						return createJsonResult({
 							status: "success",
 							project: getProjectReference(context),
 							newRevision: write.revision,
-							designFile: {
-								id: newDesignFileId,
-								file: write.file,
-								name: write.design.name,
-								systemId: write.design.systemId ?? null,
-								systemName: linkedSystem?.manifest.systemName ?? null,
-								revision: write.revision,
-							},
-							rootElementIds: write.design.boards.map((board) => board.id),
-							elementTree: write.design.boards.map(compactElementTree),
-							...(await getMutationDiagnostics(
-								context,
-								write.design,
-								response,
-							)),
-						});
-					},
-				);
-			}),
-	);
-
-	server.registerTool(
-		"extractSubtree",
-		{
-			title: "Extract Subtree",
-			description:
-				"Copy an element subtree into a new Trickroom design file with regenerated element IDs. The source design is not modified.",
-			inputSchema: withMutationScopedInput({
-				designFileId: designFileIdSchema.describe("Source design file UUID."),
-				elementId: z
-					.string()
-					.min(1)
-					.describe("Root element ID of the subtree to extract."),
-				name: z
-					.string()
-					.min(1)
-					.optional()
-					.describe(
-						"Optional new design file name. Defaults to the source layer name, then Untitled.",
-					),
-				systemName: z
-					.string()
-					.min(1)
-					.nullable()
-					.optional()
-					.describe(
-						"Optional design system override. Omit to inherit the source design system; pass null to explicitly create an unlinked design.",
-					),
-				newDesignFileId: designFileIdSchema
-					.optional()
-					.describe(
-						"Optional UUID to use for the new design file. Required when allowedDesignFileIds restricts MCP to explicit IDs.",
-					),
-			}),
-			annotations: {
-				...mutationAnnotations,
-				destructiveHint: false,
-				idempotentHint: false,
-			},
-		},
-		async ({
-			designFileId,
-			elementId,
-			name,
-			systemName,
-			newDesignFileId,
-			response,
-			project,
-		}) =>
-			withProjectContext(project, async (context) => {
-				const policy = getMcpPolicy(context.config);
-				const targetDesignFileId = newDesignFileId ?? randomUUID();
-				const normalizedAuditSystemName =
-					typeof systemName === "string" ? systemName.trim() : systemName;
-
-				return withMutationErrorHandling(
-					context,
-					{
-						toolName: "extractSubtree",
-						operation: "extractSubtree",
-						projectId: context.config.projectId ?? null,
-						designFileId: targetDesignFileId,
-						expectedRevision: null,
-						details: {
-							sourceDesignFileId: designFileId,
-							sourceElementId: elementId,
-							requestedName: name ?? null,
-							requestedSystemName:
-								systemName === undefined
-									? "inherit"
-									: normalizedAuditSystemName,
-							requestedNewDesignFileId: newDesignFileId ?? null,
-						},
-					},
-					async () => {
-						if (policy.mode === "read-only") {
-							throw new McpPolicyError(
-								"MCP_READ_ONLY",
-								"MCP is configured in read-only mode for this project.",
-							);
-						}
-						if (
-							policy.allowedDesignFileIds !== null &&
-							newDesignFileId === undefined
-						) {
-							throw new McpPolicyError(
-								"MCP_DESIGN_FILE_NOT_ALLOWED",
-								"MCP design file creation requires a newDesignFileId listed in allowedDesignFileIds when project policy restricts design files.",
-							);
-						}
-
-						assertCanReadDesignFile(policy, designFileId);
-						assertCanWriteDesignFile(policy, targetDesignFileId);
-
-						const normalizedName = name === undefined ? undefined : name.trim();
-						if (normalizedName === "") {
-							throw new DesignTransformError(
-								"INVALID_OPERATION_PARAMETERS",
-								'Parameter "name" must not be blank.',
-							);
-						}
-						const normalizedSystemName =
-							systemName === undefined || systemName === null
-								? systemName
-								: systemName.trim();
-						if (normalizedSystemName === "") {
-							throw new DesignTransformError(
-								"INVALID_OPERATION_PARAMETERS",
-								'Parameter "systemName" must not be blank when provided.',
-							);
-						}
-						if (normalizedSystemName) {
-							await assertConfiguredSystem(context, normalizedSystemName);
-						}
-
-						const sourceRead = await readDesignFileForTool(
-							context,
-							designFileId,
-						);
-						normalizeDesignForMutation(sourceRead.design);
-						const sourceElementContext = findElementContext(
-							sourceRead.design,
-							elementId,
-						);
-						if (!sourceElementContext) {
-							throw new DesignTransformError(
-								"ELEMENT_NOT_FOUND",
-								`Element "${elementId}" not found.`,
-							);
-						}
-						assertCanUseSubtreeComponents(policy, sourceElementContext.element);
-						const targetSystem =
-							normalizedSystemName === undefined ||
-							normalizedSystemName === null
-								? null
-								: await assertConfiguredSystem(context, normalizedSystemName);
-						const designSystemOverride =
-							normalizedSystemName === undefined
-								? {}
-								: { systemId: targetSystem?.manifest.systemId ?? null };
-
-						const result = await applyExtractSubtree(sourceRead.design, {
-							elementId,
-							name: normalizedName,
-							...designSystemOverride,
-							projectRoot: context.projectRoot,
-						});
-						await assertResourceReferencesExist(context, result.newDesign);
-						const write = await createDesignFileForTool(
-							context,
-							targetDesignFileId,
-							result.newDesign,
-						);
-						const writtenSystem =
-							write.design.systemId === undefined ||
-							write.design.systemId === null
-								? null
-								: await findDesignSystem(
-										context.projectRoot,
-										write.design.systemId,
-									);
-
-						return createJsonResult({
-							status: "success",
-							project: getProjectReference(context),
-							sourceDesignFile: getDesignMetadata(designFileId, sourceRead),
-							newRevision: write.revision,
-							designFile: {
-								id: targetDesignFileId,
-								file: write.file,
-								name: write.design.name,
-								systemId: write.design.systemId ?? null,
-								systemName: writtenSystem?.manifest.systemName ?? null,
-								revision: write.revision,
-							},
-							sourceElementId: elementId,
-							rootElementIds: write.design.boards.map((board) => board.id),
-							idMap: result.idMap,
-							elementTree: write.design.boards.map(compactElementTree),
+							designFile: getDesignHeader(newDesignFileId, write),
+							system: system
+								? {
+										systemId: system.manifest.systemId,
+										systemName: system.manifest.systemName,
+									}
+								: null,
+							boards: write.design.boards.map((board) =>
+								describeNode(board, "compact", recipeSummaries),
+							),
+							...(idMap && response === "full" ? { idMap } : {}),
 							...(await getMutationDiagnostics(
 								context,
 								write.design,
@@ -399,6 +271,11 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 				...mutationAnnotations,
 				destructiveHint: true,
 				idempotentHint: false,
+			},
+			_meta: {
+				[ALWAYS_LOAD_META_KEY]: true,
+				[SEARCH_HINT_META_KEY]:
+					"edit write insert add update move delete copy rename element recipe component batch",
 			},
 		},
 		async ({ designFileId, expectedRevision, operations, response, project }) =>

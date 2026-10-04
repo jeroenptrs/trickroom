@@ -17,7 +17,7 @@ import {
 type ToolCallPayload = Record<string, unknown>;
 
 const expectedReadToolNames = [
-	"trickroom_project_info",
+	"project_list",
 	"design_list",
 	"design_read",
 	"design_validate",
@@ -35,10 +35,7 @@ const expectedMutationToolNames = [
 	"addSystemAsset",
 	"removeSystemAsset",
 	"refreshSystemAssetMetadata",
-	"createDesignFile",
-	"exportDesignHtml",
-	"screenshotBoard",
-	"screenshotNode",
+	"design_create",
 	"design_apply",
 ] as const;
 
@@ -300,46 +297,24 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 			for (const name of expectedReadToolNames) {
 				expectReadOnlyAnnotations(requireTool(toolsByName, name));
 			}
-			expect(toolsByName.get("getSelectedProject")?.annotations).toMatchObject({
-				readOnlyHint: true,
-				openWorldHint: false,
-			});
-			expect(toolsByName.get("getActiveProject")?.annotations).toMatchObject({
-				readOnlyHint: true,
-				openWorldHint: false,
-			});
-			expect(toolsByName.get("resolveProject")?.annotations).toMatchObject({
-				readOnlyHint: true,
-				openWorldHint: false,
-			});
-			expect(toolsByName.get("registerProject")?.annotations).toMatchObject({
+			expect(toolsByName.get("project_select")?.annotations).toMatchObject({
 				readOnlyHint: false,
 				openWorldHint: false,
 				idempotentHint: true,
 			});
-			expect(toolsByName.get("selectProject")?.annotations).toMatchObject({
-				readOnlyHint: false,
-				openWorldHint: false,
-				idempotentHint: true,
-			});
-			expect(toolsByName.get("openProject")?.annotations).toMatchObject({
-				readOnlyHint: false,
-				openWorldHint: false,
-				idempotentHint: true,
+			expect(toolsByName.get("design_screenshot")?.annotations).toMatchObject({
+				readOnlyHint: true,
+				openWorldHint: true,
 			});
 
 			for (const name of expectedMutationToolNames) {
 				expectWriteAnnotations(requireTool(toolsByName, name), {
-					openWorldHint:
-						name === "screenshotBoard" || name === "screenshotNode",
+					openWorldHint: false,
 					destructiveHint: ![
 						"addSystemIconFolder",
 						"addSystemAsset",
 						"refreshSystemAssetMetadata",
-						"createDesignFile",
-						"exportDesignHtml",
-						"screenshotBoard",
-						"screenshotNode",
+						"design_create",
 					].includes(name),
 				});
 			}
@@ -354,22 +329,27 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 				"expectedRevision",
 				"operations",
 			]);
-			expectInputProperties(requireTool(toolsByName, "createDesignFile"), [
+			expectInputProperties(requireTool(toolsByName, "design_create"), [
 				"name",
 				"systemName",
 				"designFileId",
 			]);
-			expectInputProperties(requireTool(toolsByName, "exportDesignHtml"), [
+			expect(toolsByName.get("design_export")?.annotations).toMatchObject({
+				readOnlyHint: false,
+				destructiveHint: false,
+				idempotentHint: true,
+				openWorldHint: true,
+			});
+			expectInputProperties(requireTool(toolsByName, "design_export"), [
 				"designFileId",
 				"destinationDir",
+				"format",
 			]);
-			expectInputProperties(requireTool(toolsByName, "screenshotBoard"), [
+			expectInputProperties(requireTool(toolsByName, "design_screenshot"), [
 				"designFileId",
 				"boardId",
-			]);
-			expectInputProperties(requireTool(toolsByName, "screenshotNode"), [
-				"designFileId",
-				"nodeId",
+				"elementId",
+				"component",
 			]);
 			expectInputProperties(requireTool(toolsByName, "addSystemAsset"), [
 				"systemName",
@@ -410,8 +390,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 		expect(result.status).toBe(1);
 		const stderr = result.stderr?.toString() ?? "";
 		expect(stderr).toContain("does not accept positional arguments");
-		expect(stderr).toContain("registerProject");
-		expect(stderr).toContain("selectProject");
+		expect(stderr).toContain("project_select");
 	});
 
 	it("performs representative read and write calls through stdio", async () => {
@@ -481,7 +460,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 			const createdDesignFileId = "30000000-0000-4000-8000-000000000003";
 			const createResult = await requireStructuredPayload(
 				session.client,
-				"createDesignFile",
+				"design_create",
 				{
 					designFileId: createdDesignFileId,
 					name: "Smoke Exploration",

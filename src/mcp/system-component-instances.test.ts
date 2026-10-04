@@ -486,18 +486,17 @@ describe("trickroom MCP system component instance tools", () => {
 
 		const rootTargetId = "10000000-0000-4000-8000-000000000201";
 		const extractedRoot = await session.client.callTool({
-			name: "extractSubtree",
+			name: "design_create",
 			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				elementId: rootElementId,
-				newDesignFileId: rootTargetId,
+				designFileId: rootTargetId,
+				from: {
+					designFileId: trickroomMcpTestDesignUuid,
+					elementId: rootElementId,
+				},
 			},
 		});
 		expect(extractedRoot.isError).not.toBe(true);
-		const rootIdMap = toolPayload(extractedRoot)?.idMap as Record<
-			string,
-			string
-		>;
+		const extractedBoardId = toolPayload(extractedRoot).boards[0].id;
 		const extractedRootDesign = await fixture.designFileService.readDesignFile(
 			fixture.designFileService.getFileForUuid(rootTargetId),
 		);
@@ -511,15 +510,18 @@ describe("trickroom MCP system component instance tools", () => {
 			(clonedRoot.children as Array<{ props: Record<string, unknown> }>)[0]
 				.props[systemComponentInstanceProp],
 		).toBe(clonedRoot.props[systemComponentInstanceProp]);
-		expect(rootIdMap[rootElementId]).toBe(clonedRoot.id);
+		expect(extractedBoardId).toBe(clonedRoot.id);
+		expect(clonedRoot.id).not.toBe(rootElementId);
 
 		const partialTargetId = "10000000-0000-4000-8000-000000000202";
 		const extractedPartial = await session.client.callTool({
-			name: "extractSubtree",
+			name: "design_create",
 			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				elementId: sourceLabelId,
-				newDesignFileId: partialTargetId,
+				designFileId: partialTargetId,
+				from: {
+					designFileId: trickroomMcpTestDesignUuid,
+					elementId: sourceLabelId,
+				},
 			},
 		});
 		expect(extractedPartial.isError).not.toBe(true);
@@ -573,12 +575,14 @@ describe("trickroom MCP system component instance tools", () => {
 		const targetDesignId = "10000000-0000-4000-8000-000000000203";
 
 		const result = await session.client.callTool({
-			name: "extractSubtree",
+			name: "design_create",
 			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				elementId: rootElementId,
-				newDesignFileId: targetDesignId,
+				designFileId: targetDesignId,
 				systemName: null,
+				from: {
+					designFileId: trickroomMcpTestDesignUuid,
+					elementId: rootElementId,
+				},
 			},
 		});
 
