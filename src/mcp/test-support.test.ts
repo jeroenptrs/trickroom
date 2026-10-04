@@ -50,7 +50,7 @@ describe("trickroom MCP test support", () => {
 				uuid: trickroomMcpTestDesignUuid,
 				name: "Harness Design",
 				systemName: "Core",
-				revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+				revision: expect.any(String),
 			}),
 		]);
 

@@ -1,82 +1,26 @@
 import { z } from "zod";
-import type {
-	ProposedElementNode,
-	ProposedRecipeNode,
-	ProposedSubtreeNode,
-	ValidateSubtreeOptions,
-} from "../../services/design-transform-service";
 import {
 	describeOperationParameterSignatures,
 	designOperationNameSchema,
 } from "../design-operations";
 import { STEP_REFERENCE_GUIDANCE } from "../guidance";
+import {
+	addSubtreeOptionsSchema,
+	proposedSubtreeNodeSchema,
+	validateCopySubtreeOptionsSchema,
+	validateSubtreeOptionsSchema,
+} from "../subtree-schemas";
 import { systemComponentInstanceOverrideSchema } from "../system-component-schemas";
-import { jsonPrimitiveSchema, rejectedPersistentIdSchema } from "./schemas";
-
-export const proposedRecipeNodeSchema: z.ZodType<ProposedRecipeNode> = z
-	.object({
-		id: rejectedPersistentIdSchema,
-		kind: z.literal("recipe"),
-		tempId: z.string().min(1).optional(),
-		library: z.string().min(1),
-		recipe: z.string().min(1),
-		children: z.never().optional(),
-		props: z.never().optional(),
-		name: z.never().optional(),
-		className: z.never().optional(),
-		text: z.never().optional(),
-	})
-	.strict();
-
-export const proposedSubtreeNodeSchema: z.ZodType<ProposedSubtreeNode> = z.lazy(
-	() =>
-		z.union([
-			proposedRecipeNodeSchema,
-			proposedElementNodeSchema,
-		]) as z.ZodType<ProposedSubtreeNode>,
-);
-
-export const proposedElementNodeSchema: z.ZodType<ProposedElementNode> = z
-	.object({
-		id: rejectedPersistentIdSchema,
-		kind: z.literal("element").optional(),
-		tempId: z.string().min(1).optional(),
-		library: z.string().min(1),
-		component: z.string().min(1),
-		name: z.string().optional(),
-		className: z.string().optional(),
-		props: z.record(z.string(), jsonPrimitiveSchema).optional(),
-		text: z.string().optional(),
-		children: z.array(proposedSubtreeNodeSchema).optional(),
-	})
-	.strict();
-
-export const validateSubtreeOptionsSchema: z.ZodType<ValidateSubtreeOptions> = z
-	.object({
-		maxNodes: z.number().int().min(1).optional(),
-		maxDepth: z.number().int().min(1).optional(),
-		includeNormalizedTree: z.boolean().optional(),
-		allowRecipes: z.boolean().optional(),
-	})
-	.strict();
-
-export const addSubtreeOptionsSchema: z.ZodType<
-	Omit<ValidateSubtreeOptions, "includeNormalizedTree">
-> = z
-	.object({
-		maxNodes: z.number().int().min(1).optional(),
-		maxDepth: z.number().int().min(1).optional(),
-		allowRecipes: z.boolean().optional(),
-	})
-	.strict();
+import {
+	designFileIdSchema,
+	expectedRevisionSchema,
+	jsonPrimitiveSchema,
+} from "./schemas";
 
 export const validateSubtreePayloadSchema = z
 	.object({
-		designFileId: z.string().uuid().describe("Design file UUID."),
-		expectedRevision: z
-			.string()
-			.startsWith("sha256:")
-			.describe("Current revision from a prior read."),
+		designFileId: designFileIdSchema,
+		expectedRevision: expectedRevisionSchema,
 		parentId: z
 			.string()
 			.min(1)
@@ -98,18 +42,9 @@ export const addSubtreePayloadSchema = validateSubtreePayloadSchema.extend({
 	options: addSubtreeOptionsSchema.optional(),
 });
 
-export const validateCopySubtreeOptionsSchema = z
-	.object({
-		maxNodes: z.number().int().min(1).optional(),
-		maxDepth: z.number().int().min(1).optional(),
-	})
-	.strict();
-
 export const validateCopySubtreePayloadSchema = z
 	.object({
-		sourceDesignFileId: z
-			.string()
-			.uuid()
+		sourceDesignFileId: designFileIdSchema
 			.optional()
 			.describe(
 				"Source design file UUID. Defaults to targetDesignFileId (a same-file copy).",
@@ -118,18 +53,13 @@ export const validateCopySubtreePayloadSchema = z
 			.string()
 			.min(1)
 			.describe("Source subtree root element ID."),
-		sourceExpectedRevision: z
-			.string()
-			.startsWith("sha256:")
+		sourceExpectedRevision: expectedRevisionSchema
 			.optional()
 			.describe(
 				"Required for cross-file copies. Optional for same-file copies, where expectedRevision covers both source and target.",
 			),
-		targetDesignFileId: z.string().uuid().describe("Target design file UUID."),
-		expectedRevision: z
-			.string()
-			.startsWith("sha256:")
-			.describe("Current target revision from a prior read."),
+		targetDesignFileId: designFileIdSchema.describe("Target design file UUID."),
+		expectedRevision: expectedRevisionSchema,
 		parentId: z
 			.string()
 			.min(1)
@@ -166,20 +96,12 @@ export const addRecipeOperationParameterSchema = {
 		),
 } as const;
 
-const _addRecipeOperationParametersSchema = z.object(
-	addRecipeOperationParameterSchema,
-);
-
 export const detachRecipeInstanceOperationParameterSchema = {
 	elementId: z
 		.string()
 		.min(1)
 		.describe("Any element ID inside the attached recipe structure to detach."),
 } as const;
-
-const _detachRecipeInstanceOperationParametersSchema = z.object(
-	detachRecipeInstanceOperationParameterSchema,
-);
 
 export const addSystemComponentOperationParameterSchema = {
 	parentId: z
@@ -264,10 +186,6 @@ export const updateRecipeInstanceOperationParameterSchema = {
 		.describe("Any element ID inside the stale attached recipe instance."),
 } as const;
 
-const _updateRecipeInstanceOperationParametersSchema = z.object(
-	updateRecipeInstanceOperationParameterSchema,
-);
-
 export const updateRecipeControlOperationParameterSchema = {
 	instanceId: z.string().min(1).describe("Attached recipe instance ID."),
 	path: z
@@ -277,10 +195,6 @@ export const updateRecipeControlOperationParameterSchema = {
 	prop: z.string().min(1).describe("Declared recipe control prop."),
 	value: jsonPrimitiveSchema.describe("New recipe control value."),
 } as const;
-
-const _updateRecipeControlOperationParametersSchema = z.object(
-	updateRecipeControlOperationParameterSchema,
-);
 
 const addSubtreeOperationParametersSchema = z.object({
 	parentId: z
@@ -300,14 +214,12 @@ const addSubtreeOperationParametersSchema = z.object({
 });
 
 const copySubtreeOperationParametersSchema = z.object({
-	sourceDesignFileId: z.string().uuid().describe("Source design file UUID."),
+	sourceDesignFileId: designFileIdSchema.describe("Source design file UUID."),
 	sourceElementId: z
 		.string()
 		.min(1)
 		.describe("Source subtree root element ID."),
-	sourceExpectedRevision: z
-		.string()
-		.startsWith("sha256:")
+	sourceExpectedRevision: expectedRevisionSchema
 		.optional()
 		.describe(
 			"Required for cross-file copies. Optional for same-file copies, where expectedRevision covers both source and target.",
@@ -351,3 +263,12 @@ export const createOperationPlanStepsInputSchema = (purpose: string) =>
 		.describe(
 			`${purpose} Parameters per operation (? = optional, primitive = string | number | boolean | null): ${describeOperationParameterSignatures()}. ${STEP_REFERENCE_GUIDANCE}`,
 		);
+
+export {
+	addSubtreeOptionsSchema,
+	proposedElementNodeSchema,
+	proposedRecipeNodeSchema,
+	proposedSubtreeNodeSchema,
+	validateCopySubtreeOptionsSchema,
+	validateSubtreeOptionsSchema,
+} from "../subtree-schemas";

@@ -58,7 +58,12 @@ import {
 	updateSystemComponentInstanceOperationParameterSchema,
 } from "./operation-schemas";
 import { createJsonResult } from "./results";
-import { jsonPrimitiveSchema, withMutationScopedInput } from "./schemas";
+import {
+	designFileIdSchema,
+	expectedRevisionSchema,
+	jsonPrimitiveSchema,
+	withMutationScopedInput,
+} from "./schemas";
 
 export const registerDesignNodeInsertTools = (ctx: McpToolContext) => {
 	const { server, withProjectContext } = ctx;
@@ -70,13 +75,8 @@ export const registerDesignNodeInsertTools = (ctx: McpToolContext) => {
 			description:
 				"Create a new registry element inside a design file. Requires expectedRevision from a prior read.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				parentId: z
 					.string()
 					.min(1)
@@ -222,13 +222,8 @@ export const registerDesignNodeInsertTools = (ctx: McpToolContext) => {
 			description:
 				"Expand a built-in registry recipe into attached design elements. Requires expectedRevision from a prior read.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				...addRecipeOperationParameterSchema,
 			}),
 			annotations: {
@@ -322,13 +317,8 @@ export const registerDesignNodeInsertTools = (ctx: McpToolContext) => {
 			description:
 				"Insert a published design-system component instance into a design file. Requires expectedRevision from a prior read.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				...addSystemComponentOperationParameterSchema,
 			}),
 			annotations: {
@@ -444,13 +434,8 @@ export const registerDesignNodeInsertTools = (ctx: McpToolContext) => {
 			description:
 				"Update variant values, clear variant axes, and/or override classNames on an attached system component root. Component marker props cannot be edited through generic element tools.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				...updateSystemComponentInstanceOperationParameterSchema,
 			}),
 			annotations: {
@@ -562,13 +547,8 @@ export const registerDesignNodeEditTools = (ctx: McpToolContext) => {
 			description:
 				"Detach the attached system component instance containing the target element. Removes component marker props from the whole instance so former structural nodes can be mutated normally.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				...detachSystemComponentOperationParameterSchema,
 			}),
 			annotations: destructiveMutationAnnotations,
@@ -657,13 +637,8 @@ export const registerDesignNodeEditTools = (ctx: McpToolContext) => {
 			description:
 				"Update allowed instance props on a design element: name, className, and/or registry-backed control props. Registry-reference props (library, component, role) cannot be changed.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				elementId: z.string().min(1).describe("Element ID to update."),
 				name: z
 					.string()
@@ -794,13 +769,8 @@ export const registerDesignNodeEditTools = (ctx: McpToolContext) => {
 			description:
 				"Update a declared recipe-level control by attached recipe instance ID and template path. This keeps the recipe attached and rejects undeclared structural props.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				...updateRecipeControlOperationParameterSchema,
 			}),
 			annotations: destructiveMutationAnnotations,
@@ -893,13 +863,8 @@ export const registerDesignNodeEditTools = (ctx: McpToolContext) => {
 			description:
 				"Explicitly migrate a stale attached recipe instance to the current registry recipe template while preserving mutable settings and safely mapped authored slot contents.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				...updateRecipeInstanceOperationParameterSchema,
 			}),
 			annotations: destructiveMutationAnnotations,
@@ -986,13 +951,8 @@ export const registerDesignNodeEditTools = (ctx: McpToolContext) => {
 			description:
 				"Update the text content of a text role element. Only valid for elements with role 'text'.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				elementId: z
 					.string()
 					.min(1)
@@ -1080,13 +1040,8 @@ export const registerDesignNodeEditTools = (ctx: McpToolContext) => {
 			description:
 				"Move a design element to a new parent or position. Rejects cycles, non-branch parents, and missing targets.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				elementId: z.string().min(1).describe("Element ID to move."),
 				targetParentId: z
 					.string()
@@ -1198,13 +1153,8 @@ export const registerDesignNodeEditTools = (ctx: McpToolContext) => {
 			description:
 				"Delete a design element and all its descendants. This operation cannot be undone.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				elementId: z.string().min(1).describe("Element ID to delete."),
 			}),
 			annotations: destructiveMutationAnnotations,
@@ -1300,13 +1250,8 @@ export const registerDesignNodeEditTools = (ctx: McpToolContext) => {
 			description:
 				"Detach the attached recipe instance containing the target structural element. Removes recipe marker props from the whole instance so former structural nodes can be mutated normally.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				...detachRecipeInstanceOperationParameterSchema,
 			}),
 			annotations: destructiveMutationAnnotations,

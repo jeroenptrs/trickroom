@@ -20,7 +20,12 @@ import {
 	validateSubtreePayloadSchema,
 } from "./operation-schemas";
 import { createInvalidOperationResult, createJsonResult } from "./results";
-import { projectScopedInputSchema, withProjectScopedInput } from "./schemas";
+import {
+	designFileIdSchema,
+	expectedRevisionSchema,
+	projectScopedInputSchema,
+	withProjectScopedInput,
+} from "./schemas";
 
 export const registerDesignValidationTools = (ctx: McpToolContext) => {
 	const { server, withPolicyErrorHandling } = ctx;
@@ -32,7 +37,7 @@ export const registerDesignValidationTools = (ctx: McpToolContext) => {
 			description:
 				"Validate an existing design file without mutation, including payload integrity, duplicate element IDs, registry references, and design-system references.",
 			inputSchema: withProjectScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
+				designFileId: designFileIdSchema,
 				includeTokenDiagnostics: z
 					.boolean()
 					.optional()
@@ -59,11 +64,8 @@ export const registerDesignValidationTools = (ctx: McpToolContext) => {
 			description:
 				"Dry-run one design operation against the current revision without writing, returning predicted changes and diagnostics.",
 			inputSchema: withProjectScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe("Current revision from a prior read."),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				operation: z
 					.enum([
 						"renameDesignFile",
@@ -126,11 +128,8 @@ export const registerDesignValidationTools = (ctx: McpToolContext) => {
 			description:
 				"Dry-run an ordered list of design operations against one starting revision without writing. Returns per-step summaries, aggregate change metadata, and final diagnostics. Later steps may reference earlier step outputs using $step:N, $step:N:rootElementId, $step:N:tempId:<tempId>, or $step:N:slot:<slotName>.",
 			inputSchema: withProjectScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe("Current revision from a prior read."),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				operations: createOperationPlanStepsInputSchema(
 					"Ordered design operations to dry-run.",
 				),

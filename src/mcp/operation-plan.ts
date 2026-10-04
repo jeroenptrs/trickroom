@@ -24,6 +24,11 @@ import {
 	type McpPolicy,
 } from "./governance";
 import type { TrickroomMcpProjectRef } from "./project-resolver";
+import {
+	designFileIdSchema,
+	expectedRevisionSchema,
+	mutationResponseOptionsSchema,
+} from "./tools/schemas";
 
 const projectRefSchema: z.ZodType<TrickroomMcpProjectRef | undefined> = z
 	.object({
@@ -38,23 +43,9 @@ export const operationPlanStepSchema = z.object({
 	parameters: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const mutationResponseOptionsSchema = z
-	.object({
-		includeWarnings: z.boolean().optional(),
-		warningScope: z.enum(["affected", "file"]).optional(),
-		includeTokenDiagnostics: z.boolean().optional(),
-		includeStepDetails: z
-			.boolean()
-			.optional()
-			.describe(
-				"applyDesignOperations only: return full per-step summaries and aggregate changed/inserted id lists instead of the compact per-step result.",
-			),
-	})
-	.strict();
-
 export const operationPlanInputSchema = z.object({
-	designFileId: z.string().uuid(),
-	expectedRevision: z.string().startsWith("sha256:"),
+	designFileId: designFileIdSchema,
+	expectedRevision: expectedRevisionSchema,
 	operations: z.array(operationPlanStepSchema).min(1),
 	project: projectRefSchema,
 	response: mutationResponseOptionsSchema.optional(),

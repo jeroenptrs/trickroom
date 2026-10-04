@@ -23,7 +23,7 @@ import {
 import { readOnlyClosedWorldAnnotations } from "./annotations";
 import type { McpToolContext } from "./context";
 import { createJsonResult } from "./results";
-import { withProjectScopedInput } from "./schemas";
+import { designFileIdSchema, withProjectScopedInput } from "./schemas";
 
 export const registerRegistryTools = (ctx: McpToolContext) => {
 	const { server, withPolicyErrorHandling } = ctx;
@@ -219,9 +219,7 @@ export const registerRegistryTools = (ctx: McpToolContext) => {
 			description:
 				"Return the primary compact planning contract for agents editing design files: design grammar, registry component and recipe vocabulary, writable/system-owned props, composition and mutation rules, optional token/resource summaries, authoring guidance, and examples. For system component draft authoring, use getSystemComponentAuthoringContract.",
 			inputSchema: withProjectScopedInput({
-				designFileId: z
-					.string()
-					.uuid()
+				designFileId: designFileIdSchema
 					.optional()
 					.describe(
 						"Optional design file UUID used to include design-system, token, and resource planning context.",

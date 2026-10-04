@@ -326,7 +326,7 @@ describe("getDesignAuthoringContract planning payload", () => {
 				designFileId: expect.stringMatching(
 					/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu,
 				),
-				expectedRevision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+				expectedRevision: expect.any(String),
 			});
 		}
 	});

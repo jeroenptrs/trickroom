@@ -47,6 +47,11 @@ import {
 	validateCopySubtreeOptionsSchema,
 } from "./subtree-schemas";
 import { systemComponentInstanceOverridesSchema } from "./system-component-schemas";
+import {
+	designFileIdSchema,
+	expectedRevisionSchema,
+	jsonPrimitiveSchema,
+} from "./tools/schemas";
 
 export const designOperationNameSchema = z.enum([
 	"renameDesignFile",
@@ -134,13 +139,6 @@ type ElementContext = {
 	parent: DesignNode | null;
 };
 
-const jsonPrimitiveSchema = z.union([
-	z.string(),
-	z.number(),
-	z.boolean(),
-	z.null(),
-]);
-
 const addRecipeOperationParametersSchema = z.object({
 	parentId: z.string().min(1).nullable(),
 	index: z.number().int().min(0),
@@ -221,9 +219,9 @@ const addSubtreeOperationParametersSchema = z.object({
 });
 
 const copySubtreeOperationParametersSchema = z.object({
-	sourceDesignFileId: z.string().uuid(),
+	sourceDesignFileId: designFileIdSchema,
 	sourceElementId: z.string().min(1),
-	sourceExpectedRevision: z.string().startsWith("sha256:").optional(),
+	sourceExpectedRevision: expectedRevisionSchema.optional(),
 	parentId: z.string().min(1).nullable(),
 	index: z.number().int().min(0),
 	options: validateCopySubtreeOptionsSchema.optional(),

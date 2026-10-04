@@ -26,7 +26,7 @@ import { screenshotAnnotations } from "./annotations";
 import type { McpToolContext } from "./context";
 import { auditToolResult } from "./mutation-support";
 import { createPolicyDeniedResult, createToolErrorResult } from "./results";
-import { withProjectScopedInput } from "./schemas";
+import { designFileIdSchema, withProjectScopedInput } from "./schemas";
 
 export const registerScreenshotTools = (ctx: McpToolContext) => {
 	const { server, screenshotCapture, withProjectContext } = ctx;
@@ -44,7 +44,7 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 			"Viewport preset or explicit CSS-pixel dimensions. Defaults to desktop (1440x900).",
 		);
 	const screenshotCommonInput = {
-		designFileId: z.string().uuid().describe("Design file UUID."),
+		designFileId: designFileIdSchema,
 		viewport: screenshotViewportSchema,
 		theme: z.enum(["light", "dark"]).optional().describe("Defaults to light."),
 		outputPath: z

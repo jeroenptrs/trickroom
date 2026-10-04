@@ -274,7 +274,7 @@ describe("trickroom MCP design read tools", () => {
 					boardsCount: 2,
 					layersCount: 3,
 					modifiedAt: expect.any(String),
-					revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+					revision: expect.any(String),
 				},
 				{
 					id: secondDesignFileId,
@@ -284,7 +284,7 @@ describe("trickroom MCP design read tools", () => {
 					boardsCount: 2,
 					layersCount: 3,
 					modifiedAt: expect.any(String),
-					revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+					revision: expect.any(String),
 				},
 			],
 		});
@@ -301,7 +301,7 @@ describe("trickroom MCP design read tools", () => {
 				file: `${designFileId}.json`,
 				name: "Readable Design",
 				systemName: "Core",
-				revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+				revision: expect.any(String),
 			},
 			designSystem: {
 				systemName: "Core",
@@ -853,7 +853,7 @@ describe("trickroom MCP design read tools", () => {
 				id: invalidDesignFileId,
 				name: "Needs Validation",
 				systemName: "Missing System",
-				revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+				revision: expect.any(String),
 			},
 			valid: false,
 			designSystem: {

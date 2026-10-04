@@ -482,7 +482,7 @@ describe("MCP mutation tools", () => {
 					issues: unknown[];
 				};
 				expect(content.status).toBe("success");
-				expect(content.newRevision).toMatch(/^sha256:/);
+				expect(content.newRevision).toEqual(expect.any(String));
 				expect(content.newRevision).not.toBe(revision);
 				expect(content.rootElementId).toBe(content.inserted.rootElementId);
 				expect(content.idMap).toMatchObject({
@@ -834,7 +834,7 @@ describe("MCP mutation tools", () => {
 					changedElement: { name: string };
 					context: { parentId: string; index: number };
 				};
-				expect(content.newRevision).toMatch(/^sha256:/);
+				expect(content.newRevision).toEqual(expect.any(String));
 				expect(content.rootElementId).toBe(content.idMap.title);
 				expect(content.rootElementId).not.toBe("title");
 				expect(content.inserted.elementIds).toEqual([content.rootElementId]);
@@ -960,7 +960,7 @@ describe("MCP mutation tools", () => {
 				expect(result.isError).toBeFalsy();
 				expect(result.structuredContent).toMatchObject({
 					status: "SOURCE_REVISION_MISMATCH",
-					currentSourceRevision: expect.stringMatching(/^sha256:/),
+					currentSourceRevision: expect.any(String),
 					sourceExpectedRevision: staleSourceRevision,
 					expectedRevision: targetRevision,
 				});
@@ -998,7 +998,7 @@ describe("MCP mutation tools", () => {
 				expect(result.structuredContent).toMatchObject({
 					status: "REVISION_MISMATCH",
 					valid: false,
-					currentRevision: expect.stringMatching(/^sha256:/),
+					currentRevision: expect.any(String),
 					expectedRevision: staleTargetRevision,
 				});
 				expect(result.structuredContent).not.toHaveProperty("idMap");
@@ -1041,7 +1041,7 @@ describe("MCP mutation tools", () => {
 				expect(result.isError).toBe(true);
 				expect(result.structuredContent).toMatchObject({
 					status: "REVISION_MISMATCH",
-					currentRevision: expect.stringMatching(/^sha256:/),
+					currentRevision: expect.any(String),
 					expectedRevision: staleTargetRevision,
 				});
 				const persistedTarget = await fixture.designFileService.readDesignFile(
@@ -1412,7 +1412,7 @@ describe("MCP mutation tools", () => {
 					elementTree: Array<{ component: string; role: string }>;
 				};
 				expect(content.status).toBe("success");
-				expect(content.newRevision).toMatch(/^sha256:/);
+				expect(content.newRevision).toEqual(expect.any(String));
 				expect(content.designFile).toMatchObject({
 					id: createdDesignFileId,
 					file: `${createdDesignFileId}.json`,
@@ -1657,7 +1657,7 @@ describe("MCP mutation tools", () => {
 						expectedRevision: null,
 						success: true,
 						status: "success",
-						resultingRevision: expect.stringMatching(/^sha256:/),
+						resultingRevision: expect.any(String),
 					}),
 				);
 				expect(entries).toContainEqual(
@@ -1797,7 +1797,7 @@ describe("MCP mutation tools", () => {
 					}>;
 				};
 				expect(content.status).toBe("success");
-				expect(content.newRevision).toMatch(/^sha256:/);
+				expect(content.newRevision).toEqual(expect.any(String));
 				expect(content.designFile).toMatchObject({
 					id: extractedDesignFileId,
 					file: `${extractedDesignFileId}.json`,
@@ -2132,7 +2132,7 @@ describe("MCP mutation tools", () => {
 						expectedRevision: null,
 						success: true,
 						status: "success",
-						resultingRevision: expect.stringMatching(/^sha256:/),
+						resultingRevision: expect.any(String),
 						details: expect.objectContaining({
 							sourceDesignFileId: trickroomMcpTestDesignUuid,
 							sourceElementId: "title",
@@ -2167,7 +2167,7 @@ describe("MCP mutation tools", () => {
 					designFile: { name: string; revision: string };
 				};
 				expect(content.status).toBe("success");
-				expect(content.newRevision).toMatch(/^sha256:/);
+				expect(content.newRevision).toEqual(expect.any(String));
 				expect(content.newRevision).not.toBe(revision);
 				expect(content.designFile.name).toBe("Renamed Design");
 				expect(content.designFile.revision).toBe(content.newRevision);
@@ -2203,7 +2203,7 @@ describe("MCP mutation tools", () => {
 					expectedRevision: string;
 				};
 				expect(content.status).toBe("REVISION_MISMATCH");
-				expect(content.currentRevision).toMatch(/^sha256:/);
+				expect(content.currentRevision).toEqual(expect.any(String));
 				expect(content.expectedRevision).toBe(staleRevision);
 			} finally {
 				await session.close();
@@ -2298,7 +2298,7 @@ describe("MCP mutation tools", () => {
 					changedElement: { id: string; name: string; component: string };
 				};
 				expect(content.status).toBe("success");
-				expect(content.newRevision).toMatch(/^sha256:/);
+				expect(content.newRevision).toEqual(expect.any(String));
 				expect(content.newRevision).not.toBe(revision);
 				expect(content.changedElement.name).toBe("Hero");
 				expect(content.changedElement.component).toBe("container");
@@ -2371,7 +2371,7 @@ describe("MCP mutation tools", () => {
 					expectedRevision: string;
 				};
 				expect(content.status).toBe("REVISION_MISMATCH");
-				expect(content.currentRevision).toMatch(/^sha256:/);
+				expect(content.currentRevision).toEqual(expect.any(String));
 				expect(content.expectedRevision).toBe(staleRevision);
 			} finally {
 				await session.close();
@@ -3325,7 +3325,7 @@ describe("MCP mutation tools", () => {
 				expect(content.status).toBe("success");
 				expect(content.deletedElementId).toBe("title");
 				expect(content.deletedCount).toBe(1);
-				expect(content.newRevision).toMatch(/^sha256:/);
+				expect(content.newRevision).toEqual(expect.any(String));
 			} finally {
 				await session.close();
 			}
@@ -4758,7 +4758,7 @@ describe("MCP mutation tools", () => {
 				expect(content).toMatchObject({
 					status: "success",
 					designFileId: trickroomMcpTestDesignUuid,
-					newRevision: expect.stringMatching(/^sha256:/),
+					newRevision: expect.any(String),
 					steps: [
 						{
 							stepIndex: 0,

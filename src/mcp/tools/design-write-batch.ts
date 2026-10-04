@@ -64,6 +64,8 @@ import {
 	createRevisionMismatchResult,
 } from "./results";
 import {
+	designFileIdSchema,
+	expectedRevisionSchema,
 	mutationResponseInputSchema,
 	mutationScopedInputSchema,
 	projectScopedInputSchema,
@@ -90,9 +92,7 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 					.describe(
 						"Optional configured design system name. Omit to inherit the project default system when configured. Pass null to explicitly create an unlinked design.",
 					),
-				designFileId: z
-					.string()
-					.uuid()
+				designFileId: designFileIdSchema
 					.optional()
 					.describe(
 						"Optional UUID to use for the new design file. Required when allowedDesignFileIds restricts MCP to explicit IDs.",
@@ -226,7 +226,7 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 			description:
 				"Copy an element subtree into a new Trickroom design file with regenerated element IDs. The source design is not modified.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Source design file UUID."),
+				designFileId: designFileIdSchema.describe("Source design file UUID."),
 				elementId: z
 					.string()
 					.min(1)
@@ -246,9 +246,7 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 					.describe(
 						"Optional design system override. Omit to inherit the source design system; pass null to explicitly create an unlinked design.",
 					),
-				newDesignFileId: z
-					.string()
-					.uuid()
+				newDesignFileId: designFileIdSchema
 					.optional()
 					.describe(
 						"Optional UUID to use for the new design file. Required when allowedDesignFileIds restricts MCP to explicit IDs.",
@@ -726,13 +724,8 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 			description:
 				"Rename a design file by updating its design-level name. Requires expectedRevision from a prior read.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				name: z.string().min(1).describe("New design file name."),
 			}),
 			annotations: destructiveMutationAnnotations,
@@ -802,11 +795,8 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 			description:
 				"Validate and commit an ordered list of design operations atomically against one expectedRevision. Performs exactly one persisted write when the full plan is valid and the starting revision still matches. Responses are compact by default: newRevision, per-step created ids (changedElementId, idMap for addSubtree tempIds, recipe roots), error issues, warningCount, and likely-typo warnings on touched elements; use the response field for all warnings, token diagnostics, or full step details.",
 			inputSchema: withProjectScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe("Current revision from a prior read."),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				operations: createOperationPlanStepsInputSchema(
 					"Ordered design operations to commit.",
 				),

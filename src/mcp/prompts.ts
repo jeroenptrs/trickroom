@@ -1,13 +1,14 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { BOARD_GUIDANCE } from "./guidance";
+import { designFileIdSchema } from "./tools/schemas";
 
 export const registerTrickroomPrompts = (server: McpServer) => {
 	server.registerPrompt(
 		"edit_design_file",
 		{
 			argsSchema: {
-				designFileId: z.string().uuid().describe("Design file UUID to edit."),
+				designFileId: designFileIdSchema.describe("Design file UUID to edit."),
 			},
 		},
 		({ designFileId }) => ({
@@ -41,7 +42,7 @@ export const registerTrickroomPrompts = (server: McpServer) => {
 		"add_component_to_design",
 		{
 			argsSchema: {
-				designFileId: z.string().uuid().describe("Design file UUID."),
+				designFileId: designFileIdSchema,
 				parentId: z
 					.string()
 					.optional()
@@ -81,10 +82,9 @@ Workflow:
 		"refactor_design_structure",
 		{
 			argsSchema: {
-				designFileId: z
-					.string()
-					.uuid()
-					.describe("Design file UUID to refactor."),
+				designFileId: designFileIdSchema.describe(
+					"Design file UUID to refactor.",
+				),
 			},
 		},
 		({ designFileId }) => ({
@@ -119,10 +119,9 @@ Workflow for Multi-Step Refactoring:
 		"explain_design_file",
 		{
 			argsSchema: {
-				designFileId: z
-					.string()
-					.uuid()
-					.describe("Design file UUID to explain."),
+				designFileId: designFileIdSchema.describe(
+					"Design file UUID to explain.",
+				),
 			},
 		},
 		({ designFileId }) => ({
@@ -153,10 +152,9 @@ Discovery Steps (Read-Only):
 		"validate_design_changes",
 		{
 			argsSchema: {
-				designFileId: z
-					.string()
-					.uuid()
-					.describe("Design file UUID to validate."),
+				designFileId: designFileIdSchema.describe(
+					"Design file UUID to validate.",
+				),
 			},
 		},
 		({ designFileId }) => ({
@@ -200,9 +198,7 @@ Workflow:
 					.describe(
 						"Optional configured design system name. Omit to create an unlinked design or inherit project defaults.",
 					),
-				designFileId: z
-					.string()
-					.uuid()
+				designFileId: designFileIdSchema
 					.optional()
 					.describe(
 						"Optional UUID when MCP policy requires an explicit allowed design file ID.",
@@ -238,10 +234,9 @@ Workflow:
 		"add_media_or_icon",
 		{
 			argsSchema: {
-				designFileId: z
-					.string()
-					.uuid()
-					.describe("Design file UUID that will reference the resource."),
+				designFileId: designFileIdSchema.describe(
+					"Design file UUID that will reference the resource.",
+				),
 				systemName: z
 					.string()
 					.optional()
@@ -276,18 +271,16 @@ Workflow:
 		"reuse_design_subtree",
 		{
 			argsSchema: {
-				sourceDesignFileId: z
-					.string()
-					.uuid()
-					.describe("Source design file UUID containing the subtree to reuse."),
+				sourceDesignFileId: designFileIdSchema.describe(
+					"Source design file UUID containing the subtree to reuse.",
+				),
 				sourceElementId: z
 					.string()
 					.min(1)
 					.describe("Root element ID of the subtree to copy or extract."),
-				targetDesignFileId: z
-					.string()
-					.uuid()
-					.describe("Target design file UUID for insertion."),
+				targetDesignFileId: designFileIdSchema.describe(
+					"Target design file UUID for insertion.",
+				),
 				targetParentId: z
 					.string()
 					.optional()

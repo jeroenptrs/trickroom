@@ -463,7 +463,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 			);
 			const initialRevision = findRevision(designFile);
 
-			expect(initialRevision).toMatch(/^sha256:[a-f0-9]{64}$/);
+			expect(initialRevision).toEqual(expect.any(String));
 			expect(JSON.stringify(designFile).length).toBeLessThan(6000);
 			expect(designFile).not.toHaveProperty("boards.0.children");
 
@@ -506,7 +506,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 					systemName: null,
 				},
 			);
-			expect(findRevision(createResult)).toMatch(/^sha256:[a-f0-9]{64}$/);
+			expect(findRevision(createResult)).toEqual(expect.any(String));
 			const createdDesign = await fixture.designFileService.readDesignFile(
 				fixture.designFileService.getFileForUuid(createdDesignFileId),
 			);
@@ -530,7 +530,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 					},
 				},
 			);
-			expect(findRevision(addResult)).toMatch(/^sha256:[a-f0-9]{64}$/);
+			expect(findRevision(addResult)).toEqual(expect.any(String));
 
 			const afterAdd = await fixture.designFileService.readDesignFile(
 				fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),

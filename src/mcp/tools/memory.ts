@@ -35,7 +35,11 @@ import {
 } from "./annotations";
 import type { McpToolContext } from "./context";
 import { createJsonResult, createToolErrorResult } from "./results";
-import { withProjectScopedInput } from "./schemas";
+import {
+	expectedRevisionSchema,
+	isDesignFileId,
+	withProjectScopedInput,
+} from "./schemas";
 
 export const registerMemoryTools = (ctx: McpToolContext) => {
 	const { server, withPolicyErrorHandling } = ctx;
@@ -157,7 +161,7 @@ export const registerMemoryTools = (ctx: McpToolContext) => {
 					scopeInput,
 				);
 			}
-			if (!z.string().uuid().safeParse(designFileId).success) {
+			if (!isDesignFileId(designFileId)) {
 				throw invalidMemoryScope(
 					`designFileId "${designFileId}" is not a design file UUID.`,
 					scopeInput,
@@ -479,10 +483,7 @@ export const registerMemoryTools = (ctx: McpToolContext) => {
 			inputSchema: withProjectScopedInput({
 				scope: memoryScopeSchema,
 				noteId: z.string().min(1).describe("Memory note id to update."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe("Current memory manifest revision from a prior read."),
+				expectedRevision: expectedRevisionSchema,
 				category: memoryCategorySchema.optional(),
 				body: z
 					.string()
@@ -575,10 +576,7 @@ export const registerMemoryTools = (ctx: McpToolContext) => {
 			inputSchema: withProjectScopedInput({
 				scope: memoryScopeSchema,
 				noteId: z.string().min(1).describe("Memory note id to delete."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe("Current memory manifest revision from a prior read."),
+				expectedRevision: expectedRevisionSchema,
 			}),
 			annotations: destructiveMutationAnnotations,
 		},

@@ -53,7 +53,8 @@ import {
 	createSystemComponentDraftInputErrorResult,
 } from "./results";
 import {
-	systemComponentManifestRevisionSchema,
+	designFileIdSchema,
+	expectedRevisionSchema,
 	withMutationScopedInput,
 	withProjectScopedInput,
 } from "./schemas";
@@ -169,7 +170,7 @@ export const registerSystemComponentDraftTools = (ctx: McpToolContext) => {
 					.string()
 					.min(1)
 					.describe("Configured design system name."),
-				expectedRevision: systemComponentManifestRevisionSchema,
+				expectedRevision: expectedRevisionSchema,
 				slug: z.string().min(1).describe("Unique component slug."),
 				name: z.string().min(1).describe("Human-readable component name."),
 				description: z.string().optional(),
@@ -239,7 +240,7 @@ export const registerSystemComponentDraftTools = (ctx: McpToolContext) => {
 					.min(1)
 					.describe("Configured design system name."),
 				componentId: z.string().min(1).describe("Stable system component id."),
-				expectedRevision: systemComponentManifestRevisionSchema,
+				expectedRevision: expectedRevisionSchema,
 				expectedDraftTemplateHash: z.string().optional(),
 				expectedDraftVariantSchemaHash: z.string().optional(),
 				root: mcpRecipeTemplateNodeInputSchema,
@@ -310,7 +311,7 @@ export const registerSystemComponentDraftTools = (ctx: McpToolContext) => {
 					.min(1)
 					.describe("Configured design system name."),
 				componentId: z.string().min(1).describe("Stable system component id."),
-				expectedRevision: systemComponentManifestRevisionSchema,
+				expectedRevision: expectedRevisionSchema,
 			}),
 			annotations: mutationAnnotations,
 		},
@@ -350,7 +351,7 @@ export const registerSystemComponentDraftTools = (ctx: McpToolContext) => {
 					.min(1)
 					.describe("Configured design system name."),
 				componentId: z.string().min(1).describe("Stable system component id."),
-				expectedRevision: systemComponentManifestRevisionSchema,
+				expectedRevision: expectedRevisionSchema,
 			}),
 			annotations: destructiveMutationAnnotations,
 		},
@@ -389,13 +390,8 @@ export const registerSystemComponentMigrationTools = (ctx: McpToolContext) => {
 			description:
 				"Migrate one stale attached system component instance to the current published version using the same guarded domain rules as the UI. Blocked unsafe migrations are rejected. Review-required migrations are not written unless onlySafe is false.",
 			inputSchema: withMutationScopedInput({
-				designFileId: z.string().uuid().describe("Design file UUID."),
-				expectedRevision: z
-					.string()
-					.startsWith("sha256:")
-					.describe(
-						"Current revision from a prior read. Required for safe writes.",
-					),
+				designFileId: designFileIdSchema,
+				expectedRevision: expectedRevisionSchema,
 				rootElementId: z
 					.string()
 					.min(1)
