@@ -3,10 +3,12 @@ import { z } from "zod";
 import { BOARD_GUIDANCE } from "./guidance";
 
 export const registerTrickroomPrompts = (server: McpServer) => {
-	server.prompt(
+	server.registerPrompt(
 		"edit_design_file",
 		{
-			designFileId: z.string().uuid().describe("Design file UUID to edit."),
+			argsSchema: {
+				designFileId: z.string().uuid().describe("Design file UUID to edit."),
+			},
 		},
 		({ designFileId }) => ({
 			messages: [
@@ -35,14 +37,16 @@ export const registerTrickroomPrompts = (server: McpServer) => {
 		}),
 	);
 
-	server.prompt(
+	server.registerPrompt(
 		"add_component_to_design",
 		{
-			designFileId: z.string().uuid().describe("Design file UUID."),
-			parentId: z
-				.string()
-				.optional()
-				.describe("Target parent element ID. Omit to add at root."),
+			argsSchema: {
+				designFileId: z.string().uuid().describe("Design file UUID."),
+				parentId: z
+					.string()
+					.optional()
+					.describe("Target parent element ID. Omit to add at root."),
+			},
 		},
 		({ designFileId, parentId }) => ({
 			messages: [
@@ -73,10 +77,15 @@ Workflow:
 		}),
 	);
 
-	server.prompt(
+	server.registerPrompt(
 		"refactor_design_structure",
 		{
-			designFileId: z.string().uuid().describe("Design file UUID to refactor."),
+			argsSchema: {
+				designFileId: z
+					.string()
+					.uuid()
+					.describe("Design file UUID to refactor."),
+			},
 		},
 		({ designFileId }) => ({
 			messages: [
@@ -106,10 +115,15 @@ Workflow for Multi-Step Refactoring:
 		}),
 	);
 
-	server.prompt(
+	server.registerPrompt(
 		"explain_design_file",
 		{
-			designFileId: z.string().uuid().describe("Design file UUID to explain."),
+			argsSchema: {
+				designFileId: z
+					.string()
+					.uuid()
+					.describe("Design file UUID to explain."),
+			},
 		},
 		({ designFileId }) => ({
 			messages: [
@@ -135,10 +149,15 @@ Discovery Steps (Read-Only):
 		}),
 	);
 
-	server.prompt(
+	server.registerPrompt(
 		"validate_design_changes",
 		{
-			designFileId: z.string().uuid().describe("Design file UUID to validate."),
+			argsSchema: {
+				designFileId: z
+					.string()
+					.uuid()
+					.describe("Design file UUID to validate."),
+			},
 		},
 		({ designFileId }) => ({
 			messages: [
@@ -167,26 +186,28 @@ Workflow:
 		}),
 	);
 
-	server.prompt(
+	server.registerPrompt(
 		"create_design_file_from_brief",
 		{
-			brief: z
-				.string()
-				.min(1)
-				.describe("Short product or layout brief for the new design."),
-			systemName: z
-				.string()
-				.optional()
-				.describe(
-					"Optional configured design system name. Omit to create an unlinked design or inherit project defaults.",
-				),
-			designFileId: z
-				.string()
-				.uuid()
-				.optional()
-				.describe(
-					"Optional UUID when MCP policy requires an explicit allowed design file ID.",
-				),
+			argsSchema: {
+				brief: z
+					.string()
+					.min(1)
+					.describe("Short product or layout brief for the new design."),
+				systemName: z
+					.string()
+					.optional()
+					.describe(
+						"Optional configured design system name. Omit to create an unlinked design or inherit project defaults.",
+					),
+				designFileId: z
+					.string()
+					.uuid()
+					.optional()
+					.describe(
+						"Optional UUID when MCP policy requires an explicit allowed design file ID.",
+					),
+			},
 		},
 		({ brief, systemName, designFileId }) => ({
 			messages: [
@@ -213,19 +234,21 @@ Workflow:
 		}),
 	);
 
-	server.prompt(
+	server.registerPrompt(
 		"add_media_or_icon",
 		{
-			designFileId: z
-				.string()
-				.uuid()
-				.describe("Design file UUID that will reference the resource."),
-			systemName: z
-				.string()
-				.optional()
-				.describe(
-					"Configured design system name. Omit to resolve from the design file's linked system.",
-				),
+			argsSchema: {
+				designFileId: z
+					.string()
+					.uuid()
+					.describe("Design file UUID that will reference the resource."),
+				systemName: z
+					.string()
+					.optional()
+					.describe(
+						"Configured design system name. Omit to resolve from the design file's linked system.",
+					),
+			},
 		},
 		({ designFileId, systemName }) => ({
 			messages: [
@@ -249,25 +272,27 @@ Workflow:
 		}),
 	);
 
-	server.prompt(
+	server.registerPrompt(
 		"reuse_design_subtree",
 		{
-			sourceDesignFileId: z
-				.string()
-				.uuid()
-				.describe("Source design file UUID containing the subtree to reuse."),
-			sourceElementId: z
-				.string()
-				.min(1)
-				.describe("Root element ID of the subtree to copy or extract."),
-			targetDesignFileId: z
-				.string()
-				.uuid()
-				.describe("Target design file UUID for insertion."),
-			targetParentId: z
-				.string()
-				.optional()
-				.describe("Target parent element ID. Omit to insert at root."),
+			argsSchema: {
+				sourceDesignFileId: z
+					.string()
+					.uuid()
+					.describe("Source design file UUID containing the subtree to reuse."),
+				sourceElementId: z
+					.string()
+					.min(1)
+					.describe("Root element ID of the subtree to copy or extract."),
+				targetDesignFileId: z
+					.string()
+					.uuid()
+					.describe("Target design file UUID for insertion."),
+				targetParentId: z
+					.string()
+					.optional()
+					.describe("Target parent element ID. Omit to insert at root."),
+			},
 		},
 		({
 			sourceDesignFileId,
