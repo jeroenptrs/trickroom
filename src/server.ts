@@ -101,6 +101,17 @@ export type TrickroomSessionProject = {
 	name: string;
 };
 
+/**
+ * Server-process hooks for code that hosts the app (the production entry and
+ * the dev plugin), such as keeping the discovery record on the active project.
+ */
+export type TrickroomAppRuntime = {
+	getActiveProject: () => TrickroomSessionProject | null;
+	subscribeActiveProject: (
+		listener: (project: TrickroomSessionProject | null) => void,
+	) => () => void;
+};
+
 export type TrickroomAppOptions = {
 	trickroomHome?: string;
 	initialProjectRoot?: string | null;
@@ -539,9 +550,26 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 	let activeProject: TrickroomActiveProject | null = null;
 	let initialProjectPromise: Promise<void> | null = null;
 	const projectFileEvents = new ProjectFileEvents();
+	const activeProjectListeners = new Set<
+		(project: TrickroomSessionProject | null) => void
+	>();
 	const setActiveProject = (project: TrickroomActiveProject | null) => {
 		activeProject = project;
 		projectFileEvents.setProjectRoot(project?.projectRoot ?? null);
+		const sessionProject = project ? toSessionProject(project) : null;
+		for (const listener of activeProjectListeners) {
+			listener(sessionProject);
+		}
+	};
+	const runtime: TrickroomAppRuntime = {
+		getActiveProject: () =>
+			activeProject ? toSessionProject(activeProject) : null,
+		subscribeActiveProject: (listener) => {
+			activeProjectListeners.add(listener);
+			return () => {
+				activeProjectListeners.delete(listener);
+			};
+		},
 	};
 
 	app.onError((error, c) => {
@@ -1614,7 +1642,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		}
 	});
 
-	return app;
+	return Object.assign(app, { trickroomRuntime: runtime });
 };
 
 const initialProjectRoot = process.env.TRICKROOM_PROJECT_DIR

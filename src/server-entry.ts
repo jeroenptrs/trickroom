@@ -4,6 +4,10 @@ import path from "node:path";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { etag } from "hono/etag";
+import {
+	createServerDiscoveryPublisher,
+	resolveLoopbackServerUrl,
+} from "./app-state/runtime-servers";
 import { readTrickroomSettings } from "./app-state/settings";
 import app from "./server";
 import { formatServerUrlHost, requireSessionTokenForHost } from "./server-auth";
@@ -94,6 +98,25 @@ export type ServerReadyPayload = {
 	authenticated: boolean;
 };
 
+// Lets local processes such as the MCP server find this server. Losing the
+// record only disables agent-to-browser features, so failures just warn.
+const publishDiscoveryRecord = (address: string, port: number) => {
+	try {
+		const publisher = createServerDiscoveryPublisher({
+			url: resolveLoopbackServerUrl(address, port),
+			token: sessionToken || null,
+			project: app.trickroomRuntime.getActiveProject(),
+		});
+		app.trickroomRuntime.subscribeActiveProject((project) =>
+			publisher.setProject(project),
+		);
+	} catch (error) {
+		console.warn(
+			`Could not write the Trickroom server discovery record: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
+};
+
 export const serverReady = new Promise<ServerReadyPayload>((resolve) => {
 	serve(
 		{ fetch: app.fetch, port: configuredPort, hostname: configuredHost },
@@ -121,6 +144,12 @@ export const serverReady = new Promise<ServerReadyPayload>((resolve) => {
 				token: sessionToken ?? null,
 				authenticated: Boolean(sessionToken),
 			};
+			publishDiscoveryRecord(
+				typeof address === "object" && address
+					? address.address
+					: configuredHost,
+				port,
+			);
 			if (typeof process.send === "function") process.send(payload);
 			if (
 				process.env.TRICKROOM_READY_JSON === "1" &&
