@@ -87,36 +87,6 @@ export const getAllowedChildrenMetadata = (role: Role) => {
 	};
 };
 
-export const getCompositionMetadata = (role: Role) => {
-	if (role === "text") {
-		return {
-			kind: "none",
-			enforcedBy: "role",
-			acceptsElementChildren: false,
-			reason:
-				"Text role elements serialize children as text content and cannot contain element children.",
-		};
-	}
-
-	if (role === "leaf") {
-		return {
-			kind: "none",
-			enforcedBy: "role",
-			acceptsElementChildren: false,
-			reason:
-				"Leaf role elements serialize children as an empty array and cannot contain element children.",
-		};
-	}
-
-	return {
-		kind: "freeform",
-		enforcedBy: "role",
-		acceptsElementChildren: true,
-		acceptedRoles: ["branch", "text", "leaf"],
-		reason: "Branch role elements can contain any valid child element node.",
-	};
-};
-
 const getDefaultMetadata = (
 	library: RegistryId,
 	component: string,
@@ -130,6 +100,27 @@ const getDefaultMetadata = (
 		props: getDefaultProps(library, component, definition),
 		controlProps: getControlProps(definition),
 		children: role === "text" ? "Text" : [],
+	};
+};
+
+/** Compact list entry: identity, role, child kind and control names. */
+export const summarizeComponent = (library: RegistryId, component: string) => {
+	const registry = getRegistryOrThrow(library);
+	if (!Object.hasOwn(registry, component)) {
+		throwUnknownRegistryComponent(library, component);
+	}
+
+	const definition = registry[component as keyof typeof registry];
+	const controls = getControlDefinitions(definition)
+		.filter((control) => control.visibility !== "hidden")
+		.map((control) => control.prop);
+	return {
+		library,
+		component,
+		label: definition.label,
+		role: definition.role,
+		allowedChildren: { kind: getAllowedChildrenMetadata(definition.role).kind },
+		...(controls.length > 0 ? { controls } : {}),
 	};
 };
 
@@ -170,7 +161,6 @@ export const describeComponent = (library: RegistryId, component: string) => {
 		readOnly: true,
 		description: definition.description ?? null,
 		allowedChildren: getAllowedChildrenMetadata(role),
-		composition: getCompositionMetadata(role),
 		controls: describedControls,
 		defaults: getDefaultMetadata(library, component, role, definition),
 		writableInstanceProps: [
@@ -224,44 +214,6 @@ export const describeComponent = (library: RegistryId, component: string) => {
 							kind: "children",
 							storage: "children",
 						},
-		supportedProps: [
-			{
-				name: "className",
-				type: "string",
-				required: false,
-				source: "instance",
-				description: "Tailwind class string applied to this element instance.",
-			},
-			{
-				name: "data-trickroom-name",
-				type: "string",
-				required: true,
-				source: "instance",
-				description: "Human-readable layer name.",
-			},
-			{
-				name: "data-trickroom-library",
-				type: "string",
-				required: true,
-				source: "registry-reference",
-				fixedValue: library,
-			},
-			{
-				name: "data-trickroom-component",
-				type: "string",
-				required: true,
-				source: "registry-reference",
-				fixedValue: component,
-			},
-			{
-				name: "data-trickroom-role",
-				type: "string",
-				required: true,
-				source: "registry-reference",
-				fixedValue: role,
-			},
-			...controlProps,
-		],
 	};
 };
 
@@ -457,7 +409,6 @@ export const summarizeRecipe = (
 		label: recipe.label,
 		description: recipe.description ?? null,
 		version: recipe.version,
-		previousTemplates: describeRecipeTemplateHistory(recipe),
 		root: describeRecipeComponentRef(recipe.root),
 		structure: {
 			nodeCount: nodes.length,

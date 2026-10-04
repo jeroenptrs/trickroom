@@ -24,6 +24,7 @@ import {
 	getRegistryIds,
 	getRegistryOrThrow,
 	isRecipeAllowed,
+	summarizeComponent,
 	summarizeRecipe,
 } from "../payloads/registry";
 import type { TrickroomMcpServerContext } from "../server-types";
@@ -60,7 +61,7 @@ export const registerRegistryTools = (ctx: McpToolContext) => {
 		{
 			title: "List Registry Components",
 			description:
-				"List components in a registry, including compact role and child-behavior metadata.",
+				"List components in a registry with role, allowed children and control names. describeRegistryComponent returns one component's controls and defaults.",
 			inputSchema: withProjectScopedInput({
 				library: z
 					.string()
@@ -84,17 +85,9 @@ export const registerRegistryTools = (ctx: McpToolContext) => {
 								.filter((component) =>
 									isComponentAllowed(policy, selectedLibrary, component),
 								)
-								.map((component) => {
-									const summary = describeComponent(selectedLibrary, component);
-									return {
-										library: summary.library,
-										component: summary.component,
-										role: summary.role,
-										allowedChildren: summary.allowedChildren,
-										composition: summary.composition,
-										defaults: summary.defaults,
-									};
-								}),
+								.map((component) =>
+									summarizeComponent(selectedLibrary, component),
+								),
 						};
 					}),
 				});
