@@ -88,6 +88,14 @@ describe("trickroom MCP workflow prompts", () => {
 			expect(text).toContain("newRevision");
 			expect(text).toContain("revision chaining");
 			expect(text).toContain(designFileId);
+			// Prompts describe the flow; rules come from the contract core and
+			// its topics, fetched with the design id.
+			expect(text).toContain("applyDesignOperations");
+			expect(text).toContain(
+				`'getDesignAuthoringContract' with designFileId "${designFileId}"`,
+			);
+			expect(text).toContain("'components' topic");
+			expect(text).toContain("screenshotBoard");
 		} finally {
 			await server.close();
 			await rm(projectRoot, { force: true, recursive: true });
@@ -192,7 +200,7 @@ describe("trickroom MCP workflow prompts", () => {
 			const text = prompt.messages[0].content.text;
 			expect(text).toContain("validateDesignFile");
 			expect(text).toContain(
-				"structural, registry, recipe, token, asset, and icon",
+				"structural, registry, recipe, component, token, asset and icon",
 			);
 			expect(text).toContain("readDesignGraph");
 			expect(text).toContain("validateOperation");

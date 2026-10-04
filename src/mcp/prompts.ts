@@ -3,6 +3,20 @@ import { z } from "zod";
 import { BOARD_GUIDANCE } from "./guidance";
 import { designFileIdSchema } from "./tools/schemas";
 
+// Steps every prompt shares. Prompts describe the flow; the authoring
+// contract (core plus topics) carries the rules, so they are not repeated here.
+const PROJECT_STEP =
+	"Call 'getSelectedProject'. If no project is selected, call 'listProjects', then 'selectProject' with an entry's 'locationId'.";
+
+const contractStep = (designFileId: string) =>
+	`Call 'getDesignAuthoringContract' with designFileId "${designFileId}". The core has the design's revision and boards, its design system, the rules, and the topics to fetch when you need them (e.g. 'recipes', 'components', 'operations'). If its memoryNotes counts are non-zero, read those notes with 'listMemoryNotes' and 'getMemoryNote' and follow them.`;
+
+const WRITE_STEP =
+	"Use 'applyDesignOperations' for all steps of a change in one batch, with the core's revision as 'expectedRevision'. Dry-run a risky batch with 'validateOperationPlan', or one operation with 'validateOperation'. Pass each write's 'newRevision' to the next (revision chaining). On 'REVISION_MISMATCH', re-read the revision with 'listDesignFiles' and retry; never guess.";
+
+const CHECK_STEP =
+	"Fix the warnings each write returns. Call 'screenshotBoard' for each changed board at viewport mobile, tablet and desktop and inspect the returned PNG image blocks, then call 'validateDesignFile'.";
+
 export const registerTrickroomPrompts = (server: McpServer) => {
 	server.registerPrompt(
 		"edit_design_file",
@@ -17,21 +31,14 @@ export const registerTrickroomPrompts = (server: McpServer) => {
 					role: "user",
 					content: {
 						type: "text",
-						text: `I need to edit the Trickroom design file "${designFileId}". Please guide me through a safe edit workflow:
+						text: `Edit the Trickroom design file "${designFileId}".
 
-1. **Select MCP Project Scope**: Call 'getSelectedProject'. If no project is selected, call 'listProjects' and then 'selectProject' with a known 'locationId' from each listProjects entry (not just 'projectId') before any writes.
-2. **Read Current State**: Call 'listDesignFiles' to get the current 'revision', counts, and design metadata. Also call 'listMemoryNotes' with 'scope { kind: "design", designFileId }' (and the linked system + project scopes) to load steering notes, intent, and constraints before changing anything.
-3. **Load Authoring Contract**: Call 'getDesignAuthoringContract' with 'designFileId' once before planning mutations.
-4. **Understand Structure**: Call 'readDesignGraph' for parent/child relationships, element IDs, and addresses. Use 'readElement' or bounded 'readSubtree' only for local detail where the graph is insufficient.
-5. **Plan Registry Content**: If adding UI, use 'listRegistryComponents', 'listRegistryRecipes', 'describeRegistryComponent', and 'describeRegistryRecipe'. Prefer 'addRecipe' or 'addSubtree' for structured UI instead of hand-assembling many nodes with repeated 'addElement' calls. ${BOARD_GUIDANCE}
-6. **Inspect Resources**: If touching assets or icons, call 'listSystemAssets' and/or 'listSystemIcons' (and 'describeAsset' / 'describeIcon' as needed) before referencing resource-backed elements.
-7. **Dry-Run Uncertain Writes**: Use 'validateOperation' before risky single mutations. For larger multi-step refactors, use 'validateOperationPlan'; for larger inserted structures, use 'validateSubtree' or 'validateCopySubtree' before committing.
-8. **Execute Safely**:
-   - For multi-step edits in one revision, use 'validateOperationPlan' then 'applyDesignOperations' with the same operation list and starting revision.
-   - For single mutations, use the 'revision' from step 2 as 'expectedRevision'.
-   - For every SUBSEQUENT mutation, you MUST use the 'newRevision' returned by the previous successful tool call (revision chaining).
-   - If a tool returns 'REVISION_MISMATCH', do NOT guess. Call 'listDesignFiles' again to get the current revision, then retry with the updated 'expectedRevision'.
-9. **Validate & Verify**: Write responses are compact by default — error-severity issues, a 'warningCount', and likely-typo warnings (unknown Tailwind utilities or tokens) on the elements the write touched. Fix typo warnings immediately. When 'warningCount' is non-zero and you need the rest, pass 'response: { includeWarnings: true }' (add 'warningScope: "file"' and/or 'includeTokenDiagnostics: true' to widen) on any write tool, or call 'validateDesignFile' (supports 'includeTokenDiagnostics'). Confirm only the edited area with 'readElement' or bounded 'readSubtree' unless a broader read-back is explicitly necessary.`,
+1. **Project**: ${PROJECT_STEP}
+2. **Contract**: ${contractStep(designFileId)}
+3. **Structure**: Call 'readDesignGraph' for ids and parent/child relationships. Use bounded 'readSubtree' or 'readElement' only where you need detail.
+4. **Plan**: Prefer a design system component ('components' topic), then a recipe ('addRecipe', 'recipes' topic), then 'addSubtree', over many 'addElement' calls. ${BOARD_GUIDANCE} For images or icons, find ids with 'listSystemAssets' or 'listSystemIcons' first. Dry-run a large inserted structure with 'validateSubtree'.
+5. **Write**: ${WRITE_STEP}
+6. **Check**: ${CHECK_STEP} Read back only the edited area unless more is needed.`,
 					},
 				},
 			],
@@ -55,23 +62,14 @@ export const registerTrickroomPrompts = (server: McpServer) => {
 					role: "user",
 					content: {
 						type: "text",
-						text: `I want to add registry content to design file "${designFileId}"${parentId ? ` under parent "${parentId}"` : " at the root"}.
+						text: `Add registry content to design file "${designFileId}"${parentId ? ` under parent "${parentId}"` : " at the root"}.
 
-Workflow:
-1. **Select MCP Project Scope**: Call 'getSelectedProject'. If no project is selected, call 'listProjects' and then 'selectProject' with a known 'locationId' from each listProjects entry (not just 'projectId') before any writes.
-2. **Load Authoring Contract**: Call 'getDesignAuthoringContract' with 'designFileId' before choosing an insertion strategy.
-3. **Choose Insertion Tool** (pick the smallest fit):
-   - 'addElement' for one simple component.
-   - 'addRecipe' for known recipe-backed UI.
-   - 'addSubtree' for composed element or recipe trees.
-   - 'copySubtree' when reusing an existing subtree from this or another design location.
-4. **Discovery**: Use 'listRegistryComponents', 'listRegistryRecipes', 'describeRegistryComponent', and 'describeRegistryRecipe' to confirm roles, allowed children, slots, and supported props.
-5. **Parent Check**: ${parentId ? `Call 'readElement' for "${parentId}" (or confirm via 'readDesignGraph')` : "If 'parentId' is provided, call 'readElement' or 'readDesignGraph'"} to verify the target parent is a 'branch' role element. If adding at the root, use 'parentId': null; a root insert creates a new board. ${BOARD_GUIDANCE}
-6. **Resource Catalogs**: When adding asset- or icon-backed elements, call 'listSystemAssets' / 'listSystemIcons' (and describe tools as needed) and use canonical system resource IDs.
-7. **Get Revision**: Call 'listDesignFiles' for the current 'revision'. Use 'readDesignGraph' for insertion index context when needed.
-8. **Dry-Run**: Call 'validateOperation', 'validateSubtree', or 'validateCopySubtree' before committing uncertain inserts.
-9. **Execute**: Perform the chosen write with 'expectedRevision' from step 7. Chain 'newRevision' across follow-up writes.
-10. **Verify**: Call 'readElement' or bounded 'readSubtree' on the inserted region to confirm placement and props.`,
+1. **Project**: ${PROJECT_STEP}
+2. **Contract**: ${contractStep(designFileId)} Fetch the 'components' or 'recipes' topic with name for the UI you are adding, or 'registry' for raw elements.
+3. **Parent**: ${parentId ? `Call 'readElement' for "${parentId}" (or 'readDesignGraph') and confirm it is a branch element outside locked recipe or component structure, or a slot host.` : `Use 'parentId': null; a root insert creates a new board. ${BOARD_GUIDANCE}`}
+4. **Insert** with the smallest fit: 'addSystemComponent' for a design system component, 'addRecipe' for recipe-backed UI, 'addSubtree' for a composed tree, 'copySubtree' to reuse an existing subtree, 'addElement' for one element. For image or icon elements, find ids with 'listSystemAssets' or 'listSystemIcons'. Dry-run uncertain inserts with 'validateOperation' or 'validateSubtree'.
+5. **Write**: ${WRITE_STEP}
+6. **Check**: Confirm the inserted region with 'readSubtree'. ${CHECK_STEP}`,
 					},
 				},
 			],
@@ -93,22 +91,14 @@ Workflow:
 					role: "user",
 					content: {
 						type: "text",
-						text: `I need to refactor the structure of design file "${designFileId}". This involves multiple moves, additions, deletions, or recipe changes.
+						text: `Refactor the structure of design file "${designFileId}": several moves, additions, deletions or recipe changes.
 
-Workflow for Multi-Step Refactoring:
-1. **Select MCP Project Scope**: Call 'getSelectedProject'. If no project is selected, call 'listProjects' and then 'selectProject' with a known 'locationId' from each listProjects entry (not just 'projectId') before any writes.
-2. **Graph-First Planning**: Call 'listDesignFiles' for the initial 'revision', then 'readDesignGraph' for structure and IDs before any nested reads.
-3. **Scoped Detail**: Use bounded 'readSubtree' only for affected regions. Avoid loading the full design unless explicitly necessary.
-4. **Prefer Specialized Tools**: Use 'copySubtree', 'extractSubtree', 'detachRecipeInstance', 'updateRecipeInstance', and 'updateRecipeControl' when they match the intent instead of manual re-assembly.
-5. **Dry-Run Risky Steps**: Call 'validateOperationPlan' for multi-step refactors, or 'validateOperation' / 'validateCopySubtree' for individual uncertain mutations.
-6. **Atomic or Sequential Mutations**:
-   - Prefer 'validateOperationPlan' followed by 'applyDesignOperations' when several dependent edits should land in one revision.
-   - Otherwise execute changes one-by-one with revision chaining:
-   - For the FIRST mutation, use the initial 'revision' as 'expectedRevision'.
-   - For EVERY SUBSEQUENT mutation, you MUST use the 'newRevision' returned by the previous successful tool call.
-7. **Concurrency Handling**: If ANY step returns 'REVISION_MISMATCH', call 'listDesignFiles' to resynchronize, then resume the refactor plan.
-8. **Cleanup**: Use 'deleteElement' and 'moveElement' for redundant wrappers or repositioning when specialized tools do not apply.
-9. **Final Validation**: Call 'validateDesignFile' when the refactor is complete.`,
+1. **Project**: ${PROJECT_STEP}
+2. **Contract**: ${contractStep(designFileId)}
+3. **Graph first**: Call 'readDesignGraph' for structure and ids, then bounded 'readSubtree' only for affected regions.
+4. **Use the specific operation** ('operations' topic): 'copySubtree', 'moveElement', 'deleteElement', 'detachRecipeInstance', 'updateRecipeInstance' for a stale recipe, 'updateRecipeControl' or 'updateElementProps' for recipe controls, and 'extractSubtree' to move a subtree into a new design file. Avoid deleting and rebuilding what a move or copy can do.
+5. **Plan atomically**: Dry-run the whole plan with 'validateOperationPlan', then commit the same steps with 'applyDesignOperations' and the core's revision as 'expectedRevision': one write, one 'newRevision'. Chain it into any follow-up write; on 'REVISION_MISMATCH', re-read the revision with 'listDesignFiles' and resume the plan.
+6. **Check**: ${CHECK_STEP}`,
 					},
 				},
 			],
@@ -130,18 +120,16 @@ Workflow for Multi-Step Refactoring:
 					role: "user",
 					content: {
 						type: "text",
-						text: `Please provide a technical explanation of design file "${designFileId}".
+						text: `Explain design file "${designFileId}" technically. Read only: do not write.
 
-Discovery Steps (Read-Only):
-1. **Select MCP Project Scope**: Call 'getSelectedProject'. If no project is selected, call 'listProjects' and then 'selectProject' with a known 'locationId' from each listProjects entry (not just 'projectId') before discovery.
-2. **Metadata, Memory & Graph**: Call 'listDesignFiles' for revision and counts, and 'listMemoryNotes' with 'scope { kind: "design", designFileId }' (plus linked system + project scopes) to ground the explanation in recorded intent and rationale. Then call 'readDesignGraph' for structure, parent/child relationships, and element IDs. Use bounded 'readSubtree' only where local detail is needed.
-3. **Authoring Contract**: Call 'getDesignAuthoringContract' to summarize writable vs system-owned props, composition rules, and mutation constraints.
-4. **Registry & Recipes**: Use 'listRegistries', registry component/recipe lists, and describe tools to explain which libraries, components, and attached recipes are in use.
-5. **Assets & Icons**: Call 'getDesignSystemForDesignFile', then 'listSystemAssets', 'listSystemIcons', and 'findAssetUsage' / 'findIconUsage' when resource references matter.
-6. **Tokens**: Call 'listDesignTokens' and summarize token domains (not only color) available to the linked design system.
-7. **Validation & Diagnostics**: Call 'validateDesignFile' and report structural, registry, recipe, token, asset, and icon issues separately—including stale attached recipes or missing resources.
-8. **Visual Review**: Call 'screenshotBoard' for relevant boards or 'screenshotNode' for focused regions, inspect the returned PNG image blocks, and distinguish visual observations from structural diagnostics.
-9. **Synthesis**: Explain the design's purpose, expansion points, broken references, and any visual findings. Raw catalog asset/image/SVG bytes are still not returned by resource discovery tools.`,
+1. **Project**: ${PROJECT_STEP}
+2. **Contract**: ${contractStep(designFileId)} Recorded intent and rationale in memory notes ground the explanation.
+3. **Structure**: Call 'readDesignGraph', and bounded 'readSubtree' where you need detail.
+4. **Vocabulary**: Use the 'recipes', 'components' and 'registry' topics (or 'listRegistries' and the registry component/recipe lists and describe tools) to explain the libraries, recipes and system components in use.
+5. **Tokens and resources**: Call 'listDesignTokens' by domain, and 'findAssetUsage' / 'findIconUsage' when resource references matter. MCP never returns image or SVG bytes.
+6. **Diagnostics**: Call 'validateDesignFile' and report structural, registry, recipe, component, token, asset and icon issues separately, including stale instances and missing resources.
+7. **Visual review**: Call 'screenshotBoard' for relevant boards or 'screenshotNode' for focused regions, inspect the returned PNG image blocks, and keep visual observations apart from diagnostics.
+8. **Synthesis**: Explain the design's purpose, structure, expansion points, broken references and visual findings.`,
 					},
 				},
 			],
@@ -163,19 +151,14 @@ Discovery Steps (Read-Only):
 					role: "user",
 					content: {
 						type: "text",
-						text: `Please perform a post-edit validation of design file "${designFileId}".
+						text: `Validate design file "${designFileId}" after edits.
 
-Workflow:
-1. **Select MCP Project Scope**: Call 'getSelectedProject'. If no project is selected, call 'listProjects' and then 'selectProject' with a known 'locationId' from each listProjects entry (not just 'projectId') before any writes.
-2. **Technical Validation**: Call 'validateDesignFile' (write responses are minimal by default, so this is where the full issue set lives; add 'includeTokenDiagnostics: true' only when you need the custom-utility catalog).
-3. **Analyze Issues by Category**: If 'valid' is false, group issues into structural, registry, recipe, token, asset, and icon diagnostics. If the design is already clean, do not perform any unnecessary mutations.
-4. **Targeted Re-Reads**: Use 'readDesignGraph' or bounded 'readSubtree' only where reported issues point to specific elements or subtrees.
-5. **Execute Fixes Deliberately**:
-   - Start with 'listDesignFiles' for the current 'revision' when mutations are required.
-   - Dry-run fixes with 'validateOperation' (or subtree/copy validators) where possible before committing.
-   - Pass the current revision as 'expectedRevision' to mutation tools and chain 'newRevision' across multiple fixes.
-   - If a fix returns 'REVISION_MISMATCH', re-read metadata and retry with the new revision.
-6. **Final State Sync**: Call 'validateDesignFile' again after fixes, then confirm affected areas with scoped reads.
+1. **Project**: ${PROJECT_STEP}
+2. **Technical Validation**: Call 'validateDesignFile'. Write responses list only likely typos, so this is where the full issue set lives; add 'includeTokenDiagnostics: true' only when you need the custom-utility catalog.
+3. **Analyze Issues by Category**: If 'valid' is false, group issues into structural, registry, recipe, component, token, asset and icon diagnostics. If the design is already clean, do not perform any unnecessary mutations.
+4. **Targeted Re-Reads**: Use 'readDesignGraph' or bounded 'readSubtree' only where issues point to specific elements. The 'validation' and 'tokens' topics of 'getDesignAuthoringContract' explain the codes.
+5. **Fix Deliberately**: Get the current revision from 'listDesignFiles', dry-run fixes with 'validateOperation' or 'validateOperationPlan', and commit them with 'applyDesignOperations'. Chain 'newRevision'; on 'REVISION_MISMATCH', re-read and retry.
+6. **Final State**: Call 'validateDesignFile' again after fixes and confirm affected areas with scoped reads.
 7. **Visual Review**: Call 'screenshotBoard' or 'screenshotNode' for the changed regions and inspect the returned PNG image blocks.
 8. **Final Report**: Separate structural diagnostics from visual observations and only claim visual or layout readiness for regions actually inspected.`,
 					},
@@ -215,15 +198,12 @@ Workflow:
 
 ${brief}
 
-Workflow:
-1. **Select MCP Project Scope**: Call 'getSelectedProject'. If no project is selected, call 'listProjects' and then 'selectProject' with a known 'locationId' from each listProjects entry (not just 'projectId') before any writes.
-2. **Create Design File**: Call 'createDesignFile' with a clear name${systemName ? ` and systemName "${systemName}"` : " (omit systemName only when an unlinked design is intentional — a system cannot be linked via MCP afterwards)"}${designFileId ? ` and designFileId "${designFileId}"` : ""}. Capture the returned 'revision' and design file ID. The new design starts with no boards.
-3. **Resolve Linked System**: Call 'getDesignSystemForDesignFile' on the new design. Only when a configured system is linked should you call system-scoped tools such as 'listDesignTokens', 'listSystemAssets', or 'listSystemIcons'. When a system is linked, call 'listMemoryNotes' with 'scope { kind: "system", systemName }' (and the project scope) to honor recorded usage conventions and constraints; record new design intent with 'addMemoryNote' under 'scope { kind: "design", designFileId }' once the design takes shape.
-4. **Load Authoring Contract**: Call 'getDesignAuthoringContract' for the new design file before planning content.
-5. **Build with Structure**: Create boards at the design root by passing 'parentId: null'; never wrap them in a shared top-level layer. ${BOARD_GUIDANCE} Prefer 'addRecipe' and 'addSubtree' over many piecemeal 'addElement' calls. Use 'listRegistryRecipes' and describe tools to pick appropriate recipes.
-6. **Dry-Run Inserts**: Call 'validateSubtree' (or 'validateOperation' for single inserts) before committing larger structures.
-7. **Execute with Revision Chaining**: Use 'expectedRevision' from creation (or the latest 'newRevision') for each write.
-8. **Validate & Review**: Call 'validateDesignFile' on the finished design, then call 'screenshotBoard' for each relevant board (at 'mobile', 'tablet', and 'desktop' viewports when the screen should be responsive) and inspect the returned PNG image blocks before reporting visual readiness.`,
+1. **Project**: ${PROJECT_STEP}
+2. **Create**: Call 'createDesignFile' with a clear name${systemName ? ` and systemName "${systemName}"` : " (omit systemName only when an unlinked design is intentional: a system cannot be linked via MCP afterwards)"}${designFileId ? ` and designFileId "${designFileId}"` : ""}. Keep the returned design id and 'newRevision'. The design starts with no boards.
+3. **Contract**: Call 'getDesignAuthoringContract' with the new designFileId. Its core shows the linked design system (or 'getDesignSystemForDesignFile'). Only when a configured system is linked are 'listDesignTokens', 'listSystemIcons' and the 'components' topic useful. Read system and project memory notes when their counts are non-zero, and record the design's intent with 'addMemoryNote' once it takes shape.
+4. **Build**: Create boards at the design root with 'parentId: null'; never wrap them in a shared layer. ${BOARD_GUIDANCE} Prefer system components and recipes ('addRecipe') to hand-built structures, and 'addSubtree' to many 'addElement' calls. Dry-run large structures with 'validateSubtree' or 'validateOperationPlan'.
+5. **Write**: ${WRITE_STEP}
+6. **Review**: ${CHECK_STEP} Report visual readiness only for what you inspected.`,
 					},
 				},
 			],
@@ -251,16 +231,15 @@ Workflow:
 					role: "user",
 					content: {
 						type: "text",
-						text: `I need to add or wire up media or icons for design file "${designFileId}"${systemName ? ` using design system "${systemName}"` : ""}.
+						text: `Add or wire up images or icons for design file "${designFileId}"${systemName ? ` using design system "${systemName}"` : ""}.
 
-Workflow:
-1. **Select MCP Project Scope**: Call 'getSelectedProject'. If no project is selected, call 'listProjects' and then 'selectProject' with a known 'locationId' from each listProjects entry (not just 'projectId') before any writes.
-2. **Resolve Design System**: ${systemName ? `Use systemName "${systemName}".` : "Call 'getDesignSystemForDesignFile' to resolve the linked design system."}
-3. **Catalog Discovery**: Call 'listSystemAssets' and 'listSystemIcons'. Use 'describeAsset' / 'describeIcon' for details. MCP does not return raw image or SVG bytes.
-4. **Register Resources (if needed)**: When new files are required and policy allows, use 'addSystemAsset', 'addSystemIconFolder', or related system resource write tools, then refresh catalogs.
-5. **Authoring Contract**: Call 'getDesignAuthoringContract' to confirm how asset and icon elements reference canonical resource IDs.
-6. **Insert or Update Elements**: Use 'addElement', 'addSubtree', or 'updateElementProps' with canonical asset/icon IDs. Dry-run with 'validateOperation' or 'validateSubtree' when uncertain.
-7. **Validate References**: Call 'findAssetUsage' / 'findIconUsage' and 'validateDesignFile', then read back affected elements with 'readElement'.`,
+1. **Project**: ${PROJECT_STEP}
+2. **Contract**: ${contractStep(designFileId)} The 'resources' topic explains trickroom/asset and trickroom/icon elements.
+3. **Design System**: ${systemName ? `Use systemName "${systemName}".` : "Use the design system from the contract core, or call 'getDesignSystemForDesignFile'."}
+4. **Catalogs**: Call 'listSystemAssets' and 'listSystemIcons' with a query; 'describeAsset' / 'describeIcon' for details. MCP does not return raw image or SVG bytes.
+5. **Register (if needed)**: When new files are required and policy allows, use 'addSystemAsset' or 'addSystemIconFolder', then list the catalog again.
+6. **Insert or Update**: Use 'addElement', 'addSubtree' or 'updateElementProps' (batched with 'applyDesignOperations') with the catalog ids. ${WRITE_STEP}
+7. **Check**: Call 'findAssetUsage' / 'findIconUsage' and 'validateDesignFile', and screenshot the affected board.`,
 					},
 				},
 			],
@@ -298,19 +277,14 @@ Workflow:
 					role: "user",
 					content: {
 						type: "text",
-						text: `Reuse subtree "${sourceElementId}" from design "${sourceDesignFileId}" into design "${targetDesignFileId}"${targetParentId ? ` under parent "${targetParentId}"` : " at the root"}.
+						text: `Reuse subtree "${sourceElementId}" from design "${sourceDesignFileId}" in design "${targetDesignFileId}"${targetParentId ? ` under parent "${targetParentId}"` : " at the root"}.
 
-Workflow:
-1. **Select MCP Project Scope**: Call 'getSelectedProject'. If no project is selected, call 'listProjects' and then 'selectProject' with a known 'locationId' from each listProjects entry (not just 'projectId') before any writes.
-2. **Locate Source & Destination**: Call 'readDesignGraph' on both designs to confirm element IDs, parents, and insertion indices.
-3. **Inspect Source Detail**: Use bounded 'readSubtree' on "${sourceElementId}" only if graph data is insufficient.
-4. **Get Revisions**: Call 'listDesignFiles' for the target 'revision'. When source and target design IDs differ, also capture the source design's current revision as 'sourceExpectedRevision'.
-5. **Dry-Run Copy**: Call 'validateCopySubtree' with source/target file IDs, '${sourceElementId}', target parent ${targetParentId ? `"${targetParentId}"` : "null"}, the chosen index, 'expectedRevision' on the target, and 'sourceExpectedRevision' whenever this is a cross-file copy.
-6. **Execute**:
-   - Use 'copySubtree' with the same revision fields as the dry-run (target 'expectedRevision'; include 'sourceExpectedRevision' for cross-file copies). The response always returns the 'idMap' of old->new IDs; it is minimal otherwise — pass 'response: { includeWarnings: true }' (and 'includeTokenDiagnostics: true') only if you need diagnostics on the inserted subtree.
-   - Use 'extractSubtree' instead when the goal is a new standalone design file cloned from the source subtree.
-7. **Revision Chaining**: Pass 'expectedRevision' on the target; chain 'newRevision' for any follow-up edits.
-8. **Validate & Verify**: Call 'validateDesignFile' on the target design and confirm the inserted region with bounded 'readSubtree'.`,
+1. **Project**: ${PROJECT_STEP}
+2. **Locate**: Call 'readDesignGraph' on both designs to confirm ids, parents and insertion indices. Use bounded 'readSubtree' on "${sourceElementId}" only if the graph is not enough.
+3. **Revisions**: Call 'listDesignFiles' for the target revision. For a cross-design copy, also keep the source design's revision as 'sourceExpectedRevision'.
+4. **Dry-Run**: Call 'validateCopySubtree' with the source and target ids, "${sourceElementId}", target parent ${targetParentId ? `"${targetParentId}"` : "null"}, the index, 'expectedRevision' for the target and, for a cross-design copy, 'sourceExpectedRevision'.
+5. **Execute**: Call 'copySubtree' with the same fields; it returns the 'idMap' of old to new ids. Use 'extractSubtree' instead when the goal is a new design file. Chain 'newRevision' into follow-up edits.
+6. **Check**: Call 'validateDesignFile' on the target design, confirm the inserted region with 'readSubtree', and screenshot it.`,
 					},
 				},
 			],
