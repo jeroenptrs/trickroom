@@ -15,6 +15,12 @@ export type TrickroomSettings = {
 	version: 1;
 	mcp: {
 		toolGroups: McpToolGroupSettings;
+		/**
+		 * Append every MCP tool call's history record (tool, outcome, duration,
+		 * sizes; never arguments or results) to
+		 * `<TRICKROOM_HOME>/feedback/calls-YYYY-MM.jsonl`. Off by default.
+		 */
+		callLog?: boolean;
 	};
 	server?: TrickroomServerSettings;
 	screenshot?: TrickroomScreenshotSettings;
@@ -83,6 +89,7 @@ export const isTrickroomSettings = (
 	value.version === 1 &&
 	isRecord(value.mcp) &&
 	isMcpToolGroupSettings(value.mcp.toolGroups) &&
+	(value.mcp.callLog === undefined || typeof value.mcp.callLog === "boolean") &&
 	(value.server === undefined || isTrickroomServerSettings(value.server)) &&
 	(value.screenshot === undefined ||
 		isTrickroomScreenshotSettings(value.screenshot));
@@ -93,6 +100,9 @@ const normalizeTrickroomSettings = (
 	version: 1,
 	mcp: {
 		toolGroups: normalizeMcpToolGroupSettings(settings.mcp.toolGroups),
+		...(settings.mcp.callLog !== undefined
+			? { callLog: settings.mcp.callLog }
+			: {}),
 	},
 	...(settings.server ? { server: { ...settings.server } } : {}),
 	...(settings.screenshot ? { screenshot: { ...settings.screenshot } } : {}),
@@ -157,6 +167,7 @@ export const updateMcpToolGroupSettings = async (
 		{
 			...current,
 			mcp: {
+				...current.mcp,
 				toolGroups: nextGroups,
 			},
 		},
