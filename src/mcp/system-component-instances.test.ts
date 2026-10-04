@@ -11,6 +11,7 @@ import {
 	systemComponentRootProp,
 } from "../utils/system-component-markers";
 import {
+	applyOperation,
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
@@ -137,16 +138,13 @@ describe("trickroom MCP system component instance tools", () => {
 		targetSession: TrickroomMcpClientSession = session,
 	) => {
 		const revision = await getDesignRevision(targetSession, designFileId);
-		return targetSession.client.callTool({
-			name: "addSystemComponent",
-			arguments: {
-				designFileId,
-				expectedRevision: revision,
-				parentId: "board",
-				index: 0,
-				systemId,
-				componentId,
-			},
+		return applyOperation(targetSession.client, "addSystemComponent", {
+			designFileId,
+			expectedRevision: revision,
+			parentId: "board",
+			index: 0,
+			systemId,
+			componentId,
 		});
 	};
 
@@ -251,16 +249,13 @@ describe("trickroom MCP system component instance tools", () => {
 	});
 
 	it("suggests the component id when addSystemComponent gets a component name", async () => {
-		const result = await session.client.callTool({
-			name: "addSystemComponent",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: await getDesignRevision(),
-				parentId: "board",
-				index: 0,
-				systemId,
-				componentId: "Badge",
-			},
+		const result = await applyOperation(session.client, "addSystemComponent", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: await getDesignRevision(),
+			parentId: "board",
+			index: 0,
+			systemId,
+			componentId: "Badge",
 		});
 		expect(result.isError).toBe(true);
 		expect(toolPayload(result)).toMatchObject({
@@ -318,26 +313,22 @@ describe("trickroom MCP system component instance tools", () => {
 	it("adds, updates, and detaches a published system component instance", async () => {
 		const revision = await getDesignRevision();
 
-		const added = await session.client.callTool({
-			name: "addSystemComponent",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: revision,
-				parentId: "board",
-				index: 1,
-				systemId,
-				componentId,
-				variantValues: { tone: "brand" },
-				overrides: { rootTarget: { className: "rounded-md" } },
-			},
+		const added = await applyOperation(session.client, "addSystemComponent", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: revision,
+			parentId: "board",
+			index: 1,
+			systemId,
+			componentId,
+			variantValues: { tone: "brand" },
+			overrides: { rootTarget: { className: "rounded-md" } },
+			response: "full",
 		});
 		expect(added.isError).not.toBe(true);
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
-		expect(toolPayload(added)).toMatchObject({
-			status: "success",
+		const [addStep] = toolPayload(added).steps;
+		const rootElementId = String(addStep.changedElementId);
+		expect(toolPayload(added).status).toBe("success");
+		expect(addStep.summary).toMatchObject({
 			systemComponent: {
 				systemId,
 				componentId,
@@ -348,42 +339,54 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const afterAddRevision = String(toolPayload(added)?.newRevision);
-		const updated = await session.client.callTool({
-			name: "updateSystemComponentInstance",
-			arguments: {
+		const updated = await applyOperation(
+			session.client,
+			"updateSystemComponentInstance",
+			{
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: afterAddRevision,
 				rootElementId,
 				variantValues: { tone: "neutral" },
 				overrides: { rootTarget: { className: "shadow-sm" } },
+				response: "full",
 			},
-		});
+		);
 		expect(updated.isError).not.toBe(true);
 		expect(toolPayload(updated)).toMatchObject({
 			status: "success",
-			systemComponent: {
-				variantValues: { tone: "neutral" },
-				overrides: { rootTarget: { className: "shadow-sm" } },
-			},
+			steps: [
+				{
+					summary: {
+						rootElementId,
+						variantValues: { tone: "neutral" },
+						overrides: { rootTarget: { className: "shadow-sm" } },
+					},
+				},
+			],
 		});
 
 		const afterUpdateRevision = String(toolPayload(updated)?.newRevision);
-		const detached = await session.client.callTool({
-			name: "detachSystemComponent",
-			arguments: {
+		const detached = await applyOperation(
+			session.client,
+			"detachSystemComponent",
+			{
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: afterUpdateRevision,
 				elementId: rootElementId,
+				response: "full",
 			},
-		});
+		);
 		expect(detached.isError).not.toBe(true);
 		expect(toolPayload(detached)).toMatchObject({
 			status: "success",
-			systemComponent: {
-				systemId,
-				componentId,
-			},
-			detachedElementIds: expect.arrayContaining([rootElementId]),
+			steps: [
+				{
+					summary: {
+						systemComponent: { systemId, componentId },
+						detachedElementIds: expect.arrayContaining([rootElementId]),
+					},
+				},
+			],
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
@@ -400,39 +403,33 @@ describe("trickroom MCP system component instance tools", () => {
 	it("clears optional variant axes through updateSystemComponentInstance", async () => {
 		const optionalComponentId = await publishOptionalToneComponent();
 		const revision = await getDesignRevision();
-		const added = await session.client.callTool({
-			name: "addSystemComponent",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: revision,
-				parentId: "board",
-				index: 0,
-				systemId,
-				componentId: optionalComponentId,
-				variantValues: { tone: "brand" },
-			},
+		const added = await applyOperation(session.client, "addSystemComponent", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: revision,
+			parentId: "board",
+			index: 0,
+			systemId,
+			componentId: optionalComponentId,
+			variantValues: { tone: "brand" },
 		});
 		expect(added.isError).not.toBe(true);
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 
-		const updated = await session.client.callTool({
-			name: "updateSystemComponentInstance",
-			arguments: {
+		const updated = await applyOperation(
+			session.client,
+			"updateSystemComponentInstance",
+			{
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: String(toolPayload(added)?.newRevision),
 				rootElementId,
 				unsetVariantAxes: ["tone"],
+				response: "full",
 			},
-		});
+		);
 		expect(updated.isError).not.toBe(true);
 		expect(toolPayload(updated)).toMatchObject({
 			status: "success",
-			systemComponent: {
-				variantValues: {},
-			},
+			steps: [{ summary: { variantValues: {} } }],
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
@@ -469,10 +466,7 @@ describe("trickroom MCP system component instance tools", () => {
 
 	it("extracts complete attached roots with fresh instance ids and strips partial component markers", async () => {
 		const added = await addBadgeInstance();
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 
 		const persistedSource = await fixture.designFileService.readDesignFile(
 			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
@@ -537,10 +531,7 @@ describe("trickroom MCP system component instance tools", () => {
 
 	it("rejects copySubtree when preserving a complete attached root into an unlinked target design", async () => {
 		const added = await addBadgeInstance();
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 
 		await fixture.writeDesign(unlinkedDesignUuid, {
 			name: "Unlinked Design",
@@ -559,17 +550,14 @@ describe("trickroom MCP system component instance tools", () => {
 
 		const sourceRevision = await getDesignRevision();
 		const targetRevision = await getDesignRevision(session, unlinkedDesignUuid);
-		const result = await session.client.callTool({
-			name: "copySubtree",
-			arguments: {
-				sourceDesignFileId: trickroomMcpTestDesignUuid,
-				sourceElementId: rootElementId,
-				sourceExpectedRevision: sourceRevision,
-				targetDesignFileId: unlinkedDesignUuid,
-				expectedRevision: targetRevision,
-				parentId: "board",
-				index: 0,
-			},
+		const result = await applyOperation(session.client, "copySubtree", {
+			sourceDesignFileId: trickroomMcpTestDesignUuid,
+			sourceElementId: rootElementId,
+			sourceExpectedRevision: sourceRevision,
+			designFileId: unlinkedDesignUuid,
+			expectedRevision: targetRevision,
+			parentId: "board",
+			index: 0,
 		});
 
 		expect(result.isError).toBe(true);
@@ -581,10 +569,7 @@ describe("trickroom MCP system component instance tools", () => {
 
 	it("rejects extractSubtree when preserving a complete attached root into an unlinked design", async () => {
 		const added = await addBadgeInstance();
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 		const targetDesignId = "10000000-0000-4000-8000-000000000203";
 
 		const result = await session.client.callTool({
@@ -621,16 +606,13 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 
 		const revision = await getDesignRevision(session, unlinkedDesignUuid);
-		const result = await session.client.callTool({
-			name: "addSystemComponent",
-			arguments: {
-				designFileId: unlinkedDesignUuid,
-				expectedRevision: revision,
-				parentId: "board",
-				index: 0,
-				systemId,
-				componentId,
-			},
+		const result = await applyOperation(session.client, "addSystemComponent", {
+			designFileId: unlinkedDesignUuid,
+			expectedRevision: revision,
+			parentId: "board",
+			index: 0,
+			systemId,
+			componentId,
 		});
 
 		expect(result.isError).toBe(true);
@@ -864,39 +846,35 @@ describe("trickroom MCP system component instance tools", () => {
 
 	it("rejects stale design revisions and unsafe marker prop edits", async () => {
 		const revision = await getDesignRevision();
-		const added = await session.client.callTool({
-			name: "addSystemComponent",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: revision,
-				parentId: "board",
-				index: 0,
-				systemId,
-				componentId,
-			},
+		const added = await applyOperation(session.client, "addSystemComponent", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: revision,
+			parentId: "board",
+			index: 0,
+			systemId,
+			componentId,
 		});
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 
-		const stale = await session.client.callTool({
-			name: "updateSystemComponentInstance",
-			arguments: {
+		const stale = await applyOperation(
+			session.client,
+			"updateSystemComponentInstance",
+			{
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
 				rootElementId,
 				variantValues: { tone: "brand" },
 			},
-		});
+		);
 		expect(stale.isError).toBe(true);
 		expect(toolPayload(stale)).toMatchObject({
 			status: "REVISION_MISMATCH",
 		});
 
-		const markerEdit = await session.client.callTool({
-			name: "updateElementProps",
-			arguments: {
+		const markerEdit = await applyOperation(
+			session.client,
+			"updateElementProps",
+			{
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: String(toolPayload(added)?.newRevision),
 				elementId: rootElementId,
@@ -909,22 +887,23 @@ describe("trickroom MCP system component instance tools", () => {
 					isRoot: true,
 				}) as Record<string, string>,
 			},
-		});
+		);
 		expect(markerEdit.isError).toBe(true);
 		expect(toolPayload(markerEdit)).toMatchObject({
 			status: "INVALID_OPERATION",
 			code: "INVALID_PROP_KEY",
 		});
 
-		const structuralEdit = await session.client.callTool({
-			name: "updateElementProps",
-			arguments: {
+		const structuralEdit = await applyOperation(
+			session.client,
+			"updateElementProps",
+			{
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: String(toolPayload(added)?.newRevision),
 				elementId: rootElementId,
 				className: "manual-class",
 			},
-		});
+		);
 		expect(structuralEdit.isError).toBe(true);
 		expect(toolPayload(structuralEdit)).toMatchObject({
 			status: "INVALID_OPERATION",
@@ -947,9 +926,10 @@ describe("trickroom MCP system component instance tools", () => {
 		try {
 			await publishBadgeComponent(restrictedSession);
 			const revision = await getDesignRevision(restrictedSession);
-			const result = await restrictedSession.client.callTool({
-				name: "addSystemComponent",
-				arguments: {
+			const result = await applyOperation(
+				restrictedSession.client,
+				"addSystemComponent",
+				{
 					designFileId: trickroomMcpTestDesignUuid,
 					expectedRevision: revision,
 					parentId: "board",
@@ -957,7 +937,7 @@ describe("trickroom MCP system component instance tools", () => {
 					systemId,
 					componentId,
 				},
-			});
+			);
 			expect(result.isError).toBe(true);
 			expect(toolPayload(result)).toMatchObject({
 				status: "POLICY_DENIED",
@@ -971,31 +951,26 @@ describe("trickroom MCP system component instance tools", () => {
 
 	it("returns INVALID_SYSTEM_COMPONENT_INSTANCE_STATE for invalid variant updates", async () => {
 		const revision = await getDesignRevision();
-		const added = await session.client.callTool({
-			name: "addSystemComponent",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: revision,
-				parentId: "board",
-				index: 0,
-				systemId,
-				componentId,
-			},
+		const added = await applyOperation(session.client, "addSystemComponent", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: revision,
+			parentId: "board",
+			index: 0,
+			systemId,
+			componentId,
 		});
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 
-		const invalidUpdate = await session.client.callTool({
-			name: "updateSystemComponentInstance",
-			arguments: {
+		const invalidUpdate = await applyOperation(
+			session.client,
+			"updateSystemComponentInstance",
+			{
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: String(toolPayload(added)?.newRevision),
 				rootElementId,
 				variantValues: { tone: "missing" },
 			},
-		});
+		);
 		expect(invalidUpdate.isError).toBe(true);
 		expect(toolPayload(invalidUpdate)).toMatchObject({
 			status: "INVALID_OPERATION",
@@ -1005,39 +980,35 @@ describe("trickroom MCP system component instance tools", () => {
 
 	it("includes system/component identity in update responses", async () => {
 		const revision = await getDesignRevision();
-		const added = await session.client.callTool({
-			name: "addSystemComponent",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: revision,
-				parentId: "board",
-				index: 0,
-				systemId,
-				componentId,
-			},
+		const added = await applyOperation(session.client, "addSystemComponent", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: revision,
+			parentId: "board",
+			index: 0,
+			systemId,
+			componentId,
 		});
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 
-		const updated = await session.client.callTool({
-			name: "updateSystemComponentInstance",
-			arguments: {
+		const updated = await applyOperation(
+			session.client,
+			"updateSystemComponentInstance",
+			{
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: String(toolPayload(added)?.newRevision),
 				rootElementId,
 				variantValues: { tone: "brand" },
+				response: "full",
 			},
-		});
+		);
 		expect(updated.isError).not.toBe(true);
 		expect(toolPayload(updated)).toMatchObject({
 			status: "success",
-			systemComponent: {
-				systemId,
-				componentId,
-				version: "1",
-			},
+			steps: [
+				{
+					summary: { systemComponent: { systemId, componentId, version: "1" } },
+				},
+			],
 		});
 	});
 
@@ -1177,21 +1148,15 @@ describe("trickroom MCP system component instance tools", () => {
 
 	it("returns INVALID_SYSTEM_COMPONENT_INSTANCE_STATE through validateOperation for invalid variant updates", async () => {
 		const revision = await getDesignRevision();
-		const added = await session.client.callTool({
-			name: "addSystemComponent",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: revision,
-				parentId: "board",
-				index: 0,
-				systemId,
-				componentId,
-			},
+		const added = await applyOperation(session.client, "addSystemComponent", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: revision,
+			parentId: "board",
+			index: 0,
+			systemId,
+			componentId,
 		});
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 		const afterAddRevision = String(toolPayload(added)?.newRevision);
 
 		const result = await session.client.callTool({
@@ -1311,7 +1276,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("commits addSystemComponent and updateSystemComponentInstance through applyDesignOperations", async () => {
 		const revision = await getDesignRevision();
 		const result = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
@@ -1376,7 +1341,7 @@ describe("trickroom MCP system component instance tools", () => {
 			await publishBadgeComponent(restrictedSession);
 			const revision = await getDesignRevision(restrictedSession);
 			const result = await restrictedSession.client.callTool({
-				name: "applyDesignOperations",
+				name: "design_apply",
 				arguments: {
 					designFileId: trickroomMcpTestDesignUuid,
 					expectedRevision: revision,
@@ -1415,7 +1380,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("returns invalid without writing when applyDesignOperations plan has invalid variant update", async () => {
 		const revision = await getDesignRevision();
 		const result = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
@@ -1456,21 +1421,15 @@ describe("trickroom MCP system component instance tools", () => {
 
 	it("dry-runs detachSystemComponent through validateOperation without writing", async () => {
 		const revision = await getDesignRevision();
-		const added = await session.client.callTool({
-			name: "addSystemComponent",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: revision,
-				parentId: "board",
-				index: 0,
-				systemId,
-				componentId,
-			},
+		const added = await applyOperation(session.client, "addSystemComponent", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: revision,
+			parentId: "board",
+			index: 0,
+			systemId,
+			componentId,
 		});
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 		const afterAddRevision = String(toolPayload(added)?.newRevision);
 
 		const result = await session.client.callTool({
@@ -1636,7 +1595,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("commits detachSystemComponent through applyDesignOperations", async () => {
 		const revision = await getDesignRevision();
 		const result = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
@@ -1708,7 +1667,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("returns invalid without writing when applyDesignOperations plan detaches a non-instance element", async () => {
 		const revision = await getDesignRevision();
 		const result = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
@@ -1748,10 +1707,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("migrates a stale system component instance when migration is safe", async () => {
 		const added = await addBadgeInstance();
 		const revisionAfterAdd = String(toolPayload(added)?.newRevision);
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 		await publishBadgeVersion("Badge v2");
 
 		const result = await session.client.callTool({
@@ -1796,23 +1752,17 @@ describe("trickroom MCP system component instance tools", () => {
 
 	it("reports review-required without writing when onlySafe is true", async () => {
 		const revision = await getDesignRevision();
-		const added = await session.client.callTool({
-			name: "addSystemComponent",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: revision,
-				parentId: "board",
-				index: 0,
-				systemId,
-				componentId,
-				overrides: { rootTarget: { className: "rounded-md" } },
-			},
+		const added = await applyOperation(session.client, "addSystemComponent", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: revision,
+			parentId: "board",
+			index: 0,
+			systemId,
+			componentId,
+			overrides: { rootTarget: { className: "rounded-md" } },
 		});
 		const revisionAfterAdd = String(toolPayload(added)?.newRevision);
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 
 		const listed = await session.client.callTool({
 			name: "listSystemComponents",
@@ -1892,10 +1842,7 @@ describe("trickroom MCP system component instance tools", () => {
 
 	it("returns revision mismatch for migrateSystemComponentInstance without writing", async () => {
 		const added = await addBadgeInstance();
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 		await publishBadgeVersion("Badge v2");
 
 		const result = await session.client.callTool({
@@ -1916,10 +1863,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("allows migrateSystemComponentInstance dry runs in read-only mode", async () => {
 		const added = await addBadgeInstance();
 		const revisionAfterAdd = String(toolPayload(added)?.newRevision);
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 		await publishBadgeVersion("Badge v2");
 		await session.close();
 		await fixture.writeConfig({
@@ -1960,10 +1904,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("denies migrateSystemComponentInstance writes in read-only mode", async () => {
 		const added = await addBadgeInstance();
 		const revisionAfterAdd = String(toolPayload(added)?.newRevision);
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 		await publishBadgeVersion("Badge v2");
 		await session.close();
 		await fixture.writeConfig({
@@ -2001,10 +1942,7 @@ describe("trickroom MCP system component instance tools", () => {
 
 	it("bulk migrates safe stale instances", async () => {
 		const added = await addBadgeInstance();
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 		await publishBadgeVersion("Badge v2");
 
 		const result = await session.client.callTool({
@@ -2053,22 +1991,16 @@ describe("trickroom MCP system component instance tools", () => {
 
 	it("bulk reports review-required stale instances without writing when onlySafe is true", async () => {
 		const revision = await getDesignRevision();
-		const added = await session.client.callTool({
-			name: "addSystemComponent",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: revision,
-				parentId: "board",
-				index: 0,
-				systemId,
-				componentId,
-				overrides: { rootTarget: { className: "rounded-md" } },
-			},
+		const added = await applyOperation(session.client, "addSystemComponent", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: revision,
+			parentId: "board",
+			index: 0,
+			systemId,
+			componentId,
+			overrides: { rootTarget: { className: "rounded-md" } },
 		});
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 		const revisionAfterAdd = String(toolPayload(added)?.newRevision);
 
 		const listed = await session.client.callTool({
@@ -2225,10 +2157,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("denies migrateSystemComponentInstance dry runs when target subtree uses disallowed components", async () => {
 		const added = await addBadgeInstance();
 		const revisionAfterAdd = String(toolPayload(added)?.newRevision);
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 		await publishBadgeVersion("Badge v2");
 		await session.close();
 		await fixture.writeConfig({
@@ -2268,10 +2197,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("denies migrateSystemComponentInstance when instance subtree uses disallowed components", async () => {
 		const added = await addBadgeInstance();
 		const revisionAfterAdd = String(toolPayload(added)?.newRevision);
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 		await publishBadgeVersion("Badge v2");
 		await session.close();
 		await fixture.writeConfig({
@@ -2310,10 +2236,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("reports component-not-allowed without writing during bulk migration when policy blocks subtree components", async () => {
 		const added = await addBadgeInstance();
 		const revisionAfterAdd = String(toolPayload(added)?.newRevision);
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 		await publishBadgeVersion("Badge v2");
 		await session.close();
 		await fixture.writeConfig({
@@ -2424,10 +2347,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("does not persist design files when bulkMigrateSystemComponentUsages uses dryRun", async () => {
 		const added = await addBadgeInstance();
 		const revisionAfterAdd = String(toolPayload(added)?.newRevision);
-		const rootElementId = String(
-			(toolPayload(added) as { changedElement: { id: string } }).changedElement
-				.id,
-		);
+		const rootElementId = String(toolPayload(added).created[0].id);
 		await publishBadgeVersion("Badge v2");
 
 		const result = await session.client.callTool({

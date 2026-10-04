@@ -23,6 +23,7 @@ import {
 	type TrickroomMcpServerContext,
 	type TrickroomMcpServerOptions,
 } from "./server";
+import { TOOL } from "./tool-names";
 
 /**
  * A tool result's JSON payload. Tools return one minified JSON text block
@@ -50,6 +51,42 @@ export const toolPayload = (result: unknown): ToolPayload => {
 		);
 	}
 };
+
+/**
+ * design_apply with one operation. `args` holds the target (designFileId,
+ * expectedRevision, project, response) next to the operation's parameters.
+ */
+export const applyOperation = (
+	client: Client,
+	operation: string,
+	args: Record<string, unknown>,
+) => {
+	const { designFileId, expectedRevision, project, response, ...parameters } =
+		args;
+	return client.callTool({
+		name: TOOL.designApply,
+		arguments: {
+			designFileId,
+			expectedRevision,
+			...(project === undefined ? {} : { project }),
+			...(response === undefined ? {} : { response }),
+			operations: [{ operation, parameters }],
+		},
+	});
+};
+
+/** One element read: its compact node with childIds, and its placement. */
+export const readElementPayload = async (
+	client: Client,
+	designFileId: string,
+	elementId: string,
+) =>
+	toolPayload(
+		await client.callTool({
+			name: "readElement",
+			arguments: { designFileId, elementId },
+		}),
+	);
 
 export const trickroomMcpTestDesignUuid =
 	"00000000-0000-4000-8000-000000000001";

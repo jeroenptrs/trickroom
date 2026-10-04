@@ -10,6 +10,7 @@ import { writeDesignSystemManifest } from "../utils/design-system-store";
 import { syncIconManifest } from "../utils/icon-manifest-service";
 import { createTrickroomMcpServer } from "./server";
 import {
+	applyOperation,
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
@@ -347,59 +348,49 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		const revision = (toolPayload(read) as { designFile: { revision: string } })
 			.designFile.revision;
 
-		const assetAdd = await session.client.callTool({
-			name: "addElement",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: revision,
-				parentId: null,
-				index: 1,
-				library: "trickroom",
-				component: "asset",
-				props: {
-					[assetIdProp]: "ast_hero",
-					alt: "Hero",
-				},
+		const assetAdd = await applyOperation(session.client, "addElement", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: revision,
+			parentId: null,
+			index: 1,
+			library: "trickroom",
+			component: "asset",
+			props: {
+				[assetIdProp]: "ast_hero",
+				alt: "Hero",
 			},
 		});
 		expect(toolPayload(assetAdd)).toMatchObject({
 			status: "success",
-			changedElement: {
-				component: "asset",
-			},
+			created: [{ step: 0, id: expect.any(String) }],
 		});
 
 		const nextRevision = (toolPayload(assetAdd) as { newRevision: string })
 			.newRevision;
-		const avatarImageAdd = await session.client.callTool({
-			name: "addElement",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: nextRevision,
-				parentId: null,
-				index: 2,
-				library: "base-ui",
-				component: "avatar.image",
-				props: {
-					[assetIdProp]: "ast_hero",
-					alt: "Hero avatar",
-				},
+		const avatarImageAdd = await applyOperation(session.client, "addElement", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: nextRevision,
+			parentId: null,
+			index: 2,
+			library: "base-ui",
+			component: "avatar.image",
+			props: {
+				[assetIdProp]: "ast_hero",
+				alt: "Hero avatar",
 			},
 		});
 		expect(toolPayload(avatarImageAdd)).toMatchObject({
 			status: "success",
-			changedElement: {
-				library: "base-ui",
-				component: "avatar.image",
-			},
+			created: [{ step: 0, id: expect.any(String) }],
 		});
 
 		const afterAvatarRevision = (
 			toolPayload(avatarImageAdd) as { newRevision: string }
 		).newRevision;
-		const blankAvatarImageAdd = await session.client.callTool({
-			name: "addElement",
-			arguments: {
+		const blankAvatarImageAdd = await applyOperation(
+			session.client,
+			"addElement",
+			{
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: afterAvatarRevision,
 				parentId: null,
@@ -411,52 +402,41 @@ describe("trickroom MCP asset and icon catalogs", () => {
 					alt: "",
 				},
 			},
-		});
+		);
 		expect(toolPayload(blankAvatarImageAdd)).toMatchObject({
 			status: "success",
-			changedElement: {
-				library: "base-ui",
-				component: "avatar.image",
-			},
+			created: [{ step: 0, id: expect.any(String) }],
 		});
 
 		const afterBlankAvatarRevision = (
 			toolPayload(blankAvatarImageAdd) as { newRevision: string }
 		).newRevision;
-		const iconAdd = await session.client.callTool({
-			name: "addElement",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: afterBlankAvatarRevision,
-				parentId: null,
-				index: 4,
-				library: "trickroom",
-				component: "icon",
-				props: {
-					[iconIdProp]: "src/search",
-				},
+		const iconAdd = await applyOperation(session.client, "addElement", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: afterBlankAvatarRevision,
+			parentId: null,
+			index: 4,
+			library: "trickroom",
+			component: "icon",
+			props: {
+				[iconIdProp]: "src/search",
 			},
 		});
 		expect(toolPayload(iconAdd)).toMatchObject({
 			status: "success",
-			changedElement: {
-				component: "icon",
-			},
+			created: [{ step: 0, id: expect.any(String) }],
 		});
 
-		const nonCanonical = await session.client.callTool({
-			name: "addElement",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: (toolPayload(iconAdd) as { newRevision: string })
-					.newRevision,
-				parentId: null,
-				index: 5,
-				library: "trickroom",
-				component: "asset",
-				props: {
-					[assetIdProp]: "AST_HERO",
-				},
+		const nonCanonical = await applyOperation(session.client, "addElement", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: (toolPayload(iconAdd) as { newRevision: string })
+				.newRevision,
+			parentId: null,
+			index: 5,
+			library: "trickroom",
+			component: "asset",
+			props: {
+				[assetIdProp]: "AST_HERO",
 			},
 		});
 		expect(nonCanonical.isError).toBe(true);
@@ -475,19 +455,16 @@ describe("trickroom MCP asset and icon catalogs", () => {
 			code: "INVALID_ASSET_ID",
 		});
 
-		const invalid = await session.client.callTool({
-			name: "addElement",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: (toolPayload(iconAdd) as { newRevision: string })
-					.newRevision,
-				parentId: null,
-				index: 5,
-				library: "base-ui",
-				component: "avatar.image",
-				props: {
-					[assetIdProp]: "ast_missing",
-				},
+		const invalid = await applyOperation(session.client, "addElement", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: (toolPayload(iconAdd) as { newRevision: string })
+				.newRevision,
+			parentId: null,
+			index: 5,
+			library: "base-ui",
+			component: "avatar.image",
+			props: {
+				[assetIdProp]: "ast_missing",
 			},
 		});
 		expect(invalid.isError).toBe(true);

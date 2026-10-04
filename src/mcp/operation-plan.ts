@@ -11,6 +11,7 @@ import {
 	type DryRunResult,
 	designOperationNameSchema,
 	OPERATION_PARAMETER_SIGNATURES,
+	resolveRecipeControlParameters,
 	validateDryRunOperationParameters,
 } from "./design-operations";
 import type { MutationResponseDetail } from "./diagnostics";
@@ -57,6 +58,8 @@ export type OperationPlanStepOutput = {
 	idMap?: Record<string, string>;
 	/** Recipe instances this step inserted, with slot host ids by slot name. */
 	recipes?: OperationPlanStepRecipe[];
+	/** A copySubtree step asked for its id map in compact responses. */
+	includeIdMap?: true;
 };
 
 export type OperationPlanStepRecipe = {
@@ -357,20 +360,23 @@ const SUBTREE_POLICY_OPERATIONS = new Set<DesignOperationName>([
 /**
  * Apply one validated operation to an in-memory design: policy checks, the
  * transform, and resource checks on the elements it touched. The single
- * implementation behind applyDesignOperations steps, validateOperation(Plan)
- * and the single-element write tools.
+ * implementation behind design_apply and design_validate steps.
  */
 export const executeDesignOperation = async (
 	deps: DesignOperationDependencies,
 	design: TrickroomDesign,
 	operation: DesignOperationName,
-	params: Record<string, unknown>,
+	validatedParams: Record<string, unknown>,
 	context: {
 		designFileId: string;
 		sourceDesigns?: ReadonlyMap<string, TrickroomDesign>;
 	},
 ): Promise<DesignOperationExecution> => {
 	const sourceDesigns = context.sourceDesigns ?? new Map();
+	const params =
+		operation === "updateRecipeControl"
+			? resolveRecipeControlParameters(design, validatedParams)
+			: validatedParams;
 	if (operation === "copySubtree") {
 		const sourceDesignFileId = String(params.sourceDesignFileId);
 		const sourceDesign =
@@ -663,7 +669,11 @@ export const executeOperationPlan = async (
 				},
 			);
 			candidateDesign = result.design;
-			steps.push(toStepOutput(stepIndex, result));
+			const stepOutput = toStepOutput(stepIndex, result);
+			if (operation === "copySubtree" && params.includeIdMap === true) {
+				stepOutput.includeIdMap = true;
+			}
+			steps.push(stepOutput);
 			for (const id of result.affectedElementIds) {
 				affectedElementIds.add(id);
 			}
@@ -721,7 +731,8 @@ export const describeFailedPlanStep = (
 /**
  * Ids a step created that the caller could not know: the inserted root, the
  * tempId map of addSubtree, and slot hosts of inserted recipes. Updates,
- * moves and deletes return nothing. "full" adds copySubtree id maps.
+ * moves and deletes return nothing. copySubtree id maps come with the step's
+ * includeIdMap, or "full".
  */
 export const describeCreatedElements = (
 	step: OperationPlanStepOutput,
@@ -737,7 +748,9 @@ export const describeCreatedElements = (
 			: null;
 	const includeIdMap =
 		step.idMap !== undefined &&
-		(step.operation === "addSubtree" || detail === "full");
+		(step.operation === "addSubtree" ||
+			step.includeIdMap === true ||
+			detail === "full");
 	return {
 		step: step.stepIndex,
 		id: step.rootElementId,

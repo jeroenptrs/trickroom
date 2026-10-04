@@ -93,7 +93,7 @@ describe("trickroom MCP workflow prompts", () => {
 			expect(text).toContain(designFileId);
 			// Prompts describe the flow; rules come from the contract core and
 			// its topics, fetched with the design id.
-			expect(text).toContain("applyDesignOperations");
+			expect(text).toContain("design_apply");
 			expect(text).toContain(
 				`'getDesignAuthoringContract' with designFileId "${designFileId}"`,
 			);
@@ -158,7 +158,7 @@ describe("trickroom MCP workflow prompts", () => {
 			expect(text).toContain("updateRecipeControl");
 			expect(text).toContain("validateOperation");
 			expect(text).toContain("validateOperationPlan");
-			expect(text).toContain("applyDesignOperations");
+			expect(text).toContain("design_apply");
 			expect(text).toContain("newRevision");
 			expect(text).toContain("readSubtree");
 		} finally {

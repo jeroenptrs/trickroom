@@ -8,6 +8,7 @@ import {
 	validateOperationPlanPayload,
 	validateSubtreePayload,
 } from "../payloads/design-validation";
+import { TOOL } from "../tool-names";
 import { readOnlyClosedWorldAnnotations } from "./annotations";
 import type { McpToolContext } from "./context";
 import {
@@ -99,8 +100,7 @@ export const registerDesignValidationTools = (ctx: McpToolContext) => {
 		"validateOperationPlan",
 		{
 			title: "Validate Operation Plan",
-			description:
-				"Dry-run an ordered list of design operations (the applyDesignOperations steps) against one starting revision without writing. Returns the diagnostics on the elements the plan touches, or the first failing step.",
+			description: `Dry-run an ordered list of design operations (the ${TOOL.designApply} steps) against one starting revision without writing. Returns the diagnostics on the elements the plan touches, or the first failing step.`,
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
 				expectedRevision: expectedRevisionSchema,

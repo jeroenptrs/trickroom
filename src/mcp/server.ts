@@ -24,10 +24,6 @@ import {
 } from "./tools/design-systems";
 import { registerDesignValidationTools } from "./tools/design-validation";
 import { registerDesignBatchWriteTools } from "./tools/design-write-batch";
-import {
-	registerDesignNodeEditTools,
-	registerDesignNodeInsertTools,
-} from "./tools/design-write-nodes";
 import { installToolInputValidation } from "./tools/input-validation";
 import { registerMemoryTools } from "./tools/memory";
 import { registerProjectTools } from "./tools/projects";
@@ -122,9 +118,7 @@ export const createTrickroomMcpServer = (
 	registerSystemResourceManifestTools(ctx);
 	registerMemoryTools(ctx);
 	registerDesignBatchWriteTools(ctx);
-	registerDesignNodeInsertTools(ctx);
 	registerSystemComponentMigrationTools(ctx);
-	registerDesignNodeEditTools(ctx);
 
 	const { trickroomHome, captureHosts } = ctx;
 	if (trickroomHome) {

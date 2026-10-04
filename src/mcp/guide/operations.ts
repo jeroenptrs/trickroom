@@ -4,6 +4,7 @@ import {
 	designOperationNameSchema,
 	SUBTREE_NODE_SIGNATURE,
 } from "../design-operations";
+import { TOOL } from "../tool-names";
 
 /**
  * The operations topic, generated from DESIGN_OPERATION_PARAMETERS: the same
@@ -131,8 +132,7 @@ const exampleParameters = (operation: DesignOperationName) =>
 	);
 
 export const buildOperationsTopic = () => ({
-	tools:
-		"applyDesignOperations({ designFileId, expectedRevision, operations: [{ operation, parameters }], response? }) writes; validateOperationPlan takes the same steps and only dry-runs.",
+	tools: `${TOOL.designApply}({ designFileId, expectedRevision, operations: [{ operation, parameters }], response? }) writes; validateOperationPlan takes the same steps and only dry-runs.`,
 	conventions: [
 		"name? marks an optional parameter. primitive = string | number | boolean | null.",
 		`Node = ${SUBTREE_NODE_SIGNATURE}`,

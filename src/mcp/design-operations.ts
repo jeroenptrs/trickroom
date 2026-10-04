@@ -5,6 +5,7 @@ import {
 	describeUnknownRegistryRecipe,
 } from "../libraries/registry-suggestions";
 import { findRecipeControlTargetElement } from "../recipes/controls";
+import { getRecipeStructuralMetadata } from "../recipes/markers";
 import {
 	applyAddElement,
 	applyAddRecipe,
@@ -317,14 +318,16 @@ export const DESIGN_OPERATION_PARAMETERS: Record<
 			name: "instanceId",
 			type: "string",
 			required: true,
-			description: "Attached recipe instance id.",
-			example: "recipe-instance-id",
+			description:
+				"Any element id in the attached recipe instance (e.g. $step:N for the root), or the recipe instance id. elementId is accepted as an alias.",
+			example: "recipe-root-id",
 		},
 		{
 			name: "path",
 			type: "string",
-			required: true,
-			description: "Declared recipe template path of the control target.",
+			required: false,
+			description:
+				"Template path of the control target. Defaults to the path of the element passed as instanceId.",
 			example: "root",
 		},
 		{
@@ -425,6 +428,14 @@ export const DESIGN_OPERATION_PARAMETERS: Record<
 			required: false,
 			description: "Size limits for the copied subtree.",
 			example: { maxNodes: 200 },
+		},
+		{
+			name: "includeIdMap",
+			type: "boolean",
+			required: false,
+			description:
+				"Also return the source id to copy id map in this step's created entry.",
+			example: true,
 		},
 	],
 	detachRecipeInstance: [
@@ -608,11 +619,16 @@ export const OPERATION_PARAMETER_SHAPES = {
 		options: addSubtreeOptionsSchema.optional(),
 	},
 	updateRecipeControl: {
-		instanceId: elementIdSchema("Attached recipe instance ID."),
+		instanceId: elementIdSchema(
+			"Any element ID in the attached recipe instance, or the recipe instance ID.",
+		),
 		path: z
 			.string()
 			.min(1)
-			.describe("Declared recipe template path of the control target."),
+			.optional()
+			.describe(
+				"Template path of the control target. Defaults to the path of the element passed as instanceId.",
+			),
 		prop: z.string().min(1).describe("Declared recipe control prop."),
 		value: jsonPrimitiveSchema.describe("New control value."),
 	},
@@ -663,6 +679,10 @@ export const OPERATION_PARAMETER_SHAPES = {
 		parentId: parentIdSchema,
 		index: indexSchema,
 		options: validateCopySubtreeOptionsSchema.optional(),
+		includeIdMap: z
+			.boolean()
+			.optional()
+			.describe("Also return the source id to copy id map."),
 	},
 	detachRecipeInstance: {
 		elementId: elementIdSchema(
@@ -822,6 +842,15 @@ export const normalizeOperationParameterAliases = (
 		}
 		delete normalized.parentId;
 	}
+	if (operation === "updateRecipeControl") {
+		if (
+			normalized.instanceId === undefined &&
+			normalized.elementId !== undefined
+		) {
+			normalized.instanceId = normalized.elementId;
+		}
+		delete normalized.elementId;
+	}
 	if (operation === "copySubtree") {
 		if (
 			normalized.sourceDesignFileId === undefined &&
@@ -847,6 +876,35 @@ export const validateDryRunOperationParameters = (
 			defaults,
 		),
 	);
+
+/**
+ * updateRecipeControl addresses a recipe instance by its instance id or by
+ * any element in it ($step:N resolves to the inserted root). Resolve the
+ * instance id, and default path to the template path of the element given.
+ */
+export const resolveRecipeControlParameters = (
+	design: TrickroomDesign,
+	params: Record<string, unknown>,
+): Record<string, unknown> => {
+	const target = requireStringParameter(params, "instanceId");
+	const element = findElementContext(design, target)?.element;
+	const metadata = element ? getRecipeStructuralMetadata(element.props) : null;
+	if (element && !metadata) {
+		throw new DesignTransformError(
+			"RECIPE_INSTANCE_NOT_FOUND",
+			`Element "${target}" is not part of an attached recipe instance.`,
+		);
+	}
+	const path =
+		typeof params.path === "string" ? params.path : (metadata?.path ?? null);
+	if (path === null) {
+		throw new DesignTransformError(
+			"INVALID_OPERATION_PARAMETERS",
+			`Operation "updateRecipeControl" needs path when instanceId "${target}" is a recipe instance id; pass an element id from the instance to default it.`,
+		);
+	}
+	return { ...params, instanceId: metadata?.instanceId ?? target, path };
+};
 
 const requireStringParameter = (
 	params: Record<string, unknown>,

@@ -41,13 +41,7 @@ const expectedMutationToolNames = [
 	"exportDesignHtml",
 	"screenshotBoard",
 	"screenshotNode",
-	"renameDesignFile",
-	"addElement",
-	"updateElementProps",
-	"updateRecipeControl",
-	"updateElementText",
-	"moveElement",
-	"deleteElement",
+	"design_apply",
 ] as const;
 
 const expectedPromptNames = [
@@ -188,9 +182,14 @@ const expectRevisionMismatch = async (
 	args: Record<string, unknown>,
 ) => {
 	try {
+		const { designFileId, expectedRevision, ...parameters } = args;
 		const result = await client.callTool({
-			name: "updateElementText",
-			arguments: args,
+			name: "design_apply",
+			arguments: {
+				designFileId,
+				expectedRevision,
+				operations: [{ operation: "updateElementText", parameters }],
+			},
 		});
 
 		expect(result.isError).toBe(true);
@@ -339,7 +338,6 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 						"addSystemIconFolder",
 						"addSystemAsset",
 						"refreshSystemAssetMetadata",
-						"addElement",
 						"createDesignFile",
 						"exportDesignHtml",
 						"screenshotBoard",
@@ -355,13 +353,10 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 				"designFileId",
 				"elementId",
 			]);
-			expectInputProperties(requireTool(toolsByName, "addElement"), [
+			expectInputProperties(requireTool(toolsByName, "design_apply"), [
 				"designFileId",
 				"expectedRevision",
-				"parentId",
-				"library",
-				"component",
-				"props",
+				"operations",
 			]);
 			expectInputProperties(requireTool(toolsByName, "createDesignFile"), [
 				"name",
@@ -388,17 +383,6 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 			expectInputProperties(requireTool(toolsByName, "addSystemIconFolder"), [
 				"systemName",
 				"folderPath",
-			]);
-			expectInputProperties(requireTool(toolsByName, "renameDesignFile"), [
-				"designFileId",
-				"expectedRevision",
-				"name",
-			]);
-			expectInputProperties(requireTool(toolsByName, "updateElementText"), [
-				"designFileId",
-				"expectedRevision",
-				"elementId",
-				"text",
 			]);
 
 			if (session.client.getServerCapabilities()?.prompts) {
@@ -516,19 +500,26 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 
 			const addResult = await requireStructuredPayload(
 				session.client,
-				"addElement",
+				"design_apply",
 				{
 					designFileId: trickroomMcpTestDesignUuid,
 					expectedRevision: initialRevision,
-					parentId: "board",
-					index: 1,
-					library: "trickroom",
-					component: "text",
-					text: "Smoke copy",
-					props: {
-						"data-trickroom-name": "Smoke Text From Props",
-						className: "text-brand-500",
-					},
+					operations: [
+						{
+							operation: "addElement",
+							parameters: {
+								parentId: "board",
+								index: 1,
+								library: "trickroom",
+								component: "text",
+								text: "Smoke copy",
+								props: {
+									"data-trickroom-name": "Smoke Text From Props",
+									className: "text-brand-500",
+								},
+							},
+						},
+					],
 				},
 			);
 			expect(findRevision(addResult)).toEqual(expect.any(String));

@@ -19,7 +19,7 @@ import type { TrickroomDesign } from "../types";
 import { assetIdProp } from "../utils/resource-props";
 import { storeDomainTokens } from "../utils/tailwind-token-store";
 import { createTrickroomMcpServer } from "./server";
-import { toolPayload } from "./test-support";
+import { applyOperation, toolPayload } from "./test-support";
 
 const validDesign = {
 	name: "Landing Page",
@@ -680,20 +680,17 @@ describe("trickroom MCP discovery tools", () => {
 				}
 			).designFile.revision;
 
-			const deniedMutation = await client.callTool({
-				name: "addElement",
-				arguments: {
-					project: {
-						locationId: secondLocation.locationId,
-					},
-					designFileId: "22222222-2222-4222-8222-222222222222",
-					expectedRevision: explicitRevision,
-					parentId: "root",
-					index: 1,
-					library: "trickroom",
-					component: "text",
-					name: "Denied Text",
+			const deniedMutation = await applyOperation(client, "addElement", {
+				project: {
+					locationId: secondLocation.locationId,
 				},
+				designFileId: "22222222-2222-4222-8222-222222222222",
+				expectedRevision: explicitRevision,
+				parentId: "root",
+				index: 1,
+				library: "trickroom",
+				component: "text",
+				name: "Denied Text",
 			});
 			expect(deniedMutation.isError).toBe(true);
 			expect(toolPayload(deniedMutation)).toMatchObject({
@@ -789,20 +786,17 @@ describe("trickroom MCP discovery tools", () => {
 				}
 			).designFile.revision;
 
-			const addResult = await client.callTool({
-				name: "addElement",
-				arguments: {
-					project: {
-						locationId: secondLocation.locationId,
-					},
-					designFileId: "22222222-2222-4222-8222-222222222222",
-					expectedRevision: explicitRevision,
-					parentId: "root",
-					index: 1,
-					library: "trickroom",
-					component: "text",
-					name: "Explicit Target Text",
+			const addResult = await applyOperation(client, "addElement", {
+				project: {
+					locationId: secondLocation.locationId,
 				},
+				designFileId: "22222222-2222-4222-8222-222222222222",
+				expectedRevision: explicitRevision,
+				parentId: "root",
+				index: 1,
+				library: "trickroom",
+				component: "text",
+				name: "Explicit Target Text",
 			});
 			expect(addResult.isError).not.toBe(true);
 			expect(toolPayload(addResult)).toMatchObject({
@@ -1334,12 +1328,8 @@ describe("trickroom MCP discovery tools", () => {
 				toolsByName.get("getDesignSystemForDesignFile")?.inputSchema.properties,
 			).toHaveProperty("designFileId");
 			expect(
-				toolsByName.get("addSystemComponent")?.inputSchema.properties,
-			).toHaveProperty("unsetVariantAxes");
-			expect(
-				toolsByName.get("updateSystemComponentInstance")?.inputSchema
-					.properties,
-			).toHaveProperty("unsetVariantAxes");
+				toolsByName.get("design_apply")?.inputSchema.properties,
+			).toHaveProperty("operations");
 		} finally {
 			await close();
 		}

@@ -10,6 +10,7 @@ import {
 	suggestTailwindClasses,
 } from "./diagnostics";
 import {
+	applyOperation,
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
@@ -345,15 +346,16 @@ describe("MCP expanded class/token diagnostics", () => {
 		});
 
 		const revision = await getRevision(session);
-		const mutationResult = await session.client.callTool({
-			name: "updateElementProps",
-			arguments: {
+		const mutationResult = await applyOperation(
+			session.client,
+			"updateElementProps",
+			{
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
 				elementId: "board",
 				className: "font-missing rounded-[2rem]",
 			},
-		});
+		);
 
 		// Default contract: likely-typo warnings (unknown tokens/utilities) on the
 		// touched element are returned, grouped; other warnings are only counted.
@@ -371,16 +373,17 @@ describe("MCP expanded class/token diagnostics", () => {
 		expect(toolPayload(mutationResult)).not.toHaveProperty("tokenDiagnostics");
 
 		// response "full" returns every warning in scope, ungrouped.
-		const allWarningsResult = await session.client.callTool({
-			name: "updateElementProps",
-			arguments: {
+		const allWarningsResult = await applyOperation(
+			session.client,
+			"updateElementProps",
+			{
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: await getRevision(session),
 				elementId: "board",
 				className: "font-missing rounded-[2rem]",
 				response: "full",
 			},
-		});
+		);
 		const allWarnings = toolPayload(allWarningsResult) as {
 			warnings: Array<{ code: string }>;
 			warningCount: number;

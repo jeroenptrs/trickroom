@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { BOARD_GUIDANCE } from "./guidance";
+import { TOOL } from "./tool-names";
 import { designFileIdSchema } from "./tools/schemas";
 
 // Steps every prompt shares. Prompts describe the flow; the authoring
@@ -11,8 +12,7 @@ const PROJECT_STEP =
 const contractStep = (designFileId: string) =>
 	`Call 'getDesignAuthoringContract' with designFileId "${designFileId}". The core has the design's revision and boards, its design system, the rules, and the topics to fetch when you need them (e.g. 'recipes', 'components', 'operations'). If its memoryNotes counts are non-zero, call 'listMemoryNotes' with the designFileId, read the relevant notes with 'getMemoryNote', and follow them.`;
 
-const WRITE_STEP =
-	"Use 'applyDesignOperations' for all steps of a change in one batch, with the core's revision as 'expectedRevision'. Dry-run a risky batch with 'validateOperationPlan', or one operation with 'validateOperation'. Pass each write's 'newRevision' to the next (revision chaining). On 'REVISION_MISMATCH', re-read the revision with 'listDesignFiles' and retry; never guess.";
+const WRITE_STEP = `Use '${TOOL.designApply}' for all steps of a change in one batch, with the core's revision as 'expectedRevision'. Dry-run a risky batch with 'validateOperationPlan', or one operation with 'validateOperation'. Pass each write's 'newRevision' to the next (revision chaining). On 'REVISION_MISMATCH', re-read the revision with 'listDesignFiles' and retry; never guess.`;
 
 const CHECK_STEP =
 	"Fix the warnings each write returns. Call 'screenshotBoard' for the changed boards with viewport ['mobile', 'tablet', 'desktop'] in one call and inspect the returned PNG image blocks, then call 'validateDesignFile'.";
@@ -97,7 +97,7 @@ export const registerTrickroomPrompts = (server: McpServer) => {
 2. **Contract**: ${contractStep(designFileId)}
 3. **Graph first**: Call 'readDesignGraph' for structure and ids, then bounded 'readSubtree' only for affected regions.
 4. **Use the specific operation** ('operations' topic): 'copySubtree', 'moveElement', 'deleteElement', 'detachRecipeInstance', 'updateRecipeInstance' for a stale recipe, 'updateRecipeControl' or 'updateElementProps' for recipe controls, and 'extractSubtree' to move a subtree into a new design file. Avoid deleting and rebuilding what a move or copy can do.
-5. **Plan atomically**: Dry-run the whole plan with 'validateOperationPlan', then commit the same steps with 'applyDesignOperations' and the core's revision as 'expectedRevision': one write, one 'newRevision'. Chain it into any follow-up write; on 'REVISION_MISMATCH', re-read the revision with 'listDesignFiles' and resume the plan.
+5. **Plan atomically**: Dry-run the whole plan with 'validateOperationPlan', then commit the same steps with '${TOOL.designApply}' and the core's revision as 'expectedRevision': one write, one 'newRevision'. Chain it into any follow-up write; on 'REVISION_MISMATCH', re-read the revision with 'listDesignFiles' and resume the plan.
 6. **Check**: ${CHECK_STEP}`,
 					},
 				},
@@ -157,7 +157,7 @@ export const registerTrickroomPrompts = (server: McpServer) => {
 2. **Technical Validation**: Call 'validateDesignFile'. Write responses list only likely typos, so this is where the full issue set lives; add 'includeTokenDiagnostics: true' only when you need the custom-utility catalog.
 3. **Analyze Issues by Category**: If 'valid' is false, group issues into structural, registry, recipe, component, token, asset and icon diagnostics. If the design is already clean, do not perform any unnecessary mutations.
 4. **Targeted Re-Reads**: Use 'readDesignGraph' or bounded 'readSubtree' only where issues point to specific elements. The 'validation' and 'tokens' topics of 'getDesignAuthoringContract' explain the codes.
-5. **Fix Deliberately**: Get the current revision from 'listDesignFiles', dry-run fixes with 'validateOperation' or 'validateOperationPlan', and commit them with 'applyDesignOperations'. Chain 'newRevision'; on 'REVISION_MISMATCH', re-read and retry.
+5. **Fix Deliberately**: Get the current revision from 'listDesignFiles', dry-run fixes with 'validateOperation' or 'validateOperationPlan', and commit them with '${TOOL.designApply}'. Chain 'newRevision'; on 'REVISION_MISMATCH', re-read and retry.
 6. **Final State**: Call 'validateDesignFile' again after fixes and confirm affected areas with scoped reads.
 7. **Visual Review**: Call 'screenshotBoard' or 'screenshotNode' for the changed regions and inspect the returned PNG image blocks.
 8. **Final Report**: Separate structural diagnostics from visual observations and only claim visual or layout readiness for regions actually inspected.`,
@@ -238,7 +238,7 @@ ${brief}
 3. **Design System**: ${systemName ? `Use systemName "${systemName}".` : "Use the design system from the contract core, or call 'getDesignSystemForDesignFile'."}
 4. **Catalogs**: Call 'listSystemAssets' and 'listSystemIcons' with a query; 'describeAsset' / 'describeIcon' for details. MCP does not return raw image or SVG bytes.
 5. **Register (if needed)**: When new files are required and policy allows, use 'addSystemAsset' or 'addSystemIconFolder', then list the catalog again.
-6. **Insert or Update**: Use 'addElement', 'addSubtree' or 'updateElementProps' (batched with 'applyDesignOperations') with the catalog ids. ${WRITE_STEP}
+6. **Insert or Update**: Use 'addElement', 'addSubtree' or 'updateElementProps' (batched with '${TOOL.designApply}') with the catalog ids. ${WRITE_STEP}
 7. **Check**: Call 'findAssetUsage' / 'findIconUsage' and 'validateDesignFile', and screenshot the affected board.`,
 					},
 				},

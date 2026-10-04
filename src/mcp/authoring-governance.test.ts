@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TrickroomDesign } from "../types";
 import {
+	applyOperation,
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
@@ -290,7 +291,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		const revision = await getRevision(session);
 		// response "full" returns every warning on touched elements, ungrouped.
 		const mutationResult = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
@@ -354,7 +355,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		// tokens/utilities) on touched elements only; no heavy token catalog.
 		const defaultRevision = await getRevision(session);
 		const defaultResult = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: defaultRevision,
@@ -379,7 +380,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		// board's pre-existing bad tokens are not echoed.
 		const affectedRevision = await getRevision(session);
 		const affectedResult = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: affectedRevision,
@@ -437,7 +438,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 
 		const revision = await getRevision(session);
 		const mutationResult = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
@@ -530,7 +531,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 
 		const revision = await getRevision(session);
 		const mutationResult = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
@@ -581,14 +582,11 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 		const revision = await getRevision(session);
 
-		const result = await session.client.callTool({
-			name: "updateElementText",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: revision,
-				elementId: "title",
-				text: "Blocked",
-			},
+		const result = await applyOperation(session.client, "updateElementText", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: revision,
+			elementId: "title",
+			text: "Blocked",
 		});
 
 		expect(result.isError).toBe(true);
@@ -611,7 +609,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			.map((line) => JSON.parse(line) as Record<string, unknown>);
 		expect(entries).toContainEqual(
 			expect.objectContaining({
-				toolName: "updateElementText",
+				toolName: "design_apply",
 				operation: "updateElementText",
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,

@@ -124,8 +124,9 @@ describe("getDesignAuthoringContract", () => {
 			designFileId: trickroomMcpTestDesignUuid,
 		});
 
+		expect(core.example.tool).toBe("design_apply");
 		const { result, payload } = await call(
-			"applyDesignOperations",
+			core.example.tool,
 			fill(core.example.arguments, {
 				"<design uuid>": trickroomMcpTestDesignUuid,
 				"<revision from your last read or write>": core.design.revision,
@@ -209,7 +210,7 @@ describe("getDesignAuthoringContract", () => {
 			designFileId: trickroomMcpTestDesignUuid,
 		});
 
-		const { result, payload } = await call("applyDesignOperations", {
+		const { result, payload } = await call("design_apply", {
 			designFileId: trickroomMcpTestDesignUuid,
 			expectedRevision: core.design.revision,
 			operations: fill(topic.example, { "board-id": "board" }),
@@ -235,7 +236,7 @@ describe("getDesignAuthoringContract", () => {
 			designFileId: trickroomMcpTestDesignUuid,
 		});
 
-		const { result, payload } = await call("applyDesignOperations", {
+		const { result, payload } = await call("design_apply", {
 			designFileId: trickroomMcpTestDesignUuid,
 			expectedRevision: core.design.revision,
 			operations: [
@@ -476,7 +477,7 @@ describe("getDesignAuthoringContract", () => {
 						},
 					},
 		);
-		const placed = await call("applyDesignOperations", {
+		const placed = await call("design_apply", {
 			designFileId: trickroomMcpTestDesignUuid,
 			expectedRevision: core.design.revision,
 			operations,
@@ -493,7 +494,7 @@ describe("getDesignAuthoringContract", () => {
 		});
 
 		const built = await call(
-			"applyDesignOperations",
+			screen.calls[1].tool,
 			fill(screen.calls[1].arguments, {
 				"<design uuid>": trickroomMcpTestDesignUuid,
 				"<revision from your last read or write>": core.design.revision,
@@ -503,7 +504,7 @@ describe("getDesignAuthoringContract", () => {
 		const { page, main } = built.payload.created[0].idMap;
 
 		const withDialog = await call(
-			"applyDesignOperations",
+			dialogBoard.calls[0].tool,
 			fill(dialogBoard.calls[0].arguments, {
 				"<design uuid>": trickroomMcpTestDesignUuid,
 				"<revision from your last read or write>": built.payload.newRevision,

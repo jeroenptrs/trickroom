@@ -561,18 +561,63 @@ const createErrorResult = (
 });
 
 /**
+ * Identity of an error issue across a write: element-bound errors by element,
+ * others by path. Paths of element-bound issues shift when elements move.
+ */
+const errorIssueKey = (issue: McpDesignIssue) =>
+	`${issue.code}\0${issue.elementId ?? issue.path ?? ""}`;
+
+/**
+ * Split the errors of a plan's result into the ones the plan introduced and
+ * the ones the design already had. The starting design's issues are only
+ * read when the result has errors.
+ */
+export const splitIntroducedErrors = async (
+	afterErrors: readonly McpDesignIssue[],
+	readIssuesBefore: () => Promise<readonly McpDesignIssue[]>,
+) => {
+	if (afterErrors.length === 0) {
+		return { introduced: [], preExistingCount: 0 };
+	}
+	const remaining = new Map<string, number>();
+	for (const issue of await readIssuesBefore()) {
+		if (issue.severity === "error") {
+			const key = errorIssueKey(issue);
+			remaining.set(key, (remaining.get(key) ?? 0) + 1);
+		}
+	}
+	const introduced = afterErrors.filter((issue) => {
+		const key = errorIssueKey(issue);
+		const count = remaining.get(key) ?? 0;
+		if (count === 0) {
+			return true;
+		}
+		remaining.set(key, count - 1);
+		return false;
+	});
+	return {
+		introduced,
+		preExistingCount: afterErrors.length - introduced.length,
+	};
+};
+
+/**
  * Run an operation plan inside mutateDesignFile: one read, one revision check,
- * one write when every step succeeds and the result has no error issues.
- * Success returns the new revision, ids created per inserting step, the
- * deleted count and diagnostics on touched elements; a failing step returns
- * its index, operation and error with hints, and nothing else.
+ * one write when every step succeeds and the plan adds no error issues.
+ * Errors the design already had are counted in preExistingErrorCount and do
+ * not block the write. Success returns the new revision, ids created per
+ * inserting step, the deleted count and diagnostics on touched elements; a
+ * failing step returns its index, operation and error with hints.
  */
 export const applyDesignOperationsPayload = async (
 	context: TrickroomMcpServerContext,
 	input: Pick<
 		OperationPlanInput,
 		"designFileId" | "expectedRevision" | "operations" | "response"
-	>,
+	> & {
+		/** Called after a write that renamed the design. */
+		onRename?: () => Promise<void>;
+	},
 ): Promise<CallToolResult> => {
 	const { designFileId, expectedRevision, operations, response } = input;
 	const base = {
@@ -600,12 +645,23 @@ export const applyDesignOperationsPayload = async (
 						}),
 					);
 				}
-				const diagnostics = shapeMutationDiagnostics(
+				const shaped = shapeMutationDiagnostics(
 					await getDesignDiagnostics(context, execution.design),
 					response,
 					execution.affectedElementIds,
 				);
-				if (diagnostics.issues.length > 0) {
+				const { introduced, preExistingCount } = await splitIntroducedErrors(
+					shaped.issues,
+					async () => (await getDesignDiagnostics(context, read.design)).issues,
+				);
+				const diagnostics = {
+					...shaped,
+					issues: introduced,
+					...(preExistingCount > 0
+						? { preExistingErrorCount: preExistingCount }
+						: {}),
+				};
+				if (introduced.length > 0) {
 					return skipDesignWrite(
 						createErrorResult({
 							status: "INVALID_OPERATION",
@@ -613,7 +669,7 @@ export const applyDesignOperationsPayload = async (
 							...base,
 							code: "PLAN_LEAVES_ERRORS",
 							message:
-								"The design would have error issues after this plan, so nothing was written. Fix them in the plan; some may predate it.",
+								"This plan would add error issues to the design, so nothing was written. Fix them in the plan.",
 							...diagnostics,
 						}),
 					);
@@ -621,6 +677,12 @@ export const applyDesignOperationsPayload = async (
 				return { design: execution.design, execution, diagnostics };
 			},
 			respond: async ({ execution, diagnostics }, write) => {
+				if (
+					input.onRename &&
+					execution.steps.some((step) => step.operation === "renameDesignFile")
+				) {
+					await input.onRename();
+				}
 				const created = execution.steps
 					.map((step) => describeCreatedElements(step, response))
 					.filter((entry) => entry !== null);

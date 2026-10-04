@@ -1,5 +1,6 @@
 import type { SystemComponentRecord } from "../../utils/system-components";
 import { BOARD_GUIDANCE } from "../guidance";
+import { TOOL } from "../tool-names";
 import { buildDesignCoreFacts, type DesignGuideInput } from "./design-facts";
 import { buildOperationsTopic } from "./operations";
 import {
@@ -55,12 +56,12 @@ const CORE_RULES = [
 
 const CORE_WORKFLOW = [
 	"Read: the design block below has the revision and boards; readDesignGraph gives structure and ids, readSubtree the detail. If memoryNotes counts are non-zero, listMemoryNotes({ designFileId }) and read the notes that bear on your task.",
-	"Write in batches: applyDesignOperations runs ordered steps atomically and returns one newRevision. Steps reference elements created by earlier steps with $step:N:tempId:<tempId> or $step:N:slot:<slot>. Prefer a system component (it carries the system's styling), then a recipe, then hand-built elements.",
+	`Write in batches: ${TOOL.designApply} runs ordered steps atomically and returns one newRevision. Steps reference elements created by earlier steps with $step:N:tempId:<tempId> or $step:N:slot:<slot>. Prefer a system component (it carries the system's styling), then a recipe, then hand-built elements.`,
 	'Check: fix warnings the write returns. screenshotBoard the changed boards with viewport: ["mobile", "tablet", "desktop"] in one call and look at the images (scale: 1 for fine detail). Then validateDesignFile.',
 ];
 
 const CORE_EXAMPLE = {
-	tool: "applyDesignOperations",
+	tool: TOOL.designApply,
 	arguments: {
 		...WRITE_CONTEXT,
 		operations: [
@@ -101,8 +102,7 @@ const CORE_EXAMPLE = {
 };
 
 const buildStepReferencesTopic = () => ({
-	appliesTo:
-		"applyDesignOperations and validateOperationPlan parameters elementId, parentId, targetParentId, sourceElementId, instanceId and rootElementId.",
+	appliesTo: `${TOOL.designApply} and validateOperationPlan parameters elementId, parentId, targetParentId, sourceElementId, instanceId and rootElementId.`,
 	forms: {
 		"$step:N": "The element step N changed or inserted (its root).",
 		"$step:N:rootElementId": "The root element step N inserted.",
@@ -336,8 +336,9 @@ const buildOverlaysTopic = (input: DesignGuideInput) => ({
 
 const buildValidationTopic = () => ({
 	writeResponses: [
-		"Writes return error issues, warningCount, and warnings. warningCount covers the elements the write touched plus file-level warnings. warnings lists only likely typos (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) and MISSING_RENDERER (the stage draws a placeholder) on those elements.",
-		'Escalate per call with response: includeWarnings: true lists every warning in scope; warningScope: "file" widens the scope to the whole design; includeTokenDiagnostics: true adds the custom utility catalog; includeStepDetails: true (applyDesignOperations) returns full step summaries; includeWarnings: false drops the list.',
+		"Writes return newRevision, created ids, the error issues the write introduced, warningCount, and warnings: likely typos (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) and MISSING_RENDERER (the stage draws a placeholder) on the elements the write touched, grouped by code and class. warningCount also covers file-level warnings.",
+		"preExistingErrorCount counts errors the design already had. They do not block a write; a plan that adds errors is refused with PLAN_LEAVES_ERRORS.",
+		'response: "full" lists every warning on the touched elements ungrouped and adds token diagnostics and each step\'s summary.',
 		"validateDesignFile returns every issue in the design. Run it before handing off.",
 	],
 	dryRuns:
@@ -377,7 +378,7 @@ const buildExamplesTopic = () => [
 				note: "Returns the design id and newRevision. The design has no boards yet.",
 			},
 			{
-				tool: "applyDesignOperations",
+				tool: TOOL.designApply,
 				arguments: {
 					...WRITE_CONTEXT,
 					operations: [
@@ -437,7 +438,7 @@ const buildExamplesTopic = () => [
 		task: "Board with a dialog open over the page",
 		calls: [
 			{
-				tool: "applyDesignOperations",
+				tool: TOOL.designApply,
 				arguments: {
 					...WRITE_CONTEXT,
 					operations: [
@@ -488,7 +489,7 @@ const buildExamplesTopic = () => [
 		task: "Place and adjust a design system component",
 		calls: [
 			{
-				tool: "applyDesignOperations",
+				tool: TOOL.designApply,
 				arguments: {
 					...WRITE_CONTEXT,
 					operations: [
@@ -524,7 +525,7 @@ const buildExamplesTopic = () => [
 				arguments: { systemName: "<system name>", query: "search", limit: 5 },
 			},
 			{
-				tool: "applyDesignOperations",
+				tool: TOOL.designApply,
 				arguments: {
 					...WRITE_CONTEXT,
 					operations: [
@@ -566,7 +567,7 @@ export const DESIGN_GUIDE_TOPICS: readonly GuideTopic<
 >[] = [
 	{
 		name: "operations",
-		when: "Every applyDesignOperations operation with parameters and an example.",
+		when: `Every ${TOOL.designApply} operation with parameters and an example.`,
 		build: buildOperationsTopic,
 	},
 	{
