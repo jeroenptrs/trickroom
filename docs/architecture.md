@@ -102,6 +102,57 @@ MCP creation and mutation use the same design-file services as the HTTP app, wit
 
 MCP screenshot tools lazily start a loopback-only capture host fixed to the selected project, so visual capture does not depend on the browser app's active project. Inline capture is allowed by read-only policy; writing an `outputPath` requires read-write policy. Screenshot attempts are audit logged when project auditing is enabled.
 
+## Editor Channel
+
+The editor channel lets a local process, in practice the MCP server, see what the human has open in the browser and point the browser at a design, board or layer. It carries no design data and keeps no state on disk apart from the discovery record.
+
+### Discovery record
+
+The MCP server is a separate process and cannot otherwise find the HTTP server. Once a server listens, it writes `<TRICKROOM_HOME>/runtime/servers/<pid>.json` (`src/app-state/runtime-servers.ts`):
+
+```json
+{ "version": 1, "pid": 4242, "url": "http://127.0.0.1:18100/", "token": "…", "projectId": "proj_…", "projectRoot": "/work/app", "startedAt": "2026-10-04T10:00:00.000Z" }
+```
+
+- Written by the `serve` entry (`src/server-entry.ts`) and the dev plugin (`plugin/spa-server/discovery.ts`), never by `createTrickroomApp`, so the MCP screenshot capture host does not register itself.
+- `url` is for local processes: the actual bound address, with wildcard binds dialed through `127.0.0.1`. The public URL settings are for humans and are not used.
+- `token` is the session token, or null without session auth. The directory is `0700` and the file `0600`.
+- The record follows the active project through `app.trickroomRuntime.subscribeActiveProject` and is deleted on exit and on SIGINT, SIGTERM and SIGHUP. Records of killed servers stay behind until a client finds them stale.
+
+### Tabs and their context
+
+Each tab has an in-memory `clientId` (`src/queries/editor-channel.ts`) and opens the project event stream as `GET /api/trickroom/events?clientId=<id>`. The stream is the tab's presence: the server forgets the tab when its last stream closes.
+
+`EditorChannel` (rendered by `Root`) reports the tab's context to `POST /api/trickroom/editor-context`, debounced by 150 ms and again whenever the stream reconnects:
+
+```json
+{ "clientId": "…", "projectId": "proj_…", "designFileId": "<design uuid>", "activeBoardId": "…", "selectedId": "…", "stageMode": "canvas", "responsiveWidth": 640, "focusedAt": 1759572000000, "visible": true, "sentAt": 1759572000150 }
+```
+
+Design fields are null outside the design route. `focusedAt` is updated when the tab gains focus, becomes visible, or is interacted with (at most once a second). The server moves it onto its own clock using `sentAt`, so tabs in different browsers compare fairly. `stageMode`, `activeBoardId` and `responsiveWidth` live in `src/stores/stage-view-store.ts`; the design route resets that store on mount and unmount.
+
+`GET /api/trickroom/editor-context` returns the server's active `projectId`, the connected tabs (each with `ageMs` since its last report and the normalized `focusedAt`), and `mostRecentlyFocusedClientId`. Contexts live only in memory (`src/services/editor-sessions.ts`).
+
+### Focus requests
+
+`POST /api/trickroom/editor-focus` takes `{ designFileId, boardId?, elementId?, clientId?, projectId? }`. The server picks the given tab, or the most recently focused tab showing the project, sends it a `focus` SSE event with a `requestId`, and waits up to 2 s for `POST /api/trickroom/editor-focus/ack`. It answers `{ status, clientId, requestId, outcome, message }`:
+
+- `ok`, with `outcome` `revealed` (already open design), `navigated` (another design) or `queued` (hidden tab; applied when it is shown).
+- `blocked_dirty`: the tab would have to leave a design with unsaved changes, a save in flight or a pending conflict (or a system editor draft with unsaved edits). The human sees a toast.
+- `browser_on_other_project`: the server or the tab shows another project. The server's active project is never switched.
+- `no_browser`: no connected tab (or the given one is gone). `stale`: the tab did not acknowledge in time.
+
+The tab applies a request by navigating to the design's deep link, `/design/<uuid>?board=<id>&layer=<id>` (`src/utils/design-deep-link.ts`). The same link works on its own, including on a cold load: once the design is hydrated, `useDesignDeepLink` switches to the board (a layer implies its board), selects the layer, consumes the parameters and issues a reveal request. On reveal, `useStageNavigation` centres the canvas on the element (or scrolls it into view in responsive mode) once it is rendered and styled, the Layers panel expands collapsed ancestors and scrolls to the row, and `StageFocusHighlight` outlines the element with its layer name for about two seconds. The design route mounts one editor per design, so the stage hooks always bind to the current design's iframe.
+
+### Client for local processes
+
+`src/services/editor-channel.ts` is what MCP tools call:
+
+- `getEditorContext(projectId, options?)` resolves with `ok` plus the server, the project's tabs and the focused tab, or with `no_server`, `no_browser`, `browser_on_other_project` or `stale` and a message.
+- `requestEditorFocus({ projectId, designFileId, boardId?, elementId?, clientId? }, options?)` resolves with the server's focus status (including `blocked_dirty`), the target tab and the outcome.
+
+Both list the discovery records, delete records whose process is gone (`process.kill(pid, 0)`) or whose URL no longer answers as a Trickroom server, probe the rest through `GET /api/trickroom/health` with the token, and use the server whose active project matches (the one with the most recently focused tab when several do). Requests time out after 0.75 s (health), 1.5 s (context) and 3.5 s (focus). They never throw.
+
 ## Build Shape
 
 - `pnpm dev`: generate Tailwind baseline tokens and start Vite.
