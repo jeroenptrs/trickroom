@@ -119,7 +119,11 @@ export const registerDesignReadTools = (ctx: McpToolContext) => {
 					),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
-			_meta: { [ALWAYS_LOAD_META_KEY]: true },
+			_meta: {
+				[ALWAYS_LOAD_META_KEY]: true,
+				[SEARCH_HINT_META_KEY]:
+					"inspect tree layers elements board subtree outline element ids",
+			},
 		},
 		async ({
 			designFileId,
@@ -265,7 +269,7 @@ export const registerDesignExportTools = (
 		TOOL.designExport,
 		{
 			title: "Export Design",
-			description: `Write boards of a design to files on disk; omit boardIds for every board. format "html" (default): self-contained interactive HTML, one .html for one board or a .zip with one .html per board, as the in-app export; it inlines the design system's compiled Tailwind and loads React and Base UI from esm.sh, so it needs network access to render. format "png": one PNG per board, viewport and theme, at scale 1 and full height (up to 8000 CSS px), named <design>-<board>[-<viewport>-<theme>].png; it needs a Chrome or Chromium like ${TOOL.designScreenshot}. Absolute destinationDir paths are used as-is; relative ones resolve inside the project and must stay in it. Returns the written paths.`,
+			description: `Write boards of a design to files on disk; omit boardIds for every board. format "html" (default): self-contained interactive HTML, one .html for one board or a .zip with one .html per board, as the in-app export; it inlines the design system's compiled Tailwind and loads React and Base UI from esm.sh, so it needs network access to render. format "png": one PNG per board, viewport and theme, at scale 1 and full height (up to 8000 CSS px), named <design>-<board>[-<viewport>-<theme>].png; it needs a Chrome or Chromium like ${TOOL.designScreenshot}. Absolute destinationDir paths are used as-is; relative ones resolve inside the project and must stay in it. Files of the same name are overwritten. Returns the written paths.`,
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
 				destinationDir: z
@@ -292,8 +296,10 @@ export const registerDesignExportTools = (
 			}),
 			annotations: {
 				...mutationAnnotations,
-				// Writing the same export again overwrites the same files.
-				idempotentHint: true,
+				// Files of the same name are overwritten; zips are named by time,
+				// so exporting again writes another file.
+				destructiveHint: true,
+				idempotentHint: false,
 				// HTML exports load React and Base UI from a CDN; PNG renders may
 				// load remote fonts.
 				openWorldHint: true,

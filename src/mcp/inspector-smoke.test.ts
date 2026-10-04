@@ -282,7 +282,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 			expect(session.client.getServerCapabilities()).toMatchObject({
 				tools: expect.any(Object),
 			});
-			expect(session.client.getInstructions()).toMatch(/Trickroom MCP/);
+			expect(session.client.getInstructions()).toMatch(/^Trickroom is/);
 
 			const toolsByName = await getToolsByName(session.client);
 
@@ -323,8 +323,8 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 			]);
 			expect(toolsByName.get("design_export")?.annotations).toMatchObject({
 				readOnlyHint: false,
-				destructiveHint: false,
-				idempotentHint: true,
+				destructiveHint: true,
+				idempotentHint: false,
 				openWorldHint: true,
 			});
 			expectInputProperties(requireTool(toolsByName, "design_export"), [

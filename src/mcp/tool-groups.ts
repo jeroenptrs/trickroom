@@ -1,3 +1,5 @@
+import { TOOL } from "./tool-names";
+
 export const MCP_TOOL_GROUP_IDS = [
 	"projects",
 	"designRead",
@@ -23,41 +25,51 @@ export const MCP_TOOL_GROUPS = [
 		id: "projects",
 		label: "Project & session",
 		description: "List and select Trickroom projects for this MCP session.",
-		tools: ["project_list", "project_select", "editor_context", "editor_focus"],
+		tools: [
+			TOOL.projectList,
+			TOOL.projectSelect,
+			TOOL.editorContext,
+			TOOL.editorFocus,
+		],
 	},
 	{
 		id: "designRead",
 		label: "Design inspection",
 		description:
 			"List and read design files, capture screenshots, and export boards to disk.",
-		tools: ["design_list", "design_read", "design_screenshot", "design_export"],
+		tools: [
+			TOOL.designList,
+			TOOL.designRead,
+			TOOL.designScreenshot,
+			TOOL.designExport,
+		],
 	},
 	{
 		id: "designWrite",
 		label: "Design mutation",
 		description:
 			"Create design files and apply design operations: insert, update, move, copy, delete, rename.",
-		tools: ["design_apply", "design_create"],
+		tools: [TOOL.designApply, TOOL.designCreate],
 	},
 	{
 		id: "designValidation",
 		label: "Validation & dry-run",
 		description: "Validate designs and dry-run design operations.",
-		tools: ["design_validate"],
+		tools: [TOOL.designValidate],
 	},
 	{
 		id: "registry",
 		label: "Guide & registry",
 		description:
 			"The authoring guide: design rules, operations, registry elements, recipes, and component authoring.",
-		tools: ["guide"],
+		tools: [TOOL.guide],
 	},
 	{
 		id: "designSystems",
 		label: "Design systems & resources",
 		description:
 			"Read design system tokens, assets and icons, and manage asset and icon catalogs.",
-		tools: ["system_read", "system_update"],
+		tools: [TOOL.systemRead, TOOL.systemUpdate],
 	},
 	{
 		id: "systemComponents",
@@ -65,12 +77,12 @@ export const MCP_TOOL_GROUPS = [
 		description:
 			"Read, author, publish, delete and migrate project-owned system components.",
 		tools: [
-			"component_read",
-			"component_draft_create",
-			"component_draft_update",
-			"component_publish",
-			"component_delete",
-			"component_migrate",
+			TOOL.componentRead,
+			TOOL.componentDraftCreate,
+			TOOL.componentDraftUpdate,
+			TOOL.componentPublish,
+			TOOL.componentDelete,
+			TOOL.componentMigrate,
 		],
 	},
 	{
@@ -78,7 +90,7 @@ export const MCP_TOOL_GROUPS = [
 		label: "Memory & notes",
 		description:
 			"Read and write durable steering notes scoped to a system, design, or the project.",
-		tools: ["memory_read", "memory_write"],
+		tools: [TOOL.memoryRead, TOOL.memoryWrite],
 	},
 ] as const satisfies readonly McpToolGroupDefinition[];
 

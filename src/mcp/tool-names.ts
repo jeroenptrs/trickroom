@@ -17,6 +17,8 @@ export const TOOL = {
 	designCreate: "design_create",
 	designScreenshot: "design_screenshot",
 	designExport: "design_export",
+	editorContext: "editor_context",
+	editorFocus: "editor_focus",
 	memoryRead: "memory_read",
 	memoryWrite: "memory_write",
 	systemRead: "system_read",
@@ -27,8 +29,6 @@ export const TOOL = {
 	componentPublish: "component_publish",
 	componentDelete: "component_delete",
 	componentMigrate: "component_migrate",
-	editorContext: "editor_context",
-	editorFocus: "editor_focus",
 } as const;
 
 export type ToolName = (typeof TOOL)[keyof typeof TOOL];

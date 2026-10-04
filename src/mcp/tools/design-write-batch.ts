@@ -52,7 +52,7 @@ import {
 	withProjectScopedInput,
 } from "./schemas";
 
-export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
+export const registerDesignCreateTool = (ctx: McpToolContext) => {
 	const { server, notifyResourceListChanged, withProjectContext } = ctx;
 
 	server.registerTool(
@@ -253,6 +253,10 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 				);
 			}),
 	);
+};
+
+export const registerDesignApplyTool = (ctx: McpToolContext) => {
+	const { server, notifyResourceListChanged, withProjectContext } = ctx;
 
 	server.registerTool(
 		TOOL.designApply,

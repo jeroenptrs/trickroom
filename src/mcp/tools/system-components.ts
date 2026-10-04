@@ -360,6 +360,9 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 				expectedRevision: expectedRevisionSchema,
 			}),
 			annotations: { ...mutationAnnotations, idempotentHint: false },
+			_meta: {
+				[SEARCH_HINT_META_KEY]: "release new version system component draft",
+			},
 		},
 		async ({ systemName, componentId, expectedRevision, project }) =>
 			withPolicyErrorHandling(project, async (context) => {

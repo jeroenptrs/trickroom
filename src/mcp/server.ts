@@ -19,7 +19,10 @@ import {
 } from "./tools/design-read";
 import { registerDesignSystemTools } from "./tools/design-systems";
 import { registerDesignValidationTools } from "./tools/design-validation";
-import { registerDesignBatchWriteTools } from "./tools/design-write-batch";
+import {
+	registerDesignApplyTool,
+	registerDesignCreateTool,
+} from "./tools/design-write-batch";
 import { registerEditorTools } from "./tools/editor";
 import { registerGuideTools } from "./tools/guide";
 import { installToolInputValidation } from "./tools/input-validation";
@@ -86,18 +89,20 @@ export const createTrickroomMcpServer = (
 	registerDesignResourceHandlers(ctx);
 	registerTrickroomPrompts(server);
 
-	// tools/list reports tools in registration order, so groups that were
-	// historically interleaved register in several slices to keep that order.
+	// tools/list reports tools in registration order, which is TOOL_NAMES
+	// order (src/mcp/tool-names.ts): projects, guide, designs, editor,
+	// memory, design systems, components.
 	registerProjectTools(ctx);
-	registerDesignReadTools(ctx);
-	registerDesignExportTools(ctx, registerScreenshotTools(ctx));
-	registerDesignValidationTools(ctx);
 	registerGuideTools(ctx);
+	registerDesignReadTools(ctx);
+	registerDesignApplyTool(ctx);
+	registerDesignValidationTools(ctx);
+	registerDesignCreateTool(ctx);
+	registerDesignExportTools(ctx, registerScreenshotTools(ctx));
+	registerEditorTools(ctx);
 	registerMemoryTools(ctx);
 	registerDesignSystemTools(ctx);
 	registerSystemComponentTools(ctx);
-	registerDesignBatchWriteTools(ctx);
-	registerEditorTools(ctx);
 
 	const { trickroomHome, captureHosts } = ctx;
 	if (trickroomHome) {

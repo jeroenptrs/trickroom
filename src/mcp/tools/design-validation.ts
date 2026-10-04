@@ -4,7 +4,10 @@ import {
 	validateOperationPlanPayload,
 } from "../payloads/design-validation";
 import { TOOL } from "../tool-names";
-import { readOnlyClosedWorldAnnotations } from "./annotations";
+import {
+	readOnlyClosedWorldAnnotations,
+	SEARCH_HINT_META_KEY,
+} from "./annotations";
 import type { McpToolContext } from "./context";
 import { createOperationPlanStepsInputSchema } from "./operation-schemas";
 import { createJsonResult } from "./results";
@@ -38,6 +41,10 @@ export const registerDesignValidationTools = (ctx: McpToolContext) => {
 				response: mutationResponseInputSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
+			_meta: {
+				[SEARCH_HINT_META_KEY]:
+					"check lint errors warnings dry-run preview test operations",
+			},
 		},
 		async ({ designFileId, operations, expectedRevision, response, project }) =>
 			withPolicyErrorHandling(project, async (context) => {

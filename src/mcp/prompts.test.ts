@@ -241,7 +241,7 @@ describe("trickroom MCP workflow prompts", () => {
 			expect(text).toContain("Do not create separate boards per breakpoint");
 			expect(text).toContain("dialog open");
 			expect(client.getInstructions()).toContain(
-				"Do not create separate boards per breakpoint",
+				"never one board per breakpoint",
 			);
 		} finally {
 			await server.close();
