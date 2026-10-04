@@ -1,5 +1,10 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { DesignFileServiceError } from "../../services/design-file-service";
+import {
+	createDesignFileService,
+	type DesignFileRead,
+	type DesignFileService,
+	DesignFileServiceError,
+} from "../../services/design-file-service";
 import { DesignTransformError } from "../../services/design-transform-service";
 import { enrichElementLookupError } from "../../services/element-lookup-hints";
 import type { TrickroomDesign } from "../../types";
@@ -13,11 +18,13 @@ import {
 	type McpAuditEntry,
 	McpPolicyError,
 } from "../governance";
+import { canonicalizeDesignSystemReferenceForStorage } from "../payloads/design-system";
 import { readDesignFileForTool } from "../payloads/design-tree";
 import type { TrickroomMcpServerContext } from "../server-types";
 import {
 	createInvalidOperationResult,
 	createPolicyDeniedResult,
+	createRevisionMismatchResult,
 	createToolErrorResult,
 } from "./results";
 
@@ -127,4 +134,99 @@ export const withMutationErrorHandling = async (
 		}
 		throw error;
 	}
+};
+
+const skippedDesignWrite = Symbol("skippedDesignWrite");
+
+type SkippedDesignWrite = { [skippedDesignWrite]: CallToolResult };
+
+// Ends a mutateDesignFile call without writing and responds with `result`.
+export const skipDesignWrite = (
+	result: CallToolResult,
+): SkippedDesignWrite => ({
+	[skippedDesignWrite]: result,
+});
+
+type DesignFileWriteResult = Awaited<
+	ReturnType<DesignFileService["writeDesignFile"]>
+>;
+
+// The read, revision check, write, and race re-read shared by single-file
+// design mutations. Reads the design, rejects a stale expectedRevision,
+// applies `mutate`, writes the canonicalized design guarded by
+// expectedRevision, and reports a lost write race as REVISION_MISMATCH with
+// the revision now on disk. `load` runs after the read and before the
+// revision check, for mutations that also read another design file.
+export const mutateDesignFile = async <
+	Result extends { design: TrickroomDesign },
+	Loaded = undefined,
+>(
+	context: TrickroomMcpServerContext,
+	{
+		designFileId,
+		expectedRevision,
+	}: { designFileId: string; expectedRevision: string },
+	steps: {
+		load?: (
+			read: DesignFileRead,
+			readDesignFile: (designFileId: string) => Promise<DesignFileRead>,
+		) => Promise<Loaded>;
+		mutate: (
+			read: DesignFileRead,
+			loaded: Loaded,
+		) => Promise<Result | SkippedDesignWrite>;
+		respond: (
+			result: Result,
+			write: DesignFileWriteResult,
+			loaded: Loaded,
+		) => Promise<CallToolResult>;
+	},
+): Promise<CallToolResult> => {
+	const service = createDesignFileService(context.projectRoot);
+	const file = service.getFileForUuid(designFileId);
+	const read = await service.readDesignFile(file);
+	const loaded = steps.load
+		? await steps.load(read, (otherDesignFileId) =>
+				service.readDesignFile(service.getFileForUuid(otherDesignFileId)),
+			)
+		: (undefined as Loaded);
+
+	if (read.revision !== expectedRevision) {
+		return createRevisionMismatchResult(
+			context,
+			read.revision,
+			expectedRevision,
+		);
+	}
+
+	const result = await steps.mutate(read, loaded);
+	if (skippedDesignWrite in result) {
+		return result[skippedDesignWrite];
+	}
+
+	let write: DesignFileWriteResult;
+	try {
+		const nextDesign = await canonicalizeDesignSystemReferenceForStorage(
+			context,
+			result.design,
+		);
+		write = await service.writeDesignFile(file, nextDesign, {
+			expectedRevision,
+		});
+	} catch (error) {
+		if (
+			error instanceof DesignFileServiceError &&
+			error.code === "REVISION_MISMATCH"
+		) {
+			const raceRead = await service.readJsonFile(file);
+			return createRevisionMismatchResult(
+				context,
+				raceRead.revision,
+				expectedRevision,
+			);
+		}
+		throw error;
+	}
+
+	return steps.respond(result, write, loaded);
 };

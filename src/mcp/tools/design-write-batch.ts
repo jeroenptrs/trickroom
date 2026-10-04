@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import {
-	createDesignFileService,
-	DesignFileServiceError,
-} from "../../services/design-file-service";
+import { createDesignFileService } from "../../services/design-file-service";
 import {
 	applyAddSubtree,
 	applyCopySubtree,
@@ -52,6 +49,8 @@ import {
 import type { McpToolContext } from "./context";
 import {
 	getMutationDiagnostics,
+	mutateDesignFile,
+	skipDesignWrite,
 	withMutationErrorHandling,
 } from "./mutation-support";
 import {
@@ -453,86 +452,62 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 					},
 					async () => {
 						assertCanWriteDesignFile(policy, designFileId);
-						const service = createDesignFileService(context.projectRoot);
-						const file = service.getFileForUuid(designFileId);
-						const read = await service.readDesignFile(file);
+						return mutateDesignFile(
+							context,
+							{ designFileId, expectedRevision },
+							{
+								mutate: async (read) => {
+									const result = applyAddSubtree(read.design, {
+										parentId,
+										index,
+										subtree,
+										options,
+									});
 
-						if (read.revision !== expectedRevision) {
-							return createRevisionMismatchResult(
-								context,
-								read.revision,
-								expectedRevision,
-							);
-						}
-
-						const result = applyAddSubtree(read.design, {
-							parentId,
-							index,
-							subtree,
-							options,
-						});
-
-						const insertedRootContext = findElementContext(
-							result.design,
-							result.rootElementId,
+									const insertedRootContext = findElementContext(
+										result.design,
+										result.rootElementId,
+									);
+									if (!insertedRootContext) {
+										throw new DesignTransformError(
+											"INVALID_OPERATION",
+											"Failed to validate inserted subtree root after applying mutation.",
+										);
+									}
+									assertCanUseSubtreeComponents(
+										policy,
+										insertedRootContext.element,
+									);
+									await assertResourceReferencesExist(context, result.design);
+									return result;
+								},
+								respond: async (result, write) => {
+									return createJsonResult({
+										status: "success",
+										project: getProjectReference(context),
+										newRevision: write.revision,
+										rootElementId: result.rootElementId,
+										idMap: result.idMap,
+										inserted: result.inserted,
+										recipeExpansions: result.recipeExpansions,
+										changedElement: getCompactElementSummary(
+											result.design,
+											result.changedElementId,
+										),
+										context: getMutationContext(
+											result.design,
+											result.changedElementId,
+										),
+										...(await getMutationDiagnostics(
+											context,
+											write.design,
+											response,
+											result.inserted.elementIds,
+										)),
+									});
+								},
+							},
 						);
-						if (!insertedRootContext) {
-							throw new DesignTransformError(
-								"INVALID_OPERATION",
-								"Failed to validate inserted subtree root after applying mutation.",
-							);
-						}
-						assertCanUseSubtreeComponents(policy, insertedRootContext.element);
-						await assertResourceReferencesExist(context, result.design);
-
-						let write: Awaited<ReturnType<typeof service.writeDesignFile>>;
-						try {
-							const nextDesign =
-								await canonicalizeDesignSystemReferenceForStorage(
-									context,
-									result.design,
-								);
-							write = await service.writeDesignFile(file, nextDesign, {
-								expectedRevision,
-							});
-						} catch (error) {
-							if (
-								error instanceof DesignFileServiceError &&
-								error.code === "REVISION_MISMATCH"
-							) {
-								const raceRead = await service.readJsonFile(file);
-								return createRevisionMismatchResult(
-									context,
-									raceRead.revision,
-									expectedRevision,
-								);
-							}
-							throw error;
-						}
-
-						return createJsonResult({
-							status: "success",
-							project: getProjectReference(context),
-							newRevision: write.revision,
-							rootElementId: result.rootElementId,
-							idMap: result.idMap,
-							inserted: result.inserted,
-							recipeExpansions: result.recipeExpansions,
-							changedElement: getCompactElementSummary(
-								result.design,
-								result.changedElementId,
-							),
-							context: getMutationContext(
-								result.design,
-								result.changedElementId,
-							),
-							...(await getMutationDiagnostics(
-								context,
-								write.design,
-								response,
-								result.inserted.elementIds,
-							)),
-						});
 					},
 				);
 			});
@@ -627,136 +602,117 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 							payload.sourceDesignFileId === payload.targetDesignFileId;
 						assertCanReadDesignFile(policy, payload.sourceDesignFileId);
 						assertCanWriteDesignFile(policy, payload.targetDesignFileId);
-						const service = createDesignFileService(context.projectRoot);
-						const targetFile = service.getFileForUuid(
-							payload.targetDesignFileId,
-						);
-						const targetRead = await service.readDesignFile(targetFile);
-						const sourceRead = sameDesign
-							? targetRead
-							: await service.readDesignFile(
-									service.getFileForUuid(payload.sourceDesignFileId),
-								);
-
-						if (targetRead.revision !== payload.expectedRevision) {
-							return createRevisionMismatchResult(
-								context,
-								targetRead.revision,
-								payload.expectedRevision,
-							);
-						}
-						if (
-							payload.sourceExpectedRevision !== undefined &&
-							sourceRead.revision !== payload.sourceExpectedRevision
-						) {
-							return createJsonResult({
-								status: "SOURCE_REVISION_MISMATCH",
-								project: getProjectReference(context),
-								sourceDesignFile: getDesignMetadata(
-									payload.sourceDesignFileId,
-									sourceRead,
-								),
-								targetDesignFile: getDesignMetadata(
-									payload.targetDesignFileId,
-									targetRead,
-								),
-								currentSourceRevision: sourceRead.revision,
-								sourceExpectedRevision: payload.sourceExpectedRevision,
-								expectedRevision: payload.expectedRevision,
-								message:
-									"Expected source revision does not match current revision.",
-								suggestedReads: ["readDesignFile", "readDesignGraph"],
-							});
-						}
-
-						const sourceElementContext = findElementContext(
-							sourceRead.design,
-							payload.sourceElementId,
-						);
-						if (!sourceElementContext) {
-							throw new DesignTransformError(
-								"ELEMENT_NOT_FOUND",
-								`Element "${payload.sourceElementId}" not found.`,
-							);
-						}
-						assertCanUseSubtreeComponents(policy, sourceElementContext.element);
-
-						const result = await applyCopySubtree(
-							sourceRead.design,
-							targetRead.design,
+						return mutateDesignFile(
+							context,
 							{
-								sourceElementId: payload.sourceElementId,
-								parentId: payload.parentId,
-								index: payload.index,
-								sameDesign,
-								projectRoot: context.projectRoot,
+								designFileId: payload.targetDesignFileId,
+								expectedRevision: payload.expectedRevision,
+							},
+							{
+								load: async (targetRead, readDesignFile) =>
+									sameDesign
+										? targetRead
+										: await readDesignFile(payload.sourceDesignFileId),
+								mutate: async (targetRead, sourceRead) => {
+									if (
+										payload.sourceExpectedRevision !== undefined &&
+										sourceRead.revision !== payload.sourceExpectedRevision
+									) {
+										return skipDesignWrite(
+											createJsonResult({
+												status: "SOURCE_REVISION_MISMATCH",
+												project: getProjectReference(context),
+												sourceDesignFile: getDesignMetadata(
+													payload.sourceDesignFileId,
+													sourceRead,
+												),
+												targetDesignFile: getDesignMetadata(
+													payload.targetDesignFileId,
+													targetRead,
+												),
+												currentSourceRevision: sourceRead.revision,
+												sourceExpectedRevision: payload.sourceExpectedRevision,
+												expectedRevision: payload.expectedRevision,
+												message:
+													"Expected source revision does not match current revision.",
+												suggestedReads: ["readDesignFile", "readDesignGraph"],
+											}),
+										);
+									}
+
+									const sourceElementContext = findElementContext(
+										sourceRead.design,
+										payload.sourceElementId,
+									);
+									if (!sourceElementContext) {
+										throw new DesignTransformError(
+											"ELEMENT_NOT_FOUND",
+											`Element "${payload.sourceElementId}" not found.`,
+										);
+									}
+									assertCanUseSubtreeComponents(
+										policy,
+										sourceElementContext.element,
+									);
+
+									const result = await applyCopySubtree(
+										sourceRead.design,
+										targetRead.design,
+										{
+											sourceElementId: payload.sourceElementId,
+											parentId: payload.parentId,
+											index: payload.index,
+											sameDesign,
+											projectRoot: context.projectRoot,
+										},
+									);
+									await assertResourceReferencesExist(context, result.design);
+									return result;
+								},
+								respond: async (result, write, sourceRead) =>
+									createJsonResult({
+										status: "success",
+										project: getProjectReference(context),
+										sourceDesignFile: getDesignMetadata(
+											payload.sourceDesignFileId,
+											sourceRead,
+										),
+										targetDesignFile: {
+											id: payload.targetDesignFileId,
+											file: write.file,
+											name: write.design.name,
+											systemId: write.design.systemId ?? null,
+											systemName:
+												(
+													await summarizeDesignSystemReference(
+														context,
+														getDesignSystemHandle(write.design),
+													)
+												)?.systemName ?? null,
+											revision: write.revision,
+										},
+										newRevision: write.revision,
+										sourceElementId: payload.sourceElementId,
+										rootElementId: result.rootElementId,
+										idMap: result.idMap,
+										inserted: result.inserted,
+										changedElement: getCompactElementSummary(
+											result.design,
+											result.rootElementId,
+										),
+										context: getMutationContext(
+											result.design,
+											result.rootElementId,
+										),
+										...(await getMutationDiagnostics(
+											context,
+											write.design,
+											responseOptions,
+											Object.values(result.idMap),
+										)),
+									}),
 							},
 						);
-						await assertResourceReferencesExist(context, result.design);
-
-						let write: Awaited<ReturnType<typeof service.writeDesignFile>>;
-						try {
-							const nextDesign =
-								await canonicalizeDesignSystemReferenceForStorage(
-									context,
-									result.design,
-								);
-							write = await service.writeDesignFile(targetFile, nextDesign, {
-								expectedRevision: payload.expectedRevision,
-							});
-						} catch (error) {
-							if (
-								error instanceof DesignFileServiceError &&
-								error.code === "REVISION_MISMATCH"
-							) {
-								const raceRead = await service.readJsonFile(targetFile);
-								return createRevisionMismatchResult(
-									context,
-									raceRead.revision,
-									payload.expectedRevision,
-								);
-							}
-							throw error;
-						}
-
-						return createJsonResult({
-							status: "success",
-							project: getProjectReference(context),
-							sourceDesignFile: getDesignMetadata(
-								payload.sourceDesignFileId,
-								sourceRead,
-							),
-							targetDesignFile: {
-								id: payload.targetDesignFileId,
-								file: write.file,
-								name: write.design.name,
-								systemId: write.design.systemId ?? null,
-								systemName:
-									(
-										await summarizeDesignSystemReference(
-											context,
-											getDesignSystemHandle(write.design),
-										)
-									)?.systemName ?? null,
-								revision: write.revision,
-							},
-							newRevision: write.revision,
-							sourceElementId: payload.sourceElementId,
-							rootElementId: result.rootElementId,
-							idMap: result.idMap,
-							inserted: result.inserted,
-							changedElement: getCompactElementSummary(
-								result.design,
-								result.rootElementId,
-							),
-							context: getMutationContext(result.design, result.rootElementId),
-							...(await getMutationDiagnostics(
-								context,
-								write.design,
-								responseOptions,
-								Object.values(result.idMap),
-							)),
-						});
 					},
 				);
 			});
@@ -795,66 +751,44 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 					},
 					async () => {
 						assertCanWriteDesignFile(policy, designFileId);
-						const service = createDesignFileService(context.projectRoot);
-						const file = service.getFileForUuid(designFileId);
-						const read = await service.readDesignFile(file);
+						return mutateDesignFile(
+							context,
+							{ designFileId, expectedRevision },
+							{
+								mutate: async (read) => ({
+									design: {
+										...read.design,
+										name,
+									},
+								}),
+								respond: async (_result, write) => {
+									await notifyResourceListChanged();
 
-						if (read.revision !== expectedRevision) {
-							return createRevisionMismatchResult(
-								context,
-								read.revision,
-								expectedRevision,
-							);
-						}
-
-						let write: Awaited<ReturnType<typeof service.writeDesignFile>>;
-						try {
-							const nextDesign =
-								await canonicalizeDesignSystemReferenceForStorage(context, {
-									...read.design,
-									name,
-								});
-							write = await service.writeDesignFile(file, nextDesign, {
-								expectedRevision,
-							});
-						} catch (error) {
-							if (
-								error instanceof DesignFileServiceError &&
-								error.code === "REVISION_MISMATCH"
-							) {
-								const raceRead = await service.readJsonFile(file);
-								return createRevisionMismatchResult(
-									context,
-									raceRead.revision,
-									expectedRevision,
-								);
-							}
-							throw error;
-						}
-						await notifyResourceListChanged();
-
-						return createJsonResult({
-							status: "success",
-							project: getProjectReference(context),
-							newRevision: write.revision,
-							designFile: {
-								id: designFileId,
-								file: write.file,
-								name: write.design.name,
-								systemId: write.design.systemId ?? null,
-								systemName: await getDesignSystemDisplayName(
-									context,
-									write.design,
-								),
-								revision: write.revision,
+									return createJsonResult({
+										status: "success",
+										project: getProjectReference(context),
+										newRevision: write.revision,
+										designFile: {
+											id: designFileId,
+											file: write.file,
+											name: write.design.name,
+											systemId: write.design.systemId ?? null,
+											systemName: await getDesignSystemDisplayName(
+												context,
+												write.design,
+											),
+											revision: write.revision,
+										},
+										...(await getMutationDiagnostics(
+											context,
+											write.design,
+											response,
+											[],
+										)),
+									});
+								},
 							},
-							...(await getMutationDiagnostics(
-								context,
-								write.design,
-								response,
-								[],
-							)),
-						});
+						);
 					},
 				);
 			});

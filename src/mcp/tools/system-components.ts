@@ -1,8 +1,4 @@
 import { z } from "zod";
-import {
-	createDesignFileService,
-	DesignFileServiceError,
-} from "../../services/design-file-service";
 import { applyMigrateSystemComponentInstance } from "../../services/design-transform-service";
 import {
 	mcpPartialSystemComponentDraftPayloadInputSchema,
@@ -26,10 +22,7 @@ import {
 	assertCanWriteProject,
 	getMcpPolicy,
 } from "../governance";
-import {
-	assertConfiguredSystem,
-	canonicalizeDesignSystemReferenceForStorage,
-} from "../payloads/design-system";
+import { assertConfiguredSystem } from "../payloads/design-system";
 import {
 	getCompactElementSummary,
 	getMutationContext,
@@ -51,11 +44,12 @@ import {
 import type { McpToolContext } from "./context";
 import {
 	getMutationDiagnostics,
+	mutateDesignFile,
+	skipDesignWrite,
 	withMutationErrorHandling,
 } from "./mutation-support";
 import {
 	createJsonResult,
-	createRevisionMismatchResult,
 	createSystemComponentDraftInputErrorResult,
 } from "./results";
 import {
@@ -451,119 +445,94 @@ export const registerSystemComponentMigrationTools = (ctx: McpToolContext) => {
 						if (!dryRun) {
 							assertCanWriteDesignFile(policy, designFileId);
 						}
-						const service = createDesignFileService(context.projectRoot);
-						const file = service.getFileForUuid(designFileId);
-						const read = await service.readDesignFile(file);
-
-						if (read.revision !== expectedRevision) {
-							return createRevisionMismatchResult(
-								context,
-								read.revision,
-								expectedRevision,
-							);
-						}
-
-						assertCanUseSystemComponentInstanceSubtree(
-							policy,
-							read.design,
-							rootElementId,
-						);
-
-						const result = await applyMigrateSystemComponentInstance(
-							read.design,
+						return mutateDesignFile(
+							context,
+							{ designFileId, expectedRevision },
 							{
-								projectRoot: context.projectRoot,
-								rootElementId,
-								onlySafe,
-								dryRun,
-							},
-						);
+								mutate: async (read) => {
+									assertCanUseSystemComponentInstanceSubtree(
+										policy,
+										read.design,
+										rootElementId,
+									);
 
-						const targetDesign = result.prospectiveDesign ?? result.design;
-						assertCanUseSystemComponentInstanceSubtree(
-							policy,
-							targetDesign,
-							result.rootElementId,
-						);
+									const result = await applyMigrateSystemComponentInstance(
+										read.design,
+										{
+											projectRoot: context.projectRoot,
+											rootElementId,
+											onlySafe,
+											dryRun,
+										},
+									);
 
-						if (!result.applied) {
-							return createJsonResult({
-								status:
-									result.outcome === "review-required"
-										? "REVIEW_REQUIRED"
-										: "DRY_RUN",
-								project: getProjectReference(context),
-								applied: false,
-								outcome: result.outcome,
-								systemComponent: {
-									systemId: result.systemId,
-									componentId: result.componentId,
-									instanceId: result.instanceId,
-									rootElementId: result.rootElementId,
-									fromVersion: result.fromVersion,
-									toVersion: result.toVersion,
+									const targetDesign =
+										result.prospectiveDesign ?? result.design;
+									assertCanUseSystemComponentInstanceSubtree(
+										policy,
+										targetDesign,
+										result.rootElementId,
+									);
+
+									if (!result.applied) {
+										return skipDesignWrite(
+											createJsonResult({
+												status:
+													result.outcome === "review-required"
+														? "REVIEW_REQUIRED"
+														: "DRY_RUN",
+												project: getProjectReference(context),
+												applied: false,
+												outcome: result.outcome,
+												systemComponent: {
+													systemId: result.systemId,
+													componentId: result.componentId,
+													instanceId: result.instanceId,
+													rootElementId: result.rootElementId,
+													fromVersion: result.fromVersion,
+													toVersion: result.toVersion,
+												},
+												preview: result.preview,
+												revision: read.revision,
+											}),
+										);
+									}
+									return result;
 								},
-								preview: result.preview,
-								revision: read.revision,
-							});
-						}
-
-						let write: Awaited<ReturnType<typeof service.writeDesignFile>>;
-						try {
-							const nextDesign =
-								await canonicalizeDesignSystemReferenceForStorage(
-									context,
-									result.design,
-								);
-							write = await service.writeDesignFile(file, nextDesign, {
-								expectedRevision,
-							});
-						} catch (error) {
-							if (
-								error instanceof DesignFileServiceError &&
-								error.code === "REVISION_MISMATCH"
-							) {
-								const raceRead = await service.readJsonFile(file);
-								return createRevisionMismatchResult(
-									context,
-									raceRead.revision,
-									expectedRevision,
-								);
-							}
-							throw error;
-						}
-
-						return createJsonResult({
-							status: "success",
-							project: getProjectReference(context),
-							applied: true,
-							outcome: result.outcome,
-							newRevision: write.revision,
-							systemComponent: {
-								systemId: result.systemId,
-								componentId: result.componentId,
-								instanceId: result.instanceId,
-								rootElementId: result.rootElementId,
-								fromVersion: result.fromVersion,
-								toVersion: result.toVersion,
+								respond: async (result, write) =>
+									createJsonResult({
+										status: "success",
+										project: getProjectReference(context),
+										applied: true,
+										outcome: result.outcome,
+										newRevision: write.revision,
+										systemComponent: {
+											systemId: result.systemId,
+											componentId: result.componentId,
+											instanceId: result.instanceId,
+											rootElementId: result.rootElementId,
+											fromVersion: result.fromVersion,
+											toVersion: result.toVersion,
+										},
+										componentMigration: result.componentMigration,
+										preview: result.preview,
+										changedElement: getCompactElementSummary(
+											result.design,
+											result.changedElementId,
+										),
+										context: getMutationContext(
+											result.design,
+											result.changedElementId,
+										),
+										...(await getMutationDiagnostics(
+											context,
+											write.design,
+											response,
+											getSubtreeElementIds(write.design, result.rootElementId),
+										)),
+									}),
 							},
-							componentMigration: result.componentMigration,
-							preview: result.preview,
-							changedElement: getCompactElementSummary(
-								result.design,
-								result.changedElementId,
-							),
-							context: getMutationContext(
-								result.design,
-								result.changedElementId,
-							),
-							...(await getMutationDiagnostics(
-								context,
-								write.design,
-								response,
-								getSubtreeElementIds(write.design, result.rootElementId),
-							)),
-						});
+						);
 					},
 				);
 			});
