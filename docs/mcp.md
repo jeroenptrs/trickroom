@@ -708,3 +708,13 @@ When enabled, creation and mutation tools append JSON Lines to:
 ```
 
 Audit entries include the tool name, operation, project root, design file ID, expected revision, resulting revision when available, status, success flag, and error details when a policy or operation fails.
+
+## Source Layout
+
+`src/mcp/server.ts` is the composition root: it creates the `McpServer`, builds the shared tool context, and calls each group's register function. `tools/list` reports tools in registration order, so the order of those calls is part of the public surface.
+
+- `src/mcp/tools/<group>.ts`: tool registrations, one file per group in `src/mcp/tool-groups.ts` (design writes are split into `design-write-batch.ts` and `design-write-nodes.ts`, screenshots live apart from `design-read.ts`).
+- `src/mcp/tools/context.ts`: per-session state (selected project, project resolver, screenshot capture) and the `withProjectContext` / `withPolicyErrorHandling` wrappers, passed to every register function.
+- `src/mcp/tools/results.ts`, `schemas.ts`, `operation-schemas.ts`, `annotations.ts`, `mutation-support.ts`: shared result builders, zod input schemas, tool annotations, and mutation error handling and auditing.
+- `src/mcp/payloads/`: payload builders the tools call (design reads, validation, registry, authoring contracts, systems, system components).
+- `src/mcp/prompts.ts`, `src/mcp/server-instructions.ts`, `src/mcp/resource-handlers.ts`: prompts, server instructions, and `trickroom://` resource handlers.
