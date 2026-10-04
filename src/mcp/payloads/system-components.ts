@@ -33,6 +33,7 @@ import {
 	getMcpPolicy,
 } from "../governance";
 import type { TrickroomMcpServerContext } from "../server-types";
+import { TOOL } from "../tool-names";
 import {
 	assertConfiguredSystem,
 	canonicalizeDesignSystemReferenceForStorage,
@@ -712,8 +713,8 @@ const bulkMigratePolicyAllowedSystemComponentUsages = async (
 			canonicalizeDesignSystemReferenceForStorage(context, design),
 		onDesignWrite: ({ status, message, ...write }) =>
 			appendMcpAuditLog(context, {
-				toolName: "bulkMigrateSystemComponentUsages",
-				operation: "bulkMigrateSystemComponentUsages",
+				toolName: TOOL.componentMigrate,
+				operation: "bulk",
 				projectId: context.config.projectId ?? null,
 				projectRoot: context.projectRoot,
 				...write,
