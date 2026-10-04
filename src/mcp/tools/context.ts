@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { resolveTrickroomHome } from "../../app-state/home";
 import { upsertProjectLocation } from "../../app-state/project-registry";
 import {
 	readMcpEnabledProjectContext,
@@ -18,6 +20,12 @@ import { AssetManifestError } from "../../utils/asset-manifest-service";
 import { IconManifestError } from "../../utils/icon-manifest-service";
 import { MemoryManifestError } from "../../utils/memory-manifest-service";
 import { SystemComponentOperationsError } from "../../utils/system-component-operations";
+import {
+	createCallLogWriter,
+	createToolCallHistory,
+	installToolCallRecording,
+	isCallLogEnabled,
+} from "../call-history";
 import { McpPolicyError } from "../governance";
 import {
 	createTrickroomMcpProjectResolver,
@@ -55,6 +63,21 @@ export const createMcpToolContext = (
 				: null,
 		});
 	const captureHosts = new CaptureHostManager();
+	// Feedback and the call log go to the Trickroom home even when the
+	// session has no project home yet.
+	const feedbackHome = trickroomHome ?? resolveTrickroomHome();
+	const sessionId = randomUUID();
+	const getClientInfo = () => server.server.getClientVersion();
+	const callLog =
+		(options.callLog ?? isCallLogEnabled(feedbackHome))
+			? createCallLogWriter({
+					trickroomHome: feedbackHome,
+					sessionId,
+					getClientName: () => getClientInfo()?.name,
+				})
+			: null;
+	const callHistory = createToolCallHistory(callLog?.write);
+	installToolCallRecording(server, callHistory);
 	const editorChannel = options.editorChannel ?? {
 		getEditorContext,
 		requestEditorFocus,
@@ -227,6 +250,11 @@ export const createMcpToolContext = (
 		trickroomHome,
 		projectResolver,
 		captureHosts,
+		feedbackHome,
+		sessionId,
+		getClientInfo,
+		callHistory,
+		flushCallLog: () => callLog?.flush() ?? Promise.resolve(),
 		screenshotCapture,
 		editorChannel,
 		getSelectedContext: () => selectedContext,

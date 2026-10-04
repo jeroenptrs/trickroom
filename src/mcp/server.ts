@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { TRICKROOM_VERSION } from "../app-state/version";
 import { isMcpEnabled, TrickroomProjectConfigError } from "../project";
 import { registerTrickroomPrompts } from "./prompts";
 import { registerDesignResourceHandlers } from "./resource-handlers";
@@ -24,6 +25,7 @@ import {
 	registerDesignCreateTool,
 } from "./tools/design-write-batch";
 import { registerEditorTools } from "./tools/editor";
+import { registerFeedbackTools } from "./tools/feedback";
 import { registerGuideTools } from "./tools/guide";
 import { installToolInputValidation } from "./tools/input-validation";
 import { registerMemoryTools } from "./tools/memory";
@@ -59,7 +61,7 @@ export const createTrickroomMcpServer = (
 	const server = new McpServer(
 		{
 			name: "trickroom",
-			version: "0.1.0",
+			version: TRICKROOM_VERSION,
 		},
 		{
 			capabilities: {
@@ -85,13 +87,14 @@ export const createTrickroomMcpServer = (
 
 	const ctx = createMcpToolContext(server, initialContext, options);
 	server.getActiveContextSnapshot = () => ctx.getSelectedContext();
+	server.flushCallLog = ctx.flushCallLog;
 
 	registerDesignResourceHandlers(ctx);
 	registerTrickroomPrompts(server);
 
 	// tools/list reports tools in registration order, which is TOOL_NAMES
 	// order (src/mcp/tool-names.ts): projects, guide, designs, editor,
-	// memory, design systems, components.
+	// memory, design systems, components, feedback.
 	registerProjectTools(ctx);
 	registerGuideTools(ctx);
 	registerDesignReadTools(ctx);
@@ -103,6 +106,7 @@ export const createTrickroomMcpServer = (
 	registerMemoryTools(ctx);
 	registerDesignSystemTools(ctx);
 	registerSystemComponentTools(ctx);
+	registerFeedbackTools(ctx);
 
 	const { trickroomHome, captureHosts } = ctx;
 	if (trickroomHome) {

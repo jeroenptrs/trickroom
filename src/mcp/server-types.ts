@@ -19,6 +19,11 @@ export type TrickroomMcpServerOptions = {
 		context: TrickroomMcpServerContext,
 		request: ScreenshotRequest,
 	) => Promise<ScreenshotResult>;
+	/**
+	 * Append every tool call to the call log; defaults to
+	 * TRICKROOM_MCP_CALL_LOG, then mcp.callLog in settings.json.
+	 */
+	callLog?: boolean;
 	/** The editor channel; tests replace it to fake a browser tab. */
 	editorChannel?: {
 		getEditorContext: typeof getEditorContext;
@@ -30,4 +35,6 @@ export type TrickroomMcpServer = McpServer & {
 	getActiveContextSnapshot: () => TrickroomMcpServerContext | null;
 	stopMcpToolGroupControls?: () => void;
 	stopScreenshotHosts?: () => Promise<void>;
+	/** Resolves once queued call log lines are written. */
+	flushCallLog?: () => Promise<void>;
 };

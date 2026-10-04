@@ -102,7 +102,7 @@ const RETIRED_PATTERN = new RegExp(
 );
 /** Tool-shaped snake_case tokens: a family prefix and a verb or noun. */
 const FAMILY_TOKEN_PATTERN =
-	/\b(?:project|design|editor|memory|system|component)_[a-z]+(?:_[a-z]+)*\b/gu;
+	/\b(?:project|design|editor|memory|system|component|feedback)_[a-z]+(?:_[a-z]+)*\b/gu;
 const REGISTERED = new Set<string>(TOOL_NAMES);
 
 /** Every tool reference in `text` that does not name a registered tool. */

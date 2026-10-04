@@ -41,6 +41,7 @@ const EXPECTED_ANNOTATIONS: Record<
 	component_publish: [false, false, false],
 	component_delete: [true, false, false],
 	component_migrate: [false, false, false],
+	feedback_submit: [false, false, false],
 };
 
 describe("MCP tool surface", () => {

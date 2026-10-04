@@ -24,12 +24,14 @@ export const MCP_TOOL_GROUPS = [
 	{
 		id: "projects",
 		label: "Project & session",
-		description: "List and select Trickroom projects for this MCP session.",
+		description:
+			"List and select Trickroom projects for this MCP session, follow the human's editor, and report friction with the tools.",
 		tools: [
 			TOOL.projectList,
 			TOOL.projectSelect,
 			TOOL.editorContext,
 			TOOL.editorFocus,
+			TOOL.feedbackSubmit,
 		],
 	},
 	{

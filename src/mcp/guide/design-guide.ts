@@ -58,6 +58,7 @@ const CORE_WORKFLOW = [
 	`Read: the design block below has the revision and boards; ${TOOL.designRead} with view "outline" gives structure and ids, with elementId the detail. If memoryNotes counts are non-zero, ${TOOL.memoryRead}({ designFileId }) and read the notes that bear on your task. When the human points at "this", ${TOOL.editorContext} says what they have open and selected.`,
 	`Write in batches: ${TOOL.designApply} runs ordered steps atomically and returns one newRevision. Steps reference elements created by earlier steps with $step:N:tempId:<tempId> or $step:N:slot:<slot>. Prefer a system component (it carries the system's styling), then a recipe, then hand-built elements.`,
 	`Check: fix warnings the write returns. ${TOOL.designScreenshot} the changed boards with viewport: ["mobile", "tablet", "desktop"] in one call and look at the images (scale: 1 for fine detail). Then ${TOOL.designValidate}, and ${TOOL.editorFocus} to show the human what changed.`,
+	`Report tool trouble: when a Trickroom tool blocked or misled you, returned something unusable, or lacked a capability you needed, call ${TOOL.feedbackSubmit} with a one-line summary (your recent calls are attached). Not for design content questions.`,
 ];
 
 const CORE_EXAMPLE = {

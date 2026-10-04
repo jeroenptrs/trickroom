@@ -29,6 +29,7 @@ export const TOOL = {
 	componentPublish: "component_publish",
 	componentDelete: "component_delete",
 	componentMigrate: "component_migrate",
+	feedbackSubmit: "feedback_submit",
 } as const;
 
 export type ToolName = (typeof TOOL)[keyof typeof TOOL];
