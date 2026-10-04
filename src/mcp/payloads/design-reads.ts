@@ -1,7 +1,7 @@
 import type { Resource } from "@modelcontextprotocol/sdk/types.js";
 import type { DesignFileRead } from "../../services/design-file-service";
 import { DesignTransformError } from "../../services/design-transform-service";
-import type { Node as DesignNode, TrickroomDesign } from "../../types";
+import type { TrickroomDesign } from "../../types";
 import { findDesignSystem } from "../../utils/design-system-store";
 import { buildDesignGraph } from "../design-graph";
 import { assertCanReadDesignFile, getMcpPolicy } from "../governance";
@@ -9,12 +9,11 @@ import { buildDesignResourceUri, slugifyDesignTitle } from "../resources";
 import type { TrickroomMcpServerContext } from "../server-types";
 import { summarizeDesignSystemReference } from "./design-system";
 import {
+	countElementNodes,
 	createTreeReadBounds,
 	describeNode,
 	describeTreeRead,
 	findElementContext,
-	getDesignCounts,
-	getDesignMetadata,
 	getDesignSystemHandle,
 	getElementContextOrThrow,
 	getElementReadContext,
@@ -25,7 +24,6 @@ import {
 	readBoundedTree,
 	readDesignFileForTool,
 	readErrorCode,
-	summarizeBoard,
 	type TreeReadInput,
 } from "./design-tree";
 import {
@@ -34,37 +32,6 @@ import {
 	getProjectDetails,
 	getProjectReference,
 } from "./project";
-
-export const readDesignSummaryPayload = async (
-	context: TrickroomMcpServerContext,
-	designFileId: string,
-) => {
-	assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
-	const read = await readDesignFileForTool(context, designFileId);
-
-	return {
-		payloadKind: "design-summary",
-		project: getProjectReference(context),
-		designFile: getDesignMetadata(designFileId, read),
-		designSystem: await summarizeDesignSystemReference(
-			context,
-			getDesignSystemHandle(read.design),
-		),
-		rootElementIds: read.design.boards.map((board) => board.id),
-		boards: read.design.boards.map(summarizeBoard),
-		counts: getDesignCounts(read.design),
-		nextSuggestedReads: [
-			"readDesignFile with boardId for one board's bounded compact tree",
-			"readSubtree with elementId for one area",
-			"readElement for one exact element",
-		],
-	};
-};
-
-const countElements = (node: DesignNode): number =>
-	Array.isArray(node.children)
-		? node.children.reduce((count, child) => count + countElements(child), 1)
-		: 1;
 
 // Default bounds per read tool; maxNodes is taken breadth first.
 export const readDesignFileDefaults = { depth: 2, maxNodes: 50 };
@@ -240,6 +207,57 @@ const throwBoardNotFound = (
 	);
 };
 
+const summarizeBoards = (design: TrickroomDesign) =>
+	design.boards.map((board) => ({
+		id: board.id,
+		name: getNodeName(board) ?? null,
+		elementCount: countElementNodes(board),
+	}));
+
+const getDesignReadSystem = async (
+	context: TrickroomMcpServerContext,
+	design: TrickroomDesign,
+) => {
+	const system = await summarizeDesignSystemReference(
+		context,
+		getDesignSystemHandle(design),
+	);
+	return {
+		systemId: system?.systemId ?? null,
+		...(system ? { systemName: system.systemName } : {}),
+		...(system && !system.configured ? { systemConfigured: false } : {}),
+	};
+};
+
+/** The `trickroom://` design resource: header and board index, no tree. */
+export const readDesignSummaryPayload = async (
+	context: TrickroomMcpServerContext,
+	designFileId: string,
+) => {
+	assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
+	const read = await readDesignFileForTool(context, designFileId);
+	const boards = summarizeBoards(read.design);
+
+	return {
+		payloadKind: "design-summary",
+		project: getProjectReference(context),
+		designFile: {
+			...getDesignReadHeader(designFileId, read),
+			...(await getDesignReadSystem(context, read.design)),
+		},
+		elementCount: boards.reduce(
+			(count, board) => count + board.elementCount,
+			0,
+		),
+		boards,
+		nextSuggestedReads: [
+			"readDesignFile with boardId for one board's bounded compact tree",
+			"readSubtree with elementId for one area",
+			"readElement for one exact element",
+		],
+	};
+};
+
 export type DesignReadOptions = TreeReadInput & {
 	detail?: NodeReadDetail;
 };
@@ -270,23 +288,13 @@ export const readDesignFilePayload = async (
 		(board) => !tree.some((node) => node.id === board.id),
 	);
 	const truncatedElementId = treeRead.truncatedElementIds[0];
-	const system = await summarizeDesignSystemReference(
-		context,
-		getDesignSystemHandle(design),
-	);
-	const boards = design.boards.map((board) => ({
-		id: board.id,
-		name: getNodeName(board) ?? null,
-		elementCount: countElements(board),
-	}));
+	const boards = summarizeBoards(design);
 
 	return {
 		project: getProjectReference(context),
 		designFile: {
 			...getDesignReadHeader(designFileId, read),
-			systemId: system?.systemId ?? null,
-			...(system ? { systemName: system.systemName } : {}),
-			...(system && !system.configured ? { systemConfigured: false } : {}),
+			...(await getDesignReadSystem(context, design)),
 		},
 		elementCount: boards.reduce(
 			(count, board) => count + board.elementCount,

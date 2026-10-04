@@ -1,6 +1,7 @@
 import { createElementNotFoundError } from "../services/element-lookup-hints";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
 import {
+	countElementNodes,
 	describeNode,
 	getRecipeAttachmentSummaries,
 	type TreeReadBounds,
@@ -30,14 +31,6 @@ type GraphEntry = {
 	parentId: string | null;
 	address: string;
 };
-
-const countElementNodes = (node: DesignNode): number =>
-	Array.isArray(node.children)
-		? node.children.reduce(
-				(count, child) => count + countElementNodes(child),
-				1,
-			)
-		: 1;
 
 const findScopeEntry = (
 	design: TrickroomDesign,

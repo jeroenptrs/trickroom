@@ -688,8 +688,7 @@ describe("trickroom MCP design resource catalog", () => {
 				{
 					id: "pricing-board",
 					name: "Pricing",
-					childCount: 0,
-					descendantCount: 0,
+					elementCount: 1,
 				},
 			],
 		});

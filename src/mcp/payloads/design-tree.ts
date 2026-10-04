@@ -140,7 +140,7 @@ export const createTreeReadBounds = (
 	};
 };
 
-const countElementNodes = (node: DesignNode): number =>
+export const countElementNodes = (node: DesignNode): number =>
 	Array.isArray(node.children)
 		? 1 +
 			node.children.reduce(
@@ -148,41 +148,6 @@ const countElementNodes = (node: DesignNode): number =>
 				0,
 			)
 		: 1;
-
-const countTextLeaves = (node: DesignNode): number =>
-	typeof node.children === "string"
-		? 1
-		: node.children.reduce((count, child) => count + countTextLeaves(child), 0);
-
-const getMaxElementDepth = (node: DesignNode, depth = 0): number =>
-	Array.isArray(node.children) && node.children.length > 0
-		? Math.max(
-				...node.children.map((child) => getMaxElementDepth(child, depth + 1)),
-			)
-		: depth;
-
-export const getDesignCounts = (design: TrickroomDesign) => {
-	const elementCount = design.boards.reduce(
-		(count, board) => count + countElementNodes(board),
-		0,
-	);
-	const textLeavesCount = design.boards.reduce(
-		(count, board) => count + countTextLeaves(board),
-		0,
-	);
-	const maxDepth =
-		design.boards.length === 0
-			? 0
-			: Math.max(...design.boards.map((board) => getMaxElementDepth(board)));
-
-	return {
-		boardsCount: design.boards.length,
-		layersCount: elementCount - design.boards.length,
-		elementCount,
-		textLeavesCount,
-		maxDepth,
-	};
-};
 
 type RecipeAttachmentSummary = {
 	recipeId: string;
@@ -277,20 +242,6 @@ export const compactElementTree = (
 					childIds: getChildIds(node),
 					children: children.map(compactElementTree),
 				}),
-	};
-};
-
-export const summarizeBoard = (board: DesignNode) => {
-	const childIds = getChildIds(board);
-	return {
-		id: board.id,
-		name: getNodeName(board),
-		library: board.props["data-trickroom-library"],
-		component: board.props["data-trickroom-component"],
-		role: normalizeRole(board.props["data-trickroom-role"]),
-		childIds,
-		childCount: childIds.length,
-		descendantCount: countElementNodes(board) - 1,
 	};
 };
 
