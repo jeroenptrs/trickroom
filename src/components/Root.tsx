@@ -18,6 +18,7 @@ import {
 	TailwindSyncControllerContext,
 } from "./contexts";
 import { Design } from "./Design";
+import { EditorChannel } from "./EditorChannel";
 import { HomeShell } from "./HomeShell";
 import { OpenProjectPanel } from "./OpenProjectPanel";
 import { Project } from "./Project";
@@ -225,6 +226,10 @@ export function Root() {
 							className="isolate relative h-screen w-screen overflow-hidden bg-slate-50 text-slate-950"
 							data-project-name={effectiveConfig.name}
 						>
+							<EditorChannel
+								enabled={projectDataReady}
+								projectId={activeProject?.projectId || null}
+							/>
 							<Routes>
 								<Route index element={<Project />} />
 								<Route path="capture/:design/:board?" element={<Capture />} />

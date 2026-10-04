@@ -36,6 +36,7 @@ import {
 	recipeLoadRepairHeaderName,
 	repairInvalidKnownRecipeInstances,
 } from "./recipes/repair";
+import { createEditorChannelRoutes } from "./routes/editor-channel";
 import { exportRoutes } from "./routes/export";
 import { registerProjectAndDesignMemoryRoutes } from "./routes/memory";
 import {
@@ -66,6 +67,10 @@ import {
 	applyExtractSubtree,
 	DesignTransformError,
 } from "./services/design-transform-service";
+import {
+	createEditorSessions,
+	isEditorClientId,
+} from "./services/editor-sessions";
 import { ProjectFileEvents } from "./services/project-file-events";
 import type {
 	Node as DesignNode,
@@ -550,6 +555,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 	let activeProject: TrickroomActiveProject | null = null;
 	let initialProjectPromise: Promise<void> | null = null;
 	const projectFileEvents = new ProjectFileEvents();
+	const editorSessions = createEditorSessions();
 	const activeProjectListeners = new Set<
 		(project: TrickroomSessionProject | null) => void
 	>();
@@ -678,6 +684,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return createNoProjectResponse();
 		}
 		projectFileEvents.setProjectRoot(project.projectRoot);
+		const clientId = c.req.query("clientId");
 
 		return streamSSE(c, async (stream) => {
 			let resolveClosed: (() => void) | null = null;
@@ -693,6 +700,11 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			const unsubscribe = projectFileEvents.subscribe((event) => {
 				enqueue("change", JSON.stringify(event));
 			});
+			// Tabs identify themselves so the editor channel knows which are
+			// connected; the stream is the tab's presence.
+			const disconnectEditor = isEditorClientId(clientId)
+				? editorSessions.connect(clientId, enqueue)
+				: undefined;
 			const heartbeat = setInterval(() => enqueue("heartbeat", "{}"), 15_000);
 			stream.onAbort(() => resolveClosed?.());
 			enqueue("ready", JSON.stringify({ locationId: project.locationId }));
@@ -700,8 +712,23 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			await closed;
 			clearInterval(heartbeat);
 			unsubscribe();
+			disconnectEditor?.();
 		});
 	});
+
+	app.route(
+		"/api/trickroom",
+		createEditorChannelRoutes({
+			sessions: editorSessions,
+			getActiveProjectId: async () => {
+				if (initialProjectPromise) {
+					await initialProjectPromise;
+					initialProjectPromise = null;
+				}
+				return activeProject?.config.projectId ?? null;
+			},
+		}),
+	);
 
 	app.post("/api/trickroom/projects/open", async (c) => {
 		const body = await c.req.json().catch(() => null);

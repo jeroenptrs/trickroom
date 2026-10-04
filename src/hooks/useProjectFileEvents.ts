@@ -5,6 +5,11 @@ import {
 	designFileQueryKey,
 	designSummariesProjectQueryKey,
 } from "../queries/design-file";
+import {
+	editorChannelEvents,
+	editorChannelReadyEvent,
+	getProjectEventsUrl,
+} from "../queries/editor-channel";
 import type { ProjectQueryScope } from "../queries/project-scope";
 
 export type TrickroomFileEvent = {
@@ -160,7 +165,7 @@ export function useProjectFileEvents(
 			return;
 		}
 
-		const source = new EventSource("/api/trickroom/events");
+		const source = new EventSource(getProjectEventsUrl());
 		const coalescer = createFileEventCoalescer((event) => {
 			void invalidateTrickroomFileEvent(queryClient, event, projectScope);
 		});
@@ -174,6 +179,9 @@ export function useProjectFileEvents(
 				void invalidateSystemQueries();
 			}
 			hasConnectedRef.current = true;
+			// A (re)connected stream is a new presence on the server; the tab
+			// reports its editor context again.
+			editorChannelEvents.dispatchEvent(new Event(editorChannelReadyEvent));
 		};
 		const handleChange = (message: MessageEvent<string>) => {
 			let event: TrickroomFileEvent;

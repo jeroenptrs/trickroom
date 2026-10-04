@@ -4,9 +4,9 @@ import { RefreshCw } from "lucide-react";
 import {
 	memo,
 	type RefObject,
-	type SetStateAction,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -46,6 +46,16 @@ import {
 	usePersistedDesignRevision,
 	useSelectedId,
 } from "../stores/design-store";
+import {
+	resetStageView,
+	setActiveBoardId,
+	setResponsiveWidth,
+	setStageMode,
+	stageViewStore,
+	useActiveBoardId,
+	useResponsiveWidth,
+	useStageMode,
+} from "../stores/stage-view-store";
 import { markDesignOpened } from "../utils/design-activity";
 import {
 	getDesignSyncDecision,
@@ -60,9 +70,8 @@ import { resolveStageDoc } from "../utils/tailwind-render-mode";
 import { EditorShell } from "./chrome/EditorShell";
 import { IFrameViewContext, useProjectScope } from "./contexts";
 import {
-	clampResponsiveStageWidth,
+	RESPONSIVE_STAGE_DEFAULT_WIDTH,
 	ResponsiveStageContext,
-	type ResponsiveStageMode,
 	resolveResponsiveStageActiveBoardId,
 	shouldPreserveSelectionOnActiveBoard,
 } from "./responsive-stage-context";
@@ -108,6 +117,12 @@ export const StageFrame = memo(function StageFrame({
 	);
 });
 
+const responsiveStageControls = {
+	setMode: setStageMode,
+	setActiveBoardId,
+	setResponsiveWidth,
+};
+
 function DesignStage({
 	iframeRef,
 	onMount,
@@ -133,13 +148,11 @@ export function Design() {
 	const projectScope = useProjectScope();
 	const designFile = uuid ? getDesignFileForUuid(uuid) : null;
 	const [didMount, setDidMount] = useState(false);
-	const [stageMode, setStageMode] = useState<ResponsiveStageMode>("canvas");
-	const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
+	const stageMode = useStageMode();
+	const activeBoardId = useActiveBoardId();
+	const responsiveWidth = useResponsiveWidth();
 	const [externalSnapshot, setExternalSnapshot] =
 		useState<DesignFileSnapshot | null>(null);
-	const [responsiveWidth, setResponsiveWidth] = useState(() =>
-		readResponsiveStageSessionWidth(projectScope, designFile),
-	);
 	const [responsiveZoom, setResponsiveZoom] =
 		useState<ResponsiveStageZoom>("fit");
 	const [responsiveFitScale, setResponsiveFitScale] = useState(1);
@@ -148,6 +161,16 @@ export function Design() {
 		[designFile, projectScope],
 	);
 	const responsiveSessionKeyRef = useRef(responsiveSessionKey);
+	// The stage view starts fresh for every visit to the design route, as it did
+	// when it was local state. Layout effects run before the stage's effects.
+	const initialStageViewRef = useRef({ projectScope, designFile });
+	useLayoutEffect(() => {
+		const initial = initialStageViewRef.current;
+		resetStageView(
+			readResponsiveStageSessionWidth(initial.projectScope, initial.designFile),
+		);
+		return () => resetStageView(RESPONSIVE_STAGE_DEFAULT_WIDTH);
+	}, []);
 	const skipNextResponsiveSessionSaveRef = useRef(false);
 	// The design file whose snapshot was last hydrated, so a live-sync reload of
 	// the open design can keep the active board instead of resetting it.
@@ -207,6 +230,12 @@ export function Design() {
 
 		if (skipNextResponsiveSessionSaveRef.current) {
 			skipNextResponsiveSessionSaveRef.current = false;
+			return;
+		}
+
+		// The first render of a visit still holds the width from before the
+		// mount reset above; the render after it saves the right one.
+		if (responsiveWidth !== stageViewStore.get().responsiveWidth) {
 			return;
 		}
 
@@ -321,24 +350,6 @@ export function Design() {
 		() => <DesignStage iframeRef={iframeRef} onMount={handleStageMount} />,
 		[handleStageMount],
 	);
-	const setClampedResponsiveWidth = useCallback(
-		(nextWidth: SetStateAction<number>) => {
-			setResponsiveWidth((currentWidth) =>
-				clampResponsiveStageWidth(
-					typeof nextWidth === "function" ? nextWidth(currentWidth) : nextWidth,
-				),
-			);
-		},
-		[],
-	);
-	const responsiveStageControls = useMemo(
-		() => ({
-			setMode: setStageMode,
-			setActiveBoardId,
-			setResponsiveWidth: setClampedResponsiveWidth,
-		}),
-		[setClampedResponsiveWidth],
-	);
 	const responsiveStage = useMemo(
 		() => ({
 			mode: stageMode,
@@ -347,13 +358,7 @@ export function Design() {
 			breakpoints: responsiveBreakpoints,
 			controls: responsiveStageControls,
 		}),
-		[
-			activeBoardId,
-			responsiveBreakpoints,
-			responsiveStageControls,
-			responsiveWidth,
-			stageMode,
-		],
+		[activeBoardId, responsiveBreakpoints, responsiveWidth, stageMode],
 	);
 
 	const responsiveStageZoom = useMemo(
