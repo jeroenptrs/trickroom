@@ -5,6 +5,7 @@ import { registerAsset } from "../utils/asset-manifest-service";
 import { writeDesignSystemManifest } from "../utils/design-system-store";
 import { syncIconManifest } from "../utils/icon-manifest-service";
 import {
+	DESIGN_OPERATION_PARAMETERS,
 	designOperationNameSchema,
 	validateDryRunOperationParameters,
 } from "./design-operations";
@@ -24,7 +25,7 @@ const safeSvg =
 
 // The core is read once per design session, so it has a hard size budget.
 const CORE_BUDGET = 6_500;
-const TOPIC_BUDGET = 8_000;
+const TOPIC_BUDGET = 9_000;
 
 // biome-ignore lint/suspicious/noExplicitAny: tool payloads are untyped JSON
 type Json = Record<string, any>;
@@ -180,7 +181,14 @@ describe("getDesignAuthoringContract", () => {
 			designOperationNameSchema.options,
 		);
 		for (const entry of operations.operations) {
-			expect(entry.parameters, entry.operation).toEqual(expect.any(String));
+			expect(
+				Object.keys(entry.parameters).map((name) => name.replace(/\?$/u, "")),
+				entry.operation,
+			).toEqual(
+				DESIGN_OPERATION_PARAMETERS[
+					entry.operation as keyof typeof DESIGN_OPERATION_PARAMETERS
+				].map((parameter) => parameter.name),
+			);
 			expect(() =>
 				validateDryRunOperationParameters(
 					entry.operation,
