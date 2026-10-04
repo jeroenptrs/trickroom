@@ -10,38 +10,6 @@ import { assertCanReadDesignFile, getMcpPolicy } from "../governance";
 import type { TrickroomMcpServerContext } from "../server-types";
 import { getDesignSystemHandle, readDesignFileForTool } from "./design-tree";
 
-export const getCategoryForTokenName = (name: string) => {
-	const separatorIndex = name.indexOf("-");
-	return separatorIndex === -1 ? name : name.slice(0, separatorIndex);
-};
-
-/**
- * Domain overrides are stored as CSS property selectors (`--spacing`,
- * `--spacing-4`, `--spacing-*`), whereas token names are bare (`DEFAULT`,
- * `4`). Map the token name to its selector forms before matching so a
- * confirmed namespace override is not reported as unconfirmed.
- */
-export const isTokenOverrideConfirmed = (
-	domain: string,
-	tokenName: string,
-	overrides: readonly string[],
-): boolean => {
-	const namespace = domain.startsWith("--") ? domain : `--${domain}`;
-	const namespaced =
-		tokenName === "DEFAULT" ? namespace : `${namespace}-${tokenName}`;
-	const separatorIndex = tokenName.indexOf("-");
-	const familyWildcard =
-		separatorIndex === -1
-			? null
-			: `${namespace}-${tokenName.slice(0, separatorIndex)}-*`;
-	return (
-		overrides.includes(tokenName) ||
-		overrides.includes(namespaced) ||
-		(familyWildcard !== null && overrides.includes(familyWildcard)) ||
-		overrides.includes(`${namespace}-*`)
-	);
-};
-
 export const getDesignSystemDisplayName = async (
 	context: TrickroomMcpServerContext,
 	design: TrickroomDesign,
@@ -136,19 +104,7 @@ export const getDesignSystemPayload = async (
 	return {
 		designFile: {
 			id: designFileId,
-			file: read.file,
 			name: read.design.name,
-			revision: read.revision,
-			systemId:
-				read.design.systemId !== undefined
-					? read.design.systemId
-					: (system?.manifest.systemId ?? null),
-			systemName:
-				systemHandle === null
-					? null
-					: (read.design.systemName ??
-						system?.manifest.systemName ??
-						systemHandle),
 		},
 		designSystem: systemHandle
 			? {
@@ -161,12 +117,13 @@ export const getDesignSystemPayload = async (
 					tokenStorage: storedTokens
 						? {
 								available: true,
-								version: storedTokens.version,
-								cssPath: storedTokens.metadata.cssPath,
 								syncedAt: storedTokens.metadata.syncedAt,
 								tailwindBaselineVersion:
 									storedTokens.metadata.tailwindBaselineVersion,
 								reviewRequired: storedTokens.metadata.reviewRequired,
+								...(storedTokens.metadata.cssPath !== system?.manifest.cssPath
+									? { cssPath: storedTokens.metadata.cssPath }
+									: {}),
 							}
 						: {
 								available: false,

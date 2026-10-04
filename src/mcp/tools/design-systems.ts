@@ -20,17 +20,19 @@ import { readDomainTokensReadonly } from "../../utils/tailwind-token-store";
 import { assertCanWriteProject, getMcpPolicy } from "../governance";
 import {
 	assertConfiguredSystem,
-	getCategoryForTokenName,
 	getDesignSystemPayload,
-	isTokenOverrideConfirmed,
 } from "../payloads/design-system";
 import { getProjectReference } from "../payloads/project";
 import {
+	defaultAssetListLimit,
+	defaultIconListLimit,
+	defaultUsageListLimit,
 	describeAssetPayload,
 	describeIconPayload,
 	filterCatalogList,
 	findResourceUsagePayload,
 	listLimitSchema,
+	listOffsetSchema,
 	listQuerySchema,
 	listSystemAssetsPayload,
 	listSystemIconsPayload,
@@ -42,7 +44,9 @@ import {
 } from "./annotations";
 import type { McpToolContext } from "./context";
 import { createJsonResult, createToolErrorResult } from "./results";
-import { withProjectScopedInput } from "./schemas";
+import { designFileIdSchema, withProjectScopedInput } from "./schemas";
+
+const defaultTokenListLimit = 100;
 
 export const registerDesignSystemReadTools = (ctx: McpToolContext) => {
 	const { server, withPolicyErrorHandling } = ctx;
@@ -54,7 +58,7 @@ export const registerDesignSystemReadTools = (ctx: McpToolContext) => {
 			description:
 				"Resolve the design system linked from a design file and report configured CSS path plus token storage metadata.",
 			inputSchema: withProjectScopedInput({
-				designFileId: z.string().min(1).describe("Design file UUID."),
+				designFileId: designFileIdSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
@@ -70,12 +74,17 @@ export const registerDesignSystemReadTools = (ctx: McpToolContext) => {
 					kind: "system",
 					systemHandle: systemId,
 				});
-				return createJsonResult({
-					...payload,
-					memory: summarizeMemoryManifest(systemMemory.manifest),
-					memoryHint:
-						"System memory captures usage conventions and constraints for this design system. Call listMemoryNotes({ scope: { kind: 'system', systemName } }) before authoring with it.",
-				});
+				const memory = summarizeMemoryManifest(systemMemory.manifest);
+				return createJsonResult(
+					memory.noteCount > 0
+						? {
+								...payload,
+								memory,
+								memoryHint:
+									"System memory captures usage conventions and constraints for this design system. Call listMemoryNotes({ scope: { kind: 'system', systemName } }) before authoring with it.",
+							}
+						: payload,
+				);
 			}),
 	);
 
@@ -83,10 +92,9 @@ export const registerDesignSystemReadTools = (ctx: McpToolContext) => {
 		"listDesignTokens",
 		{
 			title: "List Design Tokens",
-			description:
-				"List stored design tokens for the design system linked to a design file. Pass domain (e.g. color, spacing, font), query, and/or limit to bound the list; totalCount and matchedCount are always reported.",
+			description: `List stored design tokens for the design system linked to a design file, as \`tokens: { <domain>: { <name>: <value> } }\` plus per-domain counts. Returns ${defaultTokenListLimit} tokens by default: pass domain (e.g. color, spacing, font), query, limit, or offset to page. Counts are always reported.`,
 			inputSchema: withProjectScopedInput({
-				designFileId: z.string().min(1).describe("Design file UUID."),
+				designFileId: designFileIdSchema,
 				domain: z
 					.string()
 					.min(1)
@@ -95,24 +103,18 @@ export const registerDesignSystemReadTools = (ctx: McpToolContext) => {
 						"Optional token domain to list, e.g. color, spacing, font, text, radius, shadow. The domains summary is limited to it as well.",
 					),
 				query: listQuerySchema,
-				limit: listLimitSchema,
+				limit: listLimitSchema(defaultTokenListLimit),
+				offset: listOffsetSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ designFileId, domain, query, limit, project }) => {
+		async ({ designFileId, domain, query, limit, offset, project }) => {
 			return withPolicyErrorHandling(project, async (context) => {
-				const designSystemPayload = await getDesignSystemPayload(
+				const { designSystem } = await getDesignSystemPayload(
 					context,
 					designFileId,
 				);
-				const systemName =
-					designSystemPayload.designSystem === null
-						? null
-						: designSystemPayload.designSystem.systemName;
-				const systemId =
-					designSystemPayload.designSystem === null
-						? null
-						: designSystemPayload.designSystem.systemId;
+				const systemId = designSystem?.systemId ?? null;
 				const storedTokens = systemId
 					? await readDomainTokensReadonly(context.projectRoot, systemId)
 					: null;
@@ -135,50 +137,59 @@ export const registerDesignSystemReadTools = (ctx: McpToolContext) => {
 					allDomains && domain !== undefined
 						? { [domain]: allDomains[domain as keyof typeof allDomains] }
 						: allDomains;
-				const { items: tokens, counts } = filterCatalogList(
-					domains && storedTokens
+				const { items, counts } = filterCatalogList(
+					domains
 						? Object.entries(domains).flatMap(([tokenDomain, domainStorage]) =>
 								Object.entries(domainStorage.tokens).map(([name, value]) => ({
 									domain: tokenDomain,
-									category: getCategoryForTokenName(name),
 									name,
 									value,
-									overrideConfirmed: isTokenOverrideConfirmed(
-										tokenDomain,
-										name,
-										domainStorage.overrides,
-									),
-									syncedAt: storedTokens.metadata.syncedAt,
-									reviewRequired: storedTokens.metadata.reviewRequired,
 								})),
 							)
 						: [],
-					{ query, limit },
+					{ query, limit, offset },
 					(token) => `${token.name} ${String(token.value)}`,
+					defaultTokenListLimit,
+					"Pass domain or query to filter, or offset for the next page.",
 				);
+				const tokens: Record<string, Record<string, unknown>> = {};
+				for (const token of items) {
+					tokens[token.domain] ??= {};
+					tokens[token.domain][token.name] = token.value;
+				}
 
 				return createJsonResult({
-					...designSystemPayload,
+					designFileId,
+					systemId,
+					systemName: designSystem?.systemName ?? null,
 					storageStatus:
-						systemName === null
+						designSystem === null
 							? "not_linked"
 							: storedTokens
 								? "stored"
 								: "not_stored",
-					...counts,
-					tokens,
+					...(storedTokens
+						? {
+								syncedAt: storedTokens.metadata.syncedAt,
+								reviewRequired: storedTokens.metadata.reviewRequired,
+							}
+						: {}),
+					// Token count per domain; empty domains are left out.
 					domains: domains
 						? Object.fromEntries(
-								Object.entries(domains).map(([tokenDomain, domainStorage]) => [
-									tokenDomain,
-									{
-										tokenCount: Object.keys(domainStorage.tokens).length,
-										overrides: domainStorage.overrides,
-										baselineDiff: domainStorage.baselineDiff,
-									},
-								]),
+								Object.entries(domains)
+									.map(
+										([tokenDomain, domainStorage]) =>
+											[
+												tokenDomain,
+												Object.keys(domainStorage.tokens).length,
+											] as const,
+									)
+									.filter(([, tokenCount]) => tokenCount > 0),
 							)
 						: {},
+					...counts,
+					tokens,
 				});
 			});
 		},
@@ -188,22 +199,26 @@ export const registerDesignSystemReadTools = (ctx: McpToolContext) => {
 		"listSystemAssets",
 		{
 			title: "List System Assets",
-			description:
-				"List system-scoped referenced raster image assets without exposing file bytes. Pass query and/or limit to bound large catalogs; totalCount and matchedCount are always reported.",
+			description: `List system raster image assets (id, name, sourcePath, size, alt) without file bytes. Returns ${defaultAssetListLimit} by default: pass query, limit, or offset to page. Counts are always reported.`,
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
 					.min(1)
 					.describe("Configured design system name."),
 				query: listQuerySchema,
-				limit: listLimitSchema,
+				limit: listLimitSchema(defaultAssetListLimit),
+				offset: listOffsetSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ systemName, query, limit, project }) =>
+		async ({ systemName, query, limit, offset, project }) =>
 			withPolicyErrorHandling(project, async (context) =>
 				createJsonResult(
-					await listSystemAssetsPayload(context, systemName, { query, limit }),
+					await listSystemAssetsPayload(context, systemName, {
+						query,
+						limit,
+						offset,
+					}),
 				),
 			),
 	);
@@ -235,22 +250,26 @@ export const registerDesignSystemReadTools = (ctx: McpToolContext) => {
 		"listSystemIcons",
 		{
 			title: "List System Icons",
-			description:
-				'List generated system-scoped SVG icon catalog metadata and diagnostics. Raw SVG is not returned. Pass query (e.g. "arrow left") and/or limit to bound large icon libraries; totalCount and matchedCount are always reported.',
+			description: `List system SVG icon ids (name only when it differs from the id's last segment) and catalog diagnostics; raw SVG is not returned. Returns ${defaultIconListLimit} by default: pass query (e.g. "arrow left", matched against id, name, and source path), limit, or offset to page. Counts are always reported; describeIcon has the full record.`,
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
 					.min(1)
 					.describe("Configured design system name."),
 				query: listQuerySchema,
-				limit: listLimitSchema,
+				limit: listLimitSchema(defaultIconListLimit),
+				offset: listOffsetSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ systemName, query, limit, project }) =>
+		async ({ systemName, query, limit, offset, project }) =>
 			withPolicyErrorHandling(project, async (context) =>
 				createJsonResult(
-					await listSystemIconsPayload(context, systemName, { query, limit }),
+					await listSystemIconsPayload(context, systemName, {
+						query,
+						limit,
+						offset,
+					}),
 				),
 			),
 	);
@@ -286,8 +305,7 @@ export const registerResourceUsageTools = (ctx: McpToolContext) => {
 		"findAssetUsage",
 		{
 			title: "Find Asset Usage",
-			description:
-				"Find design elements that reference assets in a system. Optionally filter to one asset id.",
+			description: `Find design elements that reference assets in a system, grouped by design. Pass assetId for one asset. Returns ${defaultUsageListLimit} usages by default: pass limit or offset to page; usageCount and designCount are always reported.`,
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
@@ -298,13 +316,24 @@ export const registerResourceUsageTools = (ctx: McpToolContext) => {
 					.min(1)
 					.optional()
 					.describe("Optional stable system asset id."),
+				limit: listLimitSchema(defaultUsageListLimit),
+				offset: listOffsetSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ systemName, assetId, project }) =>
+		async ({ systemName, assetId, limit, offset, project }) =>
 			withPolicyErrorHandling(project, async (context) =>
 				createJsonResult(
-					await findResourceUsagePayload(context, "asset", systemName, assetId),
+					await findResourceUsagePayload(
+						context,
+						"asset",
+						systemName,
+						assetId,
+						{
+							limit,
+							offset,
+						},
+					),
 				),
 			),
 	);
@@ -313,8 +342,7 @@ export const registerResourceUsageTools = (ctx: McpToolContext) => {
 		"findIconUsage",
 		{
 			title: "Find Icon Usage",
-			description:
-				"Find design elements that reference icons in a system. Optionally filter to one icon id.",
+			description: `Find design elements that reference icons in a system, grouped by design. Pass iconId for one icon. Returns ${defaultUsageListLimit} usages by default: pass limit or offset to page; usageCount and designCount are always reported.`,
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
@@ -325,13 +353,18 @@ export const registerResourceUsageTools = (ctx: McpToolContext) => {
 					.min(1)
 					.optional()
 					.describe("Optional stable system icon id."),
+				limit: listLimitSchema(defaultUsageListLimit),
+				offset: listOffsetSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ systemName, iconId, project }) =>
+		async ({ systemName, iconId, limit, offset, project }) =>
 			withPolicyErrorHandling(project, async (context) =>
 				createJsonResult(
-					await findResourceUsagePayload(context, "icon", systemName, iconId),
+					await findResourceUsagePayload(context, "icon", systemName, iconId, {
+						limit,
+						offset,
+					}),
 				),
 			),
 	);

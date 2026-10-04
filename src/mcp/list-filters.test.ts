@@ -95,10 +95,22 @@ describe("bounded MCP catalog lists", () => {
 			matchedCount: 2,
 			returnedCount: 1,
 			truncated: true,
+			next: { offset: 1 },
+			icons: [{ id: "src/arrow-left" }],
 		});
-		expect(
-			(arrows.structuredContent as { icons: unknown[] }).icons,
-		).toHaveLength(1);
+
+		const nextArrows = await session.client.callTool({
+			name: "listSystemIcons",
+			arguments: { systemName: "Core", query: "arrow", limit: 1, offset: 1 },
+		});
+		expect(nextArrows.structuredContent).toMatchObject({
+			matchedCount: 2,
+			returnedCount: 1,
+			offset: 1,
+			truncated: false,
+			icons: [{ id: "src/arrow-right" }],
+		});
+		expect(nextArrows.structuredContent).not.toHaveProperty("next");
 
 		const assets = await session.client.callTool({
 			name: "listSystemAssets",
@@ -120,9 +132,16 @@ describe("bounded MCP catalog lists", () => {
 		});
 		const allContent = all.structuredContent as {
 			totalCount: number;
-			tokens: unknown[];
+			returnedCount: number;
+			tokens: Record<string, Record<string, unknown>>;
 		};
-		expect(allContent.totalCount).toBe(allContent.tokens.length);
+		expect(allContent.totalCount).toBe(allContent.returnedCount);
+		expect(
+			Object.values(allContent.tokens).reduce(
+				(count, domainTokens) => count + Object.keys(domainTokens).length,
+				0,
+			),
+		).toBe(allContent.returnedCount);
 
 		const brand = await session.client.callTool({
 			name: "listDesignTokens",
@@ -137,16 +156,17 @@ describe("bounded MCP catalog lists", () => {
 			matchedCount: number;
 			returnedCount: number;
 			truncated: boolean;
-			tokens: Array<{ name: string; domain: string }>;
+			tokens: Record<string, Record<string, unknown>>;
 			domains: Record<string, unknown>;
 		};
 		expect(brandContent).toMatchObject({
 			matchedCount: 2,
 			returnedCount: 1,
 			truncated: true,
+			next: { offset: 1 },
 		});
-		expect(brandContent.tokens[0]).toMatchObject({ domain: "color" });
-		expect(brandContent.tokens[0].name).toContain("brand");
+		expect(Object.keys(brandContent.tokens)).toEqual(["color"]);
+		expect(Object.keys(brandContent.tokens.color)[0]).toContain("brand");
 		expect(Object.keys(brandContent.domains)).toEqual(["color"]);
 
 		const unknownDomain = await session.client.callTool({

@@ -88,7 +88,7 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		});
 		expect(icons.structuredContent).toMatchObject({
 			systemName: "Core",
-			icons: [{ id: "src/search", sourcePath: "src/icons/search.svg" }],
+			icons: [{ id: "src/search" }],
 		});
 		expect(JSON.stringify(icons.structuredContent)).not.toContain("<svg");
 
@@ -160,16 +160,15 @@ describe("trickroom MCP asset and icon catalogs", () => {
 			arguments: { systemName: "Core", assetId: "ast_hero" },
 		});
 		expect(assetUsage.structuredContent).toMatchObject({
-			usages: expect.arrayContaining([
-				expect.objectContaining({
-					elementId: "asset",
-					resourceId: "ast_hero",
-				}),
-				expect.objectContaining({
-					elementId: "avatar-image",
-					resourceId: "ast_hero",
-				}),
-			]),
+			resourceId: "ast_hero",
+			usageCount: 2,
+			designCount: 1,
+			designs: [
+				{
+					designFileId: trickroomMcpTestDesignUuid,
+					elementIds: expect.arrayContaining(["asset", "avatar-image"]),
+				},
+			],
 		});
 
 		const iconUsage = await session.client.callTool({
@@ -177,7 +176,7 @@ describe("trickroom MCP asset and icon catalogs", () => {
 			arguments: { systemName: "Core", iconId: "src/search" },
 		});
 		expect(iconUsage.structuredContent).toMatchObject({
-			usages: [{ elementId: "icon", resourceId: "src/search" }],
+			designs: [{ elementIds: ["icon"] }],
 		});
 
 		const allAssetUsage = await session.client.callTool({
@@ -185,12 +184,14 @@ describe("trickroom MCP asset and icon catalogs", () => {
 			arguments: { systemName: "Core" },
 		});
 		expect(allAssetUsage.structuredContent).toMatchObject({
-			usages: expect.arrayContaining([
-				expect.objectContaining({
-					elementId: "blank-avatar-image",
-					resourceId: null,
-				}),
-			]),
+			resourceId: null,
+			designs: [
+				{
+					usages: expect.arrayContaining([
+						{ elementId: "blank-avatar-image", resourceId: null },
+					]),
+				},
+			],
 		});
 	});
 
@@ -249,7 +250,8 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		});
 
 		expect(assetUsage.structuredContent).toMatchObject({
-			usages: [{ elementId: "allowed-asset" }],
+			usageCount: 1,
+			designs: [{ elementIds: ["allowed-asset"] }],
 		});
 		expect(JSON.stringify(assetUsage.structuredContent)).not.toContain(
 			"hidden-asset",
