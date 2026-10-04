@@ -9,7 +9,7 @@ import { getProjectQueryScope } from "../queries/project-scope";
 import { sessionQueryOptions } from "../queries/projects";
 import { systemsQueryOptions } from "../queries/systems";
 import { HttpError } from "../utils/readJsonOrThrow";
-import { Capture } from "./Capture";
+import { Capture, ComponentCapture } from "./Capture";
 import { CreateProjectPanel } from "./CreateProjectPanel";
 import {
 	ProjectConfigContext,
@@ -242,6 +242,10 @@ export function Root() {
 							<Routes>
 								<Route index element={<Project />} />
 								<Route path="capture/:design/:board?" element={<Capture />} />
+								<Route
+									path="capture/component/:system/:component"
+									element={<ComponentCapture />}
+								/>
 								<Route path="design/:uuid" element={<DesignRoute />} />
 								<Route
 									path="system/:systemId"
