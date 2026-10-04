@@ -85,7 +85,7 @@ export const registerDesignFileReadTools = (ctx: McpToolContext) => {
 		{
 			title: "List Design Files",
 			description:
-				"List design files with id, name, revision, systemId (names in `systems`), layer count, modifiedAt, and board ids/names. Unreadable files keep a `diagnostic`.",
+				"List design files with id, name, revision, systemId (omitted when it is the project's defaultSystemId; names in `systems`), layer count, modifiedAt, and board ids/names. Unreadable files keep a `diagnostic`.",
 			inputSchema: projectScopedInputSchema,
 			annotations: readOnlyClosedWorldAnnotations,
 		},
