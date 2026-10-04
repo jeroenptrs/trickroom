@@ -30,7 +30,6 @@ import {
 	deleteElement,
 	designStore,
 	detachRecipe,
-	extractSubtreeToDesign,
 	forceHydrateDesign,
 	hydrateDesign,
 	isDesignCleanAtRevision,
@@ -58,13 +57,6 @@ function mockRandomUUIDs(...ids: string[]) {
 		spy.mockReturnValueOnce(id as RandomUUID);
 	}
 	return spy;
-}
-
-/** Stubs `crypto.randomUUID` to return `nextId()` for every call. */
-function mockRandomUUIDsWith(nextId: () => string) {
-	return vi
-		.spyOn(crypto, "randomUUID")
-		.mockImplementation(() => nextId() as RandomUUID);
 }
 
 const rootId = "root";
@@ -655,39 +647,6 @@ describe("design store transforms", () => {
 
 		const state = designStore.get();
 		expect(state.selectedId).toBeNull();
-	});
-
-	it("extracts a subtree to a standalone design with regenerated ids", () => {
-		let uuidIndex = 0;
-		const randomUuid = mockRandomUUIDsWith(() => `new-id-${++uuidIndex}`);
-		designStore.setState((state) => ({ ...state, systemName: "Core" }));
-
-		try {
-			const extracted = extractSubtreeToDesign(containerId);
-
-			expect(extracted.name).toBe("Container");
-			expect(extracted.systemName).toBe("Core");
-			expect(extracted.boards).toHaveLength(1);
-			expect(extracted.boards[0].id).not.toBe(containerId);
-			const children = extracted.boards[0]
-				.children as TrickroomDesign["boards"];
-			expect(children.map((child) => child.id)).not.toContain(childOneId);
-			expect(children.map((child) => child.id)).not.toContain(childTwoId);
-			expect(
-				new Set([extracted.boards[0].id, ...children.map((child) => child.id)])
-					.size,
-			).toBe(3);
-			expect(children[0].children).toBe("Main area");
-			expect(children[1].children).toBe("Secondary area");
-		} finally {
-			randomUuid.mockRestore();
-		}
-	});
-
-	it("uses shared extraction validation for blank requested names", () => {
-		expect(() => extractSubtreeToDesign(containerId, { name: " " })).toThrow(
-			'Parameter "name" must not be blank.',
-		);
 	});
 
 	it("does not overwrite dirty local changes when fresh query data arrives", () => {

@@ -15,15 +15,11 @@ import {
 } from "../recipes/controls";
 import { detachRecipeInstance } from "../recipes/detach";
 import { expandRegistryRecipe } from "../recipes/expansion";
-import { omitRecipeMarkerProps, recipeInstanceProp } from "../recipes/markers";
 import { updateStaleRecipeInstance } from "../recipes/migration";
 import {
 	canDeleteElementAcrossRecipeBoundary,
 	canInsertIntoRecipeBoundary,
 	canMoveElementAcrossRecipeBoundary,
-	getElementRecipeMetadata,
-	getRecipeOwnedStructuralIds,
-	isRecipeRoot,
 } from "../recipes/ownership";
 import {
 	getRecipeSlotCandidateForExistingNode,
@@ -38,10 +34,6 @@ import type {
 	Role,
 	TrickroomDesign,
 } from "../types";
-import {
-	bulkMigrateDesignSystemComponentInstances,
-	type SystemComponentBulkMigrationDesignReport,
-} from "../utils/system-component-bulk-migration-design";
 import { detachSystemComponentInstance } from "../utils/system-component-detach";
 import {
 	type SystemComponentInstanceMigrationContext,
@@ -56,25 +48,15 @@ import {
 	setSystemComponentVariantValueOnRoots,
 	updateSystemComponentInstanceOnRoots,
 } from "../utils/system-component-instance-update";
-import {
-	isSystemComponentMarkerPropKey,
-	omitSystemComponentMarkerProps,
-	systemComponentInstanceProp,
-} from "../utils/system-component-markers";
+import { isSystemComponentMarkerPropKey } from "../utils/system-component-markers";
 import {
 	canDeleteElementAcrossSystemComponentBoundary,
 	canInsertIntoSystemComponentBoundary,
 	canMoveElementAcrossSystemComponentBoundary,
 	canUpdateSystemComponentStructuralNode,
-	getElementSystemComponentMetadata,
-	getSystemComponentOwnedStructuralIds,
 	isSystemComponentOwnedStructuralNode,
-	isSystemComponentRoot,
 } from "../utils/system-component-ownership";
-import type {
-	PublishedSystemComponentVersion,
-	SystemComponentManifest,
-} from "../utils/system-components";
+import type { PublishedSystemComponentVersion } from "../utils/system-components";
 
 export type ComponentSelection = Pick<
 	Props,
@@ -123,8 +105,24 @@ const emptyIds: string[] = [];
 
 export const designStore = createStore<DesignStoreState>(emptyState);
 
-const canHaveChildren = (entity: DesignEntity | null | undefined) =>
-	!!entity && canHaveElementChildren(entity.role);
+const canHaveChildren = (
+	entity: DesignEntity | null | undefined,
+): entity is DesignEntity => !!entity && canHaveElementChildren(entity.role);
+
+/**
+ * Resolves where an insertion lands: `{ parent: null }` for the root level,
+ * the parent entity when it accepts children, or null when it does not.
+ */
+function resolveInsertionParent(
+	state: DesignStoreState,
+	targetParentId: string | null,
+): { parent: DesignEntity | null } | null {
+	if (!targetParentId) {
+		return { parent: null };
+	}
+	const parent = state.entitiesById[targetParentId];
+	return canHaveChildren(parent) ? { parent } : null;
+}
 
 function getComponentDefinition(selection: ComponentSelection) {
 	return getLibraryComponent(
@@ -249,196 +247,6 @@ export function serializeDesignState(state: DesignStoreState): TrickroomDesign {
 		boards: state.rootIds.map((rootId) =>
 			serializeEntity(rootId, state.entitiesById),
 		),
-	};
-}
-
-const collectSubtreeIds = (
-	rootId: string,
-	entitiesById: Record<string, DesignEntity>,
-) => {
-	const ids = new Set<string>();
-	const visit = (id: string) => {
-		const entity = entitiesById[id];
-		if (!entity || ids.has(id)) {
-			return;
-		}
-		ids.add(id);
-		for (const childId of entity.childIds ?? []) {
-			visit(childId);
-		}
-	};
-	visit(rootId);
-	return ids;
-};
-
-type ClonePolicy = {
-	preserveRecipeInstanceIds: Record<string, string | null>;
-	preserveComponentInstanceIds: Record<string, string | null>;
-	stripRecipeInstanceIds: Set<string>;
-	stripComponentInstanceIds: Set<string>;
-};
-
-const getExtractClonePolicy = (
-	rootId: string,
-	entitiesById: Record<string, DesignEntity>,
-): ClonePolicy => {
-	const subtreeIds = collectSubtreeIds(rootId, entitiesById);
-	const recipeInstanceIds = new Set<string>();
-	const componentInstanceIds = new Set<string>();
-
-	for (const id of subtreeIds) {
-		const recipeMetadata = getElementRecipeMetadata(entitiesById[id]);
-		if (recipeMetadata) {
-			recipeInstanceIds.add(recipeMetadata.instanceId);
-		}
-		const componentMetadata = getElementSystemComponentMetadata(
-			entitiesById[id],
-		);
-		if (componentMetadata) {
-			componentInstanceIds.add(componentMetadata.instanceId);
-		}
-	}
-
-	const policy: ClonePolicy = {
-		preserveRecipeInstanceIds: {},
-		preserveComponentInstanceIds: {},
-		stripRecipeInstanceIds: new Set(),
-		stripComponentInstanceIds: new Set(),
-	};
-
-	for (const instanceId of recipeInstanceIds) {
-		const structuralIds = getRecipeOwnedStructuralIds(entitiesById, instanceId);
-		const hasCompleteStructure =
-			structuralIds.length > 0 &&
-			structuralIds.every((structuralId) => subtreeIds.has(structuralId)) &&
-			structuralIds.some((structuralId) =>
-				isRecipeRoot(entitiesById[structuralId]),
-			);
-		if (hasCompleteStructure) {
-			policy.preserveRecipeInstanceIds[instanceId] = null;
-		} else {
-			policy.stripRecipeInstanceIds.add(instanceId);
-		}
-	}
-
-	for (const instanceId of componentInstanceIds) {
-		const structuralIds = getSystemComponentOwnedStructuralIds(
-			entitiesById,
-			instanceId,
-		);
-		const hasCompleteStructure =
-			structuralIds.length > 0 &&
-			structuralIds.every((structuralId) => subtreeIds.has(structuralId)) &&
-			structuralIds.some((structuralId) =>
-				isSystemComponentRoot(entitiesById[structuralId]),
-			);
-		if (hasCompleteStructure) {
-			policy.preserveComponentInstanceIds[instanceId] = null;
-		} else {
-			policy.stripComponentInstanceIds.add(instanceId);
-		}
-	}
-
-	return policy;
-};
-
-const cloneExtractedProps = (
-	entity: DesignEntity,
-	policy: ClonePolicy,
-): Props => {
-	let props = { ...entity.props };
-	const recipeMetadata = getElementRecipeMetadata(entity);
-	if (recipeMetadata) {
-		if (
-			Object.hasOwn(policy.preserveRecipeInstanceIds, recipeMetadata.instanceId)
-		) {
-			const instanceId =
-				policy.preserveRecipeInstanceIds[recipeMetadata.instanceId] ??
-				crypto.randomUUID();
-			policy.preserveRecipeInstanceIds[recipeMetadata.instanceId] = instanceId;
-			props = { ...props, [recipeInstanceProp]: instanceId };
-		} else if (policy.stripRecipeInstanceIds.has(recipeMetadata.instanceId)) {
-			props = omitRecipeMarkerProps(props);
-		}
-	}
-
-	const componentMetadata = getElementSystemComponentMetadata(entity);
-	if (componentMetadata) {
-		if (
-			Object.hasOwn(
-				policy.preserveComponentInstanceIds,
-				componentMetadata.instanceId,
-			)
-		) {
-			const instanceId =
-				policy.preserveComponentInstanceIds[componentMetadata.instanceId] ??
-				crypto.randomUUID();
-			policy.preserveComponentInstanceIds[componentMetadata.instanceId] =
-				instanceId;
-			props = { ...props, [systemComponentInstanceProp]: instanceId };
-		} else if (
-			policy.stripComponentInstanceIds.has(componentMetadata.instanceId)
-		) {
-			props = omitSystemComponentMarkerProps(props);
-		}
-	}
-
-	return props;
-};
-
-const serializeExtractedEntity = (
-	entityId: string,
-	entitiesById: Record<string, DesignEntity>,
-	policy: ClonePolicy,
-): Node => {
-	const entity = entitiesById[entityId];
-	if (!entity) {
-		throw new Error(`Cannot serialize missing design entity: ${entityId}`);
-	}
-
-	const children =
-		entity.role === "text"
-			? (entity.text ?? "")
-			: (entity.childIds ?? []).map((childId) =>
-					serializeExtractedEntity(childId, entitiesById, policy),
-				);
-
-	return {
-		id: crypto.randomUUID(),
-		props: cloneExtractedProps(entity, policy),
-		children: children as string | Node[],
-	};
-};
-
-export function extractSubtreeToDesign(
-	id: string,
-	options: { name?: string } = {},
-): TrickroomDesign {
-	const state = designStore.get();
-	const entity = state.entitiesById[id];
-	if (!entity) {
-		throw new Error(`Cannot extract missing design entity: ${id}`);
-	}
-
-	const requestedName = options.name;
-	const rawName = requestedName ?? entity.props["data-trickroom-name"];
-	const name =
-		typeof rawName === "string" && rawName.trim().length > 0
-			? rawName.trim()
-			: requestedName !== undefined
-				? (() => {
-						throw new Error('Parameter "name" must not be blank.');
-					})()
-				: state.name;
-	const policy = getExtractClonePolicy(id, state.entitiesById);
-
-	return {
-		name,
-		...(state.systemId !== undefined ? { systemId: state.systemId } : {}),
-		...(state.systemId === undefined && state.systemName !== undefined
-			? { systemName: state.systemName }
-			: {}),
-		boards: [serializeExtractedEntity(id, state.entitiesById, policy)],
 	};
 }
 
@@ -696,13 +504,11 @@ export function addElement(
 	index: number,
 ) {
 	designStore.setState((state) => {
-		const targetParent = targetParentId
-			? state.entitiesById[targetParentId]
-			: null;
-
-		if (targetParentId && !canHaveChildren(targetParent)) {
+		const insertion = resolveInsertionParent(state, targetParentId);
+		if (!insertion) {
 			return state;
 		}
+		const targetParent = insertion.parent;
 
 		if (!canInsertIntoRecipeBoundary(state.entitiesById, targetParentId)) {
 			return state;
@@ -727,8 +533,8 @@ export function addElement(
 		const role = getComponentRole(selection);
 		const componentName = selection["data-trickroom-component"];
 		const definition = getComponentDefinition(selection);
-		const siblingIds = targetParentId
-			? (targetParent?.childIds ?? [])
+		const siblingIds = targetParent
+			? (targetParent.childIds ?? [])
 			: state.rootIds;
 		const siblingProps = siblingIds.flatMap(
 			(siblingId) => state.entitiesById[siblingId]?.props ?? [],
@@ -756,20 +562,19 @@ export function addElement(
 		};
 
 		let nextRootIds = state.rootIds;
-		const nextDirtyIds = {
+		const nextDirtyIds: Record<string, true> = {
 			...state.dirtyIds,
 			[id]: true,
 		};
 
-		if (!targetParentId) {
+		if (!targetParent) {
 			nextRootIds = insertAt(nextRootIds, id, index);
 		} else {
-			const parentChildIds = targetParent.childIds ?? [];
-			nextEntitiesById[targetParentId] = {
+			nextEntitiesById[targetParent.id] = {
 				...targetParent,
-				childIds: insertAt(parentChildIds, id, index),
+				childIds: insertAt(targetParent.childIds ?? [], id, index),
 			};
-			nextDirtyIds[targetParentId] = true;
+			nextDirtyIds[targetParent.id] = true;
 		}
 
 		return {
@@ -789,13 +594,11 @@ export function addRecipe(
 	index: number,
 ) {
 	designStore.setState((state) => {
-		const targetParent = targetParentId
-			? state.entitiesById[targetParentId]
-			: null;
-
-		if (targetParentId && !canHaveChildren(targetParent)) {
+		const insertion = resolveInsertionParent(state, targetParentId);
+		if (!insertion) {
 			return state;
 		}
+		const targetParent = insertion.parent;
 
 		if (!canInsertIntoRecipeBoundary(state.entitiesById, targetParentId)) {
 			return state;
@@ -834,15 +637,18 @@ export function addRecipe(
 			nextDirtyIds[id] = true;
 		}
 
-		if (!targetParentId) {
+		if (!targetParent) {
 			nextRootIds = insertAt(nextRootIds, expansion.root.id, index);
 		} else {
-			const parentChildIds = targetParent.childIds ?? [];
-			nextEntitiesById[targetParentId] = {
+			nextEntitiesById[targetParent.id] = {
 				...targetParent,
-				childIds: insertAt(parentChildIds, expansion.root.id, index),
+				childIds: insertAt(
+					targetParent.childIds ?? [],
+					expansion.root.id,
+					index,
+				),
 			};
-			nextDirtyIds[targetParentId] = true;
+			nextDirtyIds[targetParent.id] = true;
 		}
 
 		return {
@@ -862,13 +668,11 @@ export function addNodeTree(
 	index: number,
 ) {
 	designStore.setState((state) => {
-		const targetParent = targetParentId
-			? state.entitiesById[targetParentId]
-			: null;
-
-		if (targetParentId && !canHaveChildren(targetParent)) {
+		const insertion = resolveInsertionParent(state, targetParentId);
+		if (!insertion) {
 			return state;
 		}
+		const targetParent = insertion.parent;
 
 		if (!canInsertIntoRecipeBoundary(state.entitiesById, targetParentId)) {
 			return state;
@@ -915,15 +719,14 @@ export function addNodeTree(
 		}
 
 		let nextRootIds = state.rootIds;
-		if (!targetParentId) {
+		if (!targetParent) {
 			nextRootIds = insertAt(nextRootIds, root.id, index);
 		} else {
-			const parentChildIds = targetParent.childIds ?? [];
-			nextEntitiesById[targetParentId] = {
+			nextEntitiesById[targetParent.id] = {
 				...targetParent,
-				childIds: insertAt(parentChildIds, root.id, index),
+				childIds: insertAt(targetParent.childIds ?? [], root.id, index),
 			};
-			nextDirtyIds[targetParentId] = true;
+			nextDirtyIds[targetParent.id] = true;
 		}
 
 		return {
@@ -984,23 +787,6 @@ export function canReplaceElementWithCandidateProps(
 		targetParentId,
 		getRecipeSlotCandidateFromProps(candidateProps),
 	);
-}
-
-export function canReplaceElementWithNodeTree(
-	targetId: string,
-	root: Node,
-): boolean {
-	const state = designStore.get();
-	const insertedState = normalizeDesign({
-		name: state.name,
-		boards: [root],
-	});
-	const insertedRoot = insertedState.entitiesById[root.id];
-	if (!insertedRoot) {
-		return false;
-	}
-
-	return canReplaceElementWithCandidateProps(targetId, insertedRoot.props);
 }
 
 export function replaceElementWithNodeTree(
@@ -1387,71 +1173,6 @@ export function resetSystemComponentOverrides(
 	);
 }
 
-export function bulkUpdateStaleSystemComponentInstances(
-	manifest: SystemComponentManifest,
-	options: {
-		systemId: string;
-		designFileId?: string;
-		designFile?: string;
-		componentId?: string;
-		instanceIds?: readonly string[];
-		dryRun?: boolean;
-		onlySafe?: boolean;
-	},
-): SystemComponentBulkMigrationDesignReport {
-	let report: SystemComponentBulkMigrationDesignReport = {
-		designFileId: options.designFileId ?? "in-memory",
-		designFile: options.designFile ?? "in-memory",
-		designName: "",
-		changed: [],
-		skipped: [],
-		reviewRequired: [],
-		failures: [],
-		applied: false,
-		persisted: false,
-	};
-
-	designStore.setState((state) => {
-		const serialized = serializeDesignState(state);
-		const migration = bulkMigrateDesignSystemComponentInstances(
-			serialized,
-			{
-				designFileId: options.designFileId ?? "in-memory",
-				designFile: options.designFile ?? serialized.name,
-				designName: serialized.name,
-				systemId: options.systemId,
-			},
-			manifest,
-			{
-				componentId: options.componentId,
-				instanceIds: options.instanceIds,
-				dryRun: options.dryRun,
-				onlySafe: options.onlySafe,
-			},
-		);
-		report = migration.report;
-
-		if (!migration.report.applied) {
-			return state;
-		}
-
-		const nextState = normalizeDesign(migration.design);
-		const dirtyIds = { ...state.dirtyIds };
-		for (const changed of migration.report.changed) {
-			dirtyIds[changed.elementId] = true;
-		}
-
-		return {
-			...nextState,
-			dirtyIds,
-			designDirty: true,
-			revision: state.revision + 1,
-		};
-	});
-
-	return report;
-}
-
 export function updateSystemComponentInstance(
 	rootElementId: string,
 	context: SystemComponentInstanceMigrationContext,
@@ -1793,10 +1514,6 @@ export function setDesignSystemId(systemId: string | null) {
 			revision: state.revision + 1,
 		};
 	});
-}
-
-export function setDesignSystemName(systemName: string | null) {
-	setDesignSystemId(systemName);
 }
 
 export function useDesignRoots() {
