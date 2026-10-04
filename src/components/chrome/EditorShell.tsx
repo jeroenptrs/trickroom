@@ -12,13 +12,12 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 import { designFileQueryKey, saveDesignFile } from "../../queries/design-file";
+import { commitDesignSave } from "../../queries/design-save";
 import type { DesignFileRevision } from "../../services/design-file-service.types";
 import {
-	clearDirty,
 	serializeDesign,
 	setDesignName,
 	setDesignSavePending,
-	setPersistedDesignRevision,
 	useDesignName,
 	useDesignRevision,
 	useDesignSystemId,
@@ -71,8 +70,12 @@ function SaveControl({ designFile }: SaveControlProps) {
 			saveDesignFile(designFile, design, persistedRevision),
 		onSuccess: (saved, request) => {
 			saveErrorRevisionRef.current = null;
-			setPersistedDesignRevision(saved.revision);
-			clearDirty(request.revision);
+			commitDesignSave(queryClient, {
+				designFile,
+				projectScope,
+				saved,
+				savedStoreRevision: request.revision,
+			});
 		},
 		onError: (_error, request) => {
 			saveErrorRevisionRef.current = request.revision;

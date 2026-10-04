@@ -10,15 +10,14 @@ import {
 	getDesignFileForUuid,
 	saveDesignFile,
 } from "../../queries/design-file";
+import { commitDesignSave } from "../../queries/design-save";
 import { validateRecipeInstances } from "../../recipes/validation";
 import {
-	clearDirty,
 	deleteElement,
 	designStore,
 	detachRecipe,
 	isDesignCleanAtRevision,
 	serializeDesign,
-	setPersistedDesignRevision,
 	updateRecipeInstance,
 } from "../../stores/design-store";
 import { useProjectScope } from "../contexts";
@@ -108,12 +107,12 @@ function LayerContextMenu({
 					sourceDesign,
 					designStore.get().persistedRevision,
 				);
-				setPersistedDesignRevision(saved.revision);
-				clearDirty(revision);
-				queryClient.setQueryData(
-					designFileQueryKey(designFile, projectScope),
+				commitDesignSave(queryClient, {
+					designFile,
+					projectScope,
 					saved,
-				);
+					savedStoreRevision: revision,
+				});
 			}
 
 			await extractDesignSubtreeToFile({

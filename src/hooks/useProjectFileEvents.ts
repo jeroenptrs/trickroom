@@ -1,6 +1,7 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import {
+	type DesignFileSnapshot,
 	designFileQueryKey,
 	designSummariesProjectQueryKey,
 } from "../queries/design-file";
@@ -66,13 +67,21 @@ export async function invalidateTrickroomFileEvent(
 			await invalidatePrefixes(queryClient, memoryQueryPrefixes);
 			return;
 		}
+		const designKey = designFileQueryKey(file, projectScope);
+		// The browser already holds this exact revision (typically its own
+		// save echoing back), so refetching the design would return the same
+		// bytes. Summaries and usage still change with every write.
+		const alreadyHasRevision =
+			event.revision !== null &&
+			queryClient.getQueryData<DesignFileSnapshot>(designKey)?.revision ===
+				event.revision;
 		await Promise.all([
 			queryClient.invalidateQueries({
 				queryKey: designSummariesProjectQueryKey(projectScope),
 			}),
-			queryClient.invalidateQueries({
-				queryKey: designFileQueryKey(file, projectScope),
-			}),
+			alreadyHasRevision
+				? undefined
+				: queryClient.invalidateQueries({ queryKey: designKey }),
 			invalidatePrefixes(queryClient, designUsageQueryPrefixes),
 		]);
 		return;
@@ -81,6 +90,62 @@ export async function invalidateTrickroomFileEvent(
 	if (event.file.startsWith("systems/")) {
 		await invalidatePrefixes(queryClient, systemQueryPrefixes);
 	}
+}
+
+const coalesceDelayMs = 50;
+const coalesceMaxWaitMs = 250;
+
+// Events that invalidate the same queries share a key: every file under
+// `systems/` refreshes the same query families.
+const getCoalesceKey = (event: TrickroomFileEvent) =>
+	event.file.startsWith("systems/") ? "systems/" : event.file;
+
+/**
+ * Collapses a burst of file events into one flush per key, carrying the latest
+ * event. A flush happens once events for a key go quiet for `delayMs`, and at
+ * most `maxWaitMs` after the first event of the burst so a steady stream of
+ * writes still refreshes the editor.
+ */
+export function createFileEventCoalescer(
+	flush: (event: TrickroomFileEvent) => void,
+	{ delayMs = coalesceDelayMs, maxWaitMs = coalesceMaxWaitMs } = {},
+) {
+	const pending = new Map<
+		string,
+		{
+			event: TrickroomFileEvent;
+			timer: ReturnType<typeof setTimeout>;
+			firstAt: number;
+		}
+	>();
+
+	const flushKey = (key: string) => {
+		const entry = pending.get(key);
+		if (!entry) return;
+		pending.delete(key);
+		clearTimeout(entry.timer);
+		flush(entry.event);
+	};
+
+	return {
+		push(event: TrickroomFileEvent) {
+			const key = getCoalesceKey(event);
+			const now = Date.now();
+			const previous = pending.get(key);
+			if (previous) clearTimeout(previous.timer);
+			const firstAt = previous?.firstAt ?? now;
+			const wait = Math.max(0, Math.min(delayMs, firstAt + maxWaitMs - now));
+			pending.set(key, {
+				event,
+				firstAt,
+				timer: setTimeout(() => flushKey(key), wait),
+			});
+		},
+		dispose() {
+			for (const entry of pending.values()) clearTimeout(entry.timer);
+			pending.clear();
+		},
+	};
 }
 
 export function useProjectFileEvents(
@@ -96,6 +161,9 @@ export function useProjectFileEvents(
 		}
 
 		const source = new EventSource("/api/trickroom/events");
+		const coalescer = createFileEventCoalescer((event) => {
+			void invalidateTrickroomFileEvent(queryClient, event, projectScope);
+		});
 		const invalidateSystemQueries = () =>
 			invalidatePrefixes(queryClient, systemQueryPrefixes);
 		const handleReady = () => {
@@ -115,7 +183,7 @@ export function useProjectFileEvents(
 				return;
 			}
 
-			void invalidateTrickroomFileEvent(queryClient, event, projectScope);
+			coalescer.push(event);
 		};
 
 		source.addEventListener("ready", handleReady);
@@ -124,6 +192,7 @@ export function useProjectFileEvents(
 			source.removeEventListener("ready", handleReady);
 			source.removeEventListener("change", handleChange as EventListener);
 			source.close();
+			coalescer.dispose();
 		};
 	}, [enabled, projectScope, queryClient]);
 }
