@@ -3,23 +3,30 @@ import {
 	getLibraryComponent,
 	isJsonPrimitive,
 	isRegistryId,
+	normalizeRole,
 	resolveRegistryComponent,
 	SYSTEM_PROP_KEYS,
 } from "../libraries/registry";
+import { omitRecipeMarkerProps } from "../recipes/markers";
 import {
 	getElementRecipeMetadata,
 	getRecipeOwnedStructuralIds,
 	isRecipeRoot,
 } from "../recipes/ownership";
-import { omitRecipeMarkerProps } from "../recipes/markers";
-import type { JsonPrimitive, Props, RecipeTemplateNode, Role } from "../types";
+import type {
+	JsonPrimitive,
+	Node,
+	Props,
+	RecipeTemplateNode,
+	Role,
+} from "../types";
 import { assetIdProp, iconIdProp } from "./resource-props";
+import { omitSystemComponentMarkerProps } from "./system-component-markers";
 import {
 	getElementSystemComponentMetadata,
 	getSystemComponentOwnedStructuralIds,
 	isSystemComponentRoot,
 } from "./system-component-ownership";
-import { omitSystemComponentMarkerProps } from "./system-component-markers";
 
 /**
  * Component-draft extraction always strips recipe and system-component instance
@@ -88,7 +95,9 @@ const collectSubtreeEntityIds = (
 const isValidTemplatePath = (pathValue: string) =>
 	pathValue.length > 0 && !pathValue.includes("/");
 
-const collectTemplateNodes = (root: RecipeTemplateNode): RecipeTemplateNode[] => {
+const collectTemplateNodes = (
+	root: RecipeTemplateNode,
+): RecipeTemplateNode[] => {
 	const nodes: RecipeTemplateNode[] = [];
 	const visit = (node: RecipeTemplateNode) => {
 		nodes.push(node);
@@ -192,10 +201,7 @@ const extractAuthoredTemplateProps = (
 			continue;
 		}
 
-		if (
-			!allowedControlProps.has(key) &&
-			!RESOURCE_PROP_KEYS.has(key)
-		) {
+		if (!allowedControlProps.has(key) && !RESOURCE_PROP_KEYS.has(key)) {
 			continue;
 		}
 
@@ -375,6 +381,41 @@ export function summarizeDesignSubtreeToComponentDraftMarkers(
 	return summarizeMarkerPolicy(rootId, entitiesById);
 }
 
+/**
+ * The flat entities `convertDesignSubtreeToComponentDraftRoot` reads, built
+ * from a node tree the way the editor store normalizes a design (props with
+ * the normalized role, child ids, text), for callers that hold a stored
+ * design rather than the editor store.
+ */
+export function flattenDesignSubtree(
+	root: Node,
+	parentId: string | null = null,
+): Record<string, DesignSubtreeEntity> {
+	const entitiesById: Record<string, DesignSubtreeEntity> = {};
+	const visit = (node: Node, nodeParentId: string | null) => {
+		const role = normalizeRole(node.props["data-trickroom-role"]);
+		const entity: DesignSubtreeEntity = {
+			id: node.id,
+			props: { ...node.props, "data-trickroom-role": role },
+			parentId: nodeParentId,
+			role,
+		};
+		entitiesById[node.id] = entity;
+		if (role === "text") {
+			entity.text = typeof node.children === "string" ? node.children : "";
+		} else if (role === "leaf" || typeof node.children === "string") {
+			entity.childIds = [];
+		} else {
+			entity.childIds = node.children.map((child) => child.id);
+			for (const child of node.children) {
+				visit(child, node.id);
+			}
+		}
+	};
+	visit(root, parentId);
+	return entitiesById;
+}
+
 export function convertDesignSubtreeToComponentDraftRoot(
 	rootId: string,
 	entitiesById: Record<string, DesignSubtreeEntity | undefined>,
@@ -426,7 +467,10 @@ export function validateComponentDraftTemplateRoot(root: RecipeTemplateNode): {
 			errors.push(
 				`Unknown component "${node.component}" in registry "${node.library}" at path "${node.path}".`,
 			);
-		} else if (resolution.definition.role === "text" && node.text === undefined) {
+		} else if (
+			resolution.definition.role === "text" &&
+			node.text === undefined
+		) {
 			errors.push(`Text node "${node.path}" is missing text content.`);
 		}
 	}
@@ -438,7 +482,9 @@ export function validateComponentDraftTemplateRoot(root: RecipeTemplateNode): {
 	}
 
 	if ((pathCounts.get(root.path) ?? 0) !== 1) {
-		errors.push(`Template must contain exactly one root node at path "${root.path}".`);
+		errors.push(
+			`Template must contain exactly one root node at path "${root.path}".`,
+		);
 	}
 
 	return {

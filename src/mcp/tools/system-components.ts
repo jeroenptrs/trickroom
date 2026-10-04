@@ -27,6 +27,7 @@ import {
 	assertCanWriteProject,
 	getMcpPolicy,
 } from "../governance";
+import { extractComponentDraftPayload } from "../payloads/component-extraction";
 import { resolveToolSystem } from "../payloads/design-system";
 import {
 	describeNode,
@@ -206,20 +207,49 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 		TOOL.componentDraftCreate,
 		{
 			title: "Create System Component Draft",
-			description: `Create a component draft in a design system: slug, name and optionally draft: { root, slots, variants, overrideTargets }. expectedRevision is the manifest revision from ${TOOL.componentRead}. Returns the component id, the new revision and a summary of the draft. Read ${TOOL.guide}({ topic: "component-authoring" }) first; publish with ${TOOL.componentPublish}.`,
+			description: `Create a component draft in a design system: slug, name and optionally draft: { root, slots, variants, overrideTargets }. expectedRevision is the manifest revision from ${TOOL.componentRead}. Or extract one from a design: from: { designFileId, elementId } turns that layer and its subtree into the draft's template (recipe and component instances inside become plain elements); name defaults to the layer name, slug to the name, the system to the design's. The design is not changed: a draft is unpublished and cannot be placed. With from.replace: true and from.expectedRevision (the design revision), it also publishes the draft and replaces the layer with an instance of it through the same path as ${TOOL.designApply}; everything checkable is checked before the first write. If a later step still fails, what was written stays and the result has partial and next (the call that finishes). Returns the component id, the new manifest revision, a summary of the draft, and with replace the published version and the instance root. Read ${TOOL.guide}({ topic: "component-authoring" }) first; publish with ${TOOL.componentPublish}.`,
 			inputSchema: withProjectScopedInput({
 				systemName: systemNameInputSchema,
 				expectedRevision: expectedRevisionSchema,
-				slug: z.string().min(1).describe("Unique component slug."),
-				name: z.string().min(1).describe("Human-readable component name."),
+				slug: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Unique component slug. Required without from."),
+				name: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Human-readable component name. Required without from."),
 				description: z.string().optional(),
 				group: z.string().optional(),
 				order: z.number().finite().optional(),
 				draft: mcpPartialSystemComponentDraftPayloadInputSchema,
+				from: z
+					.object({
+						designFileId: designFileIdSchema,
+						elementId: z
+							.string()
+							.min(1)
+							.describe("The layer (any element, boards included) to extract."),
+						replace: z
+							.boolean()
+							.optional()
+							.describe(
+								"Also publish the draft and replace the layer with an instance of it.",
+							),
+						expectedRevision: expectedRevisionSchema
+							.optional()
+							.describe("With replace: the design revision."),
+					})
+					.strict()
+					.optional()
+					.describe("Extract the draft from a design layer instead of draft."),
 			}),
 			annotations: { ...mutationAnnotations, idempotentHint: false },
 			_meta: {
-				[SEARCH_HINT_META_KEY]: "new system component author design system",
+				[SEARCH_HINT_META_KEY]:
+					"new system component author design system extract promote layer reusable",
 			},
 		},
 		async ({
@@ -231,10 +261,45 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 			group,
 			order,
 			draft,
+			from,
 			project,
 		}) =>
 			withPolicyErrorHandling(project, async (context) => {
 				assertCanWriteProject(getMcpPolicy(context.config));
+				if (from !== undefined) {
+					if (draft !== undefined) {
+						throw new DesignTransformError(
+							"INVALID_OPERATION_PARAMETERS",
+							"Pass draft or from, not both: from builds the draft from a layer.",
+						);
+					}
+					const system = await resolveToolSystem(context, {
+						systemName,
+						designFileId: from.designFileId,
+					});
+					return extractComponentDraftPayload(context, {
+						systemId: system.manifest.systemId,
+						expectedRevision,
+						slug,
+						name,
+						description,
+						group,
+						order,
+						from,
+					});
+				}
+				if (slug === undefined || name === undefined) {
+					throw new DesignTransformError(
+						"INVALID_OPERATION_PARAMETERS",
+						"slug and name are required without from.",
+						{
+							missingParameters: [
+								...(slug === undefined ? ["slug"] : []),
+								...(name === undefined ? ["name"] : []),
+							],
+						},
+					);
+				}
 				const system = await resolveToolSystem(context, { systemName });
 				const parsedDraft =
 					draft === undefined

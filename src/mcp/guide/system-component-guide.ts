@@ -29,6 +29,8 @@ export type SystemComponentGuideInput = {
 };
 
 const PLACEHOLDER_REVISION = "<manifest revision from your last read or write>";
+const PLACEHOLDER_DESIGN_REVISION =
+	"<design revision from your last read or write>";
 
 const CORE_MODEL = [
 	`A system component is a user-owned, reusable component in a design system's component manifest. It has one draft you edit and published versions that designs place as instances (the addSystemComponent operation of ${TOOL.designApply}).`,
@@ -47,6 +49,7 @@ const CORE_WORKFLOW = [
 	`Read: ${TOOL.componentRead}({ systemName, query? }) for the manifest revision and a compact component index; ${TOOL.componentRead}({ componentId, source: "draft", include: ["template", "classes"] }) for a draft's template, variant classes and hashes before updating it.`,
 	`Write: ${TOOL.componentDraftCreate}({ systemName, expectedRevision, slug, name, draft: { root, slots?, variants?, overrideTargets? } }), or ${TOOL.componentDraftUpdate} with only the parts to replace. Malformed input returns VALIDATION_FAILED with INVALID_SYSTEM_COMPONENT_DRAFT_INPUT diagnostics, each with a path and message.`,
 	`Check and publish: ${TOOL.designScreenshot}({ component }) renders a component, or a matrix of its variant values, without a design file. ${TOOL.componentPublish}({ systemName, componentId, expectedRevision }) makes the draft current; place it in a design with ${TOOL.designApply} (${TOOL.guide} topic "components").`,
+	`Extract from a design: ${TOOL.componentDraftCreate}({ expectedRevision, from: { designFileId, elementId } }) turns a designed layer and its subtree into a draft (instances inside become plain elements; name defaults to the layer name, the system to the design's). The design is not changed, and a draft cannot be placed until it is published, so this is the default: review the draft, add variants, slots and override targets, then publish and place it. When the layer should become an instance right away, add replace: true and the design's expectedRevision: the same call publishes the draft and replaces the layer with an instance, as one ${TOOL.designApply} batch would. Policy, the layer's board revision, the template and whether the layer can be replaced where it sits are checked before anything is written. If a later write still fails (another writer got there first), the earlier writes stay, and the result says what was written (partial) and gives the call that finishes the job (next).`,
 ];
 
 const buildTemplateTopic = () => ({
@@ -201,6 +204,22 @@ const buildExamplesTopic = () => [
 			expectedRevision: PLACEHOLDER_REVISION,
 		},
 	},
+	{
+		tool: TOOL.componentDraftCreate,
+		description:
+			"Promote a designed layer to a component in one call: extract it as the template, publish it and replace the layer with an instance.",
+		arguments: {
+			systemName: "Core",
+			expectedRevision: PLACEHOLDER_REVISION,
+			name: "Plan Card",
+			from: {
+				designFileId: "<design id>",
+				elementId: "<layer id>",
+				replace: true,
+				expectedRevision: PLACEHOLDER_DESIGN_REVISION,
+			},
+		},
+	},
 ];
 
 export const SYSTEM_COMPONENT_GUIDE_TOPICS: readonly GuideTopic<
@@ -229,7 +248,7 @@ export const SYSTEM_COMPONENT_GUIDE_TOPICS: readonly GuideTopic<
 	},
 	{
 		name: "examples",
-		when: "Worked create, update and publish calls.",
+		when: "Worked create, update, publish and extract-from-a-design calls.",
 		build: buildExamplesTopic,
 	},
 ];
