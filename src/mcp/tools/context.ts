@@ -10,6 +10,10 @@ import type {
 	ScreenshotResult,
 } from "../../screenshot/types";
 import { DesignTransformError } from "../../services/design-transform-service";
+import {
+	getEditorContext,
+	requestEditorFocus,
+} from "../../services/editor-channel";
 import { AssetManifestError } from "../../utils/asset-manifest-service";
 import { IconManifestError } from "../../utils/icon-manifest-service";
 import { MemoryManifestError } from "../../utils/memory-manifest-service";
@@ -51,6 +55,10 @@ export const createMcpToolContext = (
 				: null,
 		});
 	const captureHosts = new CaptureHostManager();
+	const editorChannel = options.editorChannel ?? {
+		getEditorContext,
+		requestEditorFocus,
+	};
 	const screenshotCapture =
 		options.screenshotCapture ??
 		(async (
@@ -220,6 +228,7 @@ export const createMcpToolContext = (
 		projectResolver,
 		captureHosts,
 		screenshotCapture,
+		editorChannel,
 		getSelectedContext: () => selectedContext,
 		notifyResourceListChanged,
 		getActiveContext,

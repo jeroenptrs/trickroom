@@ -23,7 +23,7 @@ export const MCP_TOOL_GROUPS = [
 		id: "projects",
 		label: "Project & session",
 		description: "List and select Trickroom projects for this MCP session.",
-		tools: ["project_list", "project_select"],
+		tools: ["project_list", "project_select", "editor_context", "editor_focus"],
 	},
 	{
 		id: "designRead",
