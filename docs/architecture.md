@@ -69,6 +69,29 @@ The iframe shell is `src/iframe/shell.html`; it loads the Tailwind browser runti
 
 The chrome-less `/capture/:design/:board?` route reuses the same iframe shell and `Artboards` renderer. It exposes persistent node IDs as render-only DOM attributes and signals readiness only after design hydration, managed styles, Tailwind compilation, font stylesheets, and `document.fonts.ready` settle. `POST /api/trickroom/screenshot` drives this route through an optional Playwright/Chrome runtime and returns PNG data, optionally writing an explicit `.png` path.
 
+## Stage Overlay Containment
+
+Every canvas board renders into one shared iframe document. Without containment, every Base UI portal would fall back to that document's body, and each board's dialogs, sheets and popovers would stack against the editor pane and ignore pan and zoom. Instead, each board contains its own overlays. This is render-time only: nothing about it reaches the design file or exports.
+
+- **Containing block.** The iframe shell (`src/iframe/shell.html`) gives each board root `contain: layout`, so `fixed` descendants position against the board. A `fixed inset-0` backdrop covers its own board and moves with it. Layout containment does not clip.
+- **Portal target.** `Artboards` wraps each board in `StageBoardPortalContext` (`useStageBoardPortal` in `src/libraries/stage-portal.tsx`). The portal wrappers in `src/libraries/base-ui/` resolve their container through `useStagePortalContainer`, and an explicitly authored container still wins. The board's portal host mounts only while a portal asks for it. It is out of flow, covers the board and sits above board content.
+- **Height floor.** A board with no authored height gets a minimum height while an overlay is open in it: 800px on the canvas, the viewport height in the responsive view and capture.
+- **Component drafts.** The system editor's draft stage (`ComponentDraftStage`) does the same for its single board. The board's content area below the name strip is the containing block and portal target.
+
+The canvas differs from the responsive view and capture, which mount a single board:
+
+| | Canvas and draft stage | Responsive view and capture |
+|---|---|---|
+| Dialogs, drawers, alert dialogs | Non-modal, pointer dismissal off, no initial focus unless authored | Authored modal behaviour |
+| Floating UI collision avoidance | Off: popups sit exactly as authored | On, with the board as collision boundary |
+
+The canvas renders overlays non-modal because several open modals in one document would mark each other `aria-hidden`, lock scroll and trap focus, and a canvas click or pan would dismiss them. Collision avoidance is off because it clips against the iframe viewport, which on the canvas is the editor pane, so popups would jump while panning. Alert dialogs render through a Dialog root on the canvas and keep `role="alertdialog"`. Select uses anchored positioning on the stage, because item-aligned mode positions a fixed popup from viewport geometry.
+
+Known limits:
+
+- Viewport units (`100vh`, `dvh`, `vw`) and responsive breakpoints still resolve against the iframe, not the board. A `min-h-dvh` backdrop can extend past a short board.
+- While an overlay exists, the portal host is the board's first child. Position-based variants on the board's children (`first:`, `odd:`, `even:`, `nth-*`) count the host, so they can match differently while an overlay is open. The host's inline styles keep `*:`, `space-y-*` and `divide-*` from moving it.
+
 ## MCP Flow
 
 The MCP server is separate from the Hono app. It can infer an MCP-enabled direct-child project from the working directory, or start without a selected project and use registry tools to discover and select one.

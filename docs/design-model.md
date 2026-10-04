@@ -245,6 +245,8 @@ public/tailwind/index.global.js
 
 The sidebar is outside the iframe. That keeps editor controls separate from the design stage.
 
+Each board is the containing block and portal target for its own overlays, so an open dialog or sheet positions against its board instead of the editor pane. This is render-time only and changes nothing in the design file. See [Stage Overlay Containment](architecture.md#stage-overlay-containment).
+
 ## Layer Editing Rules
 
 The layer tree supports:
