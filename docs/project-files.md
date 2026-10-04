@@ -208,6 +208,10 @@ A revision-checked write merges at board level against the revision the caller r
 
 `updateDesignFile` (used by every MCP mutation and by bulk component migration) applies a mutation to a fresh read and writes it with the caller's revision as `expectedRevision` and the fresh read as the base: a mutation of board A succeeds when only board B changed since the caller's read.
 
+The write reads the design again under the lock, but parses only the board files that differ from what it writes: a stored board file the write would reproduce byte for byte (same board content, same order key) is unchanged, and the written board stands in for it without being parsed or hashed. The comparison is of content, never of object identity, so a board a caller changed in place is still written. The revisions the write returns come from the merge, not from hashing the stored design again.
+
+Each process caches board file contents and board revisions in memory, keyed on the file's identity (path, inode, size, modification and change times), and board revisions also on a hash of the file's bytes. File times have a granularity of up to two seconds and an atomic rename can reuse a just-freed inode, so a file replaced within one tick by one of the same size can look unchanged; identity is therefore trusted only for files that were already older than two seconds when observed. A file changed more recently is read again and identified by its bytes. A write seeds the byte-keyed cache with the board files it stored, so the next read does not hash them again.
+
 A revision that is not a design token (for example an older `sha256:` revision) checks every change strictly. Designs that cannot be read report a hash of their stored bytes as their revision; only a write naming exactly that revision can replace them.
 
 ### Multi-file writes
@@ -217,7 +221,7 @@ Under the design lock, a write that changes more than one file first stores `<de
 - Interrupted before the journal is in place: only a temporary file is left; the old state stands.
 - Interrupted after the journal is in place (between any two apply steps, or before deleting the journal): the journal is complete and replaying it yields the new state.
 
-Every process that takes the design lock replays a leftover journal before anything else, and a reader that finds one takes the lock and replays it before reading. Replaying is idempotent. Journal paths are checked to stay inside the design. Reads take a consistent snapshot without the lock by checking every file of the design before and after reading and retrying when anything changed; a read never sees half of a write. Watchers and the design listing ignore the journal and temporary files (names starting with `.` or ending in `.tmp`).
+Every process that takes the design lock replays a leftover journal before anything else, and a reader that finds one takes the lock and replays it before reading. Replaying is idempotent. Journal paths are checked to stay inside the design. Reads take a consistent snapshot without the lock by checking every file of the design before and after reading and retrying when anything changed; a read never sees half of a write. Contents read from the cache count as read (they belong to the identity the file still has), and contents enter the cache only from a read that passed this check. Watchers and the design listing ignore the journal and temporary files (names starting with `.` or ending in `.tmp`).
 
 Deleting a design removes the legacy file and the legacy memory file, then renames the folder away (`designs/.<id>.deleted-<uuid>`) in one step before removing it, so an interrupted delete leaves a whole design, never part of one.
 
@@ -706,7 +710,7 @@ Rules:
 
 - `category` must be one of the six enum values; unknown categories are rejected (`INVALID_CATEGORY`).
 - `noteId` must equal its map key; divergent manifests are rejected (`INVALID_MANIFEST`).
-- Note bodies are stored verbatim. Bodies may embed canonical reference tokens such as `{{design:<uuid>}}`, `{{component:<id>}}`, `{{token:<domain>/<name>}}`, `{{asset:<id>}}`, and `{{icon:<id>}}`. Writes return non-blocking `referenceWarnings` for unresolved tokens; reads may pass `resolveReferences=true` (REST query param or MCP `resolveReferences` argument) to attach per-note resolution metadata without mutating stored bodies.
+- Note bodies are stored verbatim. Bodies may embed canonical reference tokens: `{{design:<uuid>}}`, `{{board:<designId>/<boardId>}}`, `{{layer:<designId>/<elementId>}}`, `{{component:<id>}}`, `{{token:<domain>/<name>}}`, `{{asset:<id>}}`, and `{{icon:<id>}}`. Board and layer references name their design, so they resolve the same from any note (see `docs/mcp.md`). Writes return non-blocking `referenceWarnings` for unresolved tokens; reads may pass `resolveReferences=true` (REST query param or MCP `resolveReferences` argument) to attach per-note resolution metadata without mutating stored bodies.
 - Design scope ids must be a single path segment; `.`, `..`, slashes, and backslashes are rejected (`INVALID_SCOPE`).
 - System scope requires a configured system; unknown systems are rejected (`SCOPE_NOT_FOUND`).
 
