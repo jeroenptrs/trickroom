@@ -9,6 +9,7 @@ import {
 	partialSystemComponentDraftPayloadSchema,
 	systemComponentDraftPatchSchema,
 } from "../../utils/system-component-draft-schemas";
+import { readSystemComponentManifest } from "../../utils/system-component-manifest-service";
 import {
 	createSystemComponentDraft,
 	deleteSystemComponent,
@@ -59,6 +60,16 @@ import {
 	withProjectScopedInput,
 } from "./schemas";
 
+const instanceLimitSchema = z
+	.number()
+	.int()
+	.min(1)
+	.max(1000)
+	.optional()
+	.describe(
+		"Maximum instance rows per list (default 20); counts are always complete.",
+	);
+
 export const registerSystemComponentReadTools = (ctx: McpToolContext) => {
 	const { server, withPolicyErrorHandling } = ctx;
 
@@ -67,19 +78,34 @@ export const registerSystemComponentReadTools = (ctx: McpToolContext) => {
 		{
 			title: "List System Components",
 			description:
-				"List stable component definitions in a configured design system, including manifest revision metadata for later writes.",
+				'Compact index of the components in a configured design system: id, slug, name, group, published version, draft state ("unpublished" or "changed" when publishing would change it), variant axes, and a one-line description, plus the manifest revision for later writes. Filter with query and group. Use describeSystemComponent for one component\'s interface.',
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
 					.min(1)
 					.describe("Configured design system name."),
+				query: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						"Case-insensitive match on id, slug, name, group, or description.",
+					),
+				group: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Only components in this group (case-insensitive)."),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ systemName, project }) =>
+		async ({ systemName, query, group, project }) =>
 			withPolicyErrorHandling(project, async (context) =>
 				createJsonResult(
-					await listSystemComponentsPayload(context, systemName),
+					await listSystemComponentsPayload(context, systemName, {
+						query,
+						group,
+					}),
 				),
 			),
 	);
@@ -89,30 +115,42 @@ export const registerSystemComponentReadTools = (ctx: McpToolContext) => {
 		{
 			title: "Describe System Component",
 			description:
-				'Describe one stable component definition, including draft hashes, validation diagnostics, and current manifest revision. Returns only the current published version\'s template by default, with versionHistory summarizing older versions; pass versions: "all" for every published template.',
+				'Describe one component\'s interface for placing and varying instances: variant axes with values and defaults, slots, override targets, and props, from the current published version (or the draft when unpublished). Also returns the manifest revision, draft hashes, version history, and this component\'s diagnostics. Opt in with include: "template" (root tree, raw slots and override targets), "classes" (variant schema with classesByPath and compound variants), "record" (the stored record). Use source: "draft", include: ["template", "classes"] before updateSystemComponentDraft.',
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
 					.min(1)
 					.describe("Configured design system name."),
 				componentId: z.string().min(1).describe("Stable system component id."),
+				source: z
+					.enum(["published", "draft"])
+					.optional()
+					.describe(
+						"Which payload to describe. Defaults to the current published version, or the draft when nothing is published.",
+					),
+				include: z
+					.array(z.enum(["template", "classes", "record"]))
+					.optional()
+					.describe(
+						'Opt-in sections: "template", "classes", "record". Default: interface only.',
+					),
 				versions: z
 					.enum(["current", "all"])
 					.optional()
 					.describe(
-						'"current" (default) returns only the current published version in record.published.versions plus a versionHistory summary; "all" returns every published version template.',
+						'For the "record" section: "current" (default) keeps only the current published template; "all" returns every published version template and implies include "record".',
 					),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ systemName, componentId, versions, project }) =>
+		async ({ systemName, componentId, source, include, versions, project }) =>
 			withPolicyErrorHandling(project, async (context) =>
 				createJsonResult(
 					await describeSystemComponentPayload(
 						context,
 						systemName,
 						componentId,
-						versions ?? "current",
+						{ source, include, versions },
 					),
 				),
 			),
@@ -123,7 +161,7 @@ export const registerSystemComponentReadTools = (ctx: McpToolContext) => {
 		{
 			title: "List Stale System Component Usages",
 			description:
-				"Report attached system component instances that reference an older published version. Read-only; does not migrate or write designs.",
+				"Report attached system component instances that reference an older published version: counts per status, component, and design, plus the first usage rows (limit). Read-only; does not migrate or write designs.",
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
@@ -134,22 +172,22 @@ export const registerSystemComponentReadTools = (ctx: McpToolContext) => {
 					.min(1)
 					.optional()
 					.describe("Optional stable system component id."),
-				designFileId: z
-					.string()
-					.min(1)
+				designFileId: designFileIdSchema
 					.optional()
 					.describe(
 						"Optional design file UUID filter. Must be readable by MCP policy.",
 					),
+				limit: instanceLimitSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ systemName, componentId, designFileId, project }) =>
+		async ({ systemName, componentId, designFileId, limit, project }) =>
 			withPolicyErrorHandling(project, async (context) =>
 				createJsonResult(
 					await listStaleSystemComponentUsagesPayload(context, systemName, {
 						componentId,
 						designFileId,
+						limit,
 					}),
 				),
 			),
@@ -223,6 +261,7 @@ export const registerSystemComponentDraftTools = (ctx: McpToolContext) => {
 						context,
 						systemName,
 						result.componentId,
+						{ kind: "created" },
 					),
 				);
 			}),
@@ -278,6 +317,11 @@ export const registerSystemComponentDraftTools = (ctx: McpToolContext) => {
 						parsedDraftPatch.error,
 					);
 				}
+				const before = await readSystemComponentManifest(
+					context.projectRoot,
+					system.manifest.systemId,
+				);
+				const beforeDraft = before.manifest.components[componentId]?.draft;
 				await updateSystemComponentDraft(
 					context.projectRoot,
 					system.manifest.systemId,
@@ -289,11 +333,15 @@ export const registerSystemComponentDraftTools = (ctx: McpToolContext) => {
 						expectedDraftVariantSchemaHash,
 					},
 				);
+				const replaced = Object.keys(parsedDraftPatch.data);
 				return createJsonResult(
 					await systemComponentMutationPayload(
 						context,
 						systemName,
 						componentId,
+						beforeDraft
+							? { kind: "updated", before: beforeDraft, replaced }
+							: { kind: "created" },
 					),
 				);
 			}),
@@ -326,16 +374,22 @@ export const registerSystemComponentDraftTools = (ctx: McpToolContext) => {
 					componentId,
 					{ expectedRevision },
 				);
-				return createJsonResult(
-					await systemComponentMutationPayload(
+				const publishedVersion =
+					result.manifest.components[componentId]?.published?.versions[
+						result.publishedVersion
+					];
+				return createJsonResult({
+					...(await systemComponentMutationPayload(
 						context,
 						systemName,
 						componentId,
 						{
-							publishedVersion: result.publishedVersion,
+							kind: "published",
+							previousVersion: publishedVersion?.previousVersion,
 						},
-					),
-				);
+					)),
+					publishedVersion: result.publishedVersion,
+				});
 			}),
 	);
 
@@ -540,7 +594,7 @@ export const registerSystemComponentMigrationTools = (ctx: McpToolContext) => {
 		{
 			title: "Bulk Migrate System Component Usages",
 			description:
-				"Bulk migrate stale attached system component instances for a system, optionally filtered by component or design file. Uses the same safe/review-required/blocked diagnostics as the UI. onlySafe defaults to true so review-required instances are reported but not written.",
+				"Bulk migrate stale attached system component instances for a system, optionally filtered by component or design file. Uses the same safe/review-required/blocked diagnostics as the UI. onlySafe defaults to true so review-required instances are reported but not written. Returns counts, a per-design rollup with new revisions, review-required instances, and failures; includeInstances adds instance rows and migration previews.",
 			inputSchema: withProjectScopedInput({
 				systemName: z
 					.string()
@@ -551,9 +605,7 @@ export const registerSystemComponentMigrationTools = (ctx: McpToolContext) => {
 					.min(1)
 					.optional()
 					.describe("Optional stable system component id."),
-				designFileId: z
-					.string()
-					.min(1)
+				designFileId: designFileIdSchema
 					.optional()
 					.describe(
 						"Optional design file UUID filter. Must be readable and writable by MCP policy.",
@@ -570,6 +622,13 @@ export const registerSystemComponentMigrationTools = (ctx: McpToolContext) => {
 					.describe(
 						"When true, report predicted changes without persisting design files.",
 					),
+				includeInstances: z
+					.boolean()
+					.optional()
+					.describe(
+						"When true, add changed, review-required (with previews), and non-current skipped instance rows, each capped at limit.",
+					),
+				limit: instanceLimitSchema,
 			}),
 			annotations: {
 				...mutationAnnotations,
@@ -583,6 +642,8 @@ export const registerSystemComponentMigrationTools = (ctx: McpToolContext) => {
 			designFileId,
 			onlySafe,
 			dryRun,
+			includeInstances,
+			limit,
 			project,
 		}) =>
 			withProjectContext(project, async (context) => {
@@ -620,6 +681,8 @@ export const registerSystemComponentMigrationTools = (ctx: McpToolContext) => {
 									designFileId,
 									onlySafe,
 									dryRun,
+									includeInstances,
+									limit,
 								},
 							),
 						);

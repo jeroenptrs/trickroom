@@ -54,17 +54,23 @@ describe("trickroom MCP system component tools", () => {
 			},
 		});
 		const componentId = String(created.structuredContent?.componentId);
+		// Writes acknowledge with ids, hashes, and a change summary.
 		expect(created.structuredContent).toMatchObject({
 			status: "success",
 			valid: true,
 			componentId,
-			record: {
-				slug: "primary-label",
-				name: "Primary Label",
-				draft: { root: textRoot() },
+			slug: "primary-label",
+			draftState: "unpublished",
+			changes: {
+				created: true,
+				nodeCount: 1,
+				variantAxes: [],
+				slots: [],
+				overrideTargets: [],
 			},
 			diagnostics: [],
 		});
+		expect(created.structuredContent).not.toHaveProperty("record");
 		expect(created.structuredContent?.revision).not.toBe(initialRevision);
 		expect(created.structuredContent?.draftTemplateHash).toEqual(
 			expect.stringMatching(/^sha256:/),
@@ -79,16 +85,20 @@ describe("trickroom MCP system component tools", () => {
 		});
 		expect(listed.structuredContent).toMatchObject({
 			revision: created.structuredContent?.revision,
+			componentCount: 1,
 			components: [
-				expect.objectContaining({
+				{
 					componentId,
-					hasDraft: true,
-					hasPublished: false,
+					slug: "primary-label",
 					group: "content",
-					order: 1,
-				}),
+					draft: "unpublished",
+				},
 			],
 		});
+		// The name only restates the slug, so the index leaves it out.
+		expect(
+			(listed.structuredContent as { components: object[] }).components[0],
+		).not.toHaveProperty("name");
 
 		const described = await session.client.callTool({
 			name: "describeSystemComponent",
@@ -96,9 +106,13 @@ describe("trickroom MCP system component tools", () => {
 		});
 		expect(described.structuredContent).toMatchObject({
 			revision: created.structuredContent?.revision,
+			source: { kind: "draft" },
+			interface: { variantAxes: [], slots: [], overrideTargets: [] },
 			valid: true,
 			diagnostics: [],
 		});
+		expect(described.structuredContent).not.toHaveProperty("root");
+		expect(described.structuredContent).not.toHaveProperty("record");
 
 		const updated = await session.client.callTool({
 			name: "updateSystemComponentDraft",
@@ -137,20 +151,43 @@ describe("trickroom MCP system component tools", () => {
 		expect(updated.structuredContent).toMatchObject({
 			status: "success",
 			valid: true,
-			record: {
-				draft: {
-					root: {
-						component: "container",
-						children: [expect.objectContaining({ path: "label" })],
-					},
-					slots: {
-						content: expect.objectContaining({ hostPath: "root" }),
-					},
-					overrideTargets: {
-						label: expect.objectContaining({ path: "label" }),
-					},
-				},
+			changes: {
+				replaced: ["root", "slots", "variants", "overrideTargets"],
+				templateChanged: true,
+				variantsChanged: false,
+				nodeCount: { from: 1, to: 2 },
+				slots: { added: ["content"] },
+				overrideTargets: { added: ["label"] },
 			},
+		});
+
+		const draftDetail = await session.client.callTool({
+			name: "describeSystemComponent",
+			arguments: {
+				systemName: "Core",
+				componentId,
+				source: "draft",
+				include: ["template", "classes"],
+			},
+		});
+		expect(draftDetail.structuredContent).toMatchObject({
+			interface: {
+				slots: [{ name: "content", label: "Content", hostPath: "root" }],
+				overrideTargets: [
+					{
+						targetId: "label",
+						label: "Label",
+						path: "label",
+						capabilities: ["className"],
+					},
+				],
+			},
+			root: {
+				component: "container",
+				children: [expect.objectContaining({ path: "label" })],
+			},
+			slots: { content: expect.objectContaining({ hostPath: "root" }) },
+			overrideTargets: { label: expect.objectContaining({ path: "label" }) },
 		});
 		expect(updated.structuredContent?.draftTemplateHash).not.toBe(
 			described.structuredContent?.draftTemplateHash,
@@ -168,13 +205,91 @@ describe("trickroom MCP system component tools", () => {
 			status: "success",
 			componentId,
 			publishedVersion: "1",
-			record: {
-				published: {
-					currentVersion: "1",
-				},
+			published: {
+				currentVersion: "1",
+				templateHash: updated.structuredContent?.draftTemplateHash,
 			},
+			changes: { toVersion: "1", nodeCount: 2, slots: ["content"] },
 			valid: true,
 			diagnostics: [],
+		});
+		expect(published.structuredContent).not.toHaveProperty("draftState");
+
+		const record = await session.client.callTool({
+			name: "describeSystemComponent",
+			arguments: { systemName: "Core", componentId, versions: "all" },
+		});
+		expect(record.structuredContent).toMatchObject({
+			source: { kind: "published", version: "1" },
+			versionHistory: [{ version: "1" }],
+			record: { published: { currentVersion: "1" } },
+		});
+	});
+
+	it("filters the component index by query and group", async () => {
+		let revision = String(
+			(
+				await session.client.callTool({
+					name: "listSystemComponents",
+					arguments: { systemName: "Core" },
+				})
+			).structuredContent?.revision,
+		);
+		for (const [slug, group, description] of [
+			["button", "actions", "Primary action trigger. Supports icons."],
+			["link", "actions", undefined],
+			["card", "layout", "A surface for grouped content."],
+		] as const) {
+			const created = await session.client.callTool({
+				name: "createSystemComponentDraft",
+				arguments: {
+					systemName: "Core",
+					expectedRevision: revision,
+					slug,
+					name: slug,
+					group,
+					...(description ? { description } : {}),
+					draft: {
+						root: textRoot(),
+						variants: {
+							axes: {
+								tone: {
+									label: "Tone",
+									defaultValue: "neutral",
+									values: { neutral: {}, brand: {} },
+								},
+							},
+						},
+					},
+				},
+			});
+			revision = String(created.structuredContent?.revision);
+		}
+
+		const actions = await session.client.callTool({
+			name: "listSystemComponents",
+			arguments: { systemName: "Core", group: "Actions" },
+		});
+		expect(actions.structuredContent).toMatchObject({
+			componentCount: 3,
+			matchedCount: 2,
+			components: [
+				{
+					slug: "button",
+					variants: "tone: neutral|brand",
+					description: "Primary action trigger.",
+				},
+				{ slug: "link" },
+			],
+		});
+
+		const surface = await session.client.callTool({
+			name: "listSystemComponents",
+			arguments: { systemName: "Core", query: "SURFACE" },
+		});
+		expect(surface.structuredContent).toMatchObject({
+			matchedCount: 1,
+			components: [{ slug: "card" }],
 		});
 	});
 
@@ -240,7 +355,7 @@ describe("trickroom MCP system component tools", () => {
 		expect(described.isError).not.toBe(true);
 		expect(described.structuredContent).toMatchObject({
 			valid: true,
-			record: expect.objectContaining({ componentId: winnerId }),
+			componentId: winnerId,
 		});
 	});
 
