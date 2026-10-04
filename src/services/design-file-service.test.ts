@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { TrickroomDesign } from "../types";
+import type { Node, TrickroomDesign } from "../types";
 import { DESIGN_FILE_VERSION } from "./design-file-schema";
 import {
 	calculateDesignFileRevision,
@@ -10,6 +10,7 @@ import {
 	DesignFileServiceError,
 	skipDesignUpdate,
 } from "./design-file-service";
+import { calculateDesignRevision } from "./design-revision";
 
 const validDesign = {
 	name: "Valid Design",
@@ -37,6 +38,47 @@ const validDesign = {
 		},
 	],
 } satisfies TrickroomDesign;
+
+const boardNode = (id: string, name: string): Node => ({
+	id,
+	props: {
+		"data-trickroom-name": name,
+		"data-trickroom-library": "trickroom",
+		"data-trickroom-component": "container",
+		"data-trickroom-role": "branch",
+	},
+	children: [],
+});
+
+const twoBoardDesign = {
+	name: "Two boards",
+	boards: [boardNode("board-a", "A"), boardNode("board-b", "B")],
+} satisfies TrickroomDesign;
+
+const threeBoardDesign = {
+	name: "Three boards",
+	boards: [
+		boardNode("board-a", "A"),
+		boardNode("board-b", "B"),
+		boardNode("board-c", "C"),
+	],
+} satisfies TrickroomDesign;
+
+const withBoardName = (
+	design: TrickroomDesign,
+	boardId: string,
+	name: string,
+): TrickroomDesign => ({
+	...design,
+	boards: design.boards.map((board) =>
+		board.id === boardId
+			? { ...board, props: { ...board.props, "data-trickroom-name": name } }
+			: board,
+	),
+});
+
+const boardNames = (design: TrickroomDesign) =>
+	design.boards.map((board) => board.props["data-trickroom-name"]);
 
 describe("DesignFileService", () => {
 	let tempProjectRoot: string;
@@ -113,7 +155,7 @@ describe("DesignFileService", () => {
 				boardsCount: 1,
 				layersCount: 1,
 				modifiedAt: expect.any(String),
-				revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+				revision: expect.stringMatching(/^r2\./),
 			},
 			{
 				uuid: "b",
@@ -123,7 +165,7 @@ describe("DesignFileService", () => {
 				boardsCount: 1,
 				layersCount: 1,
 				modifiedAt: expect.any(String),
-				revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+				revision: expect.stringMatching(/^r2\./),
 			},
 			{
 				uuid: "invalid",
@@ -260,7 +302,7 @@ describe("DesignFileService", () => {
 		const secondRead = await service.readDesignFile("stable");
 
 		expect(firstRead.revision).toBe(secondRead.revision);
-		expect(firstRead.revision).toMatch(/^sha256:[a-f0-9]{64}$/);
+		expect(firstRead.revision).toBe(calculateDesignRevision(validDesign));
 	});
 
 	it("reads and lists legacy null component migration policies canonically", async () => {
@@ -292,7 +334,7 @@ describe("DesignFileService", () => {
 		const contents = await readFile(legacyPath("created"), "utf8");
 
 		expect(written.design).toEqual(validDesign);
-		expect(written.revision).toMatch(/^sha256:[a-f0-9]{64}$/);
+		expect(written.revision).toBe(calculateDesignRevision(validDesign));
 		expect(JSON.parse(contents)).toEqual({
 			version: DESIGN_FILE_VERSION,
 			...validDesign,
@@ -402,6 +444,161 @@ describe("DesignFileService", () => {
 		});
 	});
 
+	describe("board-level revision checks", () => {
+		it("keeps another writer's board when a whole design is saved from an older read", async () => {
+			await writeDesignFixture("merge", twoBoardDesign);
+			const browserRead = await service.readDesignFile("merge");
+			await service.writeDesignFile(
+				"merge",
+				withBoardName(browserRead.design, "board-b", "B by agent"),
+				{ expectedRevision: browserRead.revision },
+			);
+
+			const saved = await service.writeDesignFile(
+				"merge",
+				withBoardName(browserRead.design, "board-a", "A by human"),
+				{ expectedRevision: browserRead.revision },
+			);
+
+			expect(saved.merged).toBe(true);
+			expect(saved.changedBoardIds).toEqual(["board-a"]);
+			expect(boardNames(saved.design)).toEqual(["A by human", "B by agent"]);
+			await expect(service.readDesignFile("merge")).resolves.toMatchObject({
+				revision: saved.revision,
+				design: saved.design,
+			});
+		});
+
+		it("refuses a save that changes a board changed since the read", async () => {
+			await writeDesignFixture("conflict", twoBoardDesign);
+			const browserRead = await service.readDesignFile("conflict");
+			await service.writeDesignFile(
+				"conflict",
+				withBoardName(browserRead.design, "board-a", "A by agent"),
+				{ expectedRevision: browserRead.revision },
+			);
+			const current = await service.readDesignFile("conflict");
+
+			const attempt = service.writeDesignFile(
+				"conflict",
+				withBoardName(browserRead.design, "board-a", "A by human"),
+				{ expectedRevision: browserRead.revision },
+			);
+
+			await expect(attempt).rejects.toMatchObject({
+				code: "REVISION_MISMATCH",
+				mismatch: {
+					staleBoardIds: ["board-a"],
+					manifest: false,
+					order: false,
+					currentRevision: current.revision,
+				},
+			});
+			await expect(service.readDesignFile("conflict")).resolves.toMatchObject({
+				revision: current.revision,
+			});
+		});
+
+		it("keeps boards another writer added and respects boards it deleted", async () => {
+			await writeDesignFixture("sets", twoBoardDesign);
+			const browserRead = await service.readDesignFile("sets");
+			const [boardA] = browserRead.design.boards;
+			await service.writeDesignFile(
+				"sets",
+				{
+					...browserRead.design,
+					boards: [
+						boardA as Node,
+						{ ...(boardA as Node), id: "board-c", children: [] },
+					],
+				},
+				{ expectedRevision: browserRead.revision },
+			);
+
+			const saved = await service.writeDesignFile(
+				"sets",
+				{ ...browserRead.design, name: "Renamed" },
+				{ expectedRevision: browserRead.revision },
+			);
+
+			expect(saved.design.name).toBe("Renamed");
+			expect(saved.design.boards.map((board) => board.id)).toEqual([
+				"board-a",
+				"board-c",
+			]);
+		});
+
+		it("refuses to delete a board another writer changed", async () => {
+			await writeDesignFixture("delete", twoBoardDesign);
+			const browserRead = await service.readDesignFile("delete");
+			await service.writeDesignFile(
+				"delete",
+				withBoardName(browserRead.design, "board-b", "B by agent"),
+				{ expectedRevision: browserRead.revision },
+			);
+
+			await expect(
+				service.writeDesignFile(
+					"delete",
+					{
+						...browserRead.design,
+						boards: browserRead.design.boards.slice(0, 1),
+					},
+					{ expectedRevision: browserRead.revision },
+				),
+			).rejects.toMatchObject({
+				code: "REVISION_MISMATCH",
+				mismatch: { staleBoardIds: ["board-b"] },
+			});
+		});
+
+		it("applies a reorder unless the order changed on disk too", async () => {
+			await writeDesignFixture("order", threeBoardDesign);
+			const read = await service.readDesignFile("order");
+			const [a, b, c] = read.design.boards as [Node, Node, Node];
+
+			const reordered = await service.writeDesignFile(
+				"order",
+				{ ...read.design, boards: [c, a, b] },
+				{ expectedRevision: read.revision },
+			);
+			expect(reordered.design.boards.map((board) => board.id)).toEqual([
+				"board-c",
+				"board-a",
+				"board-b",
+			]);
+
+			await expect(
+				service.writeDesignFile(
+					"order",
+					{ ...read.design, boards: [b, a, c] },
+					{ expectedRevision: read.revision },
+				),
+			).rejects.toMatchObject({
+				code: "REVISION_MISMATCH",
+				mismatch: { order: true },
+			});
+		});
+
+		it("checks every change strictly against a revision it cannot decode", async () => {
+			await writeDesignFixture("legacy-token", twoBoardDesign);
+			const read = await service.readDesignFile("legacy-token");
+
+			await expect(
+				service.writeDesignFile(
+					"legacy-token",
+					withBoardName(read.design, "board-a", "Changed"),
+					{ expectedRevision: "sha256:0000" },
+				),
+			).rejects.toMatchObject({ code: "REVISION_MISMATCH" });
+			await expect(
+				service.writeDesignFile("legacy-token", read.design, {
+					expectedRevision: "sha256:0000",
+				}),
+			).resolves.toMatchObject({ revision: read.revision });
+		});
+	});
+
 	describe("updateDesignFile", () => {
 		it("applies a mutation to a fresh read and writes the prepared design", async () => {
 			await writeDesignFixture("updated");
@@ -424,42 +621,98 @@ describe("DesignFileService", () => {
 			});
 		});
 
-		it("reports a stale expected revision without mutating", async () => {
-			await writeDesignFixture("stale");
+		it("writes a change to one board while another board changed since the read", async () => {
+			await writeDesignFixture("boards", twoBoardDesign);
+			const before = await service.readDesignFile("boards");
+			// Another writer edits board B after the caller read the design.
+			await service.writeDesignFile(
+				"boards",
+				withBoardName(before.design, "board-b", "B by agent"),
+				{ expectedRevision: before.revision },
+			);
+
+			const outcome = await service.updateDesignFile("boards", {
+				expectedRevision: before.revision,
+				mutate: async (current) => ({
+					design: withBoardName(current.design, "board-a", "A by human"),
+				}),
+			});
+
+			expect(outcome.status).toBe("written");
+			const after = await service.readDesignFile("boards");
+			expect(boardNames(after.design)).toEqual(["A by human", "B by agent"]);
+			expect(outcome.status === "written" && outcome.write.revision).toBe(
+				after.revision,
+			);
+		});
+
+		it("reports the boards the caller changed that are stale", async () => {
+			await writeDesignFixture("stale", twoBoardDesign);
 			const before = await service.readDesignFile("stale");
-			await writeDesignFixture("stale", { ...validDesign, name: "Elsewhere" });
+			await service.writeDesignFile(
+				"stale",
+				withBoardName(before.design, "board-a", "A elsewhere"),
+				{ expectedRevision: before.revision },
+			);
 			const current = await service.readDesignFile("stale");
-			let mutated = false;
 
 			const outcome = await service.updateDesignFile("stale", {
 				expectedRevision: before.revision,
-				mutate: async (read) => {
-					mutated = true;
-					return { design: read.design };
-				},
+				mutate: async (read) => ({
+					design: withBoardName(read.design, "board-a", "A stale"),
+				}),
 			});
 
-			expect(mutated).toBe(false);
 			expect(outcome).toEqual({
 				status: "revision-mismatch",
 				expectedRevision: before.revision,
 				currentRevision: current.revision,
+				staleBoardIds: ["board-a"],
+			});
+			await expect(service.readDesignFile("stale")).resolves.toMatchObject({
+				revision: current.revision,
 			});
 		});
 
-		it("reports a lost write race with the revision now on disk", async () => {
-			await writeDesignFixture("raced-update");
+		it("keeps another writer's board that lands between the read and the write", async () => {
+			await writeDesignFixture("raced-update", twoBoardDesign);
 			const read = await service.readDesignFile("raced-update");
 
 			const outcome = await service.updateDesignFile("raced-update", {
 				expectedRevision: read.revision,
 				mutate: async (current) => {
-					// Another writer lands between this read and the write.
-					await writeDesignFixture("raced-update", {
-						...validDesign,
-						name: "Winner",
-					});
-					return { design: { ...current.design, name: "Loser" } };
+					await writeDesignFixture(
+						"raced-update",
+						withBoardName(current.design, "board-a", "A by winner"),
+					);
+					return {
+						design: withBoardName(current.design, "board-b", "B by caller"),
+					};
+				},
+			});
+
+			expect(outcome).toMatchObject({
+				status: "written",
+				write: { merged: true },
+			});
+			const after = await service.readDesignFile("raced-update");
+			expect(boardNames(after.design)).toEqual(["A by winner", "B by caller"]);
+		});
+
+		it("reports a board another writer changed between the read and the write", async () => {
+			await writeDesignFixture("raced-update", twoBoardDesign);
+			const read = await service.readDesignFile("raced-update");
+
+			const outcome = await service.updateDesignFile("raced-update", {
+				expectedRevision: read.revision,
+				mutate: async (current) => {
+					await writeDesignFixture(
+						"raced-update",
+						withBoardName(current.design, "board-b", "B by winner"),
+					);
+					return {
+						design: withBoardName(current.design, "board-b", "B by loser"),
+					};
 				},
 			});
 
@@ -468,8 +721,9 @@ describe("DesignFileService", () => {
 				status: "revision-mismatch",
 				expectedRevision: read.revision,
 				currentRevision: after.revision,
+				staleBoardIds: ["board-b"],
 			});
-			expect(after.design.name).toBe("Winner");
+			expect(boardNames(after.design)).toEqual(["A", "B by winner"]);
 		});
 
 		it("ends without writing when the mutation skips", async () => {
@@ -512,7 +766,7 @@ describe("DesignFileService", () => {
 			expect(read.storedVersion).toBe(0);
 			expect(read.migrated).toBe(true);
 			expect(read.design).toEqual(validDesign);
-			expect(read.revision).toBe(calculateDesignFileRevision(before));
+			expect(read.revision).toBe(calculateDesignRevision(validDesign));
 			await expect(readRaw("legacy")).resolves.toBe(before);
 		});
 

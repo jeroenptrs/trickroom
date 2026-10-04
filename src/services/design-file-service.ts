@@ -34,6 +34,14 @@ import type {
 	DesignFileRevision,
 	DesignFileSummary,
 } from "./design-file-service.types";
+import { type DesignWriteConflict, planDesignWrite } from "./design-merge";
+import {
+	calculateDesignRevision,
+	type DesignBoardRevision,
+	decodeDesignRevision,
+	encodeDesignRevision,
+	getDesignRevisionParts,
+} from "./design-revision";
 
 export type DesignFileServiceErrorCode =
 	| "INVALID_DESIGN_FILE_PATH"
@@ -44,15 +52,43 @@ export type DesignFileServiceErrorCode =
 	| "DESIGN_FILE_LOCKED"
 	| "REVISION_MISMATCH";
 
+/** Why a revision-checked write was refused. */
+export type DesignRevisionMismatch = DesignWriteConflict & {
+	/** The revision on disk when the write was refused. */
+	currentRevision: DesignFileRevision;
+};
+
 export class DesignFileServiceError extends Error {
 	readonly code: DesignFileServiceErrorCode;
+	/** Set for `REVISION_MISMATCH`. */
+	readonly mismatch?: DesignRevisionMismatch;
 
-	constructor(code: DesignFileServiceErrorCode, message: string) {
+	constructor(
+		code: DesignFileServiceErrorCode,
+		message: string,
+		mismatch?: DesignRevisionMismatch,
+	) {
 		super(message);
 		this.name = "DesignFileServiceError";
 		this.code = code;
+		if (mismatch) {
+			this.mismatch = mismatch;
+		}
 	}
 }
+
+const revisionMismatchMessage = (mismatch: DesignRevisionMismatch) => {
+	const parts = [
+		...(mismatch.staleBoardIds.length > 0
+			? [`board ${mismatch.staleBoardIds.join(", ")}`]
+			: []),
+		...(mismatch.manifest ? ["design name or settings"] : []),
+		...(mismatch.order ? ["board order"] : []),
+	];
+	return parts.length > 0
+		? `Design file revision does not match the expected revision: ${parts.join("; ")} changed since it was read`
+		: "Design file revision does not match the expected revision";
+};
 
 export type {
 	DesignFileRevision,
@@ -72,16 +108,22 @@ export type DesignJsonFileRead = {
 	revision: DesignFileRevision;
 };
 
+export type DesignBoardRevisionEntry = {
+	id: string;
+	revision: DesignBoardRevision;
+};
+
 export type DesignFileRead = Omit<DesignJsonFileRead, "value"> & {
 	/**
 	 * The design migrated in memory to the current schema. Like every
 	 * in-memory design it has no `version`; writes stamp it.
 	 */
 	design: TrickroomDesign;
+	/** Each board's revision, in board order. */
+	boards: DesignBoardRevisionEntry[];
 	/**
 	 * Version stored on disk (0 for files without one). When it is older than
-	 * `DESIGN_FILE_VERSION`, `revision` still hashes the unmigrated bytes and
-	 * the next write persists the current shape.
+	 * `DESIGN_FILE_VERSION`, the next write persists the current shape.
 	 */
 	storedVersion: number;
 	migrated: boolean;
@@ -91,13 +133,35 @@ export type DesignFileWrite = {
 	file: string;
 	path: string;
 	uuid: string;
-	/** The written design in its in-memory shape (without `version`). */
+	/**
+	 * The stored design in its in-memory shape (without `version`). Other
+	 * writers' changes to boards the caller did not touch are kept, so this can
+	 * differ from the design that was written (see `merged`).
+	 */
 	design: TrickroomDesign;
 	revision: DesignFileRevision;
+	boards: DesignBoardRevisionEntry[];
+	/** Whether `design` includes changes the caller's design did not have. */
+	merged: boolean;
+	/** Boards whose content changed (including new boards). */
+	changedBoardIds: string[];
+	deletedBoardIds: string[];
 };
 
 export type RevisionCheck = {
+	/**
+	 * The revision the caller read. Boards (and the manifest) the caller
+	 * changed must be unchanged on disk since then; other boards may have
+	 * changed and keep their current content.
+	 */
 	expectedRevision?: DesignFileRevision;
+	/**
+	 * A fresher revision the written design was derived from, when the caller
+	 * re-read the design and applied its change to that read (as
+	 * `updateDesignFile` does). Changes are detected against it, while
+	 * `expectedRevision` still decides which boards the caller may change.
+	 */
+	baseRevision?: DesignFileRevision;
 };
 
 const skippedDesignUpdate = Symbol("skippedDesignUpdate");
@@ -116,9 +180,9 @@ export type DesignFileUpdate<
 	/** The revision the caller based its change on. */
 	expectedRevision: string;
 	/**
-	 * Applies the change to a fresh read. Runs again on a fresh read when
-	 * another writer wins the race between the read and the write, so it must
-	 * not have side effects.
+	 * Applies the change to a fresh read. The read may be newer than
+	 * `expectedRevision`: changes to boards the caller did not touch are fine,
+	 * changes to boards it does touch are a mismatch.
 	 */
 	mutate: (read: DesignFileRead) => Promise<Result | DesignUpdateSkip<Skip>>;
 	/** Turns the mutated design into the one to store (for example canonicalising its system reference). */
@@ -139,6 +203,8 @@ export type DesignFileUpdateOutcome<Result, Skip> =
 			status: "revision-mismatch";
 			expectedRevision: string;
 			currentRevision: DesignFileRevision;
+			/** Boards the caller changed that changed since its read. */
+			staleBoardIds: string[];
 	  };
 
 export type DesignFileServiceOptions = {
@@ -416,12 +482,19 @@ export class DesignFileService {
 		const designPath = this.getLegacyDesignPath(designId);
 		const contents = await readFile(designPath, "utf8");
 
+		const value: unknown = JSON.parse(contents);
+		const design = readTrickroomDesignValue(value);
+
 		return {
 			uuid: designId,
 			file: getLegacyDesignFileName(designId),
 			path: designPath,
-			value: JSON.parse(contents),
-			revision: calculateDesignFileRevision(contents),
+			value,
+			// Designs that cannot be read fall back to a hash of the stored bytes,
+			// which still lets a caller replace exactly what it saw.
+			revision: design.ok
+				? calculateDesignRevision(design.design)
+				: calculateDesignFileRevision(contents),
 		};
 	}
 
@@ -441,12 +514,14 @@ export class DesignFileService {
 			throw new DesignFileServiceError(design.code, design.message);
 		}
 
+		const parts = getDesignRevisionParts(design.design);
 		return {
 			uuid: read.uuid,
 			file: read.file,
 			path: read.path,
 			design: design.design,
-			revision: read.revision,
+			revision: encodeDesignRevision(parts),
+			boards: parts.boards,
 			storedVersion: design.fromVersion,
 			migrated: design.migrated,
 		};
@@ -598,10 +673,10 @@ export class DesignFileService {
 		revisionCheck: RevisionCheck = {},
 	): Promise<DesignFileWrite> {
 		const designPath = this.getLegacyDesignPath(designId);
-		const storedDesign = prepareDesignForStorage(design);
+		const incoming = withoutStorageVersion(prepareDesignForStorage(design));
 
 		await mkdir(this.designsDir, { recursive: true });
-		const contents = await this.withWriteLock(designPath, async () => {
+		const written = await this.withWriteLock(designPath, async () => {
 			let currentContents: string | null = null;
 			try {
 				currentContents = await readFile(designPath, "utf8");
@@ -616,18 +691,6 @@ export class DesignFileService {
 				}
 			}
 
-			if (
-				revisionCheck.expectedRevision !== undefined &&
-				currentContents !== null &&
-				calculateDesignFileRevision(currentContents) !==
-					revisionCheck.expectedRevision
-			) {
-				throw new DesignFileServiceError(
-					"REVISION_MISMATCH",
-					"Design file revision does not match the expected revision",
-				);
-			}
-
 			// Never down-convert a design written by a newer Trickroom.
 			const currentVersion =
 				currentContents === null ? null : parseStoredVersion(currentContents);
@@ -638,17 +701,87 @@ export class DesignFileService {
 				);
 			}
 
-			return writeJsonFileAtomically(designPath, storedDesign);
+			const plan =
+				revisionCheck.expectedRevision === undefined || currentContents === null
+					? null
+					: this.planRevisionCheckedWrite(
+							currentContents,
+							incoming,
+							revisionCheck,
+						);
+			const next = plan?.design ?? incoming;
+			await writeJsonFileAtomically(
+				designPath,
+				orderDesignFileKeys({ ...next, version: DESIGN_FILE_VERSION }),
+			);
+			return { design: next, plan };
 		});
 		this.deleteCachedSummary(designPath);
 		await DesignFileService.pruneSummaryCache();
+		const parts = getDesignRevisionParts(written.design);
 		return {
 			file: getLegacyDesignFileName(designId),
 			path: designPath,
 			uuid: designId,
-			design: withoutStorageVersion(storedDesign),
-			revision: calculateDesignFileRevision(contents),
+			design: written.design,
+			revision: encodeDesignRevision(parts),
+			boards: parts.boards,
+			merged: written.plan?.merged ?? false,
+			changedBoardIds:
+				written.plan?.changedBoardIds ??
+				written.design.boards.map((board) => board.id),
+			deletedBoardIds: written.plan?.deletedBoardIds ?? [],
 		};
+	}
+
+	/**
+	 * Merges a revision-checked write into the stored design, or throws
+	 * `REVISION_MISMATCH` naming what the caller changed that is stale.
+	 */
+	private planRevisionCheckedWrite(
+		currentContents: string,
+		incoming: TrickroomDesign,
+		{ expectedRevision, baseRevision }: RevisionCheck,
+	) {
+		const current = readTrickroomDesignValue(JSON.parse(currentContents));
+		if (!current.ok) {
+			// A design that cannot be read can only be replaced by a caller that
+			// saw exactly these bytes.
+			if (calculateDesignFileRevision(currentContents) === expectedRevision) {
+				return null;
+			}
+			throw new DesignFileServiceError(
+				"REVISION_MISMATCH",
+				"Design file revision does not match the expected revision",
+				{
+					currentRevision: calculateDesignFileRevision(currentContents),
+					staleBoardIds: [],
+					manifest: false,
+					order: false,
+				},
+			);
+		}
+
+		const expected = decodeDesignRevision(expectedRevision ?? "");
+		const plan = planDesignWrite({
+			current: current.design,
+			incoming,
+			...(baseRevision !== undefined
+				? { base: decodeDesignRevision(baseRevision), expected }
+				: { base: expected }),
+		});
+		if (plan.conflict) {
+			const mismatch = {
+				...plan.conflict,
+				currentRevision: calculateDesignRevision(current.design),
+			};
+			throw new DesignFileServiceError(
+				"REVISION_MISMATCH",
+				revisionMismatchMessage(mismatch),
+				mismatch,
+			);
+		}
+		return plan;
 	}
 
 	/**
@@ -666,14 +799,6 @@ export class DesignFileService {
 		update: DesignFileUpdate<Result, Skip>,
 	): Promise<DesignFileUpdateOutcome<Result, Skip>> {
 		const read = await (update.read?.() ?? this.readDesignFile(designId));
-		if (read.revision !== update.expectedRevision) {
-			return {
-				status: "revision-mismatch",
-				expectedRevision: update.expectedRevision,
-				currentRevision: read.revision,
-			};
-		}
-
 		const result = await update.mutate(read);
 		if (skippedDesignUpdate in result) {
 			return { status: "skipped", read, value: result[skippedDesignUpdate] };
@@ -685,21 +810,28 @@ export class DesignFileService {
 		try {
 			const write = await this.writeDesignFile(designId, design, {
 				expectedRevision: update.expectedRevision,
+				baseRevision: read.revision,
 			});
 			return { status: "written", read, result, write };
 		} catch (error) {
 			if (
-				error instanceof DesignFileServiceError &&
-				error.code === "REVISION_MISMATCH"
+				!(error instanceof DesignFileServiceError) ||
+				error.code !== "REVISION_MISMATCH"
 			) {
-				const current = await this.readRawDesign(designId);
-				return {
-					status: "revision-mismatch",
-					expectedRevision: update.expectedRevision,
-					currentRevision: current.revision,
-				};
+				throw error;
 			}
-			throw error;
+			// A board this write changes was changed by another writer after the
+			// caller's revision (possibly after this read): the caller re-reads.
+			// Retrying cannot help, because the caller's revision stays stale for
+			// that board.
+			return {
+				status: "revision-mismatch",
+				expectedRevision: update.expectedRevision,
+				currentRevision:
+					error.mismatch?.currentRevision ??
+					(await this.readRawDesign(designId)).revision,
+				staleBoardIds: error.mismatch?.staleBoardIds ?? [],
+			};
 		}
 	}
 
@@ -711,9 +843,8 @@ export class DesignFileService {
 		const storedDesign = prepareDesignForStorage(design);
 
 		await mkdir(this.designsDir, { recursive: true });
-		let contents: string;
 		try {
-			contents = await this.withWriteLock(designPath, () =>
+			await this.withWriteLock(designPath, () =>
 				writeJsonFileExclusivelyAtomically(designPath, storedDesign),
 			);
 		} catch (error) {
@@ -728,12 +859,18 @@ export class DesignFileService {
 
 		this.deleteCachedSummary(designPath);
 		await DesignFileService.pruneSummaryCache();
+		const created = withoutStorageVersion(storedDesign);
+		const parts = getDesignRevisionParts(created);
 		return {
 			file: getLegacyDesignFileName(designId),
 			path: designPath,
 			uuid: designId,
-			design: withoutStorageVersion(storedDesign),
-			revision: calculateDesignFileRevision(contents),
+			design: created,
+			revision: encodeDesignRevision(parts),
+			boards: parts.boards,
+			merged: false,
+			changedBoardIds: created.boards.map((board) => board.id),
+			deletedBoardIds: [],
 		};
 	}
 

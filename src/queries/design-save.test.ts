@@ -137,4 +137,37 @@ describe("committing a design save", () => {
 		expect(designStore.get().name).toBe("Later");
 		expect(designStore.get().designDirty).toBe(true);
 	});
+
+	it("reloads a merged save that kept another writer's board", () => {
+		setDesignName("After");
+		const { storeRevision, saved } = saveCurrentDesign();
+		const mergedDesign = { ...saved.design, boards: [] };
+
+		commitDesignSave(queryClient, {
+			designId,
+			projectScope,
+			saved: { ...saved, design: mergedDesign, merged: true },
+			savedStoreRevision: storeRevision,
+		});
+
+		expect(syncCachedSnapshot(queryClient)).toBe("reload");
+		expect(designStore.get().persistedRevision).toBe(savedRevision);
+		expect(serializeDesign().boards).toEqual([]);
+	});
+
+	it("asks before replacing edits made during a merged save", () => {
+		setDesignName("After");
+		const { storeRevision, saved } = saveCurrentDesign();
+		setDesignName("Later");
+
+		commitDesignSave(queryClient, {
+			designId,
+			projectScope,
+			saved: { ...saved, merged: true },
+			savedStoreRevision: storeRevision,
+		});
+
+		expect(syncCachedSnapshot(queryClient)).toBe("conflict");
+		expect(designStore.get().name).toBe("Later");
+	});
 });

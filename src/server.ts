@@ -382,6 +382,11 @@ const designRevisionHeaderName = "x-trickroom-revision";
 /** Set on design reads whose stored version was migrated in memory. */
 const designMigrationHeaderName = "x-trickroom-design-migration";
 const expectedDesignRevisionHeaderName = "x-trickroom-expected-revision";
+/**
+ * Set on design writes whose stored result kept changes the request did not
+ * have (another writer's boards), so the response design differs from it.
+ */
+const designMergedHeaderName = "x-trickroom-design-merged";
 
 const setDesignRevisionHeader = (c: Context, revision: DesignFileRevision) =>
 	c.header(designRevisionHeaderName, revision);
@@ -1572,6 +1577,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				{ expectedRevision },
 			);
 			setDesignRevisionHeader(c, written.revision);
+			if (written.merged) {
+				c.header(designMergedHeaderName, "true");
+			}
 			return c.json(
 				await decorateDesignSystemReference(project, written.design),
 			);

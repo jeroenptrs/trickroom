@@ -12,7 +12,10 @@ import { recipeLoadRepairHeaderName } from "./recipes/repair";
 import { createTrickroomApp } from "./server";
 import { isTrickroomConfig, isTrickroomDesign } from "./server-utils";
 import { DESIGN_FILE_VERSION } from "./services/design-file-schema";
-import { calculateDesignFileRevision } from "./services/design-file-service";
+import {
+	calculateDesignFileRevision,
+	createDesignFileService,
+} from "./services/design-file-service";
 import type { Node, TrickroomDesign } from "./types";
 import { createDesignSystemStorage } from "./utils/design-system-store";
 import { assetIdProp } from "./utils/resource-props";
@@ -1099,8 +1102,13 @@ describe("server design routes", () => {
 		);
 
 		expect(response.status).toBe(200);
-		expect(response.headers.get("x-trickroom-revision")).toBe(
-			calculateDesignFileRevision(before),
+		const revision = response.headers.get("x-trickroom-revision");
+		expect(revision).toBe(
+			(
+				await createDesignFileService(tempProjectRoot).readDesignFile(
+					"legacy-policy",
+				)
+			).revision,
 		);
 		expect(
 			JSON.parse(response.headers.get("x-trickroom-design-migration") ?? "{}"),
@@ -1116,7 +1124,7 @@ describe("server design routes", () => {
 			method: "PUT",
 			headers: {
 				"content-type": "application/json",
-				"x-trickroom-expected-revision": calculateDesignFileRevision(before),
+				"x-trickroom-expected-revision": revision ?? "",
 			},
 			body: JSON.stringify(body),
 		});
@@ -1189,8 +1197,8 @@ describe("server design routes", () => {
 		const response = await app.request("/api/trickroom/design?id=valid-recipe");
 
 		expect(response.status).toBe(200);
-		expect(response.headers.get("x-trickroom-revision")).toMatch(
-			/^sha256:[a-f0-9]{64}$/,
+		expect(response.headers.get("x-trickroom-revision")).toEqual(
+			expect.any(String),
 		);
 		expect(response.headers.get(recipeLoadRepairHeaderName)).toBeNull();
 		const body = (await response.json()) as TrickroomDesign;
@@ -1374,7 +1382,7 @@ describe("server design routes", () => {
 			"/api/trickroom/design?id=concurrent",
 		);
 		const initialRevision = initialResponse.headers.get("x-trickroom-revision");
-		expect(initialRevision).toMatch(/^sha256:[a-f0-9]{64}$/);
+		expect(initialRevision).toEqual(expect.any(String));
 
 		const externalDesign = {
 			...validDesign,
@@ -1397,6 +1405,56 @@ describe("server design routes", () => {
 		await expect(readStoredDesign("concurrent.json")).resolves.toEqual(
 			externalDesign,
 		);
+	});
+
+	it("merges a browser save with another writer's change to a different board", async () => {
+		const boardB = {
+			...validDesign.boards[0],
+			id: "board-b",
+		} as Node;
+		await writeDesign("merged.json", {
+			...validDesign,
+			boards: [...validDesign.boards, boardB],
+		});
+		const app = await importTestServer();
+		const read = await app.request("/api/trickroom/design?id=merged");
+		const browserDesign = (await read.json()) as TrickroomDesign;
+		const revision = read.headers.get("x-trickroom-revision") ?? "";
+
+		const service = createDesignFileService(tempProjectRoot);
+		const agentWrite = await service.writeDesignFile(
+			"merged",
+			{
+				...browserDesign,
+				boards: browserDesign.boards.map((board) =>
+					board.id === "board-b"
+						? { ...board, props: { ...board.props, className: "agent" } }
+						: board,
+				),
+			},
+			{ expectedRevision: revision },
+		);
+
+		const save = await app.request("/api/trickroom/design?id=merged", {
+			method: "PUT",
+			headers: {
+				"content-type": "application/json",
+				"x-trickroom-expected-revision": revision,
+			},
+			body: JSON.stringify({ ...browserDesign, name: "Renamed in browser" }),
+		});
+
+		expect(save.status).toBe(200);
+		expect(save.headers.get("x-trickroom-design-merged")).toBe("true");
+		const saved = (await save.json()) as TrickroomDesign;
+		expect(saved.name).toBe("Renamed in browser");
+		expect(saved.boards[1]?.props.className).toBe("agent");
+		expect(save.headers.get("x-trickroom-revision")).not.toBe(
+			agentWrite.revision,
+		);
+		await expect(service.readDesignFile("merged")).resolves.toMatchObject({
+			revision: save.headers.get("x-trickroom-revision"),
+		});
 	});
 
 	it("creates design files exclusively through POST", async () => {

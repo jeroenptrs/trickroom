@@ -16,9 +16,15 @@ export const designFileQueryKey = (
 export type DesignFileSnapshot = {
 	design: TrickroomDesign;
 	revision: DesignFileRevision;
+	/**
+	 * Set on save results that kept another writer's changes the saved design
+	 * did not have: `design` is the merged design on disk.
+	 */
+	merged?: boolean;
 };
 
 const revisionHeaderName = "x-trickroom-revision";
+const mergedHeaderName = "x-trickroom-design-merged";
 const expectedRevisionHeaderName = "x-trickroom-expected-revision";
 
 const readDesignSnapshot = async (response: Response) => {
@@ -28,7 +34,9 @@ const readDesignSnapshot = async (response: Response) => {
 		throw new Error("Design response did not include a revision");
 	}
 
-	return { design, revision };
+	return response.headers.get(mergedHeaderName) === "true"
+		? { design, revision, merged: true }
+		: { design, revision };
 };
 
 const fetchDesignFile = async (designId: string) => {

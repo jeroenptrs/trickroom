@@ -27,6 +27,13 @@ export function commitDesignSave(
 	},
 ) {
 	queryClient.setQueryData(designFileQueryKey(designId, projectScope), saved);
-	setPersistedDesignRevision(saved.revision);
+	// A merged save stored another writer's changes too. Leaving the persisted
+	// revision at the one the save was based on makes the editor treat the
+	// merged snapshot as an external change: a clean editor reloads it, a dirty
+	// one asks. Recording it as this tab's own save would let the next save
+	// revert the other writer's boards.
+	if (!saved.merged) {
+		setPersistedDesignRevision(saved.revision);
+	}
 	clearDirty(savedStoreRevision);
 }

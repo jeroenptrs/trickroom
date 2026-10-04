@@ -231,7 +231,27 @@ export const mutateDesignFile = async <
 						readDesignFileForTool(context, otherDesignFileId),
 					)
 				: (undefined as Loaded);
-			const result = await steps.mutate(read, loaded);
+			let result: Result | SkippedDesignWrite;
+			try {
+				result = await steps.mutate(read, loaded);
+			} catch (error) {
+				// The operation may fail only because the caller's view is out of
+				// date (for example an element another writer removed): ask it to
+				// re-read instead of reporting the failure.
+				if (
+					error instanceof DesignTransformError &&
+					read.revision !== expectedRevision
+				) {
+					return skipDesignUpdate(
+						createRevisionMismatchResult(
+							context,
+							read.revision,
+							expectedRevision,
+						),
+					);
+				}
+				throw error;
+			}
 			return skippedDesignWrite in result
 				? skipDesignUpdate(result[skippedDesignWrite])
 				: result;
