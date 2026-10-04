@@ -50,6 +50,10 @@ import {
 	useLayerTreeSnapshot,
 	useSelectedElement,
 } from "../../stores/design-store";
+import {
+	useBoardChangedExternally,
+	useLayerChangedExternally,
+} from "../../stores/external-change-store";
 import { useStageReveal } from "../../stores/stage-view-store";
 import {
 	getKey,
@@ -68,6 +72,7 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import {
+	layerChangeMarker as changeMarker,
 	componentSlotCue,
 	layerDropIndicator as dropIndicator,
 	layerChevron as icon,
@@ -322,6 +327,8 @@ const Layer = memo(function Layer({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const layer = useLayerSummary(id);
 	const entity = useElement(id);
+	const boardChangedExternally = useBoardChangedExternally(id);
+	const changedExternally = useLayerChangedExternally(id);
 	const hasChildren = layer.childIds.length > 0;
 	const isRecipeOwned = isRecipeOwnedStructuralNode(entity);
 	const isComponentOwned = isSystemComponentOwnedStructuralNode(entity);
@@ -597,6 +604,23 @@ const Layer = memo(function Layer({
 							onChange={(event) => setDraftName(event.target.value)}
 						/>
 					)}
+					{layer.parentId === null && boardChangedExternally ? (
+						<span
+							className={changeMarker({ board: true })}
+							title="Changed outside this editor"
+							data-changed-externally="board"
+						>
+							Changed
+						</span>
+					) : changedExternally ? (
+						<span
+							className={changeMarker({ board: false })}
+							role="img"
+							aria-label="Changed outside this editor"
+							title="Changed outside this editor"
+							data-changed-externally="layer"
+						/>
+					) : null}
 				</div>
 			</LayerContextMenu>
 		</div>

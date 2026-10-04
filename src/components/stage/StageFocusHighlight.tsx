@@ -13,8 +13,36 @@ const WAIT_TIMEOUT_MS = 10_000;
 
 // The stage iframe does not load the app's stylesheet, so the highlight is
 // styled inline: square, cyan on slate, like the editor chrome.
-const CYAN = "#22d3ee";
-const SLATE = "#020617";
+export const STAGE_HIGHLIGHT_CYAN = "#22d3ee";
+export const STAGE_HIGHLIGHT_SLATE = "#020617";
+
+/**
+ * Places an outline `box` over `element`, both inside the stage document,
+ * relative to the zero-size `origin` the box is positioned from. The canvas
+ * scales the world with a transform; the outline undoes it so it keeps a
+ * constant on-screen size. Returns that scale.
+ */
+export function placeStageOverlayBox(
+	origin: HTMLElement,
+	box: HTMLElement,
+	element: HTMLElement,
+) {
+	box.style.display = "block";
+	const world = origin.parentElement;
+	const scale =
+		world && world.offsetWidth > 0
+			? world.getBoundingClientRect().width / world.offsetWidth
+			: 1;
+	const originRect = origin.getBoundingClientRect();
+	const rect = element.getBoundingClientRect();
+	box.style.left = `${(rect.left - originRect.left) / scale}px`;
+	box.style.top = `${(rect.top - originRect.top) / scale}px`;
+	box.style.width = `${rect.width / scale}px`;
+	box.style.height = `${rect.height / scale}px`;
+	box.style.borderWidth = `${2 / scale}px`;
+	box.style.boxShadow = `0 0 0 ${1 / scale}px ${STAGE_HIGHLIGHT_SLATE}`;
+	return scale;
+}
 
 /**
  * Briefly outlines the element a deep link or agent focus request pointed at,
@@ -53,22 +81,7 @@ export function StageFocusHighlight() {
 		};
 
 		const place = (element: HTMLElement, elapsed: number) => {
-			box.style.display = "block";
-			// The canvas scales the world with a transform; undo it so the
-			// outline and label keep a constant on-screen size.
-			const world = origin.parentElement;
-			const scale =
-				world && world.offsetWidth > 0
-					? world.getBoundingClientRect().width / world.offsetWidth
-					: 1;
-			const originRect = origin.getBoundingClientRect();
-			const rect = element.getBoundingClientRect();
-			box.style.left = `${(rect.left - originRect.left) / scale}px`;
-			box.style.top = `${(rect.top - originRect.top) / scale}px`;
-			box.style.width = `${rect.width / scale}px`;
-			box.style.height = `${rect.height / scale}px`;
-			box.style.borderWidth = `${2 / scale}px`;
-			box.style.boxShadow = `0 0 0 ${1 / scale}px ${SLATE}`;
+			const scale = placeStageOverlayBox(origin, box, element);
 			label.style.fontSize = `${10 / scale}px`;
 			label.style.padding = `${2 / scale}px ${4 / scale}px`;
 			box.style.opacity = String(
@@ -136,7 +149,7 @@ export function StageFocusHighlight() {
 					position: "absolute",
 					boxSizing: "border-box",
 					borderStyle: "solid",
-					borderColor: CYAN,
+					borderColor: STAGE_HIGHLIGHT_CYAN,
 					backgroundColor: "rgb(34 211 238 / 0.08)",
 				}}
 			>
@@ -146,8 +159,8 @@ export function StageFocusHighlight() {
 						position: "absolute",
 						left: 0,
 						bottom: "100%",
-						backgroundColor: SLATE,
-						color: CYAN,
+						backgroundColor: STAGE_HIGHLIGHT_SLATE,
+						color: STAGE_HIGHLIGHT_CYAN,
 						fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
 						fontWeight: 500,
 						letterSpacing: "0.05em",

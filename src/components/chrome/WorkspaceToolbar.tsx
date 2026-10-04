@@ -25,6 +25,7 @@ import {
 	useDesignRoots,
 	useSelectedId,
 } from "../../stores/design-store";
+import { useExternallyChangedBoardIds } from "../../stores/external-change-store";
 import { useIFrameView, useProjectConfig } from "../contexts";
 import {
 	cycleResponsiveStageBoard,
@@ -145,6 +146,16 @@ function WorkspaceModeToggle() {
 function ResponsiveBoardControls() {
 	const rootIds = useDesignRoots();
 	const { activeBoardId, controls } = useResponsiveStage();
+	const changedBoardIds = useExternallyChangedBoardIds();
+	// Boards changed outside this editor that the human has not seen yet,
+	// in board order starting after the active one.
+	const unseenChangedBoardIds = useMemo(() => {
+		const changed = new Set(changedBoardIds);
+		const start = Math.max(0, rootIds.indexOf(activeBoardId ?? ""));
+		return [...rootIds.slice(start + 1), ...rootIds.slice(0, start)].filter(
+			(id) => changed.has(id),
+		);
+	}, [activeBoardId, changedBoardIds, rootIds]);
 	const { index, total } = useMemo(
 		() => getResponsiveStageBoardPosition(rootIds, activeBoardId),
 		[activeBoardId, rootIds],
@@ -190,6 +201,21 @@ function ResponsiveBoardControls() {
 			>
 				<ChevronRight className="size-3.5" />
 			</Button>
+			{unseenChangedBoardIds.length > 0 ? (
+				<Button
+					type="button"
+					variant="block"
+					className="h-5 shrink-0 bg-cyan-500 px-1.5 py-0 font-mono text-[9px] font-medium uppercase tracking-wide text-slate-950 not-disabled:hover:bg-cyan-400"
+					title="Boards changed outside this editor: show the next one"
+					aria-label={`Show the next of ${unseenChangedBoardIds.length} boards changed outside this editor`}
+					data-changed-externally="board-navigation"
+					onClick={() =>
+						controls.setActiveBoardId(unseenChangedBoardIds[0] ?? null)
+					}
+				>
+					{unseenChangedBoardIds.length} changed
+				</Button>
+			) : null}
 		</fieldset>
 	);
 }

@@ -15,6 +15,7 @@ import { useParams } from "react-router";
 import { useCompiledTailwind } from "../hooks/useCompiledTailwind";
 import { useDesignDeepLink } from "../hooks/useDesignDeepLink";
 import { useDesignLiveSync } from "../hooks/useDesignLiveSync";
+import { useExternalChangeMarkers } from "../hooks/useExternalChangeMarkers";
 import { useInjectSystemAssets } from "../hooks/useInjectSystemAssets";
 import { useInjectSystemFonts } from "../hooks/useInjectSystemFonts";
 import { useInjectSystemTheme } from "../hooks/useInjectSystemTheme";
@@ -76,6 +77,7 @@ import {
 } from "./responsive-stage-zoom";
 import { Artboards } from "./stage/Artboards";
 import { Canvas } from "./stage/Canvas";
+import { StageChangeHighlight } from "./stage/StageChangeHighlight";
 import { StageFocusHighlight } from "./stage/StageFocusHighlight";
 
 const stageDoc = resolveStageDoc(stageDocRaw);
@@ -106,6 +108,7 @@ export const StageFrame = memo(function StageFrame({
 			</main>
 
 			<Canvas />
+			<StageChangeHighlight />
 			<StageFocusHighlight />
 		</Frame>
 	);
@@ -282,6 +285,7 @@ export function Design() {
 		designId,
 		enabled: liveDesignId !== null && liveDesignId === designId,
 	});
+	useExternalChangeMarkers({ designId, iframeRef, didMount });
 
 	useEffect(() => {
 		setActiveBoardId((currentBoardId) =>
