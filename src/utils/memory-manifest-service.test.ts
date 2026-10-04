@@ -4,11 +4,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDesignSystemStorage } from "./design-system-store";
 import {
 	addMemoryNote,
+	applyMemoryNoteBodyEdits,
 	deleteMemoryNote,
-	migrateMemoryManifest,
 	type MemoryManifestError,
+	memoryNoteRevision,
+	migrateMemoryManifest,
 	normalizeMemoryManifest,
 	readMemoryManifest,
+	summarizeMemoryNoteBody,
+	toMemoryNoteIndexEntry,
 	updateMemoryNote,
 } from "./memory-manifest-service";
 
@@ -115,6 +119,186 @@ describe("memory manifest service", () => {
 			{ expectedRevision: updated.read.revision },
 		);
 		expect(deleted.manifest.notes).toEqual({});
+	});
+
+	it("accepts per-note revisions so edits to different notes do not conflict", async () => {
+		const scope = { kind: "project" } as const;
+		const first = await addMemoryNote(projectRoot, scope, {
+			body: "first",
+			category: "usage",
+		});
+		const second = await addMemoryNote(projectRoot, scope, {
+			body: "second",
+			category: "usage",
+		});
+		const firstRevision = memoryNoteRevision(first.note);
+		const secondRevision = memoryNoteRevision(second.note);
+		expect(firstRevision).not.toBe(secondRevision);
+
+		// Both agents read before either wrote; the manifest revision moves
+		// under the second writer, but its note revision is still current.
+		const updatedFirst = await updateMemoryNote(
+			projectRoot,
+			scope,
+			first.note.noteId,
+			{ body: "first, edited" },
+			{ expectedRevision: firstRevision },
+		);
+		const updatedSecond = await updateMemoryNote(
+			projectRoot,
+			scope,
+			second.note.noteId,
+			{ body: "second, edited" },
+			{ expectedRevision: secondRevision },
+		);
+		expect(updatedSecond.read.manifest.notes[first.note.noteId]?.body).toBe(
+			"first, edited",
+		);
+
+		// A stale note revision, or another note's revision, is rejected with
+		// the current revisions attached.
+		await expect(
+			updateMemoryNote(
+				projectRoot,
+				scope,
+				first.note.noteId,
+				{ body: "lost update" },
+				{ expectedRevision: firstRevision },
+			),
+		).rejects.toMatchObject({
+			code: "STALE_WRITE",
+			details: {
+				noteId: first.note.noteId,
+				noteRevision: memoryNoteRevision(updatedFirst.note),
+				scopeRevision: updatedSecond.read.revision,
+			},
+		});
+		await expectError(
+			deleteMemoryNote(projectRoot, scope, first.note.noteId, {
+				expectedRevision: memoryNoteRevision(updatedSecond.note),
+			}),
+			"STALE_WRITE",
+		);
+
+		// The manifest revision still works, and deletes take note revisions.
+		await updateMemoryNote(
+			projectRoot,
+			scope,
+			first.note.noteId,
+			{ title: "First" },
+			{ expectedRevision: updatedSecond.read.revision },
+		);
+		const deleted = await deleteMemoryNote(
+			projectRoot,
+			scope,
+			second.note.noteId,
+			{ expectedRevision: memoryNoteRevision(updatedSecond.note) },
+		);
+		expect(Object.keys(deleted.manifest.notes)).toEqual([first.note.noteId]);
+		await expectError(
+			deleteMemoryNote(projectRoot, scope, second.note.noteId, {
+				expectedRevision: memoryNoteRevision(updatedSecond.note),
+			}),
+			"NOTE_NOT_FOUND",
+		);
+	});
+
+	it("applies body edits without resending the body", async () => {
+		const scope = { kind: "project" } as const;
+		const { note } = await addMemoryNote(projectRoot, scope, {
+			body: "Use brand tokens.\n\nAvoid raw hex colors.",
+			category: "conventions",
+		});
+		const updated = await updateMemoryNote(
+			projectRoot,
+			scope,
+			note.noteId,
+			{
+				edits: [
+					{ op: "replace", oldText: "raw hex", newText: "arbitrary" },
+					{ op: "append", text: "Spacing follows the 4px grid." },
+				],
+			},
+			{ expectedRevision: memoryNoteRevision(note) },
+		);
+		expect(updated.note.body).toBe(
+			"Use brand tokens.\n\nAvoid arbitrary colors.\n\nSpacing follows the 4px grid.",
+		);
+
+		// A failing edit writes nothing.
+		await expectError(
+			updateMemoryNote(
+				projectRoot,
+				scope,
+				note.noteId,
+				{
+					edits: [
+						{ op: "append", text: "never written" },
+						{ op: "replace", oldText: "missing", newText: "x" },
+					],
+				},
+				{ expectedRevision: memoryNoteRevision(updated.note) },
+			),
+			"EDIT_TEXT_NOT_FOUND",
+		);
+		const reread = await readMemoryManifest(projectRoot, scope);
+		expect(reread.manifest.notes[note.noteId]?.body).toBe(updated.note.body);
+	});
+
+	it("rejects ambiguous and empty edits", () => {
+		expect(() =>
+			applyMemoryNoteBodyEdits("a b a", [
+				{ op: "replace", oldText: "a", newText: "c" },
+			]),
+		).toThrow(expect.objectContaining({ code: "EDIT_TEXT_NOT_UNIQUE" }));
+		expect(
+			applyMemoryNoteBodyEdits("a b a", [
+				{ op: "replace", oldText: "a", newText: "c", all: true },
+			]),
+		).toBe("c b c");
+		expect(() =>
+			applyMemoryNoteBodyEdits("only", [
+				{ op: "replace", oldText: "only", newText: "" },
+			]),
+		).toThrow(expect.objectContaining({ code: "INVALID_EDIT" }));
+		expect(
+			applyMemoryNoteBodyEdits("body\n", [
+				{ op: "prepend", text: "Lead." },
+				{ op: "append", text: "\nsame paragraph" },
+			]),
+		).toBe("Lead.\n\nbody\n\nsame paragraph");
+		expect(
+			applyMemoryNoteBodyEdits("$1 cost", [
+				{ op: "replace", oldText: "$1", newText: "$$2" },
+			]),
+		).toBe("$$2 cost");
+	});
+
+	it("summarizes notes for the index without the body", () => {
+		expect(summarizeMemoryNoteBody("\n## Heading\nrest")).toBe("Heading");
+		const long = `${"word ".repeat(40)}end`;
+		const summary = summarizeMemoryNoteBody(long);
+		expect(summary.length).toBeLessThanOrEqual(121);
+		expect(summary.endsWith("…")).toBe(true);
+
+		const entry = toMemoryNoteIndexEntry({
+			noteId: "note_1",
+			title: "Why",
+			body: "Line one.\nLine two.",
+			category: "intent",
+			createdAt: "2026-01-01T00:00:00.000Z",
+			updatedAt: "2026-01-02T00:00:00.000Z",
+			author: { kind: "agent" },
+		});
+		expect(entry).toEqual({
+			noteId: "note_1",
+			title: "Why",
+			category: "intent",
+			updatedAt: "2026-01-02T00:00:00.000Z",
+			size: 19,
+			revision: expect.stringMatching(/^note:[0-9a-f]{20}$/),
+			summary: "Line one.",
+		});
 	});
 
 	it("rejects an unsafe design id", async () => {

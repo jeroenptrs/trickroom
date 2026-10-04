@@ -33,12 +33,12 @@ describe("trickroom MCP memory tools", () => {
 
 		const empty = await session.client.callTool({
 			name: "listMemoryNotes",
-			arguments: { scope },
+			arguments: {},
 		});
 		expect(empty.structuredContent).toMatchObject({
 			status: "success",
-			exists: false,
-			summary: { noteCount: 0, categories: [] },
+			scope: { kind: "project" },
+			noteCount: 0,
 			notes: [],
 		});
 
@@ -51,16 +51,45 @@ describe("trickroom MCP memory tools", () => {
 				title: "Why",
 			},
 		});
-		expect(added.structuredContent).toMatchObject({
+		// Writes acknowledge with id, revision, and size; no note echo.
+		expect(added.structuredContent).toEqual({
 			status: "success",
-			note: { category: "intent", title: "Why", author: { kind: "agent" } },
+			project: expect.any(Object),
+			scope: { kind: "project" },
+			noteId: expect.stringMatching(/^note_/),
+			newRevision: expect.any(String),
+			scopeRevision: expect.any(String),
+			size: 47,
 		});
 		const addedContent = added.structuredContent as {
-			note: { noteId: string };
+			noteId: string;
 			newRevision: string;
 		};
-		const noteId = String(addedContent.note.noteId);
-		const revisionAfterAdd = String(addedContent.newRevision);
+		const noteId = addedContent.noteId;
+		const revisionAfterAdd = addedContent.newRevision;
+
+		const index = await session.client.callTool({
+			name: "listMemoryNotes",
+			arguments: { scope },
+		});
+		expect(index.structuredContent).toMatchObject({
+			noteCount: 1,
+			categories: ["intent"],
+			notes: [
+				{
+					noteId,
+					title: "Why",
+					category: "intent",
+					size: 47,
+					revision: revisionAfterAdd,
+					summary: "This project exists to validate memory tooling.",
+				},
+			],
+		});
+		expect(
+			(index.structuredContent as { notes: Array<Record<string, unknown>> })
+				.notes[0],
+		).not.toHaveProperty("body");
 
 		const fetched = await session.client.callTool({
 			name: "getMemoryNote",
@@ -68,7 +97,12 @@ describe("trickroom MCP memory tools", () => {
 		});
 		expect(fetched.structuredContent).toMatchObject({
 			status: "success",
-			note: { noteId, body: "This project exists to validate memory tooling." },
+			note: {
+				noteId,
+				body: "This project exists to validate memory tooling.",
+				author: { kind: "agent" },
+				revision: revisionAfterAdd,
+			},
 		});
 
 		const updated = await session.client.callTool({
@@ -83,12 +117,10 @@ describe("trickroom MCP memory tools", () => {
 		});
 		expect(updated.structuredContent).toMatchObject({
 			status: "success",
-			note: {
-				noteId,
-				category: "decision",
-				body: "Locked the memory tooling shape.",
-			},
+			noteId,
+			size: "Locked the memory tooling shape.".length,
 		});
+		expect(updated.structuredContent).not.toHaveProperty("note");
 		const revisionAfterUpdate = String(
 			(updated.structuredContent as { newRevision: string }).newRevision,
 		);
@@ -102,6 +134,7 @@ describe("trickroom MCP memory tools", () => {
 			status: "success",
 			deleted: true,
 			noteId,
+			scopeRevision: expect.any(String),
 		});
 
 		const finalList = await session.client.callTool({
@@ -109,7 +142,7 @@ describe("trickroom MCP memory tools", () => {
 			arguments: { scope },
 		});
 		expect(finalList.structuredContent).toMatchObject({
-			summary: { noteCount: 0 },
+			noteCount: 0,
 			notes: [],
 		});
 	});
@@ -122,7 +155,7 @@ describe("trickroom MCP memory tools", () => {
 			arguments: { scope, category: "usage", body: "first" },
 		});
 		const noteId = String(
-			(added.structuredContent as { note: { noteId: string } }).note.noteId,
+			(added.structuredContent as { noteId: string }).noteId,
 		);
 
 		const stale = await session.client.callTool({
@@ -135,7 +168,13 @@ describe("trickroom MCP memory tools", () => {
 			},
 		});
 		expect(stale.isError).toBe(true);
-		expect(stale.structuredContent).toMatchObject({ code: "STALE_WRITE" });
+		expect(stale.structuredContent).toMatchObject({
+			code: "STALE_WRITE",
+			noteId,
+			noteRevision: (added.structuredContent as { newRevision: string })
+				.newRevision,
+			scopeRevision: expect.any(String),
+		});
 	});
 
 	it("stores and lists system-scope notes", async () => {
@@ -156,7 +195,8 @@ describe("trickroom MCP memory tools", () => {
 		});
 		expect(list.structuredContent).toMatchObject({
 			scope: { kind: "system", systemName: "Core" },
-			summary: { noteCount: 1, categories: ["conventions"] },
+			noteCount: 1,
+			categories: ["conventions"],
 		});
 	});
 
@@ -210,6 +250,120 @@ describe("trickroom MCP memory tools", () => {
 			expect(list.isError, JSON.stringify(scope)).toBeFalsy();
 			expect(list.structuredContent).toMatchObject({ scope: expected });
 		}
+	});
+
+	it("edits note bodies in place and keeps edits to different notes independent", async () => {
+		await open();
+		const scope = "project";
+		const add = async (body: string) =>
+			(
+				await session.client.callTool({
+					name: "addMemoryNote",
+					arguments: { scope, category: "conventions", body },
+				})
+			).structuredContent as { noteId: string; newRevision: string };
+		const first = await add("Use brand tokens.");
+		const second = await add("Prefer flexbox.");
+
+		const appended = await session.client.callTool({
+			name: "updateMemoryNote",
+			arguments: {
+				scope,
+				noteId: first.noteId,
+				expectedRevision: first.newRevision,
+				edits: [
+					{ op: "replace", oldText: "brand", newText: "system" },
+					{ op: "append", text: "No raw hex." },
+				],
+			},
+		});
+		expect(appended.isError).toBeFalsy();
+
+		// The second note's revision predates the first edit and still applies.
+		const replaced = await session.client.callTool({
+			name: "updateMemoryNote",
+			arguments: {
+				scope,
+				noteId: second.noteId,
+				expectedRevision: second.newRevision,
+				edits: [{ op: "replace", oldText: "flexbox", newText: "flex rows" }],
+			},
+		});
+		expect(replaced.isError).toBeFalsy();
+
+		const notFound = await session.client.callTool({
+			name: "updateMemoryNote",
+			arguments: {
+				scope,
+				noteId: second.noteId,
+				expectedRevision: (
+					replaced.structuredContent as { newRevision: string }
+				).newRevision,
+				edits: [{ op: "replace", oldText: "grid", newText: "x" }],
+			},
+		});
+		expect(notFound.isError).toBe(true);
+		expect(notFound.structuredContent).toMatchObject({
+			code: "EDIT_TEXT_NOT_FOUND",
+			editIndex: 0,
+		});
+
+		const both = await session.client.callTool({
+			name: "getMemoryNote",
+			arguments: {
+				scope,
+				noteIds: [first.noteId, second.noteId, "note_missing"],
+			},
+		});
+		expect(both.structuredContent).toMatchObject({
+			notes: [
+				{ noteId: first.noteId, body: "Use system tokens.\n\nNo raw hex." },
+				{ noteId: second.noteId, body: "Prefer flex rows." },
+			],
+			missingNoteIds: ["note_missing"],
+		});
+	});
+
+	it("indexes the project, linked system, and design scopes for one design", async () => {
+		await open();
+		const designScope = {
+			kind: "design",
+			designFileId: trickroomMcpTestDesignUuid,
+		} as const;
+		for (const [scope, body] of [
+			["project", "Project note."],
+			["system:Core", "System note."],
+			[designScope, "Design note."],
+		] as const) {
+			await session.client.callTool({
+				name: "addMemoryNote",
+				arguments: { scope, category: "intent", body },
+			});
+		}
+
+		const bundle = await session.client.callTool({
+			name: "listMemoryNotes",
+			arguments: { designFileId: trickroomMcpTestDesignUuid },
+		});
+		expect(bundle.isError).toBeFalsy();
+		const scopes = (
+			bundle.structuredContent as {
+				scopes: Array<{
+					scope: Record<string, unknown>;
+					notes: Array<{ summary: string }>;
+				}>;
+			}
+		).scopes;
+		expect(scopes.map((entry) => entry.scope.kind)).toEqual([
+			"project",
+			"system",
+			"design",
+		]);
+		expect(scopes.map((entry) => entry.notes[0]?.summary)).toEqual([
+			"Project note.",
+			"System note.",
+			"Design note.",
+		]);
 	});
 
 	it("lists the accepted shapes when a memory scope cannot be resolved", async () => {
