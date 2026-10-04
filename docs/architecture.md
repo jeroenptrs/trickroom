@@ -63,7 +63,7 @@ Routes under `/api/trickroom` include runtime health and session state, project 
 
 The design route reads a design and its content-hash revision through the HTTP API, hydrates `designStore`, renders boards inside an iframe, and keeps editor chrome outside it. Dirty serialized state autosaves through revision-checked API writes. Linked system theme CSS is injected into the iframe when applicable.
 
-The server watches design files and system-owned files under `.trickroom` and broadcasts settled changes through `GET /api/trickroom/events`. Changes to the files of one design are batched into one event per design, emitted only when no journaled multi-file write is in progress, carrying the design id, its revision, the boards that changed and `state`: the manifest revision and every board's revision, in order. The same event is broadcast to every connected browser client.
+The server watches design files and system-owned files under `.trickroom` and broadcasts settled changes through `GET /api/trickroom/events`. Changes to the files of one design are batched into one event per design (after 75 ms without a change, or at least every 250 ms while writes keep coming), emitted only when no journaled multi-file write is in progress, carrying the design id, its revision, the boards that changed and `state`: the manifest revision and every board's revision, in order. The same event is broadcast to every connected browser client.
 
 The open design follows the disk board by board (`src/hooks/useDesignLiveSync.ts`, `src/stores/design-sync.ts`):
 

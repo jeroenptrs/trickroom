@@ -41,15 +41,23 @@ const board = (id: string, children: Node[] = []): Node => ({
 	children,
 });
 
-const subscribe = async (root: string) => {
+const subscribe = async (
+	root: string,
+	options: { maxWaitMs?: number } = {},
+) => {
 	const events = new ProjectFileEvents(20, {
 		trickroomHome: path.join(root, "home"),
+		...options,
 	});
 	const received: TrickroomFileEvent[] = [];
+	const receivedAt: number[] = [];
 	events.setProjectRoot(root);
-	const unsubscribe = events.subscribe((event) => received.push(event));
+	const unsubscribe = events.subscribe((event) => {
+		received.push(event);
+		receivedAt.push(Date.now());
+	});
 	await new Promise((resolve) => setTimeout(resolve, 75));
-	return { received, unsubscribe };
+	return { received, receivedAt, unsubscribe };
 };
 
 describe("project file events", () => {
@@ -187,6 +195,65 @@ describe("project file events", () => {
 				boards: written.boards,
 			},
 		});
+		unsubscribe();
+	});
+
+	it("emits during a steady stream of writes, and ends at the final revision", async () => {
+		const root = await createProjectRoot();
+		const service = createDesignFileService(root, {
+			trickroomHome: path.join(root, "home"),
+		});
+		const created = await service.createDesignFile("home", {
+			name: "Home",
+			boards: [board("a"), board("b")],
+		});
+		const { received, receivedAt, unsubscribe } = await subscribe(root, {
+			maxWaitMs: 100,
+		});
+
+		// Writes closer together than the 20 ms debounce, for 600 ms: without
+		// a maximum wait nothing would be emitted until they stop.
+		const revisions = new Set<string>();
+		let revision = created.revision;
+		const startedAt = Date.now();
+		for (let index = 0; Date.now() - startedAt < 600; index += 1) {
+			const written = await service.writeDesignFile(
+				"home",
+				{
+					...created.design,
+					boards: [
+						{
+							...board("a"),
+							props: { ...board("a").props, className: `p-${index}` },
+						},
+						board("b"),
+					],
+				},
+				{ expectedRevision: revision },
+			);
+			revision = written.revision;
+			revisions.add(revision);
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+		const endedAt = Date.now();
+
+		await vi.waitFor(() => expect(received.at(-1)?.revision).toBe(revision), {
+			timeout: 2_000,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		const during = receivedAt.filter((time) => time < endedAt);
+		expect(during.length).toBeGreaterThanOrEqual(2);
+		expect((during[0] as number) - startedAt).toBeLessThan(400);
+		for (const event of received) {
+			expect(event.designId).toBe("home");
+			expect(revisions.has(event.revision as string)).toBe(true);
+			expect(event.boards?.map((entry) => entry.id)).toEqual(["a"]);
+		}
+		// Repeats of the same revision are dropped.
+		received.forEach((event, index) => {
+			expect(event.revision).not.toBe(received[index - 1]?.revision);
+		});
+		expect(received.at(-1)?.revision).toBe(revision);
 		unsubscribe();
 	});
 

@@ -854,7 +854,7 @@ Write serialisation:
 
 Change events (`GET /api/trickroom/events`, event `change`):
 
-- Changes to the files of one design are batched and reported once they settle and no journaled write is in progress, as `{ file: "designs/<id>", designId, revision, operation, boards }`: `revision` is the design's revision (null when deleted) and `boards` lists the boards whose content changed since the previous event, each with its revision (null when removed). Repeats of an already reported revision are dropped.
+- Changes to the files of one design are batched and reported once they settle (75 ms without a change) and no journaled write is in progress, as `{ file: "designs/<id>", designId, revision, operation, boards }`: `revision` is the design's revision (null when deleted) and `boards` lists the boards whose content changed since the previous event, each with its revision (null when removed). During a steady stream of writes a batch is reported once it is 250 ms old, so a design that keeps changing still produces an event at least that often; an event sent before the files settled is followed by one more check once they have. Repeats of an already reported revision, and of a reported deletion, are dropped.
 - Memory files and system files are reported per file: `{ file, revision, operation }` with a content hash revision.
 
 ## What Trickroom Does Not Delete

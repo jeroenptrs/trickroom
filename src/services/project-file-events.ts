@@ -40,6 +40,19 @@ export type TrickroomFileEvent = {
 export type TrickroomFileEventListener = (event: TrickroomFileEvent) => void;
 
 const DEFAULT_DEBOUNCE_MS = 75;
+/**
+ * Longest a design's changes wait for its files to settle: a steady stream
+ * of writes (an agent applying operations back to back) still produces an
+ * event at least this often.
+ */
+const DEFAULT_MAX_WAIT_MS = 250;
+/**
+ * The watcher drops a path's repeated change events for 50 ms after one it
+ * reports (with no trailing event). A design read sooner than this after
+ * its last reported change may miss a write the watcher swallowed, so it is
+ * followed by one more read.
+ */
+const WATCHER_REPEAT_WINDOW_MS = 60;
 
 const toRevision = (contents: Buffer): string =>
 	`sha256:${createHash("sha256").update(contents).digest("hex")}`;
@@ -113,15 +126,27 @@ export const classifyTrickroomFile = (
 export const isWatchedTrickroomFile = (relativeFile: string) =>
 	classifyTrickroomFile(relativeFile) !== null;
 
+type DesignEventTiming = {
+	lastChangeAt: number;
+	/** Read before the files settled: possibly mid-write, look again. */
+	unsettled: boolean;
+};
+
 type PendingDesign = {
 	timer: ReturnType<typeof setTimeout>;
 	boardIds: Set<string>;
+	/** When the first change of this batch arrived. */
+	since: number;
+	/** When the last change of this batch arrived (0 for none). */
+	lastChangeAt: number;
 };
 
 export class ProjectFileEvents {
 	private readonly listeners = new Set<TrickroomFileEventListener>();
 	private readonly pending = new Map<string, ReturnType<typeof setTimeout>>();
 	private readonly pendingDesigns = new Map<string, PendingDesign>();
+	/** Each design's event in progress, so its events go out in order. */
+	private readonly emittingDesigns = new Map<string, Promise<void>>();
 	/**
 	 * Each design's revision and board revisions at its last event, to tell
 	 * which boards changed and to drop repeats of the same state.
@@ -130,17 +155,27 @@ export class ProjectFileEvents {
 		string,
 		{ revision: string; boards: Map<string, string> }
 	>();
+	/** Designs whose last event reported them deleted, to drop repeats. */
+	private readonly deletedDesigns = new Set<string>();
 	private watcher: FSWatcher | null = null;
 	private projectRoot: string | null = null;
 	private watcherGeneration = 0;
 	private readonly debounceMs: number;
+	private readonly maxWaitMs: number;
+	/** How long after a change a design's files count as settled. */
+	private readonly settleMs: number;
 	private readonly trickroomHome: string | undefined;
 
 	constructor(
 		debounceMs = DEFAULT_DEBOUNCE_MS,
-		options: { trickroomHome?: string } = {},
+		options: { trickroomHome?: string; maxWaitMs?: number } = {},
 	) {
 		this.debounceMs = debounceMs;
+		this.maxWaitMs = Math.max(
+			debounceMs,
+			options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS,
+		);
+		this.settleMs = Math.max(debounceMs, WATCHER_REPEAT_WINDOW_MS);
 		this.trickroomHome = options.trickroomHome;
 	}
 
@@ -152,6 +187,7 @@ export class ProjectFileEvents {
 
 		this.projectRoot = normalizedRoot;
 		this.knownDesigns.clear();
+		this.deletedDesigns.clear();
 		if (this.listeners.size > 0) {
 			void this.restartWatcher();
 		}
@@ -182,13 +218,11 @@ export class ProjectFileEvents {
 		}
 
 		const watchedRoot = path.join(this.projectRoot, ".trickroom");
-		const watcher = chokidar.watch(watchedRoot, {
-			ignoreInitial: true,
-			awaitWriteFinish: {
-				stabilityThreshold: this.debounceMs,
-				pollInterval: Math.max(10, Math.floor(this.debounceMs / 3)),
-			},
-		});
+		// No `awaitWriteFinish`: it holds a path's events back until the file
+		// stops changing, so a steady stream of writes to one board would show
+		// nothing until it ends. The debounces below wait for files to settle
+		// instead, and design reads take a consistent snapshot.
+		const watcher = chokidar.watch(watchedRoot, { ignoreInitial: true });
 		if (generation !== this.watcherGeneration) {
 			await watcher.close();
 			return;
@@ -221,7 +255,12 @@ export class ProjectFileEvents {
 			return;
 		}
 		if (watched.kind === "design") {
-			this.scheduleDesign(projectRoot, watched.designId, watched.boardId);
+			this.scheduleDesign(
+				projectRoot,
+				watched.designId,
+				watched.boardId === null ? [] : [watched.boardId],
+				{ changedAt: Date.now() },
+			);
 			return;
 		}
 
@@ -241,38 +280,89 @@ export class ProjectFileEvents {
 
 	/**
 	 * Collects changes to one design's files into one event, emitted once its
-	 * files settle and no journaled write is in progress, so listeners never
-	 * see half of a multi-file write.
+	 * files settle (no change for `debounceMs`) or, during a steady stream of
+	 * changes, once the batch is `maxWaitMs` old, and only when no journaled
+	 * write is in progress, so listeners never see half of a multi-file write.
 	 */
 	private scheduleDesign(
 		projectRoot: string,
 		designId: string,
-		boardId: string | null,
+		boardIds: Iterable<string>,
+		{ delayMs, changedAt }: { delayMs?: number; changedAt?: number } = {},
 	) {
 		const pending = this.pendingDesigns.get(designId);
 		if (pending) {
 			clearTimeout(pending.timer);
 		}
-		const boardIds = pending?.boardIds ?? new Set<string>();
-		if (boardId !== null) {
-			boardIds.add(boardId);
+		const batch = pending?.boardIds ?? new Set<string>();
+		for (const boardId of boardIds) {
+			batch.add(boardId);
 		}
-		this.pendingDesigns.set(designId, {
-			boardIds,
+		const since = pending?.since ?? Date.now();
+		const lastChangeAt = Math.max(pending?.lastChangeAt ?? 0, changedAt ?? 0);
+		const wait =
+			delayMs ??
+			Math.max(
+				0,
+				Math.min(this.debounceMs, since + this.maxWaitMs - Date.now()),
+			);
+		const entry: PendingDesign = {
+			boardIds: batch,
+			since,
+			lastChangeAt,
 			timer: setTimeout(() => {
-				void this.emitSettledDesign(projectRoot, designId, boardIds);
-			}, this.debounceMs),
-		});
+				if (this.pendingDesigns.get(designId) === entry) {
+					this.pendingDesigns.delete(designId);
+				}
+				this.queueDesignEvent(projectRoot, designId, batch, {
+					lastChangeAt,
+					unsettled: Date.now() - lastChangeAt < this.settleMs,
+				});
+			}, wait),
+		};
+		this.pendingDesigns.set(designId, entry);
+	}
+
+	/** Runs a design's events one at a time, in the order they were due. */
+	private queueDesignEvent(
+		projectRoot: string,
+		designId: string,
+		boardIds: Set<string>,
+		options: DesignEventTiming,
+	) {
+		const previous = this.emittingDesigns.get(designId) ?? Promise.resolve();
+		const next = previous
+			.then(() =>
+				this.emitSettledDesign(projectRoot, designId, boardIds, options),
+			)
+			.catch(() => undefined)
+			.finally(() => {
+				if (this.emittingDesigns.get(designId) === next) {
+					this.emittingDesigns.delete(designId);
+				}
+			});
+		this.emittingDesigns.set(designId, next);
 	}
 
 	private async emitSettledDesign(
 		projectRoot: string,
 		designId: string,
 		boardIds: Set<string>,
+		{ lastChangeAt, unsettled }: DesignEventTiming,
 	) {
 		if (this.projectRoot !== projectRoot) {
 			return;
 		}
+		// A read before the files settled is followed by one more once they
+		// have: a write landing right after it may not announce itself again
+		// (see WATCHER_REPEAT_WINDOW_MS). Repeats of a revision are dropped.
+		const followUp = () => {
+			if (unsettled && !this.pendingDesigns.has(designId)) {
+				this.scheduleDesign(projectRoot, designId, [], {
+					delayMs: this.settleMs,
+				});
+			}
+		};
 		const service = createDesignFileService(projectRoot, {
 			...(this.trickroomHome ? { trickroomHome: this.trickroomHome } : {}),
 		});
@@ -285,11 +375,11 @@ export class ProjectFileEvents {
 		}
 		if ((await inspectDesignStorage(paths)).journal) {
 			// A multi-file write is still being applied; wait for it.
-			this.scheduleDesign(projectRoot, designId, null);
+			this.scheduleDesign(projectRoot, designId, boardIds, {
+				delayMs: this.debounceMs,
+				changedAt: lastChangeAt,
+			});
 			return;
-		}
-		if (this.pendingDesigns.get(designId)?.boardIds === boardIds) {
-			this.pendingDesigns.delete(designId);
 		}
 
 		const known = this.knownDesigns.get(designId);
@@ -310,8 +400,10 @@ export class ProjectFileEvents {
 				.map((id) => ({ id, revision: current.get(id) ?? null }));
 			if (known?.revision === read.revision) {
 				// Late file events from a write that was already reported.
+				followUp();
 				return;
 			}
+			this.deletedDesigns.delete(designId);
 			this.knownDesigns.set(designId, {
 				revision: read.revision,
 				boards: current,
@@ -329,7 +421,12 @@ export class ProjectFileEvents {
 			};
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+				if (this.deletedDesigns.has(designId)) {
+					// Late file events from a deletion that was already reported.
+					return;
+				}
 				this.knownDesigns.delete(designId);
+				this.deletedDesigns.add(designId);
 				event = {
 					file: `designs/${designId}`,
 					designId,
@@ -341,9 +438,16 @@ export class ProjectFileEvents {
 					})),
 				};
 			} else {
+				if (unsettled) {
+					// Possibly a file still being written by a tool that does not
+					// replace files atomically: look again once it settles.
+					followUp();
+					return;
+				}
 				// A design that cannot be read still changed; report the
 				// revision of its stored bytes.
 				this.knownDesigns.delete(designId);
+				this.deletedDesigns.delete(designId);
 				const raw = await service.readRawDesign(designId).catch(() => null);
 				if (!raw || this.projectRoot !== projectRoot) {
 					return;
@@ -364,6 +468,7 @@ export class ProjectFileEvents {
 		for (const listener of this.listeners) {
 			listener(event);
 		}
+		followUp();
 	}
 
 	private async emitSettledFile(projectRoot: string, relativeFile: string) {
