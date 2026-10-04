@@ -1,15 +1,10 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { z } from "zod";
 import { readTrickroomDesignValue } from "../../server-utils";
 import {
 	createDesignFileService,
 	type DesignFileRead,
 } from "../../services/design-file-service";
-import {
-	DesignTransformError,
-	type SubtreeDiagnostic,
-	validateProposedSubtreeForInsertion,
-} from "../../services/design-transform-service";
+import type { DesignTransformError } from "../../services/design-transform-service";
 import type { TrickroomDesign } from "../../types";
 import { findDesignSystem } from "../../utils/design-system-store";
 import type { DesignOperationName } from "../design-operations";
@@ -36,23 +31,11 @@ import {
 	mutateDesignFile,
 	skipDesignWrite,
 } from "../tools/mutation-support";
-import type {
-	validateCopySubtreePayloadSchema,
-	validateSubtreePayloadSchema,
-} from "../tools/operation-schemas";
 import { createJsonResult } from "../tools/results";
 import { summarizeDesignSystemReference } from "./design-system";
-import {
-	findElementContext,
-	getDesignSystemHandle,
-	readDesignFileForTool,
-} from "./design-tree";
+import { getDesignSystemHandle, readDesignFileForTool } from "./design-tree";
 import { getProjectReference } from "./project";
-import {
-	assertCanUseSubtreeComponents,
-	type ValidationIssue,
-	validateElementReferences,
-} from "./references";
+import { type ValidationIssue, validateElementReferences } from "./references";
 
 /**
  * Element ids listed per grouped warning in validation results; larger groups
@@ -384,28 +367,6 @@ const validateOperations = async (
 	});
 };
 
-export const validateOperationPayload = async (
-	context: TrickroomMcpServerContext,
-	designFileId: string,
-	expectedRevision: string,
-	operation: DesignOperationName,
-	parameters: Record<string, unknown> | undefined,
-	detail?: MutationResponseDetail,
-) =>
-	validateOperations(
-		context,
-		{
-			designFileId,
-			expectedRevision,
-			operations: [{ operation, parameters }],
-			detail,
-		},
-		(execution) => ({
-			operation,
-			predicted: describePredictedStep(execution.steps[0]),
-		}),
-	);
-
 export const validateOperationPlanPayload = async (
 	context: TrickroomMcpServerContext,
 	input: Pick<
@@ -415,142 +376,13 @@ export const validateOperationPlanPayload = async (
 ) =>
 	validateOperations(context, input, (execution) => ({
 		operationCount: input.operations.length,
+		...(input.detail === "full"
+			? { steps: execution.steps }
+			: { predicted: execution.steps.map(describePredictedStep) }),
 		...(execution.deletedIds.length > 0
 			? { deletedCount: execution.deletedIds.length }
 			: {}),
-		...(input.detail === "full" ? { steps: execution.steps } : {}),
 	}));
-
-type ValidateSubtreePayload = z.infer<typeof validateSubtreePayloadSchema>;
-type ValidateCopySubtreePayload = Omit<
-	z.infer<typeof validateCopySubtreePayloadSchema>,
-	"sourceDesignFileId"
-> & { sourceDesignFileId: string };
-
-/** Same-file copies may omit sourceDesignFileId; default it to the target. */
-export const normalizeCopySubtreePayload = <
-	Input extends z.infer<typeof validateCopySubtreePayloadSchema>,
->(
-	input: Input,
-): Input & { sourceDesignFileId: string } => ({
-	...input,
-	sourceDesignFileId: input.sourceDesignFileId ?? input.targetDesignFileId,
-});
-
-const toSubtreeIssue = (diagnostic: SubtreeDiagnostic): McpDesignIssue => ({
-	severity: diagnostic.severity === "error" ? "error" : "warning",
-	code: diagnostic.code,
-	message: diagnostic.message,
-	...(diagnostic.path ? { path: diagnostic.path } : {}),
-	...(diagnostic.tempId !== undefined ? { tempId: diagnostic.tempId } : {}),
-	...diagnostic.details,
-});
-
-export const validateSubtreePayload = async (
-	context: TrickroomMcpServerContext,
-	input: ValidateSubtreePayload & { detail?: MutationResponseDetail },
-) => {
-	const policy = getMcpPolicy(context.config);
-	assertCanReadDesignFile(policy, input.designFileId);
-	const read = await readDesignFileForTool(context, input.designFileId);
-	if (read.revision !== input.expectedRevision) {
-		return createRevisionMismatchValidationResult(
-			context,
-			input.designFileId,
-			read,
-			input.expectedRevision,
-		);
-	}
-
-	const validation = validateProposedSubtreeForInsertion(read.design, {
-		parentId: input.parentId,
-		index: input.index,
-		subtree: input.subtree,
-		options: input.options,
-	});
-	const issues = validation.diagnostics.map(toSubtreeIssue);
-	let tokenSnapshot: unknown = null;
-
-	if (validation.candidateDesign && validation.candidateRootId) {
-		const candidateRoot = findElementContext(
-			validation.candidateDesign,
-			validation.candidateRootId,
-		);
-		if (candidateRoot) {
-			assertCanUseSubtreeComponents(policy, candidateRoot.element);
-		}
-		const dependencies = createDesignOperationDependencies(context);
-		try {
-			await dependencies.assertResourceReferencesExist(
-				validation.candidateDesign,
-				validation.candidateElementIds,
-			);
-		} catch (error) {
-			if (!(error instanceof DesignTransformError)) {
-				throw error;
-			}
-			issues.push({ ...toIssue(error), path: "/subtree" });
-		}
-		const scoped = await getScopedDesignIssues(
-			context,
-			validation.candidateDesign,
-			validation.candidateElementIds,
-		);
-		tokenSnapshot = scoped.tokenSnapshot;
-		issues.push(...scoped.issues);
-	}
-
-	return createValidationResult(context, {
-		designFileId: input.designFileId,
-		revision: read.revision,
-		issues,
-		detail: input.detail,
-		extra: {
-			stats: validation.stats,
-			...(validation.normalizedSubtree !== undefined
-				? { normalizedSubtree: validation.normalizedSubtree }
-				: {}),
-			...(validation.recipeExpansions.length > 0
-				? { recipeExpansions: validation.recipeExpansions }
-				: {}),
-			...(input.detail === "full" ? { tokenDiagnostics: tokenSnapshot } : {}),
-		},
-	});
-};
-
-export const validateCopySubtreePayload = async (
-	context: TrickroomMcpServerContext,
-	input: ValidateCopySubtreePayload & { detail?: MutationResponseDetail },
-) => {
-	const sameDesign = input.sourceDesignFileId === input.targetDesignFileId;
-	return validateOperations(
-		context,
-		{
-			designFileId: input.targetDesignFileId,
-			expectedRevision: input.expectedRevision,
-			operations: [
-				{
-					operation: "copySubtree",
-					parameters: {
-						sourceDesignFileId: input.sourceDesignFileId,
-						sourceElementId: input.sourceElementId,
-						...(input.sourceExpectedRevision !== undefined
-							? { sourceExpectedRevision: input.sourceExpectedRevision }
-							: {}),
-						parentId: input.parentId,
-						index: input.index,
-						...(input.options !== undefined ? { options: input.options } : {}),
-					},
-				},
-			],
-			detail: input.detail,
-		},
-		(execution) => ({
-			sameDesign,
-			stats: execution.steps[0]?.summary.stats,
-		}),
-	);
-};
 
 /** An error result that keeps the payload's own status (a failed plan). */
 const createErrorResult = (

@@ -132,7 +132,7 @@ describe("MCP expanded class/token diagnostics", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const validation = withWarnings(toolPayload(validateResult)) as {
@@ -203,7 +203,7 @@ describe("MCP expanded class/token diagnostics", () => {
 		);
 	});
 
-	it("omits heavy custom utility catalogs from validateDesignFile by default", async () => {
+	it("omits heavy custom utility catalogs from design_validate by default", async () => {
 		const { session } = await createSession({
 			tokenSnapshots: [
 				{
@@ -223,13 +223,13 @@ describe("MCP expanded class/token diagnostics", () => {
 		});
 
 		const defaultResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
 		expect(toolPayload(defaultResult)).not.toHaveProperty("tokenDiagnostics");
 
 		const verboseResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				response: "full",
@@ -290,7 +290,7 @@ describe("MCP expanded class/token diagnostics", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const validation = withWarnings(toolPayload(validateResult)) as {
@@ -395,7 +395,7 @@ describe("MCP expanded class/token diagnostics", () => {
 		]);
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 			},
@@ -460,7 +460,7 @@ describe("MCP expanded class/token diagnostics", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const warnings = (
@@ -502,7 +502,7 @@ describe("MCP expanded class/token diagnostics", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const validation = withWarnings(toolPayload(validateResult)) as {
@@ -558,7 +558,7 @@ describe("MCP expanded class/token diagnostics", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const issues = (
@@ -625,7 +625,7 @@ describe("MCP expanded class/token diagnostics", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const validation = withWarnings(toolPayload(validateResult)) as {

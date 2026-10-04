@@ -58,15 +58,8 @@ export const MCP_TOOL_GROUPS = [
 	{
 		id: "designValidation",
 		label: "Validation & dry-run",
-		description:
-			"Validate designs and dry-run single operations, plans, subtrees, and copies.",
-		tools: [
-			"validateDesignFile",
-			"validateOperation",
-			"validateOperationPlan",
-			"validateSubtree",
-			"validateCopySubtree",
-		],
+		description: "Validate designs and dry-run design operations.",
+		tools: ["design_validate"],
 	},
 	{
 		id: "registry",

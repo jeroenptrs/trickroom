@@ -1822,7 +1822,7 @@ describe("trickroom MCP discovery tools", () => {
 		const { client, close } = await createClient(projectRoot);
 		try {
 			const validResult = await client.callTool({
-				name: "validateDesignFile",
+				name: "design_validate",
 				arguments: { designFileId: validDesignFileId },
 			});
 			const validContent = toolPayload(validResult) as {
@@ -1841,7 +1841,7 @@ describe("trickroom MCP discovery tools", () => {
 			).toEqual([]);
 
 			const invalidResult = await client.callTool({
-				name: "validateDesignFile",
+				name: "design_validate",
 				arguments: { designFileId: invalidDesignFileId },
 			});
 			expect(toolPayload(invalidResult)).toMatchObject({
@@ -1861,7 +1861,7 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const unknownResult = await client.callTool({
-				name: "validateDesignFile",
+				name: "design_validate",
 				arguments: { designFileId: unknownDesignFileId },
 			});
 			expect(toolPayload(unknownResult)).toMatchObject({

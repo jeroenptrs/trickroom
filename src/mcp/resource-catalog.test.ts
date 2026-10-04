@@ -293,7 +293,7 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
 		const issues = (
@@ -331,7 +331,7 @@ describe("trickroom MCP asset and icon catalogs", () => {
 			],
 		});
 		const unlinkedValidateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
 		expect(toolPayload(unlinkedValidateResult)).toMatchObject({

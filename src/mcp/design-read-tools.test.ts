@@ -228,7 +228,7 @@ describe("trickroom MCP design read tools", () => {
 			listToolsResult.tools.map((tool) => [tool.name, tool]),
 		);
 
-		for (const name of ["design_list", "design_read", "validateDesignFile"]) {
+		for (const name of ["design_list", "design_read", "design_validate"]) {
 			expect(toolsByName.get(name)?.annotations).toMatchObject({
 				readOnlyHint: true,
 				openWorldHint: false,
@@ -904,7 +904,7 @@ describe("trickroom MCP design read tools", () => {
 		});
 
 		const validateResult = await client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: {
 				designFileId: invalidDesignFileId,
 				response: "full",
@@ -993,7 +993,7 @@ describe("trickroom MCP design read tools", () => {
 		).not.toHaveProperty("diagnostic");
 
 		const validateResult = await client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: futureDesignFileId },
 		});
 		expect(toolPayload(validateResult)).toMatchObject({

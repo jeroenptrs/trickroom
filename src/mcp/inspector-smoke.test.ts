@@ -20,7 +20,7 @@ const expectedReadToolNames = [
 	"trickroom_project_info",
 	"design_list",
 	"design_read",
-	"validateDesignFile",
+	"design_validate",
 	"listRegistries",
 	"listRegistryComponents",
 	"describeRegistryComponent",
@@ -471,7 +471,7 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 
 			const validation = await requireStructuredPayload(
 				session.client,
-				"validateDesignFile",
+				"design_validate",
 				{
 					designFileId: trickroomMcpTestDesignUuid,
 				},

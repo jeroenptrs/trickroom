@@ -35,12 +35,6 @@ import {
 	registerSystemComponentReadTools,
 } from "./tools/system-components";
 
-export {
-	applyDesignOperationsPayload,
-	validateCopySubtreePayload,
-	validateOperationPlanPayload,
-	validateSubtreePayload,
-} from "./payloads/design-validation";
 export type {
 	TrickroomMcpServer,
 	TrickroomMcpServerContext,
@@ -48,15 +42,11 @@ export type {
 } from "./server-types";
 export {
 	addSubtreeOptionsSchema,
-	addSubtreePayloadSchema,
 	proposedElementNodeSchema,
 	proposedRecipeNodeSchema,
 	proposedSubtreeNodeSchema,
 	validateCopySubtreeOptionsSchema,
-	validateCopySubtreePayloadSchema,
-	validateSubtreeOptionsSchema,
-	validateSubtreePayloadSchema,
-} from "./tools/operation-schemas";
+} from "./subtree-schemas";
 export { projectRefSchema } from "./tools/schemas";
 
 export const createTrickroomMcpServer = (

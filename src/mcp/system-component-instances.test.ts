@@ -1015,7 +1015,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("chains addSystemComponent and updateSystemComponentInstance in operation plans", async () => {
 		const revision = await getDesignRevision();
 		const result = await session.client.callTool({
-			name: "validateOperationPlan",
+			name: "design_validate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
@@ -1057,39 +1057,44 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 	});
 
-	it("dry-runs addSystemComponent through validateOperation without writing", async () => {
+	it("dry-runs addSystemComponent through design_validate without writing", async () => {
 		const revision = await getDesignRevision();
 		const result = await session.client.callTool({
-			name: "validateOperation",
+			name: "design_validate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
-				operation: "addSystemComponent",
-				parameters: {
-					parentId: "board",
-					index: 0,
-					systemId,
-					componentId,
-					variantValues: { tone: "brand" },
-				},
+				operations: [
+					{
+						operation: "addSystemComponent",
+						parameters: {
+							parentId: "board",
+							index: 0,
+							systemId,
+							componentId,
+							variantValues: { tone: "brand" },
+						},
+					},
+				],
 			},
 		});
 		expect(result.isError).not.toBe(true);
 		expect(toolPayload(result)).toMatchObject({
 			status: "success",
 			valid: true,
-			operation: "addSystemComponent",
-			predicted: {
-				parentId: "board",
-				index: 0,
-				systemComponent: {
-					systemId,
-					componentId,
-					version: "1",
-					variantValues: { tone: "brand" },
+			predicted: [
+				{
+					parentId: "board",
+					index: 0,
+					systemComponent: {
+						systemId,
+						componentId,
+						version: "1",
+						variantValues: { tone: "brand" },
+					},
+					nodeCount: expect.any(Number),
 				},
-				nodeCount: expect.any(Number),
-			},
+			],
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
@@ -1098,7 +1103,7 @@ describe("trickroom MCP system component instance tools", () => {
 		expect(persisted.revision).toBe(revision);
 	});
 
-	it("denies addSystemComponent through validateOperation when expanded components are policy-blocked", async () => {
+	it("denies addSystemComponent through design_validate when expanded components are policy-blocked", async () => {
 		const restrictedFixture = await createTrickroomMcpProjectFixture({
 			config: {
 				mcp: {
@@ -1114,17 +1119,21 @@ describe("trickroom MCP system component instance tools", () => {
 			await publishBadgeComponent(restrictedSession);
 			const revision = await getDesignRevision(restrictedSession);
 			const result = await restrictedSession.client.callTool({
-				name: "validateOperation",
+				name: "design_validate",
 				arguments: {
 					designFileId: trickroomMcpTestDesignUuid,
 					expectedRevision: revision,
-					operation: "addSystemComponent",
-					parameters: {
-						parentId: "board",
-						index: 0,
-						systemId,
-						componentId,
-					},
+					operations: [
+						{
+							operation: "addSystemComponent",
+							parameters: {
+								parentId: "board",
+								index: 0,
+								systemId,
+								componentId,
+							},
+						},
+					],
 				},
 			});
 			expect(result.isError).toBe(true);
@@ -1146,7 +1155,7 @@ describe("trickroom MCP system component instance tools", () => {
 		}
 	});
 
-	it("returns INVALID_SYSTEM_COMPONENT_INSTANCE_STATE through validateOperation for invalid variant updates", async () => {
+	it("returns INVALID_SYSTEM_COMPONENT_INSTANCE_STATE through design_validate for invalid variant updates", async () => {
 		const revision = await getDesignRevision();
 		const added = await applyOperation(session.client, "addSystemComponent", {
 			designFileId: trickroomMcpTestDesignUuid,
@@ -1160,15 +1169,19 @@ describe("trickroom MCP system component instance tools", () => {
 		const afterAddRevision = String(toolPayload(added)?.newRevision);
 
 		const result = await session.client.callTool({
-			name: "validateOperation",
+			name: "design_validate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: afterAddRevision,
-				operation: "updateSystemComponentInstance",
-				parameters: {
-					rootElementId,
-					variantValues: { tone: "missing" },
-				},
+				operations: [
+					{
+						operation: "updateSystemComponentInstance",
+						parameters: {
+							rootElementId,
+							variantValues: { tone: "missing" },
+						},
+					},
+				],
 			},
 		});
 		expect(result.isError).not.toBe(true);
@@ -1188,7 +1201,7 @@ describe("trickroom MCP system component instance tools", () => {
 		expect(persisted.revision).toBe(afterAddRevision);
 	});
 
-	it("denies addSystemComponent through validateOperationPlan when expanded components are policy-blocked", async () => {
+	it("denies addSystemComponent through design_validate when expanded components are policy-blocked", async () => {
 		const restrictedFixture = await createTrickroomMcpProjectFixture({
 			config: {
 				mcp: {
@@ -1204,7 +1217,7 @@ describe("trickroom MCP system component instance tools", () => {
 			await publishBadgeComponent(restrictedSession);
 			const revision = await getDesignRevision(restrictedSession);
 			const result = await restrictedSession.client.callTool({
-				name: "validateOperationPlan",
+				name: "design_validate",
 				arguments: {
 					designFileId: trickroomMcpTestDesignUuid,
 					expectedRevision: revision,
@@ -1235,7 +1248,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("returns failedStepIndex for invalid updateSystemComponentInstance plan steps", async () => {
 		const revision = await getDesignRevision();
 		const result = await session.client.callTool({
-			name: "validateOperationPlan",
+			name: "design_validate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
@@ -1419,7 +1432,7 @@ describe("trickroom MCP system component instance tools", () => {
 		expect(persisted.revision).toBe(revision);
 	});
 
-	it("dry-runs detachSystemComponent through validateOperation without writing", async () => {
+	it("dry-runs detachSystemComponent through design_validate without writing", async () => {
 		const revision = await getDesignRevision();
 		const added = await applyOperation(session.client, "addSystemComponent", {
 			designFileId: trickroomMcpTestDesignUuid,
@@ -1433,31 +1446,36 @@ describe("trickroom MCP system component instance tools", () => {
 		const afterAddRevision = String(toolPayload(added)?.newRevision);
 
 		const result = await session.client.callTool({
-			name: "validateOperation",
+			name: "design_validate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: afterAddRevision,
-				operation: "detachSystemComponent",
-				parameters: {
-					elementId: rootElementId,
-				},
+				operations: [
+					{
+						operation: "detachSystemComponent",
+						parameters: {
+							elementId: rootElementId,
+						},
+					},
+				],
 			},
 		});
 		expect(result.isError).not.toBe(true);
 		expect(toolPayload(result)).toMatchObject({
 			status: "success",
 			valid: true,
-			operation: "detachSystemComponent",
-			predicted: {
-				elementId: rootElementId,
-				systemComponent: {
-					systemId,
-					componentId,
-					rootElementId,
+			predicted: [
+				{
+					elementId: rootElementId,
+					systemComponent: {
+						systemId,
+						componentId,
+						rootElementId,
+					},
+					changedElementId: rootElementId,
+					detachedElementIds: expect.arrayContaining([rootElementId]),
 				},
-				changedElementId: rootElementId,
-				detachedElementIds: expect.arrayContaining([rootElementId]),
-			},
+			],
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
@@ -1474,14 +1492,18 @@ describe("trickroom MCP system component instance tools", () => {
 	it("rejects detachSystemComponent dry-run parameters that do not match the write schema", async () => {
 		const revision = await getDesignRevision();
 		const result = await session.client.callTool({
-			name: "validateOperation",
+			name: "design_validate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
-				operation: "detachSystemComponent",
-				parameters: {
-					elementId: "",
-				},
+				operations: [
+					{
+						operation: "detachSystemComponent",
+						parameters: {
+							elementId: "",
+						},
+					},
+				],
 			},
 		});
 		expect(result.isError).not.toBe(true);
@@ -1499,17 +1521,21 @@ describe("trickroom MCP system component instance tools", () => {
 		expect(persisted.revision).toBe(revision);
 	});
 
-	it("returns SYSTEM_COMPONENT_INSTANCE_NOT_FOUND through validateOperation for non-instance elements", async () => {
+	it("returns SYSTEM_COMPONENT_INSTANCE_NOT_FOUND through design_validate for non-instance elements", async () => {
 		const revision = await getDesignRevision();
 		const result = await session.client.callTool({
-			name: "validateOperation",
+			name: "design_validate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
-				operation: "detachSystemComponent",
-				parameters: {
-					elementId: "board",
-				},
+				operations: [
+					{
+						operation: "detachSystemComponent",
+						parameters: {
+							elementId: "board",
+						},
+					},
+				],
 			},
 		});
 		expect(result.isError).not.toBe(true);
@@ -1532,7 +1558,7 @@ describe("trickroom MCP system component instance tools", () => {
 	it("chains addSystemComponent and detachSystemComponent in operation plans", async () => {
 		const revision = await getDesignRevision();
 		const result = await session.client.callTool({
-			name: "validateOperationPlan",
+			name: "design_validate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,

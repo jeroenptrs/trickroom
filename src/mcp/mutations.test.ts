@@ -11,13 +11,14 @@ import {
 } from "../recipes/markers";
 import type { Node, TrickroomDesign } from "../types";
 import { assetIdProp } from "../utils/resource-props";
-import { splitIntroducedErrors } from "./payloads/design-validation";
+import {
+	splitIntroducedErrors,
+	validateOperationPlanPayload,
+} from "./payloads/design-validation";
 import {
 	addSubtreeOptionsSchema,
-	addSubtreePayloadSchema,
 	proposedRecipeNodeSchema,
-	validateSubtreePayload,
-	validateSubtreePayloadSchema,
+	proposedSubtreeNodeSchema,
 } from "./server";
 import {
 	applyOperation,
@@ -183,7 +184,7 @@ describe("MCP mutation tools", () => {
 	};
 
 	describe("tool annotations", () => {
-		it("validateSubtree uses read-only closed-world annotations", async () => {
+		it("design_validate uses read-only closed-world annotations", async () => {
 			const { session } = await setup();
 			try {
 				const listResult = await session.client.listTools();
@@ -191,7 +192,7 @@ describe("MCP mutation tools", () => {
 					listResult.tools.map((tool) => [tool.name, tool]),
 				);
 
-				for (const name of ["validateSubtree", "validateCopySubtree"]) {
+				for (const name of ["design_validate"]) {
 					const tool = toolsByName.get(name);
 					expect(tool, `tool ${name} should exist`).toBeDefined();
 					expect(tool?.annotations?.readOnlyHint).toBe(true);
@@ -251,30 +252,38 @@ describe("MCP mutation tools", () => {
 			try {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 				const result = await session.client.callTool({
-					name: "validateSubtree",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
-						parentId: "board",
-						index: 1,
-						subtree: {
-							library: "trickroom",
-							component: "asset",
-							props: {
-								[assetIdProp]: "missing-asset",
+						operations: [
+							{
+								operation: "addSubtree",
+								parameters: {
+									parentId: "board",
+									index: 1,
+									subtree: {
+										library: "trickroom",
+										component: "asset",
+										props: {
+											[assetIdProp]: "missing-asset",
+										},
+									},
+								},
 							},
-						},
+						],
 					},
 				});
 
+				// A dry-run reports a failing step as a normal (non-error) result.
 				expect(result.isError).toBeFalsy();
-				const content = toolPayload(result) as {
-					status: string;
-					valid: boolean;
-					issues: Array<{ code: string }>;
-				};
-				expect(content.status).toBe("success");
-				expect(content.valid).toBe(false);
+				const content = toolPayload(result);
+				expect(content).toMatchObject({
+					status: "INVALID_OPERATION",
+					valid: false,
+					failedStepIndex: 0,
+					failedOperation: "addSubtree",
+				});
 				expect(content.issues).toContainEqual(
 					expect.objectContaining({ code: "UNKNOWN_ASSET_ID" }),
 				);
@@ -289,30 +298,18 @@ describe("MCP mutation tools", () => {
 
 		it("keeps proposed subtree schemas closed", () => {
 			expect(
-				validateSubtreePayloadSchema.safeParse({
-					designFileId: trickroomMcpTestDesignUuid,
-					expectedRevision: "sha256:test",
-					parentId: null,
-					index: 0,
-					subtree: {
-						id: "client-controlled-id",
-						library: "trickroom",
-						component: "container",
-					},
+				proposedSubtreeNodeSchema.safeParse({
+					id: "client-controlled-id",
+					library: "trickroom",
+					component: "container",
 				}).success,
 			).toBe(false);
 
 			expect(
-				validateSubtreePayloadSchema.safeParse({
-					designFileId: trickroomMcpTestDesignUuid,
-					expectedRevision: "sha256:test",
-					parentId: null,
-					index: 0,
-					subtree: {
-						library: "trickroom",
-						component: "container",
-						unknown: true,
-					},
+				proposedSubtreeNodeSchema.safeParse({
+					library: "trickroom",
+					component: "container",
+					unknown: true,
 				}).success,
 			).toBe(false);
 
@@ -336,19 +333,8 @@ describe("MCP mutation tools", () => {
 			).toBe(true);
 
 			expect(
-				addSubtreePayloadSchema.safeParse({
-					designFileId: trickroomMcpTestDesignUuid,
-					expectedRevision: "sha256:test",
-					parentId: null,
-					index: 0,
-					subtree: {
-						library: "trickroom",
-						component: "container",
-					},
-					options: {
-						includeNormalizedTree: true,
-					},
-				}).success,
+				addSubtreeOptionsSchema.safeParse({ includeNormalizedTree: true })
+					.success,
 			).toBe(false);
 		});
 
@@ -356,21 +342,26 @@ describe("MCP mutation tools", () => {
 			const { context, session } = await setup();
 			try {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
-				const result = await validateSubtreePayload(context, {
+				const result = await validateOperationPlanPayload(context, {
 					designFileId: trickroomMcpTestDesignUuid,
 					expectedRevision: revision,
-					parentId: "board",
-					index: 1,
-					subtree: {
-						library: "trickroom",
-						component: "asset",
-						props: {
-							[assetIdProp]: "missing-asset",
+					operations: [
+						{
+							operation: "addSubtree",
+							parameters: {
+								parentId: "board",
+								index: 1,
+								subtree: {
+									library: "trickroom",
+									component: "asset",
+									props: { [assetIdProp]: "missing-asset" },
+								},
+							},
 						},
-					},
+					],
 				});
 
-				expect(result.status).toBe("success");
+				expect(result.status).toBe("INVALID_OPERATION");
 				expect(result.valid).toBe(false);
 				expect(result.issues).toContainEqual(
 					expect.objectContaining({
@@ -714,14 +705,21 @@ describe("MCP mutation tools", () => {
 			try {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 				const result = await session.client.callTool({
-					name: "validateCopySubtree",
+					name: "design_validate",
 					arguments: {
-						sourceDesignFileId: trickroomMcpTestDesignUuid,
-						sourceElementId: "title",
-						targetDesignFileId: trickroomMcpTestDesignUuid,
+						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
-						parentId: "board",
-						index: 1,
+						operations: [
+							{
+								operation: "copySubtree",
+								parameters: {
+									sourceDesignFileId: trickroomMcpTestDesignUuid,
+									sourceElementId: "title",
+									parentId: "board",
+									index: 1,
+								},
+							},
+						],
 					},
 				});
 
@@ -730,8 +728,9 @@ describe("MCP mutation tools", () => {
 					status: "success",
 					valid: true,
 					designFileId: trickroomMcpTestDesignUuid,
-					sameDesign: true,
-					stats: { nodeCount: 1, maxDepth: 1 },
+					predicted: [
+						{ sameDesign: true, stats: { nodeCount: 1, maxDepth: 1 } },
+					],
 				});
 				expect(toolPayload(result)).not.toHaveProperty("idMap");
 				expect(toolPayload(result)).not.toHaveProperty("inserted");
@@ -810,14 +809,21 @@ describe("MCP mutation tools", () => {
 			try {
 				const targetRevision = await getRevision(session, targetDesignFileId);
 				const result = await session.client.callTool({
-					name: "validateCopySubtree",
+					name: "design_validate",
 					arguments: {
-						sourceDesignFileId: trickroomMcpTestDesignUuid,
-						sourceElementId: "title",
-						targetDesignFileId,
+						designFileId: targetDesignFileId,
 						expectedRevision: targetRevision,
-						parentId: "target-root",
-						index: 0,
+						operations: [
+							{
+								operation: "copySubtree",
+								parameters: {
+									sourceDesignFileId: trickroomMcpTestDesignUuid,
+									sourceElementId: "title",
+									parentId: "target-root",
+									index: 0,
+								},
+							},
+						],
 					},
 				});
 
@@ -918,15 +924,22 @@ describe("MCP mutation tools", () => {
 				const staleTargetRevision =
 					"sha256:0000000000000000000000000000000000000000000000000000000000000000";
 				const result = await session.client.callTool({
-					name: "validateCopySubtree",
+					name: "design_validate",
 					arguments: {
-						sourceDesignFileId: trickroomMcpTestDesignUuid,
-						sourceElementId: "title",
-						sourceExpectedRevision: sourceRevision,
-						targetDesignFileId,
+						designFileId: targetDesignFileId,
 						expectedRevision: staleTargetRevision,
-						parentId: "target-root",
-						index: 0,
+						operations: [
+							{
+								operation: "copySubtree",
+								parameters: {
+									sourceDesignFileId: trickroomMcpTestDesignUuid,
+									sourceElementId: "title",
+									sourceExpectedRevision: sourceRevision,
+									parentId: "target-root",
+									index: 0,
+								},
+							},
+						],
 					},
 				});
 
@@ -3331,10 +3344,10 @@ describe("MCP mutation tools", () => {
 
 	describe("recipe structural locks", () => {
 		const expectRecipeLock = (
-			result: { isError?: boolean; structuredContent?: unknown },
+			result: unknown,
 			code: "RECIPE_STRUCTURE_LOCKED" | "RECIPE_STRUCTURAL_NODE_LOCKED",
 		) => {
-			expect(result.isError).toBe(true);
+			expect((result as { isError?: boolean }).isError).toBe(true);
 			const content = toolPayload(result) as {
 				status: string;
 				code: string;
@@ -3347,10 +3360,10 @@ describe("MCP mutation tools", () => {
 		};
 
 		const expectInvalidOperationParameter = (
-			result: { isError?: boolean; structuredContent?: unknown },
+			result: unknown,
 			parameterName: string,
 		) => {
-			expect(result.isError).toBeFalsy();
+			expect((result as { isError?: boolean }).isError).toBeFalsy();
 			const content = toolPayload(result) as {
 				status: string;
 				valid: boolean;
@@ -3425,17 +3438,21 @@ describe("MCP mutation tools", () => {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 
 				const result = await session.client.callTool({
-					name: "validateOperation",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
-						operation: "addRecipe",
-						parameters: {
-							parentId: "board",
-							index: 1,
-							library: "base-ui",
-							recipe: "avatar.default",
-						},
+						operations: [
+							{
+								operation: "addRecipe",
+								parameters: {
+									parentId: "board",
+									index: 1,
+									library: "base-ui",
+									recipe: "avatar.default",
+								},
+							},
+						],
 					},
 				});
 
@@ -3443,13 +3460,14 @@ describe("MCP mutation tools", () => {
 				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
-					operation: "addRecipe",
-					predicted: {
-						parentId: "board",
-						index: 1,
-						recipeId: "base-ui/avatar.default",
-						nodeCount: 3,
-					},
+					predicted: [
+						{
+							parentId: "board",
+							index: 1,
+							recipeId: "base-ui/avatar.default",
+							nodeCount: 3,
+						},
+					],
 				});
 				// Dry-run ids are not the ids a write would create.
 				expect(JSON.stringify(toolPayload(result))).not.toContain(
@@ -3466,33 +3484,37 @@ describe("MCP mutation tools", () => {
 			}
 		});
 
-		it("delegates addSubtree validation through validateOperation without writing", async () => {
+		it("delegates addSubtree validation through design_validate without writing", async () => {
 			const { fixture, session } = await setup();
 			try {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 				const result = await session.client.callTool({
-					name: "validateOperation",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
-						operation: "addSubtree",
-						parameters: {
-							parentId: "board",
-							index: 1,
-							subtree: {
-								tempId: "dry-run-container",
-								library: "trickroom",
-								component: "container",
-								children: [
-									{
-										tempId: "dry-run-text",
+						operations: [
+							{
+								operation: "addSubtree",
+								parameters: {
+									parentId: "board",
+									index: 1,
+									subtree: {
+										tempId: "dry-run-container",
 										library: "trickroom",
-										component: "text",
-										text: "Dry run subtree",
+										component: "container",
+										children: [
+											{
+												tempId: "dry-run-text",
+												library: "trickroom",
+												component: "text",
+												text: "Dry run subtree",
+											},
+										],
 									},
-								],
+								},
 							},
-						},
+						],
 					},
 				});
 
@@ -3500,17 +3522,18 @@ describe("MCP mutation tools", () => {
 				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
-					operation: "addSubtree",
-					predicted: {
-						parentId: "board",
-						index: 1,
-						stats: { nodeCount: 2 },
-						nodeCount: 2,
-					},
+					predicted: [
+						{
+							parentId: "board",
+							index: 1,
+							stats: { nodeCount: 2 },
+							nodeCount: 2,
+						},
+					],
 					issues: [],
 				});
 				expect(
-					(toolPayload(result) as { predicted: object }).predicted,
+					(toolPayload(result) as { predicted: object[] }).predicted[0],
 				).not.toHaveProperty("rootElementId");
 
 				const persisted = await fixture.designFileService.readDesignFile(
@@ -3523,22 +3546,26 @@ describe("MCP mutation tools", () => {
 			}
 		});
 
-		it("delegates copySubtree validation through validateOperation without writing", async () => {
+		it("delegates copySubtree validation through design_validate without writing", async () => {
 			const { fixture, session } = await setup();
 			try {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 				const result = await session.client.callTool({
-					name: "validateOperation",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
-						operation: "copySubtree",
-						parameters: {
-							sourceDesignFileId: trickroomMcpTestDesignUuid,
-							sourceElementId: "title",
-							parentId: "board",
-							index: 1,
-						},
+						operations: [
+							{
+								operation: "copySubtree",
+								parameters: {
+									sourceDesignFileId: trickroomMcpTestDesignUuid,
+									sourceElementId: "title",
+									parentId: "board",
+									index: 1,
+								},
+							},
+						],
 					},
 				});
 
@@ -3546,24 +3573,25 @@ describe("MCP mutation tools", () => {
 				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
-					operation: "copySubtree",
-					predicted: {
-						sourceDesignFileId: trickroomMcpTestDesignUuid,
-						sourceElementId: "title",
-						parentId: "board",
-						index: 1,
-						sameDesign: true,
-						stats: { nodeCount: 1, maxDepth: 1 },
-					},
+					predicted: [
+						{
+							sourceDesignFileId: trickroomMcpTestDesignUuid,
+							sourceElementId: "title",
+							parentId: "board",
+							index: 1,
+							sameDesign: true,
+							stats: { nodeCount: 1, maxDepth: 1 },
+						},
+					],
 					issues: [],
 				});
 				const content = toolPayload(result) as {
-					predicted: Record<string, unknown>;
+					predicted: Record<string, unknown>[];
 				};
-				expect(content.predicted).not.toHaveProperty("idMap");
-				expect(content.predicted).not.toHaveProperty("inserted");
-				expect(content.predicted).not.toHaveProperty("changedElement");
-				expect(content.predicted).not.toHaveProperty("context");
+				expect(content.predicted[0]).not.toHaveProperty("idMap");
+				expect(content.predicted[0]).not.toHaveProperty("inserted");
+				expect(content.predicted[0]).not.toHaveProperty("changedElement");
+				expect(content.predicted[0]).not.toHaveProperty("context");
 
 				const persisted = await fixture.designFileService.readDesignFile(
 					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
@@ -3620,12 +3648,11 @@ describe("MCP mutation tools", () => {
 
 				for (const { parameterName, parameters } of invalidCases) {
 					const result = await session.client.callTool({
-						name: "validateOperation",
+						name: "design_validate",
 						arguments: {
 							designFileId: trickroomMcpTestDesignUuid,
 							expectedRevision: revision,
-							operation: "addRecipe",
-							parameters,
+							operations: [{ operation: "addRecipe", parameters }],
 						},
 					});
 
@@ -4121,14 +4148,18 @@ describe("MCP mutation tools", () => {
 					);
 
 					const result = await session.client.callTool({
-						name: "validateOperation",
+						name: "design_validate",
 						arguments: {
 							designFileId: trickroomMcpTestDesignUuid,
 							expectedRevision: revision,
-							operation: "updateRecipeInstance",
-							parameters: {
-								elementId: "avatar-root",
-							},
+							operations: [
+								{
+									operation: "updateRecipeInstance",
+									parameters: {
+										elementId: "avatar-root",
+									},
+								},
+							],
 						},
 					});
 
@@ -4136,13 +4167,14 @@ describe("MCP mutation tools", () => {
 					expect(toolPayload(result)).toMatchObject({
 						status: "success",
 						valid: true,
-						operation: "updateRecipeInstance",
-						predicted: {
-							recipeMigration: {
-								fromVersion: "0.9",
-								toVersion: "1",
+						predicted: [
+							{
+								recipeMigration: {
+									fromVersion: "0.9",
+									toVersion: "1",
+								},
 							},
-						},
+						],
 					});
 					const persisted = await fixture.designFileService.readDesignFile(
 						fixture.designFileService.getFileForUuid(
@@ -4176,17 +4208,21 @@ describe("MCP mutation tools", () => {
 				);
 
 				const result = await session.client.callTool({
-					name: "validateOperation",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
-						operation: "updateRecipeControl",
-						parameters: {
-							instanceId: "menu-instance-1",
-							path: "positioner",
-							prop: "align",
-							value: "end",
-						},
+						operations: [
+							{
+								operation: "updateRecipeControl",
+								parameters: {
+									instanceId: "menu-instance-1",
+									path: "positioner",
+									prop: "align",
+									value: "end",
+								},
+							},
+						],
 					},
 				});
 
@@ -4194,14 +4230,15 @@ describe("MCP mutation tools", () => {
 				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
-					operation: "updateRecipeControl",
-					predicted: {
-						instanceId: "menu-instance-1",
-						path: "positioner",
-						prop: "align",
-						value: "end",
-						changedElementId: expansion.elementIdsByPath.positioner,
-					},
+					predicted: [
+						{
+							instanceId: "menu-instance-1",
+							path: "positioner",
+							prop: "align",
+							value: "end",
+							changedElementId: expansion.elementIdsByPath.positioner,
+						},
+					],
 				});
 
 				const after = await fixture.designFileService.readDesignFile(
@@ -4222,14 +4259,18 @@ describe("MCP mutation tools", () => {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 
 				const result = await session.client.callTool({
-					name: "validateOperation",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
-						operation: "detachRecipeInstance",
-						parameters: {
-							elementId: "avatar-image",
-						},
+						operations: [
+							{
+								operation: "detachRecipeInstance",
+								parameters: {
+									elementId: "avatar-image",
+								},
+							},
+						],
 					},
 				});
 
@@ -4237,21 +4278,22 @@ describe("MCP mutation tools", () => {
 				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
-					operation: "detachRecipeInstance",
-					predicted: {
-						elementId: "avatar-image",
-						recipe: {
-							id: "base-ui/avatar.default",
-							instanceId: "recipe-instance-1",
-							rootElementId: "avatar-root",
+					predicted: [
+						{
+							elementId: "avatar-image",
+							recipe: {
+								id: "base-ui/avatar.default",
+								instanceId: "recipe-instance-1",
+								rootElementId: "avatar-root",
+							},
+							changedElementId: "avatar-image",
 						},
-						changedElementId: "avatar-image",
-					},
+					],
 				});
 				const content = toolPayload(result) as {
-					predicted: { detachedElementIds: string[] };
+					predicted: Array<{ detachedElementIds: string[] }>;
 				};
-				expect(content.predicted.detachedElementIds.sort()).toEqual([
+				expect(content.predicted[0].detachedElementIds.sort()).toEqual([
 					"avatar-fallback",
 					"avatar-image",
 					"avatar-root",
@@ -4275,14 +4317,18 @@ describe("MCP mutation tools", () => {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 
 				const result = await session.client.callTool({
-					name: "validateOperation",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
-						operation: "detachRecipeInstance",
-						parameters: {
-							elementId: "",
-						},
+						operations: [
+							{
+								operation: "detachRecipeInstance",
+								parameters: {
+									elementId: "",
+								},
+							},
+						],
 					},
 				});
 
@@ -4455,7 +4501,7 @@ describe("MCP mutation tools", () => {
 			try {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 				const result = await session.client.callTool({
-					name: "validateOperationPlan",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
@@ -4507,7 +4553,7 @@ describe("MCP mutation tools", () => {
 			try {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 				const result = await session.client.callTool({
-					name: "validateOperationPlan",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
@@ -4916,7 +4962,7 @@ describe("MCP mutation tools", () => {
 					"copySubtree(sourceElementId, parentId, index, …)",
 				);
 				expect(operations.description).toContain(
-					'getDesignAuthoringContract({ topic: "operations" })',
+					'guide({ topic: "operations" })',
 				);
 			} finally {
 				await session.close();
@@ -5195,7 +5241,7 @@ describe("MCP mutation tools", () => {
 			try {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 				const result = await session.client.callTool({
-					name: "validateOperationPlan",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
@@ -5229,7 +5275,7 @@ describe("MCP mutation tools", () => {
 			try {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 				const result = await session.client.callTool({
-					name: "validateOperationPlan",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
@@ -5266,7 +5312,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				const full = await session.client.callTool({
-					name: "validateOperationPlan",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
@@ -5356,7 +5402,7 @@ describe("MCP mutation tools", () => {
 			try {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 				const result = await session.client.callTool({
-					name: "validateOperationPlan",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
@@ -5389,7 +5435,7 @@ describe("MCP mutation tools", () => {
 			try {
 				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
 				const result = await session.client.callTool({
-					name: "validateOperationPlan",
+					name: "design_validate",
 					arguments: {
 						designFileId: trickroomMcpTestDesignUuid,
 						expectedRevision: revision,
@@ -5702,6 +5748,31 @@ describe("MCP mutation tools", () => {
 				);
 				expect(toolPayload(withoutPath)).toMatchObject({
 					code: "INVALID_OPERATION_PARAMETERS",
+				});
+			} finally {
+				await session.close();
+			}
+		});
+
+		it("asks for expectedRevision when design_validate dry-runs operations", async () => {
+			const { session } = await setup();
+			try {
+				const result = await session.client.callTool({
+					name: "design_validate",
+					arguments: {
+						designFileId: trickroomMcpTestDesignUuid,
+						operations: [
+							{
+								operation: "deleteElement",
+								parameters: { elementId: "title" },
+							},
+						],
+					},
+				});
+				expect(result.isError).toBe(true);
+				expect(toolPayload(result)).toMatchObject({
+					code: "INVALID_OPERATION_PARAMETERS",
+					message: expect.stringContaining("expectedRevision is required"),
 				});
 			} finally {
 				await session.close();

@@ -208,19 +208,23 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		const revision = await getRevision(session);
 
 		const result = await session.client.callTool({
-			name: "validateOperation",
+			name: "design_validate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
-				operation: "addElement",
-				parameters: {
-					parentId: "board",
-					index: 1,
-					library: "trickroom",
-					component: "text",
-					name: "Caption",
-					text: "Dry run only",
-				},
+				operations: [
+					{
+						operation: "addElement",
+						parameters: {
+							parentId: "board",
+							index: 1,
+							library: "trickroom",
+							component: "text",
+							name: "Caption",
+							text: "Dry run only",
+						},
+					},
+				],
 			},
 		});
 
@@ -228,13 +232,14 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		expect(toolPayload(result)).toMatchObject({
 			status: "success",
 			valid: true,
-			operation: "addElement",
-			predicted: {
-				componentRef: "trickroom/text",
-				parentId: "board",
-				index: 1,
-				nodeCount: 1,
-			},
+			predicted: [
+				{
+					componentRef: "trickroom/text",
+					parentId: "board",
+					index: 1,
+					nodeCount: 1,
+				},
+			],
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
@@ -263,7 +268,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		expect(toolPayload(validateResult)).toMatchObject({
@@ -426,7 +431,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const validation = toolPayload(validateResult) as {
@@ -506,7 +511,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const validation = toolPayload(validateResult) as {

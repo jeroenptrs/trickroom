@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { isJsonPrimitive } from "../libraries/registry";
 import type {
 	ProposedElementNode,
 	ProposedRecipeNode,
@@ -49,15 +48,6 @@ export const proposedElementNodeSchema: z.ZodType<ProposedElementNode> = z
 	})
 	.strict();
 
-export const validateSubtreeOptionsSchema: z.ZodType<ValidateSubtreeOptions> = z
-	.object({
-		maxNodes: z.number().int().min(1).optional(),
-		maxDepth: z.number().int().min(1).optional(),
-		includeNormalizedTree: z.boolean().optional(),
-		allowRecipes: z.boolean().optional(),
-	})
-	.strict();
-
 export const addSubtreeOptionsSchema: z.ZodType<
 	Omit<ValidateSubtreeOptions, "includeNormalizedTree">
 > = z
@@ -74,5 +64,3 @@ export const validateCopySubtreeOptionsSchema = z
 		maxDepth: z.number().int().min(1).optional(),
 	})
 	.strict();
-
-export const isSubtreeJsonPrimitive = isJsonPrimitive;

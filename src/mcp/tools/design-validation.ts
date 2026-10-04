@@ -1,28 +1,17 @@
-import { z } from "zod";
-import { designOperationNameSchema } from "../design-operations";
+import { DesignTransformError } from "../../services/design-transform-service";
 import {
-	normalizeCopySubtreePayload,
-	validateCopySubtreePayload,
 	validateDesignFilePayload,
-	validateOperationPayload,
 	validateOperationPlanPayload,
-	validateSubtreePayload,
 } from "../payloads/design-validation";
 import { TOOL } from "../tool-names";
 import { readOnlyClosedWorldAnnotations } from "./annotations";
 import type { McpToolContext } from "./context";
-import {
-	createOperationPlanStepsInputSchema,
-	OPERATION_CATALOGUE_DESCRIPTION,
-	validateCopySubtreePayloadSchema,
-	validateSubtreePayloadSchema,
-} from "./operation-schemas";
+import { createOperationPlanStepsInputSchema } from "./operation-schemas";
 import { createJsonResult } from "./results";
 import {
 	designFileIdSchema,
 	expectedRevisionSchema,
 	mutationResponseInputSchema,
-	projectScopedInputSchema,
 	withProjectScopedInput,
 } from "./schemas";
 
@@ -33,152 +22,46 @@ export const registerDesignValidationTools = (ctx: McpToolContext) => {
 	const { server, withPolicyErrorHandling } = ctx;
 
 	server.registerTool(
-		"validateDesignFile",
+		TOOL.designValidate,
 		{
-			title: "Validate Design File",
-			description:
-				"Validate an existing design file without mutation: payload integrity, duplicate element IDs, registry and design-system references, and class tokens. Returns a per-code summary, every error, and warnings grouped by code and class.",
+			title: "Validate Design",
+			description: `Validate without writing. Without operations: check the whole design file (payload integrity, duplicate ids, registry and design-system references, class tokens) and return every issue. With operations and expectedRevision: dry-run ${TOOL.designApply}'s steps against that revision with the same executor, and return what each step would do (\`predicted\`) and the issues on the elements they touch, or the first failing step. Results share one shape: status, valid, a per-code summary, error issues, and warnings grouped by code and class; response "full" lists warnings ungrouped and adds token diagnostics and step details. Dry-runs never return generated ids.`,
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
-				response: mutationResponseInputSchema,
-			}),
-			annotations: readOnlyClosedWorldAnnotations,
-		},
-		async ({ designFileId, response, project }) =>
-			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(
-					await validateDesignFilePayload(context, designFileId, {
-						detail: response,
-					}),
-				),
-			),
-	);
-
-	server.registerTool(
-		"validateOperation",
-		{
-			title: "Validate Operation",
-			description:
-				"Dry-run one design operation against the current revision without writing, returning what it would change and the diagnostics on the elements it touches.",
-			inputSchema: withProjectScopedInput({
-				designFileId: designFileIdSchema,
-				expectedRevision: expectedRevisionSchema,
-				operation: designOperationNameSchema.describe(
-					"Operation type to dry-run.",
-				),
-				parameters: z
-					.record(z.string(), z.unknown())
-					.optional()
-					.describe(OPERATION_CATALOGUE_DESCRIPTION),
-				response: mutationResponseInputSchema,
-			}),
-			annotations: readOnlyClosedWorldAnnotations,
-		},
-		async ({
-			designFileId,
-			expectedRevision,
-			operation,
-			parameters,
-			response,
-			project,
-		}) =>
-			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(
-					await validateOperationPayload(
-						context,
-						designFileId,
-						expectedRevision,
-						operation,
-						parameters,
-						response,
-					),
-				),
-			),
-	);
-
-	server.registerTool(
-		"validateOperationPlan",
-		{
-			title: "Validate Operation Plan",
-			description: `Dry-run an ordered list of design operations (the ${TOOL.designApply} steps) against one starting revision without writing. Returns the diagnostics on the elements the plan touches, or the first failing step.`,
-			inputSchema: withProjectScopedInput({
-				designFileId: designFileIdSchema,
-				expectedRevision: expectedRevisionSchema,
 				operations: createOperationPlanStepsInputSchema(
-					"Ordered design operations to dry-run.",
-				),
+					`Steps to dry-run, exactly as ${TOOL.designApply} takes them (its operations parameter lists every operation). Omit to validate the whole file.`,
+					{ catalogue: false },
+				).optional(),
+				expectedRevision: expectedRevisionSchema
+					.optional()
+					.describe("Revision to dry-run against. Required with operations."),
 				response: mutationResponseInputSchema,
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 		},
-		async ({ designFileId, expectedRevision, operations, response, project }) =>
-			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(
+		async ({ designFileId, operations, expectedRevision, response, project }) =>
+			withPolicyErrorHandling(project, async (context) => {
+				if (operations === undefined) {
+					return createJsonResult(
+						await validateDesignFilePayload(context, designFileId, {
+							detail: response,
+						}),
+					);
+				}
+				if (expectedRevision === undefined) {
+					throw new DesignTransformError(
+						"INVALID_OPERATION_PARAMETERS",
+						"expectedRevision is required with operations: pass the revision from your last read.",
+					);
+				}
+				return createJsonResult(
 					await validateOperationPlanPayload(context, {
 						designFileId,
 						expectedRevision,
 						operations,
 						detail: response,
 					}),
-				),
-			),
-	);
-
-	server.registerTool(
-		"validateSubtree",
-		{
-			title: "Validate Subtree",
-			description:
-				"Validate a candidate subtree insertion against expected revision without mutation.",
-			inputSchema: validateSubtreePayloadSchema
-				.extend(projectScopedInputSchema)
-				.extend({ response: mutationResponseInputSchema }),
-			annotations: readOnlyClosedWorldAnnotations,
-		},
-		async ({
-			designFileId,
-			expectedRevision,
-			parentId,
-			index,
-			subtree,
-			options,
-			response,
-			project,
-		}) =>
-			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(
-					await validateSubtreePayload(context, {
-						designFileId,
-						expectedRevision,
-						parentId,
-						index,
-						subtree,
-						options,
-						detail: response,
-					}),
-				),
-			),
-	);
-
-	server.registerTool(
-		"validateCopySubtree",
-		{
-			title: "Validate Copy Subtree",
-			description:
-				"Validate copying an existing source subtree into a target design insertion point without mutation.",
-			inputSchema: validateCopySubtreePayloadSchema
-				.extend(projectScopedInputSchema)
-				.extend({ response: mutationResponseInputSchema }),
-			annotations: readOnlyClosedWorldAnnotations,
-		},
-		async (input) =>
-			withPolicyErrorHandling(input.project, async (context) =>
-				createJsonResult(
-					await validateCopySubtreePayload(context, {
-						...normalizeCopySubtreePayload(input),
-						detail: input.response,
-					}),
-				),
-			),
+				);
+			}),
 	);
 };
