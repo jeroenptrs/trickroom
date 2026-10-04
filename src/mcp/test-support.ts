@@ -24,6 +24,33 @@ import {
 	type TrickroomMcpServerOptions,
 } from "./server";
 
+/**
+ * A tool result's JSON payload. Tools return one minified JSON text block
+ * (screenshots return a text summary and images instead). Typed loosely so
+ * assertions can reach into nested fields.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: assertions read arbitrary payload fields.
+export type ToolPayload = Record<string, any>;
+
+export const toolPayload = (result: unknown): ToolPayload => {
+	const content = (result as { content?: unknown }).content;
+	const block = Array.isArray(content)
+		? (content as Array<{ type?: string; text?: string }>).find(
+				(entry) => entry.type === "text",
+			)
+		: undefined;
+	if (typeof block?.text !== "string") {
+		throw new Error("Tool result has no text content block.");
+	}
+	try {
+		return JSON.parse(block.text) as ToolPayload;
+	} catch {
+		throw new Error(
+			`Tool result text is not JSON: ${block.text.slice(0, 200)}`,
+		);
+	}
+};
+
 export const trickroomMcpTestDesignUuid =
 	"00000000-0000-4000-8000-000000000001";
 

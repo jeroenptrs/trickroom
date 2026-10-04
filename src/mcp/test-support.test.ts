@@ -106,6 +106,9 @@ describe("trickroom MCP test support", () => {
 			);
 
 			expect(textContent).toBeDefined();
+			// One JSON text block; the payload is not repeated in structuredContent.
+			expect(result.content).toHaveLength(1);
+			expect(result.structuredContent).toBeUndefined();
 			expect(JSON.parse(textContent?.text ?? "{}")).toMatchObject({
 				project: {
 					name: "Harness Project",

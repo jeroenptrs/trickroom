@@ -14,6 +14,7 @@ import {
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 } from "./test-support";
 
 const designFileId = "10000000-0000-4000-8000-000000000061";
@@ -270,14 +271,14 @@ describe("trickroom MCP design read tools", () => {
 			name: "listDesignFiles",
 			arguments: {},
 		});
-		const { systems } = listResult.structuredContent as {
+		const { systems } = toolPayload(listResult) as {
 			systems: Record<string, string>;
 		};
 		const coreSystemId = Object.keys(systems).find(
 			(systemId) => systems[systemId] === "Core",
 		);
 		expect(coreSystemId).toEqual(expect.stringMatching(/^sys_/));
-		expect(listResult.structuredContent).toMatchObject({
+		expect(toolPayload(listResult)).toMatchObject({
 			designFiles: [
 				{
 					id: designFileId,
@@ -302,7 +303,7 @@ describe("trickroom MCP design read tools", () => {
 			],
 		});
 		const listedDesign = (
-			listResult.structuredContent as {
+			toolPayload(listResult) as {
 				designFiles: Array<Record<string, unknown>>;
 			}
 		).designFiles[0];
@@ -315,7 +316,7 @@ describe("trickroom MCP design read tools", () => {
 				designFileId,
 			},
 		});
-		expect(readResult.structuredContent).toEqual({
+		expect(toolPayload(readResult)).toEqual({
 			project: expect.any(Object),
 			designFile: {
 				id: designFileId,
@@ -367,13 +368,13 @@ describe("trickroom MCP design read tools", () => {
 			],
 		});
 		const readText = (readResult.content as Array<{ text: string }>)[0].text;
-		expect(JSON.parse(readText)).toEqual(readResult.structuredContent);
+		expect(JSON.parse(readText)).toEqual(toolPayload(readResult));
 
 		const boardRead = await client.callTool({
 			name: "readDesignFile",
 			arguments: { designFileId, boardId: "board-b" },
 		});
-		expect(boardRead.structuredContent).toMatchObject({
+		expect(toolPayload(boardRead)).toMatchObject({
 			boards: [{ id: "board-a" }, { id: "board-b" }],
 			tree: [{ id: "board-b" }],
 			read: { returnedNodeCount: 1 },
@@ -384,7 +385,7 @@ describe("trickroom MCP design read tools", () => {
 			arguments: { designFileId, boardId: "cta" },
 		});
 		expect(missingBoard.isError).toBe(true);
-		expect(missingBoard.structuredContent).toMatchObject({
+		expect(toolPayload(missingBoard)).toMatchObject({
 			code: "BOARD_NOT_FOUND",
 			message: expect.stringContaining("use readSubtree"),
 			availableBoards: [
@@ -412,7 +413,7 @@ describe("trickroom MCP design read tools", () => {
 			arguments: {},
 		});
 		const ids = (
-			listResult.structuredContent as { designFiles: Array<{ id: string }> }
+			toolPayload(listResult) as { designFiles: Array<{ id: string }> }
 		).designFiles.map((designFile) => designFile.id);
 		expect(ids).toEqual([designFileId, secondDesignFileId]);
 	});
@@ -476,9 +477,8 @@ describe("trickroom MCP design read tools", () => {
 			name: "readSubtree",
 			arguments: { designFileId, elementId: "board" },
 		});
-		const subtree = (
-			read.structuredContent as { subtree: Record<string, unknown> }
-		).subtree;
+		const subtree = (toolPayload(read) as { subtree: Record<string, unknown> })
+			.subtree;
 		expect(subtree).toEqual({
 			id: "board",
 			component: "container",
@@ -504,13 +504,13 @@ describe("trickroom MCP design read tools", () => {
 				arguments: { designFileId: missingId, elementId: "board-a" },
 			});
 			expect(result.isError).toBe(true);
-			expect(result.structuredContent).toMatchObject({
+			expect(toolPayload(result)).toMatchObject({
 				code: "DESIGN_NOT_FOUND",
 				availableDesigns: expect.arrayContaining([
 					{ id: designFileId, name: "Readable Design" },
 				]),
 			});
-			expect(JSON.stringify(result.structuredContent)).not.toContain("ENOENT");
+			expect(JSON.stringify(toolPayload(result))).not.toContain("ENOENT");
 		}
 	});
 
@@ -545,7 +545,7 @@ describe("trickroom MCP design read tools", () => {
 			arguments: { designFileId },
 		});
 		const tree = (
-			read.structuredContent as {
+			toolPayload(read) as {
 				tree: Array<Record<string, unknown>>;
 			}
 		).tree;
@@ -563,7 +563,7 @@ describe("trickroom MCP design read tools", () => {
 			arguments: { designFileId, elementId: "board-a" },
 		});
 		const subtree = (
-			compactSubtree.structuredContent as { subtree: Record<string, unknown> }
+			toolPayload(compactSubtree) as { subtree: Record<string, unknown> }
 		).subtree;
 		expect(subtree).toMatchObject({
 			id: "board-a",
@@ -587,7 +587,7 @@ describe("trickroom MCP design read tools", () => {
 			},
 		});
 
-		expect(readResult.structuredContent).toEqual({
+		expect(toolPayload(readResult)).toEqual({
 			project: expect.any(Object),
 			designFile: {
 				id: designFileId,
@@ -612,7 +612,7 @@ describe("trickroom MCP design read tools", () => {
 			name: "readElement",
 			arguments: { designFileId, elementId: "board-b", detail: "full" },
 		});
-		expect(fullResult.structuredContent).toMatchObject({
+		expect(toolPayload(fullResult)).toMatchObject({
 			element: {
 				id: "board-b",
 				props: {
@@ -682,7 +682,7 @@ describe("trickroom MCP design read tools", () => {
 				designFileId: deepDesignFileId,
 			},
 		});
-		expect(designRead.structuredContent).toMatchObject({
+		expect(toolPayload(designRead)).toMatchObject({
 			read: {
 				depth: 2,
 				maxNodes: 50,
@@ -705,7 +705,7 @@ describe("trickroom MCP design read tools", () => {
 				depth: 2,
 			},
 		});
-		expect(subtreeRead.structuredContent).toMatchObject({
+		expect(toolPayload(subtreeRead)).toMatchObject({
 			read: {
 				depth: 2,
 				maxNodes: 100,
@@ -723,7 +723,7 @@ describe("trickroom MCP design read tools", () => {
 				allowLarge: true,
 			},
 		});
-		expect(unboundedSubtreeRead.structuredContent).toMatchObject({
+		expect(toolPayload(unboundedSubtreeRead)).toMatchObject({
 			read: {
 				depth: null,
 				maxNodes: null,
@@ -746,7 +746,7 @@ describe("trickroom MCP design read tools", () => {
 			},
 		});
 
-		expect(readResult.structuredContent).toMatchObject({
+		expect(toolPayload(readResult)).toMatchObject({
 			read: { depth: 1, returnedNodeCount: 3, omittedNodeCount: 1 },
 			context: {
 				parentId: null,
@@ -766,7 +766,7 @@ describe("trickroom MCP design read tools", () => {
 			name: "readSubtree",
 			arguments: { designFileId, elementId: "cta", detail: "full" },
 		});
-		expect(fullRead.structuredContent).toMatchObject({
+		expect(toolPayload(fullRead)).toMatchObject({
 			subtree: {
 				id: "cta",
 				props: { "data-trickroom-name": "CTA" },
@@ -803,7 +803,7 @@ describe("trickroom MCP design read tools", () => {
 				recipe?: Record<string, unknown>;
 				children?: ReadNode[];
 			};
-			const readContent = readResult.structuredContent as {
+			const readContent = toolPayload(readResult) as {
 				subtree: { children: ReadNode[] };
 			};
 			const findNodeById = (
@@ -869,7 +869,7 @@ describe("trickroom MCP design read tools", () => {
 				},
 			});
 
-			const graphContent = graphResult.structuredContent as {
+			const graphContent = toolPayload(graphResult) as {
 				graph: {
 					elementsById: Record<string, { recipe?: Record<string, unknown> }>;
 				};
@@ -909,7 +909,7 @@ describe("trickroom MCP design read tools", () => {
 			},
 		});
 
-		expect(validateResult.structuredContent).toMatchObject({
+		expect(toolPayload(validateResult)).toMatchObject({
 			designFileId: invalidDesignFileId,
 			revision: expect.any(String),
 			valid: false,
@@ -937,7 +937,7 @@ describe("trickroom MCP design read tools", () => {
 				},
 			],
 		});
-		expect(validateResult.structuredContent).toMatchObject({
+		expect(toolPayload(validateResult)).toMatchObject({
 			issues: expect.arrayContaining([
 				expect.objectContaining({
 					code: "UNKNOWN_DESIGN_SYSTEM",
@@ -970,7 +970,7 @@ describe("trickroom MCP design read tools", () => {
 			name: "listDesignFiles",
 			arguments: {},
 		});
-		expect(listResult.structuredContent).toMatchObject({
+		expect(toolPayload(listResult)).toMatchObject({
 			designFiles: expect.arrayContaining([
 				expect.objectContaining({
 					id: futureDesignFileId,
@@ -982,7 +982,7 @@ describe("trickroom MCP design read tools", () => {
 			]),
 		});
 		const listed = (
-			listResult.structuredContent as {
+			toolPayload(listResult) as {
 				designFiles: Array<{ id: string; diagnostic?: unknown }>;
 			}
 		).designFiles;
@@ -994,7 +994,7 @@ describe("trickroom MCP design read tools", () => {
 			name: "validateDesignFile",
 			arguments: { designFileId: futureDesignFileId },
 		});
-		expect(validateResult.structuredContent).toMatchObject({
+		expect(toolPayload(validateResult)).toMatchObject({
 			valid: false,
 			issues: [
 				{

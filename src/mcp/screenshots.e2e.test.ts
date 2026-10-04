@@ -7,6 +7,7 @@ import {
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 	trickroomMcpTestDesign,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
@@ -78,9 +79,7 @@ const imageSize = (data: string) => {
 };
 
 /** Structured payload of a JSON tool result. */
-const structured = (result: unknown) =>
-	((result as { structuredContent?: unknown }).structuredContent ??
-		{}) as Record<string, unknown>;
+const structured = (result: unknown) => toolPayload(result);
 
 describe.runIf(process.env.TRICKROOM_SCREENSHOT_E2E === "1")(
 	"MCP screenshot browser integration",

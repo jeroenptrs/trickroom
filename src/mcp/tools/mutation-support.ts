@@ -40,6 +40,7 @@ import {
 	createPolicyDeniedResult,
 	createRevisionMismatchResult,
 	createToolErrorResult,
+	readJsonResultPayload,
 } from "./results";
 
 // Shape post-write diagnostics for a mutation response: every error issue, a
@@ -82,7 +83,7 @@ export const auditToolResult = async (
 	base: Omit<McpAuditEntry, "success" | "status" | "projectRoot">,
 	result: CallToolResult,
 ) => {
-	const payload = (result.structuredContent ?? {}) as Record<string, unknown>;
+	const payload = readJsonResultPayload(result);
 	const status =
 		typeof payload.status === "string"
 			? payload.status

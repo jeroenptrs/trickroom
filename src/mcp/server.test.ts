@@ -19,6 +19,7 @@ import type { TrickroomDesign } from "../types";
 import { assetIdProp } from "../utils/resource-props";
 import { storeDomainTokens } from "../utils/tailwind-token-store";
 import { createTrickroomMcpServer } from "./server";
+import { toolPayload } from "./test-support";
 
 const validDesign = {
 	name: "Landing Page",
@@ -328,7 +329,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "getActiveProject",
 				arguments: {},
 			});
-			expect(initialProject.structuredContent).toMatchObject({
+			expect(toolPayload(initialProject)).toMatchObject({
 				project: {
 					projectId: "proj_first",
 					name: "First Project",
@@ -341,7 +342,7 @@ describe("trickroom MCP discovery tools", () => {
 					path: secondProjectRoot,
 				},
 			});
-			expect(openResult.structuredContent).toMatchObject({
+			expect(toolPayload(openResult)).toMatchObject({
 				active: true,
 				selected: true,
 				project: {
@@ -356,7 +357,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "getActiveProject",
 				arguments: {},
 			});
-			expect(activeProject.structuredContent).toMatchObject({
+			expect(toolPayload(activeProject)).toMatchObject({
 				project: {
 					projectId: "proj_second",
 					name: "Second Project",
@@ -368,7 +369,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "listDesignFiles",
 				arguments: {},
 			});
-			expect(designs.structuredContent).toMatchObject({
+			expect(toolPayload(designs)).toMatchObject({
 				project: {
 					projectId: "proj_second",
 				},
@@ -442,7 +443,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "getActiveProject",
 				arguments: {},
 			});
-			expect(activeProject.structuredContent).toMatchObject({
+			expect(toolPayload(activeProject)).toMatchObject({
 				project: {
 					projectId: "proj_first",
 					name: "First Project",
@@ -454,7 +455,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "listDesignFiles",
 				arguments: {},
 			});
-			expect(designs.structuredContent).toMatchObject({
+			expect(toolPayload(designs)).toMatchObject({
 				project: {
 					projectId: "proj_first",
 				},
@@ -529,7 +530,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "getSelectedProject",
 				arguments: {},
 			});
-			expect(selectedProject.structuredContent).toMatchObject({
+			expect(toolPayload(selectedProject)).toMatchObject({
 				project: {
 					projectId: "proj_app_open_mcp",
 					name: "MCP Selected Project",
@@ -541,7 +542,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "listDesignFiles",
 				arguments: {},
 			});
-			expect(designs.structuredContent).toMatchObject({
+			expect(toolPayload(designs)).toMatchObject({
 				project: {
 					projectId: "proj_app_open_mcp",
 				},
@@ -627,7 +628,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "listDesignFiles",
 				arguments: {},
 			});
-			expect(defaultDesigns.structuredContent).toMatchObject({
+			expect(toolPayload(defaultDesigns)).toMatchObject({
 				project: {
 					projectId: "proj_explicit_default",
 					locationId: firstLocation.locationId,
@@ -648,7 +649,7 @@ describe("trickroom MCP discovery tools", () => {
 					},
 				},
 			});
-			expect(explicitDesigns.structuredContent).toMatchObject({
+			expect(toolPayload(explicitDesigns)).toMatchObject({
 				project: {
 					projectId: "proj_explicit_target",
 					locationId: secondLocation.locationId,
@@ -674,7 +675,7 @@ describe("trickroom MCP discovery tools", () => {
 				},
 			});
 			const explicitRevision = (
-				explicitRead.structuredContent as {
+				toolPayload(explicitRead) as {
 					designFile: { revision: string };
 				}
 			).designFile.revision;
@@ -694,18 +695,16 @@ describe("trickroom MCP discovery tools", () => {
 					name: "Denied Text",
 				},
 			});
-			expect(deniedMutation).toMatchObject({
-				isError: true,
-				structuredContent: {
-					status: "POLICY_DENIED",
-					code: "MCP_READ_ONLY",
-					project: {
-						projectId: "proj_explicit_target",
-						locationId: secondLocation.locationId,
-					},
-					governance: {
-						mode: "read-only",
-					},
+			expect(deniedMutation.isError).toBe(true);
+			expect(toolPayload(deniedMutation)).toMatchObject({
+				status: "POLICY_DENIED",
+				code: "MCP_READ_ONLY",
+				project: {
+					projectId: "proj_explicit_target",
+					locationId: secondLocation.locationId,
+				},
+				governance: {
+					mode: "read-only",
 				},
 			});
 		} finally {
@@ -785,7 +784,7 @@ describe("trickroom MCP discovery tools", () => {
 				},
 			});
 			const explicitRevision = (
-				explicitRead.structuredContent as {
+				toolPayload(explicitRead) as {
 					designFile: { revision: string };
 				}
 			).designFile.revision;
@@ -806,7 +805,7 @@ describe("trickroom MCP discovery tools", () => {
 				},
 			});
 			expect(addResult.isError).not.toBe(true);
-			expect(addResult.structuredContent).toMatchObject({
+			expect(toolPayload(addResult)).toMatchObject({
 				project: {
 					projectId: "proj_write_explicit",
 					locationId: secondLocation.locationId,
@@ -882,15 +881,15 @@ describe("trickroom MCP discovery tools", () => {
 		]);
 
 		try {
-			await expect(
-				client.callTool({
-					name: "getActiveProject",
-					arguments: {},
-				}),
-			).resolves.toMatchObject({
-				structuredContent: {
-					project: null,
-				},
+			expect(
+				toolPayload(
+					await client.callTool({
+						name: "getActiveProject",
+						arguments: {},
+					}),
+				),
+			).toMatchObject({
+				project: null,
 			});
 
 			await client.callTool({
@@ -904,7 +903,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "listProjects",
 				arguments: {},
 			});
-			expect(projects.structuredContent).toMatchObject({
+			expect(toolPayload(projects)).toMatchObject({
 				activeProjectId: null,
 				activeLocationId: null,
 				projects: [
@@ -919,7 +918,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "listDesignFiles",
 				arguments: {},
 			});
-			expect(designs.structuredContent).toMatchObject({
+			expect(toolPayload(designs)).toMatchObject({
 				project: {
 					projectId: "proj_opened",
 				},
@@ -981,7 +980,7 @@ describe("trickroom MCP discovery tools", () => {
 					path: projectRoot,
 				},
 			});
-			expect(openResult.structuredContent).toMatchObject({
+			expect(toolPayload(openResult)).toMatchObject({
 				active: true,
 				project: {
 					projectId: "proj_opened_notified",
@@ -1041,7 +1040,7 @@ describe("trickroom MCP discovery tools", () => {
 					path: projectRoot,
 				},
 			});
-			expect(registerResult.structuredContent).toMatchObject({
+			expect(toolPayload(registerResult)).toMatchObject({
 				selected: false,
 				project: {
 					projectId: "proj_registered_notified",
@@ -1123,7 +1122,7 @@ describe("trickroom MCP discovery tools", () => {
 					projectId: "proj_select_second",
 				},
 			});
-			expect(selectResult.structuredContent).toMatchObject({
+			expect(toolPayload(selectResult)).toMatchObject({
 				selected: true,
 				project: {
 					projectId: "proj_select_second",
@@ -1136,7 +1135,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "getSelectedProject",
 				arguments: {},
 			});
-			expect(selectedProject.structuredContent).toMatchObject({
+			expect(toolPayload(selectedProject)).toMatchObject({
 				project: {
 					projectId: "proj_select_second",
 					projectRoot: secondProjectRoot,
@@ -1147,19 +1146,18 @@ describe("trickroom MCP discovery tools", () => {
 				name: "listProjects",
 				arguments: {},
 			});
-			expect(listProjectsResult.structuredContent).toMatchObject({
+			expect(toolPayload(listProjectsResult)).toMatchObject({
 				activeProjectId: "proj_select_first",
 				activeLocationId: firstLocation.locationId,
 			});
 			expect(
 				Array.isArray(
-					(listProjectsResult.structuredContent as { projects: unknown[] })
-						.projects,
+					(toolPayload(listProjectsResult) as { projects: unknown[] }).projects,
 				),
 			).toBe(true);
 			expect(
 				(
-					listProjectsResult.structuredContent as {
+					toolPayload(listProjectsResult) as {
 						projects: { projectId: string; active: boolean }[];
 					}
 				).projects.find((project) => project.projectId === "proj_select_second")
@@ -1170,7 +1168,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "listDesignFiles",
 				arguments: {},
 			});
-			expect(designs.structuredContent).toMatchObject({
+			expect(toolPayload(designs)).toMatchObject({
 				project: {
 					projectId: "proj_select_second",
 				},
@@ -1225,7 +1223,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "getSelectedProject",
 				arguments: {},
 			});
-			expect(initialProject.structuredContent).toMatchObject({ project: null });
+			expect(toolPayload(initialProject)).toMatchObject({ project: null });
 
 			const registerResult = await client.callTool({
 				name: "registerProject",
@@ -1233,7 +1231,7 @@ describe("trickroom MCP discovery tools", () => {
 					path: projectRoot,
 				},
 			});
-			expect(registerResult.structuredContent).toMatchObject({
+			expect(toolPayload(registerResult)).toMatchObject({
 				selected: false,
 				active: false,
 				project: {
@@ -1247,7 +1245,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "getSelectedProject",
 				arguments: {},
 			});
-			expect(stillUnselected.structuredContent).toMatchObject({
+			expect(toolPayload(stillUnselected)).toMatchObject({
 				project: null,
 			});
 
@@ -1257,7 +1255,7 @@ describe("trickroom MCP discovery tools", () => {
 					projectId: "proj_catalog_only",
 				},
 			});
-			expect(selectResult.structuredContent).toMatchObject({
+			expect(toolPayload(selectResult)).toMatchObject({
 				selected: true,
 				project: {
 					projectId: "proj_catalog_only",
@@ -1269,7 +1267,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "listDesignFiles",
 				arguments: {},
 			});
-			expect(designs.structuredContent).toMatchObject({
+			expect(toolPayload(designs)).toMatchObject({
 				project: {
 					projectId: "proj_catalog_only",
 				},
@@ -1356,7 +1354,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "listRegistries",
 				arguments: {},
 			});
-			expect(listRegistriesResult.structuredContent).toMatchObject({
+			expect(toolPayload(listRegistriesResult)).toMatchObject({
 				registries: expect.arrayContaining([
 					expect.objectContaining({
 						library: "base-ui",
@@ -1394,7 +1392,7 @@ describe("trickroom MCP discovery tools", () => {
 				},
 			});
 			const trickroomRegistry = (
-				componentsResult.structuredContent as {
+				toolPayload(componentsResult) as {
 					registries: { library: string; components: unknown[] }[];
 				}
 			).registries.find((registry) => registry.library === "trickroom");
@@ -1442,7 +1440,7 @@ describe("trickroom MCP discovery tools", () => {
 					component: "text",
 				},
 			});
-			expect(describeResult.structuredContent).toMatchObject({
+			expect(toolPayload(describeResult)).toMatchObject({
 				library: "trickroom",
 				component: "text",
 				role: "text",
@@ -1467,7 +1465,7 @@ describe("trickroom MCP discovery tools", () => {
 					component: "separator",
 				},
 			});
-			expect(separatorResult.structuredContent).toMatchObject({
+			expect(toolPayload(separatorResult)).toMatchObject({
 				library: "base-ui",
 				component: "separator",
 				role: "leaf",
@@ -1495,7 +1493,7 @@ describe("trickroom MCP discovery tools", () => {
 					component: "menu.separator",
 				},
 			});
-			expect(menuSeparatorResult.structuredContent).toMatchObject({
+			expect(toolPayload(menuSeparatorResult)).toMatchObject({
 				library: "base-ui",
 				component: "menu.separator",
 				role: "leaf",
@@ -1523,7 +1521,7 @@ describe("trickroom MCP discovery tools", () => {
 				},
 			});
 			const assetControls = (
-				assetDescribeResult.structuredContent as {
+				toolPayload(assetDescribeResult) as {
 					controls: Array<{
 						prop: string;
 						visibility: string | null;
@@ -1579,7 +1577,7 @@ describe("trickroom MCP discovery tools", () => {
 					library: "base-ui",
 				},
 			});
-			expect(recipesResult.structuredContent).toMatchObject({
+			expect(toolPayload(recipesResult)).toMatchObject({
 				registries: expect.arrayContaining([
 					expect.objectContaining({
 						library: "base-ui",
@@ -1645,7 +1643,7 @@ describe("trickroom MCP discovery tools", () => {
 					recipe: "avatar.default",
 				},
 			});
-			expect(describeResult.structuredContent).toMatchObject({
+			expect(toolPayload(describeResult)).toMatchObject({
 				library: "base-ui",
 				recipe: "base-ui/avatar.default",
 				localRecipe: "avatar.default",
@@ -1719,10 +1717,10 @@ describe("trickroom MCP discovery tools", () => {
 					},
 				},
 			});
-			expect(JSON.stringify(describeResult.structuredContent)).toContain(
+			expect(JSON.stringify(toolPayload(describeResult))).toContain(
 				"Do not pass recipe marker props to generic element mutation tools.",
 			);
-			expect(JSON.stringify(describeResult.structuredContent)).toContain(
+			expect(JSON.stringify(toolPayload(describeResult))).toContain(
 				"defaultsOmitMarkers",
 			);
 
@@ -1733,7 +1731,7 @@ describe("trickroom MCP discovery tools", () => {
 					recipe: "menu.default",
 				},
 			});
-			expect(menuDescribeResult.structuredContent).toMatchObject({
+			expect(toolPayload(menuDescribeResult)).toMatchObject({
 				library: "base-ui",
 				recipe: "base-ui/menu.default",
 				localRecipe: "menu.default",
@@ -1837,7 +1835,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "validateDesignFile",
 				arguments: { designFileId: validDesignFileId },
 			});
-			const validContent = validResult.structuredContent as {
+			const validContent = toolPayload(validResult) as {
 				valid: boolean;
 				issues: Array<{ code: string }>;
 			};
@@ -1856,7 +1854,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "validateDesignFile",
 				arguments: { designFileId: invalidDesignFileId },
 			});
-			expect(invalidResult.structuredContent).toMatchObject({
+			expect(toolPayload(invalidResult)).toMatchObject({
 				valid: false,
 				issues: expect.arrayContaining([
 					expect.objectContaining({
@@ -1876,7 +1874,7 @@ describe("trickroom MCP discovery tools", () => {
 				name: "validateDesignFile",
 				arguments: { designFileId: unknownDesignFileId },
 			});
-			expect(unknownResult.structuredContent).toMatchObject({
+			expect(toolPayload(unknownResult)).toMatchObject({
 				valid: false,
 				issues: expect.arrayContaining([
 					expect.objectContaining({
@@ -1943,7 +1941,7 @@ describe("trickroom MCP discovery tools", () => {
 					designFileId: "10000000-0000-4000-8000-0000000000d1",
 				},
 			});
-			expect(systemResult.structuredContent).toMatchObject({
+			expect(toolPayload(systemResult)).toMatchObject({
 				designFile: {
 					id: "10000000-0000-4000-8000-0000000000d1",
 					name: "Landing Page",
@@ -1966,7 +1964,7 @@ describe("trickroom MCP discovery tools", () => {
 					designFileId: "10000000-0000-4000-8000-0000000000d1",
 				},
 			});
-			expect(tokensResult.structuredContent).toEqual({
+			expect(toolPayload(tokensResult)).toEqual({
 				designFileId: "10000000-0000-4000-8000-0000000000d1",
 				systemId: expect.stringMatching(/^sys_/),
 				systemName: "Core",
@@ -2008,7 +2006,7 @@ describe("trickroom MCP discovery tools", () => {
 				},
 			});
 
-			expect(systemResult.structuredContent).toMatchObject({
+			expect(toolPayload(systemResult)).toMatchObject({
 				designFile: {
 					id: "10000000-0000-4000-8000-0000000000d1",
 					name: "Landing Page",

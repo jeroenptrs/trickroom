@@ -13,14 +13,13 @@ import {
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 	trickroomMcpTestDesign,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
 
 /** Structured payload of a JSON tool result. */
-const structured = (result: unknown) =>
-	((result as { structuredContent?: unknown }).structuredContent ??
-		{}) as Record<string, unknown>;
+const structured = (result: unknown) => toolPayload(result);
 
 describe("MCP screenshot tools", () => {
 	const fixtures: TrickroomMcpProjectFixture[] = [];

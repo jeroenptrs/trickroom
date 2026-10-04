@@ -16,13 +16,33 @@ import {
 import type { TrickroomMcpProjectResolverError } from "../project-resolver";
 import type { TrickroomMcpServerContext } from "../server-types";
 
-// Text and structuredContent always carry the same minified payload.
+// One minified JSON text block. No tool declares an outputSchema, so the
+// payload is not repeated in structuredContent.
 export const createJsonResult = (
 	payload: Record<string, unknown>,
 ): CallToolResult => ({
 	content: [{ type: "text", text: JSON.stringify(payload) }],
-	structuredContent: payload,
 });
+
+/** The JSON payload of a createJsonResult result, or {} for other results. */
+export const readJsonResultPayload = (
+	result: CallToolResult,
+): Record<string, unknown> => {
+	const block = result.content.find((entry) => entry.type === "text");
+	if (block?.type !== "text") {
+		return {};
+	}
+	try {
+		const payload = JSON.parse(block.text) as unknown;
+		return typeof payload === "object" &&
+			payload !== null &&
+			!Array.isArray(payload)
+			? (payload as Record<string, unknown>)
+			: {};
+	} catch {
+		return {};
+	}
+};
 
 const createErrorResult = (
 	payload: Record<string, unknown>,

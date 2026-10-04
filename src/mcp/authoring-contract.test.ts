@@ -16,6 +16,7 @@ import {
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 	trickroomMcpTestDesign,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
@@ -62,7 +63,7 @@ describe("getDesignAuthoringContract", () => {
 			const result = await session.client.callTool({ name, arguments: args });
 			return {
 				result,
-				payload: result.structuredContent as Json,
+				payload: toolPayload(result) as Json,
 				size: (result.content as Array<{ text: string }>)[0].text.length,
 			};
 		};
@@ -551,7 +552,7 @@ describe("getSystemComponentAuthoringContract", () => {
 			name: "getSystemComponentAuthoringContract",
 			arguments: { systemName: "Core" },
 		});
-		expect(core.structuredContent).toMatchObject({
+		expect(toolPayload(core)).toMatchObject({
 			contract: "system-component-authoring",
 			system: {
 				requested: "Core",
@@ -559,7 +560,7 @@ describe("getSystemComponentAuthoringContract", () => {
 				components: { componentCount: 0 },
 			},
 		});
-		expect(Object.keys((core.structuredContent as Json).topics)).toEqual([
+		expect(Object.keys((toolPayload(core) as Json).topics)).toEqual([
 			...SYSTEM_COMPONENT_GUIDE_TOPIC_NAMES,
 		]);
 		expect(
@@ -570,7 +571,7 @@ describe("getSystemComponentAuthoringContract", () => {
 			name: "getSystemComponentAuthoringContract",
 			arguments: { topic: [...SYSTEM_COMPONENT_GUIDE_TOPIC_NAMES] },
 		});
-		expect(topics.structuredContent).toMatchObject({
+		expect(toolPayload(topics)).toMatchObject({
 			template: { type: "RecipeTemplateNode" },
 			slots: { requiredPerSlot: ["name", "hostPath"] },
 			variants: {

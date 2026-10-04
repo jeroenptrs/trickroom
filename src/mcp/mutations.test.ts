@@ -21,6 +21,7 @@ import {
 import {
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
+	toolPayload,
 	trickroomMcpTestDesign,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
@@ -75,7 +76,7 @@ describe("MCP mutation tools", () => {
 			name: "readDesignFile",
 			arguments: { designFileId },
 		});
-		const content = result.structuredContent as {
+		const content = toolPayload(result) as {
 			designFile: { revision: string };
 		};
 		return content.designFile.revision;
@@ -309,7 +310,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					valid: boolean;
 					issues: Array<{ code: string }>;
@@ -466,7 +467,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					newRevision: string;
 					rootElementId: string;
@@ -514,7 +515,7 @@ describe("MCP mutation tools", () => {
 						elementId: "board",
 					},
 				});
-				const boardContent = boardResult.structuredContent as {
+				const boardContent = toolPayload(boardResult) as {
 					element: { childIds: string[] };
 				};
 				expect(boardContent.element.childIds[1]).toBe(content.rootElementId);
@@ -551,7 +552,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as { status: string };
+				const content = toolPayload(result) as { status: string };
 				expect(content.status).toBe("REVISION_MISMATCH");
 				const persisted = await fixture.designFileService.readDesignFile(
 					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
@@ -596,7 +597,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "POLICY_DENIED",
 					code: "MCP_DESIGN_FILE_NOT_ALLOWED",
 				});
@@ -642,7 +643,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "POLICY_DENIED",
 					code: "MCP_COMPONENT_NOT_ALLOWED",
 				});
@@ -683,7 +684,7 @@ describe("MCP mutation tools", () => {
 				});
 				expect(result.isError).toBeFalsy();
 
-				const content = result.structuredContent as { newRevision: string };
+				const content = toolPayload(result) as { newRevision: string };
 				const auditLog = await readFile(
 					path.join(fixture.projectRoot, ".trickroom", "audit-log.jsonl"),
 					"utf8",
@@ -789,17 +790,17 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
 					designFileId: trickroomMcpTestDesignUuid,
 					sameDesign: true,
 					stats: { nodeCount: 1, maxDepth: 1 },
 				});
-				expect(result.structuredContent).not.toHaveProperty("idMap");
-				expect(result.structuredContent).not.toHaveProperty("inserted");
-				expect(result.structuredContent).not.toHaveProperty("changedElement");
-				expect(result.structuredContent).not.toHaveProperty("context");
+				expect(toolPayload(result)).not.toHaveProperty("idMap");
+				expect(toolPayload(result)).not.toHaveProperty("inserted");
+				expect(toolPayload(result)).not.toHaveProperty("changedElement");
+				expect(toolPayload(result)).not.toHaveProperty("context");
 				expect(await getRevision(session, trickroomMcpTestDesignUuid)).toBe(
 					revision,
 				);
@@ -825,7 +826,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					newRevision: string;
 					rootElementId: string;
 					nodeCount: number;
@@ -852,7 +853,7 @@ describe("MCP mutation tools", () => {
 						elementId: content.rootElementId,
 					},
 				});
-				expect(copied.structuredContent).toMatchObject({
+				expect(toolPayload(copied)).toMatchObject({
 					element: {
 						id: content.rootElementId,
 						props: {
@@ -886,7 +887,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "INVALID_OPERATION",
 					valid: false,
 					failedStepIndex: 0,
@@ -927,13 +928,13 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					rootElementId: expect.any(String),
 					nodeCount: 1,
 				});
-				expect(result.structuredContent).not.toHaveProperty("sourceDesignFile");
-				expect(result.structuredContent).not.toHaveProperty("targetDesignFile");
+				expect(toolPayload(result)).not.toHaveProperty("sourceDesignFile");
+				expect(toolPayload(result)).not.toHaveProperty("targetDesignFile");
 			} finally {
 				await session.close();
 			}
@@ -962,7 +963,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "INVALID_OPERATION",
 					code: "SOURCE_REVISION_MISMATCH",
 					currentSourceRevision: expect.any(String),
@@ -1002,16 +1003,16 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "REVISION_MISMATCH",
 					valid: false,
 					currentRevision: expect.any(String),
 					expectedRevision: staleTargetRevision,
 				});
-				expect(result.structuredContent).not.toHaveProperty("idMap");
-				expect(result.structuredContent).not.toHaveProperty("inserted");
-				expect(result.structuredContent).not.toHaveProperty("changedElement");
-				expect(result.structuredContent).not.toHaveProperty("context");
+				expect(toolPayload(result)).not.toHaveProperty("idMap");
+				expect(toolPayload(result)).not.toHaveProperty("inserted");
+				expect(toolPayload(result)).not.toHaveProperty("changedElement");
+				expect(toolPayload(result)).not.toHaveProperty("context");
 			} finally {
 				await session.close();
 			}
@@ -1046,7 +1047,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "REVISION_MISMATCH",
 					currentRevision: expect.any(String),
 					expectedRevision: staleTargetRevision,
@@ -1106,7 +1107,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "POLICY_DENIED",
 					code: "MCP_DESIGN_FILE_NOT_ALLOWED",
 				});
@@ -1153,7 +1154,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "POLICY_DENIED",
 					code: "MCP_DESIGN_FILE_NOT_ALLOWED",
 				});
@@ -1196,7 +1197,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "POLICY_DENIED",
 					code: "MCP_COMPONENT_NOT_ALLOWED",
 				});
@@ -1276,7 +1277,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "INVALID_OPERATION",
 					code: "UNKNOWN_ASSET_ID",
 				});
@@ -1317,7 +1318,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as { newRevision: string };
+				const content = toolPayload(result) as { newRevision: string };
 
 				const auditLog = await readFile(
 					path.join(fixture.projectRoot, ".trickroom", "audit-log.jsonl"),
@@ -1404,7 +1405,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					newRevision: string;
 					designFile: {
@@ -1445,7 +1446,7 @@ describe("MCP mutation tools", () => {
 					name: "listDesignFiles",
 					arguments: {},
 				});
-				const listContent = listResult.structuredContent as {
+				const listContent = toolPayload(listResult) as {
 					designFiles: Array<{ id: string; revision: string }>;
 				};
 				expect(listContent.designFiles).toContainEqual(
@@ -1471,7 +1472,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "INVALID_OPERATION",
 					code: "DESIGN_FILE_ALREADY_EXISTS",
 				});
@@ -1510,7 +1511,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "POLICY_DENIED",
 					code: "MCP_READ_ONLY",
 				});
@@ -1560,7 +1561,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(generatedDenied.isError).toBe(true);
-				expect(generatedDenied.structuredContent).toMatchObject({
+				expect(toolPayload(generatedDenied)).toMatchObject({
 					status: "POLICY_DENIED",
 					code: "MCP_DESIGN_FILE_NOT_ALLOWED",
 				});
@@ -1573,7 +1574,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(created.isError).toBeFalsy();
-				expect(created.structuredContent).toMatchObject({
+				expect(toolPayload(created)).toMatchObject({
 					status: "success",
 					designFile: {
 						id: createdDesignFileId,
@@ -1607,7 +1608,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(created.isError).toBeFalsy();
-				expect(created.structuredContent).toMatchObject({
+				expect(toolPayload(created)).toMatchObject({
 					status: "success",
 					rootElementIds: [],
 				});
@@ -1696,7 +1697,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "INVALID_OPERATION",
 					code: "UNKNOWN_DESIGN_SYSTEM",
 				});
@@ -1716,7 +1717,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(blankName.isError).toBe(true);
-				expect(blankName.structuredContent).toMatchObject({
+				expect(toolPayload(blankName)).toMatchObject({
 					status: "INVALID_OPERATION",
 					code: "INVALID_OPERATION_PARAMETERS",
 				});
@@ -1730,7 +1731,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(blankSystem.isError).toBe(true);
-				expect(blankSystem.structuredContent).toMatchObject({
+				expect(toolPayload(blankSystem)).toMatchObject({
 					status: "INVALID_OPERATION",
 					code: "INVALID_OPERATION_PARAMETERS",
 				});
@@ -1784,7 +1785,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					newRevision: string;
 					designFile: {
@@ -1868,7 +1869,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					designFile: {
 						id: extractedDesignFileId,
@@ -1902,7 +1903,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "INVALID_OPERATION",
 					code: "DESIGN_FILE_ALREADY_EXISTS",
 				});
@@ -1925,7 +1926,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "INVALID_OPERATION",
 					code: "INVALID_OPERATION_PARAMETERS",
 				});
@@ -1961,7 +1962,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(generatedDenied.isError).toBe(true);
-				expect(generatedDenied.structuredContent).toMatchObject({
+				expect(toolPayload(generatedDenied)).toMatchObject({
 					status: "POLICY_DENIED",
 					code: "MCP_DESIGN_FILE_NOT_ALLOWED",
 				});
@@ -1975,7 +1976,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(componentDenied.isError).toBe(true);
-				expect(componentDenied.structuredContent).toMatchObject({
+				expect(toolPayload(componentDenied)).toMatchObject({
 					status: "POLICY_DENIED",
 					code: "MCP_COMPONENT_NOT_ALLOWED",
 				});
@@ -1989,7 +1990,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(allowed.isError).toBeFalsy();
-				expect(allowed.structuredContent).toMatchObject({
+				expect(toolPayload(allowed)).toMatchObject({
 					status: "success",
 					designFile: {
 						id: allowedTextTargetId,
@@ -2027,7 +2028,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "POLICY_DENIED",
 					code: "MCP_COMPONENT_NOT_ALLOWED",
 				});
@@ -2090,7 +2091,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "INVALID_OPERATION",
 					code: "DUPLICATE_ELEMENT_ID",
 				});
@@ -2168,7 +2169,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					newRevision: string;
 					designFile: { name: string; revision: string };
@@ -2204,7 +2205,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					currentRevision: string;
 					expectedRevision: string;
@@ -2237,7 +2238,7 @@ describe("MCP mutation tools", () => {
 						designFileId: trickroomMcpTestDesignUuid,
 					},
 				});
-				const readContent = readResult.structuredContent as {
+				const readContent = toolPayload(readResult) as {
 					designFile: { name: string };
 				};
 				expect(readContent.designFile.name).toBe("Read Back Name");
@@ -2299,7 +2300,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					newRevision: string;
 					changedElement: { id: string; name: string; component: string };
@@ -2334,7 +2335,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					changedElement: {
 						id: string;
@@ -2372,7 +2373,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					currentRevision: string;
 					expectedRevision: string;
@@ -2403,7 +2404,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					code: string;
 				};
@@ -2432,7 +2433,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					code: string;
 				};
@@ -2465,7 +2466,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					changedElement: { name: string };
 				};
@@ -2495,7 +2496,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					changedElement: { id: string; role: string; component: string };
 				};
@@ -2511,7 +2512,7 @@ describe("MCP mutation tools", () => {
 						elementId: content.changedElement.id,
 					},
 				});
-				const readContent = readResult.structuredContent as {
+				const readContent = toolPayload(readResult) as {
 					element: { props: Record<string, unknown>; childIds: string[] };
 				};
 				expect(readContent.element.props.orientation).toBe("vertical");
@@ -2540,7 +2541,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					code: string;
 				};
@@ -2566,7 +2567,7 @@ describe("MCP mutation tools", () => {
 						component: "separator",
 					},
 				});
-				const leafContent = addLeaf.structuredContent as {
+				const leafContent = toolPayload(addLeaf) as {
 					newRevision: string;
 					changedElement: { id: string };
 				};
@@ -2584,7 +2585,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					code: string;
 				};
@@ -2615,7 +2616,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					changedElement: { name: string };
 				};
@@ -2645,7 +2646,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					code: string;
 				};
@@ -2678,7 +2679,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					code: string;
 				};
@@ -2741,7 +2742,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					changedElement: { name: string };
 				};
@@ -2769,7 +2770,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					changedElement: { name: string };
 				};
@@ -2784,7 +2785,7 @@ describe("MCP mutation tools", () => {
 						elementId: "board",
 					},
 				});
-				const readContent = readResult.structuredContent as {
+				const readContent = toolPayload(readResult) as {
 					element: { props: Record<string, unknown> };
 				};
 				expect(readContent.element.props["data-trickroom-name"]).toBe(
@@ -2819,7 +2820,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					changedElement: { name: string };
 				};
@@ -2849,7 +2850,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					changedElement: { name: string };
 					newRevision: string;
@@ -2866,7 +2867,7 @@ describe("MCP mutation tools", () => {
 						elementId: "board",
 					},
 				});
-				const readContent = readResult.structuredContent as {
+				const readContent = toolPayload(readResult) as {
 					element: { props: Record<string, unknown> };
 				};
 				expect(readContent.element.props["data-trickroom-name"]).toBe(
@@ -2894,7 +2895,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as { status: string };
+				const content = toolPayload(result) as { status: string };
 				expect(content.status).toBe("success");
 			} finally {
 				await session.close();
@@ -2916,7 +2917,7 @@ describe("MCP mutation tools", () => {
 						component: "separator",
 					},
 				});
-				const addContent = addResult.structuredContent as {
+				const addContent = toolPayload(addResult) as {
 					newRevision: string;
 					changedElement: { id: string };
 				};
@@ -2939,7 +2940,7 @@ describe("MCP mutation tools", () => {
 						elementId: addContent.changedElement.id,
 					},
 				});
-				const readContent = readResult.structuredContent as {
+				const readContent = toolPayload(readResult) as {
 					element: { props: Record<string, unknown> };
 				};
 				expect(readContent.element.props.orientation).toBe("vertical");
@@ -2964,7 +2965,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					code: string;
 				};
@@ -2992,7 +2993,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as { status: string };
+				const content = toolPayload(result) as { status: string };
 				expect(content.status).toBe("REVISION_MISMATCH");
 			} finally {
 				await session.close();
@@ -3017,7 +3018,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					changedElement: { textPreview: string; role: string };
 				};
@@ -3045,7 +3046,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					code: string;
 				};
@@ -3073,7 +3074,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as { status: string };
+				const content = toolPayload(result) as { status: string };
 				expect(content.status).toBe("REVISION_MISMATCH");
 			} finally {
 				await session.close();
@@ -3132,7 +3133,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as { status: string };
+				const content = toolPayload(result) as { status: string };
 				expect(content.status).toBe("success");
 
 				const readResult = await session.client.callTool({
@@ -3142,7 +3143,7 @@ describe("MCP mutation tools", () => {
 						elementId: "root",
 					},
 				});
-				const readContent = readResult.structuredContent as {
+				const readContent = toolPayload(readResult) as {
 					element: { childIds: string[] };
 				};
 				expect(readContent.element.childIds).toEqual(["b", "a"]);
@@ -3168,7 +3169,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					code: string;
 				};
@@ -3220,7 +3221,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					code: string;
 				};
@@ -3273,7 +3274,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					code: string;
 				};
@@ -3302,7 +3303,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as { status: string };
+				const content = toolPayload(result) as { status: string };
 				expect(content.status).toBe("REVISION_MISMATCH");
 			} finally {
 				await session.close();
@@ -3326,7 +3327,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					deletedElementId: string;
 					deletedCount: number;
@@ -3391,7 +3392,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					deletedCount: number;
 				};
@@ -3417,7 +3418,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					code: string;
 				};
@@ -3444,7 +3445,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				const content = result.structuredContent as { status: string };
+				const content = toolPayload(result) as { status: string };
 				expect(content.status).toBe("REVISION_MISMATCH");
 			} finally {
 				await session.close();
@@ -3472,7 +3473,7 @@ describe("MCP mutation tools", () => {
 						elementId: "board",
 					},
 				});
-				const readContent = readResult.structuredContent as {
+				const readContent = toolPayload(readResult) as {
 					element: { childIds: string[] };
 				};
 				expect(readContent.element.childIds).not.toContain("title");
@@ -3488,7 +3489,7 @@ describe("MCP mutation tools", () => {
 			code: "RECIPE_STRUCTURE_LOCKED" | "RECIPE_STRUCTURAL_NODE_LOCKED",
 		) => {
 			expect(result.isError).toBe(true);
-			const content = result.structuredContent as {
+			const content = toolPayload(result) as {
 				status: string;
 				code: string;
 				message: string;
@@ -3504,7 +3505,7 @@ describe("MCP mutation tools", () => {
 			parameterName: string,
 		) => {
 			expect(result.isError).toBeFalsy();
-			const content = result.structuredContent as {
+			const content = toolPayload(result) as {
 				status: string;
 				valid: boolean;
 				issues: Array<{ code: string; message: string }>;
@@ -3533,7 +3534,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					newRevision: string;
 					recipe: {
 						id: string;
@@ -3597,7 +3598,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
 					operation: "addRecipe",
@@ -3609,7 +3610,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				// Dry-run ids are not the ids a write would create.
-				expect(JSON.stringify(result.structuredContent)).not.toContain(
+				expect(JSON.stringify(toolPayload(result))).not.toContain(
 					"elementIdsByPath",
 				);
 
@@ -3654,7 +3655,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
 					operation: "addSubtree",
@@ -3667,7 +3668,7 @@ describe("MCP mutation tools", () => {
 					issues: [],
 				});
 				expect(
-					(result.structuredContent as { predicted: object }).predicted,
+					(toolPayload(result) as { predicted: object }).predicted,
 				).not.toHaveProperty("rootElementId");
 
 				const persisted = await fixture.designFileService.readDesignFile(
@@ -3700,7 +3701,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
 					operation: "copySubtree",
@@ -3714,7 +3715,7 @@ describe("MCP mutation tools", () => {
 					},
 					issues: [],
 				});
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					predicted: Record<string, unknown>;
 				};
 				expect(content.predicted).not.toHaveProperty("idMap");
@@ -3832,7 +3833,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(slotResult.isError).toBeFalsy();
-				expect(slotResult.structuredContent).toMatchObject({
+				expect(toolPayload(slotResult)).toMatchObject({
 					status: "success",
 				});
 				expect(await getRevision(session, trickroomMcpTestDesignUuid)).not.toBe(
@@ -3855,7 +3856,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(textSlotResult.isError).toBeFalsy();
-				expect(textSlotResult.structuredContent).toMatchObject({
+				expect(toolPayload(textSlotResult)).toMatchObject({
 					status: "success",
 					context: {
 						parentId: "avatar-fallback",
@@ -3905,7 +3906,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(markerResult.isError).toBe(true);
-				expect(markerResult.structuredContent).toMatchObject({
+				expect(toolPayload(markerResult)).toMatchObject({
 					status: "INVALID_OPERATION",
 					code: "INVALID_PROP_KEY",
 				});
@@ -3923,14 +3924,14 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(controlResult.isError).toBeFalsy();
-				expect(controlResult.structuredContent).toMatchObject({
+				expect(toolPayload(controlResult)).toMatchObject({
 					status: "success",
 					changedElement: {
 						id: "avatar-image",
 					},
 				});
 
-				const controlContent = controlResult.structuredContent as {
+				const controlContent = toolPayload(controlResult) as {
 					newRevision: string;
 				};
 				const renameResult = await session.client.callTool({
@@ -3944,7 +3945,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(renameResult.isError).toBeFalsy();
-				const renameContent = renameResult.structuredContent as {
+				const renameContent = toolPayload(renameResult) as {
 					newRevision: string;
 					changedElement: { name: string };
 				};
@@ -3959,7 +3960,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(rootDeleteResult.isError).toBeFalsy();
-				expect(rootDeleteResult.structuredContent).toMatchObject({
+				expect(toolPayload(rootDeleteResult)).toMatchObject({
 					status: "success",
 					deletedElementId: "avatar-root",
 					deletedCount: 4,
@@ -3996,7 +3997,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(modalResult.isError).toBeFalsy();
-				expect(modalResult.structuredContent).toMatchObject({
+				expect(toolPayload(modalResult)).toMatchObject({
 					status: "success",
 					recipeControl: {
 						instanceId: "menu-instance-1",
@@ -4006,7 +4007,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 
-				const modalContent = modalResult.structuredContent as {
+				const modalContent = toolPayload(modalResult) as {
 					newRevision: string;
 				};
 				const alignResult = await session.client.callTool({
@@ -4022,7 +4023,7 @@ describe("MCP mutation tools", () => {
 				});
 				expect(alignResult.isError).toBeFalsy();
 
-				const alignContent = alignResult.structuredContent as {
+				const alignContent = toolPayload(alignResult) as {
 					newRevision: string;
 				};
 				const sideResult = await session.client.callTool({
@@ -4038,7 +4039,7 @@ describe("MCP mutation tools", () => {
 				});
 				expect(sideResult.isError).toBeFalsy();
 
-				const sideContent = sideResult.structuredContent as {
+				const sideContent = toolPayload(sideResult) as {
 					newRevision: string;
 				};
 				const sideOffsetResult = await session.client.callTool({
@@ -4062,7 +4063,7 @@ describe("MCP mutation tools", () => {
 						elementId: expansion.elementIdsByPath.root,
 					},
 				});
-				expect(rootRead.structuredContent).toMatchObject({
+				expect(toolPayload(rootRead)).toMatchObject({
 					element: {
 						props: {
 							modal: false,
@@ -4079,7 +4080,7 @@ describe("MCP mutation tools", () => {
 						elementId: expansion.elementIdsByPath.positioner,
 					},
 				});
-				expect(positionerRead.structuredContent).toMatchObject({
+				expect(toolPayload(positionerRead)).toMatchObject({
 					element: {
 						props: {
 							align: "end",
@@ -4090,7 +4091,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 
-				const sideOffsetContent = sideOffsetResult.structuredContent as {
+				const sideOffsetContent = toolPayload(sideOffsetResult) as {
 					newRevision: string;
 				};
 				const undeclaredResult = await session.client.callTool({
@@ -4105,7 +4106,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(undeclaredResult.isError).toBe(true);
-				expect(undeclaredResult.structuredContent).toMatchObject({
+				expect(toolPayload(undeclaredResult)).toMatchObject({
 					status: "INVALID_OPERATION",
 					code: "RECIPE_CONTROL_NOT_FOUND",
 				});
@@ -4135,7 +4136,7 @@ describe("MCP mutation tools", () => {
 					});
 
 					expect(result.isError).toBeFalsy();
-					expect(result.structuredContent).toMatchObject({
+					expect(toolPayload(result)).toMatchObject({
 						status: "success",
 						recipeMigration: {
 							recipeId: "base-ui/avatar.default",
@@ -4167,7 +4168,7 @@ describe("MCP mutation tools", () => {
 							id: "avatar-root",
 						},
 					});
-					const content = result.structuredContent as {
+					const content = toolPayload(result) as {
 						recipeMigration: {
 							fromTemplateHash: string;
 							toTemplateHash: string;
@@ -4212,7 +4213,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(invalidResult.isError).toBe(true);
-				expect(invalidResult.structuredContent).toMatchObject({
+				expect(toolPayload(invalidResult)).toMatchObject({
 					status: "INVALID_OPERATION",
 					code: "RECIPE_INSTANCE_NOT_STALE",
 				});
@@ -4245,7 +4246,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(unknownResult.isError).toBe(true);
-				expect(unknownResult.structuredContent).toMatchObject({
+				expect(toolPayload(unknownResult)).toMatchObject({
 					status: "INVALID_OPERATION",
 					code: "RECIPE_INSTANCE_NOT_STALE",
 				});
@@ -4278,7 +4279,7 @@ describe("MCP mutation tools", () => {
 					});
 
 					expect(result.isError).toBeFalsy();
-					expect(result.structuredContent).toMatchObject({
+					expect(toolPayload(result)).toMatchObject({
 						status: "success",
 						valid: true,
 						operation: "updateRecipeInstance",
@@ -4336,7 +4337,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
 					operation: "updateRecipeControl",
@@ -4379,7 +4380,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
 					operation: "detachRecipeInstance",
@@ -4393,7 +4394,7 @@ describe("MCP mutation tools", () => {
 						changedElementId: "avatar-image",
 					},
 				});
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					predicted: { detachedElementIds: string[] };
 				};
 				expect(content.predicted.detachedElementIds.sort()).toEqual([
@@ -4456,7 +4457,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(detachResult.isError).toBeFalsy();
-				const detachContent = detachResult.structuredContent as {
+				const detachContent = toolPayload(detachResult) as {
 					newRevision: string;
 					recipe: {
 						id: string;
@@ -4488,7 +4489,7 @@ describe("MCP mutation tools", () => {
 				expect(updateResult.isError).toBeFalsy();
 
 				const moveRevision = (
-					updateResult.structuredContent as {
+					toolPayload(updateResult) as {
 						newRevision: string;
 					}
 				).newRevision;
@@ -4536,7 +4537,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(addResult.isError).toBeFalsy();
-				const addContent = addResult.structuredContent as {
+				const addContent = toolPayload(addResult) as {
 					newRevision: string;
 					changedElement: { id: string };
 				};
@@ -4554,7 +4555,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(updateResult.isError).toBeFalsy();
-				const updateContent = updateResult.structuredContent as {
+				const updateContent = toolPayload(updateResult) as {
 					status: string;
 				};
 				expect(updateContent.status).toBe("success");
@@ -4597,7 +4598,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(failResult.isError).toBe(true);
-				const failContent = failResult.structuredContent as { status: string };
+				const failContent = toolPayload(failResult) as { status: string };
 				expect(failContent.status).toBe("REVISION_MISMATCH");
 			} finally {
 				await session.close();
@@ -4639,14 +4640,14 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
 					operationCount: 2,
 					summary: { errors: 0 },
 					issues: [],
 				});
-				expect(result.structuredContent).not.toHaveProperty("steps");
+				expect(toolPayload(result)).not.toHaveProperty("steps");
 
 				const persisted = await fixture.designFileService.readDesignFile(
 					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
@@ -4691,7 +4692,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "INVALID_OPERATION",
 					valid: false,
 					failedStepIndex: 1,
@@ -4743,7 +4744,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as Record<string, unknown> & {
+				const content = toolPayload(result) as Record<string, unknown> & {
 					created: Array<Record<string, unknown>>;
 					project: Record<string, unknown>;
 				};
@@ -4819,7 +4820,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					created: Array<{ step: number; id: string }>;
 				};
 				expect(content).toMatchObject({
@@ -4869,7 +4870,7 @@ describe("MCP mutation tools", () => {
 						},
 					});
 					expect(result.isError, name).toBe(true);
-					expect(result.structuredContent, name).toMatchObject({
+					expect(toolPayload(result), name).toMatchObject({
 						status: "INVALID_OPERATION",
 						code: "DESIGN_NOT_FOUND",
 					});
@@ -4903,7 +4904,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(batch.isError).toBe(true);
-				expect(batch.structuredContent).toMatchObject({
+				expect(toolPayload(batch)).toMatchObject({
 					status: "INVALID_OPERATION",
 					failedStepIndex: 0,
 					code: "PARENT_NOT_FOUND",
@@ -4922,7 +4923,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(single.isError).toBe(true);
-				expect(single.structuredContent).toMatchObject({
+				expect(toolPayload(single)).toMatchObject({
 					code: "ELEMENT_NOT_FOUND",
 					nameMatches: [{ id: "title", name: "Title" }],
 					message: expect.stringContaining("layer name"),
@@ -4936,7 +4937,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(read.isError).toBe(true);
-				expect(read.structuredContent).toMatchObject({
+				expect(toolPayload(read)).toMatchObject({
 					code: "ELEMENT_NOT_FOUND",
 					truncatedIdMatches: ["title"],
 				});
@@ -4961,7 +4962,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					code: "UNKNOWN_REGISTRY_COMPONENT",
 					suggestions: ["container"],
 					message: expect.stringContaining('Did you mean "container"?'),
@@ -5001,7 +5002,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					created: [{ step: 0, id: expect.any(String), nodeCount: 1 }],
 				});
@@ -5025,7 +5026,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					rootElementId: expect.any(String),
 				});
@@ -5034,16 +5035,15 @@ describe("MCP mutation tools", () => {
 					name: "copySubtree",
 					arguments: {
 						targetDesignFileId: trickroomMcpTestDesignUuid,
-						expectedRevision: (
-							result.structuredContent as { newRevision: string }
-						).newRevision,
+						expectedRevision: (toolPayload(result) as { newRevision: string })
+							.newRevision,
 						sourceElementId: "title",
 						parentId: "board",
 						index: 1,
 						includeIdMap: true,
 					},
 				});
-				expect(withIdMap.structuredContent).toMatchObject({
+				expect(toolPayload(withIdMap)).toMatchObject({
 					status: "success",
 					idMap: { title: expect.any(String) },
 				});
@@ -5070,7 +5070,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					failedStepIndex: 0,
 					code: "INVALID_OPERATION_PARAMETERS",
 					message:
@@ -5161,7 +5161,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					created: Array<{
 						step: number;
 						id: string;
@@ -5243,7 +5243,7 @@ describe("MCP mutation tools", () => {
 					},
 				});
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					failedStepIndex: 1,
 					code: "PARENT_NOT_FOUND",
 					suggestedStepReferences: ["$step:0:tempId:card"],
@@ -5286,7 +5286,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				const content = result.structuredContent as {
+				const content = toolPayload(result) as {
 					status: string;
 					newRevision: string;
 					operationCount: number;
@@ -5352,7 +5352,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "REVISION_MISMATCH",
 					currentRevision: expect.any(String),
 				});
@@ -5405,7 +5405,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "POLICY_DENIED",
 					code: "MCP_COMPONENT_NOT_ALLOWED",
 				});
@@ -5449,7 +5449,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
 					operationCount: 1,
@@ -5476,7 +5476,7 @@ describe("MCP mutation tools", () => {
 						response: "full",
 					},
 				});
-				expect(full.structuredContent).toMatchObject({
+				expect(toolPayload(full)).toMatchObject({
 					steps: [
 						{
 							stepIndex: 0,
@@ -5565,7 +5565,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBe(true);
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "POLICY_DENIED",
 					code: "MCP_COMPONENT_NOT_ALLOWED",
 				});
@@ -5598,7 +5598,7 @@ describe("MCP mutation tools", () => {
 				});
 
 				expect(result.isError).toBeFalsy();
-				expect(result.structuredContent).toMatchObject({
+				expect(toolPayload(result)).toMatchObject({
 					status: "success",
 					valid: true,
 					operationCount: 1,

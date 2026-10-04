@@ -14,6 +14,7 @@ import {
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
 
@@ -80,7 +81,7 @@ describe("MCP expanded class/token diagnostics", () => {
 			name: "readDesignFile",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
-		return (result.structuredContent as { designFile: { revision: string } })
+		return (toolPayload(result) as { designFile: { revision: string } })
 			.designFile.revision;
 	};
 
@@ -133,7 +134,7 @@ describe("MCP expanded class/token diagnostics", () => {
 			name: "validateDesignFile",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		const validation = withWarnings(validateResult.structuredContent) as {
+		const validation = withWarnings(toolPayload(validateResult)) as {
 			issues: Array<{
 				code: string;
 				token?: string;
@@ -224,9 +225,7 @@ describe("MCP expanded class/token diagnostics", () => {
 			name: "validateDesignFile",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
-		expect(defaultResult.structuredContent).not.toHaveProperty(
-			"tokenDiagnostics",
-		);
+		expect(toolPayload(defaultResult)).not.toHaveProperty("tokenDiagnostics");
 
 		const verboseResult = await session.client.callTool({
 			name: "validateDesignFile",
@@ -235,7 +234,7 @@ describe("MCP expanded class/token diagnostics", () => {
 				response: "full",
 			},
 		});
-		const verboseValidation = verboseResult.structuredContent as {
+		const verboseValidation = toolPayload(verboseResult) as {
 			tokenDiagnostics: { customUtilities?: unknown[] } | null;
 		};
 		expect(verboseValidation.tokenDiagnostics?.customUtilities).toEqual(
@@ -293,7 +292,7 @@ describe("MCP expanded class/token diagnostics", () => {
 			name: "validateDesignFile",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		const validation = withWarnings(validateResult.structuredContent) as {
+		const validation = withWarnings(toolPayload(validateResult)) as {
 			issues: Array<{ code: string; token?: string }>;
 		};
 
@@ -358,7 +357,7 @@ describe("MCP expanded class/token diagnostics", () => {
 
 		// Default contract: likely-typo warnings (unknown tokens/utilities) on the
 		// touched element are returned, grouped; other warnings are only counted.
-		expect(mutationResult.structuredContent).toMatchObject({
+		expect(toolPayload(mutationResult)).toMatchObject({
 			status: "success",
 			warningCount: 2,
 			warnings: [
@@ -369,9 +368,7 @@ describe("MCP expanded class/token diagnostics", () => {
 				},
 			],
 		});
-		expect(mutationResult.structuredContent).not.toHaveProperty(
-			"tokenDiagnostics",
-		);
+		expect(toolPayload(mutationResult)).not.toHaveProperty("tokenDiagnostics");
 
 		// response "full" returns every warning in scope, ungrouped.
 		const allWarningsResult = await session.client.callTool({
@@ -384,7 +381,7 @@ describe("MCP expanded class/token diagnostics", () => {
 				response: "full",
 			},
 		});
-		const allWarnings = allWarningsResult.structuredContent as {
+		const allWarnings = toolPayload(allWarningsResult) as {
 			warnings: Array<{ code: string }>;
 			warningCount: number;
 		};
@@ -401,7 +398,7 @@ describe("MCP expanded class/token diagnostics", () => {
 			},
 		});
 
-		expect(validateResult.structuredContent).toMatchObject({
+		expect(toolPayload(validateResult)).toMatchObject({
 			valid: true,
 			summary: {
 				errors: 0,
@@ -464,7 +461,7 @@ describe("MCP expanded class/token diagnostics", () => {
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const warnings = (
-			validateResult.structuredContent as {
+			toolPayload(validateResult) as {
 				warnings?: Array<{ code: string; classToken?: string }>;
 			}
 		).warnings;
@@ -505,7 +502,7 @@ describe("MCP expanded class/token diagnostics", () => {
 			name: "validateDesignFile",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		const validation = withWarnings(validateResult.structuredContent) as {
+		const validation = withWarnings(toolPayload(validateResult)) as {
 			issues: Array<{ code: string; classToken?: string; token?: string }>;
 		};
 
@@ -562,7 +559,7 @@ describe("MCP expanded class/token diagnostics", () => {
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const issues = (
-			withWarnings(validateResult.structuredContent) as {
+			withWarnings(toolPayload(validateResult)) as {
 				issues: Array<{
 					code: string;
 					classToken?: string;
@@ -628,7 +625,7 @@ describe("MCP expanded class/token diagnostics", () => {
 			name: "validateDesignFile",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		const validation = withWarnings(validateResult.structuredContent) as {
+		const validation = withWarnings(toolPayload(validateResult)) as {
 			issues: Array<{ code: string }>;
 		};
 

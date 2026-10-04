@@ -10,6 +10,7 @@ import {
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpStdioTestClient,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
 
@@ -129,7 +130,7 @@ const requireStructuredPayload = async (
 	});
 
 	expect(result.isError, `Expected "${name}" call to succeed`).not.toBe(true);
-	expect(result.structuredContent).toEqual(expect.any(Object));
+	expect(toolPayload(result)).toEqual(expect.any(Object));
 
 	const textContent = result.content.find((content) => content.type === "text");
 	expect(
@@ -147,11 +148,11 @@ const requireStructuredPayload = async (
 		if (parsedTextContent === undefined) {
 			expect(textContent.text.trim().length).toBeGreaterThan(0);
 		} else {
-			expect(parsedTextContent).toEqual(result.structuredContent);
+			expect(parsedTextContent).toEqual(toolPayload(result));
 		}
 	}
 
-	return result.structuredContent as ToolCallPayload;
+	return toolPayload(result) as ToolCallPayload;
 };
 
 const findRevision = (payload: unknown): string | null => {

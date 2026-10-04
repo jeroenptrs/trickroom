@@ -6,6 +6,7 @@ import {
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
 
@@ -35,7 +36,7 @@ describe("trickroom MCP memory tools", () => {
 			name: "listMemoryNotes",
 			arguments: {},
 		});
-		expect(empty.structuredContent).toMatchObject({
+		expect(toolPayload(empty)).toMatchObject({
 			status: "success",
 			scope: { kind: "project" },
 			noteCount: 0,
@@ -52,7 +53,7 @@ describe("trickroom MCP memory tools", () => {
 			},
 		});
 		// Writes acknowledge with id, revision, and size; no note echo.
-		expect(added.structuredContent).toEqual({
+		expect(toolPayload(added)).toEqual({
 			status: "success",
 			project: expect.any(Object),
 			scope: { kind: "project" },
@@ -61,7 +62,7 @@ describe("trickroom MCP memory tools", () => {
 			scopeRevision: expect.any(String),
 			size: 47,
 		});
-		const addedContent = added.structuredContent as {
+		const addedContent = toolPayload(added) as {
 			noteId: string;
 			newRevision: string;
 		};
@@ -72,7 +73,7 @@ describe("trickroom MCP memory tools", () => {
 			name: "listMemoryNotes",
 			arguments: { scope },
 		});
-		expect(index.structuredContent).toMatchObject({
+		expect(toolPayload(index)).toMatchObject({
 			noteCount: 1,
 			categories: ["intent"],
 			notes: [
@@ -87,7 +88,7 @@ describe("trickroom MCP memory tools", () => {
 			],
 		});
 		expect(
-			(index.structuredContent as { notes: Array<Record<string, unknown>> })
+			(toolPayload(index) as { notes: Array<Record<string, unknown>> })
 				.notes[0],
 		).not.toHaveProperty("body");
 
@@ -95,7 +96,7 @@ describe("trickroom MCP memory tools", () => {
 			name: "getMemoryNote",
 			arguments: { scope, noteId },
 		});
-		expect(fetched.structuredContent).toMatchObject({
+		expect(toolPayload(fetched)).toMatchObject({
 			status: "success",
 			note: {
 				noteId,
@@ -115,14 +116,14 @@ describe("trickroom MCP memory tools", () => {
 				body: "Locked the memory tooling shape.",
 			},
 		});
-		expect(updated.structuredContent).toMatchObject({
+		expect(toolPayload(updated)).toMatchObject({
 			status: "success",
 			noteId,
 			size: "Locked the memory tooling shape.".length,
 		});
-		expect(updated.structuredContent).not.toHaveProperty("note");
+		expect(toolPayload(updated)).not.toHaveProperty("note");
 		const revisionAfterUpdate = String(
-			(updated.structuredContent as { newRevision: string }).newRevision,
+			(toolPayload(updated) as { newRevision: string }).newRevision,
 		);
 		expect(revisionAfterUpdate).not.toBe(revisionAfterAdd);
 
@@ -130,7 +131,7 @@ describe("trickroom MCP memory tools", () => {
 			name: "deleteMemoryNote",
 			arguments: { scope, noteId, expectedRevision: revisionAfterUpdate },
 		});
-		expect(deleted.structuredContent).toMatchObject({
+		expect(toolPayload(deleted)).toMatchObject({
 			status: "success",
 			deleted: true,
 			noteId,
@@ -141,7 +142,7 @@ describe("trickroom MCP memory tools", () => {
 			name: "listMemoryNotes",
 			arguments: { scope },
 		});
-		expect(finalList.structuredContent).toMatchObject({
+		expect(toolPayload(finalList)).toMatchObject({
 			noteCount: 0,
 			notes: [],
 		});
@@ -154,9 +155,7 @@ describe("trickroom MCP memory tools", () => {
 			name: "addMemoryNote",
 			arguments: { scope, category: "usage", body: "first" },
 		});
-		const noteId = String(
-			(added.structuredContent as { noteId: string }).noteId,
-		);
+		const noteId = String((toolPayload(added) as { noteId: string }).noteId);
 
 		const stale = await session.client.callTool({
 			name: "updateMemoryNote",
@@ -168,11 +167,10 @@ describe("trickroom MCP memory tools", () => {
 			},
 		});
 		expect(stale.isError).toBe(true);
-		expect(stale.structuredContent).toMatchObject({
+		expect(toolPayload(stale)).toMatchObject({
 			code: "STALE_WRITE",
 			noteId,
-			noteRevision: (added.structuredContent as { newRevision: string })
-				.newRevision,
+			noteRevision: (toolPayload(added) as { newRevision: string }).newRevision,
 			scopeRevision: expect.any(String),
 		});
 	});
@@ -193,7 +191,7 @@ describe("trickroom MCP memory tools", () => {
 			name: "listMemoryNotes",
 			arguments: { scope },
 		});
-		expect(list.structuredContent).toMatchObject({
+		expect(toolPayload(list)).toMatchObject({
 			scope: { kind: "system", systemName: "Core" },
 			noteCount: 1,
 			categories: ["conventions"],
@@ -248,7 +246,7 @@ describe("trickroom MCP memory tools", () => {
 				arguments: { scope },
 			});
 			expect(list.isError, JSON.stringify(scope)).toBeFalsy();
-			expect(list.structuredContent).toMatchObject({ scope: expected });
+			expect(toolPayload(list)).toMatchObject({ scope: expected });
 		}
 	});
 
@@ -256,12 +254,12 @@ describe("trickroom MCP memory tools", () => {
 		await open();
 		const scope = "project";
 		const add = async (body: string) =>
-			(
+			toolPayload(
 				await session.client.callTool({
 					name: "addMemoryNote",
 					arguments: { scope, category: "conventions", body },
-				})
-			).structuredContent as { noteId: string; newRevision: string };
+				}),
+			) as { noteId: string; newRevision: string };
 		const first = await add("Use brand tokens.");
 		const second = await add("Prefer flexbox.");
 
@@ -296,14 +294,13 @@ describe("trickroom MCP memory tools", () => {
 			arguments: {
 				scope,
 				noteId: second.noteId,
-				expectedRevision: (
-					replaced.structuredContent as { newRevision: string }
-				).newRevision,
+				expectedRevision: (toolPayload(replaced) as { newRevision: string })
+					.newRevision,
 				edits: [{ op: "replace", oldText: "grid", newText: "x" }],
 			},
 		});
 		expect(notFound.isError).toBe(true);
-		expect(notFound.structuredContent).toMatchObject({
+		expect(toolPayload(notFound)).toMatchObject({
 			code: "EDIT_TEXT_NOT_FOUND",
 			editIndex: 0,
 		});
@@ -315,7 +312,7 @@ describe("trickroom MCP memory tools", () => {
 				noteIds: [first.noteId, second.noteId, "note_missing"],
 			},
 		});
-		expect(both.structuredContent).toMatchObject({
+		expect(toolPayload(both)).toMatchObject({
 			notes: [
 				{ noteId: first.noteId, body: "Use system tokens.\n\nNo raw hex." },
 				{ noteId: second.noteId, body: "Prefer flex rows." },
@@ -347,7 +344,7 @@ describe("trickroom MCP memory tools", () => {
 		});
 		expect(bundle.isError).toBeFalsy();
 		const scopes = (
-			bundle.structuredContent as {
+			toolPayload(bundle) as {
 				scopes: Array<{
 					scope: Record<string, unknown>;
 					notes: Array<{ summary: string }>;
@@ -373,7 +370,7 @@ describe("trickroom MCP memory tools", () => {
 			arguments: { scope: { kind: "design" } },
 		});
 		expect(list.isError).toBe(true);
-		expect(list.structuredContent).toMatchObject({
+		expect(toolPayload(list)).toMatchObject({
 			code: "INVALID_OPERATION_PARAMETERS",
 			message: expect.stringContaining('{ "kind": "design", "designFileId"'),
 			acceptedScopeShapes: expect.arrayContaining(['{ "kind": "project" }']),
@@ -399,11 +396,11 @@ describe("trickroom MCP memory tools", () => {
 			name: "readDesignFile",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
-		expect(read.structuredContent).toMatchObject({
+		expect(toolPayload(read)).toMatchObject({
 			memory: { noteCount: 1, categories: ["intent"] },
 		});
 		expect(
-			typeof (read.structuredContent as { memoryHint?: unknown }).memoryHint,
+			typeof (toolPayload(read) as { memoryHint?: unknown }).memoryHint,
 		).toBe("string");
 	});
 
@@ -427,7 +424,7 @@ describe("trickroom MCP memory tools", () => {
 			arguments: { scope, resolveReferences: true },
 		});
 		const notes = (
-			list.structuredContent as { notes: Array<{ references: unknown[] }> }
+			toolPayload(list) as { notes: Array<{ references: unknown[] }> }
 		).notes;
 		expect(notes[0]?.references).toEqual(
 			expect.arrayContaining([
@@ -448,7 +445,7 @@ describe("trickroom MCP memory tools", () => {
 			},
 		});
 		expect(result.isError).toBe(true);
-		expect(result.structuredContent).toMatchObject({
+		expect(toolPayload(result)).toMatchObject({
 			status: "POLICY_DENIED",
 			code: "MCP_READ_ONLY",
 		});

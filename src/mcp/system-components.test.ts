@@ -4,6 +4,7 @@ import {
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 } from "./test-support";
 
 const textRoot = () => ({
@@ -34,12 +35,12 @@ describe("trickroom MCP system component tools", () => {
 			name: "listSystemComponents",
 			arguments: { systemName: "Core" },
 		});
-		expect(emptyList.structuredContent).toMatchObject({
+		expect(toolPayload(emptyList)).toMatchObject({
 			systemName: "Core",
 			components: [],
 			settings: { autoMigrateComponents: false },
 		});
-		const initialRevision = String(emptyList.structuredContent?.revision);
+		const initialRevision = String(toolPayload(emptyList)?.revision);
 
 		const created = await session.client.callTool({
 			name: "createSystemComponentDraft",
@@ -53,9 +54,9 @@ describe("trickroom MCP system component tools", () => {
 				draft: { root: textRoot() },
 			},
 		});
-		const componentId = String(created.structuredContent?.componentId);
+		const componentId = String(toolPayload(created)?.componentId);
 		// Writes acknowledge with ids, hashes, and a change summary.
-		expect(created.structuredContent).toMatchObject({
+		expect(toolPayload(created)).toMatchObject({
 			status: "success",
 			valid: true,
 			componentId,
@@ -70,12 +71,12 @@ describe("trickroom MCP system component tools", () => {
 			},
 			diagnostics: [],
 		});
-		expect(created.structuredContent).not.toHaveProperty("record");
-		expect(created.structuredContent?.revision).not.toBe(initialRevision);
-		expect(created.structuredContent?.draftTemplateHash).toEqual(
+		expect(toolPayload(created)).not.toHaveProperty("record");
+		expect(toolPayload(created)?.revision).not.toBe(initialRevision);
+		expect(toolPayload(created)?.draftTemplateHash).toEqual(
 			expect.stringMatching(/^sha256:/),
 		);
-		expect(created.structuredContent?.draftVariantSchemaHash).toEqual(
+		expect(toolPayload(created)?.draftVariantSchemaHash).toEqual(
 			expect.stringMatching(/^sha256:/),
 		);
 
@@ -83,8 +84,8 @@ describe("trickroom MCP system component tools", () => {
 			name: "listSystemComponents",
 			arguments: { systemName: "Core" },
 		});
-		expect(listed.structuredContent).toMatchObject({
-			revision: created.structuredContent?.revision,
+		expect(toolPayload(listed)).toMatchObject({
+			revision: toolPayload(created)?.revision,
 			componentCount: 1,
 			components: [
 				{
@@ -97,31 +98,30 @@ describe("trickroom MCP system component tools", () => {
 		});
 		// The name only restates the slug, so the index leaves it out.
 		expect(
-			(listed.structuredContent as { components: object[] }).components[0],
+			(toolPayload(listed) as { components: object[] }).components[0],
 		).not.toHaveProperty("name");
 
 		const described = await session.client.callTool({
 			name: "describeSystemComponent",
 			arguments: { systemName: "Core", componentId },
 		});
-		expect(described.structuredContent).toMatchObject({
-			revision: created.structuredContent?.revision,
+		expect(toolPayload(described)).toMatchObject({
+			revision: toolPayload(created)?.revision,
 			source: { kind: "draft" },
 			interface: { variantAxes: [], slots: [], overrideTargets: [] },
 			valid: true,
 			diagnostics: [],
 		});
-		expect(described.structuredContent).not.toHaveProperty("root");
-		expect(described.structuredContent).not.toHaveProperty("record");
+		expect(toolPayload(described)).not.toHaveProperty("root");
+		expect(toolPayload(described)).not.toHaveProperty("record");
 
 		const updated = await session.client.callTool({
 			name: "updateSystemComponentDraft",
 			arguments: {
 				systemName: "Core",
 				componentId,
-				expectedRevision: described.structuredContent?.revision,
-				expectedDraftTemplateHash:
-					described.structuredContent?.draftTemplateHash,
+				expectedRevision: toolPayload(described)?.revision,
+				expectedDraftTemplateHash: toolPayload(described)?.draftTemplateHash,
 				root: {
 					path: "root",
 					library: "trickroom",
@@ -148,7 +148,7 @@ describe("trickroom MCP system component tools", () => {
 				},
 			},
 		});
-		expect(updated.structuredContent).toMatchObject({
+		expect(toolPayload(updated)).toMatchObject({
 			status: "success",
 			valid: true,
 			changes: {
@@ -170,7 +170,7 @@ describe("trickroom MCP system component tools", () => {
 				include: ["template", "classes"],
 			},
 		});
-		expect(draftDetail.structuredContent).toMatchObject({
+		expect(toolPayload(draftDetail)).toMatchObject({
 			interface: {
 				slots: [{ name: "content", label: "Content", hostPath: "root" }],
 				overrideTargets: [
@@ -189,8 +189,8 @@ describe("trickroom MCP system component tools", () => {
 			slots: { content: expect.objectContaining({ hostPath: "root" }) },
 			overrideTargets: { label: expect.objectContaining({ path: "label" }) },
 		});
-		expect(updated.structuredContent?.draftTemplateHash).not.toBe(
-			described.structuredContent?.draftTemplateHash,
+		expect(toolPayload(updated)?.draftTemplateHash).not.toBe(
+			toolPayload(described)?.draftTemplateHash,
 		);
 
 		const published = await session.client.callTool({
@@ -198,30 +198,29 @@ describe("trickroom MCP system component tools", () => {
 			arguments: {
 				systemName: "Core",
 				componentId,
-				expectedRevision: updated.structuredContent?.revision,
+				expectedRevision: toolPayload(updated)?.revision,
 			},
 		});
-		expect(published.structuredContent).toMatchObject({
+		expect(toolPayload(published)).toMatchObject({
 			status: "success",
 			componentId,
 			publishedVersion: "1",
 			published: {
 				currentVersion: "1",
-				templateHash: (
-					updated.structuredContent as { draftTemplateHash: string }
-				).draftTemplateHash,
+				templateHash: (toolPayload(updated) as { draftTemplateHash: string })
+					.draftTemplateHash,
 			},
 			changes: { toVersion: "1", nodeCount: 2, slots: ["content"] },
 			valid: true,
 			diagnostics: [],
 		});
-		expect(published.structuredContent).not.toHaveProperty("draftState");
+		expect(toolPayload(published)).not.toHaveProperty("draftState");
 
 		const record = await session.client.callTool({
 			name: "describeSystemComponent",
 			arguments: { systemName: "Core", componentId, versions: "all" },
 		});
-		expect(record.structuredContent).toMatchObject({
+		expect(toolPayload(record)).toMatchObject({
 			source: { kind: "published", version: "1" },
 			versionHistory: [{ version: "1" }],
 			record: { published: { currentVersion: "1" } },
@@ -233,7 +232,7 @@ describe("trickroom MCP system component tools", () => {
 			name: "listSystemComponents",
 			arguments: { systemName: "Core" },
 		});
-		let revision = (initial.structuredContent as { revision: string }).revision;
+		let revision = (toolPayload(initial) as { revision: string }).revision;
 		for (const [slug, group, description] of [
 			["button", "actions", "Primary action trigger. Supports icons."],
 			["link", "actions", undefined],
@@ -262,14 +261,14 @@ describe("trickroom MCP system component tools", () => {
 					},
 				},
 			});
-			revision = (created.structuredContent as { revision: string }).revision;
+			revision = (toolPayload(created) as { revision: string }).revision;
 		}
 
 		const actions = await session.client.callTool({
 			name: "listSystemComponents",
 			arguments: { systemName: "Core", group: "Actions" },
 		});
-		expect(actions.structuredContent).toMatchObject({
+		expect(toolPayload(actions)).toMatchObject({
 			componentCount: 3,
 			matchedCount: 2,
 			components: [
@@ -286,7 +285,7 @@ describe("trickroom MCP system component tools", () => {
 			name: "listSystemComponents",
 			arguments: { systemName: "Core", query: "SURFACE" },
 		});
-		expect(surface.structuredContent).toMatchObject({
+		expect(toolPayload(surface)).toMatchObject({
 			matchedCount: 1,
 			components: [{ slug: "card" }],
 		});
@@ -297,7 +296,7 @@ describe("trickroom MCP system component tools", () => {
 			name: "listSystemComponents",
 			arguments: { systemName: "Core" },
 		});
-		const expectedRevision = String(initial.structuredContent?.revision);
+		const expectedRevision = String(toolPayload(initial)?.revision);
 
 		const [firstResult, secondResult] = await Promise.all([
 			session.client.callTool({
@@ -325,12 +324,12 @@ describe("trickroom MCP system component tools", () => {
 		const staleFailures = outcomes.filter(
 			(outcome) =>
 				outcome.isError === true &&
-				outcome.structuredContent?.code === "STALE_WRITE",
+				toolPayload(outcome)?.code === "STALE_WRITE",
 		);
 
 		expect(successes).toHaveLength(1);
 		expect(staleFailures).toHaveLength(1);
-		expect(successes[0]?.structuredContent).toMatchObject({
+		expect(toolPayload(successes[0])).toMatchObject({
 			status: "success",
 			valid: true,
 		});
@@ -339,20 +338,20 @@ describe("trickroom MCP system component tools", () => {
 			name: "listSystemComponents",
 			arguments: { systemName: "Core" },
 		});
-		expect(listed.structuredContent?.components).toHaveLength(1);
+		expect(toolPayload(listed)?.components).toHaveLength(1);
 		expect(
 			["concurrent-a", "concurrent-b"].includes(
-				String(listed.structuredContent?.components?.[0]?.slug),
+				String(toolPayload(listed)?.components?.[0]?.slug),
 			),
 		).toBe(true);
 
-		const winnerId = String(successes[0]?.structuredContent?.componentId);
+		const winnerId = String(toolPayload(successes[0]).componentId);
 		const described = await session.client.callTool({
 			name: "describeSystemComponent",
 			arguments: { systemName: "Core", componentId: winnerId },
 		});
 		expect(described.isError).not.toBe(true);
-		expect(described.structuredContent).toMatchObject({
+		expect(toolPayload(described)).toMatchObject({
 			valid: true,
 			componentId: winnerId,
 		});
@@ -367,24 +366,24 @@ describe("trickroom MCP system component tools", () => {
 			name: "createSystemComponentDraft",
 			arguments: {
 				systemName: "Core",
-				expectedRevision: initial.structuredContent?.revision,
+				expectedRevision: toolPayload(initial)?.revision,
 				slug: "stale-test",
 				name: "Stale Test",
 			},
 		});
-		const componentId = String(created.structuredContent?.componentId);
+		const componentId = String(toolPayload(created)?.componentId);
 
 		const staleCreate = await session.client.callTool({
 			name: "createSystemComponentDraft",
 			arguments: {
 				systemName: "Core",
-				expectedRevision: initial.structuredContent?.revision,
+				expectedRevision: toolPayload(initial)?.revision,
 				slug: "second",
 				name: "Second",
 			},
 		});
 		expect(staleCreate.isError).toBe(true);
-		expect(staleCreate.structuredContent).toMatchObject({
+		expect(toolPayload(staleCreate)).toMatchObject({
 			status: "INVALID_OPERATION",
 			code: "STALE_WRITE",
 		});
@@ -394,13 +393,13 @@ describe("trickroom MCP system component tools", () => {
 			arguments: {
 				systemName: "Core",
 				componentId,
-				expectedRevision: created.structuredContent?.revision,
+				expectedRevision: toolPayload(created)?.revision,
 				expectedDraftTemplateHash: "sha256:not-current",
 				root: textRoot(),
 			},
 		});
 		expect(staleHash.isError).toBe(true);
-		expect(staleHash.structuredContent).toMatchObject({
+		expect(toolPayload(staleHash)).toMatchObject({
 			status: "INVALID_OPERATION",
 			code: "DRAFT_HASH_MISMATCH",
 		});
@@ -441,38 +440,38 @@ describe("trickroom MCP system component tools", () => {
 			name: "createSystemComponentDraft",
 			arguments: {
 				systemName: "Core",
-				expectedRevision: initial.structuredContent?.revision,
+				expectedRevision: toolPayload(initial)?.revision,
 				slug: "delete-me",
 				name: "Delete Me",
 			},
 		});
-		const componentId = String(created.structuredContent?.componentId);
+		const componentId = String(toolPayload(created)?.componentId);
 
 		const deleted = await session.client.callTool({
 			name: "deleteSystemComponent",
 			arguments: {
 				systemName: "Core",
 				componentId,
-				expectedRevision: created.structuredContent?.revision,
+				expectedRevision: toolPayload(created)?.revision,
 			},
 		});
 		expect(deleted.isError).not.toBe(true);
-		expect(deleted.structuredContent).toMatchObject({
+		expect(toolPayload(deleted)).toMatchObject({
 			status: "success",
 			systemName: "Core",
 			componentId,
 			deleted: true,
 		});
-		expect(deleted.structuredContent?.revision).not.toBe(
-			created.structuredContent?.revision,
+		expect(toolPayload(deleted)?.revision).not.toBe(
+			toolPayload(created)?.revision,
 		);
 
 		const listed = await session.client.callTool({
 			name: "listSystemComponents",
 			arguments: { systemName: "Core" },
 		});
-		expect(listed.structuredContent).toMatchObject({
-			revision: deleted.structuredContent?.revision,
+		expect(toolPayload(listed)).toMatchObject({
+			revision: toolPayload(deleted)?.revision,
 			components: [],
 		});
 
@@ -481,7 +480,7 @@ describe("trickroom MCP system component tools", () => {
 			arguments: { systemName: "Core", componentId },
 		});
 		expect(described.isError).toBe(true);
-		expect(described.structuredContent).toMatchObject({
+		expect(toolPayload(described)).toMatchObject({
 			code: "COMPONENT_NOT_FOUND",
 		});
 	});
@@ -495,19 +494,19 @@ describe("trickroom MCP system component tools", () => {
 			name: "createSystemComponentDraft",
 			arguments: {
 				systemName: "Core",
-				expectedRevision: initial.structuredContent?.revision,
+				expectedRevision: toolPayload(initial)?.revision,
 				slug: "malformed-test",
 				name: "Malformed Test",
 			},
 		});
-		const componentId = String(created.structuredContent?.componentId);
+		const componentId = String(toolPayload(created)?.componentId);
 
 		const malformed = await session.client.callTool({
 			name: "updateSystemComponentDraft",
 			arguments: {
 				systemName: "Core",
 				componentId,
-				expectedRevision: created.structuredContent?.revision,
+				expectedRevision: toolPayload(created)?.revision,
 				root: {
 					library: "trickroom",
 					component: "container",
@@ -523,7 +522,7 @@ describe("trickroom MCP system component tools", () => {
 		});
 
 		expect(malformed.isError).toBe(true);
-		expect(malformed.structuredContent).toMatchObject({
+		expect(toolPayload(malformed)).toMatchObject({
 			status: "INVALID_OPERATION",
 			code: "VALIDATION_FAILED",
 			diagnostics: expect.arrayContaining([
@@ -546,11 +545,11 @@ describe("trickroom MCP system component tools", () => {
 		});
 
 		expect(result.isError).not.toBe(true);
-		expect(result.structuredContent).toMatchObject({
+		expect(toolPayload(result)).toMatchObject({
 			contract: "system-component-authoring",
 			system: { requested: "Core", configured: true },
 			topics: expect.objectContaining({ variants: expect.any(String) }),
 		});
-		expect(JSON.stringify(result.structuredContent).length).toBeLessThan(6_000);
+		expect(JSON.stringify(toolPayload(result)).length).toBeLessThan(6_000);
 	});
 });

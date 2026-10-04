@@ -7,6 +7,7 @@ import {
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 	trickroomMcpTestDesign,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
@@ -85,7 +86,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			name: "readDesignFile",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
-		return (result.structuredContent as { designFile: { revision: string } })
+		return (toolPayload(result) as { designFile: { revision: string } })
 			.designFile.revision;
 	};
 
@@ -100,7 +101,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			},
 		});
 
-		expect(result.structuredContent).toMatchObject({
+		expect(toolPayload(result)).toMatchObject({
 			project: {
 				projectId: expect.any(String),
 			},
@@ -132,7 +133,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 				includeProps: true,
 			},
 		});
-		expect(bounded.structuredContent).toMatchObject({
+		expect(toolPayload(bounded)).toMatchObject({
 			read: {
 				maxNodes: 1,
 				truncated: true,
@@ -153,7 +154,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			},
 		});
 		expect(
-			(bounded.structuredContent as { graph: { elementsById: object } }).graph
+			(toolPayload(bounded) as { graph: { elementsById: object } }).graph
 				.elementsById,
 		).not.toHaveProperty("title");
 	});
@@ -165,7 +166,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			name: "getDesignAuthoringContract",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
-		const core = result.structuredContent as {
+		const core = toolPayload(result) as {
 			model: string[];
 			rules: string[];
 			governance: { mode: string };
@@ -178,7 +179,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			name: "getDesignAuthoringContract",
 			arguments: { topic: "registry", library: "trickroom" },
 		});
-		const { registry } = registryResult.structuredContent as {
+		const { registry } = toolPayload(registryResult) as {
 			registry: {
 				writableProps: string;
 				elements: Array<{ component: string; role: string }>;
@@ -223,7 +224,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		expect(result.isError).toBeFalsy();
-		expect(result.structuredContent).toMatchObject({
+		expect(toolPayload(result)).toMatchObject({
 			status: "success",
 			valid: true,
 			operation: "addElement",
@@ -264,7 +265,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			name: "validateDesignFile",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		expect(validateResult.structuredContent).toMatchObject({
+		expect(toolPayload(validateResult)).toMatchObject({
 			valid: true,
 			tokenDiagnostics: {
 				available: true,
@@ -305,7 +306,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 				response: "full",
 			},
 		});
-		expect(mutationResult.structuredContent).toMatchObject({
+		expect(toolPayload(mutationResult)).toMatchObject({
 			status: "success",
 			warnings: expect.arrayContaining([
 				expect.objectContaining({
@@ -360,7 +361,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 				...addBadElement(),
 			},
 		});
-		expect(defaultResult.structuredContent).toMatchObject({
+		expect(toolPayload(defaultResult)).toMatchObject({
 			status: "success",
 			warningCount: expect.any(Number),
 			warnings: [
@@ -372,9 +373,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			],
 		});
 		// applyDesignOperations omits token diagnostics entirely unless requested.
-		expect(defaultResult.structuredContent).not.toHaveProperty(
-			"tokenDiagnostics",
-		);
+		expect(toolPayload(defaultResult)).not.toHaveProperty("tokenDiagnostics");
 
 		// response "full": every warning, still only on touched elements; the
 		// board's pre-existing bad tokens are not echoed.
@@ -388,7 +387,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 				response: "full",
 			},
 		});
-		const affected = affectedResult.structuredContent as {
+		const affected = toolPayload(affectedResult) as {
 			warnings: Array<{ code: string; token?: string }>;
 		};
 		expect(affected.warnings).toContainEqual(
@@ -429,7 +428,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			name: "validateDesignFile",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		const validation = validateResult.structuredContent as {
+		const validation = toolPayload(validateResult) as {
 			warnings?: Array<{ code: string; token?: string }>;
 		};
 		expect(validation.warnings ?? []).not.toContainEqual(
@@ -459,7 +458,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 				response: "full",
 			},
 		});
-		const mutation = mutationResult.structuredContent as {
+		const mutation = toolPayload(mutationResult) as {
 			warnings?: Array<{ code: string; token?: string }>;
 		};
 		expect(mutation.warnings ?? []).not.toContainEqual(
@@ -509,7 +508,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			name: "validateDesignFile",
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		const validation = validateResult.structuredContent as {
+		const validation = toolPayload(validateResult) as {
 			warnings?: Array<{ code: string; token?: string }>;
 		};
 		const unknownColorWarnings = (validation.warnings ?? []).filter(
@@ -552,7 +551,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 				response: "full",
 			},
 		});
-		const mutation = mutationResult.structuredContent as {
+		const mutation = toolPayload(mutationResult) as {
 			warnings: Array<{ code: string; token?: string }>;
 		};
 
@@ -593,7 +592,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		expect(result.isError).toBe(true);
-		expect(result.structuredContent).toMatchObject({
+		expect(toolPayload(result)).toMatchObject({
 			status: "POLICY_DENIED",
 			code: "MCP_READ_ONLY",
 			governance: {
@@ -645,7 +644,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			name: "listDesignFiles",
 			arguments: {},
 		});
-		expect(listResult.structuredContent).toMatchObject({
+		expect(toolPayload(listResult)).toMatchObject({
 			designFiles: [
 				expect.objectContaining({ id: trickroomMcpTestDesignUuid }),
 			],
@@ -656,7 +655,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			arguments: { designFileId: secondDesignFileId },
 		});
 		expect(deniedRead.isError).toBe(true);
-		expect(deniedRead.structuredContent).toMatchObject({
+		expect(toolPayload(deniedRead)).toMatchObject({
 			status: "POLICY_DENIED",
 			code: "MCP_DESIGN_FILE_NOT_ALLOWED",
 		});
@@ -665,7 +664,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			name: "listRegistryComponents",
 			arguments: { library: "trickroom" },
 		});
-		expect(components.structuredContent).toMatchObject({
+		expect(toolPayload(components)).toMatchObject({
 			registries: [
 				{
 					components: [
@@ -677,7 +676,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			],
 		});
 		const listedComponents = (
-			components.structuredContent as {
+			toolPayload(components) as {
 				registries: Array<{ components: Array<{ component: string }> }>;
 			}
 		).registries[0].components.map((component) => component.component);
@@ -691,7 +690,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			},
 		});
 		expect(deniedComponent.isError).toBe(true);
-		expect(deniedComponent.structuredContent).toMatchObject({
+		expect(toolPayload(deniedComponent)).toMatchObject({
 			status: "POLICY_DENIED",
 			code: "MCP_COMPONENT_NOT_ALLOWED",
 		});

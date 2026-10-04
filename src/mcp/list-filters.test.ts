@@ -9,6 +9,7 @@ import {
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 	trickroomMcpTestDesign,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
@@ -79,7 +80,7 @@ describe("bounded MCP catalog lists", () => {
 			name: "listSystemIcons",
 			arguments: { systemName: "Core" },
 		});
-		expect(all.structuredContent).toMatchObject({
+		expect(toolPayload(all)).toMatchObject({
 			totalCount: 3,
 			matchedCount: 3,
 			returnedCount: 3,
@@ -90,7 +91,7 @@ describe("bounded MCP catalog lists", () => {
 			name: "listSystemIcons",
 			arguments: { systemName: "Core", query: "arrow", limit: 1 },
 		});
-		expect(arrows.structuredContent).toMatchObject({
+		expect(toolPayload(arrows)).toMatchObject({
 			totalCount: 3,
 			matchedCount: 2,
 			returnedCount: 1,
@@ -103,20 +104,20 @@ describe("bounded MCP catalog lists", () => {
 			name: "listSystemIcons",
 			arguments: { systemName: "Core", query: "arrow", limit: 1, offset: 1 },
 		});
-		expect(nextArrows.structuredContent).toMatchObject({
+		expect(toolPayload(nextArrows)).toMatchObject({
 			matchedCount: 2,
 			returnedCount: 1,
 			offset: 1,
 			truncated: false,
 			icons: [{ id: "src/arrow-right" }],
 		});
-		expect(nextArrows.structuredContent).not.toHaveProperty("next");
+		expect(toolPayload(nextArrows)).not.toHaveProperty("next");
 
 		const assets = await session.client.callTool({
 			name: "listSystemAssets",
 			arguments: { systemName: "Core", query: "hero" },
 		});
-		expect(assets.structuredContent).toMatchObject({
+		expect(toolPayload(assets)).toMatchObject({
 			totalCount: 2,
 			matchedCount: 1,
 			assets: [expect.objectContaining({ name: "hero" })],
@@ -130,7 +131,7 @@ describe("bounded MCP catalog lists", () => {
 			name: "listDesignTokens",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
-		const allContent = all.structuredContent as {
+		const allContent = toolPayload(all) as {
 			totalCount: number;
 			returnedCount: number;
 			tokens: Record<string, Record<string, unknown>>;
@@ -152,7 +153,7 @@ describe("bounded MCP catalog lists", () => {
 				limit: 1,
 			},
 		});
-		const brandContent = brand.structuredContent as {
+		const brandContent = toolPayload(brand) as {
 			matchedCount: number;
 			returnedCount: number;
 			truncated: boolean;
@@ -174,7 +175,7 @@ describe("bounded MCP catalog lists", () => {
 			arguments: { designFileId: trickroomMcpTestDesignUuid, domain: "colour" },
 		});
 		expect(unknownDomain.isError).toBe(true);
-		expect(unknownDomain.structuredContent).toMatchObject({
+		expect(toolPayload(unknownDomain)).toMatchObject({
 			code: "UNKNOWN_TOKEN_DOMAIN",
 			suggestions: ["color"],
 		});
