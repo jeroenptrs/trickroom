@@ -38,18 +38,28 @@ registerHooks({
 `;
 
 const worker = `
-const [serviceUrl, projectRoot, lockDirectory, file, mode, label, startAt] =
-	process.argv.slice(2);
+const [
+	serviceUrl,
+	projectRoot,
+	lockDirectory,
+	file,
+	mode,
+	label,
+	startAt,
+	sharedRevision,
+] = process.argv.slice(2);
 const { createDesignFileService, DesignFileServiceError } = await import(serviceUrl);
 const service = createDesignFileService(projectRoot, { lock: { lockDirectory } });
 
 while (Date.now() < Number(startAt)) {}
 
 if (mode === "compete") {
-	const { revision, design } = await service.readDesignFile(file);
+	// Every worker writes against the revision the parent read, as if they
+	// had all read the design before any of them wrote.
+	const { design } = await service.readDesignFile(file);
 	try {
 		await service.writeDesignFile(file, { ...design, name: label }, {
-			expectedRevision: revision,
+			expectedRevision: sharedRevision,
 		});
 		console.log(JSON.stringify({ label, outcome: "written" }));
 	} catch (error) {
@@ -118,7 +128,11 @@ describe("concurrent design writers in separate processes", () => {
 		await rm(tempRoot, { recursive: true, force: true });
 	});
 
-	const runWorkers = (mode: "compete" | "append", count: number) => {
+	const runWorkers = (
+		mode: "compete" | "append",
+		count: number,
+		sharedRevision = "",
+	) => {
 		const startAt = Date.now() + 1_500;
 		return Promise.all(
 			Array.from({ length: count }, (_, index) => {
@@ -136,6 +150,7 @@ describe("concurrent design writers in separate processes", () => {
 						mode,
 						`writer-${index}`,
 						String(startAt),
+						sharedRevision,
 					],
 					{ stdio: ["ignore", "pipe", "pipe"] },
 				);
@@ -172,11 +187,11 @@ describe("concurrent design writers in separate processes", () => {
 		).name;
 
 	it("lets exactly one writer win from a shared revision", async () => {
-		await createDesignFileService(projectRoot, {
+		const { revision } = await createDesignFileService(projectRoot, {
 			lock: { lockDirectory },
 		}).createDesignFile("home.json", design);
 
-		const results = await runWorkers("compete", 6);
+		const results = await runWorkers("compete", 6, revision);
 
 		const winners = results.filter((result) => result.outcome === "written");
 		const losers = results.filter((result) => result.outcome !== "written");
