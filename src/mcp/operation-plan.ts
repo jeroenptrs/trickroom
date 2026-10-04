@@ -1,10 +1,6 @@
 import { z } from "zod";
 import { getRecipeStructuralMetadata } from "../recipes/markers";
-import {
-	createDesignFileService,
-	type DesignFileRead,
-	DesignFileServiceError,
-} from "../services/design-file-service";
+import type { DesignFileRead } from "../services/design-file-service";
 import { DesignTransformError } from "../services/design-transform-service";
 import { enrichElementLookupError } from "../services/element-lookup-hints";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
@@ -12,22 +8,18 @@ import {
 	applyDryRunOperation,
 	assertOperationAllowedByPolicy,
 	type DesignOperationName,
-	type DryRunOperationContext,
+	type DryRunResult,
 	designOperationNameSchema,
 	OPERATION_PARAMETER_SIGNATURES,
 	validateDryRunOperationParameters,
 } from "./design-operations";
-import { type McpDesignIssue, shapeMutationDiagnostics } from "./diagnostics";
-import {
-	assertCanReadDesignFile,
-	assertCanWriteDesignFile,
-	type McpPolicy,
-} from "./governance";
+import type { MutationResponseDetail } from "./diagnostics";
+import { assertCanReadDesignFile, type McpPolicy } from "./governance";
 import type { TrickroomMcpProjectRef } from "./project-resolver";
 import {
 	designFileIdSchema,
 	expectedRevisionSchema,
-	mutationResponseOptionsSchema,
+	mutationResponseDetailSchema,
 } from "./tools/schemas";
 
 const projectRefSchema: z.ZodType<TrickroomMcpProjectRef | undefined> = z
@@ -48,7 +40,7 @@ export const operationPlanInputSchema = z.object({
 	expectedRevision: expectedRevisionSchema,
 	operations: z.array(operationPlanStepSchema).min(1),
 	project: projectRefSchema,
-	response: mutationResponseOptionsSchema.optional(),
+	response: mutationResponseDetailSchema.optional(),
 });
 
 export type OperationPlanInput = z.infer<typeof operationPlanInputSchema>;
@@ -72,29 +64,6 @@ export type OperationPlanStepRecipe = {
 	recipeId: string;
 	rootElementId: string;
 	slots: Record<string, string>;
-};
-
-export type OperationPlanResult = {
-	status: string;
-	valid: boolean;
-	project: Record<string, unknown>;
-	designFile: Record<string, unknown>;
-	operationCount: number;
-	steps: OperationPlanStepOutput[];
-	issues: McpDesignIssue[];
-	warnings?: McpDesignIssue[];
-	tokenDiagnostics?: unknown;
-	changedElementIds: string[];
-	deletedIds: string[];
-	insertedElementIds: string[];
-	recipeExpansions: unknown[];
-	suggestedReads: string[];
-	failedStepIndex?: number;
-	failedOperation?: DesignOperationName;
-	currentRevision?: string;
-	expectedRevision?: string;
-	newRevision?: string;
-	message?: string;
 };
 
 const STEP_REFERENCE_PATTERN = /^\$step:(\d+)(?::(.+))?$/su;
@@ -284,90 +253,170 @@ export const resolveStepReferencesInParameters = (
 ) =>
 	resolveStepReferencesInValue(params, steps, false) as Record<string, unknown>;
 
-const assertCrossFileCopySourceRevision = async (
-	deps: OperationPlanDependencies,
-	input: OperationPlanInput,
-	read: DesignFileRead,
-	sourceDesignFileId: string,
-	sourceExpectedRevision: unknown,
-	stepIndex: number,
-	operation: DesignOperationName,
-	steps: OperationPlanStepOutput[],
-	sourceDesignReads: Map<string, DesignFileRead>,
-	aggregates: {
-		changedElementIds: string[];
-		deletedIds: string[];
-		insertedElementIds: string[];
-		recipeExpansions: unknown[];
-	},
-): Promise<
-	| { kind: "ok"; sourceRead: DesignFileRead }
-	| { kind: "error"; result: OperationPlanResult }
-> => {
-	if (typeof sourceExpectedRevision !== "string") {
-		throw new DesignTransformError(
-			"SOURCE_REVISION_REQUIRED",
-			"sourceExpectedRevision is required for cross-file copySubtree operations in a plan.",
-		);
-	}
-
-	let sourceRead = sourceDesignReads.get(sourceDesignFileId);
-	if (!sourceRead) {
-		sourceRead = await deps.readDesignFile(sourceDesignFileId);
-		sourceDesignReads.set(sourceDesignFileId, sourceRead);
-	}
-
-	if (sourceRead.revision !== sourceExpectedRevision) {
-		return {
-			kind: "error",
-			result: {
-				status: "SOURCE_REVISION_MISMATCH",
-				valid: false,
-				project: deps.getProjectReference(),
-				designFile: deps.getDesignMetadata(input.designFileId, read),
-				operationCount: input.operations.length,
-				steps,
-				failedStepIndex: stepIndex,
-				failedOperation: operation,
-				currentRevision: sourceRead.revision,
-				expectedRevision: sourceExpectedRevision,
-				issues: [
-					{
-						severity: "error",
-						code: "SOURCE_REVISION_MISMATCH",
-						message:
-							"Expected source revision does not match current revision.",
-					},
-				],
-				warnings: [],
-				tokenDiagnostics: null,
-				changedElementIds: aggregates.changedElementIds,
-				deletedIds: aggregates.deletedIds,
-				insertedElementIds: aggregates.insertedElementIds,
-				recipeExpansions: aggregates.recipeExpansions,
-				suggestedReads: ["readDesignFile", "readDesignGraph"],
-			},
-		};
-	}
-
-	return { kind: "ok", sourceRead };
-};
-
-type OperationPlanDependencies = {
+/** What executing one design operation needs besides the design itself. */
+export type DesignOperationDependencies = {
 	policy: McpPolicy;
 	projectRoot: string;
-	readDesignFile: (designFileId: string) => Promise<DesignFileRead>;
-	getProjectReference: () => Record<string, unknown>;
-	getDesignMetadata: (
-		designFileId: string,
-		read: DesignFileRead,
-	) => Record<string, unknown>;
-	getDesignDiagnostics: (design: TrickroomDesign) => Promise<{
-		issues: McpDesignIssue[];
-		tokenSnapshot: unknown;
-	}>;
-	assertResourceReferencesExist: (design: TrickroomDesign) => Promise<void>;
+	/** Reject asset/icon references on these elements that the system lacks. */
+	assertResourceReferencesExist: (
+		design: TrickroomDesign,
+		elementIds: readonly string[],
+	) => Promise<void>;
 	assertCanUseSubtreeComponents: (subtree: DesignNode) => void;
+};
+
+export type OperationPlanDependencies = DesignOperationDependencies & {
+	/** Reads other designs, for cross-design copySubtree sources. */
+	readDesignFile: (designFileId: string) => Promise<DesignFileRead>;
+};
+
+export type DesignOperationExecution = DryRunResult & {
+	/**
+	 * Elements the operation inserted or changed: the scope of its resource
+	 * checks and of the warnings a write reports.
+	 */
+	affectedElementIds: string[];
+};
+
+const findNode = (
+	design: TrickroomDesign,
+	elementId: string,
+): DesignNode | null => {
+	const visit = (node: DesignNode): DesignNode | null => {
+		if (node.id === elementId) {
+			return node;
+		}
+		if (typeof node.children === "string") {
+			return null;
+		}
+		for (const child of node.children) {
+			const found = visit(child);
+			if (found) {
+				return found;
+			}
+		}
+		return null;
+	};
+
+	for (const root of design.boards) {
+		const found = visit(root);
+		if (found) {
+			return found;
+		}
+	}
+
+	return null;
+};
+
+const getSubtreeIds = (design: TrickroomDesign, rootElementId: string) => {
+	const ids: string[] = [];
+	const visit = (node: DesignNode) => {
+		ids.push(node.id);
+		if (Array.isArray(node.children)) {
+			for (const child of node.children) {
+				visit(child);
+			}
+		}
+	};
+	const root = findNode(design, rootElementId);
+	if (root) {
+		visit(root);
+	}
+	return ids;
+};
+
+const getAffectedElementIds = (result: DryRunResult): string[] => {
+	switch (result.operation) {
+		case "renameDesignFile":
+		case "deleteElement":
+			return [];
+		case "detachRecipeInstance":
+		case "detachSystemComponent":
+			return Array.isArray(result.summary.detachedElementIds)
+				? (result.summary.detachedElementIds as string[])
+				: [];
+		case "updateSystemComponentInstance":
+			return getSubtreeIds(result.design, String(result.summary.rootElementId));
+		case "updateRecipeInstance":
+			return result.changedElementId
+				? getSubtreeIds(result.design, result.changedElementId)
+				: [];
+		default:
+			return (
+				result.insertedElementIds ??
+				(result.changedElementId ? [result.changedElementId] : [])
+			);
+	}
+};
+
+const SUBTREE_POLICY_OPERATIONS = new Set<DesignOperationName>([
+	"addSubtree",
+	"addSystemComponent",
+]);
+
+/**
+ * Apply one validated operation to an in-memory design: policy checks, the
+ * transform, and resource checks on the elements it touched. The single
+ * implementation behind applyDesignOperations steps, validateOperation(Plan)
+ * and the single-element write tools.
+ */
+export const executeDesignOperation = async (
+	deps: DesignOperationDependencies,
+	design: TrickroomDesign,
+	operation: DesignOperationName,
+	params: Record<string, unknown>,
+	context: {
+		designFileId: string;
+		sourceDesigns?: ReadonlyMap<string, TrickroomDesign>;
+	},
+): Promise<DesignOperationExecution> => {
+	const sourceDesigns = context.sourceDesigns ?? new Map();
+	if (operation === "copySubtree") {
+		const sourceDesignFileId = String(params.sourceDesignFileId);
+		const sourceDesign =
+			sourceDesignFileId === context.designFileId
+				? design
+				: sourceDesigns.get(sourceDesignFileId);
+		const sourceElementId = String(params.sourceElementId);
+		const sourceElement = sourceDesign
+			? findNode(sourceDesign, sourceElementId)
+			: null;
+		if (sourceDesign && !sourceElement) {
+			throw new DesignTransformError(
+				"ELEMENT_NOT_FOUND",
+				`Element "${sourceElementId}" not found.`,
+			);
+		}
+		if (sourceElement) {
+			deps.assertCanUseSubtreeComponents(sourceElement);
+		}
+	} else if (
+		operation !== "renameDesignFile" &&
+		!SUBTREE_POLICY_OPERATIONS.has(operation)
+	) {
+		assertOperationAllowedByPolicy(deps.policy, design, operation, params);
+	}
+
+	const result = await applyDryRunOperation(design, operation, params, {
+		designFileId: context.designFileId,
+		projectRoot: deps.projectRoot,
+		sourceDesigns,
+	});
+
+	if (SUBTREE_POLICY_OPERATIONS.has(operation) && result.changedElementId) {
+		const insertedRoot = findNode(result.design, result.changedElementId);
+		if (!insertedRoot) {
+			throw new DesignTransformError(
+				"INVALID_OPERATION",
+				`Failed to validate the inserted ${operation} root.`,
+			);
+		}
+		deps.assertCanUseSubtreeComponents(insertedRoot);
+	}
+
+	const affectedElementIds = getAffectedElementIds(result);
+	await deps.assertResourceReferencesExist(result.design, affectedElementIds);
+	return { ...result, affectedElementIds };
 };
 
 /**
@@ -431,108 +480,6 @@ const collectInsertedRecipes = (
 	return recipes;
 };
 
-const findElementContext = (
-	design: TrickroomDesign,
-	elementId: string,
-): DesignNode | null => {
-	const visit = (node: DesignNode): DesignNode | null => {
-		if (node.id === elementId) {
-			return node;
-		}
-		if (typeof node.children === "string") {
-			return null;
-		}
-		for (const child of node.children) {
-			const found = visit(child);
-			if (found) {
-				return found;
-			}
-		}
-		return null;
-	};
-
-	for (const root of design.boards) {
-		const found = visit(root);
-		if (found) {
-			return found;
-		}
-	}
-
-	return null;
-};
-
-const buildRevisionMismatchResult = (
-	deps: OperationPlanDependencies,
-	designFileId: string,
-	read: DesignFileRead,
-	expectedRevision: string,
-): OperationPlanResult => ({
-	status: "REVISION_MISMATCH",
-	valid: false,
-	project: deps.getProjectReference(),
-	designFile: deps.getDesignMetadata(designFileId, read),
-	operationCount: 0,
-	steps: [],
-	currentRevision: read.revision,
-	expectedRevision,
-	message:
-		"The design file was modified since your last read. Re-read before validating or applying the operation plan.",
-	suggestedReads: ["readDesignFile", "readDesignGraph"],
-	issues: [
-		{
-			severity: "error",
-			code: "REVISION_MISMATCH",
-			message: "Expected revision does not match current revision.",
-		},
-	],
-	warnings: [],
-	tokenDiagnostics: null,
-	changedElementIds: [],
-	deletedIds: [],
-	insertedElementIds: [],
-	recipeExpansions: [],
-});
-
-const buildInvalidStepResult = (
-	deps: OperationPlanDependencies,
-	input: OperationPlanInput,
-	read: DesignFileRead,
-	stepIndex: number,
-	operation: DesignOperationName,
-	steps: OperationPlanStepOutput[],
-	error: DesignTransformError,
-	aggregates: {
-		changedElementIds: string[];
-		deletedIds: string[];
-		insertedElementIds: string[];
-		recipeExpansions: unknown[];
-	},
-): OperationPlanResult => ({
-	status: "invalid",
-	valid: false,
-	project: deps.getProjectReference(),
-	designFile: deps.getDesignMetadata(input.designFileId, read),
-	operationCount: input.operations.length,
-	steps,
-	failedStepIndex: stepIndex,
-	failedOperation: operation,
-	issues: [
-		{
-			severity: "error",
-			code: error.code,
-			message: error.message,
-			...error.details,
-		},
-	],
-	warnings: [],
-	tokenDiagnostics: null,
-	changedElementIds: aggregates.changedElementIds,
-	deletedIds: aggregates.deletedIds,
-	insertedElementIds: aggregates.insertedElementIds,
-	recipeExpansions: aggregates.recipeExpansions,
-	suggestedReads: ["readDesignGraph", "readElement", "validateDesignFile"],
-});
-
 /**
  * A missing element id that equals a tempId (or slot name) from an earlier
  * step is almost always a bare tempId; point at the step reference instead.
@@ -578,187 +525,161 @@ const withExpectedParameters = (
 			})
 		: error;
 
-export const executeOperationPlanDryRun = async (
+const toStepOutput = (
+	stepIndex: number,
+	result: DryRunResult,
+): OperationPlanStepOutput => {
+	const rootElementId =
+		typeof result.summary.rootElementId === "string"
+			? result.summary.rootElementId
+			: result.changedElementId;
+	const stepOutput: OperationPlanStepOutput = {
+		stepIndex,
+		operation: result.operation,
+		summary: result.summary,
+		...(result.changedElementId
+			? { changedElementId: result.changedElementId }
+			: {}),
+		...(rootElementId ? { rootElementId } : {}),
+		...(result.deletedIds ? { deletedIds: result.deletedIds } : {}),
+		...(result.insertedElementIds
+			? { insertedElementIds: result.insertedElementIds }
+			: {}),
+		...(result.recipeExpansions
+			? { recipeExpansions: result.recipeExpansions }
+			: {}),
+		...(result.idMap && Object.keys(result.idMap).length > 0
+			? { idMap: result.idMap }
+			: {}),
+	};
+	const recipes = collectInsertedRecipes(
+		result.design,
+		result.insertedElementIds ?? [],
+		result.idMap,
+	);
+	if (recipes.length > 0) {
+		stepOutput.recipes = recipes;
+	}
+	return stepOutput;
+};
+
+export type OperationPlanExecution =
+	| {
+			status: "success";
+			design: TrickroomDesign;
+			steps: OperationPlanStepOutput[];
+			/** Inserted or changed elements that still exist after the plan. */
+			affectedElementIds: string[];
+			deletedIds: string[];
+	  }
+	| {
+			status: "failed";
+			failedStepIndex: number;
+			failedOperation: DesignOperationName;
+			error: DesignTransformError;
+			steps: OperationPlanStepOutput[];
+	  };
+
+/**
+ * Load the source of a cross-design copySubtree step and check its revision.
+ * Same-design copies read the candidate design instead.
+ */
+const loadCopySource = async (
 	deps: OperationPlanDependencies,
-	input: OperationPlanInput,
-): Promise<OperationPlanResult & { finalDesign?: TrickroomDesign }> => {
-	const read = await deps.readDesignFile(input.designFileId);
-	if (read.revision !== input.expectedRevision) {
-		return buildRevisionMismatchResult(
-			deps,
-			input.designFileId,
-			read,
-			input.expectedRevision,
+	params: Record<string, unknown>,
+	sourceDesignReads: Map<string, DesignFileRead>,
+) => {
+	const sourceDesignFileId = String(params.sourceDesignFileId);
+	assertCanReadDesignFile(deps.policy, sourceDesignFileId);
+	const sourceExpectedRevision = params.sourceExpectedRevision;
+	if (typeof sourceExpectedRevision !== "string") {
+		throw new DesignTransformError(
+			"SOURCE_REVISION_REQUIRED",
+			"sourceExpectedRevision is required for cross-design copySubtree.",
+			{ sourceDesignFileId },
 		);
 	}
 
+	let sourceRead = sourceDesignReads.get(sourceDesignFileId);
+	if (!sourceRead) {
+		sourceRead = await deps.readDesignFile(sourceDesignFileId);
+		sourceDesignReads.set(sourceDesignFileId, sourceRead);
+	}
+	if (sourceRead.revision !== sourceExpectedRevision) {
+		throw new DesignTransformError(
+			"SOURCE_REVISION_MISMATCH",
+			"The copy source design changed since your last read. Re-read it and retry with its current revision.",
+			{
+				sourceDesignFileId,
+				currentSourceRevision: sourceRead.revision,
+				sourceExpectedRevision,
+			},
+		);
+	}
+};
+
+/**
+ * Run an ordered list of operations against an in-memory design. Stops at the
+ * first failing step; nothing is written. Revision checks on the target are
+ * the caller's (see mutateDesignFile).
+ */
+export const executeOperationPlan = async (
+	deps: OperationPlanDependencies,
+	input: Pick<OperationPlanInput, "designFileId" | "operations">,
+	design: TrickroomDesign,
+): Promise<OperationPlanExecution> => {
 	const sourceDesignReads = new Map<string, DesignFileRead>();
 	const steps: OperationPlanStepOutput[] = [];
-	const changedElementIds: string[] = [];
+	const affectedElementIds = new Set<string>();
 	const deletedIds: string[] = [];
-	const insertedElementIds: string[] = [];
-	const recipeExpansions: unknown[] = [];
-
-	let candidateDesign = read.design;
+	let candidateDesign = design;
 
 	for (let stepIndex = 0; stepIndex < input.operations.length; stepIndex++) {
-		const step = input.operations[stepIndex];
-		const operation = step.operation;
-
+		const { operation, parameters } = input.operations[stepIndex];
 		try {
-			const rawParams = validateDryRunOperationParameters(
-				operation,
-				step.parameters,
-				{ designFileId: input.designFileId },
+			const params = resolveStepReferencesInParameters(
+				validateDryRunOperationParameters(operation, parameters, {
+					designFileId: input.designFileId,
+				}),
+				steps,
 			);
-			const params = resolveStepReferencesInParameters(rawParams, steps);
-
-			if (operation === "copySubtree") {
-				const sourceDesignFileId = String(params.sourceDesignFileId);
-				const sourceElementId = String(params.sourceElementId);
-				let sourceDesign = candidateDesign;
-
-				if (sourceDesignFileId !== input.designFileId) {
-					assertCanReadDesignFile(deps.policy, sourceDesignFileId);
-					const sourceRevisionResult = await assertCrossFileCopySourceRevision(
-						deps,
-						input,
-						read,
-						sourceDesignFileId,
-						params.sourceExpectedRevision,
-						stepIndex,
-						operation,
-						steps,
-						sourceDesignReads,
-						{
-							changedElementIds,
-							deletedIds,
-							insertedElementIds,
-							recipeExpansions,
-						},
-					);
-					if (sourceRevisionResult.kind === "error") {
-						return sourceRevisionResult.result;
-					}
-					sourceDesign = sourceRevisionResult.sourceRead.design;
-				}
-
-				const sourceElement = findElementContext(sourceDesign, sourceElementId);
-				if (!sourceElement) {
-					throw new DesignTransformError(
-						"ELEMENT_NOT_FOUND",
-						`Element "${sourceElementId}" not found.`,
-					);
-				}
-				deps.assertCanUseSubtreeComponents(sourceElement);
-			} else if (
-				operation !== "renameDesignFile" &&
-				operation !== "addSubtree" &&
-				operation !== "addSystemComponent"
+			if (
+				operation === "copySubtree" &&
+				params.sourceDesignFileId !== input.designFileId
 			) {
-				assertOperationAllowedByPolicy(
-					deps.policy,
-					candidateDesign,
-					operation,
-					params,
-				);
+				await loadCopySource(deps, params, sourceDesignReads);
 			}
 
-			const dryRunContext: DryRunOperationContext = {
-				designFileId: input.designFileId,
-				projectRoot: deps.projectRoot,
-				sourceDesigns: new Map(
-					[...sourceDesignReads.entries()].map(([id, sourceRead]) => [
-						id,
-						sourceRead.design,
-					]),
-				),
-			};
-
-			const result = await applyDryRunOperation(
+			const result = await executeDesignOperation(
+				deps,
 				candidateDesign,
 				operation,
 				params,
-				dryRunContext,
+				{
+					designFileId: input.designFileId,
+					sourceDesigns: new Map(
+						[...sourceDesignReads].map(([id, read]) => [id, read.design]),
+					),
+				},
 			);
-
-			if (
-				(operation === "addSubtree" || operation === "addSystemComponent") &&
-				result.changedElementId
-			) {
-				const insertedRoot = findElementContext(
-					result.design,
-					result.changedElementId,
-				);
-				if (!insertedRoot) {
-					throw new DesignTransformError(
-						"INVALID_OPERATION",
-						`Failed to validate inserted ${operation} root after applying plan step.`,
-					);
-				}
-				deps.assertCanUseSubtreeComponents(insertedRoot);
-			}
-
-			await deps.assertResourceReferencesExist(result.design);
-
 			candidateDesign = result.design;
-
-			const rootElementId =
-				typeof result.summary.rootElementId === "string"
-					? result.summary.rootElementId
-					: result.changedElementId;
-
-			const stepOutput: OperationPlanStepOutput = {
-				stepIndex,
-				operation,
-				summary: result.summary,
-				...(result.changedElementId
-					? { changedElementId: result.changedElementId }
-					: {}),
-				...(rootElementId ? { rootElementId } : {}),
-				...(result.deletedIds ? { deletedIds: result.deletedIds } : {}),
-				...(result.insertedElementIds
-					? { insertedElementIds: result.insertedElementIds }
-					: {}),
-				...(result.recipeExpansions
-					? { recipeExpansions: result.recipeExpansions }
-					: {}),
-				...(result.idMap && Object.keys(result.idMap).length > 0
-					? { idMap: result.idMap }
-					: {}),
-			};
-			const recipes = collectInsertedRecipes(
-				result.design,
-				result.insertedElementIds ?? [],
-				result.idMap,
-			);
-			if (recipes.length > 0) {
-				stepOutput.recipes = recipes;
-			}
-			steps.push(stepOutput);
-
-			if (result.changedElementId) {
-				changedElementIds.push(result.changedElementId);
+			steps.push(toStepOutput(stepIndex, result));
+			for (const id of result.affectedElementIds) {
+				affectedElementIds.add(id);
 			}
 			if (result.deletedIds) {
 				deletedIds.push(...result.deletedIds);
-			}
-			if (result.insertedElementIds) {
-				insertedElementIds.push(...result.insertedElementIds);
-			}
-			if (result.recipeExpansions) {
-				recipeExpansions.push(...result.recipeExpansions);
+				for (const id of result.deletedIds) {
+					affectedElementIds.delete(id);
+				}
 			}
 		} catch (error) {
 			if (error instanceof DesignTransformError) {
-				return buildInvalidStepResult(
-					deps,
-					input,
-					read,
-					stepIndex,
-					operation,
-					steps,
-					withExpectedParameters(
+				return {
+					status: "failed",
+					failedStepIndex: stepIndex,
+					failedOperation: operation,
+					error: withExpectedParameters(
 						operation,
 						withStepReferenceHint(
 							enrichElementLookupError(error, [
@@ -770,214 +691,69 @@ export const executeOperationPlanDryRun = async (
 							steps,
 						),
 					),
-					{
-						changedElementIds,
-						deletedIds,
-						insertedElementIds,
-						recipeExpansions,
-					},
-				);
+					steps,
+				};
 			}
 			throw error;
 		}
 	}
 
-	const diagnostics = await deps.getDesignDiagnostics(candidateDesign);
-	const shaped = shapeMutationDiagnostics(diagnostics, input.response, [
-		...changedElementIds,
-		...insertedElementIds,
-	]);
-
 	return {
 		status: "success",
-		valid: diagnostics.issues.every((issue) => issue.severity !== "error"),
-		project: deps.getProjectReference(),
-		designFile: deps.getDesignMetadata(input.designFileId, read),
-		operationCount: input.operations.length,
+		design: candidateDesign,
 		steps,
-		...shaped,
-		changedElementIds,
+		affectedElementIds: [...affectedElementIds],
 		deletedIds,
-		insertedElementIds,
-		recipeExpansions,
-		suggestedReads: ["readDesignGraph", "readElement", "validateDesignFile"],
-		finalDesign: candidateDesign,
 	};
 };
 
-export const applyOperationPlan = async (
-	deps: OperationPlanDependencies & {
-		canonicalizeDesignForStorage: (
-			design: TrickroomDesign,
-		) => Promise<TrickroomDesign>;
-		writeDesignFile: (
-			designFileId: string,
-			design: TrickroomDesign,
-			expectedRevision: string,
-		) => Promise<{ revision: string }>;
-	},
-	input: OperationPlanInput,
-): Promise<OperationPlanResult> => {
-	assertCanWriteDesignFile(deps.policy, input.designFileId);
-
-	const dryRun = await executeOperationPlanDryRun(deps, input);
-	const { finalDesign, ...publicResult } = dryRun;
-
-	if (dryRun.status !== "success" || !dryRun.valid || !finalDesign) {
-		return publicResult;
-	}
-
-	const read = await deps.readDesignFile(input.designFileId);
-	if (read.revision !== input.expectedRevision) {
-		return buildRevisionMismatchResult(
-			deps,
-			input.designFileId,
-			read,
-			input.expectedRevision,
-		);
-	}
-
-	try {
-		const nextDesign = await deps.canonicalizeDesignForStorage(finalDesign);
-		const write = await deps.writeDesignFile(
-			input.designFileId,
-			nextDesign,
-			input.expectedRevision,
-		);
-		return {
-			...publicResult,
-			newRevision: write.revision,
-		};
-	} catch (error) {
-		if (
-			error instanceof DesignFileServiceError &&
-			error.code === "REVISION_MISMATCH"
-		) {
-			const raceRead = await deps.readDesignFile(input.designFileId);
-			return buildRevisionMismatchResult(
-				deps,
-				input.designFileId,
-				raceRead,
-				input.expectedRevision,
-			);
-		}
-		throw error;
-	}
-};
-
-export const createOperationPlanDependencies = (
-	context: {
-		projectRoot: string;
-		config: { projectId?: string | null; name: string };
-		locationId?: string;
-	},
-	policy: McpPolicy,
-	hooks: {
-		readDesignFileForTool: (designFileId: string) => Promise<DesignFileRead>;
-		getProjectReference: () => Record<string, unknown>;
-		getDesignMetadata: (
-			designFileId: string,
-			read: DesignFileRead,
-		) => Record<string, unknown>;
-		getDesignDiagnostics: (design: TrickroomDesign) => Promise<{
-			issues: McpDesignIssue[];
-			tokenSnapshot: unknown;
-		}>;
-		assertResourceReferencesExist: (design: TrickroomDesign) => Promise<void>;
-		assertCanUseSubtreeComponents: (subtree: DesignNode) => void;
-		canonicalizeDesignForStorage: (
-			design: TrickroomDesign,
-		) => Promise<TrickroomDesign>;
-	},
-): OperationPlanDependencies & {
-	canonicalizeDesignForStorage: (
-		design: TrickroomDesign,
-	) => Promise<TrickroomDesign>;
-	writeDesignFile: (
-		designFileId: string,
-		design: TrickroomDesign,
-		expectedRevision: string,
-	) => Promise<{ revision: string }>;
-} => {
-	const service = createDesignFileService(context.projectRoot);
-
-	return {
-		policy,
-		projectRoot: context.projectRoot,
-		readDesignFile: hooks.readDesignFileForTool,
-		getProjectReference: hooks.getProjectReference,
-		getDesignMetadata: hooks.getDesignMetadata,
-		getDesignDiagnostics: hooks.getDesignDiagnostics,
-		assertResourceReferencesExist: hooks.assertResourceReferencesExist,
-		assertCanUseSubtreeComponents: hooks.assertCanUseSubtreeComponents,
-		canonicalizeDesignForStorage: hooks.canonicalizeDesignForStorage,
-		writeDesignFile: async (designFileId, design, expectedRevision) => {
-			const file = service.getFileForUuid(designFileId);
-			const write = await service.writeDesignFile(file, design, {
-				expectedRevision,
-			});
-			return { revision: write.revision };
-		},
-	};
-};
+/** The failing step of a plan: index, operation, and its error with hints. */
+export const describeFailedPlanStep = (
+	execution: Extract<OperationPlanExecution, { status: "failed" }>,
+) => ({
+	failedStepIndex: execution.failedStepIndex,
+	failedOperation: execution.failedOperation,
+	code: execution.error.code,
+	message: execution.error.message,
+	...execution.error.details,
+});
 
 /**
- * Compact a step for the applyDesignOperations response: the ids an agent
- * needs to continue (changed/root ids, tempId maps, recipe roots), without
- * echoing the submitted parameters or full recipe path maps.
+ * Ids a step created that the caller could not know: the inserted root, the
+ * tempId map of addSubtree, and slot hosts of inserted recipes. Updates,
+ * moves and deletes return nothing. "full" adds copySubtree id maps.
  */
-export const compactOperationPlanStep = (step: OperationPlanStepOutput) => {
+export const describeCreatedElements = (
+	step: OperationPlanStepOutput,
+	detail: MutationResponseDetail = "compact",
+) => {
+	if (!step.insertedElementIds || !step.rootElementId) {
+		return null;
+	}
 	const recipes = step.recipes ?? [];
+	const rootRecipe =
+		recipes.length === 1 && recipes[0].rootElementId === step.rootElementId
+			? recipes[0]
+			: null;
+	const includeIdMap =
+		step.idMap !== undefined &&
+		(step.operation === "addSubtree" || detail === "full");
 	return {
-		stepIndex: step.stepIndex,
-		operation: step.operation,
-		...(step.changedElementId
-			? { changedElementId: step.changedElementId }
+		step: step.stepIndex,
+		id: step.rootElementId,
+		...(step.operation === "copySubtree"
+			? { nodeCount: step.insertedElementIds.length }
 			: {}),
-		...(step.rootElementId && step.rootElementId !== step.changedElementId
-			? { rootElementId: step.rootElementId }
+		...(includeIdMap ? { idMap: step.idMap } : {}),
+		...(rootRecipe ? { slots: rootRecipe.slots } : {}),
+		...(!rootRecipe && recipes.length > 0
+			? {
+					recipes: recipes.map((recipe) => ({
+						...(recipe.tempId !== undefined ? { tempId: recipe.tempId } : {}),
+						id: recipe.rootElementId,
+						slots: recipe.slots,
+					})),
+				}
 			: {}),
-		...(step.idMap ? { idMap: step.idMap } : {}),
-		...(recipes.length > 0 ? { recipes } : {}),
-		...(step.deletedIds ? { deletedCount: step.deletedIds.length } : {}),
-	};
-};
-
-/**
- * Shape an applyDesignOperations result. The default is compact: new revision,
- * per-step created ids, and diagnostics. Pass `includeStepDetails` to get the
- * full validateOperationPlan-style result.
- */
-export const compactApplyOperationPlanResult = (
-	result: OperationPlanResult,
-	input: Pick<OperationPlanInput, "designFileId" | "response">,
-): Record<string, unknown> => {
-	if (input.response?.includeStepDetails) {
-		return result as unknown as Record<string, unknown>;
-	}
-
-	const {
-		designFile: _designFile,
-		steps,
-		changedElementIds: _changedElementIds,
-		deletedIds,
-		insertedElementIds: _insertedElementIds,
-		recipeExpansions: _recipeExpansions,
-		suggestedReads,
-		tokenDiagnostics,
-		...rest
-	} = result;
-	const failed = result.status !== "success" || !result.valid;
-
-	return {
-		...rest,
-		designFileId: input.designFileId,
-		...(failed
-			? { suggestedReads }
-			: { steps: steps.map(compactOperationPlanStep) }),
-		...(!failed && deletedIds.length > 0
-			? { deletedCount: deletedIds.length }
-			: {}),
-		...(input.response?.includeTokenDiagnostics ? { tokenDiagnostics } : {}),
 	};
 };

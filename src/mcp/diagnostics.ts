@@ -75,32 +75,12 @@ export type DesignDiagnostics = {
 };
 
 /**
- * Verbosity controls for write/mutation tool responses. Defaults are minimal:
- * error-severity issues, a `warningCount`, and only the "likely typo" warnings
- * (unknown Tailwind utilities and unknown tokens) on elements this write
- * touched. Other warnings and the heavy custom-utility token catalog are
- * omitted unless explicitly opted into.
+ * Detail of write and validation responses. "compact" (default): error
+ * issues, a warningCount, and likely-typo and missing-renderer warnings on
+ * the touched elements, grouped. "full": every warning in scope ungrouped,
+ * plus the token diagnostics with the custom-utility catalog.
  */
-export type MutationResponseOptions = {
-	/**
-	 * Include all warning-severity diagnostics. When omitted, only likely-typo
-	 * warnings are returned; pass false to omit warnings entirely (the count is
-	 * still returned).
-	 */
-	includeWarnings?: boolean;
-	/**
-	 * When warnings are included, "affected" (default) limits them to elements
-	 * touched by this write; "file" returns warnings for the whole design.
-	 */
-	warningScope?: "affected" | "file";
-	/**
-	 * Include the heavy token diagnostics (custom utility catalog). Defaults to
-	 * false; the lightweight token snapshot metadata is always retained.
-	 */
-	includeTokenDiagnostics?: boolean;
-	/** applyDesignOperations only: return full per-step summaries. */
-	includeStepDetails?: boolean;
-};
+export type MutationResponseDetail = "compact" | "full";
 
 /**
  * Warning codes that almost always mean a typo in a class name: Tailwind
@@ -144,34 +124,96 @@ export const stripHeavyTokenDiagnostics = <
 	return rest as T;
 };
 
-export type ShapedMutationDiagnostics = {
-	issues: McpDesignIssue[];
-	warnings?: McpDesignIssue[];
-	warningCount: number;
-	tokenDiagnostics: unknown;
+/**
+ * Warnings that share a code and offending class (or message), with the
+ * elements that carry them. The message names the class and suggestions.
+ */
+export type GroupedWarning = {
+	code: string;
+	message: string;
+	elementIds?: string[];
+	/** Total elements in the group, set when elementIds is truncated. */
+	count?: number;
 };
 
 /**
- * Shape a full design diagnostics result for a write response according to the
- * minimal-default contract. Always returns error-severity `issues`, a
- * `warningCount` for the warning scope, and a (stripped-by-default)
- * `tokenDiagnostics`. Warnings are scoped to `affectedElementIds` unless the
- * caller requests `warningScope: "file"` (or passes no affected ids). By
- * default only likely-typo and missing-renderer warnings are attached;
- * `includeWarnings: true` attaches all of them and `includeWarnings: false`
- * none.
+ * Group warnings by code plus offending class token (or message), so five
+ * elements with the same typo cost one entry. File-level warnings have no
+ * elementIds. `maxElementIds` truncates long groups and reports `count`.
+ */
+export const groupWarnings = (
+	warnings: readonly McpDesignIssue[],
+	options: { maxElementIds?: number } = {},
+): GroupedWarning[] => {
+	const groups = new Map<string, GroupedWarning & { ids: string[] }>();
+	for (const warning of warnings) {
+		const classToken = (warning as ClassTokenDiagnostic).classToken;
+		const key = `${warning.code}\u0000${classToken ?? warning.message}`;
+		let group = groups.get(key);
+		if (!group) {
+			group = { code: warning.code, message: warning.message, ids: [] };
+			groups.set(key, group);
+		}
+		if (warning.elementId !== undefined) {
+			group.ids.push(warning.elementId);
+		}
+	}
+
+	const maxElementIds = options.maxElementIds ?? Number.POSITIVE_INFINITY;
+	return [...groups.values()].map(({ ids, ...group }) => {
+		const elementIds = [...new Set(ids)];
+		if (elementIds.length === 0) {
+			return group;
+		}
+		return elementIds.length > maxElementIds
+			? {
+					...group,
+					elementIds: elementIds.slice(0, maxElementIds),
+					count: elementIds.length,
+				}
+			: { ...group, elementIds };
+	});
+};
+
+/** Count issues per code, most frequent first. */
+export const countIssuesByCode = (issues: readonly McpDesignIssue[]) => {
+	const counts = new Map<string, number>();
+	for (const issue of issues) {
+		counts.set(issue.code, (counts.get(issue.code) ?? 0) + 1);
+	}
+	return Object.fromEntries(
+		[...counts.entries()].sort(
+			([codeA, countA], [codeB, countB]) =>
+				countB - countA || codeA.localeCompare(codeB),
+		),
+	);
+};
+
+export type ShapedMutationDiagnostics = {
+	issues: McpDesignIssue[];
+	warningCount: number;
+	warnings?: GroupedWarning[] | McpDesignIssue[];
+	tokenDiagnostics?: unknown;
+};
+
+/**
+ * Shape a full design diagnostics result for a write response. Always returns
+ * every error-severity `issue` and a `warningCount` for the warning scope:
+ * the `affectedElementIds` plus file-level warnings (the whole design when no
+ * ids are passed). "compact" attaches the likely-typo and missing-renderer
+ * warnings on touched elements, grouped; "full" attaches every warning in
+ * scope ungrouped plus the token diagnostics.
  */
 export const shapeMutationDiagnostics = (
 	diagnostics: { issues: McpDesignIssue[]; tokenSnapshot: unknown },
-	options: MutationResponseOptions | undefined,
+	detail: MutationResponseDetail | undefined,
 	affectedElementIds?: Iterable<string>,
 ): ShapedMutationDiagnostics => {
-	const opts = options ?? {};
 	const allWarnings = diagnostics.issues.filter(
 		(issue) => issue.severity === "warning",
 	);
 	let scopedWarnings = allWarnings;
-	if (opts.warningScope !== "file" && affectedElementIds !== undefined) {
+	if (affectedElementIds !== undefined) {
 		const affected = new Set(affectedElementIds);
 		// File-level warnings without an elementId (e.g. review-required,
 		// recipe diagnostics) are always in scope; element-bound warnings are
@@ -185,24 +227,23 @@ export const shapeMutationDiagnostics = (
 	const shaped: ShapedMutationDiagnostics = {
 		issues: diagnostics.issues.filter((issue) => issue.severity === "error"),
 		warningCount: scopedWarnings.length,
-		tokenDiagnostics: stripHeavyTokenDiagnostics(
-			diagnostics.tokenSnapshot as { customUtilities?: unknown } | null,
-			opts.includeTokenDiagnostics ?? false,
-		),
 	};
 
-	if (opts.includeWarnings === true) {
-		shaped.warnings = scopedWarnings;
-	} else if (opts.includeWarnings === undefined) {
-		const defaultWarnings = scopedWarnings.filter(
-			(warning) =>
-				warning.elementId !== undefined && isDefaultSurfacedWarning(warning),
-		);
-		if (defaultWarnings.length > 0) {
-			shaped.warnings = defaultWarnings;
+	if (detail === "full") {
+		if (scopedWarnings.length > 0) {
+			shaped.warnings = scopedWarnings;
 		}
+		shaped.tokenDiagnostics = diagnostics.tokenSnapshot;
+		return shaped;
 	}
 
+	const surfaced = scopedWarnings.filter(
+		(warning) =>
+			warning.elementId !== undefined && isDefaultSurfacedWarning(warning),
+	);
+	if (surfaced.length > 0) {
+		shaped.warnings = groupWarnings(surfaced);
+	}
 	return shaped;
 };
 

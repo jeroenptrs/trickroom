@@ -312,11 +312,11 @@ describe("MCP mutation tools", () => {
 				const content = result.structuredContent as {
 					status: string;
 					valid: boolean;
-					diagnostics: Array<{ code: string }>;
+					issues: Array<{ code: string }>;
 				};
 				expect(content.status).toBe("success");
 				expect(content.valid).toBe(false);
-				expect(content.diagnostics).toContainEqual(
+				expect(content.issues).toContainEqual(
 					expect.objectContaining({ code: "UNKNOWN_ASSET_ID" }),
 				);
 
@@ -413,7 +413,7 @@ describe("MCP mutation tools", () => {
 
 				expect(result.status).toBe("success");
 				expect(result.valid).toBe(false);
-				expect(result.diagnostics).toContainEqual(
+				expect(result.issues).toContainEqual(
 					expect.objectContaining({
 						severity: "error",
 						code: "UNKNOWN_ASSET_ID",
@@ -792,9 +792,8 @@ describe("MCP mutation tools", () => {
 				expect(result.structuredContent).toMatchObject({
 					status: "success",
 					valid: true,
-					sourceDesignFile: { id: trickroomMcpTestDesignUuid },
-					targetDesignFile: { id: trickroomMcpTestDesignUuid },
-					sourceElementId: "title",
+					designFileId: trickroomMcpTestDesignUuid,
+					sameDesign: true,
 					stats: { nodeCount: 1, maxDepth: 1 },
 				});
 				expect(result.structuredContent).not.toHaveProperty("idMap");
@@ -829,17 +828,21 @@ describe("MCP mutation tools", () => {
 				const content = result.structuredContent as {
 					newRevision: string;
 					rootElementId: string;
-					idMap: Record<string, string>;
-					inserted: { elementIds: string[] };
-					changedElement: { name: string };
-					context: { parentId: string; index: number };
+					nodeCount: number;
 				};
 				expect(content.newRevision).toEqual(expect.any(String));
-				expect(content.rootElementId).toBe(content.idMap.title);
 				expect(content.rootElementId).not.toBe("title");
-				expect(content.inserted.elementIds).toEqual([content.rootElementId]);
-				expect(content.changedElement.name).toBe("Title Copy");
-				expect(content.context).toMatchObject({ parentId: "board", index: 1 });
+				expect(content.nodeCount).toBe(1);
+				// Defaults to root id and count; the id map is opt-in.
+				expect(Object.keys(content).sort()).toEqual([
+					"issues",
+					"newRevision",
+					"nodeCount",
+					"project",
+					"rootElementId",
+					"status",
+					"warningCount",
+				]);
 
 				const copied = await session.client.callTool({
 					name: "readElement",
@@ -884,12 +887,13 @@ describe("MCP mutation tools", () => {
 
 				expect(result.isError).toBeFalsy();
 				expect(result.structuredContent).toMatchObject({
-					status: "success",
+					status: "INVALID_OPERATION",
 					valid: false,
-					diagnostics: [
+					failedStepIndex: 0,
+					failedOperation: "copySubtree",
+					issues: [
 						expect.objectContaining({
 							code: "SOURCE_REVISION_REQUIRED",
-							path: "/sourceExpectedRevision",
 						}),
 					],
 				});
@@ -925,18 +929,17 @@ describe("MCP mutation tools", () => {
 				expect(result.isError).toBeFalsy();
 				expect(result.structuredContent).toMatchObject({
 					status: "success",
-					sourceDesignFile: { id: trickroomMcpTestDesignUuid },
-					targetDesignFile: { id: targetDesignFileId, name: "Copy Target" },
-					changedElement: {
-						name: "Title",
-					},
+					rootElementId: expect.any(String),
+					nodeCount: 1,
 				});
+				expect(result.structuredContent).not.toHaveProperty("sourceDesignFile");
+				expect(result.structuredContent).not.toHaveProperty("targetDesignFile");
 			} finally {
 				await session.close();
 			}
 		});
 
-		it("reports cross-file source revision mismatches without an MCP error", async () => {
+		it("reports cross-file source revision mismatches", async () => {
 			const { session } = await setup({
 				[trickroomMcpTestDesignUuid]: trickroomMcpTestDesign,
 				[targetDesignFileId]: targetDesign,
@@ -958,13 +961,16 @@ describe("MCP mutation tools", () => {
 					},
 				});
 
-				expect(result.isError).toBeFalsy();
+				expect(result.isError).toBe(true);
 				expect(result.structuredContent).toMatchObject({
-					status: "SOURCE_REVISION_MISMATCH",
+					status: "INVALID_OPERATION",
+					code: "SOURCE_REVISION_MISMATCH",
 					currentSourceRevision: expect.any(String),
 					sourceExpectedRevision: staleSourceRevision,
-					expectedRevision: targetRevision,
 				});
+				expect(await getRevision(session, targetDesignFileId)).toBe(
+					targetRevision,
+				);
 			} finally {
 				await session.close();
 			}
@@ -3497,15 +3503,16 @@ describe("MCP mutation tools", () => {
 			result: { isError?: boolean; structuredContent?: unknown },
 			parameterName: string,
 		) => {
-			expect(result.isError).toBe(true);
+			expect(result.isError).toBeFalsy();
 			const content = result.structuredContent as {
 				status: string;
-				code: string;
-				message: string;
+				valid: boolean;
+				issues: Array<{ code: string; message: string }>;
 			};
 			expect(content.status).toBe("INVALID_OPERATION");
-			expect(content.code).toBe("INVALID_OPERATION_PARAMETERS");
-			expect(content.message).toContain(parameterName);
+			expect(content.valid).toBe(false);
+			expect(content.issues[0]?.code).toBe("INVALID_OPERATION_PARAMETERS");
+			expect(content.issues[0]?.message).toContain(parameterName);
 		};
 
 		it("adds an Avatar recipe and returns the attached recipe root", async () => {
@@ -3597,24 +3604,14 @@ describe("MCP mutation tools", () => {
 					predicted: {
 						parentId: "board",
 						index: 1,
-						recipe: {
-							id: "base-ui/avatar.default",
-							elementIdsByPath: {
-								root: expect.any(String),
-								image: expect.any(String),
-								fallback: expect.any(String),
-							},
-						},
-						changedElement: {
-							library: "base-ui",
-							component: "avatar.root",
-						},
-						context: {
-							parentId: "board",
-							index: 1,
-						},
+						recipeId: "base-ui/avatar.default",
+						nodeCount: 3,
 					},
 				});
+				// Dry-run ids are not the ids a write would create.
+				expect(JSON.stringify(result.structuredContent)).not.toContain(
+					"elementIdsByPath",
+				);
 
 				const persisted = await fixture.designFileService.readDesignFile(
 					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
@@ -3664,13 +3661,14 @@ describe("MCP mutation tools", () => {
 					predicted: {
 						parentId: "board",
 						index: 1,
-						stats: {
-							nodeCount: 2,
-							recipeCount: 0,
-						},
+						stats: { nodeCount: 2 },
+						nodeCount: 2,
 					},
 					issues: [],
 				});
+				expect(
+					(result.structuredContent as { predicted: object }).predicted,
+				).not.toHaveProperty("rootElementId");
 
 				const persisted = await fixture.designFileService.readDesignFile(
 					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
@@ -4347,9 +4345,7 @@ describe("MCP mutation tools", () => {
 						path: "positioner",
 						prop: "align",
 						value: "end",
-						changedElement: {
-							id: expansion.elementIdsByPath.positioner,
-						},
+						changedElementId: expansion.elementIdsByPath.positioner,
 					},
 				});
 
@@ -4394,9 +4390,7 @@ describe("MCP mutation tools", () => {
 							instanceId: "recipe-instance-1",
 							rootElementId: "avatar-root",
 						},
-						changedElement: {
-							id: "avatar-image",
-						},
+						changedElementId: "avatar-image",
 					},
 				});
 				const content = result.structuredContent as {
@@ -4649,18 +4643,10 @@ describe("MCP mutation tools", () => {
 					status: "success",
 					valid: true,
 					operationCount: 2,
-					steps: [
-						{
-							stepIndex: 0,
-							operation: "addElement",
-							changedElementId: expect.any(String),
-						},
-						{
-							stepIndex: 1,
-							operation: "updateElementText",
-						},
-					],
+					summary: { errors: 0 },
+					issues: [],
 				});
+				expect(result.structuredContent).not.toHaveProperty("steps");
 
 				const persisted = await fixture.designFileService.readDesignFile(
 					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
@@ -4706,11 +4692,11 @@ describe("MCP mutation tools", () => {
 
 				expect(result.isError).toBeFalsy();
 				expect(result.structuredContent).toMatchObject({
-					status: "invalid",
+					status: "INVALID_OPERATION",
 					valid: false,
 					failedStepIndex: 1,
 					failedOperation: "moveElement",
-					steps: [{ stepIndex: 0, operation: "addElement" }],
+					issues: [expect.objectContaining({ code: "ELEMENT_NOT_FOUND" })],
 				});
 
 				const persisted = await fixture.designFileService.readDesignFile(
@@ -4758,18 +4744,17 @@ describe("MCP mutation tools", () => {
 
 				expect(result.isError).toBeFalsy();
 				const content = result.structuredContent as Record<string, unknown> & {
-					steps: Array<Record<string, unknown>>;
+					created: Array<Record<string, unknown>>;
 					project: Record<string, unknown>;
 				};
 				expect(content).toMatchObject({
 					status: "success",
 					designFileId: trickroomMcpTestDesignUuid,
 					newRevision: expect.any(String),
-					steps: [
+					created: [
 						{
-							stepIndex: 0,
-							operation: "addSubtree",
-							changedElementId: expect.any(String),
+							step: 0,
+							id: expect.any(String),
 							idMap: {
 								card: expect.any(String),
 								label: expect.any(String),
@@ -4777,10 +4762,10 @@ describe("MCP mutation tools", () => {
 						},
 					],
 				});
-				expect(content.steps[0].idMap).toMatchObject({
-					card: content.steps[0].changedElementId,
+				expect(content.created[0].idMap).toMatchObject({
+					card: content.created[0].id,
 				});
-				expect(content.steps[0]).not.toHaveProperty("summary");
+				expect(content).not.toHaveProperty("steps");
 				expect(content).not.toHaveProperty("insertedElementIds");
 				expect(content).not.toHaveProperty("recipeExpansions");
 				expect(content).not.toHaveProperty("designFile");
@@ -4791,6 +4776,104 @@ describe("MCP mutation tools", () => {
 				)[0].text;
 				expect(text).not.toContain("\n");
 				expect(JSON.parse(text)).toEqual(content);
+			} finally {
+				await session.close();
+			}
+		});
+
+		it("reports only counts for updates and deletes and groups repeated warnings", async () => {
+			const { session } = await setup();
+			try {
+				const revision = await getRevision(session, trickroomMcpTestDesignUuid);
+				const result = await session.client.callTool({
+					name: "applyDesignOperations",
+					arguments: {
+						designFileId: trickroomMcpTestDesignUuid,
+						expectedRevision: revision,
+						operations: [
+							{
+								operation: "addElement",
+								parameters: {
+									parentId: "board",
+									index: 1,
+									library: "trickroom",
+									component: "text",
+									text: "Footer",
+									className: "flex-colum",
+								},
+							},
+							{
+								operation: "updateElementProps",
+								parameters: { elementId: "board", className: "flex-colum" },
+							},
+							{
+								operation: "updateElementText",
+								parameters: { elementId: "$step:0", text: "Updated" },
+							},
+							{
+								operation: "deleteElement",
+								parameters: { elementId: "title" },
+							},
+						],
+					},
+				});
+
+				expect(result.isError).toBeFalsy();
+				const content = result.structuredContent as {
+					created: Array<{ step: number; id: string }>;
+				};
+				expect(content).toMatchObject({
+					status: "success",
+					operationCount: 4,
+					created: [{ step: 0, id: expect.any(String) }],
+					deletedCount: 1,
+					issues: [],
+					warningCount: 2,
+					warnings: [
+						{
+							code: "UNKNOWN_TAILWIND_UTILITY",
+							message: expect.stringContaining('"flex-colum"'),
+							elementIds: ["board", content.created[0].id],
+						},
+					],
+				});
+			} finally {
+				await session.close();
+			}
+		});
+
+		it("reports unknown design ids on writes as DESIGN_NOT_FOUND", async () => {
+			const { session } = await setup();
+			try {
+				const missingDesignFileId = "10000000-0000-4000-8000-0000000000ff";
+				for (const [name, args] of [
+					[
+						"applyDesignOperations",
+						{
+							operations: [
+								{
+									operation: "deleteElement",
+									parameters: { elementId: "title" },
+								},
+							],
+						},
+					],
+					["deleteElement", { elementId: "title" }],
+				] as const) {
+					const result = await session.client.callTool({
+						name,
+						arguments: {
+							designFileId: missingDesignFileId,
+							expectedRevision: "sha256:any",
+							...args,
+						},
+					});
+					expect(result.isError, name).toBe(true);
+					expect(result.structuredContent, name).toMatchObject({
+						status: "INVALID_OPERATION",
+						code: "DESIGN_NOT_FOUND",
+					});
+				}
 			} finally {
 				await session.close();
 			}
@@ -4821,16 +4904,12 @@ describe("MCP mutation tools", () => {
 				});
 				expect(batch.isError).toBe(true);
 				expect(batch.structuredContent).toMatchObject({
-					status: "invalid",
+					status: "INVALID_OPERATION",
 					failedStepIndex: 0,
-					issues: [
-						expect.objectContaining({
-							code: "PARENT_NOT_FOUND",
-							missingElementId: "boar",
-							truncatedIdMatches: ["board"],
-							message: expect.stringContaining("truncated id"),
-						}),
-					],
+					code: "PARENT_NOT_FOUND",
+					missingElementId: "boar",
+					truncatedIdMatches: ["board"],
+					message: expect.stringContaining("truncated id"),
 				});
 
 				const single = await session.client.callTool({
@@ -4924,10 +5003,7 @@ describe("MCP mutation tools", () => {
 				expect(result.isError).toBeFalsy();
 				expect(result.structuredContent).toMatchObject({
 					status: "success",
-					steps: [
-						{ operation: "copySubtree", idMap: { title: expect.any(String) } },
-						{ operation: "moveElement" },
-					],
+					created: [{ step: 0, id: expect.any(String), nodeCount: 1 }],
 				});
 			} finally {
 				await session.close();
@@ -4950,6 +5026,24 @@ describe("MCP mutation tools", () => {
 				});
 				expect(result.isError).toBeFalsy();
 				expect(result.structuredContent).toMatchObject({
+					status: "success",
+					rootElementId: expect.any(String),
+				});
+
+				const withIdMap = await session.client.callTool({
+					name: "copySubtree",
+					arguments: {
+						targetDesignFileId: trickroomMcpTestDesignUuid,
+						expectedRevision: (
+							result.structuredContent as { newRevision: string }
+						).newRevision,
+						sourceElementId: "title",
+						parentId: "board",
+						index: 1,
+						includeIdMap: true,
+					},
+				});
+				expect(withIdMap.structuredContent).toMatchObject({
 					status: "success",
 					idMap: { title: expect.any(String) },
 				});
@@ -4978,13 +5072,11 @@ describe("MCP mutation tools", () => {
 				expect(result.isError).toBe(true);
 				expect(result.structuredContent).toMatchObject({
 					failedStepIndex: 0,
-					issues: [
-						expect.objectContaining({
-							code: "INVALID_OPERATION_PARAMETERS",
-							expectedParameters:
-								"{ elementId: string, targetParentId: string | null, index: int }",
-						}),
-					],
+					code: "INVALID_OPERATION_PARAMETERS",
+					message:
+						'Operation "moveElement" parameters are invalid: "targetParentId" is required.',
+					expectedParameters:
+						"{ elementId: string, targetParentId: string | null, index: int }",
 				});
 			} finally {
 				await session.close();
@@ -5005,10 +5097,13 @@ describe("MCP mutation tools", () => {
 					>
 				).operations;
 				expect(operations.description).toContain(
-					"addElement { parentId: string | null, index: int, library: string, component: string",
+					"addElement(parentId, index, library, component, …)",
 				);
 				expect(operations.description).toContain(
-					"copySubtree { sourceElementId",
+					"copySubtree(sourceElementId, parentId, index, …)",
+				);
+				expect(operations.description).toContain(
+					'getDesignAuthoringContract({ topic: "operations" })',
 				);
 			} finally {
 				await session.close();
@@ -5067,20 +5162,17 @@ describe("MCP mutation tools", () => {
 
 				expect(result.isError).toBeFalsy();
 				const content = result.structuredContent as {
-					steps: Array<{
-						changedElementId: string;
+					created: Array<{
+						step: number;
+						id: string;
 						idMap?: Record<string, string>;
-						recipes?: Array<{
-							rootElementId: string;
-							slots: Record<string, string>;
-						}>;
+						slots?: Record<string, string>;
 					}>;
 				};
-				const contentSlotId = content.steps[0].recipes?.[0].slots.content;
+				// Updates report nothing; only the two inserting steps are listed.
+				expect(content.created.map((entry) => entry.step)).toEqual([0, 1]);
+				const contentSlotId = content.created[0].slots?.content;
 				expect(contentSlotId).toEqual(expect.any(String));
-				expect(content.steps[2].changedElementId).toBe(
-					content.steps[1].idMap?.heading,
-				);
 
 				const persisted = await fixture.designFileService.readDesignFile(
 					fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
@@ -5102,12 +5194,12 @@ describe("MCP mutation tools", () => {
 				expect(
 					Array.isArray(slotHost?.children) &&
 						slotHost.children.some(
-							(child) => child.id === content.steps[1].changedElementId,
+							(child) => child.id === content.created[1].id,
 						),
 				).toBe(true);
 				const heading = find(
 					persisted.design.boards,
-					content.steps[1].idMap?.heading as string,
+					content.created[1].idMap?.heading as string,
 				);
 				expect(heading?.props.className).toBe("text-lg");
 			} finally {
@@ -5153,12 +5245,8 @@ describe("MCP mutation tools", () => {
 				expect(result.isError).toBe(true);
 				expect(result.structuredContent).toMatchObject({
 					failedStepIndex: 1,
-					issues: [
-						expect.objectContaining({
-							code: "PARENT_NOT_FOUND",
-							suggestedStepReferences: ["$step:0:tempId:card"],
-						}),
-					],
+					code: "PARENT_NOT_FOUND",
+					suggestedStepReferences: ["$step:0:tempId:card"],
 				});
 			} finally {
 				await session.close();
@@ -5266,7 +5354,7 @@ describe("MCP mutation tools", () => {
 				expect(result.isError).toBe(true);
 				expect(result.structuredContent).toMatchObject({
 					status: "REVISION_MISMATCH",
-					valid: false,
+					currentRevision: expect.any(String),
 				});
 
 				const persisted = await fixture.designFileService.readDesignFile(
@@ -5364,13 +5452,36 @@ describe("MCP mutation tools", () => {
 				expect(result.structuredContent).toMatchObject({
 					status: "success",
 					valid: true,
+					operationCount: 1,
+				});
+
+				const full = await session.client.callTool({
+					name: "validateOperationPlan",
+					arguments: {
+						designFileId: trickroomMcpTestDesignUuid,
+						expectedRevision: revision,
+						operations: [
+							{
+								operation: "addSubtree",
+								parameters: {
+									parentId: "board",
+									index: 1,
+									subtree: {
+										library: "trickroom",
+										component: "container",
+									},
+								},
+							},
+						],
+						response: "full",
+					},
+				});
+				expect(full.structuredContent).toMatchObject({
 					steps: [
 						{
 							stepIndex: 0,
 							operation: "addSubtree",
-							summary: {
-								stats: { nodeCount: 2 },
-							},
+							summary: { stats: { nodeCount: 1 } },
 						},
 					],
 				});
@@ -5490,16 +5601,8 @@ describe("MCP mutation tools", () => {
 				expect(result.structuredContent).toMatchObject({
 					status: "success",
 					valid: true,
-					steps: [
-						{
-							stepIndex: 0,
-							operation: "copySubtree",
-							summary: {
-								sameDesign: true,
-								stats: { nodeCount: 1, maxDepth: 1 },
-							},
-						},
-					],
+					operationCount: 1,
+					issues: [],
 				});
 			} finally {
 				await session.close();

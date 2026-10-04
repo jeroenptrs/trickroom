@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { TrickroomDesign } from "../types";
 import { getMcpPolicy } from "./governance";
 import {
-	executeOperationPlanDryRun,
+	describeCreatedElements,
+	executeOperationPlan,
+	type OperationPlanDependencies,
 	resolveStepReferencesInParameters,
 } from "./operation-plan";
 import {
@@ -31,33 +33,27 @@ const targetDesign: TrickroomDesign = {
 
 const createPlanDeps = async (
 	fixture: Awaited<ReturnType<typeof createTrickroomMcpProjectFixture>>,
-) => {
+): Promise<OperationPlanDependencies> => {
 	const context = await fixture.readMcpContext();
-	const policy = getMcpPolicy(context.config);
-	const { createOperationPlanDependencies } = await import("./operation-plan");
-	return createOperationPlanDependencies(context, policy, {
-		readDesignFileForTool: async (designFileId) => {
-			const file = fixture.designFileService.getFileForUuid(designFileId);
-			return fixture.designFileService.readDesignFile(file);
-		},
-		getProjectReference: () => ({
-			projectId: context.config.projectId ?? null,
-			locationId: context.locationId ?? null,
-			projectRoot: context.projectRoot,
-			name: context.config.name,
-		}),
-		getDesignMetadata: (designFileId, designRead) => ({
-			id: designFileId,
-			file: designRead.file,
-			name: designRead.design.name,
-			revision: designRead.revision,
-		}),
-		getDesignDiagnostics: async () => ({ issues: [], tokenSnapshot: null }),
+	return {
+		policy: getMcpPolicy(context.config),
+		projectRoot: context.projectRoot,
+		readDesignFile: async (designFileId) =>
+			fixture.designFileService.readDesignFile(
+				fixture.designFileService.getFileForUuid(designFileId),
+			),
 		assertResourceReferencesExist: async () => {},
 		assertCanUseSubtreeComponents: () => {},
-		canonicalizeDesignForStorage: async (design) => design,
-	});
+	};
 };
+
+const readDesign = (
+	fixture: Awaited<ReturnType<typeof createTrickroomMcpProjectFixture>>,
+	designFileId: string,
+) =>
+	fixture.designFileService.readDesignFile(
+		fixture.designFileService.getFileForUuid(designFileId),
+	);
 
 describe("resolveStepReferencesInParameters", () => {
 	it("preserves literal text values that look like step references", () => {
@@ -167,47 +163,93 @@ describe("step references", () => {
 	});
 });
 
-describe("executeOperationPlanDryRun", () => {
-	it("validates add + update chains with step references", async () => {
+describe("executeOperationPlan", () => {
+	it("runs add + update chains with step references", async () => {
 		const fixture = await createTrickroomMcpProjectFixture({
 			designs: {
 				[trickroomMcpTestDesignUuid]: trickroomMcpTestDesign,
 			},
 		});
-		const read = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
-		);
+		const read = await readDesign(fixture, trickroomMcpTestDesignUuid);
 		const deps = await createPlanDeps(fixture);
 
-		const result = await executeOperationPlanDryRun(deps, {
-			designFileId: trickroomMcpTestDesignUuid,
-			expectedRevision: read.revision,
-			operations: [
-				{
-					operation: "addElement",
-					parameters: {
-						parentId: "board",
-						index: 1,
-						library: "trickroom",
-						component: "text",
-						name: "Footer",
-						text: "Footer text",
+		const result = await executeOperationPlan(
+			deps,
+			{
+				designFileId: trickroomMcpTestDesignUuid,
+				operations: [
+					{
+						operation: "addElement",
+						parameters: {
+							parentId: "board",
+							index: 1,
+							library: "trickroom",
+							component: "text",
+							name: "Footer",
+							text: "Footer text",
+						},
 					},
-				},
-				{
-					operation: "updateElementText",
-					parameters: {
-						elementId: "$step:0",
-						text: "Updated footer",
+					{
+						operation: "updateElementText",
+						parameters: {
+							elementId: "$step:0",
+							text: "Updated footer",
+						},
 					},
-				},
-			],
+				],
+			},
+			read.design,
+		);
+
+		expect(result.status).toBe("success");
+		if (result.status !== "success") throw new Error("plan failed");
+		const footerId = result.steps[0].changedElementId;
+		expect(result.affectedElementIds).toEqual([footerId]);
+		expect(describeCreatedElements(result.steps[0])).toEqual({
+			step: 0,
+			id: footerId,
 		});
+		expect(describeCreatedElements(result.steps[1])).toBeNull();
+
+		await fixture.cleanup();
+	});
+
+	it("reports every invalid and unknown parameter of the failing step", async () => {
+		const fixture = await createTrickroomMcpProjectFixture({
+			designs: {
+				[trickroomMcpTestDesignUuid]: trickroomMcpTestDesign,
+			},
+		});
+		const read = await readDesign(fixture, trickroomMcpTestDesignUuid);
+		const deps = await createPlanDeps(fixture);
+
+		const result = await executeOperationPlan(
+			deps,
+			{
+				designFileId: trickroomMcpTestDesignUuid,
+				operations: [
+					{
+						operation: "addSubtree",
+						parameters: { parentId: "board", position: 0 },
+					},
+				],
+			},
+			read.design,
+		);
 
 		expect(result).toMatchObject({
-			status: "success",
-			valid: true,
-			operationCount: 2,
+			status: "failed",
+			failedStepIndex: 0,
+			failedOperation: "addSubtree",
+		});
+		if (result.status !== "failed") throw new Error("plan passed");
+		expect(result.error.code).toBe("INVALID_OPERATION_PARAMETERS");
+		expect(result.error.message).toBe(
+			'Operation "addSubtree" parameters are invalid: "index" is required; "subtree" is required. Unknown parameters: position.',
+		);
+		expect(result.error.details).toMatchObject({
+			unknownParameters: ["position"],
+			expectedParameters: expect.stringContaining("index: int"),
 		});
 
 		await fixture.cleanup();
@@ -220,94 +262,76 @@ describe("executeOperationPlanDryRun", () => {
 				[targetDesignFileId]: targetDesign,
 			},
 		});
-		const sourceRead = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
-		);
-		const targetRead = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(targetDesignFileId),
-		);
+		const sourceRead = await readDesign(fixture, trickroomMcpTestDesignUuid);
+		const targetRead = await readDesign(fixture, targetDesignFileId);
 		const deps = await createPlanDeps(fixture);
-
-		const firstCopy = await executeOperationPlanDryRun(deps, {
-			designFileId: targetDesignFileId,
-			expectedRevision: targetRead.revision,
-			operations: [
-				{
-					operation: "copySubtree",
-					parameters: {
-						sourceDesignFileId: trickroomMcpTestDesignUuid,
-						sourceElementId: "title",
-						sourceExpectedRevision: sourceRead.revision,
-						parentId: "target-root",
-						index: 0,
-					},
-				},
-			],
+		const copyStep = (index: number, sourceExpectedRevision?: string) => ({
+			operation: "copySubtree" as const,
+			parameters: {
+				sourceDesignFileId: trickroomMcpTestDesignUuid,
+				sourceElementId: "title",
+				...(sourceExpectedRevision ? { sourceExpectedRevision } : {}),
+				parentId: "target-root",
+				index,
+			},
 		});
+
+		const firstCopy = await executeOperationPlan(
+			deps,
+			{
+				designFileId: targetDesignFileId,
+				operations: [copyStep(0, sourceRead.revision)],
+			},
+			targetRead.design,
+		);
 		expect(firstCopy.status).toBe("success");
-
-		const missingRevision = await executeOperationPlanDryRun(deps, {
-			designFileId: targetDesignFileId,
-			expectedRevision: targetRead.revision,
-			operations: [
-				{
-					operation: "copySubtree",
-					parameters: {
-						sourceDesignFileId: trickroomMcpTestDesignUuid,
-						sourceElementId: "title",
-						sourceExpectedRevision: sourceRead.revision,
-						parentId: "target-root",
-						index: 0,
-					},
-				},
-				{
-					operation: "copySubtree",
-					parameters: {
-						sourceDesignFileId: trickroomMcpTestDesignUuid,
-						sourceElementId: "title",
-						parentId: "target-root",
-						index: 1,
-					},
-				},
-			],
+		if (firstCopy.status !== "success") throw new Error("copy failed");
+		expect(describeCreatedElements(firstCopy.steps[0])).toEqual({
+			step: 0,
+			id: firstCopy.steps[0].rootElementId,
+			nodeCount: 1,
 		});
+		expect(describeCreatedElements(firstCopy.steps[0], "full")).toMatchObject({
+			idMap: { title: firstCopy.steps[0].rootElementId },
+		});
+
+		const missingRevision = await executeOperationPlan(
+			deps,
+			{
+				designFileId: targetDesignFileId,
+				operations: [copyStep(0, sourceRead.revision), copyStep(1)],
+			},
+			targetRead.design,
+		);
 		expect(missingRevision).toMatchObject({
-			status: "invalid",
+			status: "failed",
 			failedStepIndex: 1,
 			failedOperation: "copySubtree",
-			issues: [{ code: "SOURCE_REVISION_REQUIRED" }],
+			error: { code: "SOURCE_REVISION_REQUIRED" },
 		});
 
-		const staleRevision = await executeOperationPlanDryRun(deps, {
-			designFileId: targetDesignFileId,
-			expectedRevision: targetRead.revision,
-			operations: [
-				{
-					operation: "copySubtree",
-					parameters: {
-						sourceDesignFileId: trickroomMcpTestDesignUuid,
-						sourceElementId: "title",
-						sourceExpectedRevision: sourceRead.revision,
-						parentId: "target-root",
-						index: 0,
-					},
-				},
-				{
-					operation: "copySubtree",
-					parameters: {
-						sourceDesignFileId: trickroomMcpTestDesignUuid,
-						sourceElementId: "title",
-						sourceExpectedRevision: "sha256:deadbeef",
-						parentId: "target-root",
-						index: 1,
-					},
-				},
-			],
-		});
+		const staleRevision = await executeOperationPlan(
+			deps,
+			{
+				designFileId: targetDesignFileId,
+				operations: [
+					copyStep(0, sourceRead.revision),
+					copyStep(1, "sha256:deadbeef"),
+				],
+			},
+			targetRead.design,
+		);
 		expect(staleRevision).toMatchObject({
-			status: "SOURCE_REVISION_MISMATCH",
+			status: "failed",
 			failedStepIndex: 1,
 			failedOperation: "copySubtree",
+			error: {
+				code: "SOURCE_REVISION_MISMATCH",
+				details: {
+					currentSourceRevision: sourceRead.revision,
+					sourceExpectedRevision: "sha256:deadbeef",
+				},
+			},
 		});
 
 		await fixture.cleanup();

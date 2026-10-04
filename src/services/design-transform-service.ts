@@ -140,7 +140,11 @@ export type DesignTransformErrorCode =
 	| "DUPLICATE_TEMP_ID"
 	| "INVALID_TEXT_CONTENT"
 	| "RECIPE_NODES_NOT_ALLOWED"
-	| "INVALID_OPERATION_PARAMETERS";
+	| "INVALID_OPERATION_PARAMETERS"
+	| "INVALID_OPERATION"
+	| "DESIGN_NOT_FOUND"
+	| "SOURCE_REVISION_REQUIRED"
+	| "SOURCE_REVISION_MISMATCH";
 
 export class DesignTransformError extends Error {
 	readonly code: DesignTransformErrorCode;

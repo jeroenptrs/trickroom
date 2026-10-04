@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TrickroomDesign } from "../types";
 import {
 	getDesignDiagnostics,
+	groupWarnings,
 	isDefaultSurfacedWarning,
 	isLikelyTypoWarning,
 	type McpDesignIssue,
@@ -28,6 +29,12 @@ vi.mock("../libraries/renderable-components", async (importOriginal) => {
 			actual.hasStageRenderer(library, component),
 	};
 });
+
+/** Error issues plus the ungrouped warnings of a "full" validation result. */
+const withWarnings = (content: unknown) => {
+	const result = content as { issues: unknown[]; warnings?: unknown[] };
+	return { issues: [...result.issues, ...(result.warnings ?? [])] };
+};
 
 const expandedDiagnosticsDesign = {
 	name: "Expanded Diagnostics Design",
@@ -124,9 +131,9 @@ describe("MCP expanded class/token diagnostics", () => {
 
 		const validateResult = await session.client.callTool({
 			name: "validateDesignFile",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		const validation = validateResult.structuredContent as {
+		const validation = withWarnings(validateResult.structuredContent) as {
 			issues: Array<{
 				code: string;
 				token?: string;
@@ -217,17 +224,15 @@ describe("MCP expanded class/token diagnostics", () => {
 			name: "validateDesignFile",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
-		const defaultValidation = defaultResult.structuredContent as {
-			tokenDiagnostics: { customUtilities?: unknown } | null;
-		};
-		expect(defaultValidation.tokenDiagnostics).not.toBeNull();
-		expect(defaultValidation.tokenDiagnostics?.customUtilities).toBeUndefined();
+		expect(defaultResult.structuredContent).not.toHaveProperty(
+			"tokenDiagnostics",
+		);
 
 		const verboseResult = await session.client.callTool({
 			name: "validateDesignFile",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
-				includeTokenDiagnostics: true,
+				response: "full",
 			},
 		});
 		const verboseValidation = verboseResult.structuredContent as {
@@ -286,9 +291,9 @@ describe("MCP expanded class/token diagnostics", () => {
 
 		const validateResult = await session.client.callTool({
 			name: "validateDesignFile",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		const validation = validateResult.structuredContent as {
+		const validation = withWarnings(validateResult.structuredContent) as {
 			issues: Array<{ code: string; token?: string }>;
 		};
 
@@ -352,20 +357,23 @@ describe("MCP expanded class/token diagnostics", () => {
 		});
 
 		// Default contract: likely-typo warnings (unknown tokens/utilities) on the
-		// touched element are returned; other warnings are only counted.
+		// touched element are returned, grouped; other warnings are only counted.
 		expect(mutationResult.structuredContent).toMatchObject({
 			status: "success",
 			warningCount: 2,
 			warnings: [
-				expect.objectContaining({
+				{
 					code: "UNKNOWN_FONT_TOKEN",
-					token: "missing",
-					elementId: "board",
-				}),
+					message: expect.stringContaining('"font-missing"'),
+					elementIds: ["board"],
+				},
 			],
 		});
+		expect(mutationResult.structuredContent).not.toHaveProperty(
+			"tokenDiagnostics",
+		);
 
-		// includeWarnings: true returns every warning in scope.
+		// response "full" returns every warning in scope, ungrouped.
 		const allWarningsResult = await session.client.callTool({
 			name: "updateElementProps",
 			arguments: {
@@ -373,7 +381,7 @@ describe("MCP expanded class/token diagnostics", () => {
 				expectedRevision: await getRevision(session),
 				elementId: "board",
 				className: "font-missing rounded-[2rem]",
-				response: { includeWarnings: true },
+				response: "full",
 			},
 		});
 		const allWarnings = allWarningsResult.structuredContent as {
@@ -386,22 +394,6 @@ describe("MCP expanded class/token diagnostics", () => {
 			"UNKNOWN_FONT_TOKEN",
 		]);
 
-		// includeWarnings: false drops the list but keeps the count.
-		const noWarningsResult = await session.client.callTool({
-			name: "updateElementProps",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: await getRevision(session),
-				elementId: "board",
-				className: "font-missing rounded-[2rem]",
-				response: { includeWarnings: false },
-			},
-		});
-		expect(noWarningsResult.structuredContent).toMatchObject({
-			warningCount: 2,
-		});
-		expect(noWarningsResult.structuredContent).not.toHaveProperty("warnings");
-
 		const validateResult = await session.client.callTool({
 			name: "validateDesignFile",
 			arguments: {
@@ -410,15 +402,24 @@ describe("MCP expanded class/token diagnostics", () => {
 		});
 
 		expect(validateResult.structuredContent).toMatchObject({
-			issues: expect.arrayContaining([
-				expect.objectContaining({
+			valid: true,
+			summary: {
+				errors: 0,
+				warnings: 2,
+				codes: { OUT_OF_SYSTEM_RADIUS: 1, UNKNOWN_FONT_TOKEN: 1 },
+			},
+			issues: [],
+			warnings: expect.arrayContaining([
+				{
 					code: "UNKNOWN_FONT_TOKEN",
-					token: "missing",
-				}),
-				expect.objectContaining({
+					message: expect.stringContaining('"font-missing"'),
+					elementIds: ["board"],
+				},
+				{
 					code: "OUT_OF_SYSTEM_RADIUS",
-					classToken: "rounded-[2rem]",
-				}),
+					message: expect.stringContaining('"rounded-[2rem]"'),
+					elementIds: ["board"],
+				},
 			]),
 		});
 	});
@@ -460,16 +461,16 @@ describe("MCP expanded class/token diagnostics", () => {
 
 		const validateResult = await session.client.callTool({
 			name: "validateDesignFile",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		const issues = (
+		const warnings = (
 			validateResult.structuredContent as {
-				issues: Array<{ code: string; classToken?: string }>;
+				warnings?: Array<{ code: string; classToken?: string }>;
 			}
-		).issues;
+		).warnings;
 
 		expect(
-			issues.map((issue) => [issue.code, issue.classToken]).sort(),
+			warnings?.map((warning) => [warning.code, warning.classToken]).sort(),
 		).toEqual([
 			["UNKNOWN_COLOR_TOKEN", "bg-brand-600"],
 			["UNKNOWN_RADIUS_TOKEN", "rounded-missing"],
@@ -502,9 +503,9 @@ describe("MCP expanded class/token diagnostics", () => {
 
 		const validateResult = await session.client.callTool({
 			name: "validateDesignFile",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		const validation = validateResult.structuredContent as {
+		const validation = withWarnings(validateResult.structuredContent) as {
 			issues: Array<{ code: string; classToken?: string; token?: string }>;
 		};
 
@@ -558,10 +559,10 @@ describe("MCP expanded class/token diagnostics", () => {
 
 		const validateResult = await session.client.callTool({
 			name: "validateDesignFile",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const issues = (
-			validateResult.structuredContent as {
+			withWarnings(validateResult.structuredContent) as {
 				issues: Array<{
 					code: string;
 					classToken?: string;
@@ -625,9 +626,9 @@ describe("MCP expanded class/token diagnostics", () => {
 
 		const validateResult = await session.client.callTool({
 			name: "validateDesignFile",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		const validation = validateResult.structuredContent as {
+		const validation = withWarnings(validateResult.structuredContent) as {
 			issues: Array<{ code: string }>;
 		};
 
@@ -698,7 +699,16 @@ describe("missing renderer diagnostics", () => {
 		const diagnostics = { issues: [warning], tokenSnapshot: null };
 		expect(
 			shapeMutationDiagnostics(diagnostics, undefined, ["track"]),
-		).toMatchObject({ warningCount: 1, warnings: [warning] });
+		).toMatchObject({
+			warningCount: 1,
+			warnings: [
+				{
+					code: "MISSING_RENDERER",
+					message: "no renderer",
+					elementIds: ["track"],
+				},
+			],
+		});
 		expect(shapeMutationDiagnostics(diagnostics, undefined, ["other"])).toEqual(
 			expect.objectContaining({ warningCount: 0 }),
 		);
@@ -754,9 +764,14 @@ describe("shapeMutationDiagnostics", () => {
 			"UNKNOWN_ICON_ID",
 		]);
 		expect(shaped.warningCount).toBe(3);
-		expect(shaped.warnings?.map((warning) => warning.message)).toEqual([
-			"typo on touched",
+		expect(shaped.warnings).toEqual([
+			{
+				code: "UNKNOWN_TAILWIND_UTILITY",
+				message: "typo on touched",
+				elementIds: ["a"],
+			},
 		]);
+		expect(shaped).not.toHaveProperty("tokenDiagnostics");
 	});
 
 	it("omits the warnings key when nothing touched has a typo", () => {
@@ -765,16 +780,69 @@ describe("shapeMutationDiagnostics", () => {
 		expect(shaped).not.toHaveProperty("warnings");
 	});
 
-	it("widens count and typo warnings to the file with warningScope file", () => {
-		const shaped = shapeMutationDiagnostics(
-			diagnostics,
-			{ warningScope: "file" },
-			["a"],
-		);
-		expect(shaped.warningCount).toBe(4);
+	it("returns every scoped warning ungrouped and the token diagnostics with full", () => {
+		const shaped = shapeMutationDiagnostics(diagnostics, "full", ["a"]);
+		expect(shaped.warningCount).toBe(3);
 		expect(shaped.warnings?.map((warning) => warning.message)).toEqual([
 			"typo on touched",
-			"typo elsewhere",
+			"arbitrary on touched",
+			"file level",
+		]);
+		expect(shaped).toHaveProperty("tokenDiagnostics", null);
+	});
+
+	it("scopes the count to the whole design when no ids are passed", () => {
+		expect(shapeMutationDiagnostics(diagnostics, undefined).warningCount).toBe(
+			4,
+		);
+	});
+});
+
+describe("groupWarnings", () => {
+	const typo = (
+		elementId: string,
+	): McpDesignIssue & { classToken: string } => ({
+		severity: "warning",
+		code: "UNKNOWN_COLOR_TOKEN",
+		message: 'Class "bg-brand-600" references unavailable color token.',
+		elementId,
+		classToken: "bg-brand-600",
+	});
+
+	it("groups by code and class, listing each element once", () => {
+		expect(
+			groupWarnings([
+				typo("a"),
+				typo("b"),
+				typo("a"),
+				{ ...typo("c"), classToken: "bg-brand-700", message: "other" },
+				{
+					severity: "warning",
+					code: "DESIGN_SYSTEM_REVIEW_REQUIRED",
+					message: "file",
+				},
+			]),
+		).toEqual([
+			{
+				code: "UNKNOWN_COLOR_TOKEN",
+				message: typo("a").message,
+				elementIds: ["a", "b"],
+			},
+			{ code: "UNKNOWN_COLOR_TOKEN", message: "other", elementIds: ["c"] },
+			{ code: "DESIGN_SYSTEM_REVIEW_REQUIRED", message: "file" },
+		]);
+	});
+
+	it("truncates long groups and reports the total", () => {
+		expect(
+			groupWarnings([typo("a"), typo("b"), typo("c")], { maxElementIds: 2 }),
+		).toEqual([
+			{
+				code: "UNKNOWN_COLOR_TOKEN",
+				message: typo("a").message,
+				elementIds: ["a", "b"],
+				count: 3,
+			},
 		]);
 	});
 });

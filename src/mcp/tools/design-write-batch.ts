@@ -1,27 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { createDesignFileService } from "../../services/design-file-service";
 import {
-	applyAddSubtree,
-	applyCopySubtree,
 	applyExtractSubtree,
 	DesignTransformError,
 	normalizeDesignForMutation,
 } from "../../services/design-transform-service";
 import { findDesignSystem } from "../../utils/design-system-store";
 import { applyProjectDefaultSystemToDesign } from "../../utils/project-default-system";
-import { stripHeavyTokenDiagnostics } from "../diagnostics";
+import { OPERATION_PARAMETER_SHAPES } from "../design-operations";
 import {
 	assertCanReadDesignFile,
 	assertCanWriteDesignFile,
 	getMcpPolicy,
 	McpPolicyError,
 } from "../governance";
+import { executeDesignOperation } from "../operation-plan";
 import {
 	assertConfiguredSystem,
-	canonicalizeDesignSystemReferenceForStorage,
 	getDesignSystemDisplayName,
-	summarizeDesignSystemReference,
 } from "../payloads/design-system";
 import {
 	compactElementTree,
@@ -29,13 +25,12 @@ import {
 	findElementContext,
 	getCompactElementSummary,
 	getDesignMetadata,
-	getDesignSystemHandle,
 	getMutationContext,
+	readDesignFileForTool,
 } from "../payloads/design-tree";
 import {
 	applyDesignOperationsPayload,
 	normalizeCopySubtreePayload,
-	validateCopySubtreePayload,
 } from "../payloads/design-validation";
 import { getProjectReference } from "../payloads/project";
 import {
@@ -48,9 +43,11 @@ import {
 } from "./annotations";
 import type { McpToolContext } from "./context";
 import {
+	createDesignFileForTool,
+	createDesignOperationDependencies,
 	getMutationDiagnostics,
 	mutateDesignFile,
-	skipDesignWrite,
+	mutateDesignWithOperation,
 	withMutationErrorHandling,
 } from "./mutation-support";
 import {
@@ -58,11 +55,7 @@ import {
 	createOperationPlanStepsInputSchema,
 	validateCopySubtreePayloadSchema,
 } from "./operation-schemas";
-import {
-	createInvalidOperationResult,
-	createJsonResult,
-	createRevisionMismatchResult,
-} from "./results";
+import { createJsonResult } from "./results";
 import {
 	designFileIdSchema,
 	expectedRevisionSchema,
@@ -169,8 +162,6 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 							await assertConfiguredSystem(context, normalizedSystemName);
 						}
 
-						const service = createDesignFileService(context.projectRoot);
-						const file = service.getFileForUuid(newDesignFileId);
 						const system =
 							normalizedSystemName === undefined ||
 							normalizedSystemName === null
@@ -191,7 +182,11 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 							(design.systemId
 								? await findDesignSystem(context.projectRoot, design.systemId)
 								: null);
-						const write = await service.createDesignFile(file, design);
+						const write = await createDesignFileForTool(
+							context,
+							newDesignFileId,
+							design,
+						);
 						await notifyResourceListChanged();
 
 						return createJsonResult({
@@ -333,9 +328,10 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 							await assertConfiguredSystem(context, normalizedSystemName);
 						}
 
-						const service = createDesignFileService(context.projectRoot);
-						const sourceFile = service.getFileForUuid(designFileId);
-						const sourceRead = await service.readDesignFile(sourceFile);
+						const sourceRead = await readDesignFileForTool(
+							context,
+							designFileId,
+						);
 						normalizeDesignForMutation(sourceRead.design);
 						const sourceElementContext = findElementContext(
 							sourceRead.design,
@@ -364,14 +360,12 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 							...designSystemOverride,
 							projectRoot: context.projectRoot,
 						});
-						const newDesign = await canonicalizeDesignSystemReferenceForStorage(
+						await assertResourceReferencesExist(context, result.newDesign);
+						const write = await createDesignFileForTool(
 							context,
+							targetDesignFileId,
 							result.newDesign,
 						);
-						await assertResourceReferencesExist(context, newDesign);
-
-						const targetFile = service.getFileForUuid(targetDesignFileId);
-						const write = await service.createDesignFile(targetFile, newDesign);
 						const writtenSystem =
 							write.design.systemId === undefined ||
 							write.design.systemId === null
@@ -450,60 +444,45 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 					},
 					async () => {
 						assertCanWriteDesignFile(policy, designFileId);
-						return mutateDesignFile(
+						return mutateDesignWithOperation(
 							context,
 							{ designFileId, expectedRevision },
-							{
-								mutate: async (read) => {
-									const result = applyAddSubtree(read.design, {
-										parentId,
-										index,
-										subtree,
-										options,
-									});
-
-									const insertedRootContext = findElementContext(
-										result.design,
-										result.rootElementId,
-									);
-									if (!insertedRootContext) {
-										throw new DesignTransformError(
-											"INVALID_OPERATION",
-											"Failed to validate inserted subtree root after applying mutation.",
-										);
-									}
-									assertCanUseSubtreeComponents(
-										policy,
-										insertedRootContext.element,
-									);
-									await assertResourceReferencesExist(context, result.design);
-									return result;
-								},
-								respond: async (result, write) => {
-									return createJsonResult({
-										status: "success",
-										project: getProjectReference(context),
-										newRevision: write.revision,
-										rootElementId: result.rootElementId,
-										idMap: result.idMap,
-										inserted: result.inserted,
-										recipeExpansions: result.recipeExpansions,
-										changedElement: getCompactElementSummary(
-											result.design,
-											result.changedElementId,
-										),
-										context: getMutationContext(
-											result.design,
-											result.changedElementId,
-										),
-										...(await getMutationDiagnostics(
-											context,
-											write.design,
-											response,
-											result.inserted.elementIds,
-										)),
-									});
-								},
+							"addSubtree",
+							{ parentId, index, subtree, options },
+							async (execution, write) => {
+								const rootElementId = String(execution.summary.rootElementId);
+								const elementIds = execution.insertedElementIds ?? [];
+								return createJsonResult({
+									status: "success",
+									project: getProjectReference(context),
+									newRevision: write.revision,
+									rootElementId,
+									idMap: execution.idMap ?? {},
+									inserted: {
+										nodeCount: elementIds.length,
+										rootElementId,
+										elementIds,
+									},
+									recipeExpansions: execution.recipeExpansions ?? [],
+									...(execution.changedElementId
+										? {
+												changedElement: getCompactElementSummary(
+													execution.design,
+													execution.changedElementId,
+												),
+												context: getMutationContext(
+													execution.design,
+													execution.changedElementId,
+												),
+											}
+										: {}),
+									...(await getMutationDiagnostics(
+										context,
+										write.design,
+										response,
+										execution.affectedElementIds,
+									)),
+								});
 							},
 						);
 					},
@@ -517,10 +496,14 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 		{
 			title: "Copy Subtree",
 			description:
-				"Copy an existing source subtree into a target design. Requires expectedRevision for the target and sourceExpectedRevision for cross-file copies. The idMap of old->new element IDs is always returned; responses include warningCount and likely-typo warnings on the inserted subtree by default, with more via the response field.",
+				"Copy an existing source subtree into a target design. Requires expectedRevision for the target and sourceExpectedRevision for cross-file copies. Returns the new rootElementId and nodeCount; pass includeIdMap for the source->copy id map. Warnings cover the inserted copy.",
 			inputSchema: validateCopySubtreePayloadSchema
 				.extend(projectScopedInputSchema)
 				.extend({
+					includeIdMap: z
+						.boolean()
+						.optional()
+						.describe("Also return the source->copy element id map."),
 					response: mutationResponseInputSchema,
 				}),
 			annotations: {
@@ -533,7 +516,8 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 			return withProjectContext(input.project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				const payload = normalizeCopySubtreePayload(input);
-				const responseOptions = input.response;
+				const sameDesign =
+					payload.sourceDesignFileId === payload.targetDesignFileId;
 				return withMutationErrorHandling(
 					context,
 					{
@@ -552,54 +536,14 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 						},
 					},
 					async () => {
-						const validation = await validateCopySubtreePayload(
-							context,
-							payload,
-						);
-						if (validation.status === "REVISION_MISMATCH") {
-							return createRevisionMismatchResult(
-								context,
-								validation.currentRevision,
-								payload.expectedRevision,
-							);
-						}
-						if (validation.status === "SOURCE_REVISION_MISMATCH") {
-							return createJsonResult(validation);
-						}
-						if (validation.status !== "success" || validation.valid !== true) {
-							const firstError = validation.diagnostics.find(
-								(diagnostic) => diagnostic.severity === "error",
-							);
-							const invalidPayload = {
-								...validation,
-								status: "INVALID_OPERATION",
-								tokenDiagnostics: stripHeavyTokenDiagnostics(
-									validation.tokenDiagnostics ?? null,
-									responseOptions?.includeTokenDiagnostics ?? false,
-								),
-								...(firstError
-									? {
-											code: firstError.code,
-											message: firstError.message,
-										}
-									: {}),
-							};
-							return {
-								content: [
-									{
-										type: "text",
-										text: JSON.stringify(invalidPayload),
-									},
-								],
-								structuredContent: invalidPayload,
-								isError: true,
-							};
-						}
-
-						const sameDesign =
-							payload.sourceDesignFileId === payload.targetDesignFileId;
 						assertCanReadDesignFile(policy, payload.sourceDesignFileId);
 						assertCanWriteDesignFile(policy, payload.targetDesignFileId);
+						if (!sameDesign && payload.sourceExpectedRevision === undefined) {
+							throw new DesignTransformError(
+								"SOURCE_REVISION_REQUIRED",
+								"sourceExpectedRevision is required for cross-design copySubtree.",
+							);
+						}
 						return mutateDesignFile(
 							context,
 							{
@@ -607,6 +551,8 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 								expectedRevision: payload.expectedRevision,
 							},
 							{
+								// One read per design: the target read doubles as the
+								// source of a same-design copy.
 								load: async (targetRead, readDesignFile) =>
 									sameDesign
 										? targetRead
@@ -616,97 +562,50 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 										payload.sourceExpectedRevision !== undefined &&
 										sourceRead.revision !== payload.sourceExpectedRevision
 									) {
-										return skipDesignWrite(
-											createJsonResult({
-												status: "SOURCE_REVISION_MISMATCH",
-												project: getProjectReference(context),
-												sourceDesignFile: getDesignMetadata(
-													payload.sourceDesignFileId,
-													sourceRead,
-												),
-												targetDesignFile: getDesignMetadata(
-													payload.targetDesignFileId,
-													targetRead,
-												),
+										throw new DesignTransformError(
+											"SOURCE_REVISION_MISMATCH",
+											"The copy source design changed since your last read. Re-read it and retry with its current revision.",
+											{
 												currentSourceRevision: sourceRead.revision,
 												sourceExpectedRevision: payload.sourceExpectedRevision,
-												expectedRevision: payload.expectedRevision,
-												message:
-													"Expected source revision does not match current revision.",
-												suggestedReads: ["readDesignFile", "readDesignGraph"],
-											}),
+											},
 										);
 									}
-
-									const sourceElementContext = findElementContext(
-										sourceRead.design,
-										payload.sourceElementId,
-									);
-									if (!sourceElementContext) {
-										throw new DesignTransformError(
-											"ELEMENT_NOT_FOUND",
-											`Element "${payload.sourceElementId}" not found.`,
-										);
-									}
-									assertCanUseSubtreeComponents(
-										policy,
-										sourceElementContext.element,
-									);
-
-									const result = await applyCopySubtree(
-										sourceRead.design,
+									const execution = await executeDesignOperation(
+										createDesignOperationDependencies(context),
 										targetRead.design,
+										"copySubtree",
 										{
+											sourceDesignFileId: payload.sourceDesignFileId,
 											sourceElementId: payload.sourceElementId,
 											parentId: payload.parentId,
 											index: payload.index,
-											sameDesign,
-											projectRoot: context.projectRoot,
+											options: payload.options,
+										},
+										{
+											designFileId: payload.targetDesignFileId,
+											sourceDesigns: new Map([
+												[payload.sourceDesignFileId, sourceRead.design],
+											]),
 										},
 									);
-									await assertResourceReferencesExist(context, result.design);
-									return result;
+									return { design: execution.design, execution };
 								},
-								respond: async (result, write, sourceRead) =>
+								respond: async ({ execution }, write) =>
 									createJsonResult({
 										status: "success",
 										project: getProjectReference(context),
-										sourceDesignFile: getDesignMetadata(
-											payload.sourceDesignFileId,
-											sourceRead,
-										),
-										targetDesignFile: {
-											id: payload.targetDesignFileId,
-											file: write.file,
-											name: write.design.name,
-											systemId: write.design.systemId ?? null,
-											systemName:
-												(
-													await summarizeDesignSystemReference(
-														context,
-														getDesignSystemHandle(write.design),
-													)
-												)?.systemName ?? null,
-											revision: write.revision,
-										},
 										newRevision: write.revision,
-										sourceElementId: payload.sourceElementId,
-										rootElementId: result.rootElementId,
-										idMap: result.idMap,
-										inserted: result.inserted,
-										changedElement: getCompactElementSummary(
-											result.design,
-											result.rootElementId,
-										),
-										context: getMutationContext(
-											result.design,
-											result.rootElementId,
-										),
+										rootElementId: String(execution.summary.rootElementId),
+										nodeCount: execution.insertedElementIds?.length ?? 0,
+										...(input.includeIdMap || input.response === "full"
+											? { idMap: execution.idMap ?? {} }
+											: {}),
 										...(await getMutationDiagnostics(
 											context,
 											write.design,
-											responseOptions,
-											Object.values(result.idMap),
+											input.response,
+											execution.affectedElementIds,
 										)),
 									}),
 							},
@@ -726,7 +625,7 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 			inputSchema: withMutationScopedInput({
 				designFileId: designFileIdSchema,
 				expectedRevision: expectedRevisionSchema,
-				name: z.string().min(1).describe("New design file name."),
+				...OPERATION_PARAMETER_SHAPES.renameDesignFile,
 			}),
 			annotations: destructiveMutationAnnotations,
 		},
@@ -744,42 +643,36 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 					},
 					async () => {
 						assertCanWriteDesignFile(policy, designFileId);
-						return mutateDesignFile(
+						return mutateDesignWithOperation(
 							context,
 							{ designFileId, expectedRevision },
-							{
-								mutate: async (read) => ({
-									design: {
-										...read.design,
-										name,
-									},
-								}),
-								respond: async (_result, write) => {
-									await notifyResourceListChanged();
+							"renameDesignFile",
+							{ name },
+							async (execution, write) => {
+								await notifyResourceListChanged();
 
-									return createJsonResult({
-										status: "success",
-										project: getProjectReference(context),
-										newRevision: write.revision,
-										designFile: {
-											id: designFileId,
-											file: write.file,
-											name: write.design.name,
-											systemId: write.design.systemId ?? null,
-											systemName: await getDesignSystemDisplayName(
-												context,
-												write.design,
-											),
-											revision: write.revision,
-										},
-										...(await getMutationDiagnostics(
+								return createJsonResult({
+									status: "success",
+									project: getProjectReference(context),
+									newRevision: write.revision,
+									designFile: {
+										id: designFileId,
+										file: write.file,
+										name: write.design.name,
+										systemId: write.design.systemId ?? null,
+										systemName: await getDesignSystemDisplayName(
 											context,
 											write.design,
-											response,
-											[],
-										)),
-									});
-								},
+										),
+										revision: write.revision,
+									},
+									...(await getMutationDiagnostics(
+										context,
+										write.design,
+										response,
+										execution.affectedElementIds,
+									)),
+								});
 							},
 						);
 					},
@@ -793,7 +686,7 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 		{
 			title: "Apply Design Operations",
 			description:
-				"Validate and commit an ordered list of design operations atomically against one expectedRevision. Performs exactly one persisted write when the full plan is valid and the starting revision still matches. Responses are compact by default: newRevision, per-step created ids (changedElementId, idMap for addSubtree tempIds, recipe roots), error issues, warningCount, and likely-typo warnings on touched elements; use the response field for all warnings, token diagnostics, or full step details.",
+				"Validate and commit an ordered list of design operations atomically against one expectedRevision; one write, or none if any step fails. Returns newRevision, `created` ids per inserting step (root id, addSubtree tempId map, recipe slot ids), deletedCount, error issues, warningCount and grouped likely-typo warnings on touched elements. A failing step returns failedStepIndex, its error and expectedParameters.",
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
 				expectedRevision: expectedRevisionSchema,
@@ -825,39 +718,12 @@ export const registerDesignBatchWriteTools = (ctx: McpToolContext) => {
 					},
 					async () => {
 						assertCanWriteDesignFile(policy, designFileId);
-						try {
-							const { status, valid, payload } =
-								await applyDesignOperationsPayload(context, {
-									designFileId,
-									expectedRevision,
-									operations,
-									response,
-									project,
-								});
-							if (
-								status === "invalid" ||
-								status === "REVISION_MISMATCH" ||
-								status === "SOURCE_REVISION_MISMATCH" ||
-								(status === "success" && valid === false)
-							) {
-								return {
-									content: [
-										{
-											type: "text",
-											text: JSON.stringify(payload),
-										},
-									],
-									structuredContent: payload,
-									isError: true,
-								};
-							}
-							return createJsonResult(payload);
-						} catch (error) {
-							if (error instanceof DesignTransformError) {
-								return createInvalidOperationResult(context, error);
-							}
-							throw error;
-						}
+						return applyDesignOperationsPayload(context, {
+							designFileId,
+							expectedRevision,
+							operations,
+							response,
+						});
 					},
 				);
 			}),

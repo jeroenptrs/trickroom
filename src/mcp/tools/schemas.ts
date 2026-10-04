@@ -49,47 +49,35 @@ export const expectedRevisionSchema = z
 
 export const projectRefSchema: z.ZodType<TrickroomMcpProjectRef | undefined> = z
 	.object({
-		locationId: z
-			.string()
-			.min(1)
-			.optional()
-			.describe("Registered local Trickroom project location ID."),
-		projectId: z
-			.string()
-			.min(1)
-			.optional()
-			.describe(
-				"Stable Trickroom project ID. Ambiguous registered IDs require locationId.",
-			),
+		locationId: z.string().min(1).optional(),
+		projectId: z.string().min(1).optional(),
 	})
 	.strict()
 	.optional()
 	.describe(
-		"Optional explicit project selector. Prefer locationId for automation; omit to use the MCP session default.",
+		"Project override ({ locationId }); defaults to the selected project.",
 	);
 
 export const projectScopedInputSchema = {
 	project: projectRefSchema,
 } as const;
 
-export const mutationResponseOptionsSchema = z
-	.object({
-		includeWarnings: z.boolean().optional(),
-		warningScope: z.enum(["affected", "file"]).optional(),
-		includeTokenDiagnostics: z.boolean().optional(),
-		includeStepDetails: z
-			.boolean()
-			.optional()
-			.describe(
-				"applyDesignOperations only: return full per-step summaries and aggregate changed/inserted id lists instead of the compact per-step result.",
-			),
-	})
-	.strict();
+/**
+ * Write and validation response detail. "compact" (the default) returns error
+ * issues, warningCount and grouped likely-typo warnings on touched elements;
+ * "full" adds every warning on them, token diagnostics, per-step details and
+ * full id maps.
+ */
+export const mutationResponseDetailSchema = z.enum(["compact", "full"]);
 
-export const mutationResponseInputSchema = mutationResponseOptionsSchema
+export type MutationResponseDetail = z.infer<
+	typeof mutationResponseDetailSchema
+>;
+
+export const mutationResponseInputSchema = mutationResponseDetailSchema
 	.optional()
 	.describe(
-		'Response verbosity controls. Default: error issues, warningCount, and likely-typo (UNKNOWN_TAILWIND_UTILITY, UNKNOWN_*_TOKEN) and MISSING_RENDERER warnings on the elements this write touched. includeWarnings:true returns every warning in scope, includeWarnings:false none; warningScope:"file" widens the scope to the whole design; includeTokenDiagnostics adds the custom-utility catalog.',
+		'"full" adds all warnings, token diagnostics and full step/id details.',
 	);
 
 export const mutationScopedInputSchema = {

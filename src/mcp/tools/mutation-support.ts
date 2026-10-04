@@ -9,17 +9,31 @@ import { DesignTransformError } from "../../services/design-transform-service";
 import { enrichElementLookupError } from "../../services/element-lookup-hints";
 import type { TrickroomDesign } from "../../types";
 import {
+	type DesignOperationName,
+	validateDryRunOperationParameters,
+} from "../design-operations";
+import {
 	getDesignDiagnostics,
-	type MutationResponseOptions,
+	type MutationResponseDetail,
 	shapeMutationDiagnostics,
 } from "../diagnostics";
 import {
 	appendMcpAuditLog,
+	getMcpPolicy,
 	type McpAuditEntry,
 	McpPolicyError,
 } from "../governance";
+import {
+	type DesignOperationExecution,
+	executeDesignOperation,
+	type OperationPlanDependencies,
+} from "../operation-plan";
 import { canonicalizeDesignSystemReferenceForStorage } from "../payloads/design-system";
 import { readDesignFileForTool } from "../payloads/design-tree";
+import {
+	assertCanUseSubtreeComponents,
+	assertResourceElementReferenceExists,
+} from "../payloads/references";
 import type { TrickroomMcpServerContext } from "../server-types";
 import {
 	createInvalidOperationResult,
@@ -28,19 +42,39 @@ import {
 	createToolErrorResult,
 } from "./results";
 
-// Shape post-write diagnostics for a mutation response. Minimal by default:
-// error-severity issues plus a stripped token snapshot. Warnings and the
-// heavy token catalog are opt-in via `options`; pass `affectedElementIds` to
-// scope opt-in warnings to the elements this write touched. To inspect the
-// full design after a single-element write, call validateDesignFile.
+// Shape post-write diagnostics for a mutation response: every error issue, a
+// warningCount, and grouped likely-typo warnings scoped to
+// `affectedElementIds` (the elements this write touched). "full" returns every
+// scoped warning and the token diagnostics. To inspect the full design, call
+// validateDesignFile.
 export const getMutationDiagnostics = async (
 	context: TrickroomMcpServerContext,
 	design: TrickroomDesign,
-	options?: MutationResponseOptions,
+	detail?: MutationResponseDetail,
 	affectedElementIds?: Iterable<string>,
 ) => {
 	const diagnostics = await getDesignDiagnostics(context, design);
-	return shapeMutationDiagnostics(diagnostics, options, affectedElementIds);
+	return shapeMutationDiagnostics(diagnostics, detail, affectedElementIds);
+};
+
+/** Policy, project root and checks for executing design operations. */
+export const createDesignOperationDependencies = (
+	context: TrickroomMcpServerContext,
+): OperationPlanDependencies => {
+	const policy = getMcpPolicy(context.config);
+	return {
+		policy,
+		projectRoot: context.projectRoot,
+		readDesignFile: (designFileId) =>
+			readDesignFileForTool(context, designFileId),
+		assertResourceReferencesExist: async (design, elementIds) => {
+			for (const elementId of elementIds) {
+				await assertResourceElementReferenceExists(context, design, elementId);
+			}
+		},
+		assertCanUseSubtreeComponents: (subtree) =>
+			assertCanUseSubtreeComponents(policy, subtree),
+	};
 };
 
 export const auditToolResult = async (
@@ -151,8 +185,8 @@ type DesignFileWriteResult = Awaited<
 	ReturnType<DesignFileService["writeDesignFile"]>
 >;
 
-// The read, revision check, write, and race re-read shared by single-file
-// design mutations. Reads the design, rejects a stale expectedRevision,
+// The read, revision check, write, and race re-read shared by every design
+// mutation; the one place that reads and writes existing design files. Reads the design, rejects a stale expectedRevision,
 // applies `mutate`, writes the canonicalized design guarded by
 // expectedRevision, and reports a lost write race as REVISION_MISMATCH with
 // the revision now on disk. `load` runs after the read and before the
@@ -184,10 +218,10 @@ export const mutateDesignFile = async <
 ): Promise<CallToolResult> => {
 	const service = createDesignFileService(context.projectRoot);
 	const file = service.getFileForUuid(designFileId);
-	const read = await service.readDesignFile(file);
+	const read = await readDesignFileForTool(context, designFileId);
 	const loaded = steps.load
 		? await steps.load(read, (otherDesignFileId) =>
-				service.readDesignFile(service.getFileForUuid(otherDesignFileId)),
+				readDesignFileForTool(context, otherDesignFileId),
 			)
 		: (undefined as Loaded);
 
@@ -229,4 +263,53 @@ export const mutateDesignFile = async <
 	}
 
 	return steps.respond(result, write, loaded);
+};
+
+/**
+ * Validate parameters and execute one design operation inside
+ * mutateDesignFile: the single-element write tools are thin wrappers over the
+ * same implementation as the matching applyDesignOperations step.
+ */
+export const mutateDesignWithOperation = (
+	context: TrickroomMcpServerContext,
+	target: { designFileId: string; expectedRevision: string },
+	operation: DesignOperationName,
+	parameters: Record<string, unknown>,
+	respond: (
+		execution: DesignOperationExecution,
+		write: DesignFileWriteResult,
+		before: TrickroomDesign,
+	) => Promise<CallToolResult>,
+): Promise<CallToolResult> =>
+	mutateDesignFile(context, target, {
+		mutate: async (read) => {
+			const params = validateDryRunOperationParameters(operation, parameters, {
+				designFileId: target.designFileId,
+			});
+			const execution = await executeDesignOperation(
+				createDesignOperationDependencies(context),
+				read.design,
+				operation,
+				params,
+				{ designFileId: target.designFileId },
+			);
+			return { design: execution.design, execution, before: read.design };
+		},
+		respond: (result, write) => respond(result.execution, write, result.before),
+	});
+
+/**
+ * Create a new design file: canonicalize its system reference and write it
+ * with exclusive-create semantics. The one place that creates design files.
+ */
+export const createDesignFileForTool = async (
+	context: TrickroomMcpServerContext,
+	designFileId: string,
+	design: TrickroomDesign,
+) => {
+	const service = createDesignFileService(context.projectRoot);
+	return service.createDesignFile(
+		service.getFileForUuid(designFileId),
+		await canonicalizeDesignSystemReferenceForStorage(context, design),
+	);
 };

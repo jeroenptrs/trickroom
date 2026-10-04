@@ -474,12 +474,6 @@ export const describeOperationCatalogue = () =>
 		})
 		.join("\n");
 
-/** @deprecated Use describeOperationCatalogue or OPERATION_PARAMETER_SIGNATURES. */
-export const describeOperationParameterSignatures = () =>
-	Object.entries(OPERATION_PARAMETER_SIGNATURES)
-		.map(([operation, signature]) => `${operation} ${signature}`)
-		.join("; ");
-
 export type DryRunResult = {
 	operation: DesignOperationName;
 	design: TrickroomDesign;

@@ -1,112 +1,237 @@
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { z } from "zod";
 import { readTrickroomDesignValue } from "../../server-utils";
-import { createDesignFileService } from "../../services/design-file-service";
 import {
-	applyCopySubtree,
+	createDesignFileService,
+	type DesignFileRead,
+} from "../../services/design-file-service";
+import {
 	DesignTransformError,
-	normalizeDesignForMutation,
 	type SubtreeDiagnostic,
 	validateProposedSubtreeForInsertion,
 } from "../../services/design-transform-service";
-import type { Node as DesignNode } from "../../types";
+import type { TrickroomDesign } from "../../types";
 import { findDesignSystem } from "../../utils/design-system-store";
+import type { DesignOperationName } from "../design-operations";
 import {
-	applyDryRunOperation,
-	assertOperationAllowedByPolicy,
-	type DesignOperationName,
-	OPERATION_PARAMETER_SIGNATURES,
-	validateDryRunOperationParameters,
-} from "../design-operations";
-import {
+	countIssuesByCode,
 	getDesignDiagnostics,
+	groupWarnings,
 	type McpDesignIssue,
-	stripHeavyTokenDiagnostics,
+	type MutationResponseDetail,
+	shapeMutationDiagnostics,
 } from "../diagnostics";
+import { assertCanReadDesignFile, getMcpPolicy } from "../governance";
 import {
-	assertCanReadDesignFile,
-	assertCanWriteDesignFile,
-	getMcpPolicy,
-} from "../governance";
-import {
-	applyOperationPlan,
-	compactApplyOperationPlanResult,
-	createOperationPlanDependencies,
-	executeOperationPlanDryRun,
-	type operationPlanInputSchema,
+	describeCreatedElements,
+	describeFailedPlanStep,
+	executeOperationPlan,
+	type OperationPlanExecution,
+	type OperationPlanInput,
+	type OperationPlanStepOutput,
 } from "../operation-plan";
 import type { TrickroomMcpServerContext } from "../server-types";
+import {
+	createDesignOperationDependencies,
+	mutateDesignFile,
+	skipDesignWrite,
+} from "../tools/mutation-support";
 import type {
-	AddSubtreeOperationParameters,
-	CopySubtreeOperationParameters,
 	validateCopySubtreePayloadSchema,
 	validateSubtreePayloadSchema,
 } from "../tools/operation-schemas";
-import {
-	canonicalizeDesignSystemReferenceForStorage,
-	summarizeDesignSystemReference,
-} from "./design-system";
+import { createJsonResult } from "../tools/results";
+import { summarizeDesignSystemReference } from "./design-system";
 import {
 	findElementContext,
-	getCompactElementSummary,
-	getDesignMetadata,
 	getDesignSystemHandle,
-	getMutationContext,
 	readDesignFileForTool,
 } from "./design-tree";
 import { getProjectReference } from "./project";
 import {
 	assertCanUseSubtreeComponents,
-	assertResourceElementReferenceExists,
-	assertResourceReferencesExist,
 	type ValidationIssue,
 	validateElementReferences,
 } from "./references";
 
+/**
+ * Element ids listed per grouped warning in validation results; larger groups
+ * report their total in `count`.
+ */
+const MAX_VALIDATION_GROUP_ELEMENT_IDS = 5;
+
+type ValidationStatus =
+	| "success"
+	| "INVALID_OPERATION"
+	| "REVISION_MISMATCH"
+	| "SOURCE_REVISION_MISMATCH";
+
+/**
+ * The result shape every validation tool shares: a per-code summary first,
+ * then error issues in full, then warnings grouped by code and offending
+ * class (ungrouped with response "full"), then tool-specific fields.
+ */
+export const createValidationResult = (
+	context: TrickroomMcpServerContext,
+	{
+		status = "success",
+		designFileId,
+		revision,
+		issues,
+		detail,
+		extra = {},
+	}: {
+		status?: ValidationStatus;
+		designFileId: string;
+		revision?: string;
+		issues: readonly McpDesignIssue[];
+		detail?: MutationResponseDetail;
+		extra?: Record<string, unknown>;
+	},
+) => {
+	const errors = issues.filter((issue) => issue.severity === "error");
+	const warnings = issues.filter((issue) => issue.severity === "warning");
+	return {
+		status,
+		valid: status === "success" && errors.length === 0,
+		project: getProjectReference(context),
+		designFileId,
+		...(revision !== undefined ? { revision } : {}),
+		summary: {
+			errors: errors.length,
+			warnings: warnings.length,
+			codes: countIssuesByCode(issues),
+		},
+		issues: errors,
+		...(warnings.length > 0
+			? {
+					warnings:
+						detail === "full"
+							? warnings
+							: groupWarnings(warnings, {
+									maxElementIds: MAX_VALIDATION_GROUP_ELEMENT_IDS,
+								}),
+				}
+			: {}),
+		...extra,
+	};
+};
+
+const toIssue = (error: DesignTransformError): McpDesignIssue => ({
+	severity: "error",
+	code: error.code,
+	message: error.message,
+	...error.details,
+});
+
+const createInvalidValidationResult = (
+	context: TrickroomMcpServerContext,
+	designFileId: string,
+	error: DesignTransformError,
+	extra: Record<string, unknown> = {},
+) =>
+	createValidationResult(context, {
+		status:
+			error.code === "SOURCE_REVISION_MISMATCH"
+				? "SOURCE_REVISION_MISMATCH"
+				: "INVALID_OPERATION",
+		designFileId,
+		issues: [toIssue(error)],
+		extra,
+	});
+
+const createRevisionMismatchValidationResult = (
+	context: TrickroomMcpServerContext,
+	designFileId: string,
+	read: DesignFileRead,
+	expectedRevision: string,
+) =>
+	createValidationResult(context, {
+		status: "REVISION_MISMATCH",
+		designFileId,
+		issues: [
+			{
+				severity: "error",
+				code: "REVISION_MISMATCH",
+				message:
+					"The design changed since your last read. Re-read it and validate against its current revision.",
+			},
+		],
+		extra: { currentRevision: read.revision, expectedRevision },
+	});
+
+/** Diagnostics on `design`, warnings scoped to the touched elements. */
+const getScopedDesignIssues = async (
+	context: TrickroomMcpServerContext,
+	design: TrickroomDesign,
+	affectedElementIds: Iterable<string>,
+) => {
+	const affected = new Set(affectedElementIds);
+	const diagnostics = await getDesignDiagnostics(context, design);
+	return {
+		tokenSnapshot: diagnostics.tokenSnapshot,
+		issues: diagnostics.issues.filter(
+			(issue) =>
+				issue.severity === "error" ||
+				issue.elementId === undefined ||
+				affected.has(issue.elementId),
+		),
+	};
+};
+
+const readRawDesignFile = async (
+	context: TrickroomMcpServerContext,
+	designFileId: string,
+) => {
+	const service = createDesignFileService(context.projectRoot);
+	try {
+		return await service.readJsonFile(service.getFileForUuid(designFileId));
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+			// Throws the shared DESIGN_NOT_FOUND error for missing designs.
+			await readDesignFileForTool(context, designFileId);
+		}
+		throw error;
+	}
+};
+
 export const validateDesignFilePayload = async (
 	context: TrickroomMcpServerContext,
 	designFileId: string,
-	options: { includeTokenDiagnostics?: boolean } = {},
+	options: { detail?: MutationResponseDetail } = {},
 ) => {
-	const includeTokenDiagnostics = options.includeTokenDiagnostics ?? false;
 	assertCanReadDesignFile(getMcpPolicy(context.config), designFileId);
-	const service = createDesignFileService(context.projectRoot);
-	const read = await service.readJsonFile(service.getFileForUuid(designFileId));
-	const issues: ValidationIssue[] = [];
+	const read = await readRawDesignFile(context, designFileId);
 	const migration = readTrickroomDesignValue(read.value);
 
 	if (!migration.ok) {
-		return {
-			project: getProjectReference(context),
-			designFile: {
-				id: designFileId,
-				file: read.file,
-				revision: read.revision,
-			},
-			valid: false,
+		return createValidationResult(context, {
+			designFileId,
+			revision: read.revision,
 			issues: [
 				{
 					severity: "error",
 					code: migration.code,
 					message: migration.message,
 				},
-			] satisfies ValidationIssue[],
-		};
+			],
+		});
 	}
 
 	const design = migration.design;
 	const diagnostics = await getDesignDiagnostics(context, design);
-	issues.push(...diagnostics.issues);
+	const issues: ValidationIssue[] = [...diagnostics.issues];
 	const systemHandle = getDesignSystemHandle(design);
-	if (systemHandle !== null) {
-		const system = await findDesignSystem(context.projectRoot, systemHandle);
-		if (!system) {
-			issues.push({
-				severity: "error",
-				code: "UNKNOWN_DESIGN_SYSTEM",
-				message: `Design references unconfigured design system "${systemHandle}".`,
-				path: design.systemId !== undefined ? "systemId" : "systemName",
-			});
-		}
+	if (
+		systemHandle !== null &&
+		!(await findDesignSystem(context.projectRoot, systemHandle))
+	) {
+		issues.push({
+			severity: "error",
+			code: "UNKNOWN_DESIGN_SYSTEM",
+			message: `Design references unconfigured design system "${systemHandle}".`,
+			path: design.systemId !== undefined ? "systemId" : "systemName",
+		});
 	}
 
 	const seenElementIds = new Map<string, string>();
@@ -121,38 +246,142 @@ export const validateDesignFilePayload = async (
 		);
 	}
 
-	const registryReferences = [...componentUsage.entries()]
-		.map(([componentRef, count]) => {
-			const [library, component] = componentRef.split("/");
-			return { library, component, count };
-		})
-		.sort((a, b) =>
-			a.library === b.library
-				? a.component.localeCompare(b.component)
-				: a.library.localeCompare(b.library),
-		);
-
-	return {
-		project: getProjectReference(context),
-		designFile: {
-			id: designFileId,
-			file: read.file,
-			name: design.name,
-			systemId: design.systemId ?? null,
-			systemName: systemHandle === null ? null : (design.systemName ?? null),
-			revision: read.revision,
-		},
-		valid: issues.every((issue) => issue.severity !== "error"),
+	const full = options.detail === "full";
+	return createValidationResult(context, {
+		designFileId,
+		revision: read.revision,
 		issues,
-		designSystem: await summarizeDesignSystemReference(context, systemHandle),
-		tokenDiagnostics: stripHeavyTokenDiagnostics(
-			diagnostics.tokenSnapshot,
-			includeTokenDiagnostics,
-		),
-		registryReferences,
-		elementCount: seenElementIds.size,
-		rootElementIds: design.boards.map((board) => board.id),
+		detail: options.detail,
+		extra: {
+			elementCount: seenElementIds.size,
+			...(full
+				? {
+						rootElementIds: design.boards.map((board) => board.id),
+						designSystem: await summarizeDesignSystemReference(
+							context,
+							systemHandle,
+						),
+						tokenDiagnostics: diagnostics.tokenSnapshot,
+						registryReferences: [...componentUsage.entries()]
+							.map(([componentRef, count]) => {
+								const [library, component] = componentRef.split("/");
+								return { library, component, count };
+							})
+							.sort(
+								(a, b) =>
+									a.library.localeCompare(b.library) ||
+									a.component.localeCompare(b.component),
+							),
+					}
+				: {}),
+		},
+	});
+};
+
+/**
+ * What a dry-run step would do. Insertions report where and how many nodes,
+ * without the generated ids (they are not the ids a write would create);
+ * other operations report their summary and the element they change.
+ */
+const describePredictedStep = (step: OperationPlanStepOutput) => {
+	if (!step.insertedElementIds) {
+		return {
+			...step.summary,
+			...(step.changedElementId
+				? { changedElementId: step.changedElementId }
+				: {}),
+			...(step.deletedIds ? { deletedCount: step.deletedIds.length } : {}),
+		};
+	}
+	const {
+		rootElementId: _rootElementId,
+		recipe,
+		systemComponent,
+		...summary
+	} = step.summary as Record<string, unknown> & {
+		recipe?: { id: string };
+		systemComponent?: Record<string, unknown>;
 	};
+	const {
+		instanceId: _instanceId,
+		elementIdsByPath: _elementIdsByPath,
+		...component
+	} = systemComponent ?? {};
+	return {
+		...summary,
+		...(recipe ? { recipeId: recipe.id } : {}),
+		...(systemComponent ? { systemComponent: component } : {}),
+		nodeCount: step.insertedElementIds.length,
+	};
+};
+
+/**
+ * Dry-run operations against the current revision with the same executor as
+ * applyDesignOperations, and report them in the shared validation shape.
+ */
+const validateOperations = async (
+	context: TrickroomMcpServerContext,
+	input: Pick<OperationPlanInput, "designFileId" | "expectedRevision"> & {
+		operations: Array<{
+			operation: DesignOperationName;
+			parameters?: Record<string, unknown>;
+		}>;
+		detail?: MutationResponseDetail;
+	},
+	describe: (
+		execution: Extract<OperationPlanExecution, { status: "success" }>,
+	) => Record<string, unknown>,
+) => {
+	assertCanReadDesignFile(getMcpPolicy(context.config), input.designFileId);
+	const read = await readDesignFileForTool(context, input.designFileId);
+	if (read.revision !== input.expectedRevision) {
+		return createRevisionMismatchValidationResult(
+			context,
+			input.designFileId,
+			read,
+			input.expectedRevision,
+		);
+	}
+
+	const execution = await executeOperationPlan(
+		createDesignOperationDependencies(context),
+		input,
+		read.design,
+	);
+	if (execution.status === "failed") {
+		const {
+			code: _code,
+			message: _message,
+			...failure
+		} = describeFailedPlanStep(execution);
+		return createInvalidValidationResult(
+			context,
+			input.designFileId,
+			execution.error,
+			{
+				failedStepIndex: failure.failedStepIndex,
+				failedOperation: failure.failedOperation,
+			},
+		);
+	}
+
+	const scoped = await getScopedDesignIssues(
+		context,
+		execution.design,
+		execution.affectedElementIds,
+	);
+	return createValidationResult(context, {
+		designFileId: input.designFileId,
+		revision: read.revision,
+		issues: scoped.issues,
+		detail: input.detail,
+		extra: {
+			...describe(execution),
+			...(input.detail === "full"
+				? { tokenDiagnostics: scoped.tokenSnapshot }
+				: {}),
+		},
+	});
 };
 
 export const validateOperationPayload = async (
@@ -160,213 +389,37 @@ export const validateOperationPayload = async (
 	designFileId: string,
 	expectedRevision: string,
 	operation: DesignOperationName,
-	parameters: unknown,
-) => {
-	const policy = getMcpPolicy(context.config);
-	assertCanReadDesignFile(policy, designFileId);
-	let params: Record<string, unknown>;
-	try {
-		params = validateDryRunOperationParameters(operation, parameters, {
-			designFileId,
-		});
-	} catch (error) {
-		if (
-			error instanceof DesignTransformError &&
-			error.code === "INVALID_OPERATION_PARAMETERS"
-		) {
-			throw new DesignTransformError(error.code, error.message, {
-				...error.details,
-				expectedParameters: OPERATION_PARAMETER_SIGNATURES[operation],
-			});
-		}
-		throw error;
-	}
-	const read = await readDesignFileForTool(context, designFileId);
-
-	if (read.revision !== expectedRevision) {
-		return {
-			status: "REVISION_MISMATCH",
-			valid: false,
-			project: getProjectReference(context),
-			designFile: getDesignMetadata(designFileId, read),
-			currentRevision: read.revision,
-			expectedRevision,
-			message:
-				"The design file was modified since your last read. Re-read before applying or validating the operation.",
-			suggestedReads: ["readDesignFile", "readDesignGraph"],
-			issues: [
-				{
-					severity: "error",
-					code: "REVISION_MISMATCH",
-					message: "Expected revision does not match current revision.",
-				},
-			] satisfies ValidationIssue[],
-		};
-	}
-
-	if (operation === "addSubtree") {
-		const addSubtreeParameters = params as AddSubtreeOperationParameters;
-		const validation = await validateSubtreePayload(context, {
-			designFileId,
-			expectedRevision,
-			...addSubtreeParameters,
-		});
-
-		return {
-			status: validation.status,
-			valid: validation.valid,
-			project: validation.project,
-			designFile: validation.designFile,
-			operation,
-			predicted: {
-				parentId: addSubtreeParameters.parentId,
-				index: addSubtreeParameters.index,
-				stats: validation.stats,
-				...(validation.normalizedSubtree !== undefined
-					? { normalizedSubtree: validation.normalizedSubtree }
-					: {}),
-				...(validation.recipeExpansions.length > 0
-					? { recipeExpansions: validation.recipeExpansions }
-					: {}),
-			},
-			issues: validation.diagnostics as ValidationIssue[],
-			warnings: validation.warnings as ValidationIssue[],
-			...(validation.tokenDiagnostics !== null
-				? { tokenDiagnostics: validation.tokenDiagnostics }
-				: {}),
-			suggestedReads: validation.suggestedReads,
-		};
-	}
-
-	if (operation === "copySubtree") {
-		const copySubtreeParameters = params as CopySubtreeOperationParameters;
-		const validation = await validateCopySubtreePayload(context, {
-			...copySubtreeParameters,
-			targetDesignFileId: designFileId,
-			expectedRevision,
-		});
-
-		return {
-			status: validation.status,
-			valid: validation.valid,
-			project: validation.project,
-			designFile:
-				validation.targetDesignFile ?? getDesignMetadata(designFileId, read),
-			operation,
-			predicted: {
-				sourceDesignFileId: copySubtreeParameters.sourceDesignFileId,
-				sourceElementId: copySubtreeParameters.sourceElementId,
-				parentId: copySubtreeParameters.parentId,
-				index: copySubtreeParameters.index,
-				sameDesign: validation.sameDesign,
-				stats: validation.stats,
-			},
-			issues: validation.diagnostics as ValidationIssue[],
-			warnings: validation.warnings as ValidationIssue[],
-			...(validation.tokenDiagnostics !== null
-				? { tokenDiagnostics: validation.tokenDiagnostics }
-				: {}),
-			suggestedReads: validation.suggestedReads,
-		};
-	}
-
-	assertOperationAllowedByPolicy(policy, read.design, operation, params);
-	const result = await applyDryRunOperation(read.design, operation, params, {
-		designFileId,
-		projectRoot: context.projectRoot,
-		sourceDesigns: new Map(),
-	});
-	if (operation === "addSystemComponent" && result.changedElementId) {
-		const insertedRoot = findElementContext(
-			result.design,
-			result.changedElementId,
-		);
-		if (!insertedRoot) {
-			throw new DesignTransformError(
-				"INVALID_OPERATION",
-				"Failed to validate inserted system component root after dry-run.",
-			);
-		}
-		assertCanUseSubtreeComponents(policy, insertedRoot.element);
-	}
-	await assertResourceElementReferenceExists(
+	parameters: Record<string, unknown> | undefined,
+	detail?: MutationResponseDetail,
+) =>
+	validateOperations(
 		context,
-		result.design,
-		result.changedElementId,
-	);
-	const diagnostics = await getDesignDiagnostics(context, result.design);
-	const changedElement =
-		result.changedElementId === undefined
-			? null
-			: getCompactElementSummary(result.design, result.changedElementId);
-	const changedContext =
-		result.changedElementId === undefined
-			? null
-			: getMutationContext(result.design, result.changedElementId);
-
-	return {
-		status: "success",
-		valid: diagnostics.issues.every((issue) => issue.severity !== "error"),
-		project: getProjectReference(context),
-		designFile: getDesignMetadata(designFileId, read),
-		operation,
-		predicted: {
-			...result.summary,
-			changedElement,
-			context: changedContext,
-			deletedIds: result.deletedIds ?? [],
+		{
+			designFileId,
+			expectedRevision,
+			operations: [{ operation, parameters }],
+			detail,
 		},
-		issues: diagnostics.issues,
-		warnings: diagnostics.issues.filter(
-			(issue) => issue.severity === "warning",
-		),
-		tokenDiagnostics: diagnostics.tokenSnapshot,
-		suggestedReads: ["readDesignGraph", "readElement", "validateDesignFile"],
-	};
-};
-
-const createOperationPlanHooks = (context: TrickroomMcpServerContext) => {
-	const policy = getMcpPolicy(context.config);
-	return createOperationPlanDependencies(context, policy, {
-		readDesignFileForTool: (designFileId) =>
-			readDesignFileForTool(context, designFileId),
-		getProjectReference: () => getProjectReference(context),
-		getDesignMetadata,
-		getDesignDiagnostics: (design) => getDesignDiagnostics(context, design),
-		assertResourceReferencesExist: (design) =>
-			assertResourceReferencesExist(context, design),
-		assertCanUseSubtreeComponents: (subtree) =>
-			assertCanUseSubtreeComponents(policy, subtree),
-		canonicalizeDesignForStorage: (design) =>
-			canonicalizeDesignSystemReferenceForStorage(context, design),
-	});
-};
+		(execution) => ({
+			operation,
+			predicted: describePredictedStep(execution.steps[0]),
+		}),
+	);
 
 export const validateOperationPlanPayload = async (
 	context: TrickroomMcpServerContext,
-	input: z.infer<typeof operationPlanInputSchema>,
-) => {
-	const policy = getMcpPolicy(context.config);
-	assertCanReadDesignFile(policy, input.designFileId);
-	const { finalDesign: _finalDesign, ...result } =
-		await executeOperationPlanDryRun(createOperationPlanHooks(context), input);
-	return result;
-};
-
-export const applyDesignOperationsPayload = async (
-	context: TrickroomMcpServerContext,
-	input: z.infer<typeof operationPlanInputSchema>,
-) => {
-	const result = await applyOperationPlan(
-		createOperationPlanHooks(context),
-		input,
-	);
-	return {
-		status: result.status,
-		valid: result.valid,
-		payload: compactApplyOperationPlanResult(result, input),
-	};
-};
+	input: Pick<
+		OperationPlanInput,
+		"designFileId" | "expectedRevision" | "operations"
+	> & { detail?: MutationResponseDetail },
+) =>
+	validateOperations(context, input, (execution) => ({
+		operationCount: input.operations.length,
+		...(execution.deletedIds.length > 0
+			? { deletedCount: execution.deletedIds.length }
+			: {}),
+		...(input.detail === "full" ? { steps: execution.steps } : {}),
+	}));
 
 type ValidateSubtreePayload = z.infer<typeof validateSubtreePayloadSchema>;
 type ValidateCopySubtreePayload = Omit<
@@ -375,67 +428,38 @@ type ValidateCopySubtreePayload = Omit<
 > & { sourceDesignFileId: string };
 
 /** Same-file copies may omit sourceDesignFileId; default it to the target. */
-export const normalizeCopySubtreePayload = (
-	input: z.infer<typeof validateCopySubtreePayloadSchema>,
-): ValidateCopySubtreePayload => ({
+export const normalizeCopySubtreePayload = <
+	Input extends z.infer<typeof validateCopySubtreePayloadSchema>,
+>(
+	input: Input,
+): Input & { sourceDesignFileId: string } => ({
 	...input,
 	sourceDesignFileId: input.sourceDesignFileId ?? input.targetDesignFileId,
 });
 
-const createSubtreeDiagnosticFromTransformError = (
-	error: DesignTransformError,
-	path: string,
-): SubtreeDiagnostic => ({
-	severity: "error",
-	code: error.code,
-	message: error.message,
-	path,
-});
-
-const createSubtreeDiagnosticFromDesignIssue = (
-	issue: McpDesignIssue,
-	index: number,
-): SubtreeDiagnostic => ({
-	severity: issue.severity,
-	code: issue.code,
-	message: issue.message,
-	path: "/subtree",
-	details: {
-		source: "candidateDesign",
-		index,
-		issuePath: issue.path,
-		...(issue.elementId !== undefined ? { elementId: issue.elementId } : {}),
-	},
+const toSubtreeIssue = (diagnostic: SubtreeDiagnostic): McpDesignIssue => ({
+	severity: diagnostic.severity === "error" ? "error" : "warning",
+	code: diagnostic.code,
+	message: diagnostic.message,
+	...(diagnostic.path ? { path: diagnostic.path } : {}),
+	...(diagnostic.tempId !== undefined ? { tempId: diagnostic.tempId } : {}),
+	...diagnostic.details,
 });
 
 export const validateSubtreePayload = async (
 	context: TrickroomMcpServerContext,
-	input: ValidateSubtreePayload,
+	input: ValidateSubtreePayload & { detail?: MutationResponseDetail },
 ) => {
 	const policy = getMcpPolicy(context.config);
 	assertCanReadDesignFile(policy, input.designFileId);
 	const read = await readDesignFileForTool(context, input.designFileId);
-
 	if (read.revision !== input.expectedRevision) {
-		return {
-			status: "REVISION_MISMATCH",
-			valid: false,
-			project: getProjectReference(context),
-			designFile: getDesignMetadata(input.designFileId, read),
-			currentRevision: read.revision,
-			expectedRevision: input.expectedRevision,
-			diagnostics: [
-				{
-					severity: "error",
-					code: "REVISION_MISMATCH",
-					message: "Expected revision does not match current revision.",
-					path: "/expectedRevision",
-				},
-			] satisfies SubtreeDiagnostic[],
-			stats: { nodeCount: 0, maxDepth: 0, recipeCount: 0 },
-			warnings: [] satisfies SubtreeDiagnostic[],
-			suggestedReads: ["readDesignFile", "readDesignGraph"],
-		};
+		return createRevisionMismatchValidationResult(
+			context,
+			input.designFileId,
+			read,
+			input.expectedRevision,
+		);
 	}
 
 	const validation = validateProposedSubtreeForInsertion(read.design, {
@@ -444,10 +468,8 @@ export const validateSubtreePayload = async (
 		subtree: input.subtree,
 		options: input.options,
 	});
-	const diagnostics = [...validation.diagnostics];
-	let tokenDiagnostics: Awaited<
-		ReturnType<typeof getDesignDiagnostics>
-	>["tokenSnapshot"] = null;
+	const issues = validation.diagnostics.map(toSubtreeIssue);
+	let tokenSnapshot: unknown = null;
 
 	if (validation.candidateDesign && validation.candidateRootId) {
 		const candidateRoot = findElementContext(
@@ -457,262 +479,167 @@ export const validateSubtreePayload = async (
 		if (candidateRoot) {
 			assertCanUseSubtreeComponents(policy, candidateRoot.element);
 		}
-
+		const dependencies = createDesignOperationDependencies(context);
 		try {
-			await assertResourceReferencesExist(context, validation.candidateDesign);
+			await dependencies.assertResourceReferencesExist(
+				validation.candidateDesign,
+				validation.candidateElementIds,
+			);
 		} catch (error) {
-			if (error instanceof DesignTransformError) {
-				diagnostics.push(
-					createSubtreeDiagnosticFromTransformError(error, "/subtree"),
-				);
-			} else {
+			if (!(error instanceof DesignTransformError)) {
 				throw error;
 			}
+			issues.push({ ...toIssue(error), path: "/subtree" });
 		}
-
-		const candidateDiagnostics = await getDesignDiagnostics(
+		const scoped = await getScopedDesignIssues(
 			context,
 			validation.candidateDesign,
+			validation.candidateElementIds,
 		);
-		tokenDiagnostics = candidateDiagnostics.tokenSnapshot;
-		diagnostics.push(
-			...candidateDiagnostics.issues.map((issue, index) =>
-				createSubtreeDiagnosticFromDesignIssue(issue, index),
-			),
-		);
+		tokenSnapshot = scoped.tokenSnapshot;
+		issues.push(...scoped.issues);
 	}
 
-	const valid = diagnostics.every(
-		(diagnostic) => diagnostic.severity !== "error",
-	);
-
-	return {
-		status: "success",
-		valid,
-		project: getProjectReference(context),
-		designFile: getDesignMetadata(input.designFileId, read),
-		expectedRevision: input.expectedRevision,
-		diagnostics,
-		stats: validation.stats,
-		...(validation.normalizedSubtree !== undefined
-			? { normalizedSubtree: validation.normalizedSubtree }
-			: {}),
-		recipeExpansions: validation.recipeExpansions,
-		warnings: diagnostics.filter(
-			(diagnostic) => diagnostic.severity === "warning",
-		),
-		tokenDiagnostics,
-		suggestedReads: ["readDesignGraph", "validateDesignFile"],
-	};
+	return createValidationResult(context, {
+		designFileId: input.designFileId,
+		revision: read.revision,
+		issues,
+		detail: input.detail,
+		extra: {
+			stats: validation.stats,
+			...(validation.normalizedSubtree !== undefined
+				? { normalizedSubtree: validation.normalizedSubtree }
+				: {}),
+			...(validation.recipeExpansions.length > 0
+				? { recipeExpansions: validation.recipeExpansions }
+				: {}),
+			...(input.detail === "full" ? { tokenDiagnostics: tokenSnapshot } : {}),
+		},
+	});
 };
-
-const getSubtreeStats = (root: DesignNode) => {
-	let nodeCount = 0;
-	let maxDepth = 0;
-	const visit = (node: DesignNode, depth: number) => {
-		nodeCount += 1;
-		maxDepth = Math.max(maxDepth, depth);
-		if (typeof node.children === "string") {
-			return;
-		}
-		for (const child of node.children) {
-			visit(child, depth + 1);
-		}
-	};
-	visit(root, 1);
-	return { nodeCount, maxDepth };
-};
-
-const createCopySubtreeDiagnosticFromTransformError = (
-	error: DesignTransformError,
-	path: string,
-): SubtreeDiagnostic => ({
-	severity: "error",
-	code: error.code,
-	message: error.message,
-	path,
-});
 
 export const validateCopySubtreePayload = async (
 	context: TrickroomMcpServerContext,
-	input: ValidateCopySubtreePayload,
+	input: ValidateCopySubtreePayload & { detail?: MutationResponseDetail },
 ) => {
-	const policy = getMcpPolicy(context.config);
 	const sameDesign = input.sourceDesignFileId === input.targetDesignFileId;
-	assertCanReadDesignFile(policy, input.sourceDesignFileId);
-	assertCanWriteDesignFile(policy, input.targetDesignFileId);
-
-	if (!sameDesign && input.sourceExpectedRevision === undefined) {
-		return {
-			status: "success",
-			valid: false,
-			project: getProjectReference(context),
-			sourceDesignFile: null,
-			targetDesignFile: null,
+	return validateOperations(
+		context,
+		{
+			designFileId: input.targetDesignFileId,
 			expectedRevision: input.expectedRevision,
-			sourceExpectedRevision: null,
-			diagnostics: [
+			operations: [
 				{
-					severity: "error",
-					code: "SOURCE_REVISION_REQUIRED",
-					message:
-						"sourceExpectedRevision is required for cross-file copySubtree validation.",
-					path: "/sourceExpectedRevision",
+					operation: "copySubtree",
+					parameters: {
+						sourceDesignFileId: input.sourceDesignFileId,
+						sourceElementId: input.sourceElementId,
+						...(input.sourceExpectedRevision !== undefined
+							? { sourceExpectedRevision: input.sourceExpectedRevision }
+							: {}),
+						parentId: input.parentId,
+						index: input.index,
+						...(input.options !== undefined ? { options: input.options } : {}),
+					},
 				},
-			] satisfies SubtreeDiagnostic[],
-			stats: { nodeCount: 0, maxDepth: 0 },
-			warnings: [] satisfies SubtreeDiagnostic[],
-			suggestedReads: ["readDesignFile", "readDesignGraph"],
-		};
-	}
-
-	const service = createDesignFileService(context.projectRoot);
-	const targetFile = service.getFileForUuid(input.targetDesignFileId);
-	const targetRead = await service.readDesignFile(targetFile);
-	const sourceRead = sameDesign
-		? targetRead
-		: await service.readDesignFile(
-				service.getFileForUuid(input.sourceDesignFileId),
-			);
-
-	if (targetRead.revision !== input.expectedRevision) {
-		return {
-			status: "REVISION_MISMATCH",
-			valid: false,
-			project: getProjectReference(context),
-			sourceDesignFile: getDesignMetadata(input.sourceDesignFileId, sourceRead),
-			targetDesignFile: getDesignMetadata(input.targetDesignFileId, targetRead),
-			currentRevision: targetRead.revision,
-			expectedRevision: input.expectedRevision,
-			diagnostics: [
-				{
-					severity: "error",
-					code: "REVISION_MISMATCH",
-					message: "Expected target revision does not match current revision.",
-					path: "/expectedRevision",
-				},
-			] satisfies SubtreeDiagnostic[],
-			stats: { nodeCount: 0, maxDepth: 0 },
-			warnings: [] satisfies SubtreeDiagnostic[],
-			suggestedReads: ["readDesignFile", "readDesignGraph"],
-		};
-	}
-
-	if (
-		input.sourceExpectedRevision !== undefined &&
-		sourceRead.revision !== input.sourceExpectedRevision
-	) {
-		return {
-			status: "SOURCE_REVISION_MISMATCH",
-			valid: false,
-			project: getProjectReference(context),
-			sourceDesignFile: getDesignMetadata(input.sourceDesignFileId, sourceRead),
-			targetDesignFile: getDesignMetadata(input.targetDesignFileId, targetRead),
-			currentSourceRevision: sourceRead.revision,
-			sourceExpectedRevision: input.sourceExpectedRevision,
-			expectedRevision: input.expectedRevision,
-			diagnostics: [
-				{
-					severity: "error",
-					code: "SOURCE_REVISION_MISMATCH",
-					message: "Expected source revision does not match current revision.",
-					path: "/sourceExpectedRevision",
-				},
-			] satisfies SubtreeDiagnostic[],
-			stats: { nodeCount: 0, maxDepth: 0 },
-			warnings: [] satisfies SubtreeDiagnostic[],
-			suggestedReads: ["readDesignFile", "readDesignGraph"],
-		};
-	}
-
-	const diagnostics: SubtreeDiagnostic[] = [];
-	let stats = { nodeCount: 0, maxDepth: 0 };
-	let result: Awaited<ReturnType<typeof applyCopySubtree>> | null = null;
-	let tokenDiagnostics: Awaited<
-		ReturnType<typeof getDesignDiagnostics>
-	>["tokenSnapshot"] = null;
-
-	try {
-		normalizeDesignForMutation(sourceRead.design);
-		const sourceElementContext = findElementContext(
-			sourceRead.design,
-			input.sourceElementId,
-		);
-		if (!sourceElementContext) {
-			throw new DesignTransformError(
-				"ELEMENT_NOT_FOUND",
-				`Element "${input.sourceElementId}" not found.`,
-			);
-		}
-		assertCanUseSubtreeComponents(policy, sourceElementContext.element);
-		stats = getSubtreeStats(sourceElementContext.element);
-		if (
-			input.options?.maxNodes !== undefined &&
-			stats.nodeCount > input.options.maxNodes
-		) {
-			throw new DesignTransformError(
-				"SUBTREE_TOO_LARGE",
-				`Source subtree has ${stats.nodeCount} nodes, exceeding maxNodes ${input.options.maxNodes}.`,
-			);
-		}
-		if (
-			input.options?.maxDepth !== undefined &&
-			stats.maxDepth > input.options.maxDepth
-		) {
-			throw new DesignTransformError(
-				"SUBTREE_TOO_DEEP",
-				`Source subtree depth ${stats.maxDepth} exceeds maxDepth ${input.options.maxDepth}.`,
-			);
-		}
-
-		result = await applyCopySubtree(sourceRead.design, targetRead.design, {
-			sourceElementId: input.sourceElementId,
-			parentId: input.parentId,
-			index: input.index,
+			],
+			detail: input.detail,
+		},
+		(execution) => ({
 			sameDesign,
-			projectRoot: context.projectRoot,
-		});
-		await assertResourceReferencesExist(context, result.design);
-		const candidateDiagnostics = await getDesignDiagnostics(
-			context,
-			result.design,
-		);
-		tokenDiagnostics = candidateDiagnostics.tokenSnapshot;
-		diagnostics.push(
-			...candidateDiagnostics.issues.map((issue, index) =>
-				createSubtreeDiagnosticFromDesignIssue(issue, index),
-			),
-		);
-	} catch (error) {
-		if (error instanceof DesignTransformError) {
-			diagnostics.push(
-				createCopySubtreeDiagnosticFromTransformError(error, "/copySubtree"),
-			);
-		} else {
-			throw error;
-		}
-	}
-
-	const valid = diagnostics.every(
-		(diagnostic) => diagnostic.severity !== "error",
+			stats: execution.steps[0]?.summary.stats,
+		}),
 	);
+};
 
-	return {
-		status: "success",
-		valid,
+/** An error result that keeps the payload's own status (a failed plan). */
+const createErrorResult = (
+	payload: Record<string, unknown>,
+): CallToolResult => ({
+	...createJsonResult(payload),
+	isError: true,
+});
+
+/**
+ * Run an operation plan inside mutateDesignFile: one read, one revision check,
+ * one write when every step succeeds and the result has no error issues.
+ * Success returns the new revision, ids created per inserting step, the
+ * deleted count and diagnostics on touched elements; a failing step returns
+ * its index, operation and error with hints, and nothing else.
+ */
+export const applyDesignOperationsPayload = async (
+	context: TrickroomMcpServerContext,
+	input: Pick<
+		OperationPlanInput,
+		"designFileId" | "expectedRevision" | "operations" | "response"
+	>,
+): Promise<CallToolResult> => {
+	const { designFileId, expectedRevision, operations, response } = input;
+	const base = {
 		project: getProjectReference(context),
-		sourceDesignFile: getDesignMetadata(input.sourceDesignFileId, sourceRead),
-		targetDesignFile: getDesignMetadata(input.targetDesignFileId, targetRead),
-		sourceElementId: input.sourceElementId,
-		expectedRevision: input.expectedRevision,
-		sourceExpectedRevision: input.sourceExpectedRevision ?? null,
-		sameDesign,
-		diagnostics,
-		stats,
-		warnings: diagnostics.filter(
-			(diagnostic) => diagnostic.severity === "warning",
-		),
-		tokenDiagnostics,
-		suggestedReads: ["readDesignGraph", "validateDesignFile"],
+		designFileId,
+		operationCount: operations.length,
 	};
+	return mutateDesignFile(
+		context,
+		{ designFileId, expectedRevision },
+		{
+			mutate: async (read) => {
+				const execution = await executeOperationPlan(
+					createDesignOperationDependencies(context),
+					{ designFileId, operations },
+					read.design,
+				);
+				if (execution.status === "failed") {
+					return skipDesignWrite(
+						createErrorResult({
+							status: "INVALID_OPERATION",
+							valid: false,
+							...base,
+							...describeFailedPlanStep(execution),
+						}),
+					);
+				}
+				const diagnostics = shapeMutationDiagnostics(
+					await getDesignDiagnostics(context, execution.design),
+					response,
+					execution.affectedElementIds,
+				);
+				if (diagnostics.issues.length > 0) {
+					return skipDesignWrite(
+						createErrorResult({
+							status: "INVALID_OPERATION",
+							valid: false,
+							...base,
+							code: "PLAN_LEAVES_ERRORS",
+							message:
+								"The design would have error issues after this plan, so nothing was written. Fix them in the plan; some may predate it.",
+							...diagnostics,
+						}),
+					);
+				}
+				return { design: execution.design, execution, diagnostics };
+			},
+			respond: async ({ execution, diagnostics }, write) => {
+				const created = execution.steps
+					.map((step) => describeCreatedElements(step, response))
+					.filter((entry) => entry !== null);
+				return createJsonResult({
+					status: "success",
+					valid: true,
+					...base,
+					newRevision: write.revision,
+					...(response === "full"
+						? { steps: execution.steps }
+						: created.length > 0
+							? { created }
+							: {}),
+					...(execution.deletedIds.length > 0
+						? { deletedCount: execution.deletedIds.length }
+						: {}),
+					...diagnostics,
+				});
+			},
+		},
+	);
 };

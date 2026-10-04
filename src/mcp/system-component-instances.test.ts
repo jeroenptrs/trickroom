@@ -1066,6 +1066,7 @@ describe("trickroom MCP system component instance tools", () => {
 						},
 					},
 				],
+				response: "full",
 			},
 		});
 		expect(result.isError).not.toBe(true);
@@ -1115,10 +1116,7 @@ describe("trickroom MCP system component instance tools", () => {
 					version: "1",
 					variantValues: { tone: "brand" },
 				},
-				changedElement: expect.objectContaining({
-					library: "trickroom",
-					component: "container",
-				}),
+				nodeCount: expect.any(Number),
 			},
 		});
 
@@ -1207,10 +1205,15 @@ describe("trickroom MCP system component instance tools", () => {
 				},
 			},
 		});
-		expect(result.isError).toBe(true);
+		expect(result.isError).not.toBe(true);
 		expect(result.structuredContent).toMatchObject({
 			status: "INVALID_OPERATION",
-			code: "INVALID_SYSTEM_COMPONENT_INSTANCE_STATE",
+			valid: false,
+			issues: [
+				expect.objectContaining({
+					code: "INVALID_SYSTEM_COMPONENT_INSTANCE_STATE",
+				}),
+			],
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
@@ -1292,11 +1295,10 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 		expect(result.isError).not.toBe(true);
 		expect(result.structuredContent).toMatchObject({
-			status: "invalid",
+			status: "INVALID_OPERATION",
 			valid: false,
 			failedStepIndex: 1,
 			failedOperation: "updateSystemComponentInstance",
-			steps: [{ stepIndex: 0, operation: "addSystemComponent" }],
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
@@ -1331,7 +1333,7 @@ describe("trickroom MCP system component instance tools", () => {
 						},
 					},
 				],
-				response: { includeStepDetails: true },
+				response: "full",
 			},
 		});
 		expect(result.isError).not.toBe(true);
@@ -1438,10 +1440,11 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 		expect(result.isError).toBe(true);
 		expect(result.structuredContent).toMatchObject({
-			status: "invalid",
+			status: "INVALID_OPERATION",
 			valid: false,
 			failedStepIndex: 1,
 			failedOperation: "updateSystemComponentInstance",
+			code: "INVALID_SYSTEM_COMPONENT_INSTANCE_STATE",
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
@@ -1492,9 +1495,7 @@ describe("trickroom MCP system component instance tools", () => {
 					componentId,
 					rootElementId,
 				},
-				changedElement: expect.objectContaining({
-					id: rootElementId,
-				}),
+				changedElementId: rootElementId,
 				detachedElementIds: expect.arrayContaining([rootElementId]),
 			},
 		});
@@ -1523,9 +1524,13 @@ describe("trickroom MCP system component instance tools", () => {
 				},
 			},
 		});
-		expect(result.isError).toBe(true);
+		expect(result.isError).not.toBe(true);
 		expect(result.structuredContent).toMatchObject({
 			status: "INVALID_OPERATION",
+			valid: false,
+			issues: [
+				expect.objectContaining({ code: "INVALID_OPERATION_PARAMETERS" }),
+			],
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
@@ -1547,10 +1552,15 @@ describe("trickroom MCP system component instance tools", () => {
 				},
 			},
 		});
-		expect(result.isError).toBe(true);
+		expect(result.isError).not.toBe(true);
 		expect(result.structuredContent).toMatchObject({
 			status: "INVALID_OPERATION",
-			code: "SYSTEM_COMPONENT_INSTANCE_NOT_FOUND",
+			valid: false,
+			issues: [
+				expect.objectContaining({
+					code: "SYSTEM_COMPONENT_INSTANCE_NOT_FOUND",
+				}),
+			],
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
@@ -1584,6 +1594,7 @@ describe("trickroom MCP system component instance tools", () => {
 						},
 					},
 				],
+				response: "full",
 			},
 		});
 		expect(result.isError).not.toBe(true);
@@ -1646,7 +1657,7 @@ describe("trickroom MCP system component instance tools", () => {
 						},
 					},
 				],
-				response: { includeStepDetails: true },
+				response: "full",
 			},
 		});
 		expect(result.isError).not.toBe(true);
@@ -1721,7 +1732,7 @@ describe("trickroom MCP system component instance tools", () => {
 		});
 		expect(result.isError).toBe(true);
 		expect(result.structuredContent).toMatchObject({
-			status: "invalid",
+			status: "INVALID_OPERATION",
 			valid: false,
 			failedStepIndex: 1,
 			failedOperation: "detachSystemComponent",

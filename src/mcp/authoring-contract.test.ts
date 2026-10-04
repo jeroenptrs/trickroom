@@ -257,7 +257,7 @@ describe("getDesignAuthoringContract", () => {
 
 		const root = await call("readElement", {
 			designFileId: trickroomMcpTestDesignUuid,
-			elementId: payload.steps[0].changedElementId,
+			elementId: payload.created[0].id,
 			detail: "full",
 		});
 		expect(root.payload.element.props.defaultOpen).toBe(false);
@@ -499,7 +499,7 @@ describe("getDesignAuthoringContract", () => {
 			}),
 		);
 		expect(built.result.isError).toBeFalsy();
-		const { page, main } = built.payload.steps[0].idMap;
+		const { page, main } = built.payload.created[0].idMap;
 
 		const withDialog = await call(
 			"applyDesignOperations",

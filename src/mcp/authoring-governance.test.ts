@@ -229,15 +229,9 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			operation: "addElement",
 			predicted: {
 				componentRef: "trickroom/text",
-				changedElement: {
-					name: "Caption",
-					role: "text",
-					textPreview: "Dry run only",
-				},
-				context: {
-					parentId: "board",
-					index: 1,
-				},
+				parentId: "board",
+				index: 1,
+				nodeCount: 1,
 			},
 		});
 
@@ -268,7 +262,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 
 		const validateResult = await session.client.callTool({
 			name: "validateDesignFile",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		expect(validateResult.structuredContent).toMatchObject({
 			valid: true,
@@ -277,7 +271,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 				reviewRequired: true,
 				tokenCount: 1,
 			},
-			issues: expect.arrayContaining([
+			warnings: expect.arrayContaining([
 				expect.objectContaining({ code: "DESIGN_SYSTEM_REVIEW_REQUIRED" }),
 				expect.objectContaining({
 					code: "UNKNOWN_COLOR_TOKEN",
@@ -293,7 +287,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		const revision = await getRevision(session);
-		// Warnings are opt-in via response.includeWarnings on batch writes.
+		// response "full" returns every warning on touched elements, ungrouped.
 		const mutationResult = await session.client.callTool({
 			name: "applyDesignOperations",
 			arguments: {
@@ -308,7 +302,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 						},
 					},
 				],
-				response: { includeWarnings: true },
+				response: "full",
 			},
 		});
 		expect(mutationResult.structuredContent).toMatchObject({
@@ -370,10 +364,11 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			status: "success",
 			warningCount: expect.any(Number),
 			warnings: [
-				expect.objectContaining({
+				{
 					code: "UNKNOWN_COLOR_TOKEN",
-					token: "also-missing-500",
-				}),
+					message: expect.stringContaining('"also-missing-500"'),
+					elementIds: [expect.any(String)],
+				},
 			],
 		});
 		// applyDesignOperations omits token diagnostics entirely unless requested.
@@ -381,8 +376,8 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			"tokenDiagnostics",
 		);
 
-		// includeWarnings with default scope: only warnings on touched elements;
-		// the board's pre-existing bad tokens are not echoed.
+		// response "full": every warning, still only on touched elements; the
+		// board's pre-existing bad tokens are not echoed.
 		const affectedRevision = await getRevision(session);
 		const affectedResult = await session.client.callTool({
 			name: "applyDesignOperations",
@@ -390,7 +385,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: affectedRevision,
 				...addBadElement(),
-				response: { includeWarnings: true },
+				response: "full",
 			},
 		});
 		const affected = affectedResult.structuredContent as {
@@ -403,28 +398,6 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			}),
 		);
 		expect(affected.warnings).not.toContainEqual(
-			expect.objectContaining({
-				code: "UNKNOWN_COLOR_TOKEN",
-				token: "missing-500",
-			}),
-		);
-
-		// warningScope "file": surfaces the whole design's warnings, including the
-		// board's pre-existing bad tokens.
-		const fileRevision = await getRevision(session);
-		const fileResult = await session.client.callTool({
-			name: "applyDesignOperations",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: fileRevision,
-				...addBadElement(),
-				response: { includeWarnings: true, warningScope: "file" },
-			},
-		});
-		const file = fileResult.structuredContent as {
-			warnings: Array<{ code: string; token?: string }>;
-		};
-		expect(file.warnings).toContainEqual(
 			expect.objectContaining({
 				code: "UNKNOWN_COLOR_TOKEN",
 				token: "missing-500",
@@ -454,12 +427,12 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 
 		const validateResult = await session.client.callTool({
 			name: "validateDesignFile",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const validation = validateResult.structuredContent as {
-			issues: Array<{ code: string; token?: string }>;
+			warnings?: Array<{ code: string; token?: string }>;
 		};
-		expect(validation.issues).not.toContainEqual(
+		expect(validation.warnings ?? []).not.toContainEqual(
 			expect.objectContaining({ code: "UNKNOWN_COLOR_TOKEN" }),
 		);
 
@@ -483,13 +456,13 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 						},
 					},
 				],
-				response: { includeWarnings: true },
+				response: "full",
 			},
 		});
 		const mutation = mutationResult.structuredContent as {
-			warnings: Array<{ code: string; token?: string }>;
+			warnings?: Array<{ code: string; token?: string }>;
 		};
-		expect(mutation.warnings).not.toContainEqual(
+		expect(mutation.warnings ?? []).not.toContainEqual(
 			expect.objectContaining({ code: "UNKNOWN_COLOR_TOKEN" }),
 		);
 	});
@@ -534,12 +507,12 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 
 		const validateResult = await session.client.callTool({
 			name: "validateDesignFile",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const validation = validateResult.structuredContent as {
-			issues: Array<{ code: string; token?: string }>;
+			warnings?: Array<{ code: string; token?: string }>;
 		};
-		const unknownColorWarnings = validation.issues.filter(
+		const unknownColorWarnings = (validation.warnings ?? []).filter(
 			(issue) => issue.code === "UNKNOWN_COLOR_TOKEN",
 		);
 
@@ -549,7 +522,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 				token: "slate-50",
 			}),
 		]);
-		expect(validation.issues).not.toContainEqual(
+		expect(validation.warnings).not.toContainEqual(
 			expect.objectContaining({
 				code: "UNKNOWN_COLOR_TOKEN",
 				token: "slate-950",
@@ -576,7 +549,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 						},
 					},
 				],
-				response: { includeWarnings: true },
+				response: "full",
 			},
 		});
 		const mutation = mutationResult.structuredContent as {

@@ -905,17 +905,20 @@ describe("trickroom MCP design read tools", () => {
 			name: "validateDesignFile",
 			arguments: {
 				designFileId: invalidDesignFileId,
+				response: "full",
 			},
 		});
 
 		expect(validateResult.structuredContent).toMatchObject({
-			designFile: {
-				id: invalidDesignFileId,
-				name: "Needs Validation",
-				systemName: "Missing System",
-				revision: expect.any(String),
-			},
+			designFileId: invalidDesignFileId,
+			revision: expect.any(String),
 			valid: false,
+			summary: {
+				codes: expect.objectContaining({
+					UNKNOWN_DESIGN_SYSTEM: 1,
+					DUPLICATE_ELEMENT_ID: expect.any(Number),
+				}),
+			},
 			designSystem: {
 				systemName: "Missing System",
 				configured: false,
