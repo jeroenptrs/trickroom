@@ -4,11 +4,11 @@
  * namespaces, and the value-less static utilities (`core-interaction-primary`,
  * `bg-penn-app`, …) that real systems define in bulk.
  *
- * Returns the custom-utility slice of `ModelOptions`, split by kind:
+ * Returns the custom-utility slice of `ClassNameOptions`, split by kind:
  * - `customFunctionalUtilityRoots`: matched by exact name OR `root-` prefix.
  * - `customStaticUtilityRoots`: matched by EXACT name only.
  * Both are sorted by length descending so the classifier prefers the longest
- * match. Spread the result into a property model's options:
+ * match. Spread the result into the classifier options:
  *
  *   const customUtilityRoots = useResolvedCustomUtilities(systemId);
  *   const options = useMemo(

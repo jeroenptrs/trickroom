@@ -51,12 +51,6 @@ export type MemoryListResponse = {
 	notes: MemoryNoteWithReferences[];
 };
 
-export type MemoryNoteResponse = {
-	scope: MemoryScopeRef;
-	revision: string;
-	note: MemoryNoteWithReferences;
-};
-
 export type MemoryWriteResponse = {
 	scope: MemoryScopeRef;
 	newRevision: string;

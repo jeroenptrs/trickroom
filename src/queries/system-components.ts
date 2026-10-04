@@ -54,21 +54,6 @@ export type SystemComponentMutationResponse = {
 	publishedVersion?: string;
 };
 
-export type SystemComponentSettingsMutationResponse = {
-	systemId: string;
-	systemName: string;
-	revision: SystemComponentManifestRevision;
-	updatedAt: string;
-	settings: {
-		autoMigrateComponents: boolean;
-	};
-};
-
-export type UpdateSystemComponentSettingsParams = {
-	expectedRevision: SystemComponentManifestRevision;
-	autoMigrateComponents: boolean;
-};
-
 export type CreateSystemComponentDraftParams = {
 	expectedRevision: SystemComponentManifestRevision;
 	slug: string;
@@ -88,12 +73,6 @@ export type UpdateSystemComponentMetadataParams = {
 	order?: number | null;
 };
 
-export type UpdateSystemComponentTemplateParams = {
-	expectedRevision: SystemComponentManifestRevision;
-	expectedDraftTemplateHash?: string;
-	root: RecipeTemplateNode;
-};
-
 export type UpdateSystemComponentDraftParams = {
 	expectedRevision: SystemComponentManifestRevision;
 	expectedDraftTemplateHash?: string;
@@ -104,19 +83,9 @@ export type UpdateSystemComponentDraftParams = {
 	overrideTargets?: Record<string, SystemComponentOverrideTarget> | null;
 };
 
-export type UpdateSystemComponentSlotsParams = {
-	expectedRevision: SystemComponentManifestRevision;
-	slots?: Record<string, SystemComponentSlotDefinition> | null;
-};
-
 export type UpdateSystemComponentVariantsParams = {
 	expectedRevision: SystemComponentManifestRevision;
 	variants?: SystemComponentVariantSchema | null;
-};
-
-export type UpdateSystemComponentOverrideTargetsParams = {
-	expectedRevision: SystemComponentManifestRevision;
-	overrideTargets?: Record<string, SystemComponentOverrideTarget> | null;
 };
 
 export type PublishSystemComponentParams = {
@@ -170,18 +139,6 @@ export const createSystemComponentDraft = async (
 	return readJsonOrThrow<SystemComponentMutationResponse>(response);
 };
 
-export const updateSystemComponentSettings = async (
-	systemId: string,
-	params: UpdateSystemComponentSettingsParams,
-) => {
-	const response = await fetch(`${systemComponentsBasePath(systemId)}/settings`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify(params),
-	});
-	return readJsonOrThrow<SystemComponentSettingsMutationResponse>(response);
-};
-
 export const updateSystemComponentMetadata = async (
 	systemId: string,
 	componentId: string,
@@ -189,22 +146,6 @@ export const updateSystemComponentMetadata = async (
 ) => {
 	const response = await fetch(
 		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}/metadata`,
-		{
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(params),
-		},
-	);
-	return readJsonOrThrow<SystemComponentMutationResponse>(response);
-};
-
-export const updateSystemComponentTemplate = async (
-	systemId: string,
-	componentId: string,
-	params: UpdateSystemComponentTemplateParams,
-) => {
-	const response = await fetch(
-		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}/template`,
 		{
 			method: "POST",
 			headers: { "content-type": "application/json" },
@@ -230,22 +171,6 @@ export const updateSystemComponentDraft = async (
 	return readJsonOrThrow<SystemComponentMutationResponse>(response);
 };
 
-export const updateSystemComponentSlots = async (
-	systemId: string,
-	componentId: string,
-	params: UpdateSystemComponentSlotsParams,
-) => {
-	const response = await fetch(
-		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}/slots`,
-		{
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(params),
-		},
-	);
-	return readJsonOrThrow<SystemComponentMutationResponse>(response);
-};
-
 export const updateSystemComponentVariants = async (
 	systemId: string,
 	componentId: string,
@@ -253,22 +178,6 @@ export const updateSystemComponentVariants = async (
 ) => {
 	const response = await fetch(
 		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}/variants`,
-		{
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(params),
-		},
-	);
-	return readJsonOrThrow<SystemComponentMutationResponse>(response);
-};
-
-export const updateSystemComponentOverrideTargets = async (
-	systemId: string,
-	componentId: string,
-	params: UpdateSystemComponentOverrideTargetsParams,
-) => {
-	const response = await fetch(
-		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}/override-targets`,
 		{
 			method: "POST",
 			headers: { "content-type": "application/json" },

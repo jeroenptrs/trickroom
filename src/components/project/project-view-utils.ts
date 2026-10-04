@@ -1,5 +1,3 @@
-import type { TrickroomDesignSummary } from "../../types";
-
 export const pluralize = (
 	count: number,
 	singular: string,
@@ -52,18 +50,3 @@ export const formatRelativeTime = (isoDate: string | null | undefined) => {
 	const elapsedYears = Math.floor(elapsedDays / 365);
 	return `${elapsedYears}y ago`;
 };
-
-export const getMostRecentModifiedAt = (
-	summaries: TrickroomDesignSummary[] | undefined,
-) =>
-	summaries?.reduce<string | null>((mostRecent, summary) => {
-		if (!summary.modifiedAt) {
-			return mostRecent;
-		}
-
-		if (mostRecent === null || summary.modifiedAt > mostRecent) {
-			return summary.modifiedAt;
-		}
-
-		return mostRecent;
-	}, null) ?? null;

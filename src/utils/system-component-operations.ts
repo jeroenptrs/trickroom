@@ -18,7 +18,6 @@ import {
 	type SystemComponentRecord,
 } from "./system-components.ts";
 import {
-	assertValidSystemComponentManifest,
 	hashSystemComponentTemplate,
 	hashSystemComponentVariantSchema,
 	type SystemComponentManifestDiagnostic,
@@ -37,6 +36,7 @@ export type SystemComponentMutationResult = SystemComponentManifestRead & {
 };
 
 export type { SystemComponentSummary } from "./system-component-operations.types";
+
 import type { SystemComponentSummary } from "./system-component-operations.types";
 
 export type SystemComponentDescribeResult = Omit<
@@ -859,5 +859,3 @@ export async function deleteSystemComponent(
 		},
 	);
 }
-
-export { assertValidSystemComponentManifest };

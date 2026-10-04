@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { writeJsonFileAtomically } from "../server-file-utils.ts";
@@ -741,10 +740,6 @@ function readWebpMetadata(file: Buffer): { width?: number; height?: number } {
 	}
 
 	return {};
-}
-
-export function assetContentHash(contents: Buffer) {
-	return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

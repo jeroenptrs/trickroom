@@ -18,9 +18,9 @@ import {
 	resolveClassLayers,
 } from "../../../utils/class-resolution";
 import {
+	type ClassNameOptions,
 	classifyParsedClass,
 	type KnownUtilityIntent,
-	type ModelOptions,
 } from "../../../utils/tailwind-classname";
 
 export type ClassCategory = "managed" | "arbitrary" | "unknown";
@@ -119,7 +119,7 @@ function isReadOnlySource(source: ClassInventorySource): boolean {
 
 function getInventoryResolution(
 	input: ClassInventoryInput,
-	options: ModelOptions,
+	options: ClassNameOptions,
 ): { resolution: ClassResolution; hasLayerMetadata: boolean } {
 	if (typeof input === "string") {
 		const layers = createClassLayers([
@@ -149,7 +149,7 @@ function getInventoryResolution(
 
 function itemFromToken(
 	token: ResolvedClassToken,
-	options: ModelOptions,
+	options: ClassNameOptions,
 ): InventoryItem {
 	const source = token.layer.source;
 	const base = {
@@ -190,7 +190,7 @@ function itemFromToken(
 
 export function buildClassInventory(
 	input: ClassInventoryInput,
-	options: ModelOptions,
+	options: ClassNameOptions,
 ): ClassInventory {
 	const { resolution, hasLayerMetadata } = getInventoryResolution(
 		input,

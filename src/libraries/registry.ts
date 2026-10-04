@@ -167,24 +167,6 @@ export const getComposableClassComposition = (
 	};
 };
 
-export const getMaterializedBaseClassProps = (
-	className: string | undefined,
-	definition: RegistryComponentDefinition,
-): Partial<Props> => {
-	const materializedClassName = getComposableClassName(
-		className,
-		definition.baseClassName,
-		false,
-	);
-
-	return {
-		...(materializedClassName ? { className: materializedClassName } : {}),
-		...(hasClassValue(definition.baseClassName)
-			? { [MATERIALIZED_BASE_CLASS_PROP]: "true" }
-			: {}),
-	};
-};
-
 export const migrateRegistryBaseClassProps = (
 	props: Props,
 	options: { materializeBaseClass?: boolean } = {},
@@ -346,9 +328,6 @@ export const normalizeRole = (role: Props["data-trickroom-role"]): Role =>
 	role ?? "branch";
 
 export const canHaveElementChildren = (role: Role) => role === "branch";
-
-export const getDefaultChildren = (role: Role): string | [] =>
-	role === "text" ? "Text" : [];
 
 export const getDefaultText = (role: Role) =>
 	role === "text" ? "Text" : undefined;

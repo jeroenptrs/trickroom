@@ -21,10 +21,6 @@ export type RecipeMarkerPropKey =
 	| typeof recipePathProp
 	| typeof recipeSlotProp;
 
-export const isRecipeMarkerPropKey = (
-	key: string,
-): key is RecipeMarkerPropKey => RECIPE_MARKER_PROP_KEYS.has(key);
-
 const getStringProp = (
 	props: Props | null | undefined,
 	key: RecipeMarkerPropKey,

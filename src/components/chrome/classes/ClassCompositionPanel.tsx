@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
 import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
 import type { ClassLayer } from "../../../utils/class-layers";
-import type { ModelOptions } from "../../../utils/tailwind-classname";
+import type { ClassNameOptions } from "../../../utils/tailwind-classname";
 import { Chip } from "../../ui/chip";
 import { ClassField, type ClassFieldHint } from "./ClassField";
 import { buildClassInventory, type InventoryItem } from "./classInventory";
@@ -94,7 +94,7 @@ export function ClassCompositionPanel({
 }) {
 	const resolved = useResolvedColorTokens(systemId);
 	const customUtilityRoots = useResolvedCustomUtilities(systemId);
-	const options = useMemo<ModelOptions>(
+	const options = useMemo<ClassNameOptions>(
 		() => ({ colorTokens: resolved.names, ...customUtilityRoots }),
 		[resolved.names, customUtilityRoots],
 	);

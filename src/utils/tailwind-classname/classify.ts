@@ -11,7 +11,7 @@ import {
 	classifyKnownUtility,
 	type UtilityIntent,
 } from "./domains";
-import type { ParsedClass } from "./parse";
+import type { ParseClassNameOptions, ParsedClass } from "./parse";
 
 export type { ColorIntent } from "./color";
 export type {
@@ -23,8 +23,8 @@ export { UTILITY_DOMAINS } from "./domains";
 export type { SpacingIntent } from "./spacing";
 export type { StyleIntent, StyleProperty, StyleUtilityDomain } from "./style";
 
-/** @deprecated Prefer `ClassifyContext`; kept for existing call sites. */
-export type ClassifyOptions = ClassifyContext;
+/** Everything needed to parse and classify a className string. */
+export type ClassNameOptions = ParseClassNameOptions & ClassifyContext;
 
 export function classifyParsedClass(
 	parsed: ParsedClass,

@@ -1,11 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import {
-	asErrnoException,
-	isRecord,
-} from "../server-utils";
 import { readJsonFile, writeJsonFileAtomically } from "../server-file-utils";
+import { asErrnoException, isRecord } from "../server-utils";
 import { resolveTrickroomHome } from "./home";
 
 export type ProjectLocationRef = {
@@ -252,8 +249,3 @@ export const getActiveProjectLocation = (
 		) ?? null
 	);
 };
-
-export const findProjectLocation = (
-	registry: ProjectRegistry,
-	projectId: string,
-) => registry.locations.find((location) => location.projectId === projectId);

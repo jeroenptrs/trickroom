@@ -80,11 +80,6 @@ export type TailwindTokenDomainDiffs = Record<
 	TailwindTokenBaselineDiff
 >;
 
-export type TailwindMeaningfulTokenDomainDiffs = Record<
-	TailwindTokenDomain,
-	TailwindMeaningfulTokenBaselineDiff
->;
-
 export type TailwindTokenResetOverrides = Record<TailwindTokenDomain, string[]>;
 
 export function emptyTailwindTokenDomains(): TailwindTokenDomains {

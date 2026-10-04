@@ -514,24 +514,6 @@ export async function deleteDesignSystemStorage(
 	});
 }
 
-export async function renameDesignSystemStorage(
-	projectRoot: string,
-	oldSystemHandle: string,
-	newSystemName: string,
-): Promise<DesignSystemManifest> {
-	const existing = await findDesignSystem(projectRoot, oldSystemHandle);
-	if (!existing) {
-		throw new DesignSystemStorageError(
-			"SYSTEM_NOT_FOUND",
-			`Design system "${oldSystemHandle}" was not found.`,
-		);
-	}
-
-	return writeDesignSystemManifest(projectRoot, existing.manifest.systemId, {
-		systemName: newSystemName,
-	});
-}
-
 export async function addIconFolderPath(
 	projectRoot: string,
 	systemHandle: string,

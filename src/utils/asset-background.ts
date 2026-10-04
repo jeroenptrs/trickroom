@@ -47,14 +47,6 @@ export function assetImageUtility(assetId: string): string {
 	return `bg-[image:var(${assetImageVarName(assetId)})]`;
 }
 
-/**
- * The value the style model stores for {@link assetImageUtility}, used to
- * detect which asset (if any) the current background-image references.
- */
-export function assetImageSlotValue(assetId: string): string {
-	return `[image:var(${assetImageVarName(assetId)})]`;
-}
-
 /** Serializes a `:root` block defining `--asset-*` vars for the given assets. */
 export function serializeAssetImageVars(
 	systemId: string,

@@ -185,8 +185,6 @@ export function normalizeCssPath(cssPath: string, projectRoot: string): string {
 	return normalized.replace(/^(\.\/)+/u, "");
 }
 
-export const trimCssPath = normalizeCssPath;
-
 export async function storeDomainTokens(
 	params: StoreDomainTokensParams,
 ): Promise<void>;

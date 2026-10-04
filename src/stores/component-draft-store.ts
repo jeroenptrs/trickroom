@@ -1739,10 +1739,6 @@ export function useComponentDraftSelectedSlot() {
 	);
 }
 
-export function useComponentDraftHasUnsavedChanges() {
-	return useSelector(componentDraftStore, hasDirtyChanges);
-}
-
 export function useComponentDraftTemplateDirty() {
 	return useSelector(componentDraftStore, hasTemplateDirtyChanges);
 }

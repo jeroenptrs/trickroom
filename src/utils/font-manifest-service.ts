@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
 	copyFile,
 	lstat,
@@ -26,12 +25,6 @@ export const supportedFontExtensions = {
 
 export type SupportedFontFormat =
 	(typeof supportedFontExtensions)[keyof typeof supportedFontExtensions];
-
-export type FontSourceKind =
-	| "remoteStylesheet"
-	| "remoteFile"
-	| "projectFile"
-	| "managedFile";
 
 export type FontSource =
 	| { kind: "remoteStylesheet"; url: string }
@@ -945,10 +938,6 @@ async function resolveExistingProjectFilePath(
 	}
 
 	return realCandidatePath;
-}
-
-export function fontContentHash(contents: Buffer) {
-	return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,5 +1,4 @@
 import {
-	getMaterializedBaseClassProps,
 	MATERIALIZED_BASE_CLASS_PROP,
 	resolveRegistryComponent,
 } from "../libraries/registry";
@@ -41,27 +40,6 @@ export const resolveInstanceNodeClassName = (
 		return templatePropsClassName;
 	}
 	return undefined;
-};
-
-export const resolveMaterializedInstanceNodeClassProps = (
-	template: RecipeTemplateNode | undefined,
-	resolvedSystemClassName: string,
-): Partial<Props> => {
-	const className = resolveInstanceNodeClassName(
-		template,
-		resolvedSystemClassName,
-	);
-	if (!template) {
-		return className ? { className } : {};
-	}
-	const resolution = resolveRegistryComponent(
-		template.library,
-		template.component,
-	);
-	if (resolution.status === "known") {
-		return getMaterializedBaseClassProps(className, resolution.definition);
-	}
-	return className ? { className } : {};
 };
 
 export const resolveSystemComponentInstanceNodeClassProps = (

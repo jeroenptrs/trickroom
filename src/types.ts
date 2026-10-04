@@ -190,17 +190,6 @@ export type TrickroomConfig = {
 	};
 };
 
-export type TrickroomSystemSummary = {
-	systemId: string;
-	systemName: string;
-	cssPath?: string;
-	iconFolderPaths?: string[];
-};
-
-export type ProjectRoot = {
-	projectRoot: string;
-};
-
 export type TrickroomDesign = {
 	name: string;
 	systemId?: string | null;

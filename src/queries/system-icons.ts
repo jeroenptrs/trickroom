@@ -71,24 +71,6 @@ export const addSystemIconFolder = async ({
 	return readJsonOrThrow<SystemIconsResponse>(response);
 };
 
-export const replaceSystemIconFolders = async ({
-	systemId,
-	folderPaths,
-}: {
-	systemId: string;
-	folderPaths: string[];
-}) => {
-	const response = await fetch(
-		`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/folders`,
-		{
-			method: "PUT",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ folderPaths }),
-		},
-	);
-	return readJsonOrThrow<SystemIconsResponse>(response);
-};
-
 export const removeSystemIconFolder = async ({
 	systemId,
 	folderPath,
