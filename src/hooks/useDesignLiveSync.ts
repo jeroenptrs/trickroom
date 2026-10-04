@@ -9,6 +9,7 @@ import {
 	subscribeDesignResync,
 } from "../queries/design-live-events";
 import { editorChannelReady } from "../queries/editor-channel";
+import { repairInvalidKnownRecipeInstances } from "../recipes/repair";
 import type { DesignFileRevision } from "../services/design-file-service.types";
 import { type DesignPartRevisions, designStore } from "../stores/design-store";
 import {
@@ -67,7 +68,11 @@ export async function syncDesignParts(
 	boards.forEach((entry, index) => {
 		const boardId = needs.boardIds[index] as string;
 		if (!entry) return;
-		contents[boardId] = entry.board;
+		// Like the design read, detach recipe instances that no longer match
+		// their recipe (in memory; the next save persists the repair).
+		contents[boardId] =
+			repairInvalidKnownRecipeInstances({ name: "", boards: [entry.board] })
+				.design.boards[0] ?? entry.board;
 		if (entry.revision !== boardRevisions[boardId]) exact = false;
 		boardRevisions[boardId] = entry.revision;
 	});
