@@ -1,10 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Dirent } from "node:fs";
 import {
 	mkdir,
 	readdir,
 	readFile,
 	realpath,
+	rename,
 	rm,
 	writeFile,
 } from "node:fs/promises";
@@ -37,6 +38,11 @@ import type {
 	DesignFileRevision,
 	DesignFileSummary,
 } from "./design-file-service.types";
+import {
+	commitDesignOperations,
+	type DesignJournalHooks,
+	replayDesignJournal,
+} from "./design-journal";
 import {
 	type DesignWriteConflict,
 	type DesignWritePlan,
@@ -75,7 +81,6 @@ import {
 	serializeDesignManifest,
 	toDesignRelativePath,
 	unlinkIfPresent,
-	writeFileAtomically,
 } from "./design-storage";
 
 export type DesignFileServiceErrorCode =
@@ -253,6 +258,8 @@ export type DesignFileServiceOptions = {
 	 */
 	trickroomHome?: string;
 	lock?: Partial<DesignFileLockOptions>;
+	/** Test hooks run between the steps of a journaled write. */
+	journalHooks?: DesignJournalHooks;
 };
 
 export const getDesignLockDirectory = (
@@ -557,6 +564,7 @@ export class DesignFileService {
 	readonly designsDir: string;
 	readonly designsGitkeepPath: string;
 	private readonly lockOptions: DesignFileLockOptions;
+	private readonly journalHooks: DesignJournalHooks;
 	private canonicalProjectRoot: Promise<string> | null = null;
 
 	constructor(projectRoot: string, options: DesignFileServiceOptions = {}) {
@@ -569,6 +577,7 @@ export class DesignFileService {
 				options.lock?.lockDirectory ??
 				getDesignLockDirectory(options.trickroomHome),
 		};
+		this.journalHooks = options.journalHooks ?? {};
 		DesignFileService.pruneSummaryCache();
 	}
 
@@ -579,7 +588,8 @@ export class DesignFileService {
 	 * through `realpath` so processes that reach the project through different
 	 * symlinks still share one lock. It is derived from the legacy
 	 * `designs/<id>.json` path, so it is the same lock older Trickroom
-	 * versions take for the design.
+	 * versions take for the design. A journal left by an interrupted write is
+	 * replayed before `operation` runs.
 	 */
 	async withDesignLock<T>(
 		designId: string,
@@ -597,7 +607,10 @@ export class DesignFileService {
 		try {
 			return await withDesignFileLock(
 				canonicalPath,
-				operation,
+				async () => {
+					await replayDesignJournal(paths);
+					return operation();
+				},
 				this.lockOptions,
 			);
 		} catch (error) {
@@ -1159,10 +1172,6 @@ export class DesignFileService {
 		await this.applyOperations(paths, operations);
 	}
 
-	/**
-	 * Applies file operations: board files first, the manifest (which makes a
-	 * new folder a design) after them, unlinks last.
-	 */
 	private async applyOperations(
 		paths: DesignPaths,
 		operations: DesignFileOperations,
@@ -1170,16 +1179,7 @@ export class DesignFileService {
 		if (operations.writes.length > 0) {
 			await ensureDesignFolders(paths);
 		}
-		const ordered = [
-			...operations.writes.filter((write) => write.path !== paths.manifest),
-			...operations.writes.filter((write) => write.path === paths.manifest),
-		];
-		for (const write of ordered) {
-			await writeFileAtomically(write.path, write.contents);
-		}
-		for (const unlinkPath of operations.unlinks) {
-			await unlinkIfPresent(unlinkPath);
-		}
+		await commitDesignOperations(paths, operations, this.journalHooks);
 	}
 
 	/**
@@ -1273,8 +1273,22 @@ export class DesignFileService {
 			if (!state.folder && !state.legacy && !state.journal) {
 				throw notFoundError(designId);
 			}
-			await rm(paths.folder, { recursive: true, force: true });
+			// The legacy file goes first and the folder disappears in one rename,
+			// so an interrupted delete leaves a whole design, never part of one.
 			await unlinkIfPresent(paths.legacy);
+			const trash = path.join(
+				this.designsDir,
+				`.${designId}.deleted-${randomUUID()}`,
+			);
+			try {
+				await rename(paths.folder, trash);
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+					throw error;
+				}
+				return;
+			}
+			await rm(trash, { recursive: true, force: true });
 		});
 		this.deleteCachedSummary(paths);
 	}
