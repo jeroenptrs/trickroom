@@ -207,7 +207,9 @@ describe("trickroom MCP system component tools", () => {
 			publishedVersion: "1",
 			published: {
 				currentVersion: "1",
-				templateHash: updated.structuredContent?.draftTemplateHash,
+				templateHash: (
+					updated.structuredContent as { draftTemplateHash: string }
+				).draftTemplateHash,
 			},
 			changes: { toVersion: "1", nodeCount: 2, slots: ["content"] },
 			valid: true,
@@ -227,14 +229,11 @@ describe("trickroom MCP system component tools", () => {
 	});
 
 	it("filters the component index by query and group", async () => {
-		let revision = String(
-			(
-				await session.client.callTool({
-					name: "listSystemComponents",
-					arguments: { systemName: "Core" },
-				})
-			).structuredContent?.revision,
-		);
+		const initial = await session.client.callTool({
+			name: "listSystemComponents",
+			arguments: { systemName: "Core" },
+		});
+		let revision = (initial.structuredContent as { revision: string }).revision;
 		for (const [slug, group, description] of [
 			["button", "actions", "Primary action trigger. Supports icons."],
 			["link", "actions", undefined],
@@ -263,7 +262,7 @@ describe("trickroom MCP system component tools", () => {
 					},
 				},
 			});
-			revision = String(created.structuredContent?.revision);
+			revision = (created.structuredContent as { revision: string }).revision;
 		}
 
 		const actions = await session.client.callTool({
