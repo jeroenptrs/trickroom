@@ -4,6 +4,7 @@ import {
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 } from "./test-support";
 
 const textRoot = () => ({
@@ -31,18 +32,18 @@ describe("trickroom MCP system component tools", () => {
 
 	it("lists, describes, updates, and publishes component drafts with revision metadata", async () => {
 		const emptyList = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
-		expect(emptyList.structuredContent).toMatchObject({
+		expect(toolPayload(emptyList)).toMatchObject({
 			systemName: "Core",
 			components: [],
 			settings: { autoMigrateComponents: false },
 		});
-		const initialRevision = String(emptyList.structuredContent?.revision);
+		const initialRevision = String(toolPayload(emptyList)?.revision);
 
 		const created = await session.client.callTool({
-			name: "createSystemComponentDraft",
+			name: "component_draft_create",
 			arguments: {
 				systemName: "Core",
 				expectedRevision: initialRevision,
@@ -53,61 +54,74 @@ describe("trickroom MCP system component tools", () => {
 				draft: { root: textRoot() },
 			},
 		});
-		const componentId = String(created.structuredContent?.componentId);
-		expect(created.structuredContent).toMatchObject({
+		const componentId = String(toolPayload(created)?.componentId);
+		// Writes acknowledge with ids, hashes, and a change summary.
+		expect(toolPayload(created)).toMatchObject({
 			status: "success",
 			valid: true,
 			componentId,
-			record: {
-				slug: "primary-label",
-				name: "Primary Label",
-				draft: { root: textRoot() },
+			slug: "primary-label",
+			draftState: "unpublished",
+			changes: {
+				created: true,
+				nodeCount: 1,
+				variantAxes: [],
+				slots: [],
+				overrideTargets: [],
 			},
 			diagnostics: [],
 		});
-		expect(created.structuredContent?.revision).not.toBe(initialRevision);
-		expect(created.structuredContent?.draftTemplateHash).toEqual(
+		expect(toolPayload(created)).not.toHaveProperty("record");
+		expect(toolPayload(created)?.revision).not.toBe(initialRevision);
+		expect(toolPayload(created)?.draftTemplateHash).toEqual(
 			expect.stringMatching(/^sha256:/),
 		);
-		expect(created.structuredContent?.draftVariantSchemaHash).toEqual(
+		expect(toolPayload(created)?.draftVariantSchemaHash).toEqual(
 			expect.stringMatching(/^sha256:/),
 		);
 
 		const listed = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
-		expect(listed.structuredContent).toMatchObject({
-			revision: created.structuredContent?.revision,
+		expect(toolPayload(listed)).toMatchObject({
+			revision: toolPayload(created)?.revision,
+			componentCount: 1,
 			components: [
-				expect.objectContaining({
+				{
 					componentId,
-					hasDraft: true,
-					hasPublished: false,
+					slug: "primary-label",
 					group: "content",
-					order: 1,
-				}),
+					draft: "unpublished",
+				},
 			],
 		});
+		// The name only restates the slug, so the index leaves it out.
+		expect(
+			(toolPayload(listed) as { components: object[] }).components[0],
+		).not.toHaveProperty("name");
 
 		const described = await session.client.callTool({
-			name: "describeSystemComponent",
+			name: "component_read",
 			arguments: { systemName: "Core", componentId },
 		});
-		expect(described.structuredContent).toMatchObject({
-			revision: created.structuredContent?.revision,
+		expect(toolPayload(described)).toMatchObject({
+			revision: toolPayload(created)?.revision,
+			source: { kind: "draft" },
+			interface: { variantAxes: [], slots: [], overrideTargets: [] },
 			valid: true,
 			diagnostics: [],
 		});
+		expect(toolPayload(described)).not.toHaveProperty("root");
+		expect(toolPayload(described)).not.toHaveProperty("record");
 
 		const updated = await session.client.callTool({
-			name: "updateSystemComponentDraft",
+			name: "component_draft_update",
 			arguments: {
 				systemName: "Core",
 				componentId,
-				expectedRevision: described.structuredContent?.revision,
-				expectedDraftTemplateHash:
-					described.structuredContent?.draftTemplateHash,
+				expectedRevision: toolPayload(described)?.revision,
+				expectedDraftTemplateHash: toolPayload(described)?.draftTemplateHash,
 				root: {
 					path: "root",
 					library: "trickroom",
@@ -134,60 +148,159 @@ describe("trickroom MCP system component tools", () => {
 				},
 			},
 		});
-		expect(updated.structuredContent).toMatchObject({
+		expect(toolPayload(updated)).toMatchObject({
 			status: "success",
 			valid: true,
-			record: {
-				draft: {
-					root: {
-						component: "container",
-						children: [expect.objectContaining({ path: "label" })],
-					},
-					slots: {
-						content: expect.objectContaining({ hostPath: "root" }),
-					},
-					overrideTargets: {
-						label: expect.objectContaining({ path: "label" }),
-					},
-				},
+			changes: {
+				replaced: ["root", "slots", "variants", "overrideTargets"],
+				templateChanged: true,
+				variantsChanged: false,
+				nodeCount: { from: 1, to: 2 },
+				slots: { added: ["content"] },
+				overrideTargets: { added: ["label"] },
 			},
 		});
-		expect(updated.structuredContent?.draftTemplateHash).not.toBe(
-			described.structuredContent?.draftTemplateHash,
-		);
 
-		const published = await session.client.callTool({
-			name: "publishSystemComponent",
+		const draftDetail = await session.client.callTool({
+			name: "component_read",
 			arguments: {
 				systemName: "Core",
 				componentId,
-				expectedRevision: updated.structuredContent?.revision,
+				source: "draft",
+				include: ["template", "classes"],
 			},
 		});
-		expect(published.structuredContent).toMatchObject({
+		expect(toolPayload(draftDetail)).toMatchObject({
+			interface: {
+				slots: [{ name: "content", label: "Content", hostPath: "root" }],
+				overrideTargets: [
+					{
+						targetId: "label",
+						label: "Label",
+						path: "label",
+						capabilities: ["className"],
+					},
+				],
+			},
+			root: {
+				component: "container",
+				children: [expect.objectContaining({ path: "label" })],
+			},
+			slots: { content: expect.objectContaining({ hostPath: "root" }) },
+			overrideTargets: { label: expect.objectContaining({ path: "label" }) },
+		});
+		expect(toolPayload(updated)?.draftTemplateHash).not.toBe(
+			toolPayload(described)?.draftTemplateHash,
+		);
+
+		const published = await session.client.callTool({
+			name: "component_publish",
+			arguments: {
+				systemName: "Core",
+				componentId,
+				expectedRevision: toolPayload(updated)?.revision,
+			},
+		});
+		expect(toolPayload(published)).toMatchObject({
 			status: "success",
 			componentId,
 			publishedVersion: "1",
-			record: {
-				published: {
-					currentVersion: "1",
-				},
+			published: {
+				currentVersion: "1",
+				templateHash: (toolPayload(updated) as { draftTemplateHash: string })
+					.draftTemplateHash,
 			},
+			changes: { toVersion: "1", nodeCount: 2, slots: ["content"] },
 			valid: true,
 			diagnostics: [],
+		});
+		expect(toolPayload(published)).not.toHaveProperty("draftState");
+
+		const record = await session.client.callTool({
+			name: "component_read",
+			arguments: { systemName: "Core", componentId, versions: "all" },
+		});
+		expect(toolPayload(record)).toMatchObject({
+			source: { kind: "published", version: "1" },
+			versionHistory: [{ version: "1" }],
+			record: { published: { currentVersion: "1" } },
+		});
+	});
+
+	it("filters the component index by query and group", async () => {
+		const initial = await session.client.callTool({
+			name: "component_read",
+			arguments: { systemName: "Core" },
+		});
+		let revision = (toolPayload(initial) as { revision: string }).revision;
+		for (const [slug, group, description] of [
+			["button", "actions", "Primary action trigger. Supports icons."],
+			["link", "actions", undefined],
+			["card", "layout", "A surface for grouped content."],
+		] as const) {
+			const created = await session.client.callTool({
+				name: "component_draft_create",
+				arguments: {
+					systemName: "Core",
+					expectedRevision: revision,
+					slug,
+					name: slug,
+					group,
+					...(description ? { description } : {}),
+					draft: {
+						root: textRoot(),
+						variants: {
+							axes: {
+								tone: {
+									label: "Tone",
+									defaultValue: "neutral",
+									values: { neutral: {}, brand: {} },
+								},
+							},
+						},
+					},
+				},
+			});
+			revision = (toolPayload(created) as { revision: string }).revision;
+		}
+
+		const actions = await session.client.callTool({
+			name: "component_read",
+			arguments: { systemName: "Core", group: "Actions" },
+		});
+		expect(toolPayload(actions)).toMatchObject({
+			componentCount: 3,
+			matchedCount: 2,
+			components: [
+				{
+					slug: "button",
+					variants: "tone: neutral|brand",
+					description: "Primary action trigger.",
+				},
+				{ slug: "link" },
+			],
+		});
+
+		const surface = await session.client.callTool({
+			name: "component_read",
+			arguments: { systemName: "Core", query: "SURFACE" },
+		});
+		expect(toolPayload(surface)).toMatchObject({
+			matchedCount: 1,
+			components: [{ slug: "card" }],
 		});
 	});
 
 	it("rejects concurrent createSystemComponentDraft calls with the same expected revision", async () => {
 		const initial = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
-		const expectedRevision = String(initial.structuredContent?.revision);
+		const expectedRevision = String(toolPayload(initial)?.revision);
 
 		const [firstResult, secondResult] = await Promise.all([
 			session.client.callTool({
-				name: "createSystemComponentDraft",
+				name: "component_draft_create",
 				arguments: {
 					systemName: "Core",
 					expectedRevision,
@@ -196,7 +309,7 @@ describe("trickroom MCP system component tools", () => {
 				},
 			}),
 			session.client.callTool({
-				name: "createSystemComponentDraft",
+				name: "component_draft_create",
 				arguments: {
 					systemName: "Core",
 					expectedRevision,
@@ -211,82 +324,82 @@ describe("trickroom MCP system component tools", () => {
 		const staleFailures = outcomes.filter(
 			(outcome) =>
 				outcome.isError === true &&
-				outcome.structuredContent?.code === "STALE_WRITE",
+				toolPayload(outcome)?.code === "STALE_WRITE",
 		);
 
 		expect(successes).toHaveLength(1);
 		expect(staleFailures).toHaveLength(1);
-		expect(successes[0]?.structuredContent).toMatchObject({
+		expect(toolPayload(successes[0])).toMatchObject({
 			status: "success",
 			valid: true,
 		});
 
 		const listed = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
-		expect(listed.structuredContent?.components).toHaveLength(1);
+		expect(toolPayload(listed)?.components).toHaveLength(1);
 		expect(
 			["concurrent-a", "concurrent-b"].includes(
-				String(listed.structuredContent?.components?.[0]?.slug),
+				String(toolPayload(listed)?.components?.[0]?.slug),
 			),
 		).toBe(true);
 
-		const winnerId = String(successes[0]?.structuredContent?.componentId);
+		const winnerId = String(toolPayload(successes[0]).componentId);
 		const described = await session.client.callTool({
-			name: "describeSystemComponent",
+			name: "component_read",
 			arguments: { systemName: "Core", componentId: winnerId },
 		});
 		expect(described.isError).not.toBe(true);
-		expect(described.structuredContent).toMatchObject({
+		expect(toolPayload(described)).toMatchObject({
 			valid: true,
-			record: expect.objectContaining({ componentId: winnerId }),
+			componentId: winnerId,
 		});
 	});
 
 	it("fails stale manifest and draft-hash writes clearly", async () => {
 		const initial = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		const created = await session.client.callTool({
-			name: "createSystemComponentDraft",
+			name: "component_draft_create",
 			arguments: {
 				systemName: "Core",
-				expectedRevision: initial.structuredContent?.revision,
+				expectedRevision: toolPayload(initial)?.revision,
 				slug: "stale-test",
 				name: "Stale Test",
 			},
 		});
-		const componentId = String(created.structuredContent?.componentId);
+		const componentId = String(toolPayload(created)?.componentId);
 
 		const staleCreate = await session.client.callTool({
-			name: "createSystemComponentDraft",
+			name: "component_draft_create",
 			arguments: {
 				systemName: "Core",
-				expectedRevision: initial.structuredContent?.revision,
+				expectedRevision: toolPayload(initial)?.revision,
 				slug: "second",
 				name: "Second",
 			},
 		});
 		expect(staleCreate.isError).toBe(true);
-		expect(staleCreate.structuredContent).toMatchObject({
+		expect(toolPayload(staleCreate)).toMatchObject({
 			status: "INVALID_OPERATION",
 			code: "STALE_WRITE",
 		});
 
 		const staleHash = await session.client.callTool({
-			name: "updateSystemComponentDraft",
+			name: "component_draft_update",
 			arguments: {
 				systemName: "Core",
 				componentId,
-				expectedRevision: created.structuredContent?.revision,
+				expectedRevision: toolPayload(created)?.revision,
 				expectedDraftTemplateHash: "sha256:not-current",
 				root: textRoot(),
 			},
 		});
 		expect(staleHash.isError).toBe(true);
-		expect(staleHash.structuredContent).toMatchObject({
+		expect(toolPayload(staleHash)).toMatchObject({
 			status: "INVALID_OPERATION",
 			code: "DRAFT_HASH_MISMATCH",
 		});
@@ -295,10 +408,10 @@ describe("trickroom MCP system component tools", () => {
 	it("publishes draft authoring shape information in MCP tool schemas", async () => {
 		const tools = await session.client.listTools();
 		const updateTool = tools.tools.find(
-			(tool) => tool.name === "updateSystemComponentDraft",
+			(tool) => tool.name === "component_draft_update",
 		);
 		const createTool = tools.tools.find(
-			(tool) => tool.name === "createSystemComponentDraft",
+			(tool) => tool.name === "component_draft_create",
 		);
 
 		expect(updateTool).toBeDefined();
@@ -320,80 +433,80 @@ describe("trickroom MCP system component tools", () => {
 
 	it("deletes a component from the manifest with revision metadata", async () => {
 		const initial = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		const created = await session.client.callTool({
-			name: "createSystemComponentDraft",
+			name: "component_draft_create",
 			arguments: {
 				systemName: "Core",
-				expectedRevision: initial.structuredContent?.revision,
+				expectedRevision: toolPayload(initial)?.revision,
 				slug: "delete-me",
 				name: "Delete Me",
 			},
 		});
-		const componentId = String(created.structuredContent?.componentId);
+		const componentId = String(toolPayload(created)?.componentId);
 
 		const deleted = await session.client.callTool({
-			name: "deleteSystemComponent",
+			name: "component_delete",
 			arguments: {
 				systemName: "Core",
 				componentId,
-				expectedRevision: created.structuredContent?.revision,
+				expectedRevision: toolPayload(created)?.revision,
 			},
 		});
 		expect(deleted.isError).not.toBe(true);
-		expect(deleted.structuredContent).toMatchObject({
+		expect(toolPayload(deleted)).toMatchObject({
 			status: "success",
 			systemName: "Core",
 			componentId,
 			deleted: true,
 		});
-		expect(deleted.structuredContent?.revision).not.toBe(
-			created.structuredContent?.revision,
+		expect(toolPayload(deleted)?.revision).not.toBe(
+			toolPayload(created)?.revision,
 		);
 
 		const listed = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
-		expect(listed.structuredContent).toMatchObject({
-			revision: deleted.structuredContent?.revision,
+		expect(toolPayload(listed)).toMatchObject({
+			revision: toolPayload(deleted)?.revision,
 			components: [],
 		});
 
 		const described = await session.client.callTool({
-			name: "describeSystemComponent",
+			name: "component_read",
 			arguments: { systemName: "Core", componentId },
 		});
 		expect(described.isError).toBe(true);
-		expect(described.structuredContent).toMatchObject({
+		expect(toolPayload(described)).toMatchObject({
 			code: "COMPONENT_NOT_FOUND",
 		});
 	});
 
 	it("returns structured diagnostics for malformed draft updates", async () => {
 		const initial = await session.client.callTool({
-			name: "listSystemComponents",
+			name: "component_read",
 			arguments: { systemName: "Core" },
 		});
 		const created = await session.client.callTool({
-			name: "createSystemComponentDraft",
+			name: "component_draft_create",
 			arguments: {
 				systemName: "Core",
-				expectedRevision: initial.structuredContent?.revision,
+				expectedRevision: toolPayload(initial)?.revision,
 				slug: "malformed-test",
 				name: "Malformed Test",
 			},
 		});
-		const componentId = String(created.structuredContent?.componentId);
+		const componentId = String(toolPayload(created)?.componentId);
 
 		const malformed = await session.client.callTool({
-			name: "updateSystemComponentDraft",
+			name: "component_draft_update",
 			arguments: {
 				systemName: "Core",
 				componentId,
-				expectedRevision: created.structuredContent?.revision,
+				expectedRevision: toolPayload(created)?.revision,
 				root: {
 					library: "trickroom",
 					component: "container",
@@ -409,7 +522,7 @@ describe("trickroom MCP system component tools", () => {
 		});
 
 		expect(malformed.isError).toBe(true);
-		expect(malformed.structuredContent).toMatchObject({
+		expect(toolPayload(malformed)).toMatchObject({
 			status: "INVALID_OPERATION",
 			code: "VALIDATION_FAILED",
 			diagnostics: expect.arrayContaining([
@@ -427,50 +540,43 @@ describe("trickroom MCP system component tools", () => {
 
 	it("returns a compact system component draft authoring contract", async () => {
 		const result = await session.client.callTool({
-			name: "getSystemComponentAuthoringContract",
-			arguments: { systemName: "Core" },
+			name: "guide",
+			arguments: { topic: "component-authoring", systemName: "Core" },
 		});
 
 		expect(result.isError).not.toBe(true);
-		expect(result.structuredContent).toMatchObject({
-			schemaVersion: 1,
-			contract: "system-component-authoring",
-			system: {
-				requested: "Core",
-				configured: true,
-			},
-			shapes: {
-				root: expect.objectContaining({
-					type: "RecipeTemplateNode",
-				}),
-				variants: expect.objectContaining({
-					classesByPath: expect.stringContaining("template path"),
-					compoundVariants: expect.stringContaining("single string values"),
-					defaultValues: expect.stringContaining("real value ids"),
-					instanceUpdates: expect.stringContaining("unsetVariantAxes"),
-					rules: expect.arrayContaining([
-						expect.stringContaining("does not fabricate the first value"),
-						expect.stringContaining("duplicate signatures"),
-						expect.stringContaining("garbage-collected"),
-						expect.stringContaining("Array-valued when"),
-					]),
-				}),
-				overrideTargets: expect.objectContaining({
-					capabilities: ["className", "text", "icon", "asset"],
-				}),
-			},
-			validation: {
-				errorCode: "VALIDATION_FAILED",
-				diagnosticCode: "INVALID_SYSTEM_COMPONENT_DRAFT_INPUT",
-			},
-			examples: expect.arrayContaining([
-				expect.objectContaining({
-					tool: "createSystemComponentDraft",
-				}),
-			]),
+		expect(toolPayload(result)["component-authoring"]).toMatchObject({
+			system: { requested: "Core", configured: true },
+			topics: expect.objectContaining({
+				"component-variants": expect.any(String),
+			}),
 		});
-		expect(JSON.stringify(result.structuredContent).length).toBeLessThan(
-			12_000,
+		expect(JSON.stringify(toolPayload(result)).length).toBeLessThan(6_000);
+	});
+
+	it("picks component_read's view from componentId and checks migrate input", async () => {
+		const index = toolPayload(
+			await session.client.callTool({ name: "component_read", arguments: {} }),
 		);
+		expect(index).toMatchObject({ systemName: "Core", components: [] });
+
+		const describeWithoutId = await session.client.callTool({
+			name: "component_read",
+			arguments: { view: "describe" },
+		});
+		expect(describeWithoutId.isError).toBe(true);
+		expect(toolPayload(describeWithoutId)).toMatchObject({
+			code: "INVALID_OPERATION_PARAMETERS",
+		});
+
+		const oneInstanceWithoutDesign = await session.client.callTool({
+			name: "component_migrate",
+			arguments: { rootElementId: "root" },
+		});
+		expect(oneInstanceWithoutDesign.isError).toBe(true);
+		expect(toolPayload(oneInstanceWithoutDesign)).toMatchObject({
+			code: "INVALID_OPERATION_PARAMETERS",
+			message: expect.stringContaining("designFileId and expectedRevision"),
+		});
 	});
 });

@@ -15,8 +15,8 @@
  * (`src/libraries/base-ui/registry.ts`, `trickroom/registry.ts`); this table is
  * the one mapping no registry file carries, so a test validates it covers every
  * base-ui subpath present in the registry (drift guard). Because the export
- * renders against raw `@base-ui/react`, it can cover registry ids whose live
- * render wrappers don't exist yet (e.g. `dialog.*` / `alert-dialog.*`).
+ * renders against raw `@base-ui/react`, it does not depend on the live render
+ * wrappers; `src/libraries/registry-integrity.test.ts` guards those separately.
  */
 
 export type ExportDescriptor =

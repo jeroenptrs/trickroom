@@ -1,12 +1,23 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { TrickroomDesign } from "../types";
+import type { Node, TrickroomDesign } from "../types";
+import { DESIGN_FILE_VERSION } from "./design-file-schema";
 import {
+	calculateDesignFileRevision,
 	countDesignLayers,
 	createDesignFileService,
 	DesignFileServiceError,
+	skipDesignUpdate,
 } from "./design-file-service";
+import { calculateDesignRevision } from "./design-revision";
 
 const validDesign = {
 	name: "Valid Design",
@@ -35,6 +46,47 @@ const validDesign = {
 	],
 } satisfies TrickroomDesign;
 
+const boardNode = (id: string, name: string): Node => ({
+	id,
+	props: {
+		"data-trickroom-name": name,
+		"data-trickroom-library": "trickroom",
+		"data-trickroom-component": "container",
+		"data-trickroom-role": "branch",
+	},
+	children: [],
+});
+
+const twoBoardDesign = {
+	name: "Two boards",
+	boards: [boardNode("board-a", "A"), boardNode("board-b", "B")],
+} satisfies TrickroomDesign;
+
+const threeBoardDesign = {
+	name: "Three boards",
+	boards: [
+		boardNode("board-a", "A"),
+		boardNode("board-b", "B"),
+		boardNode("board-c", "C"),
+	],
+} satisfies TrickroomDesign;
+
+const withBoardName = (
+	design: TrickroomDesign,
+	boardId: string,
+	name: string,
+): TrickroomDesign => ({
+	...design,
+	boards: design.boards.map((board) =>
+		board.id === boardId
+			? { ...board, props: { ...board.props, "data-trickroom-name": name } }
+			: board,
+	),
+});
+
+const boardNames = (design: TrickroomDesign) =>
+	design.boards.map((board) => board.props["data-trickroom-name"]);
+
 describe("DesignFileService", () => {
 	let tempProjectRoot: string;
 	let service: ReturnType<typeof createDesignFileService>;
@@ -50,11 +102,17 @@ describe("DesignFileService", () => {
 		await rm(tempProjectRoot, { force: true, recursive: true });
 	});
 
+	const legacyPath = (designId: string) =>
+		path.join(service.designsDir, `${designId}.json`);
+
+	const readFolderFile = (designId: string, file: string) =>
+		readFile(path.join(service.designsDir, designId, file), "utf8");
+
 	const writeDesignFixture = async (
-		file: string,
+		designId: string,
 		design: TrickroomDesign = validDesign,
 	) => {
-		const designPath = service.resolveDesignFilePath(file);
+		const designPath = legacyPath(designId);
 		await mkdir(path.dirname(designPath), { recursive: true });
 		await writeFile(
 			designPath,
@@ -63,44 +121,38 @@ describe("DesignFileService", () => {
 		);
 	};
 
-	it("maps UUIDs to JSON files without accepting path segments", () => {
-		expect(service.getFileForUuid("123e4567-e89b-12d3-a456-426614174000")).toBe(
-			"123e4567-e89b-12d3-a456-426614174000.json",
+	it("addresses designs by id without accepting path segments", async () => {
+		expect(service.assertDesignId("123e4567-e89b-12d3-a456-426614174000")).toBe(
+			"123e4567-e89b-12d3-a456-426614174000",
 		);
-		expect(service.getUuidFromFile("123.json")).toBe("123");
-		expect(service.getUuidFromFile("123.txt")).toBeNull();
-
-		expect(() => service.getFileForUuid("../outside")).toThrow(
-			DesignFileServiceError,
-		);
+		for (const unsafe of ["", " a", ".", "..", "../outside", "a/b", "a\\b"]) {
+			expect(() => service.assertDesignId(unsafe)).toThrow(
+				DesignFileServiceError,
+			);
+		}
+		await expect(service.readDesignFile("../outside")).rejects.toMatchObject({
+			code: "INVALID_DESIGN_UUID",
+		});
 	});
 
-	it("keeps resolved design paths inside the project-scoped designs directory", () => {
-		expect(service.resolveDesignFilePath("one.json")).toBe(
-			path.join(tempProjectRoot, ".trickroom", "designs", "one.json"),
-		);
-
-		expect(() => service.resolveDesignFilePath("../one.json")).toThrow(
-			DesignFileServiceError,
-		);
-		expect(() =>
-			service.resolveDesignFilePath(path.resolve("one.json")),
-		).toThrow(DesignFileServiceError);
-	});
-
-	it("lists valid JSON design summaries in filename order and includes revisions", async () => {
-		await writeDesignFixture("b.json", { ...validDesign, name: "Design B" });
-		await writeDesignFixture("a.json", {
+	it("lists JSON design summaries in filename order, flagging unreadable files", async () => {
+		await writeDesignFixture("b", { ...validDesign, name: "Design B" });
+		await writeDesignFixture("a", {
 			...validDesign,
 			name: "Design A",
 			systemName: null,
 		});
 		await writeFile(
-			service.resolveDesignFilePath("invalid.json"),
+			legacyPath("invalid"),
 			JSON.stringify({ name: "Invalid" }),
 			"utf8",
 		);
-		await writeFile(service.resolveDesignFilePath("notes.txt"), "{}", "utf8");
+		await writeFile(path.join(service.designsDir, "notes.txt"), "{}", "utf8");
+		await writeFile(
+			path.join(service.designsDir, "a.memory.json"),
+			"{}",
+			"utf8",
+		);
 
 		const summaries = await service.listDesignSummaries();
 
@@ -113,7 +165,8 @@ describe("DesignFileService", () => {
 				boardsCount: 1,
 				layersCount: 1,
 				modifiedAt: expect.any(String),
-				revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+				revision: expect.stringMatching(/^r2\./),
+				boards: [{ id: "root", name: "Root", revision: expect.any(String) }],
 			},
 			{
 				uuid: "b",
@@ -123,7 +176,23 @@ describe("DesignFileService", () => {
 				boardsCount: 1,
 				layersCount: 1,
 				modifiedAt: expect.any(String),
+				revision: expect.stringMatching(/^r2\./),
+				boards: [{ id: "root", name: "Root", revision: expect.any(String) }],
+			},
+			{
+				uuid: "invalid",
+				file: "invalid.json",
+				name: "Invalid",
+				boardsCount: 0,
+				layersCount: 0,
+				modifiedAt: expect.any(String),
 				revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+				boards: [],
+				diagnostic: {
+					code: "INVALID_DESIGN_PAYLOAD",
+					message: expect.any(String),
+					version: 0,
+				},
 			},
 		]);
 		for (const summary of summaries) {
@@ -132,7 +201,7 @@ describe("DesignFileService", () => {
 	});
 
 	it("refreshes cached summaries when a design file changes", async () => {
-		await writeDesignFixture("cached.json", {
+		await writeDesignFixture("cached", {
 			...validDesign,
 			name: "Cached Before",
 		});
@@ -143,7 +212,7 @@ describe("DesignFileService", () => {
 			},
 		]);
 
-		await writeDesignFixture("cached.json", {
+		await writeDesignFixture("cached", {
 			...validDesign,
 			name: "Cached After With More Bytes",
 			boards: [
@@ -177,11 +246,11 @@ describe("DesignFileService", () => {
 	});
 
 	it("does not return cached summaries after a design file becomes invalid", async () => {
-		await writeDesignFixture("cached.json");
+		await writeDesignFixture("cached");
 		expect(await service.listDesignSummaries()).toHaveLength(1);
 
 		await writeFile(
-			service.resolveDesignFilePath("cached.json"),
+			legacyPath("cached"),
 			JSON.stringify({
 				name: "Invalid after cache with more bytes",
 				boards: "not an array",
@@ -189,7 +258,13 @@ describe("DesignFileService", () => {
 			"utf8",
 		);
 
-		await expect(service.listDesignSummaries()).resolves.toEqual([]);
+		await expect(service.listDesignSummaries()).resolves.toMatchObject([
+			{
+				file: "cached.json",
+				name: "Invalid after cache with more bytes",
+				diagnostic: { code: "INVALID_DESIGN_PAYLOAD" },
+			},
+		]);
 	});
 
 	it("counts descendant layers recursively without counting board roots", () => {
@@ -234,17 +309,17 @@ describe("DesignFileService", () => {
 	});
 
 	it("returns stable content-hash revisions for unchanged design files", async () => {
-		await writeDesignFixture("stable.json");
+		await writeDesignFixture("stable");
 
-		const firstRead = await service.readDesignFile("stable.json");
-		const secondRead = await service.readDesignFile("stable.json");
+		const firstRead = await service.readDesignFile("stable");
+		const secondRead = await service.readDesignFile("stable");
 
 		expect(firstRead.revision).toBe(secondRead.revision);
-		expect(firstRead.revision).toMatch(/^sha256:[a-f0-9]{64}$/);
+		expect(firstRead.revision).toBe(calculateDesignRevision(validDesign));
 	});
 
 	it("reads and lists legacy null component migration policies canonically", async () => {
-		const designPath = service.resolveDesignFilePath("legacy-policy.json");
+		const designPath = legacyPath("legacy-policy");
 		await mkdir(path.dirname(designPath), { recursive: true });
 		await writeFile(
 			designPath,
@@ -255,7 +330,7 @@ describe("DesignFileService", () => {
 			"utf8",
 		);
 
-		const read = await service.readDesignFile("legacy-policy.json");
+		const read = await service.readDesignFile("legacy-policy");
 		expect(read.design).not.toHaveProperty("componentMigrationPolicy");
 		await expect(service.listDesignSummaries()).resolves.toMatchObject([
 			{
@@ -265,57 +340,59 @@ describe("DesignFileService", () => {
 		]);
 	});
 
-	it("writes validated designs atomically and returns the new revision", async () => {
-		await mkdir(service.designsDir, { recursive: true });
-
-		const written = await service.writeDesignFile("created.json", validDesign);
-		const contents = await readFile(
-			service.resolveDesignFilePath("created.json"),
-			"utf8",
-		);
+	it("writes a design as a manifest plus one file per board", async () => {
+		const written = await service.writeDesignFile("created", validDesign);
 
 		expect(written.design).toEqual(validDesign);
-		expect(written.revision).toMatch(/^sha256:[a-f0-9]{64}$/);
-		expect(JSON.parse(contents)).toEqual(validDesign);
-	});
-
-	it("creates the designs directory before writing a new design", async () => {
-		const written = await service.writeDesignFile("created.json", validDesign);
-
-		expect(written.path).toBe(service.resolveDesignFilePath("created.json"));
+		expect(written.revision).toBe(calculateDesignRevision(validDesign));
+		expect(written.path).toBe(path.join(service.designsDir, "created"));
+		expect(written.file).toBe("created/design.json");
+		await expect(readFolderFile("created", "design.json")).resolves.toBe(
+			`{\n\t"version": ${DESIGN_FILE_VERSION},\n\t"name": "Valid Design",\n\t"systemName": "Core"\n}\n`,
+		);
+		const { boards: _boards, ...manifest } = validDesign;
+		void _boards;
 		await expect(
-			readFile(written.path, "utf8").then(JSON.parse),
-		).resolves.toEqual(validDesign);
+			readFolderFile("created", "design.json").then(JSON.parse),
+		).resolves.toEqual({ version: DESIGN_FILE_VERSION, ...manifest });
+		await expect(
+			readFolderFile("created", "boards/root.json").then(JSON.parse),
+		).resolves.toEqual({
+			version: DESIGN_FILE_VERSION,
+			order: expect.any(String),
+			board: validDesign.boards[0],
+		});
+		await expect(readdir(path.join(service.designsDir))).resolves.toEqual([
+			"created",
+		]);
 	});
 
 	it("creates a design file exclusively without overwriting an existing file", async () => {
-		const written = await service.createDesignFile("created.json", validDesign);
+		const written = await service.createDesignFile("created", validDesign);
 
 		expect(written.design.name).toBe("Valid Design");
 		await expect(
-			service.createDesignFile("created.json", {
+			service.createDesignFile("created", {
 				...validDesign,
 				name: "Overwrite Attempt",
 			}),
 		).rejects.toMatchObject({
 			code: "DESIGN_FILE_ALREADY_EXISTS",
 		});
-		await expect(service.readDesignFile("created.json")).resolves.toMatchObject(
-			{
-				design: {
-					name: "Valid Design",
-				},
+		await expect(service.readDesignFile("created")).resolves.toMatchObject({
+			design: {
+				name: "Valid Design",
 			},
-		);
+		});
 	});
 
 	it("allows only one concurrent exclusive create for the same design file", async () => {
 		const attempts = await Promise.allSettled([
-			service.createDesignFile("raced.json", {
+			service.createDesignFile("raced", {
 				...validDesign,
 				name: "Race Attempt A",
 			}),
-			service.createDesignFile("raced.json", {
+			service.createDesignFile("raced", {
 				...validDesign,
 				name: "Race Attempt B",
 			}),
@@ -334,7 +411,7 @@ describe("DesignFileService", () => {
 				code: "DESIGN_FILE_ALREADY_EXISTS",
 			},
 		});
-		await expect(service.readDesignFile("raced.json")).resolves.toMatchObject({
+		await expect(service.readDesignFile("raced")).resolves.toMatchObject({
 			design: {
 				name: expect.stringMatching(/^Race Attempt [AB]$/),
 			},
@@ -345,33 +422,31 @@ describe("DesignFileService", () => {
 		await mkdir(service.designsDir, { recursive: true });
 
 		await expect(
-			service.writeDesignFile("invalid.json", { name: "Invalid" }),
+			service.writeDesignFile("invalid", { name: "Invalid" }),
 		).rejects.toMatchObject({
 			code: "INVALID_DESIGN_PAYLOAD",
 		});
 
-		await expect(
-			readFile(service.resolveDesignFilePath("invalid.json")),
-		).rejects.toMatchObject({
+		await expect(readFile(legacyPath("invalid"))).rejects.toMatchObject({
 			code: "ENOENT",
 		});
 	});
 
 	it("rejects stale expected revisions without overwriting the current file", async () => {
-		await writeDesignFixture("checked.json", {
+		await writeDesignFixture("checked", {
 			...validDesign,
 			name: "Current",
 		});
-		const current = await service.readDesignFile("checked.json");
+		const current = await service.readDesignFile("checked");
 
-		await writeDesignFixture("checked.json", {
+		await writeDesignFixture("checked", {
 			...validDesign,
 			name: "Concurrent Update",
 		});
 
 		await expect(
 			service.writeDesignFile(
-				"checked.json",
+				"checked",
 				{ ...validDesign, name: "Stale Update" },
 				{ expectedRevision: current.revision },
 			),
@@ -379,12 +454,441 @@ describe("DesignFileService", () => {
 			code: "REVISION_MISMATCH",
 		});
 
-		await expect(service.readDesignFile("checked.json")).resolves.toMatchObject(
-			{
-				design: {
-					name: "Concurrent Update",
-				},
+		await expect(service.readDesignFile("checked")).resolves.toMatchObject({
+			design: {
+				name: "Concurrent Update",
 			},
-		);
+		});
+	});
+
+	describe("board-level revision checks", () => {
+		it("keeps another writer's board when a whole design is saved from an older read", async () => {
+			await writeDesignFixture("merge", twoBoardDesign);
+			const browserRead = await service.readDesignFile("merge");
+			await service.writeDesignFile(
+				"merge",
+				withBoardName(browserRead.design, "board-b", "B by agent"),
+				{ expectedRevision: browserRead.revision },
+			);
+
+			const saved = await service.writeDesignFile(
+				"merge",
+				withBoardName(browserRead.design, "board-a", "A by human"),
+				{ expectedRevision: browserRead.revision },
+			);
+
+			expect(saved.merged).toBe(true);
+			expect(saved.changedBoardIds).toEqual(["board-a"]);
+			expect(boardNames(saved.design)).toEqual(["A by human", "B by agent"]);
+			await expect(service.readDesignFile("merge")).resolves.toMatchObject({
+				revision: saved.revision,
+				design: saved.design,
+			});
+		});
+
+		it("refuses a save that changes a board changed since the read", async () => {
+			await writeDesignFixture("conflict", twoBoardDesign);
+			const browserRead = await service.readDesignFile("conflict");
+			await service.writeDesignFile(
+				"conflict",
+				withBoardName(browserRead.design, "board-a", "A by agent"),
+				{ expectedRevision: browserRead.revision },
+			);
+			const current = await service.readDesignFile("conflict");
+
+			const attempt = service.writeDesignFile(
+				"conflict",
+				withBoardName(browserRead.design, "board-a", "A by human"),
+				{ expectedRevision: browserRead.revision },
+			);
+
+			await expect(attempt).rejects.toMatchObject({
+				code: "REVISION_MISMATCH",
+				mismatch: {
+					staleBoardIds: ["board-a"],
+					manifest: false,
+					order: false,
+					currentRevision: current.revision,
+				},
+			});
+			await expect(service.readDesignFile("conflict")).resolves.toMatchObject({
+				revision: current.revision,
+			});
+		});
+
+		it("keeps boards another writer added and respects boards it deleted", async () => {
+			await writeDesignFixture("sets", twoBoardDesign);
+			const browserRead = await service.readDesignFile("sets");
+			const [boardA] = browserRead.design.boards;
+			await service.writeDesignFile(
+				"sets",
+				{
+					...browserRead.design,
+					boards: [
+						boardA as Node,
+						{ ...(boardA as Node), id: "board-c", children: [] },
+					],
+				},
+				{ expectedRevision: browserRead.revision },
+			);
+
+			const saved = await service.writeDesignFile(
+				"sets",
+				{ ...browserRead.design, name: "Renamed" },
+				{ expectedRevision: browserRead.revision },
+			);
+
+			expect(saved.design.name).toBe("Renamed");
+			expect(saved.design.boards.map((board) => board.id)).toEqual([
+				"board-a",
+				"board-c",
+			]);
+		});
+
+		it("refuses to delete a board another writer changed", async () => {
+			await writeDesignFixture("delete", twoBoardDesign);
+			const browserRead = await service.readDesignFile("delete");
+			await service.writeDesignFile(
+				"delete",
+				withBoardName(browserRead.design, "board-b", "B by agent"),
+				{ expectedRevision: browserRead.revision },
+			);
+
+			await expect(
+				service.writeDesignFile(
+					"delete",
+					{
+						...browserRead.design,
+						boards: browserRead.design.boards.slice(0, 1),
+					},
+					{ expectedRevision: browserRead.revision },
+				),
+			).rejects.toMatchObject({
+				code: "REVISION_MISMATCH",
+				mismatch: { staleBoardIds: ["board-b"] },
+			});
+		});
+
+		it("applies a reorder unless the order changed on disk too", async () => {
+			await writeDesignFixture("order", threeBoardDesign);
+			const read = await service.readDesignFile("order");
+			const [a, b, c] = read.design.boards as [Node, Node, Node];
+
+			const reordered = await service.writeDesignFile(
+				"order",
+				{ ...read.design, boards: [c, a, b] },
+				{ expectedRevision: read.revision },
+			);
+			expect(reordered.design.boards.map((board) => board.id)).toEqual([
+				"board-c",
+				"board-a",
+				"board-b",
+			]);
+
+			await expect(
+				service.writeDesignFile(
+					"order",
+					{ ...read.design, boards: [b, a, c] },
+					{ expectedRevision: read.revision },
+				),
+			).rejects.toMatchObject({
+				code: "REVISION_MISMATCH",
+				mismatch: { order: true },
+			});
+		});
+
+		it("checks every change strictly against a revision it cannot decode", async () => {
+			await writeDesignFixture("legacy-token", twoBoardDesign);
+			const read = await service.readDesignFile("legacy-token");
+
+			await expect(
+				service.writeDesignFile(
+					"legacy-token",
+					withBoardName(read.design, "board-a", "Changed"),
+					{ expectedRevision: "sha256:0000" },
+				),
+			).rejects.toMatchObject({ code: "REVISION_MISMATCH" });
+			await expect(
+				service.writeDesignFile("legacy-token", read.design, {
+					expectedRevision: "sha256:0000",
+				}),
+			).resolves.toMatchObject({ revision: read.revision });
+		});
+	});
+
+	describe("updateDesignFile", () => {
+		it("applies a mutation to a fresh read and writes the prepared design", async () => {
+			await writeDesignFixture("updated");
+			const read = await service.readDesignFile("updated");
+
+			const outcome = await service.updateDesignFile("updated", {
+				expectedRevision: read.revision,
+				mutate: async (current) => ({
+					design: { ...current.design, name: "Mutated" },
+				}),
+				prepare: async (design) => ({ ...design, name: `${design.name}!` }),
+			});
+
+			expect(outcome).toMatchObject({
+				status: "written",
+				write: { design: { name: "Mutated!" } },
+			});
+			await expect(service.readDesignFile("updated")).resolves.toMatchObject({
+				design: { name: "Mutated!" },
+			});
+		});
+
+		it("writes a change to one board while another board changed since the read", async () => {
+			await writeDesignFixture("boards", twoBoardDesign);
+			const before = await service.readDesignFile("boards");
+			// Another writer edits board B after the caller read the design.
+			await service.writeDesignFile(
+				"boards",
+				withBoardName(before.design, "board-b", "B by agent"),
+				{ expectedRevision: before.revision },
+			);
+
+			const outcome = await service.updateDesignFile("boards", {
+				expectedRevision: before.revision,
+				mutate: async (current) => ({
+					design: withBoardName(current.design, "board-a", "A by human"),
+				}),
+			});
+
+			expect(outcome.status).toBe("written");
+			const after = await service.readDesignFile("boards");
+			expect(boardNames(after.design)).toEqual(["A by human", "B by agent"]);
+			expect(outcome.status === "written" && outcome.write.revision).toBe(
+				after.revision,
+			);
+		});
+
+		it("reports the boards the caller changed that are stale", async () => {
+			await writeDesignFixture("stale", twoBoardDesign);
+			const before = await service.readDesignFile("stale");
+			await service.writeDesignFile(
+				"stale",
+				withBoardName(before.design, "board-a", "A elsewhere"),
+				{ expectedRevision: before.revision },
+			);
+			const current = await service.readDesignFile("stale");
+
+			const outcome = await service.updateDesignFile("stale", {
+				expectedRevision: before.revision,
+				mutate: async (read) => ({
+					design: withBoardName(read.design, "board-a", "A stale"),
+				}),
+			});
+
+			expect(outcome).toEqual({
+				status: "revision-mismatch",
+				expectedRevision: before.revision,
+				currentRevision: current.revision,
+				staleBoardIds: ["board-a"],
+				manifest: false,
+				order: false,
+			});
+			await expect(service.readDesignFile("stale")).resolves.toMatchObject({
+				revision: current.revision,
+			});
+		});
+
+		it("keeps another writer's board that lands between the read and the write", async () => {
+			await writeDesignFixture("raced-update", twoBoardDesign);
+			const read = await service.readDesignFile("raced-update");
+
+			const outcome = await service.updateDesignFile("raced-update", {
+				expectedRevision: read.revision,
+				mutate: async (current) => {
+					await writeDesignFixture(
+						"raced-update",
+						withBoardName(current.design, "board-a", "A by winner"),
+					);
+					return {
+						design: withBoardName(current.design, "board-b", "B by caller"),
+					};
+				},
+			});
+
+			expect(outcome).toMatchObject({
+				status: "written",
+				write: { merged: true },
+			});
+			const after = await service.readDesignFile("raced-update");
+			expect(boardNames(after.design)).toEqual(["A by winner", "B by caller"]);
+		});
+
+		it("reports a board another writer changed between the read and the write", async () => {
+			await writeDesignFixture("raced-update", twoBoardDesign);
+			const read = await service.readDesignFile("raced-update");
+
+			const outcome = await service.updateDesignFile("raced-update", {
+				expectedRevision: read.revision,
+				mutate: async (current) => {
+					await writeDesignFixture(
+						"raced-update",
+						withBoardName(current.design, "board-b", "B by winner"),
+					);
+					return {
+						design: withBoardName(current.design, "board-b", "B by loser"),
+					};
+				},
+			});
+
+			const after = await service.readDesignFile("raced-update");
+			expect(outcome).toEqual({
+				status: "revision-mismatch",
+				expectedRevision: read.revision,
+				currentRevision: after.revision,
+				staleBoardIds: ["board-b"],
+				manifest: false,
+				order: false,
+			});
+			expect(boardNames(after.design)).toEqual(["A", "B by winner"]);
+		});
+
+		it("ends without writing when the mutation skips", async () => {
+			await writeDesignFixture("skipped");
+			const read = await service.readDesignFile("skipped");
+
+			const outcome = await service.updateDesignFile("skipped", {
+				expectedRevision: read.revision,
+				mutate: async () => skipDesignUpdate("nothing to do"),
+			});
+
+			expect(outcome).toMatchObject({
+				status: "skipped",
+				value: "nothing to do",
+			});
+			await expect(service.readDesignFile("skipped")).resolves.toMatchObject({
+				revision: read.revision,
+			});
+		});
+	});
+
+	describe("schema versions", () => {
+		const readRaw = (file: string) => readFile(legacyPath(file), "utf8");
+
+		const writeRaw = async (file: string, value: unknown) => {
+			const designPath = legacyPath(file);
+			await mkdir(path.dirname(designPath), { recursive: true });
+			await writeFile(designPath, JSON.stringify(value), "utf8");
+		};
+
+		it("migrates a legacy file in memory without writing it", async () => {
+			await writeRaw("legacy", {
+				...validDesign,
+				componentMigrationPolicy: null,
+			});
+			const before = await readRaw("legacy");
+
+			const read = await service.readDesignFile("legacy");
+
+			expect(read.storedVersion).toBe(0);
+			expect(read.migrated).toBe(true);
+			expect(read.design).toEqual(validDesign);
+			expect(read.revision).toBe(calculateDesignRevision(validDesign));
+			await expect(readRaw("legacy")).resolves.toBe(before);
+		});
+
+		it("persists the current version and layout on the next write", async () => {
+			await writeRaw("legacy", validDesign);
+			const read = await service.readDesignFile("legacy");
+
+			const written = await service.writeDesignFile(
+				"legacy",
+				{ ...read.design, name: "Edited" },
+				{ expectedRevision: read.revision },
+			);
+
+			const contents = await readFolderFile("legacy", "design.json");
+			expect(
+				contents.startsWith(
+					`{\n\t"version": ${DESIGN_FILE_VERSION},\n\t"name": "Edited"`,
+				),
+			).toBe(true);
+			await expect(readRaw("legacy")).rejects.toMatchObject({
+				code: "ENOENT",
+			});
+			expect(written.design).not.toHaveProperty("version");
+			const reread = await service.readDesignFile("legacy");
+			expect(reread.storedVersion).toBe(DESIGN_FILE_VERSION);
+			expect(reread.migrated).toBe(false);
+			expect(reread.revision).toBe(written.revision);
+		});
+
+		it("writes deterministic bytes regardless of key order", async () => {
+			const { boards, name, systemName } = validDesign;
+			await service.writeDesignFile("a", { boards, systemName, name });
+			await service.writeDesignFile("b", {
+				name,
+				version: DESIGN_FILE_VERSION,
+				systemName,
+				boards,
+			});
+
+			for (const file of ["design.json", "boards/root.json"]) {
+				await expect(readFolderFile("a", file)).resolves.toBe(
+					await readFolderFile("b", file),
+				);
+			}
+		});
+
+		it("lists, refuses, and never down-converts a design from a newer Trickroom", async () => {
+			const newer = { ...validDesign, version: DESIGN_FILE_VERSION + 1 };
+			await writeRaw("newer", newer);
+			const before = await readRaw("newer");
+			const revision = calculateDesignFileRevision(before);
+
+			await expect(service.listDesignSummaries()).resolves.toEqual([
+				expect.objectContaining({
+					file: "newer.json",
+					name: validDesign.name,
+					revision,
+					diagnostic: {
+						code: "UNSUPPORTED_DESIGN_VERSION",
+						message: expect.stringContaining(
+							`version ${DESIGN_FILE_VERSION + 1}`,
+						),
+						version: DESIGN_FILE_VERSION + 1,
+					},
+				}),
+			]);
+			await expect(service.readDesignFile("newer")).rejects.toMatchObject({
+				code: "UNSUPPORTED_DESIGN_VERSION",
+			});
+			await expect(
+				service.writeDesignFile("newer", validDesign, {
+					expectedRevision: revision,
+				}),
+			).rejects.toMatchObject({ code: "UNSUPPORTED_DESIGN_VERSION" });
+			await expect(
+				service.writeDesignFile("newer", validDesign),
+			).rejects.toMatchObject({ code: "UNSUPPORTED_DESIGN_VERSION" });
+			await expect(readRaw("newer")).resolves.toBe(before);
+		});
+
+		it("rejects writes that carry a newer version", async () => {
+			await expect(
+				service.createDesignFile("payload", {
+					...validDesign,
+					version: DESIGN_FILE_VERSION + 1,
+				}),
+			).rejects.toMatchObject({ code: "UNSUPPORTED_DESIGN_VERSION" });
+		});
+
+		it("lists files that are not valid JSON", async () => {
+			await writeDesignFixture("valid");
+			await writeFile(legacyPath("broken"), "{ not json", "utf8");
+
+			await expect(service.listDesignSummaries()).resolves.toMatchObject([
+				{
+					file: "broken.json",
+					name: "broken",
+					diagnostic: { code: "INVALID_DESIGN_JSON" },
+				},
+				{ file: "valid.json", name: validDesign.name },
+			]);
+		});
 	});
 });

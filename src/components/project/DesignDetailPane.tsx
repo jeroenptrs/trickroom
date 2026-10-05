@@ -11,6 +11,7 @@ import {
 } from "../../queries/design-file";
 import type { TrickroomDesignSummary } from "../../types";
 import { useProjectScope } from "../contexts";
+import { Alert } from "../ui/alert";
 import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { CopyButton } from "../ui/copy-button";
@@ -49,10 +50,10 @@ export function DesignDetailPane({
 	const systemName = design.systemName ?? "-";
 	const editedTime = formatRelativeTime(design.modifiedAt);
 	const renameMutation = useMutation({
-		mutationFn: (name: string) => renameDesignFile(design.file, name),
+		mutationFn: (name: string) => renameDesignFile(design.uuid, name),
 		onSuccess: async (renamedDesign) => {
 			queryClient.setQueryData(
-				designFileQueryKey(design.file, projectScope),
+				designFileQueryKey(design.uuid, projectScope),
 				renamedDesign,
 			);
 			await queryClient.invalidateQueries({
@@ -61,10 +62,10 @@ export function DesignDetailPane({
 		},
 	});
 	const deleteMutation = useMutation({
-		mutationFn: () => deleteDesignFile(design.file),
+		mutationFn: () => deleteDesignFile(design.uuid),
 		onSuccess: async () => {
 			queryClient.removeQueries({
-				queryKey: designFileQueryKey(design.file, projectScope),
+				queryKey: designFileQueryKey(design.uuid, projectScope),
 			});
 			await queryClient.invalidateQueries({
 				queryKey: designSummariesQueryKey,
@@ -146,6 +147,7 @@ export function DesignDetailPane({
 							<Button
 								variant="filled"
 								className="flex items-center gap-1.5"
+								disabled={design.diagnostic !== undefined}
 								onClick={() => navigate(`/design/${design.uuid}`)}
 							>
 								<ArrowUpRight className="size-4" aria-hidden="true" />
@@ -163,6 +165,20 @@ export function DesignDetailPane({
 
 				<ScrollArea className="min-h-0 flex-1">
 					<div className="flex min-h-full flex-col gap-6 px-10 py-8">
+						{design.diagnostic ? (
+							<Alert variant="panel" tone="warning">
+								<span className="flex flex-col gap-1">
+									<span>This design cannot be opened.</span>
+									<span className="font-mono">{design.diagnostic.message}</span>
+									<span>
+										{design.diagnostic.code === "UNSUPPORTED_DESIGN_VERSION"
+											? ""
+											: "Restore the file, for example from version control. "}
+										Board and layer counts are best-effort.
+									</span>
+								</span>
+							</Alert>
+						) : null}
 						<div className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] gap-4">
 							<MetricCard
 								label="Boards"
@@ -235,7 +251,7 @@ export function DesignDetailPane({
 						</DetailSection>
 
 						<DetailSection title="Storage & Resource">
-							<ReadOnlyField label="Design file" value={design.file} />
+							<ReadOnlyField label="Design file" value={design.uuid} />
 							<ReadOnlyField
 								label="Resource URI"
 								value={resourceUri}

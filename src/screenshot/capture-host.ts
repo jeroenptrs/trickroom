@@ -20,8 +20,11 @@ export async function startCaptureHost(
 		path.dirname(fileURLToPath(import.meta.url)),
 		"client",
 	);
+	// TRICKROOM_CAPTURE_CLIENT_DIR points tests and local checks at a client
+	// build outside dist/.
 	const clientPath =
 		options.clientPath ??
+		(process.env.TRICKROOM_CAPTURE_CLIENT_DIR?.trim() || undefined) ??
 		(existsSync(path.join(adjacentClientPath, "index.html"))
 			? adjacentClientPath
 			: path.resolve(process.cwd(), "dist", "client"));

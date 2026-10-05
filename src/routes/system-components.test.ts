@@ -2,13 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrickroomDesign } from "../types";
+import { emptySystemComponentManifestRevision } from "../utils/system-component-manifest-service";
 import { getSystemComponentMarkerProps } from "../utils/system-component-markers";
 import {
 	createFixtureManifest,
 	createFixturePublishedRecord,
 	FIXTURE_COMPONENT_ID,
 } from "../utils/system-component-test-fixtures";
-import { emptySystemComponentManifestRevision } from "../utils/system-component-manifest-service";
 import { SYSTEM_COMPONENT_MANIFEST_FILE_NAME } from "../utils/system-components";
 
 describe("system component routes", () => {
@@ -679,5 +679,74 @@ describe("system component routes", () => {
 			},
 		);
 		expect(createResponse.status).toBe(201);
+	});
+	it("saves editor metadata when a stored description or group predates the rules", async () => {
+		const app = await importTestServer();
+		const systemId = await resolveCoreSystemId(app);
+		const legacyDescription = "Long prose. ".repeat(375).trim();
+		expect(legacyDescription.length).toBeGreaterThan(4000);
+		await mkdir(path.join(tempProjectRoot, ".trickroom", "systems", "core"), {
+			recursive: true,
+		});
+		await writeFile(
+			path.join(
+				tempProjectRoot,
+				".trickroom",
+				"systems",
+				"core",
+				SYSTEM_COMPONENT_MANIFEST_FILE_NAME,
+			),
+			JSON.stringify(
+				createFixtureManifest({
+					[FIXTURE_COMPONENT_ID]: createFixturePublishedRecord({
+						description: legacyDescription,
+						group: "Inputs / Text",
+					}),
+				}),
+			),
+			"utf8",
+		);
+		const listed = (await (
+			await app.request(
+				`/api/trickroom/systems/${encodeURIComponent(systemId)}/components`,
+			)
+		).json()) as { revision: string; components: Array<{ slug: string }> };
+		const slug = listed.components[0]?.slug;
+		const metadataUrl = `/api/trickroom/systems/${encodeURIComponent(systemId)}/components/${encodeURIComponent(FIXTURE_COMPONENT_ID)}/metadata`;
+		// The editor sends every field, changed or not.
+		const save = (body: Record<string, unknown>) =>
+			app.request(metadataUrl, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ slug, order: null, ...body }),
+			});
+
+		// Renamed, with the legacy group and over-limit description resent as is.
+		const renamed = await save({
+			expectedRevision: listed.revision,
+			name: "Text Input",
+			description: legacyDescription,
+			group: "Inputs / Text",
+		});
+		expect(renamed.status).toBe(200);
+		const afterRename = (await renamed.json()) as { revision: string };
+
+		const regrouped = await save({
+			expectedRevision: afterRename.revision,
+			name: "Text Input",
+			description: legacyDescription,
+			group: "atoms/inputs",
+		});
+		expect(regrouped.status).toBe(200);
+		const afterRegroup = (await regrouped.json()) as { revision: string };
+
+		const tooLong = await save({
+			expectedRevision: afterRegroup.revision,
+			name: "Text Input",
+			description: `${legacyDescription} More.`,
+			group: "atoms/inputs",
+		});
+		expect(tooLong.status).toBe(400);
+		expect(JSON.stringify(await tooLong.json())).toContain("the limit is 4000");
 	});
 });

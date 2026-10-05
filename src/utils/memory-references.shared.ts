@@ -4,8 +4,12 @@
 // Node-backed resolution lives in `memory-references.ts`, which re-exports
 // everything here.
 
+import { buildDesignPath, type DesignDeepLinkTarget } from "./design-deep-link";
+
 export const MEMORY_REFERENCE_TYPES = [
 	"design",
+	"board",
+	"layer",
 	"component",
 	"token",
 	"asset",
@@ -13,6 +17,32 @@ export const MEMORY_REFERENCE_TYPES = [
 ] as const;
 
 export type MemoryReferenceType = (typeof MEMORY_REFERENCE_TYPES)[number];
+
+/**
+ * Types whose id names something inside a design: `<designId>/<boardId>` for
+ * a board, `<designId>/<elementId>` for a layer. Neither id can contain `/`.
+ */
+export const DESIGN_SCOPED_REFERENCE_TYPES = ["board", "layer"] as const;
+
+export type DesignScopedReferenceType =
+	(typeof DESIGN_SCOPED_REFERENCE_TYPES)[number];
+
+export const isDesignScopedReferenceType = (
+	type: MemoryReferenceType,
+): type is DesignScopedReferenceType => type === "board" || type === "layer";
+
+/** Splits a board or layer reference id into its design and element ids. */
+export function splitDesignScopedReferenceId(
+	id: string,
+): { designId: string; elementId: string } | null {
+	const slashIndex = id.indexOf("/");
+	if (slashIndex <= 0 || slashIndex !== id.lastIndexOf("/")) {
+		return null;
+	}
+	const designId = id.slice(0, slashIndex).trim();
+	const elementId = id.slice(slashIndex + 1).trim();
+	return designId && elementId ? { designId, elementId } : null;
+}
 
 export type MemoryReferenceToken = {
 	type: MemoryReferenceType;
@@ -42,8 +72,10 @@ export type MemoryReferenceWarning = {
 
 // Matches {{type:id}} with optional surrounding whitespace. Bodies are stored
 // verbatim; this only reads tokens for validation/resolution.
-const REFERENCE_PATTERN =
-	/\{\{\s*(design|component|token|asset|icon)\s*:\s*([^}]+?)\s*\}\}/g;
+const REFERENCE_PATTERN = new RegExp(
+	`\\{\\{\\s*(${MEMORY_REFERENCE_TYPES.join("|")})\\s*:\\s*([^}]+?)\\s*\\}\\}`,
+	"g",
+);
 
 export function parseMemoryReferences(body: string): MemoryReferenceToken[] {
 	const tokens: MemoryReferenceToken[] = [];
@@ -65,14 +97,31 @@ export function parseMemoryReferences(body: string): MemoryReferenceToken[] {
 	return tokens;
 }
 
-/** Builds an in-app navigation path for a resolved reference target. */
+/**
+ * Builds an in-app navigation path for a resolved reference target. Design
+ * links can point at a board and a layer inside the design; board and layer
+ * references point at theirs (`boardId` adds a layer's board).
+ */
 export function buildMemoryReferenceDeepLink(
 	type: MemoryReferenceType,
 	targetId: string,
 	systemId?: string | null,
+	designTarget?: DesignDeepLinkTarget,
 ): string | undefined {
 	if (type === "design") {
-		return `/design/${targetId}`;
+		return buildDesignPath(targetId, designTarget);
+	}
+	if (isDesignScopedReferenceType(type)) {
+		const target = splitDesignScopedReferenceId(targetId);
+		if (!target) {
+			return undefined;
+		}
+		return buildDesignPath(
+			target.designId,
+			type === "board"
+				? { boardId: target.elementId }
+				: { boardId: designTarget?.boardId, layerId: target.elementId },
+		);
 	}
 	if (!systemId) {
 		return undefined;

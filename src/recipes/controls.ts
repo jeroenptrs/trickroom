@@ -45,11 +45,13 @@ export const getRecipeControlTargets = (
 		})
 		.filter((target): target is RecipeControlTarget => target !== null);
 
-export const findRecipeControlTargetElement = (
-	entitiesById: RecipeControlEntityMap,
+export const findRecipeControlTargetElement = <
+	Entity extends RecipeControlEntity,
+>(
+	entitiesById: Readonly<Record<string, Entity | undefined>>,
 	instanceId: string,
 	path: string,
-) =>
+): Entity | null =>
 	Object.values(entitiesById).find((entity) => {
 		const metadata = getElementRecipeMetadata(entity);
 		return metadata?.instanceId === instanceId && metadata.path === path;

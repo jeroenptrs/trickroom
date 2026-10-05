@@ -1,6 +1,7 @@
 import { act, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { ResponsiveStageMode } from "../components/responsive-stage-context";
 import { designStore } from "../stores/design-store";
 import {
 	findStageRootBoard,
@@ -193,6 +194,8 @@ function createStageFrameDouble(rootIds = ["board-1"]) {
 		classList: { toggle() {} },
 		clientWidth: 1000,
 		clientHeight: 800,
+		scrollLeft: 0,
+		scrollTop: 0,
 		releasePointerCapture() {},
 		setPointerCapture() {},
 	});
@@ -224,6 +227,7 @@ function createStageFrameDouble(rootIds = ["board-1"]) {
 		} as unknown as HTMLIFrameElement,
 		viewport,
 		window,
+		world,
 	};
 }
 
@@ -237,14 +241,18 @@ function createContainer() {
 function StageNavigationHarness({
 	frame,
 	responsiveWidth,
+	mode = "responsive",
+	activeBoardId = "board-1",
 }: {
 	frame: ReturnType<typeof createStageFrameDouble>;
 	responsiveWidth: number;
+	mode?: ResponsiveStageMode;
+	activeBoardId?: string;
 }) {
 	const iframeRef = useRef<HTMLIFrameElement | null>(frame.iframe);
 	useStageNavigation(iframeRef, true, {
-		mode: "responsive",
-		activeBoardId: "board-1",
+		mode,
+		activeBoardId,
 		responsiveWidth,
 	});
 	return null;
@@ -339,5 +347,78 @@ describe("useStageNavigation listener setup", () => {
 		expect(frame.window.addCount).toBe(windowAddCount);
 		expect(frame.viewport.removeCount).toBe(0);
 		expect(frame.window.removeCount).toBe(0);
+	});
+
+	it("shows responsive boards untransformed and restores the canvas view after", async () => {
+		const frame = createStageFrameDouble(["board-1", "board-2"]);
+		const { container } = createContainer();
+		root = createRoot(container as unknown as Element);
+
+		await act(async () => {
+			root?.render(
+				<StageNavigationHarness
+					frame={frame}
+					responsiveWidth={640}
+					mode="canvas"
+				/>,
+			);
+		});
+		const canvasTransform = frame.world.style.transform;
+		expect(canvasTransform).toBeTruthy();
+
+		await act(async () => {
+			root?.render(
+				<StageNavigationHarness
+					frame={frame}
+					responsiveWidth={640}
+					mode="responsive"
+				/>,
+			);
+		});
+		expect(frame.world.style.transform).toBe("translate(0px, 0px) scale(1)");
+
+		frame.viewport.scrollTop = 400;
+		await act(async () => {
+			root?.render(
+				<StageNavigationHarness
+					frame={frame}
+					responsiveWidth={640}
+					mode="canvas"
+				/>,
+			);
+		});
+		expect(frame.world.style.transform).toBe(canvasTransform);
+		expect(frame.viewport.scrollTop).toBe(0);
+	});
+
+	it("starts a newly selected board at the top but keeps scroll on width changes", async () => {
+		const frame = createStageFrameDouble(["board-1", "board-2"]);
+		const { container } = createContainer();
+		root = createRoot(container as unknown as Element);
+
+		await act(async () => {
+			root?.render(
+				<StageNavigationHarness frame={frame} responsiveWidth={640} />,
+			);
+		});
+		frame.viewport.scrollTop = 500;
+
+		await act(async () => {
+			root?.render(
+				<StageNavigationHarness frame={frame} responsiveWidth={768} />,
+			);
+		});
+		expect(frame.viewport.scrollTop).toBe(500);
+
+		await act(async () => {
+			root?.render(
+				<StageNavigationHarness
+					frame={frame}
+					responsiveWidth={768}
+					activeBoardId="board-2"
+				/>,
+			);
+		});
+		expect(frame.viewport.scrollTop).toBe(0);
 	});
 });

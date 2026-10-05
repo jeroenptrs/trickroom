@@ -4,7 +4,9 @@ import {
 	ChevronRight,
 	Download,
 	LayoutGrid,
+	Minus,
 	Monitor,
+	Plus,
 	Smartphone,
 	Tablet,
 } from "lucide-react";
@@ -23,6 +25,7 @@ import {
 	useDesignRoots,
 	useSelectedId,
 } from "../../stores/design-store";
+import { useExternallyChangedBoardIds } from "../../stores/external-change-store";
 import { useIFrameView, useProjectConfig } from "../contexts";
 import {
 	cycleResponsiveStageBoard,
@@ -33,6 +36,14 @@ import {
 	type ResponsiveStageMode,
 	useResponsiveStage,
 } from "../responsive-stage-context";
+import {
+	formatResponsiveStageZoom,
+	RESPONSIVE_STAGE_MAX_ZOOM,
+	RESPONSIVE_STAGE_MIN_ZOOM,
+	RESPONSIVE_STAGE_ZOOM_PRESETS,
+	stepResponsiveStageZoom,
+	useResponsiveStageZoom,
+} from "../responsive-stage-zoom";
 import { Button } from "../ui/button";
 
 export const RESPONSIVE_DEVICE_WIDTH_PRESETS = [
@@ -135,6 +146,16 @@ function WorkspaceModeToggle() {
 function ResponsiveBoardControls() {
 	const rootIds = useDesignRoots();
 	const { activeBoardId, controls } = useResponsiveStage();
+	const changedBoardIds = useExternallyChangedBoardIds();
+	// Boards changed outside this editor that the human has not seen yet,
+	// in board order starting after the active one.
+	const unseenChangedBoardIds = useMemo(() => {
+		const changed = new Set(changedBoardIds);
+		const start = Math.max(0, rootIds.indexOf(activeBoardId ?? ""));
+		return [...rootIds.slice(start + 1), ...rootIds.slice(0, start)].filter(
+			(id) => changed.has(id),
+		);
+	}, [activeBoardId, changedBoardIds, rootIds]);
 	const { index, total } = useMemo(
 		() => getResponsiveStageBoardPosition(rootIds, activeBoardId),
 		[activeBoardId, rootIds],
@@ -149,7 +170,7 @@ function ResponsiveBoardControls() {
 
 	return (
 		<fieldset
-			className="flex min-w-0 items-center gap-1 border-0 p-0 [min-inline-size:0]"
+			className="flex shrink-0 items-center gap-1 border-0 p-0"
 			aria-label="Board navigation"
 		>
 			<Button
@@ -180,6 +201,21 @@ function ResponsiveBoardControls() {
 			>
 				<ChevronRight className="size-3.5" />
 			</Button>
+			{unseenChangedBoardIds.length > 0 ? (
+				<Button
+					type="button"
+					variant="block"
+					className="h-5 shrink-0 bg-cyan-500 px-1.5 py-0 font-mono text-[9px] font-medium uppercase tracking-wide text-slate-950 not-disabled:hover:bg-cyan-400"
+					title="Boards changed outside this editor: show the next one"
+					aria-label={`Show the next of ${unseenChangedBoardIds.length} boards changed outside this editor`}
+					data-changed-externally="board-navigation"
+					onClick={() =>
+						controls.setActiveBoardId(unseenChangedBoardIds[0] ?? null)
+					}
+				>
+					{unseenChangedBoardIds.length} changed
+				</Button>
+			) : null}
 		</fieldset>
 	);
 }
@@ -356,6 +392,93 @@ function ResponsiveWidthControls() {
 	);
 }
 
+function ResponsiveZoomControls() {
+	const { zoom, fitScale, scale, setZoom } = useResponsiveStageZoom();
+	const menuItemClassName =
+		"flex cursor-default items-center gap-2 px-2 py-1 data-[highlighted]:bg-slate-200/60";
+	const options = [
+		{ value: "fit" as const, label: "Fit", scale: fitScale },
+		...RESPONSIVE_STAGE_ZOOM_PRESETS.map((preset) => ({
+			value: preset,
+			label: formatResponsiveStageZoom(preset),
+			scale: preset,
+		})),
+	];
+
+	return (
+		<fieldset
+			className="flex items-center gap-px border-0 p-0 [min-inline-size:0]"
+			aria-label="Zoom"
+		>
+			<Button
+				type="button"
+				variant="block"
+				disabled={scale <= RESPONSIVE_STAGE_MIN_ZOOM}
+				className="size-7 shrink-0 p-0"
+				title="Zoom out"
+				aria-label="Zoom out"
+				onClick={() => setZoom(stepResponsiveStageZoom(scale, "out"))}
+			>
+				<Minus className="size-3.5" />
+			</Button>
+			<Menu.Root modal={false}>
+				<Menu.Trigger
+					render={(props, { open }) => (
+						<Button
+							{...props}
+							type="button"
+							variant="block"
+							isSelected={open}
+							className="flex h-7 min-w-12 items-center justify-center gap-1 px-1.5 py-0 text-[10px] tabular-nums"
+							aria-label="Zoom level"
+							title="Zoom level (Ctrl/Cmd + scroll to zoom)"
+						>
+							{zoom === "fit" ? (
+								<span className="text-slate-400">Fit</span>
+							) : null}
+							<span aria-live="polite">{formatResponsiveStageZoom(scale)}</span>
+						</Button>
+					)}
+				/>
+				<Menu.Portal>
+					<Menu.Positioner sideOffset={4} align="end">
+						<Menu.Popup className="z-50 flex min-w-32 flex-col bg-slate-50 p-1 text-[11px] text-slate-700 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-visible:outline-none">
+							{options.map((option) => (
+								<Menu.Item
+									key={option.label}
+									className={menuItemClassName}
+									onClick={() => setZoom(option.value)}
+								>
+									<span className="min-w-0 flex-1">{option.label}</span>
+									{option.value === "fit" ? (
+										<span className="tabular-nums text-slate-500">
+											{formatResponsiveStageZoom(option.scale)}
+										</span>
+									) : null}
+									{zoom === option.value ? (
+										<span aria-hidden className="size-1.5 bg-cyan-700" />
+									) : null}
+								</Menu.Item>
+							))}
+						</Menu.Popup>
+					</Menu.Positioner>
+				</Menu.Portal>
+			</Menu.Root>
+			<Button
+				type="button"
+				variant="block"
+				disabled={scale >= RESPONSIVE_STAGE_MAX_ZOOM}
+				className="size-7 shrink-0 p-0"
+				title="Zoom in"
+				aria-label="Zoom in"
+				onClick={() => setZoom(stepResponsiveStageZoom(scale, "in"))}
+			>
+				<Plus className="size-3.5" />
+			</Button>
+		</fieldset>
+	);
+}
+
 function ExportControl() {
 	const { mode, activeBoardId } = useResponsiveStage();
 	const projectName = useProjectConfig().name;
@@ -473,7 +596,7 @@ export function WorkspaceToolbar() {
 
 	return (
 		<header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 text-[11px] text-slate-500">
-			<div className="flex min-w-0 flex-1 items-center gap-2">
+			<div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
 				{mode === "responsive" ? (
 					<>
 						<ResponsiveBoardControls />
@@ -487,7 +610,9 @@ export function WorkspaceToolbar() {
 						<span className="text-slate-400">Zoom </span>
 						{zoomLabel}
 					</span>
-				) : null}
+				) : (
+					<ResponsiveZoomControls />
+				)}
 				<ExportControl />
 				<WorkspaceModeToggle />
 			</div>

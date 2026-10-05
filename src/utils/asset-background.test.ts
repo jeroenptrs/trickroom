@@ -1,19 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
-	assetImageSlotValue,
 	assetImageUtility,
 	assetImageVarName,
 	serializeAssetImageVars,
 } from "./asset-background";
 
 describe("asset-background helpers", () => {
-	it("builds a clean id-bound utility and matching slot value", () => {
+	it("builds a clean id-bound utility", () => {
 		expect(assetImageVarName("ast_hero")).toBe("--asset-ast_hero");
 		expect(assetImageUtility("ast_hero")).toBe(
 			"bg-[image:var(--asset-ast_hero)]",
-		);
-		expect(assetImageSlotValue("ast_hero")).toBe(
-			"[image:var(--asset-ast_hero)]",
 		);
 	});
 
@@ -21,7 +17,9 @@ describe("asset-background helpers", () => {
 		// Safe ids map to themselves.
 		expect(assetImageVarName("brand-logo")).toBe("--asset-brand-logo");
 		// An id needing sanitization gets a hash suffix...
-		expect(assetImageVarName("brand/logo")).toMatch(/^--asset-brand-logo-[a-z0-9]+$/);
+		expect(assetImageVarName("brand/logo")).toMatch(
+			/^--asset-brand-logo-[a-z0-9]+$/,
+		);
 		// ...so "brand/logo" and "brand-logo" never share a variable name.
 		expect(assetImageVarName("brand/logo")).not.toBe(
 			assetImageVarName("brand-logo"),

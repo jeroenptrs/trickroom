@@ -12,11 +12,23 @@ export const resolveTrickroomCommand = (argv = process.argv) => {
 		};
 	}
 
+	if (command === "install-browser") {
+		return { command: "install-browser", args: argv.slice(3) };
+	}
+
+	if (command === "migrate") {
+		return { command: "migrate", args: argv.slice(3) };
+	}
+
+	if (command === "feedback") {
+		return { command: "feedback", args: argv.slice(3) };
+	}
+
 	if (command === undefined || command.startsWith("--")) {
 		return { command: "serve", argv };
 	}
 
 	throw new Error(
-		`Unknown command "${command}". Use "trickroom serve [project]" or "trickroom mcp".`,
+		`Unknown command "${command}". Use "trickroom serve [project]", "trickroom mcp", "trickroom migrate [project]", "trickroom feedback" or "trickroom install-browser".`,
 	);
 };

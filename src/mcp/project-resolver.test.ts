@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -8,7 +8,7 @@ import {
 import {
 	createTrickroomMcpProjectResolver,
 	inferMcpProjectContextFromCwd,
-	TrickroomMcpProjectResolverError,
+	type TrickroomMcpProjectResolverError,
 } from "./project-resolver";
 
 describe("Trickroom MCP project resolver", () => {
@@ -16,7 +16,9 @@ describe("Trickroom MCP project resolver", () => {
 
 	afterEach(async () => {
 		await Promise.all(
-			tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+			tempRoots
+				.splice(0)
+				.map((root) => rm(root, { recursive: true, force: true })),
 		);
 	});
 
@@ -41,7 +43,9 @@ describe("Trickroom MCP project resolver", () => {
 
 	it("infers and catalog-registers a direct CWD project without marking it registry-active", async () => {
 		const trickroomHome = await createTempRoot(".tmp-trickroom-mcp-home-");
-		const activeProjectRoot = await createTempRoot(".tmp-trickroom-mcp-active-");
+		const activeProjectRoot = await createTempRoot(
+			".tmp-trickroom-mcp-active-",
+		);
 		const cwdProjectRoot = await createTempRoot(".tmp-trickroom-mcp-cwd-");
 		await writeCurrentProjectConfig(activeProjectRoot, {
 			projectId: "proj_active",
@@ -103,7 +107,10 @@ describe("Trickroom MCP project resolver", () => {
 			}),
 		});
 		const persistedConfig = JSON.parse(
-			await readFile(path.join(cwdProjectRoot, ".trickroom", "config.json"), "utf8"),
+			await readFile(
+				path.join(cwdProjectRoot, ".trickroom", "config.json"),
+				"utf8",
+			),
 		);
 		expect(persistedConfig.projectId).toBe(context?.config.projectId);
 	});
@@ -137,7 +144,10 @@ describe("Trickroom MCP project resolver", () => {
 		});
 
 		const migratedConfig = JSON.parse(
-			await readFile(path.join(cwdProjectRoot, ".trickroom", "config.json"), "utf8"),
+			await readFile(
+				path.join(cwdProjectRoot, ".trickroom", "config.json"),
+				"utf8",
+			),
 		);
 		expect(migratedConfig.projectId).toBe("proj_legacy");
 	});
@@ -190,6 +200,43 @@ describe("Trickroom MCP project resolver", () => {
 				]),
 			},
 		} satisfies Partial<TrickroomMcpProjectResolverError>);
+	});
+
+	it("resolves a projectId to the location whose folder still exists", async () => {
+		const trickroomHome = await createTempRoot(".tmp-trickroom-mcp-home-");
+		const keptRoot = await createTempRoot(".tmp-trickroom-mcp-kept-");
+		const goneRoot = await createTempRoot(".tmp-trickroom-mcp-gone-");
+		for (const root of [keptRoot, goneRoot]) {
+			await writeCurrentProjectConfig(root, {
+				projectId: "proj_shared",
+				name: "Shared",
+				mcp: { enabled: true },
+			});
+		}
+		const kept = await upsertProjectLocation({
+			trickroomHome,
+			projectId: "proj_shared",
+			root: keptRoot,
+			name: "Shared",
+		});
+		const gone = await upsertProjectLocation({
+			trickroomHome,
+			projectId: "proj_shared",
+			root: goneRoot,
+			name: "Shared",
+		});
+		await rm(goneRoot, { recursive: true, force: true });
+		const resolver = createTrickroomMcpProjectResolver({ trickroomHome });
+
+		await expect(
+			resolver.resolveProject({ projectId: "proj_shared" }),
+		).resolves.toMatchObject({ locationId: kept.location.locationId });
+		await expect(
+			resolver.resolveProject({ locationId: gone.location.locationId }),
+		).rejects.toMatchObject({
+			code: "MISSING_PROJECT_LOCATION",
+			details: { projectRoot: goneRoot },
+		});
 	});
 
 	it("errors when the registered location no longer resolves to the requested projectId", async () => {

@@ -1,13 +1,14 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { RECIPE_MARKER_PROP_KEYS } from "../recipes/markers";
 import type { TrickroomDesign } from "../types";
 import {
+	applyOperation,
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 	trickroomMcpTestDesign,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
@@ -83,145 +84,123 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 
 	const getRevision = async (session: TrickroomMcpClientSession) => {
 		const result = await session.client.callTool({
-			name: "readDesignFile",
+			name: "design_read",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
-		return (result.structuredContent as { designFile: { revision: string } })
+		return (toolPayload(result) as { designFile: { revision: string } })
 			.designFile.revision;
 	};
 
-	it("reads a flat design graph with canonical addresses", async () => {
+	it("reads a bounded flat design outline", async () => {
 		const { session } = await createSession();
 
 		const result = await session.client.callTool({
-			name: "readDesignGraph",
+			name: "design_read",
 			arguments: {
+				view: "outline",
 				designFileId: trickroomMcpTestDesignUuid,
-				includeProps: true,
 			},
 		});
 
-		expect(result.structuredContent).toMatchObject({
+		expect(toolPayload(result)).toMatchObject({
 			project: {
-				name: "Harness Project",
+				projectId: expect.any(String),
+			},
+			read: {
+				depth: null,
+				maxNodes: 100,
+				truncated: false,
+				returnedNodeCount: 2,
 			},
 			graph: {
 				rootElementIds: ["board"],
-				parentIdByElementId: {
-					board: null,
-					title: "board",
-				},
-				childIdsByElementId: {
-					board: ["title"],
-					title: [],
-				},
-				addressByElementId: {
-					board: "/boards/0",
-					title: "/boards/0/children/0",
-				},
 				elementsById: {
+					board: { parentId: null, childCount: 1 },
 					title: {
-						role: "text",
-						textPreview: "Harness fixture",
-						addresses: {
-							text: "/boards/0/children/0/children",
-							name: "/boards/0/children/0/props/data-trickroom-name",
-						},
+						parentId: "board",
+						component: "text",
+						text: "Harness fixture",
 					},
 				},
 			},
 		});
+
+		const bounded = await session.client.callTool({
+			name: "design_read",
+			arguments: {
+				view: "outline",
+				designFileId: trickroomMcpTestDesignUuid,
+				maxNodes: 1,
+				detail: "full",
+			},
+		});
+		expect(toolPayload(bounded)).toMatchObject({
+			read: {
+				maxNodes: 1,
+				truncated: true,
+				returnedNodeCount: 1,
+				omittedNodeCount: 1,
+				next: {
+					tool: "design_read",
+					args: { elementId: "board" },
+				},
+			},
+			graph: {
+				elementsById: {
+					board: {
+						more: 1,
+						props: { "data-trickroom-component": "container" },
+					},
+				},
+			},
+		});
+		expect(
+			(toolPayload(bounded) as { graph: { elementsById: object } }).graph
+				.elementsById,
+		).not.toHaveProperty("title");
 	});
 
 	it("returns a model-facing authoring contract", async () => {
 		const { session } = await createSession();
 
 		const result = await session.client.callTool({
-			name: "getDesignAuthoringContract",
+			name: "guide",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
+		const core = toolPayload(result) as {
+			model: string[];
+			rules: string[];
+			governance: { mode: string };
+		};
+		expect(core.governance.mode).toBe("read-write");
+		expect(core.model.join(" ")).toContain("branch holds child elements");
+		expect(core.rules.join(" ")).toContain("data-trickroom-library");
 
-		expect(result.structuredContent).toMatchObject({
-			schemaVersion: 1,
-			designSchemaVersion: 1,
-			catalogVersion: "builtin:trickroom:1",
-			catalogHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
-			props: {
-				writableInstanceProps: ["className", "data-trickroom-name"],
-				fixedSystemProps: [
-					"data-trickroom-library",
-					"data-trickroom-component",
-					"data-trickroom-role",
-				],
-				systemOwnedProps: expect.arrayContaining([...RECIPE_MARKER_PROP_KEYS]),
-			},
-			compositionRules: {
-				roleInvariants: expect.arrayContaining([
-					expect.objectContaining({
-						role: "text",
-						acceptsElementChildren: false,
-					}),
-				]),
-			},
+		const registryResult = await session.client.callTool({
+			name: "guide",
+			arguments: { topic: "registry", library: "trickroom" },
 		});
-		const contract = result.structuredContent as {
-			props: {
-				systemOwnedProps: string[];
+		const { registry } = toolPayload(registryResult) as {
+			registry: {
+				writableProps: string;
+				elements: Array<{ component: string; role: string }>;
 			};
-			registries: Array<{
-				library: string;
-				components: Array<{
-					component: string;
-					role?: string;
-					inspectTool?: string;
-					composition?: { kind: string; acceptsElementChildren: boolean };
-					content?: { kind: string; updateTool?: string };
-				}>;
-			}>;
 		};
-		expect(contract.props.systemOwnedProps).toEqual(
-			[...contract.props.systemOwnedProps].sort(),
+		expect(registry.writableProps).toContain("data-trickroom-name");
+		expect(registry.elements).toEqual(
+			expect.arrayContaining([
+				{
+					component: "trickroom/text",
+					label: "Text",
+					role: "text",
+					description: expect.any(String),
+				},
+				expect.objectContaining({
+					component: "trickroom/container",
+					role: "branch",
+				}),
+			]),
 		);
-		const textComponent = contract.registries
-			.find((registry) => registry.library === "trickroom")
-			?.components.find((component) => component.component === "text");
-		expect(textComponent).toMatchObject({
-			component: "text",
-			role: "text",
-			inspectTool: "describeRegistryComponent",
-		});
-
-		const fullResult = await session.client.callTool({
-			name: "getDesignAuthoringContract",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				includeRegistryComponents: "full",
-			},
-		});
-		const fullContract = fullResult.structuredContent as {
-			registries: Array<{
-				library: string;
-				components: Array<{
-					component: string;
-					composition: { kind: string; acceptsElementChildren: boolean };
-					content: { kind: string; updateTool?: string };
-				}>;
-			}>;
-		};
-		const fullTextComponent = fullContract.registries
-			.find((registry) => registry.library === "trickroom")
-			?.components.find((component) => component.component === "text");
-		expect(fullTextComponent).toMatchObject({
-			component: "text",
-			composition: {
-				kind: "none",
-				acceptsElementChildren: false,
-			},
-			content: {
-				kind: "text",
-				updateTool: "updateElementText",
-			},
-		});
 	});
 
 	it("dry-runs operations without writing", async () => {
@@ -229,43 +208,42 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		const revision = await getRevision(session);
 
 		const result = await session.client.callTool({
-			name: "validateOperation",
+			name: "design_validate",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
-				operation: "addElement",
-				parameters: {
-					parentId: "board",
-					index: 1,
-					library: "trickroom",
-					component: "text",
-					name: "Caption",
-					text: "Dry run only",
-				},
+				operations: [
+					{
+						operation: "addElement",
+						parameters: {
+							parentId: "board",
+							index: 1,
+							library: "trickroom",
+							component: "text",
+							name: "Caption",
+							text: "Dry run only",
+						},
+					},
+				],
 			},
 		});
 
 		expect(result.isError).toBeFalsy();
-		expect(result.structuredContent).toMatchObject({
+		expect(toolPayload(result)).toMatchObject({
 			status: "success",
 			valid: true,
-			operation: "addElement",
-			predicted: {
-				componentRef: "trickroom/text",
-				changedElement: {
-					name: "Caption",
-					role: "text",
-					textPreview: "Dry run only",
-				},
-				context: {
+			predicted: [
+				{
+					componentRef: "trickroom/text",
 					parentId: "board",
 					index: 1,
+					nodeCount: 1,
 				},
-			},
+			],
 		});
 
 		const persisted = await fixture.designFileService.readDesignFile(
-			fixture.designFileService.getFileForUuid(trickroomMcpTestDesignUuid),
+			trickroomMcpTestDesignUuid,
 		);
 		expect(persisted.revision).toBe(revision);
 		expect(persisted.design.boards[0].children).toHaveLength(1);
@@ -290,17 +268,17 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			name: "design_validate",
+			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		expect(validateResult.structuredContent).toMatchObject({
+		expect(toolPayload(validateResult)).toMatchObject({
 			valid: true,
 			tokenDiagnostics: {
 				available: true,
 				reviewRequired: true,
 				tokenCount: 1,
 			},
-			issues: expect.arrayContaining([
+			warnings: expect.arrayContaining([
 				expect.objectContaining({ code: "DESIGN_SYSTEM_REVIEW_REQUIRED" }),
 				expect.objectContaining({
 					code: "UNKNOWN_COLOR_TOKEN",
@@ -316,9 +294,9 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		const revision = await getRevision(session);
-		// Warnings are opt-in via response.includeWarnings on batch writes.
+		// response "full" returns every warning on touched elements, ungrouped.
 		const mutationResult = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
@@ -331,10 +309,10 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 						},
 					},
 				],
-				response: { includeWarnings: true },
+				response: "full",
 			},
 		});
-		expect(mutationResult.structuredContent).toMatchObject({
+		expect(toolPayload(mutationResult)).toMatchObject({
 			status: "success",
 			warnings: expect.arrayContaining([
 				expect.objectContaining({
@@ -378,40 +356,44 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			],
 		});
 
-		// Default: error-severity issues only, no warnings, no heavy token catalog.
+		// Default: error issues, a warning count, and typo warnings (unknown
+		// tokens/utilities) on touched elements only; no heavy token catalog.
 		const defaultRevision = await getRevision(session);
 		const defaultResult = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: defaultRevision,
 				...addBadElement(),
 			},
 		});
-		expect(defaultResult.structuredContent).toMatchObject({
+		expect(toolPayload(defaultResult)).toMatchObject({
 			status: "success",
+			warningCount: expect.any(Number),
+			warnings: [
+				{
+					code: "UNKNOWN_COLOR_TOKEN",
+					message: expect.stringContaining('"also-missing-500"'),
+					elementIds: [expect.any(String)],
+				},
+			],
 		});
-		expect(defaultResult.structuredContent).not.toHaveProperty("warnings");
-		const defaultContent = defaultResult.structuredContent as {
-			tokenDiagnostics?: { customUtilities?: unknown };
-		};
-		expect(defaultContent.tokenDiagnostics).not.toHaveProperty(
-			"customUtilities",
-		);
+		// applyDesignOperations omits token diagnostics entirely unless requested.
+		expect(toolPayload(defaultResult)).not.toHaveProperty("tokenDiagnostics");
 
-		// includeWarnings with default scope: only warnings on touched elements;
-		// the board's pre-existing bad tokens are not echoed.
+		// response "full": every warning, still only on touched elements; the
+		// board's pre-existing bad tokens are not echoed.
 		const affectedRevision = await getRevision(session);
 		const affectedResult = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: affectedRevision,
 				...addBadElement(),
-				response: { includeWarnings: true },
+				response: "full",
 			},
 		});
-		const affected = affectedResult.structuredContent as {
+		const affected = toolPayload(affectedResult) as {
 			warnings: Array<{ code: string; token?: string }>;
 		};
 		expect(affected.warnings).toContainEqual(
@@ -421,28 +403,6 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			}),
 		);
 		expect(affected.warnings).not.toContainEqual(
-			expect.objectContaining({
-				code: "UNKNOWN_COLOR_TOKEN",
-				token: "missing-500",
-			}),
-		);
-
-		// warningScope "file": surfaces the whole design's warnings, including the
-		// board's pre-existing bad tokens.
-		const fileRevision = await getRevision(session);
-		const fileResult = await session.client.callTool({
-			name: "applyDesignOperations",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: fileRevision,
-				...addBadElement(),
-				response: { includeWarnings: true, warningScope: "file" },
-			},
-		});
-		const file = fileResult.structuredContent as {
-			warnings: Array<{ code: string; token?: string }>;
-		};
-		expect(file.warnings).toContainEqual(
 			expect.objectContaining({
 				code: "UNKNOWN_COLOR_TOKEN",
 				token: "missing-500",
@@ -471,19 +431,19 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			name: "design_validate",
+			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		const validation = validateResult.structuredContent as {
-			issues: Array<{ code: string; token?: string }>;
+		const validation = toolPayload(validateResult) as {
+			warnings?: Array<{ code: string; token?: string }>;
 		};
-		expect(validation.issues).not.toContainEqual(
+		expect(validation.warnings ?? []).not.toContainEqual(
 			expect.objectContaining({ code: "UNKNOWN_COLOR_TOKEN" }),
 		);
 
 		const revision = await getRevision(session);
 		const mutationResult = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
@@ -501,13 +461,13 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 						},
 					},
 				],
-				response: { includeWarnings: true },
+				response: "full",
 			},
 		});
-		const mutation = mutationResult.structuredContent as {
-			warnings: Array<{ code: string; token?: string }>;
+		const mutation = toolPayload(mutationResult) as {
+			warnings?: Array<{ code: string; token?: string }>;
 		};
-		expect(mutation.warnings).not.toContainEqual(
+		expect(mutation.warnings ?? []).not.toContainEqual(
 			expect.objectContaining({ code: "UNKNOWN_COLOR_TOKEN" }),
 		);
 	});
@@ -551,13 +511,13 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+			name: "design_validate",
+			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
-		const validation = validateResult.structuredContent as {
-			issues: Array<{ code: string; token?: string }>;
+		const validation = toolPayload(validateResult) as {
+			warnings?: Array<{ code: string; token?: string }>;
 		};
-		const unknownColorWarnings = validation.issues.filter(
+		const unknownColorWarnings = (validation.warnings ?? []).filter(
 			(issue) => issue.code === "UNKNOWN_COLOR_TOKEN",
 		);
 
@@ -567,7 +527,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 				token: "slate-50",
 			}),
 		]);
-		expect(validation.issues).not.toContainEqual(
+		expect(validation.warnings).not.toContainEqual(
 			expect.objectContaining({
 				code: "UNKNOWN_COLOR_TOKEN",
 				token: "slate-950",
@@ -576,7 +536,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 
 		const revision = await getRevision(session);
 		const mutationResult = await session.client.callTool({
-			name: "applyDesignOperations",
+			name: "design_apply",
 			arguments: {
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
@@ -594,10 +554,10 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 						},
 					},
 				],
-				response: { includeWarnings: true },
+				response: "full",
 			},
 		});
-		const mutation = mutationResult.structuredContent as {
+		const mutation = toolPayload(mutationResult) as {
 			warnings: Array<{ code: string; token?: string }>;
 		};
 
@@ -627,18 +587,15 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 		const revision = await getRevision(session);
 
-		const result = await session.client.callTool({
-			name: "updateElementText",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: revision,
-				elementId: "title",
-				text: "Blocked",
-			},
+		const result = await applyOperation(session.client, "updateElementText", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: revision,
+			elementId: "title",
+			text: "Blocked",
 		});
 
 		expect(result.isError).toBe(true);
-		expect(result.structuredContent).toMatchObject({
+		expect(toolPayload(result)).toMatchObject({
 			status: "POLICY_DENIED",
 			code: "MCP_READ_ONLY",
 			governance: {
@@ -657,7 +614,7 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			.map((line) => JSON.parse(line) as Record<string, unknown>);
 		expect(entries).toContainEqual(
 			expect.objectContaining({
-				toolName: "updateElementText",
+				toolName: "design_apply",
 				operation: "updateElementText",
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: revision,
@@ -687,58 +644,48 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 
 		const listResult = await session.client.callTool({
-			name: "listDesignFiles",
+			name: "design_list",
 			arguments: {},
 		});
-		expect(listResult.structuredContent).toMatchObject({
+		expect(toolPayload(listResult)).toMatchObject({
 			designFiles: [
 				expect.objectContaining({ id: trickroomMcpTestDesignUuid }),
 			],
 		});
 
 		const deniedRead = await session.client.callTool({
-			name: "readDesignFile",
+			name: "design_read",
 			arguments: { designFileId: secondDesignFileId },
 		});
 		expect(deniedRead.isError).toBe(true);
-		expect(deniedRead.structuredContent).toMatchObject({
+		expect(toolPayload(deniedRead)).toMatchObject({
 			status: "POLICY_DENIED",
 			code: "MCP_DESIGN_FILE_NOT_ALLOWED",
 		});
 
-		const components = await session.client.callTool({
-			name: "listRegistryComponents",
-			arguments: { library: "trickroom" },
-		});
-		expect(components.structuredContent).toMatchObject({
-			registries: [
-				{
-					components: [
-						expect.objectContaining({
-							component: "text",
-						}),
-					],
-				},
-			],
-		});
-		const listedComponents = (
-			components.structuredContent as {
-				registries: Array<{ components: Array<{ component: string }> }>;
-			}
-		).registries[0].components.map((component) => component.component);
-		expect(listedComponents).not.toContain("container");
+		// The guide's registry topic lists only the components policy allows.
+		const registry = toolPayload(
+			await session.client.callTool({
+				name: "guide",
+				arguments: { topic: "registry", library: "trickroom" },
+			}),
+		).registry;
+		const listed = registry.elements.map(
+			(element: { component: string }) => element.component,
+		);
+		expect(listed).toContain("trickroom/text");
+		expect(listed).not.toContain("trickroom/container");
 
-		const deniedComponent = await session.client.callTool({
-			name: "describeRegistryComponent",
-			arguments: {
-				library: "trickroom",
-				component: "container",
-			},
-		});
-		expect(deniedComponent.isError).toBe(true);
-		expect(deniedComponent.structuredContent).toMatchObject({
-			status: "POLICY_DENIED",
-			code: "MCP_COMPONENT_NOT_ALLOWED",
-		});
+		const denied = toolPayload(
+			await session.client.callTool({
+				name: "guide",
+				arguments: {
+					topic: "registry",
+					library: "trickroom",
+					name: "container",
+				},
+			}),
+		).registry;
+		expect(denied).toMatchObject({ matches: 0 });
 	});
 });

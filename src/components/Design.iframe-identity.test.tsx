@@ -15,6 +15,11 @@ import {
 	type ResponsiveStageMode,
 } from "./responsive-stage-context";
 import { ResponsiveStageFrameWrapper } from "./responsive-stage-frame";
+import {
+	type ResponsiveStageZoom,
+	ResponsiveStageZoomContext,
+	resolveResponsiveStageScale,
+} from "./responsive-stage-zoom";
 
 type Listener = (event: { type: string }) => void;
 
@@ -98,6 +103,14 @@ class MinimalElement extends MinimalNode {
 	attributes = new Map<string, string>();
 	className = "";
 	style: Record<string, string> = {};
+	clientWidth = 0;
+	clientHeight = 0;
+	scrollLeft = 0;
+	scrollTop = 0;
+
+	getBoundingClientRect() {
+		return { left: 0, top: 0, width: 0, height: 0 };
+	}
 
 	constructor(tagName: string) {
 		super(1, tagName.toUpperCase());
@@ -242,9 +255,11 @@ const noopDispatch = (() => {}) as Dispatch<SetStateAction<never>>;
 function ResponsiveStageFrameHarness({
 	mode,
 	responsiveWidth,
+	zoom = "fit",
 }: {
 	mode: ResponsiveStageMode;
 	responsiveWidth: number;
+	zoom?: ResponsiveStageZoom;
 }) {
 	const iframeRef = useRef<HTMLIFrameElement>(null);
 	useResponsiveStageFrame(iframeRef, { mode, responsiveWidth });
@@ -265,16 +280,28 @@ function ResponsiveStageFrameHarness({
 		}),
 		[mode, responsiveWidth],
 	);
+	const responsiveStageZoom = useMemo(
+		() => ({
+			zoom,
+			fitScale: 1,
+			scale: resolveResponsiveStageScale(zoom, 1),
+			setZoom: () => {},
+			setFitScale: () => {},
+		}),
+		[zoom],
+	);
 
 	return (
 		<ResponsiveStageContext.Provider value={responsiveStage}>
-			<ResponsiveStageFrameWrapper>
-				<StageFrame
-					iframeRef={iframeRef}
-					onMount={handleMount}
-					previewDarkMode={false}
-				/>
-			</ResponsiveStageFrameWrapper>
+			<ResponsiveStageZoomContext.Provider value={responsiveStageZoom}>
+				<ResponsiveStageFrameWrapper>
+					<StageFrame
+						iframeRef={iframeRef}
+						onMount={handleMount}
+						previewDarkMode={false}
+					/>
+				</ResponsiveStageFrameWrapper>
+			</ResponsiveStageZoomContext.Provider>
 		</ResponsiveStageContext.Provider>
 	);
 }
@@ -330,6 +357,19 @@ describe("Design stage iframe identity", () => {
 				<ResponsiveStageFrameHarness mode="responsive" responsiveWidth={768} />,
 			);
 		});
+		expect(container.querySelector("iframe")).toBe(iframe);
+		expect(iframe?.style.width).toBe("768px");
+
+		await act(async () => {
+			root?.render(
+				<ResponsiveStageFrameHarness
+					mode="responsive"
+					responsiveWidth={768}
+					zoom={2}
+				/>,
+			);
+		});
+		// Zoom scales the wrapper; the iframe keeps the responsive layout width.
 		expect(container.querySelector("iframe")).toBe(iframe);
 		expect(iframe?.style.width).toBe("768px");
 

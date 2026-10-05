@@ -1,4 +1,3 @@
-import type { RecipeTemplateNode } from "../types";
 import type { SystemComponentDraftPayload } from "./system-components";
 
 const stableStringify = (value: unknown): string => {
@@ -45,9 +44,3 @@ export function hashComponentDraftSnapshot(
 	const input = stableSystemComponentTemplateInput(payload);
 	return `client-fnv:${fnv1a32(input, 0x811c9dc5)}${fnv1a32(input, 0x9e3779b9)}`;
 }
-
-export type ComponentDraftTemplateSnapshot = {
-	root: RecipeTemplateNode;
-	slots?: SystemComponentDraftPayload["slots"];
-	overrideTargets?: SystemComponentDraftPayload["overrideTargets"];
-};

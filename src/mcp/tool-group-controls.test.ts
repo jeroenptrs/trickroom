@@ -9,7 +9,7 @@ import {
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
 } from "./test-support";
-import { MCP_TOOL_NAMES } from "./tool-groups";
+import { MCP_TOOL_GROUPS, MCP_TOOL_NAMES } from "./tool-groups";
 
 describe("MCP tool group controls", () => {
 	const fixtures: TrickroomMcpProjectFixture[] = [];
@@ -26,8 +26,31 @@ describe("MCP tool group controls", () => {
 		);
 	});
 
-	it("maps every registered MCP tool to a group", () => {
-		expect(MCP_TOOL_NAMES.length).toBe(74);
+	it("registers exactly the tools listed in the tool groups", async () => {
+		const fixture = await createTrickroomMcpProjectFixture();
+		fixtures.push(fixture);
+		const session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
+		sessions.push(session);
+
+		const listToolsResult = await session.client.listTools();
+		const registered = listToolsResult.tools.map((tool) => tool.name).sort();
+		expect(registered).toEqual([...MCP_TOOL_NAMES].sort());
+	});
+
+	it("assigns every tool to exactly one group", () => {
+		const seen = new Set<string>();
+		const duplicates: string[] = [];
+		for (const group of MCP_TOOL_GROUPS) {
+			for (const tool of group.tools) {
+				if (seen.has(tool)) {
+					duplicates.push(tool);
+				}
+				seen.add(tool);
+			}
+		}
+		expect(duplicates).toEqual([]);
 	});
 
 	it("hides disabled tool groups from listTools", async () => {
@@ -66,8 +89,7 @@ describe("MCP tool group controls", () => {
 
 		const listToolsResult = await session.client.listTools();
 		const toolNames = listToolsResult.tools.map((tool) => tool.name);
-		expect(toolNames).toContain("readDesignFile");
-		expect(toolNames).not.toContain("addElement");
-		expect(toolNames).not.toContain("deleteElement");
+		expect(toolNames).toContain("design_read");
+		expect(toolNames).not.toContain("design_apply");
 	});
 });

@@ -19,6 +19,18 @@ describe("detectActiveReferenceTrigger", () => {
 		});
 	});
 
+	it("detects layer and board target queries", () => {
+		const body = "The {{layer:d1/cta";
+		expect(detectActiveReferenceTrigger(body, body.length)).toMatchObject({
+			kind: "targets",
+			type: "layer",
+			query: "d1/cta",
+		});
+		expect(
+			detectActiveReferenceTrigger("{{board:", "{{board:".length),
+		).toMatchObject({ kind: "targets", type: "board", query: "" });
+	});
+
 	it("detects a target query after a typed reference prefix", () => {
 		const body = "Link {{design:1111";
 		const trigger = detectActiveReferenceTrigger(body, body.length);

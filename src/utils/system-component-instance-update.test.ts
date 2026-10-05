@@ -5,6 +5,8 @@ import {
 	MATERIALIZED_BASE_CLASS_PROP,
 	resolveRegistryComponent,
 } from "../libraries/registry";
+import { elementNodeAt } from "../test-utils/narrowing";
+import type { Node } from "../types";
 import {
 	setSystemComponentOverrideClassNameOnRoots,
 	setSystemComponentOverridePropOnRoots,
@@ -15,6 +17,13 @@ import {
 	getSystemComponentStructuralMetadata,
 } from "./system-component-markers";
 import { resolveSystemComponentClassComposition } from "./system-component-resolution";
+
+/** The identity props every placed node carries. */
+const identityProps = (library: string, component: string) => ({
+	"data-trickroom-name": component,
+	"data-trickroom-library": library,
+	"data-trickroom-component": component,
+});
 
 const publishedVersion = {
 	version: "1",
@@ -53,10 +62,11 @@ const publishedVersion = {
 };
 
 describe("system-component-instance-update", () => {
-	const roots = [
+	const roots: Node[] = [
 		{
 			id: "root",
 			props: {
+				...identityProps("trickroom", "container"),
 				className: "base text-zinc-700",
 				...getSystemComponentMarkerProps({
 					systemId: "sys-core",
@@ -73,6 +83,7 @@ describe("system-component-instance-update", () => {
 				{
 					id: "label",
 					props: {
+						...identityProps("trickroom", "text"),
 						...getSystemComponentMarkerProps({
 							systemId: "sys-core",
 							componentId: "cmp_11111111-1111-4111-8111-111111111111",
@@ -98,7 +109,7 @@ describe("system-component-instance-update", () => {
 
 		expect(result?.variantValues).toEqual({ tone: "brand" });
 		const rootMetadata = getSystemComponentStructuralMetadata(
-			result?.roots[0].props ?? {},
+			result?.roots[0].props,
 		);
 		expect(rootMetadata?.variantValues).toEqual({ tone: "brand" });
 		expect(result?.roots[0].props.className).toBe("base text-blue-600");
@@ -129,7 +140,7 @@ describe("system-component-instance-update", () => {
 
 		expect(result?.variantValues).toEqual({});
 		const rootMetadata = getSystemComponentStructuralMetadata(
-			result?.roots[0].props ?? {},
+			result?.roots[0].props,
 		);
 		expect(rootMetadata?.variantValues).toEqual({});
 		expect(result?.roots[0].props.className).toBe("base");
@@ -167,10 +178,11 @@ describe("system-component-instance-update", () => {
 				},
 			},
 		};
-		const instanceRoots = [
+		const instanceRoots: Node[] = [
 			{
 				id: "root",
 				props: {
+					...identityProps("base-ui", "separator"),
 					className: `${baseClassName} template-separator neutral-separator`,
 					[MATERIALIZED_BASE_CLASS_PROP]: "true",
 					...getSystemComponentMarkerProps({
@@ -202,7 +214,7 @@ describe("system-component-instance-update", () => {
 		expect(result?.roots[0].props[MATERIALIZED_BASE_CLASS_PROP]).toBe("true");
 		expect(
 			getRenderableProps(
-				result?.roots[0].props ?? {},
+				elementNodeAt(result?.roots[0]).props,
 				separatorResolution.definition,
 			).className,
 		).toBe(result?.roots[0].props.className);
@@ -250,10 +262,11 @@ describe("system-component-instance-update", () => {
 			},
 		};
 
-		const instanceRoots = [
+		const instanceRoots: Node[] = [
 			{
 				id: "root",
 				props: {
+					...identityProps("trickroom", "container"),
 					className: "base",
 					...getSystemComponentMarkerProps({
 						systemId: "sys-core",
@@ -270,6 +283,7 @@ describe("system-component-instance-update", () => {
 					{
 						id: "icon",
 						props: {
+							...identityProps("trickroom", "icon"),
 							"data-trickroom-icon-id": "icons-1/a-arrow-down",
 							...getSystemComponentMarkerProps({
 								systemId: "sys-core",
@@ -293,7 +307,7 @@ describe("system-component-instance-update", () => {
 			"brand",
 		);
 
-		const iconNode = result?.roots[0].children?.[0];
+		const iconNode = elementNodeAt(result?.roots[0], 0);
 		expect(iconNode?.props.className).not.toBe("size-5");
 		expect(iconNode?.props).not.toHaveProperty("className");
 		expect(iconNode?.props.className).toBeUndefined();
@@ -318,8 +332,8 @@ describe("system-component-instance-update", () => {
 			`base text-zinc-700 ${overrideClassName}`,
 		);
 		expect(
-			getSystemComponentStructuralMetadata(result?.roots[0].props ?? {})
-				?.overrides.rootTarget?.className,
+			getSystemComponentStructuralMetadata(result?.roots[0].props)?.overrides
+				.rootTarget?.className,
 		).toBe(overrideClassName);
 		expect(
 			resolveSystemComponentClassComposition(
@@ -370,7 +384,7 @@ describe("system-component-instance-update", () => {
 				},
 			},
 		};
-		const inputRoots = [
+		const inputRoots: Node[] = [
 			{
 				id: "root",
 				props: {

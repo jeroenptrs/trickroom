@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { hostname } from "node:os";
 import { resolveTrickroomCommand } from "./cli-command.js";
+import { runInstallBrowser } from "./install-browser.js";
 import { setInitialProjectRoot } from "./project-root.js";
-import { configureServerOptions } from "./server-options.js";
+import { configureServerOptions, isWildcardHost } from "./server-options.js";
 
 const openBrowser = (url) => {
 	try {
@@ -38,7 +40,7 @@ const runMcp = async () => {
 		.filter((arg) => !arg.startsWith("--"));
 	if (positionalArgs.length > 0) {
 		console.error(
-			"trickroom mcp does not accept positional arguments. Start it without positional arguments from the target project root, or use registerProject then selectProject for an explicit MCP session target.",
+			"trickroom mcp does not accept positional arguments. Start it from the target project root, or switch projects within the session with the project_select tool (locationId or path).",
 		);
 		process.exitCode = 1;
 		return;
@@ -61,7 +63,14 @@ const runServer = async (argv) => {
 	setInitialProjectRoot(serverOptions.argv);
 	process.env.TRICKROOM_CLI_MANAGED_OUTPUT = "1";
 
-	const runtime = await import("../dist/index.js");
+	let runtime;
+	try {
+		runtime = await import("../dist/index.js");
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : String(error));
+		process.exitCode = 1;
+		return;
+	}
 	let ready;
 	if (runtime.serverReady && typeof runtime.serverReady.then === "function") {
 		ready = await runtime.serverReady;
@@ -72,14 +81,30 @@ const runServer = async (argv) => {
 			typeof runtime.serverPort === "number"
 				? runtime.serverPort
 				: serverOptions.port;
+		const publicUrl =
+			runtime.serverPublicUrl !== undefined
+				? runtime.serverPublicUrl
+				: serverOptions.publicUrl && new URL("/", serverOptions.publicUrl).href;
+		const publicHost =
+			typeof runtime.serverPublicHost === "string"
+				? runtime.serverPublicHost
+				: publicUrl
+					? new URL(publicUrl).hostname.replace(/^\[|\]$/g, "")
+					: (serverOptions.publicHost ??
+						(isWildcardHost(serverOptions.host)
+							? hostname()
+							: serverOptions.host));
 		const url =
 			typeof runtime.serverUrl === "string"
 				? runtime.serverUrl
-				: `http://${serverOptions.host}:${port}/`;
+				: (publicUrl ??
+					`http://${publicHost.includes(":") && !publicHost.startsWith("[") ? `[${publicHost}]` : publicHost}:${port}/`);
 		ready = {
 			type: "trickroom:server-ready",
 			version: 1,
 			host: serverOptions.host,
+			publicHost,
+			publicUrl: publicUrl || null,
 			port,
 			url,
 			token: serverOptions.token,
@@ -114,4 +139,12 @@ if (command?.command === "mcp") {
 	await runMcp();
 } else if (command?.command === "serve") {
 	await runServer(command.argv);
+} else if (command?.command === "install-browser") {
+	process.exitCode = await runInstallBrowser(command.args);
+} else if (command?.command === "migrate") {
+	const runtime = await import("../dist/migrate.js");
+	process.exitCode = await runtime.main(command.args);
+} else if (command?.command === "feedback") {
+	const runtime = await import("../dist/feedback.js");
+	process.exitCode = await runtime.main(command.args);
 }

@@ -1,14 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
-import {
-	mkdir,
-	readFile,
-	realpath,
-	rename,
-	stat,
-	unlink,
-	writeFile,
-} from "node:fs/promises";
+import { mkdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
+import { writeJsonFileAtomically } from "../server-file-utils.ts";
 import {
 	ensureDesignSystemManifest,
 	resolveDesignSystemFilePath,
@@ -225,7 +217,7 @@ export async function writeAssetManifest(
 		"assets.json",
 	);
 	await mkdir(path.dirname(manifestPath), { recursive: true });
-	await writeJsonAtomically(manifestPath, normalized);
+	await writeJsonFileAtomically(manifestPath, normalized);
 	return normalized;
 }
 
@@ -748,23 +740,6 @@ function readWebpMetadata(file: Buffer): { width?: number; height?: number } {
 	}
 
 	return {};
-}
-
-async function writeJsonAtomically(filePath: string, value: unknown) {
-	const contents = `${JSON.stringify(value, null, "\t")}\n`;
-	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-
-	try {
-		await writeFile(tempPath, contents, "utf8");
-		await rename(tempPath, filePath);
-	} catch (error) {
-		await unlink(tempPath).catch(() => undefined);
-		throw error;
-	}
-}
-
-export function assetContentHash(contents: Buffer) {
-	return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

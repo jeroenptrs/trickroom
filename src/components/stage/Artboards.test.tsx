@@ -129,4 +129,123 @@ describe("Artboards", () => {
 
 		expect(renderableProps).not.toHaveProperty("data-trickroom-root-id");
 	});
+
+	it("renders a visible placeholder for components without a renderer", () => {
+		hydrateDesign({
+			name: "Missing renderer test",
+			boards: [
+				{
+					id: boardOneId,
+					props: {
+						"data-trickroom-name": "Board One",
+						"data-trickroom-library": "base-ui",
+						"data-trickroom-component": "not-a-component",
+						"data-trickroom-role": "branch",
+					},
+					children: [
+						{
+							id: "child-text",
+							props: {
+								"data-trickroom-name": "Text",
+								"data-trickroom-library": "trickroom",
+								"data-trickroom-component": "text",
+								"data-trickroom-role": "text",
+							},
+							children: "Still visible",
+						},
+					],
+				},
+			],
+		} satisfies TrickroomDesign);
+
+		const html = renderArtboards({ mode: "canvas", activeBoardId: null });
+
+		expect(html).toContain(
+			'data-trickroom-missing-renderer="base-ui/not-a-component"',
+		);
+		expect(html).toContain("No renderer for base-ui/not-a-component");
+		expect(html).toContain(`data-trickroom-node-id="${boardOneId}"`);
+		expect(html).toContain(`data-trickroom-root-id="${boardOneId}"`);
+		expect(html).toContain("Still visible");
+	});
+
+	it("marks canvas boards that need the default width and overlay height", () => {
+		hydrateDesign({
+			name: "Board sizing test",
+			boards: [
+				{
+					id: "unsized",
+					props: {
+						"data-trickroom-name": "Unsized",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						className: "bg-white p-6",
+					},
+					children: [],
+				},
+				{
+					id: "sized",
+					props: {
+						"data-trickroom-name": "Sized",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						className: "w-[640px] h-[480px]",
+					},
+					children: [],
+				},
+				{
+					id: "fit",
+					props: {
+						"data-trickroom-name": "Fit",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						"data-trickroom-role": "branch",
+						className: "w-fit",
+					},
+					children: [],
+				},
+			],
+		} satisfies TrickroomDesign);
+
+		const boardTag = (html: string, id: string) =>
+			html.match(
+				new RegExp(`<div[^>]*data-trickroom-root-id="${id}"[^>]*>`),
+			)?.[0] ?? "";
+
+		const canvas = renderArtboards({ mode: "canvas", activeBoardId: null });
+		expect(boardTag(canvas, "unsized")).toContain(
+			"data-trickroom-board-default-width",
+		);
+		expect(boardTag(canvas, "unsized")).toContain(
+			'data-trickroom-board-default-height="canvas"',
+		);
+		expect(boardTag(canvas, "sized")).not.toContain(
+			"data-trickroom-board-default-",
+		);
+		expect(boardTag(canvas, "fit")).not.toContain(
+			"data-trickroom-board-default-width",
+		);
+		expect(boardTag(canvas, "fit")).toContain(
+			'data-trickroom-board-default-height="canvas"',
+		);
+
+		const responsive = renderArtboards({
+			mode: "responsive",
+			activeBoardId: "unsized",
+		});
+		expect(boardTag(responsive, "unsized")).not.toContain(
+			"data-trickroom-board-default-width",
+		);
+		expect(boardTag(responsive, "unsized")).toContain(
+			'data-trickroom-board-default-height="viewport"',
+		);
+	});
+
+	it("renders no portal host until an overlay in the board asks for one", () => {
+		const html = renderArtboards({ mode: "canvas", activeBoardId: null });
+
+		expect(html).not.toContain("data-trickroom-board-portal");
+	});
 });

@@ -5,7 +5,10 @@ import type {
 	MemoryScopeRef,
 	MemorySummary,
 } from "../utils/memory-manifest-service.types";
-import type { ResolvedMemoryReference } from "../utils/memory-references.shared";
+import type {
+	MemoryReferenceType,
+	ResolvedMemoryReference,
+} from "../utils/memory-references.shared";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
@@ -15,12 +18,7 @@ export type {
 	MemorySummary,
 } from "../utils/memory-manifest-service.types";
 
-export type MemoryReferenceType =
-	| "design"
-	| "component"
-	| "token"
-	| "asset"
-	| "icon";
+export type { MemoryReferenceType } from "../utils/memory-references.shared";
 
 export type MemoryReferenceTarget = {
 	id: string;
@@ -49,12 +47,6 @@ export type MemoryListResponse = {
 	exists: boolean;
 	summary: MemorySummary;
 	notes: MemoryNoteWithReferences[];
-};
-
-export type MemoryNoteResponse = {
-	scope: MemoryScopeRef;
-	revision: string;
-	note: MemoryNoteWithReferences;
 };
 
 export type MemoryWriteResponse = {

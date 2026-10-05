@@ -23,9 +23,15 @@ import {
 	type RenderableRegistryComponentDefinition,
 	resolveRenderableRegistryComponent,
 } from "../../libraries/render-registry";
+import {
+	StageBoardPortalContext,
+	useStageBoardPortal,
+} from "../../libraries/stage-portal";
 import { DesignSystemRenderContext } from "../../libraries/trickroom/render-context";
-import { Alert } from "../ui/alert";
-import { Card } from "../ui/card";
+import {
+	getStagePreviewContainerClassName,
+	useStagePreviewDarkMode,
+} from "../../preview/stage-preview-dark-mode";
 import type { ProjectQueryScope } from "../../queries/project-scope";
 import { systemComponentQueryOptions } from "../../queries/system-components";
 import {
@@ -41,11 +47,10 @@ import {
 	useComponentDraftSelectedPath,
 } from "../../stores/component-draft-store";
 import { resolveStageDoc } from "../../utils/tailwind-render-mode";
-import {
-	getStagePreviewContainerClassName,
-	useStagePreviewDarkMode,
-} from "../../preview/stage-preview-dark-mode";
 import { Canvas } from "../stage/Canvas";
+import { MissingRenderer } from "../stage/MissingRenderer";
+import { Alert } from "../ui/alert";
+import { Card } from "../ui/card";
 
 const stageDoc = resolveStageDoc(stageDocRaw);
 
@@ -96,7 +101,7 @@ export function getComponentDraftPreviewRenderableProps({
 	);
 }
 
-function SerializedDraftNode({ path }: { path: string }): ReactNode {
+export function SerializedDraftNode({ path }: { path: string }): ReactNode {
 	const entity = useComponentDraftEntity(path);
 	const childPaths = useComponentDraftChildPaths(path);
 	const selectedPath = useComponentDraftSelectedPath();
@@ -111,8 +116,26 @@ function SerializedDraftNode({ path }: { path: string }): ReactNode {
 		entity.component,
 	);
 
+	const handleClick = (event: MouseEvent) => {
+		event.stopPropagation();
+		selectTemplateNode(path);
+	};
+
 	if (resolution.status !== "known") {
-		return null;
+		return (
+			<MissingRenderer
+				library={resolution.library}
+				component={resolution.component}
+				data-component-draft-path={path}
+				onClick={handleClick}
+			>
+				{entity.role === "text"
+					? entity.text
+					: childPaths.map((childPath) => (
+							<SerializedDraftNode key={childPath} path={childPath} />
+						))}
+			</MissingRenderer>
+		);
 	}
 
 	const props = getComponentDraftPreviewRenderableProps({
@@ -122,11 +145,6 @@ function SerializedDraftNode({ path }: { path: string }): ReactNode {
 		selectedPath,
 		definition: resolution.definition,
 	});
-
-	const handleClick = (event: MouseEvent) => {
-		event.stopPropagation();
-		selectTemplateNode(path);
-	};
 
 	if (entity.role === "text") {
 		return createElement(
@@ -153,6 +171,13 @@ function SerializedDraftNode({ path }: { path: string }): ReactNode {
 	);
 }
 
+/**
+ * The draft board. Like a design board on the canvas, its content area is the
+ * containing block and portal target for the draft's own overlays, so an open
+ * dialog centres on the board instead of the editor pane. The board sits on a
+ * pannable canvas next to editor chrome, so overlays use the canvas
+ * (non-modal) behaviour.
+ */
 function ComponentDraftBoard({
 	componentName,
 	previewDarkMode,
@@ -161,6 +186,7 @@ function ComponentDraftBoard({
 	previewDarkMode: boolean;
 }) {
 	const rootPath = useComponentDraftRootPath();
+	const { value: boardPortal, host: portalHost } = useStageBoardPortal(true);
 
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: clicking empty board space clears the draft node selection.
@@ -173,9 +199,15 @@ function ComponentDraftBoard({
 			<header className="flex h-9 shrink-0 items-center border-b border-slate-200 px-3 text-[11px] font-medium text-slate-500">
 				{componentName}
 			</header>
-			<div className="flex min-h-0 flex-1 items-center justify-center p-10">
-				{rootPath ? <SerializedDraftNode path={rootPath} /> : null}
-			</div>
+			<StageBoardPortalContext.Provider value={boardPortal}>
+				<div
+					className="flex min-h-0 flex-1 items-center justify-center p-10"
+					data-trickroom-draft-board=""
+				>
+					{portalHost}
+					{rootPath ? <SerializedDraftNode path={rootPath} /> : null}
+				</div>
+			</StageBoardPortalContext.Provider>
 		</section>
 	);
 }
@@ -300,7 +332,9 @@ export function ComponentDraftStage({
 		return (
 			<div className="flex min-h-0 flex-1 flex-col justify-center bg-slate-100 px-6 text-sm">
 				<Alert variant="panel">
-					<span className="block font-medium">Failed to load component draft</span>
+					<span className="block font-medium">
+						Failed to load component draft
+					</span>
 					<span className="mt-1 block text-xs">
 						{(componentQuery.error as Error).message}
 					</span>

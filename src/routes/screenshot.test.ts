@@ -26,16 +26,69 @@ describe("screenshot route", () => {
 		).toBeNull();
 	});
 
-	it("returns capture JSON and forwards auth headers", async () => {
-		const capture = vi.fn(async () => ({
-			mimeType: "image/png" as const,
-			base64: "cG5n",
-			bytes: 3,
-			width: 100,
-			height: 80,
+	it("parses shots, scale, maxHeight and component targets", () => {
+		expect(
+			parseScreenshotRequest({
+				designFileId: "design",
+				boardId: "board",
+				shots: [{ viewport: 1280, theme: "dark" }, { viewport: "mobile" }],
+				scale: 0.5,
+				maxHeight: 2000,
+			}),
+		).toEqual({
 			designFileId: "design",
 			boardId: "board",
-			theme: "light" as const,
+			shots: [{ viewport: 1280, theme: "dark" }, { viewport: "mobile" }],
+			scale: 0.5,
+			maxHeight: 2000,
+		});
+		expect(
+			parseScreenshotRequest({
+				component: {
+					systemId: "sys",
+					componentId: "cmp",
+					source: "draft",
+					variants: { size: "lg" },
+					rows: "intent",
+				},
+			}),
+		).toEqual({
+			component: {
+				systemId: "sys",
+				componentId: "cmp",
+				source: "draft",
+				variants: { size: "lg" },
+				rows: "intent",
+			},
+		});
+		expect(parseScreenshotRequest({ shots: [] })).toBeNull();
+		expect(
+			parseScreenshotRequest({ designFileId: "d", shots: [{ theme: "x" }] }),
+		).toBeNull();
+		expect(
+			parseScreenshotRequest({ component: { systemId: "sys" } }),
+		).toBeNull();
+		expect(
+			parseScreenshotRequest({ designFileId: "d", scale: "0.5" }),
+		).toBeNull();
+	});
+
+	it("returns capture JSON and forwards auth headers", async () => {
+		const capture = vi.fn(async () => ({
+			designFileId: "design",
+			boardId: "board",
+			captures: [
+				{
+					mimeType: "image/png" as const,
+					base64: "cG5n",
+					bytes: 3,
+					width: 100,
+					height: 80,
+					viewport: { width: 1440, height: 900 },
+					theme: "light" as const,
+					scale: 1,
+				},
+			],
 		}));
 		const app = new Hono<{
 			Variables: { projectRoot: string; config: never };
@@ -58,7 +111,9 @@ describe("screenshot route", () => {
 		);
 
 		expect(response.status).toBe(200);
-		expect(await response.json()).toMatchObject({ base64: "cG5n" });
+		expect(await response.json()).toMatchObject({
+			captures: [{ base64: "cG5n" }],
+		});
 		expect(capture).toHaveBeenCalledWith(
 			expect.objectContaining({ designFileId: "design", boardId: "board" }),
 			expect.objectContaining({

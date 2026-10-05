@@ -1,14 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
-import {
-	mkdir,
-	readdir,
-	readFile,
-	realpath,
-	rename,
-	unlink,
-	writeFile,
-} from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readdir, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
+import { writeJsonFileAtomically } from "../server-file-utils.ts";
 import {
 	ensureDesignSystemManifest,
 	readDesignSystemManifest,
@@ -123,7 +116,7 @@ export async function writeIconManifest(
 	);
 
 	await mkdir(path.dirname(manifestPath), { recursive: true });
-	await writeJsonAtomically(manifestPath, normalized);
+	await writeJsonFileAtomically(manifestPath, normalized);
 	return normalized;
 }
 
@@ -743,19 +736,6 @@ function isIconManifestDiagnostic(
 		typeof value.code === "string" &&
 		typeof value.message === "string"
 	);
-}
-
-async function writeJsonAtomically(filePath: string, value: unknown) {
-	const contents = `${JSON.stringify(value, null, "\t")}\n`;
-	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-
-	try {
-		await writeFile(tempPath, contents, "utf8");
-		await rename(tempPath, filePath);
-	} catch (error) {
-		await unlink(tempPath).catch(() => undefined);
-		throw error;
-	}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -6,10 +6,7 @@ import {
 } from "../libraries/registry";
 import type { Node, Props, RecipeTemplateNode } from "../types";
 import { assetIdProp, iconIdProp } from "./resource-props";
-import {
-	expandResolvedSystemComponent,
-	type ResolvedPublishedSystemComponent,
-} from "./system-component-expansion.core";
+import type { ResolvedPublishedSystemComponent } from "./system-component-expansion.core";
 import {
 	getSystemComponentMarkerProps,
 	getSystemComponentStructuralMetadata,
@@ -1600,18 +1597,3 @@ export const migrateSystemComponentInstanceToCurrent = (
 		},
 		options,
 	);
-
-export const previewMigratedSystemComponentExpansion = (
-	resolved: ResolvedPublishedSystemComponent,
-	variantValues: Record<string, string>,
-	overrides: SystemComponentInstanceOverrides,
-	options: {
-		createInstanceId?: () => string;
-		createElementId?: () => string;
-	} = {},
-) =>
-	expandResolvedSystemComponent(resolved, {
-		...options,
-		variantValues,
-		overrides,
-	});

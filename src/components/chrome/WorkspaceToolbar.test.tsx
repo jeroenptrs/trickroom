@@ -4,11 +4,16 @@ import type { ViewState } from "../../hooks/useStageNavigation";
 import { hydrateDesign } from "../../stores/design-store";
 import type { TrickroomDesign } from "../../types";
 import type { ResolvedBreakpoint } from "../../utils/resolved-breakpoints";
-import { IFrameViewContext } from "../contexts";
+import { IFrameViewContext, ProjectConfigContext } from "../contexts";
 import {
 	ResponsiveStageContext,
 	type ResponsiveStageContextValue,
 } from "../responsive-stage-context";
+import {
+	type ResponsiveStageZoom,
+	ResponsiveStageZoomContext,
+	resolveResponsiveStageScale,
+} from "../responsive-stage-zoom";
 import {
 	getResponsiveWidthDraftError,
 	RESPONSIVE_DEVICE_WIDTH_PRESETS,
@@ -65,23 +70,40 @@ function renderToolbar(
 		"mode" | "activeBoardId" | "responsiveWidth"
 	> & {
 		breakpoints?: readonly ResolvedBreakpoint[];
+		zoom?: ResponsiveStageZoom;
+		fitScale?: number;
 	},
 	view: ViewState = { x: 0, y: 0, scale: 1.25 },
 ) {
+	const zoom = stage.zoom ?? "fit";
+	const fitScale = stage.fitScale ?? 0.5;
+
 	return renderToStaticMarkup(
-		<IFrameViewContext.Provider value={view}>
-			<ResponsiveStageContext.Provider
-				value={{
-					mode: stage.mode,
-					activeBoardId: stage.activeBoardId,
-					responsiveWidth: stage.responsiveWidth,
-					breakpoints: stage.breakpoints ?? TEST_BREAKPOINTS,
-					controls: noopControls,
-				}}
-			>
-				<WorkspaceToolbar />
-			</ResponsiveStageContext.Provider>
-		</IFrameViewContext.Provider>,
+		<ProjectConfigContext.Provider value={{ name: "Toolbar project" }}>
+			<IFrameViewContext.Provider value={view}>
+				<ResponsiveStageContext.Provider
+					value={{
+						mode: stage.mode,
+						activeBoardId: stage.activeBoardId,
+						responsiveWidth: stage.responsiveWidth,
+						breakpoints: stage.breakpoints ?? TEST_BREAKPOINTS,
+						controls: noopControls,
+					}}
+				>
+					<ResponsiveStageZoomContext.Provider
+						value={{
+							zoom,
+							fitScale,
+							scale: resolveResponsiveStageScale(zoom, fitScale),
+							setZoom: () => {},
+							setFitScale: () => {},
+						}}
+					>
+						<WorkspaceToolbar />
+					</ResponsiveStageZoomContext.Provider>
+				</ResponsiveStageContext.Provider>
+			</IFrameViewContext.Provider>
+		</ProjectConfigContext.Provider>,
 	);
 }
 
@@ -121,9 +143,37 @@ describe("WorkspaceToolbar", () => {
 		expect(html).toContain("fluid");
 		expect(html).toContain("disabled");
 		expect(html).toContain("cannot be converted to pixels");
-		expect(html).not.toContain("Zoom");
 		expect(html).toContain('aria-pressed="true"');
 		expect(html).toContain("Responsive");
+	});
+
+	it("shows the frame zoom instead of the canvas zoom in responsive mode", () => {
+		const fitHtml = renderToolbar({
+			mode: "responsive",
+			activeBoardId: "board-1",
+			responsiveWidth: 1440,
+			zoom: "fit",
+			fitScale: 0.5,
+		});
+
+		expect(fitHtml).toContain('aria-label="Zoom out"');
+		expect(fitHtml).toContain('aria-label="Zoom level"');
+		expect(fitHtml).toContain('aria-label="Zoom in"');
+		expect(fitHtml).toContain("Fit");
+		expect(fitHtml).toContain("50%");
+		// The canvas zoom (125% in the iframe view) is not shown.
+		expect(fitHtml).not.toContain("125%");
+
+		const zoomedHtml = renderToolbar({
+			mode: "responsive",
+			activeBoardId: "board-1",
+			responsiveWidth: 1440,
+			zoom: 4,
+			fitScale: 0.5,
+		});
+		expect(zoomedHtml).toContain("400%");
+		expect(zoomedHtml).not.toContain(">Fit<");
+		expect(zoomedHtml).toMatch(/aria-label="Zoom in"[^>]*disabled/);
 	});
 
 	it("does not show board cycling controls in canvas mode", () => {

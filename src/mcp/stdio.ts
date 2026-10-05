@@ -55,17 +55,25 @@ const createDebouncedTask = (
 };
 
 type Stop = () => void;
+
+/** Temporary files, journals and trashed folders under `designs/`. */
+const isDesignWriteScratchFile = (filename: string) =>
+	filename
+		.split(/[\\/]/)
+		.some((segment) => segment.startsWith(".") || segment.endsWith(".tmp"));
 type WatchFactory = (
 	watchPath: string,
 	onChange: (filename: string | null) => void,
+	options?: { recursive?: boolean },
 ) => Stop | null;
 
 const createWatchStop: WatchFactory = (
 	watchPath: string,
 	onChange: (filename: string | null) => void,
+	options = {},
 ) => {
 	try {
-		const watcher = watch(watchPath, (eventType, filename) => {
+		const watcher = watch(watchPath, options, (eventType, filename) => {
 			void eventType;
 			onChange(filename ?? null);
 		});
@@ -182,7 +190,11 @@ export const createResourceListWatchers = async (
 
 			const onChange = (filename: string | null) => {
 				if (nextWatch.watchPath === nextWatch.designsDirectory) {
-					requestDesignResourceRefresh();
+					// Designs are folders: watched recursively, without the
+					// temporary and journal files a write passes through.
+					if (!filename || !isDesignWriteScratchFile(filename)) {
+						requestDesignResourceRefresh();
+					}
 					return;
 				}
 
@@ -195,7 +207,9 @@ export const createResourceListWatchers = async (
 				}
 			};
 
-			const stop = watchFactory(nextWatch.watchPath, onChange);
+			const stop = watchFactory(nextWatch.watchPath, onChange, {
+				recursive: nextWatch.watchPath === nextWatch.designsDirectory,
+			});
 			if (stop) {
 				const registered = registerStop(stop);
 				designWatcherStops.set(locationId, {

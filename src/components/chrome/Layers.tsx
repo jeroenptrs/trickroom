@@ -51,6 +51,11 @@ import {
 	useSelectedElement,
 } from "../../stores/design-store";
 import {
+	useBoardChangedExternally,
+	useLayerChangedExternally,
+} from "../../stores/external-change-store";
+import { useStageReveal } from "../../stores/stage-view-store";
+import {
 	getKey,
 	getShortcutPlacementIntent,
 	hasCommandModifier,
@@ -67,6 +72,7 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import {
+	layerChangeMarker as changeMarker,
 	componentSlotCue,
 	layerDropIndicator as dropIndicator,
 	layerChevron as icon,
@@ -103,7 +109,7 @@ const INDENT_PER_LEVEL = 12;
 type LayerProps = {
 	id: string;
 	depth: number;
-	designFile: string;
+	designId: string;
 	editRequestId: string | null;
 	hasTopSeparator: boolean;
 	open: boolean;
@@ -302,7 +308,7 @@ export function getBlockedDropInstructions(
 const Layer = memo(function Layer({
 	id,
 	depth,
-	designFile,
+	designId,
 	editRequestId,
 	hasTopSeparator,
 	open,
@@ -321,6 +327,8 @@ const Layer = memo(function Layer({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const layer = useLayerSummary(id);
 	const entity = useElement(id);
+	const boardChangedExternally = useBoardChangedExternally(id);
+	const changedExternally = useLayerChangedExternally(id);
 	const hasChildren = layer.childIds.length > 0;
 	const isRecipeOwned = isRecipeOwnedStructuralNode(entity);
 	const isComponentOwned = isSystemComponentOwnedStructuralNode(entity);
@@ -512,7 +520,7 @@ const Layer = memo(function Layer({
 		<div className={hasTopSeparator ? "border-t border-slate-200" : undefined}>
 			<LayerContextMenu
 				id={id}
-				designFile={designFile}
+				designId={designId}
 				isRecipeOwned={isRecipeOwned}
 				layerName={layer.name}
 				recipeInstanceId={recipeMetadata?.instanceId ?? null}
@@ -596,6 +604,23 @@ const Layer = memo(function Layer({
 							onChange={(event) => setDraftName(event.target.value)}
 						/>
 					)}
+					{layer.parentId === null && boardChangedExternally ? (
+						<span
+							className={changeMarker({ board: true })}
+							title="Changed outside this editor"
+							data-changed-externally="board"
+						>
+							Changed
+						</span>
+					) : changedExternally ? (
+						<span
+							className={changeMarker({ board: false })}
+							role="img"
+							aria-label="Changed outside this editor"
+							title="Changed outside this editor"
+							data-changed-externally="layer"
+						/>
+					) : null}
 				</div>
 			</LayerContextMenu>
 		</div>
@@ -603,10 +628,10 @@ const Layer = memo(function Layer({
 });
 
 export function Layers({
-	designFile,
+	designId,
 	className,
 }: {
-	designFile: string;
+	designId: string;
 	className?: string;
 }) {
 	const { rootIds, entitiesById } = useLayerTreeSnapshot();
@@ -764,6 +789,45 @@ export function Layers({
 			canScroll: ({ source }) => isLayerDragData(source.data),
 		});
 	}, []);
+
+	// Reveal requests (deep links, agent focus requests): expand the layer's
+	// collapsed ancestors, then scroll its row to the middle of the panel.
+	const reveal = useStageReveal();
+	const handledRevealIdRef = useRef<string | null>(null);
+	useEffect(() => {
+		if (!reveal || handledRevealIdRef.current === reveal.requestId) {
+			return;
+		}
+		if (!entitiesById[reveal.elementId]) {
+			return;
+		}
+		const collapsedAncestors: string[] = [];
+		let parentId = entitiesById[reveal.elementId]?.parentId ?? null;
+		while (parentId) {
+			if (openById[parentId] === false) {
+				collapsedAncestors.push(parentId);
+			}
+			parentId = entitiesById[parentId]?.parentId ?? null;
+		}
+		if (collapsedAncestors.length > 0) {
+			setOpenById((current) => {
+				const next = { ...current };
+				for (const id of collapsedAncestors) {
+					next[id] = true;
+				}
+				return next;
+			});
+			return;
+		}
+		const index = visibleLayerRows.findIndex(
+			(row) => row.id === reveal.elementId,
+		);
+		if (index === -1) {
+			return;
+		}
+		handledRevealIdRef.current = reveal.requestId;
+		layerVirtualizer.scrollToIndex(index, { align: "center" });
+	}, [entitiesById, layerVirtualizer, openById, reveal, visibleLayerRows]);
 
 	const selectVisibleLayerAtIndex = useCallback(
 		(index: number) => {
@@ -1046,7 +1110,7 @@ export function Layers({
 								<Layer
 									id={row.id}
 									depth={row.depth}
-									designFile={designFile}
+									designId={designId}
 									editRequestId={editRequestId}
 									hasTopSeparator={row.hasTopSeparator}
 									open={openById[row.id] !== false}

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef } from "react";
-import { Navigate, Route, Routes } from "react-router";
+import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
+import { Navigate, Route, Routes, useParams } from "react-router";
 import { toast } from "sonner";
 import { useProjectFileEvents } from "../hooks/useProjectFileEvents";
 import { useTailwindSyncController } from "../hooks/useTailwindSyncController";
@@ -9,7 +9,7 @@ import { getProjectQueryScope } from "../queries/project-scope";
 import { sessionQueryOptions } from "../queries/projects";
 import { systemsQueryOptions } from "../queries/systems";
 import { HttpError } from "../utils/readJsonOrThrow";
-import { Capture } from "./Capture";
+import { Capture, ComponentCapture } from "./Capture";
 import { CreateProjectPanel } from "./CreateProjectPanel";
 import {
 	ProjectConfigContext,
@@ -18,14 +18,41 @@ import {
 	TailwindSyncControllerContext,
 } from "./contexts";
 import { Design } from "./Design";
+import { EditorChannel } from "./EditorChannel";
 import { HomeShell } from "./HomeShell";
 import { OpenProjectPanel } from "./OpenProjectPanel";
 import { Project } from "./Project";
-import { SystemEditor } from "./SystemEditor";
 import {
 	getSystemAttentionSummary,
 	getSystemAttentionToastIds,
 } from "./system-attention-toasts";
+
+// The system editor is large and unused by the design view, so it loads on
+// first visit to a system route.
+const SystemEditor = lazy(() =>
+	import("./SystemEditor").then((module) => ({ default: module.SystemEditor })),
+);
+
+function SystemEditorFallback() {
+	return (
+		<div
+			role="status"
+			className="pointer-events-none absolute left-3 top-3 z-30 flex items-center gap-2 bg-slate-950 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-slate-50"
+		>
+			<span className="size-1.5 animate-pulse bg-cyan-400" aria-hidden="true" />
+			Loading system editor
+		</div>
+	);
+}
+
+// One editor instance per design: its stage iframe, the hooks bound to it and
+// the stage view state belong to that design. Without the key, moving from one
+// design to another (a focus request, extracting a subtree) kept the stage
+// hooks bound to the previous design's iframe.
+function DesignRoute() {
+	const { uuid } = useParams<{ uuid: string }>();
+	return <Design key={uuid} />;
+}
 
 function HomeRoutes() {
 	return (
@@ -208,11 +235,26 @@ export function Root() {
 							className="isolate relative h-screen w-screen overflow-hidden bg-slate-50 text-slate-950"
 							data-project-name={effectiveConfig.name}
 						>
+							<EditorChannel
+								enabled={projectDataReady}
+								projectId={activeProject?.projectId || null}
+							/>
 							<Routes>
 								<Route index element={<Project />} />
 								<Route path="capture/:design/:board?" element={<Capture />} />
-								<Route path="design/:uuid" element={<Design />} />
-								<Route path="system/:systemId" element={<SystemEditor />} />
+								<Route
+									path="capture/component/:system/:component"
+									element={<ComponentCapture />}
+								/>
+								<Route path="design/:uuid" element={<DesignRoute />} />
+								<Route
+									path="system/:systemId"
+									element={
+										<Suspense fallback={<SystemEditorFallback />}>
+											<SystemEditor />
+										</Suspense>
+									}
+								/>
 								<Route path="new" element={<Navigate to="/" replace />} />
 							</Routes>
 						</main>

@@ -1,8 +1,8 @@
-# Tailwind className model
+# Tailwind className classification
 
-Lossless parser (`parse.ts`) plus semantic utility domains that power the Style
-inspector. Unknown classes are preserved in original order and round-trip
-unchanged.
+Lossless parser (`parse.ts`) plus semantic utility domains. The class
+composition panel, class resolution and MCP class diagnostics use them to
+explain a className string. Nothing here rewrites className strings.
 
 ## Persisted output policy
 
@@ -11,18 +11,6 @@ tokens as shadowed, but storage and mutation paths must keep user-authored
 `className` strings in their authored order, including unknown tokens. Do not use
 resolver output to normalize persisted strings until an explicit migration or
 editor policy exists. The exported policy lives in `src/utils/class-layers.ts`.
-
-## Slot identity
-
-Every recognised utility occupies one slot keyed by:
-
-- **mode** — `parsed.modes` joined with `:`, or `""` for the default bucket
-- **property** — domain-specific semantic key (`background`, `padding-x`, …)
-- **variant** — `parsed.variants` joined with `:`, or `""` for the default slot
-
-Mutations replace only the exact `(mode, property, variant)` slot. Shared helpers
-live in `slots.ts` (`resolveSlotTarget`, `formatWithVariantChain`,
-`replaceOrAppendRaw`, `removeRawAtIndex`).
 
 ## Conflict Scope
 
@@ -46,23 +34,16 @@ resolver rule explicitly models that relationship. For example,
    - `<Domain>Property` union
    - `<Domain>Intent` (`kind: "<domain>"`, `property`, typed `value`, …)
    - `classify<Domain>ParsedClass(parsed): <Domain>Intent | null`
-   - `PROPERTY_TO_PREFIX` map for serialization
-   - value formatter used by `set<Domain>` (arbitrary brackets, keywords, etc.)
 
 2. **Registry** — append to `UTILITY_DOMAINS` in `domains/index.ts`. Order
    matters when prefixes overlap; more specific disambiguation should run first.
 
-3. **Union types** — extend `KnownUtilityIntent` and `PropertyKey` in
-   `domains/types.ts` and `model.ts`.
+3. **Union types** — extend `KnownUtilityIntent` in `domains/types.ts`.
 
-4. **Mutations** — add `set<Domain>` / `clear<Domain>` in `model.ts` using
-   `applyPropertyMutation` / `clearPropertyMutation` (or the same slot helpers).
+4. **Exports** — re-export public types from `index.ts`.
 
-5. **Exports** — re-export public types from `index.ts`.
-
-6. **Tests** — domain classifier cases in `<domain>.test.ts` or `classify.test.ts`;
-   slot grouping and mutation tests in `model.test.ts`; assert unknown classes
-   still serialize unchanged after edits.
+5. **Tests** — domain classifier cases in `<domain>.test.ts` or
+   `classify.test.ts`.
 
 Do **not** put Tailwind-specific rules in `parse.ts`. The parser stays syntactic.
 
@@ -71,11 +52,9 @@ Do **not** put Tailwind-specific rules in `parse.ts`. The parser stays syntactic
 | File | Role |
 |------|------|
 | `parse.ts` | Lossless tokenization (modes, variants, important, arbitrary) |
-| `slots.ts` | Shared slot keys and className splice helpers |
 | `scope.ts` | Modifier-chain and utility-group conflict identity helpers |
 | `domains/index.ts` | Ordered domain registry and `classifyKnownUtility` |
 | `color.ts` | Color classifier |
 | `registry.ts` | Color prefix registry and non-color sibling rules |
-| `spacing.ts` | Spacing classifier and prefix map |
+| `spacing.ts` | Spacing classifier |
 | `classify.ts` | Public classify API |
-| `model.ts` | `PropertyModel`, build, serialize, mutations |

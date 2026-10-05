@@ -6,8 +6,12 @@ import {
 } from "../screenshot/screenshot-service";
 import {
 	SCREENSHOT_VIEWPORT_PRESETS,
+	type ScreenshotComponentTarget,
 	type ScreenshotRequest,
 	type ScreenshotResult,
+	type ScreenshotShot,
+	type ScreenshotTheme,
+	type ScreenshotViewportInput,
 } from "../screenshot/types";
 import { isRecord, jsonError } from "../server-utils";
 import type { TrickroomConfig } from "../types";
@@ -25,50 +29,132 @@ function readOptionalString(value: unknown) {
 	return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+const UNPARSEABLE = Symbol("unparseable");
+
+function parseViewport(
+	value: unknown,
+): ScreenshotViewportInput | undefined | typeof UNPARSEABLE {
+	if (value === undefined) return undefined;
+	if (typeof value === "string") {
+		return value in SCREENSHOT_VIEWPORT_PRESETS
+			? (value as keyof typeof SCREENSHOT_VIEWPORT_PRESETS)
+			: UNPARSEABLE;
+	}
+	if (typeof value === "number") return value;
+	if (
+		isRecord(value) &&
+		typeof value.width === "number" &&
+		typeof value.height === "number"
+	) {
+		return { width: value.width, height: value.height };
+	}
+	return UNPARSEABLE;
+}
+
+function parseTheme(
+	value: unknown,
+): ScreenshotTheme | undefined | typeof UNPARSEABLE {
+	if (value === undefined) return undefined;
+	return value === "light" || value === "dark" ? value : UNPARSEABLE;
+}
+
+function parseShot(value: unknown): ScreenshotShot | null {
+	if (!isRecord(value)) return null;
+	const viewport = parseViewport(value.viewport);
+	const theme = parseTheme(value.theme);
+	if (viewport === UNPARSEABLE || theme === UNPARSEABLE) return null;
+	return {
+		...(viewport !== undefined ? { viewport } : {}),
+		...(theme ? { theme } : {}),
+	};
+}
+
+function parseStringRecord(value: unknown): Record<string, string> | null {
+	if (!isRecord(value)) return null;
+	const entries = Object.entries(value);
+	return entries.every(([, entry]) => typeof entry === "string")
+		? (Object.fromEntries(entries) as Record<string, string>)
+		: null;
+}
+
+function parseComponent(value: unknown): ScreenshotComponentTarget | null {
+	if (!isRecord(value)) return null;
+	const systemId = readOptionalString(value.systemId);
+	const componentId = readOptionalString(value.componentId);
+	if (!systemId || !componentId) return null;
+	if (
+		value.source !== undefined &&
+		value.source !== "published" &&
+		value.source !== "draft"
+	) {
+		return null;
+	}
+	const variants =
+		value.variants === undefined
+			? undefined
+			: parseStringRecord(value.variants);
+	if (variants === null) return null;
+	return {
+		systemId,
+		componentId,
+		...(value.source ? { source: value.source } : {}),
+		...(variants ? { variants } : {}),
+		...(readOptionalString(value.rows)
+			? { rows: readOptionalString(value.rows) }
+			: {}),
+		...(readOptionalString(value.columns)
+			? { columns: readOptionalString(value.columns) }
+			: {}),
+	};
+}
+
 export function parseScreenshotRequest(
 	body: unknown,
 ): ScreenshotRequest | null {
 	if (!isRecord(body)) return null;
 	const designFileId = readOptionalString(body.designFileId);
-	if (!designFileId) return null;
-
-	let viewport: ScreenshotRequest["viewport"];
-	if (typeof body.viewport === "string") {
-		if (!(body.viewport in SCREENSHOT_VIEWPORT_PRESETS)) return null;
-		viewport = body.viewport as keyof typeof SCREENSHOT_VIEWPORT_PRESETS;
-	} else if (isRecord(body.viewport)) {
-		if (
-			typeof body.viewport.width !== "number" ||
-			typeof body.viewport.height !== "number"
-		) {
-			return null;
-		}
-		viewport = {
-			width: body.viewport.width,
-			height: body.viewport.height,
-		};
-	} else if (body.viewport !== undefined) {
-		return null;
+	let component: ScreenshotComponentTarget | undefined;
+	if (body.component !== undefined) {
+		const parsed = parseComponent(body.component);
+		if (!parsed) return null;
+		component = parsed;
 	}
+	if (!designFileId && !component) return null;
 
-	if (
-		body.theme !== undefined &&
-		body.theme !== "light" &&
-		body.theme !== "dark"
-	) {
-		return null;
+	const viewport = parseViewport(body.viewport);
+	const theme = parseTheme(body.theme);
+	if (viewport === UNPARSEABLE || theme === UNPARSEABLE) return null;
+
+	let shots: ScreenshotShot[] | undefined;
+	if (body.shots !== undefined) {
+		if (!Array.isArray(body.shots)) return null;
+		shots = [];
+		for (const value of body.shots) {
+			const shot = parseShot(value);
+			if (!shot) return null;
+			shots.push(shot);
+		}
+	}
+	for (const key of ["scale", "maxHeight"] as const) {
+		if (body[key] !== undefined && typeof body[key] !== "number") return null;
 	}
 
 	return {
-		designFileId,
+		...(designFileId ? { designFileId } : {}),
 		...(readOptionalString(body.boardId)
 			? { boardId: readOptionalString(body.boardId) }
 			: {}),
 		...(readOptionalString(body.nodeId)
 			? { nodeId: readOptionalString(body.nodeId) }
 			: {}),
-		...(viewport ? { viewport } : {}),
-		...(body.theme ? { theme: body.theme } : {}),
+		...(component ? { component } : {}),
+		...(viewport !== undefined ? { viewport } : {}),
+		...(theme ? { theme } : {}),
+		...(shots ? { shots } : {}),
+		...(typeof body.scale === "number" ? { scale: body.scale } : {}),
+		...(typeof body.maxHeight === "number"
+			? { maxHeight: body.maxHeight }
+			: {}),
 		...(readOptionalString(body.outputPath)
 			? { outputPath: readOptionalString(body.outputPath) }
 			: {}),
@@ -104,7 +190,7 @@ export function createScreenshotRoutes(
 		const request = parseScreenshotRequest(body);
 		if (!request) {
 			return jsonError(
-				"Invalid screenshot payload: expected designFileId plus optional boardId, nodeId, viewport, theme, outputPath, and executablePath.",
+				"Invalid screenshot payload: expected designFileId or component, plus optional boardId, nodeId, viewport, theme, shots, scale, maxHeight, outputPath, and executablePath.",
 				400,
 			);
 		}

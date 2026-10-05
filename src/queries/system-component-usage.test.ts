@@ -1,3 +1,4 @@
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import {
 	systemComponentsUsageQueryKey,
@@ -41,10 +42,9 @@ describe("system-component-usage queries", () => {
 		const { systemComponentUsedByQueryOptions } = await import(
 			"./system-component-usage"
 		);
-		const result = await systemComponentUsedByQueryOptions(
-			"sys_core",
-			"cmp_test",
-		).queryFn();
+		const result = await new QueryClient().fetchQuery(
+			systemComponentUsedByQueryOptions("sys_core", "cmp_test"),
+		);
 
 		expect(result.usedByCount).toBe(2);
 		expect(fetchMock).toHaveBeenCalledWith(
@@ -78,8 +78,9 @@ describe("system-component-usage queries", () => {
 		const { systemComponentsUsageQueryOptions } = await import(
 			"./system-component-usage"
 		);
-		const result =
-			await systemComponentsUsageQueryOptions("sys_core").queryFn();
+		const result = await new QueryClient().fetchQuery(
+			systemComponentsUsageQueryOptions("sys_core"),
+		);
 
 		expect(result.scannedDesignCount).toBe(2);
 		expect(fetchMock).toHaveBeenCalledWith(

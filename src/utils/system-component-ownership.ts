@@ -55,10 +55,6 @@ export const isSystemComponentSlotHost = (
 	return metadata !== null && metadata.slotName !== null;
 };
 
-export const getSystemComponentSlotName = (
-	entity: SystemComponentMetadataEntity,
-) => getElementSystemComponentMetadata(entity)?.slotName ?? null;
-
 export const collectSystemComponentInstanceNodes = (
 	roots: readonly Node[],
 	instanceId: string,

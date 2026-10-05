@@ -1,6 +1,8 @@
 import path from "node:path";
 import {
+	listPresentProjectLocations,
 	type ProjectLocationRef,
+	probeProjectLocationRoot,
 	readProjectRegistry,
 	upsertProjectLocation,
 } from "../app-state/project-registry";
@@ -11,6 +13,7 @@ import {
 	TrickroomProjectConfigError,
 	type TrickroomProjectContext,
 } from "../project";
+import { TOOL } from "./tool-names";
 
 export type TrickroomMcpProjectContext = TrickroomProjectContext & {
 	trickroomHome?: string;
@@ -29,6 +32,7 @@ export type TrickroomMcpProjectResolverErrorCode =
 	| "AMBIGUOUS_PROJECT_ID"
 	| "PROJECT_REF_MISMATCH"
 	| "STALE_PROJECT_LOCATION"
+	| "MISSING_PROJECT_LOCATION"
 	| "MCP_DISABLED"
 	| "INVALID_PROJECT";
 
@@ -95,7 +99,9 @@ export const listMcpEnabledProjectContexts = async ({
 		appendContext(includeContext);
 	}
 
-	for (const location of registry.locations) {
+	for (const location of await listPresentProjectLocations(
+		registry.locations,
+	)) {
 		try {
 			appendContext(
 				await readLocationContext(location, trickroomHome, location.projectId),
@@ -121,6 +127,15 @@ const toCandidate = (location: ProjectLocationRef) => ({
 	projectRoot: location.root,
 	name: location.name,
 });
+
+const createMissingLocationError = (location: ProjectLocationRef) =>
+	new TrickroomMcpProjectResolverError({
+		code: "MISSING_PROJECT_LOCATION",
+		message: `Project location "${location.locationId}" (${location.name}) points at ${location.root}, which no longer exists. Pick another location from ${TOOL.projectList}, or call ${TOOL.projectSelect} with the path of the project's current folder.`,
+		locationId: location.locationId,
+		projectId: location.projectId,
+		projectRoot: location.root,
+	});
 
 const readLocationContext = async (
 	location: ProjectLocationRef,
@@ -186,8 +201,7 @@ export const createTrickroomMcpProjectResolver = ({
 
 			throw new TrickroomMcpProjectResolverError({
 				code: "MISSING_PROJECT_REF",
-				message:
-					"No MCP project reference was supplied. Call resolveProject with projectId or locationId, or start MCP from a folder with a valid .trickroom config.",
+				message: `No MCP project reference was supplied. Pass a projectId or locationId from ${TOOL.projectList}, or start MCP from a folder with a valid .trickroom config.`,
 			});
 		}
 
@@ -209,9 +223,17 @@ export const createTrickroomMcpProjectResolver = ({
 		}
 
 		if (ref.projectId) {
-			const matches = registry.locations.filter(
+			let matches = registry.locations.filter(
 				(candidate) => candidate.projectId === ref.projectId,
 			);
+			if (!location && matches.length > 1) {
+				// Never pick a location whose folder is gone: only the
+				// remaining ones compete.
+				const present = await listPresentProjectLocations(matches);
+				if (present.length > 0) {
+					matches = present;
+				}
+			}
 			if (location) {
 				if (location.projectId !== ref.projectId) {
 					throw new TrickroomMcpProjectResolverError({
@@ -247,6 +269,10 @@ export const createTrickroomMcpProjectResolver = ({
 				message:
 					"No MCP project reference was supplied and no default project is selected.",
 			});
+		}
+
+		if ((await probeProjectLocationRoot(location.root)) === "missing") {
+			throw createMissingLocationError(location);
 		}
 
 		return readLocationContext(

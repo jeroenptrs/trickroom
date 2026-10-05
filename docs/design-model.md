@@ -13,7 +13,7 @@ Trickroom is built with Tailwind, React, and component libraries, and its output
 
 The same libraries used to build the application also define the vocabulary of the design output: Tailwind remains Tailwind, React remains the rendering model, and component libraries become registries that constrain what a design can contain.
 
-The app does not keep styling in a private canvas format. When the property sidebar changes a color, it is changing a Tailwind class string. When an agent adds a text layer, it is adding a registry-backed node to a JSON design tree.
+The app does not keep styling in a private canvas format. When you edit a layer's classes in the inspector, you are editing its Tailwind class string. When an agent adds a text layer, it is adding a registry-backed node to a JSON design tree.
 
 ## Project
 
@@ -33,38 +33,45 @@ Opening a project also registers its local path in per-user app state so recent 
 
 ## Design
 
-A design is one JSON file:
+A design is a folder with a manifest and one file per board:
 
 ```text
-<projectRoot>/.trickroom/designs/<uuid>.json
+<projectRoot>/.trickroom/designs/<designId>/
+  design.json            version, name, systemId
+  boards/<boardId>.json  version, order key, board tree
+  memory.json            memory notes
 ```
 
-It stores:
+In memory (and in the HTTP API and MCP tools) a design is one object:
 
 - `name`: display name in the app.
 - `systemId`: optional linked Tailwind system.
-- `boards`: top-level root elements.
+- `boards`: top-level root elements, in order.
 
-Example:
+Storing boards separately keeps diffs small and lets people and agents work on different boards of one design at the same time: each board has its own revision, a write that changes board A does not conflict with a change to board B, and two branches that each add a board merge without a conflict. Board order comes from an `order` key in each board file, so reordering or inserting a board rewrites only that board.
+
+The files carry a `version`: Trickroom migrates older designs (including the single-file `designs/<id>.json` layout of versions 0 and 1) in memory when it reads them, never rewrites a design just because it was opened, and writes the current layout on the next save or when you run `trickroom migrate`. Designs returned by the HTTP API and MCP tools are always in the current shape and omit `version`. See [Files And Safety](project-files.md#design-files).
+
+Example board file:
 
 ```json
 {
-  "name": "Untitled",
-  "systemId": "sys_00000000-0000-4000-8000-000000000000",
-  "boards": [
-    {
-      "id": "root",
-      "props": {
-        "data-trickroom-name": "Root",
-        "data-trickroom-library": "trickroom",
-        "data-trickroom-component": "container",
-        "className": "bg-white text-gray-900"
-      },
-      "children": []
-    }
-  ]
+  "version": 2,
+  "order": "V",
+  "board": {
+    "id": "root",
+    "props": {
+      "data-trickroom-name": "Root",
+      "data-trickroom-library": "trickroom",
+      "data-trickroom-component": "container",
+      "className": "bg-white text-gray-900"
+    },
+    "children": []
+  }
 }
 ```
+
+Element ids are unique within a design and must be usable as file names, since any layer can become a board.
 
 ## System
 
@@ -95,7 +102,7 @@ Memory can be attached at three scopes, each stored as its own `memory.json` (se
 
 - **Project**: why the project exists and how to steer broad work.
 - **System**: usage conventions and constraints for a design system.
-- **Design**: intent and rationale for a specific design file, stored in a sibling `<uuid>.memory.json`.
+- **Design**: intent and rationale for a specific design, stored in the design folder as `memory.json`.
 
 Each note has a stable `noteId`, a markdown `body`, and a `category` from a fixed enum (`intent`, `usage`, `conventions`, `constraints`, `decision`, `todo`). Memory is authored via MCP and the project overview drawer UI; it is never auto-injected into agent context — reads and prompts only hint that relevant notes may exist for the current domain.
 
@@ -111,7 +118,7 @@ Note bodies may embed inline reference tokens so notes can point at related enti
 {{icon:<iconId>}}
 ```
 
-Tokens are stored verbatim. On write, Trickroom returns non-blocking `referenceWarnings` for tokens that do not resolve in the current scope. On read, REST (`?resolveReferences=true`) and MCP (`resolveReferences: true`) attach per-note `references` with `valid`, `broken`, or `unresolvable_scope` status and, for valid targets, a `deepLink` in-app route. The project overview memory drawer renders resolved tokens as chips (valid chips navigate via `deepLink`) and offers `{{` intellisense backed by the reference-targets endpoint / `listReferenceTargets` MCP tool.
+Tokens are stored verbatim. On write, Trickroom returns non-blocking `referenceWarnings` for tokens that do not resolve in the current scope. On read, REST (`?resolveReferences=true`) and MCP (`resolveReferences: true`) attach per-note `references` with `valid`, `broken`, or `unresolvable_scope` status and, for valid targets, a `deepLink` in-app route. The project overview memory drawer renders resolved tokens as chips (valid chips navigate via `deepLink`) and offers `{{` intellisense backed by the reference-targets endpoint, which MCP exposes as `memory_read({ scope, referenceType })`.
 
 ## Registry
 
@@ -245,6 +252,8 @@ public/tailwind/index.global.js
 
 The sidebar is outside the iframe. That keeps editor controls separate from the design stage.
 
+Each board is the containing block and portal target for its own overlays, so an open dialog or sheet positions against its board instead of the editor pane. This is render-time only and changes nothing in the design file. See [Stage Overlay Containment](architecture.md#stage-overlay-containment).
+
 ## Layer Editing Rules
 
 The layer tree supports:
@@ -277,20 +286,15 @@ MCP mutation services enforce the same structural rules and return explicit erro
 
 When no element is selected, the properties area shows the design-system picker.
 
-When an element is selected, the sidebar shows:
+When an element is selected, the sidebar shows one scrolling panel:
 
-- `Properties`: text content for text role elements plus color controls.
+- Classes: the element's own `className` as an editable text field with Tailwind autocomplete, plus read-only chips for classes inherited from a recipe, component, or variant.
+- Text content for text role elements.
 - Registry-declared controls such as Separator orientation.
 - Asset and icon selectors when the selected `trickroom/asset` or `trickroom/icon` element belongs to a design with a linked system.
-- `Classnames`: raw Tailwind class string editing.
+- Component instance controls (variants, overrides, update, detach) for attached components.
 
-The visible color controls currently edit:
-
-- Background color.
-- Text color.
-- Border color.
-
-The underlying class-name model recognizes more color utility families, which gives the app room to expose more controls later without changing the file format.
+See [The Inspector](./user-guide.md#the-inspector) for how the class field behaves.
 
 ## Why This Shape Matters
 

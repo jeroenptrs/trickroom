@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import {
 	getControlDefinitions,
 	resolveRegistryComponent,
@@ -17,7 +17,6 @@ import {
 	markTemplateNodeAsSlotHost,
 	removeTemplateNodeOverrideTarget,
 	removeTemplateNodeSlotHost,
-	setComponentDraftStyleClassName,
 	setComponentDraftStyleTarget,
 	setDraftClassNameForStyleTab,
 	updateTemplateNodeOverrideTarget,
@@ -25,7 +24,6 @@ import {
 	updateTemplateNodeSlotMetadata,
 	updateTemplateNodeText,
 	useComponentDraftClassNameForStyleTab,
-	useComponentDraftEffectiveClassName,
 	useComponentDraftSelectedEntity,
 	useComponentDraftSelectedOverrideTarget,
 	useComponentDraftSelectedSlot,
@@ -38,31 +36,13 @@ import {
 	getOverrideableRegistryControls,
 	normalizeOverrideTargetCapabilities,
 } from "../../utils/system-component-override-targets";
+import { ClassCompositionPanel } from "../chrome/classes/ClassCompositionPanel";
 import {
 	getPropertiesControlSurface,
 	splitComponentControls,
 } from "../chrome/Properties";
-import { BackgroundProperties } from "../chrome/properties/BackgroundProperties";
-import { BorderProperties } from "../chrome/properties/BorderProperties";
-import { ClassCompositionPanel } from "../chrome/properties/ClassCompositionPanel";
-import { EffectsProperties } from "../chrome/properties/EffectsProperties";
-import { FocusProperties } from "../chrome/properties/FocusProperties";
-import { InteractionProperties } from "../chrome/properties/InteractionProperties";
-import { LayoutProperties } from "../chrome/properties/LayoutProperties";
-import { MaskProperties } from "../chrome/properties/MaskProperties";
-import { MotionProperties } from "../chrome/properties/MotionProperties";
-import { PositionProperties } from "../chrome/properties/PositionProperties";
-import { ReceiptsFooter } from "../chrome/properties/ReceiptsFooter";
-import { StyleScopeProvider } from "../chrome/properties/ScopeBar";
-import { SizeProperties } from "../chrome/properties/SizeProperties";
-import { SpacingProperties } from "../chrome/properties/SpacingProperties";
-import { StructureProperties } from "../chrome/properties/StructureProperties";
-import { TransformProperties } from "../chrome/properties/TransformProperties";
-import { TypographyProperties } from "../chrome/properties/TypographyProperties";
-import { VectorProperties } from "../chrome/properties/VectorProperties";
 import { InputField } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
-import { Tabs, TabsList, TabsPanel, TabsTab } from "../ui/tabs";
 import { Text } from "../ui/text";
 import { toDraftInspectableEntity } from "./component-draft-inspector";
 
@@ -283,12 +263,6 @@ type StyleTargetDescriptor = {
 	title?: string;
 };
 
-type MainInspectorTab = "style" | "properties" | "classes";
-
-function isMainInspectorTab(value: string): value is MainInspectorTab {
-	return value === "style" || value === "properties" || value === "classes";
-}
-
 function getSelectedAxisEntries(
 	variants: DraftVariants,
 	styleTarget: ComponentDraftStyleTarget,
@@ -373,35 +347,6 @@ function getStyleTargetDescriptors(
 	return descriptors;
 }
 
-function styleTabsEqual(
-	left: ComponentDraftStyleTab,
-	right: ComponentDraftStyleTab,
-) {
-	if (left.kind !== right.kind) {
-		return false;
-	}
-	return left.kind !== "axis" || right.kind !== "axis"
-		? true
-		: left.axisKey === right.axisKey;
-}
-
-function getStyleControlsRemountKey(styleTarget: ComponentDraftStyleTarget) {
-	const activeTab = styleTarget.activeTab;
-	if (activeTab.kind === "axis") {
-		return `axis:${activeTab.axisKey}:${
-			styleTarget.axisValues[activeTab.axisKey] ?? ""
-		}`;
-	}
-
-	if (activeTab.kind === "compound") {
-		return `compound:${styleTarget.compoundAxes
-			.map((axisKey) => `${axisKey}:${styleTarget.axisValues[axisKey] ?? ""}`)
-			.join("|")}`;
-	}
-
-	return "base";
-}
-
 function styleTargetButtonClass(selected: boolean) {
 	return `border px-2 py-1 text-xs ${
 		selected
@@ -415,7 +360,6 @@ function StyleTargetSection() {
 	const styleTarget = useComponentDraftStyleTarget();
 	const axes = Object.entries(variants?.axes ?? {});
 	const selectedAxisEntries = getSelectedAxisEntries(variants, styleTarget);
-	const styleTabs = getStyleTargetDescriptors(variants, styleTarget);
 	const canDisableBase = selectedAxisEntries.length > 0;
 	const setAxisValue = (axisKey: string, valueKey: string) => {
 		const axisValues = { ...styleTarget.axisValues };
@@ -445,11 +389,6 @@ function StyleTargetSection() {
 			).sort((left, right) => left.localeCompare(right)),
 		});
 	};
-	const setActiveStyleTab = (tab: ComponentDraftStyleTab) =>
-		setComponentDraftStyleTarget({
-			...styleTarget,
-			activeTab: tab,
-		});
 	const toggleBase = () => {
 		if (styleTarget.base && !canDisableBase) {
 			return;
@@ -528,22 +467,6 @@ function StyleTargetSection() {
 						</div>
 					</div>
 				) : null}
-
-				<div className="flex flex-row flex-wrap gap-1 border-t border-slate-200 pt-2">
-					{styleTabs.map((target) => (
-						<button
-							key={target.id}
-							type="button"
-							className={styleTargetButtonClass(
-								styleTabsEqual(styleTarget.activeTab, target.tab),
-							)}
-							title={target.title}
-							onClick={() => setActiveStyleTab(target.tab)}
-						>
-							{target.label}
-						</button>
-					))}
-				</div>
 			</div>
 		</section>
 	);
@@ -552,26 +475,33 @@ function StyleTargetSection() {
 function StyleTargetClassEditor({
 	path,
 	target,
+	systemId,
 }: {
 	path: string;
 	target: StyleTargetDescriptor;
+	systemId: string;
 }) {
 	const className = useComponentDraftClassNameForStyleTab(target.tab, path);
 
-	// Same chip + conflict-lint + combobox surface as the design editor's
-	// Classes tab (right-rail P5), one block per style target.
+	// Same class field as the design inspector, one per active style target.
 	return (
 		<section className="flex flex-col border-b border-slate-200 last:border-b-0">
-			<span className="px-3 pt-2.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+			<span
+				className="px-3 pt-2.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400"
+				title={target.title}
+			>
 				{target.label}
 			</span>
-			<ClassCompositionPanel
-				className={className}
-				editable
-				onChangeClassName={(next) =>
-					setDraftClassNameForStyleTab(target.tab, path, next)
-				}
-			/>
+			<div className="px-3 pt-1 pb-3">
+				<ClassCompositionPanel
+					className={className}
+					systemId={systemId}
+					label={`${target.label} classes`}
+					onChangeClassName={(next) =>
+						setDraftClassNameForStyleTab(target.tab, path, next)
+					}
+				/>
+			</div>
 		</section>
 	);
 }
@@ -766,13 +696,9 @@ export function ComponentDraftProperties({
 	systemId: string;
 	projectScope?: ProjectQueryScope;
 }) {
-	const [activeMainTab, setActiveMainTab] =
-		useState<MainInspectorTab>("properties");
 	const selectedEntity = useComponentDraftSelectedEntity();
-	const selectedPath = selectedEntity?.path ?? "";
 	const variants = useComponentDraftVariants();
 	const styleTarget = useComponentDraftStyleTarget();
-	const className = useComponentDraftEffectiveClassName(selectedPath);
 
 	if (!selectedEntity) {
 		return (
@@ -791,8 +717,6 @@ export function ComponentDraftProperties({
 
 	const inspectable = toDraftInspectableEntity(selectedEntity);
 	const path = selectedEntity.path;
-	const onChangeClassName = (next: string) =>
-		setComponentDraftStyleClassName(path, next);
 	const registryResolution = resolveRegistryComponent(
 		selectedEntity.library,
 		selectedEntity.component,
@@ -811,7 +735,6 @@ export function ComponentDraftProperties({
 		Boolean(assetControl) ||
 		Boolean(iconControl) ||
 		contentControls.length > 0;
-	const hasPropertyControls = propertyControls.length > 0;
 	const title =
 		selectedEntity.name?.trim() || selectedEntity.component || "Untitled";
 	const subtitle = `${selectedEntity.library}/${selectedEntity.component} · ${selectedEntity.role}`;
@@ -819,197 +742,87 @@ export function ComponentDraftProperties({
 		variants,
 		styleTarget,
 	);
-	const showStyleTargetSection =
-		activeMainTab === "style" || activeMainTab === "classes";
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<DraftInspectorHeader title={title} subtitle={subtitle} />
-			<Tabs
-				value={activeMainTab}
-				onValueChange={(value) => {
-					if (isMainInspectorTab(value)) {
-						setActiveMainTab(value);
-					}
-				}}
-				className="min-h-0 flex-1 gap-0"
-			>
-				<TabsList
-					variant="block"
-					className="border-b border-slate-200 px-1 py-1"
-				>
-					<TabsTab variant="block" value="style">
-						Style
-					</TabsTab>
-					<TabsTab variant="block" value="properties">
-						Properties
-					</TabsTab>
-					<TabsTab variant="block" value="classes">
-						Classes
-					</TabsTab>
-				</TabsList>
-				{showStyleTargetSection ? <StyleTargetSection /> : null}
-				<TabsPanel value="style" className="flex min-h-0 flex-1 flex-col">
-					<ScrollArea className="min-h-0 flex-1">
-						{/* Keyed per node + style target so the panel scope and the
-						    sections' revealed rows reset together. */}
-						<StyleScopeProvider
-							key={`${path}:${getStyleControlsRemountKey(styleTarget)}`}
-							className={className}
-						>
-							<div className="flex flex-col divide-y divide-slate-200">
-								<LayoutProperties
-									className={className}
-									onChange={onChangeClassName}
+			<ScrollArea className="min-h-0 flex-1">
+				<div className="flex flex-col divide-y divide-slate-200">
+					<section className="flex flex-col">
+						<StyleTargetSection />
+						{styleTargetClassEditors.map((target) => (
+							<StyleTargetClassEditor
+								key={`${path}:${target.id}`}
+								path={path}
+								target={target}
+								systemId={systemId}
+							/>
+						))}
+					</section>
+					<SlotMetadataSection path={path} />
+					<OverrideTargetSection path={path} />
+					{hasContentControls ? (
+						<InspectorSection title="Content">
+							{selectedEntity.role === "text" ? (
+								<InputField
+									type="text"
+									label="Content"
+									value={selectedEntity.text ?? ""}
+									onChange={(event) =>
+										updateTemplateNodeText(path, event.currentTarget.value)
+									}
 								/>
-								<SizeProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-								<SpacingProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-								<TypographyProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-								<BackgroundProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-								<BorderProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-								<EffectsProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-								<FocusProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-								<PositionProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-								<TransformProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-								<MotionProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-								<VectorProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-								<StructureProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-								<MaskProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-								<InteractionProperties
-									className={className}
-									onChange={onChangeClassName}
-								/>
-							</div>
-						</StyleScopeProvider>
-					</ScrollArea>
-					<ReceiptsFooter className={className} />
-				</TabsPanel>
-				<TabsPanel value="properties" className="min-h-0 flex-1">
-					<ScrollArea className="h-full">
-						<div className="flex flex-col divide-y divide-slate-200">
-							<SlotMetadataSection path={path} />
-							<OverrideTargetSection path={path} />
-							{hasContentControls ? (
-								<InspectorSection title="Content">
-									{selectedEntity.role === "text" ? (
-										<InputField
-											type="text"
-											label="Content"
-											value={selectedEntity.text ?? ""}
-											onChange={(event) =>
-												updateTemplateNodeText(path, event.currentTarget.value)
-											}
-										/>
-									) : null}
-									{assetControl ? (
-										<DraftAssetPicker
-											systemId={systemId}
-											path={path}
-											label={assetControl.label}
-											value={
-												typeof props[assetIdProp] === "string"
-													? props[assetIdProp]
-													: ""
-											}
-											projectScope={projectScope}
-										/>
-									) : null}
-									{iconControl ? (
-										<DraftIconPicker
-											systemId={systemId}
-											path={path}
-											label={iconControl.label}
-											value={
-												typeof props[iconIdProp] === "string"
-													? props[iconIdProp]
-													: ""
-											}
-											projectScope={projectScope}
-										/>
-									) : null}
-									{contentControls.map((control) => (
-										<DraftComponentControl
-											key={control.prop}
-											path={path}
-											control={control}
-											value={props[control.prop]}
-										/>
-									))}
-								</InspectorSection>
 							) : null}
-							{propertyControls.length > 0 ? (
-								<InspectorSection title="Component">
-									{propertyControls.map((control) => (
-										<DraftComponentControl
-											key={control.prop}
-											path={path}
-											control={control}
-											value={props[control.prop]}
-										/>
-									))}
-								</InspectorSection>
-							) : null}
-							{!hasContentControls && !hasPropertyControls ? (
-								<div className="px-3 py-3 text-xs text-slate-500">
-									No editable properties
-								</div>
-							) : null}
-						</div>
-					</ScrollArea>
-				</TabsPanel>
-				<TabsPanel value="classes" className="min-h-0 flex-1">
-					<ScrollArea className="h-full">
-						<div className="flex flex-col">
-							{styleTargetClassEditors.map((target) => (
-								<StyleTargetClassEditor
-									key={target.id}
+							{assetControl ? (
+								<DraftAssetPicker
+									systemId={systemId}
 									path={path}
-									target={target}
+									label={assetControl.label}
+									value={
+										typeof props[assetIdProp] === "string"
+											? props[assetIdProp]
+											: ""
+									}
+									projectScope={projectScope}
+								/>
+							) : null}
+							{iconControl ? (
+								<DraftIconPicker
+									systemId={systemId}
+									path={path}
+									label={iconControl.label}
+									value={
+										typeof props[iconIdProp] === "string"
+											? props[iconIdProp]
+											: ""
+									}
+									projectScope={projectScope}
+								/>
+							) : null}
+							{contentControls.map((control) => (
+								<DraftComponentControl
+									key={control.prop}
+									path={path}
+									control={control}
+									value={props[control.prop]}
 								/>
 							))}
-						</div>
-					</ScrollArea>
-				</TabsPanel>
-			</Tabs>
+						</InspectorSection>
+					) : null}
+					{propertyControls.length > 0 ? (
+						<InspectorSection title="Component">
+							{propertyControls.map((control) => (
+								<DraftComponentControl
+									key={control.prop}
+									path={path}
+									control={control}
+									value={props[control.prop]}
+								/>
+							))}
+						</InspectorSection>
+					) : null}
+				</div>
+			</ScrollArea>
 		</div>
 	);
 }

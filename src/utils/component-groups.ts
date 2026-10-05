@@ -19,11 +19,6 @@ export function parseGroupPath(group: string | null | undefined): string[] {
 		.filter((segment) => segment.length > 0);
 }
 
-/** Re-joins folder segments into a canonical `group` string. */
-export function formatGroupPath(segments: readonly string[]): string {
-	return segments.join("/");
-}
-
 export type ComponentGroupTreeNode = {
 	/** Full slash path to this folder, e.g. "atoms/typography". */
 	path: string;

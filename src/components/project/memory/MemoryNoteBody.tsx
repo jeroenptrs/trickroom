@@ -22,6 +22,13 @@ function referenceChipLabel(reference: ResolvedMemoryReference): string {
 	return `${reference.type}:${reference.id}`;
 }
 
+/** The token, with where it points (a layer's design and board) when known. */
+function referenceTitle(reference: ResolvedMemoryReference): string {
+	return reference.detail
+		? `${reference.detail} · ${reference.raw}`
+		: reference.raw;
+}
+
 export function MemoryNoteBody({
 	body,
 	references = [],
@@ -48,9 +55,7 @@ export function MemoryNoteBody({
 				const label = referenceChipLabel(reference);
 				const tone = referenceChipTone(reference);
 				const canNavigate =
-					reference.status === "valid" &&
-					reference.deepLink &&
-					onNavigate;
+					reference.status === "valid" && reference.deepLink && onNavigate;
 
 				if (canNavigate) {
 					return (
@@ -59,7 +64,7 @@ export function MemoryNoteBody({
 							type="button"
 							className="mx-0.5 inline align-baseline"
 							onClick={() => onNavigate(reference.deepLink as string)}
-							title={reference.raw}
+							title={referenceTitle(reference)}
 						>
 							<Chip tone={tone} className="cursor-pointer hover:bg-cyan-100">
 								{label}
@@ -75,7 +80,7 @@ export function MemoryNoteBody({
 						className="mx-0.5 inline align-baseline"
 						title={
 							reference.status === "valid"
-								? reference.raw
+								? referenceTitle(reference)
 								: `${reference.raw} (${reference.status})`
 						}
 					>

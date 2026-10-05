@@ -13,6 +13,7 @@ import {
 	recipeRootProp,
 	recipeSlotProp,
 } from "../recipes/markers";
+import { elementNodeAt } from "../test-utils/narrowing";
 import type { Props, TrickroomDesign } from "../types";
 import { layerDropInsertionIndex } from "../utils/reorder-insertion-index";
 import { assetIdProp } from "../utils/resource-props";
@@ -29,7 +30,6 @@ import {
 	deleteElement,
 	designStore,
 	detachRecipe,
-	extractSubtreeToDesign,
 	forceHydrateDesign,
 	hydrateDesign,
 	isDesignCleanAtRevision,
@@ -42,6 +42,22 @@ import {
 	updateElementProps,
 	updateElementText,
 } from "./design-store";
+
+type RandomUUID = ReturnType<typeof crypto.randomUUID>;
+
+/**
+ * Stubs `crypto.randomUUID`, which the store uses to mint element ids, to
+ * return each of `ids` once, in order. Tests use readable ids rather than
+ * UUIDs; the store treats ids as opaque strings, so these helpers hold the
+ * only cast to the UUID template type.
+ */
+function mockRandomUUIDs(...ids: string[]) {
+	const spy = vi.spyOn(crypto, "randomUUID");
+	for (const id of ids) {
+		spy.mockReturnValueOnce(id as RandomUUID);
+	}
+	return spy;
+}
 
 const rootId = "root";
 const titleId = "title";
@@ -354,9 +370,7 @@ describe("design store transforms", () => {
 	});
 
 	it("uniquifies discriminator value defaults among siblings on insert", () => {
-		vi.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("tab-one")
-			.mockReturnValueOnce("tab-two");
+		mockRandomUUIDs("tab-one", "tab-two");
 
 		addElement(baseUiComponent("tabs.tab"), containerId, 0);
 		addElement(baseUiComponent("tabs.tab"), containerId, 1);
@@ -380,9 +394,7 @@ describe("design store transforms", () => {
 	});
 
 	it("preserves authored class string order and unknown tokens on registry element updates", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("separator");
+		const randomUuid = mockRandomUUIDs("separator");
 		const authoredClassName =
 			"data-[orientation=horizontal]:h-2 unknown-separator-token data-[orientation=horizontal]:h-4";
 
@@ -403,7 +415,7 @@ describe("design store transforms", () => {
 			authoredClassName,
 		);
 		expect(
-			serializeDesignState(state).boards[0].children?.[1]?.children?.[1]?.props
+			elementNodeAt(serializeDesignState(state).boards[0], 1, 1).props
 				.className,
 		).toBe(authoredClassName);
 		expect(composition.className).toBe(
@@ -554,9 +566,7 @@ describe("design store transforms", () => {
 	});
 
 	it("moves root elements to a requested root index", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("new-root");
+		const randomUuid = mockRandomUUIDs("new-root");
 
 		addElement(trickroomComponent("container"), null, 1);
 		moveElement("new-root", null, 0);
@@ -639,41 +649,6 @@ describe("design store transforms", () => {
 		expect(state.selectedId).toBeNull();
 	});
 
-	it("extracts a subtree to a standalone design with regenerated ids", () => {
-		let uuidIndex = 0;
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockImplementation(() => `new-id-${++uuidIndex}`);
-		designStore.setState((state) => ({ ...state, systemName: "Core" }));
-
-		try {
-			const extracted = extractSubtreeToDesign(containerId);
-
-			expect(extracted.name).toBe("Container");
-			expect(extracted.systemName).toBe("Core");
-			expect(extracted.boards).toHaveLength(1);
-			expect(extracted.boards[0].id).not.toBe(containerId);
-			const children = extracted.boards[0]
-				.children as TrickroomDesign["boards"];
-			expect(children.map((child) => child.id)).not.toContain(childOneId);
-			expect(children.map((child) => child.id)).not.toContain(childTwoId);
-			expect(
-				new Set([extracted.boards[0].id, ...children.map((child) => child.id)])
-					.size,
-			).toBe(3);
-			expect(children[0].children).toBe("Main area");
-			expect(children[1].children).toBe("Secondary area");
-		} finally {
-			randomUuid.mockRestore();
-		}
-	});
-
-	it("uses shared extraction validation for blank requested names", () => {
-		expect(() => extractSubtreeToDesign(containerId, { name: " " })).toThrow(
-			'Parameter "name" must not be blank.',
-		);
-	});
-
 	it("does not overwrite dirty local changes when fresh query data arrives", () => {
 		updateElementProps(titleId, { className: "text-blue-500" });
 		hydrateDesign({
@@ -730,9 +705,7 @@ describe("design store transforms", () => {
 	});
 
 	it("adds a new root text element using registry role metadata", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("new-root");
+		const randomUuid = mockRandomUUIDs("new-root");
 
 		addElement(
 			trickroomComponent("text"),
@@ -760,9 +733,7 @@ describe("design store transforms", () => {
 	});
 
 	it("adds a new child container with an explicit branch role", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("new-child");
+		const randomUuid = mockRandomUUIDs("new-child");
 
 		addElement(trickroomComponent("container"), containerId, 1);
 
@@ -790,9 +761,7 @@ describe("design store transforms", () => {
 	});
 
 	it("adds Base UI Separator as a leaf with default orientation", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("separator");
+		const randomUuid = mockRandomUUIDs("separator");
 
 		addElement(baseUiComponent("separator"), containerId, 1);
 
@@ -827,9 +796,7 @@ describe("design store transforms", () => {
 	});
 
 	it("adds Base UI Menu Separator without persisting base className", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("menu-separator");
+		const randomUuid = mockRandomUUIDs("menu-separator");
 
 		addElement(baseUiComponent("menu.separator"), containerId, 1);
 
@@ -861,12 +828,12 @@ describe("design store transforms", () => {
 	});
 
 	it("adds an Avatar recipe under the requested parent and selects the recipe root", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("avatar-root")
-			.mockReturnValueOnce("avatar-image")
-			.mockReturnValueOnce("avatar-fallback");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"avatar-root",
+			"avatar-image",
+			"avatar-fallback",
+		);
 
 		addRecipe({ library: "base-ui", recipe: "avatar.default" }, containerId, 1);
 
@@ -937,12 +904,12 @@ describe("design store transforms", () => {
 	});
 
 	it("does not add ordinary elements inside recipe-owned non-slot structure", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("avatar-root")
-			.mockReturnValueOnce("avatar-image")
-			.mockReturnValueOnce("avatar-fallback");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"avatar-root",
+			"avatar-image",
+			"avatar-fallback",
+		);
 		addRecipe({ library: "base-ui", recipe: "avatar.default" }, containerId, 1);
 
 		const previousState = designStore.get();
@@ -955,13 +922,13 @@ describe("design store transforms", () => {
 	});
 
 	it("allows ordinary elements inside recipe slot hosts", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("avatar-root")
-			.mockReturnValueOnce("avatar-image")
-			.mockReturnValueOnce("avatar-fallback")
-			.mockReturnValueOnce("slot-text");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"avatar-root",
+			"avatar-image",
+			"avatar-fallback",
+			"slot-text",
+		);
 		addRecipe({ library: "base-ui", recipe: "avatar.default" }, containerId, 1);
 
 		addElement(trickroomComponent("text"), "avatar-fallback", 0);
@@ -982,14 +949,14 @@ describe("design store transforms", () => {
 	});
 
 	it("does not add disallowed ordinary elements inside allowlisted recipe slots", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("menu-root")
-			.mockReturnValueOnce("menu-trigger")
-			.mockReturnValueOnce("menu-portal")
-			.mockReturnValueOnce("menu-positioner")
-			.mockReturnValueOnce("menu-popup");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"menu-root",
+			"menu-trigger",
+			"menu-portal",
+			"menu-positioner",
+			"menu-popup",
+		);
 		addRecipe({ library: "base-ui", recipe: "menu.default" }, containerId, 1);
 
 		const previousState = designStore.get();
@@ -1001,14 +968,14 @@ describe("design store transforms", () => {
 	});
 
 	it("does not add disallowed node trees inside allowlisted recipe slots", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("menu-root")
-			.mockReturnValueOnce("menu-trigger")
-			.mockReturnValueOnce("menu-portal")
-			.mockReturnValueOnce("menu-positioner")
-			.mockReturnValueOnce("menu-popup");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"menu-root",
+			"menu-trigger",
+			"menu-portal",
+			"menu-positioner",
+			"menu-popup",
+		);
 		addRecipe({ library: "base-ui", recipe: "menu.default" }, containerId, 1);
 
 		const previousState = designStore.get();
@@ -1032,12 +999,12 @@ describe("design store transforms", () => {
 	});
 
 	it("does not add nested recipes inside recipe-owned non-slot structure", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("avatar-root")
-			.mockReturnValueOnce("avatar-image")
-			.mockReturnValueOnce("avatar-fallback");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"avatar-root",
+			"avatar-image",
+			"avatar-fallback",
+		);
 		addRecipe({ library: "base-ui", recipe: "avatar.default" }, containerId, 1);
 
 		const previousState = designStore.get();
@@ -1053,16 +1020,16 @@ describe("design store transforms", () => {
 	});
 
 	it("allows nested recipes inside recipe slot hosts", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("avatar-root")
-			.mockReturnValueOnce("avatar-image")
-			.mockReturnValueOnce("avatar-fallback")
-			.mockReturnValueOnce("nested-recipe-instance")
-			.mockReturnValueOnce("nested-avatar-root")
-			.mockReturnValueOnce("nested-avatar-image")
-			.mockReturnValueOnce("nested-avatar-fallback");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"avatar-root",
+			"avatar-image",
+			"avatar-fallback",
+			"nested-recipe-instance",
+			"nested-avatar-root",
+			"nested-avatar-image",
+			"nested-avatar-fallback",
+		);
 		addRecipe({ library: "base-ui", recipe: "avatar.default" }, containerId, 1);
 
 		addRecipe(
@@ -1092,12 +1059,12 @@ describe("design store transforms", () => {
 	});
 
 	it("keeps Avatar Image leaf-blocked by role behavior", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("avatar-root")
-			.mockReturnValueOnce("avatar-image")
-			.mockReturnValueOnce("avatar-fallback");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"avatar-root",
+			"avatar-image",
+			"avatar-fallback",
+		);
 		addRecipe({ library: "base-ui", recipe: "avatar.default" }, containerId, 1);
 
 		const previousState = designStore.get();
@@ -1110,12 +1077,12 @@ describe("design store transforms", () => {
 	});
 
 	it("does not move recipe-owned structural child nodes", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("avatar-root")
-			.mockReturnValueOnce("avatar-image")
-			.mockReturnValueOnce("avatar-fallback");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"avatar-root",
+			"avatar-image",
+			"avatar-fallback",
+		);
 		addRecipe({ library: "base-ui", recipe: "avatar.default" }, containerId, 1);
 		randomUuid.mockRestore();
 
@@ -1127,12 +1094,12 @@ describe("design store transforms", () => {
 	});
 
 	it("moves the recipe root as an attached subtree", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("avatar-root")
-			.mockReturnValueOnce("avatar-image")
-			.mockReturnValueOnce("avatar-fallback");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"avatar-root",
+			"avatar-image",
+			"avatar-fallback",
+		);
 		addRecipe({ library: "base-ui", recipe: "avatar.default" }, containerId, 1);
 		randomUuid.mockRestore();
 
@@ -1170,13 +1137,13 @@ describe("design store transforms", () => {
 	});
 
 	it("allows moving slot contents while blocking moves into recipe-owned non-slot structure", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("avatar-root")
-			.mockReturnValueOnce("avatar-image")
-			.mockReturnValueOnce("avatar-fallback")
-			.mockReturnValueOnce("slot-text");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"avatar-root",
+			"avatar-image",
+			"avatar-fallback",
+			"slot-text",
+		);
 		addRecipe({ library: "base-ui", recipe: "avatar.default" }, containerId, 1);
 		addElement(trickroomComponent("text"), "avatar-fallback", 0);
 		randomUuid.mockRestore();
@@ -1197,15 +1164,15 @@ describe("design store transforms", () => {
 	});
 
 	it("does not move disallowed existing nodes into allowlisted recipe slots", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("menu-root")
-			.mockReturnValueOnce("menu-trigger")
-			.mockReturnValueOnce("menu-portal")
-			.mockReturnValueOnce("menu-positioner")
-			.mockReturnValueOnce("menu-popup")
-			.mockReturnValueOnce("separator");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"menu-root",
+			"menu-trigger",
+			"menu-portal",
+			"menu-positioner",
+			"menu-popup",
+			"separator",
+		);
 		addRecipe({ library: "base-ui", recipe: "menu.default" }, containerId, 1);
 		addElement(baseUiComponent("separator"), rootId, 1);
 		randomUuid.mockRestore();
@@ -1217,15 +1184,15 @@ describe("design store transforms", () => {
 	});
 
 	it("does not replace allowed slot contents with disallowed node trees inside allowlisted recipe slots", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("menu-root")
-			.mockReturnValueOnce("menu-trigger")
-			.mockReturnValueOnce("menu-portal")
-			.mockReturnValueOnce("menu-positioner")
-			.mockReturnValueOnce("menu-popup")
-			.mockReturnValueOnce("menu-item");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"menu-root",
+			"menu-trigger",
+			"menu-portal",
+			"menu-positioner",
+			"menu-popup",
+			"menu-item",
+		);
 		addRecipe({ library: "base-ui", recipe: "menu.default" }, containerId, 1);
 		addElement(baseUiComponent("menu.item"), "menu-popup", 0);
 		randomUuid.mockRestore();
@@ -1246,13 +1213,13 @@ describe("design store transforms", () => {
 	});
 
 	it("does not delete recipe-owned structural child nodes but allows slot content and recipe root deletion", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("avatar-root")
-			.mockReturnValueOnce("avatar-image")
-			.mockReturnValueOnce("avatar-fallback")
-			.mockReturnValueOnce("slot-text");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"avatar-root",
+			"avatar-image",
+			"avatar-fallback",
+			"slot-text",
+		);
 		addRecipe({ library: "base-ui", recipe: "avatar.default" }, containerId, 1);
 		addElement(trickroomComponent("text"), "avatar-fallback", 0);
 		randomUuid.mockRestore();
@@ -1385,12 +1352,12 @@ describe("design store transforms", () => {
 	});
 
 	it("detaches the whole recipe instance from a structural child and preserves selection", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("recipe-instance-1")
-			.mockReturnValueOnce("avatar-root")
-			.mockReturnValueOnce("avatar-image")
-			.mockReturnValueOnce("avatar-fallback");
+		const randomUuid = mockRandomUUIDs(
+			"recipe-instance-1",
+			"avatar-root",
+			"avatar-image",
+			"avatar-fallback",
+		);
 		addRecipe({ library: "base-ui", recipe: "avatar.default" }, containerId, 1);
 		randomUuid.mockRestore();
 
@@ -1437,9 +1404,7 @@ describe("design store transforms", () => {
 	});
 
 	it("does not add inside a leaf role parent", () => {
-		const randomUuid = vi
-			.spyOn(crypto, "randomUUID")
-			.mockReturnValueOnce("separator");
+		const randomUuid = mockRandomUUIDs("separator");
 		addElement(baseUiComponent("separator"), containerId, 1);
 		randomUuid.mockRestore();
 

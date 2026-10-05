@@ -6,7 +6,13 @@ import {
 	useState,
 } from "react";
 import type { ResponsiveStageMode } from "../components/responsive-stage-context";
+import {
+	canScrollStageViewport,
+	markForwardedStageWheel,
+	normalizeStageWheelDelta,
+} from "../components/responsive-stage-zoom";
 import { designStore } from "../stores/design-store";
+import { stageViewStore } from "../stores/stage-view-store";
 
 export type ViewState = {
 	x: number;
@@ -27,6 +33,10 @@ const ARTBOARD = {
 	height: 960,
 };
 
+// Responsive mode lays the board out with CSS (see shell.html) and scrolls the
+// viewport natively, so the world itself is not transformed.
+const RESPONSIVE_VIEW: ViewState = { x: 0, y: 0, scale: 1 };
+
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 2.5;
 
@@ -37,7 +47,8 @@ export type StageNavigationOptions = {
 };
 
 type StageNavigationController = {
-	centerResponsiveBoard: () => boolean;
+	enterResponsiveMode: () => void;
+	leaveResponsiveMode: () => void;
 	resetInteractionState: () => void;
 };
 
@@ -82,6 +93,70 @@ export function findStageRootBoard(
 	return boards[0] ?? null;
 }
 
+/**
+ * Finds the rendered element of a layer, or of its nearest rendered ancestor
+ * (library components do not always forward the node id to the DOM).
+ */
+export function findStageNodeElement(
+	world: ParentNode,
+	elementId: string,
+	entitiesById: Readonly<
+		Record<string, { parentId: string | null } | undefined>
+	>,
+) {
+	let id: string | null = elementId;
+	while (id) {
+		const element = world.querySelector<HTMLElement>(
+			`[data-trickroom-node-id="${CSS.escape(id)}"]`,
+		);
+		if (element) {
+			return element;
+		}
+		id = entitiesById[id]?.parentId ?? null;
+	}
+	return null;
+}
+
+/**
+ * In compiled Tailwind mode the stage shell hides content until the compiled
+ * CSS lands; geometry measured before that is the unstyled layout.
+ */
+export function isStageStylesReady(document: Document) {
+	const root = document.documentElement;
+	return (
+		!root.hasAttribute("data-trickroom-await-styles") ||
+		root.hasAttribute("data-trickroom-styles-ready")
+	);
+}
+
+/** Margin kept around an element that does not fit the viewport. */
+const REVEAL_MARGIN = 32;
+/** How long a reveal waits for its element to render and style. */
+const REVEAL_TIMEOUT_MS = 10_000;
+/** How long a reveal keeps following late layout shifts (fonts, styles). */
+const REVEAL_SETTLE_MS = 800;
+
+/**
+ * Canvas translation that centres a world-space rectangle in the viewport at
+ * the given scale. A rectangle larger than the viewport is aligned to its
+ * top-left corner (plus a margin) instead, so its start stays visible.
+ */
+export function centerRectInViewport(
+	rect: { x: number; y: number; width: number; height: number },
+	viewport: { width: number; height: number },
+	scale: number,
+) {
+	const axis = (start: number, size: number, available: number) =>
+		size * scale <= available - REVEAL_MARGIN * 2
+			? (available - size * scale) / 2 - start * scale
+			: REVEAL_MARGIN - start * scale;
+	return {
+		x: axis(rect.x, rect.width, viewport.width),
+		y: axis(rect.y, rect.height, viewport.height),
+		scale,
+	};
+}
+
 export function useStageNavigation(
 	iframeRef: RefObject<HTMLIFrameElement | null>,
 	didMount?: boolean,
@@ -90,7 +165,7 @@ export function useStageNavigation(
 	const [view, setView] = useState(INITIAL_VIEW);
 	const latestOptionsRef = useRef(options);
 	const controllerRef = useRef<StageNavigationController | null>(null);
-	const { activeBoardId, mode, responsiveWidth } = options;
+	const { activeBoardId, mode } = options;
 	latestOptionsRef.current = options;
 
 	const getFrameProperties = useCallback(() => {
@@ -141,6 +216,8 @@ export function useStageNavigation(
 			let panStartY = 0;
 			let startViewX = 0;
 			let startViewY = 0;
+			// Set by any pan or zoom; stops a reveal from re-centring under the user.
+			let userMovedView = false;
 
 			const getNavigationOptions = () => latestOptionsRef.current;
 
@@ -220,40 +297,76 @@ export function useStageNavigation(
 				return true;
 			};
 
-			const centerBoard = (board: HTMLElement): boolean => {
-				const boardRect = board.getBoundingClientRect();
+			// World-space geometry of an element: getBoundingClientRect reflects the
+			// current transform, so divide it back out.
+			const getWorldRect = (element: Element) => {
+				const rect = element.getBoundingClientRect();
 				const worldRect = world.getBoundingClientRect();
-				if (boardRect.width === 0 || boardRect.height === 0) {
-					return false;
-				}
-
-				const offsetX = (boardRect.left - worldRect.left) / currentView.scale;
-				const offsetY = (boardRect.top - worldRect.top) / currentView.scale;
-				const boardWidth = boardRect.width / currentView.scale;
-				const boardHeight = boardRect.height / currentView.scale;
-				const nextScale = 1;
-				const { clientWidth, clientHeight } = viewport;
-				const x =
-					(clientWidth - boardWidth * nextScale) / 2 - offsetX * nextScale;
-				const y =
-					(clientHeight - boardHeight * nextScale) / 2 - offsetY * nextScale;
-
-				commitView({ x, y, scale: nextScale });
-				return true;
+				return {
+					x: (rect.left - worldRect.left) / currentView.scale,
+					y: (rect.top - worldRect.top) / currentView.scale,
+					width: rect.width / currentView.scale,
+					height: rect.height / currentView.scale,
+				};
 			};
 
-			const centerResponsiveBoard = (): boolean => {
-				const board = findStageRootBoard(
-					world,
-					getNavigationOptions().activeBoardId,
-				);
-				if (!board) {
-					syncView({ ...currentView, scale: 1 });
-					publishView({ ...currentView, scale: 1 });
-					return false;
+			// Entering responsive mode remembers the canvas view so leaving it puts
+			// the canvas back where the user left it.
+			let savedCanvasView: ViewState | null = null;
+
+			const enterResponsiveMode = () => {
+				savedCanvasView ??= currentView;
+				commitView(RESPONSIVE_VIEW);
+			};
+
+			const leaveResponsiveMode = () => {
+				viewport.scrollTop = 0;
+				viewport.scrollLeft = 0;
+				if (savedCanvasView) {
+					commitView(savedCanvasView);
+					savedCanvasView = null;
+				}
+			};
+
+			// Wheel events inside the iframe never reach the parent document. In
+			// responsive mode the viewport scrolls natively while it can; otherwise
+			// (and for Ctrl/Cmd+wheel zoom) the event is re-dispatched on the iframe
+			// element so the parent frame wrapper can zoom or scroll.
+			const forwardResponsiveWheel = (event: WheelEvent) => {
+				const delta = normalizeStageWheelDelta(event, viewport.clientHeight);
+				const zooming = event.ctrlKey || event.metaKey;
+				if (!zooming && canScrollStageViewport(viewport, delta)) {
+					return;
 				}
 
-				return centerBoard(board);
+				event.preventDefault();
+				const iframe = iframeRef.current;
+				const HostWheelEvent = iframe?.ownerDocument.defaultView?.WheelEvent;
+				if (!iframe || !HostWheelEvent) {
+					return;
+				}
+
+				// The iframe is scaled by the frame wrapper; map its local client
+				// coordinates into the parent document.
+				const rect = iframe.getBoundingClientRect();
+				const scale =
+					iframe.offsetWidth > 0 ? rect.width / iframe.offsetWidth : 1;
+				const forwarded = new HostWheelEvent("wheel", {
+					bubbles: true,
+					cancelable: true,
+					clientX: rect.left + event.clientX * scale,
+					clientY: rect.top + event.clientY * scale,
+					screenX: event.screenX,
+					screenY: event.screenY,
+					deltaX: delta.x,
+					deltaY: delta.y,
+					deltaMode: 0,
+					ctrlKey: event.ctrlKey,
+					metaKey: event.metaKey,
+					altKey: event.altKey,
+				});
+				markForwardedStageWheel(forwarded);
+				iframe.dispatchEvent(forwarded);
 			};
 
 			const zoomAtPoint = (
@@ -320,6 +433,7 @@ export function useStageNavigation(
 			};
 
 			const onPointerDown = (event: PointerEvent) => {
+				userMovedView = true;
 				if (
 					!shouldStartStagePan(
 						getNavigationOptions().mode,
@@ -362,6 +476,7 @@ export function useStageNavigation(
 			};
 
 			const onWheel = (event: WheelEvent) => {
+				userMovedView = true;
 				if (shouldZoomStageFromWheel(getNavigationOptions().mode, event)) {
 					event.preventDefault();
 					const zoomFactor = Math.exp(-event.deltaY * 0.0015);
@@ -373,12 +488,8 @@ export function useStageNavigation(
 					return;
 				}
 
-				if (event.ctrlKey || event.metaKey) {
-					event.preventDefault();
-					return;
-				}
-
 				if (!isCanvasMode()) {
+					forwardResponsiveWheel(event);
 					return;
 				}
 
@@ -413,9 +524,7 @@ export function useStageNavigation(
 			const awaitsStyles = document.documentElement.hasAttribute(
 				"data-trickroom-await-styles",
 			);
-			const stylesReady = () =>
-				!awaitsStyles ||
-				document.documentElement.hasAttribute("data-trickroom-styles-ready");
+			const stylesReady = () => isStageStylesReady(document);
 
 			const finishFit = () => {
 				fitDone = true;
@@ -431,6 +540,11 @@ export function useStageNavigation(
 			const attemptFit = (): boolean => {
 				if (fitDone) {
 					return true;
+				}
+				// Responsive mode keeps the world untransformed; the fit resumes when
+				// the board resizes back into the canvas layout.
+				if (!isCanvasMode()) {
+					return false;
 				}
 				const fitted = fitFirstBoard();
 				if (fitted && stylesReady()) {
@@ -477,6 +591,82 @@ export function useStageNavigation(
 				}
 			};
 
+			// Reveal requests (deep links and agent focus requests): centre the
+			// canvas on the element, or scroll it into view in responsive mode.
+			// The element may not be rendered or styled yet on a cold load, so
+			// this waits for it, then follows late layout shifts briefly unless
+			// the user moves the view.
+			let revealFrame = 0;
+			let handledRevealId: string | null = null;
+
+			const revealElement = (element: HTMLElement) => {
+				if (isCanvasMode()) {
+					commitView(
+						centerRectInViewport(
+							getWorldRect(element),
+							{ width: viewport.clientWidth, height: viewport.clientHeight },
+							currentView.scale,
+						),
+					);
+					return;
+				}
+				element.scrollIntoView({ block: "center", inline: "center" });
+			};
+
+			const getRectKey = (element: Element) => {
+				const rect = element.getBoundingClientRect();
+				return `${rect.left},${rect.top},${rect.width},${rect.height}`;
+			};
+
+			const startReveal = () => {
+				const reveal = stageViewStore.get().reveal;
+				if (!reveal || reveal.requestId === handledRevealId) {
+					return;
+				}
+				handledRevealId = reveal.requestId;
+				window.cancelAnimationFrame(revealFrame);
+				const startedAt = window.performance.now();
+				let settleUntil: number | null = null;
+				let lastRect = "";
+
+				const step = () => {
+					if (stageViewStore.get().reveal?.requestId !== reveal.requestId) {
+						return;
+					}
+					const time = window.performance.now();
+					const element = findStageNodeElement(
+						world,
+						reveal.elementId,
+						designStore.get().entitiesById,
+					);
+					if (settleUntil === null) {
+						if (!element || !stylesReady()) {
+							if (time - startedAt < REVEAL_TIMEOUT_MS) {
+								revealFrame = window.requestAnimationFrame(step);
+							}
+							return;
+						}
+						// The reveal replaces the initial first-board fit.
+						finishFit();
+						userMovedView = false;
+						settleUntil = time + REVEAL_SETTLE_MS;
+					}
+					if (!element || userMovedView || time > settleUntil) {
+						return;
+					}
+					// Compare against the geometry after the last reveal, which itself
+					// moves the element.
+					if (getRectKey(element) !== lastRect) {
+						revealElement(element);
+						lastRect = getRectKey(element);
+					}
+					revealFrame = window.requestAnimationFrame(step);
+				};
+				revealFrame = window.requestAnimationFrame(step);
+			};
+			const revealSubscription = stageViewStore.subscribe(startReveal);
+			startReveal();
+
 			let unsubscribeRoots: (() => void) | undefined;
 			if (designStore.get().rootIds.length > 0) {
 				startFitting();
@@ -493,7 +683,8 @@ export function useStageNavigation(
 				unsubscribeRoots = rootsSubscription.unsubscribe;
 			}
 			controllerRef.current = {
-				centerResponsiveBoard,
+				enterResponsiveMode,
+				leaveResponsiveMode,
 				resetInteractionState,
 			};
 			applyCursorState();
@@ -516,8 +707,10 @@ export function useStageNavigation(
 				resizeObserver?.disconnect();
 				stylesReadyObserver?.disconnect();
 				unsubscribeRoots?.();
+				window.cancelAnimationFrame(revealFrame);
+				revealSubscription.unsubscribe();
 				if (
-					controllerRef.current?.centerResponsiveBoard === centerResponsiveBoard
+					controllerRef.current?.enterResponsiveMode === enterResponsiveMode
 				) {
 					controllerRef.current = null;
 				}
@@ -542,85 +735,37 @@ export function useStageNavigation(
 			// iframe.removeEventListener("load", onLoad);
 			cleanup?.();
 		};
-	}, [didMount, getFrameProperties]);
+	}, [didMount, getFrameProperties, iframeRef]);
+
+	const lastResponsiveBoardIdRef = useRef<string | null>(null);
 
 	useEffect(() => {
-		if (!didMount || mode !== "responsive") {
+		if (!didMount) {
 			return;
 		}
 
 		const properties = getFrameProperties();
-		if (!properties) {
-			return;
-		}
-
-		const { window, viewport, world, document } = properties;
 		const controller = controllerRef.current;
-		if (!controller) {
+		if (!properties || !controller) {
 			return;
 		}
 
-		let animationFrame = 0;
-		let boardFrame = 0;
-		let boardResizeObserver: ResizeObserver | undefined;
-		let viewportResizeObserver: ResizeObserver | undefined;
-		let stylesReadyObserver: MutationObserver | undefined;
-
-		const scheduleCenter = () => {
-			if (animationFrame) {
-				window.cancelAnimationFrame(animationFrame);
-			}
-
-			animationFrame = window.requestAnimationFrame(() => {
-				animationFrame = 0;
-				if (
-					latestOptionsRef.current.mode !== "responsive" ||
-					latestOptionsRef.current.activeBoardId !== activeBoardId ||
-					latestOptionsRef.current.responsiveWidth !== responsiveWidth
-				) {
-					return;
-				}
-				controller.resetInteractionState();
-				controller.centerResponsiveBoard();
-			});
-		};
-
-		const observeActiveBoard = () => {
-			const board = findStageRootBoard(world, activeBoardId);
-			if (!board) {
-				boardFrame = window.requestAnimationFrame(observeActiveBoard);
-				return;
-			}
-
-			boardResizeObserver = new window.ResizeObserver(scheduleCenter);
-			boardResizeObserver.observe(board);
-			scheduleCenter();
-		};
-
-		observeActiveBoard();
-		viewportResizeObserver = new window.ResizeObserver(scheduleCenter);
-		viewportResizeObserver.observe(viewport);
-
-		if (document.documentElement.hasAttribute("data-trickroom-await-styles")) {
-			stylesReadyObserver = new window.MutationObserver(scheduleCenter);
-			stylesReadyObserver.observe(document.documentElement, {
-				attributes: true,
-				attributeFilter: ["data-trickroom-styles-ready"],
-			});
+		if (mode !== "responsive") {
+			lastResponsiveBoardIdRef.current = null;
+			controller.leaveResponsiveMode();
+			return;
 		}
 
-		return () => {
-			if (animationFrame) {
-				window.cancelAnimationFrame(animationFrame);
-			}
-			if (boardFrame) {
-				window.cancelAnimationFrame(boardFrame);
-			}
-			boardResizeObserver?.disconnect();
-			viewportResizeObserver?.disconnect();
-			stylesReadyObserver?.disconnect();
-		};
-	}, [activeBoardId, didMount, getFrameProperties, mode, responsiveWidth]);
+		controller.resetInteractionState();
+		controller.enterResponsiveMode();
+		// A different board is a different page: start it at the top. Reloads of
+		// the same board (live sync) and width changes keep the scroll position.
+		if (lastResponsiveBoardIdRef.current !== activeBoardId) {
+			lastResponsiveBoardIdRef.current = activeBoardId;
+			properties.viewport.scrollTop = 0;
+			properties.viewport.scrollLeft = 0;
+		}
+	}, [activeBoardId, didMount, getFrameProperties, mode]);
 
 	return view;
 }

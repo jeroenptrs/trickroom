@@ -189,7 +189,7 @@ export function resolveVariantDraftSeedSource({
 }
 
 export function schemaToCompoundDrafts(
-	schema: SystemComponentVariantSchema | undefined,
+	schema: SystemComponentVariantSchema | null | undefined,
 ): CompoundVariantDraft[] {
 	const axes = schema?.axes ?? {};
 	return (schema?.compoundVariants ?? []).map((compound) => {
@@ -862,9 +862,9 @@ export function SystemEditorComponentContextSync({
 			return;
 		}
 
-		const serverDraftTemplateHash = detailQuery.data.draftTemplateHash ?? null;
+		const serverDraftTemplateHash = detailQuery.data?.draftTemplateHash ?? null;
 		const serverDraftVariantSchemaHash =
-			detailQuery.data.draftVariantSchemaHash ?? null;
+			detailQuery.data?.draftVariantSchemaHash ?? null;
 		const hydrateResult = hydrateComponentDraft({
 			componentId: record.componentId,
 			root: record.draft.root,
@@ -1010,9 +1010,9 @@ export function SystemEditorComponentContextPanel({
 			}
 
 			const serverDraftTemplateHash =
-				detailQuery.data.draftTemplateHash ?? null;
+				detailQuery.data?.draftTemplateHash ?? null;
 			const serverDraftVariantSchemaHash =
-				detailQuery.data.draftVariantSchemaHash ?? null;
+				detailQuery.data?.draftVariantSchemaHash ?? null;
 			const hydrateResult = hydrateComponentDraft({
 				componentId: record.componentId,
 				root: record.draft.root,
@@ -1130,6 +1130,11 @@ export function SystemEditorComponentContextPanel({
 		return (
 			<Alert variant="inline">{(detailQuery.error as Error).message}</Alert>
 		);
+	}
+
+	// A settled detail query always carries the record; this narrows it.
+	if (!record) {
+		return null;
 	}
 
 	const publicationState = summary

@@ -1,48 +1,53 @@
 import { describe, expect, it } from "vitest";
-import { getDesignSyncDecision } from "./design-live-sync";
+import { resolveActiveBoardAfterHydrate } from "./design-live-sync";
 
-const revisionA = `sha256:${"a".repeat(64)}` as const;
-const revisionB = `sha256:${"b".repeat(64)}` as const;
+describe("active board after hydrating a snapshot", () => {
+	const boardIds = ["board-1", "board-2", "board-3"];
 
-describe("design live-sync decisions", () => {
-	it("hot reloads an external revision when the store is clean", () => {
+	it("keeps the current board when a reload still contains it", () => {
 		expect(
-			getDesignSyncDecision({
-				snapshotRevision: revisionB,
-				persistedRevision: revisionA,
-				hasUnsavedChanges: false,
-				savePending: false,
+			resolveActiveBoardAfterHydrate({
+				boardIds,
+				currentBoardId: "board-2",
+				isReload: true,
 			}),
-		).toBe("reload");
+		).toBe("board-2");
 	});
 
-	it("opens the conflict path instead of clobbering a dirty store", () => {
+	it("falls back to the first board when a reload removed the current board", () => {
 		expect(
-			getDesignSyncDecision({
-				snapshotRevision: revisionB,
-				persistedRevision: revisionA,
-				hasUnsavedChanges: true,
-				savePending: false,
+			resolveActiveBoardAfterHydrate({
+				boardIds: ["board-1", "board-3"],
+				currentBoardId: "board-2",
+				isReload: true,
 			}),
-		).toBe("conflict");
+		).toBe("board-1");
 	});
 
-	it("ignores the persisted revision and defers while saving", () => {
+	it("starts on the first board on initial load", () => {
 		expect(
-			getDesignSyncDecision({
-				snapshotRevision: revisionA,
-				persistedRevision: revisionA,
-				hasUnsavedChanges: true,
-				savePending: false,
+			resolveActiveBoardAfterHydrate({
+				boardIds,
+				currentBoardId: null,
+				isReload: false,
 			}),
-		).toBe("ignore");
+		).toBe("board-1");
 		expect(
-			getDesignSyncDecision({
-				snapshotRevision: revisionB,
-				persistedRevision: revisionA,
-				hasUnsavedChanges: true,
-				savePending: true,
+			resolveActiveBoardAfterHydrate({
+				boardIds,
+				currentBoardId: "board-2",
+				isReload: false,
 			}),
-		).toBe("ignore");
+		).toBe("board-1");
+	});
+
+	it("returns null for a design without boards", () => {
+		expect(
+			resolveActiveBoardAfterHydrate({
+				boardIds: [],
+				currentBoardId: "board-2",
+				isReload: true,
+			}),
+		).toBeNull();
 	});
 });

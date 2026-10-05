@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import type { PluginOption } from "vite";
+import { createDevServerDiscovery } from "./discovery";
 import { createRequestFromIncoming, sendStream } from "./http-bridge";
 import type { SPAServerOptions } from "./types";
 
@@ -28,9 +29,14 @@ export const spaServer = (opts: SPAServerOptions = {}): PluginOption => {
 			return self;
 		},
 		configureServer(server) {
+			const discovery = createDevServerDiscovery(
+				server,
+				async () => (await server.ssrLoadModule(entry)).default,
+			);
 			server.middlewares.use(async (req, res, next) => {
 				const mod = await server.ssrLoadModule(entry);
 				const app = mod.default;
+				discovery.attach(app);
 				app.viteDevServer = server;
 				const webRes = (await app.fetch(
 					await createRequestFromIncoming(req),

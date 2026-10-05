@@ -23,6 +23,73 @@ import {
 	type TrickroomMcpServerContext,
 	type TrickroomMcpServerOptions,
 } from "./server";
+import { TOOL } from "./tool-names";
+
+/**
+ * A tool result's JSON payload. Tools return one minified JSON text block
+ * (screenshots return a text summary and images instead). Typed loosely so
+ * assertions can reach into nested fields.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: assertions read arbitrary payload fields.
+export type ToolPayload = Record<string, any>;
+
+export const toolPayload = (result: unknown): ToolPayload => {
+	const content = (result as { content?: unknown }).content;
+	const block = Array.isArray(content)
+		? (content as Array<{ type?: string; text?: string }>).find(
+				(entry) => entry.type === "text",
+			)
+		: undefined;
+	if (typeof block?.text !== "string") {
+		throw new Error("Tool result has no text content block.");
+	}
+	try {
+		return JSON.parse(block.text) as ToolPayload;
+	} catch {
+		throw new Error(
+			`Tool result text is not JSON: ${block.text.slice(0, 200)}`,
+		);
+	}
+};
+
+/**
+ * design_apply with one operation. `args` holds the target (designFileId,
+ * expectedRevision, project, response) next to the operation's parameters.
+ */
+export const applyOperation = (
+	client: Client,
+	operation: string,
+	args: Record<string, unknown>,
+) => {
+	const { designFileId, expectedRevision, project, response, ...parameters } =
+		args;
+	return client.callTool({
+		name: TOOL.designApply,
+		arguments: {
+			designFileId,
+			expectedRevision,
+			...(project === undefined ? {} : { project }),
+			...(response === undefined ? {} : { response }),
+			operations: [{ operation, parameters }],
+		},
+	});
+};
+
+/**
+ * One element read (design_read, depth 0): the compact node with childIds in
+ * `subtree`, and its placement in `context`.
+ */
+export const readElementPayload = async (
+	client: Client,
+	designFileId: string,
+	elementId: string,
+) =>
+	toolPayload(
+		await client.callTool({
+			name: TOOL.designRead,
+			arguments: { designFileId, elementId, depth: 0 },
+		}),
+	);
 
 export const trickroomMcpTestDesignUuid =
 	"00000000-0000-4000-8000-000000000001";
@@ -56,11 +123,16 @@ export const trickroomMcpTestDesign = {
 
 export type TrickroomMcpTokenSnapshotFixture = Omit<
 	StoreDomainTokensParams,
-	"projectRoot" | "tailwindBaselineVersion" | "tokens" | "baselineDiff"
+	| "projectRoot"
+	| "tailwindBaselineVersion"
+	| "tokens"
+	| "baselineDiff"
+	| "reviewRequired"
 > & {
 	tailwindBaselineVersion?: string;
 	tokens?: Record<string, string>;
 	baselineDiff?: StoreDomainTokensParams["baselineDiff"];
+	reviewRequired?: boolean;
 };
 
 export type TrickroomMcpProjectFixtureOptions = {
@@ -178,10 +250,7 @@ export const createTrickroomMcpProjectFixture = async (
 		},
 		writeDesign: async (uuid, design) => {
 			await mkdir(designFileService.designsDir, { recursive: true });
-			await designFileService.writeDesignFile(
-				designFileService.getFileForUuid(uuid),
-				design,
-			);
+			await designFileService.writeDesignFile(uuid, design);
 		},
 		writeSystemCss: async (cssPath, contents) => {
 			const systemCssPath = path.resolve(projectRoot, cssPath);

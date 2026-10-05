@@ -5,7 +5,10 @@ import {
 	forwardRef,
 	useContext,
 } from "react";
-import { useFrame } from "react-frame-component";
+import {
+	useStagePortalContainer,
+	useStagePositionerProps,
+} from "../stage-portal";
 import { renderFallback } from "./render-fallback";
 
 type PreviewCardRootProps = ComponentPropsWithoutRef<typeof PreviewCard.Root>;
@@ -69,12 +72,13 @@ export const PreviewCardPortal = forwardRef<
 	PreviewCardPortalProps
 >(function PreviewCardPortal({ children, ...props }, ref) {
 	const isInsidePreviewCardRoot = useContext(PreviewCardRootRenderContext);
-	const { document: frameDocument } = useFrame();
+	const resolvedContainer = useStagePortalContainer(
+		props.container,
+		isInsidePreviewCardRoot,
+	);
 
 	if (isInsidePreviewCardRoot) {
-		const { container, ...portalProps } = props;
-		const resolvedContainer =
-			container === undefined ? frameDocument?.body : container;
+		const { container: _container, ...portalProps } = props;
 
 		return (
 			<PreviewCardPortalRenderContext.Provider value="base">
@@ -120,6 +124,7 @@ export const PreviewCardPositioner = forwardRef<
 	HTMLDivElement,
 	PreviewCardPositionerProps
 >(function PreviewCardPositioner(props, ref) {
+	const stagePositionerProps = useStagePositionerProps(props);
 	const isInsidePreviewCardRoot = useContext(PreviewCardRootRenderContext);
 	const previewCardPortalRenderMode = useContext(
 		PreviewCardPortalRenderContext,
@@ -128,7 +133,7 @@ export const PreviewCardPositioner = forwardRef<
 	if (isInsidePreviewCardRoot && previewCardPortalRenderMode === "base") {
 		return (
 			<PreviewCardPositionerRenderContext.Provider value="base">
-				<PreviewCard.Positioner {...props} ref={ref} />
+				<PreviewCard.Positioner {...stagePositionerProps} ref={ref} />
 			</PreviewCardPositionerRenderContext.Provider>
 		);
 	}

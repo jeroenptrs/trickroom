@@ -11,7 +11,7 @@ Trickroom helps you:
 - Create a Trickroom project in an existing project folder.
 - Create design files under `.trickroom/designs`.
 - Build a design tree from registered components.
-- Edit layers, names, text, Tailwind classes, and color properties.
+- Edit layers, names, text, and Tailwind classes.
 - Link a design to a configured Tailwind system.
 - Snapshot Tailwind color tokens from project CSS.
 - Let agents inspect and edit designs through MCP.
@@ -26,7 +26,7 @@ A local folder that contains `.trickroom/config.json`. Trickroom registers recen
 
 Design:
 
-A JSON file under `.trickroom/designs/<uuid>.json`. It has a name, an optional linked system, and top-level `boards` that contain a tree of elements.
+A folder under `.trickroom/designs/<id>/` with a `design.json` and one JSON file per board in `boards/`. It has a name, an optional linked system, and top-level `boards` that contain a tree of elements. Designs created by older versions of Trickroom (one `.trickroom/designs/<id>.json` file) still open and move to the folder layout when they are next saved, or all at once with `trickroom migrate`.
 
 System:
 
@@ -80,20 +80,57 @@ Design editor:
 - Drag layers to reorder or reparent them.
 - Right-click a layer and delete it.
 - Edit text content for text layers.
-- Edit raw Tailwind class names.
-- Edit background, text, and border color through property controls.
+- Edit a layer's Tailwind classes as free text, with autocomplete from the linked system (see [The Inspector](#the-inspector)).
 - Pan the canvas with the wheel.
 - Zoom with `Ctrl` or `Cmd` plus wheel.
 - Pan with middle mouse drag or Space plus left drag.
 - Rely on autosave after edits.
 - Manually save while there are unsaved changes.
 
+System editor:
+
+- Add an icon folder by its project-relative path, for example `src/icons`. Trickroom indexes the SVGs inside it.
+- Register an image asset by its project-relative path, for example `public/images/hero.png`. The file stays where it is. The browser has no file picker or upload, so the image has to be in the project already.
+
 Shared server:
 
 - Local loopback use stays unauthenticated by default.
 - `trickroom serve /path/to/project --host 0.0.0.0` generates a token and prints a machine-readable ready line containing the tokenized bootstrap URL.
+- Because `0.0.0.0` is not an address a browser can open, the printed URL uses the machine's hostname instead. If that name doesn't resolve from the machine you browse from, set the host to print with `--public-host <host>`, `TRICKROOM_PUBLIC_HOST`, or once in `~/.trickroom/settings.json`:
+
+  ```json
+  { "version": 1, "mcp": { "toolGroups": {} }, "server": { "publicHost": "devbox.local" } }
+  ```
+
+- Behind a reverse proxy, where the address you open has a different scheme or port than the one Trickroom listens on, set the full base URL instead with `--public-url <url>`, `TRICKROOM_PUBLIC_URL`, or `server.publicUrl`. It wins over the public host and is printed without Trickroom's own port:
+
+  ```json
+  { "version": 1, "mcp": { "toolGroups": {} }, "server": { "publicUrl": "https://devbox.example.com" } }
+  ```
 - `--no-open` prevents browser launch while retaining human status output; `--silent` also suppresses human status output.
 - Opening the bootstrap URL once stores an HTTP-only cookie and redirects to the clean URL.
+
+## The Inspector
+
+The right-hand inspector shows the selected layer in one scrolling panel: its classes first, then its properties. The component editor's draft inspector uses the same layout.
+
+Classes:
+
+- The class field holds the layer's own `className`, written the way you would write it in code. It wraps, uses a monospace font, and accepts a pasted class string.
+- Changes are written when the field loses focus or on `Cmd`/`Ctrl` + `Enter`. `Escape` discards the edit and restores the stored value. Whitespace and line breaks are collapsed to single spaces when written.
+- Suggestions for the class under the caret come from the linked system's compiled Tailwind design system: every utility, including the project's theme tokens and custom `@utility` definitions, and every variant (`hover:`, `md:`, `dark:`, `group-hover:` …). Without a linked system, suggestions come from default Tailwind. Use the arrow keys to move through suggestions, `Enter` or `Tab` to accept, `Escape` to close the list, and `Ctrl` + `Space` to open it.
+- Classes Tailwind does not recognize get a wavy red underline and a line below the field, with a "did you mean" fix when a close match exists. Classes that a later class overrides (`p-4` followed by `p-6`) are listed with a one-click remove.
+- Classes the layer inherits are listed above the field as read-only chips, grouped by where they come from: **Recipe** (library base classes), **Component**, **Variant**, and **Compound variant**. A struck-through chip is overridden by a later class. On a component instance, the field edits the instance's class override, not the component.
+- In the component draft inspector, the **Style target** picker chooses which classes you edit: the base template, a variant value, or a compound variant. Each active target gets its own field.
+
+Properties:
+
+- Text content, asset and icon pickers, registry controls, and recipe controls for the selected layer.
+- On component instances: variant values, overrides, update and migration status, and detach.
+- In the component draft inspector: slot and override target settings.
+- With nothing selected: the design system picker, the dark-mode preview toggle, and the keyboard shortcut list.
+
+There are no visual style controls (color pickers, spacing boxes, and so on). Write the Tailwind classes directly, or have an agent write them through MCP.
 
 ## Typical Workflow
 
@@ -112,10 +149,11 @@ Shared server:
 The short version:
 
 - Project config: `.trickroom/config.json`
-- Design files: `.trickroom/designs/<uuid>.json`
+- Designs: `.trickroom/designs/<id>/design.json` and `.trickroom/designs/<id>/boards/<boardId>.json`
 - System metadata and Tailwind token snapshots: `.trickroom/systems/<safe-system-name>/system.json` and `.trickroom/systems/<safe-system-name>/tokens.json`
 - MCP audit log, if enabled: `.trickroom/audit-log.jsonl`
 - Per-user recent project registry: `~/.trickroom/projects.json`
+- Agent feedback on the MCP tools, and the optional call log: `~/.trickroom/feedback/`
 
 Trickroom reads configured CSS files and imports to understand Tailwind tokens. It does not edit those CSS files or your app source files.
 
@@ -139,29 +177,39 @@ Agents can safely ask:
 - Which registered project should be targeted (`locationId`)?
 
 For multi-project MCP sessions:
-- Call `listProjects` first to inspect available projects and their `locationId`.
-- Call `selectProject({ locationId })` to set the active MCP session project.
+- Call `project_list` first to see the session's project and the other registered projects with their `locationId`.
+- Call `project_select({ locationId })` to switch the MCP session project, or `project_select({ path })` for a project that is not registered yet.
 - Attach design resources using `trickroom://proj/<locationId>/design/<designId>` references.
 
-Agents can also mutate design files when policy allows:
+Agents can also change design files when policy allows, with `design_create` and `design_apply`:
 
-- Create a new blank design file.
-- Rename a design file.
-- Add an element.
-- Rename an element or update its class string.
-- Update text content.
-- Move an element.
-- Delete an element and all descendants.
+- Create a new design file, empty or from a copy of an existing element.
+- Add elements, recipes (dialogs, menus, selects) and design system component instances, and fill their slots.
+- Rename layers, update class strings, controls and text.
+- Move, copy or delete elements, and rename the design.
+
+`design_apply` takes an ordered list of operations and writes them as one change, or nothing if a step fails.
 
 Existing-design mutations require an `expectedRevision` from a previous read. If the file changed, the tool returns `REVISION_MISMATCH` and the agent must re-read before retrying. New design creation instead fails if the chosen UUID already exists.
 
-See [Agents And MCP](./mcp.md) for the full read-only/write/destructive tool map.
+Agents can also see what you have selected in the editor (`editor_context`) and point your editor at what they changed (`editor_focus`).
+
+See [Agents And MCP](./mcp.md) for the full tool map.
+
+### Reviewing agent feedback
+
+Agents can report friction with Trickroom's tools (an error they could not act on, output too large to use, a missing capability) through `feedback_submit`. Reports stay on your machine in `~/.trickroom/feedback/`, one JSON Lines file per month, each with the agent's last few tool calls (names, outcomes, durations and sizes; never arguments, results or design content). Run `trickroom feedback` to see the last 30 days: counts by category, tool and severity, then each report. Add `--since 2w`, `--tool design_apply` or `--category output_too_large` to narrow it, or `--json` for the raw entries. To also measure how agents use the tools without waiting for reports, set `"callLog": true` under `"mcp"` in `~/.trickroom/settings.json` (off by default) and run `trickroom feedback --calls` for calls, error rates, durations and output sizes per tool. The output is Markdown, so you can paste it into an agent conversation and ask what to fix first.
+
+### Working alongside an agent
+
+When an agent (or another tab, or a git checkout) changes the design you have open, the editor picks up only the boards that changed. Your selection, the board you are on, zoom and scroll stay where they are, and your unsaved edits to other boards are kept and saved as usual.
+
+- Changed boards get a **Changed** tag in the Layers panel, and changed layers a cyan square. In the responsive view, **N changed** next to the board navigation jumps to the next changed board. When a changed board is in view, its changed layers are outlined briefly. The markers clear a few seconds after you have seen the board, or as soon as you select or edit something in it.
+- If you and the agent changed the same board, the changes are merged layer by layer. You are only asked when both changed the same property or text of a layer (or moved things in ways that do not combine). The dialog lists each conflicting board; for each, **Take theirs** loads the version on disk and drops your edits to that board, **Keep mine** saves your version of that board over the one on disk. Other boards are not affected by either choice.
 
 ## Current Limits
 
 - The built-in registry currently has `container` and `text`.
-- The visible color UI currently edits background, text, and border colors.
-- The class-name parser recognizes more color families than the UI exposes.
 - Tailwind token sync currently stores color-domain tokens only.
 - MCP can create and edit design files but does not currently edit project config.
 - Browser and MCP writes both use content-hash revisions to prevent stale existing-file writes. When an external edit arrives while the browser is dirty, the editor asks whether to reload it or keep the local version.
@@ -171,5 +219,5 @@ See [Agents And MCP](./mcp.md) for the full read-only/write/destructive tool map
 - Commit `.trickroom` files if you want designs to move with the project.
 - Keep MCP in `read-only` mode until you are comfortable with the mutation workflow.
 - Enable `auditLog` before letting agents perform larger edit sessions.
-- Use `validateOperation` before a mutation when the target parent, role, or insertion point is uncertain.
-- Use `validateDesignFile` after multi-step agent edits.
+- Use `design_validate` with the planned operations before a write when the target parent, role, or insertion point is uncertain.
+- Use `design_validate` on the whole design after multi-step agent edits.

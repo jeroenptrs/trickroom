@@ -1,12 +1,11 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
 import {
 	memo,
 	type RefObject,
-	type SetStateAction,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -14,6 +13,9 @@ import {
 import Frame from "react-frame-component";
 import { useParams } from "react-router";
 import { useCompiledTailwind } from "../hooks/useCompiledTailwind";
+import { useDesignDeepLink } from "../hooks/useDesignDeepLink";
+import { useDesignLiveSync } from "../hooks/useDesignLiveSync";
+import { useExternalChangeMarkers } from "../hooks/useExternalChangeMarkers";
 import { useInjectSystemAssets } from "../hooks/useInjectSystemAssets";
 import { useInjectSystemFonts } from "../hooks/useInjectSystemFonts";
 import { useInjectSystemTheme } from "../hooks/useInjectSystemTheme";
@@ -30,43 +32,53 @@ import {
 import {
 	type DesignFileSnapshot,
 	designFileQueryOptions,
-	getDesignFileForUuid,
 } from "../queries/design-file";
 import {
 	designStore,
-	forceHydrateDesign,
 	hydrateDesign,
 	selectElement,
-	setExternalConflictPending,
-	setPersistedDesignRevision,
 	useDesignRoots,
-	useDesignSavePending,
 	useDesignSystemId,
-	useHasUnsavedChanges,
-	usePersistedDesignRevision,
 	useSelectedId,
 } from "../stores/design-store";
+import { applyDiskDesign, diskStateFromDesign } from "../stores/design-sync";
+import {
+	resetStageView,
+	setActiveBoardId,
+	setResponsiveWidth,
+	setStageMode,
+	stageViewStore,
+	useActiveBoardId,
+	useResponsiveWidth,
+	useStageMode,
+} from "../stores/stage-view-store";
 import { markDesignOpened } from "../utils/design-activity";
-import { getDesignSyncDecision } from "../utils/design-live-sync";
+import { resolveActiveBoardAfterHydrate } from "../utils/design-live-sync";
 import {
 	getResponsiveStageSessionStorageKey,
 	readResponsiveStageSessionWidth,
 	writeResponsiveStageSessionWidth,
 } from "../utils/responsive-stage-session";
 import { resolveStageDoc } from "../utils/tailwind-render-mode";
+import { DesignConflictDialog } from "./chrome/DesignConflictDialog";
 import { EditorShell } from "./chrome/EditorShell";
 import { IFrameViewContext, useProjectScope } from "./contexts";
 import {
-	clampResponsiveStageWidth,
+	RESPONSIVE_STAGE_DEFAULT_WIDTH,
 	ResponsiveStageContext,
-	type ResponsiveStageMode,
 	resolveResponsiveStageActiveBoardId,
 	shouldPreserveSelectionOnActiveBoard,
 } from "./responsive-stage-context";
 import { ResponsiveStageFrameWrapper } from "./responsive-stage-frame";
+import {
+	type ResponsiveStageZoom,
+	ResponsiveStageZoomContext,
+	resolveResponsiveStageScale,
+} from "./responsive-stage-zoom";
 import { Artboards } from "./stage/Artboards";
 import { Canvas } from "./stage/Canvas";
-import { ConfirmationDialog } from "./ui/alert-dialog";
+import { StageChangeHighlight } from "./stage/StageChangeHighlight";
+import { StageFocusHighlight } from "./stage/StageFocusHighlight";
 
 const stageDoc = resolveStageDoc(stageDocRaw);
 
@@ -96,9 +108,17 @@ export const StageFrame = memo(function StageFrame({
 			</main>
 
 			<Canvas />
+			<StageChangeHighlight />
+			<StageFocusHighlight />
 		</Frame>
 	);
 });
+
+const responsiveStageControls = {
+	setMode: setStageMode,
+	setActiveBoardId,
+	setResponsiveWidth,
+};
 
 function DesignStage({
 	iframeRef,
@@ -123,21 +143,35 @@ function DesignStage({
 export function Design() {
 	const { uuid } = useParams<{ uuid: string }>();
 	const projectScope = useProjectScope();
-	const designFile = uuid ? getDesignFileForUuid(uuid) : null;
+	const designId = uuid ?? null;
 	const [didMount, setDidMount] = useState(false);
-	const [stageMode, setStageMode] = useState<ResponsiveStageMode>("canvas");
-	const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
-	const [externalSnapshot, setExternalSnapshot] =
-		useState<DesignFileSnapshot | null>(null);
-	const [responsiveWidth, setResponsiveWidth] = useState(() =>
-		readResponsiveStageSessionWidth(projectScope, designFile),
-	);
+	const stageMode = useStageMode();
+	const activeBoardId = useActiveBoardId();
+	const responsiveWidth = useResponsiveWidth();
+	// The design whose snapshot is in the store and kept in sync with disk.
+	const [liveDesignId, setLiveDesignId] = useState<string | null>(null);
+	const [responsiveZoom, setResponsiveZoom] =
+		useState<ResponsiveStageZoom>("fit");
+	const [responsiveFitScale, setResponsiveFitScale] = useState(1);
 	const responsiveSessionKey = useMemo(
-		() => getResponsiveStageSessionStorageKey(projectScope, designFile),
-		[designFile, projectScope],
+		() => getResponsiveStageSessionStorageKey(projectScope, designId),
+		[designId, projectScope],
 	);
 	const responsiveSessionKeyRef = useRef(responsiveSessionKey);
+	// The stage view starts fresh for every visit to the design route, as it did
+	// when it was local state. Layout effects run before the stage's effects.
+	const initialStageViewRef = useRef({ projectScope, designId });
+	useLayoutEffect(() => {
+		const initial = initialStageViewRef.current;
+		resetStageView(
+			readResponsiveStageSessionWidth(initial.projectScope, initial.designId),
+		);
+		return () => resetStageView(RESPONSIVE_STAGE_DEFAULT_WIDTH);
+	}, []);
 	const skipNextResponsiveSessionSaveRef = useRef(false);
+	// The design file whose snapshot was last hydrated, so a live-sync reload of
+	// the open design can keep the active board instead of resetting it.
+	const hydratedDesignIdRef = useRef<string | null>(null);
 	const iframeRef = useRef<HTMLIFrameElement>(null);
 	const rootIds = useDesignRoots();
 	const view = useStageNavigation(iframeRef, didMount, {
@@ -145,7 +179,11 @@ export function Design() {
 		activeBoardId,
 		responsiveWidth,
 	});
-	useResponsiveStageFrame(iframeRef, { mode: stageMode, responsiveWidth });
+	useResponsiveStageFrame(
+		iframeRef,
+		{ mode: stageMode, responsiveWidth },
+		didMount,
+	);
 	useResponsiveBoardCycleShortcuts({
 		mode: stageMode,
 		rootIds,
@@ -155,13 +193,13 @@ export function Design() {
 	});
 	const handleStageMount = useCallback(() => setDidMount(true), []);
 	const designQuery = useQuery({
-		...designFileQueryOptions(designFile ?? "", projectScope),
-		enabled: designFile !== null,
+		...designFileQueryOptions(designId ?? "", projectScope),
+		enabled: designId !== null,
+		// Once open, the design follows the disk through change events, board
+		// by board; refetching the whole design on focus is not needed.
+		refetchOnWindowFocus: false,
 	});
 	const designSnapshot = designQuery.data;
-	const hasUnsavedChanges = useHasUnsavedChanges();
-	const persistedRevision = usePersistedDesignRevision();
-	const designSavePending = useDesignSavePending();
 
 	useEffect(() => {
 		if (uuid && designQuery.isSuccess) {
@@ -176,10 +214,9 @@ export function Design() {
 
 		responsiveSessionKeyRef.current = responsiveSessionKey;
 		skipNextResponsiveSessionSaveRef.current = true;
-		setResponsiveWidth(
-			readResponsiveStageSessionWidth(projectScope, designFile),
-		);
-	}, [designFile, projectScope, responsiveSessionKey]);
+		setResponsiveWidth(readResponsiveStageSessionWidth(projectScope, designId));
+		setResponsiveZoom("fit");
+	}, [designId, projectScope, responsiveSessionKey]);
 
 	useEffect(() => {
 		if (responsiveSessionKeyRef.current !== responsiveSessionKey) {
@@ -191,65 +228,72 @@ export function Design() {
 			return;
 		}
 
-		writeResponsiveStageSessionWidth(projectScope, designFile, responsiveWidth);
-	}, [designFile, projectScope, responsiveSessionKey, responsiveWidth]);
+		// The first render of a visit still holds the width from before the
+		// mount reset above; the render after it saves the right one.
+		if (responsiveWidth !== stageViewStore.get().responsiveWidth) {
+			return;
+		}
+
+		writeResponsiveStageSessionWidth(projectScope, designId, responsiveWidth);
+	}, [designId, projectScope, responsiveSessionKey, responsiveWidth]);
+
+	const applyHydratedActiveBoard = useCallback(
+		(snapshot: DesignFileSnapshot) => {
+			const isReload = hydratedDesignIdRef.current === designId;
+			hydratedDesignIdRef.current = designId;
+			const boardIds = snapshot.design.boards.map((board) => board.id);
+			setActiveBoardId((currentBoardId) =>
+				resolveActiveBoardAfterHydrate({ boardIds, currentBoardId, isReload }),
+			);
+		},
+		[designId],
+	);
 
 	useEffect(() => {
 		if (!designSnapshot) {
 			return;
 		}
-		const decision = getDesignSyncDecision({
-			snapshotRevision: designSnapshot.revision,
-			persistedRevision,
-			hasUnsavedChanges,
-			savePending: designSavePending,
-		});
-		if (decision === "ignore") return;
-
-		if (decision === "conflict") {
-			setExternalSnapshot(designSnapshot);
-			setExternalConflictPending(true);
+		if (hydratedDesignIdRef.current !== designId) {
+			hydrateDesign(
+				designSnapshot.design,
+				designSnapshot.revision,
+				designSnapshot.parts,
+			);
+			applyHydratedActiveBoard(designSnapshot);
+			setLiveDesignId(designId);
 			return;
 		}
-
-		hydrateDesign(designSnapshot.design, designSnapshot.revision);
-		setActiveBoardId(designSnapshot.design.boards[0]?.id ?? null);
-	}, [designSavePending, designSnapshot, hasUnsavedChanges, persistedRevision]);
-
-	useEffect(() => {
+		// A later read of the open design (a refetch after it was invalidated,
+		// or a save result) is reconciled board by board like any disk change.
+		const state = designStore.get();
 		if (
-			externalSnapshot &&
-			!hasUnsavedChanges &&
-			externalSnapshot.revision === persistedRevision
+			state.designSavePending ||
+			designSnapshot.revision === state.persistedRevision
 		) {
-			setExternalSnapshot(null);
-			setExternalConflictPending(false);
-		}
-	}, [externalSnapshot, hasUnsavedChanges, persistedRevision]);
-
-	const reloadExternalDesign = useCallback(() => {
-		if (!externalSnapshot) {
 			return;
 		}
-		forceHydrateDesign(externalSnapshot.design, externalSnapshot.revision);
-		setActiveBoardId(externalSnapshot.design.boards[0]?.id ?? null);
-		setExternalSnapshot(null);
-	}, [externalSnapshot]);
+		applyDiskDesign(
+			diskStateFromDesign(
+				designSnapshot.design,
+				designSnapshot.revision,
+				designSnapshot.parts,
+			),
+		);
+	}, [applyHydratedActiveBoard, designId, designSnapshot]);
 
-	const keepLocalDesign = useCallback(() => {
-		if (!externalSnapshot) {
-			return;
-		}
-		setPersistedDesignRevision(externalSnapshot.revision);
-		setExternalConflictPending(false);
-		setExternalSnapshot(null);
-	}, [externalSnapshot]);
+	useDesignLiveSync({
+		designId,
+		enabled: liveDesignId !== null && liveDesignId === designId,
+	});
+	useExternalChangeMarkers({ designId, iframeRef, didMount });
 
 	useEffect(() => {
 		setActiveBoardId((currentBoardId) =>
 			resolveResponsiveStageActiveBoardId(rootIds, currentBoardId),
 		);
 	}, [rootIds]);
+
+	useDesignDeepLink({ designId, hydratedDesignIdRef, rootIds });
 
 	const liveSystemId = useDesignSystemId();
 	const responsiveBreakpoints = useResolvedBreakpoints(liveSystemId);
@@ -284,24 +328,6 @@ export function Design() {
 		() => <DesignStage iframeRef={iframeRef} onMount={handleStageMount} />,
 		[handleStageMount],
 	);
-	const setClampedResponsiveWidth = useCallback(
-		(nextWidth: SetStateAction<number>) => {
-			setResponsiveWidth((currentWidth) =>
-				clampResponsiveStageWidth(
-					typeof nextWidth === "function" ? nextWidth(currentWidth) : nextWidth,
-				),
-			);
-		},
-		[],
-	);
-	const responsiveStageControls = useMemo(
-		() => ({
-			setMode: setStageMode,
-			setActiveBoardId,
-			setResponsiveWidth: setClampedResponsiveWidth,
-		}),
-		[setClampedResponsiveWidth],
-	);
 	const responsiveStage = useMemo(
 		() => ({
 			mode: stageMode,
@@ -310,17 +336,22 @@ export function Design() {
 			breakpoints: responsiveBreakpoints,
 			controls: responsiveStageControls,
 		}),
-		[
-			activeBoardId,
-			responsiveBreakpoints,
-			responsiveStageControls,
-			responsiveWidth,
-			stageMode,
-		],
+		[activeBoardId, responsiveBreakpoints, responsiveWidth, stageMode],
+	);
+
+	const responsiveStageZoom = useMemo(
+		() => ({
+			zoom: responsiveZoom,
+			fitScale: responsiveFitScale,
+			scale: resolveResponsiveStageScale(responsiveZoom, responsiveFitScale),
+			setZoom: setResponsiveZoom,
+			setFitScale: setResponsiveFitScale,
+		}),
+		[responsiveFitScale, responsiveZoom],
 	);
 
 	// TODO: make isLoading and hasError work with a rendered sidebar and iframe
-	if (!designFile) {
+	if (!designId) {
 		return (
 			<div className="absolute left-3 top-3 z-30 bg-red-500 px-2 py-1 text-xs text-white">
 				Missing design id
@@ -348,22 +379,14 @@ export function Design() {
 		<>
 			<IFrameViewContext.Provider value={view}>
 				<ResponsiveStageContext.Provider value={responsiveStage}>
-					<StagePreviewDarkModeProvider key={designFile}>
-						<EditorShell designFile={designFile}>{stage}</EditorShell>
-					</StagePreviewDarkModeProvider>
+					<ResponsiveStageZoomContext.Provider value={responsiveStageZoom}>
+						<StagePreviewDarkModeProvider key={designId}>
+							<EditorShell designId={designId}>{stage}</EditorShell>
+						</StagePreviewDarkModeProvider>
+					</ResponsiveStageZoomContext.Provider>
 				</ResponsiveStageContext.Provider>
 			</IFrameViewContext.Provider>
-			<ConfirmationDialog
-				open={externalSnapshot !== null}
-				onOpenChange={() => undefined}
-				title="Design changed on disk"
-				description="Another browser or agent changed this design while you have unsaved edits. Reload the disk version or keep your local version and save it over the newer revision."
-				icon={<RefreshCw className="size-4" aria-hidden="true" />}
-				actionLabel="Reload from disk"
-				cancelLabel="Keep mine"
-				onAction={reloadExternalDesign}
-				onCancel={keepLocalDesign}
-			/>
+			<DesignConflictDialog />
 		</>
 	);
 }

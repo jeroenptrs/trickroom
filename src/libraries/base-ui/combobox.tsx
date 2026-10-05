@@ -5,7 +5,10 @@ import {
 	forwardRef,
 	useContext,
 } from "react";
-import { useFrame } from "react-frame-component";
+import {
+	useStagePortalContainer,
+	useStagePositionerProps,
+} from "../stage-portal";
 import { renderFallback } from "./render-fallback";
 
 type ComboboxRootProps = ComponentPropsWithoutRef<typeof Combobox.Root>;
@@ -146,12 +149,13 @@ export const ComboboxStatus = forwardRef<HTMLDivElement, ComboboxStatusProps>(
 export const ComboboxPortal = forwardRef<HTMLDivElement, ComboboxPortalProps>(
 	function ComboboxPortal({ children, ...props }, ref) {
 		const isInsideComboboxRoot = useContext(ComboboxRootRenderContext);
-		const { document: frameDocument } = useFrame();
+		const resolvedContainer = useStagePortalContainer(
+			props.container,
+			isInsideComboboxRoot,
+		);
 
 		if (isInsideComboboxRoot) {
-			const { container, ...portalProps } = props;
-			const resolvedContainer =
-				container === undefined ? frameDocument?.body : container;
+			const { container: _container, ...portalProps } = props;
 
 			return (
 				<ComboboxPortalRenderContext.Provider value={true}>
@@ -193,13 +197,14 @@ export const ComboboxPositioner = forwardRef<
 	HTMLDivElement,
 	ComboboxPositionerProps
 >(function ComboboxPositioner(props, ref) {
+	const stagePositionerProps = useStagePositionerProps(props);
 	const isInsideComboboxRoot = useContext(ComboboxRootRenderContext);
 	const isInsideComboboxPortal = useContext(ComboboxPortalRenderContext);
 
 	if (isInsideComboboxRoot && isInsideComboboxPortal) {
 		return (
 			<ComboboxPositionerRenderContext.Provider value={true}>
-				<Combobox.Positioner {...props} ref={ref} />
+				<Combobox.Positioner {...stagePositionerProps} ref={ref} />
 			</ComboboxPositionerRenderContext.Provider>
 		);
 	}

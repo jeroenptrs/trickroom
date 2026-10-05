@@ -1,6 +1,6 @@
 export {
 	type ClassifyContext,
-	type ClassifyOptions,
+	type ClassNameOptions,
 	type ColorIntent,
 	type CustomFunctionalIntent,
 	classifyParsedClass,
@@ -12,28 +12,6 @@ export {
 	type UtilityIntent,
 } from "./classify";
 export type { UtilityDomain } from "./domains";
-export {
-	buildPropertyModel,
-	type ColorMutation,
-	type ColorValue,
-	clearColor,
-	clearSpacing,
-	clearStyle,
-	type ModeBucket,
-	type ModelOptions,
-	type PropertyEntry,
-	type PropertyKey,
-	type PropertyModel,
-	type SpacingIntent,
-	type SpacingMutation,
-	type SpacingProperty,
-	type SpacingValue,
-	type StyleMutation,
-	serialize,
-	setColor,
-	setSpacing,
-	setStyle,
-} from "./model";
 export {
 	type ParseClassNameOptions,
 	type ParsedClass,
@@ -54,12 +32,4 @@ export {
 	type UtilityConflictScope,
 	utilityScopesMayConflict,
 } from "./scope";
-export {
-	DEFAULT_MODE,
-	formatWithVariantChain,
-	resolveSlotTarget,
-	type SlotKeys,
-	type SlotTarget,
-	slotKeysFromParsed,
-} from "./slots";
-export { SPACING_PROPERTY_TO_PREFIX } from "./spacing";
+export type { SpacingIntent } from "./spacing";

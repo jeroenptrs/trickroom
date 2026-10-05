@@ -87,11 +87,6 @@ export const collectRecipeTemplateNodes = (
 	return nodes;
 };
 
-export const collectRecipeTemplatePaths = (
-	root: RecipeTemplateNode,
-): Set<string> =>
-	new Set(collectRecipeTemplateNodes(root).map((node) => node.path));
-
 export function hashSystemComponentTemplate(
 	payload: Pick<
 		SystemComponentDraftPayload,
@@ -869,24 +864,4 @@ export function validateSystemComponentManifest(
 		valid: diagnostics.every((entry) => entry.severity !== "error"),
 		diagnostics,
 	};
-}
-
-export function assertValidSystemComponentManifest(
-	manifest: SystemComponentManifest,
-	options?: { verifyPublishedHashes?: boolean },
-): void {
-	const result = validateSystemComponentManifest(manifest, options);
-	if (result.valid) {
-		return;
-	}
-
-	const messages = result.diagnostics
-		.filter((entry) => entry.severity === "error")
-		.map((entry) => entry.message)
-		.join(" ");
-
-	throw new SystemComponentManifestError(
-		"INVALID_COMPONENT_MANIFEST",
-		messages,
-	);
 }

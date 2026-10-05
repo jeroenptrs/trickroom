@@ -79,30 +79,6 @@ const fetchSystemComponentsUsage = async (
 	return readJsonOrThrow<SystemComponentUsageResponse>(response);
 };
 
-export const fetchDesignSystemComponentUsage = async (
-	designFile: string,
-	options: {
-		systemId?: string;
-		componentId?: string;
-		version?: string;
-	} = {},
-) => {
-	const params = new URLSearchParams({ file: designFile });
-	if (options.systemId) {
-		params.set("systemId", options.systemId);
-	}
-	if (options.componentId) {
-		params.set("componentId", options.componentId);
-	}
-	if (options.version) {
-		params.set("version", options.version);
-	}
-	const response = await fetch(
-		`/api/trickroom/design/system-component-usage?${params.toString()}`,
-	);
-	return readJsonOrThrow<DesignSystemComponentUsageResponse>(response);
-};
-
 export const systemComponentUsedByQueryKey = (
 	systemId: string,
 	componentId: string,
@@ -141,22 +117,6 @@ export const systemComponentsUsageQueryKey = (
 			systemId,
 			options.version ?? null,
 			options.designFileId ?? null,
-		],
-		projectScope,
-	);
-
-export const designSystemComponentUsageQueryKey = (
-	designFile: string,
-	projectScope?: ProjectQueryScope,
-	options: { systemId?: string; componentId?: string; version?: string } = {},
-) =>
-	withProjectQueryScope(
-		[
-			"trickroom-design-system-component-usage",
-			designFile,
-			options.systemId ?? null,
-			options.componentId ?? null,
-			options.version ?? null,
 		],
 		projectScope,
 	);
@@ -201,20 +161,5 @@ export const systemComponentsUsageQueryOptions = (
 	queryOptions({
 		queryKey: systemComponentsUsageQueryKey(systemId, projectScope, options),
 		queryFn: () => fetchSystemComponentsUsage(systemId, options),
-		retry: false,
-	});
-
-export const designSystemComponentUsageQueryOptions = (
-	designFile: string,
-	projectScope?: ProjectQueryScope,
-	options: { systemId?: string; componentId?: string; version?: string } = {},
-) =>
-	queryOptions({
-		queryKey: designSystemComponentUsageQueryKey(
-			designFile,
-			projectScope,
-			options,
-		),
-		queryFn: () => fetchDesignSystemComponentUsage(designFile, options),
 		retry: false,
 	});

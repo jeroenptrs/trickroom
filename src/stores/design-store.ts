@@ -15,15 +15,11 @@ import {
 } from "../recipes/controls";
 import { detachRecipeInstance } from "../recipes/detach";
 import { expandRegistryRecipe } from "../recipes/expansion";
-import { omitRecipeMarkerProps, recipeInstanceProp } from "../recipes/markers";
 import { updateStaleRecipeInstance } from "../recipes/migration";
 import {
 	canDeleteElementAcrossRecipeBoundary,
 	canInsertIntoRecipeBoundary,
 	canMoveElementAcrossRecipeBoundary,
-	getElementRecipeMetadata,
-	getRecipeOwnedStructuralIds,
-	isRecipeRoot,
 } from "../recipes/ownership";
 import {
 	getRecipeSlotCandidateForExistingNode,
@@ -38,10 +34,6 @@ import type {
 	Role,
 	TrickroomDesign,
 } from "../types";
-import {
-	bulkMigrateDesignSystemComponentInstances,
-	type SystemComponentBulkMigrationDesignReport,
-} from "../utils/system-component-bulk-migration-design";
 import { detachSystemComponentInstance } from "../utils/system-component-detach";
 import {
 	type SystemComponentInstanceMigrationContext,
@@ -56,25 +48,21 @@ import {
 	setSystemComponentVariantValueOnRoots,
 	updateSystemComponentInstanceOnRoots,
 } from "../utils/system-component-instance-update";
-import {
-	isSystemComponentMarkerPropKey,
-	omitSystemComponentMarkerProps,
-	systemComponentInstanceProp,
-} from "../utils/system-component-markers";
+import { isSystemComponentMarkerPropKey } from "../utils/system-component-markers";
 import {
 	canDeleteElementAcrossSystemComponentBoundary,
 	canInsertIntoSystemComponentBoundary,
 	canMoveElementAcrossSystemComponentBoundary,
 	canUpdateSystemComponentStructuralNode,
-	getElementSystemComponentMetadata,
-	getSystemComponentOwnedStructuralIds,
 	isSystemComponentOwnedStructuralNode,
-	isSystemComponentRoot,
 } from "../utils/system-component-ownership";
-import type {
-	PublishedSystemComponentVersion,
-	SystemComponentManifest,
-} from "../utils/system-components";
+import type { PublishedSystemComponentVersion } from "../utils/system-components";
+import {
+	type DesignManifest,
+	isSameJson,
+	isSameManifest,
+	type ManifestField,
+} from "./design-merge";
 
 export type ComponentSelection = Pick<
 	Props,
@@ -90,7 +78,64 @@ export type DesignEntity = {
 	text?: string;
 };
 
+/** A board as last read from or written to disk. */
+export type DesignBaseBoard = {
+	node: Node;
+	/** The board's revision on disk; null when the server did not report it. */
+	revision: string | null;
+};
+
+/**
+ * The last version of each part of the design known to be on disk: what the
+ * local edits are based on. Live sync compares disk changes against it to
+ * tell external changes from local ones, and merges against it.
+ */
+export type DesignBase = {
+	manifest: DesignManifest;
+	manifestRevision: string | null;
+	order: string[];
+	boards: Record<string, DesignBaseBoard>;
+};
+
+export type BoardConflict = {
+	boardId: string;
+	/** Layer name of the board, for the dialog. */
+	name: string;
+	/**
+	 * `changed`: changed here and on disk; `deleted-on-disk`: changed here,
+	 * deleted on disk; `deleted-here`: deleted here, changed on disk.
+	 */
+	reason: "changed" | "deleted-on-disk" | "deleted-here";
+	/** Layers changed on both sides (empty when the conflict is not per layer). */
+	nodeIds: string[];
+	/** The disk version, or null when the board is deleted on disk. */
+	theirs: Node | null;
+	theirsRevision: string | null;
+};
+
+/** Disk changes that conflict with unsaved local edits, waiting for a choice. */
+export type DesignConflicts = {
+	/** The disk state the conflicts were found against. */
+	disk: DiskDesignRevisions;
+	boards: BoardConflict[];
+	manifest: {
+		theirs: DesignManifest;
+		fields: ManifestField[];
+	} | null;
+	order: { theirs: string[] } | null;
+};
+
+/** The revisions of every part of a design on disk. */
+export type DiskDesignRevisions = {
+	/** The design revision of exactly this state; null when not known. */
+	revision: DesignFileRevision | null;
+	manifestRevision: string | null;
+	order: string[];
+	boardRevisions: Record<string, string | null>;
+};
+
 export type DesignStoreState = {
+	version?: TrickroomDesign["version"];
 	name: string;
 	systemId?: string | null;
 	systemName?: string | null;
@@ -98,13 +143,34 @@ export type DesignStoreState = {
 	rootIds: string[];
 	entitiesById: Record<string, DesignEntity>;
 	selectedId: string | null;
+	/** Nodes changed locally since the last save (informational). */
 	dirtyIds: Record<string, true>;
 	designDirty: boolean;
 	revision: number;
 	persistedRevision?: DesignFileRevision | null;
 	externalConflictPending?: boolean;
 	designSavePending?: boolean;
+	/** What local edits are based on; null before a design is loaded. */
+	base?: DesignBase | null;
+	/**
+	 * Boards with unsaved local edits (including boards added or deleted
+	 * locally), each with the store revision of its latest edit, so a save can
+	 * tell edits it carried from edits made while it was in flight.
+	 */
+	dirtyBoards?: Record<string, number>;
+	/** Store revision of the latest unsaved change to name or system. */
+	manifestDirtyAt?: number | null;
+	/** Store revision of the latest unsaved reorder of boards. */
+	orderDirtyAt?: number | null;
+	conflicts?: DesignConflicts | null;
 };
+
+const cleanSyncState = {
+	dirtyBoards: {},
+	manifestDirtyAt: null,
+	orderDirtyAt: null,
+	conflicts: null,
+} satisfies Partial<DesignStoreState>;
 
 const emptyState: DesignStoreState = {
 	name: "",
@@ -117,13 +183,31 @@ const emptyState: DesignStoreState = {
 	persistedRevision: null,
 	externalConflictPending: false,
 	designSavePending: false,
+	base: null,
+	...cleanSyncState,
 };
 const emptyIds: string[] = [];
 
 export const designStore = createStore<DesignStoreState>(emptyState);
 
-const canHaveChildren = (entity: DesignEntity | null | undefined) =>
-	!!entity && canHaveElementChildren(entity.role);
+const canHaveChildren = (
+	entity: DesignEntity | null | undefined,
+): entity is DesignEntity => !!entity && canHaveElementChildren(entity.role);
+
+/**
+ * Resolves where an insertion lands: `{ parent: null }` for the root level,
+ * the parent entity when it accepts children, or null when it does not.
+ */
+function resolveInsertionParent(
+	state: DesignStoreState,
+	targetParentId: string | null,
+): { parent: DesignEntity | null } | null {
+	if (!targetParentId) {
+		return { parent: null };
+	}
+	const parent = state.entitiesById[targetParentId];
+	return canHaveChildren(parent) ? { parent } : null;
+}
 
 function getComponentDefinition(selection: ComponentSelection) {
 	return getLibraryComponent(
@@ -146,10 +230,44 @@ function createComponentProps(
 	return getDefaultProps(library, component, definition, name);
 }
 
-function normalizeEntity(
+const isSameIdList = (left?: string[], right?: string[]) =>
+	left === right ||
+	(left !== undefined &&
+		right !== undefined &&
+		left.length === right.length &&
+		left.every((id, index) => id === right[index]));
+
+/**
+ * Returns `previous` when it describes the same node as `next`, so stores and
+ * subscribers comparing entities by reference see no change for nodes a
+ * reload did not touch.
+ */
+function reuseEntity(
+	next: DesignEntity,
+	previous: DesignEntity | undefined,
+): DesignEntity {
+	if (
+		!previous ||
+		previous.parentId !== next.parentId ||
+		previous.role !== next.role ||
+		previous.text !== next.text ||
+		!isSameIdList(previous.childIds, next.childIds) ||
+		!isSameJson(previous.props, next.props)
+	) {
+		return next;
+	}
+	return previous;
+}
+
+/**
+ * Normalizes a node tree into `entitiesById`. With `previousEntitiesById`,
+ * structurally unchanged nodes keep their existing entity object.
+ */
+export function normalizeEntity(
 	data: Node,
 	parentId: string | null,
 	entitiesById: Record<string, DesignEntity>,
+	previousEntitiesById?: Record<string, DesignEntity>,
 ) {
 	const role = normalizeRole(data.props["data-trickroom-role"]);
 	const entity: DesignEntity = {
@@ -158,38 +276,35 @@ function normalizeEntity(
 		parentId,
 		role,
 	};
-
+	// Parents are inserted before their children, as callers iterate in order.
 	entitiesById[data.id] = entity;
 
 	if (role === "text") {
 		entity.text = typeof data.children === "string" ? data.children : "";
-		return;
-	}
-
-	if (role === "leaf") {
+	} else if (role === "leaf" || typeof data.children === "string") {
 		entity.childIds = [];
-		return;
+	} else {
+		entity.childIds = data.children.map((child) => child.id);
+		for (const child of data.children) {
+			normalizeEntity(child, data.id, entitiesById, previousEntitiesById);
+		}
 	}
 
-	if (typeof data.children === "string") {
-		entity.childIds = [];
-		return;
-	}
-
-	entity.childIds = data.children.map((child) => child.id);
-	for (const child of data.children) {
-		normalizeEntity(child, data.id, entitiesById);
-	}
+	entitiesById[data.id] = reuseEntity(entity, previousEntitiesById?.[data.id]);
 }
 
-export function normalizeDesign(design: TrickroomDesign): DesignStoreState {
+export function normalizeDesign(
+	design: TrickroomDesign,
+	previousEntitiesById?: Record<string, DesignEntity>,
+): DesignStoreState {
 	const entitiesById: Record<string, DesignEntity> = {};
 
 	for (const board of design.boards) {
-		normalizeEntity(board, null, entitiesById);
+		normalizeEntity(board, null, entitiesById, previousEntitiesById);
 	}
 
 	return {
+		...(design.version !== undefined ? { version: design.version } : {}),
 		name: design.name,
 		...(design.systemId !== undefined ? { systemId: design.systemId } : {}),
 		...(design.systemName !== undefined
@@ -207,10 +322,12 @@ export function normalizeDesign(design: TrickroomDesign): DesignStoreState {
 		persistedRevision: null,
 		externalConflictPending: false,
 		designSavePending: false,
+		base: null,
+		...cleanSyncState,
 	};
 }
 
-function serializeEntity(
+export function serializeEntity(
 	entityId: string,
 	entitiesById: Record<string, DesignEntity>,
 ): Node {
@@ -235,6 +352,7 @@ function serializeEntity(
 
 export function serializeDesignState(state: DesignStoreState): TrickroomDesign {
 	return {
+		...(state.version !== undefined ? { version: state.version } : {}),
 		name: state.name,
 		...(state.systemId !== undefined ? { systemId: state.systemId } : {}),
 		...(state.systemId === undefined && state.systemName !== undefined
@@ -249,230 +367,192 @@ export function serializeDesignState(state: DesignStoreState): TrickroomDesign {
 	};
 }
 
-const collectSubtreeIds = (
-	rootId: string,
-	entitiesById: Record<string, DesignEntity>,
-) => {
-	const ids = new Set<string>();
-	const visit = (id: string) => {
-		const entity = entitiesById[id];
-		if (!entity || ids.has(id)) {
-			return;
-		}
-		ids.add(id);
-		for (const childId of entity.childIds ?? []) {
-			visit(childId);
-		}
-	};
-	visit(rootId);
-	return ids;
-};
-
-type ClonePolicy = {
-	preserveRecipeInstanceIds: Record<string, string | null>;
-	preserveComponentInstanceIds: Record<string, string | null>;
-	stripRecipeInstanceIds: Set<string>;
-	stripComponentInstanceIds: Set<string>;
-};
-
-const getExtractClonePolicy = (
-	rootId: string,
-	entitiesById: Record<string, DesignEntity>,
-): ClonePolicy => {
-	const subtreeIds = collectSubtreeIds(rootId, entitiesById);
-	const recipeInstanceIds = new Set<string>();
-	const componentInstanceIds = new Set<string>();
-
-	for (const id of subtreeIds) {
-		const recipeMetadata = getElementRecipeMetadata(entitiesById[id]);
-		if (recipeMetadata) {
-			recipeInstanceIds.add(recipeMetadata.instanceId);
-		}
-		const componentMetadata = getElementSystemComponentMetadata(
-			entitiesById[id],
-		);
-		if (componentMetadata) {
-			componentInstanceIds.add(componentMetadata.instanceId);
-		}
-	}
-
-	const policy: ClonePolicy = {
-		preserveRecipeInstanceIds: {},
-		preserveComponentInstanceIds: {},
-		stripRecipeInstanceIds: new Set(),
-		stripComponentInstanceIds: new Set(),
-	};
-
-	for (const instanceId of recipeInstanceIds) {
-		const structuralIds = getRecipeOwnedStructuralIds(entitiesById, instanceId);
-		const hasCompleteStructure =
-			structuralIds.length > 0 &&
-			structuralIds.every((structuralId) => subtreeIds.has(structuralId)) &&
-			structuralIds.some((structuralId) =>
-				isRecipeRoot(entitiesById[structuralId]),
-			);
-		if (hasCompleteStructure) {
-			policy.preserveRecipeInstanceIds[instanceId] = null;
-		} else {
-			policy.stripRecipeInstanceIds.add(instanceId);
-		}
-	}
-
-	for (const instanceId of componentInstanceIds) {
-		const structuralIds = getSystemComponentOwnedStructuralIds(
-			entitiesById,
-			instanceId,
-		);
-		const hasCompleteStructure =
-			structuralIds.length > 0 &&
-			structuralIds.every((structuralId) => subtreeIds.has(structuralId)) &&
-			structuralIds.some((structuralId) =>
-				isSystemComponentRoot(entitiesById[structuralId]),
-			);
-		if (hasCompleteStructure) {
-			policy.preserveComponentInstanceIds[instanceId] = null;
-		} else {
-			policy.stripComponentInstanceIds.add(instanceId);
-		}
-	}
-
-	return policy;
-};
-
-const cloneExtractedProps = (
-	entity: DesignEntity,
-	policy: ClonePolicy,
-): Props => {
-	let props = { ...entity.props };
-	const recipeMetadata = getElementRecipeMetadata(entity);
-	if (recipeMetadata) {
-		if (
-			Object.hasOwn(policy.preserveRecipeInstanceIds, recipeMetadata.instanceId)
-		) {
-			const instanceId =
-				policy.preserveRecipeInstanceIds[recipeMetadata.instanceId] ??
-				crypto.randomUUID();
-			policy.preserveRecipeInstanceIds[recipeMetadata.instanceId] = instanceId;
-			props = { ...props, [recipeInstanceProp]: instanceId };
-		} else if (policy.stripRecipeInstanceIds.has(recipeMetadata.instanceId)) {
-			props = omitRecipeMarkerProps(props);
-		}
-	}
-
-	const componentMetadata = getElementSystemComponentMetadata(entity);
-	if (componentMetadata) {
-		if (
-			Object.hasOwn(
-				policy.preserveComponentInstanceIds,
-				componentMetadata.instanceId,
-			)
-		) {
-			const instanceId =
-				policy.preserveComponentInstanceIds[componentMetadata.instanceId] ??
-				crypto.randomUUID();
-			policy.preserveComponentInstanceIds[componentMetadata.instanceId] =
-				instanceId;
-			props = { ...props, [systemComponentInstanceProp]: instanceId };
-		} else if (
-			policy.stripComponentInstanceIds.has(componentMetadata.instanceId)
-		) {
-			props = omitSystemComponentMarkerProps(props);
-		}
-	}
-
-	return props;
-};
-
-const serializeExtractedEntity = (
-	entityId: string,
-	entitiesById: Record<string, DesignEntity>,
-	policy: ClonePolicy,
-): Node => {
-	const entity = entitiesById[entityId];
-	if (!entity) {
-		throw new Error(`Cannot serialize missing design entity: ${entityId}`);
-	}
-
-	const children =
-		entity.role === "text"
-			? (entity.text ?? "")
-			: (entity.childIds ?? []).map((childId) =>
-					serializeExtractedEntity(childId, entitiesById, policy),
-				);
-
-	return {
-		id: crypto.randomUUID(),
-		props: cloneExtractedProps(entity, policy),
-		children: children as string | Node[],
-	};
-};
-
-export function extractSubtreeToDesign(
-	id: string,
-	options: { name?: string } = {},
-): TrickroomDesign {
-	const state = designStore.get();
-	const entity = state.entitiesById[id];
-	if (!entity) {
-		throw new Error(`Cannot extract missing design entity: ${id}`);
-	}
-
-	const requestedName = options.name;
-	const rawName = requestedName ?? entity.props["data-trickroom-name"];
-	const name =
-		typeof rawName === "string" && rawName.trim().length > 0
-			? rawName.trim()
-			: requestedName !== undefined
-				? (() => {
-						throw new Error('Parameter "name" must not be blank.');
-					})()
-				: state.name;
-	const policy = getExtractClonePolicy(id, state.entitiesById);
-
-	return {
-		name,
-		...(state.systemId !== undefined ? { systemId: state.systemId } : {}),
-		...(state.systemId === undefined && state.systemName !== undefined
-			? { systemName: state.systemName }
-			: {}),
-		boards: [serializeExtractedEntity(id, state.entitiesById, policy)],
-	};
-}
-
 const hasDirtyChanges = (state: DesignStoreState) =>
-	state.designDirty || Object.keys(state.dirtyIds).length > 0;
+	state.designDirty ||
+	Object.keys(state.dirtyIds).length > 0 ||
+	Object.keys(state.dirtyBoards ?? {}).length > 0 ||
+	(state.manifestDirtyAt ?? null) !== null ||
+	(state.orderDirtyAt ?? null) !== null;
+
+/**
+ * Whether leaving the open design now could lose work: unsaved edits, a save
+ * in flight or an unresolved conflict with the disk version.
+ */
+export const hasPendingDesignWork = (state = designStore.get()) =>
+	hasDirtyChanges(state) ||
+	(state.externalConflictPending ?? false) ||
+	(state.conflicts ?? null) !== null ||
+	(state.designSavePending ?? false);
 
 const isSameSerializedDesign = (
 	state: DesignStoreState,
 	design: TrickroomDesign,
 ) => JSON.stringify(serializeDesignState(state)) === JSON.stringify(design);
 
+/** The revision of each part of a design, as the server reports it. */
+export type DesignPartRevisions = {
+	manifest: string;
+	boards: { id: string; revision: string }[];
+};
+
+/** The board a node belongs to, or null when it is not in the tree. */
+export function getBoardIdOf(
+	entitiesById: Record<string, DesignEntity>,
+	id: string,
+): string | null {
+	let current = entitiesById[id];
+	const seen = new Set<string>();
+	while (current && current.parentId !== null && !seen.has(current.id)) {
+		seen.add(current.id);
+		current = entitiesById[current.parentId];
+	}
+	return current && current.parentId === null ? current.id : null;
+}
+
+export const getDesignManifest = (
+	state: Pick<
+		DesignStoreState,
+		"name" | "systemId" | "systemName" | "componentMigrationPolicy"
+	>,
+): DesignManifest => ({
+	name: state.name,
+	...(state.systemId !== undefined ? { systemId: state.systemId } : {}),
+	...(state.systemName !== undefined ? { systemName: state.systemName } : {}),
+	...(state.componentMigrationPolicy !== undefined
+		? { componentMigrationPolicy: state.componentMigrationPolicy }
+		: {}),
+});
+
+/** A base for a design just read from disk. */
+export function createDesignBase(
+	design: TrickroomDesign,
+	parts?: DesignPartRevisions | null,
+): DesignBase {
+	const revisions = new Map(
+		(parts?.boards ?? []).map((board) => [board.id, board.revision]),
+	);
+	return {
+		manifest: getDesignManifest(design),
+		manifestRevision: parts?.manifest ?? null,
+		order: design.boards.map((board) => board.id),
+		boards: Object.fromEntries(
+			design.boards.map((board) => [
+				board.id,
+				{ node: board, revision: revisions.get(board.id) ?? null },
+			]),
+		),
+	};
+}
+
+/**
+ * Records which parts of the design a local edit touched: the boards of every
+ * node it marked dirty (where the node was and where it is now, so a move
+ * marks both boards), boards it added or removed, a change to the relative
+ * order of boards, and changes to the design's top-level fields.
+ */
+function trackLocalChange(
+	previous: DesignStoreState,
+	next: DesignStoreState,
+): DesignStoreState {
+	if (next === previous) {
+		return next;
+	}
+	const at = next.revision;
+	let dirtyBoards = next.dirtyBoards ?? {};
+	let copied = false;
+	const mark = (boardId: string | null) => {
+		if (boardId === null || dirtyBoards[boardId] === at) {
+			return;
+		}
+		if (!copied) {
+			dirtyBoards = { ...dirtyBoards };
+			copied = true;
+		}
+		dirtyBoards[boardId] = at;
+	};
+
+	for (const id of Object.keys(next.dirtyIds)) {
+		if (
+			previous.dirtyIds[id] &&
+			previous.entitiesById[id] === next.entitiesById[id]
+		) {
+			continue;
+		}
+		mark(getBoardIdOf(next.entitiesById, id));
+		mark(getBoardIdOf(previous.entitiesById, id));
+	}
+
+	let orderDirtyAt = next.orderDirtyAt ?? null;
+	if (previous.rootIds !== next.rootIds) {
+		const before = new Set(previous.rootIds);
+		const after = new Set(next.rootIds);
+		for (const id of next.rootIds) {
+			if (!before.has(id)) mark(id);
+		}
+		for (const id of previous.rootIds) {
+			if (!after.has(id)) mark(id);
+		}
+		const kept = next.rootIds.filter((id) => before.has(id));
+		const keptBefore = previous.rootIds.filter((id) => after.has(id));
+		if (kept.some((id, index) => keptBefore[index] !== id)) {
+			orderDirtyAt = at;
+		}
+	}
+
+	const manifestDirtyAt = isSameManifest(
+		getDesignManifest(previous),
+		getDesignManifest(next),
+	)
+		? (next.manifestDirtyAt ?? null)
+		: at;
+
+	return { ...next, dirtyBoards, manifestDirtyAt, orderDirtyAt };
+}
+
+/** Applies a local edit and records which parts of the design it touched. */
+function mutateDesign(update: (state: DesignStoreState) => DesignStoreState) {
+	designStore.setState((state) => trackLocalChange(state, update(state)));
+}
+
+const keepSelection = (
+	selectedId: string | null,
+	entitiesById: Record<string, DesignEntity>,
+) => (selectedId && entitiesById[selectedId] ? selectedId : null);
+
 export function hydrateDesign(
 	design: TrickroomDesign,
 	persistedRevision?: DesignFileRevision,
+	parts?: DesignPartRevisions | null,
 ) {
 	designStore.setState((state) => {
-		if (hasDirtyChanges(state)) {
+		if (hasDirtyChanges(state) || state.conflicts) {
 			return state;
 		}
 
 		if (isSameSerializedDesign(state, design)) {
-			return persistedRevision && state.persistedRevision !== persistedRevision
-				? { ...state, persistedRevision }
-				: state;
+			if (
+				(!persistedRevision || state.persistedRevision === persistedRevision) &&
+				state.base &&
+				!parts
+			) {
+				return state;
+			}
+			return {
+				...state,
+				persistedRevision: persistedRevision ?? state.persistedRevision ?? null,
+				base: createDesignBase(design, parts),
+			};
 		}
 
-		const nextState = normalizeDesign(design);
+		const nextState = normalizeDesign(design, state.entitiesById);
 		return {
 			...nextState,
 			revision: state.revision + 1,
 			persistedRevision: persistedRevision ?? state.persistedRevision ?? null,
+			base: createDesignBase(design, parts),
 			externalConflictPending: false,
 			designSavePending: false,
-			selectedId:
-				state.selectedId && nextState.entitiesById[state.selectedId]
-					? state.selectedId
-					: null,
+			selectedId: keepSelection(state.selectedId, nextState.entitiesById),
 		};
 	});
 }
@@ -480,18 +560,17 @@ export function hydrateDesign(
 export function forceHydrateDesign(
 	design: TrickroomDesign,
 	persistedRevision: DesignFileRevision,
+	parts?: DesignPartRevisions | null,
 ) {
 	designStore.setState((state) => {
-		const nextState = normalizeDesign(design);
+		const nextState = normalizeDesign(design, state.entitiesById);
 		return {
 			...nextState,
 			revision: state.revision + 1,
 			persistedRevision,
+			base: createDesignBase(design, parts),
 			externalConflictPending: false,
-			selectedId:
-				state.selectedId && nextState.entitiesById[state.selectedId]
-					? state.selectedId
-					: null,
+			selectedId: keepSelection(state.selectedId, nextState.entitiesById),
 		};
 	});
 }
@@ -534,7 +613,7 @@ export function selectElement(id: string | null) {
 }
 
 export function updateElementProps(id: string, patch: Partial<Props>) {
-	designStore.setState((state) => {
+	mutateDesign((state) => {
 		const entity = state.entitiesById[id];
 		if (!entity) {
 			return state;
@@ -595,7 +674,7 @@ export function updateRecipeControl(
 	prop: string,
 	value: JsonPrimitive,
 ) {
-	designStore.setState((state) => {
+	mutateDesign((state) => {
 		const target = findRecipeControlTargetElement(
 			state.entitiesById,
 			instanceId,
@@ -640,7 +719,7 @@ export function renameElement(id: string, name: string) {
 }
 
 export function updateElementText(id: string, text: string) {
-	designStore.setState((state) => {
+	mutateDesign((state) => {
 		const entity = state.entitiesById[id];
 		if (!entity || entity.role !== "text") {
 			return state;
@@ -683,14 +762,12 @@ export function addElement(
 	targetParentId: string | null,
 	index: number,
 ) {
-	designStore.setState((state) => {
-		const targetParent = targetParentId
-			? state.entitiesById[targetParentId]
-			: null;
-
-		if (targetParentId && !canHaveChildren(targetParent)) {
+	mutateDesign((state) => {
+		const insertion = resolveInsertionParent(state, targetParentId);
+		if (!insertion) {
 			return state;
 		}
+		const targetParent = insertion.parent;
 
 		if (!canInsertIntoRecipeBoundary(state.entitiesById, targetParentId)) {
 			return state;
@@ -715,8 +792,8 @@ export function addElement(
 		const role = getComponentRole(selection);
 		const componentName = selection["data-trickroom-component"];
 		const definition = getComponentDefinition(selection);
-		const siblingIds = targetParentId
-			? (targetParent?.childIds ?? [])
+		const siblingIds = targetParent
+			? (targetParent.childIds ?? [])
 			: state.rootIds;
 		const siblingProps = siblingIds.flatMap(
 			(siblingId) => state.entitiesById[siblingId]?.props ?? [],
@@ -744,20 +821,19 @@ export function addElement(
 		};
 
 		let nextRootIds = state.rootIds;
-		const nextDirtyIds = {
+		const nextDirtyIds: Record<string, true> = {
 			...state.dirtyIds,
 			[id]: true,
 		};
 
-		if (!targetParentId) {
+		if (!targetParent) {
 			nextRootIds = insertAt(nextRootIds, id, index);
 		} else {
-			const parentChildIds = targetParent.childIds ?? [];
-			nextEntitiesById[targetParentId] = {
+			nextEntitiesById[targetParent.id] = {
 				...targetParent,
-				childIds: insertAt(parentChildIds, id, index),
+				childIds: insertAt(targetParent.childIds ?? [], id, index),
 			};
-			nextDirtyIds[targetParentId] = true;
+			nextDirtyIds[targetParent.id] = true;
 		}
 
 		return {
@@ -776,14 +852,12 @@ export function addRecipe(
 	targetParentId: string | null,
 	index: number,
 ) {
-	designStore.setState((state) => {
-		const targetParent = targetParentId
-			? state.entitiesById[targetParentId]
-			: null;
-
-		if (targetParentId && !canHaveChildren(targetParent)) {
+	mutateDesign((state) => {
+		const insertion = resolveInsertionParent(state, targetParentId);
+		if (!insertion) {
 			return state;
 		}
+		const targetParent = insertion.parent;
 
 		if (!canInsertIntoRecipeBoundary(state.entitiesById, targetParentId)) {
 			return state;
@@ -822,15 +896,18 @@ export function addRecipe(
 			nextDirtyIds[id] = true;
 		}
 
-		if (!targetParentId) {
+		if (!targetParent) {
 			nextRootIds = insertAt(nextRootIds, expansion.root.id, index);
 		} else {
-			const parentChildIds = targetParent.childIds ?? [];
-			nextEntitiesById[targetParentId] = {
+			nextEntitiesById[targetParent.id] = {
 				...targetParent,
-				childIds: insertAt(parentChildIds, expansion.root.id, index),
+				childIds: insertAt(
+					targetParent.childIds ?? [],
+					expansion.root.id,
+					index,
+				),
 			};
-			nextDirtyIds[targetParentId] = true;
+			nextDirtyIds[targetParent.id] = true;
 		}
 
 		return {
@@ -849,14 +926,12 @@ export function addNodeTree(
 	targetParentId: string | null,
 	index: number,
 ) {
-	designStore.setState((state) => {
-		const targetParent = targetParentId
-			? state.entitiesById[targetParentId]
-			: null;
-
-		if (targetParentId && !canHaveChildren(targetParent)) {
+	mutateDesign((state) => {
+		const insertion = resolveInsertionParent(state, targetParentId);
+		if (!insertion) {
 			return state;
 		}
+		const targetParent = insertion.parent;
 
 		if (!canInsertIntoRecipeBoundary(state.entitiesById, targetParentId)) {
 			return state;
@@ -903,15 +978,14 @@ export function addNodeTree(
 		}
 
 		let nextRootIds = state.rootIds;
-		if (!targetParentId) {
+		if (!targetParent) {
 			nextRootIds = insertAt(nextRootIds, root.id, index);
 		} else {
-			const parentChildIds = targetParent.childIds ?? [];
-			nextEntitiesById[targetParentId] = {
+			nextEntitiesById[targetParent.id] = {
 				...targetParent,
-				childIds: insertAt(parentChildIds, root.id, index),
+				childIds: insertAt(targetParent.childIds ?? [], root.id, index),
 			};
-			nextDirtyIds[targetParentId] = true;
+			nextDirtyIds[targetParent.id] = true;
 		}
 
 		return {
@@ -974,29 +1048,12 @@ export function canReplaceElementWithCandidateProps(
 	);
 }
 
-export function canReplaceElementWithNodeTree(
-	targetId: string,
-	root: Node,
-): boolean {
-	const state = designStore.get();
-	const insertedState = normalizeDesign({
-		name: state.name,
-		boards: [root],
-	});
-	const insertedRoot = insertedState.entitiesById[root.id];
-	if (!insertedRoot) {
-		return false;
-	}
-
-	return canReplaceElementWithCandidateProps(targetId, insertedRoot.props);
-}
-
 export function replaceElementWithNodeTree(
 	targetId: string,
 	root: Node,
 ): boolean {
 	let didReplace = false;
-	designStore.setState((state) => {
+	mutateDesign((state) => {
 		const target = state.entitiesById[targetId];
 		if (!target) {
 			return state;
@@ -1103,16 +1160,19 @@ export function replaceElementWithNodeTree(
 }
 
 export function detachRecipe(id: string) {
-	designStore.setState((state) => {
+	mutateDesign((state) => {
 		const result = detachRecipeInstance(serializeDesignState(state).boards, id);
 		if (!result) {
 			return state;
 		}
 
-		const nextState = normalizeDesign({
-			...serializeDesignState(state),
-			boards: result.roots,
-		});
+		const nextState = normalizeDesign(
+			{
+				...serializeDesignState(state),
+				boards: result.roots,
+			},
+			state.entitiesById,
+		);
 		const nextDirtyIds = {
 			...state.dirtyIds,
 		};
@@ -1121,7 +1181,9 @@ export function detachRecipe(id: string) {
 		}
 
 		return {
-			...nextState,
+			...state,
+			rootIds: nextState.rootIds,
+			entitiesById: nextState.entitiesById,
 			selectedId: nextState.entitiesById[result.selectionElementId]
 				? result.selectionElementId
 				: state.selectedId && nextState.entitiesById[state.selectedId]
@@ -1138,7 +1200,7 @@ export function detachSystemComponent(
 	id: string,
 	version?: PublishedSystemComponentVersion,
 ) {
-	designStore.setState((state) => {
+	mutateDesign((state) => {
 		const result = detachSystemComponentInstance(
 			serializeDesignState(state).boards,
 			id,
@@ -1148,17 +1210,22 @@ export function detachSystemComponent(
 			return state;
 		}
 
-		const nextState = normalizeDesign({
-			...serializeDesignState(state),
-			boards: result.roots,
-		});
+		const nextState = normalizeDesign(
+			{
+				...serializeDesignState(state),
+				boards: result.roots,
+			},
+			state.entitiesById,
+		);
 		const nextDirtyIds = { ...state.dirtyIds };
 		for (const detachedElementId of result.detachedElementIds) {
 			nextDirtyIds[detachedElementId] = true;
 		}
 
 		return {
-			...nextState,
+			...state,
+			rootIds: nextState.rootIds,
+			entitiesById: nextState.entitiesById,
 			selectedId: nextState.entitiesById[result.selectionElementId]
 				? result.selectionElementId
 				: state.selectedId && nextState.entitiesById[state.selectedId]
@@ -1184,17 +1251,22 @@ function applySystemComponentInstanceUpdate(
 		return state;
 	}
 
-	const nextState = normalizeDesign({
-		...serializeDesignState(state),
-		boards: result.roots,
-	});
+	const nextState = normalizeDesign(
+		{
+			...serializeDesignState(state),
+			boards: result.roots,
+		},
+		state.entitiesById,
+	);
 	const nextDirtyIds = { ...state.dirtyIds };
 	for (const changedElementId of result.changedElementIds) {
 		nextDirtyIds[changedElementId] = true;
 	}
 
 	return {
-		...nextState,
+		...state,
+		rootIds: nextState.rootIds,
+		entitiesById: nextState.entitiesById,
 		selectedId:
 			state.selectedId && nextState.entitiesById[state.selectedId]
 				? state.selectedId
@@ -1211,7 +1283,7 @@ export function setSystemComponentVariantValue(
 	axisKey: string,
 	value: string | null,
 ) {
-	designStore.setState((state) =>
+	mutateDesign((state) =>
 		applySystemComponentInstanceUpdate(
 			state,
 			rootElementId,
@@ -1234,7 +1306,7 @@ export function setSystemComponentOverrideClassName(
 	targetId: string,
 	className: string,
 ) {
-	designStore.setState((state) =>
+	mutateDesign((state) =>
 		applySystemComponentInstanceUpdate(
 			state,
 			rootElementId,
@@ -1260,7 +1332,7 @@ function applySystemComponentOverridePatch(
 		| { kind: "icon"; value: string }
 		| { kind: "asset"; value: string },
 ) {
-	designStore.setState((state) =>
+	mutateDesign((state) =>
 		applySystemComponentInstanceUpdate(
 			state,
 			rootElementId,
@@ -1340,7 +1412,7 @@ export function setSystemComponentOverrideProp(
 	prop: string,
 	value: JsonPrimitive | undefined,
 ) {
-	designStore.setState((state) =>
+	mutateDesign((state) =>
 		applySystemComponentInstanceUpdate(
 			state,
 			rootElementId,
@@ -1362,7 +1434,7 @@ export function resetSystemComponentOverrides(
 	rootElementId: string,
 	version: PublishedSystemComponentVersion,
 ) {
-	designStore.setState((state) =>
+	mutateDesign((state) =>
 		applySystemComponentInstanceUpdate(
 			state,
 			rootElementId,
@@ -1375,85 +1447,23 @@ export function resetSystemComponentOverrides(
 	);
 }
 
-export function bulkUpdateStaleSystemComponentInstances(
-	manifest: SystemComponentManifest,
-	options: {
-		systemId: string;
-		designFileId?: string;
-		designFile?: string;
-		componentId?: string;
-		instanceIds?: readonly string[];
-		dryRun?: boolean;
-		onlySafe?: boolean;
-	},
-): SystemComponentBulkMigrationDesignReport {
-	let report: SystemComponentBulkMigrationDesignReport = {
-		designFileId: options.designFileId ?? "in-memory",
-		designFile: options.designFile ?? "in-memory",
-		designName: "",
-		changed: [],
-		skipped: [],
-		reviewRequired: [],
-		failures: [],
-		applied: false,
-		persisted: false,
-	};
-
-	designStore.setState((state) => {
-		const serialized = serializeDesignState(state);
-		const migration = bulkMigrateDesignSystemComponentInstances(
-			serialized,
-			{
-				designFileId: options.designFileId ?? "in-memory",
-				designFile: options.designFile ?? serialized.name,
-				designName: serialized.name,
-				systemId: options.systemId,
-			},
-			manifest,
-			{
-				componentId: options.componentId,
-				instanceIds: options.instanceIds,
-				dryRun: options.dryRun,
-				onlySafe: options.onlySafe,
-			},
-		);
-		report = migration.report;
-
-		if (!migration.report.applied) {
-			return state;
-		}
-
-		const nextState = normalizeDesign(migration.design);
-		const dirtyIds = { ...state.dirtyIds };
-		for (const changed of migration.report.changed) {
-			dirtyIds[changed.elementId] = true;
-		}
-
-		return {
-			...nextState,
-			dirtyIds,
-			designDirty: true,
-			revision: state.revision + 1,
-		};
-	});
-
-	return report;
-}
-
 export function updateSystemComponentInstance(
 	rootElementId: string,
 	context: SystemComponentInstanceMigrationContext,
 ) {
-	designStore.setState((state) => {
+	mutateDesign((state) => {
 		const result = updateStaleSystemComponentInstance(
 			serializeDesignState(state).boards,
 			rootElementId,
 			context,
 		);
-		const nextState = normalizeDesign({
-			...serializeDesignState(state),
-			boards: result.roots,
-		});
+		const nextState = normalizeDesign(
+			{
+				...serializeDesignState(state),
+				boards: result.roots,
+			},
+			state.entitiesById,
+		);
 		const dirtyIds = { ...state.dirtyIds };
 		for (const mapping of [
 			...result.metadata.preservedPaths,
@@ -1469,7 +1479,9 @@ export function updateSystemComponentInstance(
 		}
 
 		return {
-			...nextState,
+			...state,
+			rootIds: nextState.rootIds,
+			entitiesById: nextState.entitiesById,
 			selectedId: nextState.entitiesById[result.changedElementId]
 				? result.changedElementId
 				: result.metadata.rootElementId,
@@ -1481,9 +1493,9 @@ export function updateSystemComponentInstance(
 }
 
 export function updateRecipeInstance(id: string) {
-	designStore.setState((state) => {
+	mutateDesign((state) => {
 		const result = updateStaleRecipeInstance(serializeDesignState(state), id);
-		const nextState = normalizeDesign(result.design);
+		const nextState = normalizeDesign(result.design, state.entitiesById);
 		const dirtyIds = { ...state.dirtyIds };
 		for (const mapping of [
 			...result.metadata.preservedPaths,
@@ -1494,7 +1506,9 @@ export function updateRecipeInstance(id: string) {
 		}
 
 		return {
-			...nextState,
+			...state,
+			rootIds: nextState.rootIds,
+			entitiesById: nextState.entitiesById,
 			selectedId: nextState.entitiesById[result.changedElementId]
 				? result.changedElementId
 				: result.metadata.rootElementId,
@@ -1523,7 +1537,7 @@ export function isDescendantOf(
 	return false;
 }
 
-function collectDescendantIds(
+export function collectDescendantIds(
 	entitiesById: Record<string, DesignEntity>,
 	id: string,
 	ids: Set<string>,
@@ -1544,7 +1558,7 @@ export function moveElement(
 	targetParentId: string | null,
 	index: number,
 ) {
-	designStore.setState((state) => {
+	mutateDesign((state) => {
 		const entity = state.entitiesById[id];
 		const targetParent = targetParentId
 			? state.entitiesById[targetParentId]
@@ -1647,7 +1661,7 @@ export function moveElement(
 }
 
 export function deleteElement(id: string) {
-	designStore.setState((state) => {
+	mutateDesign((state) => {
 		const entity = state.entitiesById[id];
 		if (!entity) {
 			return state;
@@ -1716,6 +1730,9 @@ export function clearDirty(expectedRevision?: number) {
 			...state,
 			dirtyIds: {},
 			designDirty: false,
+			dirtyBoards: {},
+			manifestDirtyAt: null,
+			orderDirtyAt: null,
 		};
 	});
 }
@@ -1737,7 +1754,7 @@ export function setDesignName(name: string) {
 	const trimmed = name.trim();
 	if (!trimmed) return;
 
-	designStore.setState((state) => {
+	mutateDesign((state) => {
 		if (state.name === trimmed) return state;
 		return {
 			...state,
@@ -1768,7 +1785,7 @@ function normalizeDesignSystemIdInput(systemId: string | null): string | null {
 export function setDesignSystemId(systemId: string | null) {
 	const nextSystemId = normalizeDesignSystemIdInput(systemId);
 
-	designStore.setState((state) => {
+	mutateDesign((state) => {
 		if (state.systemId === nextSystemId && state.systemName === undefined) {
 			return state;
 		}
@@ -1781,10 +1798,6 @@ export function setDesignSystemId(systemId: string | null) {
 			revision: state.revision + 1,
 		};
 	});
-}
-
-export function setDesignSystemName(systemName: string | null) {
-	setDesignSystemId(systemName);
 }
 
 export function useDesignRoots() {
@@ -1870,4 +1883,8 @@ export function useLayerSummary(id: string) {
 		},
 		{ compare: shallow },
 	);
+}
+
+export function useDesignConflicts() {
+	return useSelector(designStore, (state) => state.conflicts ?? null);
 }

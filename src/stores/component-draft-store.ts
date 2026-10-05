@@ -267,6 +267,10 @@ const hasTemplateDirtyChanges = (state: ComponentDraftStoreState) =>
 const hasDirtyChanges = (state: ComponentDraftStoreState) =>
 	hasTemplateDirtyChanges(state) || state.variantsDirty;
 
+/** Whether the component draft open in the system editor has unsaved edits. */
+export const hasUnsavedComponentDraft = () =>
+	hasDirtyChanges(componentDraftStore.get());
+
 const stableVariantSchemaSignature = (
 	variants: SystemComponentVariantSchema | null,
 ) => JSON.stringify(variants ?? null);
@@ -610,13 +614,6 @@ export function getCompoundClassNameForWhen(
 		: "";
 }
 
-export function getEffectiveDraftNodeClassName(
-	state: ComponentDraftStoreState,
-	path: string,
-) {
-	return getDraftClassNameForStyleTab(state, state.styleTarget.activeTab, path);
-}
-
 export function getDraftClassNameForStyleTab(
 	state: ComponentDraftStoreState,
 	tab: ComponentDraftStyleTab,
@@ -877,14 +874,6 @@ export function updateCompoundClassesByWhen(
 			revision: state.revision + 1,
 		};
 	});
-}
-
-export function setComponentDraftStyleClassName(
-	path: string,
-	className: string,
-) {
-	const state = componentDraftStore.get();
-	setDraftClassNameForStyleTab(state.styleTarget.activeTab, path, className);
 }
 
 export function setDraftClassNameForStyleTab(
@@ -1754,10 +1743,6 @@ export function useComponentDraftSelectedSlot() {
 	);
 }
 
-export function useComponentDraftHasUnsavedChanges() {
-	return useSelector(componentDraftStore, hasDirtyChanges);
-}
-
 export function useComponentDraftTemplateDirty() {
 	return useSelector(componentDraftStore, hasTemplateDirtyChanges);
 }
@@ -1776,12 +1761,6 @@ export function useComponentDraftStyleTarget() {
 	return useSelector(componentDraftStore, (state) => state.styleTarget, {
 		compare: shallow,
 	});
-}
-
-export function useComponentDraftEffectiveClassName(path: string) {
-	return useSelector(componentDraftStore, (state) =>
-		getEffectiveDraftNodeClassName(state, path),
-	);
 }
 
 export function useComponentDraftClassNameForStyleTab(

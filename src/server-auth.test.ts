@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	formatServerUrlHost,
 	isLoopbackHost,
+	isSecureRequest,
 	requireSessionTokenForHost,
 } from "./server-auth";
 
@@ -39,4 +40,14 @@ describe("server auth host policy", () => {
 		expect(formatServerUrlHost("[::1]")).toBe("[::1]");
 		expect(formatServerUrlHost("localhost")).toBe("localhost");
 	});
+
+	it.each([
+		["http://devbox:18100/", undefined, false],
+		["https://devbox/", undefined, true],
+		["http://devbox:18100/", "https", true],
+		["http://devbox:18100/", "HTTPS, http", true],
+		["http://devbox:18100/", "http", false],
+		["http://devbox:18100/", "http, https", false],
+	])("treats %s with X-Forwarded-Proto %s as secure: %s", (url, proto, secure) =>
+		expect(isSecureRequest(new URL(url), proto)).toBe(secure));
 });

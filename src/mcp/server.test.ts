@@ -7,18 +7,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { upsertProjectLocation } from "../app-state/project-registry";
 import { readMcpEnabledProjectContext } from "../project";
 import { expandRegistryRecipe } from "../recipes/expansion";
-import {
-	recipeIdProp,
-	recipeInstanceProp,
-	recipePathProp,
-	recipeRootProp,
-	recipeSlotProp,
-} from "../recipes/markers";
+import { recipeIdProp, recipeInstanceProp } from "../recipes/markers";
 import { createTrickroomApp } from "../server";
+import { readStoredDesign } from "../test-utils/design-files";
 import type { TrickroomDesign } from "../types";
-import { assetIdProp } from "../utils/resource-props";
 import { storeDomainTokens } from "../utils/tailwind-token-store";
 import { createTrickroomMcpServer } from "./server";
+import { applyOperation, toolPayload } from "./test-support";
 
 const validDesign = {
 	name: "Landing Page",
@@ -278,7 +273,100 @@ describe("trickroom MCP discovery tools", () => {
 		}
 	});
 
-	it("retargets project-scoped tools when openProject is called", async () => {
+	it("hides locations whose folder is gone and refuses to select them", async () => {
+		const trickroomHome = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
+		);
+		tempProjectRoots.push(trickroomHome);
+		const currentRoot = await createProjectRoot({
+			name: "Current",
+			projectId: "proj_current",
+		});
+		const goneRoot = await createProjectRoot({
+			name: "Gone",
+			projectId: "proj_gone",
+		});
+		const context = {
+			...(await readMcpEnabledProjectContext(currentRoot)),
+			trickroomHome,
+		};
+		const { location: currentLocation } = await upsertProjectLocation({
+			trickroomHome,
+			projectId: "proj_current",
+			root: currentRoot,
+			name: "Current",
+			markActive: false,
+		});
+		const { location: goneLocation } = await upsertProjectLocation({
+			trickroomHome,
+			projectId: "proj_gone",
+			root: goneRoot,
+			name: "Gone",
+		});
+		const goneConfigPath = path.join(goneRoot, "trickroom.config.json");
+		const goneConfig = await readFile(goneConfigPath, "utf8");
+		await rm(goneRoot, { recursive: true, force: true });
+		const registryPath = path.join(trickroomHome, "projects.json");
+		const registryBefore = await readFile(registryPath, "utf8");
+		const server = createTrickroomMcpServer({
+			...context,
+			locationId: currentLocation.locationId,
+		});
+		const client = new Client(
+			{ name: "trickroom-test-client", version: "0.0.0" },
+			{ capabilities: {} },
+		);
+		const [clientTransport, serverTransport] =
+			InMemoryTransport.createLinkedPair();
+		await Promise.all([
+			server.connect(serverTransport),
+			client.connect(clientTransport),
+		]);
+
+		try {
+			const listed = toolPayload(
+				await client.callTool({ name: "project_list", arguments: {} }),
+			) as { projects: { locationId: string }[] };
+			expect(listed.projects.map((project) => project.locationId)).toEqual([
+				currentLocation.locationId,
+			]);
+			await expect(readFile(registryPath, "utf8")).resolves.toBe(
+				registryBefore,
+			);
+
+			const refused = await client.callTool({
+				name: "project_select",
+				arguments: { locationId: goneLocation.locationId },
+			});
+			expect(refused.isError).toBe(true);
+			expect(toolPayload(refused)).toMatchObject({
+				status: "MISSING_PROJECT_LOCATION",
+				projectRoot: goneRoot,
+				message: expect.stringContaining(`${goneRoot}, which no longer exists`),
+			});
+
+			await mkdir(goneRoot);
+			await writeFile(goneConfigPath, goneConfig, "utf8");
+			const reselected = await client.callTool({
+				name: "project_select",
+				arguments: { path: goneRoot },
+			});
+			expect(toolPayload(reselected)).toMatchObject({
+				selected: true,
+				registered: true,
+				project: {
+					projectId: "proj_gone",
+					locationId: goneLocation.locationId,
+					projectRoot: goneRoot,
+				},
+			});
+		} finally {
+			await client.close();
+			await server.close();
+		}
+	});
+
+	it("retargets project-scoped tools when project_select registers a path", async () => {
 		const trickroomHome = await mkdtemp(
 			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
 		);
@@ -325,39 +413,39 @@ describe("trickroom MCP discovery tools", () => {
 
 		try {
 			const initialProject = await client.callTool({
-				name: "getActiveProject",
+				name: "project_list",
 				arguments: {},
 			});
-			expect(initialProject.structuredContent).toMatchObject({
-				project: {
+			expect(toolPayload(initialProject)).toMatchObject({
+				selected: {
 					projectId: "proj_first",
 					name: "First Project",
 				},
 			});
 
 			const openResult = await client.callTool({
-				name: "openProject",
+				name: "project_select",
 				arguments: {
 					path: secondProjectRoot,
 				},
 			});
-			expect(openResult.structuredContent).toMatchObject({
-				active: true,
+			expect(toolPayload(openResult)).toMatchObject({
 				selected: true,
+				registered: true,
 				project: {
 					projectId: "proj_second",
 					name: "Second Project",
 					projectRoot: secondProjectRoot,
 				},
-				migration: expect.stringContaining("registerProject"),
+				governance: { mode: "read-write" },
 			});
 
 			const activeProject = await client.callTool({
-				name: "getActiveProject",
+				name: "project_list",
 				arguments: {},
 			});
-			expect(activeProject.structuredContent).toMatchObject({
-				project: {
+			expect(toolPayload(activeProject)).toMatchObject({
+				selected: {
 					projectId: "proj_second",
 					name: "Second Project",
 					projectRoot: secondProjectRoot,
@@ -365,13 +453,12 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const designs = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {},
 			});
-			expect(designs.structuredContent).toMatchObject({
+			expect(toolPayload(designs)).toMatchObject({
 				project: {
 					projectId: "proj_second",
-					name: "Second Project",
 				},
 				designFiles: [
 					{
@@ -440,11 +527,11 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const activeProject = await client.callTool({
-				name: "getActiveProject",
+				name: "project_list",
 				arguments: {},
 			});
-			expect(activeProject.structuredContent).toMatchObject({
-				project: {
+			expect(toolPayload(activeProject)).toMatchObject({
+				selected: {
 					projectId: "proj_first",
 					name: "First Project",
 					projectRoot: firstProjectRoot,
@@ -452,13 +539,12 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const designs = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {},
 			});
-			expect(designs.structuredContent).toMatchObject({
+			expect(toolPayload(designs)).toMatchObject({
 				project: {
 					projectId: "proj_first",
-					name: "First Project",
 				},
 				designFiles: [
 					{
@@ -528,11 +614,11 @@ describe("trickroom MCP discovery tools", () => {
 			expect(openResponse.status).toBe(200);
 
 			const selectedProject = await client.callTool({
-				name: "getSelectedProject",
+				name: "project_list",
 				arguments: {},
 			});
-			expect(selectedProject.structuredContent).toMatchObject({
-				project: {
+			expect(toolPayload(selectedProject)).toMatchObject({
+				selected: {
 					projectId: "proj_app_open_mcp",
 					name: "MCP Selected Project",
 					projectRoot: firstProjectRoot,
@@ -540,13 +626,12 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const designs = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {},
 			});
-			expect(designs.structuredContent).toMatchObject({
+			expect(toolPayload(designs)).toMatchObject({
 				project: {
 					projectId: "proj_app_open_mcp",
-					name: "MCP Selected Project",
 				},
 				designFiles: [
 					{
@@ -627,10 +712,10 @@ describe("trickroom MCP discovery tools", () => {
 
 		try {
 			const defaultDesigns = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {},
 			});
-			expect(defaultDesigns.structuredContent).toMatchObject({
+			expect(toolPayload(defaultDesigns)).toMatchObject({
 				project: {
 					projectId: "proj_explicit_default",
 					locationId: firstLocation.locationId,
@@ -644,14 +729,14 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const explicitDesigns = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {
 					project: {
 						locationId: secondLocation.locationId,
 					},
 				},
 			});
-			expect(explicitDesigns.structuredContent).toMatchObject({
+			expect(toolPayload(explicitDesigns)).toMatchObject({
 				project: {
 					projectId: "proj_explicit_target",
 					locationId: secondLocation.locationId,
@@ -668,7 +753,7 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const explicitRead = await client.callTool({
-				name: "readDesignFile",
+				name: "design_read",
 				arguments: {
 					project: {
 						locationId: secondLocation.locationId,
@@ -677,38 +762,33 @@ describe("trickroom MCP discovery tools", () => {
 				},
 			});
 			const explicitRevision = (
-				explicitRead.structuredContent as {
+				toolPayload(explicitRead) as {
 					designFile: { revision: string };
 				}
 			).designFile.revision;
 
-			const deniedMutation = await client.callTool({
-				name: "addElement",
-				arguments: {
-					project: {
-						locationId: secondLocation.locationId,
-					},
-					designFileId: "22222222-2222-4222-8222-222222222222",
-					expectedRevision: explicitRevision,
-					parentId: "root",
-					index: 1,
-					library: "trickroom",
-					component: "text",
-					name: "Denied Text",
+			const deniedMutation = await applyOperation(client, "addElement", {
+				project: {
+					locationId: secondLocation.locationId,
 				},
+				designFileId: "22222222-2222-4222-8222-222222222222",
+				expectedRevision: explicitRevision,
+				parentId: "root",
+				index: 1,
+				library: "trickroom",
+				component: "text",
+				name: "Denied Text",
 			});
-			expect(deniedMutation).toMatchObject({
-				isError: true,
-				structuredContent: {
-					status: "POLICY_DENIED",
-					code: "MCP_READ_ONLY",
-					project: {
-						projectId: "proj_explicit_target",
-						locationId: secondLocation.locationId,
-					},
-					governance: {
-						mode: "read-only",
-					},
+			expect(deniedMutation.isError).toBe(true);
+			expect(toolPayload(deniedMutation)).toMatchObject({
+				status: "POLICY_DENIED",
+				code: "MCP_READ_ONLY",
+				project: {
+					projectId: "proj_explicit_target",
+					locationId: secondLocation.locationId,
+				},
+				governance: {
+					mode: "read-only",
 				},
 			});
 		} finally {
@@ -779,7 +859,7 @@ describe("trickroom MCP discovery tools", () => {
 
 		try {
 			const explicitRead = await client.callTool({
-				name: "readDesignFile",
+				name: "design_read",
 				arguments: {
 					project: {
 						locationId: secondLocation.locationId,
@@ -788,56 +868,39 @@ describe("trickroom MCP discovery tools", () => {
 				},
 			});
 			const explicitRevision = (
-				explicitRead.structuredContent as {
+				toolPayload(explicitRead) as {
 					designFile: { revision: string };
 				}
 			).designFile.revision;
 
-			const addResult = await client.callTool({
-				name: "addElement",
-				arguments: {
-					project: {
-						locationId: secondLocation.locationId,
-					},
-					designFileId: "22222222-2222-4222-8222-222222222222",
-					expectedRevision: explicitRevision,
-					parentId: "root",
-					index: 1,
-					library: "trickroom",
-					component: "text",
-					name: "Explicit Target Text",
+			const addResult = await applyOperation(client, "addElement", {
+				project: {
+					locationId: secondLocation.locationId,
 				},
+				designFileId: "22222222-2222-4222-8222-222222222222",
+				expectedRevision: explicitRevision,
+				parentId: "root",
+				index: 1,
+				library: "trickroom",
+				component: "text",
+				name: "Explicit Target Text",
 			});
 			expect(addResult.isError).not.toBe(true);
-			expect(addResult.structuredContent).toMatchObject({
+			expect(toolPayload(addResult)).toMatchObject({
 				project: {
 					projectId: "proj_write_explicit",
 					locationId: secondLocation.locationId,
 				},
 			});
 
-			const defaultDesign = JSON.parse(
-				await readFile(
-					path.join(
-						firstProjectRoot,
-						".trickroom",
-						"designs",
-						"11111111-1111-4111-8111-111111111111.json",
-					),
-					"utf8",
-				),
-			) as TrickroomDesign;
-			const explicitDesign = JSON.parse(
-				await readFile(
-					path.join(
-						secondProjectRoot,
-						".trickroom",
-						"designs",
-						"22222222-2222-4222-8222-222222222222.json",
-					),
-					"utf8",
-				),
-			) as TrickroomDesign;
+			const defaultDesign = await readStoredDesign(
+				firstProjectRoot,
+				"11111111-1111-4111-8111-111111111111",
+			);
+			const explicitDesign = await readStoredDesign(
+				secondProjectRoot,
+				"22222222-2222-4222-8222-222222222222",
+			);
 
 			expect(defaultDesign.boards[0].children).toHaveLength(1);
 			expect(explicitDesign.boards[0].children).toHaveLength(2);
@@ -852,7 +915,7 @@ describe("trickroom MCP discovery tools", () => {
 		}
 	});
 
-	it("lets openProject establish the active project when the session starts empty", async () => {
+	it("lets project_select establish the project when the session starts empty", async () => {
 		const trickroomHome = await mkdtemp(
 			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
 		);
@@ -885,47 +948,39 @@ describe("trickroom MCP discovery tools", () => {
 		]);
 
 		try {
-			await expect(
-				client.callTool({
-					name: "getActiveProject",
-					arguments: {},
-				}),
-			).resolves.toMatchObject({
-				structuredContent: {
-					project: null,
-				},
+			expect(
+				toolPayload(
+					await client.callTool({ name: "project_list", arguments: {} }),
+				),
+			).toMatchObject({
+				selected: null,
+				hint: expect.stringContaining("project_select"),
 			});
 
 			await client.callTool({
-				name: "openProject",
+				name: "project_select",
 				arguments: {
 					path: projectRoot,
 				},
 			});
 
 			const projects = await client.callTool({
-				name: "listProjects",
+				name: "project_list",
 				arguments: {},
 			});
-			expect(projects.structuredContent).toMatchObject({
-				activeProjectId: null,
-				activeLocationId: null,
-				projects: [
-					{
-						projectId: "proj_opened",
-						active: false,
-					},
-				],
+			expect(toolPayload(projects)).toMatchObject({
+				selected: { projectId: "proj_opened" },
+				projects: [{ projectId: "proj_opened", selected: true }],
 			});
+			expect(toolPayload(projects).projects[0]).not.toHaveProperty("appActive");
 
 			const designs = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {},
 			});
-			expect(designs.structuredContent).toMatchObject({
+			expect(toolPayload(designs)).toMatchObject({
 				project: {
 					projectId: "proj_opened",
-					name: "Opened Project",
 				},
 				designFiles: [
 					{
@@ -940,7 +995,7 @@ describe("trickroom MCP discovery tools", () => {
 		}
 	});
 
-	it("notifies resource-list changes when openProject succeeds", async () => {
+	it("notifies resource-list changes when project_select registers a path", async () => {
 		const trickroomHome = await mkdtemp(
 			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
 		);
@@ -962,7 +1017,7 @@ describe("trickroom MCP discovery tools", () => {
 				version: "0.0.0",
 			},
 			{
-				capabilities: { resources: { listChanged: true } },
+				capabilities: {},
 			},
 		);
 		const [clientTransport, serverTransport] =
@@ -980,13 +1035,13 @@ describe("trickroom MCP discovery tools", () => {
 
 		try {
 			const openResult = await client.callTool({
-				name: "openProject",
+				name: "project_select",
 				arguments: {
 					path: projectRoot,
 				},
 			});
-			expect(openResult.structuredContent).toMatchObject({
-				active: true,
+			expect(toolPayload(openResult)).toMatchObject({
+				registered: true,
 				project: {
 					projectId: "proj_opened_notified",
 					name: "Opened Project",
@@ -1000,67 +1055,7 @@ describe("trickroom MCP discovery tools", () => {
 		}
 	});
 
-	it("notifies resource-list changes when registerProject succeeds", async () => {
-		const trickroomHome = await mkdtemp(
-			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
-		);
-		tempProjectRoots.push(trickroomHome);
-		const projectRoot = await createProjectRoot({
-			name: "Registered Project",
-			projectId: "proj_registered_notified",
-		});
-		await writeDesignFixture(
-			projectRoot,
-			"44444444-4444-4444-8444-444444444444",
-			{ ...validDesign, name: "Registered Design" },
-		);
-
-		const server = createTrickroomMcpServer(null, { trickroomHome });
-		const client = new Client(
-			{
-				name: "trickroom-test-client",
-				version: "0.0.0",
-			},
-			{
-				capabilities: { resources: { listChanged: true } },
-			},
-		);
-		const [clientTransport, serverTransport] =
-			InMemoryTransport.createLinkedPair();
-
-		const notifications: string[] = [];
-		client.setNotificationHandler(ResourceListChangedNotificationSchema, () => {
-			notifications.push("resource-list-changed");
-		});
-
-		await Promise.all([
-			server.connect(serverTransport),
-			client.connect(clientTransport),
-		]);
-
-		try {
-			const registerResult = await client.callTool({
-				name: "registerProject",
-				arguments: {
-					path: projectRoot,
-				},
-			});
-			expect(registerResult.structuredContent).toMatchObject({
-				selected: false,
-				project: {
-					projectId: "proj_registered_notified",
-					name: "Registered Project",
-					projectRoot,
-				},
-			});
-			expect(notifications).toHaveLength(1);
-		} finally {
-			await client.close();
-			await server.close();
-		}
-	});
-
-	it("switches MCP session selection with selectProject without mutating registry active project", async () => {
+	it("switches MCP session selection with project_select without mutating registry active project", async () => {
 		const trickroomHome = await mkdtemp(
 			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
 		);
@@ -1122,12 +1117,12 @@ describe("trickroom MCP discovery tools", () => {
 
 		try {
 			const selectResult = await client.callTool({
-				name: "selectProject",
+				name: "project_select",
 				arguments: {
 					projectId: "proj_select_second",
 				},
 			});
-			expect(selectResult.structuredContent).toMatchObject({
+			expect(toolPayload(selectResult)).toMatchObject({
 				selected: true,
 				project: {
 					projectId: "proj_select_second",
@@ -1137,47 +1132,47 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const selectedProject = await client.callTool({
-				name: "getSelectedProject",
+				name: "project_list",
 				arguments: {},
 			});
-			expect(selectedProject.structuredContent).toMatchObject({
-				project: {
+			expect(toolPayload(selectedProject)).toMatchObject({
+				selected: {
 					projectId: "proj_select_second",
 					projectRoot: secondProjectRoot,
 				},
 			});
 
 			const listProjectsResult = await client.callTool({
-				name: "listProjects",
+				name: "project_list",
 				arguments: {},
 			});
-			expect(listProjectsResult.structuredContent).toMatchObject({
-				activeProjectId: "proj_select_first",
-				activeLocationId: firstLocation.locationId,
+			const listed = toolPayload(listProjectsResult).projects as Array<{
+				projectId: string;
+				locationId: string;
+				selected?: boolean;
+				appActive?: boolean;
+			}>;
+			// The browser app's active project stays the first one.
+			expect(
+				listed.find((project) => project.projectId === "proj_select_first"),
+			).toMatchObject({
+				locationId: firstLocation.locationId,
+				appActive: true,
 			});
 			expect(
-				Array.isArray(
-					(listProjectsResult.structuredContent as { projects: unknown[] })
-						.projects,
-				),
-			).toBe(true);
+				listed.find((project) => project.projectId === "proj_select_second"),
+			).toMatchObject({ selected: true });
 			expect(
-				(
-					listProjectsResult.structuredContent as {
-						projects: { projectId: string; active: boolean }[];
-					}
-				).projects.find((project) => project.projectId === "proj_select_second")
-					?.active,
-			).toBe(false);
+				listed.find((project) => project.projectId === "proj_select_second"),
+			).not.toHaveProperty("appActive");
 
 			const designs = await client.callTool({
-				name: "listDesignFiles",
+				name: "design_list",
 				arguments: {},
 			});
-			expect(designs.structuredContent).toMatchObject({
+			expect(toolPayload(designs)).toMatchObject({
 				project: {
 					projectId: "proj_select_second",
-					name: "Second Project",
 				},
 				designFiles: [
 					{
@@ -1192,100 +1187,92 @@ describe("trickroom MCP discovery tools", () => {
 		}
 	});
 
-	it("keeps registerProject catalog-only and lets selectProject switch the MCP session", async () => {
+	it("describes another registered project and validates project_select input", async () => {
 		const trickroomHome = await mkdtemp(
 			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
 		);
 		tempProjectRoots.push(trickroomHome);
-		const projectRoot = await createProjectRoot({
-			name: "Catalog Project",
-			projectId: "proj_catalog_only",
+		const firstProjectRoot = await createProjectRoot({
+			name: "First Project",
+			projectId: "proj_info_first",
 		});
-		await writeDesignFixture(
-			projectRoot,
-			"33333333-3333-4333-8333-333333333333",
-			{ ...validDesign, name: "Catalog Design" },
-		);
-
-		const server = createTrickroomMcpServer(null, { trickroomHome });
-		const client = new Client(
-			{
-				name: "trickroom-test-client",
-				version: "0.0.0",
-			},
-			{
-				capabilities: {},
-			},
-		);
+		const secondProjectRoot = await createProjectRoot({
+			name: "Second Project",
+			projectId: "proj_info_second",
+			mcp: { enabled: true, mode: "read-only" },
+		});
+		const disabledRoot = await createProjectRoot({
+			name: "Disabled Project",
+			projectId: "proj_info_disabled",
+			mcp: { enabled: false },
+		});
+		const { location: secondLocation } = await upsertProjectLocation({
+			trickroomHome,
+			projectId: "proj_info_second",
+			root: secondProjectRoot,
+			name: "Second Project",
+			markActive: false,
+		});
+		const server = createTrickroomMcpServer({
+			...(await readMcpEnabledProjectContext(firstProjectRoot)),
+			trickroomHome,
+		});
+		const client = new Client({ name: "test", version: "0.0.0" });
 		const [clientTransport, serverTransport] =
 			InMemoryTransport.createLinkedPair();
-
 		await Promise.all([
 			server.connect(serverTransport),
 			client.connect(clientTransport),
 		]);
 
 		try {
-			const initialProject = await client.callTool({
-				name: "getSelectedProject",
-				arguments: {},
+			const described = toolPayload(
+				await client.callTool({
+					name: "project_list",
+					arguments: { project: { locationId: secondLocation.locationId } },
+				}),
+			);
+			expect(described).toMatchObject({
+				selected: { projectId: "proj_info_first" },
+				project: {
+					projectId: "proj_info_second",
+					projectRoot: secondProjectRoot,
+				},
+				governance: { mode: "read-only" },
+				configuredSystems: [{ systemName: "Core" }],
 			});
-			expect(initialProject.structuredContent).toMatchObject({ project: null });
 
-			const registerResult = await client.callTool({
-				name: "registerProject",
+			const unknown = await client.callTool({
+				name: "project_list",
+				arguments: { project: { locationId: "loc_missing" } },
+			});
+			expect(unknown.isError).toBe(true);
+
+			const both = await client.callTool({
+				name: "project_select",
 				arguments: {
-					path: projectRoot,
+					locationId: secondLocation.locationId,
+					path: secondProjectRoot,
 				},
 			});
-			expect(registerResult.structuredContent).toMatchObject({
-				selected: false,
-				active: false,
-				project: {
-					projectId: "proj_catalog_only",
-					projectRoot,
-					name: "Catalog Project",
-				},
+			expect(both.isError).toBe(true);
+			expect(toolPayload(both)).toMatchObject({
+				code: "INVALID_OPERATION_PARAMETERS",
 			});
 
-			const stillUnselected = await client.callTool({
-				name: "getSelectedProject",
-				arguments: {},
+			const disabled = await client.callTool({
+				name: "project_select",
+				arguments: { path: disabledRoot },
 			});
-			expect(stillUnselected.structuredContent).toMatchObject({
-				project: null,
-			});
+			expect(disabled.isError).toBe(true);
+			expect(toolPayload(disabled)).toMatchObject({ code: "MCP_DISABLED" });
 
-			const selectResult = await client.callTool({
-				name: "selectProject",
-				arguments: {
-					projectId: "proj_catalog_only",
-				},
-			});
-			expect(selectResult.structuredContent).toMatchObject({
-				selected: true,
-				project: {
-					projectId: "proj_catalog_only",
-					projectRoot,
-				},
-			});
-
-			const designs = await client.callTool({
-				name: "listDesignFiles",
-				arguments: {},
-			});
-			expect(designs.structuredContent).toMatchObject({
-				project: {
-					projectId: "proj_catalog_only",
-					name: "Catalog Project",
-				},
-				designFiles: [
-					{
-						id: "33333333-3333-4333-8333-333333333333",
-						name: "Catalog Design",
-					},
-				],
-			});
+			// Neither failure changed the session's project.
+			expect(
+				toolPayload(
+					await client.callTool({ name: "project_list", arguments: {} }),
+				).selected,
+			).toMatchObject({ projectId: "proj_info_first" });
 		} finally {
 			await client.close();
 			await server.close();
@@ -1303,19 +1290,10 @@ describe("trickroom MCP discovery tools", () => {
 			);
 
 			for (const name of [
-				"listRegistries",
-				"listRegistryComponents",
-				"describeRegistryComponent",
-				"listRegistryRecipes",
-				"describeRegistryRecipe",
-				"getDesignSystemForDesignFile",
-				"listDesignTokens",
-				"listSystemAssets",
-				"describeAsset",
-				"listSystemIcons",
-				"describeIcon",
-				"findAssetUsage",
-				"findIconUsage",
+				"guide",
+				"system_read",
+				"component_read",
+				"memory_read",
 			]) {
 				expect(toolsByName.get(name)?.annotations).toMatchObject({
 					readOnlyHint: true,
@@ -1324,485 +1302,192 @@ describe("trickroom MCP discovery tools", () => {
 			}
 
 			expect(
-				toolsByName.get("describeRegistryComponent")?.inputSchema.properties,
-			).toHaveProperty("library");
+				Object.keys(toolsByName.get("guide")?.inputSchema.properties ?? {}),
+			).toEqual([
+				"topic",
+				"designFileId",
+				"systemName",
+				"library",
+				"name",
+				"project",
+			]);
+			expect(toolsByName.get("system_read")?.inputSchema.required).toEqual([
+				"view",
+			]);
 			expect(
-				toolsByName.get("describeRegistryComponent")?.inputSchema.properties,
-			).toHaveProperty("component");
-			expect(
-				toolsByName.get("listRegistryRecipes")?.inputSchema.properties,
-			).toHaveProperty("library");
-			expect(
-				toolsByName.get("describeRegistryRecipe")?.inputSchema.properties,
-			).toHaveProperty("library");
-			expect(
-				toolsByName.get("describeRegistryRecipe")?.inputSchema.properties,
-			).toHaveProperty("recipe");
-			expect(
-				toolsByName.get("getDesignSystemForDesignFile")?.inputSchema.properties,
-			).toHaveProperty("designFileId");
-			expect(
-				toolsByName.get("addSystemComponent")?.inputSchema.properties,
-			).toHaveProperty("unsetVariantAxes");
-			expect(
-				toolsByName.get("updateSystemComponentInstance")?.inputSchema
-					.properties,
-			).toHaveProperty("unsetVariantAxes");
+				toolsByName.get("design_apply")?.inputSchema.properties,
+			).toHaveProperty("operations");
 		} finally {
 			await close();
 		}
 	});
 
-	it("lists and describes built-in registry components", async () => {
+	it("describes built-in registry elements in the guide's registry topic", async () => {
 		const projectRoot = await createProjectRoot();
 		const { client, close } = await createClient(projectRoot);
+		const registryTopic = async (args: Record<string, unknown>) =>
+			toolPayload(
+				await client.callTool({
+					name: "guide",
+					arguments: { topic: "registry", ...args },
+				}),
+			).registry;
 
 		try {
-			const listRegistriesResult = await client.callTool({
-				name: "listRegistries",
-				arguments: {},
-			});
-			expect(listRegistriesResult.structuredContent).toMatchObject({
-				registries: expect.arrayContaining([
-					expect.objectContaining({
-						library: "base-ui",
-						builtIn: true,
-						readOnly: true,
-						componentCount: expect.any(Number),
-						components: expect.arrayContaining([
-							"avatar.fallback",
-							"avatar.image",
-							"avatar.root",
-							"menu.item",
-							"menu.popup",
-							"menu.portal",
-							"menu.positioner",
-							"menu.root",
-							"menu.separator",
-							"menu.trigger",
-							"separator",
-						]),
+			const index = await registryTopic({});
+			expect(index.libraries).toEqual([
+				expect.objectContaining({
+					library: "base-ui",
+					elementCount: expect.any(Number),
+					families: expect.objectContaining({
+						avatar: 3,
+						menu: expect.any(Number),
+						separator: 1,
 					}),
-					expect.objectContaining({
-						library: "trickroom",
-						builtIn: true,
-						readOnly: true,
-						componentCount: 4,
-						components: ["asset", "container", "icon", "text"],
-					}),
-				]),
-			});
+				}),
+				expect.objectContaining({ library: "trickroom" }),
+			]);
 
-			const componentsResult = await client.callTool({
-				name: "listRegistryComponents",
-				arguments: {
-					library: "trickroom",
-				},
-			});
-			const trickroomRegistry = (
-				componentsResult.structuredContent as {
-					registries: { library: string; components: unknown[] }[];
-				}
-			).registries.find((registry) => registry.library === "trickroom");
-			const trickroomComponentSummaries = trickroomRegistry?.components.map(
-				(component) => {
-					const summary = component as {
-						component: string;
-						role: string;
-						allowedChildren: { kind: string };
-					};
-					return {
-						component: summary.component,
-						role: summary.role,
-						allowedChildren: { kind: summary.allowedChildren.kind },
-					};
-				},
-			);
-			expect(trickroomComponentSummaries).toEqual([
+			const trickroom = await registryTopic({ library: "trickroom" });
+			expect(
+				trickroom.elements.map(
+					(element: { component: string; role: string }) => [
+						element.component,
+						element.role,
+					],
+				),
+			).toEqual([
+				["trickroom/asset", "leaf"],
+				["trickroom/container", "branch"],
+				["trickroom/icon", "leaf"],
+				["trickroom/text", "text"],
+			]);
+			expect(trickroom.roles.text).toContain("updateElementText");
+
+			const separatorClasses =
+				"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full";
+			for (const name of ["separator", "menu.separator"]) {
+				const { elements } = await registryTopic({ library: "base-ui", name });
+				expect(elements).toContainEqual(
+					expect.objectContaining({
+						component: `base-ui/${name}`,
+						role: "leaf",
+						baseClassName: separatorClasses,
+					}),
+				);
+			}
+			const [separator] = (
+				await registryTopic({ library: "base-ui", name: "separator" })
+			).elements;
+			expect(separator.controls).toEqual([
 				{
-					component: "asset",
-					role: "leaf",
-					allowedChildren: { kind: "none" },
-				},
-				{
-					component: "container",
-					role: "branch",
-					allowedChildren: { kind: "nodes" },
-				},
-				{
-					component: "icon",
-					role: "leaf",
-					allowedChildren: { kind: "none" },
-				},
-				{
-					component: "text",
-					role: "text",
-					allowedChildren: { kind: "none" },
+					prop: "orientation",
+					type: "string",
+					options: ["horizontal", "vertical"],
+					default: "horizontal",
 				},
 			]);
 
-			const describeResult = await client.callTool({
-				name: "describeRegistryComponent",
-				arguments: {
-					library: "trickroom",
-					component: "text",
-				},
-			});
-			expect(describeResult.structuredContent).toMatchObject({
-				library: "trickroom",
-				component: "text",
-				role: "text",
-				allowedChildren: {
-					kind: "none",
-					serializedChildren: "string",
-				},
-				defaults: {
-					props: {
-						"data-trickroom-library": "trickroom",
-						"data-trickroom-component": "text",
-						"data-trickroom-role": "text",
-					},
-					children: "Text",
-				},
-			});
-
-			const separatorResult = await client.callTool({
-				name: "describeRegistryComponent",
-				arguments: {
-					library: "base-ui",
-					component: "separator",
-				},
-			});
-			expect(separatorResult.structuredContent).toMatchObject({
-				library: "base-ui",
-				component: "separator",
-				role: "leaf",
-				allowedChildren: {
-					kind: "none",
-					serializedChildren: "empty-array",
-				},
-				defaults: {
-					baseClassName:
-						"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
-					props: {
-						"data-trickroom-library": "base-ui",
-						"data-trickroom-component": "separator",
-						"data-trickroom-role": "leaf",
-						orientation: "horizontal",
-					},
-					children: [],
-				},
-			});
-
-			const menuSeparatorResult = await client.callTool({
-				name: "describeRegistryComponent",
-				arguments: {
-					library: "base-ui",
-					component: "menu.separator",
-				},
-			});
-			expect(menuSeparatorResult.structuredContent).toMatchObject({
-				library: "base-ui",
-				component: "menu.separator",
-				role: "leaf",
-				allowedChildren: {
-					kind: "none",
-					serializedChildren: "empty-array",
-				},
-				defaults: {
-					baseClassName:
-						"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
-					props: {
-						"data-trickroom-library": "base-ui",
-						"data-trickroom-component": "menu.separator",
-						"data-trickroom-role": "leaf",
-					},
-					children: [],
-				},
-			});
-
-			const assetDescribeResult = await client.callTool({
-				name: "describeRegistryComponent",
-				arguments: {
-					library: "trickroom",
-					component: "asset",
-				},
-			});
-			const assetControls = (
-				assetDescribeResult.structuredContent as {
-					controls: Array<{
-						prop: string;
-						visibility: string | null;
-						deprecationReason: string | null;
-					}>;
-				}
-			).controls;
-			expect(assetControls).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						prop: "objectFit",
-						visibility: "deprecated",
-						deprecationReason: expect.any(String),
-					}),
-					expect.objectContaining({
-						prop: "objectPosition",
-						visibility: "deprecated",
-						deprecationReason: expect.any(String),
-					}),
-					expect.objectContaining({
-						prop: "loading",
-						visibility: "deprecated",
-						deprecationReason: expect.any(String),
-					}),
-					expect.objectContaining({
-						prop: "decoding",
-						visibility: "deprecated",
-						deprecationReason: expect.any(String),
-					}),
-				]),
-			);
-			expect(assetControls).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						prop: "alt",
-						visibility: null,
-					}),
-				]),
-			);
+			const [asset] = (
+				await registryTopic({ library: "trickroom", name: "asset" })
+			).elements;
+			for (const prop of [
+				"objectFit",
+				"objectPosition",
+				"loading",
+				"decoding",
+			]) {
+				expect(asset.controls).toContainEqual(
+					expect.objectContaining({ prop, deprecated: expect.any(String) }),
+				);
+			}
+			expect(
+				asset.controls.find(
+					(control: { prop: string }) => control.prop === "alt",
+				),
+			).not.toHaveProperty("deprecated");
 		} finally {
 			await close();
 		}
 	});
 
-	it("lists and describes built-in registry recipes", async () => {
+	it("indexes and details built-in recipes in the guide's recipes topic", async () => {
 		const projectRoot = await createProjectRoot();
 		const { client, close } = await createClient(projectRoot);
+		const recipesTopic = async (args: Record<string, unknown>) =>
+			toolPayload(
+				await client.callTool({
+					name: "guide",
+					arguments: { topic: "recipes", ...args },
+				}),
+			).recipes;
 
 		try {
-			const recipesResult = await client.callTool({
-				name: "listRegistryRecipes",
-				arguments: {
-					library: "base-ui",
-				},
-			});
-			expect(recipesResult.structuredContent).toMatchObject({
-				registries: expect.arrayContaining([
-					expect.objectContaining({
-						library: "base-ui",
-						recipes: expect.arrayContaining([
-							expect.objectContaining({
-								library: "base-ui",
-								recipe: "base-ui/avatar.default",
-								label: "Avatar",
-								version: 1,
-								root: {
-									library: "base-ui",
-									component: "avatar.root",
-									ref: "base-ui/avatar.root",
-								},
-								structure: {
-									nodeCount: 3,
-									paths: ["root", "image", "fallback"],
-								},
-								slots: [
-									{
-										name: "fallback",
-										label: "Fallback",
-										hostPath: "fallback",
-									},
-								],
-							}),
-							expect.objectContaining({
-								library: "base-ui",
-								recipe: "base-ui/menu.default",
-								label: "Menu",
-								version: 1,
-								root: {
-									library: "base-ui",
-									component: "menu.root",
-									ref: "base-ui/menu.root",
-								},
-								structure: {
-									nodeCount: 5,
-									paths: ["root", "trigger", "portal", "positioner", "popup"],
-								},
-								slots: [
-									{
-										name: "items",
-										label: "Items",
-										hostPath: "popup",
-									},
-									{
-										name: "trigger",
-										label: "Trigger",
-										hostPath: "trigger",
-									},
-								],
-							}),
-						]),
-					}),
+			const index = await recipesTopic({ library: "base-ui" });
+			expect(index.recipes).toEqual(
+				expect.arrayContaining([
+					"base-ui/avatar.default: Avatar. slots: fallback",
+					expect.stringMatching(
+						/^base-ui\/menu\.default: Menu\. slots: trigger, items\. controls: .*align@positioner/u,
+					),
 				]),
-			});
+			);
 
-			const describeResult = await client.callTool({
-				name: "describeRegistryRecipe",
-				arguments: {
-					library: "base-ui",
-					recipe: "avatar.default",
-				},
-			});
-			expect(describeResult.structuredContent).toMatchObject({
-				library: "base-ui",
+			const [avatar] = (await recipesTopic({ name: "avatar" })).recipes;
+			expect(avatar).toMatchObject({
 				recipe: "base-ui/avatar.default",
-				localRecipe: "avatar.default",
 				label: "Avatar",
-				slots: [
-					{
-						name: "fallback",
-						label: "Fallback",
-						hostPath: "fallback",
-					},
-				],
-				structure: {
-					nodeCount: 3,
-					root: {
-						path: "root",
-						library: "base-ui",
-						component: "avatar.root",
-						role: "branch",
-						slot: null,
-						children: [
-							{
-								path: "image",
-								library: "base-ui",
-								component: "avatar.image",
-								role: "leaf",
-								defaults: {
-									props: {
-										[assetIdProp]: "",
-										alt: "",
-									},
-									content: {
-										kind: "none",
-										children: [],
-									},
-								},
-								contract: {
-									structuralNode: true,
-									lockedByRecipe: true,
-									slotHost: false,
-									authoredChildrenAllowed: false,
-								},
-							},
-							{
-								path: "fallback",
-								library: "base-ui",
-								component: "avatar.fallback",
-								role: "branch",
-								slot: "fallback",
-								contract: {
-									structuralNode: true,
-									lockedByRecipe: true,
-									slotHost: true,
-									authoredChildrenAllowed: true,
-								},
-							},
-						],
-					},
-				},
-				markerGuidance: {
-					systemOwned: true,
-					markerProps: [
-						recipeIdProp,
-						recipeInstanceProp,
-						recipeRootProp,
-						recipePathProp,
-						recipeSlotProp,
+				template: {
+					path: "root",
+					component: "base-ui/avatar.root",
+					children: [
+						{ path: "image", component: "base-ui/avatar.image" },
+						{
+							path: "fallback",
+							component: "base-ui/avatar.fallback",
+							slot: "fallback",
+						},
 					],
-					writableSurface: {
-						slots: ["fallback"],
-						controls: [],
-					},
 				},
+				slots: [{ name: "fallback", hostPath: "fallback" }],
 			});
-			expect(JSON.stringify(describeResult.structuredContent)).toContain(
-				"Do not pass recipe marker props to generic element mutation tools.",
-			);
-			expect(JSON.stringify(describeResult.structuredContent)).toContain(
-				"defaultsOmitMarkers",
-			);
+			// Marker props are Trickroom's; the guide never shows them.
+			expect(JSON.stringify(avatar)).not.toContain(recipeInstanceProp);
 
-			const menuDescribeResult = await client.callTool({
-				name: "describeRegistryRecipe",
-				arguments: {
-					library: "base-ui",
-					recipe: "menu.default",
-				},
-			});
-			expect(menuDescribeResult.structuredContent).toMatchObject({
-				library: "base-ui",
+			const [menu] = (await recipesTopic({ name: "menu" })).recipes;
+			expect(menu).toMatchObject({
 				recipe: "base-ui/menu.default",
-				localRecipe: "menu.default",
-				label: "Menu",
+				template: {
+					path: "root",
+					children: [
+						{ path: "trigger", slot: "trigger" },
+						{
+							path: "portal",
+							children: [
+								{
+									path: "positioner",
+									children: [{ path: "popup", slot: "items" }],
+								},
+							],
+						},
+					],
+				},
 				slots: [
-					{
-						name: "items",
-						label: "Items",
-						hostPath: "popup",
-					},
-					{
-						name: "trigger",
-						label: "Trigger",
-						hostPath: "trigger",
-					},
+					{ name: "items", hostPath: "popup" },
+					{ name: "trigger", hostPath: "trigger" },
 				],
-				structure: {
-					nodeCount: 5,
-					root: {
-						path: "root",
-						library: "base-ui",
-						component: "menu.root",
-						children: [
-							{
-								path: "trigger",
-								component: "menu.trigger",
-								slot: "trigger",
-							},
-							{
-								path: "portal",
-								component: "menu.portal",
-								children: [
-									{
-										path: "positioner",
-										component: "menu.positioner",
-										children: [
-											{
-												path: "popup",
-												component: "menu.popup",
-												slot: "items",
-											},
-										],
-									},
-								],
-							},
-						],
-					},
-				},
-				markerGuidance: {
-					writableSurface: {
-						slots: ["items", "trigger"],
-						controls: [
-							"align",
-							"loopFocus",
-							"modal",
-							"openOnHover",
-							"orientation",
-							"side",
-							"sideOffset",
-						],
-					},
-				},
 			});
+			expect(
+				menu.controls.map((control: { prop: string }) => control.prop).sort(),
+			).toEqual([
+				"align",
+				"loopFocus",
+				"modal",
+				"openOnHover",
+				"orientation",
+				"side",
+				"sideOffset",
+			]);
 		} finally {
 			await close();
 		}
@@ -1840,10 +1525,10 @@ describe("trickroom MCP discovery tools", () => {
 		const { client, close } = await createClient(projectRoot);
 		try {
 			const validResult = await client.callTool({
-				name: "validateDesignFile",
+				name: "design_validate",
 				arguments: { designFileId: validDesignFileId },
 			});
-			const validContent = validResult.structuredContent as {
+			const validContent = toolPayload(validResult) as {
 				valid: boolean;
 				issues: Array<{ code: string }>;
 			};
@@ -1859,10 +1544,10 @@ describe("trickroom MCP discovery tools", () => {
 			).toEqual([]);
 
 			const invalidResult = await client.callTool({
-				name: "validateDesignFile",
+				name: "design_validate",
 				arguments: { designFileId: invalidDesignFileId },
 			});
-			expect(invalidResult.structuredContent).toMatchObject({
+			expect(toolPayload(invalidResult)).toMatchObject({
 				valid: false,
 				issues: expect.arrayContaining([
 					expect.objectContaining({
@@ -1879,10 +1564,10 @@ describe("trickroom MCP discovery tools", () => {
 			});
 
 			const unknownResult = await client.callTool({
-				name: "validateDesignFile",
+				name: "design_validate",
 				arguments: { designFileId: unknownDesignFileId },
 			});
-			expect(unknownResult.structuredContent).toMatchObject({
+			expect(toolPayload(unknownResult)).toMatchObject({
 				valid: false,
 				issues: expect.arrayContaining([
 					expect.objectContaining({
@@ -1912,7 +1597,10 @@ describe("trickroom MCP discovery tools", () => {
 
 	it("resolves the design file system and lists stored tokens with sync metadata", async () => {
 		const projectRoot = await createProjectRoot();
-		await writeDesignFixture(projectRoot, "design-1");
+		await writeDesignFixture(
+			projectRoot,
+			"10000000-0000-4000-8000-0000000000d1",
+		);
 		await storeDomainTokens({
 			projectRoot,
 			systemName: "Core",
@@ -1940,63 +1628,40 @@ describe("trickroom MCP discovery tools", () => {
 		const { client, close } = await createClient(projectRoot);
 
 		try {
-			const systemResult = await client.callTool({
-				name: "getDesignSystemForDesignFile",
-				arguments: {
-					designFileId: "design-1",
-				},
-			});
-			expect(systemResult.structuredContent).toMatchObject({
-				designFile: {
-					id: "design-1",
-					name: "Landing Page",
-					systemName: "Core",
-				},
-				designSystem: {
-					systemName: "Core",
-					configured: true,
-					cssPath: "src/index.css",
-					tokenStorage: {
-						available: true,
-						syncedAt: "2026-05-05T08:00:00.000Z",
-						reviewRequired: true,
-					},
-				},
+			const listed = toolPayload(
+				await client.callTool({ name: "design_list", arguments: {} }),
+			);
+			const [systemId] = Object.keys(listed.systems);
+			expect(listed.designFiles).toMatchObject([
+				{ id: "10000000-0000-4000-8000-0000000000d1", systemId },
+			]);
+			expect(listed.systems[systemId]).toEqual({
+				name: "Core",
+				cssPath: "src/index.css",
+				tokens: { syncedAt: "2026-05-05T08:00:00.000Z", reviewRequired: true },
 			});
 
 			const tokensResult = await client.callTool({
-				name: "listDesignTokens",
+				name: "system_read",
 				arguments: {
-					designFileId: "design-1",
+					view: "tokens",
+					designFileId: "10000000-0000-4000-8000-0000000000d1",
 				},
 			});
-			expect(tokensResult.structuredContent).toMatchObject({
+			expect(toolPayload(tokensResult)).toEqual({
+				project: expect.any(Object),
+				systemId: expect.stringMatching(/^sys_/),
+				systemName: "Core",
 				storageStatus: "stored",
-				tokens: [
-					{
-						domain: "color",
-						category: "accent",
-						name: "accent-primary",
-						value: "#abcdef",
-						overrideConfirmed: true,
-						syncedAt: "2026-05-05T08:00:00.000Z",
-						reviewRequired: true,
-					},
-					{
-						domain: "color",
-						category: "brand",
-						name: "brand-500",
-						value: "#123456",
-						overrideConfirmed: true,
-						syncedAt: "2026-05-05T08:00:00.000Z",
-						reviewRequired: true,
-					},
-				],
-				domains: {
-					color: {
-						tokenCount: 2,
-						overrides: ["--color-accent-*", "brand-500"],
-					},
+				syncedAt: "2026-05-05T08:00:00.000Z",
+				reviewRequired: true,
+				domains: { color: 2 },
+				totalCount: 2,
+				matchedCount: 2,
+				returnedCount: 2,
+				truncated: false,
+				tokens: {
+					color: { "accent-primary": "#abcdef", "brand-500": "#123456" },
 				},
 			});
 		} finally {
@@ -2006,29 +1671,35 @@ describe("trickroom MCP discovery tools", () => {
 
 	it("treats systemId null as disconnected even when legacy systemName remains", async () => {
 		const projectRoot = await createProjectRoot();
-		await writeDesignFixture(projectRoot, "design-1", {
-			...validDesign,
-			systemId: null,
-			systemName: "Core",
-		});
+		await writeDesignFixture(
+			projectRoot,
+			"10000000-0000-4000-8000-0000000000d1",
+			{
+				...validDesign,
+				systemId: null,
+				systemName: "Core",
+			},
+		);
 		const { client, close } = await createClient(projectRoot);
 
 		try {
-			const systemResult = await client.callTool({
-				name: "getDesignSystemForDesignFile",
+			const listed = toolPayload(
+				await client.callTool({ name: "design_list", arguments: {} }),
+			);
+			expect(listed.designFiles).toMatchObject([
+				{ id: "10000000-0000-4000-8000-0000000000d1", systemId: null },
+			]);
+
+			const tokens = await client.callTool({
+				name: "system_read",
 				arguments: {
-					designFileId: "design-1",
+					view: "tokens",
+					designFileId: "10000000-0000-4000-8000-0000000000d1",
 				},
 			});
-
-			expect(systemResult.structuredContent).toMatchObject({
-				designFile: {
-					id: "design-1",
-					name: "Landing Page",
-					systemId: null,
-					systemName: null,
-				},
-				designSystem: null,
+			expect(tokens.isError).toBe(true);
+			expect(toolPayload(tokens)).toMatchObject({
+				code: "DESIGN_NOT_LINKED_TO_SYSTEM",
 			});
 		} finally {
 			await close();

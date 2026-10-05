@@ -8,7 +8,6 @@ import {
 	getElementSystemComponentMetadata,
 	getSystemComponentInstanceMetadata,
 	isSystemComponentOwnedStructuralNode,
-	isSystemComponentRoot,
 	type SystemComponentBoundaryEntityMap,
 	type SystemComponentInstanceMetadata,
 	type SystemComponentSlotContainment,
@@ -187,8 +186,3 @@ export const attachedComponentVersionStatusLabel = (
 			return "Published version unavailable";
 	}
 };
-
-export const isAttachedComponentRootSelected = (
-	_entitiesById: SystemComponentBoundaryEntityMap,
-	selectedElement: DesignEntity | null,
-) => !!selectedElement && isSystemComponentRoot(selectedElement);

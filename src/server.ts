@@ -1,8 +1,8 @@
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
-import { type Context, Hono } from "hono";
+import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { streamSSE } from "hono/streaming";
 import { resolveTrickroomHome } from "./app-state/home";
@@ -10,6 +10,7 @@ import {
 	clearActiveProjectLocation,
 	deleteProjectLocation,
 	getActiveProjectLocation,
+	listPresentProjectLocations,
 	type ProjectLocationRef,
 	readProjectRegistry,
 	updateProjectLocationName,
@@ -36,6 +37,7 @@ import {
 	recipeLoadRepairHeaderName,
 	repairInvalidKnownRecipeInstances,
 } from "./recipes/repair";
+import { createEditorChannelRoutes } from "./routes/editor-channel";
 import { exportRoutes } from "./routes/export";
 import { registerProjectAndDesignMemoryRoutes } from "./routes/memory";
 import {
@@ -45,6 +47,7 @@ import {
 import { systemsRoutes } from "./routes/systems";
 import { tailwindRoutes } from "./routes/tailwind";
 import {
+	isSecureRequest,
 	trickroomSessionCookieName,
 	trickroomSessionHeaderName,
 } from "./server-auth";
@@ -54,17 +57,22 @@ import {
 	isTrickroomConfig,
 	isTrickroomDesign,
 	jsonError,
-	migrateTrickroomDesign,
 } from "./server-utils";
+import { DESIGN_FILE_VERSION } from "./services/design-file-schema";
 import {
 	createDesignFileService,
 	DesignFileServiceError,
 } from "./services/design-file-service";
 import type { DesignFileRevision } from "./services/design-file-service.types";
+import { calculateManifestRevision } from "./services/design-revision";
 import {
 	applyExtractSubtree,
 	DesignTransformError,
 } from "./services/design-transform-service";
+import {
+	createEditorSessions,
+	isEditorClientId,
+} from "./services/editor-sessions";
 import { ProjectFileEvents } from "./services/project-file-events";
 import type {
 	Node as DesignNode,
@@ -72,6 +80,7 @@ import type {
 	TrickroomDesign,
 	TrickroomDesignSummary,
 } from "./types";
+import { normalizeAssetId, readAsset } from "./utils/asset-manifest-service";
 import {
 	componentAllowsBlankResourceId,
 	getResourceIdProp,
@@ -97,6 +106,17 @@ export type TrickroomSessionProject = {
 	locationId: string;
 	projectRoot: string;
 	name: string;
+};
+
+/**
+ * Server-process hooks for code that hosts the app (the production entry and
+ * the dev plugin), such as keeping the discovery record on the active project.
+ */
+export type TrickroomAppRuntime = {
+	getActiveProject: () => TrickroomSessionProject | null;
+	subscribeActiveProject: (
+		listener: (project: TrickroomSessionProject | null) => void,
+	) => () => void;
 };
 
 export type TrickroomAppOptions = {
@@ -361,10 +381,50 @@ const createNoProjectResponse = () =>
 	jsonError("No Trickroom project is selected.", 409);
 
 const designRevisionHeaderName = "x-trickroom-revision";
+const designBoardRevisionHeaderName = "x-trickroom-board-revision";
+/** Set on design reads whose stored version was migrated in memory. */
+const designMigrationHeaderName = "x-trickroom-design-migration";
 const expectedDesignRevisionHeaderName = "x-trickroom-expected-revision";
+/**
+ * Set on design writes whose stored result kept changes the request did not
+ * have (another writer's boards), so the response design differs from it.
+ */
+const designMergedHeaderName = "x-trickroom-design-merged";
 
 const setDesignRevisionHeader = (c: Context, revision: DesignFileRevision) =>
 	c.header(designRevisionHeaderName, revision);
+
+/**
+ * The manifest revision and every board's revision, in board order, so the
+ * browser can tell which parts of a design a later change event touched.
+ * URI-encoded JSON: `{ manifest, boards: [{ id, revision }] }`.
+ */
+const designStateHeaderName = "x-trickroom-design-state";
+
+const setDesignStateHeader = (
+	c: Context,
+	design: TrickroomDesign,
+	boards: readonly { id: string; revision: string }[],
+) =>
+	c.header(
+		designStateHeaderName,
+		encodeURIComponent(
+			JSON.stringify({
+				manifest: calculateManifestRevision(design),
+				boards: boards.map(({ id, revision }) => ({ id, revision })),
+			}),
+		),
+	);
+
+const isInvalidDesignIdError = (error: unknown) =>
+	error instanceof DesignFileServiceError &&
+	error.code === "INVALID_DESIGN_UUID";
+
+const invalidDesignIdResponse = () =>
+	jsonError("Design id must be a single path segment", 400);
+
+const designNotFoundResponse = (designId: string) =>
+	jsonError(`Design "${designId}" not found`, 404);
 
 const parseMcpSettingsPayload = (body: unknown) => {
 	if (!body || typeof body !== "object") {
@@ -385,14 +445,16 @@ const parseMcpSettingsPayload = (body: unknown) => {
 	return null;
 };
 
-const parseDefaultSystemPayload = (body: unknown) => {
+const parseDefaultSystemPayload = (
+	body: unknown,
+): { systemId: string | null } | null => {
 	if (!body || typeof body !== "object") {
 		return null;
 	}
 
 	const { systemId } = body as { systemId?: unknown };
 	if (systemId === null) {
-		return { systemId: null as const };
+		return { systemId: null };
 	}
 
 	if (typeof systemId === "string" && systemId.trim().length > 0) {
@@ -497,13 +559,12 @@ const summarizeAuditLog = async (auditLogPath: string) => {
 		count += 1;
 		try {
 			const entry = JSON.parse(line) as { timestamp?: unknown };
-			const timestampTime =
-				typeof entry.timestamp === "string"
-					? Date.parse(entry.timestamp)
-					: Number.NaN;
+			const timestamp =
+				typeof entry.timestamp === "string" ? entry.timestamp : null;
+			const timestampTime = timestamp ? Date.parse(timestamp) : Number.NaN;
 			if (!Number.isNaN(timestampTime) && timestampTime > mostRecentTime) {
 				mostRecentTime = timestampTime;
-				mostRecentAt = entry.timestamp;
+				mostRecentAt = timestamp;
 			}
 		} catch {
 			// Invalid historical lines still count as audit entries.
@@ -524,8 +585,17 @@ const summarizeAuditLog = async (auditLogPath: string) => {
 	return summary;
 };
 
+/** Request variables the project middleware sets for the routes below it. */
+type TrickroomAppEnv = {
+	Variables: {
+		projectRoot: string;
+		configPath: string;
+		config: TrickroomConfig;
+	};
+};
+
 export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
-	const app = new Hono();
+	const app = new Hono<TrickroomAppEnv>();
 	const trickroomHome = options.trickroomHome ?? resolveTrickroomHome();
 	const registerInitialProject = options.registerInitialProject ?? true;
 	const sessionToken =
@@ -534,10 +604,28 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			: (options.sessionToken?.trim() ?? undefined);
 	let activeProject: TrickroomActiveProject | null = null;
 	let initialProjectPromise: Promise<void> | null = null;
-	const projectFileEvents = new ProjectFileEvents();
+	const projectFileEvents = new ProjectFileEvents(undefined, { trickroomHome });
+	const editorSessions = createEditorSessions();
+	const activeProjectListeners = new Set<
+		(project: TrickroomSessionProject | null) => void
+	>();
 	const setActiveProject = (project: TrickroomActiveProject | null) => {
 		activeProject = project;
 		projectFileEvents.setProjectRoot(project?.projectRoot ?? null);
+		const sessionProject = project ? toSessionProject(project) : null;
+		for (const listener of activeProjectListeners) {
+			listener(sessionProject);
+		}
+	};
+	const runtime: TrickroomAppRuntime = {
+		getActiveProject: () =>
+			activeProject ? toSessionProject(activeProject) : null,
+		subscribeActiveProject: (listener) => {
+			activeProjectListeners.add(listener);
+			return () => {
+				activeProjectListeners.delete(listener);
+			};
+		},
 	};
 
 	app.onError((error, c) => {
@@ -562,7 +650,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				httpOnly: true,
 				path: "/",
 				sameSite: "Strict",
-				secure: cleanUrl.protocol === "https:",
+				secure: isSecureRequest(cleanUrl, c.req.header("x-forwarded-proto")),
 			});
 			return c.redirect(`${cleanUrl.pathname}${cleanUrl.search}`);
 		}
@@ -630,13 +718,21 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		}
 
 		const registry = await readProjectRegistry(trickroomHome);
-		const registryActiveLocation = getActiveProjectLocation(registry);
+		// Locations whose folder is gone are hidden, and never offered as the
+		// registry's active project.
+		const presentLocations = await listPresentProjectLocations(
+			registry.locations,
+		);
+		const registryActiveLocation = getActiveProjectLocation({
+			...registry,
+			locations: presentLocations,
+		});
 		return c.json({
 			activeProject: activeProject ? toSessionProject(activeProject) : null,
 			registryActiveProject: registryActiveLocation
 				? toSessionProject(registryActiveLocation)
 				: null,
-			recentProjects: registry.locations.map(toSessionProject),
+			recentProjects: presentLocations.map(toSessionProject),
 		});
 	});
 
@@ -646,6 +742,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return createNoProjectResponse();
 		}
 		projectFileEvents.setProjectRoot(project.projectRoot);
+		const clientId = c.req.query("clientId");
 
 		return streamSSE(c, async (stream) => {
 			let resolveClosed: (() => void) | null = null;
@@ -661,6 +758,11 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			const unsubscribe = projectFileEvents.subscribe((event) => {
 				enqueue("change", JSON.stringify(event));
 			});
+			// Tabs identify themselves so the editor channel knows which are
+			// connected; the stream is the tab's presence.
+			const disconnectEditor = isEditorClientId(clientId)
+				? editorSessions.connect(clientId, enqueue)
+				: undefined;
 			const heartbeat = setInterval(() => enqueue("heartbeat", "{}"), 15_000);
 			stream.onAbort(() => resolveClosed?.());
 			enqueue("ready", JSON.stringify({ locationId: project.locationId }));
@@ -668,8 +770,23 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			await closed;
 			clearInterval(heartbeat);
 			unsubscribe();
+			disconnectEditor?.();
 		});
 	});
+
+	app.route(
+		"/api/trickroom",
+		createEditorChannelRoutes({
+			sessions: editorSessions,
+			getActiveProjectId: async () => {
+				if (initialProjectPromise) {
+					await initialProjectPromise;
+					initialProjectPromise = null;
+				}
+				return activeProject?.config.projectId ?? null;
+			},
+		}),
+	);
 
 	app.post("/api/trickroom/projects/open", async (c) => {
 		const body = await c.req.json().catch(() => null);
@@ -770,7 +887,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			};
 			setActiveProject(openedProject);
 
-			const designFileService = createDesignFileService(project.projectRoot);
+			const designFileService = createDesignFileService(project.projectRoot, {
+				trickroomHome,
+			});
 			const designSummaries = await designFileService.listDesignSummaries();
 			const designSummary = designSummaries.find(
 				(summary) =>
@@ -814,7 +933,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		return c.json({
 			project: toSessionProject(deleted.location),
 			activeProject: activeProject ? toSessionProject(activeProject) : null,
-			recentProjects: deleted.registry.locations.map(toSessionProject),
+			recentProjects: (
+				await listPresentProjectLocations(deleted.registry.locations)
+			).map(toSessionProject),
 		});
 	});
 
@@ -874,7 +995,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return c.json({
 				project: toSessionProject(renamed.location),
 				activeProject: activeProject ? toSessionProject(activeProject) : null,
-				recentProjects: renamed.registry.locations.map(toSessionProject),
+				recentProjects: (
+					await listPresentProjectLocations(renamed.registry.locations)
+				).map(toSessionProject),
 				config: writtenConfig,
 			});
 		} catch (error) {
@@ -899,10 +1022,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 	});
 	app.route("/api/trickroom/tailwind", tailwindRoutes);
 
-	const attachProjectToSystemsRequest = async (
-		c: Parameters<Parameters<typeof app.use>[1]>[0],
-		next: Parameters<Parameters<typeof app.use>[1]>[1],
-	) => {
+	const attachProjectToSystemsRequest: MiddlewareHandler<
+		TrickroomAppEnv
+	> = async (c, next) => {
 		const project = await resolveProjectForRequest().catch((error) => {
 			return createProjectErrorResponse(error);
 		});
@@ -937,15 +1059,6 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		"/api/trickroom/screenshot",
 		createScreenshotRoutes(options.screenshotCapture),
 	);
-
-	app.get("/api/trickroom/project-root", async (c) => {
-		const project = await resolveProjectForRequest();
-		if (!project) {
-			return createNoProjectResponse();
-		}
-
-		return c.json({ projectRoot: project.projectRoot });
-	});
 
 	app.get("/api/trickroom/config", async (c) => {
 		const project = await resolveProjectForRequest();
@@ -996,9 +1109,10 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		}
 
 		try {
-			const designFileService = createDesignFileService(project.projectRoot);
-			await mkdir(designFileService.designsDir, { recursive: true });
-			await writeFile(designFileService.designsGitkeepPath, "", { flag: "a" });
+			const designFileService = createDesignFileService(project.projectRoot, {
+				trickroomHome,
+			});
+			await designFileService.initializeDesignsDirectory();
 			const writtenConfig = await writeProjectConfig(
 				project.projectRoot,
 				config,
@@ -1136,72 +1250,158 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return createNoProjectResponse();
 		}
 
-		const file = c.req.query("file");
-		if (!file) {
-			return jsonError("Missing required query parameter: file", 400);
+		const designId = c.req.query("id");
+		if (!designId) {
+			return jsonError("Missing required query parameter: id", 400);
 		}
 
-		const designFileService = createDesignFileService(project.projectRoot);
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
 		try {
-			const read = await designFileService.readJsonFile(file);
-			const migration = migrateTrickroomDesign(read.value);
-			if (!migration) {
-				return jsonError("Invalid trickroom design payload", 422);
-			}
-
-			const repair = repairInvalidKnownRecipeInstances(migration.design);
+			// Reads never write: version migration, recipe repair, and system
+			// reference canonicalisation happen in memory and are persisted by
+			// the next real write. The revision is the one of the bytes on disk,
+			// so that write's revision check still matches.
+			const read = await designFileService.readDesignFile(designId);
+			const repair = repairInvalidKnownRecipeInstances(read.design);
 			const canonicalDesign = await canonicalizeDesignSystemReferenceForStorage(
 				project,
 				repair.design,
 			);
-			const shouldWrite =
-				migration.migrated ||
-				repair.report.repairedCount > 0 ||
-				JSON.stringify(canonicalDesign) !== JSON.stringify(read.value);
-			if (!shouldWrite) {
-				setDesignRevisionHeader(c, read.revision);
-				return c.json(await decorateDesignSystemReference(project, read.value));
-			}
-
-			const written = await designFileService.writeDesignFile(
-				file,
-				canonicalDesign,
-				{ expectedRevision: read.revision },
-			);
 			if (repair.report.repairedCount > 0) {
 				c.header(recipeLoadRepairHeaderName, JSON.stringify(repair.report));
 			}
-			setDesignRevisionHeader(c, written.revision);
+			if (read.migrated) {
+				c.header(
+					designMigrationHeaderName,
+					JSON.stringify({
+						fromVersion: read.storedVersion,
+						toVersion: DESIGN_FILE_VERSION,
+					}),
+				);
+			}
+			setDesignRevisionHeader(c, read.revision);
+			setDesignStateHeader(c, read.design, read.boards);
 			return c.json(
-				await decorateDesignSystemReference(project, written.design),
+				await decorateDesignSystemReference(project, canonicalDesign),
 			);
 		} catch (error) {
-			if (
-				error instanceof DesignFileServiceError &&
-				error.code === "INVALID_DESIGN_FILE_PATH"
-			) {
-				return jsonError(
-					"Design file path must be inside .trickroom/designs",
-					400,
-				);
+			if (isInvalidDesignIdError(error)) {
+				return invalidDesignIdResponse();
 			}
 			if (
 				error instanceof DesignFileServiceError &&
-				error.code === "REVISION_MISMATCH"
+				(error.code === "INVALID_DESIGN_PAYLOAD" ||
+					error.code === "UNSUPPORTED_DESIGN_VERSION")
 			) {
-				return jsonError(
-					"Design file changed while repairing recipe instances",
-					409,
-				);
+				return jsonError(error.message, 422);
 			}
 
 			const fsError = asErrnoException(error);
 			if (fsError.code === "ENOENT") {
-				const designPath = designFileService.resolveDesignFilePath(file);
-				return jsonError(`Design file not found at ${designPath}`, 404);
+				return designNotFoundResponse(designId);
 			}
 
 			return jsonError("Failed to read trickroom design file", 500);
+		}
+	});
+
+	// One board with its revision, so a client can reload a single board
+	// after a change event names it.
+	app.get("/api/trickroom/design/board", async (c) => {
+		const project = await resolveProjectForRequest();
+		if (!project) {
+			return createNoProjectResponse();
+		}
+
+		const designId = c.req.query("id");
+		const boardId = c.req.query("board");
+		if (!designId || !boardId) {
+			return jsonError("Missing required query parameters: id, board", 400);
+		}
+
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
+		try {
+			const read = await designFileService.readDesignBoard(designId, boardId);
+			if (!read) {
+				return jsonError(
+					`Board "${boardId}" not found in design "${designId}"`,
+					404,
+				);
+			}
+			c.header(designBoardRevisionHeaderName, read.revision);
+			return c.json({ board: read.board, revision: read.revision });
+		} catch (error) {
+			if (isInvalidDesignIdError(error)) {
+				return invalidDesignIdResponse();
+			}
+			if (
+				error instanceof DesignFileServiceError &&
+				(error.code === "INVALID_DESIGN_PAYLOAD" ||
+					error.code === "UNSUPPORTED_DESIGN_VERSION")
+			) {
+				return jsonError(error.message, 422);
+			}
+			if (asErrnoException(error).code === "ENOENT") {
+				return designNotFoundResponse(designId);
+			}
+			return jsonError("Failed to read trickroom design board", 500);
+		}
+	});
+
+	// The design's top-level fields with the revision of every part, without
+	// board contents, so a client can reload a renamed or relinked design
+	// without fetching its boards.
+	app.get("/api/trickroom/design/manifest", async (c) => {
+		const project = await resolveProjectForRequest();
+		if (!project) {
+			return createNoProjectResponse();
+		}
+
+		const designId = c.req.query("id");
+		if (!designId) {
+			return jsonError("Missing required query parameter: id", 400);
+		}
+
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
+		try {
+			const read = await designFileService.readDesignFile(designId);
+			const { boards: _boards, ...manifest } =
+				await decorateDesignSystemReference(
+					project,
+					await canonicalizeDesignSystemReferenceForStorage(project, {
+						...read.design,
+						boards: [],
+					}),
+				);
+			void _boards;
+			setDesignRevisionHeader(c, read.revision);
+			return c.json({
+				revision: read.revision,
+				manifest,
+				manifestRevision: calculateManifestRevision(read.design),
+				boards: read.boards.map(({ id, revision }) => ({ id, revision })),
+			});
+		} catch (error) {
+			if (isInvalidDesignIdError(error)) {
+				return invalidDesignIdResponse();
+			}
+			if (
+				error instanceof DesignFileServiceError &&
+				(error.code === "INVALID_DESIGN_PAYLOAD" ||
+					error.code === "UNSUPPORTED_DESIGN_VERSION")
+			) {
+				return jsonError(error.message, 422);
+			}
+			if (asErrnoException(error).code === "ENOENT") {
+				return designNotFoundResponse(designId);
+			}
+			return jsonError("Failed to read trickroom design manifest", 500);
 		}
 	});
 
@@ -1211,9 +1411,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return createNoProjectResponse();
 		}
 
-		const file = c.req.query("file");
-		if (!file) {
-			return jsonError("Missing required query parameter: file", 400);
+		const designId = c.req.query("id");
+		if (!designId) {
+			return jsonError("Missing required query parameter: id", 400);
 		}
 
 		const systemHandle = c.req.query("systemId") ?? undefined;
@@ -1223,7 +1423,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		try {
 			const result = await scanDesignFileSystemComponentUsage(
 				project.projectRoot,
-				file,
+				designId,
 				{
 					systemHandle,
 					componentId,
@@ -1231,18 +1431,12 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				},
 			);
 			return c.json({
-				designFile: file,
+				designFileId: designId,
 				...result,
 			});
 		} catch (error) {
-			if (
-				error instanceof DesignFileServiceError &&
-				error.code === "INVALID_DESIGN_FILE_PATH"
-			) {
-				return jsonError(
-					"Design file path must be inside .trickroom/designs",
-					400,
-				);
+			if (isInvalidDesignIdError(error)) {
+				return invalidDesignIdResponse();
 			}
 
 			return jsonError("Failed to scan design system component usage", 500);
@@ -1255,7 +1449,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return createNoProjectResponse();
 		}
 
-		const designFileService = createDesignFileService(project.projectRoot);
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
 		try {
 			const designSummaries = await designFileService.listDesignSummaries();
 			const summaries = await Promise.all(
@@ -1287,6 +1483,8 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 						boardsCount: summary.boardsCount,
 						layersCount: summary.layersCount,
 						modifiedAt: summary.modifiedAt,
+						...(summary.diagnostic ? { diagnostic: summary.diagnostic } : {}),
+						...(summary.warnings ? { warnings: summary.warnings } : {}),
 					} satisfies TrickroomDesignSummary;
 				}),
 			);
@@ -1326,13 +1524,13 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return jsonError("Invalid extract design payload", 400);
 		}
 
-		let sourceFile: string;
-		let targetFile: string;
+		let sourceDesignId: string;
+		let targetDesignId: string;
 		let elementId: string;
 		let name: string | undefined;
 		try {
-			sourceFile = readRequiredString(body, "sourceFile");
-			targetFile = readRequiredString(body, "targetFile");
+			sourceDesignId = readRequiredString(body, "sourceDesignId");
+			targetDesignId = readRequiredString(body, "targetDesignId");
 			elementId = readRequiredString(body, "elementId");
 			name = readOptionalString(body, "name");
 		} catch (error) {
@@ -1342,23 +1540,22 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			throw error;
 		}
 
-		const designFileService = createDesignFileService(project.projectRoot);
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
 		try {
-			designFileService.resolveDesignFilePath(sourceFile);
-			designFileService.resolveDesignFilePath(targetFile);
+			designFileService.assertDesignId(sourceDesignId);
+			designFileService.assertDesignId(targetDesignId);
 		} catch (error) {
-			if (!(error instanceof DesignFileServiceError)) {
+			if (!isInvalidDesignIdError(error)) {
 				throw error;
 			}
 
-			return jsonError(
-				"Design file path must be inside .trickroom/designs",
-				400,
-			);
+			return invalidDesignIdResponse();
 		}
 
 		try {
-			const sourceRead = await designFileService.readDesignFile(sourceFile);
+			const sourceRead = await designFileService.readDesignFile(sourceDesignId);
 			const result = await applyExtractSubtree(sourceRead.design, {
 				elementId,
 				name,
@@ -1370,7 +1567,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			);
 			await assertExtractedDesignReferencesExist(project, canonicalDesign);
 			const written = await designFileService.createDesignFile(
-				targetFile,
+				targetDesignId,
 				canonicalDesign,
 			);
 			setDesignRevisionHeader(c, written.revision);
@@ -1384,7 +1581,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			}
 			if (error instanceof DesignFileServiceError) {
 				if (error.code === "INVALID_DESIGN_PAYLOAD") {
-					return jsonError("Invalid trickroom design payload", 400);
+					return jsonError(error.message, 400);
 				}
 				if (error.code === "DESIGN_FILE_ALREADY_EXISTS") {
 					return jsonError("Design file already exists", 409);
@@ -1393,8 +1590,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 
 			const fsError = asErrnoException(error);
 			if (fsError.code === "ENOENT") {
-				const sourcePath = designFileService.resolveDesignFilePath(sourceFile);
-				return jsonError(`Design file not found at ${sourcePath}`, 404);
+				return designNotFoundResponse(sourceDesignId);
 			}
 
 			return jsonError("Failed to extract trickroom design file", 500);
@@ -1407,23 +1603,22 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return createNoProjectResponse();
 		}
 
-		const file = c.req.query("file");
-		if (!file) {
-			return jsonError("Missing required query parameter: file", 400);
+		const designId = c.req.query("id");
+		if (!designId) {
+			return jsonError("Missing required query parameter: id", 400);
 		}
 
-		const designFileService = createDesignFileService(project.projectRoot);
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
 		try {
-			designFileService.resolveDesignFilePath(file);
+			designFileService.assertDesignId(designId);
 		} catch (error) {
-			if (!(error instanceof DesignFileServiceError)) {
+			if (!isInvalidDesignIdError(error)) {
 				throw error;
 			}
 
-			return jsonError(
-				"Design file path must be inside .trickroom/designs",
-				400,
-			);
+			return invalidDesignIdResponse();
 		}
 
 		const body = await c.req.json().catch(() => null);
@@ -1443,7 +1638,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			);
 			await assertExtractedDesignReferencesExist(project, canonicalDesign);
 			const written = await designFileService.createDesignFile(
-				file,
+				designId,
 				canonicalDesign,
 			);
 			setDesignRevisionHeader(c, written.revision);
@@ -1457,7 +1652,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			}
 			if (error instanceof DesignFileServiceError) {
 				if (error.code === "INVALID_DESIGN_PAYLOAD") {
-					return jsonError("Invalid trickroom design payload", 400);
+					return jsonError(error.message, 400);
 				}
 				if (error.code === "DESIGN_FILE_ALREADY_EXISTS") {
 					return jsonError("Design file already exists", 409);
@@ -1474,22 +1669,31 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return createNoProjectResponse();
 		}
 
-		const file = c.req.query("file");
-		if (!file) {
-			return jsonError("Missing required query parameter: file", 400);
+		const designId = c.req.query("id");
+		if (!designId) {
+			return jsonError("Missing required query parameter: id", 400);
 		}
 
-		const designFileService = createDesignFileService(project.projectRoot);
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
 		try {
-			designFileService.resolveDesignFilePath(file);
+			designFileService.assertDesignId(designId);
 		} catch (error) {
-			if (!(error instanceof DesignFileServiceError)) {
+			if (!isInvalidDesignIdError(error)) {
 				throw error;
 			}
 
+			return invalidDesignIdResponse();
+		}
+
+		// Writes replace an existing design, so they must name the revision they
+		// were based on; new designs are created with POST.
+		const expectedRevision = c.req.header(expectedDesignRevisionHeaderName);
+		if (!expectedRevision) {
 			return jsonError(
-				"Design file path must be inside .trickroom/designs",
-				400,
+				`Missing ${expectedDesignRevisionHeaderName} header. Read the design first and send its revision.`,
+				428,
 			);
 		}
 
@@ -1504,15 +1708,16 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				body,
 			);
 			await assertExtractedDesignReferencesExist(project, canonicalDesign);
-			const expectedRevision = c.req.header(expectedDesignRevisionHeaderName) as
-				| DesignFileRevision
-				| undefined;
 			const written = await designFileService.writeDesignFile(
-				file,
+				designId,
 				canonicalDesign,
-				expectedRevision ? { expectedRevision } : {},
+				{ expectedRevision },
 			);
 			setDesignRevisionHeader(c, written.revision);
+			setDesignStateHeader(c, written.design, written.boards);
+			if (written.merged) {
+				c.header(designMergedHeaderName, "true");
+			}
 			return c.json(
 				await decorateDesignSystemReference(project, written.design),
 			);
@@ -1524,7 +1729,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				error instanceof DesignFileServiceError &&
 				error.code === "INVALID_DESIGN_PAYLOAD"
 			) {
-				return jsonError("Invalid trickroom design payload", 400);
+				return jsonError(error.message, 400);
 			}
 			if (
 				error instanceof DesignFileServiceError &&
@@ -1532,11 +1737,25 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			) {
 				return jsonError("Design file changed since it was loaded", 409);
 			}
+			if (
+				error instanceof DesignFileServiceError &&
+				error.code === "UNSUPPORTED_DESIGN_VERSION"
+			) {
+				return jsonError(error.message, 422);
+			}
+			if (
+				error instanceof DesignFileServiceError &&
+				error.code === "DESIGN_FILE_LOCKED"
+			) {
+				return jsonError(
+					"Design file is being written by another process; retry shortly",
+					423,
+				);
+			}
 
 			const fsError = asErrnoException(error);
 			if (fsError.code === "ENOENT") {
-				const designPath = designFileService.resolveDesignFilePath(file);
-				return jsonError(`Design file not found at ${designPath}`, 404);
+				return designNotFoundResponse(designId);
 			}
 
 			return jsonError("Failed to write trickroom design file", 500);
@@ -1549,37 +1768,32 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return createNoProjectResponse();
 		}
 
-		const file = c.req.query("file");
-		if (!file) {
-			return jsonError("Missing required query parameter: file", 400);
+		const designId = c.req.query("id");
+		if (!designId) {
+			return jsonError("Missing required query parameter: id", 400);
 		}
 
-		const designFileService = createDesignFileService(project.projectRoot);
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
 		try {
-			await designFileService.deleteDesignFile(file);
+			await designFileService.deleteDesignFile(designId);
 			return c.json({ ok: true });
 		} catch (error) {
-			if (
-				error instanceof DesignFileServiceError &&
-				error.code === "INVALID_DESIGN_FILE_PATH"
-			) {
-				return jsonError(
-					"Design file path must be inside .trickroom/designs",
-					400,
-				);
+			if (isInvalidDesignIdError(error)) {
+				return invalidDesignIdResponse();
 			}
 
 			const fsError = asErrnoException(error);
 			if (fsError.code === "ENOENT") {
-				const designPath = designFileService.resolveDesignFilePath(file);
-				return jsonError(`Design file not found at ${designPath}`, 404);
+				return designNotFoundResponse(designId);
 			}
 
 			return jsonError("Failed to delete trickroom design file", 500);
 		}
 	});
 
-	return app;
+	return Object.assign(app, { trickroomRuntime: runtime });
 };
 
 const initialProjectRoot = process.env.TRICKROOM_PROJECT_DIR

@@ -10,10 +10,12 @@ import { writeDesignSystemManifest } from "../utils/design-system-store";
 import { syncIconManifest } from "../utils/icon-manifest-service";
 import { createTrickroomMcpServer } from "./server";
 import {
+	applyOperation,
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
 
@@ -29,7 +31,6 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		await writeAssetManifest(fixture.projectRoot, "Core", {
 			version: 1,
 			metadata: {
-				systemName: "Core",
 				updatedAt: "2026-05-15T00:00:00.000Z",
 			},
 			assets: {
@@ -66,37 +67,37 @@ describe("trickroom MCP asset and icon catalogs", () => {
 
 	it("exposes asset and icon metadata without raw content", async () => {
 		const assets = await session.client.callTool({
-			name: "listSystemAssets",
-			arguments: { systemName: "Core" },
+			name: "system_read",
+			arguments: { view: "assets", systemName: "Core" },
 		});
-		expect(assets.structuredContent).toMatchObject({
+		expect(toolPayload(assets)).toMatchObject({
 			systemName: "Core",
 			assets: [{ id: "ast_hero", sourcePath: "src/assets/hero.png" }],
 		});
 
 		const asset = await session.client.callTool({
-			name: "describeAsset",
-			arguments: { systemName: "Core", assetId: "ast_hero" },
+			name: "system_read",
+			arguments: { view: "assets", systemName: "Core", id: "ast_hero" },
 		});
-		expect(asset.structuredContent).toMatchObject({
+		expect(toolPayload(asset)).toMatchObject({
 			asset: { id: "ast_hero", mimeType: "image/png" },
 		});
 
 		const icons = await session.client.callTool({
-			name: "listSystemIcons",
-			arguments: { systemName: "Core" },
+			name: "system_read",
+			arguments: { view: "icons", systemName: "Core" },
 		});
-		expect(icons.structuredContent).toMatchObject({
+		expect(toolPayload(icons)).toMatchObject({
 			systemName: "Core",
-			icons: [{ id: "src/search", sourcePath: "src/icons/search.svg" }],
+			icons: [{ id: "src/search" }],
 		});
-		expect(JSON.stringify(icons.structuredContent)).not.toContain("<svg");
+		expect(JSON.stringify(toolPayload(icons))).not.toContain("<svg");
 
 		const icon = await session.client.callTool({
-			name: "describeIcon",
-			arguments: { systemName: "Core", iconId: "src/search" },
+			name: "system_read",
+			arguments: { view: "icons", systemName: "Core", id: "src/search" },
 		});
-		expect(icon.structuredContent).toMatchObject({
+		expect(toolPayload(icon)).toMatchObject({
 			icon: { id: "src/search", paint: "stroke" },
 		});
 	});
@@ -156,41 +157,42 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		});
 
 		const assetUsage = await session.client.callTool({
-			name: "findAssetUsage",
-			arguments: { systemName: "Core", assetId: "ast_hero" },
+			name: "system_read",
+			arguments: { view: "asset_usage", systemName: "Core", id: "ast_hero" },
 		});
-		expect(assetUsage.structuredContent).toMatchObject({
-			usages: expect.arrayContaining([
-				expect.objectContaining({
-					elementId: "asset",
-					resourceId: "ast_hero",
-				}),
-				expect.objectContaining({
-					elementId: "avatar-image",
-					resourceId: "ast_hero",
-				}),
-			]),
+		expect(toolPayload(assetUsage)).toMatchObject({
+			resourceId: "ast_hero",
+			usageCount: 2,
+			designCount: 1,
+			designs: [
+				{
+					designFileId: trickroomMcpTestDesignUuid,
+					elementIds: expect.arrayContaining(["asset", "avatar-image"]),
+				},
+			],
 		});
 
 		const iconUsage = await session.client.callTool({
-			name: "findIconUsage",
-			arguments: { systemName: "Core", iconId: "src/search" },
+			name: "system_read",
+			arguments: { view: "icon_usage", systemName: "Core", id: "src/search" },
 		});
-		expect(iconUsage.structuredContent).toMatchObject({
-			usages: [{ elementId: "icon", resourceId: "src/search" }],
+		expect(toolPayload(iconUsage)).toMatchObject({
+			designs: [{ elementIds: ["icon"] }],
 		});
 
 		const allAssetUsage = await session.client.callTool({
-			name: "findAssetUsage",
-			arguments: { systemName: "Core" },
+			name: "system_read",
+			arguments: { view: "asset_usage", systemName: "Core" },
 		});
-		expect(allAssetUsage.structuredContent).toMatchObject({
-			usages: expect.arrayContaining([
-				expect.objectContaining({
-					elementId: "blank-avatar-image",
-					resourceId: null,
-				}),
-			]),
+		expect(toolPayload(allAssetUsage)).toMatchObject({
+			resourceId: null,
+			designs: [
+				{
+					usages: expect.arrayContaining([
+						{ elementId: "blank-avatar-image", resourceId: null },
+					]),
+				},
+			],
 		});
 	});
 
@@ -244,14 +246,15 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		);
 
 		const assetUsage = await session.client.callTool({
-			name: "findAssetUsage",
-			arguments: { systemName: "Core", assetId: "ast_hero" },
+			name: "system_read",
+			arguments: { view: "asset_usage", systemName: "Core", id: "ast_hero" },
 		});
 
-		expect(assetUsage.structuredContent).toMatchObject({
-			usages: [{ elementId: "allowed-asset" }],
+		expect(toolPayload(assetUsage)).toMatchObject({
+			usageCount: 1,
+			designs: [{ elementIds: ["allowed-asset"] }],
 		});
-		expect(JSON.stringify(assetUsage.structuredContent)).not.toContain(
+		expect(JSON.stringify(toolPayload(assetUsage))).not.toContain(
 			"hidden-asset",
 		);
 	});
@@ -289,11 +292,11 @@ describe("trickroom MCP asset and icon catalogs", () => {
 		});
 
 		const validateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
 		const issues = (
-			validateResult.structuredContent as {
+			toolPayload(validateResult) as {
 				issues: Array<{ code: string; elementId?: string }>;
 			}
 		).issues;
@@ -327,10 +330,10 @@ describe("trickroom MCP asset and icon catalogs", () => {
 			],
 		});
 		const unlinkedValidateResult = await session.client.callTool({
-			name: "validateDesignFile",
+			name: "design_validate",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
-		expect(unlinkedValidateResult.structuredContent).toMatchObject({
+		expect(toolPayload(unlinkedValidateResult)).toMatchObject({
 			valid: true,
 			issues: [],
 		});
@@ -338,66 +341,55 @@ describe("trickroom MCP asset and icon catalogs", () => {
 
 	it("allows MCP to add resources with existing ids and blank Avatar Image ids", async () => {
 		const read = await session.client.callTool({
-			name: "readDesignFile",
+			name: "design_read",
 			arguments: { designFileId: trickroomMcpTestDesignUuid },
 		});
-		const revision = (
-			read.structuredContent as { designFile: { revision: string } }
-		).designFile.revision;
+		const revision = (toolPayload(read) as { designFile: { revision: string } })
+			.designFile.revision;
 
-		const assetAdd = await session.client.callTool({
-			name: "addElement",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: revision,
-				parentId: null,
-				index: 1,
-				library: "trickroom",
-				component: "asset",
-				props: {
-					[assetIdProp]: "ast_hero",
-					alt: "Hero",
-				},
+		const assetAdd = await applyOperation(session.client, "addElement", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: revision,
+			parentId: null,
+			index: 1,
+			library: "trickroom",
+			component: "asset",
+			props: {
+				[assetIdProp]: "ast_hero",
+				alt: "Hero",
 			},
 		});
-		expect(assetAdd.structuredContent).toMatchObject({
+		expect(toolPayload(assetAdd)).toMatchObject({
 			status: "success",
-			changedElement: {
-				component: "asset",
-			},
+			created: [{ step: 0, id: expect.any(String) }],
 		});
 
-		const nextRevision = (assetAdd.structuredContent as { newRevision: string })
+		const nextRevision = (toolPayload(assetAdd) as { newRevision: string })
 			.newRevision;
-		const avatarImageAdd = await session.client.callTool({
-			name: "addElement",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: nextRevision,
-				parentId: null,
-				index: 2,
-				library: "base-ui",
-				component: "avatar.image",
-				props: {
-					[assetIdProp]: "ast_hero",
-					alt: "Hero avatar",
-				},
+		const avatarImageAdd = await applyOperation(session.client, "addElement", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: nextRevision,
+			parentId: null,
+			index: 2,
+			library: "base-ui",
+			component: "avatar.image",
+			props: {
+				[assetIdProp]: "ast_hero",
+				alt: "Hero avatar",
 			},
 		});
-		expect(avatarImageAdd.structuredContent).toMatchObject({
+		expect(toolPayload(avatarImageAdd)).toMatchObject({
 			status: "success",
-			changedElement: {
-				library: "base-ui",
-				component: "avatar.image",
-			},
+			created: [{ step: 0, id: expect.any(String) }],
 		});
 
 		const afterAvatarRevision = (
-			avatarImageAdd.structuredContent as { newRevision: string }
+			toolPayload(avatarImageAdd) as { newRevision: string }
 		).newRevision;
-		const blankAvatarImageAdd = await session.client.callTool({
-			name: "addElement",
-			arguments: {
+		const blankAvatarImageAdd = await applyOperation(
+			session.client,
+			"addElement",
+			{
 				designFileId: trickroomMcpTestDesignUuid,
 				expectedRevision: afterAvatarRevision,
 				parentId: null,
@@ -409,89 +401,99 @@ describe("trickroom MCP asset and icon catalogs", () => {
 					alt: "",
 				},
 			},
-		});
-		expect(blankAvatarImageAdd.structuredContent).toMatchObject({
+		);
+		expect(toolPayload(blankAvatarImageAdd)).toMatchObject({
 			status: "success",
-			changedElement: {
-				library: "base-ui",
-				component: "avatar.image",
-			},
+			created: [{ step: 0, id: expect.any(String) }],
 		});
 
 		const afterBlankAvatarRevision = (
-			blankAvatarImageAdd.structuredContent as { newRevision: string }
+			toolPayload(blankAvatarImageAdd) as { newRevision: string }
 		).newRevision;
-		const iconAdd = await session.client.callTool({
-			name: "addElement",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: afterBlankAvatarRevision,
-				parentId: null,
-				index: 4,
-				library: "trickroom",
-				component: "icon",
-				props: {
-					[iconIdProp]: "src/search",
-				},
+		const iconAdd = await applyOperation(session.client, "addElement", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: afterBlankAvatarRevision,
+			parentId: null,
+			index: 4,
+			library: "trickroom",
+			component: "icon",
+			props: {
+				[iconIdProp]: "src/search",
 			},
 		});
-		expect(iconAdd.structuredContent).toMatchObject({
+		expect(toolPayload(iconAdd)).toMatchObject({
 			status: "success",
-			changedElement: {
-				component: "icon",
-			},
+			created: [{ step: 0, id: expect.any(String) }],
 		});
 
-		const nonCanonical = await session.client.callTool({
-			name: "addElement",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: (iconAdd.structuredContent as { newRevision: string })
-					.newRevision,
-				parentId: null,
-				index: 5,
-				library: "trickroom",
-				component: "asset",
-				props: {
-					[assetIdProp]: "AST_HERO",
-				},
+		const nonCanonical = await applyOperation(session.client, "addElement", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: (toolPayload(iconAdd) as { newRevision: string })
+				.newRevision,
+			parentId: null,
+			index: 5,
+			library: "trickroom",
+			component: "asset",
+			props: {
+				[assetIdProp]: "AST_HERO",
 			},
 		});
 		expect(nonCanonical.isError).toBe(true);
-		expect(nonCanonical.structuredContent).toMatchObject({
+		expect(toolPayload(nonCanonical)).toMatchObject({
 			status: "INVALID_OPERATION",
 			code: "INVALID_ASSET_ID",
 		});
 
 		const malformed = await session.client.callTool({
-			name: "describeAsset",
-			arguments: { systemName: "Core", assetId: "../secret" },
+			name: "system_read",
+			arguments: { view: "assets", systemName: "Core", id: "../secret" },
 		});
 		expect(malformed.isError).toBe(true);
-		expect(malformed.structuredContent).toMatchObject({
+		expect(toolPayload(malformed)).toMatchObject({
 			status: "INVALID_OPERATION",
 			code: "INVALID_ASSET_ID",
 		});
 
-		const invalid = await session.client.callTool({
-			name: "addElement",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				expectedRevision: (iconAdd.structuredContent as { newRevision: string })
-					.newRevision,
-				parentId: null,
-				index: 5,
-				library: "base-ui",
-				component: "avatar.image",
-				props: {
-					[assetIdProp]: "ast_missing",
-				},
+		const invalid = await applyOperation(session.client, "addElement", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: (toolPayload(iconAdd) as { newRevision: string })
+				.newRevision,
+			parentId: null,
+			index: 5,
+			library: "base-ui",
+			component: "avatar.image",
+			props: {
+				[assetIdProp]: "ast_missing",
 			},
 		});
 		expect(invalid.isError).toBe(true);
-		expect(invalid.structuredContent).toMatchObject({
+		expect(toolPayload(invalid)).toMatchObject({
 			status: "INVALID_OPERATION",
 			code: "UNKNOWN_ASSET_ID",
+		});
+	});
+	it("addresses one design system by name, design, or the project default", async () => {
+		const byDefault = await session.client.callTool({
+			name: "system_read",
+			arguments: { view: "tokens" },
+		});
+		const byDesign = await session.client.callTool({
+			name: "system_read",
+			arguments: { view: "tokens", designFileId: trickroomMcpTestDesignUuid },
+		});
+		expect(toolPayload(byDefault).systemName).toBe("Core");
+		expect(toolPayload(byDesign).systemId).toBe(
+			toolPayload(byDefault).systemId,
+		);
+
+		const incomplete = await session.client.callTool({
+			name: "system_update",
+			arguments: { action: "add_asset", name: "Hero" },
+		});
+		expect(incomplete.isError).toBe(true);
+		expect(toolPayload(incomplete)).toMatchObject({
+			code: "INVALID_OPERATION_PARAMETERS",
+			missingParameters: ["sourcePath"],
 		});
 	});
 });
@@ -610,13 +612,13 @@ describe("trickroom MCP design resource catalog", () => {
 		});
 		await upsertProjectLocation({
 			trickroomHome,
-			projectId: firstFixture.config.projectId,
+			projectId: firstFixture.config.projectId as string,
 			root: firstFixture.projectRoot,
 			name: firstFixture.config.name,
 		});
 		await upsertProjectLocation({
 			trickroomHome,
-			projectId: secondFixture.config.projectId,
+			projectId: secondFixture.config.projectId as string,
 			root: secondFixture.projectRoot,
 			name: secondFixture.config.name,
 		});
@@ -677,7 +679,9 @@ describe("trickroom MCP design resource catalog", () => {
 			uri: `trickroom://proj/proj_catalog_read/design/${trickroomMcpTestDesignUuid}`,
 		});
 
-		expect(JSON.parse(slugRead.contents[0].text as string)).toMatchObject({
+		expect(
+			JSON.parse((slugRead.contents[0] as { text: string }).text),
+		).toMatchObject({
 			payloadKind: "design-summary",
 			designFile: {
 				name: "Readable Design",
@@ -686,12 +690,13 @@ describe("trickroom MCP design resource catalog", () => {
 				{
 					id: "pricing-board",
 					name: "Pricing",
-					childCount: 0,
-					descendantCount: 0,
+					elementCount: 1,
 				},
 			],
 		});
-		expect(JSON.parse(bareRead.contents[0].text as string)).toMatchObject({
+		expect(
+			JSON.parse((bareRead.contents[0] as { text: string }).text),
+		).toMatchObject({
 			payloadKind: "design-summary",
 			designFile: {
 				name: "Readable Design",
@@ -725,13 +730,13 @@ describe("trickroom MCP design resource catalog", () => {
 		});
 		await upsertProjectLocation({
 			trickroomHome,
-			projectId: firstFixture.config.projectId,
+			projectId: firstFixture.config.projectId as string,
 			root: firstFixture.projectRoot,
 			name: firstFixture.config.name,
 		});
 		await upsertProjectLocation({
 			trickroomHome,
-			projectId: secondFixture.config.projectId,
+			projectId: secondFixture.config.projectId as string,
 			root: secondFixture.projectRoot,
 			name: secondFixture.config.name,
 		});
@@ -752,7 +757,9 @@ describe("trickroom MCP design resource catalog", () => {
 			throw new Error("Expected other project design resource to be listed.");
 		}
 		const read = await client.readResource({ uri: otherResource.uri });
-		expect(JSON.parse(read.contents[0].text as string)).toMatchObject({
+		expect(
+			JSON.parse((read.contents[0] as { text: string }).text),
+		).toMatchObject({
 			payloadKind: "design-summary",
 			designFile: {
 				name: "Readable Other Project Design",
@@ -787,7 +794,7 @@ describe("trickroom MCP design resource catalog", () => {
 		for (const fixture of [enabledFixture, disabledFixture]) {
 			await upsertProjectLocation({
 				trickroomHome,
-				projectId: fixture.config.projectId,
+				projectId: fixture.config.projectId as string,
 				root: fixture.projectRoot,
 				name: fixture.config.name,
 			});
@@ -835,14 +842,16 @@ describe("trickroom MCP design resource catalog", () => {
 			uri: `trickroom://proj/proj_catalog_rename/design/${trickroomMcpTestDesignUuid}`,
 		});
 		expect(
-			JSON.parse(readOriginalSlug.contents[0].text as string),
+			JSON.parse((readOriginalSlug.contents[0] as { text: string }).text),
 		).toMatchObject({
 			payloadKind: "design-summary",
 			designFile: {
 				name: "Renamed Title",
 			},
 		});
-		expect(JSON.parse(readBareId.contents[0].text as string)).toMatchObject({
+		expect(
+			JSON.parse((readBareId.contents[0] as { text: string }).text),
+		).toMatchObject({
 			payloadKind: "design-summary",
 			designFile: {
 				name: "Renamed Title",

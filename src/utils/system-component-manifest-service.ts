@@ -1,6 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { writeJsonFileAtomically } from "../server-file-utils.ts";
 import type { RecipeTemplateNode } from "../types";
 import {
 	ensureDesignSystemManifest,
@@ -82,7 +83,8 @@ export type SystemComponentManifestRead = {
 };
 
 export type WriteSystemComponentManifestOptions = {
-	expectedRevision: SystemComponentManifestRevision;
+	/** Opaque; compared with the current revision, never parsed. */
+	expectedRevision: string;
 	now?: string;
 	/** When "replace", incoming.components fully replaces the stored map (used for deletions). */
 	componentsMerge?: "merge" | "replace";
@@ -252,7 +254,7 @@ async function writeSystemComponentManifestExclusive(
 
 	await ensureDesignSystemManifest(projectRoot, systemHandle);
 	await mkdir(path.dirname(manifestPath), { recursive: true });
-	await writeJsonAtomically(manifestPath, normalized);
+	await writeJsonFileAtomically(manifestPath, normalized);
 
 	return {
 		manifest: normalized,
@@ -1429,19 +1431,6 @@ function invalidManifest(
 		`Invalid component manifest at ${manifestPath}.`,
 		diagnostics,
 	);
-}
-
-async function writeJsonAtomically(filePath: string, value: unknown) {
-	const contents = `${JSON.stringify(value, null, "\t")}\n`;
-	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-
-	try {
-		await writeFile(tempPath, contents, "utf8");
-		await rename(tempPath, filePath);
-	} catch (error) {
-		await unlink(tempPath).catch(() => undefined);
-		throw error;
-	}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

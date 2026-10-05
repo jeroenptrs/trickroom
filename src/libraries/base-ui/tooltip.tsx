@@ -6,7 +6,10 @@ import {
 	type Ref,
 	useContext,
 } from "react";
-import { useFrame } from "react-frame-component";
+import {
+	useStagePortalContainer,
+	useStagePositionerProps,
+} from "../stage-portal";
 
 type TooltipProviderProps = ComponentPropsWithoutRef<typeof Tooltip.Provider>;
 type TooltipRootProps = ComponentPropsWithoutRef<typeof Tooltip.Root>;
@@ -66,12 +69,13 @@ export const TooltipTrigger = forwardRef<HTMLElement, TooltipTriggerProps>(
 export const TooltipPortal = forwardRef<HTMLDivElement, TooltipPortalProps>(
 	function TooltipPortal({ children, ...props }, ref) {
 		const isInsideTooltipRoot = useContext(TooltipRootRenderContext);
-		const { document: frameDocument } = useFrame();
+		const resolvedContainer = useStagePortalContainer(
+			props.container,
+			isInsideTooltipRoot,
+		);
 
 		if (isInsideTooltipRoot) {
-			const { container, ...portalProps } = props;
-			const resolvedContainer =
-				container === undefined ? frameDocument?.body : container;
+			const { container: _container, ...portalProps } = props;
 
 			return (
 				<TooltipPortalRenderContext.Provider value={true}>
@@ -102,13 +106,14 @@ export const TooltipPositioner = forwardRef<
 	HTMLDivElement,
 	TooltipPositionerProps
 >(function TooltipPositioner(props, ref) {
+	const stagePositionerProps = useStagePositionerProps(props);
 	const isInsideTooltipRoot = useContext(TooltipRootRenderContext);
 	const isInsideTooltipPortal = useContext(TooltipPortalRenderContext);
 
 	if (isInsideTooltipRoot && isInsideTooltipPortal) {
 		return (
 			<TooltipPositionerRenderContext.Provider value={true}>
-				<Tooltip.Positioner {...props} ref={ref} />
+				<Tooltip.Positioner {...stagePositionerProps} ref={ref} />
 			</TooltipPositionerRenderContext.Provider>
 		);
 	}

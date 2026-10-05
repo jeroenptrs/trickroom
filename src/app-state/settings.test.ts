@@ -1,10 +1,12 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { McpToolGroupSettings } from "../mcp/tool-groups";
 import {
 	createDefaultTrickroomSettings,
+	getTrickroomSettingsPath,
 	readTrickroomSettings,
+	TrickroomSettingsError,
 	updateMcpToolGroupSettings,
 	writeTrickroomSettings,
 } from "./settings";
@@ -74,5 +76,168 @@ describe("trickroom app settings", () => {
 		const settings = await readTrickroomSettings(trickroomHome);
 		expect(settings.mcp.toolGroups.designRead).toBe(false);
 		expect(settings.mcp.toolGroups.designWrite).toBe(true);
+	});
+
+	const writeRawSettings = (trickroomHome: string, value: unknown) =>
+		writeFile(getTrickroomSettingsPath(trickroomHome), JSON.stringify(value));
+
+	it("reads settings files without a server section", async () => {
+		const trickroomHome = await createHome();
+		await writeRawSettings(trickroomHome, createDefaultTrickroomSettings());
+
+		const settings = await readTrickroomSettings(trickroomHome);
+		expect(settings).toEqual(createDefaultTrickroomSettings());
+		expect(settings).not.toHaveProperty("server");
+	});
+
+	it("reads server.publicHost", async () => {
+		const trickroomHome = await createHome();
+		await writeRawSettings(trickroomHome, {
+			...createDefaultTrickroomSettings(),
+			server: { publicHost: "devbox.local" },
+		});
+
+		const settings = await readTrickroomSettings(trickroomHome);
+		expect(settings.server).toEqual({ publicHost: "devbox.local" });
+	});
+
+	it.each([
+		["a string", "devbox.local"],
+		["a non-string publicHost", { publicHost: 42 }],
+		["a non-string publicUrl", { publicUrl: ["https://devbox.example"] }],
+		["an unknown key", { publicHost: "devbox.local", port: 8080 }],
+	])("rejects a server section with %s", async (_label, server) => {
+		const trickroomHome = await createHome();
+		await writeRawSettings(trickroomHome, {
+			...createDefaultTrickroomSettings(),
+			server,
+		});
+
+		const read = readTrickroomSettings(trickroomHome);
+		await expect(read).rejects.toBeInstanceOf(TrickroomSettingsError);
+		await expect(read).rejects.toThrow(/settings at .* are invalid/);
+	});
+
+	it("reads and preserves server.publicUrl alongside publicHost", async () => {
+		const trickroomHome = await createHome();
+		const server = {
+			publicHost: "devbox.local",
+			publicUrl: "https://devbox.example",
+		};
+		await writeRawSettings(trickroomHome, {
+			...createDefaultTrickroomSettings(),
+			server,
+		});
+
+		expect((await readTrickroomSettings(trickroomHome)).server).toEqual(server);
+		await updateMcpToolGroupSettings({ designWrite: false }, trickroomHome);
+		const onDisk = JSON.parse(
+			await readFile(getTrickroomSettingsPath(trickroomHome), "utf8"),
+		);
+		expect(onDisk.server).toEqual(server);
+	});
+
+	it("preserves server.publicHost when toggling MCP tool groups", async () => {
+		const trickroomHome = await createHome();
+		await writeRawSettings(trickroomHome, {
+			...createDefaultTrickroomSettings(),
+			server: { publicHost: "devbox.local" },
+		});
+
+		const updated = await updateMcpToolGroupSettings(
+			{ registry: false },
+			trickroomHome,
+		);
+		expect(updated.server).toEqual({ publicHost: "devbox.local" });
+		expect(updated.mcp.toolGroups.registry).toBe(false);
+
+		const onDisk = JSON.parse(
+			await readFile(getTrickroomSettingsPath(trickroomHome), "utf8"),
+		);
+		expect(onDisk.server).toEqual({ publicHost: "devbox.local" });
+	});
+	it("reads and preserves screenshot.executablePath", async () => {
+		const trickroomHome = await createHome();
+		const screenshot = { executablePath: "/usr/bin/chromium" };
+		await writeRawSettings(trickroomHome, {
+			...createDefaultTrickroomSettings(),
+			server: { publicHost: "devbox.local" },
+			screenshot,
+		});
+
+		expect((await readTrickroomSettings(trickroomHome)).screenshot).toEqual(
+			screenshot,
+		);
+		await updateMcpToolGroupSettings({ designWrite: false }, trickroomHome);
+		const onDisk = JSON.parse(
+			await readFile(getTrickroomSettingsPath(trickroomHome), "utf8"),
+		);
+		expect(onDisk.screenshot).toEqual(screenshot);
+		expect(onDisk.server).toEqual({ publicHost: "devbox.local" });
+	});
+
+	it.each([
+		["a string", "/usr/bin/chromium"],
+		["a non-string executablePath", { executablePath: 42 }],
+		["an unknown key", { executablePath: "/usr/bin/chromium", scale: 1 }],
+	])("rejects a screenshot section with %s", async (_label, screenshot) => {
+		const trickroomHome = await createHome();
+		await writeRawSettings(trickroomHome, {
+			...createDefaultTrickroomSettings(),
+			screenshot,
+		});
+
+		await expect(readTrickroomSettings(trickroomHome)).rejects.toBeInstanceOf(
+			TrickroomSettingsError,
+		);
+	});
+	it("reads and preserves mcp.callLog when toggling tool groups", async () => {
+		const trickroomHome = await createHome();
+		const defaults = createDefaultTrickroomSettings();
+		await writeRawSettings(trickroomHome, {
+			...defaults,
+			mcp: { ...defaults.mcp, callLog: true },
+			server: { publicHost: "devbox.local" },
+		});
+
+		expect((await readTrickroomSettings(trickroomHome)).mcp.callLog).toBe(true);
+		await updateMcpToolGroupSettings({ designWrite: false }, trickroomHome);
+		const onDisk = JSON.parse(
+			await readFile(getTrickroomSettingsPath(trickroomHome), "utf8"),
+		);
+		expect(onDisk.mcp.callLog).toBe(true);
+		expect(onDisk.mcp.toolGroups.designWrite).toBe(false);
+		expect(onDisk.server).toEqual({ publicHost: "devbox.local" });
+	});
+
+	it("leaves mcp.callLog out of files that never set it", async () => {
+		const trickroomHome = await createHome();
+		await writeRawSettings(trickroomHome, createDefaultTrickroomSettings());
+
+		expect((await readTrickroomSettings(trickroomHome)).mcp).not.toHaveProperty(
+			"callLog",
+		);
+		await updateMcpToolGroupSettings({ registry: false }, trickroomHome);
+		const onDisk = JSON.parse(
+			await readFile(getTrickroomSettingsPath(trickroomHome), "utf8"),
+		);
+		expect(onDisk.mcp).not.toHaveProperty("callLog");
+	});
+
+	it.each([
+		["a string", "yes"],
+		["a number", 1],
+		["null", null],
+	])("rejects mcp.callLog set to %s", async (_label, callLog) => {
+		const trickroomHome = await createHome();
+		const defaults = createDefaultTrickroomSettings();
+		await writeRawSettings(trickroomHome, {
+			...defaults,
+			mcp: { ...defaults.mcp, callLog },
+		});
+
+		await expect(readTrickroomSettings(trickroomHome)).rejects.toBeInstanceOf(
+			TrickroomSettingsError,
+		);
 	});
 });

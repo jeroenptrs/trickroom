@@ -8,9 +8,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { getTrickroomDesktopApi } from "../../desktop-api";
 import type { ProjectQueryScope } from "../../queries/project-scope";
-import { sessionQueryOptions } from "../../queries/projects";
 import {
 	createSystemAsset,
 	type SystemAssetSummary,
@@ -18,6 +16,7 @@ import {
 	systemAssetsQueryKey,
 	systemAssetsQueryOptions,
 } from "../../queries/system-assets";
+import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
@@ -27,7 +26,6 @@ import {
 	ASSET_GRID_ROW_EXTRA_HEIGHT,
 	useVirtualGrid,
 } from "./useVirtualGrid";
-import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
 
 function getAssetNameFromPath(sourcePath: string) {
 	const basename = sourcePath.split(/[\\/]/).pop() || sourcePath;
@@ -158,29 +156,40 @@ function VirtualAssetGrid({
 	);
 }
 
+const ADD_ASSET_FORM_ID = "system-editor-add-asset-form";
+const ADD_ASSET_PATH_INPUT_ID = "system-editor-add-asset-path";
+
 function SystemAssetsToolbar({
 	countLabel,
 	filteredCountLabel,
-	addAssetDisabled,
+	addAssetPath,
 	filter,
 	filterInputRef,
 	groupByFolder,
+	isAddFormOpen,
 	isAddingAsset,
 	onAddAsset,
+	onAddAssetPathChange,
+	onAddFormOpenChange,
 	onFilterChange,
 	onGroupByFolderChange,
 }: {
 	countLabel: string;
 	filteredCountLabel: string;
-	addAssetDisabled: boolean;
+	addAssetPath: string;
 	filter: string;
 	filterInputRef: RefObject<HTMLInputElement | null>;
 	groupByFolder: boolean;
+	isAddFormOpen: boolean;
 	isAddingAsset: boolean;
 	onAddAsset: () => void;
+	onAddAssetPathChange: (value: string) => void;
+	onAddFormOpenChange: (open: boolean) => void;
 	onFilterChange: (value: string) => void;
 	onGroupByFolderChange: (value: boolean) => void;
 }) {
+	const addAssetDisabled = isAddingAsset || addAssetPath.trim().length === 0;
+
 	return (
 		<div className="flex flex-col gap-3 border-b border-slate-200 pb-4">
 			<div className="flex items-center justify-between gap-3">
@@ -224,19 +233,71 @@ function SystemAssetsToolbar({
 				</span>
 				<Button
 					type="button"
-					variant="filled"
+					variant={isAddFormOpen ? "outlined" : "filled"}
 					className="flex shrink-0 items-center gap-1.5 px-3 py-1.5"
-					onClick={onAddAsset}
-					disabled={addAssetDisabled || isAddingAsset}
+					onClick={() => onAddFormOpenChange(!isAddFormOpen)}
+					aria-expanded={isAddFormOpen}
+					aria-controls={ADD_ASSET_FORM_ID}
 				>
-					{isAddingAsset ? (
-						<RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
-					) : (
-						<Upload className="size-3.5" aria-hidden="true" />
-					)}
-					{isAddingAsset ? "Adding" : "Add asset"}
+					<Upload className="size-3.5" aria-hidden="true" />
+					Add asset
 				</Button>
 			</div>
+			{isAddFormOpen ? (
+				<form
+					id={ADD_ASSET_FORM_ID}
+					className="flex min-w-0 flex-col gap-1.5"
+					onSubmit={(event) => {
+						event.preventDefault();
+						if (!addAssetDisabled) {
+							onAddAsset();
+						}
+					}}
+				>
+					<label
+						htmlFor={ADD_ASSET_PATH_INPUT_ID}
+						className="text-[10px] font-semibold uppercase tracking-wider text-slate-500"
+					>
+						Image path
+					</label>
+					<div className="flex min-w-0 items-stretch gap-2">
+						<Input
+							id={ADD_ASSET_PATH_INPUT_ID}
+							variant="formCompact"
+							className="min-w-0 flex-1 font-mono"
+							placeholder="public/images/hero.png"
+							value={addAssetPath}
+							onChange={(event) => onAddAssetPathChange(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Escape") {
+									event.stopPropagation();
+									onAddFormOpenChange(false);
+								}
+							}}
+							disabled={isAddingAsset}
+							autoFocus
+						/>
+						<Button
+							type="submit"
+							variant="filled"
+							className="flex shrink-0 items-center gap-1.5 px-3 py-1.5"
+							disabled={addAssetDisabled}
+						>
+							{isAddingAsset ? (
+								<RefreshCw
+									className="size-3.5 animate-spin"
+									aria-hidden="true"
+								/>
+							) : null}
+							{isAddingAsset ? "Adding" : "Add"}
+						</Button>
+					</div>
+					<p className="text-[11px] text-slate-500">
+						Relative to the project root. The image stays where it is; Trickroom
+						records the path in this system's asset manifest.
+					</p>
+				</form>
+			) : null}
 		</div>
 	);
 }
@@ -257,8 +318,6 @@ export function SystemEditorAssetsPanel({
 	onSelectAsset: (assetId: string | null) => void;
 }) {
 	const queryClient = useQueryClient();
-	const desktopApi = getTrickroomDesktopApi();
-	const sessionQuery = useQuery(sessionQueryOptions());
 	const assetsQuery = useQuery(
 		systemAssetsQueryOptions(systemId, projectScope),
 	);
@@ -267,8 +326,8 @@ export function SystemEditorAssetsPanel({
 	const [assetFilter, setAssetFilter] = useState("");
 	const [groupAssetsByFolder, setGroupAssetsByFolder] = useState(false);
 	const [assetActionError, setAssetActionError] = useState<string | null>(null);
-	const [isPickingAsset, setIsPickingAsset] = useState(false);
-	const projectRoot = sessionQuery.data?.activeProject?.projectRoot ?? "";
+	const [isAddFormOpen, setIsAddFormOpen] = useState(false);
+	const [addAssetPath, setAddAssetPath] = useState("");
 	const assetCountLabel = assetsQuery.isPending
 		? "Loading"
 		: `${assets.length.toLocaleString()} asset${assets.length === 1 ? "" : "s"}`;
@@ -309,42 +368,35 @@ export function SystemEditorAssetsPanel({
 		},
 		onSuccess: async (response) => {
 			setAssetActionError(null);
+			setAddAssetPath("");
+			setIsAddFormOpen(false);
 			onSelectAsset(response.asset.id);
 			await invalidateAssets();
 		},
 	});
 
-	const pickAsset = useCallback(async () => {
-		if (
-			!desktopApi ||
-			!projectRoot ||
-			isPickingAsset ||
-			createAssetMutation.isPending
-		) {
+	const addAsset = () => {
+		const sourcePath = addAssetPath.trim();
+		if (!sourcePath || createAssetMutation.isPending) {
 			return;
 		}
-
-		setAssetActionError(null);
-		setIsPickingAsset(true);
-		try {
-			const result = await desktopApi.pickAssetFile(projectRoot);
-			if (!result.canceled) {
-				await createAssetMutation.mutateAsync(result.relativePath);
-			}
-		} catch (error) {
-			setAssetActionError(
-				error instanceof Error ? error.message : "Failed to choose asset file.",
-			);
-		} finally {
-			setIsPickingAsset(false);
+		createAssetMutation.mutate(sourcePath);
+	};
+	const setAddFormOpen = (open: boolean) => {
+		setIsAddFormOpen(open);
+		if (!open) {
+			setAddAssetPath("");
+			setAssetActionError(null);
 		}
-	}, [
-		createAssetMutation,
-		createAssetMutation.isPending,
-		desktopApi,
-		isPickingAsset,
-		projectRoot,
-	]);
+	};
+	const toolbarAddProps = {
+		addAssetPath,
+		isAddFormOpen,
+		isAddingAsset: createAssetMutation.isPending,
+		onAddAsset: addAsset,
+		onAddAssetPathChange: setAddAssetPath,
+		onAddFormOpenChange: setAddFormOpen,
+	};
 
 	const handleFilterShortcut = useCallback((event: KeyboardEvent) => {
 		const key = getKey(event);
@@ -380,11 +432,9 @@ export function SystemEditorAssetsPanel({
 					filter={assetFilter}
 					filterInputRef={filterInputRef}
 					groupByFolder={groupAssetsByFolder}
-					addAssetDisabled={!desktopApi || !projectRoot || isPickingAsset}
+					{...toolbarAddProps}
 					onFilterChange={setAssetFilter}
 					onGroupByFolderChange={setGroupAssetsByFolder}
-					onAddAsset={pickAsset}
-					isAddingAsset={isPickingAsset || createAssetMutation.isPending}
 				/>
 				<div className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-3">
 					{[0, 1, 2].map((index) => (
@@ -413,11 +463,9 @@ export function SystemEditorAssetsPanel({
 					filter={assetFilter}
 					filterInputRef={filterInputRef}
 					groupByFolder={groupAssetsByFolder}
-					addAssetDisabled={!desktopApi || !projectRoot || isPickingAsset}
+					{...toolbarAddProps}
 					onFilterChange={setAssetFilter}
 					onGroupByFolderChange={setGroupAssetsByFolder}
-					onAddAsset={pickAsset}
-					isAddingAsset={isPickingAsset || createAssetMutation.isPending}
 				/>
 				<Card edge="border" tone="danger" className="px-4 py-3 text-sm">
 					Failed to load assets: {(assetsQuery.error as Error).message}
@@ -434,11 +482,9 @@ export function SystemEditorAssetsPanel({
 				filter={assetFilter}
 				filterInputRef={filterInputRef}
 				groupByFolder={groupAssetsByFolder}
-				addAssetDisabled={!desktopApi || !projectRoot || isPickingAsset}
+				{...toolbarAddProps}
 				onFilterChange={setAssetFilter}
 				onGroupByFolderChange={setGroupAssetsByFolder}
-				onAddAsset={pickAsset}
-				isAddingAsset={isPickingAsset || createAssetMutation.isPending}
 			/>
 			{assetActionError ? (
 				<Card

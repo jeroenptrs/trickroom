@@ -15,7 +15,27 @@ export type TrickroomSettings = {
 	version: 1;
 	mcp: {
 		toolGroups: McpToolGroupSettings;
+		/**
+		 * Append every MCP tool call's history record (tool, outcome, duration,
+		 * sizes; never arguments or results) to
+		 * `<TRICKROOM_HOME>/feedback/calls-YYYY-MM.jsonl`. Off by default.
+		 */
+		callLog?: boolean;
 	};
+	server?: TrickroomServerSettings;
+	screenshot?: TrickroomScreenshotSettings;
+};
+
+export type TrickroomServerSettings = {
+	/** Host used in URLs printed and opened by `trickroom serve`. */
+	publicHost?: string;
+	/** Base URL printed and opened by `trickroom serve`; wins over `publicHost`. */
+	publicUrl?: string;
+};
+
+export type TrickroomScreenshotSettings = {
+	/** Chrome/Chromium used by MCP screenshots when no per-call path or env var is set. */
+	executablePath?: string;
 };
 
 export class TrickroomSettingsError extends Error {
@@ -36,17 +56,57 @@ export const createDefaultTrickroomSettings = (): TrickroomSettings => ({
 	},
 });
 
-const isMcpToolGroupSettings = (value: unknown): value is McpToolGroupSettings =>
+const isMcpToolGroupSettings = (
+	value: unknown,
+): value is McpToolGroupSettings =>
 	isRecord(value) &&
 	Object.entries(value).every(
 		([key, enabled]) => isMcpToolGroupId(key) && typeof enabled === "boolean",
 	);
 
-export const isTrickroomSettings = (value: unknown): value is TrickroomSettings =>
+const isTrickroomServerSettings = (
+	value: unknown,
+): value is TrickroomServerSettings =>
+	isRecord(value) &&
+	Object.entries(value).every(
+		([key, entry]) =>
+			(key === "publicHost" || key === "publicUrl") &&
+			typeof entry === "string",
+	);
+
+const isTrickroomScreenshotSettings = (
+	value: unknown,
+): value is TrickroomScreenshotSettings =>
+	isRecord(value) &&
+	Object.entries(value).every(
+		([key, entry]) => key === "executablePath" && typeof entry === "string",
+	);
+
+export const isTrickroomSettings = (
+	value: unknown,
+): value is TrickroomSettings =>
 	isRecord(value) &&
 	value.version === 1 &&
 	isRecord(value.mcp) &&
-	isMcpToolGroupSettings(value.mcp.toolGroups);
+	isMcpToolGroupSettings(value.mcp.toolGroups) &&
+	(value.mcp.callLog === undefined || typeof value.mcp.callLog === "boolean") &&
+	(value.server === undefined || isTrickroomServerSettings(value.server)) &&
+	(value.screenshot === undefined ||
+		isTrickroomScreenshotSettings(value.screenshot));
+
+const normalizeTrickroomSettings = (
+	settings: TrickroomSettings,
+): TrickroomSettings => ({
+	version: 1,
+	mcp: {
+		toolGroups: normalizeMcpToolGroupSettings(settings.mcp.toolGroups),
+		...(settings.mcp.callLog !== undefined
+			? { callLog: settings.mcp.callLog }
+			: {}),
+	},
+	...(settings.server ? { server: { ...settings.server } } : {}),
+	...(settings.screenshot ? { screenshot: { ...settings.screenshot } } : {}),
+});
 
 export const readTrickroomSettings = async (
 	trickroomHome = resolveTrickroomHome(),
@@ -61,12 +121,7 @@ export const readTrickroomSettings = async (
 			);
 		}
 
-		return {
-			version: 1,
-			mcp: {
-				toolGroups: normalizeMcpToolGroupSettings(settings.mcp.toolGroups),
-			},
-		};
+		return normalizeTrickroomSettings(settings);
 	} catch (error) {
 		const fsError = asErrnoException(error);
 		if (fsError.code === "ENOENT") {
@@ -87,12 +142,7 @@ export const writeTrickroomSettings = async (
 	settings: TrickroomSettings,
 	trickroomHome = resolveTrickroomHome(),
 ): Promise<TrickroomSettings> => {
-	const normalized: TrickroomSettings = {
-		version: 1,
-		mcp: {
-			toolGroups: normalizeMcpToolGroupSettings(settings.mcp.toolGroups),
-		},
-	};
+	const normalized = normalizeTrickroomSettings(settings);
 
 	await mkdir(trickroomHome, { recursive: true });
 	await writeJsonFileAtomically(
@@ -115,8 +165,9 @@ export const updateMcpToolGroupSettings = async (
 
 	return writeTrickroomSettings(
 		{
-			version: 1,
+			...current,
 			mcp: {
+				...current.mcp,
 				toolGroups: nextGroups,
 			},
 		},

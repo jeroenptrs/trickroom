@@ -1,6 +1,6 @@
 # Tailwind Systems And Classname Editing
 
-Trickroom treats Tailwind as both a design-token source and an authoring language. A design can link to a configured Tailwind system, and each element can store a raw `className` string that the sidebar turns into focused property controls.
+Trickroom treats Tailwind as both a design-token source and an authoring language. A design can link to a configured Tailwind system, and each element stores a raw `className` string that the inspector edits as text, with autocomplete and validation from the linked system's Tailwind design system.
 
 ## Configure A System
 
@@ -154,20 +154,16 @@ If the design is unlinked or no stored tokens exist, the managed style becomes:
 
 The hook manages the DOM injection. Tailwind browser compilation behavior is separate and may not reprocess every dynamically inserted style in every case.
 
-## Classname Editing Model
+## Classname Editing
 
-The raw `className` string remains the source of truth.
+The raw `className` string is the source of truth, and the inspector edits it as text. It does not derive visual controls from it.
 
-The property UI works by deriving a structured model from that string:
+The class field's autocomplete and validation come from Tailwind itself, not from a list Trickroom maintains:
 
-1. Tokenize the class string.
-2. Parse each class syntactically.
-3. Classify recognized color utilities.
-4. Group them into editable property slots.
-5. Mutate the class string minimally.
-6. Serialize back to `className`.
+- `GET /api/trickroom/tailwind/class-catalog?systemId=` loads the system's CSS the same way the canvas compile does (`@import "tailwindcss"` added when missing, stored theme tokens appended), runs Tailwind's `__unstable__loadDesignSystem`, and returns `getClassList()` names plus the expanded `getVariants()` names. Without `systemId` it returns baseline Tailwind. The server caches the loaded design system per CSS entry until the theme or any imported file changes. The browser caches the response and filters it locally on each keystroke.
+- `POST /api/trickroom/tailwind/class-inspect` checks classes the catalog cannot settle alone (arbitrary values, opacity modifiers, unknown variants, typos) with `parseCandidate`/`candidatesToCss`. Unsupported classes come back with the same nearest-match suggestions MCP diagnostics use.
 
-This is similar to a Tailwind-aware sidebar: the user sees property controls, but the durable data is still the class list.
+Parsing and classification below still drive class resolution (which inherited class a later class overrides), MCP diagnostics, and export.
 
 ## Parsing
 
@@ -258,18 +254,6 @@ Serialization:
 - Emits `model.original.map((p) => p.raw).join(" ")`.
 - Keeps order stable except for the exact class being replaced, appended, or removed.
 
-## Visible Color Controls
-
-The UI currently exposes three color controls:
-
-- Background.
-- Text.
-- Border.
-
-Each control reads the property model, lists resolved color tokens for the linked system, and writes back to the same raw `className` string.
-
-The model already understands more color families than the UI displays, so future controls can use the same parser and serializer.
-
 ## Resolved Colors
 
 Resolved editor color tokens are based on:
@@ -288,7 +272,6 @@ This means:
 ## Current Limits
 
 - Token sync stores color tokens only.
-- The visible property UI edits only background, text, and border.
-- Class parsing is syntactic; it is not a full Tailwind compiler.
+- Class parsing is syntactic; it is not a full Tailwind compiler. The inspector's unknown-class check asks the loaded Tailwind design system instead.
 - Unknown utilities are preserved rather than interpreted.
 - The linked-system token snapshot must exist before system colors are available in the picker.

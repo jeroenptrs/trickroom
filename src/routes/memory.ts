@@ -1,9 +1,8 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import type { Context, Hono, MiddlewareHandler } from "hono";
+import type { Context, Env, Hono, MiddlewareHandler } from "hono";
 import { jsonError } from "../server-utils";
 import type { TrickroomConfig } from "../types";
-import type { MemoryNote } from "../utils/memory-manifest-service.types";
 import {
 	addMemoryNote,
 	deleteMemoryNote,
@@ -14,6 +13,7 @@ import {
 	summarizeMemoryManifest,
 	updateMemoryNote,
 } from "../utils/memory-manifest-service";
+import type { MemoryNote } from "../utils/memory-manifest-service.types";
 import {
 	collectMemoryReferenceWarnings,
 	listMemoryReferenceTargets,
@@ -563,9 +563,9 @@ const resolveDesignMemory = (c: Context) => {
  * Mounts project- and design-scoped memory routes on the app, reusing the
  * provided middleware to attach projectRoot/config to each request.
  */
-export const registerProjectAndDesignMemoryRoutes = (
-	app: Hono,
-	attachProject: MiddlewareHandler,
+export const registerProjectAndDesignMemoryRoutes = <E extends Env>(
+	app: Hono<E>,
+	attachProject: MiddlewareHandler<E>,
 ) => {
 	app.use("/api/trickroom/memory", attachProject);
 	app.use("/api/trickroom/memory/*", attachProject);

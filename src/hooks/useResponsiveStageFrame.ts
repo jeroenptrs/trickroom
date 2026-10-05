@@ -39,11 +39,13 @@ export function resetResponsiveStageFrameState(iframe: HTMLIFrameElement) {
 export function useResponsiveStageFrame(
 	iframeRef: RefObject<HTMLIFrameElement | null>,
 	options: ResponsiveStageFrameOptions,
+	didMount = false,
 ) {
 	const { mode, responsiveWidth } = options;
 	const latestOptionsRef = useRef(options);
 	latestOptionsRef.current = options;
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: didMount re-applies once react-frame-component has written the shell document; the attribute set on the initial blank document is lost then
 	useLayoutEffect(() => {
 		const iframe = iframeRef.current;
 		if (!iframe) {
@@ -51,7 +53,7 @@ export function useResponsiveStageFrame(
 		}
 
 		applyResponsiveStageFrameState(iframe, { mode, responsiveWidth });
-	}, [iframeRef, mode, responsiveWidth]);
+	}, [didMount, iframeRef, mode, responsiveWidth]);
 
 	useEffect(() => {
 		const iframe = iframeRef.current;

@@ -1,16 +1,13 @@
-import { createHash, randomUUID } from "node:crypto";
 import {
 	copyFile,
 	lstat,
 	mkdir,
 	readFile,
 	realpath,
-	rename,
 	stat,
-	unlink,
-	writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { writeJsonFileAtomically } from "../server-file-utils.ts";
 import {
 	ensureDesignSystemManifest,
 	findDesignSystem,
@@ -28,12 +25,6 @@ export const supportedFontExtensions = {
 
 export type SupportedFontFormat =
 	(typeof supportedFontExtensions)[keyof typeof supportedFontExtensions];
-
-export type FontSourceKind =
-	| "remoteStylesheet"
-	| "remoteFile"
-	| "projectFile"
-	| "managedFile";
 
 export type FontSource =
 	| { kind: "remoteStylesheet"; url: string }
@@ -192,7 +183,11 @@ export function validateSupportedFontFormat(
 	format: string,
 	label: string,
 ): SupportedFontFormat {
-	if (!Object.values(supportedFontExtensions).includes(format as SupportedFontFormat)) {
+	if (
+		!Object.values(supportedFontExtensions).includes(
+			format as SupportedFontFormat,
+		)
+	) {
 		throw new FontManifestError(
 			"UNSUPPORTED_FONT_TYPE",
 			`${label}: unsupported font format "${format}". Supported: woff, woff2, truetype, opentype.`,
@@ -202,7 +197,10 @@ export function validateSupportedFontFormat(
 	return format as SupportedFontFormat;
 }
 
-export function validateCssDeclarationValue(value: string, label: string): string {
+export function validateCssDeclarationValue(
+	value: string,
+	label: string,
+): string {
 	const trimmed = value.trim();
 	if (trimmed.length === 0 || unsafeCssDeclarationPattern.test(trimmed)) {
 		throw new FontManifestError(
@@ -234,7 +232,10 @@ export function validateFontDisplayValue(
 		return undefined;
 	}
 
-	if (typeof display !== "string" || !allowedFontDisplay.has(display as FontFace["display"])) {
+	if (
+		typeof display !== "string" ||
+		!allowedFontDisplay.has(display as FontFace["display"])
+	) {
 		throw new FontManifestError(
 			"INVALID_FONT_MANIFEST",
 			`${label} must be one of: auto, block, swap, fallback, optional.`,
@@ -327,7 +328,11 @@ export function normalizeManagedFontPath(managedPath: string): string {
 	}
 
 	const normalized = path.normalize(trimmed).replace(/\\/g, "/");
-	if (normalized === "." || normalized === ".." || normalized.includes("/../")) {
+	if (
+		normalized === "." ||
+		normalized === ".." ||
+		normalized.includes("/../")
+	) {
 		throw new FontManifestError(
 			"INVALID_FONT_PATH",
 			"Managed font path must not traverse outside the design system directory.",
@@ -381,7 +386,7 @@ export async function writeFontManifest(
 		"fonts.json",
 	);
 	await mkdir(path.dirname(manifestPath), { recursive: true });
-	await writeJsonAtomically(manifestPath, normalized);
+	await writeJsonFileAtomically(manifestPath, normalized);
 	return normalized;
 }
 
@@ -684,7 +689,9 @@ function normalizeFontFaces(
 		);
 	}
 
-	return faces.map((face, index) => normalizeFontFace(face, projectRoot, index));
+	return faces.map((face, index) =>
+		normalizeFontFace(face, projectRoot, index),
+	);
 }
 
 function normalizeFontFace(
@@ -725,7 +732,10 @@ function normalizeFontFace(
 
 	return {
 		style: validateCssDeclarationValue(face.style, `Font face ${index} style`),
-		weight: validateCssDeclarationValue(face.weight, `Font face ${index} weight`),
+		weight: validateCssDeclarationValue(
+			face.weight,
+			`Font face ${index} weight`,
+		),
 		...(display ? { display } : {}),
 		sources: face.sources.map((source, sourceIndex) =>
 			normalizeFontSource(source, projectRoot, index, sourceIndex),
@@ -795,7 +805,10 @@ function normalizeFontSource(
 	}
 }
 
-function normalizeFontManifest(value: unknown, projectRoot: string): FontManifest {
+function normalizeFontManifest(
+	value: unknown,
+	projectRoot: string,
+): FontManifest {
 	if (!isRecord(value)) {
 		throw new FontManifestError(
 			"INVALID_FONT_MANIFEST",
@@ -855,7 +868,10 @@ function normalizeFontManifest(value: unknown, projectRoot: string): FontManifes
 
 		fonts[fontId] = {
 			name: validateFontFamilyValue(rawFont.name, `Font "${fontId}" name`),
-			family: validateFontFamilyValue(rawFont.family, `Font "${fontId}" family`),
+			family: validateFontFamilyValue(
+				rawFont.family,
+				`Font "${fontId}" family`,
+			),
 			faces: normalizeFontFaces(rawFont.faces as FontFace[], projectRoot),
 			createdAt:
 				typeof rawFont.createdAt === "string"
@@ -877,7 +893,9 @@ function normalizeFontManifest(value: unknown, projectRoot: string): FontManifes
 					: new Date(0).toISOString(),
 		},
 		fonts: Object.fromEntries(
-			Object.entries(fonts).sort(([left], [right]) => left.localeCompare(right)),
+			Object.entries(fonts).sort(([left], [right]) =>
+				left.localeCompare(right),
+			),
 		),
 	};
 }
@@ -920,23 +938,6 @@ async function resolveExistingProjectFilePath(
 	}
 
 	return realCandidatePath;
-}
-
-async function writeJsonAtomically(filePath: string, value: unknown) {
-	const contents = `${JSON.stringify(value, null, "\t")}\n`;
-	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-
-	try {
-		await writeFile(tempPath, contents, "utf8");
-		await rename(tempPath, filePath);
-	} catch (error) {
-		await unlink(tempPath).catch(() => undefined);
-		throw error;
-	}
-}
-
-export function fontContentHash(contents: Buffer) {
-	return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

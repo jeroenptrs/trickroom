@@ -1,0 +1,524 @@
+{
+	"version": 2,
+	"order": "l",
+	"board": {
+		"id": "95818e1c-d999-45be-92ad-94a13fb55ad4",
+		"props": {
+			"data-trickroom-name": "Home Screen",
+			"data-trickroom-library": "trickroom",
+			"data-trickroom-component": "container",
+			"data-trickroom-role": "branch",
+			"className": "flex flex-col gap-4 mx-auto min-w-6xl w-full bg-slate-50 text-slate-950 px-12 py-16 items-center justify-center min-h-screen"
+		},
+		"children": [
+			{
+				"id": "d6e56b2b-8826-4cb7-adc5-aa154ea1f1eb",
+				"props": {
+					"data-trickroom-name": "02 Frame",
+					"data-trickroom-library": "trickroom",
+					"data-trickroom-component": "container",
+					"data-trickroom-role": "branch",
+					"className": "flex bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200 min-h-[26rem] w-full max-w-5xl"
+				},
+				"children": [
+					{
+						"id": "c37c62b2-07aa-4d5d-b528-06bcb5012d80",
+						"props": {
+							"data-trickroom-name": "02 Rail",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "container",
+							"data-trickroom-role": "branch",
+							"className": "flex flex-col gap-4 w-64 shrink-0 border-r border-slate-200 py-4"
+						},
+						"children": [
+							{
+								"id": "b74e3a9f-e62b-4d26-9672-73e8262635fd",
+								"props": {
+									"data-trickroom-name": "02 Brand Row",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex flex-row items-center gap-2 px-5"
+								},
+								"children": [
+									{
+										"id": "148ab435-b621-4849-aced-c3cdf8cd5f9b",
+										"props": {
+											"data-trickroom-asset-id": "ast_trickroom-app-icon-3",
+											"alt": "Trickroom logo",
+											"objectFit": "contain",
+											"objectPosition": "center",
+											"loading": "lazy",
+											"decoding": "async",
+											"data-trickroom-name": "02 Brand Logo",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "asset",
+											"data-trickroom-role": "leaf",
+											"className": "size-6 shrink-0"
+										},
+										"children": []
+									},
+									{
+										"id": "3cee2061-49cf-42b9-982c-9919518a4a4d",
+										"props": {
+											"data-trickroom-name": "02 Brand",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-base font-medium text-slate-900 tracking-tight"
+										},
+										"children": "Trickroom"
+									}
+								]
+							},
+							{
+								"id": "d065f106-607a-4cd6-be58-6cacf3dc7623",
+								"props": {
+									"className": "data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full bg-slate-200",
+									"orientation": "horizontal",
+									"data-trickroom-name": "02 Rail Divider 1",
+									"data-trickroom-library": "base-ui",
+									"data-trickroom-component": "separator",
+									"data-trickroom-role": "leaf"
+								},
+								"children": []
+							},
+							{
+								"id": "50ae94ed-da30-43f0-8627-19da3fef6896",
+								"props": {
+									"data-trickroom-name": "02 Recents Block",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex-1 flex flex-col gap-1 px-5"
+								},
+								"children": [
+									{
+										"id": "6de6f5c1-a593-4385-81e5-fb43bb4ce71a",
+										"props": {
+											"data-trickroom-name": "02 Rail Label",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-xs font-semibold"
+										},
+										"children": "Recent"
+									},
+									{
+										"id": "663836c9-511d-4a30-868c-db4a79960264",
+										"props": {
+											"data-trickroom-name": "02 Rail List",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "container",
+											"data-trickroom-role": "branch",
+											"className": "flex flex-col -mx-2"
+										},
+										"children": [
+											{
+												"id": "7db45679-24ab-4437-b772-687710f3fc4b",
+												"props": {
+													"data-trickroom-name": "02 Rail Row 1",
+													"data-trickroom-library": "trickroom",
+													"data-trickroom-component": "container",
+													"data-trickroom-role": "branch",
+													"className": "group flex flex-row items-stretch"
+												},
+												"children": [
+													{
+														"id": "d379506d-a187-4c6a-8c94-082ed1179944",
+														"props": {
+															"data-trickroom-name": "02 R1 Open Btn",
+															"data-trickroom-library": "trickroom",
+															"data-trickroom-component": "container",
+															"data-trickroom-role": "branch",
+															"className": "flex-1 flex flex-col min-w-0 px-2 py-2 hover:bg-slate-100 active:bg-cyan-100 [&_*]:active:text-cyan-900"
+														},
+														"children": [
+															{
+																"id": "c654d25f-d749-46dd-ae23-ac73fade1754",
+																"props": {
+																	"data-trickroom-name": "02 R1 Name",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "text",
+																	"data-trickroom-role": "text",
+																	"className": "text-sm font-medium truncate"
+																},
+																"children": "Trickroom"
+															},
+															{
+																"id": "34a59558-3936-4590-b74f-aaade9fede7b",
+																"props": {
+																	"data-trickroom-name": "02 R1 Path",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "text",
+																	"data-trickroom-role": "text",
+																	"className": "font-mono text-[10px] text-slate-500 truncate"
+																},
+																"children": "~/Projects/Personal/trickroom"
+															}
+														]
+													},
+													{
+														"id": "0a9e640a-c9ab-4306-a39d-f78611862539",
+														"props": {
+															"data-trickroom-name": "02 R1 Remove Btn",
+															"data-trickroom-library": "trickroom",
+															"data-trickroom-component": "container",
+															"data-trickroom-role": "branch",
+															"className": "flex items-center justify-center px-2 py-2 text-slate-400 hover:bg-slate-100 active:bg-cyan-100 hover:text-slate-600 active:text-cyan-900"
+														},
+														"children": [
+															{
+																"id": "49024b49-c2c1-41b3-b7b0-81826c7005c5",
+																"props": {
+																	"data-trickroom-icon-id": "lucide-static/trash-2",
+																	"className": "inline-flex size-3.5 text-current",
+																	"aria-label": "Remove from recents",
+																	"data-trickroom-name": "02 R1 Remove Icon",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "icon",
+																	"data-trickroom-role": "leaf"
+																},
+																"children": []
+															}
+														]
+													}
+												]
+											},
+											{
+												"id": "84ca94c0-57aa-41d7-81f0-b74612c13134",
+												"props": {
+													"data-trickroom-name": "02 Rail Row 2",
+													"data-trickroom-library": "trickroom",
+													"data-trickroom-component": "container",
+													"data-trickroom-role": "branch",
+													"className": "group flex flex-row items-stretch"
+												},
+												"children": [
+													{
+														"id": "63ad55fc-b635-42c2-8f40-5dba6b62ab2b",
+														"props": {
+															"data-trickroom-name": "02 R2 Open Btn",
+															"data-trickroom-library": "trickroom",
+															"data-trickroom-component": "container",
+															"data-trickroom-role": "branch",
+															"className": "flex-1 flex flex-col min-w-0 px-2 py-2 hover:bg-slate-100 active:bg-cyan-100 [&_*]:active:text-cyan-900"
+														},
+														"children": [
+															{
+																"id": "7b4a945a-044f-43b9-a4e8-4c233037cfc6",
+																"props": {
+																	"data-trickroom-name": "02 R2 Name",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "text",
+																	"data-trickroom-role": "text",
+																	"className": "text-sm font-medium truncate"
+																},
+																"children": "design-system-playground"
+															},
+															{
+																"id": "8e928ec1-d926-49a7-8f23-89e4e6d03d85",
+																"props": {
+																	"data-trickroom-name": "02 R2 Path",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "text",
+																	"data-trickroom-role": "text",
+																	"className": "font-mono text-[10px] text-slate-500 truncate"
+																},
+																"children": "~/Sandbox/design-system-playground"
+															}
+														]
+													},
+													{
+														"id": "5c387298-c885-43aa-8f49-ac8f6f22a238",
+														"props": {
+															"data-trickroom-name": "02 R2 Remove Btn",
+															"data-trickroom-library": "trickroom",
+															"data-trickroom-component": "container",
+															"data-trickroom-role": "branch",
+															"className": "flex items-center justify-center px-2 py-2 text-slate-400 hover:bg-slate-100 active:bg-cyan-100 hover:text-slate-600 active:text-cyan-900"
+														},
+														"children": [
+															{
+																"id": "6af965cb-08c0-459a-add4-3bca5b81a26a",
+																"props": {
+																	"data-trickroom-icon-id": "lucide-static/trash-2",
+																	"className": "inline-flex size-3.5 text-current",
+																	"aria-label": "Remove from recents",
+																	"data-trickroom-name": "02 R2 Remove Icon",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "icon",
+																	"data-trickroom-role": "leaf"
+																},
+																"children": []
+															}
+														]
+													}
+												]
+											},
+											{
+												"id": "a559c7e2-cc48-401f-bcc8-58bcd42ce268",
+												"props": {
+													"data-trickroom-name": "02 Rail Row 3",
+													"data-trickroom-library": "trickroom",
+													"data-trickroom-component": "container",
+													"data-trickroom-role": "branch",
+													"className": "group flex flex-row items-stretch"
+												},
+												"children": [
+													{
+														"id": "91e8c0a3-b662-48db-a261-497abe5324dc",
+														"props": {
+															"data-trickroom-name": "02 R3 Open Btn",
+															"data-trickroom-library": "trickroom",
+															"data-trickroom-component": "container",
+															"data-trickroom-role": "branch",
+															"className": "flex-1 flex flex-col min-w-0 px-2 py-2 hover:bg-slate-100 active:bg-cyan-100 [&_*]:active:text-cyan-900"
+														},
+														"children": [
+															{
+																"id": "5963839c-0dfd-4f1f-92ca-8c204e62867e",
+																"props": {
+																	"data-trickroom-name": "02 R3 Name",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "text",
+																	"data-trickroom-role": "text",
+																	"className": "text-sm font-medium truncate"
+																},
+																"children": "prose-experiments"
+															},
+															{
+																"id": "d64b7429-ec02-48ef-9034-7931dd17f0c2",
+																"props": {
+																	"data-trickroom-name": "02 R3 Path",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "text",
+																	"data-trickroom-role": "text",
+																	"className": "font-mono text-[10px] text-slate-500 truncate"
+																},
+																"children": "~/Sandbox/prose-experiments"
+															}
+														]
+													},
+													{
+														"id": "b70be712-e3b6-4315-a5a7-16ce4740b93a",
+														"props": {
+															"data-trickroom-name": "02 R3 Remove Btn",
+															"data-trickroom-library": "trickroom",
+															"data-trickroom-component": "container",
+															"data-trickroom-role": "branch",
+															"className": "flex items-center justify-center px-2 py-2 text-slate-400 hover:bg-slate-100 active:bg-cyan-100 hover:text-slate-600 active:text-cyan-900"
+														},
+														"children": [
+															{
+																"id": "2696483c-9ae8-497d-be8e-eb72048003d1",
+																"props": {
+																	"data-trickroom-icon-id": "lucide-static/trash-2",
+																	"className": "inline-flex size-3.5 text-current",
+																	"aria-label": "Remove from recents",
+																	"data-trickroom-name": "02 R3 Remove Icon",
+																	"data-trickroom-library": "trickroom",
+																	"data-trickroom-component": "icon",
+																	"data-trickroom-role": "leaf"
+																},
+																"children": []
+															}
+														]
+													}
+												]
+											}
+										]
+									}
+								]
+							},
+							{
+								"id": "fd9d25db-ba33-48db-99e6-abdea2584538",
+								"props": {
+									"className": "data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full bg-slate-200",
+									"orientation": "horizontal",
+									"data-trickroom-name": "02 Rail Divider 2",
+									"data-trickroom-library": "base-ui",
+									"data-trickroom-component": "separator",
+									"data-trickroom-role": "leaf"
+								},
+								"children": []
+							},
+							{
+								"id": "ca98424e-661c-4d54-b34c-17e5a24e7e3c",
+								"props": {
+									"data-trickroom-name": "02 MCP Setup Btn",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "text",
+									"data-trickroom-role": "text",
+									"className": "mx-5 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 px-3 py-2 text-sm font-medium text-center text-slate-950 hover:bg-slate-100 active:inset-shadow-cyan-500 active:bg-cyan-100 active:text-cyan-900"
+								},
+								"children": "MCP Setup"
+							}
+						]
+					},
+					{
+						"id": "620aa3a3-e3af-4468-936d-1d9d123aa1b1",
+						"props": {
+							"data-trickroom-name": "02 Main",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "container",
+							"data-trickroom-role": "branch",
+							"className": "flex-1 flex flex-col justify-center gap-5 px-10 py-10"
+						},
+						"children": [
+							{
+								"id": "86b68dd4-900b-4a6b-a210-59628f03c3be",
+								"props": {
+									"data-trickroom-name": "02 Main Title",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "text",
+									"data-trickroom-role": "text",
+									"className": "text-lg font-medium text-slate-900"
+								},
+								"children": "No active project"
+							},
+							{
+								"id": "1140a2ff-1d33-4df8-8e28-ff8d91236c98",
+								"props": {
+									"data-trickroom-name": "02 Main Description",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "text",
+									"data-trickroom-role": "text",
+									"className": "text-sm text-slate-700 -mt-3"
+								},
+								"children": "Open the folder of an existing project or start a fresh one."
+							},
+							{
+								"id": "5cad2b39-120a-4319-bebf-7725478cc430",
+								"props": {
+									"data-trickroom-name": "02 Picker Form",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex flex-col gap-2 mt-2"
+								},
+								"children": [
+									{
+										"id": "1dcbbad2-7fb8-47e0-a39a-b6e5ec89855d",
+										"props": {
+											"data-trickroom-name": "02 Picker Label",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text",
+											"className": "text-xs font-semibold"
+										},
+										"children": "Project folder"
+									},
+									{
+										"id": "a7c1894c-a5e8-47b5-9731-07d79e69cfdf",
+										"props": {
+											"data-trickroom-name": "02 Picker Bar",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "container",
+											"data-trickroom-role": "branch",
+											"className": "group flex items-center overflow-hidden inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500"
+										},
+										"children": [
+											{
+												"id": "1b40a3f1-c1cf-46c5-9cee-be3d5297da70",
+												"props": {
+													"data-trickroom-icon-id": "lucide-static/folder",
+													"className": "shrink-0 inline-flex size-4 text-slate-600 self-center ml-2 group-focus-within:text-cyan-900",
+													"aria-label": "Folder",
+													"data-trickroom-name": "02 Folder Icon",
+													"data-trickroom-library": "trickroom",
+													"data-trickroom-component": "icon",
+													"data-trickroom-role": "leaf"
+												},
+												"children": []
+											},
+											{
+												"id": "687dc11c-13e8-48c4-8652-84db83556476",
+												"props": {
+													"data-trickroom-name": "02 Input Placeholder",
+													"data-trickroom-library": "trickroom",
+													"data-trickroom-component": "text",
+													"data-trickroom-role": "text",
+													"className": "flex-1 min-w-0 truncate px-2 py-1.5 text-xs text-slate-500"
+												},
+												"children": "/absolute/path/to/project"
+											},
+											{
+												"id": "2b9ed7f0-a07e-4ea3-bef6-b524548a2587",
+												"props": {
+													"data-trickroom-name": "02 Choose Btn",
+													"data-trickroom-library": "trickroom",
+													"data-trickroom-component": "text",
+													"data-trickroom-role": "text",
+													"className": "shrink-0 inset-shadow-[1px_0_0_0] inset-shadow-slate-200 group-focus-within:inset-shadow-cyan-500 px-3 py-2 text-sm font-medium hover:bg-slate-100 hover:inset-shadow-[0_0_0_1px] active:bg-cyan-100 active:text-cyan-900 active:inset-shadow-[0_0_0_1px] active:inset-shadow-cyan-500"
+												},
+												"children": "Choose folder"
+											}
+										]
+									}
+								]
+							},
+							{
+								"id": "61630799-c116-40ec-a542-179f72b478e5",
+								"props": {
+									"data-trickroom-name": "02 Open Btn",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "text",
+									"data-trickroom-role": "text",
+									"className": "inset-shadow-[0_0_0_1px] inset-shadow-slate-200 px-3 py-2 text-sm font-medium text-center hover:bg-slate-100 active:bg-cyan-100 active:text-cyan-900 active:inset-shadow-cyan-500"
+								},
+								"children": "Open project"
+							},
+							{
+								"id": "f5cbc764-3b8d-4727-b0ee-176321176b0a",
+								"props": {
+									"data-trickroom-name": "02 Or Divider",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "text",
+									"data-trickroom-role": "text",
+									"className": "font-mono text-[10px] uppercase tracking-wider text-slate-500 text-center"
+								},
+								"children": "— or —"
+							},
+							{
+								"id": "4f0dda16-db9d-4392-9061-70acda59b8aa",
+								"props": {
+									"data-trickroom-name": "02 Create Btn",
+									"data-trickroom-library": "trickroom",
+									"data-trickroom-component": "container",
+									"data-trickroom-role": "branch",
+									"className": "flex items-center justify-center gap-2 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 px-2 py-2 text-sm font-medium hover:bg-slate-100 active:bg-cyan-100 active:text-cyan-900 active:inset-shadow-cyan-500"
+								},
+								"children": [
+									{
+										"id": "fd079522-69b7-4744-a446-3c906364fc57",
+										"props": {
+											"data-trickroom-icon-id": "lucide-static/plus",
+											"className": "inline-flex size-3.5 text-current",
+											"aria-label": "Add",
+											"data-trickroom-name": "02 Plus Icon",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "icon",
+											"data-trickroom-role": "leaf"
+										},
+										"children": []
+									},
+									{
+										"id": "27c586a0-546f-43bd-8052-7d3c147c8508",
+										"props": {
+											"data-trickroom-name": "02 Create Label",
+											"data-trickroom-library": "trickroom",
+											"data-trickroom-component": "text",
+											"data-trickroom-role": "text"
+										},
+										"children": "Create new project"
+									}
+								]
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+}

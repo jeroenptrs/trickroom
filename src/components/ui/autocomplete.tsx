@@ -23,7 +23,9 @@ const AutocompletePortal = AutocompletePrimitive.Portal;
 function AutocompleteInput({
 	className,
 	...props
-}: ComponentProps<typeof AutocompletePrimitive.Input>) {
+}: ComponentProps<typeof AutocompletePrimitive.Input> & {
+	className?: string;
+}) {
 	return (
 		<AutocompletePrimitive.Input
 			className={slots.input({ className })}
@@ -36,7 +38,9 @@ function AutocompletePositioner({
 	className,
 	sideOffset = 4,
 	...props
-}: ComponentProps<typeof AutocompletePrimitive.Positioner>) {
+}: ComponentProps<typeof AutocompletePrimitive.Positioner> & {
+	className?: string;
+}) {
 	return (
 		<AutocompletePrimitive.Positioner
 			className={slots.positioner({ className })}
@@ -49,7 +53,9 @@ function AutocompletePositioner({
 function AutocompletePopup({
 	className,
 	...props
-}: ComponentProps<typeof AutocompletePrimitive.Popup>) {
+}: ComponentProps<typeof AutocompletePrimitive.Popup> & {
+	className?: string;
+}) {
 	return (
 		<AutocompletePrimitive.Popup
 			className={slots.popup({ className })}
@@ -61,7 +67,7 @@ function AutocompletePopup({
 function AutocompleteList({
 	className,
 	...props
-}: ComponentProps<typeof AutocompletePrimitive.List>) {
+}: ComponentProps<typeof AutocompletePrimitive.List> & { className?: string }) {
 	return (
 		<AutocompletePrimitive.List
 			className={slots.list({ className })}
@@ -73,7 +79,7 @@ function AutocompleteList({
 function AutocompleteItem({
 	className,
 	...props
-}: ComponentProps<typeof AutocompletePrimitive.Item>) {
+}: ComponentProps<typeof AutocompletePrimitive.Item> & { className?: string }) {
 	return (
 		<AutocompletePrimitive.Item
 			className={slots.item({ className })}
@@ -85,7 +91,9 @@ function AutocompleteItem({
 function AutocompleteEmpty({
 	className,
 	...props
-}: ComponentProps<typeof AutocompletePrimitive.Empty>) {
+}: ComponentProps<typeof AutocompletePrimitive.Empty> & {
+	className?: string;
+}) {
 	return (
 		<AutocompletePrimitive.Empty
 			className={slots.empty({ className })}

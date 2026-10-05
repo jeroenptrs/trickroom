@@ -62,30 +62,6 @@ const PREFIX_TO_PROPERTY: Partial<Record<string, SpacingProperty>> = {
 	me: "margin-end",
 };
 
-export const SPACING_PROPERTY_TO_PREFIX: Record<SpacingProperty, string> = {
-	padding: "p",
-	"padding-x": "px",
-	"padding-y": "py",
-	"padding-top": "pt",
-	"padding-right": "pr",
-	"padding-bottom": "pb",
-	"padding-left": "pl",
-	"padding-start": "ps",
-	"padding-end": "pe",
-	margin: "m",
-	"margin-x": "mx",
-	"margin-y": "my",
-	"margin-top": "mt",
-	"margin-right": "mr",
-	"margin-bottom": "mb",
-	"margin-left": "ml",
-	"margin-start": "ms",
-	"margin-end": "me",
-	gap: "gap",
-	"gap-x": "gap-x",
-	"gap-y": "gap-y",
-};
-
 export function classifySpacingParsedClass(
 	parsed: ParsedClass,
 ): SpacingIntent | null {

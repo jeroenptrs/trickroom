@@ -1,8 +1,6 @@
 # Agents And MCP
 
-Trickroom includes a stdio MCP server so agents can inspect and edit design files through structured tools instead of raw filesystem edits.
-
-The MCP server has one explicit session-selected project at a time. It starts from project-root CWD inference when launched from a project root that contains MCP-enabled `.trickroom` config, and agents switch session scope explicitly with `selectProject`.
+Trickroom includes a stdio MCP server so agents can read and change design files through structured tools instead of raw file edits. Coding agents are its main users, so there are only 23 tools in a few families, one write tool for design content, a guide the agent reads once per session, and a way for agents to report friction with the tools themselves (`feedback_submit`).
 
 ## Start MCP
 
@@ -10,12 +8,9 @@ The MCP server has one explicit session-selected project at a time. It starts fr
 trickroom mcp
 ```
 
-On startup, MCP does not accept positional launch-path arguments. Start with `trickroom mcp` from the desired project folder, and MCP will infer the local project when it is in its root.
-If no project is inferred from the current working directory, MCP starts without a selected project.
-To target another local project in the same session, register it with `registerProject`, then switch scope with `selectProject`.
-The per-user project registry still powers `listProjects`, but it no longer retargets existing MCP sessions when desktop UI project switches happen.
+Start it from the project root. When that folder has an MCP-enabled `.trickroom/config.json`, the session starts on that project; otherwise it starts without one and the agent selects a project with `project_select`. The command takes no positional arguments.
 
-The target project must have MCP enabled:
+The project must enable MCP:
 
 ```json
 {
@@ -26,22 +21,147 @@ The target project must have MCP enabled:
 }
 ```
 
-## MCP Migration Notes
+The server sends instructions at initialize: what Trickroom is, the tool families, the session-start recipe and the edit loop (under 2,048 characters, the limit clients keep).
 
-This release keeps one MCP session-selection path:
+## Session Flow
 
-- `listProjects` exposes catalog location metadata and app-owned `activeProjectId`/`activeLocationId` values.
-- MCP session selection is stored separately and managed with `selectProject`.
-- `getSelectedProject` returns the current MCP session project.
+1. `project_list` shows the session's project (or `project_select` switches to another one).
+2. `memory_read({ designFileId })` indexes the notes on the project, the design's linked design system and the design; read the relevant ones with `noteIds`.
+3. `guide({ designFileId })` returns the core: model, rules, workflow, an example batch, and this design's revision, boards and design system. Fetch topics when the task needs them.
+4. Loop: `design_read` the area you change, `design_apply` one batch with `expectedRevision` (checked per board: see [Revisions](#revisions)), fix the warnings it returns, `design_screenshot` the changed boards at several viewports in one call, `design_validate` before handing off, and `editor_focus` to show the human what changed. When the human says "this", call `editor_context`.
 
-`openProject` and `getActiveProject` remain as compatibility aliases, but they are deprecated:
+## Tools
 
-- Prefer `registerProject` + `selectProject({ projectId | locationId })`.
-- Use `getSelectedProject` instead of `getActiveProject`.
+R = read-only, W = writes. Reads and writes are separate tools because client permission rules key on the tool name. `tools/list` returns the tools in this order.
 
-Important note for existing integrations:
+| Tool | R/W | Purpose | Key parameters |
+| --- | --- | --- | --- |
+| `project_list` | R | The session's project with governance, systems and a project memory summary, and every registered project whose folder still exists (`selected`, `appActive`). Locations of deleted worktrees and folders are left out; selecting one by `locationId` fails with `MISSING_PROJECT_LOCATION`. | `project` to describe another registered project |
+| `project_select` | W | Make a project the session's project; a path registers it first. | `locationId` \| `projectId` \| `path` |
+| `guide` | R | The authoring guide: a core, or topics. Replaces the authoring contracts and the registry tools. | `topic`, `designFileId`, `systemName`, `library`, `name` |
+| `design_list` | R | Design files with revision, boards (with their revisions), layer count, memory note count and storage warnings, and the linked design systems. | |
+| `design_read` | R | A design or one board (bounded tree; a board read reads only that board's file), one element's subtree, or a flat outline. | `designFileId`, `boardId` \| `elementId`, `view`, `depth`, `maxNodes`, `allowLarge`, `detail` |
+| `design_apply` | W | The one write tool for design content: ordered operations, validated together, one write. | `designFileId`, `expectedRevision`, `operations`, `response` |
+| `design_validate` | R | Validate a whole design, or dry-run operations against a revision. | `designFileId`, `operations`, `expectedRevision`, `response` |
+| `design_create` | W | Create a design, empty or from a copy of an existing element. | `name`, `systemName`, `designFileId`, `from` |
+| `design_screenshot` | R | Render boards, elements or a system component and return PNG images. | `boardId`, `elementId`, `component`, `viewport`, `theme`, `scale`, `maxHeight` |
+| `design_export` | W | Write boards to disk as HTML or PNG. | `designFileId`, `destinationDir`, `boardIds`, `format` |
+| `editor_context` | R | What the human has open and selected in the Trickroom editor. | |
+| `editor_focus` | W | Point the human's editor at a design, board or layer. | `designFileId`, `boardId`, `elementId` |
+| `memory_read` | R | Memory note index, note bodies, or reference targets. | `scope` \| `designFileId`, `noteIds`, `referenceType` |
+| `memory_write` | W | Add, update or delete one memory note. | `action`, `scope`, `noteId`, `expectedRevision`, `edits` |
+| `system_read` | R | Tokens, assets, icons and resource usage of a design system. | `view`, `systemName` \| `designFileId`, `id`, `domain`, `query`, `limit`, `offset` |
+| `system_update` | W | Register or remove assets and icon folders. | `action`, `systemName`, `assetId`, `name`, `sourcePath`, `folderPath` |
+| `component_read` | R | System component index, one component's interface, or stale instances. | `view`, `componentId`, `include`, `source` |
+| `component_draft_create` | W | Create a component draft, or extract one from a design layer (optionally publishing it and replacing the layer with an instance). | `systemName`, `expectedRevision`, `slug`, `name`, `draft` \| `from` |
+| `component_draft_update` | W | Replace parts of a component draft, or change its name, group or description (applies at once). | `componentId`, `expectedRevision`, `name`, `group`, `description`, `root`, `slots`, `variants`, `overrideTargets` |
+| `component_publish` | W | Publish a draft as the component's current version. | `componentId`, `expectedRevision` |
+| `component_delete` | W | Delete a component (kept apart from publish: it is destructive). | `componentId`, `expectedRevision` |
+| `component_migrate` | W | Move stale instances to the current version, one or in bulk. | `rootElementId` + `designFileId` + `expectedRevision`, or bulk filters |
+| `feedback_submit` | W | Report friction with the tools to the Trickroom developers; stored locally with the session's recent calls. See [Feedback](#feedback). | `summary`, `category`, `severity`, `tools`, `details`, `expected`, `suggestion` |
 
-- `projects.json` `lastActiveProjectId` and `lastActiveLocationId` are app-level metadata for the desktop app's active project history. They do not automatically re-target MCP sessions.
+Every project-scoped tool (all but `feedback_submit`) also takes an optional `project: { locationId }` (or `{ projectId }`) to work in another registered project without switching the session.
+
+### Annotations And Client Hints
+
+| Tool | readOnlyHint | destructiveHint | idempotentHint | openWorldHint |
+| --- | --- | --- | --- | --- |
+| reads (`project_list`, `guide`, `design_list`, `design_read`, `design_validate`, `editor_context`, `memory_read`, `system_read`, `component_read`) | true | | | false |
+| `design_screenshot` | true | | | true (renders may load remote fonts) |
+| `project_select`, `editor_focus` | false | false | true | false |
+| `design_apply`, `memory_write`, `system_update`, `component_delete` | false | true | false | false |
+| `design_create`, `component_draft_create`, `component_draft_update`, `component_publish`, `component_migrate`, `feedback_submit` | false | false | false | false |
+| `design_export` | false | true (overwrites files of the same name) | false | true (HTML loads React and Base UI from esm.sh) |
+
+`_meta` hints for clients that defer tool schemas:
+
+- `anthropic/alwaysLoad`: `project_list`, `guide`, `design_read`, `design_apply` (about 10k characters together).
+- `anthropic/searchHint`: keywords on tools whose names miss what an agent searches for (for example "screenshot image png render" on `design_screenshot`, "selection selected layer" on `editor_context`, "feedback report bug issue" on `feedback_submit`).
+- `anthropic/maxResultSizeChars`: `guide` (60,000; topics are requested on purpose) and `design_read` (150,000; reads past the default bounds need `allowLarge`).
+
+Descriptions stay under 2,048 characters (the longest, `component_draft_create`, is 1,100); a test checks every tool. `tools/list` is about 58,300 characters (the always-loaded four, about 10,300; `feedback_submit`, about 1,850).
+
+### Tool Groups
+
+The app's MCP settings switch tools on and off by group. The eight group ids are persisted in user settings and unchanged:
+
+| Group | Tools |
+| --- | --- |
+| `projects` | `project_list`, `project_select`, `editor_context`, `editor_focus`, `feedback_submit` |
+| `designRead` | `design_list`, `design_read`, `design_screenshot`, `design_export` |
+| `designWrite` | `design_apply`, `design_create` |
+| `designValidation` | `design_validate` |
+| `registry` | `guide` |
+| `designSystems` | `system_read`, `system_update` |
+| `systemComponents` | `component_read`, `component_draft_create`, `component_draft_update`, `component_publish`, `component_delete`, `component_migrate` |
+| `memory` | `memory_read`, `memory_write` |
+
+`feedback_submit` is in `projects`, the group a session cannot work without (it holds `project_list` and `project_select`), so feedback stays available whenever Trickroom tools are. Switching `projects` off hides it too.
+
+## Migrating From The Previous Tools
+
+This release replaced the 74 previous tools with 22 (`feedback_submit`, added later, is the 23rd). There are no aliases: calls to old names fail with "Tool not found". Batch operations kept their names (`addElement`, `copySubtree`, ...): they are now operations of `design_apply`.
+
+| Old tool | New tool |
+| --- | --- |
+| `listProjects`, `getSelectedProject`, `trickroom_project_info` | `project_list` |
+| `getActiveProject` (deprecated) | removed; use `project_list` |
+| `resolveProject` | `project_list({ project: { locationId } })` |
+| `selectProject` | `project_select({ locationId \| projectId })` |
+| `registerProject`, `openProject` (deprecated) | `project_select({ path })`, which registers and selects |
+| `listDesignFiles` | `design_list` |
+| `getDesignSystemForDesignFile` | `design_list` (`systems`), or `system_read({ designFileId })` |
+| `readDesignFile` | `design_read({ designFileId, boardId? })` |
+| `readSubtree` | `design_read({ designFileId, elementId })` |
+| `readElement` | `design_read({ designFileId, elementId, depth: 0 })` |
+| `readDesignGraph` | `design_read({ designFileId, view: "outline" })` |
+| `validateDesignFile` | `design_validate({ designFileId })` |
+| `validateOperation`, `validateOperationPlan` | `design_validate({ designFileId, expectedRevision, operations })` |
+| `validateSubtree` | `design_validate` with an `addSubtree` operation |
+| `validateCopySubtree` | `design_validate` with a `copySubtree` operation |
+| `applyDesignOperations` | `design_apply` |
+| `addElement`, `addRecipe`, `addSubtree`, `addSystemComponent`, `updateSystemComponentInstance`, `detachSystemComponent`, `updateRecipeControl`, `updateRecipeInstance`, `updateElementProps`, `updateElementText`, `moveElement`, `deleteElement`, `copySubtree`, `detachRecipeInstance`, `renameDesignFile` | `design_apply` with one operation of that name |
+| `createDesignFile` | `design_create({ name })` |
+| `extractSubtree` | `design_create({ from: { designFileId, elementId } })` |
+| `exportDesignHtml` | `design_export` (`format: "html"`, the default) |
+| `screenshotBoard` | `design_screenshot({ boardId \| component })` |
+| `screenshotNode` | `design_screenshot({ elementId })` |
+| `screenshotBoard` with `outputPath` | `design_export({ format: "png" })` |
+| `getDesignAuthoringContract` | `guide` |
+| `getSystemComponentAuthoringContract` | `guide({ topic: "component-authoring" })`; its topics are `component-template`, `component-slots`, `component-variants`, `component-overrides`, `component-examples` |
+| `listRegistries`, `listRegistryComponents`, `describeRegistryComponent` | `guide({ topic: "registry", library?, name? })` |
+| `listRegistryRecipes`, `describeRegistryRecipe` | `guide({ topic: "recipes", library?, name? })` |
+| `listDesignTokens` | `system_read({ view: "tokens" })` |
+| `listSystemAssets`, `describeAsset` | `system_read({ view: "assets", id? })` |
+| `listSystemIcons`, `describeIcon` | `system_read({ view: "icons", id? })` |
+| `findAssetUsage`, `findIconUsage` | `system_read({ view: "asset_usage" \| "icon_usage", id? })` |
+| `addSystemAsset`, `removeSystemAsset`, `refreshSystemAssetMetadata` | `system_update({ action: "add_asset" \| "remove_asset" \| "refresh_asset" })` |
+| `addSystemIconFolder`, `removeSystemIconFolder` | `system_update({ action: "add_icon_folder" \| "remove_icon_folder" })` |
+| `listSystemComponents` | `component_read` (view `index`) |
+| `describeSystemComponent` | `component_read({ componentId })` (view `describe`) |
+| `listStaleSystemComponentUsages` | `component_read({ view: "stale" })` |
+| `createSystemComponentDraft` | `component_draft_create` |
+| `updateSystemComponentDraft` | `component_draft_update` |
+| `publishSystemComponent` | `component_publish` |
+| `deleteSystemComponent` | `component_delete` |
+| `migrateSystemComponentInstance` | `component_migrate({ designFileId, expectedRevision, rootElementId })` |
+| `bulkMigrateSystemComponentUsages` | `component_migrate` without `rootElementId` |
+| `listMemoryNotes` | `memory_read({ scope? \| designFileId? })` |
+| `getMemoryNote` | `memory_read({ scope, noteIds })` |
+| `listReferenceTargets` | `memory_read({ scope, referenceType })` |
+| `addMemoryNote`, `updateMemoryNote`, `deleteMemoryNote` | `memory_write({ action: "add" \| "update" \| "delete" })` |
+| (new) | `editor_context`, `editor_focus` |
+
+Behaviour that changed with the fold:
+
+- Single edits share the batch's checks and response. A write is refused only for errors it adds (`PLAN_LEAVES_ERRORS`); errors the design already had are counted in `preExistingErrorCount` and do not block it.
+- `copySubtree` takes the batch step's parameters: the edited design is the target (`designFileId`), `sourceDesignFileId` defaults to it, and `includeIdMap: true` returns the id map.
+- `updateRecipeControl` takes any element id in the recipe instance (`$step:N` works) or the instance id as `instanceId`; `path` defaults to that element's template path. `elementId` is accepted as an alias.
+- `design_create` returns an `{ id, name, revision }` header and its boards as compact nodes, not a full element tree; extracting an element sends `resources/list_changed` like an empty create.
+- `design_read` outlines no longer carry JSON Pointer addresses; `detail: "full"` replaces `includeProps`.
+- Saving PNGs moved from the screenshot tool to `design_export`, so screenshots are read-only.
+- Results are one minified JSON text block; `structuredContent` is no longer repeated (no tool declares an `outputSchema`).
+- Audit entries written from now on carry the new tool names; existing entries keep the old ones.
 
 ## Governance
 
@@ -56,14 +176,7 @@ type McpPolicy = {
 };
 ```
 
-Defaults:
-
-- `mode`: `read-write`
-- `allowedDesignFileIds`: all design files
-- `allowedComponents`: all components
-- `auditLog`: false
-
-Restricted example:
+Defaults: `read-write`, every design file, every component, no audit log.
 
 ```json
 {
@@ -71,549 +184,469 @@ Restricted example:
   "mcp": {
     "enabled": true,
     "mode": "read-only",
-    "allowedDesignFileIds": [
-      "00000000-0000-4000-8000-000000000001"
-    ],
-    "allowedComponents": [
-      "trickroom/container",
-      "trickroom/text"
-    ],
+    "allowedDesignFileIds": ["00000000-0000-4000-8000-000000000001"],
+    "allowedComponents": ["trickroom/container", "trickroom/text"],
     "auditLog": true
   }
 }
 ```
 
-Policy effects:
-
-- Read tools enforce `allowedDesignFileIds`.
-- Creation and mutation tools enforce `mode`, `allowedDesignFileIds`, and component permissions.
-- Registry discovery filters or denies components based on `allowedComponents`.
-- Creation, mutation, and screenshot attempts append `.trickroom/audit-log.jsonl` when `auditLog` is true.
-
-## What Agents Can Ask MCP To Do
-
-Project and workspace:
-
-- List registered projects.
-- Register another local MCP-enabled project path in app state with `registerProject`.
-- Return the currently selected MCP session project with `getSelectedProject` (legacy alias: `getActiveProject`).
-- Switch the MCP session project explicitly with `selectProject`, using `locationId` where possible.
-- Resolve a stable project ID or registered `locationId` to a local path.
-- Report current project metadata and configured systems.
-- Resolve and attach multi-project resources by `project.locationId` in MCP URIs.
-
-Design inspection:
-
-- List design files.
-- Read a compact design tree.
-- Read a flat graph with parent/child maps and JSON Pointer-style addresses.
-- Read one element with sibling and parent context.
-- Read a subtree with optional depth.
-- Validate a design file.
-- Dry-run one mutation without writing.
-- Capture a board or individual node as a PNG image block with light/dark theme and viewport presets.
-- Optionally persist a captured PNG to an explicit path when read-write policy allows it.
-
-Registry and authoring:
-
-- List component registries.
-- List registry components and composable recipes.
-- Describe a component's role, children rules, default props, and writable props.
-- Describe a recipe's structure, slots, defaults, and system-owned marker guidance.
-- Get the full design authoring contract for a model.
-
-Design systems:
-
-- Resolve the design system linked to a design file.
-- List stored design tokens for that linked system (all synced token domains, not color-only).
-- List, describe, and find usage of system-scoped raster assets and SVG icons.
-- Register or remove system assets and icon folders, and refresh asset metadata when policy allows.
-- List, describe, author, and publish system component drafts.
-- Scan stale attached system component usages and migrate safe stale usages.
-
-Memory notes:
-
-- List and read durable steering/alignment notes for a system, design, or project scope.
-- Add notes, and update or delete them with revision safety.
-- Memory is never auto-injected; reads and prompts only hint that relevant notes may exist for the current domain.
-
-Design mutation:
-
-- Create a blank design file.
-- Extract a subtree into a new design file without modifying the source.
-- Rename a design file.
-- Add an element or attached recipe instance.
-- Add an attached system component instance from a published component.
-- Validate a candidate subtree insertion.
-- Validate copying an existing subtree from one design file into another.
-- Add an element or recipe subtree.
-- Copy a source subtree into another insertion point.
-- Update layer name, Tailwind class name, or registry-backed control props.
-- Update declared recipe controls on attached instances.
-- Update system component instance variants and override class names.
-- Migrate a stale attached recipe instance to the current registry template.
-- Migrate a stale attached system component instance to the current published version.
-- Detach an attached recipe instance so structural nodes become normal elements.
-- Detach an attached system component instance so structural nodes become normal elements.
-- Update text content.
-- Move an element.
-- Delete an element and descendants.
+- Reads enforce `allowedDesignFileIds`. The guide's registry and recipes topics list only allowed components.
+- Writes enforce `mode`, `allowedDesignFileIds` and `allowedComponents` (every component a step inserts, moves, copies or expands). `design_create` needs a `designFileId` from the allowlist when one is configured.
+- `design_screenshot` works in read-only mode; `design_export` does not.
+- With `auditLog`, design writes, creates, migrations, memory writes, screenshots and exports append to `.trickroom/audit-log.jsonl` (see [Audit Logging](#audit-logging)).
 
 ## What MCP Cannot Do
 
-Through the current MCP tools, agents cannot:
+Through MCP, agents cannot edit `.trickroom/config.json`, add or remove design systems, sync Tailwind token snapshots, edit source CSS or application code, or change built-in registry definitions.
 
-- Edit `.trickroom/config.json`.
-- Add or remove Tailwind systems.
-- Sync Tailwind token snapshots or confirm overrides.
-- Edit your source CSS files.
-- Edit your application source code.
-- Change built-in registry definitions.
+## Responses
 
-## Tool Safety Map
+### One JSON Text Block
 
-Read-only tools:
+Every result except screenshots is one minified JSON text block. Screenshots return a short text block and the images.
 
-| Tool | Purpose |
-| --- | --- |
-| `listProjects` | List registered projects from app state. |
-| `getSelectedProject` | Return the selected project used by this MCP session. |
-| `getActiveProject` | Compatibility alias for `getSelectedProject` (**deprecated**). |
-| `resolveProject` | Resolve `projectId` or `locationId` to a local project location. |
-| `trickroom_project_info` | Return project root, config path, and systems. |
-| `listDesignFiles` | List visible design files with revisions, counts, and modified timestamps. |
-| `readDesignFile` | Read design metadata, board summaries, counts, and a bounded compact design tree. Defaults to depth 2 and 100 nodes. Returns parseable JSON in `text` by default; pass `responseFormat: "summary"` for a short prose summary. |
-| `readDesignGraph` | Read a flat graph and element addresses. Defaults to JSON in `text`; pass `responseFormat: "summary"` for prose. |
-| `readElement` | Read one element with context. |
-| `readSubtree` | Read one bounded element subtree. Defaults to depth 2 and 100 nodes. Returns JSON in `text` by default; pass `responseFormat: "summary"` for prose. |
-| `validateDesignFile` | Validate an existing design without writing. Omits heavy token `customUtilities` catalogs unless `includeTokenDiagnostics: true`. |
-| `validateOperation` | Dry-run one supported operation without writing. |
-| `validateOperationPlan` | Dry-run an ordered list of design operations against one starting revision without writing. |
-| `validateSubtree` | Dry-run one subtree insertion payload without writing. |
-| `validateCopySubtree` | Dry-run copying a source subtree into a target design without writing. |
-| `listRegistries` | List built-in component registries. |
-| `listRegistryComponents` | List allowed components and composition metadata. |
-| `describeRegistryComponent` | Describe one allowed component. |
-| `listRegistryRecipes` | List composable recipes and compact slot/structure metadata. |
-| `describeRegistryRecipe` | Describe one recipe's structure, slots, defaults, and controls. |
-| `getDesignAuthoringContract` | **Recommended first planning call.** Return compact grammar, registry component vocabulary, props, composition/mutation rules, authoring guidance, and examples. Defaults omit recipe catalogs and linked-system resource summaries; pass `includeRecipes: "summary"` and/or `includeResources: true` when you need them. Registry components default to compact `summary` entries; use `includeRegistryComponents: "full"` for controls and composition metadata. |
-| `getDesignSystemForDesignFile` | Report linked system and token storage metadata. |
-| `listDesignTokens` | List stored tokens for the linked system. |
-| `listSystemAssets` | List system asset metadata without file bytes. |
-| `describeAsset` | Describe one system asset by stable ID. |
-| `listSystemIcons` | List generated icon metadata and diagnostics without raw SVG. |
-| `describeIcon` | Describe one system icon by stable ID. |
-| `findAssetUsage` | Find design elements referencing system assets. |
-| `findIconUsage` | Find design elements referencing system icons. |
-| `listSystemComponents` | List authored components in a configured system with manifest revision metadata. |
-| `describeSystemComponent` | Describe one component record, draft hashes, validation diagnostics, and published versions. |
-| `listStaleSystemComponentUsages` | Read-only scan returning attached instances with stale referenced versions in `usages`. Hash-review signals appear in status counts and diagnostics, not in `usages` rows. |
-| `listMemoryNotes` | List memory/steering notes plus a category summary for a system, design, or project scope. Optional `resolveReferences: true` attaches per-note reference resolution (including `deepLink` for valid targets). |
-| `getMemoryNote` | Read one memory note by id from a system, design, or project scope. Optional `resolveReferences: true` attaches reference resolution for the note body (including `deepLink` for valid targets). |
-| `listReferenceTargets` | List candidate `{{type:id}}` reference targets for memory note intellisense in the current scope. |
+The full project block (`projectId`, `locationId`, `projectRoot`, `name`) comes back from `project_list` and `project_select`; every other result carries `project: { projectId, locationId }`.
 
-Visual capture tools:
+### Compact Nodes
 
-| Tool | Behavior | Governance |
-| --- | --- | --- |
-| `screenshotBoard` | Renders one root board and returns PNG metadata plus an MCP image content block. Supports `mobile`, `tablet`, `desktop`, or explicit viewports and light/dark theme. | Always checks design read access. Inline capture works in read-only mode; `outputPath` requires read-write mode. |
-| `screenshotNode` | Infers the containing board, renders it, and crops the PNG to one persistent node ID. | Same policy as `screenshotBoard`. |
+Reads, `design_create`, `component_migrate` and `editor_context` describe elements as compact nodes:
 
-Both tools require the optional `playwright-core` peer dependency and a locatable Chrome/Chromium. Install Chromium with `npx playwright-core install chromium`, set `TRICKROOM_CHROME_PATH`, or pass `executablePath`. Screenshot attempts are appended to the MCP audit log when auditing is enabled; PNG bytes are never written to the log.
+- `id`, `name` (left out when it equals the component's default label), `component` (`"<library>/<component>"`, with the `trickroom/` prefix dropped), `className` when set, `text` (cut at 160 characters, with `textLength` when cut), and `props` that are neither Trickroom markers nor registry defaults.
+- Instances collapse into short summaries: `systemComponent` (id, variants, overrides) on a component root, `recipe` (`id`, `instanceId`, and `state` when not valid) on a recipe root, `recipe: { instanceId, path }` on other recipe-owned nodes, and `slot` on slot hosts.
+- `detail: "full"` returns `id`, every stored prop (markers included) and the full text instead.
 
-Project/session writes:
+Bounded reads take elements breadth first, so a node budget never spends itself on the first branch. A node whose descendants were cut carries `more` (the number of unread elements), and the `read` block says what was returned (`depth`, `maxNodes`, `returnedNodeCount`, `omittedNodeCount`, `truncated`) and, when cut, `next`: the exact follow-up call (`{ tool: "design_read", args }`).
 
-| Tool | Writes | Notes |
-| --- | --- | --- |
-| `registerProject` | `~/.trickroom/projects.json` | Registers a local path in app state without selecting MCP session scope. |
-| `selectProject` | MCP session context | Sets the active project used by project-scoped MCP tools. |
-| `openProject` | `~/.trickroom/projects.json` and MCP session state | **Deprecated alias**. Use `registerProject` + `selectProject` instead. |
-
-Design-system resource writes:
-
-| Tool | Writes | Destructive risk |
-| --- | --- | --- |
-| `addSystemAsset` | Registers one raster asset in a system's `assets.json` manifest | Low; adds catalog metadata, not design elements. |
-| `removeSystemAsset` | Removes one asset from the manifest when unused | Medium; breaks future references if designs still point at the ID. |
-| `addSystemIconFolder` | Adds a project-relative icon folder and refreshes the icon manifest | Low; extends icon discovery paths. |
-| `removeSystemIconFolder` | Removes one icon folder path from the system config | Medium; may shrink the generated icon catalog. |
-| `refreshSystemAssetMetadata` | Re-reads one asset file's image metadata | Low; updates stored dimensions/metadata only. |
-| `createSystemComponentDraft` | Adds one component draft record to `components.json` | Low; requires the current component manifest revision. |
-| `updateSystemComponentDraft` | Updates a component draft template, slots, variants, and/or override targets in `components.json` | Medium; changes future publishes but does not rewrite existing published versions. |
-| `publishSystemComponent` | Appends an immutable published component version in `components.json` | Medium; changes the current version used by new insertions and stale scans. |
-| `deleteSystemComponent` | Removes one component record from `components.json` | High; does not remove attached design instances, which may become stale or missing-component. |
-
-Memory note writes:
-
-All memory tools take a scope-discriminated union: `{ kind: "system", systemName }`, `{ kind: "design", designFileId }`, or `{ kind: "project" }`. Writes target the matching `memory.json` (see `docs/project-files.md`). Note bodies may embed canonical reference tokens like `{{design:<uuid>}}`; bodies are stored verbatim. `addMemoryNote` and `updateMemoryNote` return non-blocking `referenceWarnings` for unresolved tokens. `listMemoryNotes` and `getMemoryNote` accept optional `resolveReferences: true` to attach per-note resolution metadata.
-
-| Tool | Writes | Destructive risk |
-| --- | --- | --- |
-| `addMemoryNote` | Appends one note to the scoped `memory.json` | Low; append-only, does not require a prior revision. |
-| `updateMemoryNote` | Updates one note's fields | Medium; requires the current `expectedRevision` and returns `STALE_WRITE` on mismatch. |
-| `deleteMemoryNote` | Removes one note | High; requires `expectedRevision` and cannot be undone by Trickroom. |
-
-Design-file writes:
-
-| Tool | Writes | Destructive risk |
-| --- | --- | --- |
-| `createDesignFile` | Creates a new blank design file with one root container | Low; writes a new JSON file and refuses to overwrite an existing file. |
-| `extractSubtree` | Creates a new design file cloned from a source subtree | Low; does not modify the source design. |
-| `renameDesignFile` | Design file `name` | Low; writes JSON. |
-| `addElement` | Adds one node | Low; grows the design tree. |
-| `addRecipe` | Expands and inserts one registry recipe instance | Medium; generates a multi-node attached structure. |
-| `addSystemComponent` | Expands and inserts one published system component instance | Medium; generates a multi-node attached structure with marker props. |
-| `addSubtree` | Inserts a candidate subtree, including optional recipes | Medium; generates fresh IDs and normalizes candidate insertion rules. |
-| `updateElementProps` | Updates `data-trickroom-name`, `className`, and/or registry-backed control props | Medium; can replace styling or component settings. |
-| `updateRecipeControl` | Updates a declared recipe control by instance/path/prop | Medium; can replace attached recipe component settings. |
-| `updateSystemComponentInstance` | Updates declared variant values and override target class names on an attached component root | Medium; re-expands the instance without generic marker edits. |
-| `updateRecipeInstance` | Migrates one stale attached recipe instance to the current template | Medium; can reshape recipe-owned structure while preserving mapped content. |
-| `migrateSystemComponentInstance` | Migrates one stale attached component instance to the current published version | Medium; safe migrations write by default, review-required migrations are reported unless `onlySafe` is false. |
-| `bulkMigrateSystemComponentUsages` | Migrates stale attached component usages for a system, optional component, or optional design file | Medium; `dryRun` previews without writes and `onlySafe` defaults to true. |
-| `detachRecipeInstance` | Removes recipe marker props from one attached instance | Medium; unlocks formerly recipe-owned nodes for normal mutation. |
-| `detachSystemComponent` | Removes component marker props from one attached instance | Medium; unlocks formerly component-owned nodes for normal mutation. |
-| `updateElementText` | Updates text role `children` | Medium; replaces text content. |
-| `moveElement` | Reorders or reparents one node | Medium; can significantly change hierarchy. |
-| `copySubtree` | Copies a subtree from a source design into a target design | Medium; copies structural data and validates cross-file revision/design-system constraints. |
-| `applyDesignOperations` | Applies an ordered operation list atomically with one persisted write | Medium; validates the full plan in memory before committing one revision. |
-| `deleteElement` | Removes one node and all descendants | High; cannot be undone by Trickroom itself. |
-
-Existing design-file writes require `expectedRevision`. `createDesignFile` and `extractSubtree` have no prior revision on the file they create; they use exclusive create semantics and fail if the chosen UUID already exists. Cross-file `copySubtree` also requires `sourceExpectedRevision` on the source design. System component manifest writes require the `revision` returned by `listSystemComponents` or `describeSystemComponent`.
-
-MCP annotations mark `renameDesignFile`, `updateElementProps`, `updateRecipeControl`, `updateRecipeInstance`, `detachRecipeInstance`, `detachSystemComponent`, `updateElementText`, `moveElement`, `deleteElement`, and `deleteMemoryNote` as destructive write tools. `addMemoryNote` and `updateMemoryNote` are write tools but are annotated as non-destructive. `createDesignFile`, `extractSubtree`, `addElement`, `addRecipe`, `addSystemComponent`, `updateSystemComponentInstance`, `migrateSystemComponentInstance`, `bulkMigrateSystemComponentUsages`, `addSubtree`, and `copySubtree` are write tools but are annotated as non-destructive. `screenshotBoard` and `screenshotNode` are non-destructive, open-world tools because they may load remote font stylesheets and may optionally write an explicit output path. `registerProject`, `selectProject`, and `openProject` are project/session-state writes and do not mutate design files. System resource write tools mutate design-system manifests under `.trickroom/systems/`, not design JSON files.
-
-## Revision Workflow
-
-Design revisions are hashes of the exact file contents:
-
-```text
-sha256:<hex digest>
-```
-
-Safe mutation sequence:
-
-1. For a new exploration, call `createDesignFile`, then use the returned `newRevision` for follow-up mutations.
-2. For an existing design, call `listDesignFiles` to get the current revision. Use bounded `readDesignFile`, `readElement`, or `readSubtree` only for the area you need to inspect.
-3. Use the returned `revision` as `expectedRevision`.
-4. Optionally call `validateOperation` for one risky step, or `validateOperationPlan` for multi-step refactors.
-5. Call one mutation tool, or `applyDesignOperations` for an atomic multi-step commit.
-6. Use the returned `newRevision` for the next mutation.
-7. If a tool returns `REVISION_MISMATCH`, stop and re-read the revision with `listDesignFiles` or bounded `readDesignFile` before retrying.
-8. After a multi-step edit, call `validateDesignFile`.
-9. Verify the final edited area with `readElement` or bounded `readSubtree` before reporting completion.
-
-This revision discipline prevents agents from overwriting newer app or user edits.
-
-## Mutation Details
-
-### Write Response Verbosity
-
-Write tools return **minimal responses by default** to keep payloads small: only error-severity `issues` are included. Warnings and the heavy `customUtilities` token catalog are omitted unless requested.
-
-- `applyDesignOperations` and `copySubtree` accept a `response` object to escalate per call:
-  - `includeWarnings: true` — include warning-severity diagnostics, **scoped to the elements this write touched** (the inserted subtree for `copySubtree`).
-  - `warningScope: "file"` — when including warnings, return the whole design's warnings instead of only the affected elements.
-  - `includeTokenDiagnostics: true` — include the full custom-utility catalog in `tokenDiagnostics` (otherwise only the lightweight snapshot metadata is returned).
-- Single-element mutations (`addElement`, `addSubtree`, `updateElementProps`, `moveElement`, system-component and recipe writes, …) always return error issues only. To inspect warnings or the token catalog after such a write, call `validateDesignFile` (supports `includeTokenDiagnostics`) or `readDesignGraph`.
-- `copySubtree` always returns its `idMap` of old→new element IDs regardless of verbosity.
-
-Escalate when a write succeeds but you need to confirm token/class health, are debugging unexpected styling, or are about to hand off. Otherwise keep the default to minimize tokens.
-
-`createDesignFile`:
-
-- Creates a new blank design file under `.trickroom/designs/<uuid>.json`.
-- Accepts `name`, optional `systemName` compatibility input, and optional `designFileId`.
-- Stores linked systems as `systemId` in the design file.
-- Generates a UUID when `designFileId` is omitted.
-- Requires a caller-supplied `designFileId` when `allowedDesignFileIds` restricts MCP to explicit IDs.
-- Requires `trickroom/container` to be allowed because the new design starts with one root container board.
-- Rejects unknown configured design systems.
-- Refuses to overwrite an existing file ID.
-- Returns the new design revision for immediate use with `addElement` and other mutation tools.
-
-`renameDesignFile`:
-
-- Updates the top-level design `name`.
-- Requires a non-empty `name`.
-- Does not change the filename or UUID.
-
-`addElement`:
-
-- Inserts a registry component at a root or parent position.
-- Accepts `library`, `component`, `parentId`, `index`, optional `name`, optional `className`, optional `text`, and optional allowed instance/control props.
-- Rejects unknown registries/components.
-- Rejects adding children to non-branch parents.
-- Automatically sets system-owned registry props.
-- For `trickroom/asset` and `trickroom/icon`, requires the design to have a linked configured system and requires the referenced asset/icon ID to exist in that system catalog.
-
-`validateSubtree`:
-
-- Validates a candidate `subtree` insertion using `designFileId`, `expectedRevision`, `parentId`, `index`, and optional `options`.
-- Enforces strict insertion semantics:
-  - `index` must be an integer.
-  - `index` must be within `0..childCount` for the target parent/root.
-  - `parentId` must resolve to a parent that can accept child elements.
-- Accepts candidate nodes of type `kind: "element"` and optional `kind: "recipe"` (if recipe nodes are enabled).
-- Supports validation options:
-  - `maxNodes` and `maxDepth` caps for input subtree shape.
-  - `includeNormalizedTree` to include normalized output.
-  - `allowRecipes` to disable recipe nodes.
-- Reports `tempId` duplicate diagnostics (`DUPLICATE_TEMP_ID`) and maps valid `tempId` values to generated IDs in mutation output.
-- Returns `valid`, `stats` (`nodeCount`, `maxDepth`, `recipeCount`), diagnostics, optional `normalizedSubtree`, stable recipe expansion summaries, and token diagnostics. Validation responses do not include generated element IDs, insertion IDs, `idMap`, `changedElement`, or mutation context.
-
-`addSubtree`:
-
-- Inserts a candidate subtree payload and returns changed metadata and new IDs.
-- Uses generated IDs (random UUIDs) for all inserted candidate nodes.
-- Supports a `tempId` on candidate nodes to make it easier to correlate client-side references; if duplicates are found, `DUPLICATE_TEMP_ID` is reported.
-- Supports `maxNodes`, `maxDepth`, and `allowRecipes` options. `includeNormalizedTree` is only accepted by `validateSubtree`.
-- Returns:
-  - `newRevision`
-  - `rootElementId`
-  - `idMap` from submitted `tempId` to generated IDs
-  - `inserted` summary (`nodeCount`, `rootElementId`, `elementIds`)
-  - `recipeExpansions` with generated recipe instance roots and path maps when recipes were used
-  - `changedElement` and mutation context.
-- For recipe nodes, the candidate subtree is expanded before insert and recipe metadata is included in `recipeExpansions`.
-- The post-insert candidate is validated against resource references and target-linked system rules.
-
-`validateCopySubtree`:
-
-- Validates cross-design or same-design subtree copy from `sourceDesignFileId` + `sourceElementId` into `targetDesignFileId`.
-- Requires:
-  - `expectedRevision` for target design always.
-  - `sourceExpectedRevision` whenever source and target design IDs are different.
-- Enforces `maxNodes`/`maxDepth` on the source subtree when provided.
-- Validates cycle risks (copying a node into one of its descendants), parent role/index constraints, and recipe ownership restrictions for partial recipe structures.
-- Returns source/target design metadata, same-file flag, stats, diagnostics, and warnings. Validation responses do not include generated clone IDs, insertion IDs, `idMap`, `changedElement`, or mutation context.
-
-`copySubtree`:
-
-- Clones a source subtree and writes it into the target insertion location.
-- Uses generated IDs for all cloned nodes.
-- Same-file copies optionally accept missing `sourceExpectedRevision` and append ` Copy` to the inserted root element name.
-- Cross-file copies require both revision fields (`expectedRevision`, `sourceExpectedRevision`) for consistency.
-- Recipe structural boundaries are enforced by design rules; partial recipe-owned subtree copies are rejected.
-- After mutation, the target design is validated for resource references against the target design’s linked system.
-- Target-system validation can emit `DESIGN_SYSTEM_REQUIRED`, `UNKNOWN_DESIGN_SYSTEM`, `MISSING_ASSET_ID`, `MISSING_ICON_ID`, `INVALID_ASSET_ID`, `INVALID_ICON_ID`, `UNKNOWN_ASSET_ID`, and `UNKNOWN_ICON_ID`.
-- Returns source/target metadata, `newRevision`, `sourceElementId`, `rootElementId`, `idMap`, `inserted`, and `changedElement`.
-`updateElementProps`:
-
-- Updates `name`, `className`, and/or registry-backed control props.
-- Preferred call shape uses top-level `name`, top-level `className`, and a `props` object for registry-backed control props.
-- Also accepts a compatibility `propUpdates` array of `{ "name": string, "value": JSON primitive }` entries. Entries named `name` or `data-trickroom-name` update the layer name, entries named `className` update classes, and other names are treated as registry-backed control props.
-- Does not allow changing registry library, component, or role.
-- Passing an empty class string clears the class name value.
-- Rejects updates that would leave `trickroom/asset` or `trickroom/icon` pointing at an unknown resource ID.
-
-`updateRecipeControl`:
-
-- Updates a declared recipe-level control on an attached recipe instance without detaching the recipe.
-- Requires `instanceId`, template `path`, control `prop`, and JSON primitive `value`.
-- Use this for nested recipe controls such as `base-ui/menu.default` root `modal` and positioner `align`, `side`, or `sideOffset`.
-- Rejects undeclared recipe control props and invalid option/value types.
-
-`updateRecipeInstance`:
-
-- Explicitly migrates one stale known attached recipe instance to the current registry template.
-- Requires `elementId` for any structural element in the stale instance.
-- Preserves stable structural element IDs where paths still exist, remaps slot hosts by stable slot name/history metadata, and preserves mutable structural props plus authored slot contents when they can be mapped safely.
-- Rejects current, invalid-known, and unknown recipe instances. Also rejects migrations that would drop authored slot contents.
-- Returns `recipeMigration` metadata with old/new versions and template hashes, preserved/remapped/added/removed paths, and preserved slot mappings.
-
-`updateElementText`:
-
-- Works only on text role elements.
-- Replaces the text stored in `children`.
-
-`moveElement`:
-
-- Moves an element to a new parent or root position.
-- Rejects moving an element into itself.
-- Rejects moving an element into a descendant.
-- Rejects moving into a non-branch parent.
-
-`deleteElement`:
-
-- Deletes the target element and every descendant.
-- Returns the deleted count and context for the previous parent.
-
-## Validation
-
-`validateDesignFile` checks:
-
-- Payload shape.
-- Duplicate element IDs.
-- Unknown registry libraries.
-- Unknown registry components.
-- Registry role mismatches.
-- Unknown linked design systems.
-- Token/class diagnostics for linked systems, including spacing, typography, radius, shadow/blur tokens, and unknown Tailwind utilities when the linked CSS can be loaded.
-- Unknown or missing `trickroom/asset` IDs for linked systems.
-- Unknown or missing `trickroom/icon` IDs for linked systems.
-
-By default, `tokenDiagnostics` omits the heavy `customUtilities` catalog. Pass `includeTokenDiagnostics: true` when you need the full stored utility metadata for debugging or migration work.
-
-Class/token warnings include `domain`, `property`, `classToken`, `token`, `className`, `elementId`, and `path` when available. Common codes:
-
-- `UNKNOWN_COLOR_TOKEN`, `UNKNOWN_SPACING_TOKEN`, `UNKNOWN_FONT_TOKEN`, `UNKNOWN_TEXT_TOKEN`, `UNKNOWN_RADIUS_TOKEN`, `UNKNOWN_SHADOW_TOKEN`, `UNKNOWN_TAILWIND_TOKEN`
-- `OUT_OF_SYSTEM_COLOR`, `OUT_OF_SYSTEM_FONT`, `OUT_OF_SYSTEM_RADIUS`, `OUT_OF_SYSTEM_TEXT`, `OUT_OF_SYSTEM_SHADOW`, `OUT_OF_SYSTEM_BLUR`
-- `UNKNOWN_TAILWIND_UTILITY` when Tailwind cannot parse or emit CSS for a candidate (skipped when the design system CSS cannot be loaded)
-
-`validateOperation` dry-runs:
-
-- `renameDesignFile`
-- `addElement`
-- `addSubtree`
-- `addRecipe`
-- `updateElementProps`
-- `updateRecipeControl`
-- `updateRecipeInstance`
-- `updateElementText`
-- `moveElement`
-- `copySubtree`
-- `deleteElement`
-- `detachRecipeInstance`
-
-It returns predicted changed elements, context, deleted IDs, warnings, token diagnostics, and suggested follow-up reads.
-
-`validateOperationPlan` dry-runs an ordered list of supported operations against one starting revision:
-
-- Applies each step to an in-memory candidate design in order.
-- Supports plan-local step references such as `$step:0` and `$step:0:rootElementId` for later steps that depend on earlier insertions.
-- Returns `status`, `valid`, `operationCount`, per-step summaries, aggregate changed/deleted/inserted IDs, recipe expansion metadata, diagnostics, and suggested reads.
-- On failure, returns `failedStepIndex`, `failedOperation`, and diagnostics without writing.
-
-`applyDesignOperations` validates the same payload shape and performs exactly one persisted write when the full plan is valid and the starting revision still matches. It returns one `newRevision`, not per-step revisions. Unlike the verbose `validateOperationPlan` dry-run, its success response is minimal by default (error-severity issues only); opt into warnings/token diagnostics with the `response` object (see [Write Response Verbosity](#write-response-verbosity)).
-
-`validateSubtree` and `validateCopySubtree` return predicted diagnostics and stats without writing:
-
-- `validateSubtree` reports candidate insertion status, normalized preview (when requested), stats, and stable recipe-expansion details.
-- `validateCopySubtree` reports both source and target design metadata, same-file/cross-file rules, stats, and revision mismatch states (`REVISION_MISMATCH`, `SOURCE_REVISION_MISMATCH`, `SOURCE_REVISION_REQUIRED`).
-- Dry-run validation, including `validateOperation` for `addSubtree` and `copySubtree`, never returns generated element IDs, `idMap`, inserted ID lists, `changedElement`, or mutation context. Rich generated ID metadata is reserved for successful mutation tools.
-- Neither validator commits any file writes.
-
-## Registry Contract
-
-The built-in registries currently include:
-
-| Library | Component | Role | Children |
-| --- | --- | --- | --- |
-| `trickroom` | `container` | `branch` | Child nodes allowed. |
-| `trickroom` | `text` | `text` | String content only. |
-| `trickroom` | `asset` | `leaf` | Empty array only. |
-| `trickroom` | `icon` | `leaf` | Empty array only. |
-| `base-ui` | `separator` | `leaf` | Empty array only. |
-| `base-ui` | `menu.separator` | `leaf` | Empty array only. |
-
-Writable instance props:
-
-- `className`
-- `data-trickroom-name`, exposed as `name` by mutation tools
-- Registry-backed control props declared by `describeRegistryComponent`, such as `orientation` for `base-ui/separator`
-- `updateElementProps` also accepts these writable props through the legacy `propUpdates` batch form; new calls should prefer top-level `name`/`className` plus `props`.
-
-System-owned props:
-
-- `data-trickroom-library`
-- `data-trickroom-component`
-- `data-trickroom-role`
-
-Registry-owned defaults are also surfaced in component descriptions, including
-`defaults.baseClassName` for Base UI separators.
-
-Base UI Separators share one component-specific control:
+### Writes: `design_apply`
 
 ```json
 {
-  "library": "base-ui",
-  "component": "separator",
-  "role": "leaf",
-  "props": {
-    "orientation": "horizontal"
-  },
-  "baseClassName": "data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
-  "children": []
+  "status": "success",
+  "valid": true,
+  "project": { "projectId": "proj_…", "locationId": "loc_…" },
+  "designFileId": "…",
+  "operationCount": 3,
+  "newRevision": "r2.…",
+  "created": [
+    { "step": 0, "id": "…", "slots": { "trigger": "…", "content": "…" } },
+    { "step": 1, "id": "…", "idMap": { "body": "…", "heading": "…" } }
+  ],
+  "issues": [],
+  "warningCount": 2,
+  "warnings": [
+    { "code": "UNKNOWN_COLOR_TOKEN", "message": "Class \"bg-white\" references unavailable color token \"white\".", "elementIds": ["…"] }
+  ]
 }
 ```
 
-Allowed `orientation` values are `horizontal` and `vertical`. Base UI separators also include `base-ui/menu.separator` with the same shape.
+- `created`: one entry per inserting step with the ids the caller could not know: the root `id`, the `idMap` of `addSubtree` tempIds, recipe `slots` (or `recipes` when a step inserted several), `nodeCount` for copies, and the copy's `idMap` when the step set `includeIdMap`. Updates, moves and deletes add nothing.
+- `deletedCount`: elements removed by the plan.
+- `issues`: error issues the plan introduced (empty on success). `preExistingErrorCount`: errors the touched boards already had, which do not block writes.
+- Only the boards the plan touched are diagnosed: the boards whose content changed and the boards holding elements it touched without changing them. Issues on other boards are what they were before the batch; `design_validate` checks the whole design.
+- `warningCount` counts warnings on the elements the plan touched plus file-level warnings. `warnings` lists only likely typos (`UNKNOWN_TAILWIND_UTILITY`, `UNKNOWN_*_TOKEN`) and `MISSING_RENDERER` on touched elements, grouped by code and offending class. Fix them: the first are almost always class typos, and a missing renderer means screenshots show a placeholder.
+- `response: "full"` returns every warning on touched elements ungrouped, `tokenDiagnostics`, and `steps` (each step's summary, ids and recipe expansions) instead of `created`.
 
-`defaults.baseClassName` is the registry-owned render styling, distinct from user-authored `className`. Project snapshots and mutation-facing `defaults.props` should use editable/writable props only; `className` in these contexts is the user-authored class surface, while base sizing classes are materialized at render time for the created instance.
+A failing step stops the plan and nothing is written. A step that fails while a board changed since `expectedRevision` (for example an element another writer removed) reports `REVISION_MISMATCH` naming those boards instead of the lookup error; a batch that changes a board another writer changed is refused the same way before it is diagnosed. The result has `isError: true`, `status: "INVALID_OPERATION"`, `failedStepIndex`, `failedOperation`, `code`, `message` and the error's hints; `INVALID_OPERATION_PARAMETERS` adds the operation's `expectedParameters` signature and any `unknownParameters`. A plan whose result would have new error issues is refused with `code: "PLAN_LEAVES_ERRORS"` and those `issues`.
 
-`trickroom/asset` supports `data-trickroom-asset-id` and `alt` as active registry-backed controls. Legacy controls `objectFit`, `objectPosition`, `loading`, and `decoding` remain accepted for compatibility with existing designs, but new compositions should avoid writing those registry props and use Tailwind `object-*` utilities via `className` for image behavior.
+A batch that renames the design sends `resources/list_changed`.
 
-`trickroom/icon` supports `data-trickroom-icon-id` and optional `aria-label` as registry-backed controls. MCP icon discovery returns metadata only; raw SVG is served to the renderer through the sanitized app route, not through MCP catalog tools.
+### Validation: `design_validate`
 
-Agents should call `getDesignAuthoringContract({ designFileId })` once before planning mutations. The default payload stays compact: registry components in `summary` form, no recipe catalogs, and no linked-system asset/icon summaries. Pass `includeRecipes: "summary"` when you need composable recipe vocabulary, `includeResources: true` for asset/icon planning context, and `includeRegistryComponents: "full"` when you need per-component controls and composition metadata. It still returns writable vs system-owned props, composition rules, mutation strategy guidance, and examples. Use `describeRegistryComponent`, `describeRegistryRecipe`, `listDesignTokens`, `listSystemAssets`, and `listSystemIcons` when you need full detail for one item. Only `branch` role elements accept children; `text` and `leaf` role elements reject child insertion and reparenting.
+All validation results share one shape:
 
-Bounded design reads (`readDesignFile`, `readDesignGraph`, `readSubtree`) return structured JSON in `text` by default so agents can consume results without relying on `structuredContent`. Pass `responseFormat: "summary"` when you only need a short prose recap.
+```json
+{
+  "status": "success",
+  "valid": true,
+  "designFileId": "…",
+  "revision": "r2.…",
+  "summary": { "errors": 0, "warnings": 3, "codes": { "UNKNOWN_COLOR_TOKEN": 2, "UNKNOWN_TAILWIND_UTILITY": 1 } },
+  "issues": [],
+  "warnings": [{ "code": "…", "message": "…", "elementIds": ["…"], "count": 9 }]
+}
+```
+
+`issues` lists every error; `warnings` are grouped by code and class with at most five element ids per group (`count` gives the total). `response: "full"` lists warnings ungrouped and adds `tokenDiagnostics` (the custom-utility catalog), and for a file the root ids, design system and registry component usage.
+
+- Without `operations`: the whole file, including payload integrity (a design with an unsupported version reports `UNSUPPORTED_DESIGN_VERSION`), duplicate ids, registry and design-system references, asset and icon ids, recipe instances, and class tokens.
+- With `operations` and `expectedRevision`: a dry run of the same steps `design_apply` takes, with the same executor. It adds `operationCount`, `predicted` (what each step would do: insertions report where and `nodeCount`, without generated ids) and `deletedCount`, and scopes warnings to the touched elements. A failing step reports `status: "INVALID_OPERATION"`, `failedStepIndex` and `failedOperation` as a normal result. Only the boards the steps touch are diagnosed. The revision check is the write's: a dry-run based on an older revision passes when the boards it changes did not change since; otherwise it reports `status: "REVISION_MISMATCH"` with `currentRevision`, `staleBoards` and `next`, like the write.
+
+Class and token warning codes: `UNKNOWN_TAILWIND_UTILITY` (Tailwind cannot emit the class; checked when the system CSS loads), `UNKNOWN_COLOR_TOKEN`, `UNKNOWN_SPACING_TOKEN`, `UNKNOWN_FONT_TOKEN`, `UNKNOWN_TEXT_TOKEN`, `UNKNOWN_RADIUS_TOKEN`, `UNKNOWN_SHADOW_TOKEN`, `UNKNOWN_TAILWIND_TOKEN`, and `OUT_OF_SYSTEM_*` for arbitrary values that bypass the system. Typo warnings carry `suggestions` with the nearest valid class, keeping variants, `!` and `/opacity` (`md:itmes-center` → `md:items-center`).
+
+### Errors
+
+Tool errors are JSON with `isError: true`:
+
+- `REVISION_MISMATCH`: `designFileId`, `currentRevision`, `expectedRevision`, `staleBoards` (id and name of each board your call changes that changed since your revision, or, when a step failed on a stale view, every board that changed; `deleted: true` when another writer removed it), `manifest: true` / `order: true` when your call changes the design's name or settings or reorders boards and those changed too, a `message`, and `next`: the reads that recover (one `design_read` with `boardId` per stale board, or the whole design when the manifest or order is stale). See [Revisions](#revisions).
+- `SOURCE_REVISION_MISMATCH` (a `copySubtree` step from another design): `currentSourceRevision`, `sourceExpectedRevision`, `staleSourceBoard` (the board copied from) and `next` (a `design_read` of that board).
+- `POLICY_DENIED`: `code` (`MCP_READ_ONLY`, `MCP_DESIGN_FILE_NOT_ALLOWED`, `MCP_COMPONENT_NOT_ALLOWED`) and the `governance` summary.
+- `INVALID_OPERATION`: `code`, `message` and hints next to them:
+  - `DESIGN_NOT_FOUND`: `availableDesigns` (id, name) in small projects, otherwise the closest ids in `suggestions`.
+  - `BOARD_NOT_FOUND` and `NO_MATCHING_BOARDS`: `availableBoards` (id, name) and `availableBoardIds`. A nested element passed as a board says to use `elementId`.
+  - `ELEMENT_NOT_FOUND`, `PARENT_NOT_FOUND`, `NODE_NOT_FOUND`: `missingElementId`, `truncatedIdMatches` (full ids starting with the given value), `nameMatches` (elements whose layer name equals it), and `availableBoardIds` when nothing matched. In a batch, a bare tempId gets `suggestedStepReferences`.
+  - Unknown registry library, component or recipe: `suggestions`, the available names in small registries, `recipeSuggestions` when a recipe name was used as a component.
+  - `UNKNOWN_SYSTEM_COMPONENT`, `UNKNOWN_DESIGN_SYSTEM`, `UNKNOWN_TOKEN_DOMAIN`: `suggestions` and the available ids, systems or domains.
+  - `DESIGN_SYSTEM_REQUIRED`: a system tool needs `systemName` because the project has several systems and no default (`availableSystems`). `DESIGN_NOT_LINKED_TO_SYSTEM`: the design passed as `designFileId` has no system.
+  - `UNKNOWN_TOPIC`: `availableTopics`.
+- Invalid arguments fail before the tool runs with one line per problem: `designFileId: required string, missing.`, `boardID: unknown parameter. Did you mean "boardId"?`, enum values with the nearest one, union shapes.
+
+The second consecutive failure of the same tool in a session (an error result or invalid arguments) also carries `feedbackHint`, pointing at `feedback_submit`: a field of the JSON payload, or a last line of an invalid-arguments message. It is added once per tool per session.
+
+Statuses of `editor_context` and `editor_focus` other than `ok` are not errors (see [Editor Tools](#editor-tools)).
+
+## Projects
+
+`project_list` returns `selected` (the session's project, or `null` with a hint to call `project_select`), its `governance` mode, `defaultSystemId`, `configuredSystems` (id, name, CSS entry), a project `memory` summary with a hint when notes exist, and `projects`: every registered location with `projectId`, `locationId`, `projectRoot`, `name`, `lastOpenedAt`, and `selected` / `appActive` flags. `appActive` is the project the browser app last opened; it does not move MCP sessions. Pass `project: { locationId }` to describe another registered project without selecting it.
+
+`project_select` takes a `locationId` (preferred) or `projectId` from `project_list`, or the `path` of a local project root, which it registers first. Passing both or neither is an `INVALID_OPERATION_PARAMETERS` error; a folder without MCP enabled returns `MCP_DISABLED`. It returns the project with the same information as `project_list` and sends `resources/list_changed`.
+
+## Designs
+
+`design_list` lists design files: `id`, `name`, `revision`, `systemId` (left out when it is the project's `defaultSystemId`), `layersCount`, `modifiedAt`, `boards` (id, name, revision), `memoryNotes` when the design has notes, a `diagnostic` for unreadable files and `warnings` for storage problems that do not stop a design from opening (`LEGACY_DESIGN_FILE_PRESENT`: an older single-file copy sits next to the design's folder; see [Files And Safety](./project-files.md#design-file-versions)). It reads the design file service's summaries, which are cached on the fingerprint of each design's files, so a repeat listing only stats files that did not change. `systems` describes each linked design system: `name`, `cssPath`, `tokens` (`syncedAt`, `reviewRequired` when set) or `null` when no snapshot is stored, and `memoryNotes`. A top-level `memoryNotes` counts the project's own notes.
+
+`design_read`:
+
+| Call | Returns | Default bounds |
+| --- | --- | --- |
+| `{ designFileId }` | header (`id`, `name`, `revision`, system), board index (id, name, revision, elementCount), and a tree of every board | depth 2, 50 nodes |
+| `{ designFileId, boardId }` | header, `board` (id, name, revision, elementCount) and that board's tree; no board index | depth 2, 50 nodes |
+| `{ designFileId, elementId }` | the element's subtree and its placement (`parentId`, `boardId`, `index`, `siblingCount`) | depth 3, 100 nodes |
+| `{ designFileId, elementId, depth: 0 }` | the element alone with its `childIds` and placement | |
+| `{ designFileId, view: "outline" }` | a flat index keyed by id with `parentId`, `childCount`, `more` and the compact fields minus `className`; scope with `boardId` or `elementId` | 100 elements, no depth limit |
+
+A board read reads only that board's file while the design's cached summary is current (its files unchanged since the summary was taken), and checks that the board's revision matches the summary, so the design revision it returns is consistent with the board; otherwise it reads the whole design once. Depth above 4 or `maxNodes` above 500 need `allowLarge: true`. Passing both `boardId` and `elementId` is an error. Design and board reads add a `memory` summary and a hint when the design has notes.
+
+`design_create` creates a design with exclusive-create semantics (an existing id fails with `DESIGN_FILE_ALREADY_EXISTS`). With `name` it starts with no boards: add boards with `design_apply` operations at `parentId: null`. With `from: { designFileId, elementId }` the new design's board is a copy of that element and its subtree with new ids; the source is not changed and `name` defaults to the element's layer name. `systemName` links a design system: omitted, the design inherits the project default (or the source's); `null` creates an unlinked design. It returns `newRevision`, `designFile: { id, name, revision }`, `system`, `boards` as compact nodes, the copy's `idMap` with `response: "full"`, and diagnostics on the new content.
+
+Boards: a board is one responsive screen or one interaction state (a page, the page with a dialog or sheet open, alternatives the user asked to compare), never one board per breakpoint. Build it once with responsive variants and review it at several widths with `design_screenshot`.
+
+## Operations
+
+`design_apply` and `design_validate` take `operations: [{ operation, parameters }]`. The `operations` parameter of `design_apply` lists every operation with its required parameters; `guide({ topic: "operations" })` documents every parameter with an example.
+
+| Operation | Purpose |
+| --- | --- |
+| `addSubtree` | Insert a tree of elements and recipe nodes; `tempId` names nodes for later steps. |
+| `addElement` | Insert one element. |
+| `addRecipe` | Insert an attached recipe instance; its slots come back in `created`. |
+| `addSystemComponent` | Place an instance of a published system component (`systemId`, `componentId`, `variantValues`, `overrides`). |
+| `updateSystemComponentInstance` | Change an instance's variant values (merge), clear axes, replace overrides. |
+| `detachSystemComponent` | Turn an instance into plain elements. |
+| `updateElementProps` | Change layer name, `className` or declared control props. |
+| `updateElementText` | Replace a text element's text. |
+| `updateRecipeControl` | Set a declared recipe control; `instanceId` is any element of the instance or the instance id. |
+| `updateRecipeInstance` | Migrate a stale recipe instance to the current template. |
+| `detachRecipeInstance` | Turn a recipe instance into plain elements. |
+| `moveElement` | Move an element to another parent or position (`targetParentId`; `parentId` is accepted). |
+| `copySubtree` | Copy an element and its descendants, from this design or another (`sourceDesignFileId` + `sourceExpectedRevision`). |
+| `deleteElement` | Delete an element and its descendants. |
+| `renameDesignFile` | Rename the design. |
+
+Insertions take `parentId` (or `targetParentId`) and `index` (`0..childCount`); `parentId: null` inserts a board. Recipe and component structure is locked: insert only into declared slots, and change instances through controls, variants and overrides.
+
+### Step References
+
+Element id parameters (`elementId`, `parentId`, `targetParentId`, `sourceElementId`, `instanceId`, `rootElementId`) can point at elements created by earlier steps:
+
+| Reference | Resolves to |
+| --- | --- |
+| `$step:N` | The element step `N` changed or inserted (its root). |
+| `$step:N:rootElementId` | The root element step `N` inserted. |
+| `$step:N:tempId:<tempId>` | The node with that `tempId` in step `N`'s `addSubtree`; for `copySubtree`, the copy of that source id. |
+| `$step:N:slot:<slotName>` | The slot host of the recipe step `N` inserted. |
+| `$step:N:tempId:<recipeTempId>:slot:<slotName>` | The slot host of one recipe when step `N` inserted several. |
+
+A reference that does not resolve fails the step with `INVALID_OPERATION_PARAMETERS`, the accepted forms and the step's `availableTempIds` or `availableSlots`.
+
+```json
+[
+  { "operation": "addRecipe", "parameters": { "parentId": "board", "index": 0, "library": "base-ui", "recipe": "dialog.default" } },
+  { "operation": "addSubtree", "parameters": { "parentId": "$step:0:slot:content", "index": 0, "subtree": { "tempId": "heading", "library": "trickroom", "component": "text", "text": "Delete project?" } } },
+  { "operation": "updateRecipeControl", "parameters": { "instanceId": "$step:0", "prop": "defaultOpen", "value": true } }
+]
+```
+
+## Revisions
+
+Design revisions are opaque tokens (`r2.` followed by base64url): compare them and pass them back, never parse them. A design's revision combines the revision of its manifest (name, system and other top-level fields) and of every board, in board order; each board also has its own revision, which `design_list`, whole-design reads (board index) and board reads (`board.revision`) return. Component manifest and memory revisions are `sha256:` content hashes; component writes take the manifest revision from `component_read`, memory writes the note's revision.
+
+Every write to an existing design takes `expectedRevision`: the `revision` from your last read or the `newRevision` of your last write. It is checked per board (see [Design revisions](./project-files.md#design-revisions)):
+
+- Boards your call does not change may have changed since your revision: the write succeeds and keeps the other writers' changes. You do not need the latest revision to write to a board nobody else touched.
+- A board your call changes must be unchanged since your revision; so must the design's name and settings when your call changes them (`renameDesignFile`), and the board order when your call reorders boards. Otherwise nothing is written and the result is `REVISION_MISMATCH` with `staleBoards`, `manifest` or `order`.
+- A step that fails while a board changed since your revision (an element another writer removed or moved) is reported as `REVISION_MISMATCH` naming the changed boards, not as the lookup error.
+
+Recovery: call the reads in `next` (a `design_read` with `boardId` for each stale board, which reads only that board's file), redo your steps on what changed, and retry with `currentRevision` (or the revision those reads return). Boards you did not change need no re-read.
+
+```json
+{
+  "status": "REVISION_MISMATCH",
+  "designFileId": "…",
+  "currentRevision": "r2.…",
+  "expectedRevision": "r2.…",
+  "staleBoards": [{ "id": "…", "name": "Checkout" }],
+  "message": "Since your revision another writer changed board \"Checkout\" (…). Re-read only that board (next), redo your steps there, and retry with currentRevision. Boards you did not change need no re-read.",
+  "next": [{ "tool": "design_read", "args": { "designFileId": "…", "boardId": "…" } }]
+}
+```
+
+`design_validate` dry-runs apply the same check. Cross-design copies check `sourceExpectedRevision` the same way, on the source board the element is copied from only. A revision that is not an `r2.` token (an older `sha256:` revision) is compared with the whole design.
+
+## Guide
+
+`guide` without `topic` returns the core (about 6k characters): the design model, rules, workflow, an example batch, governance, and project facts: the design (with `designFileId`: revision and boards), its design system (token counts per domain, published component slugs, asset and icon counts) and memory note counts. With `topic` (one or several) it returns only those sections, in request order.
+
+| Topic | When |
+| --- | --- |
+| `operations` | Every `design_apply` operation with parameters and an example. |
+| `step-references` | Targeting elements created earlier in the same batch. |
+| `boards` | Adding boards or deciding what gets its own board. |
+| `recipes` | Composed UI (dialog, sheet, menu, select, tabs, fields): an index, or with `name` one recipe's template, slots (allowed and default children) and controls. |
+| `components` | Placing or changing system component instances; with `name`, variant axes, override targets and slots. |
+| `registry` | Raw registry elements: roles, controls (options, defaults, deprecations), `baseClassName`. Filter with `library` and `name`. |
+| `tokens` | Choosing classes or fixing class warnings. |
+| `resources` | Images and icons from the design system. |
+| `overlays` | Boards with an open dialog, sheet, popover or select. |
+| `validation` | Warnings, dry-runs and error hints. |
+| `memory` | Reading and writing memory notes, and the `{{type:id}}` references they embed (boards and layers included). |
+| `examples` | Worked calls: new screen, dialog-open board, component instance, icons. |
+| `component-authoring` | Creating, changing, publishing or extracting (from a design layer) system components: model, rules, workflow; `systemName` adds the system's component counts. |
+| `component-template`, `component-slots`, `component-variants`, `component-overrides`, `component-examples` | The parts of a component draft; `component-examples` also extracts a layer and replaces it with an instance. |
+
+`library` and `name` filter `registry`, `recipes` and `components` (`name` matches a family first: `"dialog"` matches `dialog.*` but not `alert-dialog.*`). An unknown topic returns `UNKNOWN_TOPIC` with every topic and when to use it.
+
+## Screenshots
+
+`design_screenshot` renders through Trickroom's capture route and returns one short text block (what each image is, warnings) and one PNG image block per capture; several captures each get a label before their image.
+
+- `boardId`: one board, an array, or `"all"`. `elementId`: one element or an array, cropped to the element with its board inferred. `component`: a system component without a design (`componentId` or slug, `systemName`, `variants`, `matrix` with one axis or `[rowAxis, columnAxis]` rendering every combination as one labelled grid, at most 64 cells; `source: "draft"`).
+- `viewport`: `mobile` (390x844), `tablet` (768x1024), `desktop` (1440x900, the default), a width in CSS px (height 900) or `{ width, height }`; an array (up to 6) captures each in one call. Breakpoint variants resolve against each viewport.
+- `theme`: `"light"` (default), `"dark"`, or both.
+- `scale`: output pixels per CSS pixel, 0.25 to 2. Boards default to 0.5 (a quarter of the image tokens; layout, spacing and body text stay readable); elements and components to 1.
+- `maxHeight`: targets taller than this many CSS px are cropped to the top (default two viewport heights, at most 8,000).
+- At most 12 images per call (targets × viewports × themes); more fails with `TOO_MANY_SCREENSHOTS`.
+- Warnings: `MISSING_RENDERER` (an element renders as a "No renderer" placeholder) and `OVERLAY_CLIPPED` (an open overlay extends past the captured area).
+
+Screenshots need the optional `playwright-core` peer dependency and a Chrome or Chromium. `npx trickroom install-browser` downloads Playwright's Chromium; `npx trickroom install-browser --executable-path <path>` saves an installed browser as `screenshot.executablePath` in the Trickroom settings file. The browser is found in this order: the call's `executablePath`, `TRICKROOM_CHROME_PATH`, the `screenshot.executablePath` setting, the Chromium build this `playwright-core` expects, other cached Playwright builds, system installs, then the `chrome` and `msedge` channels.
+
+## Export
+
+`design_export` writes boards to `destinationDir` (absolute paths as-is; relative paths resolve inside the project and must stay in it); omit `boardIds` for every board. Files of the same name are overwritten.
+
+- `format: "html"` (default): self-contained interactive HTML, as the in-app export: one board writes one `.html`, several write one `.zip` with one `.html` per board. Each document inlines the design system's compiled Tailwind and loads React and Base UI from esm.sh, so it needs network access to render. Returns `artifacts` (path, bytes, board names).
+- `format: "png"`: one PNG per board, viewport and theme, at scale 1 (or `scale`) and full height up to 8,000 CSS px, named `<design>-<board>.png` with `-<viewport>-<theme>` when there are several. Returns `files` (board, viewport, theme, size, path). Needs a browser like `design_screenshot`.
+
+Unknown boards fail with `NO_MATCHING_BOARDS` (HTML) or `BOARD_NOT_FOUND` (PNG) and the available boards. Export needs read-write mode.
+
+## Editor Tools
+
+The editor tools talk to the browser tab where the human has the project open, through the running Trickroom server. They never fail because no browser is open.
+
+`editor_context` returns what the human sees: `design` (`id`, `name`, `revision`), `board` (id, name), `selected` (the selected layer as a compact node with `parentId`, `boardId`, `index`, `siblingCount`, so "this layer" is actionable in one call), `stageMode` (`canvas` or `responsive`, with `responsiveWidth`), `visible`, `ageMs` (how old the tab's report is) and `otherTabs`. A selection or board the design no longer has comes back as `{ id, missing: true }`.
+
+`editor_focus` points the editor at a design, a board, or a layer (selected and scrolled into view; its board is inferred). Unknown elements and boards fail before reaching the browser. On success `outcome` says whether the tab revealed it in the open design, navigated to another design, or queued it until the hidden tab is shown.
+
+When the editor cannot answer, both return a normal result with `status` and a one-line `message` saying what the human needs to do:
+
+| Status | Meaning |
+| --- | --- |
+| `no_server` | No Trickroom server runs for this project. |
+| `no_browser` | The server runs, but no browser tab has the project open. |
+| `browser_on_other_project` | The browser shows another project (`otherProjects`); it is not switched. |
+| `stale` | The server did not answer in time. |
+| `blocked_dirty` | (`editor_focus`) The open design has unsaved changes, so the view was not moved. |
+
+Use `editor_focus` after a write the human should look at, and `editor_context` when the human says "this" or "the selected layer".
+
+## Memory
+
+Memory notes are durable steering notes on the project, a design system or a design: `intent`, `usage`, `conventions`, `constraints`, `decision`, `todo`. They are never added to an agent's context on their own.
+
+Scopes: `{ kind: "project" }`, `{ kind: "system", systemName }` and `{ kind: "design", designFileId }`. Shorthands are accepted too: `"project"`, `"system:<name or id>"`, `"design:<uuid>"`; `systemId`/`name` for `systemName` and `designId`/`id` for `designFileId`; `kind` may be left out when the id says it; and a system scope without a name uses the project's only system. Unresolvable scopes fail with `INVALID_OPERATION_PARAMETERS` and `acceptedScopeShapes`. Notes live in the scope's `memory.json` (see [Project Files](./project-files.md)).
+
+`memory_read`:
+
+- Without `noteIds`: an index without bodies (`noteId`, `title`, `category`, `tags`, `pinned`, `updatedAt`, `size`, per-note `revision` and a one-line `summary`) with the scope's `revision`, `noteCount` and `categories`. `designFileId` indexes the project, the design's linked system and the design in one call (`scopes`); `scope` indexes one scope (the project by default). `includeBodies` returns full notes instead.
+- With `scope` and `noteIds` (one id or up to 20): those notes in full with their revisions. Missing ids are listed in `missingNoteIds`; when none exist the result is `NOTE_NOT_FOUND`.
+- With `scope` and `referenceType` (`design`, `board`, `layer`, `component`, `token`, `asset`, `icon`): candidate `{{type:id}}` targets, filtered by `query`. `board` lists the boards of every design (the scope's design first); `layer` lists the layers of the design scope's design, or of the design a query of the form `<designId>/…` names. Designs outside `allowedDesignFileIds` are left out.
+- `resolveReferences: true` attaches resolution of embedded `{{type:id}}` tokens (`valid`, `broken`, `unresolvable_scope`, and a `deepLink` for valid targets).
+
+Reference syntax: `{{design:<designId>}}`, `{{board:<designId>/<boardId>}}`, `{{layer:<designId>/<elementId>}}`, `{{component:<id or slug>}}`, `{{token:<domain>/<name>}}`, `{{asset:<id>}}`, `{{icon:<id>}}`. Board and layer references name their design, so they resolve the same in every scope: a board resolves to its name (`label`) and design name (`detail`) with the link `/design/<designId>?board=<boardId>`; a layer to its layer name, `"<design> / <board>"` and `/design/<designId>?board=<boardId>&layer=<elementId>`, which opens the design with the layer selected. The memory editor suggests them after `{{board:` and `{{layer:` and renders them as links.
+
+`memory_write`:
+
+- `action: "add"`: `category` and a markdown `body`, ideally a `title`; `tags`, `pinned`, `order`, `authorLabel` are optional. No revision needed.
+- `action: "update"`: `noteId`, `expectedRevision`, and `edits` (applied in order: `{ op: "append", text }`, `{ op: "prepend", text }`, `{ op: "replace", oldText, newText, all? }`) or a whole new `body`, plus any field to replace (`null` clears `title` and `tags`). A replace whose `oldText` is missing or ambiguous fails without writing.
+- `action: "delete"`: `noteId` and `expectedRevision`.
+
+`expectedRevision` is the note's revision from the index (the scope revision also works), so edits to other notes in the scope do not conflict; a stale one returns `STALE_WRITE` with the current revisions. Writes return `noteId`, the note's `newRevision`, the `scopeRevision` and `size`, plus non-blocking `referenceWarnings` for unresolved tokens (a board or layer reference without its design id gets a warning that shows the expected form).
+
+## Design Systems
+
+`system_read` addresses one design system by `systemName` (a name or id) or `designFileId` (the design's linked system), defaulting to the project's default system or its only one. `view` is required:
+
+| View | Returns | Page size |
+| --- | --- | --- |
+| `tokens` | `tokens: { <domain>: { <name>: value } }`, `domains` (count per domain), `storageStatus`, `syncedAt`, `reviewRequired`; `domain` and `query` filter | 100 |
+| `assets` | raster assets (`id`, `name`, `sourcePath`, size, `alt`); with `id`, one asset in full | 50 |
+| `icons` | icon ids (with `name` when it differs from the id's last segment), `iconFolderPaths` and catalog `diagnostics`; with `id`, one icon in full | 50 |
+| `asset_usage`, `icon_usage` | design elements using the system's assets or icons, grouped by design, `usageCount` and `designCount`; `id` narrows to one | 100 |
+
+Lists page with `query` (every term must match the id, name, or path or value), `limit` and `offset`, and always report `totalCount`, `matchedCount` and `returnedCount`, with `next: { offset }` and a hint while entries remain. MCP never returns image bytes or SVG source.
+
+`system_update` changes the catalogs: `add_asset` (`name`, `sourcePath`, optional `assetId` and `alt`) registers an image in the system's asset manifest; `remove_asset` (`assetId`) removes an asset no design uses (`ASSET_IN_USE` otherwise); `refresh_asset` re-reads an asset file's image metadata; `add_icon_folder` and `remove_icon_folder` (`folderPath`, project-relative) change the system's icon folders and rebuild the icon catalog. Missing parameters for an action fail with `INVALID_OPERATION_PARAMETERS` and `missingParameters`.
+
+## System Components
+
+`component_read` reads a system's component manifest (`systemName` as for `system_read`):
+
+- `view: "index"` (the default without `componentId`): one row per component (`componentId`, slug, name, group, published version, draft state `"unpublished"` or `"changed"`, variant axes, a one-line description) and the manifest `revision` that writes pass as `expectedRevision`. `query` and `group` filter.
+- `view: "describe"` (the default with `componentId`): one component's interface for placing and varying instances (variant axes with values and defaults, slots, override targets, props) from the current published version, or the draft when unpublished; the revision, draft hashes, version history and diagnostics. `include` adds `"template"` (root tree, raw slots and override targets), `"classes"` (variant schema with `classesByPath` and compound variants) or `"record"` (the stored record; `versions: "all"` keeps every published template). `source: "draft"` describes the draft.
+- `view: "stale"`: instances that use an older published version, with counts per status, component and design and the first rows (`limit`).
+
+`component_draft_create` and `component_draft_update` write drafts (see [Extracting A Component From A Design](#extracting-a-component-from-a-design) for `from`); `component_publish` makes the draft the current version (instances already placed stay on their version until migrated); `component_delete` removes a component, leaving placed instances as instances of a missing component. These writes acknowledge rather than echo: the component id, the new manifest `revision`, draft hashes, this component's diagnostics and a summary of what changed (`created`, `replaced` parts, or the published version and what changed since the previous one). Malformed draft input returns `VALIDATION_FAILED` with `INVALID_SYSTEM_COMPONENT_DRAFT_INPUT` diagnostics, each with a path. `component_draft_update` also takes `expectedDraftTemplateHash` and `expectedDraftVariantSchemaHash` to guard against concurrent draft edits. Read `guide({ topic: "component-authoring" })` before authoring.
+
+### Renaming And Regrouping A Component
+
+`component_draft_update` also takes `name`, `group` and `description`, each optional and usable without any draft part. They live on the component record, outside the draft and the published versions: they feed neither `templateHash` nor `variantSchemaHash`, and instances in designs do not copy them (layer names come from the template's node names). So the change applies at once: no publish, no new version, no stale instances, and `component_read` shows it in the index and describe views on the next read. A call with only these fields leaves the draft and `draftState` as they were and creates no draft. `slug` and `componentId` never change on this path (the slug is derived from the name only when a component is created).
+
+- `name`: non-empty, at most 80 characters, one line.
+- `group`: folder names separated by single slashes, like `organisms/sidebar`, at most 120 characters: no empty segments, no leading or trailing slash, no backslash, no spaces around a slash. `null` clears it.
+- `description`: at most 4,000 characters. `null` clears it.
+
+Only changes are checked: a value equal to the stored one passes whatever its length or format, so a component written before these rules (or by hand) stays saveable, from MCP and from the app, as long as that field is left as it is. `component_draft_create` checks the same rules for the name, group and description it is given. Invalid values return `VALIDATION_FAILED` with `INVALID_SYSTEM_COMPONENT_METADATA` diagnostics (`path` is the field) before anything is written. The write goes through the component manifest service with `expectedRevision` like every component write, and can be combined with draft parts in the same call (one write, one new revision).
+
+```json
+{ "systemName": "Core", "componentId": "cmp_…", "expectedRevision": "sha256:…", "name": "Nav Item", "group": "organisms/sidebar", "description": null }
+```
+
+The acknowledgement's `changes.metadata` names what changed: `name` and `group` as `{ from, to }`, `description` as `"set"`, `"changed"` or `"cleared"`. With draft parts it also has `replaced` and the shape diff; a call that changed nothing reports `changes: { unchanged: true }`. The app's system editor saves these fields through the same service function (`updateSystemComponentMetadata`), so it shows the change after its live-sync reload.
+
+### Extracting A Component From A Design
+
+`component_draft_create` with `from: { designFileId, elementId }` instead of `draft` promotes a designed layer to a component: the layer and its subtree become the draft's template (recipe and component instances inside become plain elements, reported in `extracted.strippedInstances`). `name` defaults to the layer name, `slug` to the name, and the system to the design's linked system. The result is the usual draft acknowledgement plus `extracted` (`designFileId`, `elementId`, `nodeCount`).
+
+By default only the draft is created and the design is not changed: a draft is unpublished, and only published versions can be placed. Review it (`design_screenshot` with `component` and `source: "draft"`), add variants, slots and override targets, publish it, then place it with `design_apply`.
+
+With `from.replace: true` and `from.expectedRevision` (the design's revision), the same call also publishes the draft and replaces the layer with an instance of the published version:
+
+```json
+{
+  "systemName": "Core",
+  "expectedRevision": "sha256:…",
+  "name": "Plan Card",
+  "from": { "designFileId": "…", "elementId": "…", "replace": true, "expectedRevision": "r2.…" }
+}
+```
+
+It returns the published component (`publishedVersion`) and `replaced`: the instance root (`instanceRootId`), the design's `newRevision` and the write's diagnostics.
+
+The call writes three times: the component manifest (create the draft), the manifest again (publish), then the design, through the `design_apply` path (`addSystemComponent` where the layer sits, then `deleteElement`; audited as `component_draft_create` / `extract`). Before the first write it checks what it can: read-write mode and the design allowlist, the components in the subtree against `allowedComponents`, that the layer's board did not change since `from.expectedRevision` (`REVISION_MISMATCH` otherwise), that the subtree is a valid template (`VALIDATION_FAILED` with `errors`), and, with a dry-run, that the layer can be replaced where it sits (a layer locked inside a recipe or component instance cannot). A failure after the first write can only come from another writer in between. Nothing is rolled back, since a draft or a published component is valid on its own; the result is the failing step's error with:
+
+- `partial`: `componentId`, `slug`, `created`, `published` (with `publishedVersion` and `manifestRevision` once published) and `replaced: false`;
+- `next`: the call that finishes the job: `component_publish` with the current manifest revision when publishing failed, or the `design_apply` batch that replaces the layer (with the current design revision when the write lost a race; re-read the board first).
+
+`component_migrate` moves stale instances to the current version with the app's safe / review-required / blocked rules. One instance: `designFileId`, `expectedRevision` and `rootElementId`; it returns `outcome`, the migration report, the instance root as a compact node and `newRevision`, or `REVIEW_REQUIRED` / `DRY_RUN` without writing. Bulk (no `rootElementId`): every stale instance in the system, narrowed by `componentId` and `designFileId`, design by design; it returns counts, a per-design rollup with new revisions, review-required instances and failures (`includeInstances` adds instance rows and previews). `onlySafe` (default true) leaves review-required instances unwritten; `dryRun` previews.
 
 ## Resources
 
-Trickroom exposes design files as MCP resources. This allows agents to "attach" designs to their context and receive notifications when they change.
-
-### Resource URIs
-
-The primary URI scheme for design resources is:
+Design files are also MCP resources, so agents can attach a design and get notified when the list changes.
 
 ```text
 trickroom://proj/<locationId>/design/<slug>--<designId>
-```
-
-- `<locationId>`: The URI project segment. Prefer the registered `locationId` from `listProjects`. In project-root CWD-only contexts without a registered location, MCP may use the project ID as a fallback.
-- `<slug>`: A URL-safe version of the design name for readability.
-- `<designId>`: The UUID of the design file.
-
-A "bare-id" form is also supported:
-
-```text
 trickroom://proj/<locationId>/design/<designId>
 ```
 
-### Scope and Behavior
-
-- **V1 Scope**: Only design files are exposed as resources in the current version.
-- **Resource payload**: Reading a design resource returns `payloadKind: "design-summary"` with design metadata, revision, board IDs/names, child counts, descendant counts, total counts, and suggested follow-up reads. It does not return raw design JSON.
-- **Multi-project catalog**: Resource listing includes all registered MCP-enabled projects.
-- **Resource scope**: The resource list can include designs from multiple projects; `readResource` resolves URIs using the URI `locationId` segment.
-- **Project preference**: Use `locationId` (not `projectId`) in multi-project resource references.
-- **Notifications**: The server sends `list_changed` notifications on project switches, design creation/rename, and out-of-band changes to the design directory or registry.
+Reading a design resource returns `payloadKind: "design-summary"`: the design header, board index with element counts, and suggested reads; never the raw design JSON. The resource list covers every registered MCP-enabled project; prefer `locationId` in URIs. The server sends `resources/list_changed` on project selection, design creation, renames, and outside changes to the design directory or registry.
 
 ## Prompts
 
-The MCP server exposes guided workflow prompts. Each prompt returns a user-message template that encodes the recommended tool sequence for that task.
-
 | Prompt | Purpose |
 | --- | --- |
-| `edit_design_file` | Safe edits: project scope, revision, authoring contract, graph reads, recipes/subtrees, resource catalogs, dry-runs, revision chaining, validation. |
-| `add_component_to_design` | Add registry content via `addElement`, `addRecipe`, `addSubtree`, or `copySubtree` with contract and parent-role checks. |
-| `refactor_design_structure` | Graph-first multi-step refactors using move/delete/copy/extract/recipe tools; prefers `validateOperationPlan` + `applyDesignOperations` for atomic commits. |
-| `explain_design_file` | Read-only technical summary: graph, contract, registry/recipes, assets/icons, tokens, diagnostics, and screenshot-based visual review. Raw catalog resource bytes remain unavailable. |
-| `validate_design_changes` | Post-edit validation grouped by diagnostic category, dry-run fixes, and screenshot review of relevant changed regions. |
-| `create_design_file_from_brief` | Create a design from a brief using `createDesignFile`, structured inserts, and final validation. |
-| `add_media_or_icon` | Resolve design system catalogs, register assets/icons when needed, wire canonical resource IDs into elements. |
-| `reuse_design_subtree` | Copy or extract subtrees with `validateCopySubtree`, `copySubtree`, or `extractSubtree`. |
+| `edit_design_file` | Safe edits: project, memory and guide, outline reads, batched writes, dry-runs, revision chaining, screenshots and validation. |
+| `add_component_to_design` | Add a system component, recipe, subtree, copy or element under a parent or as a board. |
+| `refactor_design_structure` | Outline-first multi-step refactors committed as one batch. |
+| `explain_design_file` | Read-only technical summary: structure, vocabulary, tokens and resources, diagnostics, visual review. |
+| `validate_design_changes` | Post-edit validation grouped by category, deliberate fixes, visual review. |
+| `create_design_file_from_brief` | A new design from a brief: create, guide, build responsive boards, review. |
+| `add_media_or_icon` | Find or register assets and icons and wire their ids into elements. |
+| `reuse_design_subtree` | Copy a subtree within or across designs, or into a new design. |
 
-Prompt arguments are validated at call time (for example `designFileId` UUIDs and required brief text for `create_design_file_from_brief`).
+Prompt arguments are validated when the prompt is requested.
+
+## Feedback
+
+Agents are Trickroom's main users, so they can say where the tools get in their way. `feedback_submit` takes one required field, `summary` (one line), and optional `category` (`error`, `confusing`, `missing_capability`, `output_too_large`, `slow`, `wrong_result`, `docs`, `idea`), `severity` (`blocker`, `friction`, `minor`), `tools` (a name or a list), `details`, `expected` and `suggestion`. The server instructions and the guide core say when to use it: a tool blocked or misled the agent, returned something unusable, or lacked a capability it needed; not for questions about design content. A tool's second consecutive failure in a session carries a `feedbackHint` (see [Errors](#errors)).
+
+The result is a short acknowledgement: `status: "recorded"`, the entry `id`, `storedIn` (the file) and `attachedCalls`, plus `truncated` when fields were cut. When the file cannot be written the result is `status: "not_recorded"` with a one-line reason, not an error. Only invalid arguments (no `summary`, an unknown `category`) fail.
+
+Nothing leaves the machine. Entries are appended to `<TRICKROOM_HOME>/feedback/feedback-YYYY-MM.jsonl` (UTC month; the folder is created `0700`, files `0600`), one JSON object per line, each written with a single append so several MCP processes can share a file:
+
+```json
+{"v":1,"id":"1726dfce-…","t":"2026-10-04T11:24:48.759Z","trickroomVersion":"0.1.0","sessionId":"b4594c6a-…","client":{"name":"claude-code","version":"2.1.0"},"project":{"projectId":"proj_…","locationId":"loc_…"},"summary":"design_apply said the design does not exist; unclear how to start","category":"confusing","severity":"friction","tools":["design_apply"],"details":"…","expected":"…","suggestion":"…","recentCalls":[{"t":"2026-10-04T11:24:48.752Z","tool":"design_apply","outcome":"invalid_input","ms":1,"inChars":45,"outChars":291},{"t":"…","tool":"design_apply","outcome":"error","code":"DESIGN_NOT_FOUND","ms":2,"inChars":157,"outChars":295}]}
+```
+
+- The agent supplies `summary` through `suggestion`. `summary` is folded to one line and capped at 200 characters, `details` at 4,000, `expected` and `suggestion` at 1,000, `tools` at 10 names; the whole line stays under 12,000 characters. Cut fields are listed in `truncated`.
+- The server adds `v` (schema version, 1), `id`, `t`, `trickroomVersion`, `sessionId` (one per MCP server, so per process for `trickroom mcp`), `client` (name and version from the initialize handshake), `project` (the selected project's `projectId` and `locationId`, as in `projects.json`; no paths) and `recentCalls`.
+- `recentCalls` is the session's last 10 tool calls before the report, oldest first. The server records every `tools/call`, including calls rejected before a tool runs, in a per-session ring buffer of 20: `tool`, `outcome` (`ok`, `error` with the result's `code` or `status`, or `invalid_input` when the arguments failed the schema; `unknown_tool`, `tool_disabled` and `exception` cover the rest), `ms`, and `inChars` / `outChars` (characters of the arguments' JSON and of the result's text and image data). Arguments and results themselves are never kept.
+
+### Call Log
+
+Off by default. With `"callLog": true` under `mcp` in `<TRICKROOM_HOME>/settings.json`, every MCP session appends each call record to `<TRICKROOM_HOME>/feedback/calls-YYYY-MM.jsonl`, with `v`, `sessionId` and the client name, which gives usage numbers (which tools, how often, error rates, sizes, durations) without relying on agents to report. `TRICKROOM_MCP_CALL_LOG=1` (or `0`) overrides the setting for one session. The setting is read when the MCP server starts.
+
+```json
+{"version":1,"mcp":{"toolGroups":{…},"callLog":true}}
+```
+
+### Reviewing Feedback
+
+```sh
+trickroom feedback                      # last 30 days: counts, then reports newest first
+trickroom feedback --since 2w --tool design_apply
+trickroom feedback --category output_too_large
+trickroom feedback --calls              # add a per-tool table from the call log
+trickroom feedback --json               # raw entries
+```
+
+The command only reads. `--since` takes `30d`, `2w`, `12h` or a date (`2026-09-01`); `--tool` keeps reports that name the tool or whose attached calls failed in it; `--calls` adds calls, errors, invalid input, median and p95 duration, and median and max output size per tool. The output is Markdown, meant to be pasted into an agent conversation:
+
+```text
+# Trickroom MCP feedback since 2026-09-04 (30d)
+
+1 report from 1 session. Source: /home/me/.trickroom/feedback.
+
+- By category: confusing 1
+- By severity: friction 1
+- By tool: design_apply 1, design_list 1
+- By client: claude-code 1
+
+## 2026-10-04 11:24Z · confusing · friction · design_apply, design_list
+
+design_apply said the design does not exist but design_list showed none either; unclear how to start
+
+- expected: An error naming design_create when the project has no designs.
+- client: claude-code 2.1.0 · project: Shop (loc_8d77…) · trickroom 0.1.0 · session b4594c6a
+- recent calls: project_list ok 2ms 2→508 › design_list ok 1ms 2→180 › design_apply invalid_input 1ms 45→291 › design_apply DESIGN_NOT_FOUND 2ms 157→295
+- id: 1726dfce-1fae-4230-9511-8820c95b91ae
+```
 
 ## Audit Logging
 
-Enable audit logging:
+With `mcp.auditLog: true`, MCP appends JSON Lines to `.trickroom/audit-log.jsonl` for `design_apply`, `design_create`, `component_migrate`, the design write of `component_draft_create` with `from.replace`, `memory_write`, `design_screenshot` and PNG exports. Each entry has the tool name (`toolName`), the operation (for `design_apply` the operation name or `"batch"`, with `operationCount` and `operations` in `details`; `create` / `extract` (also `component_draft_create`'s replacing write); `instance` / `bulk`; `add` / `update` / `delete`; `capture` / `png`), project root, design id, expected and resulting revision, status, success, and error code and message when it failed. Entries written before this release carry the old tool names. PNG bytes are never logged.
 
-```json
-{
-  "mcp": {
-    "enabled": true,
-    "auditLog": true
-  }
-}
-```
+## Source Layout
 
-When enabled, creation and mutation tools append JSON Lines to:
+`src/mcp/server.ts` is the composition root: it creates the `McpServer`, builds the shared tool context, and calls each family's register function in `TOOL_NAMES` order, which is the order of `tools/list`.
 
-```text
-.trickroom/audit-log.jsonl
-```
-
-Audit entries include the tool name, operation, project root, design file ID, expected revision, resulting revision when available, status, success flag, and error details when a policy or operation fails.
+- `src/mcp/tool-names.ts`: every tool name as a constant (`TOOL`), in list order. Strings that name a tool are built from these constants; a test scans descriptions, schemas, instructions, prompts, the guide and the string literals of `src/mcp` for retired or unknown tool names.
+- `src/mcp/tool-groups.ts`: the eight persisted tool groups.
+- `src/mcp/tools/`: tool registrations by family: `projects.ts`, `guide.ts`, `design-read.ts` (`design_list`, `design_read`, `design_export`), `design-write-batch.ts` (`design_apply`, `design_create`), `design-validation.ts`, `screenshots.ts`, `editor.ts`, `memory.ts`, `design-systems.ts` (`system_read`, `system_update`), `system-components.ts`, `feedback.ts`.
+- `src/mcp/tools/context.ts`: per-session state (selected project, project resolver, screenshot capture, editor channel, session id and call history) and the `withProjectContext` / `withPolicyErrorHandling` wrappers.
+- `src/mcp/call-history.ts`: records every `tools/call` (outcome, duration, sizes) in the session's ring buffer and the optional call log, and adds `feedbackHint` to a tool's second consecutive failure. `src/mcp/tools/feedback.ts` registers `feedback_submit`; `src/app-state/feedback.ts` holds the entry format and the JSON Lines storage, shared with `src/cli/feedback.ts` (`trickroom feedback`).
+- `src/mcp/tools/results.ts` (including the `REVISION_MISMATCH` result with stale boards and recovery reads), `schemas.ts`, `operation-schemas.ts`, `annotations.ts` (annotation presets and the `_meta` keys), `mutation-support.ts` (the read, revision check and write shared by every design write, and auditing), `input-validation.ts` (one line per invalid argument).
+- `src/mcp/design-operations.ts` and `src/mcp/operation-plan.ts`: the operation catalogue (`DESIGN_OPERATION_PARAMETERS`), parameter validation and the executor behind `design_apply` and `design_validate`.
+- `src/mcp/payloads/`: payload builders the tools call (reads, validation and apply, guide, systems, system components, projects). `design-revisions.ts` holds the board-level revision helpers (which boards changed since a revision, whether one board is current, which boards a plan touched); `component-extraction.ts` the extract-to-component flow.
+- `src/mcp/guide/`: the guide's core and topics.
+- `src/mcp/prompts.ts`, `src/mcp/server-instructions.ts`, `src/mcp/resource-handlers.ts`: prompts, server instructions and `trickroom://` resources.
+- `src/mcp/test-support.ts`: fixtures and helpers for tests (`toolPayload` parses a result's JSON text; `applyOperation` calls `design_apply` with one operation).

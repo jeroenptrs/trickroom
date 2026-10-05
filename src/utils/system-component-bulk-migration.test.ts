@@ -8,6 +8,8 @@ import {
 	createDesignFileService,
 	DesignFileServiceError,
 } from "../services/design-file-service";
+import { readStoredDesign } from "../test-utils/design-files";
+import { elementChildren, elementNodeAt } from "../test-utils/narrowing";
 import type { TrickroomDesign } from "../types";
 import { createDesignSystemStorage } from "./design-system-store";
 import {
@@ -22,6 +24,7 @@ import {
 import {
 	createFixtureManifest,
 	FIXTURE_COMPONENT_ID,
+	publishedVersion,
 } from "./system-component-test-fixtures";
 import {
 	type PublishedSystemComponentVersion,
@@ -344,8 +347,10 @@ describe("system-component-bulk-migration", () => {
 			cssPath: "src/index.css",
 		});
 		const manifest = createFixtureManifest(components);
-		manifest.settings.autoMigrateComponents =
-			options.autoMigrateComponents ?? false;
+		manifest.settings = {
+			...manifest.settings,
+			autoMigrateComponents: options.autoMigrateComponents ?? false,
+		};
 		await writeFile(
 			path.join(
 				tempProjectRoot,
@@ -374,11 +379,10 @@ describe("system-component-bulk-migration", () => {
 			"1",
 			"safe-instance",
 			{
-				templateHash:
-					createPublishedV1V2Record().published?.versions["1"].templateHash,
-				variantSchemaHash:
-					createPublishedV1V2Record().published?.versions["1"]
-						.variantSchemaHash,
+				templateHash: publishedVersion(createPublishedV1V2Record(), "1")
+					.templateHash,
+				variantSchemaHash: publishedVersion(createPublishedV1V2Record(), "1")
+					.variantSchemaHash,
 			},
 		);
 
@@ -387,9 +391,9 @@ describe("system-component-bulk-migration", () => {
 			published: {
 				currentVersion: "2",
 				versions: {
-					"1": createPublishedV1V2Record().published?.versions["1"],
+					"1": publishedVersion(createPublishedV1V2Record(), "1"),
 					"2": {
-						...createPublishedV1V2Record().published?.versions["2"],
+						...publishedVersion(createPublishedV1V2Record(), "2"),
 						slots: {},
 					},
 				},
@@ -398,7 +402,7 @@ describe("system-component-bulk-migration", () => {
 		const reviewManifest = createFixtureManifest({
 			[FIXTURE_COMPONENT_ID]: reviewRecord,
 		});
-		const reviewV1 = reviewRecord.published?.versions["1"];
+		const reviewV1 = publishedVersion(reviewRecord, "1");
 		const reviewDesign = designWithAttachedComponent(
 			systemId,
 			FIXTURE_COMPONENT_ID,
@@ -430,7 +434,7 @@ describe("system-component-bulk-migration", () => {
 			designFileId: "design-safe",
 		});
 		expect(
-			safeResult.design.boards[0]?.children?.[0]?.props?.[
+			elementNodeAt(safeResult.design.boards[0], 0).props[
 				"data-trickroom-system-component-version"
 			],
 		).toBe("2");
@@ -454,7 +458,7 @@ describe("system-component-bulk-migration", () => {
 			designFileId: "design-review",
 		});
 		expect(
-			reviewResult.design.boards[0]?.children?.[0]?.props?.[
+			elementNodeAt(reviewResult.design.boards[0], 0).props[
 				"data-trickroom-system-component-version"
 			],
 		).toBe("1");
@@ -462,7 +466,7 @@ describe("system-component-bulk-migration", () => {
 
 	it("leaves default-less target variant axes unset during bulk migration", async () => {
 		const record = createPublishedV1V2Record();
-		const target = record.published?.versions["2"];
+		const target = publishedVersion(record, "2");
 		target.variants = {
 			axes: {
 				...(target.variants?.axes ?? {}),
@@ -487,7 +491,7 @@ describe("system-component-bulk-migration", () => {
 		const systemId = await setupCoreSystem({
 			[FIXTURE_COMPONENT_ID]: record,
 		});
-		const v1 = record.published?.versions["1"];
+		const v1 = publishedVersion(record, "1");
 		const design = designWithAttachedComponent(
 			systemId,
 			FIXTURE_COMPONENT_ID,
@@ -509,7 +513,7 @@ describe("system-component-bulk-migration", () => {
 			},
 			createFixtureManifest({ [FIXTURE_COMPONENT_ID]: record }),
 		);
-		const migratedRoot = result.design.boards[0]?.children?.[0];
+		const migratedRoot = elementNodeAt(result.design.boards[0], 0);
 
 		expect(result.report.changed).toHaveLength(1);
 		expect(
@@ -528,7 +532,7 @@ describe("system-component-bulk-migration", () => {
 		const manifest = createFixtureManifest({
 			[FIXTURE_COMPONENT_ID]: record,
 		});
-		const sourceVersion = record.published?.versions["1"];
+		const sourceVersion = publishedVersion(record, "1");
 		const expansion = expandResolvedSystemComponent(
 			{
 				systemId,
@@ -573,7 +577,7 @@ describe("system-component-bulk-migration", () => {
 
 		expect(result.report.changed).toHaveLength(1);
 		expect(result.report.changed[0]?.elementId).not.toBe(staleRootId);
-		const migratedRoot = result.design.boards[0]?.children?.find(
+		const migratedRoot = elementChildren(result.design.boards[0]).find(
 			(child) => child.id === result.report.changed[0]?.elementId,
 		);
 		expect(migratedRoot).toBeDefined();
@@ -586,7 +590,7 @@ describe("system-component-bulk-migration", () => {
 			isRoot: true,
 		});
 		expect(
-			result.design.boards[0]?.children?.some(
+			elementChildren(result.design.boards[0]).some(
 				(child) => child.id === staleRootId,
 			),
 		).toBe(false);
@@ -600,7 +604,7 @@ describe("system-component-bulk-migration", () => {
 		const manifest = createFixtureManifest({
 			[FIXTURE_COMPONENT_ID]: record,
 		});
-		const v1 = record.published?.versions["1"];
+		const v1 = publishedVersion(record, "1");
 
 		const design = designWithAttachedComponent(
 			systemId,
@@ -631,7 +635,7 @@ describe("system-component-bulk-migration", () => {
 			reason: "hash-mismatch",
 		});
 		expect(
-			result.design.boards[0]?.children?.[0]?.props?.[
+			elementNodeAt(result.design.boards[0], 0).props[
 				"data-trickroom-system-component-version"
 			],
 		).toBe("2");
@@ -661,7 +665,7 @@ describe("system-component-bulk-migration", () => {
 		expect(staleResult.report.changed).toHaveLength(1);
 		expect(staleResult.report.applied).toBe(false);
 		expect(
-			staleResult.design.boards[0]?.children?.[0]?.props?.[
+			elementNodeAt(staleResult.design.boards[0], 0).props[
 				"data-trickroom-system-component-version"
 			],
 		).toBe("1");
@@ -672,7 +676,7 @@ describe("system-component-bulk-migration", () => {
 		const systemId = await setupCoreSystem({
 			[FIXTURE_COMPONENT_ID]: record,
 		});
-		const v1 = record.published?.versions["1"];
+		const v1 = publishedVersion(record, "1");
 
 		await writeDesign(
 			"00000000-0000-4000-8000-000000000001",
@@ -718,36 +722,22 @@ describe("system-component-bulk-migration", () => {
 			"instance-b",
 		]);
 
-		const designA = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					"00000000-0000-4000-8000-000000000001.json",
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
-		const designB = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					"00000000-0000-4000-8000-000000000002.json",
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
+		const designA = await readStoredDesign(
+			tempProjectRoot,
+			"00000000-0000-4000-8000-000000000001",
+		);
+		const designB = await readStoredDesign(
+			tempProjectRoot,
+			"00000000-0000-4000-8000-000000000002",
+		);
 
 		expect(
-			designA.boards[0]?.children?.[0]?.props?.[
+			elementNodeAt(designA.boards[0], 0).props[
 				"data-trickroom-system-component-version"
 			],
 		).toBe("2");
 		expect(
-			designB.boards[0]?.children?.[0]?.props?.[
+			elementNodeAt(designB.boards[0], 0).props[
 				"data-trickroom-system-component-version"
 			],
 		).toBe("2");
@@ -758,7 +748,7 @@ describe("system-component-bulk-migration", () => {
 		const systemId = await setupCoreSystem({
 			[FIXTURE_COMPONENT_ID]: record,
 		});
-		const v1 = record.published?.versions["1"];
+		const v1 = publishedVersion(record, "1");
 		const designUuid = "00000000-0000-4000-8000-000000000030";
 
 		await writeDesign(designUuid, {
@@ -796,19 +786,9 @@ describe("system-component-bulk-migration", () => {
 			}),
 		]);
 
-		const design = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					`${designUuid}.json`,
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
+		const design = await readStoredDesign(tempProjectRoot, designUuid);
 		expect(
-			design.boards[0]?.children?.[0]?.props?.[
+			elementNodeAt(design.boards[0], 0).props[
 				"data-trickroom-system-component-version"
 			],
 		).toBe("1");
@@ -819,7 +799,7 @@ describe("system-component-bulk-migration", () => {
 		const systemId = await setupCoreSystem({
 			[FIXTURE_COMPONENT_ID]: record,
 		});
-		const v1 = record.published?.versions["1"];
+		const v1 = publishedVersion(record, "1");
 		const designUuid = "00000000-0000-4000-8000-000000000031";
 
 		await writeDesign(designUuid, {
@@ -863,9 +843,9 @@ describe("system-component-bulk-migration", () => {
 			published: {
 				currentVersion: "2",
 				versions: {
-					"1": createPublishedV1V2Record().published?.versions["1"],
+					"1": publishedVersion(createPublishedV1V2Record(), "1"),
 					"2": {
-						...createPublishedV1V2Record().published?.versions["2"],
+						...publishedVersion(createPublishedV1V2Record(), "2"),
 						slots: {},
 					},
 				},
@@ -878,8 +858,8 @@ describe("system-component-bulk-migration", () => {
 			},
 			{ autoMigrateComponents: true },
 		);
-		const safeV1 = safeRecord.published?.versions["1"];
-		const reviewV1 = reviewRecord.published?.versions["1"];
+		const safeV1 = publishedVersion(safeRecord, "1");
+		const reviewV1 = publishedVersion(reviewRecord, "1");
 		const safeDesignUuid = "00000000-0000-4000-8000-000000000031";
 		const reviewDesignUuid = "00000000-0000-4000-8000-000000000032";
 
@@ -933,19 +913,12 @@ describe("system-component-bulk-migration", () => {
 			}),
 		]);
 
-		const reviewDesign = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					`${reviewDesignUuid}.json`,
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
+		const reviewDesign = await readStoredDesign(
+			tempProjectRoot,
+			reviewDesignUuid,
+		);
 		expect(
-			reviewDesign.boards[0]?.children?.[0]?.props?.[
+			elementNodeAt(reviewDesign.boards[0], 0).props[
 				"data-trickroom-system-component-version"
 			],
 		).toBe("1");
@@ -956,7 +929,7 @@ describe("system-component-bulk-migration", () => {
 		const systemId = await setupCoreSystem({
 			[FIXTURE_COMPONENT_ID]: record,
 		});
-		const v1 = record.published?.versions["1"];
+		const v1 = publishedVersion(record, "1");
 
 		await writeDesign(
 			"00000000-0000-4000-8000-000000000010",
@@ -997,36 +970,22 @@ describe("system-component-bulk-migration", () => {
 		expect(report.changedCount).toBe(1);
 		expect(report.changed[0]?.instanceId).toBe("scoped-instance");
 
-		const scopedDesign = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					"00000000-0000-4000-8000-000000000010.json",
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
-		const otherDesign = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					"00000000-0000-4000-8000-000000000011.json",
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
+		const scopedDesign = await readStoredDesign(
+			tempProjectRoot,
+			"00000000-0000-4000-8000-000000000010",
+		);
+		const otherDesign = await readStoredDesign(
+			tempProjectRoot,
+			"00000000-0000-4000-8000-000000000011",
+		);
 
 		expect(
-			scopedDesign.boards[0]?.children?.[0]?.props?.[
+			elementNodeAt(scopedDesign.boards[0], 0).props[
 				"data-trickroom-system-component-version"
 			],
 		).toBe("2");
 		expect(
-			otherDesign.boards[0]?.children?.[0]?.props?.[
+			elementNodeAt(otherDesign.boards[0], 0).props[
 				"data-trickroom-system-component-version"
 			],
 		).toBe("1");
@@ -1037,7 +996,7 @@ describe("system-component-bulk-migration", () => {
 		const systemId = await setupCoreSystem({
 			[FIXTURE_COMPONENT_ID]: record,
 		});
-		const v1 = record.published?.versions["1"];
+		const v1 = publishedVersion(record, "1");
 		const allowedUuid = "00000000-0000-4000-8000-000000000040";
 		const disallowedUuid = "00000000-0000-4000-8000-000000000041";
 
@@ -1104,7 +1063,7 @@ describe("system-component-bulk-migration", () => {
 		const manifest = createFixtureManifest({
 			[FIXTURE_COMPONENT_ID]: record,
 		});
-		const v1 = record.published?.versions["1"];
+		const v1 = publishedVersion(record, "1");
 		const design = designWithAttachedComponent(
 			systemId,
 			FIXTURE_COMPONENT_ID,
@@ -1145,7 +1104,7 @@ describe("system-component-bulk-migration", () => {
 			}),
 		]);
 		expect(
-			result.design.boards[0]?.children?.[0]?.props?.[
+			elementNodeAt(result.design.boards[0], 0).props[
 				"data-trickroom-system-component-version"
 			],
 		).toBe("1");
@@ -1159,7 +1118,7 @@ describe("system-component-bulk-migration", () => {
 		const manifest = createFixtureManifest({
 			[FIXTURE_COMPONENT_ID]: record,
 		});
-		const v1 = record.published?.versions["1"];
+		const v1 = publishedVersion(record, "1");
 		const design = designWithAttachedComponent(
 			systemId,
 			FIXTURE_COMPONENT_ID,
@@ -1170,7 +1129,7 @@ describe("system-component-bulk-migration", () => {
 				variantSchemaHash: v1.variantSchemaHash,
 			},
 		);
-		const attachedRoot = design.boards[0]?.children?.[0];
+		const attachedRoot = elementNodeAt(design.boards[0], 0);
 		if (attachedRoot) {
 			attachedRoot.props = {
 				...attachedRoot.props,
@@ -1223,7 +1182,7 @@ describe("system-component-bulk-migration", () => {
 		const systemId = await setupCoreSystem({
 			[FIXTURE_COMPONENT_ID]: record,
 		});
-		const v1 = record.published?.versions["1"];
+		const v1 = publishedVersion(record, "1");
 		const designUuid = "00000000-0000-4000-8000-000000000042";
 
 		await writeDesign(
@@ -1262,19 +1221,9 @@ describe("system-component-bulk-migration", () => {
 			}),
 		]);
 
-		const design = JSON.parse(
-			await readFile(
-				path.join(
-					tempProjectRoot,
-					".trickroom",
-					"designs",
-					`${designUuid}.json`,
-				),
-				"utf8",
-			),
-		) as TrickroomDesign;
+		const design = await readStoredDesign(tempProjectRoot, designUuid);
 		expect(
-			design.boards[0]?.children?.[0]?.props?.[
+			elementNodeAt(design.boards[0], 0).props[
 				"data-trickroom-system-component-version"
 			],
 		).toBe("1");
@@ -1334,7 +1283,7 @@ describe("system-component-bulk-migration", () => {
 		const systemId = await setupCoreSystem({
 			[FIXTURE_COMPONENT_ID]: record,
 		});
-		const v1 = record.published?.versions["1"];
+		const v1 = publishedVersion(record, "1");
 		const designUuid = "00000000-0000-4000-8000-000000000020";
 
 		await writeDesign(
@@ -1370,7 +1319,7 @@ describe("system-component-bulk-migration", () => {
 		raw.revisionBump = "between-list-and-read";
 		await writeFile(designPath, JSON.stringify(raw), "utf8");
 
-		const readAfterBump = await service.readDesignFile(`${designUuid}.json`);
+		const readAfterBump = await service.readDesignFile(designUuid);
 		expect(readAfterBump.revision).not.toBe(staleSummary?.revision);
 
 		vi.spyOn(
@@ -1395,11 +1344,61 @@ describe("system-component-bulk-migration", () => {
 		expect(designReport?.revision).toBe(readAfterBump.revision);
 		expect(designReport?.revision).not.toBe(staleSummary?.revision);
 
-		const readAfterPersist = await createDesignFileService(
-			tempProjectRoot,
-		).readDesignFile(`${designUuid}.json`);
+		const readAfterPersist =
+			await createDesignFileService(tempProjectRoot).readDesignFile(designUuid);
 		expect(designReport?.nextRevision).toBe(readAfterPersist.revision);
 		expect(designReport?.revision).not.toBe(designReport?.nextRevision);
+	});
+
+	it("prepares and reports every persisted design write", async () => {
+		const record = createPublishedV1V2Record();
+		const systemId = await setupCoreSystem({
+			[FIXTURE_COMPONENT_ID]: record,
+		});
+		const v1 = publishedVersion(record, "1");
+		const designUuid = "00000000-0000-4000-8000-000000000022";
+		await writeDesign(
+			designUuid,
+			designWithAttachedComponent(
+				systemId,
+				FIXTURE_COMPONENT_ID,
+				"1",
+				"prepared-instance",
+				{
+					templateHash: v1.templateHash,
+					variantSchemaHash: v1.variantSchemaHash,
+				},
+			),
+		);
+		const before =
+			await createDesignFileService(tempProjectRoot).readDesignFile(designUuid);
+		const writes: unknown[] = [];
+
+		const report = await bulkMigrateProjectSystemComponentInstances(
+			tempProjectRoot,
+			{
+				systemHandle: systemId,
+				componentId: FIXTURE_COMPONENT_ID,
+				designFileId: designUuid,
+				prepareDesign: async (design) => ({ ...design, name: "Prepared" }),
+				onDesignWrite: async (write) => {
+					writes.push(write);
+				},
+			},
+		);
+
+		const after =
+			await createDesignFileService(tempProjectRoot).readDesignFile(designUuid);
+		expect(report.changedCount).toBe(1);
+		expect(after.design.name).toBe("Prepared");
+		expect(writes).toEqual([
+			{
+				designFileId: designUuid,
+				expectedRevision: before.revision,
+				resultingRevision: after.revision,
+				status: "success",
+			},
+		]);
 	});
 
 	it("reports the read revision used as the write guard when persist fails", async () => {
@@ -1407,7 +1406,7 @@ describe("system-component-bulk-migration", () => {
 		const systemId = await setupCoreSystem({
 			[FIXTURE_COMPONENT_ID]: record,
 		});
-		const v1 = record.published?.versions["1"];
+		const v1 = publishedVersion(record, "1");
 		const designUuid = "00000000-0000-4000-8000-000000000021";
 
 		await writeDesign(
@@ -1425,9 +1424,7 @@ describe("system-component-bulk-migration", () => {
 		);
 
 		const service = createDesignFileService(tempProjectRoot);
-		const readBeforeMigrate = await service.readDesignFile(
-			`${designUuid}.json`,
-		);
+		const readBeforeMigrate = await service.readDesignFile(designUuid);
 
 		vi.spyOn(
 			designFileServiceModule,
@@ -1467,11 +1464,10 @@ describe("system-component-bulk-migration", () => {
 			}),
 		]);
 
-		const readAfterFailure = await createDesignFileService(
-			tempProjectRoot,
-		).readDesignFile(`${designUuid}.json`);
+		const readAfterFailure =
+			await createDesignFileService(tempProjectRoot).readDesignFile(designUuid);
 		expect(
-			readAfterFailure.design.boards[0]?.children?.[0]?.props?.[
+			elementNodeAt(readAfterFailure.design.boards[0], 0).props[
 				"data-trickroom-system-component-version"
 			],
 		).toBe("1");

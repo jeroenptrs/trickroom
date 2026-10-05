@@ -6,6 +6,17 @@ import {
 	AccordionRoot,
 	AccordionTrigger,
 } from "./accordion";
+import {
+	AlertDialogBackdrop,
+	AlertDialogClose,
+	AlertDialogDescription,
+	AlertDialogPopup,
+	AlertDialogPortal,
+	AlertDialogRoot,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+	AlertDialogViewport,
+} from "./alert-dialog";
 import { AvatarFallback, AvatarImage, AvatarRoot } from "./avatar";
 import { Button } from "./button";
 import { CheckboxGroup, CheckboxIndicator, CheckboxRoot } from "./checkbox";
@@ -51,6 +62,17 @@ import {
 	ContextMenuSeparator,
 	ContextMenuTrigger,
 } from "./context-menu";
+import {
+	DialogBackdrop,
+	DialogClose,
+	DialogDescription,
+	DialogPopup,
+	DialogPortal,
+	DialogRoot,
+	DialogTitle,
+	DialogTrigger,
+	DialogViewport,
+} from "./dialog";
 import {
 	DrawerBackdrop,
 	DrawerClose,
@@ -202,6 +224,15 @@ export const baseUiRenderComponents = {
 	"accordion.header": AccordionHeader,
 	"accordion.trigger": AccordionTrigger,
 	"accordion.panel": AccordionPanel,
+	"alert-dialog.root": AlertDialogRoot,
+	"alert-dialog.trigger": AlertDialogTrigger,
+	"alert-dialog.portal": AlertDialogPortal,
+	"alert-dialog.backdrop": AlertDialogBackdrop,
+	"alert-dialog.viewport": AlertDialogViewport,
+	"alert-dialog.popup": AlertDialogPopup,
+	"alert-dialog.title": AlertDialogTitle,
+	"alert-dialog.description": AlertDialogDescription,
+	"alert-dialog.close": AlertDialogClose,
 	"avatar.root": AvatarRoot,
 	"avatar.image": AvatarImage,
 	"avatar.fallback": AvatarFallback,
@@ -244,6 +275,15 @@ export const baseUiRenderComponents = {
 	"context-menu.popup": ContextMenuPopup,
 	"context-menu.item": ContextMenuItem,
 	"context-menu.separator": ContextMenuSeparator,
+	"dialog.root": DialogRoot,
+	"dialog.trigger": DialogTrigger,
+	"dialog.portal": DialogPortal,
+	"dialog.backdrop": DialogBackdrop,
+	"dialog.viewport": DialogViewport,
+	"dialog.popup": DialogPopup,
+	"dialog.title": DialogTitle,
+	"dialog.description": DialogDescription,
+	"dialog.close": DialogClose,
 	"drawer.provider": DrawerProvider,
 	"drawer.root": DrawerRoot,
 	"drawer.trigger": DrawerTrigger,

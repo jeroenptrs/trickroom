@@ -50,7 +50,7 @@ describe("trickroom MCP test support", () => {
 				uuid: trickroomMcpTestDesignUuid,
 				name: "Harness Design",
 				systemName: "Core",
-				revision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+				revision: expect.any(String),
 			}),
 		]);
 
@@ -84,8 +84,8 @@ describe("trickroom MCP test support", () => {
 			expect(tools.tools).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({
-						name: "trickroom_project_info",
-						title: "Project Info",
+						name: "project_list",
+						title: "List Projects",
 						annotations: expect.objectContaining({
 							readOnlyHint: true,
 							openWorldHint: false,
@@ -95,10 +95,7 @@ describe("trickroom MCP test support", () => {
 			);
 
 			const result = (await session.client.callTool(
-				{
-					name: "trickroom_project_info",
-					arguments: {},
-				},
+				{ name: "project_list", arguments: {} },
 				CallToolResultSchema,
 			)) as CallToolResult;
 			const textContent = result.content.find(
@@ -106,11 +103,15 @@ describe("trickroom MCP test support", () => {
 			);
 
 			expect(textContent).toBeDefined();
+			// One JSON text block; the payload is not repeated in structuredContent.
+			expect(result.content).toHaveLength(1);
+			expect(result.structuredContent).toBeUndefined();
 			expect(JSON.parse(textContent?.text ?? "{}")).toMatchObject({
-				projectName: "Harness Project",
-				projectRoot: fixture.projectRoot,
-				configPath: fixture.configPath,
-				mcpEnabled: true,
+				selected: {
+					name: "Harness Project",
+					projectRoot: fixture.projectRoot,
+				},
+				governance: { mode: expect.any(String) },
 				configuredSystems: [
 					expect.objectContaining({
 						systemId: expect.stringMatching(/^sys_/),

@@ -4,12 +4,19 @@ import { afterEach, describe, expect, it } from "vitest";
 import { registerAsset } from "../utils/asset-manifest-service";
 import { writeDesignSystemManifest } from "../utils/design-system-store";
 import { syncIconManifest } from "../utils/icon-manifest-service";
-import { storeDomainTokens } from "../utils/tailwind-token-store";
+import {
+	DESIGN_OPERATION_PARAMETERS,
+	designOperationNameSchema,
+	validateDryRunOperationParameters,
+} from "./design-operations";
+import { DESIGN_GUIDE_TOPIC_NAMES } from "./guide/design-guide";
+import { SYSTEM_COMPONENT_GUIDE_TOPIC_NAMES } from "./guide/system-component-guide";
 import {
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
+	toolPayload,
 	trickroomMcpTestDesign,
 	trickroomMcpTestDesignUuid,
 } from "./test-support";
@@ -17,7 +24,24 @@ import {
 const safeSvg =
 	'<svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16" stroke="currentColor" stroke-width="2"/></svg>';
 
-describe("getDesignAuthoringContract planning payload", () => {
+// The core is read once per design session, so it has a hard size budget.
+const CORE_BUDGET = 6_500;
+const TOPIC_BUDGET = 9_000;
+
+// biome-ignore lint/suspicious/noExplicitAny: tool payloads are untyped JSON
+type Json = Record<string, any>;
+type Operation = { operation: string; parameters: Json };
+
+/** Fill guide placeholders such as "<parent id>" with real ids. */
+const fill = <T>(value: T, replacements: Record<string, string>): T =>
+	JSON.parse(
+		Object.entries(replacements).reduce(
+			(text, [placeholder, id]) => text.replaceAll(placeholder, id),
+			JSON.stringify(value),
+		),
+	);
+
+describe("guide", () => {
 	const fixtures: TrickroomMcpProjectFixture[] = [];
 	const sessions: TrickroomMcpClientSession[] = [];
 
@@ -35,150 +59,318 @@ describe("getDesignAuthoringContract planning payload", () => {
 			await fixture.readMcpContext(),
 		);
 		sessions.push(session);
-		return { fixture, session };
+		const call = async (name: string, args: Json = {}) => {
+			const result = await session.client.callTool({ name, arguments: args });
+			return {
+				result,
+				payload: toolPayload(result) as Json,
+				size: (result.content as Array<{ text: string }>)[0].text.length,
+			};
+		};
+		return { fixture, session, call };
 	};
 
-	it("includes compact recipe summaries and stable catalog hashes", async () => {
+	const contract = async (
+		call: Awaited<ReturnType<typeof createSession>>["call"],
+		args: Json = {},
+	) => (await call("guide", args)).payload;
+
+	it("returns a small core with rules, workflow, design facts and the topic list", async () => {
+		const { call } = await createSession();
+
+		const { payload: core, size } = await call("guide", {
+			designFileId: trickroomMcpTestDesignUuid,
+		});
+		const listed = await call("design_list");
+
+		expect(size).toBeLessThan(CORE_BUDGET);
+		expect(core).toMatchObject({
+			schemaVersion: 3,
+			design: {
+				id: trickroomMcpTestDesignUuid,
+				boardCount: 1,
+				boards: [{ id: "board", name: "Board" }],
+			},
+			designSystem: { systemName: "Core", linked: true },
+			memoryNotes: { design: 0, system: 0, project: 0 },
+		});
+		expect(core.design.revision).toBe(
+			listed.payload.designFiles.find(
+				(file: Json) => file.id === trickroomMcpTestDesignUuid,
+			).revision,
+		);
+		expect(core.rules[0]).toContain(
+			"Do not create separate boards per breakpoint",
+		);
+		expect(core.rules.join(" ")).toContain("expectedRevision");
+		expect(core.rules.join(" ")).toContain("locked");
+		expect(Object.keys(core.topics)).toEqual([...DESIGN_GUIDE_TOPIC_NAMES]);
+	});
+
+	it("works without designFileId and omits design-specific facts", async () => {
+		const { call } = await createSession();
+
+		const core = await contract(call);
+
+		expect(core.design).toBeUndefined();
+		expect(core.memoryNotes).toEqual({ project: 0 });
+		expect(core.topics).toHaveProperty("operations");
+	});
+
+	it("applies the core example as written", async () => {
+		const { call } = await createSession();
+		const core = await contract(call, {
+			designFileId: trickroomMcpTestDesignUuid,
+		});
+
+		expect(core.example.tool).toBe("design_apply");
+		const { result, payload } = await call(
+			core.example.tool,
+			fill(core.example.arguments, {
+				"<design uuid>": trickroomMcpTestDesignUuid,
+				"<revision from your last read or write>": core.design.revision,
+			}),
+		);
+
+		expect(result.isError).toBeFalsy();
+		expect(payload.status).toBe("success");
+	});
+
+	it("returns only the requested topics, each within budget", async () => {
+		const { call } = await createSession();
+
+		for (const topic of DESIGN_GUIDE_TOPIC_NAMES) {
+			const { payload, size } = await call("guide", {
+				designFileId: trickroomMcpTestDesignUuid,
+				topic,
+			});
+			expect(payload.topics).toEqual([topic]);
+			expect(payload[topic]).toBeDefined();
+			expect(payload.rules).toBeUndefined();
+			expect(size, topic).toBeLessThan(TOPIC_BUDGET);
+		}
+
+		const several = await contract(call, { topic: ["boards", "overlays"] });
+		expect(Object.keys(several)).toEqual(
+			expect.arrayContaining(["boards", "overlays"]),
+		);
+		expect(several.operations).toBeUndefined();
+	});
+
+	it("rejects an unknown topic with the list of valid topics", async () => {
 		const { session } = await createSession();
 
-		const first = await session.client.callTool({
-			name: "getDesignAuthoringContract",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				includeRecipes: "summary",
-			},
+		const outcome = await session.client
+			.callTool({
+				name: "guide",
+				arguments: { topic: "recipe" },
+			})
+			.then(
+				(result) => JSON.stringify(result.content),
+				(error: Error) => error.message,
+			);
+
+		expect(outcome).toContain("recipes");
+		expect(outcome).toContain("step-references");
+	});
+
+	it("mixes design and component-authoring topics in one call, in request order", async () => {
+		const { call } = await createSession();
+		const { payload } = await call("guide", {
+			topic: ["component-slots", "boards"],
 		});
-		const second = await session.client.callTool({
-			name: "getDesignAuthoringContract",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				includeRecipes: "summary",
-			},
+		expect(payload.topics).toEqual(["component-slots", "boards"]);
+		expect(Object.keys(payload).slice(-2)).toEqual([
+			"component-slots",
+			"boards",
+		]);
+		expect(payload["component-slots"]).toMatchObject({
+			requiredPerSlot: ["name", "hostPath"],
 		});
 
-		const contract = first.structuredContent as {
-			catalogHash: string;
-			registryHash: string;
-			recipeCatalogHash: string;
-			relatedContracts: {
-				systemComponentAuthoring: { tool: string };
-			};
-			registries: Array<{
-				library: string;
-				recipes: Array<{
-					recipe: string;
-					aliases: string[];
-					slots: string[];
-					controls: Array<{ name: string; valueType: string }>;
-					markerGuidance: { inspectTool: string };
-				}>;
-			}>;
-			authoringGuidance: { mutationStrategy: unknown[] };
-			examples: unknown[];
-		};
+		const core = await contract(call);
+		expect(core.topicUsage).toContain('"component-authoring"');
+	});
 
-		expect(contract.registryHash).toBe(contract.catalogHash);
-		expect(contract.recipeCatalogHash).toMatch(/^sha256:[a-f0-9]{64}$/);
-		expect(contract.relatedContracts.systemComponentAuthoring.tool).toBe(
-			"getSystemComponentAuthoringContract",
+	it("documents every batch operation with parameters and a valid example", async () => {
+		const { call } = await createSession();
+		const { operations } = await contract(call, { topic: "operations" });
+
+		expect(operations.operations.map((entry: Json) => entry.operation)).toEqual(
+			designOperationNameSchema.options,
 		);
-		expect(JSON.stringify(contract).length).toBeLessThan(100_000);
-		expect(second.structuredContent).toMatchObject({
-			catalogHash: contract.catalogHash,
-			registryHash: contract.registryHash,
-			recipeCatalogHash: contract.recipeCatalogHash,
+		for (const entry of operations.operations) {
+			expect(
+				Object.keys(entry.parameters).map((name) => name.replace(/\?$/u, "")),
+				entry.operation,
+			).toEqual(
+				DESIGN_OPERATION_PARAMETERS[
+					entry.operation as keyof typeof DESIGN_OPERATION_PARAMETERS
+				].map((parameter) => parameter.name),
+			);
+			expect(() =>
+				validateDryRunOperationParameters(
+					entry.operation,
+					entry.example.parameters,
+					{ designFileId: trickroomMcpTestDesignUuid },
+				),
+			).not.toThrow();
+		}
+	});
+
+	it("step-references example fills a recipe slot in one batch", async () => {
+		const { call } = await createSession();
+		const { "step-references": topic } = await contract(call, {
+			topic: "step-references",
+		});
+		const core = await contract(call, {
+			designFileId: trickroomMcpTestDesignUuid,
 		});
 
-		const baseUi = contract.registries.find(
-			(registry) => registry.library === "base-ui",
+		const { result, payload } = await call("design_apply", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: core.design.revision,
+			operations: fill(topic.example, { "board-id": "board" }),
+		});
+
+		expect(result.isError).toBeFalsy();
+		expect(payload.status).toBe("success");
+	});
+
+	it("sets a recipe control from a batch the way the recipes topic says", async () => {
+		const { call } = await createSession();
+		const { recipes, overlays } = await contract(call, {
+			topic: ["recipes", "overlays"],
+		});
+		expect(recipes.openByDefault).toEqual(
+			expect.arrayContaining([
+				"base-ui/dialog.default",
+				"base-ui/drawer.default",
+			]),
 		);
-		expect(baseUi?.recipes).toEqual(
+		expect(overlays.behavior.join(" ")).toContain("base-ui/dialog.default");
+		const core = await contract(call, {
+			designFileId: trickroomMcpTestDesignUuid,
+		});
+
+		const { result, payload } = await call("design_apply", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: core.design.revision,
+			operations: [
+				{
+					operation: "addRecipe",
+					parameters: {
+						parentId: "board",
+						index: 0,
+						library: "base-ui",
+						recipe: "dialog.default",
+					},
+				},
+				{
+					operation: "updateElementProps",
+					parameters: { elementId: "$step:0", props: { defaultOpen: false } },
+				},
+			],
+		});
+		expect(result.isError).toBeFalsy();
+
+		const root = await call("design_read", {
+			designFileId: trickroomMcpTestDesignUuid,
+			elementId: payload.created[0].id,
+			depth: 0,
+			detail: "full",
+		});
+		expect(root.payload.subtree.props.defaultOpen).toBe(false);
+	});
+
+	it("indexes recipes and details one recipe by name", async () => {
+		const { call } = await createSession();
+
+		const index = await contract(call, { topic: "recipes" });
+		expect(index.recipes.recipes).toEqual(
+			expect.arrayContaining([
+				expect.stringMatching(/^base-ui\/dialog\.default: Dialog\. slots: /u),
+			]),
+		);
+
+		const dialog = await contract(call, { topic: "recipes", name: "dialog" });
+		expect(dialog.recipes.recipes).toHaveLength(1);
+		expect(dialog.recipes.recipes[0]).toMatchObject({
+			recipe: "base-ui/dialog.default",
+			template: { path: "root", component: "base-ui/dialog.root" },
+			slots: expect.arrayContaining([
+				expect.objectContaining({ name: "content" }),
+				expect.objectContaining({ name: "trigger" }),
+			]),
+			controls: expect.arrayContaining([
+				expect.objectContaining({ prop: "defaultOpen", path: "root" }),
+			]),
+		});
+	});
+
+	it("lists registry families and details a filtered family", async () => {
+		const { call } = await createSession();
+
+		const families = await contract(call, { topic: "registry" });
+		const baseUi = families.registry.libraries.find(
+			(entry: Json) => entry.library === "base-ui",
+		);
+		expect(baseUi.families).toHaveProperty("select");
+		expect(baseUi.elements).toBeUndefined();
+
+		const select = await contract(call, { topic: "registry", name: "select" });
+		expect(
+			select.registry.elements.every((element: Json) =>
+				element.component.startsWith("base-ui/select."),
+			),
+		).toBe(true);
+		expect(select.registry.elements).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
-					recipe: "base-ui/avatar.default",
-					aliases: expect.arrayContaining([
-						"base-ui/avatar.default",
-						"avatar.default",
-					]),
-					slots: expect.arrayContaining(["fallback"]),
-					markerGuidance: expect.objectContaining({
-						inspectTool: "describeRegistryRecipe",
-					}),
+					component: "base-ui/select.root",
+					role: "branch",
 				}),
 			]),
 		);
-		expect(contract.authoringGuidance.mutationStrategy.length).toBeGreaterThan(
-			0,
-		);
-		expect(contract.examples.length).toBeGreaterThan(0);
 	});
 
-	it("keeps the default contract payload under 50KB", async () => {
-		const { session } = await createSession();
-
-		const result = await session.client.callTool({
-			name: "getDesignAuthoringContract",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
-		});
-
-		const contract = result.structuredContent as {
-			registries: Array<{ recipes?: unknown; components?: unknown }>;
-			resources?: unknown;
-		};
-
-		expect(JSON.stringify(contract).length).toBeLessThan(50_000);
-		expect(contract.resources).toBeUndefined();
-		expect(
-			contract.registries.every((registry) => registry.recipes === undefined),
-		).toBe(true);
-		expect(
-			contract.registries.every((registry) => Array.isArray(registry.components)),
-		).toBe(true);
-	});
-
-	it("filters recipes when component policy blocks recipe templates", async () => {
-		const { session } = await createSession({
+	it("filters registry elements and recipes by component policy", async () => {
+		const { call } = await createSession({
 			config: {
-				mcp: {
-					enabled: true,
-					allowedComponents: ["trickroom/text"],
-				},
+				mcp: { enabled: true, allowedComponents: ["trickroom/text"] },
 			},
 		});
 
-		const result = await session.client.callTool({
-			name: "getDesignAuthoringContract",
-			arguments: {},
+		const { registry, recipes } = await contract(call, {
+			topic: ["registry", "recipes"],
+			library: "trickroom",
 		});
-		const contract = result.structuredContent as {
-			registries: Array<{
-				library: string;
-				components: Array<{ component: string }>;
-				recipes?: Array<{ recipe: string }>;
-			}>;
-		};
 
-		const trickroom = contract.registries.find(
-			(registry) => registry.library === "trickroom",
+		expect(registry.elements.map((element: Json) => element.component)).toEqual(
+			["trickroom/text"],
 		);
-		expect(trickroom?.components.map((component) => component.component)).toEqual(
-			["text"],
-		);
-		expect(
-			contract.registries.every(
-				(registry) => (registry.recipes ?? []).length === 0,
-			),
-		).toBe(true);
+		expect(recipes.recipes).toEqual([]);
 	});
 
-	it("summarizes linked-system resources and token domains", async () => {
-		const { fixture, session } = await createSession({
-			designs: {
-				[trickroomMcpTestDesignUuid]: trickroomMcpTestDesign,
-			},
+	it("summarizes the linked system's tokens, assets and icons", async () => {
+		const { fixture, call } = await createSession({
+			designs: { [trickroomMcpTestDesignUuid]: trickroomMcpTestDesign },
+			tokenSnapshots: [
+				{
+					systemName: "Core",
+					cssPath: "src/index.css",
+					tokens: { "brand-500": "#2563eb" },
+					overrides: ["brand-500"],
+					reviewRequired: true,
+				},
+			],
 		});
-
-		const imagePath = path.join(fixture.projectRoot, "src", "assets", "hero.png");
+		const imagePath = path.join(
+			fixture.projectRoot,
+			"src",
+			"assets",
+			"hero.png",
+		);
 		await mkdir(path.dirname(imagePath), { recursive: true });
 		await writeFile(
 			imagePath,
@@ -203,138 +395,242 @@ describe("getDesignAuthoringContract planning payload", () => {
 		});
 		await syncIconManifest(fixture.projectRoot, "Core");
 
-		await storeDomainTokens({
-			projectRoot: fixture.projectRoot,
+		const core = await contract(call, {
+			designFileId: trickroomMcpTestDesignUuid,
+		});
+		expect(core.designSystem).toMatchObject({
 			systemName: "Core",
-			cssPath: "src/index.css",
-			tailwindBaselineVersion: "test-baseline",
-			tokens: { "brand-500": "#2563eb" },
-			overrides: ["brand-500"],
-			baselineDiff: {
-				added: [{ name: "brand-500", value: "#2563eb", domain: "color" }],
-				overridden: [],
-				removed: [],
-			},
-			domains: {
-				spacing: { "panel-gap": "1.5rem" },
-			},
-			domainOverrides: {
-				spacing: ["panel-gap"],
-			},
-			domainBaselineDiffs: {
-				spacing: {
-					added: [{ name: "panel-gap", value: "1.5rem", domain: "spacing" }],
-					overridden: [],
-					removed: [],
-				},
-			},
-			reviewRequired: true,
-			syncedAt: "2026-05-15T00:00:00.000Z",
+			tokens: { color: 1 },
+			tokenReviewRequired: true,
+			assets: 1,
+			icons: 1,
 		});
 
-		const result = await session.client.callTool({
-			name: "getDesignAuthoringContract",
-			arguments: {
-				designFileId: trickroomMcpTestDesignUuid,
-				includeResources: true,
-			},
+		const { tokens, resources } = await contract(call, {
+			designFileId: trickroomMcpTestDesignUuid,
+			topic: ["tokens", "resources"],
 		});
-
-		expect(result.structuredContent).toMatchObject({
-			resources: {
-				assets: expect.objectContaining({
-					available: true,
-					count: 1,
-					usageTool: "findAssetUsage",
-				}),
-				icons: expect.objectContaining({
-					available: true,
-					count: 1,
-					usageTool: "findIconUsage",
-				}),
-				fonts: expect.objectContaining({
-					available: false,
-				}),
-			},
-			tokens: expect.objectContaining({
-				storageStatus: "stored",
-				reviewRequired: true,
-				tokenSnapshotSyncedAt: "2026-05-15T00:00:00.000Z",
-				changedDomains: expect.arrayContaining(["color", "spacing"]),
-			}),
-			resourceManifestUpdatedAt: expect.any(String),
+		expect(tokens.system).toMatchObject({
+			systemName: "Core",
+			tokensByDomain: { color: 1 },
+			reviewRequired: expect.any(String),
+		});
+		expect(resources.system).toEqual({
+			systemName: "Core",
+			assets: 1,
+			icons: 1,
 		});
 	});
 
-	it("includes mutation examples with write-tool required fields", async () => {
-		const { session } = await createSession();
+	it("lists published system components and places one as the examples show", async () => {
+		const { call } = await createSession();
+		const { "component-examples": draftExamples } = (
+			await call("guide", {
+				topic: "component-examples",
+			})
+		).payload;
+		const listed = await call("component_read", { systemName: "Core" });
+		const created = await call(
+			draftExamples[0].tool,
+			fill(draftExamples[0].arguments, {
+				"<manifest revision from your last read or write>":
+					listed.payload.revision,
+			}),
+		);
+		expect(created.result.isError).toBeFalsy();
+		const componentId = created.payload.componentId;
+		const published = await call(
+			draftExamples[2].tool,
+			fill(draftExamples[2].arguments, {
+				"cmp_…": componentId,
+				"<manifest revision from your last read or write>":
+					created.payload.revision,
+			}),
+		);
+		expect(published.result.isError).toBeFalsy();
 
-		const result = await session.client.callTool({
-			name: "getDesignAuthoringContract",
-			arguments: { designFileId: trickroomMcpTestDesignUuid },
+		const rename = draftExamples.at(-1);
+		const renamed = await call(
+			rename.tool,
+			fill(rename.arguments, {
+				"cmp_…": componentId,
+				"<manifest revision from your last read or write>":
+					published.payload.revision,
+			}),
+		);
+		expect(renamed.result.isError).toBeFalsy();
+		expect(renamed.payload.changes.metadata).toMatchObject({
+			group: { to: "organisms/sidebar" },
 		});
 
-		const examples = (
-			result.structuredContent as {
-				examples: Array<{
-					tool: string;
-					arguments: Record<string, unknown>;
-				}>;
-			}
-		).examples;
-		const writeToolsRequiringRevision = new Set([
-			"addElement",
-			"addRecipe",
-			"addSubtree",
-			"updateElementProps",
-			"updateRecipeControl",
+		const core = await contract(call, {
+			designFileId: trickroomMcpTestDesignUuid,
+		});
+		expect(core.designSystem.components).toEqual({
+			published: 1,
+			slugs: ["status-pill"],
+		});
+		const { components } = await contract(call, {
+			designFileId: trickroomMcpTestDesignUuid,
+			topic: "components",
+		});
+		expect(components.components).toEqual([
+			expect.objectContaining({
+				componentId,
+				slug: "status-pill",
+				variants: { tone: ["neutral", "success"] },
+				overrides: { label: ["text", "className"] },
+			}),
 		]);
 
-		for (const example of examples) {
-			if (!writeToolsRequiringRevision.has(example.tool)) {
-				continue;
-			}
-
-			expect(example.arguments).toMatchObject({
-				designFileId: expect.stringMatching(
-					/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu,
-				),
-				expectedRevision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
-			});
-		}
+		const { examples } = await contract(call, { topic: "examples" });
+		const placement = examples.find((example: Json) =>
+			example.task.includes("design system component"),
+		);
+		const operations = fill(placement.calls[0].arguments.operations, {
+			"<parent id>": "board",
+			"sys_…": core.designSystem.systemId,
+			"cmp_…": componentId,
+		}).map((step: Operation) =>
+			step.operation === "addSystemComponent"
+				? {
+						...step,
+						parameters: {
+							...step.parameters,
+							variantValues: { tone: "success" },
+							overrides: { label: { text: "Upgrade" } },
+						},
+					}
+				: {
+						...step,
+						parameters: {
+							...step.parameters,
+							variantValues: { tone: "neutral" },
+						},
+					},
+		);
+		const placed = await call("design_apply", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: core.design.revision,
+			operations,
+		});
+		expect(placed.result.isError).toBeFalsy();
 	});
 
-	it("works without designFileId and omits design-specific context", async () => {
-		const { session } = await createSession();
-
-		const result = await session.client.callTool({
-			name: "getDesignAuthoringContract",
-			arguments: { includeRecipes: "none", includeExamples: false },
+	it("runs the new-screen and dialog-board examples", async () => {
+		const { call } = await createSession();
+		const { examples } = await contract(call, { topic: "examples" });
+		const [screen, dialogBoard] = examples;
+		const core = await contract(call, {
+			designFileId: trickroomMcpTestDesignUuid,
 		});
 
-		const contract = result.structuredContent as {
-			designSystem: unknown;
-			tokens?: unknown;
-			resources?: unknown;
-			examples?: unknown;
-			recipeCatalogHash: string | null;
-			registries: Array<{ recipes?: unknown; library: string }>;
-		};
-		expect(contract.designSystem).toBeNull();
-		expect(contract.tokens).toBeUndefined();
-		expect(contract.resources).toBeUndefined();
-		expect(contract.examples).toBeUndefined();
-		expect(contract.recipeCatalogHash).toBeNull();
-		expect(contract.registries).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					library: "trickroom",
-					components: expect.any(Array),
-				}),
-			]),
+		const built = await call(
+			screen.calls[1].tool,
+			fill(screen.calls[1].arguments, {
+				"<design uuid>": trickroomMcpTestDesignUuid,
+				"<revision from your last read or write>": core.design.revision,
+			}),
+		);
+		expect(built.result.isError).toBeFalsy();
+		const { page, main } = built.payload.created[0].idMap;
+
+		const withDialog = await call(
+			dialogBoard.calls[0].tool,
+			fill(dialogBoard.calls[0].arguments, {
+				"<design uuid>": trickroomMcpTestDesignUuid,
+				"<revision from your last read or write>": built.payload.newRevision,
+				"<page board id>": page,
+				"<main element id>": main,
+			}),
+		);
+		expect(withDialog.result.isError).toBeFalsy();
+		expect(withDialog.payload.status).toBe("success");
+	});
+
+	it("reports memory note counts", async () => {
+		const { call } = await createSession();
+		await call("memory_write", {
+			action: "add",
+			scope: { kind: "design", designFileId: trickroomMcpTestDesignUuid },
+			category: "intent",
+			title: "Purpose",
+			body: "Harness design.",
+		});
+
+		const core = await contract(call, {
+			designFileId: trickroomMcpTestDesignUuid,
+		});
+		expect(core.memoryNotes).toEqual({ design: 1, system: 0, project: 0 });
+	});
+});
+
+describe("guide component-authoring topics", () => {
+	const fixtures: TrickroomMcpProjectFixture[] = [];
+	const sessions: TrickroomMcpClientSession[] = [];
+
+	afterEach(async () => {
+		await Promise.all(sessions.splice(0).map((session) => session.close()));
+		await Promise.all(fixtures.splice(0).map((fixture) => fixture.cleanup()));
+	});
+
+	it("returns a core and per-part topics", async () => {
+		const fixture = await createTrickroomMcpProjectFixture();
+		fixtures.push(fixture);
+		const session = await createTrickroomMcpTestClient(
+			await fixture.readMcpContext(),
+		);
+		sessions.push(session);
+
+		const core = await session.client.callTool({
+			name: "guide",
+			arguments: { topic: "component-authoring", systemName: "Core" },
+		});
+		expect(toolPayload(core)["component-authoring"]).toMatchObject({
+			system: {
+				requested: "Core",
+				configured: true,
+				components: { componentCount: 0 },
+			},
+		});
+		expect(
+			Object.keys((toolPayload(core) as Json)["component-authoring"].topics),
+		).toEqual(
+			SYSTEM_COMPONENT_GUIDE_TOPIC_NAMES.map((name) => `component-${name}`),
 		);
 		expect(
-			contract.registries.every((registry) => registry.recipes === undefined),
-		).toBe(true);
+			(core.content as Array<{ text: string }>)[0].text.length,
+		).toBeLessThan(CORE_BUDGET);
+
+		const topics = await session.client.callTool({
+			name: "guide",
+			arguments: {
+				topic: SYSTEM_COMPONENT_GUIDE_TOPIC_NAMES.map(
+					(name) => `component-${name}`,
+				),
+			},
+		});
+		expect(toolPayload(topics)).toMatchObject({
+			"component-template": { type: "RecipeTemplateNode" },
+			"component-slots": { requiredPerSlot: ["name", "hostPath"] },
+			"component-variants": {
+				classesByPath: expect.stringContaining("template path"),
+				compoundVariants: expect.stringContaining("single string values"),
+				defaultValues: expect.stringContaining("real value ids"),
+				instanceUpdates: expect.stringContaining("unsetVariantAxes"),
+				rules: expect.arrayContaining([
+					expect.stringContaining("does not fabricate the first value"),
+					expect.stringContaining("duplicate signatures"),
+					expect.stringContaining("garbage-collected"),
+					expect.stringContaining("Array-valued when"),
+				]),
+			},
+			"component-overrides": {
+				capabilities: ["className", "text", "icon", "asset"],
+			},
+			"component-examples": expect.arrayContaining([
+				expect.objectContaining({ tool: "component_draft_create" }),
+			]),
+		});
 	});
 });

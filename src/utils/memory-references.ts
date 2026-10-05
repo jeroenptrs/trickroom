@@ -1,15 +1,21 @@
-import { createDesignFileService } from "../services/design-file-service";
+import {
+	createDesignFileService,
+	type DesignFileSummary,
+} from "../services/design-file-service";
+import type { Node } from "../types";
 import { normalizeAssetId, readAssetManifest } from "./asset-manifest-service";
 import { findDesignSystem } from "./design-system-store";
 import { normalizeIconId, readIconManifest } from "./icon-manifest-service";
 import type { MemoryScope } from "./memory-manifest-service.types";
 import {
 	buildMemoryReferenceDeepLink,
+	isDesignScopedReferenceType,
 	type MemoryReferenceToken,
 	type MemoryReferenceType,
 	type MemoryReferenceWarning,
 	parseMemoryReferences,
 	type ResolvedMemoryReference,
+	splitDesignScopedReferenceId,
 } from "./memory-references.shared";
 import { listSystemComponentSummaries } from "./system-component-operations";
 import { readDomainTokensReadonly } from "./tailwind-token-store";
@@ -18,6 +24,8 @@ import { readDomainTokensReadonly } from "./tailwind-token-store";
 // existing server-side imports of this module keep working unchanged.
 export {
 	buildMemoryReferenceDeepLink,
+	DESIGN_SCOPED_REFERENCE_TYPES,
+	isDesignScopedReferenceType,
 	MEMORY_REFERENCE_TYPES,
 	type MemoryReferenceStatus,
 	type MemoryReferenceToken,
@@ -25,6 +33,7 @@ export {
 	type MemoryReferenceWarning,
 	parseMemoryReferences,
 	type ResolvedMemoryReference,
+	splitDesignScopedReferenceId,
 } from "./memory-references.shared";
 
 type ReferenceSystemContext = {
@@ -47,10 +56,51 @@ const withDeepLink = (
 	return deepLink ? { ...reference, deepLink } : reference;
 };
 
+type LayerEntry = { name: string; boardId: string; boardName: string };
+
 type MemoryReferenceContext = {
 	system: ReferenceSystemContext | null;
-	designIds: Set<string>;
-	designLabels: Map<string, string>;
+	/** Readable designs by lower-cased id. */
+	designs: Map<string, DesignFileSummary>;
+	/** Layers of the designs layer references point into, by design id. */
+	layers: Map<string, Map<string, LayerEntry>>;
+};
+
+const getLayerName = (node: Node) => {
+	const name = node.props["data-trickroom-name"];
+	return typeof name === "string" && name.length > 0 ? name : node.id;
+};
+
+/** Every element of a design with its name and board. */
+const indexDesignLayers = (boards: readonly Node[]) => {
+	const layers = new Map<string, LayerEntry>();
+	for (const board of boards) {
+		const boardName = getLayerName(board);
+		const visit = (node: Node) => {
+			layers.set(node.id, {
+				name: getLayerName(node),
+				boardId: board.id,
+				boardName,
+			});
+			if (Array.isArray(node.children)) {
+				for (const child of node.children) {
+					visit(child);
+				}
+			}
+		};
+		visit(board);
+	}
+	return layers;
+};
+
+const readDesignLayers = async (projectRoot: string, designId: string) => {
+	try {
+		const read =
+			await createDesignFileService(projectRoot).readDesignFile(designId);
+		return indexDesignLayers(read.design.boards);
+	} catch {
+		return null;
+	}
 };
 
 async function resolveContextSystem(
@@ -94,27 +144,89 @@ async function buildReferenceContext(
 	scope: MemoryScope,
 	tokens: MemoryReferenceToken[],
 ): Promise<MemoryReferenceContext> {
-	const needsDesign = tokens.some((token) => token.type === "design");
-	const designIds = new Set<string>();
-	const designLabels = new Map<string, string>();
-	if (needsDesign) {
+	const needsDesigns = tokens.some(
+		(token) =>
+			token.type === "design" || isDesignScopedReferenceType(token.type),
+	);
+	const designs = new Map<string, DesignFileSummary>();
+	if (needsDesigns) {
 		const service = createDesignFileService(projectRoot);
-		const summaries = await service.listDesignSummaries();
-		for (const summary of summaries) {
-			if (summary.uuid) {
-				const lower = summary.uuid.toLowerCase();
-				designIds.add(lower);
-				designLabels.set(lower, summary.name);
+		for (const summary of await service.listDesignSummaries()) {
+			if (summary.uuid && summary.diagnostic === undefined) {
+				designs.set(summary.uuid.toLowerCase(), summary);
 			}
 		}
 	}
 
+	const layers = new Map<string, Map<string, LayerEntry>>();
+	const layerDesignIds = new Set(
+		tokens
+			.filter((token) => token.type === "layer")
+			.map((token) => splitDesignScopedReferenceId(token.id)?.designId)
+			.map((designId) => designs.get(designId?.toLowerCase() ?? "")?.uuid)
+			.filter((designId): designId is string => designId !== undefined),
+	);
+	await Promise.all(
+		[...layerDesignIds].map(async (designId) => {
+			const index = await readDesignLayers(projectRoot, designId);
+			if (index) {
+				layers.set(designId.toLowerCase(), index);
+			}
+		}),
+	);
+
 	return {
 		system: await resolveContextSystem(projectRoot, scope),
-		designIds,
-		designLabels,
+		designs,
+		layers,
 	};
 }
+
+/** A `{{board:…}}` or `{{layer:…}}` reference against the designs on disk. */
+const resolveDesignScopedReference = (
+	context: MemoryReferenceContext,
+	token: MemoryReferenceToken,
+): ResolvedMemoryReference => {
+	const target = splitDesignScopedReferenceId(token.id);
+	const design = target
+		? context.designs.get(target.designId.toLowerCase())
+		: undefined;
+	if (!target || !design) {
+		return { ...token, status: "broken" };
+	}
+	if (token.type === "board") {
+		const board = design.boards.find((entry) => entry.id === target.elementId);
+		return board
+			? {
+					...token,
+					status: "valid",
+					label: board.name ?? board.id,
+					detail: design.name,
+					deepLink: buildMemoryReferenceDeepLink(
+						"board",
+						`${design.uuid}/${board.id}`,
+					),
+				}
+			: { ...token, status: "broken" };
+	}
+	const layer = context.layers
+		.get(design.uuid.toLowerCase())
+		?.get(target.elementId);
+	return layer
+		? {
+				...token,
+				status: "valid",
+				label: layer.name,
+				detail: `${design.name} / ${layer.boardName}`,
+				deepLink: buildMemoryReferenceDeepLink(
+					"layer",
+					`${design.uuid}/${target.elementId}`,
+					null,
+					{ boardId: layer.boardId },
+				),
+			}
+		: { ...token, status: "broken" };
+};
 
 async function resolveSystemScopedReference(
 	projectRoot: string,
@@ -205,18 +317,19 @@ export async function resolveMemoryReferences(
 
 	for (const token of tokens) {
 		if (token.type === "design") {
-			const lower = token.id.toLowerCase();
+			const design = context.designs.get(token.id.toLowerCase());
 			resolved.push(
 				withDeepLink(
-					context.designIds.has(lower)
-						? {
-								...token,
-								status: "valid",
-								label: context.designLabels.get(lower),
-							}
+					design
+						? { ...token, status: "valid", label: design.name }
 						: { ...token, status: "broken" },
 				),
 			);
+			continue;
+		}
+
+		if (isDesignScopedReferenceType(token.type)) {
+			resolved.push(resolveDesignScopedReference(context, token));
 			continue;
 		}
 
@@ -247,8 +360,10 @@ const matchesQuery = (query: string, ...fields: (string | undefined)[]) => {
 
 /**
  * Returns candidate reference targets for intellisense in a given scope. Design
- * targets are available everywhere; component/token/asset/icon targets require a
- * contextual system (the design's linked system or the system scope itself).
+ * and board targets are available everywhere; layer targets list one design's
+ * layers (the design scope's, or the design a `<designId>/…` query names);
+ * component/token/asset/icon targets require a contextual system (the design's
+ * linked system or the system scope itself).
  */
 export async function listMemoryReferenceTargets(
 	projectRoot: string,
@@ -271,6 +386,59 @@ export async function listMemoryReferenceTargets(
 			.map((summary) => ({
 				id: summary.uuid as string,
 				label: summary.name,
+			}));
+	}
+
+	if (type === "board") {
+		const service = createDesignFileService(projectRoot);
+		const summaries = (await service.listDesignSummaries()).filter(
+			(summary) => summary.diagnostic === undefined,
+		);
+		// The scope's own design first.
+		const scopeDesignId =
+			scope.kind === "design" ? scope.designId.toLowerCase() : null;
+		summaries.sort(
+			(left, right) =>
+				Number(right.uuid.toLowerCase() === scopeDesignId) -
+				Number(left.uuid.toLowerCase() === scopeDesignId),
+		);
+		return summaries
+			.flatMap((summary) =>
+				summary.boards.map((board) => ({
+					id: `${summary.uuid}/${board.id}`,
+					label: board.name ?? board.id,
+					detail: summary.name,
+				})),
+			)
+			.filter((target) =>
+				matchesQuery(trimmedQuery, target.id, target.label, target.detail),
+			)
+			.slice(0, limit);
+	}
+
+	if (type === "layer") {
+		// Layers are listed for one design: the scope's design, or the design
+		// a query of the form "<designId>/…" names.
+		const queried = splitDesignScopedReferenceId(trimmedQuery);
+		const designId =
+			scope.kind === "design" ? scope.designId : queried?.designId;
+		if (!designId) {
+			return [];
+		}
+		const layers = await readDesignLayers(projectRoot, designId);
+		const layerQuery =
+			queried && queried.designId.toLowerCase() === designId.toLowerCase()
+				? queried.elementId
+				: trimmedQuery;
+		return [...(layers ?? [])]
+			.filter(([elementId, layer]) =>
+				matchesQuery(layerQuery, elementId, layer.name),
+			)
+			.slice(0, limit)
+			.map(([elementId, layer]) => ({
+				id: `${designId}/${elementId}`,
+				label: layer.name,
+				detail: layer.boardName,
 			}));
 	}
 
@@ -340,6 +508,12 @@ const warningMessage = (reference: ResolvedMemoryReference): string | null => {
 	}
 	if (reference.status === "unresolvable_scope") {
 		return `Reference ${reference.raw} cannot be resolved: this scope is not linked to a design system.`;
+	}
+	if (
+		isDesignScopedReferenceType(reference.type) &&
+		!splitDesignScopedReferenceId(reference.id)
+	) {
+		return `Reference ${reference.raw} must name its design: {{${reference.type}:<designId>/<${reference.type === "board" ? "boardId" : "elementId"}>}}.`;
 	}
 	return `Reference ${reference.raw} does not resolve to an existing ${reference.type}.`;
 };

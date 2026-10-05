@@ -127,9 +127,3 @@ export function canUseGlobalColorReset(
 		removed.every((entry) => entry.name in defaults)
 	);
 }
-
-export function extractTailwindColorTokensForPresentation(
-	baselineDiff: TailwindColorTokenBaselineDiff,
-): TailwindTokensForPresentation {
-	return [...baselineDiff.added, ...baselineDiff.overridden];
-}

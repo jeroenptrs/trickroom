@@ -11,14 +11,14 @@ import {
 	useState,
 } from "react";
 import { useNavigate } from "react-router";
-import { designFileQueryKey, saveDesignFile } from "../../queries/design-file";
+import { saveDesignFile } from "../../queries/design-file";
+import { requestDesignResync } from "../../queries/design-live-events";
+import { commitDesignSave } from "../../queries/design-save";
 import type { DesignFileRevision } from "../../services/design-file-service.types";
 import {
-	clearDirty,
 	serializeDesign,
 	setDesignName,
 	setDesignSavePending,
-	setPersistedDesignRevision,
 	useDesignName,
 	useDesignRevision,
 	useDesignSystemId,
@@ -50,35 +50,49 @@ type SaveRequest = {
 };
 
 type SaveControlProps = {
-	designFile: string;
+	designId: string;
 };
 
 type EditorShellProps = {
-	designFile: string;
+	designId: string;
 	children: ReactNode;
 };
 
-function SaveControl({ designFile }: SaveControlProps) {
+function SaveControl({ designId }: SaveControlProps) {
 	const queryClient = useQueryClient();
 	const projectScope = useProjectScope();
 	const hasUnsavedChanges = useHasUnsavedChanges();
 	const conflictPending = useExternalConflictPending();
 	const persistedRevision = usePersistedDesignRevision();
 	const revision = useDesignRevision();
-	const saveErrorRevisionRef = useRef<number | null>(null);
+	// The store and persisted revisions a failed save was based on: autosave
+	// retries once either moves (a new edit, or a resync that caught up with
+	// the disk).
+	const saveErrorRef = useRef<{
+		revision: number;
+		persistedRevision: DesignFileRevision | null;
+	} | null>(null);
 	const saveMutation = useMutation({
 		mutationFn: ({ design, persistedRevision }: SaveRequest) =>
-			saveDesignFile(designFile, design, persistedRevision),
+			saveDesignFile(designId, design, persistedRevision),
 		onSuccess: (saved, request) => {
-			saveErrorRevisionRef.current = null;
-			setPersistedDesignRevision(saved.revision);
-			clearDirty(request.revision);
+			saveErrorRef.current = null;
+			commitDesignSave(queryClient, {
+				designId,
+				projectScope,
+				sent: request.design,
+				saved,
+				savedStoreRevision: request.revision,
+			});
 		},
 		onError: (_error, request) => {
-			saveErrorRevisionRef.current = request.revision;
-			void queryClient.invalidateQueries({
-				queryKey: designFileQueryKey(designFile, projectScope),
-			});
+			saveErrorRef.current = {
+				revision: request.revision,
+				persistedRevision: request.persistedRevision,
+			};
+			// A refused save (typically a revision mismatch) brings in what
+			// changed on disk; conflicts, if any, are then raised per board.
+			requestDesignResync(designId);
 		},
 		onSettled: () => setDesignSavePending(false),
 	});
@@ -101,14 +115,17 @@ function SaveControl({ designFile }: SaveControlProps) {
 	});
 
 	useEffect(() => {
+		const failed = saveErrorRef.current;
 		if (
 			hasUnsavedChanges &&
 			saveMutation.isError &&
-			saveErrorRevisionRef.current !== revision
+			(!failed ||
+				failed.revision !== revision ||
+				failed.persistedRevision !== persistedRevision)
 		) {
 			saveMutation.reset();
 		}
-	}, [hasUnsavedChanges, revision, saveMutation]);
+	}, [hasUnsavedChanges, persistedRevision, revision, saveMutation]);
 
 	useEffect(() => {
 		if (
@@ -226,7 +243,7 @@ function DesignTitle() {
 	);
 }
 
-function LeftSidebar({ designFile }: { designFile: string }) {
+function LeftSidebar({ designId }: { designId: string }) {
 	const navigate = useNavigate();
 	const systemName = useDesignSystemName();
 	const systemId = useDesignSystemId();
@@ -252,9 +269,9 @@ function LeftSidebar({ designFile }: { designFile: string }) {
 					</span>
 				</div>
 				<OpenDesignTokensButton systemId={systemId} />
-				<SaveControl designFile={designFile} />
+				<SaveControl designId={designId} />
 			</header>
-			<Layers designFile={designFile} className="flex-1" />
+			<Layers designId={designId} className="flex-1" />
 		</aside>
 	);
 }
@@ -269,7 +286,7 @@ function RightInspector() {
 	);
 }
 
-function EditorShellComponent({ designFile, children }: EditorShellProps) {
+function EditorShellComponent({ designId, children }: EditorShellProps) {
 	const navigate = useNavigate();
 	const handleFocusShortcut = useCallback(
 		(event: KeyboardEvent) => {
@@ -309,7 +326,7 @@ function EditorShellComponent({ designFile, children }: EditorShellProps) {
 	return (
 		<div className="absolute inset-0 z-10 flex min-h-0 bg-slate-100 text-xs text-slate-950">
 			<div data-editor-region="rail" tabIndex={-1} className="flex min-h-0">
-				<LeftSidebar designFile={designFile} />
+				<LeftSidebar designId={designId} />
 			</div>
 			<main
 				data-editor-region="workspace"

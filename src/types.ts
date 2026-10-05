@@ -1,3 +1,5 @@
+import type { DesignFileVersion } from "./services/design-file-schema";
+
 export type JsonPrimitive = string | number | boolean | null;
 
 export type Role = "branch" | "text" | "leaf";
@@ -159,6 +161,12 @@ export type Props = {
 	[prop: string]: JsonPrimitive | undefined;
 };
 
+/**
+ * Any element prop record, such as a partial `Props`. Readers that only look
+ * at their own keys (structural markers) accept this.
+ */
+export type PropRecord = Readonly<Record<string, JsonPrimitive | undefined>>;
+
 export type Node = {
 	id: string;
 	props: Props;
@@ -190,18 +198,13 @@ export type TrickroomConfig = {
 	};
 };
 
-export type TrickroomSystemSummary = {
-	systemId: string;
-	systemName: string;
-	cssPath?: string;
-	iconFolderPaths?: string[];
-};
-
-export type ProjectRoot = {
-	projectRoot: string;
-};
-
 export type TrickroomDesign = {
+	/**
+	 * Design file schema version, a storage concern: the design file service
+	 * stamps the current version on every write and omits it from designs it
+	 * returns, which are always in the current shape. Writers may omit it.
+	 */
+	version?: DesignFileVersion;
 	name: string;
 	systemId?: string | null;
 	/**
@@ -222,4 +225,31 @@ export type TrickroomDesignSummary = {
 	boardsCount: number;
 	layersCount: number;
 	modifiedAt: string;
+	/**
+	 * Set when the file exists but cannot be opened, for example because a
+	 * newer Trickroom wrote it. Counts are then best-effort.
+	 */
+	diagnostic?: DesignFileDiagnostic;
+	/** Storage problems that do not stop the design from opening. */
+	warnings?: DesignStorageWarning[];
+};
+
+export type DesignStorageWarning = {
+	/**
+	 * `LEGACY_DESIGN_FILE_PRESENT`: both the design folder and an older
+	 * single-file copy exist; the folder is used until `trickroom migrate`
+	 * reconciles them.
+	 */
+	code: "LEGACY_DESIGN_FILE_PRESENT";
+	message: string;
+};
+
+export type DesignFileDiagnostic = {
+	code:
+		| "UNSUPPORTED_DESIGN_VERSION"
+		| "INVALID_DESIGN_PAYLOAD"
+		| "INVALID_DESIGN_JSON";
+	message: string;
+	/** Stored version, when the file declares one. */
+	version?: number;
 };

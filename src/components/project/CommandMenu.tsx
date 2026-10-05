@@ -18,7 +18,6 @@ import {
 	useState,
 } from "react";
 import { useNavigate } from "react-router";
-import { getTrickroomDesktopApi } from "../../desktop-api";
 import { auditLogSummaryQueryKey } from "../../queries/audit-log";
 import { configFileQueryKey } from "../../queries/config-file";
 import { designSummariesQueryKey } from "../../queries/design-file";
@@ -64,7 +63,6 @@ const CREATE_NEW_PROJECT_COMMAND_VALUE = "Create new project";
 const CREATE_NEW_SYSTEM_COMMAND_VALUE = "Create new system";
 
 export function CommandMenu() {
-	const desktopApi = getTrickroomDesktopApi();
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const sessionQuery = useQuery(sessionQueryOptions());
@@ -79,10 +77,6 @@ export function CommandMenu() {
 	const [pathDialogOpen, setPathDialogOpen] = useState(false);
 	const [createSystemDialogOpen, setCreateSystemDialogOpen] = useState(false);
 	const [path, setPath] = useState("");
-	const [folderPickerError, setFolderPickerError] = useState<string | null>(
-		null,
-	);
-	const [isPickingFolder, setIsPickingFolder] = useState(false);
 	const postCloseDestinationRef = useRef("/");
 	const inputRef = useRef<HTMLInputElement>(null);
 
@@ -119,8 +113,7 @@ export function CommandMenu() {
 		onSuccess: refreshProjectQueries,
 	});
 
-	const isMutating =
-		openMutation.isPending || closeMutation.isPending || isPickingFolder;
+	const isMutating = openMutation.isPending || closeMutation.isPending;
 
 	const currentLocationId = activeProject?.locationId;
 	const currentProjectRoot = activeProject?.projectRoot ?? "";
@@ -150,8 +143,7 @@ export function CommandMenu() {
 
 	const openErrorMessage = (openMutation.error as Error | null)?.message;
 	const closeErrorMessage = (closeMutation.error as Error | null)?.message;
-	const navigationError =
-		openErrorMessage || closeErrorMessage || folderPickerError;
+	const navigationError = openErrorMessage || closeErrorMessage;
 
 	const openMenu = (targetPage: CommandPage) => {
 		if (!isMutating) {
@@ -220,32 +212,12 @@ export function CommandMenu() {
 	);
 
 	const openProjectAtPath = (targetPath: string) => {
-		setFolderPickerError(null);
 		openMutation.mutate(targetPath);
 	};
 
-	const handleOpenAnotherFolder = async () => {
-		setFolderPickerError(null);
+	const handleOpenAnotherFolder = () => {
 		setOpen(false);
-
-		if (!desktopApi) {
-			setPathDialogOpen(true);
-			return;
-		}
-
-		setIsPickingFolder(true);
-		try {
-			const result = await desktopApi.pickProjectFolder();
-			if (!result.canceled) {
-				openProjectAtPath(result.path);
-			}
-		} catch (error) {
-			setFolderPickerError(
-				error instanceof Error ? error.message : "Failed to choose folder.",
-			);
-		} finally {
-			setIsPickingFolder(false);
-		}
+		setPathDialogOpen(true);
 	};
 
 	const handleCloseProject = () => {

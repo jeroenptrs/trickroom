@@ -1,3 +1,5 @@
+import { resolveRegistryComponent } from "../libraries/registry";
+import { hasStageRenderer } from "../libraries/renderable-components";
 import { validateRecipeInstances } from "../recipes/validation";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
 import { readAssetManifest } from "../utils/asset-manifest-service";
@@ -13,6 +15,7 @@ import {
 	buildResolvedTokenContext,
 	type ResolvedTokenContext,
 } from "../utils/resolved-tailwind-domain-tokens";
+import { formatDidYouMean, suggestClosest } from "../utils/suggestions";
 import {
 	classifyParsedClass,
 	parseClassName,
@@ -20,7 +23,10 @@ import {
 	type StyleIntent,
 	type UtilityIntent,
 } from "../utils/tailwind-classname";
-import { loadTailwindDesignSystem } from "../utils/tailwind-design-system";
+import {
+	loadTailwindDesignSystem,
+	type TailwindDesignSystem,
+} from "../utils/tailwind-design-system";
 import {
 	TAILWIND_TOKEN_DOMAINS,
 	type TailwindTokenDomain,
@@ -50,6 +56,8 @@ export type ClassTokenDiagnostic = McpDesignIssue & {
 	token?: string;
 	property?: string;
 	domain?: TailwindTokenDomain | "tailwind";
+	/** Nearest valid class names, when cheaply available. */
+	suggestions?: string[];
 };
 
 export type DesignDiagnostics = {
@@ -67,25 +75,29 @@ export type DesignDiagnostics = {
 };
 
 /**
- * Verbosity controls for write/mutation tool responses. Defaults are minimal:
- * only error-severity issues are returned, warnings and the heavy custom-utility
- * token catalog are omitted unless explicitly opted into. Escalate per call when
- * a write reports issues you need to inspect.
+ * Detail of write and validation responses. "compact" (default): error
+ * issues, a warningCount, and likely-typo and missing-renderer warnings on
+ * the touched elements, grouped. "full": every warning in scope ungrouped,
+ * plus the token diagnostics with the custom-utility catalog.
  */
-export type MutationResponseOptions = {
-	/** Include warning-severity diagnostics. Defaults to false. */
-	includeWarnings?: boolean;
-	/**
-	 * When warnings are included, "affected" (default) limits them to elements
-	 * touched by this write; "file" returns warnings for the whole design.
-	 */
-	warningScope?: "affected" | "file";
-	/**
-	 * Include the heavy token diagnostics (custom utility catalog). Defaults to
-	 * false; the lightweight token snapshot metadata is always retained.
-	 */
-	includeTokenDiagnostics?: boolean;
-};
+export type MutationResponseDetail = "compact" | "full";
+
+/**
+ * Warning codes that almost always mean a typo in a class name: Tailwind
+ * cannot emit the utility, or the utility references a token the linked
+ * system does not define. These surface on writes by default.
+ */
+export const isLikelyTypoWarning = (issue: McpDesignIssue) =>
+	issue.code === "UNKNOWN_TAILWIND_UTILITY" ||
+	/^UNKNOWN_[A-Z_]+_TOKEN$/u.test(issue.code);
+
+/**
+ * Warnings that surface on writes by default (for touched elements): likely
+ * typos, and elements the stage cannot render, which otherwise only show up
+ * as a placeholder in a screenshot.
+ */
+export const isDefaultSurfacedWarning = (issue: McpDesignIssue) =>
+	isLikelyTypoWarning(issue) || issue.code === "MISSING_RENDERER";
 
 /**
  * Drop the heavy `customUtilities` catalog from a token snapshot unless the
@@ -112,57 +124,218 @@ export const stripHeavyTokenDiagnostics = <
 	return rest as T;
 };
 
-export type ShapedMutationDiagnostics = {
-	issues: McpDesignIssue[];
-	warnings?: McpDesignIssue[];
-	tokenDiagnostics: unknown;
+/**
+ * Warnings that share a code and offending class (or message), with the
+ * elements that carry them. The message names the class and suggestions.
+ */
+export type GroupedWarning = {
+	code: string;
+	message: string;
+	elementIds?: string[];
+	/** Total elements in the group, set when elementIds is truncated. */
+	count?: number;
 };
 
 /**
- * Shape a full design diagnostics result for a write response according to the
- * minimal-default contract. Always returns error-severity `issues` and a
- * (stripped-by-default) `tokenDiagnostics`; only attaches `warnings` when
- * `includeWarnings` is set, scoped to `affectedElementIds` unless the caller
- * requests `warningScope: "file"`.
+ * Group warnings by code plus offending class token (or message), so five
+ * elements with the same typo cost one entry. File-level warnings have no
+ * elementIds. `maxElementIds` truncates long groups and reports `count`.
  */
-export const shapeMutationDiagnostics = (
-	diagnostics: { issues: McpDesignIssue[]; tokenSnapshot: unknown },
-	options: MutationResponseOptions | undefined,
-	affectedElementIds?: Iterable<string>,
-): ShapedMutationDiagnostics => {
-	const opts = options ?? {};
-	const shaped: ShapedMutationDiagnostics = {
-		issues: diagnostics.issues.filter((issue) => issue.severity === "error"),
-		tokenDiagnostics: stripHeavyTokenDiagnostics(
-			diagnostics.tokenSnapshot as { customUtilities?: unknown } | null,
-			opts.includeTokenDiagnostics ?? false,
-		),
-	};
-
-	if (opts.includeWarnings) {
-		const warnings = diagnostics.issues.filter(
-			(issue) => issue.severity === "warning",
-		);
-		if (opts.warningScope === "file" || affectedElementIds === undefined) {
-			shaped.warnings = warnings;
-		} else {
-			const affected = new Set(affectedElementIds);
-			// File-level warnings without an elementId (e.g. review-required,
-			// recipe diagnostics) are always surfaced; element-bound warnings are
-			// limited to elements this write touched.
-			shaped.warnings = warnings.filter(
-				(warning) =>
-					warning.elementId === undefined || affected.has(warning.elementId),
-			);
+export const groupWarnings = (
+	warnings: readonly McpDesignIssue[],
+	options: { maxElementIds?: number } = {},
+): GroupedWarning[] => {
+	const groups = new Map<string, GroupedWarning & { ids: string[] }>();
+	for (const warning of warnings) {
+		const classToken = (warning as ClassTokenDiagnostic).classToken;
+		const key = `${warning.code}\u0000${classToken ?? warning.message}`;
+		let group = groups.get(key);
+		if (!group) {
+			group = { code: warning.code, message: warning.message, ids: [] };
+			groups.set(key, group);
+		}
+		if (warning.elementId !== undefined) {
+			group.ids.push(warning.elementId);
 		}
 	}
 
+	const maxElementIds = options.maxElementIds ?? Number.POSITIVE_INFINITY;
+	return [...groups.values()].map(({ ids, ...group }) => {
+		const elementIds = [...new Set(ids)];
+		if (elementIds.length === 0) {
+			return group;
+		}
+		return elementIds.length > maxElementIds
+			? {
+					...group,
+					elementIds: elementIds.slice(0, maxElementIds),
+					count: elementIds.length,
+				}
+			: { ...group, elementIds };
+	});
+};
+
+/** Count issues per code, most frequent first. */
+export const countIssuesByCode = (issues: readonly McpDesignIssue[]) => {
+	const counts = new Map<string, number>();
+	for (const issue of issues) {
+		counts.set(issue.code, (counts.get(issue.code) ?? 0) + 1);
+	}
+	return Object.fromEntries(
+		[...counts.entries()].sort(
+			([codeA, countA], [codeB, countB]) =>
+				countB - countA || codeA.localeCompare(codeB),
+		),
+	);
+};
+
+export type ShapedMutationDiagnostics = {
+	issues: McpDesignIssue[];
+	warningCount: number;
+	warnings?: GroupedWarning[] | McpDesignIssue[];
+	tokenDiagnostics?: unknown;
+};
+
+/**
+ * Shape a full design diagnostics result for a write response. Always returns
+ * every error-severity `issue` and a `warningCount` for the warning scope:
+ * the `affectedElementIds` plus file-level warnings (the whole design when no
+ * ids are passed). "compact" attaches the likely-typo and missing-renderer
+ * warnings on touched elements, grouped; "full" attaches every warning in
+ * scope ungrouped plus the token diagnostics.
+ */
+export const shapeMutationDiagnostics = (
+	diagnostics: { issues: McpDesignIssue[]; tokenSnapshot: unknown },
+	detail: MutationResponseDetail | undefined,
+	affectedElementIds?: Iterable<string>,
+): ShapedMutationDiagnostics => {
+	const allWarnings = diagnostics.issues.filter(
+		(issue) => issue.severity === "warning",
+	);
+	let scopedWarnings = allWarnings;
+	if (affectedElementIds !== undefined) {
+		const affected = new Set(affectedElementIds);
+		// File-level warnings without an elementId (e.g. review-required,
+		// recipe diagnostics) are always in scope; element-bound warnings are
+		// limited to elements this write touched.
+		scopedWarnings = allWarnings.filter(
+			(warning) =>
+				warning.elementId === undefined || affected.has(warning.elementId),
+		);
+	}
+
+	const shaped: ShapedMutationDiagnostics = {
+		issues: diagnostics.issues.filter((issue) => issue.severity === "error"),
+		warningCount: scopedWarnings.length,
+	};
+
+	if (detail === "full") {
+		if (scopedWarnings.length > 0) {
+			shaped.warnings = scopedWarnings;
+		}
+		shaped.tokenDiagnostics = diagnostics.tokenSnapshot;
+		return shaped;
+	}
+
+	const surfaced = scopedWarnings.filter(
+		(warning) =>
+			warning.elementId !== undefined && isDefaultSurfacedWarning(warning),
+	);
+	if (surfaced.length > 0) {
+		shaped.warnings = groupWarnings(surfaced);
+	}
 	return shaped;
 };
 
-type TailwindUtilityInspector = (
+type TailwindUtilityInspector = {
+	inspect: (candidate: string) => TailwindUtilityInspection;
+	/** Nearest valid classes for an unsupported candidate, variants preserved. */
+	suggest: (candidate: string) => string[];
+};
+
+const classNameCache = new WeakMap<TailwindDesignSystem, string[]>();
+
+const getDesignSystemClassNames = (designSystem: TailwindDesignSystem) => {
+	let classNames = classNameCache.get(designSystem);
+	if (!classNames) {
+		classNames = designSystem.getClassList().map(([name]) => name);
+		classNameCache.set(designSystem, classNames);
+	}
+	return classNames;
+};
+
+/**
+ * Split `md:hover:!bg-red-500/50` into the variant prefix, important marker,
+ * utility root, and opacity modifier so suggestions only rewrite the utility.
+ */
+const splitCandidate = (candidate: string) => {
+	let depth = 0;
+	let variantEnd = -1;
+	for (let index = 0; index < candidate.length; index++) {
+		const char = candidate[index];
+		if (char === "[" || char === "(") depth++;
+		else if (char === "]" || char === ")") depth--;
+		else if (char === ":" && depth === 0) variantEnd = index;
+	}
+	const prefix = candidate.slice(0, variantEnd + 1);
+	let utility = candidate.slice(variantEnd + 1);
+	let important = "";
+	if (utility.startsWith("!")) {
+		important = "!";
+		utility = utility.slice(1);
+	} else if (utility.endsWith("!")) {
+		important = "!";
+		utility = utility.slice(0, -1);
+	}
+	const modifierIndex = utility.includes("[") ? -1 : utility.lastIndexOf("/");
+	const modifier = modifierIndex > 0 ? utility.slice(modifierIndex) : "";
+	const root = modifierIndex > 0 ? utility.slice(0, modifierIndex) : utility;
+	return { prefix, important, root, modifier };
+};
+
+export const suggestTailwindClasses = (
+	classNames: readonly string[],
 	candidate: string,
-) => TailwindUtilityInspection;
+): string[] => {
+	const { prefix, important, root, modifier } = splitCandidate(candidate);
+	if (root.length < 2 || root.includes("[")) {
+		return [];
+	}
+	const maxDistance = Math.max(1, Math.min(3, Math.floor(root.length / 3)));
+	const nearby = classNames.filter(
+		(name) => Math.abs(name.length - root.length) <= maxDistance,
+	);
+	return suggestClosest(root, nearby, {
+		limit: 3,
+		maxDistance,
+		prefixMatches: false,
+	}).map((name) => `${prefix}${important}${name}${modifier}`);
+};
+
+/** Replace the last occurrence of `token` in a class with each suggestion. */
+const suggestTokenClasses = (
+	classToken: string,
+	token: string,
+	tokenNames: Iterable<string>,
+): string[] => {
+	const index = classToken.lastIndexOf(token);
+	if (index < 0) return [];
+	return suggestClosest(token, tokenNames, {
+		limit: 3,
+		prefixMatches: false,
+	}).map(
+		(name) =>
+			`${classToken.slice(0, index)}${name}${classToken.slice(index + token.length)}`,
+	);
+};
+
+const withSuggestions = (suggestions: string[]) =>
+	suggestions.length > 0
+		? {
+				suggestions,
+				messageSuffix: formatDidYouMean(suggestions),
+			}
+		: { suggestions: undefined, messageSuffix: "" };
 
 type CustomUtilityRoots = {
 	customFunctionalUtilityRoots: readonly string[];
@@ -244,11 +417,69 @@ const ARBITRARY_WARN_DOMAINS = new Set<TailwindTokenDomain>([
 
 const IMPLICIT_SPACING_SCALE_PATTERN = /^(\d+|\d*\.\d+|px)$/u;
 
-const collectRecipeDiagnostics = (
+/**
+ * `group`/`peer` marker classes, optionally named (`group/sidebar`): they mark
+ * an element for group-* and peer-* variants and emit no CSS of their own.
+ */
+const GROUP_MARKER_PATTERN = /^(group|peer)(\/[\w-]+)?$/u;
+
+/**
+ * The token snapshot only knows theme tokens, and the classifier only knows
+ * colors: static utilities (`rounded-full`, `leading-none`) and tokens of a
+ * sibling domain (`shadow-elevation-md`, a shadow token, read as a color) look
+ * unknown to it. A class the system's Tailwind build can emit references an
+ * available token, unless the system removed that token on purpose.
+ */
+type AvailableTokenCheck = (
+	domain: TailwindTokenDomain,
+	token: string,
+	candidate: string,
+) => boolean;
+
+const createAvailableTokenCheck = (
+	inspectUtility: TailwindUtilityInspector | null,
+	storedTokens: TailwindTokenStorage,
+): AvailableTokenCheck => {
+	if (!inspectUtility) {
+		return () => false;
+	}
+	const removed = new Set(
+		TAILWIND_TOKEN_DOMAINS.flatMap((domain) =>
+			(storedTokens.domains[domain]?.baselineDiff.removed ?? []).map(
+				(token) => `${domain}:${token.name}`,
+			),
+		),
+	);
+	return (domain, token, candidate) =>
+		!removed.has(`${domain}:${token}`) &&
+		inspectUtility.inspect(candidate).supported;
+};
+
+const noAvailableTokenCheck: AvailableTokenCheck = () => false;
+
+/** A board with its index in the design, so issue paths stay `boards[i]`. */
+type IndexedBoard = { board: DesignNode; index: number };
+
+/**
+ * The boards to diagnose: every board, or the ones in `boardIds`. Every
+ * check is local to a board (recipe instances and resource references live
+ * inside one), so a board's issues do not depend on the other boards.
+ */
+const selectBoards = (
 	design: TrickroomDesign,
+	boardIds: ReadonlySet<string> | undefined,
+): IndexedBoard[] =>
+	design.boards
+		.map((board, index) => ({ board, index }))
+		.filter(({ board }) => boardIds === undefined || boardIds.has(board.id));
+
+const collectRecipeDiagnostics = (
+	boards: readonly IndexedBoard[],
 	issues: ClassTokenDiagnostic[],
 ) => {
-	for (const instance of validateRecipeInstances(design.boards).instances) {
+	for (const instance of validateRecipeInstances(
+		boards.map(({ board }) => board),
+	).instances) {
 		if (instance.status === "attached-valid") {
 			continue;
 		}
@@ -272,14 +503,64 @@ const collectRecipeDiagnostics = (
 	}
 };
 
+/**
+ * Elements whose registry component has no stage render component render as
+ * a "No renderer" placeholder in the editor and in screenshots. Unknown
+ * registry ids are already errors (UNKNOWN_REGISTRY_*) from design validation.
+ */
+const collectRendererDiagnostics = (
+	boards: readonly IndexedBoard[],
+	issues: ClassTokenDiagnostic[],
+) => {
+	const visit = (node: DesignNode, path: string) => {
+		const library = node.props["data-trickroom-library"];
+		const component = node.props["data-trickroom-component"];
+		if (
+			resolveRegistryComponent(library, component).status === "known" &&
+			!hasStageRenderer(library, component)
+		) {
+			issues.push({
+				severity: "warning",
+				code: "MISSING_RENDERER",
+				message: `"${library}/${component}" has no render component, so this element renders as a "No renderer" placeholder in the editor and in screenshots.`,
+				path,
+				elementId: node.id,
+			});
+		}
+		if (Array.isArray(node.children)) {
+			for (const [childIndex, child] of node.children.entries()) {
+				visit(child, `${path}.children[${childIndex}]`);
+			}
+		}
+	};
+
+	for (const { board, index } of boards) {
+		visit(board, `boards[${index}]`);
+	}
+};
+
 const collectResourceDiagnostics = async (
 	context: TrickroomMcpServerContext,
 	design: TrickroomDesign,
+	boards: readonly IndexedBoard[],
 	issues: ClassTokenDiagnostic[],
 ) => {
-	const references = collectDesignResourceReferences(design).filter(
-		(reference) => reference.kind === "asset" || reference.kind === "icon",
-	);
+	const references = collectDesignResourceReferences({
+		...design,
+		boards: boards.map(({ board }) => board),
+	})
+		.filter(
+			(reference) => reference.kind === "asset" || reference.kind === "icon",
+		)
+		.map((reference) => ({
+			...reference,
+			// Paths count the selected boards; point them at the design's.
+			path: reference.path.replace(
+				/^boards\[(\d+)\]/u,
+				(_match, position: string) =>
+					`boards[${boards[Number(position)]?.index ?? position}]`,
+			),
+		}));
 	if (references.length === 0) {
 		return;
 	}
@@ -425,17 +706,27 @@ const collectColorDiagnostics = (
 		"path" | "elementId" | "className" | "classToken"
 	>,
 	parsedRaw: string,
+	colorTokens: ReadonlySet<string>,
+	isAvailableToken: AvailableTokenCheck,
 	issues: ClassTokenDiagnostic[],
 ) => {
-	if (intent.token && !intent.resolved) {
+	if (
+		intent.token &&
+		!intent.resolved &&
+		!isAvailableToken("color", intent.token, parsedRaw)
+	) {
+		const { suggestions, messageSuffix } = withSuggestions(
+			suggestTokenClasses(parsedRaw, intent.token, colorTokens),
+		);
 		pushClassDiagnostic(issues, {
 			severity: "warning",
 			code: "UNKNOWN_COLOR_TOKEN",
-			message: `Class "${parsedRaw}" references unavailable color token "${intent.token}".`,
+			message: `Class "${parsedRaw}" references unavailable color token "${intent.token}".${messageSuffix}`,
 			...base,
 			token: intent.token,
 			property: intent.property,
 			domain: "color",
+			...(suggestions ? { suggestions } : {}),
 		});
 	}
 
@@ -459,6 +750,7 @@ const collectSpacingDiagnostics = (
 	>,
 	parsedRaw: string,
 	resolvedTokens: ResolvedTokenContext,
+	isAvailableToken: AvailableTokenCheck,
 	issues: ClassTokenDiagnostic[],
 ) => {
 	if (intent.value.kind !== "scale") {
@@ -466,18 +758,25 @@ const collectSpacingDiagnostics = (
 	}
 
 	const spacingTokens = resolvedTokens.spacing;
-	if (isSpacingScaleResolved(intent.value.value, spacingTokens)) {
+	if (
+		isSpacingScaleResolved(intent.value.value, spacingTokens) ||
+		isAvailableToken("spacing", intent.value.value, parsedRaw)
+	) {
 		return;
 	}
 
+	const { suggestions, messageSuffix } = withSuggestions(
+		suggestTokenClasses(parsedRaw, intent.value.value, spacingTokens),
+	);
 	pushClassDiagnostic(issues, {
 		severity: "warning",
 		code: "UNKNOWN_SPACING_TOKEN",
-		message: `Class "${parsedRaw}" references unavailable spacing token "${intent.value.value}".`,
+		message: `Class "${parsedRaw}" references unavailable spacing token "${intent.value.value}".${messageSuffix}`,
 		...base,
 		token: intent.value.value,
 		property: intent.property,
 		domain: "spacing",
+		...(suggestions ? { suggestions } : {}),
 	});
 };
 
@@ -489,6 +788,7 @@ const collectStyleDiagnostics = (
 	>,
 	parsedRaw: string,
 	resolvedTokens: ResolvedTokenContext,
+	isAvailableToken: AvailableTokenCheck,
 	issues: ClassTokenDiagnostic[],
 ) => {
 	const domain = STYLE_PROPERTY_TO_TOKEN_DOMAIN[intent.property];
@@ -499,18 +799,25 @@ const collectStyleDiagnostics = (
 	if (intent.value.kind === "scale" || intent.value.kind === "keyword") {
 		const tokenName = intent.value.value;
 		const tokenNames = resolvedTokens[domain];
-		if (tokenNames.has(tokenName)) {
+		if (
+			tokenNames.has(tokenName) ||
+			isAvailableToken(domain, tokenName, parsedRaw)
+		) {
 			return;
 		}
 
+		const { suggestions, messageSuffix } = withSuggestions(
+			suggestTokenClasses(parsedRaw, tokenName, tokenNames),
+		);
 		pushClassDiagnostic(issues, {
 			severity: "warning",
 			code: unknownTokenCodeForDomain(domain),
-			message: `Class "${parsedRaw}" references unavailable ${domain} token "${tokenName}".`,
+			message: `Class "${parsedRaw}" references unavailable ${domain} token "${tokenName}".${messageSuffix}`,
 			...base,
 			token: tokenName,
 			property: intent.property,
 			domain,
+			...(suggestions ? { suggestions } : {}),
 		});
 		return;
 	}
@@ -536,21 +843,25 @@ const collectUnknownUtilityDiagnostics = (
 	inspectUtility: TailwindUtilityInspector | null,
 	issues: ClassTokenDiagnostic[],
 ) => {
-	if (!inspectUtility) {
+	if (!inspectUtility || GROUP_MARKER_PATTERN.test(parsedRaw)) {
 		return;
 	}
 
-	const inspection = inspectUtility(parsedRaw);
+	const inspection = inspectUtility.inspect(parsedRaw);
 	if (inspection.supported) {
 		return;
 	}
 
+	const { suggestions, messageSuffix } = withSuggestions(
+		inspectUtility.suggest(parsedRaw),
+	);
 	pushClassDiagnostic(issues, {
 		severity: "warning",
 		code: "UNKNOWN_TAILWIND_UTILITY",
-		message: `Class "${parsedRaw}" is not recognized as a supported Tailwind utility.`,
+		message: `Class "${parsedRaw}" is not recognized as a supported Tailwind utility.${messageSuffix}`,
 		...base,
 		domain: "tailwind",
+		...(suggestions ? { suggestions } : {}),
 	});
 };
 
@@ -570,6 +881,7 @@ const collectClassDiagnostics = (
 	colorTokens: ReadonlySet<string>,
 	customUtilityRoots: CustomUtilityRoots,
 	inspectUtility: TailwindUtilityInspector | null,
+	isAvailableToken: AvailableTokenCheck,
 	issues: ClassTokenDiagnostic[],
 	options: CollectClassDiagnosticsOptions = {},
 ) => {
@@ -587,7 +899,14 @@ const collectClassDiagnostics = (
 			switch (intent.kind) {
 				case "color":
 					if (includeTokenDomainDiagnostics) {
-						collectColorDiagnostics(intent, base, parsed.raw, issues);
+						collectColorDiagnostics(
+							intent,
+							base,
+							parsed.raw,
+							colorTokens,
+							isAvailableToken,
+							issues,
+						);
 					}
 					break;
 				case "spacing":
@@ -597,6 +916,7 @@ const collectClassDiagnostics = (
 							base,
 							parsed.raw,
 							resolvedTokens,
+							isAvailableToken,
 							issues,
 						);
 					}
@@ -608,6 +928,18 @@ const collectClassDiagnostics = (
 							base,
 							parsed.raw,
 							resolvedTokens,
+							isAvailableToken,
+							issues,
+						);
+					}
+					// Style intents without a token domain are plain Tailwind core
+					// utilities (e.g. flex direction); the classifier accepts any
+					// value for them, so ask Tailwind whether it can emit the class.
+					if (!STYLE_PROPERTY_TO_TOKEN_DOMAIN[intent.property]) {
+						collectUnknownUtilityDiagnostics(
+							parsed.raw,
+							base,
+							inspectUtility,
 							issues,
 						);
 					}
@@ -633,6 +965,7 @@ const collectClassDiagnostics = (
 				colorTokens,
 				customUtilityRoots,
 				inspectUtility,
+				isAvailableToken,
 				issues,
 				options,
 			);
@@ -686,24 +1019,39 @@ const loadTailwindUtilityInspector = async (
 			projectRoot: context.projectRoot,
 			cssPath,
 		});
-		return (candidate) =>
-			inspectTailwindUtilityCandidate(designSystem, candidate);
+		return {
+			inspect: (candidate) =>
+				inspectTailwindUtilityCandidate(designSystem, candidate),
+			suggest: (candidate) =>
+				suggestTailwindClasses(
+					getDesignSystemClassNames(designSystem),
+					candidate,
+				),
+		};
 	} catch {
 		return null;
 	}
 };
 
+/**
+ * Diagnostics of a design: recipe instances, renderers, asset and icon
+ * references, and class tokens. `boardIds` limits them to those boards (for
+ * example the boards a write changed); file-level warnings are kept.
+ */
 export const getDesignDiagnostics = async (
 	context: TrickroomMcpServerContext,
 	design: TrickroomDesign,
+	options: { boardIds?: ReadonlySet<string> } = {},
 ): Promise<DesignDiagnostics> => {
 	const systemHandle = design.systemId ?? design.systemName ?? null;
 	const system = systemHandle
 		? await findDesignSystem(context.projectRoot, systemHandle)
 		: null;
+	const boards = selectBoards(design, options.boardIds);
 	const issues: ClassTokenDiagnostic[] = [];
-	collectRecipeDiagnostics(design, issues);
-	await collectResourceDiagnostics(context, design, issues);
+	collectRecipeDiagnostics(boards, issues);
+	collectRendererDiagnostics(boards, issues);
+	await collectResourceDiagnostics(context, design, boards, issues);
 	if (systemHandle === null) {
 		return {
 			issues,
@@ -742,14 +1090,15 @@ export const getDesignDiagnostics = async (
 		const emptyResolvedTokens = createEmptyResolvedTokenContext();
 		const emptyColorTokens = new Set<string>();
 
-		for (const [rootIndex, board] of design.boards.entries()) {
+		for (const { board, index } of boards) {
 			collectClassDiagnostics(
 				board,
-				`boards[${rootIndex}]`,
+				`boards[${index}]`,
 				emptyResolvedTokens,
 				emptyColorTokens,
 				EMPTY_CUSTOM_UTILITY_ROOTS,
 				inspectUtility,
+				noAvailableTokenCheck,
 				issues,
 				{ includeTokenDomainDiagnostics: false },
 			);
@@ -784,14 +1133,19 @@ export const getDesignDiagnostics = async (
 		system.manifest.cssPath ?? storedTokens.metadata.cssPath,
 	);
 
-	for (const [rootIndex, board] of design.boards.entries()) {
+	const isAvailableToken = createAvailableTokenCheck(
+		inspectUtility,
+		storedTokens,
+	);
+	for (const { board, index } of boards) {
 		collectClassDiagnostics(
 			board,
-			`boards[${rootIndex}]`,
+			`boards[${index}]`,
 			resolvedTokens,
 			colorTokens,
 			customUtilityRoots,
 			inspectUtility,
+			isAvailableToken,
 			issues,
 		);
 	}

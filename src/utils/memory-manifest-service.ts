@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { TOOL } from "../mcp/tool-names";
+import { writeJsonFileAtomically } from "../server-file-utils.ts";
+import { createDesignFileService } from "../services/design-file-service.ts";
 import {
 	findDesignSystem,
 	resolveDesignSystemFilePath,
@@ -32,12 +35,23 @@ export class MemoryManifestError extends Error {
 		| "STALE_WRITE"
 		| "SCOPE_NOT_FOUND"
 		| "NOTE_NOT_FOUND"
-		| "INVALID_SCOPE";
+		| "INVALID_SCOPE"
+		| "INVALID_EDIT"
+		| "EDIT_TEXT_NOT_FOUND"
+		| "EDIT_TEXT_NOT_UNIQUE";
+	readonly details?: Record<string, unknown>;
 
-	constructor(code: MemoryManifestError["code"], message: string) {
+	constructor(
+		code: MemoryManifestError["code"],
+		message: string,
+		details?: Record<string, unknown>,
+	) {
 		super(message);
 		this.name = "MemoryManifestError";
 		this.code = code;
+		if (details) {
+			this.details = details;
+		}
 	}
 }
 
@@ -51,9 +65,20 @@ export type AddMemoryNoteInput = {
 	author?: MemoryNoteAuthor;
 };
 
+/**
+ * A targeted body edit, so callers can change a long note without resending
+ * it. Edits apply in order to the note as stored at write time.
+ */
+export type MemoryNoteBodyEdit =
+	| { op: "append"; text: string }
+	| { op: "prepend"; text: string }
+	| { op: "replace"; oldText: string; newText: string; all?: boolean };
+
 export type UpdateMemoryNotePatch = {
 	title?: string | null;
 	body?: string;
+	/** Applied after `body` when both are given. */
+	edits?: MemoryNoteBodyEdit[];
 	category?: MemoryCategory;
 	tags?: string[] | null;
 	pinned?: boolean | null;
@@ -80,6 +105,88 @@ export function memoryManifestRevision(
 	contents: string,
 ): MemoryManifestRevision {
 	return `sha256:${createHash("sha256").update(contents).digest("hex")}`;
+}
+
+/**
+ * Per-note revision, derived from the normalized note so no persisted shape
+ * changes. Writes that target one note accept it in place of the manifest
+ * revision, so edits to different notes in one scope do not conflict.
+ */
+export function memoryNoteRevision(note: MemoryNote): string {
+	const digest = createHash("sha256")
+		.update(JSON.stringify(note))
+		.digest("hex");
+	return `note:${digest.slice(0, 20)}`;
+}
+
+const countOccurrences = (haystack: string, needle: string) => {
+	let count = 0;
+	let index = haystack.indexOf(needle);
+	while (index !== -1) {
+		count += 1;
+		index = haystack.indexOf(needle, index + needle.length);
+	}
+	return count;
+};
+
+/**
+ * Applies body edits in order. `append`/`prepend` add the text as its own
+ * paragraph (a blank line apart) unless the text already starts/ends with a
+ * newline. `replace` needs `oldText` to occur exactly once unless `all`.
+ */
+export function applyMemoryNoteBodyEdits(
+	body: string,
+	edits: readonly MemoryNoteBodyEdit[],
+): string {
+	let next = body;
+	edits.forEach((edit, editIndex) => {
+		if (edit.op === "append") {
+			next =
+				next.length === 0 || edit.text.startsWith("\n")
+					? `${next}${edit.text}`
+					: `${next.trimEnd()}\n\n${edit.text}`;
+			return;
+		}
+		if (edit.op === "prepend") {
+			next =
+				next.length === 0 || edit.text.endsWith("\n")
+					? `${edit.text}${next}`
+					: `${edit.text}\n\n${next.trimStart()}`;
+			return;
+		}
+		if (edit.oldText.length === 0) {
+			throw new MemoryManifestError(
+				"INVALID_EDIT",
+				`Edit ${editIndex}: replace needs a non-empty oldText.`,
+				{ editIndex },
+			);
+		}
+		const occurrences = countOccurrences(next, edit.oldText);
+		if (occurrences === 0) {
+			throw new MemoryManifestError(
+				"EDIT_TEXT_NOT_FOUND",
+				`Edit ${editIndex}: oldText was not found in the note body. Copy it exactly from ${TOOL.memoryRead}, including whitespace and punctuation.`,
+				{ editIndex, oldText: edit.oldText },
+			);
+		}
+		if (occurrences > 1 && edit.all !== true) {
+			throw new MemoryManifestError(
+				"EDIT_TEXT_NOT_UNIQUE",
+				`Edit ${editIndex}: oldText occurs ${occurrences} times in the note body. Include more surrounding text so it matches once, or set all: true to replace every occurrence.`,
+				{ editIndex, occurrences },
+			);
+		}
+		next = edit.all
+			? next.split(edit.oldText).join(edit.newText)
+			: next.replace(edit.oldText, () => edit.newText);
+	});
+	if (next.trim().length === 0) {
+		throw new MemoryManifestError(
+			"INVALID_EDIT",
+			"The edits would leave the note body empty. Delete the note instead.",
+		);
+	}
+	return next;
 }
 
 export function emptyMemoryManifest(scope: MemoryScopeRef): MemoryManifest {
@@ -111,10 +218,75 @@ export function summarizeMemoryManifest(
 	};
 }
 
+export type MemoryNoteIndexEntry = {
+	noteId: string;
+	title?: string;
+	category: MemoryCategory;
+	tags?: string[];
+	pinned?: boolean;
+	order?: number;
+	updatedAt: string;
+	/** Body length in characters. */
+	size: number;
+	/** Per-note revision accepted by single-note writes. */
+	revision: string;
+	/** First line of the body, bounded. */
+	summary: string;
+};
+
+const MEMORY_NOTE_SUMMARY_LENGTH = 120;
+
+export function summarizeMemoryNoteBody(body: string): string {
+	const firstLine =
+		body
+			.split("\n")
+			.map((line) => line.replace(/^\s*(?:#{1,6}\s+|[-*>]\s+)?/, "").trim())
+			.find((line) => line.length > 0) ?? "";
+	if (firstLine.length <= MEMORY_NOTE_SUMMARY_LENGTH) {
+		return firstLine;
+	}
+	const cut = firstLine.slice(0, MEMORY_NOTE_SUMMARY_LENGTH);
+	const lastSpace = cut.lastIndexOf(" ");
+	return `${(lastSpace > MEMORY_NOTE_SUMMARY_LENGTH / 2 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+}
+
+/** Compact listing entry: everything but the body. */
+export function toMemoryNoteIndexEntry(note: MemoryNote): MemoryNoteIndexEntry {
+	return {
+		noteId: note.noteId,
+		...(note.title ? { title: note.title } : {}),
+		category: note.category,
+		...(note.tags ? { tags: note.tags } : {}),
+		...(note.pinned !== undefined ? { pinned: note.pinned } : {}),
+		...(note.order !== undefined ? { order: note.order } : {}),
+		updatedAt: note.updatedAt,
+		size: note.body.length,
+		revision: memoryNoteRevision(note),
+		summary: summarizeMemoryNoteBody(note.body),
+	};
+}
+
+/** Same order as the memory panel: pinned, ascending order, newest first. */
+export function sortMemoryNotes<
+	Note extends Pick<MemoryNote, "pinned" | "order" | "updatedAt">,
+>(notes: Note[]): Note[] {
+	return [...notes].sort(
+		(left, right) =>
+			Number(right.pinned === true) - Number(left.pinned === true) ||
+			(left.order ?? 0) - (right.order ?? 0) ||
+			right.updatedAt.localeCompare(left.updatedAt),
+	);
+}
+
 async function resolveMemoryLocation(
 	projectRoot: string,
 	scope: MemoryScope,
-): Promise<{ path: string; scopeRef: MemoryScopeRef }> {
+): Promise<{
+	path: string;
+	/** Where to read when `path` does not exist yet (design memory not moved yet). */
+	fallbackPath?: string;
+	scopeRef: MemoryScopeRef;
+}> {
 	if (scope.kind === "project") {
 		return {
 			path: path.join(path.resolve(projectRoot), ".trickroom", "memory.json"),
@@ -129,13 +301,12 @@ async function resolveMemoryLocation(
 				"Design id must be a single path segment.",
 			);
 		}
+		const location = await createDesignFileService(
+			projectRoot,
+		).getDesignMemoryLocation(scope.designId);
 		return {
-			path: path.join(
-				path.resolve(projectRoot),
-				".trickroom",
-				"designs",
-				`${scope.designId}.memory.json`,
-			),
+			path: location.path,
+			...(location.fallbackPath ? { fallbackPath: location.fallbackPath } : {}),
 			scopeRef: { kind: "design", id: scope.designId },
 		};
 	}
@@ -337,13 +508,14 @@ export async function readMemoryManifest(
 	projectRoot: string,
 	scope: MemoryScope,
 ): Promise<MemoryManifestRead> {
-	const { path: manifestPath, scopeRef } = await resolveMemoryLocation(
-		projectRoot,
-		scope,
-	);
+	const {
+		path: manifestPath,
+		fallbackPath,
+		scopeRef,
+	} = await resolveMemoryLocation(projectRoot, scope);
 
 	try {
-		const contents = await readFile(manifestPath, "utf8");
+		const contents = await readMemoryContents(manifestPath, fallbackPath);
 		const manifest = parseMemoryManifestContents(
 			contents,
 			scopeRef,
@@ -375,6 +547,24 @@ export async function readMemoryManifest(
 	}
 }
 
+/** Reads a memory file, or its older location when it has not moved yet. */
+const readMemoryContents = async (
+	manifestPath: string,
+	fallbackPath: string | undefined,
+) => {
+	try {
+		return await readFile(manifestPath, "utf8");
+	} catch (error) {
+		if (
+			fallbackPath === undefined ||
+			(error as NodeJS.ErrnoException).code !== "ENOENT"
+		) {
+			throw error;
+		}
+		return readFile(fallbackPath, "utf8");
+	}
+};
+
 const memoryWriteQueues = new Map<string, Promise<unknown>>();
 
 async function runExclusiveMemoryWrite<T>(
@@ -403,34 +593,39 @@ async function runExclusiveMemoryWrite<T>(
 	return queuedWrite;
 }
 
-async function writeJsonAtomically(filePath: string, value: unknown) {
-	const contents = `${JSON.stringify(value, null, "\t")}\n`;
-	const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-	try {
-		await writeFile(tempPath, contents, "utf8");
-		await rename(tempPath, filePath);
-	} catch (error) {
-		await unlink(tempPath).catch(() => undefined);
-		throw error;
-	}
-}
+export type MemoryWriteOptions = {
+	/** The manifest revision, or for single-note writes the note's revision. */
+	expectedRevision: string;
+	now?: string;
+};
 
 async function mutateMemoryManifest(
 	projectRoot: string,
 	scope: MemoryScope,
-	options: { expectedRevision?: string; now?: string },
+	options: { expectedRevision?: string; now?: string; noteId?: string },
 	mutate: (manifest: MemoryManifest, now: string) => MemoryManifest,
 ): Promise<MemoryManifestRead> {
-	const { path: manifestPath, scopeRef } = await resolveMemoryLocation(
-		projectRoot,
-		scope,
-	);
+	const location = await resolveMemoryLocation(projectRoot, scope);
+	const { scopeRef } = location;
 
-	return runExclusiveMemoryWrite(manifestPath, async () => {
+	// Design memory belongs to the design: its writes take the design's lock
+	// (shared with the design files) and re-resolve where the memory lives
+	// under it, since a concurrent design write may just have moved it.
+	const designService =
+		scope.kind === "design" ? createDesignFileService(projectRoot) : null;
+	const runExclusive = <T>(operation: () => Promise<T>) =>
+		designService && scope.kind === "design"
+			? designService.withDesignLock(scope.designId, operation)
+			: runExclusiveMemoryWrite(location.path, operation);
+
+	return runExclusive(async () => {
+		const { path: manifestPath, fallbackPath } = designService
+			? await resolveMemoryLocation(projectRoot, scope)
+			: location;
 		let current: MemoryManifest;
 		let currentRevision: MemoryManifestRevision;
 		try {
-			const contents = await readFile(manifestPath, "utf8");
+			const contents = await readMemoryContents(manifestPath, fallbackPath);
 			current = parseMemoryManifestContents(contents, scopeRef, manifestPath);
 			currentRevision = memoryManifestRevision(contents);
 		} catch (error) {
@@ -451,10 +646,36 @@ async function mutateMemoryManifest(
 			options.expectedRevision !== undefined &&
 			options.expectedRevision !== currentRevision
 		) {
-			throw new MemoryManifestError(
-				"STALE_WRITE",
-				`Memory manifest revision mismatch for ${manifestPath}. Re-read and retry with the current revision.`,
-			);
+			const targetNote =
+				options.noteId !== undefined
+					? current.notes[options.noteId]
+					: undefined;
+			if (options.noteId !== undefined && !targetNote) {
+				throw new MemoryManifestError(
+					"NOTE_NOT_FOUND",
+					`Memory note "${options.noteId}" was not found.`,
+				);
+			}
+			const currentNoteRevision = targetNote
+				? memoryNoteRevision(targetNote)
+				: undefined;
+			if (
+				currentNoteRevision === undefined ||
+				options.expectedRevision !== currentNoteRevision
+			) {
+				throw new MemoryManifestError(
+					"STALE_WRITE",
+					currentNoteRevision !== undefined
+						? `Memory note "${options.noteId}" changed since it was read (or the revision belongs to another note). Re-read it with ${TOOL.memoryRead} and retry with its current revision.`
+						: `Memory manifest revision mismatch for ${manifestPath}. Re-read and retry with the current revision.`,
+					{
+						scopeRevision: currentRevision,
+						...(currentNoteRevision !== undefined
+							? { noteId: options.noteId, noteRevision: currentNoteRevision }
+							: {}),
+					},
+				);
+			}
 		}
 
 		const now = options.now ?? new Date().toISOString();
@@ -472,8 +693,12 @@ async function mutateMemoryManifest(
 		const normalized = normalizeMemoryManifest(next, scopeRef, manifestPath);
 		const contents = serializeMemoryManifest(normalized);
 
-		await mkdir(path.dirname(manifestPath), { recursive: true });
-		await writeJsonAtomically(manifestPath, normalized);
+		if (designService && scope.kind === "design") {
+			await designService.writeDesignMemoryLocked(scope.designId, contents);
+		} else {
+			await mkdir(path.dirname(manifestPath), { recursive: true });
+			await writeJsonFileAtomically(manifestPath, normalized);
+		}
 
 		return {
 			manifest: normalized,
@@ -542,7 +767,7 @@ export async function updateMemoryNote(
 	scope: MemoryScope,
 	noteId: string,
 	patch: UpdateMemoryNotePatch,
-	options: { expectedRevision: string; now?: string },
+	options: MemoryWriteOptions,
 ): Promise<{ read: MemoryManifestRead; note: MemoryNote }> {
 	if (patch.category !== undefined && !isMemoryCategory(patch.category)) {
 		throw new MemoryManifestError(
@@ -554,7 +779,7 @@ export async function updateMemoryNote(
 	const read = await mutateMemoryManifest(
 		projectRoot,
 		scope,
-		options,
+		{ ...options, noteId },
 		(manifest, now) => {
 			const existing = manifest.notes[noteId];
 			if (!existing) {
@@ -567,6 +792,9 @@ export async function updateMemoryNote(
 			const next: MemoryNote = { ...existing, updatedAt: now };
 			if (patch.body !== undefined) {
 				next.body = patch.body;
+			}
+			if (patch.edits !== undefined && patch.edits.length > 0) {
+				next.body = applyMemoryNoteBodyEdits(next.body, patch.edits);
 			}
 			if (patch.category !== undefined) {
 				next.category = patch.category;
@@ -624,16 +852,21 @@ export async function deleteMemoryNote(
 	projectRoot: string,
 	scope: MemoryScope,
 	noteId: string,
-	options: { expectedRevision: string; now?: string },
+	options: MemoryWriteOptions,
 ): Promise<MemoryManifestRead> {
-	return mutateMemoryManifest(projectRoot, scope, options, (manifest) => {
-		if (!manifest.notes[noteId]) {
-			throw new MemoryManifestError(
-				"NOTE_NOT_FOUND",
-				`Memory note "${noteId}" was not found.`,
-			);
-		}
-		delete manifest.notes[noteId];
-		return manifest;
-	});
+	return mutateMemoryManifest(
+		projectRoot,
+		scope,
+		{ ...options, noteId },
+		(manifest) => {
+			if (!manifest.notes[noteId]) {
+				throw new MemoryManifestError(
+					"NOTE_NOT_FOUND",
+					`Memory note "${noteId}" was not found.`,
+				);
+			}
+			delete manifest.notes[noteId];
+			return manifest;
+		},
+	);
 }

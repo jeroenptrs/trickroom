@@ -118,8 +118,23 @@ const componentSlotCue = tv({
 	},
 });
 
+/**
+ * "Changed externally" marker on a layer row: a tag on board rows, a square
+ * on layer rows. Cleared once the human views or works on the board.
+ */
+const layerChangeMarker = tv({
+	base: "ml-1 shrink-0 bg-cyan-500",
+	variants: {
+		board: {
+			true: "px-1 font-mono text-[9px] font-medium uppercase leading-4 tracking-wide text-slate-950",
+			false: "size-1.5",
+		},
+	},
+});
+
 export {
 	componentSlotCue,
+	layerChangeMarker,
 	layerChevron,
 	layerDropIndicator,
 	layerRow,

@@ -49,7 +49,7 @@ trickroom serve /path/to/project --host 0.0.0.0 --no-open
 Project-owned files:
 
 - `.trickroom/config.json`: project name, project ID, and MCP policy.
-- `.trickroom/designs/<uuid>.json`: design files.
+- `.trickroom/designs/<id>/`: one folder per design: `design.json`, one `boards/<boardId>.json` per board, and the design's `memory.json`.
 - `.trickroom/designs/.gitkeep`: created when initializing the designs directory.
 - `.trickroom/systems/<safe-system-name>/system.json`: system ID, display name, CSS path, and icon folders.
 - `.trickroom/systems/<safe-system-name>/tokens.json`: stored Tailwind color-token snapshots.
@@ -81,7 +81,7 @@ Start the server:
 trickroom mcp
 ```
 
-Agents can list projects, open/switch the active project, create design files, read designs, inspect elements, validate files, discover component registries, read linked design-system tokens, dry-run operations, and mutate design files. Existing-file mutations require an `expectedRevision` from a prior read, so agents must re-read after conflicts instead of guessing.
+The server exposes 23 tools in a few families: `project_*` (which project the session works in), `guide` (the authoring rules and reference), `design_*` (list, read, apply, validate, create, screenshot, export), `editor_*` (what the human has selected, and pointing their editor at changes), `memory_*`, `system_*`, `component_*`, and `feedback_submit` (agents report friction with the tools; review it with `trickroom feedback`). All design changes go through `design_apply`, a batch of operations written at once against an `expectedRevision` from a prior read, so agents re-read after conflicts instead of guessing.
 
 For the full tool map and safety model, see [Agents And MCP](./docs/mcp.md).
 

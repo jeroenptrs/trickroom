@@ -8,7 +8,6 @@ import {
 	designFileQueryOptions,
 	designSummariesQueryKey,
 	designSummariesQueryOptions,
-	getDesignFileForUuid,
 } from "../../queries/design-file";
 import type { TrickroomDesign } from "../../types";
 import {
@@ -17,13 +16,18 @@ import {
 } from "../../utils/design-activity";
 import { useProjectScope } from "../contexts";
 import { Alert } from "../ui/alert";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
 import { Text } from "../ui/text";
-import { formatRelativeTime, pluralize } from "./project-view-utils";
+import {
+	formatRelativeTime,
+	getDesignDiagnosticLabel,
+	pluralize,
+} from "./project-view-utils";
 import { useScrollSelectedIntoView } from "./useScrollSelectedIntoView";
 
 export function Designs({
@@ -57,21 +61,20 @@ export function Designs({
 		[designs, normalizedFilter],
 	);
 
-	const prefetchDesignFile = (file: string) =>
-		queryClient.prefetchQuery(designFileQueryOptions(file, projectScope));
+	const prefetchDesignFile = (designId: string) =>
+		queryClient.prefetchQuery(designFileQueryOptions(designId, projectScope));
 
 	// TODO: when creating - add a secondary state requesting a name for the design file
 
 	const createDesignMutation = useMutation({
 		mutationFn: async () => {
 			const designUuid = crypto.randomUUID();
-			const designFile = getDesignFileForUuid(designUuid);
 			const design: TrickroomDesign = {
 				name: "Untitled",
 				boards: [],
 			};
 
-			await createDesignFile(designFile, design);
+			await createDesignFile(designUuid, design);
 			return designUuid;
 		},
 		onSuccess: async (designUuid) => {
@@ -98,9 +101,10 @@ export function Designs({
 	useHotkey(
 		"Enter",
 		() => {
-			if (selectedUuid) {
-				markDesignOpened(projectScope, selectedUuid);
-				navigate(`/design/${selectedUuid}`);
+			const selected = designs.find((design) => design.uuid === selectedUuid);
+			if (selected && !selected.diagnostic) {
+				markDesignOpened(projectScope, selected.uuid);
+				navigate(`/design/${selected.uuid}`);
 			}
 		},
 		{ enabled: selectedUuid !== null },
@@ -205,7 +209,7 @@ export function Designs({
 								const dotHighlighted = isSelected || isActive;
 								return (
 									<Button
-										key={design.file}
+										key={design.uuid}
 										ref={isSelected ? setSelectedItemRef : undefined}
 										variant="block"
 										isSelected={isSelected}
@@ -225,10 +229,15 @@ export function Designs({
 												onSelect(design.uuid);
 											}
 										}}
+										title={design.diagnostic?.message}
 										onDoubleClick={() => {
 											if (clickTimerRef.current) {
 												clearTimeout(clickTimerRef.current);
 												clickTimerRef.current = null;
+											}
+											// The editor cannot load it; the detail pane explains why.
+											if (design.diagnostic) {
+												return;
 											}
 											markDesignOpened(projectScope, design.uuid);
 											navigate(`/design/${design.uuid}`);
@@ -236,7 +245,7 @@ export function Designs({
 										onPointerDown={() => setActiveUuid(design.uuid)}
 										onPointerUp={() => setActiveUuid(null)}
 										onPointerLeave={() => setActiveUuid(null)}
-										onMouseEnter={() => prefetchDesignFile(design.file)}
+										onMouseEnter={() => prefetchDesignFile(design.uuid)}
 									>
 										<div
 											className={`size-10 shrink-0 bg-[length:12px_12px] inset-shadow-[0_0_0_1px] ${dotHighlighted ? "inset-shadow-cyan-200" : "inset-shadow-slate-200"}`}
@@ -250,15 +259,33 @@ export function Designs({
 											<Text className="block max-w-full truncate">
 												{design.name}
 											</Text>
-											<Text
-												tone="muted"
-												className="block max-w-full truncate font-mono text-[10px]"
-											>
-												{design.layersCount}{" "}
-												{pluralize(design.layersCount, "layer")}
-												{" · "}
-												{formatRelativeTime(design.modifiedAt)}
-											</Text>
+											{design.diagnostic ? (
+												<span className="flex min-w-0 items-center gap-1.5">
+													<Badge
+														tone="warning"
+														edge="stamped"
+														className="shrink-0 whitespace-nowrap"
+													>
+														{getDesignDiagnosticLabel(design.diagnostic)}
+													</Badge>
+													<Text
+														tone="muted"
+														className="truncate font-mono text-[10px]"
+													>
+														{formatRelativeTime(design.modifiedAt)}
+													</Text>
+												</span>
+											) : (
+												<Text
+													tone="muted"
+													className="block max-w-full truncate font-mono text-[10px]"
+												>
+													{design.layersCount}{" "}
+													{pluralize(design.layersCount, "layer")}
+													{" · "}
+													{formatRelativeTime(design.modifiedAt)}
+												</Text>
+											)}
 										</div>
 									</Button>
 								);

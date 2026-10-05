@@ -11,13 +11,13 @@ These docs are organized as a user guide first and implementation notes second. 
 ## Deeper Topics
 
 - [Concepts And Design Model](./design-model.md): project, design, system, registry, board, layer, element, props, and the "Design Is Code" philosophy.
-- [Tailwind Systems And Classname Editing](./tailwind-design-systems.md): Tailwind token snapshots, theme injection, and how class strings become reactive property controls.
+- [Tailwind Systems And Classname Editing](./tailwind-design-systems.md): Tailwind token snapshots, theme injection, and how the inspector completes and validates class strings.
 - [Architecture](./architecture.md): React app, Hono API, MCP server, authentication, build output, and runtime data flow.
 - [Development](./development.md): local setup, scripts, packaging, generated files, and test coverage.
 
 ## Quick Safety Summary
 
-Trickroom writes project metadata under `.trickroom`, recent-project state under `~/.trickroom`, and no application source files. MCP writes are gated by project config, design-file allowlists, component allowlists, and content-hash revisions. `deleteElement` removes a subtree and cannot be undone by Trickroom itself.
+Trickroom writes project metadata under `.trickroom`, recent-project state, settings and agent feedback on the MCP tools under `~/.trickroom`, and no application source files. MCP writes are gated by project config, design-file allowlists, component allowlists, and content-hash revisions. A `deleteElement` operation removes a subtree and cannot be undone by Trickroom itself.
 
 ## Source Pointers
 
@@ -26,6 +26,6 @@ Trickroom writes project metadata under `.trickroom`, recent-project state under
 - `src/project.ts`: project config and path handling.
 - `src/services/design-file-service.ts`: design file path safety, validation, atomic writes, and revisions.
 - `src/services/design-transform-service.ts`: MCP mutation semantics.
-- `src/mcp/server.ts`: MCP prompts, tools, policy, and audit logging.
+- `src/mcp/tools/`: MCP tools, one module per tool group; `src/mcp/prompts.ts`: MCP prompts; `src/mcp/governance.ts`: policy and audit logging.
 - `src/utils/tailwind-*`: Tailwind token sync, storage, theme CSS, and class-name modeling.
 - `src/server-entry.ts`: production HTTP server startup, host policy, and static app serving.

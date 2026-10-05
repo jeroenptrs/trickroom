@@ -14,46 +14,47 @@
  */
 import {
 	createDesignFileService,
-	DesignFileServiceError,
 	type DesignFileRevision,
+	DesignFileServiceError,
 	type DesignFileSummary,
+	skipDesignUpdate,
 } from "../services/design-file-service";
 import type { TrickroomDesign } from "../types";
 import {
+	type BulkMigrateDesignSystemComponentInstancesOptions,
 	bulkMigrateDesignSystemComponentInstances,
 	emptyDesignReport,
 	resolveAutomaticMigrationPolicy,
-	skipDesignForAutomaticPolicy,
-	toInstanceRef,
-	type BulkMigrateDesignSystemComponentInstancesOptions,
 	type SystemComponentBulkMigrationChangedInstance,
 	type SystemComponentBulkMigrationDesignReport,
 	type SystemComponentBulkMigrationFailedInstance,
 	type SystemComponentBulkMigrationFailureCode,
 	type SystemComponentBulkMigrationInstanceRef,
 	type SystemComponentBulkMigrationReviewRequiredInstance,
-	type SystemComponentBulkMigrationSkipReason,
 	type SystemComponentBulkMigrationSkippedInstance,
+	type SystemComponentBulkMigrationSkipReason,
+	skipDesignForAutomaticPolicy,
+	toInstanceRef,
 } from "./system-component-bulk-migration-design";
 import { readSystemComponentManifest } from "./system-component-manifest-service";
 import {
 	resolveDesignSummariesForScan,
-	scanProjectSystemComponentUsage,
 	type SystemComponentInstanceUsage,
 	type SystemComponentUsageScanDiagnostic,
+	scanProjectSystemComponentUsage,
 } from "./system-component-usage-scan";
 
 export {
-	bulkMigrateDesignSystemComponentInstances,
 	type BulkMigrateDesignSystemComponentInstancesOptions,
+	bulkMigrateDesignSystemComponentInstances,
 	type SystemComponentBulkMigrationChangedInstance,
 	type SystemComponentBulkMigrationDesignReport,
 	type SystemComponentBulkMigrationFailedInstance,
 	type SystemComponentBulkMigrationFailureCode,
 	type SystemComponentBulkMigrationInstanceRef,
 	type SystemComponentBulkMigrationReviewRequiredInstance,
-	type SystemComponentBulkMigrationSkipReason,
 	type SystemComponentBulkMigrationSkippedInstance,
+	type SystemComponentBulkMigrationSkipReason,
 } from "./system-component-bulk-migration-design";
 
 export type SystemComponentBulkMigrationReport = {
@@ -77,7 +78,6 @@ export type BulkMigrateProjectSystemComponentInstancesOptions = {
 	systemHandle: string;
 	componentId?: string;
 	designFileId?: string;
-	designFile?: string;
 	dryRun?: boolean;
 	onlySafe?: boolean;
 	persist?: boolean;
@@ -86,6 +86,18 @@ export type BulkMigrateProjectSystemComponentInstancesOptions = {
 		design: TrickroomDesign,
 		elementId: string,
 	) => void;
+	/** Turns a migrated design into the one to store (canonicalisation). */
+	prepareDesign?: (design: TrickroomDesign) => Promise<TrickroomDesign>;
+	/** Called after every attempted design write, for audit logging. */
+	onDesignWrite?: (entry: BulkMigrationDesignWrite) => Promise<void>;
+};
+
+export type BulkMigrationDesignWrite = {
+	designFileId: string;
+	expectedRevision: string;
+	resultingRevision: string | null;
+	status: "success" | "REVISION_MISMATCH" | "error";
+	message?: string;
 };
 
 const mergeProjectReport = (
@@ -143,7 +155,7 @@ const mergeScanDiagnosticsIntoReport = (
 	>,
 	options: Pick<
 		BulkMigrateProjectSystemComponentInstancesOptions,
-		"componentId" | "designFileId" | "designFile" | "systemHandle"
+		"componentId" | "designFileId" | "systemHandle"
 	>,
 	summaryById: Map<string, DesignFileSummary>,
 ) => {
@@ -166,11 +178,7 @@ const mergeScanDiagnosticsIntoReport = (
 		if (!designReport) {
 			designReport = emptyDesignReport({
 				designFileId,
-				designFile:
-					diagnostic.designFile ??
-					summary?.file ??
-					options.designFile ??
-					"unknown",
+				designFile: diagnostic.designFile ?? summary?.file ?? "unknown",
 				designName: summary?.name ?? "unknown",
 			});
 			reportsByDesignId.set(designFileId, designReport);
@@ -216,40 +224,23 @@ const createProjectReport = (
 	failureCount: 0,
 });
 
-const persistDesignMigration = async (
-	projectRoot: string,
-	summary: DesignFileSummary,
-	design: TrickroomDesign,
-	expectedRevision: DesignFileRevision | undefined,
-	dryRun: boolean,
-): Promise<
-	Pick<
-		SystemComponentBulkMigrationDesignReport,
-		"persisted" | "revision" | "nextRevision"
-	>
-> => {
-	const baseRevision = expectedRevision ?? summary.revision;
-
-	if (dryRun) {
-		return { persisted: false, revision: baseRevision };
-	}
-
-	const service = createDesignFileService(projectRoot);
-	try {
-		const write = await service.writeDesignFile(summary.file, design, {
-			expectedRevision: baseRevision,
+const rollBackDesignMigration = (
+	designReport: SystemComponentBulkMigrationDesignReport,
+	revision: DesignFileRevision,
+	code: "REVISION_MISMATCH" | "DESIGN_READ_FAILED",
+	message: string,
+) => {
+	designReport.applied = false;
+	designReport.persisted = false;
+	designReport.revision = revision;
+	for (const changed of designReport.changed) {
+		designReport.failures.push({
+			...changed,
+			code,
+			message: `${message} Instance "${changed.instanceId}" changes were rolled back.`,
 		});
-		return {
-			persisted: true,
-			revision: baseRevision,
-			nextRevision: write.revision,
-		};
-	} catch (error) {
-		if (error instanceof DesignFileServiceError) {
-			throw error;
-		}
-		throw error;
 	}
+	designReport.changed = [];
 };
 
 export async function bulkMigrateProjectSystemComponentInstances(
@@ -273,7 +264,7 @@ export async function bulkMigrateProjectSystemComponentInstances(
 		});
 		report.failures.push({
 			designFileId: options.designFileId ?? "unknown",
-			designFile: options.designFile ?? "unknown",
+			designFile: "unknown",
 			designName: "unknown",
 			elementId: "unknown",
 			instanceId: "unknown",
@@ -294,7 +285,6 @@ export async function bulkMigrateProjectSystemComponentInstances(
 		systemHandle: options.systemHandle,
 		componentId: options.componentId,
 		designFileId: options.designFileId,
-		designFile: options.designFile,
 		validateManifest: true,
 	});
 
@@ -318,13 +308,11 @@ export async function bulkMigrateProjectSystemComponentInstances(
 	}
 
 	const service = createDesignFileService(projectRoot);
-	const summaries =
-		options.designFileId || options.designFile
-			? await resolveDesignSummariesForScan(projectRoot, {
-					designFileId: options.designFileId,
-					designFile: options.designFile,
-				})
-			: await service.listDesignSummaries();
+	const summaries = options.designFileId
+		? await resolveDesignSummariesForScan(projectRoot, {
+				designFileId: options.designFileId,
+			})
+		: await service.listDesignSummaries();
 	const summaryById = new Map(
 		summaries.map((summary) => [summary.uuid, summary]),
 	);
@@ -345,7 +333,7 @@ export async function bulkMigrateProjectSystemComponentInstances(
 
 		let read: Awaited<ReturnType<typeof service.readDesignFile>>;
 		try {
-			read = await service.readDesignFile(summary.file);
+			read = await service.readDesignFile(summary.uuid);
 		} catch (error) {
 			const message =
 				error instanceof DesignFileServiceError
@@ -400,52 +388,81 @@ export async function bulkMigrateProjectSystemComponentInstances(
 			}
 		}
 
-		const migration = bulkMigrateDesignSystemComponentInstances(
-			read.design,
-			designContext,
-			manifestRead.manifest,
-			{
-				componentId: options.componentId,
-				dryRun: dryRun || !persist,
-				onlySafe,
-				assertInstanceSubtreeAllowed: options.assertInstanceSubtreeAllowed,
-			},
-		);
+		const migrateDesign = (design: TrickroomDesign) =>
+			bulkMigrateDesignSystemComponentInstances(
+				design,
+				designContext,
+				manifestRead.manifest,
+				{
+					componentId: options.componentId,
+					dryRun: dryRun || !persist,
+					onlySafe,
+					assertInstanceSubtreeAllowed: options.assertInstanceSubtreeAllowed,
+				},
+			);
+		let migration = migrateDesign(read.design);
 
 		if (migration.report.applied && persist) {
+			let outcome: Awaited<ReturnType<typeof service.updateDesignFile>>;
 			try {
-				const persisted = await persistDesignMigration(
-					projectRoot,
-					summary,
-					migration.design,
-					read.revision,
-					false,
-				);
-				migration.report.persisted = persisted.persisted;
-				migration.report.revision = persisted.revision;
-				migration.report.nextRevision = persisted.nextRevision;
+				// Re-runs the migration on a fresh read, so a design that changed
+				// since the scan is migrated as it is now or reported as a mismatch.
+				outcome = await service.updateDesignFile(summary.uuid, {
+					expectedRevision: read.revision,
+					mutate: async (current) => {
+						migration = migrateDesign(current.design);
+						return migration.report.applied
+							? { design: migration.design }
+							: skipDesignUpdate(null);
+					},
+					prepare: options.prepareDesign,
+				});
 			} catch (error) {
-				const message =
-					error instanceof DesignFileServiceError
+				rollBackDesignMigration(
+					migration.report,
+					read.revision,
+					error instanceof DesignFileServiceError &&
+						error.code === "REVISION_MISMATCH"
+						? "REVISION_MISMATCH"
+						: "DESIGN_READ_FAILED",
+					error instanceof Error
 						? error.message
-						: error instanceof Error
-							? error.message
-							: "Failed to persist migrated design file.";
-				migration.report.applied = false;
-				migration.report.persisted = false;
-				migration.report.revision = read.revision;
-				for (const changed of migration.report.changed) {
-					migration.report.failures.push({
-						...changed,
-						code:
-							error instanceof DesignFileServiceError &&
-							error.code === "REVISION_MISMATCH"
-								? "REVISION_MISMATCH"
-								: "DESIGN_READ_FAILED",
-						message: `${message} Instance "${changed.instanceId}" changes were rolled back.`,
-					});
-				}
-				migration.report.changed = [];
+						: "Failed to persist migrated design file.",
+				);
+				await options.onDesignWrite?.({
+					designFileId: summary.uuid,
+					expectedRevision: read.revision,
+					resultingRevision: null,
+					status: "error",
+					message: error instanceof Error ? error.message : undefined,
+				});
+				mergeProjectReport(report, migration.report);
+				continue;
+			}
+
+			if (outcome.status === "written") {
+				migration.report.persisted = true;
+				migration.report.revision = outcome.read.revision;
+				migration.report.nextRevision = outcome.write.revision;
+			} else if (outcome.status === "revision-mismatch") {
+				rollBackDesignMigration(
+					migration.report,
+					read.revision,
+					"REVISION_MISMATCH",
+					"Design file revision does not match the expected revision.",
+				);
+			} else {
+				migration.report.revision = outcome.read.revision;
+			}
+			if (outcome.status !== "skipped") {
+				await options.onDesignWrite?.({
+					designFileId: summary.uuid,
+					expectedRevision: read.revision,
+					resultingRevision:
+						outcome.status === "written" ? outcome.write.revision : null,
+					status:
+						outcome.status === "written" ? "success" : "REVISION_MISMATCH",
+				});
 			}
 		} else {
 			migration.report.revision = read.revision;

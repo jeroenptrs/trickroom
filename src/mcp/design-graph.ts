@@ -1,154 +1,167 @@
-import { normalizeRole } from "../libraries/registry";
+import { createElementNotFoundError } from "../services/element-lookup-hints";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
+import {
+	countElementNodes,
+	describeNode,
+	getRecipeAttachmentSummaries,
+	type TreeReadBounds,
+} from "./payloads/design-tree";
 
 export type DesignGraphOptions = {
 	rootElementId?: string;
 	includeProps?: boolean;
-	includeText?: boolean;
 };
 
-type ElementGraphNode = {
-	id: string;
-	name: string;
-	library: string;
-	component: string;
-	role: string;
-	childIds: string[];
-	textLength?: number;
-	textPreview?: string;
-	props?: DesignNode["props"];
-	text?: string;
-	addresses: {
-		element: string;
-		props: string;
-		children: string;
-		className?: string;
-		name: string;
-		text?: string;
-	};
+type ElementGraphNode = Record<string, unknown> & {
+	parentId: string | null;
 };
 
 export type DesignGraph = {
 	rootElementIds: string[];
 	elementsById: Record<string, ElementGraphNode>;
-	parentIdByElementId: Record<string, string | null>;
-	childIdsByElementId: Record<string, string[]>;
-	addressByElementId: Record<string, string>;
+	returnedNodeCount: number;
+	omittedNodeCount: number;
+	truncatedElementIds: string[];
 };
 
-const getTextPreview = (text: string) =>
-	text.length <= 80 ? text : `${text.slice(0, 77)}...`;
+type GraphEntry = {
+	node: DesignNode;
+	parentId: string | null;
+};
 
-const escapeJsonPointerSegment = (segment: string) =>
-	segment.replace(/~/g, "~0").replace(/\//g, "~1");
-
-const getChildIds = (node: DesignNode) =>
-	Array.isArray(node.children) ? node.children.map((child) => child.id) : [];
-
-const findNode = (
-	nodes: DesignNode[],
+const findScopeEntry = (
+	design: TrickroomDesign,
 	elementId: string,
-): DesignNode | null => {
-	for (const node of nodes) {
-		if (node.id === elementId) {
-			return node;
+): GraphEntry | null => {
+	const visit = (entry: GraphEntry): GraphEntry | null => {
+		if (entry.node.id === elementId) {
+			return entry;
 		}
-
-		if (Array.isArray(node.children)) {
-			const found = findNode(node.children, elementId);
+		if (!Array.isArray(entry.node.children)) {
+			return null;
+		}
+		for (const child of entry.node.children) {
+			const found = visit({
+				node: child,
+				parentId: entry.node.id,
+			});
 			if (found) {
 				return found;
 			}
 		}
-	}
+		return null;
+	};
 
+	for (const board of design.boards) {
+		const found = visit({
+			node: board,
+			parentId: null,
+		});
+		if (found) {
+			return found;
+		}
+	}
 	return null;
 };
 
+/**
+ * Flat, bounded outline of a design: one entry per element keyed by id, in
+ * breadth-first order (siblings keep their order), with parentId, childCount
+ * and the compact fields minus className. Elements are taken from the scope
+ * roots until `maxNodes`/`depth` run out; an element whose descendants were
+ * cut carries `more` (the omitted element count).
+ */
 export const buildDesignGraph = (
 	design: TrickroomDesign,
+	bounds: TreeReadBounds,
 	options: DesignGraphOptions = {},
 ): DesignGraph => {
-	const scopeRoot = options.rootElementId
-		? findNode(design.boards, options.rootElementId)
-		: null;
-	const scopedRootIds = scopeRoot
-		? [scopeRoot.id]
-		: design.boards.map((board) => board.id);
-	const includeProps = options.includeProps === true;
-	const includeText = options.includeText !== false;
+	let roots: GraphEntry[];
+	if (options.rootElementId !== undefined) {
+		const scope = findScopeEntry(design, options.rootElementId);
+		if (!scope) {
+			throw createElementNotFoundError(design, options.rootElementId);
+		}
+		roots = [scope];
+	} else {
+		roots = design.boards.map((board) => ({
+			node: board,
+			parentId: null,
+		}));
+	}
+
+	const recipeSummaries = getRecipeAttachmentSummaries(design);
+	const detail = options.includeProps === true ? "full" : "compact";
 	const elementsById: Record<string, ElementGraphNode> = {};
-	const parentIdByElementId: Record<string, string | null> = {};
-	const childIdsByElementId: Record<string, string[]> = {};
-	const addressByElementId: Record<string, string> = {};
-	const includeAll = options.rootElementId === undefined;
-	let scopeReached = options.rootElementId === undefined;
+	const selected = new Set<DesignNode>();
+	const graph: DesignGraph = {
+		rootElementIds: roots.map((entry) => entry.node.id),
+		elementsById,
+		returnedNodeCount: 0,
+		omittedNodeCount: 0,
+		truncatedElementIds: [],
+	};
 
-	const visit = (
-		node: DesignNode,
-		parentId: string | null,
-		address: string,
-		inScope: boolean,
-	) => {
-		const nextInScope = inScope || node.id === options.rootElementId;
-		if (node.id === options.rootElementId) {
-			scopeReached = true;
-		}
-		const childIds = getChildIds(node);
-
-		if (includeAll || nextInScope) {
-			const text = typeof node.children === "string" ? node.children : null;
-			elementsById[node.id] = {
-				id: node.id,
-				name: node.props["data-trickroom-name"],
-				library: node.props["data-trickroom-library"],
-				component: node.props["data-trickroom-component"],
-				role: normalizeRole(node.props["data-trickroom-role"]),
-				childIds,
-				...(text !== null
-					? {
-							textLength: text.length,
-							textPreview: getTextPreview(text),
-						}
-					: {}),
-				...(includeProps ? { props: node.props } : {}),
-				...(includeText && text !== null ? { text } : {}),
-				addresses: {
-					element: address,
-					props: `${address}/props`,
-					children: `${address}/children`,
-					name: `${address}/props/${escapeJsonPointerSegment("data-trickroom-name")}`,
-					...(node.props.className !== undefined
-						? { className: `${address}/props/className` }
-						: {}),
-					...(text !== null ? { text: `${address}/children` } : {}),
-				},
+	let level = roots;
+	let depth = 0;
+	while (level.length > 0) {
+		const next: GraphEntry[] = [];
+		for (const entry of level) {
+			if (bounds.maxNodes !== null && selected.size >= bounds.maxNodes) {
+				break;
+			}
+			selected.add(entry.node);
+			const { id: _id, ...described } = describeNode(
+				entry.node,
+				detail,
+				recipeSummaries,
+			);
+			// The outline is structure only: styling stays in the tree view
+			// unless every prop is requested.
+			delete described.className;
+			const children = Array.isArray(entry.node.children)
+				? entry.node.children
+				: [];
+			elementsById[entry.node.id] = {
+				parentId: entry.parentId,
+				...described,
+				...(children.length > 0 ? { childCount: children.length } : {}),
 			};
-			parentIdByElementId[node.id] = parentId;
-			childIdsByElementId[node.id] = childIds;
-			addressByElementId[node.id] = address;
-		}
-
-		if (Array.isArray(node.children)) {
-			for (const [childIndex, child] of node.children.entries()) {
-				visit(child, node.id, `${address}/children/${childIndex}`, nextInScope);
+			if (bounds.maxDepth === null || depth < bounds.maxDepth) {
+				for (const child of children) {
+					next.push({
+						node: child,
+						parentId: entry.node.id,
+					});
+				}
 			}
 		}
-	};
-
-	for (const [rootIndex, board] of design.boards.entries()) {
-		visit(board, null, `/boards/${rootIndex}`, includeAll);
+		level = next;
+		depth += 1;
 	}
 
-	if (options.rootElementId !== undefined && !scopeReached) {
-		throw new Error(`Unknown element "${options.rootElementId}"`);
+	graph.returnedNodeCount = selected.size;
+	for (const node of selected) {
+		if (!Array.isArray(node.children)) {
+			continue;
+		}
+		let omitted = 0;
+		for (const child of node.children) {
+			if (!selected.has(child)) {
+				omitted += countElementNodes(child);
+			}
+		}
+		if (omitted > 0) {
+			elementsById[node.id].more = omitted;
+			graph.omittedNodeCount += omitted;
+			graph.truncatedElementIds.push(node.id);
+		}
+	}
+	for (const root of roots) {
+		if (!selected.has(root.node)) {
+			graph.omittedNodeCount += countElementNodes(root.node);
+		}
 	}
 
-	return {
-		rootElementIds: scopedRootIds,
-		elementsById,
-		parentIdByElementId,
-		childIdsByElementId,
-		addressByElementId,
-	};
+	return graph;
 };

@@ -3,7 +3,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Folder } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useNavigate } from "react-router";
-import { getTrickroomDesktopApi } from "../desktop-api";
 import { configFileQueryKey } from "../queries/config-file";
 import { openProject, sessionQueryKey } from "../queries/projects";
 import { systemsQueryKey } from "../queries/systems";
@@ -16,11 +15,6 @@ import { Text } from "./ui/text";
 
 export function OpenProjectPanel() {
 	const [path, setPath] = useState("");
-	const [folderPickerError, setFolderPickerError] = useState<string | null>(
-		null,
-	);
-	const [isPickingFolder, setIsPickingFolder] = useState(false);
-	const desktopApi = getTrickroomDesktopApi();
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const openMutation = useMutation({
@@ -35,28 +29,6 @@ export function OpenProjectPanel() {
 
 	const hasPath = path.trim().length > 0;
 	const openError = (openMutation.error as Error | null)?.message;
-
-	const handlePickProjectFolder = async () => {
-		if (!desktopApi || isPickingFolder || openMutation.isPending) {
-			return;
-		}
-
-		setFolderPickerError(null);
-		setIsPickingFolder(true);
-		try {
-			const result = await desktopApi.pickProjectFolder();
-			if (!result.canceled) {
-				setPath(result.path);
-				openMutation.mutate(result.path);
-			}
-		} catch (error) {
-			setFolderPickerError(
-				error instanceof Error ? error.message : "Failed to choose folder.",
-			);
-		} finally {
-			setIsPickingFolder(false);
-		}
-	};
 
 	const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
@@ -83,25 +55,6 @@ export function OpenProjectPanel() {
 			</div>
 
 			<div className="flex flex-col gap-3 sm:flex-row">
-				{desktopApi ? (
-					<Button
-						type="button"
-						variant="filled"
-						className="w-full flex-col items-start gap-1 text-left"
-						disabled={openMutation.isPending || isPickingFolder}
-						onClick={handlePickProjectFolder}
-					>
-						<span className="block">
-							{isPickingFolder ? "Choosing folder…" : "Open folder"}
-						</span>
-						<Text
-							tone="inverse-muted"
-							className="block text-[11px] font-normal"
-						>
-							Choose an existing project on disk
-						</Text>
-					</Button>
-				) : null}
 				<Button
 					type="button"
 					variant="outlined"
@@ -123,7 +76,7 @@ export function OpenProjectPanel() {
 							<Text variant="section-header" render={<label />} />
 						}
 					>
-						or open by path
+						Open by path
 					</Field.Label>
 					<InputGroup icon={Folder}>
 						<FieldControl
@@ -145,9 +98,6 @@ export function OpenProjectPanel() {
 
 				{openMutation.isError ? (
 					<Alert variant="panel">Failed to open project: {openError}</Alert>
-				) : null}
-				{folderPickerError ? (
-					<Alert variant="panel">{folderPickerError}</Alert>
 				) : null}
 			</form>
 

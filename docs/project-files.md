@@ -16,7 +16,21 @@ Per-user app state belongs to the local machine:
 ~/.trickroom/
 ```
 
-You can override the per-user app-state location with `TRICKROOM_HOME`.
+You can override the per-user app-state location with `TRICKROOM_HOME`. It holds:
+
+```text
+~/.trickroom/
+  projects.json                 recent project locations (see Per-User Project Registry)
+  settings.json                 app settings: MCP tool groups, mcp.callLog, server and screenshot options
+  locks/designs/<hash>.lock     design write locks (see Concurrency And Revision Safety)
+  locks/<hash>.lock             project registry write lock (see Per-User Project Registry)
+  runtime/servers/<pid>.json    discovery records of running Trickroom servers
+  feedback/                     created on first use, 0700
+    feedback-YYYY-MM.jsonl      agent reports from feedback_submit (0600)
+    calls-YYYY-MM.jsonl         per-call log, only with mcp.callLog (0600)
+```
+
+Nothing under it is project data or is sent anywhere. The feedback files are JSON Lines with `"v": 1` entries; see [Feedback](mcp.md#feedback) for the format and `trickroom feedback` for reviewing them.
 
 ## Project Config
 
@@ -99,26 +113,30 @@ Directory:
 <projectRoot>/.trickroom/designs/
 ```
 
-Files:
+Layout (design file version 2):
 
 ```text
-<projectRoot>/.trickroom/designs/<uuid>.json
+<projectRoot>/.trickroom/designs/<designId>/
+  design.json            manifest: version, name, systemId and other top-level fields
+  boards/<boardId>.json  one board: version, order key and the board's node tree
+  memory.json            the design's memory notes (see Memory Notes)
 ```
 
 Purpose:
 
-- Stores one Trickroom design per JSON file.
-- Uses the UUID filename as the design handle in the app and MCP.
-- Stores the design name, optional linked system, and root boards.
+- Stores one Trickroom design per folder, named by the design id (a UUID for designs Trickroom creates). The id is the design handle in the app, the HTTP API (`?id=`) and MCP.
+- Stores each board in its own file, so an edit to one board changes one file, two branches that each add a board to the same design touch no shared file, and a write to board A does not conflict with a concurrent write to board B.
+- The set of boards is the listing of `boards/`; there is no board list in the manifest. Boards sort by their `order` key, then by board id.
 
-Design shape:
+In-memory design shape (what the HTTP API and MCP tools return, assembled from the files):
 
 ```ts
 type TrickroomDesign = {
   name: string;
   systemId?: string | null;
   systemName?: string | null;
-  boards: Node[];
+  componentMigrationPolicy?: "inherit" | "manual" | "auto";
+  boards: Node[]; // in order
 };
 
 type Node = {
@@ -128,47 +146,149 @@ type Node = {
 };
 ```
 
-New designs created by the app start with one root container:
+`design.json`:
 
 ```json
 {
-  "name": "Untitled",
-  "boards": [
-    {
-      "id": "00000000-0000-4000-8000-000000000001",
-      "props": {
-        "data-trickroom-name": "Root",
-        "data-trickroom-library": "trickroom",
-        "data-trickroom-component": "container",
-        "data-trickroom-role": "branch"
-      },
-      "children": []
-    }
-  ]
+	"version": 2,
+	"name": "Checkout",
+	"systemId": "sys_00000000-0000-4000-8000-000000000000"
 }
 ```
 
+`boards/00000000-0000-4000-8000-000000000001.json`:
+
+```json
+{
+	"version": 2,
+	"order": "V",
+	"board": {
+		"id": "00000000-0000-4000-8000-000000000001",
+		"props": {
+			"data-trickroom-name": "Root",
+			"data-trickroom-library": "trickroom",
+			"data-trickroom-component": "container",
+			"data-trickroom-role": "branch"
+		},
+		"children": []
+	}
+}
+```
+
+Every file of a design carries the same `version`, so a board file that arrives from another branch is self-describing.
+
+Board order:
+
+- `order` is a fractional index: a string of base-62 digits (`0-9A-Za-z`) compared as a plain string, where a key can always be generated between two others (`design-order.ts`).
+- Adding a board writes only the new board's file, with a key between its neighbours. Moving a board rewrites only that board's file. Deleting a board unlinks its file.
+- Two branches that insert a board in the same place can produce equal keys; ties sort by board id, and the next write that needs room between them re-keys one board.
+- A missing or invalid key sorts last and is replaced on the next write that touches the design's order.
+
 Write behavior:
 
-- The browser app creates design files from the project screen.
-- The editor autosaves design files after dirty changes.
-- MCP `createDesignFile` creates blank design files when policy allows and refuses to overwrite existing UUIDs.
-- MCP mutation tools edit existing design files when policy and revisions allow.
-- Writes are atomic: existing-file saves write a temporary JSON file and rename it into place; exclusive creation links a temporary file only when the target UUID does not already exist.
+- The browser app creates designs from the project screen. The editor autosaves the whole design through `PUT /api/trickroom/design?id=<designId>`; the design file service compares it with what is on disk and writes only the files that changed: a board file when its board or its order key changed, `design.json` when a top-level field changed, and an unlink per deleted board.
+- MCP `design_create` creates designs when policy allows and refuses to overwrite an existing id. Unlike the app's new designs, an MCP-created design starts without boards (or with a copy of an existing element as its board). MCP `design_apply` edits existing designs when policy and revisions allow.
+- Each file is written atomically (a temporary file renamed into place). A write that changes more than one file (moving a layer between boards, promoting a layer to a board or demoting a board, reordering plus editing, converting a legacy design) is journaled; see [Multi-file writes](#multi-file-writes).
+- Written JSON is tab-indented with a stable key order (`version` first; in the manifest then `name`, `systemId`, `systemName`, `componentMigrationPolicy`, other keys), so identical designs produce identical bytes.
+- Every write checks that each element id is unique in the design, is a safe single path segment usable as a file name (letters, digits, `-`, `_`, `.`; not first or last; no `/`, `\`, `:` or other reserved characters), and that no two board ids differ only in letter case. Board ids name board files, and any layer can become a board.
+- Reading a design never writes it. Opening a design in the app or capturing a screenshot leaves the files, the revision and the git worktree untouched.
+- `GET /api/trickroom/design/board?id=<designId>&board=<boardId>` returns one board and its revision (`{ board, revision }`, also in `x-trickroom-board-revision`); in the folder layout it reads only that board's file.
+
+### Design revisions
+
+A design's revision is an opaque token (`r2.` followed by base64url) built from the revision of its manifest and of every board, in board order. Board and manifest revisions are content hashes of the in-memory value with object keys sorted, so the same design has the same revision whatever its formatting, key order or storage layout. Callers compare revisions for equality and pass them back; they never parse them.
+
+A revision-checked write merges at board level against the revision the caller read (`expectedRevision`):
+
+- Boards the caller did not change (equal to their revision in `expectedRevision`) keep what is on disk now, including changes another writer made since. The same holds for the manifest.
+- A board the caller changed or deleted must be unchanged on disk since `expectedRevision`; otherwise the write is refused with `REVISION_MISMATCH` and the stale boards are named (`mismatch.staleBoardIds`; the manifest and order are reported as `manifest` and `order`). The same holds for a changed manifest.
+- Boards another writer added are kept. Boards another writer deleted stay deleted, unless the caller changed them (a mismatch).
+- When the caller kept the relative order of the boards it knew, the order on disk wins and new boards slot in after their predecessor. When the caller reordered, its order wins unless the order on disk changed too (a mismatch).
+- The returned revision describes the merged state. The HTTP API sets `x-trickroom-design-merged: true` when the stored design kept changes the request did not have; the browser applies those changes from the response like any external change.
+- HTTP design reads and writes also report every part's revision in `x-trickroom-design-state` (URI-encoded JSON `{ manifest, boards: [{ id, revision }] }`), design change events carry the same as `state`, and `GET /api/trickroom/design/manifest?id=` returns the top-level fields with those revisions and no board contents. The browser compares these for equality to reload only the parts that changed; it never parses the design revision token.
+
+`updateDesignFile` (used by every MCP mutation and by bulk component migration) applies a mutation to a fresh read and writes it with the caller's revision as `expectedRevision` and the fresh read as the base: a mutation of board A succeeds when only board B changed since the caller's read.
+
+The write reads the design again under the lock, but parses only the board files that differ from what it writes: a stored board file the write would reproduce byte for byte (same board content, same order key) is unchanged, and the written board stands in for it without being parsed or hashed. The comparison is of content, never of object identity, so a board a caller changed in place is still written. The revisions the write returns come from the merge, not from hashing the stored design again.
+
+Each process caches board file contents and board revisions in memory, keyed on the file's identity (path, inode, size, modification and change times), and board revisions also on a hash of the file's bytes. File times have a granularity of up to two seconds and an atomic rename can reuse a just-freed inode, so a file replaced within one tick by one of the same size can look unchanged; identity is therefore trusted only for files that were already older than two seconds when observed. A file changed more recently is read again and identified by its bytes. A write seeds the byte-keyed cache with the board files it stored, so the next read does not hash them again.
+
+A revision that is not a design token (for example an older `sha256:` revision) checks every change strictly. Designs that cannot be read report a hash of their stored bytes as their revision; only a write naming exactly that revision can replace them.
+
+### Multi-file writes
+
+Under the design lock, a write that changes more than one file first stores `<designId>/.journal.json` (through a temporary file and an atomic rename) with the full new contents of every file it will write and every file it will remove, applies them one by one (board files, then `design.json`, then unlinks), and deletes the journal.
+
+- Interrupted before the journal is in place: only a temporary file is left; the old state stands.
+- Interrupted after the journal is in place (between any two apply steps, or before deleting the journal): the journal is complete and replaying it yields the new state.
+
+Every process that takes the design lock replays a leftover journal before anything else, and a reader that finds one takes the lock and replays it before reading. Replaying is idempotent. Journal paths are checked to stay inside the design. Reads take a consistent snapshot without the lock by checking every file of the design before and after reading and retrying when anything changed; a read never sees half of a write. Contents read from the cache count as read (they belong to the identity the file still has), and contents enter the cache only from a read that passed this check. Watchers and the design listing ignore the journal and temporary files (names starting with `.` or ending in `.tmp`).
+
+Deleting a design removes the legacy file and the legacy memory file, then renames the folder away (`designs/.<id>.deleted-<uuid>`) in one step before removing it, so an interrupted delete leaves a whole design, never part of one.
+
+### Design file versions
+
+Design files carry a `version` (`DESIGN_FILE_VERSION` in `src/services/design-file-schema.ts`, currently `2`). Files without one are version 0.
+
+| Version | Layout | Change |
+| --- | --- | --- |
+| 0 | `designs/<id>.json` | Files written before versioning. `componentMigrationPolicy: null` is accepted and means "not set". |
+| 1 | `designs/<id>.json` | Adds `version`. Drops `componentMigrationPolicy: null`. |
+| 2 | `designs/<id>/` | Splits the design into `design.json` plus one file per board, and moves memory into the folder. The in-memory shape is unchanged. |
+
+Read path:
+
+1. Read the design's files: the folder (`design.json` and `boards/*.json`) when `design.json` exists, otherwise the legacy `designs/<id>.json`. Board files are assembled in board order.
+2. Run the ordered migration chain (`designFileMigrations`) from the stored version up to the current one, in memory.
+3. Validate the result as a design and drop `version`: designs in memory, in HTTP responses and in MCP tools are always in the current shape.
+
+The HTTP design read additionally detaches invalid known recipe instances and canonicalises `systemName` to `systemId`, also in memory only. It returns the design's revision, so the next write's revision check matches, and sets `x-trickroom-design-migration: {"fromVersion":1,"toVersion":2}` when the stored version was older and `x-trickroom-recipe-repair` when recipes were repaired. The migrated and repaired shape is persisted by the next real write.
+
+Write path:
+
+- Writers may omit `version`; the service treats such a payload as the current shape and stamps the current version. A payload with an older version runs through the chain first.
+- Writes always produce the folder layout. A legacy design is converted on its first real write (all its files in one journaled write, removing `designs/<id>.json` and moving `designs/<id>.memory.json` into the folder). Trickroom never writes the legacy layout.
+- A design, or any of its files, with a version newer than this Trickroom supports is refused with `UNSUPPORTED_DESIGN_VERSION` (HTTP 422). Trickroom never down-converts a newer file.
+
+`trickroom migrate`:
+
+```text
+trickroom migrate [project] [--dry-run] [--json]
+```
+
+Converts every design of a project at once instead of on each design's first write, and reconciles designs that exist in both layouts (below). Each design is migrated as one journaled write under its lock and read back to confirm the in-memory design is unchanged. `--dry-run` lists what would change without writing. Output reports counts and sizes, never design contents; `--json` prints the full report. Designs that cannot be read, or that come from a newer Trickroom, are skipped and left alone; the command then exits with status 2.
+
+Both layouts at once:
+
+- If both `designs/<id>.json` and `designs/<id>/` exist (for example after a git merge where one branch edited the old file and another migrated), the folder wins. Reads, the design summary (`warnings: [{ code: "LEGACY_DESIGN_FILE_PRESENT" }]`) and MCP `validateDesignFile` (a warning issue) report the old file. Writes leave it alone.
+- `trickroom migrate` reconciles: boards only the old file has are added after their predecessor; boards that differ (or whose ids already exist elsewhere in the folder) are saved to `designs/<id>/conflicts/<boardId>.json` as `{ version, source, board }`; differing top-level fields are saved to `conflicts/design.json`; memory notes only the old memory file has are added and a differing old memory file is saved to `conflicts/memory.json`. The old files are then removed. The folder's version of everything wins; resolve the `conflicts/` files by hand and delete them. Trickroom does not read them.
+
+Unreadable designs:
+
+- Listing designs includes designs that cannot be opened instead of hiding them, so a design written by a newer Trickroom does not silently disappear. Summaries from `GET /api/trickroom/designs` carry a `diagnostic` with `code` `UNSUPPORTED_DESIGN_VERSION`, `INVALID_DESIGN_PAYLOAD`, or `INVALID_DESIGN_JSON`, a message, and the stored `version` when known. Opening one returns HTTP 422 with the same message.
+- Summaries are cached per design on a fingerprint of all of its files (inode, size and modification time of the manifest, every board file, the legacy file and the journal), so a change to any file refreshes the summary and its revision.
+
+When adding a version:
+
+1. Bump `DESIGN_FILE_VERSION` and append a `{ from, to, migrate }` step to `designFileMigrations`. Steps must not mutate their input.
+2. If the step changes the on-disk layout, teach the design file service and `design-storage.ts` to read and write it; the in-memory design shape and the chain stay the same. Board files carry their own version: a board-level change must migrate board files by their own version.
+3. Cover the step in `design-file-schema.test.ts` (from 0, idempotence, newer versions refused) and the layout in the design file service tests.
+4. Update the table above and `docs/design-model.md`.
 
 Path safety:
 
-- Design UUIDs must be a single path segment.
-- `.`, `..`, slashes, and backslashes are rejected.
-- Resolved design paths must stay inside `.trickroom/designs`.
+- Design ids must be a single path segment: `.`, `..`, slashes, backslashes and a leading `.` are rejected.
+- Board and element ids must be safe file names (see Write behavior).
 
 Validation rules:
 
+- `version` may be omitted (version 0) or must be a supported version; newer versions are refused, not down-converted.
+- `design.json` must declare a version of at least 2; each board file must hold `{ version, order, board }` with `board.id` equal to its file name.
 - `name` must be a string.
 - `systemId` may be omitted, `null`, or a stable system id.
 - `systemName` is a legacy read/write compatibility field. New design writes store `systemId`; API responses may include `systemName` as display metadata.
 - `boards` must be an array of valid nodes.
-- Every node must have a string `id`.
+- Every node must have a string `id`, unique in the design.
 - Deprecated node `type` fields are rejected.
 - Deprecated `data-trickroom-type` props are rejected.
 - Registry props must reference known registries and components.
@@ -514,9 +634,9 @@ Design authoring and migration behavior:
 - Extracting a complete attached component root into a new design preserves the attachment with a fresh instance id. Extracting a partial component-owned subtree strips component marker props so the extracted design is independent.
 - Detaching a component instance removes all system-component marker props from that instance and makes the former structural nodes normal editable design elements.
 - Stale detection reports attached instances whose referenced version is no longer current. Hash mismatches and unsafe migrations are surfaced as separate review signals from simple version staleness.
-- Manual migration (`migrateSystemComponentInstance` in MCP) updates one stale instance to the current published version when the migration is safe, or returns a review-required preview when `onlySafe` blocks the write.
-- Bulk migration (`bulkMigrateSystemComponentUsages` in MCP) scans a system, optional component, or design file. It is always explicit: MCP does not auto-apply migrations on read or publish. By default `onlySafe` is true, so safe migrations are applied and review-required or blocked instances are reported without writing them.
-- Automatic application inside the bulk migration helper runs only when callers pass `automatic: true`. That path requires `settings.autoMigrateComponents` on the component manifest and the design's `componentMigrationPolicy` to allow migration (`inherit` or `auto`; `manual` skips automatic writes). MCP bulk migration does not pass `automatic`, so MCP callers must invoke bulk or per-instance migration tools explicitly. The manifest `migrationPolicy` object is stored metadata and is not the runtime gate for automatic bulk migration.
+- Manual migration (MCP `component_migrate` with a `rootElementId`) updates one stale instance to the current published version when the migration is safe, or returns a review-required preview when `onlySafe` blocks the write.
+- Bulk migration (MCP `component_migrate` without a `rootElementId`) scans a system, optional component, or design file. It is always explicit: MCP does not auto-apply migrations on read or publish. By default `onlySafe` is true, so safe migrations are applied and review-required or blocked instances are reported without writing them.
+- Automatic application inside the bulk migration helper runs only when callers pass `automatic: true`. That path requires `settings.autoMigrateComponents` on the component manifest and the design's `componentMigrationPolicy` to allow migration (`inherit` or `auto`; `manual` skips automatic writes). MCP bulk migration does not pass `automatic`, so MCP callers must run `component_migrate` explicitly, per instance or in bulk. The manifest `migrationPolicy` object is stored metadata and is not the runtime gate for automatic bulk migration.
 - The project REST API exposes component settings (`autoMigrateComponents`) and usage scans, but no migration execution route. Stale instances remain reportable whenever automatic settings are off and can still be migrated through explicit MCP tools.
 
 REST surface (project API):
@@ -548,11 +668,11 @@ Scopes and paths:
 
 ```text
 <projectRoot>/.trickroom/memory.json                       # project scope
-<projectRoot>/.trickroom/designs/<uuid>.memory.json        # design scope (sibling of <uuid>.json)
+<projectRoot>/.trickroom/designs/<designId>/memory.json    # design scope
 <projectRoot>/.trickroom/systems/<safe-system-name>/memory.json  # system scope
 ```
 
-Design memory is stored in a sibling file rather than embedded in the design JSON so design diffs and memory diffs stay independent and design reads stay lean.
+Design memory is stored in its own file rather than embedded in the design files so design diffs and memory diffs stay independent and design reads stay lean. Designs still in the legacy layout keep their memory next to the design file, in `designs/<designId>.memory.json`; it moves into the folder with the design (on the design's first write or `trickroom migrate`). A folder design still reads an old memory file next to it and moves it on its next memory write. Memory writes for a design take the design's lock. Deleting a design deletes its memory.
 
 Manifest shape:
 
@@ -591,7 +711,7 @@ Rules:
 
 - `category` must be one of the six enum values; unknown categories are rejected (`INVALID_CATEGORY`).
 - `noteId` must equal its map key; divergent manifests are rejected (`INVALID_MANIFEST`).
-- Note bodies are stored verbatim. Bodies may embed canonical reference tokens such as `{{design:<uuid>}}`, `{{component:<id>}}`, `{{token:<domain>/<name>}}`, `{{asset:<id>}}`, and `{{icon:<id>}}`. Writes return non-blocking `referenceWarnings` for unresolved tokens; reads may pass `resolveReferences=true` (REST query param or MCP `resolveReferences` argument) to attach per-note resolution metadata without mutating stored bodies.
+- Note bodies are stored verbatim. Bodies may embed canonical reference tokens: `{{design:<uuid>}}`, `{{board:<designId>/<boardId>}}`, `{{layer:<designId>/<elementId>}}`, `{{component:<id>}}`, `{{token:<domain>/<name>}}`, `{{asset:<id>}}`, and `{{icon:<id>}}`. Board and layer references name their design, so they resolve the same from any note (see `docs/mcp.md`). Writes return non-blocking `referenceWarnings` for unresolved tokens; reads may pass `resolveReferences=true` (REST query param or MCP `resolveReferences` argument) to attach per-note resolution metadata without mutating stored bodies.
 - Design scope ids must be a single path segment; `.`, `..`, slashes, and backslashes are rejected (`INVALID_SCOPE`).
 - System scope requires a configured system; unknown systems are rejected (`SCOPE_NOT_FOUND`).
 
@@ -599,7 +719,7 @@ Revision and write safety:
 
 - Every `memory.json` revision is a content hash of the exact serialized file (`sha256:<hex digest>`).
 - An absent file reads as an empty manifest with a deterministic revision (fixed epoch timestamps), so a first write does not spuriously conflict.
-- `updateMemoryNote` and `deleteMemoryNote` require `expectedRevision`; stale revisions return `STALE_WRITE` and do not modify the file. `addMemoryNote` is append-only and does not require a revision.
+- Note updates and deletes (`memory_write` actions `update` and `delete` in MCP) require `expectedRevision`; stale revisions return `STALE_WRITE` and do not modify the file. Adding a note is append-only and does not require a revision.
 - Writes are atomic (temp file + rename) and serialized per file path.
 
 REST surface:
@@ -678,14 +798,33 @@ type ProjectRegistry = {
   lastActiveProjectId?: string;
   lastActiveLocationId?: string;
 };
+
+type ProjectLocationRef = {
+  locationId: string;
+  projectId: string;
+  root: string;
+  name: string;
+  lastOpenedAt: string;
+  missingSince?: string; // ISO time a registry write first found `root` gone
+};
 ```
+
+Fields Trickroom does not know (from a newer version, or added by hand) are kept when it rewrites the file.
 
 Write behavior:
 
 - Opening a project upserts its local location.
-- MCP `openProject` is a compatibility alias that registers a project location and selects it for the MCP session.
+- An MCP server started in a folder with an MCP-enabled `.trickroom` project upserts that folder's location without making it app-active.
+- MCP `project_select` with a `path` registers a project location and selects it for the MCP session.
 - `lastActiveProjectId` and `lastActiveLocationId` are app-level registry values and do not select or retarget MCP sessions.
 - Closing a project in the app clears only the in-memory active project for that app session; it does not remove recent project history.
+- Every write is a read-modify-write under a lockfile in `locks/` (the same lock design writes use), so app and MCP servers starting together do not drop each other's registrations. The file is replaced by an atomic rename.
+
+Missing folders (deleted worktrees, removed temporary projects, unmounted drives):
+
+- Lists hide locations whose root folder no longer exists: the app's recent projects, `project_list`, and the MCP resource catalog. Listing never writes the file. A root that cannot be checked (permission error, or no answer within a second) stays listed.
+- A hidden location is never the app's suggested active project, and the MCP resolver skips it when a `projectId` matches several locations. Selecting it by `locationId` fails with `MISSING_PROJECT_LOCATION`, naming the folder. `project_select({ path })` on a folder that exists again re-registers it under its old `locationId`.
+- Each upsert (the writes above) also checks the other locations: a missing root gains `missingSince`, a root that is back loses it, and a location missing for 30 days is removed. Last-active pointers that no longer lead to a location are cleared in the same write. Nothing else removes entries; renaming, deleting or closing in the app does not prune.
 
 ## Files Trickroom Reads But Does Not Edit
 
@@ -708,28 +847,39 @@ Application source files:
 
 ## Concurrency And Revision Safety
 
-Every design file revision is a hash of the exact file contents:
-
-```text
-sha256:<hex digest>
-```
+Every design revision is an opaque token that combines a revision per board and one for the manifest (see [Design revisions](#design-revisions)). Memory and system component manifest revisions are content hashes of the exact file (`sha256:<hex digest>`).
 
 Browser editor:
 
-- Uses a local dirty revision counter.
-- Retains the last persisted content-hash revision returned by the HTTP API.
-- Autosaves after `1000ms`.
-- Sends the persisted revision with existing-file writes; stale writes receive HTTP 409 and do not overwrite disk state.
-- Clears dirty state only when the completed save still matches the current in-memory revision.
-- Subscribes to project file events. Clean designs reload from disk automatically; dirty designs pause autosave and ask whether to reload from disk or keep the local version.
+- Tracks unsaved edits per board (including boards added or deleted locally), for board order and for the design's name and system, each stamped with the store revision of its latest edit.
+- Keeps a base: the last version of every board, the order and the top-level fields known to be on disk, with their revisions.
+- Autosaves the whole design after `1000ms`. The service writes only the boards that changed.
+- Sends the persisted revision with existing-design writes (`PUT /api/trickroom/design?id=<designId>` with `x-trickroom-expected-revision`; without it the write is rejected with HTTP 428; new designs are created with `POST`). A save that changes a board another writer changed since the browser read it receives HTTP 409 and does not overwrite disk state; the editor then compares revisions with the disk again and retries once it has caught up. A save of board A while another writer changed board B succeeds and keeps both.
+- Moves the base to what a completed save stored for every part it sent; edits made while the save was in flight stay dirty. A save that kept another writer's changes (`x-trickroom-design-merged`) applies them from the response without a reload.
+- Subscribes to project file events. An event for the open design fetches only the boards whose revision differs from the base (and the manifest when it changed); other boards, the selection and the view are untouched. A board with local edits that also changed on disk merges by layer; only changes to the same layer prop or text on both sides (or structure that does not merge) ask the human, per board, to take the disk version or keep the local one. Keeping the local one overwrites that board only, with the disk version as the expected revision. The persisted revision moves to the disk revision once the base matches it.
 
 MCP:
 
-- `createDesignFile` creates a new UUID file with exclusive no-overwrite semantics.
-- Every existing-file mutation tool requires `expectedRevision`.
+- `design_create` creates a new design with exclusive no-overwrite semantics.
+- `design_apply`, which makes every change to an existing design, requires `expectedRevision`.
 - The revision must come from a prior read.
-- If the file changed, the tool returns `REVISION_MISMATCH` and does not write.
+- If a board (or the design's name, settings or board order) the tool changes was changed since that read, the tool returns `REVISION_MISMATCH` and does not write. Changes to other boards do not block the write. A mutation that fails while the caller's revision is out of date (for example an element another writer removed) also returns `REVISION_MISMATCH`.
 - The safe response is to re-read, re-plan if needed, and retry with the new revision.
+
+Write serialisation:
+
+- Every design write, create, delete, migration and design memory write runs its read-check-write inside a per-design lock in the shared design file service, so the HTTP server and every MCP process get it. The lock covers the manifest, every board file, the memory file and the journal. Of two writers changing the same board from the same revision, exactly one succeeds and the other receives a revision mismatch; writers changing different boards both succeed.
+- Within a process, writes to one design queue behind each other.
+- Across processes, the queue head holds a lockfile created exclusively (`open(path, "wx")`) containing its pid, hostname, a token, and the acquisition time.
+- Lockfiles live in the per-user home, not the project: `~/.trickroom/locks/designs/<hash>.lock` (or under `TRICKROOM_HOME`), where `<hash>` is derived from the design's legacy `designs/<id>.json` path with the project root resolved through `realpath` (the same lock older Trickroom versions take). They are never committed and never trigger the project file watchers. Every process writing a project must resolve the same Trickroom home.
+- A lock is stale when its holder pid no longer exists on the same host, or when it is older than 10 seconds. Stale locks are removed and acquisition retries. A writer gives up after 5 seconds; the HTTP API answers HTTP 423 and the service raises `DESIGN_FILE_LOCKED`.
+- A holder only removes the lockfile if it still contains its own token.
+- A lock-taker replays a journal left by an interrupted write before doing anything else.
+
+Change events (`GET /api/trickroom/events`, event `change`):
+
+- Changes to the files of one design are batched and reported once they settle (75 ms without a change) and no journaled write is in progress, as `{ file: "designs/<id>", designId, revision, operation, boards }`: `revision` is the design's revision (null when deleted) and `boards` lists the boards whose content changed since the previous event, each with its revision (null when removed). During a steady stream of writes a batch is reported once it is 250 ms old, so a design that keeps changing still produces an event at least that often; an event sent before the files settled is followed by one more check once they have. Repeats of an already reported revision, and of a reported deletion, are dropped.
+- Memory files and system files are reported per file: `{ file, revision, operation }` with a content hash revision.
 
 ## What Trickroom Does Not Delete
 
@@ -740,4 +890,4 @@ Trickroom does not delete:
 - Configured Tailwind CSS files.
 - The legacy `trickroom.config.json` during migration.
 
-The destructive exception is inside design files: deleting a layer removes that element and all descendants from that design JSON.
+The destructive exceptions are inside designs: deleting a layer removes that element and all descendants from its board file, deleting a board removes its file, and deleting a design removes its folder, its legacy file and its memory. `trickroom migrate` removes legacy design and memory files after moving or reconciling their content.
