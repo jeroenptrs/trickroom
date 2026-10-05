@@ -394,61 +394,153 @@ export type UpdateSystemComponentMetadataInput = {
 	order?: number | null;
 };
 
-export async function updateSystemComponentDraftMetadata(
+export const SYSTEM_COMPONENT_NAME_MAX_LENGTH = 80;
+export const SYSTEM_COMPONENT_GROUP_MAX_LENGTH = 120;
+export const SYSTEM_COMPONENT_DESCRIPTION_MAX_LENGTH = 1000;
+
+export type SystemComponentMetadataProblem = {
+	field: "name" | "group" | "description";
+	message: string;
+};
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting them is the point
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/u;
+
+/**
+ * Problems with a component's name, group or description. These are labels on
+ * the record, not part of the template or its hashes. `null` clears group and
+ * description; an empty string is a mistake rather than a way to clear.
+ */
+export function systemComponentMetadataProblems(
+	input: Pick<
+		UpdateSystemComponentMetadataInput,
+		"name" | "group" | "description"
+	>,
+): SystemComponentMetadataProblem[] {
+	const problems: SystemComponentMetadataProblem[] = [];
+	if (input.name !== undefined) {
+		const name = input.name.trim();
+		if (name.length === 0) {
+			problems.push({ field: "name", message: "name must not be empty." });
+		} else if (name.length > SYSTEM_COMPONENT_NAME_MAX_LENGTH) {
+			problems.push({
+				field: "name",
+				message: `name is ${name.length} characters; the limit is ${SYSTEM_COMPONENT_NAME_MAX_LENGTH}.`,
+			});
+		} else if (CONTROL_CHARACTERS.test(name)) {
+			problems.push({
+				field: "name",
+				message: "name must be one line without control characters.",
+			});
+		}
+	}
+	if (typeof input.group === "string") {
+		const group = input.group.trim();
+		if (group.length === 0) {
+			problems.push({
+				field: "group",
+				message: "group must not be empty; pass null to clear it.",
+			});
+		} else if (group.length > SYSTEM_COMPONENT_GROUP_MAX_LENGTH) {
+			problems.push({
+				field: "group",
+				message: `group is ${group.length} characters; the limit is ${SYSTEM_COMPONENT_GROUP_MAX_LENGTH}.`,
+			});
+		} else if (
+			CONTROL_CHARACTERS.test(group) ||
+			group.includes("\\") ||
+			group
+				.split("/")
+				.some((segment) => segment.length === 0 || segment !== segment.trim())
+		) {
+			problems.push({
+				field: "group",
+				message: `group "${group}" must be folder names separated by single slashes, like "organisms/sidebar": no empty segments, no leading or trailing slash, no backslashes, no spaces around a slash.`,
+			});
+		}
+	}
+	if (typeof input.description === "string") {
+		const description = input.description.trim();
+		if (description.length === 0) {
+			problems.push({
+				field: "description",
+				message: "description must not be empty; pass null to clear it.",
+			});
+		} else if (description.length > SYSTEM_COMPONENT_DESCRIPTION_MAX_LENGTH) {
+			problems.push({
+				field: "description",
+				message: `description is ${description.length} characters; the limit is ${SYSTEM_COMPONENT_DESCRIPTION_MAX_LENGTH}.`,
+			});
+		}
+	}
+	return problems;
+}
+
+const assertValidMetadata = (input: UpdateSystemComponentMetadataInput) => {
+	const problems = systemComponentMetadataProblems(input);
+	if (problems.length > 0) {
+		throw new SystemComponentOperationsError(
+			"VALIDATION_FAILED",
+			problems.map((problem) => problem.message).join(" "),
+		);
+	}
+};
+
+/** Apply metadata to a record. Labels only: the draft and versions stay. */
+const applyMetadata = (
+	manifest: SystemComponentManifest,
+	record: SystemComponentRecord,
+	input: UpdateSystemComponentMetadataInput,
+) => {
+	if (input.slug !== undefined) {
+		assertSlugAvailable(manifest, input.slug, record.componentId);
+		record.slug = input.slug;
+	}
+	if (input.name !== undefined) {
+		record.name = input.name.trim();
+	}
+	if (input.description !== undefined) {
+		if (input.description === null) {
+			delete record.description;
+		} else {
+			record.description = input.description.trim();
+		}
+	}
+	if (input.group !== undefined) {
+		if (input.group === null) {
+			delete record.group;
+		} else {
+			record.group = input.group.trim();
+		}
+	}
+	if (input.order !== undefined) {
+		if (input.order === null) {
+			delete record.order;
+		} else {
+			record.order = input.order;
+		}
+	}
+};
+
+/**
+ * Change a component's labels (name, slug, group, description, order). Takes
+ * effect at once: these live on the record, outside the draft and published
+ * versions and their hashes, so there is nothing to publish. Works whether or
+ * not the component has a draft, and never creates one.
+ */
+export async function updateSystemComponentMetadata(
 	projectRoot: string,
 	systemHandle: string,
 	componentId: string,
 	input: UpdateSystemComponentMetadataInput,
 	options: SystemComponentMutationOptions,
 ): Promise<SystemComponentMutationResult> {
-	return commitManifestMutation(
+	return updateSystemComponent(
 		projectRoot,
 		systemHandle,
+		componentId,
+		{ metadata: input },
 		options,
-		(manifest) => {
-			const record = requireRecord(manifest, componentId);
-			if (!record.draft) {
-				throw new SystemComponentOperationsError(
-					"NO_DRAFT",
-					`Component "${componentId}" does not have a draft to update.`,
-				);
-			}
-			const now = options.now ?? new Date().toISOString();
-			if (input.slug !== undefined) {
-				assertSlugAvailable(manifest, input.slug, componentId);
-				record.slug = input.slug;
-			}
-			if (input.name !== undefined) {
-				record.name = input.name;
-			}
-			if (input.description !== undefined) {
-				if (
-					input.description === null ||
-					input.description.trim().length === 0
-				) {
-					delete record.description;
-				} else {
-					record.description = input.description.trim();
-				}
-			}
-			if (input.group !== undefined) {
-				if (input.group === null || input.group.trim().length === 0) {
-					delete record.group;
-				} else {
-					record.group = input.group.trim();
-				}
-			}
-			if (input.order !== undefined) {
-				if (input.order === null) {
-					delete record.order;
-				} else {
-					record.order = input.order;
-				}
-			}
-			touchRecord(record, now);
-			manifest.components[componentId] = record;
-			return componentId;
-		},
 	);
 }
 
@@ -628,77 +720,118 @@ export async function updateSystemComponentDraft(
 	input: UpdateSystemComponentDraftInput,
 	options: SystemComponentMutationOptions,
 ): Promise<SystemComponentMutationResult> {
+	return updateSystemComponent(
+		projectRoot,
+		systemHandle,
+		componentId,
+		{ draft: input },
+		options,
+	);
+}
+
+const applyDraftPatch = (
+	record: SystemComponentRecord,
+	input: UpdateSystemComponentDraftInput,
+	options: SystemComponentMutationOptions,
+) => {
+	const componentId = record.componentId;
+	if (!record.draft) {
+		throw new SystemComponentOperationsError(
+			"NO_DRAFT",
+			`Component "${componentId}" does not have a draft to update.`,
+		);
+	}
+	if (
+		options.expectedDraftTemplateHash !== undefined &&
+		hashSystemComponentTemplate(record.draft) !==
+			options.expectedDraftTemplateHash
+	) {
+		throw new SystemComponentOperationsError(
+			"DRAFT_HASH_MISMATCH",
+			`Component "${componentId}" draft changed since it was loaded. Reload before saving.`,
+		);
+	}
+	if (
+		options.expectedDraftVariantSchemaHash !== undefined &&
+		hashSystemComponentVariantSchema(record.draft.variants) !==
+			options.expectedDraftVariantSchemaHash
+	) {
+		throw new SystemComponentOperationsError(
+			"DRAFT_HASH_MISMATCH",
+			`Component "${componentId}" draft variants changed since they were loaded. Reload before saving.`,
+		);
+	}
+
+	const draft = cloneDraftPayload(record.draft);
+	if (input.root !== undefined) {
+		draft.root = cloneDraftPayload({ root: input.root }).root;
+	}
+	if (input.slots !== undefined) {
+		if (input.slots === null) {
+			delete draft.slots;
+		} else {
+			draft.slots = cloneDraftPayload({
+				root: defaultRootTemplate(),
+				slots: input.slots,
+			}).slots;
+		}
+	}
+	if (input.variants !== undefined) {
+		if (input.variants === null) {
+			delete draft.variants;
+		} else {
+			draft.variants = cloneDraftPayload({
+				root: defaultRootTemplate(),
+				variants: input.variants,
+			}).variants;
+		}
+	}
+	if (input.overrideTargets !== undefined) {
+		if (input.overrideTargets === null) {
+			delete draft.overrideTargets;
+		} else {
+			draft.overrideTargets = cloneDraftPayload({
+				root: defaultRootTemplate(),
+				overrideTargets: input.overrideTargets,
+			}).overrideTargets;
+		}
+	}
+	record.draft = draft;
+};
+
+export type UpdateSystemComponentInput = {
+	metadata?: UpdateSystemComponentMetadataInput;
+	draft?: UpdateSystemComponentDraftInput;
+};
+
+/**
+ * Update a component's metadata and/or draft in one manifest write. Without
+ * `draft`, the draft is left alone (none is created), so a metadata-only call
+ * works on a published component without a draft.
+ */
+export async function updateSystemComponent(
+	projectRoot: string,
+	systemHandle: string,
+	componentId: string,
+	input: UpdateSystemComponentInput,
+	options: SystemComponentMutationOptions,
+): Promise<SystemComponentMutationResult> {
+	if (input.metadata) {
+		assertValidMetadata(input.metadata);
+	}
 	return commitManifestMutation(
 		projectRoot,
 		systemHandle,
 		options,
 		(manifest) => {
-			const record = requireRecord(manifest, componentId);
-			if (!record.draft) {
-				throw new SystemComponentOperationsError(
-					"NO_DRAFT",
-					`Component "${componentId}" does not have a draft to update.`,
-				);
+			const record = cloneRecord(requireRecord(manifest, componentId));
+			if (input.draft) {
+				applyDraftPatch(record, input.draft, options);
 			}
-			if (
-				options.expectedDraftTemplateHash !== undefined &&
-				hashSystemComponentTemplate(record.draft) !==
-					options.expectedDraftTemplateHash
-			) {
-				throw new SystemComponentOperationsError(
-					"DRAFT_HASH_MISMATCH",
-					`Component "${componentId}" draft changed since it was loaded. Reload before saving.`,
-				);
+			if (input.metadata) {
+				applyMetadata(manifest, record, input.metadata);
 			}
-			if (
-				options.expectedDraftVariantSchemaHash !== undefined &&
-				hashSystemComponentVariantSchema(record.draft.variants) !==
-					options.expectedDraftVariantSchemaHash
-			) {
-				throw new SystemComponentOperationsError(
-					"DRAFT_HASH_MISMATCH",
-					`Component "${componentId}" draft variants changed since they were loaded. Reload before saving.`,
-				);
-			}
-
-			const draft = cloneDraftPayload(record.draft);
-			if (input.root !== undefined) {
-				draft.root = cloneDraftPayload({ root: input.root }).root;
-			}
-			if (input.slots !== undefined) {
-				if (input.slots === null) {
-					delete draft.slots;
-				} else {
-					draft.slots = cloneDraftPayload({
-						root: defaultRootTemplate(),
-						slots: input.slots,
-					}).slots;
-				}
-			}
-			if (input.variants !== undefined) {
-				if (input.variants === null) {
-					delete draft.variants;
-				} else {
-					draft.variants = cloneDraftPayload({
-						root: defaultRootTemplate(),
-						variants: input.variants,
-					}).variants;
-				}
-			}
-			if (input.overrideTargets !== undefined) {
-				if (input.overrideTargets === null) {
-					delete draft.overrideTargets;
-				} else {
-					draft.overrideTargets = cloneDraftPayload({
-						root: defaultRootTemplate(),
-						overrideTargets: input.overrideTargets,
-					}).overrideTargets;
-				}
-			}
-
-			const now = options.now ?? new Date().toISOString();
-			record.draft = draft;
-			touchRecord(record, now);
+			touchRecord(record, options.now ?? new Date().toISOString());
 			manifest.components[componentId] = record;
 			return componentId;
 		},

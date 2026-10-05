@@ -16,20 +16,20 @@ import {
 	SystemComponentOperationsError,
 	type SystemComponentSummary,
 	updateSystemComponentDraft,
-	updateSystemComponentDraftMetadata,
 	updateSystemComponentDraftOverrideTargets,
 	updateSystemComponentDraftSlots,
 	updateSystemComponentDraftTemplate,
 	updateSystemComponentDraftVariants,
+	updateSystemComponentMetadata,
 	updateSystemComponentSettings,
 } from "../utils/system-component-operations";
+import { scanProjectSystemComponentUsage } from "../utils/system-component-usage-scan";
 import type {
 	SystemComponentDraftPayload,
 	SystemComponentOverrideTarget,
 	SystemComponentSlotDefinition,
 	SystemComponentVariantSchema,
 } from "../utils/system-components";
-import { scanProjectSystemComponentUsage } from "../utils/system-component-usage-scan";
 
 const parseJsonBody = async (request: Request) =>
 	request.json().catch(() => null) as Promise<unknown>;
@@ -206,10 +206,7 @@ export const registerSystemComponentRoutes = (
 		}
 
 		const expectedRevision = readExpectedRevision(body);
-		if (
-			!expectedRevision ||
-			typeof body.autoMigrateComponents !== "boolean"
-		) {
+		if (!expectedRevision || typeof body.autoMigrateComponents !== "boolean") {
 			return jsonError(
 				"Request body must include expectedRevision and autoMigrateComponents",
 				400,
@@ -223,7 +220,9 @@ export const registerSystemComponentRoutes = (
 				{ autoMigrateComponents: body.autoMigrateComponents },
 				{ expectedRevision },
 			);
-			return c.json(systemSettingsMutationResponse(systemId, systemName, result));
+			return c.json(
+				systemSettingsMutationResponse(systemId, systemName, result),
+			);
 		} catch (error) {
 			return createComponentErrorResponse(error);
 		}
@@ -309,34 +308,31 @@ export const registerSystemComponentRoutes = (
 		},
 	);
 
-	systemsRoutes.get(
-		"/:systemName/components/:componentId/usage",
-		async (c) => {
-			const projectRoot = getProjectRoot(c);
-			const { systemId, systemName } = getRouteSystem(c);
-			const componentId = c.req.param("componentId");
-			const version = c.req.query("version") ?? undefined;
-			const designFileId = c.req.query("designFileId") ?? undefined;
+	systemsRoutes.get("/:systemName/components/:componentId/usage", async (c) => {
+		const projectRoot = getProjectRoot(c);
+		const { systemId, systemName } = getRouteSystem(c);
+		const componentId = c.req.param("componentId");
+		const version = c.req.query("version") ?? undefined;
+		const designFileId = c.req.query("designFileId") ?? undefined;
 
-			try {
-				const result = await scanProjectSystemComponentUsage(projectRoot, {
-					systemHandle: systemId,
-					componentId,
-					version,
-					designFileId,
-					validateManifest: true,
-				});
-				return c.json({
-					systemId,
-					systemName,
-					componentId,
-					...result,
-				});
-			} catch (error) {
-				return createComponentErrorResponse(error);
-			}
-		},
-	);
+		try {
+			const result = await scanProjectSystemComponentUsage(projectRoot, {
+				systemHandle: systemId,
+				componentId,
+				version,
+				designFileId,
+				validateManifest: true,
+			});
+			return c.json({
+				systemId,
+				systemName,
+				componentId,
+				...result,
+			});
+		} catch (error) {
+			return createComponentErrorResponse(error);
+		}
+	});
 
 	systemsRoutes.get(
 		"/:systemName/components/:componentId/versions/:version/expand",
@@ -430,7 +426,7 @@ export const registerSystemComponentRoutes = (
 			}
 
 			try {
-				const result = await updateSystemComponentDraftMetadata(
+				const result = await updateSystemComponentMetadata(
 					projectRoot,
 					systemId,
 					componentId,

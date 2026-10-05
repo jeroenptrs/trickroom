@@ -54,7 +54,7 @@ R = read-only, W = writes. Reads and writes are separate tools because client pe
 | `system_update` | W | Register or remove assets and icon folders. | `action`, `systemName`, `assetId`, `name`, `sourcePath`, `folderPath` |
 | `component_read` | R | System component index, one component's interface, or stale instances. | `view`, `componentId`, `include`, `source` |
 | `component_draft_create` | W | Create a component draft, or extract one from a design layer (optionally publishing it and replacing the layer with an instance). | `systemName`, `expectedRevision`, `slug`, `name`, `draft` \| `from` |
-| `component_draft_update` | W | Replace parts of a component draft. | `componentId`, `expectedRevision`, `root`, `slots`, `variants`, `overrideTargets` |
+| `component_draft_update` | W | Replace parts of a component draft, or change its name, group or description (applies at once). | `componentId`, `expectedRevision`, `name`, `group`, `description`, `root`, `slots`, `variants`, `overrideTargets` |
 | `component_publish` | W | Publish a draft as the component's current version. | `componentId`, `expectedRevision` |
 | `component_delete` | W | Delete a component (kept apart from publish: it is destructive). | `componentId`, `expectedRevision` |
 | `component_migrate` | W | Move stale instances to the current version, one or in bulk. | `rootElementId` + `designFileId` + `expectedRevision`, or bulk filters |
@@ -506,6 +506,22 @@ Lists page with `query` (every term must match the id, name, or path or value), 
 - `view: "stale"`: instances that use an older published version, with counts per status, component and design and the first rows (`limit`).
 
 `component_draft_create` and `component_draft_update` write drafts (see [Extracting A Component From A Design](#extracting-a-component-from-a-design) for `from`); `component_publish` makes the draft the current version (instances already placed stay on their version until migrated); `component_delete` removes a component, leaving placed instances as instances of a missing component. These writes acknowledge rather than echo: the component id, the new manifest `revision`, draft hashes, this component's diagnostics and a summary of what changed (`created`, `replaced` parts, or the published version and what changed since the previous one). Malformed draft input returns `VALIDATION_FAILED` with `INVALID_SYSTEM_COMPONENT_DRAFT_INPUT` diagnostics, each with a path. `component_draft_update` also takes `expectedDraftTemplateHash` and `expectedDraftVariantSchemaHash` to guard against concurrent draft edits. Read `guide({ topic: "component-authoring" })` before authoring.
+
+### Renaming And Regrouping A Component
+
+`component_draft_update` also takes `name`, `group` and `description`, each optional and usable without any draft part. They live on the component record, outside the draft and the published versions: they feed neither `templateHash` nor `variantSchemaHash`, and instances in designs do not copy them (layer names come from the template's node names). So the change applies at once: no publish, no new version, no stale instances, and `component_read` shows it in the index and describe views on the next read. A call with only these fields leaves the draft and `draftState` as they were and creates no draft. `slug` and `componentId` never change on this path (the slug is derived from the name only when a component is created).
+
+- `name`: non-empty, at most 80 characters, one line.
+- `group`: folder names separated by single slashes, like `organisms/sidebar`, at most 120 characters: no empty segments, no leading or trailing slash, no backslash, no spaces around a slash. `null` clears it.
+- `description`: at most 1,000 characters. `null` clears it.
+
+Invalid values return `VALIDATION_FAILED` with `INVALID_SYSTEM_COMPONENT_METADATA` diagnostics (`path` is the field) before anything is written. The write goes through the component manifest service with `expectedRevision` like every component write, and can be combined with draft parts in the same call (one write, one new revision).
+
+```json
+{ "systemName": "Core", "componentId": "cmp_…", "expectedRevision": "sha256:…", "name": "Nav Item", "group": "organisms/sidebar", "description": null }
+```
+
+The acknowledgement's `changes.metadata` names what changed: `name` and `group` as `{ from, to }`, `description` as `"set"`, `"changed"` or `"cleared"`. With draft parts it also has `replaced` and the shape diff; a call that changed nothing reports `changes: { unchanged: true }`. The app's system editor saves these fields through the same service function (`updateSystemComponentMetadata`), so it shows the change after its live-sync reload.
 
 ### Extracting A Component From A Design
 

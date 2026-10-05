@@ -430,6 +430,35 @@ const shapeSummary = (shape: ComponentShape) => ({
 	overrideTargets: shape.overrideTargets,
 });
 
+/** What a write changed in a component's labels: name, group, description. */
+export type SystemComponentMetadataChanges = {
+	name?: { from: string; to: string };
+	group?: { from: string | null; to: string | null };
+	description?: "set" | "changed" | "cleared";
+};
+
+export const diffSystemComponentMetadata = (
+	before: Pick<SystemComponentRecord, "name" | "group" | "description">,
+	after: Pick<SystemComponentRecord, "name" | "group" | "description">,
+): SystemComponentMetadataChanges => ({
+	...(before.name !== after.name
+		? { name: { from: before.name, to: after.name } }
+		: {}),
+	...((before.group ?? null) !== (after.group ?? null)
+		? { group: { from: before.group ?? null, to: after.group ?? null } }
+		: {}),
+	...(before.description !== after.description
+		? {
+				description:
+					before.description === undefined
+						? ("set" as const)
+						: after.description === undefined
+							? ("cleared" as const)
+							: ("changed" as const),
+			}
+		: {}),
+});
+
 /**
  * Write acknowledgement for draft and publish tools: ids, the new manifest
  * revision, hashes, this component's diagnostics, and a summary of what
@@ -441,7 +470,13 @@ export const systemComponentMutationPayload = async (
 	componentId: string,
 	change:
 		| { kind: "created" }
-		| { kind: "updated"; before: ComponentPayload; replaced: string[] }
+		| {
+				kind: "updated";
+				/** The draft before the write, when draft parts were replaced. */
+				before?: ComponentPayload;
+				replaced: string[];
+				metadata?: SystemComponentMetadataChanges;
+		  }
 		| { kind: "published"; previousVersion?: string },
 ) => {
 	const system = await assertConfiguredSystem(context, systemName);
@@ -459,15 +494,25 @@ export const systemComponentMutationPayload = async (
 				: { created: true };
 		}
 		if (change.kind === "updated") {
-			return record.draft
-				? {
-						replaced: change.replaced,
-						...diffComponentShapes(
+			const metadata =
+				change.metadata && Object.keys(change.metadata).length > 0
+					? { metadata: change.metadata }
+					: {};
+			if (change.before === undefined) {
+				return Object.keys(metadata).length > 0
+					? metadata
+					: { unchanged: true };
+			}
+			return {
+				replaced: change.replaced,
+				...metadata,
+				...(record.draft
+					? diffComponentShapes(
 							componentShape(change.before),
 							componentShape(record.draft),
-						),
-					}
-				: { replaced: change.replaced };
+						)
+					: {}),
+			};
 		}
 		const previous =
 			change.previousVersion !== undefined

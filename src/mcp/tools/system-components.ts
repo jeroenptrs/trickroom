@@ -18,7 +18,11 @@ import {
 	createSystemComponentDraft,
 	deleteSystemComponent,
 	publishSystemComponentDraft,
-	updateSystemComponentDraft,
+	SYSTEM_COMPONENT_DESCRIPTION_MAX_LENGTH,
+	SYSTEM_COMPONENT_GROUP_MAX_LENGTH,
+	SYSTEM_COMPONENT_NAME_MAX_LENGTH,
+	systemComponentMetadataProblems,
+	updateSystemComponent,
 } from "../../utils/system-component-operations";
 import { assertCanUseSystemComponentInstanceSubtree } from "../design-operations";
 import {
@@ -39,6 +43,7 @@ import { getSubtreeElementIds } from "../payloads/references";
 import {
 	bulkMigrateSystemComponentUsagesPayload,
 	describeSystemComponentPayload,
+	diffSystemComponentMetadata,
 	listStaleSystemComponentUsagesPayload,
 	listSystemComponentsPayload,
 	systemComponentMutationPayload,
@@ -61,6 +66,7 @@ import {
 import {
 	createJsonResult,
 	createSystemComponentDraftInputErrorResult,
+	createToolErrorResult,
 } from "./results";
 import {
 	designFileIdSchema,
@@ -338,14 +344,34 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 	server.registerTool(
 		TOOL.componentDraftUpdate,
 		{
-			title: "Update System Component Draft",
-			description: `Replace parts of a component's draft: root (template), slots, variants and/or overrideTargets; parts you omit stay. expectedRevision is the manifest revision; expectedDraftTemplateHash and expectedDraftVariantSchemaHash (from ${TOOL.componentRead} describe) guard against concurrent draft edits. Returns the new revision and what changed. Read the draft first with ${TOOL.componentRead}({ componentId, source: "draft", include: ["template", "classes"] }).`,
+			title: "Update System Component",
+			description: `Replace parts of a component's draft: root (template), slots, variants and/or overrideTargets; parts you omit stay. Also renames or regroups a component: name, group (slash-separated folders like "organisms/sidebar") and description, each optional and usable alone; null clears group or description. These are labels, outside the template and its hashes: they take effect at once, with no publish and no new version, and a call with only them leaves the draft as it is (or absent). slug and componentId never change. expectedRevision is the manifest revision; expectedDraftTemplateHash and expectedDraftVariantSchemaHash (from ${TOOL.componentRead} describe) guard against concurrent draft edits. Returns the new revision and what changed. Read the draft first with ${TOOL.componentRead}({ componentId, source: "draft", include: ["template", "classes"] }).`,
 			inputSchema: withProjectScopedInput({
 				systemName: systemNameInputSchema,
 				componentId: componentIdSchema,
 				expectedRevision: expectedRevisionSchema,
 				expectedDraftTemplateHash: z.string().optional(),
 				expectedDraftVariantSchemaHash: z.string().optional(),
+				name: z
+					.string()
+					.optional()
+					.describe(
+						`New display name, at most ${SYSTEM_COMPONENT_NAME_MAX_LENGTH} characters. The slug stays.`,
+					),
+				group: z
+					.string()
+					.nullable()
+					.optional()
+					.describe(
+						`Folder path like "organisms/sidebar", at most ${SYSTEM_COMPONENT_GROUP_MAX_LENGTH} characters; null clears it.`,
+					),
+				description: z
+					.string()
+					.nullable()
+					.optional()
+					.describe(
+						`At most ${SYSTEM_COMPONENT_DESCRIPTION_MAX_LENGTH} characters; null clears it.`,
+					),
 				root: mcpRecipeTemplateNodeInputSchema,
 				slots: mcpSystemComponentSlotsInputSchema,
 				variants: mcpSystemComponentVariantSchemaInputSchema,
@@ -354,7 +380,7 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 			annotations: { ...mutationAnnotations, idempotentHint: false },
 			_meta: {
 				[SEARCH_HINT_META_KEY]:
-					"edit system component template variants slots overrides",
+					"edit system component template variants slots overrides rename group description",
 			},
 		},
 		async ({
@@ -363,6 +389,9 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 			expectedRevision,
 			expectedDraftTemplateHash,
 			expectedDraftVariantSchemaHash,
+			name,
+			group,
+			description,
 			root,
 			slots,
 			variants,
@@ -372,43 +401,86 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 			withPolicyErrorHandling(project, async (context) => {
 				assertCanWriteProject(getMcpPolicy(context.config));
 				const system = await resolveToolSystem(context, { systemName });
-				const parsedDraftPatch = systemComponentDraftPatchSchema.safeParse({
+				const draftPatch = {
 					...(root !== undefined ? { root } : {}),
 					...(slots !== undefined ? { slots } : {}),
 					...(variants !== undefined ? { variants } : {}),
 					...(overrideTargets !== undefined ? { overrideTargets } : {}),
-				});
+				};
+				const metadata = {
+					...(name !== undefined ? { name } : {}),
+					...(group !== undefined ? { group } : {}),
+					...(description !== undefined ? { description } : {}),
+				};
+				const updatesDraft = Object.keys(draftPatch).length > 0;
+				if (!updatesDraft && Object.keys(metadata).length === 0) {
+					throw new DesignTransformError(
+						"INVALID_OPERATION_PARAMETERS",
+						"Nothing to update: pass name, group or description, and/or draft parts root, slots, variants or overrideTargets.",
+					);
+				}
+				const parsedDraftPatch =
+					systemComponentDraftPatchSchema.safeParse(draftPatch);
 				if (!parsedDraftPatch.success) {
 					return createSystemComponentDraftInputErrorResult(
 						context,
 						parsedDraftPatch.error,
 					);
 				}
+				const metadataProblems = systemComponentMetadataProblems(metadata);
+				if (metadataProblems.length > 0) {
+					return createToolErrorResult(
+						context,
+						"VALIDATION_FAILED",
+						"System component name, group or description is invalid.",
+						{
+							diagnostics: metadataProblems.map((problem) => ({
+								code: "INVALID_SYSTEM_COMPONENT_METADATA",
+								severity: "error",
+								path: problem.field,
+								message: problem.message,
+							})),
+						},
+					);
+				}
 				const before = await readSystemComponentManifest(
 					context.projectRoot,
 					system.manifest.systemId,
 				);
-				const beforeDraft = before.manifest.components[componentId]?.draft;
-				await updateSystemComponentDraft(
+				const beforeRecord = before.manifest.components[componentId];
+				const result = await updateSystemComponent(
 					context.projectRoot,
 					system.manifest.systemId,
 					componentId,
-					parsedDraftPatch.data,
+					{
+						metadata,
+						...(updatesDraft ? { draft: parsedDraftPatch.data } : {}),
+					},
 					{
 						expectedRevision,
 						expectedDraftTemplateHash,
 						expectedDraftVariantSchemaHash,
 					},
 				);
-				const replaced = Object.keys(parsedDraftPatch.data);
+				const afterRecord = result.manifest.components[componentId];
 				return createJsonResult(
 					await systemComponentMutationPayload(
 						context,
 						system.manifest.systemId,
 						componentId,
-						beforeDraft
-							? { kind: "updated", before: beforeDraft, replaced }
-							: { kind: "created" },
+						{
+							kind: "updated",
+							...(updatesDraft ? { before: beforeRecord?.draft } : {}),
+							replaced: Object.keys(parsedDraftPatch.data),
+							...(beforeRecord && afterRecord
+								? {
+										metadata: diffSystemComponentMetadata(
+											beforeRecord,
+											afterRecord,
+										),
+									}
+								: {}),
+						},
 					),
 				);
 			}),

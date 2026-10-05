@@ -16,11 +16,11 @@ import {
 	publishSystemComponentDraft,
 	type SystemComponentOperationsError,
 	updateSystemComponentDraft,
-	updateSystemComponentDraftMetadata,
 	updateSystemComponentDraftOverrideTargets,
 	updateSystemComponentDraftSlots,
 	updateSystemComponentDraftTemplate,
 	updateSystemComponentDraftVariants,
+	updateSystemComponentMetadata,
 } from "./system-component-operations";
 import {
 	hashSystemComponentTemplate,
@@ -194,7 +194,7 @@ describe("system component operations", () => {
 			},
 		);
 
-		const afterMetadata = await updateSystemComponentDraftMetadata(
+		const afterMetadata = await updateSystemComponentMetadata(
 			projectRoot,
 			systemHandle,
 			created.componentId,
@@ -530,7 +530,7 @@ describe("system component operations", () => {
 		);
 
 		await expect(
-			updateSystemComponentDraftMetadata(
+			updateSystemComponentMetadata(
 				projectRoot,
 				systemHandle,
 				created.componentId,
@@ -540,6 +540,79 @@ describe("system component operations", () => {
 		).rejects.toMatchObject({
 			code: "STALE_WRITE",
 		} satisfies Partial<SystemComponentOperationsError>);
+	});
+
+	it("changes metadata without a draft, leaving versions and hashes alone", async () => {
+		const created = await createSystemComponentDraft(
+			projectRoot,
+			systemHandle,
+			{ slug: "labels", name: "Labels", group: "atoms" },
+			{ expectedRevision: revision, now },
+		);
+		const published = await publishSystemComponentDraft(
+			projectRoot,
+			systemHandle,
+			created.componentId,
+			{ expectedRevision: created.revision, now },
+		);
+		const discarded = await discardSystemComponentDraft(
+			projectRoot,
+			systemHandle,
+			created.componentId,
+			{ expectedRevision: published.revision, now },
+		);
+		const before = discarded.manifest.components[created.componentId];
+
+		const updated = await updateSystemComponentMetadata(
+			projectRoot,
+			systemHandle,
+			created.componentId,
+			{ name: " Label Set ", group: "atoms/typography", description: "Set" },
+			{ expectedRevision: discarded.revision, now },
+		);
+
+		const record = updated.manifest.components[created.componentId];
+		expect(record).toMatchObject({
+			componentId: created.componentId,
+			slug: "labels",
+			name: "Label Set",
+			group: "atoms/typography",
+			description: "Set",
+		});
+		expect(record).not.toHaveProperty("draft");
+		expect(record?.published).toEqual(before?.published);
+	});
+
+	it("rejects invalid metadata before writing", async () => {
+		const created = await createSystemComponentDraft(
+			projectRoot,
+			systemHandle,
+			{ slug: "invalid-meta", name: "Invalid Meta" },
+			{ expectedRevision: revision, now },
+		);
+
+		for (const input of [
+			{ name: "" },
+			{ name: "x".repeat(81) },
+			{ group: "/atoms" },
+			{ group: "atoms\\icons" },
+			{ group: "atoms / icons" },
+			{ description: " " },
+		]) {
+			await expect(
+				updateSystemComponentMetadata(
+					projectRoot,
+					systemHandle,
+					created.componentId,
+					input,
+					{ expectedRevision: created.revision },
+				),
+			).rejects.toMatchObject({
+				code: "VALIDATION_FAILED",
+			} satisfies Partial<SystemComponentOperationsError>);
+		}
+		const read = await readSystemComponentManifest(projectRoot, systemHandle);
+		expect(read.revision).toBe(created.revision);
 	});
 
 	it("rejects stale draft template hashes", async () => {

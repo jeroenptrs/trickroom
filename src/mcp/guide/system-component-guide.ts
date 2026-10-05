@@ -48,6 +48,7 @@ const CORE_RULES = [
 const CORE_WORKFLOW = [
 	`Read: ${TOOL.componentRead}({ systemName, query? }) for the manifest revision and a compact component index; ${TOOL.componentRead}({ componentId, source: "draft", include: ["template", "classes"] }) for a draft's template, variant classes and hashes before updating it.`,
 	`Write: ${TOOL.componentDraftCreate}({ systemName, expectedRevision, slug, name, draft: { root, slots?, variants?, overrideTargets? } }), or ${TOOL.componentDraftUpdate} with only the parts to replace. Malformed input returns VALIDATION_FAILED with INVALID_SYSTEM_COMPONENT_DRAFT_INPUT diagnostics, each with a path and message.`,
+	`Rename or regroup: ${TOOL.componentDraftUpdate}({ systemName, componentId, expectedRevision, name?, group?, description? }) with any of the three on their own; group is slash-separated folders like "organisms/sidebar" and null clears group or description. They are labels outside the template and its hashes, so they apply at once: no publish, no new version, no stale instances, and the draft is not touched or created. slug and componentId never change.`,
 	`Check and publish: ${TOOL.designScreenshot}({ component }) renders a component, or a matrix of its variant values, without a design file. ${TOOL.componentPublish}({ systemName, componentId, expectedRevision }) makes the draft current; place it in a design with ${TOOL.designApply} (${TOOL.guide} topic "components").`,
 	`Extract from a design: ${TOOL.componentDraftCreate}({ expectedRevision, from: { designFileId, elementId } }) turns a designed layer and its subtree into a draft (instances inside become plain elements; name defaults to the layer name, the system to the design's). The design is not changed, and a draft cannot be placed until it is published, so this is the default: review the draft, add variants, slots and override targets, then publish and place it. When the layer should become an instance right away, add replace: true and the design's expectedRevision: the same call publishes the draft and replaces the layer with an instance, as one ${TOOL.designApply} batch would. Policy, the layer's board revision, the template and whether the layer can be replaced where it sits are checked before anything is written. If a later write still fails (another writer got there first), the earlier writes stay, and the result says what was written (partial) and gives the call that finishes the job (next).`,
 ];
@@ -218,6 +219,19 @@ const buildExamplesTopic = () => [
 				replace: true,
 				expectedRevision: PLACEHOLDER_DESIGN_REVISION,
 			},
+		},
+	},
+	{
+		tool: TOOL.componentDraftUpdate,
+		description:
+			"Rename and regroup a component. Applies at once; nothing to publish.",
+		arguments: {
+			systemName: "Core",
+			componentId: "cmp_…",
+			expectedRevision: PLACEHOLDER_REVISION,
+			name: "Nav Item",
+			group: "organisms/sidebar",
+			description: null,
 		},
 	},
 ];

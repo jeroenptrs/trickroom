@@ -449,6 +449,20 @@ describe("guide", () => {
 		);
 		expect(published.result.isError).toBeFalsy();
 
+		const rename = draftExamples.at(-1);
+		const renamed = await call(
+			rename.tool,
+			fill(rename.arguments, {
+				"cmp_…": componentId,
+				"<manifest revision from your last read or write>":
+					published.payload.revision,
+			}),
+		);
+		expect(renamed.result.isError).toBeFalsy();
+		expect(renamed.payload.changes.metadata).toMatchObject({
+			group: { to: "organisms/sidebar" },
+		});
+
 		const core = await contract(call, {
 			designFileId: trickroomMcpTestDesignUuid,
 		});
