@@ -1,6 +1,6 @@
 import type { SystemComponentDraftPayload } from "./system-components";
 
-const stableStringify = (value: unknown): string => {
+export const stableStringify = (value: unknown): string => {
 	if (Array.isArray(value)) {
 		return `[${value.map(stableStringify).join(",")}]`;
 	}

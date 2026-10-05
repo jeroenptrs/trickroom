@@ -1,5 +1,6 @@
 import path from "node:path";
 import { Hono } from "hono";
+import { describeCodegenConfigIssues } from "../codegen/config";
 import { readJsonFile } from "../server-file-utils";
 import {
 	asErrnoException,
@@ -326,7 +327,10 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 	}
 
 	if (!isTrickroomConfig(config)) {
-		return jsonError("Invalid trickroom config file", 400);
+		return jsonError(
+			`Invalid trickroom config file.${describeCodegenConfigIssues(config)}`,
+			400,
+		);
 	}
 
 	try {
@@ -551,7 +555,10 @@ tailwindRoutes.post("/compile", async (c) => {
 		return jsonError("Failed to read trickroom config file", 500);
 	}
 	if (!isTrickroomConfig(config)) {
-		return jsonError("Invalid trickroom config file", 400);
+		return jsonError(
+			`Invalid trickroom config file.${describeCodegenConfigIssues(config)}`,
+			400,
+		);
 	}
 
 	try {
@@ -614,7 +621,7 @@ const loadClassCatalogForRequest = async (
 	if (!isTrickroomConfig(config)) {
 		throw new TailwindSystemResolutionError(
 			"NO_SYSTEMS_CONFIGURED",
-			"Invalid trickroom config file",
+			`Invalid trickroom config file.${describeCodegenConfigIssues(config)}`,
 		);
 	}
 	const resolvedTarget = await resolveConfiguredTailwindSystemTarget(

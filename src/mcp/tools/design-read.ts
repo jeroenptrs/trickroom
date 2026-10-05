@@ -1,4 +1,9 @@
 import { z } from "zod";
+import { resolveCodegenConfig } from "../../codegen/config";
+import {
+	describeUnconfiguredCodegen,
+	runCodegen,
+} from "../../codegen/run-codegen";
 import { exportDesignBoards } from "../../export/export-design";
 import {
 	ExportDestinationError,
@@ -269,27 +274,83 @@ export const registerDesignExportTools = (
 			}
 		});
 
+	const exportVariants = async ({
+		check,
+		source,
+		project,
+	}: {
+		check?: boolean;
+		source?: "published" | "draft";
+		project?: TrickroomMcpProjectRef;
+	}) =>
+		withPolicyErrorHandling(project, async (context) => {
+			// Checks too: a check runs the project's formatter command.
+			assertCanWriteProject(getMcpPolicy(context.config));
+			const config = resolveCodegenConfig(context.config);
+			if (config.status === "unconfigured") {
+				return createToolErrorResult(
+					context,
+					"CODEGEN_NOT_CONFIGURED",
+					describeUnconfiguredCodegen(".trickroom/config.json"),
+				);
+			}
+			const result = await runCodegen({
+				projectRoot: context.projectRoot,
+				config,
+				mode: check ? "check" : "write",
+				source,
+			});
+			if (result.status === "error") {
+				const refused = result.diagnostics.find(
+					(diagnostic) => diagnostic.code === "REFUSED_OVERWRITE",
+				);
+				return createToolErrorResult(
+					context,
+					refused ? "REFUSED_OVERWRITE" : "CODEGEN_FAILED",
+					refused
+						? `${refused.message} MCP cannot force this: ask a human to review the files and run "trickroom codegen --force" in the project.`
+						: `${check ? "" : "Nothing was written. "}${result.diagnostics
+								.filter((diagnostic) => diagnostic.severity === "error")
+								.map((diagnostic) => diagnostic.message)
+								.join(" ")}`,
+					{ codegen: result },
+				);
+			}
+			return createJsonResult({
+				status: "success",
+				project: getProjectReference(context),
+				codegen: result,
+			});
+		});
+
 	server.registerTool(
 		TOOL.designExport,
 		{
 			title: "Export Design",
-			description: `Write boards of a design to files on disk; omit boardIds for every board. format "html" (default): self-contained interactive HTML, one .html for one board or a .zip with one .html per board, as the in-app export; it inlines the design system's compiled Tailwind and loads React and Base UI from esm.sh, so it needs network access to render. format "png": one PNG per board, viewport and theme, at scale 1 and full height (up to 8000 CSS px), named <design>-<board>[-<viewport>-<theme>].png; it needs a Chrome or Chromium like ${TOOL.designScreenshot}. Absolute destinationDir paths are used as-is; relative ones resolve inside the project and must stay in it. Files of the same name are overwritten. Returns the written paths.`,
+			description: `Write a design's boards, or the project's component code, to files on disk. format "html" (default) and "png" need designFileId and destinationDir; omit boardIds for every board. "html": self-contained interactive HTML, one .html for one board or a .zip with one .html per board, as the in-app export; it inlines the design system's compiled Tailwind and loads React and Base UI from esm.sh, so it needs network access to render. "png": one PNG per board, viewport and theme, at scale 1 and full height (up to 8000 CSS px), named <design>-<board>[-<viewport>-<theme>].png; it needs a Chrome or Chromium like ${TOOL.designScreenshot}. Absolute destinationDir paths are used as-is; relative ones resolve inside the project and must stay in it. Files of the same name are overwritten. Returns the written paths. format "variants": one tailwind-variants file per published component of the system in the project config's codegen block, written to its outDir; takes no designFileId, destinationDir or boardIds. Runs the formatter command configured there. check: true compares without writing; source "draft" generates from drafts. Only files with a Trickroom codegen header are replaced, and only when they differ. Returns per-component status (ok, missing, stale, error), orphaned files and the written paths.`,
 			inputSchema: withProjectScopedInput({
-				designFileId: designFileIdSchema,
+				designFileId: designFileIdSchema
+					.optional()
+					.describe("html and png: design file UUID."),
 				destinationDir: z
 					.string()
 					.min(1)
+					.optional()
 					.describe(
-						"Folder to write to: absolute, or relative to the project root.",
+						"html and png: folder to write to, absolute or relative to the project root.",
 					),
 				boardIds: z
 					.array(z.string().min(1))
 					.optional()
-					.describe("Boards to export. Omit or leave empty for every board."),
+					.describe(
+						"html and png: boards to export. Omit or leave empty for every board.",
+					),
 				format: z
-					.enum(["html", "png"])
+					.enum(["html", "png", "variants"])
 					.optional()
-					.describe('"html" (default) or "png".'),
+					.describe(
+						'"html" (default), "png", or "variants" (component code from the codegen config).',
+					),
 				viewport: viewport.describe(
 					"png only: viewport preset, width, or { width, height }; an array writes one file each. Defaults to desktop.",
 				),
@@ -297,6 +358,18 @@ export const registerDesignExportTools = (
 				scale: scale.describe(
 					"png only: output pixels per CSS pixel. Defaults to 1.",
 				),
+				check: z
+					.boolean()
+					.optional()
+					.describe(
+						"variants only: compare with the files on disk without writing. Default false.",
+					),
+				source: z
+					.enum(["published", "draft"])
+					.optional()
+					.describe(
+						'variants only: "published" (default) or "draft"; components without a draft use their published version.',
+					),
 			}),
 			annotations: {
 				...mutationAnnotations,
@@ -310,15 +383,60 @@ export const registerDesignExportTools = (
 			},
 			_meta: {
 				[SEARCH_HINT_META_KEY]:
-					"export html png save download file disk zip code handoff",
+					"export html png save download file disk zip code handoff codegen variants tailwind-variants tv generate check drift",
 			},
 		},
 		async (input) => {
-			if (input.format === "png") {
+			const format = input.format ?? "html";
+			const misplaced = (
+				format === "variants"
+					? ([
+							"designFileId",
+							"destinationDir",
+							"boardIds",
+							"viewport",
+							"theme",
+							"scale",
+						] as const)
+					: // html ignores the png options, as it always has.
+						(["check", "source"] as const)
+			).filter((key) => input[key] !== undefined);
+			const missing =
+				format === "variants"
+					? []
+					: (["designFileId", "destinationDir"] as const).filter(
+							(key) => input[key] === undefined,
+						);
+			if (misplaced.length > 0 || missing.length > 0) {
+				return withProjectContext(input.project, async (context) =>
+					createToolErrorResult(
+						context,
+						"INVALID_EXPORT_ARGUMENTS",
+						[
+							missing.length > 0
+								? `format "${format}" needs ${missing.join(" and ")}.`
+								: "",
+							misplaced.length > 0
+								? `format "${format}" does not take ${misplaced.join(", ")}${format === "variants" ? ": the destination and system come from the codegen block in .trickroom/config.json" : ""}.`
+								: "",
+						]
+							.filter(Boolean)
+							.join(" "),
+					),
+				);
+			}
+			if (format === "variants") {
+				return exportVariants(input);
+			}
+			const { designFileId, destinationDir } = input as typeof input & {
+				designFileId: string;
+				destinationDir: string;
+			};
+			if (format === "png") {
 				return withProjectContext(input.project, (context) =>
 					screenshots.exportBoardPngs(context, {
-						designFileId: input.designFileId,
-						destinationDir: input.destinationDir,
+						designFileId,
+						destinationDir,
 						boardIds: input.boardIds,
 						viewport: input.viewport,
 						theme: input.theme,
@@ -327,7 +445,7 @@ export const registerDesignExportTools = (
 					}),
 				);
 			}
-			return exportHtml(input);
+			return exportHtml({ ...input, designFileId, destinationDir });
 		},
 	);
 };

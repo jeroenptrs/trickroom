@@ -45,7 +45,7 @@ R = read-only, W = writes. Reads and writes are separate tools because client pe
 | `design_validate` | R | Validate a whole design, or dry-run operations against a revision. | `designFileId`, `operations`, `expectedRevision`, `response` |
 | `design_create` | W | Create a design, empty or from a copy of an existing element. | `name`, `systemName`, `designFileId`, `from` |
 | `design_screenshot` | R | Render boards, elements or a system component and return PNG images. | `boardId`, `elementId`, `component`, `viewport`, `theme`, `scale`, `maxHeight` |
-| `design_export` | W | Write boards to disk as HTML or PNG. | `designFileId`, `destinationDir`, `boardIds`, `format` |
+| `design_export` | W | Write boards to disk as HTML or PNG, or write or check the project's component variants files. | `format`, `designFileId`, `destinationDir`, `boardIds`; variants: `check`, `source` |
 | `editor_context` | R | What the human has open and selected in the Trickroom editor. | |
 | `editor_focus` | W | Point the human's editor at a design, board or layer. | `designFileId`, `boardId`, `elementId` |
 | `memory_read` | R | Memory note index, note bodies, or reference targets. | `scope` \| `designFileId`, `noteIds`, `referenceType` |
@@ -71,7 +71,7 @@ Every project-scoped tool (all but `feedback_submit`) also takes an optional `pr
 | `project_select`, `editor_focus` | false | false | true | false |
 | `design_apply`, `memory_write`, `system_update`, `component_delete` | false | true | false | false |
 | `design_create`, `component_draft_create`, `component_draft_update`, `component_publish`, `component_migrate`, `feedback_submit` | false | false | false | false |
-| `design_export` | false | true (overwrites files of the same name) | false | true (HTML loads React and Base UI from esm.sh) |
+| `design_export` | false | true (overwrites files of the same name; variants replace only files with a Trickroom header) | false | true (HTML loads React and Base UI from esm.sh) |
 
 `_meta` hints for clients that defer tool schemas:
 
@@ -432,12 +432,14 @@ Screenshots need the optional `playwright-core` peer dependency and a Chrome or 
 
 ## Export
 
-`design_export` writes boards to `destinationDir` (absolute paths as-is; relative paths resolve inside the project and must stay in it); omit `boardIds` for every board. Files of the same name are overwritten.
+`design_export` writes boards to `destinationDir` (absolute paths as-is; relative paths resolve inside the project and must stay in it); omit `boardIds` for every board. Files of the same name are overwritten. `html` and `png` need `designFileId` and `destinationDir`; leaving one out, or passing `check` or `source`, fails with `INVALID_EXPORT_ARGUMENTS`.
 
 - `format: "html"` (default): self-contained interactive HTML, as the in-app export: one board writes one `.html`, several write one `.zip` with one `.html` per board. Each document inlines the design system's compiled Tailwind and loads React and Base UI from esm.sh, so it needs network access to render. Returns `artifacts` (path, bytes, board names).
 - `format: "png"`: one PNG per board, viewport and theme, at scale 1 (or `scale`) and full height up to 8,000 CSS px, named `<design>-<board>.png` with `-<viewport>-<theme>` when there are several. Returns `files` (board, viewport, theme, size, path). Needs a browser like `design_screenshot`.
 
-Unknown boards fail with `NO_MATCHING_BOARDS` (HTML) or `BOARD_NOT_FOUND` (PNG) and the available boards. Export needs read-write mode.
+- `format: "variants"`: one tailwind-variants file per published component of the system in the project's `codegen` config block, written to its `outDir`, as `trickroom codegen` does (see [Component Codegen](codegen.md)). Destination and system come from the config, so `designFileId`, `destinationDir`, `boardIds` and the png options are rejected with `INVALID_EXPORT_ARGUMENTS`. `check: true` compares without writing; `source: "draft"` generates from drafts. The configured formatter command runs for writes and checks. Returns `{ status: "success", project, codegen }`, where `codegen` is the [JSON result](codegen.md#json-result) (`status` `ok` or `drift`). Errors: `CODEGEN_NOT_CONFIGURED` (the message shows a minimal block), `REFUSED_OVERWRITE` (a target file has no Trickroom header; there is no `force` over MCP, so a human reviews the files and runs `trickroom codegen --force`) and `CODEGEN_FAILED` (generation, formatter or path errors); the last two carry `codegen` as well. When the project has a `codegen` block, `component_publish` returns a `codegenHint` pointing here.
+
+Unknown boards fail with `NO_MATCHING_BOARDS` (HTML) or `BOARD_NOT_FOUND` (PNG) and the available boards. Export needs read-write mode, including variants checks.
 
 ## Editor Tools
 

@@ -1,0 +1,275 @@
+import path from "node:path";
+import type { TrickroomCodegenConfig, TrickroomConfig } from "../types";
+
+/**
+ * The optional `codegen` block of `.trickroom/config.json`: where and how
+ * published system Components are emitted as tailwind-variants files. The
+ * block carries its own `version`, independent of the project
+ * `schemaVersion`, so its shape can migrate without touching the rest.
+ */
+
+export const CODEGEN_CONFIG_VERSIONS = [1] as const;
+
+export const DEFAULT_CODEGEN_FILE_NAME = "{slug}.variants.ts";
+export const DEFAULT_CODEGEN_TV_IMPORT = "./tv";
+export const DEFAULT_CODEGEN_SHAPE = "auto";
+
+const CODEGEN_KEYS = new Set([
+	"version",
+	"system",
+	"outDir",
+	"fileName",
+	"tvImport",
+	"shape",
+	"include",
+	"exclude",
+	"formatter",
+]);
+const FORMATTER_KEYS = new Set(["command", "args"]);
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isNonEmptyString = (value: unknown): value is string =>
+	typeof value === "string" && value.trim().length > 0;
+
+const unknownKeyIssues = (
+	value: Record<string, unknown>,
+	allowed: ReadonlySet<string>,
+	prefix: string,
+) =>
+	Object.keys(value)
+		.filter((key) => !allowed.has(key))
+		.map(
+			(key) =>
+				`${prefix}.${key} is not a known key (expected one of ${[...allowed].join(", ")}).`,
+		);
+
+const slugListIssues = (value: unknown, field: string): string[] => {
+	if (value === undefined) {
+		return [];
+	}
+	if (!Array.isArray(value)) {
+		return [`codegen.${field} must be an array of component slugs.`];
+	}
+	return value.flatMap((entry, index) =>
+		isNonEmptyString(entry)
+			? []
+			: [`codegen.${field}[${index}] must be a non-empty string.`],
+	);
+};
+
+const outDirIssues = (value: unknown): string[] => {
+	if (value === undefined) {
+		return ["codegen.outDir is required when codegen is configured."];
+	}
+	if (!isNonEmptyString(value)) {
+		return ["codegen.outDir must be a non-empty string."];
+	}
+	const outDir = value.trim();
+	if (path.posix.isAbsolute(outDir) || path.win32.isAbsolute(outDir)) {
+		return [
+			`codegen.outDir must be relative to the project root; got "${outDir}".`,
+		];
+	}
+	if (outDir.split(/[\\/]/u).includes("..")) {
+		return [
+			`codegen.outDir must stay inside the project and cannot contain a ".." segment; got "${outDir}".`,
+		];
+	}
+	return [];
+};
+
+const fileNameIssues = (value: unknown): string[] => {
+	if (value === undefined) {
+		return [];
+	}
+	if (!isNonEmptyString(value)) {
+		return ["codegen.fileName must be a non-empty string."];
+	}
+	const fileName = value.trim();
+	const issues: string[] = [];
+	if (!fileName.includes("{slug}")) {
+		issues.push(`codegen.fileName must contain {slug}; got "${fileName}".`);
+	}
+	if (/[\\/]/u.test(fileName)) {
+		issues.push(
+			`codegen.fileName must be a file name without a path separator; got "${fileName}".`,
+		);
+	}
+	if (!fileName.endsWith(".ts")) {
+		issues.push(`codegen.fileName must end in .ts; got "${fileName}".`);
+	}
+	return issues;
+};
+
+const formatterIssues = (value: unknown): string[] => {
+	if (value === undefined) {
+		return [];
+	}
+	if (!isRecord(value)) {
+		return ["codegen.formatter must be an object with a command."];
+	}
+	const issues = unknownKeyIssues(value, FORMATTER_KEYS, "codegen.formatter");
+	if (!isNonEmptyString(value.command)) {
+		issues.push("codegen.formatter.command must be a non-empty string.");
+	}
+	if (value.args !== undefined) {
+		if (!Array.isArray(value.args)) {
+			issues.push("codegen.formatter.args must be an array of strings.");
+		} else {
+			value.args.forEach((arg, index) => {
+				if (typeof arg !== "string") {
+					issues.push(`codegen.formatter.args[${index}] must be a string.`);
+				}
+			});
+		}
+	}
+	return issues;
+};
+
+/**
+ * Every reason a `codegen` block is invalid, each naming the offending field.
+ * Empty when the block is valid. Takes the block itself, not the config.
+ */
+export const getCodegenConfigIssues = (value: unknown): string[] => {
+	if (!isRecord(value)) {
+		return ["codegen must be an object."];
+	}
+
+	const issues = unknownKeyIssues(value, CODEGEN_KEYS, "codegen");
+	const supported = CODEGEN_CONFIG_VERSIONS.join(", ");
+	if (value.version === undefined) {
+		issues.push(
+			`codegen.version is required; this Trickroom understands codegen version ${supported}.`,
+		);
+	} else if (
+		!CODEGEN_CONFIG_VERSIONS.includes(
+			value.version as (typeof CODEGEN_CONFIG_VERSIONS)[number],
+		)
+	) {
+		issues.push(
+			`codegen.version ${JSON.stringify(value.version)} is not supported; this Trickroom understands codegen version ${supported}.`,
+		);
+	}
+	if (value.system !== undefined && !isNonEmptyString(value.system)) {
+		issues.push(
+			"codegen.system must be a non-empty system id or name when present.",
+		);
+	}
+	issues.push(...outDirIssues(value.outDir));
+	issues.push(...fileNameIssues(value.fileName));
+	if (value.tvImport !== undefined && !isNonEmptyString(value.tvImport)) {
+		issues.push("codegen.tvImport must be a non-empty string when present.");
+	}
+	if (
+		value.shape !== undefined &&
+		value.shape !== "auto" &&
+		value.shape !== "slots"
+	) {
+		issues.push(
+			`codegen.shape must be "auto" or "slots"; got ${JSON.stringify(value.shape)}.`,
+		);
+	}
+	issues.push(...slugListIssues(value.include, "include"));
+	issues.push(...slugListIssues(value.exclude, "exclude"));
+	issues.push(...formatterIssues(value.formatter));
+	return issues;
+};
+
+/**
+ * The `codegen` reasons a whole config is invalid, as a sentence to append to
+ * an "invalid config" message; empty when the block is absent or valid.
+ */
+export const describeCodegenConfigIssues = (config: unknown): string => {
+	if (!isRecord(config) || config.codegen === undefined) {
+		return "";
+	}
+	const issues = getCodegenConfigIssues(config.codegen);
+	return issues.length > 0 ? ` ${issues.join(" ")}` : "";
+};
+
+export const isTrickroomCodegenConfig = (
+	value: unknown,
+): value is TrickroomCodegenConfig =>
+	getCodegenConfigIssues(value).length === 0;
+
+/**
+ * Trimmed copy in the documented key order, keeping only the keys that were
+ * set: defaults are applied by `resolveCodegenConfig`, never written back.
+ */
+export const normalizeCodegenConfig = (
+	config: TrickroomCodegenConfig,
+): TrickroomCodegenConfig => ({
+	version: config.version,
+	...(config.system ? { system: config.system.trim() } : {}),
+	outDir: config.outDir.trim(),
+	...(config.fileName ? { fileName: config.fileName.trim() } : {}),
+	...(config.tvImport ? { tvImport: config.tvImport.trim() } : {}),
+	...(config.shape ? { shape: config.shape } : {}),
+	...(config.include
+		? { include: config.include.map((slug) => slug.trim()) }
+		: {}),
+	...(config.exclude
+		? { exclude: config.exclude.map((slug) => slug.trim()) }
+		: {}),
+	...(config.formatter
+		? {
+				formatter: {
+					command: config.formatter.command.trim(),
+					...(config.formatter.args
+						? { args: [...config.formatter.args] }
+						: {}),
+				},
+			}
+		: {}),
+});
+
+export type ResolvedCodegenConfig =
+	| { status: "unconfigured" }
+	| {
+			status: "configured";
+			version: TrickroomCodegenConfig["version"];
+			/**
+			 * The configured system handle (id, name or storage key, as
+			 * `findDesignSystem` accepts), else the project's default system id;
+			 * null when neither is set.
+			 */
+			system: string | null;
+			outDir: string;
+			fileName: string;
+			tvImport: string;
+			shape: NonNullable<TrickroomCodegenConfig["shape"]>;
+			/** Null when every published Component is included. */
+			include: string[] | null;
+			exclude: string[];
+			formatter: { command: string; args: string[] } | null;
+	  };
+
+/** The block with its defaults applied, or `unconfigured` without one. */
+export const resolveCodegenConfig = (
+	config: TrickroomConfig,
+): ResolvedCodegenConfig => {
+	if (!config.codegen) {
+		return { status: "unconfigured" };
+	}
+
+	const codegen = normalizeCodegenConfig(config.codegen);
+	return {
+		status: "configured",
+		version: codegen.version,
+		system: codegen.system ?? (config.defaultSystemId?.trim() || null),
+		outDir: codegen.outDir,
+		fileName: codegen.fileName ?? DEFAULT_CODEGEN_FILE_NAME,
+		tvImport: codegen.tvImport ?? DEFAULT_CODEGEN_TV_IMPORT,
+		shape: codegen.shape ?? DEFAULT_CODEGEN_SHAPE,
+		include: codegen.include ?? null,
+		exclude: codegen.exclude ?? [],
+		formatter: codegen.formatter
+			? {
+					command: codegen.formatter.command,
+					args: codegen.formatter.args ?? [],
+				}
+			: null,
+	};
+};

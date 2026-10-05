@@ -9,6 +9,15 @@ import type {
 	SystemComponentVariantValue,
 } from "./system-components";
 
+/**
+ * Order in which variant axes layer their classes: later axes win. Codegen
+ * emits `tv()` variants in this order so tailwind-variants merges the same way.
+ */
+export const compareSystemComponentVariantAxisKeys = (
+	left: string,
+	right: string,
+) => left.localeCompare(right);
+
 export const compoundMatches = (
 	when: Record<string, string | string[]>,
 	variantValues: Record<string, string | undefined>,
@@ -77,7 +86,9 @@ export const composeSystemComponentVariantClassLayers = ({
 			compound.classesByPath[lookupPath]);
 
 	const variantLayers = Object.entries(variants?.axes ?? {})
-		.sort(([left], [right]) => left.localeCompare(right))
+		.sort(([left], [right]) =>
+			compareSystemComponentVariantAxisKeys(left, right),
+		)
 		.flatMap(([axisKey, axis]) => {
 			const valueKey = variantValues[axisKey];
 			if (!valueKey) {

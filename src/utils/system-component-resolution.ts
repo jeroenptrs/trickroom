@@ -13,7 +13,10 @@ import {
 } from "./class-resolution";
 import type { SystemComponentInstanceOverrides } from "./system-component-markers";
 import { resolveSystemComponentOverrideValue } from "./system-component-override-targets";
-import { composeSystemComponentVariantClassLayers } from "./system-component-variant-class-layers";
+import {
+	compareSystemComponentVariantAxisKeys,
+	composeSystemComponentVariantClassLayers,
+} from "./system-component-variant-class-layers";
 import type {
 	PublishedSystemComponentVersion,
 	SystemComponentVariantSchema,
@@ -118,7 +121,7 @@ export const resolveSystemComponentVariantValues = (
 
 	const resolved: Record<string, string> = {};
 	for (const [axisKey, axis] of Object.entries(axes).sort(([left], [right]) =>
-		left.localeCompare(right),
+		compareSystemComponentVariantAxisKeys(left, right),
 	)) {
 		const hasSelectedValue = Object.hasOwn(selectedValues, axisKey);
 		if (hasSelectedValue) {

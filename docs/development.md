@@ -15,12 +15,13 @@ pnpm install
 | Script | Purpose |
 | --- | --- |
 | `pnpm dev` | Generate Tailwind baseline tokens, then start Vite. |
-| `pnpm build` | Build the web, server, MCP, migrate and feedback runtimes. |
+| `pnpm build` | Build the web, server, MCP, migrate, feedback and codegen runtimes. |
 | `pnpm build:web-runtime` | Generate tokens, typecheck, and build the client. |
 | `pnpm build:server` | Build the production Hono server. |
 | `pnpm build:mcp` | Build the stdio MCP output. |
 | `pnpm build:migrate` | Build `dist/migrate.js` for `trickroom migrate`. |
 | `pnpm build:feedback` | Build `dist/feedback.js` for `trickroom feedback`. |
+| `pnpm build:codegen` | Build `dist/codegen.js` for `trickroom codegen` (entry `src/cli/codegen.ts`, config `vite.codegen.config.ts`). |
 
 Screenshot support is optional. The published package declares `playwright-core` as an optional peer, while keeping it as a development dependency for this repository. Install it alongside Trickroom and provide Chrome/Chromium before using screenshot APIs or MCP tools:
 

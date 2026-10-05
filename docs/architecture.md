@@ -126,6 +126,10 @@ MCP creation and mutation use the same design-file services as the HTTP app, wit
 
 See [Files And Safety](project-files.md#design-files) for the layout, revisions, journal and locking.
 
+## Component Codegen
+
+`src/codegen/` turns published system components into tailwind-variants files ([Component Codegen](codegen.md)). `generate.ts` (with `model.ts`, `emit.ts`, `header.ts`, `names.ts`) is pure: manifest in, file texts and diagnostics out. `config.ts` validates and resolves the `codegen` block. `run-codegen.ts` connects them to the filesystem for both callers, `src/cli/codegen.ts` (`trickroom codegen`) and `design_export` with `format: "variants"`: it reads the system and component manifests with `readOnly`, runs the configured formatter (`formatter.ts`, no shell), compares with disk and writes only what differs.
+
 MCP screenshot tools lazily start a loopback-only capture host fixed to the selected project, so visual capture does not depend on the browser app's active project. Inline capture is allowed by read-only policy; writing an `outputPath` requires read-write policy. Screenshot attempts are audit logged when project auditing is enabled.
 
 ## Editor Channel
@@ -188,6 +192,7 @@ Both list the discovery records, delete records whose process is gone (`process.
 - `pnpm build:mcp`: build `dist/mcp-stdio.js`.
 - `pnpm build:migrate`: build `dist/migrate.js`, run by `trickroom migrate`.
 - `pnpm build:feedback`: build `dist/feedback.js`, run by `trickroom feedback`.
+- `pnpm build:codegen`: build `dist/codegen.js`, run by `trickroom codegen`.
 
 The custom Vite SPA server plugin serves Hono routes during development and falls through to Vite for browser routes. Production uses `TRICKROOM_HTTP_PORT` and `TRICKROOM_HTTP_HOST` at runtime.
 

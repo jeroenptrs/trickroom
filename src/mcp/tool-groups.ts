@@ -38,7 +38,7 @@ export const MCP_TOOL_GROUPS = [
 		id: "designRead",
 		label: "Design inspection",
 		description:
-			"List and read design files, capture screenshots, and export boards to disk.",
+			"List and read design files, capture screenshots, export boards to disk, and generate or check component variants code.",
 		tools: [
 			TOOL.designList,
 			TOOL.designRead,

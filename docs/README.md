@@ -13,11 +13,12 @@ These docs are organized as a user guide first and implementation notes second. 
 - [Concepts And Design Model](./design-model.md): project, design, system, registry, board, layer, element, props, and the "Design Is Code" philosophy.
 - [Tailwind Systems And Classname Editing](./tailwind-design-systems.md): Tailwind token snapshots, theme injection, and how the inspector completes and validates class strings.
 - [Architecture](./architecture.md): React app, Hono API, MCP server, authentication, build output, and runtime data flow.
+- [Component Codegen](./codegen.md): generate and check tailwind-variants files from published system components with `trickroom codegen`.
 - [Development](./development.md): local setup, scripts, packaging, generated files, and test coverage.
 
 ## Quick Safety Summary
 
-Trickroom writes project metadata under `.trickroom`, recent-project state, settings and agent feedback on the MCP tools under `~/.trickroom`, and no application source files. MCP writes are gated by project config, design-file allowlists, component allowlists, and content-hash revisions. A `deleteElement` operation removes a subtree and cannot be undone by Trickroom itself.
+Trickroom writes project metadata under `.trickroom`, recent-project state, settings and agent feedback on the MCP tools under `~/.trickroom`, and no application source files, except the variants files `trickroom codegen` writes to the `outDir` you configure. MCP writes are gated by project config, design-file allowlists, component allowlists, and content-hash revisions. A `deleteElement` operation removes a subtree and cannot be undone by Trickroom itself.
 
 ## Source Pointers
 

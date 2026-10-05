@@ -196,6 +196,33 @@ export type TrickroomConfig = {
 		allowedComponents?: string[];
 		auditLog?: boolean;
 	};
+	/** Optional, additive: absent unless the project configures codegen. */
+	codegen?: TrickroomCodegenConfig;
+};
+
+/**
+ * Where and how published system Components are emitted as
+ * tailwind-variants files. Validated and defaulted in `src/codegen/config.ts`.
+ */
+export type TrickroomCodegenConfig = {
+	/** The block's own migration boundary, independent of `schemaVersion`. */
+	version: 1;
+	/** System id, name or storage key; defaults to the project default system. */
+	system?: string;
+	/** Relative to the project root, without `..` segments. */
+	outDir: string;
+	/** Contains `{slug}`, has no path separator, ends in `.ts`. */
+	fileName?: string;
+	tvImport?: string;
+	shape?: "auto" | "slots";
+	/** Exact component slugs. */
+	include?: string[];
+	exclude?: string[];
+	/** Run without a shell from the project root; `{file}` is the output path. */
+	formatter?: {
+		command: string;
+		args?: string[];
+	};
 };
 
 export type TrickroomDesign = {

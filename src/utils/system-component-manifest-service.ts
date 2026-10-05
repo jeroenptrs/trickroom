@@ -4,6 +4,7 @@ import path from "node:path";
 import { writeJsonFileAtomically } from "../server-file-utils.ts";
 import type { RecipeTemplateNode } from "../types";
 import {
+	type DesignSystemReadOptions,
 	ensureDesignSystemManifest,
 	findDesignSystem,
 	resolveDesignSystemFilePath,
@@ -131,14 +132,17 @@ export const emptySystemComponentManifestRevision =
 		serializeSystemComponentManifest(createEmptySystemComponentManifest()),
 	);
 
+/** Reads and normalises in memory; with `readOnly` nothing on disk changes. */
 export async function readSystemComponentManifest(
 	projectRoot: string,
 	systemHandle: string,
+	options: DesignSystemReadOptions = {},
 ): Promise<SystemComponentManifestRead> {
 	const manifestPath = await resolveDesignSystemFilePath(
 		projectRoot,
 		systemHandle,
 		SYSTEM_COMPONENT_MANIFEST_FILE_NAME,
+		options,
 	);
 
 	try {

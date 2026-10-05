@@ -872,6 +872,108 @@ describe("server design routes", () => {
 		);
 	});
 
+	it("keeps the codegen block through every config write route", async () => {
+		const codegen = {
+			version: 1,
+			system: "Core",
+			outDir: "design-system/ui/src",
+			shape: "slots",
+			formatter: { command: "biome", args: ["format"] },
+		};
+		await mkdir(path.join(tempProjectRoot, ".trickroom"), { recursive: true });
+		await writeFile(
+			path.join(tempProjectRoot, ".trickroom", "config.json"),
+			JSON.stringify({ name: "Codegen Routes", codegen }),
+			"utf8",
+		);
+		const readStoredCodegen = async () =>
+			JSON.parse(
+				await readFile(
+					path.join(tempProjectRoot, ".trickroom", "config.json"),
+					"utf8",
+				),
+			).codegen;
+		const app = createTrickroomApp({ trickroomHome: tempTrickroomHome });
+		const send = (url: string, method: string, body?: unknown) =>
+			app.request(url, {
+				method,
+				headers: { "content-type": "application/json" },
+				...(body === undefined ? {} : { body: JSON.stringify(body) }),
+			});
+
+		const openResponse = await send("/api/trickroom/projects/open", "POST", {
+			path: tempProjectRoot,
+		});
+		expect(openResponse.status).toBe(200);
+		const { project } = (await openResponse.json()) as {
+			project: { locationId: string };
+		};
+		expect(await readStoredCodegen()).toEqual(codegen);
+
+		const mcpResponse = await send("/api/trickroom/config/mcp", "PUT", {
+			enabled: true,
+			mode: "read-only",
+		});
+		expect(mcpResponse.status).toBe(200);
+		expect(await readStoredCodegen()).toEqual(codegen);
+
+		const createSystemResponse = await send("/api/trickroom/systems", "POST", {
+			systemName: "Core",
+			cssPath: "src/index.css",
+			setAsDefault: true,
+		});
+		expect(createSystemResponse.status).toBe(201);
+		expect(await readStoredCodegen()).toEqual(codegen);
+
+		const defaultSystemResponse = await send(
+			"/api/trickroom/config/default-system",
+			"PUT",
+			{ systemId: null },
+		);
+		expect(defaultSystemResponse.status).toBe(200);
+		expect(await readStoredCodegen()).toEqual(codegen);
+
+		await send("/api/trickroom/config/default-system", "PUT", {
+			systemId: "Core",
+		});
+		const deleteSystemResponse = await send(
+			"/api/trickroom/systems/Core",
+			"DELETE",
+		);
+		expect(deleteSystemResponse.status).toBe(200);
+		expect(await readStoredCodegen()).toEqual(codegen);
+
+		const renameResponse = await send(
+			`/api/trickroom/projects/${project.locationId}/rename`,
+			"POST",
+			{ name: "Renamed" },
+		);
+		expect(renameResponse.status).toBe(200);
+		expect(await readStoredCodegen()).toEqual(codegen);
+	});
+
+	it("names the offending codegen field in a rejected config payload", async () => {
+		const app = createTrickroomApp({
+			trickroomHome: tempTrickroomHome,
+			initialProjectRoot: tempProjectRoot,
+		});
+
+		const response = await app.request("/api/trickroom/config", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				name: "Bad",
+				codegen: { version: 1, outDir: "src", fileName: "variants.ts" },
+			}),
+		});
+
+		expect(response.status).toBe(400);
+		await expect(response.json()).resolves.toEqual({
+			error:
+				'Invalid trickroom config payload. codegen.fileName must contain {slug}; got "variants.ts".',
+		});
+	});
+
 	it("closes the active project without clearing recent projects", async () => {
 		const app = createTrickroomApp({ trickroomHome: tempTrickroomHome });
 		await app.request("/api/trickroom/projects/open", {
