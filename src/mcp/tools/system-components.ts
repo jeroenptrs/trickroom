@@ -15,12 +15,14 @@ import {
 } from "../../utils/system-component-draft-schemas";
 import { readSystemComponentManifest } from "../../utils/system-component-manifest-service";
 import {
+	createMetadataToValidate,
 	createSystemComponentDraft,
 	deleteSystemComponent,
 	publishSystemComponentDraft,
 	SYSTEM_COMPONENT_DESCRIPTION_MAX_LENGTH,
 	SYSTEM_COMPONENT_GROUP_MAX_LENGTH,
 	SYSTEM_COMPONENT_NAME_MAX_LENGTH,
+	type SystemComponentMetadataProblem,
 	systemComponentMetadataProblems,
 	updateSystemComponent,
 } from "../../utils/system-component-operations";
@@ -48,6 +50,7 @@ import {
 	listSystemComponentsPayload,
 	systemComponentMutationPayload,
 } from "../payloads/system-components";
+import type { TrickroomMcpServerContext } from "../server-types";
 import { TOOL } from "../tool-names";
 import {
 	destructiveMutationAnnotations,
@@ -87,6 +90,24 @@ const componentIdSchema = z
 	.string()
 	.min(1)
 	.describe("System component id (cmp_…).");
+
+const createMetadataErrorResult = (
+	context: TrickroomMcpServerContext,
+	problems: readonly SystemComponentMetadataProblem[],
+) =>
+	createToolErrorResult(
+		context,
+		"VALIDATION_FAILED",
+		"System component name, group or description is invalid.",
+		{
+			diagnostics: problems.map((problem) => ({
+				code: "INVALID_SYSTEM_COMPONENT_METADATA",
+				severity: "error",
+				path: problem.field,
+				message: problem.message,
+			})),
+		},
+	);
 
 /** The migrated instance root as a compact node. */
 const describeMigratedElement = (
@@ -272,6 +293,12 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 		}) =>
 			withPolicyErrorHandling(project, async (context) => {
 				assertCanWriteProject(getMcpPolicy(context.config));
+				const metadataProblems = systemComponentMetadataProblems(
+					createMetadataToValidate({ name, group, description }),
+				);
+				if (metadataProblems.length > 0) {
+					return createMetadataErrorResult(context, metadataProblems);
+				}
 				if (from !== undefined) {
 					if (draft !== undefined) {
 						throw new DesignTransformError(
@@ -427,27 +454,18 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 						parsedDraftPatch.error,
 					);
 				}
-				const metadataProblems = systemComponentMetadataProblems(metadata);
-				if (metadataProblems.length > 0) {
-					return createToolErrorResult(
-						context,
-						"VALIDATION_FAILED",
-						"System component name, group or description is invalid.",
-						{
-							diagnostics: metadataProblems.map((problem) => ({
-								code: "INVALID_SYSTEM_COMPONENT_METADATA",
-								severity: "error",
-								path: problem.field,
-								message: problem.message,
-							})),
-						},
-					);
-				}
 				const before = await readSystemComponentManifest(
 					context.projectRoot,
 					system.manifest.systemId,
 				);
 				const beforeRecord = before.manifest.components[componentId];
+				const metadataProblems = systemComponentMetadataProblems(
+					metadata,
+					beforeRecord,
+				);
+				if (metadataProblems.length > 0) {
+					return createMetadataErrorResult(context, metadataProblems);
+				}
 				const result = await updateSystemComponent(
 					context.projectRoot,
 					system.manifest.systemId,

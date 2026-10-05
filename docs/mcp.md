@@ -513,9 +513,9 @@ Lists page with `query` (every term must match the id, name, or path or value), 
 
 - `name`: non-empty, at most 80 characters, one line.
 - `group`: folder names separated by single slashes, like `organisms/sidebar`, at most 120 characters: no empty segments, no leading or trailing slash, no backslash, no spaces around a slash. `null` clears it.
-- `description`: at most 1,000 characters. `null` clears it.
+- `description`: at most 4,000 characters. `null` clears it.
 
-Invalid values return `VALIDATION_FAILED` with `INVALID_SYSTEM_COMPONENT_METADATA` diagnostics (`path` is the field) before anything is written. The write goes through the component manifest service with `expectedRevision` like every component write, and can be combined with draft parts in the same call (one write, one new revision).
+Only changes are checked: a value equal to the stored one passes whatever its length or format, so a component written before these rules (or by hand) stays saveable, from MCP and from the app, as long as that field is left as it is. `component_draft_create` checks the same rules for the name, group and description it is given. Invalid values return `VALIDATION_FAILED` with `INVALID_SYSTEM_COMPONENT_METADATA` diagnostics (`path` is the field) before anything is written. The write goes through the component manifest service with `expectedRevision` like every component write, and can be combined with draft parts in the same call (one write, one new revision).
 
 ```json
 { "systemName": "Core", "componentId": "cmp_…", "expectedRevision": "sha256:…", "name": "Nav Item", "group": "organisms/sidebar", "description": null }

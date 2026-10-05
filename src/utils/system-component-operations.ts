@@ -340,6 +340,20 @@ export type CreateSystemComponentDraftInput = {
 	draft?: Partial<SystemComponentDraftPayload>;
 };
 
+/**
+ * The labels a new component would get. Creation stores an empty group or
+ * description as absent, so only non-empty ones are checked.
+ */
+export const createMetadataToValidate = (input: {
+	name?: string;
+	group?: string;
+	description?: string;
+}) => ({
+	...(input.name !== undefined ? { name: input.name } : {}),
+	...(input.group?.trim() ? { group: input.group } : {}),
+	...(input.description?.trim() ? { description: input.description } : {}),
+});
+
 export async function createSystemComponentDraft(
 	projectRoot: string,
 	systemHandle: string,
@@ -352,6 +366,7 @@ export async function createSystemComponentDraft(
 		options,
 		(manifest) => {
 			const now = options.now ?? new Date().toISOString();
+			assertValidMetadata(createMetadataToValidate(input));
 			assertSlugAvailable(manifest, input.slug);
 			const componentId = generateSystemComponentId();
 			const draft = cloneDraftPayload({
@@ -373,9 +388,11 @@ export async function createSystemComponentDraft(
 			manifest.components[componentId] = {
 				componentId,
 				slug: input.slug,
-				name: input.name,
-				...(input.description ? { description: input.description } : {}),
-				...(input.group ? { group: input.group } : {}),
+				name: input.name.trim(),
+				...(input.description?.trim()
+					? { description: input.description.trim() }
+					: {}),
+				...(input.group?.trim() ? { group: input.group.trim() } : {}),
 				...(typeof input.order === "number" ? { order: input.order } : {}),
 				createdAt: now,
 				updatedAt: now,
@@ -396,7 +413,7 @@ export type UpdateSystemComponentMetadataInput = {
 
 export const SYSTEM_COMPONENT_NAME_MAX_LENGTH = 80;
 export const SYSTEM_COMPONENT_GROUP_MAX_LENGTH = 120;
-export const SYSTEM_COMPONENT_DESCRIPTION_MAX_LENGTH = 1000;
+export const SYSTEM_COMPONENT_DESCRIPTION_MAX_LENGTH = 4000;
 
 export type SystemComponentMetadataProblem = {
 	field: "name" | "group" | "description";
@@ -410,15 +427,22 @@ const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/u;
  * Problems with a component's name, group or description. These are labels on
  * the record, not part of the template or its hashes. `null` clears group and
  * description; an empty string is a mistake rather than a way to clear.
+ *
+ * Only changes are checked: a value equal to what `current` stores passes
+ * whatever its length or format, so a record written before these rules (or
+ * by hand) stays saveable as long as that field is left as it is.
  */
 export function systemComponentMetadataProblems(
 	input: Pick<
 		UpdateSystemComponentMetadataInput,
 		"name" | "group" | "description"
 	>,
+	current?: Pick<SystemComponentRecord, "name" | "group" | "description">,
 ): SystemComponentMetadataProblem[] {
 	const problems: SystemComponentMetadataProblem[] = [];
-	if (input.name !== undefined) {
+	const unchanged = (value: string, stored: string | undefined) =>
+		stored !== undefined && value.trim() === stored;
+	if (input.name !== undefined && !unchanged(input.name, current?.name)) {
 		const name = input.name.trim();
 		if (name.length === 0) {
 			problems.push({ field: "name", message: "name must not be empty." });
@@ -434,7 +458,10 @@ export function systemComponentMetadataProblems(
 			});
 		}
 	}
-	if (typeof input.group === "string") {
+	if (
+		typeof input.group === "string" &&
+		!unchanged(input.group, current?.group)
+	) {
 		const group = input.group.trim();
 		if (group.length === 0) {
 			problems.push({
@@ -459,7 +486,10 @@ export function systemComponentMetadataProblems(
 			});
 		}
 	}
-	if (typeof input.description === "string") {
+	if (
+		typeof input.description === "string" &&
+		!unchanged(input.description, current?.description)
+	) {
 		const description = input.description.trim();
 		if (description.length === 0) {
 			problems.push({
@@ -476,8 +506,11 @@ export function systemComponentMetadataProblems(
 	return problems;
 }
 
-const assertValidMetadata = (input: UpdateSystemComponentMetadataInput) => {
-	const problems = systemComponentMetadataProblems(input);
+const assertValidMetadata = (
+	input: UpdateSystemComponentMetadataInput,
+	current?: SystemComponentRecord,
+) => {
+	const problems = systemComponentMetadataProblems(input, current);
 	if (problems.length > 0) {
 		throw new SystemComponentOperationsError(
 			"VALIDATION_FAILED",
@@ -816,15 +849,15 @@ export async function updateSystemComponent(
 	input: UpdateSystemComponentInput,
 	options: SystemComponentMutationOptions,
 ): Promise<SystemComponentMutationResult> {
-	if (input.metadata) {
-		assertValidMetadata(input.metadata);
-	}
 	return commitManifestMutation(
 		projectRoot,
 		systemHandle,
 		options,
 		(manifest) => {
 			const record = cloneRecord(requireRecord(manifest, componentId));
+			if (input.metadata) {
+				assertValidMetadata(input.metadata, record);
+			}
 			if (input.draft) {
 				applyDraftPatch(record, input.draft, options);
 			}

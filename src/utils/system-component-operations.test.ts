@@ -615,6 +615,19 @@ describe("system component operations", () => {
 		expect(read.revision).toBe(created.revision);
 	});
 
+	it("rejects a malformed group at creation", async () => {
+		await expect(
+			createSystemComponentDraft(
+				projectRoot,
+				systemHandle,
+				{ slug: "bad-group", name: "Bad Group", group: "a//b" },
+				{ expectedRevision: revision, now },
+			),
+		).rejects.toMatchObject({
+			code: "VALIDATION_FAILED",
+		} satisfies Partial<SystemComponentOperationsError>);
+	});
+
 	it("rejects stale draft template hashes", async () => {
 		const created = await createSystemComponentDraft(
 			projectRoot,

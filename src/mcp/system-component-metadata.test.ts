@@ -1,4 +1,6 @@
+import { readFile, writeFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readSystemComponentManifest } from "../utils/system-component-manifest-service";
 import { discardSystemComponentDraft } from "../utils/system-component-operations";
 import {
 	createTrickroomMcpProjectFixture,
@@ -260,7 +262,7 @@ describe("component_draft_update metadata (name, group, description)", () => {
 			expectedRevision: revision,
 			name: "   ",
 			group: "organisms//sidebar/",
-			description: "x".repeat(1001),
+			description: "x".repeat(4001),
 		});
 
 		expect(invalid.isError).toBe(true);
@@ -278,7 +280,7 @@ describe("component_draft_update metadata (name, group, description)", () => {
 				},
 				{
 					path: "description",
-					message: "description is 1001 characters; the limit is 1000.",
+					message: "description is 4001 characters; the limit is 4000.",
 				},
 			],
 		});
@@ -317,5 +319,101 @@ describe("component_draft_update metadata (name, group, description)", () => {
 
 		// Nothing was written.
 		expect((await read()).payload.revision).toBe(revision);
+	});
+	it("accepts stored values that predate the rules when they are resent unchanged", async () => {
+		const { componentId, systemId } = await createPublished();
+		// Written by hand or before the rules: over the description limit and
+		// with spaces around the group's slash.
+		const legacyDescription = "Long prose. ".repeat(375).trim();
+		const { path: manifestPath } = await readSystemComponentManifest(
+			fixture.projectRoot,
+			systemId,
+		);
+		const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+		manifest.components[componentId].description = legacyDescription;
+		manifest.components[componentId].group = "Inputs / Text";
+		await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+		const revision = (await read()).payload.revision;
+
+		const renamed = await call("component_draft_update", {
+			systemName: "Core",
+			componentId,
+			expectedRevision: revision,
+			name: "Text Input",
+			group: "Inputs / Text",
+			description: legacyDescription,
+		});
+		expect(renamed.isError).toBe(false);
+		expect(renamed.payload.changes).toEqual({
+			metadata: { name: { from: "Sidebar Item", to: "Text Input" } },
+		});
+
+		const regrouped = await call("component_draft_update", {
+			systemName: "Core",
+			componentId,
+			expectedRevision: renamed.payload.revision,
+			group: "atoms/inputs",
+			description: legacyDescription,
+		});
+		expect(regrouped.isError).toBe(false);
+		expect(regrouped.payload.changes).toEqual({
+			metadata: { group: { from: "Inputs / Text", to: "atoms/inputs" } },
+		});
+
+		const changedDescription = await call("component_draft_update", {
+			systemName: "Core",
+			componentId,
+			expectedRevision: regrouped.payload.revision,
+			description: `${legacyDescription} More.`,
+		});
+		expect(changedDescription.payload).toMatchObject({
+			code: "VALIDATION_FAILED",
+			diagnostics: [
+				{
+					path: "description",
+					message: `description is ${legacyDescription.length + 6} characters; the limit is 4000.`,
+				},
+			],
+		});
+		const backToLegacyGroup = await call("component_draft_update", {
+			systemName: "Core",
+			componentId,
+			expectedRevision: regrouped.payload.revision,
+			group: "Inputs / Text",
+		});
+		expect(backToLegacyGroup.payload).toMatchObject({
+			code: "VALIDATION_FAILED",
+		});
+	});
+
+	it("validates name, group and description at creation", async () => {
+		const initial = await read();
+		const badGroup = await call("component_draft_create", {
+			systemName: "Core",
+			expectedRevision: initial.payload.revision,
+			slug: "bad-group",
+			name: "Bad Group",
+			group: "a//b",
+		});
+		expect(badGroup.payload).toMatchObject({
+			code: "VALIDATION_FAILED",
+			diagnostics: [
+				{
+					code: "INVALID_SYSTEM_COMPONENT_METADATA",
+					path: "group",
+					message: expect.stringContaining('like "organisms/sidebar"'),
+				},
+			],
+		});
+		const badName = await call("component_draft_create", {
+			systemName: "Core",
+			expectedRevision: initial.payload.revision,
+			slug: "bad-name",
+			name: "n".repeat(81),
+		});
+		expect(badName.payload).toMatchObject({
+			diagnostics: [{ path: "name" }],
+		});
+		expect((await read()).payload.revision).toBe(initial.payload.revision);
 	});
 });
