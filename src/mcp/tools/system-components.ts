@@ -544,6 +544,11 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 						},
 					)),
 					publishedVersion: result.publishedVersion,
+					...(context.config.codegen
+						? {
+								codegenHint: `This project generates tailwind-variants files from its components: ${TOOL.designExport}({ format: "variants" }) regenerates them, with check: true it only reports which are out of date.`,
+							}
+						: {}),
 				});
 			}),
 	);

@@ -329,7 +329,13 @@ describe("trickroom MCP inspector-compatible stdio smoke", () => {
 				"designFileId",
 				"destinationDir",
 				"format",
+				"check",
+				"source",
 			]);
+			// format "variants" takes neither: both are checked per format.
+			expect(
+				requireTool(toolsByName, "design_export").inputSchema.required ?? [],
+			).toEqual([]);
 			expectInputProperties(requireTool(toolsByName, "design_screenshot"), [
 				"designFileId",
 				"boardId",
