@@ -1,3 +1,4 @@
+import { isTrickroomCodegenConfig } from "./codegen/config";
 import { isJsonPrimitive } from "./libraries/registry";
 import {
 	DESIGN_FILE_VERSION,
@@ -75,7 +76,8 @@ export const isTrickroomConfig = (value: unknown): value is TrickroomConfig =>
 	(value.defaultSystemName === undefined ||
 		(typeof value.defaultSystemName === "string" &&
 			value.defaultSystemName.trim().length > 0)) &&
-	(value.mcp === undefined || isTrickroomMcpConfig(value.mcp));
+	(value.mcp === undefined || isTrickroomMcpConfig(value.mcp)) &&
+	(value.codegen === undefined || isTrickroomCodegenConfig(value.codegen));
 
 const isTrickroomRole = (value: unknown): value is Role | undefined =>
 	value === undefined ||

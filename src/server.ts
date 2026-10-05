@@ -20,6 +20,7 @@ import {
 	readTrickroomSettings,
 	updateMcpToolGroupSettings,
 } from "./app-state/settings";
+import { describeCodegenConfigIssues } from "./codegen/config";
 import { parseDesignResourceUri } from "./mcp/resources";
 import { MCP_TOOL_GROUPS } from "./mcp/tool-groups";
 import {
@@ -1087,7 +1088,10 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 
 		const body = await c.req.json().catch(() => null);
 		if (!isTrickroomConfig(body)) {
-			return jsonError("Invalid trickroom config payload", 400);
+			return jsonError(
+				`Invalid trickroom config payload.${describeCodegenConfigIssues(body)}`,
+				400,
+			);
 		}
 
 		const config: TrickroomConfig = {

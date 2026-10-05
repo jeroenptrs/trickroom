@@ -4,10 +4,11 @@ import path from "node:path";
 import { resolveTrickroomHome } from "./app-state/home";
 import { upsertProjectLocation } from "./app-state/project-registry";
 import {
-	asErrnoException,
-	isTrickroomConfig,
-} from "./server-utils";
+	describeCodegenConfigIssues,
+	normalizeCodegenConfig,
+} from "./codegen/config";
 import { readJsonFile, writeJsonFileAtomically } from "./server-file-utils";
+import { asErrnoException, isTrickroomConfig } from "./server-utils";
 import type { TrickroomConfig } from "./types";
 import { migrateConfiguredSystemsToManifests } from "./utils/design-system-store";
 import {
@@ -112,9 +113,14 @@ export const normalizeTrickroomConfig = (
 				},
 			}
 		: {}),
+	...(config.codegen
+		? { codegen: normalizeCodegenConfig(config.codegen) }
+		: {}),
 });
 
-const omitTransientConfigFields = (config: TrickroomConfig): TrickroomConfig => {
+const omitTransientConfigFields = (
+	config: TrickroomConfig,
+): TrickroomConfig => {
 	const {
 		systems: _systems,
 		defaultSystemName: _defaultSystemName,
@@ -154,7 +160,7 @@ export const readRequiredTrickroomConfig = async (
 	if (!isTrickroomConfig(config)) {
 		throw new TrickroomProjectConfigError(
 			"INVALID_CONFIG",
-			`Trickroom config file at ${configPath} is invalid.`,
+			`Trickroom config file at ${configPath} is invalid.${describeCodegenConfigIssues(config)}`,
 		);
 	}
 
@@ -194,21 +200,14 @@ const writeProjectConfigAndSystemManifests = async (
 	return storedConfig;
 };
 
-export const readProjectConfig = async (
-	projectRoot = resolveProjectRoot(),
-): Promise<TrickroomConfig> => {
-	return (await readOrMigrateProjectConfig(projectRoot)).config;
-};
-
-export const readOrMigrateProjectConfig = async (
-	projectRoot = resolveProjectRoot(),
-) => {
-	const paths = getTrickroomProjectPaths(projectRoot);
-	let config: TrickroomConfig;
-	let source: "current" | "legacy" = "current";
-
+const readCurrentOrLegacyConfig = async (
+	paths: TrickroomProjectPaths,
+): Promise<{ config: TrickroomConfig; source: "current" | "legacy" }> => {
 	try {
-		config = await readRequiredTrickroomConfig(paths.configPath);
+		return {
+			config: await readRequiredTrickroomConfig(paths.configPath),
+			source: "current",
+		};
 	} catch (error) {
 		if (
 			!(
@@ -219,9 +218,24 @@ export const readOrMigrateProjectConfig = async (
 			throw error;
 		}
 
-		config = await readRequiredTrickroomConfig(paths.legacyConfigPath);
-		source = "legacy";
+		return {
+			config: await readRequiredTrickroomConfig(paths.legacyConfigPath),
+			source: "legacy",
+		};
 	}
+};
+
+export const readProjectConfig = async (
+	projectRoot = resolveProjectRoot(),
+): Promise<TrickroomConfig> => {
+	return (await readOrMigrateProjectConfig(projectRoot)).config;
+};
+
+export const readOrMigrateProjectConfig = async (
+	projectRoot = resolveProjectRoot(),
+) => {
+	const paths = getTrickroomProjectPaths(projectRoot);
+	const { config, source } = await readCurrentOrLegacyConfig(paths);
 
 	const nextConfig =
 		source !== "current" || !config.projectId || config.systems
@@ -232,6 +246,37 @@ export const readOrMigrateProjectConfig = async (
 		...paths,
 		config: nextConfig,
 		source,
+	};
+};
+
+export type ProjectConfigMigrationReason =
+	| "legacy-config"
+	| "missing-project-id"
+	| "legacy-systems";
+
+/**
+ * Reads, validates and normalises the project config in memory and never
+ * writes. `migrationReasons` lists what `readOrMigrateProjectConfig` would
+ * rewrite on disk; this reader only reports it. The returned config keeps the
+ * stored fields as they are, so a config without a `projectId` stays without.
+ */
+export const readProjectConfigReadOnly = async (
+	projectRoot = resolveProjectRoot(),
+) => {
+	const paths = getTrickroomProjectPaths(projectRoot);
+	const { config, source } = await readCurrentOrLegacyConfig(paths);
+
+	const migrationReasons: ProjectConfigMigrationReason[] = [
+		...(source === "legacy" ? (["legacy-config"] as const) : []),
+		...(config.projectId ? [] : (["missing-project-id"] as const)),
+		...(config.systems ? (["legacy-systems"] as const) : []),
+	];
+
+	return {
+		...paths,
+		config,
+		source,
+		migrationReasons,
 	};
 };
 
