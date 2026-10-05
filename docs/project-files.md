@@ -163,6 +163,8 @@ Fields and defaults (defaults are applied when the block is read and never writt
 | `exclude` | no | none | Exact Component slugs. |
 | `formatter` | no | none | `command` is a non-empty string, `args` an optional array of strings. It runs without a shell from the project root, with the source on stdin and `{file}` in `args` replaced by the output path. |
 
+What is generated, the check statuses and the ownership rule are described in [Component Codegen](codegen.md). Codegen reads the config, `system.json` and `components.json` without migrating them, in both modes.
+
 Unknown keys inside `codegen` or `formatter` are validation errors, so a typo fails loudly instead of being ignored. Saving normalises the block (trimmed strings, key order as above) and keeps it otherwise unchanged.
 
 A Trickroom older than this block drops it the next time it saves the config, for example when you rename the project or change MCP settings.
@@ -904,7 +906,7 @@ Package CSS imports:
 
 Application source files:
 
-- Trickroom does not rewrite your React components, routes, pages, or app CSS.
+- Trickroom does not rewrite your React components, routes, pages, or app CSS. The one exception is `trickroom codegen` (or `design_export` with `format: "variants"`), which writes generated variants files to the configured `outDir` and only replaces files that carry its header unless `--force` is passed. See [Component Codegen](codegen.md).
 - The current component registry is built into Trickroom rather than imported from your source tree.
 
 ## Concurrency And Revision Safety
