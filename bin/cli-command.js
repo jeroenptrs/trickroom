@@ -20,6 +20,10 @@ export const resolveTrickroomCommand = (argv = process.argv) => {
 		return { command: "migrate", args: argv.slice(3) };
 	}
 
+	if (command === "codegen") {
+		return { command: "codegen", args: argv.slice(3) };
+	}
+
 	if (command === "feedback") {
 		return { command: "feedback", args: argv.slice(3) };
 	}
@@ -29,6 +33,6 @@ export const resolveTrickroomCommand = (argv = process.argv) => {
 	}
 
 	throw new Error(
-		`Unknown command "${command}". Use "trickroom serve [project]", "trickroom mcp", "trickroom migrate [project]", "trickroom feedback" or "trickroom install-browser".`,
+		`Unknown command "${command}". Use "trickroom serve [project]", "trickroom mcp", "trickroom migrate [project]", "trickroom codegen [project] [--check]", "trickroom feedback" or "trickroom install-browser".`,
 	);
 };

@@ -55,6 +55,19 @@ describe("resolveTrickroomCommand", () => {
 		).toEqual({ command: "migrate", args: ["/project", "--dry-run"] });
 	});
 
+	it("selects codegen and forwards its arguments", () => {
+		expect(
+			resolveTrickroomCommand([
+				"node",
+				"trickroom",
+				"codegen",
+				"/project",
+				"--check",
+				"--json",
+			]),
+		).toEqual({ command: "codegen", args: ["/project", "--check", "--json"] });
+	});
+
 	it("selects feedback and forwards its options", () => {
 		expect(
 			resolveTrickroomCommand([
