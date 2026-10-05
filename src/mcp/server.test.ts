@@ -273,6 +273,99 @@ describe("trickroom MCP discovery tools", () => {
 		}
 	});
 
+	it("hides locations whose folder is gone and refuses to select them", async () => {
+		const trickroomHome = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),
+		);
+		tempProjectRoots.push(trickroomHome);
+		const currentRoot = await createProjectRoot({
+			name: "Current",
+			projectId: "proj_current",
+		});
+		const goneRoot = await createProjectRoot({
+			name: "Gone",
+			projectId: "proj_gone",
+		});
+		const context = {
+			...(await readMcpEnabledProjectContext(currentRoot)),
+			trickroomHome,
+		};
+		const { location: currentLocation } = await upsertProjectLocation({
+			trickroomHome,
+			projectId: "proj_current",
+			root: currentRoot,
+			name: "Current",
+			markActive: false,
+		});
+		const { location: goneLocation } = await upsertProjectLocation({
+			trickroomHome,
+			projectId: "proj_gone",
+			root: goneRoot,
+			name: "Gone",
+		});
+		const goneConfigPath = path.join(goneRoot, "trickroom.config.json");
+		const goneConfig = await readFile(goneConfigPath, "utf8");
+		await rm(goneRoot, { recursive: true, force: true });
+		const registryPath = path.join(trickroomHome, "projects.json");
+		const registryBefore = await readFile(registryPath, "utf8");
+		const server = createTrickroomMcpServer({
+			...context,
+			locationId: currentLocation.locationId,
+		});
+		const client = new Client(
+			{ name: "trickroom-test-client", version: "0.0.0" },
+			{ capabilities: {} },
+		);
+		const [clientTransport, serverTransport] =
+			InMemoryTransport.createLinkedPair();
+		await Promise.all([
+			server.connect(serverTransport),
+			client.connect(clientTransport),
+		]);
+
+		try {
+			const listed = toolPayload(
+				await client.callTool({ name: "project_list", arguments: {} }),
+			) as { projects: { locationId: string }[] };
+			expect(listed.projects.map((project) => project.locationId)).toEqual([
+				currentLocation.locationId,
+			]);
+			await expect(readFile(registryPath, "utf8")).resolves.toBe(
+				registryBefore,
+			);
+
+			const refused = await client.callTool({
+				name: "project_select",
+				arguments: { locationId: goneLocation.locationId },
+			});
+			expect(refused.isError).toBe(true);
+			expect(toolPayload(refused)).toMatchObject({
+				status: "MISSING_PROJECT_LOCATION",
+				projectRoot: goneRoot,
+				message: expect.stringContaining(`${goneRoot}, which no longer exists`),
+			});
+
+			await mkdir(goneRoot);
+			await writeFile(goneConfigPath, goneConfig, "utf8");
+			const reselected = await client.callTool({
+				name: "project_select",
+				arguments: { path: goneRoot },
+			});
+			expect(toolPayload(reselected)).toMatchObject({
+				selected: true,
+				registered: true,
+				project: {
+					projectId: "proj_gone",
+					locationId: goneLocation.locationId,
+					projectRoot: goneRoot,
+				},
+			});
+		} finally {
+			await client.close();
+			await server.close();
+		}
+	});
+
 	it("retargets project-scoped tools when project_select registers a path", async () => {
 		const trickroomHome = await mkdtemp(
 			path.join(process.cwd(), ".tmp-trickroom-mcp-home-"),

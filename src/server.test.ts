@@ -900,6 +900,35 @@ describe("server design routes", () => {
 		});
 	});
 
+	it("hides recent projects whose folder is gone and never offers them as active", async () => {
+		const goneRoot = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-gone-project-"),
+		);
+		const app = createTrickroomApp({ trickroomHome: tempTrickroomHome });
+		await app.request("/api/trickroom/projects/open", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ path: tempProjectRoot }),
+		});
+		await app.request("/api/trickroom/projects/open", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ path: goneRoot }),
+		});
+		await rm(goneRoot, { recursive: true, force: true });
+
+		const session = await app.request("/api/trickroom/session");
+		const body = (await session.json()) as {
+			registryActiveProject: unknown;
+			recentProjects: { projectRoot: string }[];
+		};
+
+		expect(body.registryActiveProject).toBeNull();
+		expect(body.recentProjects.map((project) => project.projectRoot)).toEqual([
+			tempProjectRoot,
+		]);
+	});
+
 	it("deletes a recent project location without deleting project files", async () => {
 		const app = createTrickroomApp({ trickroomHome: tempTrickroomHome });
 		const openResponse = await app.request("/api/trickroom/projects/open", {

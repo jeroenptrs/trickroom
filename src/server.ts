@@ -10,6 +10,7 @@ import {
 	clearActiveProjectLocation,
 	deleteProjectLocation,
 	getActiveProjectLocation,
+	listPresentProjectLocations,
 	type ProjectLocationRef,
 	readProjectRegistry,
 	updateProjectLocationName,
@@ -717,13 +718,21 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		}
 
 		const registry = await readProjectRegistry(trickroomHome);
-		const registryActiveLocation = getActiveProjectLocation(registry);
+		// Locations whose folder is gone are hidden, and never offered as the
+		// registry's active project.
+		const presentLocations = await listPresentProjectLocations(
+			registry.locations,
+		);
+		const registryActiveLocation = getActiveProjectLocation({
+			...registry,
+			locations: presentLocations,
+		});
 		return c.json({
 			activeProject: activeProject ? toSessionProject(activeProject) : null,
 			registryActiveProject: registryActiveLocation
 				? toSessionProject(registryActiveLocation)
 				: null,
-			recentProjects: registry.locations.map(toSessionProject),
+			recentProjects: presentLocations.map(toSessionProject),
 		});
 	});
 
@@ -924,7 +933,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		return c.json({
 			project: toSessionProject(deleted.location),
 			activeProject: activeProject ? toSessionProject(activeProject) : null,
-			recentProjects: deleted.registry.locations.map(toSessionProject),
+			recentProjects: (
+				await listPresentProjectLocations(deleted.registry.locations)
+			).map(toSessionProject),
 		});
 	});
 
@@ -984,7 +995,9 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return c.json({
 				project: toSessionProject(renamed.location),
 				activeProject: activeProject ? toSessionProject(activeProject) : null,
-				recentProjects: renamed.registry.locations.map(toSessionProject),
+				recentProjects: (
+					await listPresentProjectLocations(renamed.registry.locations)
+				).map(toSessionProject),
 				config: writtenConfig,
 			});
 		} catch (error) {

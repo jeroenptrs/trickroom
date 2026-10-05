@@ -6,7 +6,8 @@ import path from "node:path";
 /**
  * Serialises design writes per design file, within a process and across
  * processes (the HTTP server and every MCP stdio process write through the
- * same service).
+ * same service). Not design-specific: any file every process rewrites can
+ * take a lock keyed by its path (the project registry does).
  *
  * In-process callers wait on a promise queue keyed by design. The queue head
  * then takes a lockfile created with `open(path, "wx")`, so only one process
@@ -18,6 +19,8 @@ import path from "node:path";
 export type DesignFileLockOptions = {
 	/** Directory holding lockfiles. */
 	lockDirectory: string;
+	/** Names the lock in timeout messages; defaults to "design file". */
+	label?: string;
 	/** A lock older than this is considered abandoned. */
 	staleAfterMs?: number;
 	/** Give up acquiring after this long. */
@@ -37,11 +40,15 @@ type LockContents = {
 export class DesignFileLockTimeoutError extends Error {
 	readonly lockPath: string;
 
-	constructor(lockPath: string, holder: Partial<LockContents> | null) {
+	constructor(
+		lockPath: string,
+		holder: Partial<LockContents> | null,
+		label = "design file",
+	) {
 		super(
 			holder?.pid !== undefined
-				? `Timed out waiting for design file lock held by pid ${holder.pid}`
-				: "Timed out waiting for design file lock",
+				? `Timed out waiting for ${label} lock held by pid ${holder.pid}`
+				: `Timed out waiting for ${label} lock`,
 		);
 		this.name = "DesignFileLockTimeoutError";
 		this.lockPath = lockPath;
@@ -215,7 +222,7 @@ const acquireLock = async (
 			continue;
 		}
 		if (Date.now() >= deadline) {
-			throw new DesignFileLockTimeoutError(lockPath, holder);
+			throw new DesignFileLockTimeoutError(lockPath, holder, options.label);
 		}
 		await sleep(options.retryDelayMs + Math.random() * options.retryDelayMs);
 	}
@@ -246,6 +253,7 @@ export const withDesignFileLock = <T>(
 ): Promise<T> => {
 	const resolvedOptions: Required<DesignFileLockOptions> = {
 		lockDirectory: options.lockDirectory,
+		label: options.label ?? "design file",
 		staleAfterMs: options.staleAfterMs ?? defaultStaleAfterMs,
 		acquireTimeoutMs: options.acquireTimeoutMs ?? defaultAcquireTimeoutMs,
 		retryDelayMs: options.retryDelayMs ?? defaultRetryDelayMs,

@@ -1,6 +1,9 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { readProjectRegistry } from "../../app-state/project-registry";
+import {
+	listPresentProjectLocations,
+	readProjectRegistry,
+} from "../../app-state/project-registry";
 import { TrickroomProjectConfigError } from "../../project";
 import { getProjectDetails, getProjectInfo } from "../payloads/project";
 import { TrickroomMcpProjectResolverError } from "../project-resolver";
@@ -85,19 +88,21 @@ export const registerProjectTools = (ctx: McpToolContext) => {
 						: {
 								hint: `No project is selected for this session. Call ${TOOL.projectSelect} with a locationId below, or with the path of a project that is not listed.`,
 							}),
-					projects: registry.locations.map((location) => ({
-						projectId: location.projectId,
-						locationId: location.locationId,
-						projectRoot: location.root,
-						name: location.name,
-						lastOpenedAt: location.lastOpenedAt,
-						...(selected?.locationId === location.locationId
-							? { selected: true }
-							: {}),
-						...(location.locationId === registry.lastActiveLocationId
-							? { appActive: true }
-							: {}),
-					})),
+					projects: (await listPresentProjectLocations(registry.locations)).map(
+						(location) => ({
+							projectId: location.projectId,
+							locationId: location.locationId,
+							projectRoot: location.root,
+							name: location.name,
+							lastOpenedAt: location.lastOpenedAt,
+							...(selected?.locationId === location.locationId
+								? { selected: true }
+								: {}),
+							...(location.locationId === registry.lastActiveLocationId
+								? { appActive: true }
+								: {}),
+						}),
+					),
 				});
 			}),
 	);

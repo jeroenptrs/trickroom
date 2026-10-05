@@ -23,6 +23,7 @@ You can override the per-user app-state location with `TRICKROOM_HOME`. It holds
   projects.json                 recent project locations (see Per-User Project Registry)
   settings.json                 app settings: MCP tool groups, mcp.callLog, server and screenshot options
   locks/designs/<hash>.lock     design write locks (see Concurrency And Revision Safety)
+  locks/<hash>.lock             project registry write lock (see Per-User Project Registry)
   runtime/servers/<pid>.json    discovery records of running Trickroom servers
   feedback/                     created on first use, 0700
     feedback-YYYY-MM.jsonl      agent reports from feedback_submit (0600)
@@ -797,14 +798,33 @@ type ProjectRegistry = {
   lastActiveProjectId?: string;
   lastActiveLocationId?: string;
 };
+
+type ProjectLocationRef = {
+  locationId: string;
+  projectId: string;
+  root: string;
+  name: string;
+  lastOpenedAt: string;
+  missingSince?: string; // ISO time a registry write first found `root` gone
+};
 ```
+
+Fields Trickroom does not know (from a newer version, or added by hand) are kept when it rewrites the file.
 
 Write behavior:
 
 - Opening a project upserts its local location.
+- An MCP server started in a folder with an MCP-enabled `.trickroom` project upserts that folder's location without making it app-active.
 - MCP `project_select` with a `path` registers a project location and selects it for the MCP session.
 - `lastActiveProjectId` and `lastActiveLocationId` are app-level registry values and do not select or retarget MCP sessions.
 - Closing a project in the app clears only the in-memory active project for that app session; it does not remove recent project history.
+- Every write is a read-modify-write under a lockfile in `locks/` (the same lock design writes use), so app and MCP servers starting together do not drop each other's registrations. The file is replaced by an atomic rename.
+
+Missing folders (deleted worktrees, removed temporary projects, unmounted drives):
+
+- Lists hide locations whose root folder no longer exists: the app's recent projects, `project_list`, and the MCP resource catalog. Listing never writes the file. A root that cannot be checked (permission error, or no answer within a second) stays listed.
+- A hidden location is never the app's suggested active project, and the MCP resolver skips it when a `projectId` matches several locations. Selecting it by `locationId` fails with `MISSING_PROJECT_LOCATION`, naming the folder. `project_select({ path })` on a folder that exists again re-registers it under its old `locationId`.
+- Each upsert (the writes above) also checks the other locations: a missing root gains `missingSince`, a root that is back loses it, and a location missing for 30 days is removed. Last-active pointers that no longer lead to a location are cleared in the same write. Nothing else removes entries; renaming, deleting or closing in the app does not prune.
 
 ## Files Trickroom Reads But Does Not Edit
 

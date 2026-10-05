@@ -36,7 +36,7 @@ R = read-only, W = writes. Reads and writes are separate tools because client pe
 
 | Tool | R/W | Purpose | Key parameters |
 | --- | --- | --- | --- |
-| `project_list` | R | The session's project with governance, systems and a project memory summary, and every registered project (`selected`, `appActive`). | `project` to describe another registered project |
+| `project_list` | R | The session's project with governance, systems and a project memory summary, and every registered project whose folder still exists (`selected`, `appActive`). Locations of deleted worktrees and folders are left out; selecting one by `locationId` fails with `MISSING_PROJECT_LOCATION`. | `project` to describe another registered project |
 | `project_select` | W | Make a project the session's project; a path registers it first. | `locationId` \| `projectId` \| `path` |
 | `guide` | R | The authoring guide: a core, or topics. Replaces the authoring contracts and the registry tools. | `topic`, `designFileId`, `systemName`, `library`, `name` |
 | `design_list` | R | Design files with revision, boards (with their revisions), layer count, memory note count and storage warnings, and the linked design systems. | |
