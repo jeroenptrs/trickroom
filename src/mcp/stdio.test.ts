@@ -192,18 +192,22 @@ describe("trickroom MCP project gating", () => {
 		};
 		const fakeWatch = createFakeWatchFactory();
 
-		const stopWatchers = await createResourceListWatchers(server, trickroomHome, {
-			createWatchStop: fakeWatch.createWatchStop,
-		});
+		const stopWatchers = await createResourceListWatchers(
+			server,
+			trickroomHome,
+			{
+				createWatchStop: fakeWatch.createWatchStop,
+			},
+		);
 
 		try {
 			await deleteProjectLocation({
 				trickroomHome,
 				locationId: location.locationId,
 			});
-			fakeWatch.watchedPaths
-				.get(path.join(trickroomHome, "projects.json"))
-				?.("projects.json");
+			fakeWatch.watchedPaths.get(path.join(trickroomHome, "projects.json"))?.(
+				"projects.json",
+			);
 
 			await expect
 				.poll(() => notifications.length, { timeout: 2000, interval: 25 })
@@ -240,9 +244,13 @@ describe("trickroom MCP project gating", () => {
 		};
 		const fakeWatch = createFakeWatchFactory();
 
-		const stopWatchers = await createResourceListWatchers(server, trickroomHome, {
-			createWatchStop: fakeWatch.createWatchStop,
-		});
+		const stopWatchers = await createResourceListWatchers(
+			server,
+			trickroomHome,
+			{
+				createWatchStop: fakeWatch.createWatchStop,
+			},
+		);
 
 		try {
 			// Existing designs directory should not emit an initial notification.
@@ -250,9 +258,9 @@ describe("trickroom MCP project gating", () => {
 			expect(notifications).toHaveLength(0);
 
 			// A single design change should emit exactly one notification.
-			fakeWatch.watchedPaths
-				.get(designsDir)
-				?.("11111111-1111-4111-8111-111111111111.json");
+			fakeWatch.watchedPaths.get(designsDir)?.(
+				"11111111-1111-4111-8111-111111111111.json",
+			);
 
 			await expect
 				.poll(() => notifications.length, { timeout: 2000, interval: 25 })
@@ -284,9 +292,13 @@ describe("trickroom MCP project gating", () => {
 		};
 		const fakeWatch = createFakeWatchFactory();
 
-		const stopWatchers = await createResourceListWatchers(server, trickroomHome, {
-			createWatchStop: fakeWatch.createWatchStop,
-		});
+		const stopWatchers = await createResourceListWatchers(
+			server,
+			trickroomHome,
+			{
+				createWatchStop: fakeWatch.createWatchStop,
+			},
+		);
 
 		try {
 			const trickroomDir = path.dirname(designsDir);
@@ -297,12 +309,12 @@ describe("trickroom MCP project gating", () => {
 			expect(fakeWatch.watchedPaths.has(designsDir)).toBe(false);
 
 			await mkdir(designsDir, { recursive: true });
-			fakeWatch.watchedPaths
-				.get(parentWatchPath)
-				?.(parentWatchPath === trickroomDir ? "designs" : ".trickroom");
-			fakeWatch.watchedPaths
-				.get(path.join(trickroomHome, "projects.json"))
-				?.("projects.json");
+			fakeWatch.watchedPaths.get(parentWatchPath)?.(
+				parentWatchPath === trickroomDir ? "designs" : ".trickroom",
+			);
+			fakeWatch.watchedPaths.get(path.join(trickroomHome, "projects.json"))?.(
+				"projects.json",
+			);
 
 			await expect
 				.poll(() => fakeWatch.watchedPaths.has(designsDir), {
@@ -353,9 +365,13 @@ describe("trickroom MCP project gating", () => {
 		};
 		const fakeWatch = createFakeWatchFactory();
 
-		const stopWatchers = await createResourceListWatchers(server, trickroomHome, {
-			createWatchStop: fakeWatch.createWatchStop,
-		});
+		const stopWatchers = await createResourceListWatchers(
+			server,
+			trickroomHome,
+			{
+				createWatchStop: fakeWatch.createWatchStop,
+			},
+		);
 
 		try {
 			expect(fakeWatch.watchedPaths.has(designsDirA)).toBe(true);
@@ -417,9 +433,13 @@ describe("trickroom MCP project gating", () => {
 			};
 		};
 
-		const stopWatchers = await createResourceListWatchers(server, trickroomHome, {
-			createWatchStop,
-		});
+		const stopWatchers = await createResourceListWatchers(
+			server,
+			trickroomHome,
+			{
+				createWatchStop,
+			},
+		);
 
 		try {
 			expect(watchedPaths.has(designsDirA)).toBe(true);

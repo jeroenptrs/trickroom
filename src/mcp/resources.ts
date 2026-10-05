@@ -25,7 +25,9 @@ export function parseDesignResourceUri(uri: string): ParsedDesignResourceUri {
 	}
 
 	const withoutPrefix = uri.slice(DESIGN_RESOURCE_URI_PREFIX.length);
-	const pathSegments = withoutPrefix.split("/").filter((segment) => segment.length > 0);
+	const pathSegments = withoutPrefix
+		.split("/")
+		.filter((segment) => segment.length > 0);
 
 	if (pathSegments.length !== 3) {
 		throw new Error(`Invalid design resource URI: ${uri}`);

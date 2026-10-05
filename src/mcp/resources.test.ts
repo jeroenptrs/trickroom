@@ -15,9 +15,9 @@ describe("slugifyDesignTitle", () => {
 	});
 
 	it("caps slugs to 30 characters", () => {
-		expect(slugifyDesignTitle("This is a super long title with many words")).toBe(
-			"this-is-a-super-long-title-wit",
-		);
+		expect(
+			slugifyDesignTitle("This is a super long title with many words"),
+		).toBe("this-is-a-super-long-title-wit");
 	});
 });
 
@@ -36,10 +36,7 @@ describe("buildDesignResourceUri", () => {
 
 	it("builds bare-id URIs when slug is not provided", () => {
 		expect(
-			buildDesignResourceUri(
-				"loc-02",
-				"12345678-1234-4abc-8def-123456789abd",
-			),
+			buildDesignResourceUri("loc-02", "12345678-1234-4abc-8def-123456789abd"),
 		).toMatchInlineSnapshot(
 			'"trickroom://proj/loc-02/design/12345678-1234-4abc-8def-123456789abd"',
 		);

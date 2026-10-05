@@ -7,9 +7,8 @@ import {
 	isTrickroomSettings,
 	readTrickroomSettings,
 } from "../app-state/settings";
-import { normalizeMcpToolGroupSettings } from "./tool-groups";
 import type { McpToolGroupSettings } from "./tool-groups";
-import { MCP_TOOL_GROUPS } from "./tool-groups";
+import { MCP_TOOL_GROUPS, normalizeMcpToolGroupSettings } from "./tool-groups";
 
 export type McpToolControl = {
 	enable: () => void;
