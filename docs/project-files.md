@@ -45,6 +45,7 @@ Purpose:
 - Stores the project name.
 - Stores a stable `projectId`.
 - Enables and governs MCP.
+- Optionally configures component codegen (see Codegen Block).
 
 Shape:
 
@@ -60,6 +61,7 @@ type TrickroomConfig = {
     allowedComponents?: string[];
     auditLog?: boolean;
   };
+  codegen?: TrickroomCodegenConfig; // see Codegen Block
 };
 ```
 
@@ -104,6 +106,66 @@ Validation rules:
 - `mcp.mode` must be `read-only` or `read-write` when present.
 - MCP allowlists must contain non-empty strings.
 - Deprecated `tailwindRoot` configs are rejected.
+- `codegen`, when present, follows the Codegen Block rules. An invalid block makes the whole config invalid, and the error names each offending field (for example `codegen.fileName must contain {slug}`).
+
+### Codegen Block
+
+The optional `codegen` block says where and how published system Components are emitted as tailwind-variants files, one file per Component. It is additive: the project `schemaVersion` stays `1`, and a config without the block stays without it. Reading, opening or migrating a project never adds a default block.
+
+```ts
+type TrickroomCodegenConfig = {
+  version: 1;
+  system?: string;
+  outDir: string;
+  fileName?: string;
+  tvImport?: string;
+  shape?: "auto" | "slots";
+  include?: string[];
+  exclude?: string[];
+  formatter?: {
+    command: string;
+    args?: string[];
+  };
+};
+```
+
+Example:
+
+```json
+{
+  "schemaVersion": 1,
+  "name": "Example App",
+  "codegen": {
+    "version": 1,
+    "system": "foundation",
+    "outDir": "design-system/ui/src",
+    "fileName": "{slug}.variants.ts",
+    "tvImport": "./tv",
+    "shape": "auto",
+    "include": ["toast", "button"],
+    "exclude": ["topbar"],
+    "formatter": { "command": "./node_modules/.bin/biome", "args": ["format", "--stdin-file-path={file}"] }
+  }
+}
+```
+
+Fields and defaults (defaults are applied when the block is read and never written back):
+
+| Field | Required | Default | Rule |
+| --- | --- | --- | --- |
+| `version` | yes | | Must be `1`. The block's own migration boundary; another value is an error that names the versions this Trickroom understands. |
+| `system` | no | the project's `defaultSystemId` | A system id, name or storage key, the same handles the rest of Trickroom accepts. One system per block. |
+| `outDir` | yes | | Non-empty path relative to the project root. Not absolute, no `..` segment. |
+| `fileName` | no | `{slug}.variants.ts` | Contains `{slug}`, has no path separator, ends in `.ts`. |
+| `tvImport` | no | `./tv` | Non-empty module specifier the generated files import `tv` from. |
+| `shape` | no | `auto` | `auto` or `slots`. |
+| `include` | no | every published Component | Exact Component slugs. Whether they exist is checked at generation time. |
+| `exclude` | no | none | Exact Component slugs. |
+| `formatter` | no | none | `command` is a non-empty string, `args` an optional array of strings. It runs without a shell from the project root, with the source on stdin and `{file}` in `args` replaced by the output path. |
+
+Unknown keys inside `codegen` or `formatter` are validation errors, so a typo fails loudly instead of being ignored. Saving normalises the block (trimmed strings, key order as above) and keeps it otherwise unchanged.
+
+A Trickroom older than this block drops it the next time it saves the config, for example when you rename the project or change MCP settings.
 
 ## Design Files
 
