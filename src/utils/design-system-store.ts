@@ -244,8 +244,17 @@ export function resolveDesignSystemFontsPath(
 	);
 }
 
+export type DesignSystemReadOptions = {
+	/**
+	 * Never write: a `system.json` that would be normalised on disk is used
+	 * as normalised in memory only.
+	 */
+	readOnly?: boolean;
+};
+
 export async function listDesignSystems(
 	projectRoot: string,
+	options: DesignSystemReadOptions = {},
 ): Promise<DesignSystemRecord[]> {
 	const systemsDir = resolveDesignSystemsDir(projectRoot);
 	let entries: Awaited<ReturnType<typeof readdir>>;
@@ -285,7 +294,7 @@ export async function listDesignSystems(
 			projectRoot,
 			{},
 		);
-		if (shouldWrite) {
+		if (shouldWrite && !options.readOnly) {
 			await writeJsonFileAtomically(manifestPath, manifest);
 		}
 
@@ -307,13 +316,14 @@ export async function listDesignSystems(
 export async function findDesignSystem(
 	projectRoot: string,
 	systemHandle: string,
+	options: DesignSystemReadOptions = {},
 ): Promise<DesignSystemRecord | null> {
 	const trimmedHandle = systemHandle.trim();
 	if (!trimmedHandle) {
 		return null;
 	}
 
-	const records = await listDesignSystems(projectRoot);
+	const records = await listDesignSystems(projectRoot, options);
 	return (
 		records.find((record) => record.manifest.systemId === trimmedHandle) ??
 		records.find((record) => record.manifest.systemName === trimmedHandle) ??
@@ -326,8 +336,9 @@ export async function resolveDesignSystemFilePath(
 	projectRoot: string,
 	systemHandle: string,
 	fileName: DesignSystemManifestFile,
+	options: DesignSystemReadOptions = {},
 ): Promise<string> {
-	const record = await findDesignSystem(projectRoot, systemHandle);
+	const record = await findDesignSystem(projectRoot, systemHandle, options);
 	if (record) {
 		return path.join(record.dir, fileName);
 	}
