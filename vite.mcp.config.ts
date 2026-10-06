@@ -7,6 +7,8 @@ const nodeBuiltins = [
 ];
 
 const optionalRuntimeDependencies = ["playwright-core"];
+// Native (napi) packages stay external so the bundle loads their binding.
+const nativeRuntimeDependencies = ["oxc-parser"];
 
 export default defineConfig({
 	build: {
@@ -15,7 +17,11 @@ export default defineConfig({
 		emptyOutDir: false,
 		copyPublicDir: false,
 		rollupOptions: {
-			external: [...nodeBuiltins, ...optionalRuntimeDependencies],
+			external: [
+				...nodeBuiltins,
+				...optionalRuntimeDependencies,
+				...nativeRuntimeDependencies,
+			],
 			output: {
 				entryFileNames: "mcp-stdio.js",
 				format: "es",

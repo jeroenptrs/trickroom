@@ -12,7 +12,7 @@ const nativeRuntimeDependencies = ["oxc-parser"];
 
 export default defineConfig({
 	build: {
-		ssr: "src/server-entry.ts",
+		ssr: "src/cli/lint.ts",
 		outDir: "dist",
 		emptyOutDir: false,
 		copyPublicDir: false,
@@ -23,7 +23,7 @@ export default defineConfig({
 				...nativeRuntimeDependencies,
 			],
 			output: {
-				entryFileNames: "index.js",
+				entryFileNames: "lint.js",
 				format: "es",
 			},
 		},
