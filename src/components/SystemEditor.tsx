@@ -1,7 +1,14 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { StagePreviewDarkModeProvider } from "../preview/stage-preview-dark-mode";
 import { systemsQueryOptions } from "../queries/systems";
@@ -14,6 +21,11 @@ import {
 	handleEditorChromeShortcut,
 	useEditorPanelOpen,
 } from "../stores/editor-chrome-store";
+import {
+	resetLintDashboard,
+	selectLintItem,
+	useLintSelection,
+} from "../stores/lint-dashboard-store";
 import {
 	focusEditorRegion,
 	getKey,
@@ -35,6 +47,10 @@ import {
 	SystemEditorIconsPanel,
 } from "./system-editor/SystemEditorIconsPanel";
 import { SystemEditorInspector } from "./system-editor/SystemEditorInspector";
+import {
+	SystemEditorLintPanel,
+	SystemEditorLintRail,
+} from "./system-editor/SystemEditorLintPanel";
 import { SystemEditorTokensPanel } from "./system-editor/SystemEditorTokensPanel";
 import {
 	revealSystemPanel,
@@ -54,6 +70,7 @@ const SYSTEM_EDITOR_PAGES: Array<{ value: SystemEditorPage; label: string }> = [
 	{ value: "tokens", label: "Tokens" },
 	{ value: "assets", label: "Assets" },
 	{ value: "icons", label: "Icons" },
+	{ value: "lint", label: "Lint" },
 ];
 
 function getSystemBadgeState(
@@ -87,7 +104,12 @@ function getInitialSystemEditorPage(
 		return "components";
 	}
 
-	if (tab === "tokens" || tab === "assets" || tab === "icons") {
+	if (
+		tab === "tokens" ||
+		tab === "assets" ||
+		tab === "icons" ||
+		tab === "lint"
+	) {
 		return tab;
 	}
 
@@ -226,6 +248,15 @@ export function SystemEditor() {
 	const [selectedIconId, setSelectedIconId] = useState<string | null>(null);
 	const selectedTemplatePath = useComponentDraftSelectedPath();
 	const draftComponentId = useComponentDraftComponentId();
+	const lintSelection = useLintSelection();
+	const selectedSystemId = selectedSystem?.systemId ?? null;
+
+	// The lint dashboard's view, filters and selection belong to one system.
+	useEffect(() => {
+		if (selectedSystemId) {
+			resetLintDashboard();
+		}
+	}, [selectedSystemId]);
 
 	const systemStatus = useMemo(() => {
 		if (!selectedSystem) {
@@ -246,6 +277,7 @@ export function SystemEditor() {
 		setSelectedComponentId(null);
 		setSelectedAssetId(null);
 		setSelectedIconId(null);
+		selectLintItem(null);
 	}, []);
 
 	const isComponentContext =
@@ -257,7 +289,8 @@ export function SystemEditor() {
 	const hasInspectorContext =
 		hasComponentLayerInspector ||
 		(activePage === "assets" && selectedAssetId !== null) ||
-		(activePage === "icons" && selectedIconId !== null);
+		(activePage === "icons" && selectedIconId !== null) ||
+		(activePage === "lint" && lintSelection !== null);
 	const closeInspector = useCallback(() => {
 		if (activePage === "components") {
 			selectTemplateNode(null);
@@ -269,6 +302,10 @@ export function SystemEditor() {
 		}
 		if (activePage === "icons") {
 			setSelectedIconId(null);
+			return;
+		}
+		if (activePage === "lint") {
+			selectLintItem(null);
 		}
 	}, [activePage]);
 
@@ -417,6 +454,11 @@ export function SystemEditor() {
 								systemId={systemId}
 								projectScope={projectScope}
 							/>
+						) : activePage === "lint" ? (
+							<SystemEditorLintRail
+								systemId={systemId}
+								projectScope={projectScope}
+							/>
 						) : null}
 					</SystemLeftSidebar>
 					<main
@@ -492,6 +534,14 @@ export function SystemEditor() {
 										scrollElementRef={workspaceScrollRef}
 										selectedIconId={selectedIconId}
 										onSelectIcon={setSelectedIconId}
+									/>
+								</TabsPanel>
+								<TabsPanel value="lint" className="flex min-h-0 flex-1">
+									<SystemEditorLintPanel
+										systemId={systemId}
+										systemName={selectedSystem.systemName}
+										projectScope={projectScope}
+										scrollElementRef={workspaceScrollRef}
 									/>
 								</TabsPanel>
 							</div>
