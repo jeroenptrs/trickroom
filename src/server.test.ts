@@ -2126,4 +2126,41 @@ describe("server design lint route", () => {
 		const missing = await app.request("/api/trickroom/design/lint?id=nope");
 		expect(missing.status).toBe(404);
 	});
+
+	it("applies the defaults with a warning when lint.json cannot be read", async () => {
+		const { systemId } = await createDesignSystemStorage(projectRoot, {
+			systemName: "Core",
+			cssPath: "src/core.css",
+		});
+		await mkdir(
+			path.join(projectRoot, ".trickroom", "systems", "core", "lint.json"),
+		);
+		await mkdir(path.join(projectRoot, ".trickroom", "designs"), {
+			recursive: true,
+		});
+		await writeFile(
+			path.join(projectRoot, ".trickroom", "designs", "shop.json"),
+			JSON.stringify({ ...validDesign, systemId }),
+		);
+		const app = createTrickroomApp({
+			trickroomHome,
+			initialProjectRoot: projectRoot,
+		});
+
+		const response = await app.request("/api/trickroom/design/lint?id=shop");
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			rules: string[];
+			diagnostics: Array<{ code: string; message: string }>;
+		};
+		expect(body.rules).toContain("design.unknown-variant-value");
+		expect(body.diagnostics).toEqual([
+			expect.objectContaining({
+				code: "INVALID_LINT_CONFIG",
+				message: expect.stringContaining(
+					".trickroom/systems/core/lint.json could not be read, so the default rules apply",
+				),
+			}),
+		]);
+	});
 });

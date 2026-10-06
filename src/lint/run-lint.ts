@@ -145,11 +145,19 @@ const toPosix = (value: string) => value.split(path.sep).join("/");
 
 const MAX_PARSE_ERROR_DIAGNOSTICS = 50;
 
-/** Reads and validates `lint.json` of a system folder; null config when absent. */
+/**
+ * Reads and validates `lint.json` of a system folder; null config when
+ * absent. A file that cannot be read (a folder in its place, a permission
+ * problem) is an issue with `unreadable` set, never a thrown error.
+ */
 export const readLintConfigFile = async (
 	systemDir: string,
 	knownRuleIds: ReadonlySet<string>,
-): Promise<{ config: LintConfig | null; issues: string[] }> => {
+): Promise<{
+	config: LintConfig | null;
+	issues: string[];
+	unreadable?: boolean;
+}> => {
 	const configPath = path.join(systemDir, LINT_CONFIG_FILE_NAME);
 	let text: string;
 	try {
@@ -158,7 +166,13 @@ export const readLintConfigFile = async (
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
 			return { config: null, issues: [] };
 		}
-		throw error;
+		return {
+			config: null,
+			issues: [
+				`${LINT_CONFIG_FILE_NAME} could not be read: ${error instanceof Error ? error.message : String(error)}`,
+			],
+			unreadable: true,
+		};
 	}
 	let value: unknown;
 	try {

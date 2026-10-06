@@ -460,7 +460,7 @@ type LintDesignIndex = {
 
 `design-lint.ts` runs the design-side kinds on one design: `loadDesignLintSetup` reads the linked system read-only (components, `lint.json`, token snapshot) into a contract and resolved config, and `lintDesign` builds the index of that design (or of some boards) and runs the design-side kinds through the same runner, with the same Tailwind inspector loader. Unlike a lint run it never fails:
 
-- An invalid `lint.json` applies the defaults; invalid options of a kind apply that kind's defaults; each is an `INVALID_LINT_CONFIG` diagnostic. A kind that throws is skipped with a `LINT_RULE_FAILED` diagnostic.
+- An invalid or unreadable `lint.json` (a folder in its place, a permission problem) applies the defaults; invalid options of a kind apply that kind's defaults; each is an `INVALID_LINT_CONFIG` diagnostic. Components that cannot be read are an `INVALID_COMPONENT_MANIFEST` diagnostic and the component rules see none. A kind that throws is skipped with a `LINT_RULE_FAILED` diagnostic.
 - Findings without a design location (`design.design-only-class-target`) are kept only for components the checked boards place.
 
 Two callers:
@@ -509,7 +509,7 @@ trickroom lint [project] [--check] [--json] [--system <id|name>]
 | `--json` | Print the `LintRunResult` alone on stdout: `status`, `mode`, `system`, `report`, `ratchet`, `baseline` (`absent`, `invalid`, `present`), `reportPath`, `written`, `diagnostics`. |
 | `--system` | Select a system by id, name or storage key. |
 
-Exit codes: 0 pass, 1 ratchet failure, 2 error (no project, invalid config or `lint.json` including invalid rule options, unknown or ambiguous system, a crashed rule, a refused write, or anything the engine did not foresee, reported as `RUN_FAILED`). Warnings that do not stop a run: `COMPONENT_MANIFEST_DIAGNOSTIC`, `CODEGEN_OTHER_SYSTEM`, `INVALID_BASELINE`, `SOURCE_PARSE_ERROR`, `SOURCES_TRUNCATED`, `WRAPPER_MODULE_NOT_SCANNED`, `DESIGN_UNREADABLE`. An error never escapes `runLint` as an exception, so `--json` output stays valid. Human output lists each side's counts, then findings grouped by rule kind with their location, then every number that got worse and every threshold broken, then one closing line.
+Exit codes: 0 pass, 1 ratchet failure, 2 error (no project, invalid config or `lint.json` including invalid rule options and a `lint.json` that cannot be read, unknown or ambiguous system, a crashed rule, a refused write, or anything the engine did not foresee, reported as `RUN_FAILED`). Warnings that do not stop a run: `COMPONENT_MANIFEST_DIAGNOSTIC`, `CODEGEN_OTHER_SYSTEM`, `INVALID_BASELINE`, `SOURCE_PARSE_ERROR`, `SOURCES_TRUNCATED`, `WRAPPER_MODULE_NOT_SCANNED`, `DESIGN_UNREADABLE`. An error never escapes `runLint` as an exception, so `--json` output stays valid. Human output lists each side's counts, then findings grouped by rule kind with their location, then every number that got worse and every threshold broken, then one closing line.
 
 `pnpm build:lint` builds `dist/lint.js`; `pnpm build` includes it.
 

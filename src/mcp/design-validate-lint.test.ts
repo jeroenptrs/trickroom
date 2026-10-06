@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { flatPayload, publishedComponent } from "../codegen/test-support";
@@ -45,6 +45,9 @@ const layer = (
 	children,
 });
 
+/** Puts a folder where lint.json goes, so reading it fails with EISDIR. */
+const LINT_JSON_DIRECTORY = Symbol("lint.json is a directory");
+
 describe("design_validate with the system's design lint rules", () => {
 	let fixture: TrickroomMcpProjectFixture | undefined;
 	let session: TrickroomMcpClientSession | undefined;
@@ -72,7 +75,9 @@ describe("design_validate with the system's design lint rules", () => {
 				components: { [chip.componentId]: chip },
 			}),
 		);
-		if (lintConfig !== undefined) {
+		if (lintConfig === LINT_JSON_DIRECTORY) {
+			await mkdir(path.join(systemDir(), "lint.json"));
+		} else if (lintConfig !== undefined) {
 			await writeFile(
 				path.join(systemDir(), "lint.json"),
 				typeof lintConfig === "string"
@@ -228,6 +233,65 @@ describe("design_validate with the system's design lint rules", () => {
 			}),
 		);
 		expect(result.summary.codes["design.unknown-variant-value"]).toBe(1);
+	});
+
+	it("applies the defaults with a warning when lint.json cannot be read, in both modes", async () => {
+		await setup(LINT_JSON_DIRECTORY);
+		const unreadable = expect.objectContaining({
+			severity: "warning",
+			code: "INVALID_LINT_CONFIG",
+			message: expect.stringContaining(
+				".trickroom/systems/core/lint.json could not be read, so the default rules apply",
+			),
+		});
+
+		const whole = await validate();
+		expect(whole.warnings).toContainEqual(unreadable);
+		expect(whole.summary.codes["design.unknown-variant-value"]).toBe(1);
+
+		const read = await session?.client.callTool({
+			name: "design_read",
+			arguments: { designFileId: trickroomMcpTestDesignUuid },
+		});
+		const revision = (toolPayload(read) as { designFile: { revision: string } })
+			.designFile.revision;
+		const dryRun = await validate({
+			expectedRevision: revision,
+			operations: [
+				{
+					operation: "addElement",
+					parameters: {
+						parentId: "board",
+						index: 0,
+						library: "trickroom",
+						component: "container",
+						name: "Promo",
+						className: "bg-missing-200",
+					},
+				},
+			],
+		});
+		expect(dryRun.warnings).toContainEqual(unreadable);
+		expect(dryRun.all).toContainEqual(
+			expect.objectContaining({
+				code: "design.unknown-class-token",
+				classToken: "bg-missing-200",
+			}),
+		);
+	});
+
+	it("keeps validating with a warning when the components cannot be read", async () => {
+		await setup();
+		await rm(path.join(systemDir(), "components.json"));
+		await mkdir(path.join(systemDir(), "components.json"));
+		const result = await validate();
+		expect(result.warnings).toContainEqual(
+			expect.objectContaining({
+				severity: "warning",
+				code: "INVALID_COMPONENT_MANIFEST",
+			}),
+		);
+		expect(result.summary.codes["design.unknown-class-token"]).toBe(1);
 	});
 
 	it("runs the rules on the elements a dry-run touches", async () => {

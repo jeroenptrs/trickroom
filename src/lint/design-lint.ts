@@ -4,10 +4,7 @@ import {
 	type DesignSystemRecord,
 	findDesignSystem,
 } from "../utils/design-system-store";
-import {
-	readSystemComponentManifest,
-	SystemComponentManifestServiceError,
-} from "../utils/system-component-manifest-service";
+import { readSystemComponentManifest } from "../utils/system-component-manifest-service";
 import { createEmptySystemComponentManifest } from "../utils/system-components";
 import {
 	readDomainTokensReadonly,
@@ -32,9 +29,10 @@ import { buildSourceIndex } from "./source/index";
  * system's resolved `lint.json` as `trickroom lint`, so enabled kinds,
  * severities and options apply the same way. Reads the system read-only.
  *
- * Unlike a lint run it never fails: an invalid `lint.json` or invalid
- * options fall back to the defaults (the whole file, or that kind's
- * options) and a failing kind is skipped, each reported in `diagnostics`.
+ * Unlike a lint run it never fails: an invalid or unreadable `lint.json`
+ * or invalid options fall back to the defaults (the whole file, or that
+ * kind's options), unreadable components to none, and a failing kind is
+ * skipped, each reported in `diagnostics`.
  * Findings without a design location (a component-level finding such as
  * `design.design-only-class-target`) are kept only for components the
  * checked boards place.
@@ -95,10 +93,11 @@ export async function loadDesignLintSetup({
 			})
 		).manifest;
 	} catch (error) {
-		if (!(error instanceof SystemComponentManifestServiceError)) throw error;
+		// An invalid manifest or a filesystem error (a folder in its place):
+		// validation goes on without components rather than failing.
 		diagnostics.push({
 			code: "INVALID_COMPONENT_MANIFEST",
-			message: `The components of system "${system.manifest.systemName}" could not be read, so component rules saw none: ${error.message}`,
+			message: `The components of system "${system.manifest.systemName}" could not be read, so component rules saw none: ${error instanceof Error ? error.message : String(error)}`,
 		});
 	}
 
@@ -106,7 +105,9 @@ export async function loadDesignLintSetup({
 	if (read.issues.length > 0) {
 		diagnostics.push({
 			code: "INVALID_LINT_CONFIG",
-			message: `${lintPath} is invalid, so the default rules apply: ${read.issues.join(" ")}`,
+			message: read.unreadable
+				? `${lintPath} could not be read, so the default rules apply: ${read.issues.join(" ")}`
+				: `${lintPath} is invalid, so the default rules apply: ${read.issues.join(" ")}`,
 			path: lintPath,
 		});
 	}

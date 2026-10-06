@@ -666,6 +666,22 @@ describe("runLint", () => {
 		expect(await readReport(project)).toEqual(report);
 	});
 
+	it("reports a lint.json it cannot read as an invalid lint.json", async () => {
+		const project = await setup({ codegen: false });
+		await mkdir(project.path(".trickroom/systems/core/lint.json"));
+		const result = await runLint({ projectRoot: project.root, check: true });
+		expect(result.status).toBe("error");
+		expect(result.diagnostics).toEqual([
+			{
+				code: "INVALID_LINT_CONFIG",
+				severity: "error",
+				message: expect.stringMatching(
+					/^\.trickroom\/systems\/core\/lint\.json is invalid: lint\.json could not be read: .*EISDIR/u,
+				),
+			},
+		]);
+	});
+
 	it("rejects invalid rule options as an invalid lint.json", async () => {
 		const project = await setup({ codegen: false });
 		await writeFile(
