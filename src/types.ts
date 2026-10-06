@@ -240,6 +240,14 @@ export type TrickroomDesign = {
 	 */
 	systemName?: string | null;
 	componentMigrationPolicy?: "inherit" | "manual" | "auto";
+	/**
+	 * When the design was last changed (ISO 8601), owned by the server: the
+	 * design file service sets it on every write that changes a board, the
+	 * board order or a top-level field, and ignores whatever a writer sends.
+	 * Absent on designs never written since the field was introduced. Not
+	 * part of the design's revision.
+	 */
+	updatedAt?: string;
 	boards: Node[];
 };
 
@@ -251,6 +259,11 @@ export type TrickroomDesignSummary = {
 	systemName?: string | null;
 	boardsCount: number;
 	layersCount: number;
+	/**
+	 * When the design last changed: the manifest's `updatedAt` when it has
+	 * one, otherwise the latest modification time of its files (which a git
+	 * checkout resets).
+	 */
 	modifiedAt: string;
 	/**
 	 * Set when the file exists but cannot be opened, for example because a

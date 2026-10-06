@@ -276,6 +276,8 @@ export type DesignFileServiceOptions = {
 	lock?: Partial<DesignFileLockOptions>;
 	/** Test hooks run between the steps of a journaled write. */
 	journalHooks?: DesignJournalHooks;
+	/** Clock for the `updatedAt` the service stamps on writes. */
+	now?: () => Date;
 };
 
 export const getDesignLockDirectory = (
@@ -436,6 +438,42 @@ const withoutStorageVersion = ({
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * The design with `updatedAt` set to `updatedAt`, or without one. The value
+ * is server-owned: whatever the writer sent is replaced. Keeps the stable
+ * key order.
+ */
+const withUpdatedAt = (
+	{ updatedAt: _sent, ...design }: TrickroomDesign,
+	updatedAt: string | undefined,
+): TrickroomDesign =>
+	updatedAt === undefined
+		? design
+		: orderDesignFileKeys({ ...design, updatedAt });
+
+/**
+ * Whether a write changes the design's content: a board, the board order, a
+ * deletion or a top-level field. Only those move `updatedAt`; a write that
+ * changes nothing (an idle autosave) or only the storage version keeps it.
+ */
+const hasDesignChanges = (plan: DesignWritePlan) =>
+	plan.manifestChanged ||
+	plan.orderChanged ||
+	plan.changedBoardIds.length > 0 ||
+	plan.deletedBoardIds.length > 0;
+
+/**
+ * A stored `updatedAt` as a normalised ISO 8601 string, or null when it is
+ * missing or not a date (for example edited by hand).
+ */
+const parseDesignUpdatedAt = (value: unknown): string | null => {
+	if (typeof value !== "string") {
+		return null;
+	}
+	const time = Date.parse(value);
+	return Number.isNaN(time) ? null : new Date(time).toISOString();
+};
 
 const toDesignFileDiagnostic = (
 	error: unknown,
@@ -787,6 +825,7 @@ export class DesignFileService {
 	readonly designsGitkeepPath: string;
 	private readonly lockOptions: DesignFileLockOptions;
 	private readonly journalHooks: DesignJournalHooks;
+	private readonly now: () => Date;
 	private canonicalProjectRoot: Promise<string> | null = null;
 
 	constructor(projectRoot: string, options: DesignFileServiceOptions = {}) {
@@ -800,6 +839,7 @@ export class DesignFileService {
 				getDesignLockDirectory(options.trickroomHome),
 		};
 		this.journalHooks = options.journalHooks ?? {};
+		this.now = options.now ?? (() => new Date());
 		DesignFileService.pruneSummaryCache();
 	}
 
@@ -1188,7 +1228,9 @@ export class DesignFileService {
 		files: DesignFiles,
 	): DesignFileSummary {
 		const location = this.describeLocation(paths, files.layout);
-		const modifiedAt = files.modifiedAt.toISOString();
+		// File times say when a file was last written to this disk, which a
+		// git checkout resets: the manifest's `updatedAt` wins when present.
+		const fileModifiedAt = files.modifiedAt.toISOString();
 		const warnings =
 			files.layout === "folder" && files.legacyPresent
 				? { warnings: [legacyDesignFileWarning(paths.designId)] }
@@ -1210,7 +1252,11 @@ export class DesignFileService {
 					: {}),
 				boardsCount: read.design.boards.length,
 				layersCount: countDesignLayers(read.design),
-				modifiedAt,
+				modifiedAt:
+					parseDesignUpdatedAt(read.design.updatedAt) ?? fileModifiedAt,
+				...(typeof read.design.updatedAt === "string"
+					? { updatedAt: read.design.updatedAt }
+					: {}),
 				revision: read.revision,
 				boards: summarizeDesignBoards(read),
 				...warnings,
@@ -1229,7 +1275,7 @@ export class DesignFileService {
 				name: typeof raw.name === "string" ? raw.name : paths.designId,
 				boardsCount: Array.isArray(raw.boards) ? raw.boards.length : 0,
 				layersCount: 0,
-				modifiedAt,
+				modifiedAt: parseDesignUpdatedAt(raw.updatedAt) ?? fileModifiedAt,
 				revision:
 					parsed?.fallbackRevision() ??
 					calculateDesignFileRevision(
@@ -1348,7 +1394,12 @@ export class DesignFileService {
 				);
 			}
 
-			const next = plan?.design ?? incoming;
+			const next = withUpdatedAt(
+				plan?.design ?? incoming,
+				!plan || hasDesignChanges(plan)
+					? this.now().toISOString()
+					: current?.design?.updatedAt,
+			);
 			const operations = await this.storeDesign(
 				paths,
 				current,
@@ -1527,6 +1578,11 @@ export class DesignFileService {
 					path: paths.manifest,
 					contents: serializeDesignManifest(next),
 				});
+			} else if (next.updatedAt !== current.design?.updatedAt) {
+				operations.stamp = {
+					path: paths.manifest,
+					contents: serializeDesignManifest(next),
+				};
 			}
 			for (const boardId of plan.deletedBoardIds) {
 				operations.unlinks.push(getBoardFilePath(paths, boardId));
@@ -1893,7 +1949,10 @@ export class DesignFileService {
 		design: unknown,
 	): Promise<DesignFileWrite> {
 		const paths = this.getDesignPaths(designId);
-		const created = withoutStorageVersion(prepareDesignForStorage(design));
+		const created = withUpdatedAt(
+			withoutStorageVersion(prepareDesignForStorage(design)),
+			this.now().toISOString(),
+		);
 
 		await this.withDesignLock(designId, async () => {
 			const state = await inspectDesignStorage(paths);

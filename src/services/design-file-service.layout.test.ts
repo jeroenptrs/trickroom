@@ -44,12 +44,21 @@ const renamed = (source: TrickroomDesign, boardId: string, name: string) => ({
 describe("design folder layout", () => {
 	let projectRoot: string;
 	let service: DesignFileService;
+	/** The time writes stamp as `updatedAt`; tests move it forward. */
+	let clock: number;
+	const tick = () => {
+		clock += 60_000;
+		return new Date(clock).toISOString();
+	};
 
 	beforeEach(async () => {
 		projectRoot = await mkdtemp(
 			path.join(process.cwd(), ".tmp-trickroom-design-layout-test-"),
 		);
-		service = createDesignFileService(projectRoot);
+		clock = Date.parse("2026-10-01T10:00:00.000Z");
+		service = createDesignFileService(projectRoot, {
+			now: () => new Date(clock),
+		});
 	});
 
 	afterEach(async () => {
@@ -96,12 +105,15 @@ describe("design folder layout", () => {
 		);
 	};
 
-	it("rewrites only the board that changed", async () => {
+	it("rewrites only the board that changed, and the manifest's updatedAt", async () => {
 		const created = await service.createDesignFile(
 			"one",
 			design(board("a"), board("b"), board("c")),
 		);
+		expect(created.design.updatedAt).toBe("2026-10-01T10:00:00.000Z");
 		const before = await snapshotFiles("one");
+		const manifestBefore = await readFile(manifestFile("one"), "utf8");
+		const updatedAt = tick();
 
 		const written = await service.writeDesignFile(
 			"one",
@@ -111,8 +123,70 @@ describe("design folder layout", () => {
 
 		expect(changedFiles(before, await snapshotFiles("one"))).toEqual([
 			"boards/b.json",
+			"design.json",
 		]);
 		expect(written.changedBoardIds).toEqual(["b"]);
+		expect(written.design.updatedAt).toBe(updatedAt);
+		// The manifest diff is one line.
+		expect(await readFile(manifestFile("one"), "utf8")).toBe(
+			manifestBefore.replace("2026-10-01T10:00:00.000Z", updatedAt),
+		);
+		// The timestamp is not part of the revision.
+		expect(written.revision).toBe(
+			(await service.readDesignFile("one")).revision,
+		);
+	});
+
+	it("writes no file for a save that changes nothing", async () => {
+		const created = await service.createDesignFile(
+			"idle",
+			design(board("a"), board("b")),
+		);
+		const before = await snapshotFiles("idle");
+		tick();
+
+		const written = await service.writeDesignFile("idle", created.design, {
+			expectedRevision: created.revision,
+		});
+
+		expect(changedFiles(before, await snapshotFiles("idle"))).toEqual([]);
+		expect(written.revision).toBe(created.revision);
+		expect(written.design.updatedAt).toBe("2026-10-01T10:00:00.000Z");
+		expect(written.merged).toBe(false);
+	});
+
+	it("owns updatedAt: a writer's value is replaced or ignored", async () => {
+		const created = await service.createDesignFile("owned", {
+			...design(board("a")),
+			updatedAt: "1999-01-01T00:00:00.000Z",
+		});
+		expect(created.design.updatedAt).toBe("2026-10-01T10:00:00.000Z");
+		const before = await snapshotFiles("owned");
+		tick();
+
+		// Only the timestamp differs: nothing changed, nothing is written.
+		const unchanged = await service.writeDesignFile(
+			"owned",
+			{ ...created.design, updatedAt: "2030-01-01T00:00:00.000Z" },
+			{ expectedRevision: created.revision },
+		);
+		expect(changedFiles(before, await snapshotFiles("owned"))).toEqual([]);
+		expect(unchanged.design.updatedAt).toBe("2026-10-01T10:00:00.000Z");
+
+		// A write without one (as the editor sends) still gets one.
+		const { updatedAt: _updatedAt, ...withoutUpdatedAt } = created.design;
+		const updatedAt = tick();
+		const renamedDesign = await service.writeDesignFile(
+			"owned",
+			{ ...withoutUpdatedAt, name: "Renamed" },
+			{ expectedRevision: created.revision },
+		);
+		expect(renamedDesign.design.updatedAt).toBe(updatedAt);
+		expect(JSON.parse(await readFile(manifestFile("owned"), "utf8"))).toEqual({
+			version: DESIGN_FILE_VERSION,
+			name: "Renamed",
+			updatedAt,
+		});
 	});
 
 	it("adds, deletes and reorders boards one file at a time", async () => {
@@ -123,6 +197,7 @@ describe("design folder layout", () => {
 		const [a, b, c] = created.design.boards as [Node, Node, Node];
 
 		let before = await snapshotFiles("sets");
+		tick();
 		const added = await service.writeDesignFile(
 			"sets",
 			{ ...created.design, boards: [a, board("new"), b, c] },
@@ -130,9 +205,11 @@ describe("design folder layout", () => {
 		);
 		expect(changedFiles(before, await snapshotFiles("sets"))).toEqual([
 			"boards/new.json",
+			"design.json",
 		]);
 
 		before = await snapshotFiles("sets");
+		tick();
 		const deleted = await service.writeDesignFile(
 			"sets",
 			{ ...added.design, boards: [a, board("new"), c] },
@@ -140,9 +217,11 @@ describe("design folder layout", () => {
 		);
 		expect(changedFiles(before, await snapshotFiles("sets"))).toEqual([
 			"boards/b.json",
+			"design.json",
 		]);
 
 		before = await snapshotFiles("sets");
+		tick();
 		const reordered = await service.writeDesignFile(
 			"sets",
 			{ ...deleted.design, boards: [c, a, board("new")] },
@@ -150,6 +229,7 @@ describe("design folder layout", () => {
 		);
 		expect(changedFiles(before, await snapshotFiles("sets"))).toEqual([
 			"boards/c.json",
+			"design.json",
 		]);
 		expect(reordered.design.boards.map((entry) => entry.id)).toEqual([
 			"c",
@@ -168,6 +248,7 @@ describe("design folder layout", () => {
 			design(board("a"), board("b")),
 		);
 		const before = await snapshotFiles("named");
+		tick();
 
 		await service.writeDesignFile(
 			"named",

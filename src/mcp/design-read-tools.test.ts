@@ -319,6 +319,7 @@ describe("trickroom MCP design read tools", () => {
 				systemId: coreSystemId,
 				systemName: "Core",
 				revision: expect.any(String),
+				updatedAt: expect.any(String),
 			},
 			elementCount: 5,
 			boards: [
@@ -372,6 +373,11 @@ describe("trickroom MCP design read tools", () => {
 				{ id: "board-b", name: "Board B", component: "container" },
 			],
 		});
+		// design_list's modifiedAt is the recorded updatedAt, not a file time.
+		expect(listedDesign?.modifiedAt).toBe(
+			(toolPayload(readResult) as { designFile: { updatedAt: string } })
+				.designFile.updatedAt,
+		);
 		const readText = (readResult.content as Array<{ text: string }>)[0].text;
 		expect(JSON.parse(readText)).toEqual(toolPayload(readResult));
 
@@ -610,6 +616,7 @@ describe("trickroom MCP design read tools", () => {
 				id: designFileId,
 				name: "Readable Design",
 				revision: expect.any(String),
+				updatedAt: expect.any(String),
 			},
 			subtree: {
 				id: "cta",

@@ -494,6 +494,11 @@ export type DesignFileOperations = {
 	/** Absolute path to new contents, applied in order. */
 	writes: { path: string; contents: string }[];
 	unlinks: string[];
+	/**
+	 * The manifest, when the write changes only its `updatedAt` (see
+	 * `commitDesignOperations`). Never set together with a manifest write.
+	 */
+	stamp?: { path: string; contents: string };
 };
 
 /** Creates the folders the operations write into. */

@@ -324,6 +324,9 @@ const readBoardForTool = async (
 					id: designFileId,
 					name: summary.name,
 					revision: summary.revision,
+					...(summary.updatedAt !== undefined
+						? { updatedAt: summary.updatedAt }
+						: {}),
 				},
 				design: {
 					name: summary.name,

@@ -157,7 +157,7 @@ Behaviour that changed with the fold:
 - Single edits share the batch's checks and response. A write is refused only for errors it adds (`PLAN_LEAVES_ERRORS`); errors the design already had are counted in `preExistingErrorCount` and do not block it.
 - `copySubtree` takes the batch step's parameters: the edited design is the target (`designFileId`), `sourceDesignFileId` defaults to it, and `includeIdMap: true` returns the id map.
 - `updateRecipeControl` takes any element id in the recipe instance (`$step:N` works) or the instance id as `instanceId`; `path` defaults to that element's template path. `elementId` is accepted as an alias.
-- `design_create` returns an `{ id, name, revision }` header and its boards as compact nodes, not a full element tree; extracting an element sends `resources/list_changed` like an empty create.
+- `design_create` returns an `{ id, name, revision, updatedAt }` header and its boards as compact nodes, not a full element tree; extracting an element sends `resources/list_changed` like an empty create.
 - `design_read` outlines no longer carry JSON Pointer addresses; `detail: "full"` replaces `includeProps`.
 - Saving PNGs moved from the screenshot tool to `design_export`, so screenshots are read-only.
 - Results are one minified JSON text block; `structuredContent` is no longer repeated (no tool declares an `outputSchema`).
@@ -303,13 +303,13 @@ Statuses of `editor_context` and `editor_focus` other than `ok` are not errors (
 
 ## Designs
 
-`design_list` lists design files: `id`, `name`, `revision`, `systemId` (left out when it is the project's `defaultSystemId`), `layersCount`, `modifiedAt`, `boards` (id, name, revision), `memoryNotes` when the design has notes, a `diagnostic` for unreadable files and `warnings` for storage problems that do not stop a design from opening (`LEGACY_DESIGN_FILE_PRESENT`: an older single-file copy sits next to the design's folder; see [Files And Safety](./project-files.md#design-file-versions)). It reads the design file service's summaries, which are cached on the fingerprint of each design's files, so a repeat listing only stats files that did not change. `systems` describes each linked design system: `name`, `cssPath`, `tokens` (`syncedAt`, `reviewRequired` when set) or `null` when no snapshot is stored, and `memoryNotes`. A top-level `memoryNotes` counts the project's own notes.
+`design_list` lists design files: `id`, `name`, `revision`, `systemId` (left out when it is the project's `defaultSystemId`), `layersCount`, `modifiedAt` (when the design last changed: its recorded `updatedAt`, or the newest file time for designs that have none), `boards` (id, name, revision), `memoryNotes` when the design has notes, a `diagnostic` for unreadable files and `warnings` for storage problems that do not stop a design from opening (`LEGACY_DESIGN_FILE_PRESENT`: an older single-file copy sits next to the design's folder; see [Files And Safety](./project-files.md#design-file-versions)). It reads the design file service's summaries, which are cached on the fingerprint of each design's files, so a repeat listing only stats files that did not change. `systems` describes each linked design system: `name`, `cssPath`, `tokens` (`syncedAt`, `reviewRequired` when set) or `null` when no snapshot is stored, and `memoryNotes`. A top-level `memoryNotes` counts the project's own notes.
 
 `design_read`:
 
 | Call | Returns | Default bounds |
 | --- | --- | --- |
-| `{ designFileId }` | header (`id`, `name`, `revision`, system), board index (id, name, revision, elementCount), and a tree of every board | depth 2, 50 nodes |
+| `{ designFileId }` | header (`id`, `name`, `revision`, `updatedAt`, system), board index (id, name, revision, elementCount), and a tree of every board | depth 2, 50 nodes |
 | `{ designFileId, boardId }` | header, `board` (id, name, revision, elementCount) and that board's tree; no board index | depth 2, 50 nodes |
 | `{ designFileId, elementId }` | the element's subtree and its placement (`parentId`, `boardId`, `index`, `siblingCount`) | depth 3, 100 nodes |
 | `{ designFileId, elementId, depth: 0 }` | the element alone with its `childIds` and placement | |
@@ -317,7 +317,7 @@ Statuses of `editor_context` and `editor_focus` other than `ok` are not errors (
 
 A board read reads only that board's file while the design's cached summary is current (its files unchanged since the summary was taken), and checks that the board's revision matches the summary, so the design revision it returns is consistent with the board; otherwise it reads the whole design once. Depth above 4 or `maxNodes` above 500 need `allowLarge: true`. Passing both `boardId` and `elementId` is an error. Design and board reads add a `memory` summary and a hint when the design has notes.
 
-`design_create` creates a design with exclusive-create semantics (an existing id fails with `DESIGN_FILE_ALREADY_EXISTS`). With `name` it starts with no boards: add boards with `design_apply` operations at `parentId: null`. With `from: { designFileId, elementId }` the new design's board is a copy of that element and its subtree with new ids; the source is not changed and `name` defaults to the element's layer name. `systemName` links a design system: omitted, the design inherits the project default (or the source's); `null` creates an unlinked design. It returns `newRevision`, `designFile: { id, name, revision }`, `system`, `boards` as compact nodes, the copy's `idMap` with `response: "full"`, and diagnostics on the new content.
+`design_create` creates a design with exclusive-create semantics (an existing id fails with `DESIGN_FILE_ALREADY_EXISTS`). With `name` it starts with no boards: add boards with `design_apply` operations at `parentId: null`. With `from: { designFileId, elementId }` the new design's board is a copy of that element and its subtree with new ids; the source is not changed and `name` defaults to the element's layer name. `systemName` links a design system: omitted, the design inherits the project default (or the source's); `null` creates an unlinked design. It returns `newRevision`, `designFile: { id, name, revision, updatedAt }`, `system`, `boards` as compact nodes, the copy's `idMap` with `response: "full"`, and diagnostics on the new content.
 
 Boards: a board is one responsive screen or one interaction state (a page, the page with a dialog or sheet open, alternatives the user asked to compare), never one board per breakpoint. Build it once with responsive variants and review it at several widths with `design_screenshot`.
 
@@ -445,7 +445,7 @@ Unknown boards fail with `NO_MATCHING_BOARDS` (HTML) or `BOARD_NOT_FOUND` (PNG) 
 
 The editor tools talk to the browser tab where the human has the project open, through the running Trickroom server. They never fail because no browser is open.
 
-`editor_context` returns what the human sees: `design` (`id`, `name`, `revision`), `board` (id, name), `selected` (the selected layer as a compact node with `parentId`, `boardId`, `index`, `siblingCount`, so "this layer" is actionable in one call), `stageMode` (`canvas` or `responsive`, with `responsiveWidth`), `visible`, `ageMs` (how old the tab's report is) and `otherTabs`. A selection or board the design no longer has comes back as `{ id, missing: true }`.
+`editor_context` returns what the human sees: `design` (`id`, `name`, `revision`, `updatedAt`), `board` (id, name), `selected` (the selected layer as a compact node with `parentId`, `boardId`, `index`, `siblingCount`, so "this layer" is actionable in one call), `stageMode` (`canvas` or `responsive`, with `responsiveWidth`), `visible`, `ageMs` (how old the tab's report is) and `otherTabs`. A selection or board the design no longer has comes back as `{ id, missing: true }`.
 
 `editor_focus` points the editor at a design, a board, or a layer (selected and scrolled into view; its board is inferred). Unknown elements and boards fail before reaching the browser. On success `outcome` says whether the tab revealed it in the open design, navigated to another design, or queued it until the hidden tab is shown.
 

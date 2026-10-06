@@ -181,7 +181,7 @@ Layout (design file version 2):
 
 ```text
 <projectRoot>/.trickroom/designs/<designId>/
-  design.json            manifest: version, name, systemId and other top-level fields
+  design.json            manifest: version, name, systemId, updatedAt and other top-level fields
   boards/<boardId>.json  one board: version, order key and the board's node tree
   memory.json            the design's memory notes (see Memory Notes)
 ```
@@ -200,6 +200,7 @@ type TrickroomDesign = {
   systemId?: string | null;
   systemName?: string | null;
   componentMigrationPolicy?: "inherit" | "manual" | "auto";
+  updatedAt?: string; // ISO 8601, set by Trickroom on every change (see Last change time)
   boards: Node[]; // in order
 };
 
@@ -216,7 +217,8 @@ type Node = {
 {
 	"version": 2,
 	"name": "Checkout",
-	"systemId": "sys_00000000-0000-4000-8000-000000000000"
+	"systemId": "sys_00000000-0000-4000-8000-000000000000",
+	"updatedAt": "2026-10-06T09:30:00.000Z"
 }
 ```
 
@@ -248,19 +250,29 @@ Board order:
 - Two branches that insert a board in the same place can produce equal keys; ties sort by board id, and the next write that needs room between them re-keys one board.
 - A missing or invalid key sorts last and is replaced on the next write that touches the design's order.
 
+Last change time (`updatedAt`):
+
+- `updatedAt` in `design.json` is when the design last changed, as an ISO 8601 UTC time. The design file service sets it to the write time on every write that changes the design: a board, the board order, a deleted board or a top-level field. Creating a design sets it too.
+- The server owns the value. The browser never sends it, and a value in a write payload (HTTP or MCP) is replaced on create and ignored otherwise. File modification times can't do this job, because a git checkout or branch switch rewrites the files and resets them. `updatedAt` is committed with the design, so it survives branches and worktrees.
+- A write that changes nothing writes no file, so an idle autosave leaves `updatedAt` and the git worktree alone. Writes that only bring storage up to date (persisting the current version or layout of an otherwise unchanged design, and `trickroom migrate`) keep the stored value.
+- `updatedAt` is not part of the manifest revision (see [Design revisions](#design-revisions)). Another writer's save of board A changes the timestamp but does not make your change to the design's name stale. The browser does not refetch the manifest for a timestamp, and an editor's own save still echoes back with the revision it already holds.
+- When two writes race, the later write's time wins. The browser keeps no copy to merge, and the service stamps each write as it stores it. Two git branches that each change the same design both change this line. Resolve the conflict by keeping the later time; any valid time is safe, since it only orders the project screen.
+- Designs written before the field existed have none until their next change. The project screen then falls back to the newest modification time of the design's files. Adding the field needed no new design file version, because older Trickroom versions pass unknown top-level fields through reads and writes unchanged.
+- The project screen orders designs by the later of that time and when this browser last opened the design. Opened times live in the browser's `localStorage` under `trickroom:design-activity`, one map keyed by design id. Design ids are unique across projects, so the history survives switching worktrees or branches. Earlier versions kept one map per project location (`trickroom:design-activity:<scope>`). Trickroom still reads the open project's old map and merges it in, but writes only the shared key.
+
 Write behavior:
 
-- The browser app creates designs from the project screen. The editor autosaves the whole design through `PUT /api/trickroom/design?id=<designId>`; the design file service compares it with what is on disk and writes only the files that changed: a board file when its board or its order key changed, `design.json` when a top-level field changed, and an unlink per deleted board.
+- The browser app creates designs from the project screen. The editor autosaves the whole design through `PUT /api/trickroom/design?id=<designId>`; the design file service compares it with what is on disk and writes only the files that changed: a board file when its board or its order key changed, `design.json` when a top-level field changed, and an unlink per deleted board. Because `design.json` records `updatedAt`, any write that changes the design also rewrites the manifest, a one-line diff when only the time moves. A save that changes nothing writes nothing.
 - MCP `design_create` creates designs when policy allows and refuses to overwrite an existing id. Unlike the app's new designs, an MCP-created design starts without boards (or with a copy of an existing element as its board). MCP `design_apply` edits existing designs when policy and revisions allow.
 - Each file is written atomically (a temporary file renamed into place). A write that changes more than one file (moving a layer between boards, promoting a layer to a board or demoting a board, reordering plus editing, converting a legacy design) is journaled; see [Multi-file writes](#multi-file-writes).
-- Written JSON is tab-indented with a stable key order (`version` first; in the manifest then `name`, `systemId`, `systemName`, `componentMigrationPolicy`, other keys), so identical designs produce identical bytes.
+- Written JSON is tab-indented with a stable key order (`version` first; in the manifest then `name`, `systemId`, `systemName`, `componentMigrationPolicy`, `updatedAt`, other keys), so identical designs produce identical bytes.
 - Every write checks that each element id is unique in the design, is a safe single path segment usable as a file name (letters, digits, `-`, `_`, `.`; not first or last; no `/`, `\`, `:` or other reserved characters), and that no two board ids differ only in letter case. Board ids name board files, and any layer can become a board.
 - Reading a design never writes it. Opening a design in the app or capturing a screenshot leaves the files, the revision and the git worktree untouched.
 - `GET /api/trickroom/design/board?id=<designId>&board=<boardId>` returns one board and its revision (`{ board, revision }`, also in `x-trickroom-board-revision`); in the folder layout it reads only that board's file.
 
 ### Design revisions
 
-A design's revision is an opaque token (`r2.` followed by base64url) built from the revision of its manifest and of every board, in board order. Board and manifest revisions are content hashes of the in-memory value with object keys sorted, so the same design has the same revision whatever its formatting, key order or storage layout. Callers compare revisions for equality and pass them back; they never parse them.
+A design's revision is an opaque token (`r2.` followed by base64url) built from the revision of its manifest and of every board, in board order. Board and manifest revisions are content hashes of the in-memory value with object keys sorted, so the same design has the same revision whatever its formatting, key order or storage layout. The manifest revision leaves out `version` and `updatedAt`, which are storage metadata the service sets, not content a writer changes. Callers compare revisions for equality and pass them back; they never parse them.
 
 A revision-checked write merges at board level against the revision the caller read (`expectedRevision`):
 
@@ -269,7 +281,7 @@ A revision-checked write merges at board level against the revision the caller r
 - Boards another writer added are kept. Boards another writer deleted stay deleted, unless the caller changed them (a mismatch).
 - When the caller kept the relative order of the boards it knew, the order on disk wins and new boards slot in after their predecessor. When the caller reordered, its order wins unless the order on disk changed too (a mismatch).
 - The returned revision describes the merged state. The HTTP API sets `x-trickroom-design-merged: true` when the stored design kept changes the request did not have; the browser applies those changes from the response like any external change.
-- HTTP design reads and writes also report every part's revision in `x-trickroom-design-state` (URI-encoded JSON `{ manifest, boards: [{ id, revision }] }`), design change events carry the same as `state`, and `GET /api/trickroom/design/manifest?id=` returns the top-level fields with those revisions and no board contents. The browser compares these for equality to reload only the parts that changed; it never parses the design revision token.
+- HTTP design reads and writes also report every part's revision in `x-trickroom-design-state` (URI-encoded JSON `{ manifest, boards: [{ id, revision }] }`), design change events carry the same as `state`, and `GET /api/trickroom/design/manifest?id=` returns the top-level fields (`updatedAt` included) with those revisions and no board contents. The browser compares these for equality to reload only the parts that changed; it never parses the design revision token.
 
 `updateDesignFile` (used by every MCP mutation and by bulk component migration) applies a mutation to a fresh read and writes it with the caller's revision as `expectedRevision` and the fresh read as the base: a mutation of board A succeeds when only board B changed since the caller's read.
 
@@ -282,6 +294,8 @@ A revision that is not a design token (for example an older `sha256:` revision) 
 ### Multi-file writes
 
 Under the design lock, a write that changes more than one file first stores `<designId>/.journal.json` (through a temporary file and an atomic rename) with the full new contents of every file it will write and every file it will remove, applies them one by one (board files, then `design.json`, then unlinks), and deletes the journal.
+
+The service does not journal a write whose only other change is one file, which covers the common single-board save. It writes that file, then `design.json` with the new `updatedAt`. Journaling the pair would copy the board into the journal on every save. A write interrupted between the two leaves a whole design with the previous `updatedAt`.
 
 - Interrupted before the journal is in place: only a temporary file is left; the old state stands.
 - Interrupted after the journal is in place (between any two apply steps, or before deleting the journal): the journal is complete and replaying it yields the new state.
@@ -331,6 +345,7 @@ Unreadable designs:
 
 - Listing designs includes designs that cannot be opened instead of hiding them, so a design written by a newer Trickroom does not silently disappear. Summaries from `GET /api/trickroom/designs` carry a `diagnostic` with `code` `UNSUPPORTED_DESIGN_VERSION`, `INVALID_DESIGN_PAYLOAD`, or `INVALID_DESIGN_JSON`, a message, and the stored `version` when known. Opening one returns HTTP 422 with the same message.
 - Summaries are cached per design on a fingerprint of all of its files (inode, size and modification time of the manifest, every board file, the legacy file and the journal), so a change to any file refreshes the summary and its revision.
+- A summary's `modifiedAt` is the manifest's `updatedAt` when it holds a valid time, and otherwise the newest modification time of the design's files. The field keeps its name; summaries of designs with a timestamp also carry `updatedAt` as stored.
 
 When adding a version:
 

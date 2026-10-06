@@ -1318,6 +1318,7 @@ describe("MCP mutation tools", () => {
 					id: createdDesignFileId,
 					name: "Exploration",
 					revision: content.newRevision,
+					updatedAt: expect.any(String),
 				});
 				expect(content.system).toEqual({
 					systemId: expect.stringMatching(/^sys_/),
@@ -1704,6 +1705,7 @@ describe("MCP mutation tools", () => {
 					id: extractedDesignFileId,
 					name: "Board",
 					revision: content.newRevision,
+					updatedAt: expect.any(String),
 				});
 				expect(content.system).toMatchObject({ systemName: "Core" });
 				// The new board as one compact node; the id map is opt-in.
@@ -1747,7 +1749,10 @@ describe("MCP mutation tools", () => {
 				const persistedSource = await fixture.designFileService.readDesignFile(
 					trickroomMcpTestDesignUuid,
 				);
-				expect(persistedSource.design).toEqual(trickroomMcpTestDesign);
+				expect(persistedSource.design).toEqual({
+					...trickroomMcpTestDesign,
+					updatedAt: expect.any(String),
+				});
 			} finally {
 				await session.close();
 			}
@@ -3472,7 +3477,10 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.revision).toBe(revision);
-				expect(persisted.design).toEqual(trickroomMcpTestDesign);
+				expect(persisted.design).toEqual({
+					...trickroomMcpTestDesign,
+					updatedAt: expect.any(String),
+				});
 			} finally {
 				await session.close();
 			}
@@ -3534,7 +3542,10 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.revision).toBe(revision);
-				expect(persisted.design).toEqual(trickroomMcpTestDesign);
+				expect(persisted.design).toEqual({
+					...trickroomMcpTestDesign,
+					updatedAt: expect.any(String),
+				});
 			} finally {
 				await session.close();
 			}
@@ -3591,7 +3602,10 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.revision).toBe(revision);
-				expect(persisted.design).toEqual(trickroomMcpTestDesign);
+				expect(persisted.design).toEqual({
+					...trickroomMcpTestDesign,
+					updatedAt: expect.any(String),
+				});
 			} finally {
 				await session.close();
 			}
@@ -4532,7 +4546,10 @@ describe("MCP mutation tools", () => {
 					trickroomMcpTestDesignUuid,
 				);
 				expect(persisted.revision).toBe(revision);
-				expect(persisted.design).toEqual(trickroomMcpTestDesign);
+				expect(persisted.design).toEqual({
+					...trickroomMcpTestDesign,
+					updatedAt: expect.any(String),
+				});
 			} finally {
 				await session.close();
 			}

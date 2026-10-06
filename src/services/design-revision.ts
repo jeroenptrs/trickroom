@@ -107,9 +107,18 @@ export const getDesignManifestFields = (
 	return manifest;
 };
 
+/**
+ * The manifest revision hashes the top-level fields except `updatedAt`. The
+ * timestamp is server-owned metadata that changes with every write: hashing
+ * it would make every save look like a change to the name or settings, and
+ * a save of one board would make another writer's rename stale.
+ */
 export const calculateManifestRevision = (
 	design: TrickroomDesign | Record<string, unknown>,
-) => hashHex(stableStringify(getDesignManifestFields(design)), 8);
+) => {
+	const { updatedAt: _updatedAt, ...fields } = getDesignManifestFields(design);
+	return hashHex(stableStringify(fields), 8);
+};
 
 /**
  * `knownRevision` may supply a board's revision without hashing it again,

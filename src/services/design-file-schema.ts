@@ -19,6 +19,10 @@
  *    disk.
  * 4. Cover the step in `design-file-schema.test.ts` and document it in
  *    `docs/project-files.md`.
+ *
+ * An optional top-level field that older Trickroom versions read and write
+ * back unchanged needs no new version: unknown manifest fields pass through
+ * reads, validation and writes. `updatedAt` was added that way.
  */
 
 export const DESIGN_FILE_VERSION = 2;
@@ -179,6 +183,7 @@ const leadingDesignKeys = [
 	"systemId",
 	"systemName",
 	"componentMigrationPolicy",
+	"updatedAt",
 ] as const;
 
 /**

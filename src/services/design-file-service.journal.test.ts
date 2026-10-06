@@ -52,6 +52,10 @@ const after = (design: TrickroomDesign): TrickroomDesign => ({
 
 class SimulatedCrash extends Error {}
 
+/** The design without its write time, which every write sets anew. */
+const content = ({ updatedAt: _updatedAt, ...design }: TrickroomDesign) =>
+	design;
+
 describe("journaled multi-file writes", () => {
 	let tempRoot: string;
 	let projectRoot: string;
@@ -122,6 +126,48 @@ describe("journaled multi-file writes", () => {
 		expect(journalWritten).toBe(false);
 	});
 
+	it("writes one changed board and the new updatedAt without a journal", async () => {
+		const created = await createDesignFileService(projectRoot, {
+			lock: { lockDirectory },
+			now: () => new Date("2026-10-01T10:00:00.000Z"),
+		}).createDesignFile("doc", before);
+		let journalWritten = false;
+		const steps: number[] = [];
+
+		const written = await createDesignFileService(projectRoot, {
+			lock: { lockDirectory },
+			now: () => new Date("2026-10-02T10:00:00.000Z"),
+			journalHooks: {
+				afterJournalWritten: () => {
+					journalWritten = true;
+				},
+				afterStep: (step: number) => {
+					steps.push(step);
+				},
+			},
+		}).writeDesignFile(
+			"doc",
+			{
+				...created.design,
+				boards: [
+					board("a", [leaf("moved")]),
+					board("b", [leaf("new")]),
+					board("c"),
+				],
+			},
+			{ expectedRevision: created.revision },
+		);
+
+		expect(journalWritten).toBe(false);
+		// The board file is the only step; the manifest follows on its own.
+		expect(steps).toEqual([1]);
+		expect(written.design.updatedAt).toBe("2026-10-02T10:00:00.000Z");
+		const read = await service().readDesignFile("doc");
+		expect(read.design.updatedAt).toBe("2026-10-02T10:00:00.000Z");
+		expect(read.revision).toBe(written.revision);
+		await expect(exists(journalPath())).resolves.toBe(false);
+	});
+
 	// Step 0 is right after the journal is in place; steps 1-4 follow each
 	// applied file (writes of a, b and design.json, then the unlink of c).
 	for (const crashAfter of [0, 1, 2, 3, 4]) {
@@ -148,7 +194,8 @@ describe("journaled multi-file writes", () => {
 
 			// The next reader replays the journal under the lock.
 			const read = await service().readDesignFile("doc");
-			expect(read.design).toEqual(after(created.design));
+			expect(content(read.design)).toEqual(content(after(created.design)));
+			expect(read.design.updatedAt).toEqual(expect.any(String));
 			await expect(exists(journalPath())).resolves.toBe(false);
 			await expect(
 				readdir(path.join(designFolder(), "boards")),
@@ -322,7 +369,8 @@ await service.writeDesignFile("doc", JSON.parse(designJson), { expectedRevision 
 				await expect(exists(journalPath())).resolves.toBe(true);
 				// The dead writer's lockfile is broken and the journal replayed.
 				const read = await service().readDesignFile("doc");
-				expect(read.design).toEqual(after(created.design));
+				expect(content(read.design)).toEqual(content(after(created.design)));
+				expect(read.design.updatedAt).toEqual(expect.any(String));
 				await expect(exists(journalPath())).resolves.toBe(false);
 			}, 30_000);
 		}

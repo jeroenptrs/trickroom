@@ -198,6 +198,57 @@ describe("project file events", () => {
 		unsubscribe();
 	});
 
+	it("reports a board save once, though updatedAt rewrites the manifest after it", async () => {
+		const root = await createProjectRoot();
+		const service = createDesignFileService(root, {
+			trickroomHome: path.join(root, "home"),
+		});
+		const created = await service.createDesignFile("home", {
+			name: "Home",
+			boards: [board("a"), board("b")],
+		});
+		const { received, unsubscribe } = await subscribe(root);
+
+		// The board file is written first and the manifest (only its
+		// updatedAt changes) well after the debounce, so the watcher sees
+		// them as two changes.
+		const slow = createDesignFileService(root, {
+			trickroomHome: path.join(root, "home"),
+			now: () => new Date(Date.parse(created.design.updatedAt ?? "") + 1_000),
+			journalHooks: {
+				afterStep: () => new Promise((resolve) => setTimeout(resolve, 120)),
+			},
+		});
+		const written = await slow.writeDesignFile(
+			"home",
+			{
+				...created.design,
+				boards: [
+					board("a"),
+					{ ...board("b"), props: { ...board("b").props, className: "p-4" } },
+				],
+			},
+			{ expectedRevision: created.revision },
+		);
+		expect(written.design.updatedAt).not.toBe(created.design.updatedAt);
+
+		await vi.waitFor(() => expect(received.length).toBeGreaterThan(0), {
+			timeout: 2_000,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(received).toHaveLength(1);
+		expect(received[0]).toMatchObject({
+			revision: written.revision,
+			boards: [{ id: "b", revision: written.boards[1]?.revision }],
+			state: {
+				// The browser does not refetch the manifest for a timestamp.
+				manifest: calculateManifestRevision(created.design),
+				boards: written.boards,
+			},
+		});
+		unsubscribe();
+	});
+
 	it("emits during a steady stream of writes, and ends at the final revision", async () => {
 		const root = await createProjectRoot();
 		const service = createDesignFileService(root, {

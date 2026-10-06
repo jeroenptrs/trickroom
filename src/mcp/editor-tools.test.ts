@@ -116,6 +116,7 @@ describe("editor tools", () => {
 				id: trickroomMcpTestDesignUuid,
 				name: "Harness Design",
 				revision: expect.any(String),
+				updatedAt: expect.any(String),
 			},
 			board: { id: "board", name: "Board" },
 			selected: {
