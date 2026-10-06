@@ -9,7 +9,8 @@ import type { SystemComponentDraftPayload } from "./system-components";
 /**
  * The node without its design-only subtrees, or null when it is design-only
  * itself. Kept nodes lose an explicit `designOnly: false`, so it reads the same
- * as an absent flag.
+ * as an absent flag, and lose `children` when every child was design-only, so
+ * adding the first design-only child reads the same as having none.
  */
 export function stripDesignOnlyNodes(
 	node: RecipeTemplateNode,
@@ -18,15 +19,24 @@ export function stripDesignOnlyNodes(
 		return null;
 	}
 	const { designOnly: _designOnly, children, ...rest } = node;
+	const kept = stripDesignOnlyChildren(children);
+	return kept === undefined ? rest : { ...rest, children: kept };
+}
+
+/**
+ * A child list without design-only subtrees. Undefined when the list was
+ * absent or every child in it was design-only; an explicit empty list stays.
+ */
+export function stripDesignOnlyChildren(
+	children: readonly RecipeTemplateNode[] | undefined,
+): RecipeTemplateNode[] | undefined {
 	if (!children) {
-		return rest;
+		return undefined;
 	}
-	return {
-		...rest,
-		children: children
-			.map(stripDesignOnlyNodes)
-			.filter((child): child is RecipeTemplateNode => child !== null),
-	};
+	const kept = children
+		.map(stripDesignOnlyNodes)
+		.filter((child): child is RecipeTemplateNode => child !== null);
+	return kept.length === 0 && children.length > 0 ? undefined : kept;
 }
 
 /**

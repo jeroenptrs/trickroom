@@ -1422,6 +1422,26 @@ describe("design-only nodes", () => {
 			).toBe(generateOne(publishedRecord("field", base)).header.sourceHash);
 		});
 
+		it("is unchanged when a node gains its first, design-only children", () => {
+			const bare = (): SystemComponentDraftPayload => ({
+				root: node("root", "flex"),
+				slots: { main: { name: "main", hostPath: "root" } },
+			});
+			const helpers = bare();
+			helpers.root.children = [designOnly(node("guide", "border-dashed"))];
+			if (helpers.slots) {
+				helpers.slots.main.defaultChildren = [designOnly(node("hint"))];
+			}
+			expect(hashCodegenSource(helpers)).toBe(hashCodegenSource(bare()));
+
+			// An explicit empty list keeps hashing as before.
+			const explicitEmpty = bare();
+			explicitEmpty.root.children = [];
+			expect(hashCodegenSource(explicitEmpty)).not.toBe(
+				hashCodegenSource(bare()),
+			);
+		});
+
 		it("changes when a node that contributes to codegen becomes design-only", () => {
 			const base = annotatedPayload();
 			const toggled = annotatedPayload();

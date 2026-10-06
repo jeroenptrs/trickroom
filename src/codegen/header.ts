@@ -1,6 +1,7 @@
 import { sha256Hex } from "../utils/sha256";
 import {
 	collectDesignOnlyPaths,
+	stripDesignOnlyChildren,
 	stripDesignOnlyNodes,
 } from "../utils/system-component-design-only";
 import { stableStringify } from "../utils/system-component-template-hash";
@@ -60,15 +61,9 @@ export function hashCodegenSource(
 	const input = stableStringify({
 		root: stripDesignOnlyNodes(payload.root),
 		slots: mapValues(codeSlots, (slot) => {
-			const hashed = omitKeys(slot, ["label", "history"]);
-			return slot.defaultChildren
-				? {
-						...hashed,
-						defaultChildren: slot.defaultChildren
-							.map(stripDesignOnlyNodes)
-							.filter((child) => child !== null),
-					}
-				: hashed;
+			const hashed = omitKeys(slot, ["label", "history", "defaultChildren"]);
+			const defaultChildren = stripDesignOnlyChildren(slot.defaultChildren);
+			return defaultChildren ? { ...hashed, defaultChildren } : hashed;
 		}),
 		variants: {
 			...payload.variants,
