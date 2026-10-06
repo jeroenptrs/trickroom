@@ -56,8 +56,9 @@ export const MCP_TOOL_GROUPS = [
 	{
 		id: "designValidation",
 		label: "Validation & dry-run",
-		description: "Validate designs and dry-run design operations.",
-		tools: [TOOL.designValidate],
+		description:
+			"Validate designs, dry-run design operations, and lint a design system against its code and designs.",
+		tools: [TOOL.designValidate, TOOL.lint],
 	},
 	{
 		id: "registry",

@@ -26,6 +26,7 @@ const EXPECTED_ANNOTATIONS: Record<
 	design_read: "R",
 	design_apply: [true, false, false],
 	design_validate: "R",
+	lint: [false, true, false],
 	design_create: [false, false, false],
 	design_screenshot: "R open",
 	design_export: [true, false, true],
