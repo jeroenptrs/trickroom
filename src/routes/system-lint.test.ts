@@ -97,6 +97,7 @@ describe("system lint routes", () => {
 			systemId,
 			systemName: "Core",
 			report: stored,
+			current: { contractHash: stored.contract.hash },
 		});
 
 		expect((await app.request("/api/trickroom/systems/nope/lint")).status).toBe(
@@ -176,5 +177,178 @@ describe("system lint routes", () => {
 			code: "LINT_FAILED",
 			diagnostics: [{ code: "INVALID_LINT_CONFIG" }],
 		});
+	});
+
+	it("serves the current contract hash next to the report, and it moves when the system changes", async () => {
+		const app = await importTestServer();
+		await app.request("/api/trickroom/systems/core/lint", { method: "POST" });
+		const read = (await (
+			await app.request("/api/trickroom/systems/core/lint")
+		).json()) as {
+			report: { contract: { hash: string } };
+			current: { contractHash: string | null };
+		};
+		expect(read.current.contractHash).toBe(read.report.contract.hash);
+
+		const badge = publishedComponent("badge", flatPayload("px-1"));
+		const button = publishedComponent("button", flatPayload("px-3"));
+		await writeFile(
+			path.join(tempProjectRoot, ".trickroom/systems/core/components.json"),
+			serializeSystemComponentManifest({
+				...createEmptySystemComponentManifest(),
+				components: {
+					[button.componentId]: button,
+					[badge.componentId]: badge,
+				},
+			}),
+		);
+		const after = (await (
+			await app.request("/api/trickroom/systems/core/lint")
+		).json()) as {
+			report: { contract: { hash: string } };
+			current: { contractHash: string | null };
+		};
+		expect(after.current.contractHash).toMatch(/^sha256:/u);
+		expect(after.current.contractHash).not.toBe(after.report.contract.hash);
+	});
+
+	it("serves the default config with the rule kind catalogue before lint.json exists", async () => {
+		const app = await importTestServer();
+		const response = await app.request(
+			"/api/trickroom/systems/core/lint/config",
+		);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as Record<string, unknown>;
+		expect(body).toMatchObject({
+			systemId,
+			systemName: "Core",
+			path: ".trickroom/systems/core/lint.json",
+			present: false,
+			revision: null,
+			config: { version: 1 },
+			issues: [],
+			text: null,
+			defaults: {
+				source: {
+					include: ["src/**/*.{ts,tsx,js,jsx,mjs,cjs}"],
+					exclude: ["**/*.d.ts"],
+				},
+			},
+		});
+		expect(body.ruleKinds).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "code.variants-file-stale",
+					side: "code",
+					defaultSeverity: "error",
+					options: [],
+				}),
+			]),
+		);
+	});
+
+	it("validates and writes lint.json on PUT, refusing stale revisions", async () => {
+		const app = await importTestServer();
+		const configPath = path.join(
+			tempProjectRoot,
+			".trickroom/systems/core/lint.json",
+		);
+		const put = (body: unknown) =>
+			app.request("/api/trickroom/systems/core/lint/config", {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(body),
+			});
+
+		const invalid = await put({
+			config: {
+				version: 1,
+				rules: { "code.nope": {} },
+				thresholds: { code: { errors: -1 } },
+			},
+			revision: null,
+		});
+		expect(invalid.status).toBe(422);
+		const invalidBody = (await invalid.json()) as {
+			code: string;
+			issues: string[];
+		};
+		expect(invalidBody.code).toBe("LINT_CONFIG_INVALID");
+		expect(invalidBody.issues).toHaveLength(2);
+		await expect(readFile(configPath, "utf8")).rejects.toThrow();
+
+		const saved = await put({
+			config: {
+				version: 1,
+				thresholds: { code: { errors: 0 } },
+				rules: {
+					"code.variants-file-orphaned": {
+						enabled: false,
+						options: { keep: [1] },
+					},
+				},
+				components: { button: { module: " src/ui/button.tsx " } },
+			},
+			revision: null,
+		});
+		expect(saved.status).toBe(200);
+		const savedBody = (await saved.json()) as {
+			present: boolean;
+			revision: string;
+			config: unknown;
+		};
+		const text = await readFile(configPath, "utf8");
+		expect(text).toBe(
+			`${JSON.stringify(
+				{
+					version: 1,
+					rules: {
+						"code.variants-file-orphaned": {
+							enabled: false,
+							options: { keep: [1] },
+						},
+					},
+					components: { button: { module: "src/ui/button.tsx" } },
+					thresholds: { code: { errors: 0 } },
+				},
+				null,
+				"\t",
+			)}\n`,
+		);
+		expect(savedBody.present).toBe(true);
+		expect(savedBody.revision).toMatch(/^sha256:/u);
+		expect(savedBody.config).toEqual(JSON.parse(text));
+
+		const stale = await put({ config: { version: 1 }, revision: null });
+		expect(stale.status).toBe(409);
+		expect(await stale.json()).toMatchObject({ code: "LINT_CONFIG_CONFLICT" });
+
+		const current = await put({
+			config: { version: 1 },
+			revision: savedBody.revision,
+		});
+		expect(current.status).toBe(200);
+		expect(await readFile(configPath, "utf8")).toBe('{\n\t"version": 1\n}\n');
+
+		expect((await put({ nope: true })).status).toBe(400);
+	});
+
+	it("reports the issues of an invalid stored lint.json and keeps its text", async () => {
+		const app = await importTestServer();
+		await writeFile(
+			path.join(tempProjectRoot, ".trickroom/systems/core/lint.json"),
+			'{ "version": 1, "rules": { "code.nope": {} } }',
+		);
+		const body = (await (
+			await app.request("/api/trickroom/systems/core/lint/config")
+		).json()) as Record<string, unknown>;
+		expect(body).toMatchObject({
+			present: true,
+			config: { version: 1 },
+			text: '{ "version": 1, "rules": { "code.nope": {} } }',
+		});
+		expect(body.issues).toEqual([
+			expect.stringContaining('rules["code.nope"] names an unknown rule kind'),
+		]);
 	});
 });

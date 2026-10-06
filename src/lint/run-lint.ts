@@ -15,12 +15,11 @@ import { loadTailwindDesignSystem } from "../utils/tailwind-design-system";
 import { readDomainTokensReadonly } from "../utils/tailwind-token-store";
 import { inspectTailwindUtilityCandidate } from "../utils/tailwind-utility-inspector";
 import {
-	getLintConfigIssues,
 	LINT_CONFIG_FILE_NAME,
-	type LintConfig,
 	type ResolvedLintConfig,
 	resolveLintConfig,
 } from "./config";
+import { readLintConfigFile } from "./config-file";
 import { buildSystemContract, type SystemContract } from "./contract";
 import {
 	collectTrackedNumbers,
@@ -128,37 +127,6 @@ export type LintRunResult = {
 const toPosix = (value: string) => value.split(path.sep).join("/");
 
 const MAX_PARSE_ERROR_DIAGNOSTICS = 50;
-
-const readLintConfigFile = async (
-	systemDir: string,
-	knownRuleIds: ReadonlySet<string>,
-): Promise<{ config: LintConfig | null; issues: string[] }> => {
-	const configPath = path.join(systemDir, LINT_CONFIG_FILE_NAME);
-	let text: string;
-	try {
-		text = await readFile(configPath, "utf8");
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			return { config: null, issues: [] };
-		}
-		throw error;
-	}
-	let value: unknown;
-	try {
-		value = JSON.parse(text);
-	} catch (error) {
-		return {
-			config: null,
-			issues: [
-				`${LINT_CONFIG_FILE_NAME} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
-			],
-		};
-	}
-	const issues = getLintConfigIssues(value, knownRuleIds);
-	return issues.length > 0
-		? { config: null, issues }
-		: { config: value as LintConfig, issues: [] };
-};
 
 const createTailwindInspectorLoader = (
 	projectRoot: string,
@@ -425,17 +393,20 @@ async function runLintInner(
 	}
 
 	const lintConfigRead = await readLintConfigFile(system.dir, registry.ids);
-	if (lintConfigRead.issues.length > 0) {
+	if (lintConfigRead.status === "invalid") {
 		return fail(
 			"INVALID_LINT_CONFIG",
 			`${toPosix(path.relative(projectRoot, path.join(system.dir, LINT_CONFIG_FILE_NAME)))} is invalid: ${lintConfigRead.issues.join(" ")}`,
 		);
 	}
-	const config: ResolvedLintConfig = resolveLintConfig(lintConfigRead.config, {
-		ruleKinds: registry.kinds,
-		codegenOutDir:
-			codegenConfig.status === "configured" ? codegenConfig.outDir : null,
-	});
+	const config: ResolvedLintConfig = resolveLintConfig(
+		lintConfigRead.status === "present" ? lintConfigRead.config : null,
+		{
+			ruleKinds: registry.kinds,
+			codegenOutDir:
+				codegenConfig.status === "configured" ? codegenConfig.outDir : null,
+		},
+	);
 
 	const tokens = await readDomainTokensReadonly(projectRoot, systemId);
 	const contract = buildSystemContract({

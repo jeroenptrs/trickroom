@@ -1,15 +1,9 @@
-import { randomUUID } from "node:crypto";
-import {
-	readFile,
-	realpath,
-	rename,
-	unlink,
-	writeFile,
-} from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { LintSeverity } from "./config";
 import type { LintRatchetResult } from "./ratchet";
 import type { LintLocation, LintSide } from "./rules/types";
+import { writeSystemFileAtomic } from "./system-file";
 
 /**
  * `.trickroom/systems/<id>/lint-report.json`: the latest lint run of one
@@ -514,9 +508,6 @@ export class LintReportWriteError extends Error {
 	}
 }
 
-const isInside = (root: string, target: string) =>
-	target === root || target.startsWith(`${root}${path.sep}`);
-
 /**
  * Write the report atomically (temp file and rename) into a system folder.
  * With symlinks followed, `.trickroom/systems` must be exactly that folder
@@ -529,32 +520,11 @@ export async function writeLintReport(
 	systemDir: string,
 	report: LintReport,
 ): Promise<{ path: string; contents: string }> {
-	const realRoot = await realpath(projectRoot);
-	const systemsDir = path.join(realRoot, ".trickroom", "systems");
-	const realSystemsDir = await realpath(systemsDir);
-	if (realSystemsDir !== systemsDir) {
-		throw new LintReportWriteError(
-			`Refusing to write ${LINT_REPORT_FILE_NAME}: ${systemsDir} resolves to ${realSystemsDir} (through a symlink); the systems folder must be a real folder inside the project.`,
-		);
-	}
-	const realSystemDir = await realpath(systemDir);
-	if (
-		!isInside(realRoot, realSystemDir) ||
-		path.dirname(realSystemDir) !== realSystemsDir
-	) {
-		throw new LintReportWriteError(
-			`Refusing to write ${LINT_REPORT_FILE_NAME}: ${systemDir} is not a system folder under ${systemsDir}.`,
-		);
-	}
-	const reportPath = path.join(realSystemDir, LINT_REPORT_FILE_NAME);
-	const contents = serializeLintReport(report);
-	const tempPath = `${reportPath}.${process.pid}.${randomUUID()}.tmp`;
-	try {
-		await writeFile(tempPath, contents, "utf8");
-		await rename(tempPath, reportPath);
-	} catch (error) {
-		await unlink(tempPath).catch(() => undefined);
-		throw error;
-	}
-	return { path: reportPath, contents };
+	return writeSystemFileAtomic({
+		projectRoot,
+		systemDir,
+		fileName: LINT_REPORT_FILE_NAME,
+		contents: serializeLintReport(report),
+		refuse: (message) => new LintReportWriteError(message),
+	});
 }
