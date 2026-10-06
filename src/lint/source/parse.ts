@@ -39,8 +39,13 @@ export type SourceExport = {
 export type SourceReexport = {
 	specifier: string;
 	resolved: string | null;
-	/** `imported` is `*` for `export * from`; `exported` is null then. */
-	names: Array<{ imported: string; exported: string | null }>;
+	/**
+	 * `imported` is `*` for `export * from`; `exported` is null then. `type`
+	 * is per name: `export { type Props, Button } from "./button"` keeps
+	 * `Button` a value.
+	 */
+	names: Array<{ imported: string; exported: string | null; type: boolean }>;
+	/** Every name is type-only (`export type { … } from`). */
 	type: boolean;
 	position: SourcePosition;
 };
@@ -581,22 +586,28 @@ export function parseSourceModule(
 					specifier,
 					resolved: null,
 					names: [],
-					type: entry.isType,
+					type: true,
 					position: position(statement.start),
 				};
 				existing.names.push(
 					entry.importName.kind === "AllButDefault"
-						? { imported: "*", exported: null }
+						? { imported: "*", exported: null, type: entry.isType }
 						: entry.importName.kind === "All"
-							? { imported: "*", exported: entry.exportName.name }
+							? {
+									imported: "*",
+									exported: entry.exportName.name,
+									type: entry.isType,
+								}
 							: {
 									imported: entry.importName.name ?? "default",
 									exported:
 										entry.exportName.kind === "Default"
 											? "default"
 											: entry.exportName.name,
+									type: entry.isType,
 								},
 				);
+				existing.type = existing.names.every((name) => name.type);
 				reexports.set(specifier, existing);
 				continue;
 			}

@@ -149,8 +149,9 @@ export const resolveExport = (
 		return { file, name };
 	}
 	for (const reexport of module.reexports) {
-		if (reexport.type || reexport.resolved === null) continue;
+		if (reexport.resolved === null) continue;
 		for (const entry of reexport.names) {
+			if (entry.type) continue;
 			if (entry.imported === "*" && entry.exported === null) {
 				if (name === "default") continue;
 				const found = resolveExport(

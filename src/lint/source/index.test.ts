@@ -120,7 +120,7 @@ describe("source index", () => {
 			),
 			parse(
 				"src/ui/index.ts",
-				`export * from "./button";\nexport { Badge as Pill } from "./badge";\n`,
+				`export * from "./button";\nexport { type BadgeProps, Badge as Pill } from "./badge";\n`,
 			),
 			parse(
 				"src/app.tsx",

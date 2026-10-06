@@ -17,6 +17,7 @@ export { buttonVariants } from "./button.variants";
 export * from "./all";
 export * as ns from "./ns";
 export type { T } from "./types";
+export { type Props, Badge } from "./badge";
 export const Button = () => null;
 export default Button;
 const hidden = 1;
@@ -61,30 +62,46 @@ export { hidden as shown };
 			{
 				specifier: "./button.variants",
 				resolved: null,
-				names: [{ imported: "buttonVariants", exported: "buttonVariants" }],
+				names: [
+					{
+						imported: "buttonVariants",
+						exported: "buttonVariants",
+						type: false,
+					},
+				],
 				type: false,
 				position: { line: 5, column: 1 },
 			},
 			{
 				specifier: "./all",
 				resolved: null,
-				names: [{ imported: "*", exported: null }],
+				names: [{ imported: "*", exported: null, type: false }],
 				type: false,
 				position: { line: 6, column: 1 },
 			},
 			{
 				specifier: "./ns",
 				resolved: null,
-				names: [{ imported: "*", exported: "ns" }],
+				names: [{ imported: "*", exported: "ns", type: false }],
 				type: false,
 				position: { line: 7, column: 1 },
 			},
 			{
 				specifier: "./types",
 				resolved: null,
-				names: [{ imported: "T", exported: "T" }],
+				names: [{ imported: "T", exported: "T", type: true }],
 				type: true,
 				position: { line: 8, column: 1 },
+			},
+			{
+				specifier: "./badge",
+				resolved: null,
+				names: [
+					{ imported: "Props", exported: "Props", type: true },
+					{ imported: "Badge", exported: "Badge", type: false },
+				],
+				type: false,
+				position: { line: 9, column: 1 },
 			},
 		]);
 	});
