@@ -1433,13 +1433,44 @@ describe("design-only nodes", () => {
 				helpers.slots.main.defaultChildren = [designOnly(node("hint"))];
 			}
 			expect(hashCodegenSource(helpers)).toBe(hashCodegenSource(bare()));
+		});
 
-			// An explicit empty list keeps hashing as before.
-			const explicitEmpty = bare();
-			explicitEmpty.root.children = [];
-			expect(hashCodegenSource(explicitEmpty)).not.toBe(
-				hashCodegenSource(bare()),
-			);
+		describe("with explicit empty lists", () => {
+			const emptyLists = (): SystemComponentDraftPayload => ({
+				root: node("root", "flex", []),
+				slots: {
+					main: { name: "main", hostPath: "root", defaultChildren: [] },
+				},
+			});
+
+			it("is unchanged when children: [] gains a design-only child", () => {
+				const childAdded = emptyLists();
+				childAdded.root.children = [designOnly(node("guide", "border-dashed"))];
+				expect(hashCodegenSource(childAdded)).toBe(
+					hashCodegenSource(emptyLists()),
+				);
+			});
+
+			it("is unchanged when defaultChildren: [] gains a design-only child", () => {
+				const defaultChildAdded = emptyLists();
+				if (defaultChildAdded.slots) {
+					defaultChildAdded.slots.main.defaultChildren = [
+						designOnly(node("hint", "italic")),
+					];
+				}
+				expect(hashCodegenSource(defaultChildAdded)).toBe(
+					hashCodegenSource(emptyLists()),
+				);
+			});
+
+			it("hashes empty and omitted lists the same", () => {
+				expect(
+					hashCodegenSource({
+						root: node("root", "flex"),
+						slots: { main: { name: "main", hostPath: "root" } },
+					}),
+				).toBe(hashCodegenSource(emptyLists()));
+			});
 		});
 
 		it("ignores override targets that point inside a design-only subtree", () => {
