@@ -1,12 +1,11 @@
 import type { LintRuleOptionSpec } from "../../rule-options";
 import { compileGlobs } from "../../source/glob";
-import type { SourceIndex } from "../../source/index";
+import { conventionalWrapper, type SourceIndex } from "../../source/index";
 import type { SourcePosition } from "../../source/parse";
 import type { LintRuleFinding, LintRuleKind } from "../types";
 import {
 	codeLocation,
 	componentWrappers,
-	conventionalWrapper,
 	getCodeAnalysis,
 	optionsNote,
 } from "./analysis";

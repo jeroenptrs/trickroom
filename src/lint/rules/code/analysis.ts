@@ -264,7 +264,7 @@ const analyse = (
 
 /**
  * The modules that implement a component. Without configuration they are
- * the index's wrappers (the importers of the generated file). A
+ * the index's wrappers (see `SourceComponentIdentity.wrappers`). A
  * configured module that imports the generated file is itself the
  * implementation; one that does not (a barrel) is followed through its
  * re-exports (`export { x } from`, `export * from`, and exported
@@ -346,47 +346,16 @@ export const moduleVariants = (
 	file: string,
 ): ModuleVariants => analysis.modules.get(file) ?? EMPTY_MODULE_VARIANTS;
 
-const stem = (file: string) => {
-	const name = file.slice(file.lastIndexOf("/") + 1);
-	const dot = name.indexOf(".");
-	return dot === -1 ? name : name.slice(0, dot);
-};
-
-/**
- * The importer named like the component when no wrapper is configured:
- * `button.tsx` or `button/index.tsx` for slug `button` (or for the
- * generated file's stem). Null when none or several match.
- */
-export const conventionalWrapper = (
-	slug: string,
-	identity: Pick<SourceComponentIdentity, "importers" | "generatedFiles">,
-): string | null => {
-	const names = new Set([slug, ...identity.generatedFiles.map(stem)]);
-	const matches = identity.importers.filter((file) => {
-		const own = stem(file);
-		if (own === "index") {
-			const parts = file.split("/");
-			return names.has(parts[parts.length - 2] ?? "");
-		}
-		return names.has(own);
-	});
-	return matches.length === 1 ? matches[0] : null;
-};
-
 /**
  * The component's own wrapper(s), for rules that exempt it: the
- * configured modules (a barrel resolved to its implementations); else the only importer; else the importer named
- * like the component; else, when that is ambiguous, every importer.
+ * configured modules (a barrel resolved to its implementations); else the
+ * index's wrappers (the only importer, the importer named like the
+ * component, or every importer when that is ambiguous).
  */
 export const componentWrappers = (
 	analysis: CodeAnalysis,
 	identity: SourceComponentIdentity,
-): string[] => {
-	if (identity.configuredWrappers.length > 0 || identity.wrappers.length < 2)
-		return analysis.wrappers.get(identity.slug) ?? identity.wrappers;
-	const conventional = conventionalWrapper(identity.slug, identity);
-	return conventional ? [conventional] : identity.wrappers;
-};
+): string[] => analysis.wrappers.get(identity.slug) ?? identity.wrappers;
 
 /** `otp-field` -> `OtpField`, `OTP field` -> `OTPField`. */
 export const pascalCase = (value: string): string =>

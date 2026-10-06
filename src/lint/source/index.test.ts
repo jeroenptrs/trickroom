@@ -189,6 +189,76 @@ describe("source index", () => {
 		).toBeNull();
 	});
 
+	it("takes the importer named like the component as its wrapper when several import the file", () => {
+		const modules = [
+			parse(
+				"src/ui/badge.variants.ts",
+				`${header("badge", badge.componentId)}\nexport const badgeVariants = 1;\n`,
+			),
+			parse(
+				"src/ui/button.variants.ts",
+				`${header("button", button.componentId)}\nexport const buttonVariants = 1;\n`,
+			),
+			parse(
+				"src/ui/badge.tsx",
+				`import { badgeVariants } from "./badge.variants";\nexport const Badge = () => null;\n`,
+			),
+			// The button also renders a badge: it imports both files.
+			parse(
+				"src/ui/button.tsx",
+				`import { badgeVariants } from "./badge.variants";\nimport { buttonVariants } from "./button.variants";\nexport const Button = () => null;\n`,
+			),
+			// Borrows the badge styling directly instead of through the wrapper.
+			parse(
+				"src/notes/note.tsx",
+				`import { badgeVariants } from "../ui/badge.variants";\nexport const Note = () => null;\n`,
+			),
+			parse(
+				"src/app.tsx",
+				`import { Button } from "./ui/button";\nimport { Note } from "./notes/note";\nexport const App = () => <><Button /><Note /></>;\n`,
+			),
+		];
+		const index = buildSourceIndex({ modules, contract });
+		const identity = (slug: string) =>
+			index.components.find((component) => component.slug === slug);
+		expect(identity("badge")).toMatchObject({
+			wrappers: ["src/ui/badge.tsx"],
+			importers: [
+				"src/notes/note.tsx",
+				"src/ui/badge.tsx",
+				"src/ui/button.tsx",
+			],
+		});
+		expect(identity("button")?.wrappers).toEqual(["src/ui/button.tsx"]);
+		// <Button> is a button, not the badge it also imports; <Note> is no
+		// component at all.
+		expect(
+			index.usages.map((usage) => [usage.element.name, usage.slug]),
+		).toEqual([["Button", "button"]]);
+	});
+
+	it("keeps every importer as a wrapper when none is named like the component", () => {
+		const modules = [
+			parse(
+				"src/ui/button.variants.ts",
+				`${header("button", button.componentId)}\nexport const buttonVariants = 1;\n`,
+			),
+			parse(
+				"src/ui/primary.tsx",
+				`import { buttonVariants } from "./button.variants";\nexport const Primary = () => null;\n`,
+			),
+			parse(
+				"src/ui/secondary.tsx",
+				`import { buttonVariants } from "./button.variants";\nexport const Secondary = () => null;\n`,
+			),
+		];
+		const index = buildSourceIndex({ modules, contract });
+		expect(
+			index.components.find((component) => component.slug === "button")
+				?.wrappers,
+		).toEqual(["src/ui/primary.tsx", "src/ui/secondary.tsx"]);
+	});
+
 	it("honours configured wrapper modules over importers", () => {
 		const modules = [
 			parse(

@@ -87,7 +87,11 @@ export type SourceComponentIdentity = {
 	expectedFile: string | null;
 	/** Scanned files carrying this component's codegen header. */
 	generatedFiles: string[];
-	/** The bound wrapper module(s): configured overrides, else the importers. */
+	/**
+	 * The bound wrapper module(s): the configured overrides; else the only
+	 * importer; else the importer named like the component
+	 * (`conventionalWrapper`); else, when that is ambiguous, every importer.
+	 */
 	wrappers: string[];
 	/** Wrappers from `lint.json`, as configured. */
 	configuredWrappers: string[];
@@ -126,6 +130,33 @@ export type BuildSourceIndexInput = {
 	contract: SystemContract;
 	/** `lint.json` component overrides: slug to wrapper modules. */
 	componentModules?: Readonly<Record<string, { modules: string[] }>>;
+};
+
+const fileStem = (file: string) => {
+	const name = file.slice(file.lastIndexOf("/") + 1);
+	const dot = name.indexOf(".");
+	return dot === -1 ? name : name.slice(0, dot);
+};
+
+/**
+ * The importer named like the component when no wrapper is configured:
+ * `button.tsx` or `button/index.tsx` for slug `button` (or for the
+ * generated file's stem). Null when none or several match.
+ */
+export const conventionalWrapper = (
+	slug: string,
+	identity: Pick<SourceComponentIdentity, "importers" | "generatedFiles">,
+): string | null => {
+	const names = new Set([slug, ...identity.generatedFiles.map(fileStem)]);
+	const matches = identity.importers.filter((file) => {
+		const own = fileStem(file);
+		if (own === "index") {
+			const parts = file.split("/");
+			return names.has(parts[parts.length - 2] ?? "");
+		}
+		return names.has(own);
+	});
+	return matches.length === 1 ? matches[0] : null;
 };
 
 const compareStrings = (left: string, right: string) =>
@@ -293,10 +324,21 @@ export function buildSourceIndex(input: BuildSourceIndexInput): SourceIndex {
 			const missingConfiguredWrappers = configuredWrappers.filter(
 				(file) => !fileSet.has(file),
 			);
+			// Unconfigured, several importers: the one named like the component
+			// is the wrapper and the others borrow its styling (what
+			// code.variants-imported-outside-component reports), so a module
+			// that also imports another component's variants file is not
+			// mistaken for that component.
+			const conventional =
+				importers.length > 1
+					? conventionalWrapper(component.slug, { importers, generatedFiles })
+					: null;
 			const wrappers =
 				configuredWrappers.length > 0
 					? configuredWrappers.filter((file) => fileSet.has(file))
-					: importers;
+					: conventional
+						? [conventional]
+						: importers;
 			for (const wrapper of wrappers) {
 				if (!wrapperToSlug.has(wrapper))
 					wrapperToSlug.set(wrapper, component.slug);

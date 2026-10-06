@@ -229,6 +229,9 @@ describe("code rules through runLint", () => {
 			"code.component-styling-restricted warning card src/ui/stray.tsx",
 			"code.redundant-class warning button src/app.tsx",
 			"code.required-axis-missing error button src/app.tsx",
+			// card.tsx, named like the component, is its wrapper; the body()
+			// call in stray.tsx borrows the styling and does not count.
+			"code.slot-not-called warning card src/ui/card.tsx",
 			"code.slot-not-called warning card src/ui/card.tsx",
 			"code.unknown-class-token info - -",
 			"code.unknown-variant-value error button src/app.tsx",
