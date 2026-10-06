@@ -75,6 +75,12 @@ export type CodeAnalysis = {
 	 * parameter, not the component.
 	 */
 	usages: SourceUsage[];
+	/**
+	 * Per slug, the modules that implement the component: the index's
+	 * wrappers, with a configured barrel replaced by the importers of the
+	 * generated file it re-exports (see `implementingModules`).
+	 */
+	wrappers: Map<string, string[]>;
 };
 
 const EMPTY_MODULE_VARIANTS: ModuleVariants = {
@@ -246,7 +252,76 @@ const analyse = (
 			)?.binding.kind === "import",
 	);
 
-	return { components, identities, generatedSlug, modules, usages };
+	const wrappers = new Map(
+		sources.components.map((identity) => [
+			identity.slug,
+			implementingModules(sources.modules, identity),
+		]),
+	);
+
+	return { components, identities, generatedSlug, modules, usages, wrappers };
+};
+
+/**
+ * The modules that implement a component. Without configuration they are
+ * the index's wrappers (the importers of the generated file). A
+ * configured module that imports the generated file is itself the
+ * implementation; one that does not (a barrel) is followed through its
+ * re-exports (`export { x } from`, `export * from`, and exported
+ * imports) to the importers of the generated file it reaches. The index
+ * binds usages through the configured barrel already (`resolveExport`'s
+ * chain); this is the other direction, from the barrel down to the
+ * code. A configured module that reaches no importer stays as it is, so
+ * the rules still report it.
+ */
+export const implementingModules = (
+	modules: SourceIndex["modules"],
+	identity: Pick<
+		SourceComponentIdentity,
+		"wrappers" | "configuredWrappers" | "importers"
+	>,
+): string[] => {
+	if (identity.configuredWrappers.length === 0) return identity.wrappers;
+	const importers = new Set(identity.importers);
+	const found = new Set<string>();
+	for (const wrapper of identity.wrappers) {
+		if (importers.has(wrapper)) {
+			found.add(wrapper);
+			continue;
+		}
+		const reached = new Set<string>();
+		const visit = (file: string, depth: number) => {
+			const module = modules[file];
+			if (!module || depth < 0) return;
+			const next: string[] = [];
+			for (const entry of module.reexports) {
+				if (entry.resolved && entry.names.some((name) => !name.type))
+					next.push(entry.resolved);
+			}
+			const exported = new Set(
+				module.exports.flatMap((entry) =>
+					!entry.type && entry.local !== null ? [entry.local] : [],
+				),
+			);
+			for (const entry of module.imports) {
+				if (
+					entry.resolved &&
+					entry.names.some((name) => !name.type && exported.has(name.local))
+				)
+					next.push(entry.resolved);
+			}
+			for (const target of next) {
+				if (reached.has(target) || target === wrapper) continue;
+				reached.add(target);
+				visit(target, depth - 1);
+			}
+		};
+		visit(wrapper, 8);
+		const implementations = [...reached].filter((file) => importers.has(file));
+		if (implementations.length === 0) found.add(wrapper);
+		for (const file of implementations) found.add(file);
+	}
+	return [...found].sort();
 };
 
 /** The shared analysis of a run, computed once per source index and contract. */
@@ -300,14 +375,15 @@ export const conventionalWrapper = (
 
 /**
  * The component's own wrapper(s), for rules that exempt it: the
- * configured modules; else the only importer; else the importer named
+ * configured modules (a barrel resolved to its implementations); else the only importer; else the importer named
  * like the component; else, when that is ambiguous, every importer.
  */
 export const componentWrappers = (
+	analysis: CodeAnalysis,
 	identity: SourceComponentIdentity,
 ): string[] => {
 	if (identity.configuredWrappers.length > 0 || identity.wrappers.length < 2)
-		return identity.wrappers;
+		return analysis.wrappers.get(identity.slug) ?? identity.wrappers;
 	const conventional = conventionalWrapper(identity.slug, identity);
 	return conventional ? [conventional] : identity.wrappers;
 };

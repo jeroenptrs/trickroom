@@ -48,6 +48,32 @@ describe("code.variants-imported-outside-component", () => {
 		]);
 	});
 
+	it("counts the modules a configured barrel re-exports as the component", async () => {
+		const fixture = await fixtures.create({
+			components: [button()],
+			files: {
+				"src/ui/index.ts": 'export { Button } from "./button";\n',
+				"src/ui/button.tsx": BUTTON_WRAPPER,
+				"src/ui/link.tsx":
+					'import { buttonVariants } from "./button.variants";\nexport const Link = () => <a className={buttonVariants({ variant: "ghost" })} />;\n',
+			},
+			lint: { components: { button: { module: "src/ui/index.ts" } } },
+		});
+		expect(
+			describeFindings(await fixture.run(variantsImportedOutsideComponentRule)),
+		).toEqual([
+			'src/ui/link.tsx:1:1 src/ui/link.tsx imports src/ui/button.variants.ts directly, but lint.json names src/ui/index.ts (implemented by src/ui/button.tsx) as the "button" component. Import the styling from the wrapper (re-export it there) instead.',
+		]);
+		const restricted = await fixture.run(componentStylingRestrictedRule, {
+			options: { components: { button: { allowIn: [] } } },
+		});
+		expect(
+			restricted.map((finding) =>
+				finding.location?.kind === "code" ? finding.location.file : null,
+			),
+		).toEqual(["src/ui/link.tsx"]);
+	});
+
 	it("without configuration, keeps the importer named like the component", async () => {
 		const fixture = await fixtures.create({
 			components: [button(), card()],

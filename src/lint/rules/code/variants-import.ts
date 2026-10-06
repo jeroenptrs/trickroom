@@ -35,7 +35,9 @@ export const variantsImportedOutsideComponentRule: LintRuleKind = {
 	defaultSeverity: "error",
 	description:
 		"A module other than the component's wrapper imports its generated variants file; other modules borrow the styling through a re-export from the wrapper.",
-	run: ({ sources }) => {
+	run: (context) => {
+		const { sources } = context;
+		const analysis = getCodeAnalysis(context);
 		const findings: LintRuleFinding[] = [];
 		for (const identity of sources.components) {
 			if (identity.generatedFiles.length === 0) continue;
@@ -44,10 +46,14 @@ export const variantsImportedOutsideComponentRule: LintRuleKind = {
 			let outsiders: string[];
 			let wrapper: string | null;
 			if (configured) {
+				const implementations = analysis.wrappers.get(identity.slug) ?? [];
 				outsiders = identity.importers.filter(
-					(file) => !identity.wrappers.includes(file),
+					(file) => !implementations.includes(file),
 				);
-				wrapper = identity.configuredWrappers.join(", ");
+				const via = implementations.filter(
+					(file) => !identity.configuredWrappers.includes(file),
+				);
+				wrapper = `${identity.configuredWrappers.join(", ")}${via.length > 0 ? ` (implemented by ${via.join(", ")})` : ""}`;
 			} else {
 				if (identity.importers.length < 2) continue;
 				wrapper = conventionalWrapper(identity.slug, identity);
@@ -143,7 +149,7 @@ export const componentStylingRestrictedRule: LintRuleKind = {
 		const ownWrappers = new Map(
 			[...restrictions.keys()].map((slug) => {
 				const identity = analysis.identities.get(slug);
-				return [slug, identity ? componentWrappers(identity) : []];
+				return [slug, identity ? componentWrappers(analysis, identity) : []];
 			}),
 		);
 		for (const [file, variants] of analysis.modules) {

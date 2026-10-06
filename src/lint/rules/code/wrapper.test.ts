@@ -62,11 +62,35 @@ describe("code.wrapper-missing-variants-call", () => {
 		]);
 	});
 
-	it("reports a configured wrapper that never imports the export", async () => {
+	it("follows a configured barrel to the modules that implement the component", async () => {
 		const fixture = await fixtures.create({
 			components: [button()],
 			files: {
-				"src/ui/index.ts": 'export { Button } from "./button";\n',
+				"src/ui/index.ts":
+					'export { Button } from "./button";\nexport * from "./group";\n',
+				"src/ui/group.ts": 'import { Lazy } from "./lazy";\nexport { Lazy };\n',
+				"src/ui/lazy.tsx":
+					'import { buttonVariants } from "./button.variants";\nexport const Lazy = () => <button className={String(buttonVariants)} />;\n',
+				"src/ui/button.tsx":
+					'import { buttonVariants } from "./button.variants";\nexport const Button = () => <button className={buttonVariants({ variant: "ghost" })} />;\n',
+			},
+			lint: { components: { button: { module: "src/ui/index.ts" } } },
+		});
+		expect(
+			describeFindings(await fixture.run(wrapperMissingVariantsCallRule)),
+		).toEqual([
+			expect.stringMatching(
+				/^src\/ui\/lazy\.tsx:1:1 src\/ui\/lazy\.tsx is the wrapper of "button" but never calls buttonVariants/u,
+			),
+		]);
+	});
+
+	it("reports a configured module that leads to no import of the export", async () => {
+		const fixture = await fixtures.create({
+			components: [button()],
+			files: {
+				"src/ui/index.ts": 'export { Other } from "./other";\n',
+				"src/ui/other.tsx": "export const Other = () => null;\n",
 				"src/ui/button.tsx":
 					'import { buttonVariants } from "./button.variants";\nexport const Button = () => <button className={buttonVariants({ variant: "ghost" })} />;\n',
 			},
@@ -135,6 +159,25 @@ describe("code.slot-not-called", () => {
 		expect(
 			(await fixture.run(slotNotCalledRule)).map((finding) => finding.message),
 		).toHaveLength(3);
+	});
+
+	it("pools the slot calls of the modules a configured barrel leads to", async () => {
+		const fixture = await fixtures.create({
+			components: [card()],
+			files: {
+				"src/ui/index.ts": 'export * from "./card";\n',
+				"src/ui/card.tsx": [
+					'import { cardVariants } from "./card.variants";',
+					"const styles = cardVariants();",
+					"export const Card = () => <div className={styles.root() + styles.title()} />;",
+					"",
+				].join("\n"),
+			},
+			lint: { components: { card: { module: "src/ui/index.ts" } } },
+		});
+		expect(describeFindings(await fixture.run(slotNotCalledRule))).toEqual([
+			expect.stringMatching(/^src\/ui\/card\.tsx:2:16 Slot "body" of "card"/u),
+		]);
 	});
 
 	it("skips flat components, unbound components and wrappers without a variants call", async () => {

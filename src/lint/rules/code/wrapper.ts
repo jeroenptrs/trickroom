@@ -20,7 +20,7 @@ export const wrapperMissingVariantsCallRule: LintRuleKind = {
 		for (const identity of context.sources.components) {
 			const component = analysis.components.get(identity.slug);
 			if (!component) continue;
-			for (const wrapper of identity.wrappers) {
+			for (const wrapper of analysis.wrappers.get(identity.slug) ?? []) {
 				const variants = moduleVariants(analysis, wrapper);
 				const own = (entry: { slug: string }) => entry.slug === identity.slug;
 				if (variants.calls.some(own)) continue;
@@ -53,13 +53,14 @@ export const slotNotCalledRule: LintRuleKind = {
 		for (const identity of context.sources.components) {
 			const component = analysis.components.get(identity.slug);
 			if (!component || component.shape !== "slots") continue;
-			if (identity.wrappers.length === 0) continue;
+			const wrapperModules = analysis.wrappers.get(identity.slug) ?? [];
+			if (wrapperModules.length === 0) continue;
 			const invoked = new Set<string>();
 			let firstCall: {
 				file: string;
 				position: { line: number; column: number };
 			} | null = null;
-			for (const wrapper of identity.wrappers) {
+			for (const wrapper of wrapperModules) {
 				const variants = moduleVariants(analysis, wrapper);
 				for (const entry of variants.calls) {
 					if (entry.slug !== identity.slug) continue;
@@ -72,7 +73,7 @@ export const slotNotCalledRule: LintRuleKind = {
 			// A wrapper that never calls the variants export is the other
 			// rule's finding; listing every slot on top would be noise.
 			if (!firstCall) continue;
-			const wrappers = identity.wrappers.join(", ");
+			const wrappers = wrapperModules.join(", ");
 			for (const slot of component.slots) {
 				if (invoked.has(slot.key)) continue;
 				findings.push({

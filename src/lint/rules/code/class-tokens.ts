@@ -153,24 +153,22 @@ export const unknownClassTokenRule: LintRuleKind = {
 		const issuesByString = new Map<string, ClassTokenIssue[]>();
 
 		const sources = context.sources;
-		const wrappers = new Set(
-			sources.components.flatMap((identity) => identity.wrappers),
-		);
-		const usageFiles = new Set(
-			getCodeAnalysis(context).usages.map((usage) => usage.file),
-		);
+		const analysis = getCodeAnalysis(context);
+		// Wrapper modules as the rules see them: a configured barrel counts
+		// through the modules that implement it.
+		const wrapperSlug = new Map<string, string>();
+		for (const [slug, files] of analysis.wrappers) {
+			for (const file of files) {
+				if (!wrapperSlug.has(file)) wrapperSlug.set(file, slug);
+			}
+		}
+		const usageFiles = new Set(analysis.usages.map((usage) => usage.file));
 		const inScope = (file: string) =>
 			scope === "all"
 				? true
 				: scope === "wrappers"
-					? wrappers.has(file)
+					? wrapperSlug.has(file)
 					: usageFiles.has(file);
-		const wrapperSlug = new Map<string, string>();
-		for (const identity of sources.components) {
-			for (const file of identity.wrappers) {
-				if (!wrapperSlug.has(file)) wrapperSlug.set(file, identity.slug);
-			}
-		}
 
 		for (const file of sources.files) {
 			if (sources.generated[file] !== undefined || !inScope(file)) continue;
