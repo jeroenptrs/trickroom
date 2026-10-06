@@ -10,6 +10,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
 import { saveDesignFile } from "../../queries/design-file";
 import { requestDesignResync } from "../../queries/design-live-events";
@@ -27,6 +28,13 @@ import {
 	useHasUnsavedChanges,
 	usePersistedDesignRevision,
 } from "../../stores/design-store";
+import {
+	type EditorChromePanel,
+	handleEditorChromeShortcut,
+	isEditorPanelOpen,
+	setEditorPanelOpen,
+	useEditorPanelOpen,
+} from "../../stores/editor-chrome-store";
 import type { TrickroomDesign } from "../../types";
 import {
 	focusEditorRegion,
@@ -286,8 +294,18 @@ function RightInspector() {
 	);
 }
 
+/** Opens a collapsed panel, then moves focus into it once it is mounted. */
+function revealAndFocusPanel(panel: EditorChromePanel) {
+	if (!isEditorPanelOpen("design", panel)) {
+		flushSync(() => setEditorPanelOpen("design", panel, true));
+	}
+	focusEditorRegion(panel);
+}
+
 function EditorShellComponent({ designId, children }: EditorShellProps) {
 	const navigate = useNavigate();
+	const railOpen = useEditorPanelOpen("design", "rail");
+	const inspectorOpen = useEditorPanelOpen("design", "inspector");
 	const handleFocusShortcut = useCallback(
 		(event: KeyboardEvent) => {
 			if (
@@ -301,17 +319,21 @@ function EditorShellComponent({ designId, children }: EditorShellProps) {
 				return;
 			}
 
+			if (handleEditorChromeShortcut(event, "design")) {
+				return;
+			}
+
 			if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
 				return;
 			}
 
 			const key = getKey(event);
 			if (key === "1") {
-				focusEditorRegion("rail");
+				revealAndFocusPanel("rail");
 			} else if (key === "2") {
 				focusEditorRegion("workspace");
 			} else if (key === "3") {
-				focusEditorRegion("inspector");
+				revealAndFocusPanel("inspector");
 			} else {
 				return;
 			}
@@ -325,7 +347,13 @@ function EditorShellComponent({ designId, children }: EditorShellProps) {
 
 	return (
 		<div className="absolute inset-0 z-10 flex min-h-0 bg-slate-100 text-xs text-slate-950">
-			<div data-editor-region="rail" tabIndex={-1} className="flex min-h-0">
+			{/* A collapsed rail stays mounted but hidden: it owns autosave and the
+			    layer shortcuts, which keep working without it on screen. */}
+			<div
+				data-editor-region="rail"
+				tabIndex={-1}
+				className={railOpen ? "flex min-h-0" : "hidden"}
+			>
 				<LeftSidebar designId={designId} />
 			</div>
 			<main
@@ -341,7 +369,7 @@ function EditorShellComponent({ designId, children }: EditorShellProps) {
 				tabIndex={-1}
 				className="flex min-h-0 focus-visible:outline-none"
 			>
-				<RightInspector />
+				{inspectorOpen ? <RightInspector /> : null}
 			</div>
 		</div>
 	);

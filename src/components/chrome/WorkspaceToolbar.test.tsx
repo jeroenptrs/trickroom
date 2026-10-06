@@ -2,6 +2,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ViewState } from "../../hooks/useStageNavigation";
 import { hydrateDesign } from "../../stores/design-store";
+import {
+	resetEditorChrome,
+	setEditorPanelOpen,
+} from "../../stores/editor-chrome-store";
 import type { TrickroomDesign } from "../../types";
 import type { ResolvedBreakpoint } from "../../utils/resolved-breakpoints";
 import { IFrameViewContext, ProjectConfigContext } from "../contexts";
@@ -15,6 +19,7 @@ import {
 	resolveResponsiveStageScale,
 } from "../responsive-stage-zoom";
 import {
+	getPanelToggleLabel,
 	getResponsiveWidthDraftError,
 	RESPONSIVE_DEVICE_WIDTH_PRESETS,
 	resolveResponsiveWidthDraftCommit,
@@ -110,6 +115,46 @@ function renderToolbar(
 describe("WorkspaceToolbar", () => {
 	beforeEach(() => {
 		hydrateDesign(SAMPLE_DESIGN);
+		resetEditorChrome();
+	});
+
+	it("shows panel toggles that reflect the design panels", () => {
+		const stage = {
+			mode: "canvas",
+			activeBoardId: "board-1",
+			responsiveWidth: 768,
+		} as const;
+		const open = renderToolbar(stage);
+
+		expect(open).toMatch(/aria-label="Hide layers"[^>]*aria-pressed="true"/);
+		expect(open).toContain('title="Hide layers (Alt+[)"');
+		expect(open).toMatch(
+			/aria-label="Hide properties"[^>]*aria-pressed="true"/,
+		);
+		expect(open).toContain('title="Hide properties (Alt+])"');
+		// The rail toggle leads the toolbar, the inspector toggle ends it.
+		expect(open.indexOf("Hide layers")).toBeLessThan(open.indexOf("Canvas"));
+		expect(open.indexOf("Hide properties")).toBeGreaterThan(
+			open.indexOf("Responsive"),
+		);
+
+		setEditorPanelOpen("design", "rail", false);
+		setEditorPanelOpen("design", "inspector", false);
+		const collapsed = renderToolbar(stage);
+
+		expect(collapsed).toMatch(
+			/aria-label="Show layers"[^>]*aria-pressed="false"/,
+		);
+		expect(collapsed).toMatch(
+			/aria-label="Show properties"[^>]*aria-pressed="false"/,
+		);
+	});
+
+	it("labels panel toggles by the action they take", () => {
+		expect(getPanelToggleLabel("rail", true)).toBe("Hide layers");
+		expect(getPanelToggleLabel("rail", false)).toBe("Show layers");
+		expect(getPanelToggleLabel("inspector", true)).toBe("Hide properties");
+		expect(getPanelToggleLabel("inspector", false)).toBe("Show properties");
 	});
 
 	it("shows zoom in canvas mode", () => {

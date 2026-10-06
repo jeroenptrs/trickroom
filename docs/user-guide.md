@@ -86,11 +86,15 @@ Design editor:
 - Pan with middle mouse drag or Space plus left drag.
 - Rely on autosave after edits.
 - Manually save while there are unsaved changes.
+- Collapse and expand the layers panel (left) and the properties panel (right) with the toggle buttons at either end of the toolbar, or with `Alt` + `[` for layers and `Alt` + `]` for properties (`⌥ [` / `⌥ ]` on macOS). The stage takes the freed width, and the choice is remembered in the browser. A collapsed layers panel keeps autosave and the layer shortcuts working.
+- Move focus between the layers panel, the stage and the properties panel with `Alt` + `1`, `2` and `3`. Focusing a collapsed panel expands it first.
+- Go back to the project screen with `Cmd`/`Ctrl` + `[`.
 
 System editor:
 
 - Add an icon folder by its project-relative path, for example `src/icons`. Trickroom indexes the SVGs inside it.
 - Register an image asset by its project-relative path, for example `public/images/hero.png`. The file stays where it is. The browser has no file picker or upload, so the image has to be in the project already.
+- The same `Alt` + `[` and `Alt` + `]` shortcuts collapse and expand the system editor's side panels.
 
 Shared server:
 

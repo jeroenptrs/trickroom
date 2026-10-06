@@ -635,6 +635,8 @@ const KBD_MAP = [
 	{ key: "K / ↑", label: "Prev layer" },
 	{ key: "L / →", label: "Enter layer" },
 	{ key: "H / ←", label: "Exit layer" },
+	{ key: "⌥ [", label: "Toggle layers" },
+	{ key: "⌥ ]", label: "Toggle properties" },
 ] as const;
 
 function EmptyStateKbdMap() {

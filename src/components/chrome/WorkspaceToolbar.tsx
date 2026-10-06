@@ -6,6 +6,8 @@ import {
 	LayoutGrid,
 	Minus,
 	Monitor,
+	PanelLeft,
+	PanelRight,
 	Plus,
 	Smartphone,
 	Tablet,
@@ -25,6 +27,11 @@ import {
 	useDesignRoots,
 	useSelectedId,
 } from "../../stores/design-store";
+import {
+	type EditorChromePanel,
+	toggleEditorPanel,
+	useEditorPanelOpen,
+} from "../../stores/editor-chrome-store";
 import { useExternallyChangedBoardIds } from "../../stores/external-change-store";
 import { useIFrameView, useProjectConfig } from "../contexts";
 import {
@@ -112,6 +119,39 @@ const STAGE_MODE_OPTIONS: {
 		title: "Responsive mode — single board preview",
 	},
 ];
+
+const PANEL_TOGGLES = {
+	rail: { name: "layers", shortcut: "Alt+[", Icon: PanelLeft },
+	inspector: { name: "properties", shortcut: "Alt+]", Icon: PanelRight },
+} as const satisfies Record<
+	EditorChromePanel,
+	{ name: string; shortcut: string; Icon: typeof PanelLeft }
+>;
+
+export function getPanelToggleLabel(panel: EditorChromePanel, open: boolean) {
+	return `${open ? "Hide" : "Show"} ${PANEL_TOGGLES[panel].name}`;
+}
+
+function PanelToggle({ panel }: { panel: EditorChromePanel }) {
+	const open = useEditorPanelOpen("design", panel);
+	const { shortcut, Icon } = PANEL_TOGGLES[panel];
+	const label = getPanelToggleLabel(panel, open);
+
+	return (
+		<Button
+			type="button"
+			variant="block"
+			isSelected={open}
+			className="size-7 shrink-0 p-0"
+			title={`${label} (${shortcut})`}
+			aria-label={label}
+			aria-pressed={open}
+			onClick={() => toggleEditorPanel("design", panel)}
+		>
+			<Icon className="size-3.5" />
+		</Button>
+	);
+}
 
 function WorkspaceModeToggle() {
 	const { mode, controls } = useResponsiveStage();
@@ -596,6 +636,7 @@ export function WorkspaceToolbar() {
 
 	return (
 		<header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 text-[11px] text-slate-500">
+			<PanelToggle panel="rail" />
 			<div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
 				{mode === "responsive" ? (
 					<>
@@ -615,6 +656,7 @@ export function WorkspaceToolbar() {
 				)}
 				<ExportControl />
 				<WorkspaceModeToggle />
+				<PanelToggle panel="inspector" />
 			</div>
 		</header>
 	);
