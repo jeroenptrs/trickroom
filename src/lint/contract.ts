@@ -122,11 +122,6 @@ export type SystemContractComponent = {
 export type SystemContractTokens = {
 	/** Resolved token names per domain (defaults minus removed, plus added). */
 	domains: Record<TailwindTokenDomain, string[]>;
-	/**
-	 * Default tokens the system removed on purpose, per domain. A class the
-	 * compiled CSS still emits does not bring them back.
-	 */
-	removed: Record<TailwindTokenDomain, string[]>;
 	/** Custom `@utility` roots the system CSS defines. */
 	customUtilities: Array<{ root: string; kind: "functional" | "static" }>;
 	/** Null when the system has no stored token snapshot. */
@@ -301,28 +296,18 @@ const buildTokens = (
 	tokens: TailwindTokenStorage | null,
 ): SystemContractTokens => {
 	const domains = {} as Record<TailwindTokenDomain, string[]>;
-	const removed = {} as Record<TailwindTokenDomain, string[]>;
 	if (!tokens) {
 		for (const domain of TAILWIND_TOKEN_DOMAINS) {
 			domains[domain] = [];
-			removed[domain] = [];
 		}
-		return { domains, removed, customUtilities: [], snapshot: null };
+		return { domains, customUtilities: [], snapshot: null };
 	}
 	const resolved = buildResolvedTokenContext(tokens);
 	for (const domain of TAILWIND_TOKEN_DOMAINS) {
 		domains[domain] = [...resolved[domain]].sort();
-		removed[domain] = [
-			...new Set(
-				(tokens.domains[domain]?.baselineDiff.removed ?? []).map(
-					(token) => token.name,
-				),
-			),
-		].sort();
 	}
 	return {
 		domains,
-		removed,
 		customUtilities: [...tokens.customUtilities]
 			.map((utility) => ({ root: utility.root, kind: utility.kind }))
 			.sort((left, right) => left.root.localeCompare(right.root)),

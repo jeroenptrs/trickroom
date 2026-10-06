@@ -86,7 +86,7 @@ const checkUsage = (
 	return findings;
 };
 
-export const unknownVariantValueRule: LintRuleKind = {
+export const designUnknownVariantValueRule: LintRuleKind = {
 	id: UNKNOWN_VARIANT_VALUE_RULE_ID,
 	side: "design",
 	defaultSeverity: "error",

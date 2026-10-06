@@ -5,6 +5,7 @@ import {
 	templateNode,
 } from "../../../codegen/test-support";
 import type { Node, TrickroomDesign } from "../../../types";
+import { compileClassAllowList } from "../../../utils/class-token-diagnostics";
 import { getSystemComponentMarkerProps } from "../../../utils/system-component-markers";
 import {
 	createEmptySystemComponentManifest,
@@ -20,12 +21,8 @@ import { buildSourceIndex } from "../../source/index";
 import { lintRuleRegistry } from "../index";
 import type { LintRuleContext, LintTailwindInspector } from "../types";
 import { designOnlyClassTargetRule } from "./design-only-class-target";
-import {
-	compileClassAllowList,
-	unknownClassTokenOptionIssues,
-	unknownClassTokenRule,
-} from "./unknown-class-token";
-import { unknownVariantValueRule } from "./unknown-variant-value";
+import { designUnknownClassTokenRule } from "./unknown-class-token";
+import { designUnknownVariantValueRule } from "./unknown-variant-value";
 
 const payload = (
 	axes: Record<string, string[]>,
@@ -271,8 +268,8 @@ const contextFor = (
 
 describe("design.unknown-variant-value", () => {
 	it("checks instances against the version they use", async () => {
-		const findings = await unknownVariantValueRule.run(
-			contextFor(unknownVariantValueRule.id),
+		const findings = await designUnknownVariantValueRule.run(
+			contextFor(designUnknownVariantValueRule.id),
 		);
 		const byElement = Object.fromEntries(
 			findings.map((finding) => [
@@ -313,7 +310,9 @@ describe("design.unknown-variant-value", () => {
 
 	it("says to migrate when the pinned version lacks a value the current one has", async () => {
 		const findings = (
-			await unknownVariantValueRule.run(contextFor(unknownVariantValueRule.id))
+			await designUnknownVariantValueRule.run(
+				contextFor(designUnknownVariantValueRule.id),
+			)
 		).filter(
 			(finding) =>
 				finding.location?.kind === "design" &&
@@ -359,7 +358,9 @@ describe("design.design-only-class-target", () => {
 
 describe("design.unknown-class-token", () => {
 	const run = async (options: Record<string, unknown> = {}) =>
-		unknownClassTokenRule.run(contextFor(unknownClassTokenRule.id, options));
+		designUnknownClassTokenRule.run(
+			contextFor(designUnknownClassTokenRule.id, options),
+		);
 
 	it("runs the design class checks over every board", async () => {
 		const findings = await run();
@@ -408,28 +409,13 @@ describe("design.unknown-class-token", () => {
 		).toEqual(["nope-utility"]);
 	});
 
-	it("validates its options", () => {
-		expect(unknownClassTokenOptionIssues({})).toEqual([]);
-		expect(
-			unknownClassTokenOptionIssues({
-				allow: "bg-*",
-				codes: ["UNKNOWN_COLOR_TOKEN", "NOPE"],
-				only: [],
-			}),
-		).toEqual([
-			"options.only is not an option; use allow or codes.",
-			"options.allow must be a list of non-empty strings.",
-			'options.codes has unknown code "NOPE"; the codes are UNKNOWN_COLOR_TOKEN, UNKNOWN_SPACING_TOKEN, UNKNOWN_FONT_TOKEN, UNKNOWN_TEXT_TOKEN, UNKNOWN_RADIUS_TOKEN, UNKNOWN_SHADOW_TOKEN, UNKNOWN_TAILWIND_TOKEN, OUT_OF_SYSTEM_COLOR, OUT_OF_SYSTEM_FONT, OUT_OF_SYSTEM_RADIUS, OUT_OF_SYSTEM_TEXT, OUT_OF_SYSTEM_SHADOW, OUT_OF_SYSTEM_BLUR, OUT_OF_SYSTEM_TAILWIND_TOKEN, UNKNOWN_TAILWIND_UTILITY.',
-		]);
-	});
-
-	it("matches allow patterns on the whole class or the utility without variants", () => {
-		const allowed = compileClassAllowList(["bg-legacy-*", "p-[13px]", "!m-1"]);
+	it("matches allow patterns on the whole class or its utility without variants", () => {
+		const allowed = compileClassAllowList(["bg-legacy-*", "p-[13px]", "m-?"]);
 		expect(allowed("bg-legacy-1")).toBe(true);
-		expect(allowed("md:hover:bg-legacy-1/50")).toBe(true);
+		expect(allowed("md:hover:bg-legacy-1")).toBe(true);
 		expect(allowed("p-[13px]")).toBe(true);
-		expect(allowed("lg:!m-1")).toBe(true);
-		expect(allowed("m-1")).toBe(false);
+		expect(allowed("lg:m-1")).toBe(true);
+		expect(allowed("m-10")).toBe(false);
 		expect(allowed("bg-brand-1")).toBe(false);
 	});
 });

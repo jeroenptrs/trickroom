@@ -9,12 +9,14 @@ import { validateRecipeInstances } from "../recipes/validation";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
 import { readAssetManifest } from "../utils/asset-manifest-service";
 import {
+	type ClassTokenInspector,
+	classTokenContextFromStorage,
+	createClassTokenInspector,
+} from "../utils/class-token-diagnostics";
+import {
 	createDesignClassChecker,
-	createDesignClassInspector,
 	type DesignClassChecker,
 	type DesignClassDiagnostic,
-	type DesignClassInspector,
-	designClassTokensFromStorage,
 } from "../utils/design-class-diagnostics";
 import {
 	assetIdProp,
@@ -236,6 +238,8 @@ export const shapeMutationDiagnostics = (
 	}
 	return shaped;
 };
+
+export { suggestTailwindClasses } from "../utils/class-token-diagnostics";
 
 /** A board with its index in the design, so issue paths stay `boards[i]`. */
 type IndexedBoard = { board: DesignNode; index: number };
@@ -496,7 +500,7 @@ const getTokenSnapshotMetadata = (
 const loadTailwindUtilityInspector = async (
 	context: TrickroomMcpServerContext,
 	cssPath: string | undefined,
-): Promise<DesignClassInspector | null> => {
+): Promise<ClassTokenInspector | null> => {
 	if (!cssPath?.trim()) {
 		return null;
 	}
@@ -506,13 +510,11 @@ const loadTailwindUtilityInspector = async (
 			projectRoot: context.projectRoot,
 			cssPath,
 		});
-		return createDesignClassInspector(designSystem);
+		return createClassTokenInspector(designSystem);
 	} catch {
 		return null;
 	}
 };
-
-export { suggestTailwindClasses } from "../utils/design-class-diagnostics";
 
 /**
  * Lint findings as design issues: the code is the rule kind id, the
@@ -635,13 +637,15 @@ export const getDesignDiagnostics = async (
 			),
 		);
 	} else {
-		const check = createDesignClassChecker({
-			tokens: storedTokens ? designClassTokensFromStorage(storedTokens) : null,
-			inspector: await loadTailwindUtilityInspector(
-				context,
-				system.manifest.cssPath ?? storedTokens?.metadata.cssPath,
+		const check = createDesignClassChecker(
+			classTokenContextFromStorage(
+				storedTokens,
+				await loadTailwindUtilityInspector(
+					context,
+					system.manifest.cssPath ?? storedTokens?.metadata.cssPath,
+				),
 			),
-		});
+		);
 		for (const { board, index } of boards) {
 			collectClassDiagnostics(board, `boards[${index}]`, check, issues);
 		}

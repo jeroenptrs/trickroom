@@ -24,21 +24,6 @@ export type LintRulesRunResult = {
 	failures: LintRuleFailure[];
 };
 
-/**
- * Problems with the `options` of configured rule instances, each prefixed
- * with the instance's field (`rules["design.x"].options.allow …`).
- */
-export const getLintRuleOptionIssues = (
-	registry: LintRuleRegistry,
-	config: ResolvedLintConfig,
-): string[] =>
-	config.rules.flatMap((rule) => {
-		const kind = registry.get(rule.id);
-		return (kind?.validateOptions?.(rule.options) ?? []).map(
-			(issue) => `rules["${rule.id}"].${issue}`,
-		);
-	});
-
 export async function runLintRules({
 	registry,
 	config,

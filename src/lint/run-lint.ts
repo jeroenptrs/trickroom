@@ -4,7 +4,7 @@ import { resolveCodegenConfig } from "../codegen/config";
 import { type CodegenRunResult, runCodegen } from "../codegen/run-codegen";
 import { readProjectConfigReadOnly } from "../project";
 import { createDesignFileService } from "../services/design-file-service";
-import { createDesignClassInspector } from "../utils/design-class-diagnostics";
+import { createClassTokenInspector } from "../utils/class-token-diagnostics";
 import { designReferencesSystemHandle } from "../utils/design-resource-references";
 import {
 	type DesignSystemRecord,
@@ -18,12 +18,11 @@ import {
 import { loadCachedTailwindDesignSystem } from "../utils/tailwind-design-system";
 import { readDomainTokensReadonly } from "../utils/tailwind-token-store";
 import {
-	getLintConfigIssues,
 	LINT_CONFIG_FILE_NAME,
-	type LintConfig,
 	type ResolvedLintConfig,
 	resolveLintConfig,
 } from "./config";
+import { readLintConfigFile } from "./config-file";
 import { buildSystemContract, type SystemContract } from "./contract";
 import {
 	buildLintDesignIndex,
@@ -57,11 +56,7 @@ import {
 import { lintRuleRegistry } from "./rules/index";
 import type { LintRuleRegistry } from "./rules/registry";
 import type { LintTailwindInspector } from "./rules/types";
-import {
-	getLintRuleOptionIssues,
-	runLintRules,
-	toReportFinding,
-} from "./run-rules";
+import { runLintRules, toReportFinding } from "./run-rules";
 import {
 	buildSourceIndex,
 	countUsagesByFile,
@@ -146,52 +141,6 @@ const toPosix = (value: string) => value.split(path.sep).join("/");
 const MAX_PARSE_ERROR_DIAGNOSTICS = 50;
 
 /**
- * Reads and validates `lint.json` of a system folder; null config when
- * absent. A file that cannot be read (a folder in its place, a permission
- * problem) is an issue with `unreadable` set, never a thrown error.
- */
-export const readLintConfigFile = async (
-	systemDir: string,
-	knownRuleIds: ReadonlySet<string>,
-): Promise<{
-	config: LintConfig | null;
-	issues: string[];
-	unreadable?: boolean;
-}> => {
-	const configPath = path.join(systemDir, LINT_CONFIG_FILE_NAME);
-	let text: string;
-	try {
-		text = await readFile(configPath, "utf8");
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			return { config: null, issues: [] };
-		}
-		return {
-			config: null,
-			issues: [
-				`${LINT_CONFIG_FILE_NAME} could not be read: ${error instanceof Error ? error.message : String(error)}`,
-			],
-			unreadable: true,
-		};
-	}
-	let value: unknown;
-	try {
-		value = JSON.parse(text);
-	} catch (error) {
-		return {
-			config: null,
-			issues: [
-				`${LINT_CONFIG_FILE_NAME} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
-			],
-		};
-	}
-	const issues = getLintConfigIssues(value, knownRuleIds);
-	return issues.length > 0
-		? { config: null, issues }
-		: { config: value as LintConfig, issues: [] };
-};
-
-/**
  * Compiles the system CSS on first use for every rule of a run. The compiled
  * system is cached across runs and validation calls until the CSS changes
  * (`loadCachedTailwindDesignSystem`).
@@ -206,7 +155,7 @@ export const createTailwindInspectorLoader = (
 			return Promise.resolve(null);
 		}
 		pending ??= loadCachedTailwindDesignSystem({ projectRoot, cssPath })
-			.then(({ designSystem }) => createDesignClassInspector(designSystem))
+			.then(({ designSystem }) => createClassTokenInspector(designSystem))
 			.catch(() => null);
 		return pending;
 	};
@@ -354,9 +303,12 @@ const buildFileStats = (
 };
 
 /**
- * One row per linked design (`board: null`) and one per board: the
- * instances of the system's components placed there and the findings
- * located there. Every linked design is listed, clean or not.
+ * One row per board and one per linked design with `board: null`, each with
+ * the instances of the system's components placed there and the findings
+ * located there. The `board: null` row holds only what is on no board, not
+ * the design's total: the dashboard adds up all rows of a design. It is
+ * there for every linked design, clean or not, so a design without boards
+ * is still listed.
  */
 const buildDesignStats = (
 	designs: LintDesignIndex,
@@ -383,23 +335,15 @@ const buildDesignStats = (
 	}
 	for (const usages of Object.values(designs.usages)) {
 		for (const usage of usages) {
-			for (const row of [
-				rows.get(key(usage.design, null)),
-				rows.get(key(usage.design, usage.board)),
-			]) {
-				if (row) row.usages += 1;
-			}
+			const row = rows.get(key(usage.design, usage.board));
+			if (row) row.usages += 1;
 		}
 	}
 	for (const finding of findings) {
 		if (finding.location?.kind !== "design") continue;
 		const { design, board } = finding.location;
-		for (const row of [
-			rows.get(key(design, null)),
-			board === undefined ? undefined : rows.get(key(design, board)),
-		]) {
-			if (row) countSeverity(row.findings, finding.severity);
-		}
+		const row = rows.get(key(design, board ?? null));
+		if (row) countSeverity(row.findings, finding.severity);
 	}
 	return [...rows.values()];
 };
@@ -553,26 +497,24 @@ async function runLintInner(
 		warn("COMPONENT_MANIFEST_DIAGNOSTIC", diagnostic.message, diagnostic.path);
 	}
 
-	const lintConfigRead = await readLintConfigFile(system.dir, registry.ids);
-	if (lintConfigRead.issues.length > 0) {
+	const lintConfigRead = await readLintConfigFile(system.dir, registry);
+	if (
+		lintConfigRead.status === "invalid" ||
+		lintConfigRead.status === "unreadable"
+	) {
 		return fail(
 			"INVALID_LINT_CONFIG",
 			`${toPosix(path.relative(projectRoot, path.join(system.dir, LINT_CONFIG_FILE_NAME)))} is invalid: ${lintConfigRead.issues.join(" ")}`,
 		);
 	}
-	const config: ResolvedLintConfig = resolveLintConfig(lintConfigRead.config, {
-		ruleKinds: registry.kinds,
-		codegenOutDir:
-			codegenConfig.status === "configured" ? codegenConfig.outDir : null,
-	});
-
-	const optionIssues = getLintRuleOptionIssues(registry, config);
-	if (optionIssues.length > 0) {
-		return fail(
-			"INVALID_LINT_CONFIG",
-			`${toPosix(path.relative(projectRoot, path.join(system.dir, LINT_CONFIG_FILE_NAME)))} is invalid: ${optionIssues.join(" ")}`,
-		);
-	}
+	const config: ResolvedLintConfig = resolveLintConfig(
+		lintConfigRead.status === "present" ? lintConfigRead.config : null,
+		{
+			ruleKinds: registry.kinds,
+			codegenOutDir:
+				codegenConfig.status === "configured" ? codegenConfig.outDir : null,
+		},
+	);
 
 	const tokens = await readDomainTokensReadonly(projectRoot, systemId);
 	const contract = buildSystemContract({

@@ -15,11 +15,12 @@ import {
 	type ResolvedLintConfig,
 	resolveLintConfig,
 } from "./config";
+import { readLintConfigFile } from "./config-file";
 import { buildSystemContract, type SystemContract } from "./contract";
 import { buildLintDesignIndex } from "./designs";
 import { lintRuleRegistry } from "./rules/index";
 import type { LintRuleRegistry } from "./rules/registry";
-import { createTailwindInspectorLoader, readLintConfigFile } from "./run-lint";
+import { createTailwindInspectorLoader } from "./run-lint";
 import { type LintRunFinding, runLintRules } from "./run-rules";
 import { buildSourceIndex } from "./source/index";
 
@@ -30,9 +31,9 @@ import { buildSourceIndex } from "./source/index";
  * severities and options apply the same way. Reads the system read-only.
  *
  * Unlike a lint run it never fails: an invalid or unreadable `lint.json`
- * or invalid options fall back to the defaults (the whole file, or that
- * kind's options), unreadable components to none, and a failing kind is
- * skipped, each reported in `diagnostics`.
+ * (invalid options included) falls back to the defaults, unreadable
+ * components to none, and a failing kind is skipped, each reported in
+ * `diagnostics`.
  * Findings without a design location (a component-level finding such as
  * `design.design-only-class-target`) are kept only for components the
  * checked boards place.
@@ -60,8 +61,6 @@ export type DesignLintSetup = {
 	system: DesignSystemRecord;
 	contract: SystemContract;
 	config: ResolvedLintConfig;
-	/** Kinds whose options are invalid; they run with their defaults. */
-	invalidOptionKinds: ReadonlySet<string>;
 	tokens: TailwindTokenStorage | null;
 	diagnostics: DesignLintDiagnostic[];
 	inspector: ReturnType<typeof createTailwindInspectorLoader>;
@@ -101,31 +100,20 @@ export async function loadDesignLintSetup({
 		});
 	}
 
-	const read = await readLintConfigFile(system.dir, registry.ids);
-	if (read.issues.length > 0) {
+	// Invalid options make the file invalid too (`getLintConfigIssues`
+	// checks them against each kind's option specs): the defaults apply.
+	const read = await readLintConfigFile(system.dir, registry);
+	if (read.status === "invalid" || read.status === "unreadable") {
 		diagnostics.push({
 			code: "INVALID_LINT_CONFIG",
-			message: read.unreadable
-				? `${lintPath} could not be read, so the default rules apply: ${read.issues.join(" ")}`
-				: `${lintPath} is invalid, so the default rules apply: ${read.issues.join(" ")}`,
+			message: `${lintPath} ${read.status === "unreadable" ? "could not be read" : "is invalid"}, so the default rules apply: ${read.issues.join(" ")}`,
 			path: lintPath,
 		});
 	}
-	const config = resolveLintConfig(read.config, {
-		ruleKinds: registry.kinds,
-		codegenOutDir: null,
-	});
-	const invalidOptionKinds = new Set<string>();
-	for (const rule of config.rules) {
-		const issues = registry.get(rule.id)?.validateOptions?.(rule.options);
-		if (!issues?.length) continue;
-		invalidOptionKinds.add(rule.id);
-		diagnostics.push({
-			code: "INVALID_LINT_CONFIG",
-			message: `${lintPath}: rules["${rule.id}"] has invalid options, so its defaults apply: ${issues.join(" ")}`,
-			path: lintPath,
-		});
-	}
+	const config = resolveLintConfig(
+		read.status === "present" ? read.config : null,
+		{ ruleKinds: registry.kinds, codegenOutDir: null },
+	);
 
 	const tokens = await readDomainTokensReadonly(projectRoot, systemId);
 	const contract = buildSystemContract({
@@ -142,7 +130,6 @@ export async function loadDesignLintSetup({
 		system,
 		contract,
 		config,
-		invalidOptionKinds,
 		tokens,
 		diagnostics,
 		inspector: createTailwindInspectorLoader(
@@ -173,17 +160,7 @@ export async function lintDesign({
 		systemId: contract.system.id,
 		designs: [{ id: designId, design, boardIds }],
 	});
-	const config: ResolvedLintConfig =
-		setup.invalidOptionKinds.size === 0
-			? setup.config
-			: {
-					...setup.config,
-					rules: setup.config.rules.map((rule) =>
-						setup.invalidOptionKinds.has(rule.id)
-							? { ...rule, options: {} }
-							: rule,
-					),
-				};
+	const { config } = setup;
 	const run = await runLintRules({
 		registry,
 		config,

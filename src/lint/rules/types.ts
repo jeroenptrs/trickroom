@@ -7,6 +7,7 @@ import type {
 } from "../config";
 import type { SystemContract } from "../contract";
 import type { LintDesignIndex } from "../designs";
+import type { LintRuleOptionSpec } from "../rule-options";
 import type { SourceIndex } from "../source/index";
 
 /**
@@ -92,11 +93,12 @@ export type LintRuleKind = {
 	defaultSeverity: LintSeverity;
 	description: string;
 	/**
-	 * Problems with the instance's `options`, each naming the option; a run
-	 * with any is `INVALID_LINT_CONFIG`. Kinds without options may omit it,
-	 * and then any option is ignored.
+	 * The options the kind takes, the one source for validating `lint.json`
+	 * (`getLintConfigIssues`: unknown keys and malformed values are
+	 * `INVALID_LINT_CONFIG`) and for the dashboard's option forms. A kind
+	 * without specs takes no documented options and ignores any.
 	 */
-	validateOptions?: (options: Record<string, unknown>) => string[];
+	options?: readonly LintRuleOptionSpec[];
 	run: (
 		context: LintRuleContext,
 	) => LintRuleFinding[] | Promise<LintRuleFinding[]>;

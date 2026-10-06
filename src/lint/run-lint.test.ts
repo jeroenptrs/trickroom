@@ -18,12 +18,35 @@ import {
 	flatPayload,
 	publishedComponent,
 } from "../codegen/test-support";
+import { buildDesignTree } from "../components/system-editor/lint/lint-dashboard-model";
 import { readProjectConfigReadOnly } from "../project";
 import { createDesignFileService } from "../services/design-file-service";
 import type { Node } from "../types";
 import { getSystemComponentMarkerProps } from "../utils/system-component-markers";
 import { parseLintReport } from "./report";
-import { runLint } from "./run-lint";
+import {
+	variantsFileOrphanedRule,
+	variantsFileStaleRule,
+} from "./rules/code/variants-file";
+import { designOnlyClassTargetRule } from "./rules/design/design-only-class-target";
+import { designUnknownClassTokenRule } from "./rules/design/unknown-class-token";
+import { designUnknownVariantValueRule } from "./rules/design/unknown-variant-value";
+import { createLintRuleRegistry } from "./rules/registry";
+import { type RunLintInput, runLint as runLintWithEveryKind } from "./run-lint";
+
+// The engine is tested with the codegen kinds and the design kinds, so
+// finding lists stay exact (the fixtures have no class or design problems
+// beyond the ones a test sets up); the other code kinds have their own
+// tests next to them in rules/.
+const engineRegistry = createLintRuleRegistry([
+	variantsFileStaleRule,
+	variantsFileOrphanedRule,
+	designUnknownClassTokenRule,
+	designOnlyClassTargetRule,
+	designUnknownVariantValueRule,
+]);
+const runLint = (input: RunLintInput) =>
+	runLintWithEveryKind({ registry: engineRegistry, ...input });
 
 describe("runLint", () => {
 	const projects: CodegenTestProject[] = [];
@@ -627,11 +650,12 @@ describe("runLint", () => {
 			},
 		]);
 		expect(report?.designs).toEqual([
+			// What is on no board; the dashboard adds up a design's rows.
 			{
 				design: "d-shop",
 				board: null,
-				usages: 3,
-				findings: { errors: 1, warnings: 0, info: 0 },
+				usages: 0,
+				findings: { errors: 0, warnings: 0, info: 0 },
 			},
 			{
 				design: "d-shop",
@@ -646,6 +670,16 @@ describe("runLint", () => {
 				findings: { errors: 0, warnings: 0, info: 0 },
 			},
 		]);
+		// The dashboard adds up a design's rows: no double counting.
+		const tree = buildDesignTree(report?.designs ?? []);
+		expect(
+			tree.children.map((design) => [
+				design.name,
+				design.usages,
+				design.findings.errors,
+				design.children.length,
+			]),
+		).toEqual([["d-shop", 3, 1, 2]]);
 		expect(
 			report?.components.map((component) => [
 				component.slug,
@@ -698,7 +732,7 @@ describe("runLint", () => {
 				code: "INVALID_LINT_CONFIG",
 				severity: "error",
 				message:
-					'.trickroom/systems/core/lint.json is invalid: rules["design.unknown-class-token"].options.allow must be a list of non-empty strings.',
+					'.trickroom/systems/core/lint.json is invalid: rules["design.unknown-class-token"].options.allow must be a list of strings.',
 			},
 		]);
 	});

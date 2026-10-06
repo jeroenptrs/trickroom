@@ -1,4 +1,5 @@
 import path from "node:path";
+import { type LintRuleOptionSpec, lintRuleOptionIssues } from "./rule-options";
 
 /**
  * `.trickroom/systems/<id>/lint.json`: the rule instances, identity
@@ -319,14 +320,31 @@ const thresholdIssues = (
 };
 
 /**
+ * What a config is checked against: the shipped rule kind ids, or the
+ * registry itself, which adds each kind's option specs.
+ */
+export type LintKnownRules =
+	| ReadonlySet<string>
+	| {
+			ids: ReadonlySet<string>;
+			get: (id: string) => { options?: readonly LintRuleOptionSpec[] } | null;
+	  };
+
+const ruleIdsOf = (known: LintKnownRules | null) =>
+	known === null ? null : "ids" in known ? known.ids : known;
+
+/**
  * Every reason a lint config is invalid, each naming the offending field;
- * empty when valid. `knownRuleIds` (the registry) catches typos in rule ids;
- * pass null to validate the shape alone.
+ * empty when valid. `known` (the registry) catches typos in rule ids and,
+ * when it is the registry, checks each instance's `options` against its
+ * kind's option specs (a kind without specs takes no documented options and
+ * ignores any); pass null to validate the shape alone.
  */
 export const getLintConfigIssues = (
 	value: unknown,
-	knownRuleIds: ReadonlySet<string> | null,
+	known: LintKnownRules | null,
 ): string[] => {
+	const knownRuleIds = ruleIdsOf(known);
 	if (!isRecord(value)) {
 		return ["lint.json must be a JSON object."];
 	}
@@ -350,7 +368,23 @@ export const getLintConfigIssues = (
 			issues.push("rules must be an object keyed by rule kind id.");
 		} else {
 			for (const [id, rule] of Object.entries(value.rules)) {
-				issues.push(...ruleIssues(rule, id, knownRuleIds));
+				const ruleProblems = ruleIssues(rule, id, knownRuleIds);
+				issues.push(...ruleProblems);
+				const specs =
+					known !== null && "ids" in known ? known.get(id)?.options : undefined;
+				if (
+					ruleProblems.length === 0 &&
+					specs !== undefined &&
+					isRecord(rule) &&
+					rule.options !== undefined
+				) {
+					issues.push(
+						...lintRuleOptionIssues(
+							specs,
+							rule.options as Record<string, unknown>,
+						).map((issue) => `rules["${id}"].${issue}`),
+					);
+				}
 			}
 		}
 	}
@@ -370,8 +404,8 @@ export const getLintConfigIssues = (
 
 export const isLintConfig = (
 	value: unknown,
-	knownRuleIds: ReadonlySet<string> | null,
-): value is LintConfig => getLintConfigIssues(value, knownRuleIds).length === 0;
+	known: LintKnownRules | null,
+): value is LintConfig => getLintConfigIssues(value, known).length === 0;
 
 const sortedEntries = <T>(record: Record<string, T>) =>
 	Object.entries(record).sort(([left], [right]) => left.localeCompare(right));

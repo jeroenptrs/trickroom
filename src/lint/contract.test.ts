@@ -265,8 +265,6 @@ describe("buildSystemContract", () => {
 		const first = build();
 		expect(first.tokens.domains.color).toContain("brand-500");
 		expect(first.tokens.domains.color).not.toContain("red-500");
-		expect(first.tokens.removed.color).toEqual(["red-500"]);
-		expect(first.tokens.removed.spacing).toEqual([]);
 		expect(first.tokens.domains.color).toContain("blue-500");
 		expect(first.tokens.customUtilities).toEqual([
 			{ root: "text-interaction", kind: "functional" },

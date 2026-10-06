@@ -1,124 +1,56 @@
 import {
+	CLASS_TOKEN_DIAGNOSTIC_CODES,
+	classTokenContextFromResolved,
+	compileClassAllowList,
+} from "../../../utils/class-token-diagnostics";
+import {
 	createDesignClassChecker,
-	DESIGN_CLASS_DIAGNOSTIC_CODES,
 	type DesignClassDiagnostic,
-	type DesignClassTokens,
-	splitClassCandidate,
 } from "../../../utils/design-class-diagnostics";
-import { TAILWIND_TOKEN_DOMAINS } from "../../../utils/tailwind-token-domains";
-import type { SystemContractTokens } from "../../contract";
+import type { LintRuleOptionSpec } from "../../rule-options";
 import type { LintRuleFinding, LintRuleKind } from "../types";
 
 /**
  * The class and token checks `getDesignDiagnostics` runs on every
  * `className` (unknown or removed tokens, arbitrary values where the system
  * has tokens, utilities Tailwind cannot emit), over every board of every
- * linked design, configurable per system:
- *
- * - `allow`: classes or `*` globs never reported. A pattern matches the
- *   whole class (`hover:bg-legacy-500`) or the class without its variants
- *   and important marker (`bg-legacy-*` covers `md:hover:bg-legacy-500`).
- * - `codes`: report only these diagnostic codes (default: all of
- *   `DESIGN_CLASS_DIAGNOSTIC_CODES`).
+ * linked design, configurable per system with the options below. The
+ * per-class checks are `src/utils/class-token-diagnostics.ts`, shared with
+ * `code.unknown-class-token`.
  */
 
 export const UNKNOWN_CLASS_TOKEN_RULE_ID = "design.unknown-class-token";
 
-type UnknownClassTokenOptions = {
-	allow: readonly string[];
-	codes: ReadonlySet<string>;
-};
+export const DESIGN_UNKNOWN_CLASS_TOKEN_OPTIONS: readonly LintRuleOptionSpec[] =
+	[
+		{
+			key: "allow",
+			label: "Allowed classes",
+			description:
+				"Classes never reported. `*` matches any run of characters and `?` one; a pattern matches the whole class or its utility without variants (`bg-legacy-*` allows `md:hover:bg-legacy-500`).",
+			type: "string-list",
+			placeholder: "bg-legacy-*",
+		},
+		{
+			key: "codes",
+			label: "Checks",
+			description:
+				"Report only these checks; all of them when unset. One code per line.",
+			type: "string-list",
+			placeholder: "UNKNOWN_COLOR_TOKEN",
+			values: CLASS_TOKEN_DIAGNOSTIC_CODES,
+		},
+	];
 
-const KNOWN_OPTIONS = new Set(["allow", "codes"]);
-const KNOWN_CODES = new Set<string>(DESIGN_CLASS_DIAGNOSTIC_CODES);
-
-const stringListIssues = (value: unknown, field: string): string[] =>
-	value === undefined ||
-	(Array.isArray(value) &&
-		value.every((entry) => typeof entry === "string" && entry.trim()))
-		? []
-		: [`${field} must be a list of non-empty strings.`];
-
-export const unknownClassTokenOptionIssues = (
-	options: Record<string, unknown>,
-): string[] => {
-	const issues = Object.keys(options)
-		.filter((key) => !KNOWN_OPTIONS.has(key))
-		.map((key) => `options.${key} is not an option; use allow or codes.`);
-	issues.push(...stringListIssues(options.allow, "options.allow"));
-	const codeIssues = stringListIssues(options.codes, "options.codes");
-	issues.push(...codeIssues);
-	if (codeIssues.length === 0 && Array.isArray(options.codes)) {
-		for (const code of options.codes as string[]) {
-			if (!KNOWN_CODES.has(code.trim())) {
-				issues.push(
-					`options.codes has unknown code "${code}"; the codes are ${DESIGN_CLASS_DIAGNOSTIC_CODES.join(", ")}.`,
-				);
-			}
-		}
-	}
-	return issues;
-};
-
-const readOptions = (
-	options: Record<string, unknown>,
-): UnknownClassTokenOptions => ({
-	allow: Array.isArray(options.allow)
-		? (options.allow as string[]).map((entry) => entry.trim())
-		: [],
-	codes: new Set(
+/** Options already checked against the specs by `getLintConfigIssues`. */
+const readOptions = (options: Record<string, unknown>) => ({
+	allow: Array.isArray(options.allow) ? (options.allow as string[]) : [],
+	codes: new Set<string>(
 		Array.isArray(options.codes)
-			? (options.codes as string[]).map((entry) => entry.trim())
-			: DESIGN_CLASS_DIAGNOSTIC_CODES,
+			? (options.codes as string[])
+			: CLASS_TOKEN_DIAGNOSTIC_CODES,
 	),
 });
-
-const escapeRegExp = (value: string) =>
-	value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-
-/** `*` matches any run of characters; everything else is literal. */
-export const compileClassAllowList = (
-	patterns: readonly string[],
-): ((classToken: string) => boolean) => {
-	if (patterns.length === 0) return () => false;
-	const exact = new Set(patterns.filter((pattern) => !pattern.includes("*")));
-	const globs = patterns
-		.filter((pattern) => pattern.includes("*"))
-		.map(
-			(pattern) =>
-				new RegExp(`^${pattern.split("*").map(escapeRegExp).join(".*")}$`, "u"),
-		);
-	const matches = (value: string) =>
-		exact.has(value) || globs.some((glob) => glob.test(value));
-	return (classToken) => {
-		if (matches(classToken)) return true;
-		const { important, root, modifier } = splitClassCandidate(classToken);
-		const utility = `${root}${modifier}`;
-		return matches(utility) || (important !== "" && matches(`!${utility}`));
-	};
-};
-
-/** The contract's tokens as the class checks need them; null without a snapshot. */
-export const designClassTokensFromContract = (
-	tokens: SystemContractTokens,
-): DesignClassTokens | null => {
-	if (tokens.snapshot === null) return null;
-	return {
-		domains: Object.fromEntries(
-			TAILWIND_TOKEN_DOMAINS.map((domain) => [
-				domain,
-				new Set(tokens.domains[domain]),
-			]),
-		) as unknown as DesignClassTokens["domains"],
-		colorTokens: new Set(tokens.domains.color),
-		removed: new Set(
-			TAILWIND_TOKEN_DOMAINS.flatMap((domain) =>
-				(tokens.removed[domain] ?? []).map((name) => `${domain}:${name}`),
-			),
-		),
-		customUtilities: tokens.customUtilities,
-	};
-};
 
 /** The fields of a class diagnostic `design_validate` returns with the finding. */
 const detailsOf = (diagnostic: DesignClassDiagnostic) => ({
@@ -135,20 +67,26 @@ const detailsOf = (diagnostic: DesignClassDiagnostic) => ({
 		: { suggestions: diagnostic.suggestions }),
 });
 
-export const unknownClassTokenRule: LintRuleKind = {
+export const designUnknownClassTokenRule: LintRuleKind = {
 	id: UNKNOWN_CLASS_TOKEN_RULE_ID,
 	side: "design",
 	defaultSeverity: "warning",
 	description:
 		"A class in a design references a token the system does not define or removed, uses an arbitrary value where the system has tokens, or is not a utility the system's Tailwind can emit.",
-	validateOptions: unknownClassTokenOptionIssues,
+	options: DESIGN_UNKNOWN_CLASS_TOKEN_OPTIONS,
 	run: async ({ contract, designs, rule, tailwind }) => {
 		const options = readOptions(rule.options);
 		const isAllowed = compileClassAllowList(options.allow);
-		const check = createDesignClassChecker({
-			tokens: designClassTokensFromContract(contract.tokens),
-			inspector: await tailwind.inspector(),
-		});
+		const check = createDesignClassChecker(
+			classTokenContextFromResolved(
+				{
+					domains: contract.tokens.domains,
+					customUtilities: contract.tokens.customUtilities,
+					hasSnapshot: contract.tokens.snapshot !== null,
+				},
+				await tailwind.inspector(),
+			),
+		);
 		const findings: LintRuleFinding[] = [];
 		const diagnostics: DesignClassDiagnostic[] = [];
 		for (const design of designs.designs) {

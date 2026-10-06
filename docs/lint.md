@@ -12,6 +12,10 @@ Everything lives in `src/lint/`. Pure modules take data and return data; one fil
 | --- | --- |
 | `contract.ts` | `SystemContract` and `buildSystemContract`: the system as serialisable data rules check against. |
 | `config.ts` | `lint.json`: shape, issues, normalisation, defaults, `resolveLintConfig`. |
+| `config-file.ts` | `lint.json` on disk: `readLintConfigFile` (with issues and a revision hash) and `writeLintConfigFile` for the dashboard. |
+| `system-file.ts` | `writeSystemFileAtomic`: the temp-file-and-rename writer both lint files use, refusing anything but a direct child of `.trickroom/systems`. |
+| `current-contract.ts` | `readCurrentContractHash`: the contract hash a run would check against now, for the dashboard's stale flag. |
+| `rule-catalogue.ts` | The rule kinds as plain data for the browser, with `LINT_RULE_OPTION_SPECS`, the documented options per kind. |
 | `report.ts` | `LintReport` and `LintFinding`: stable ordering, validation, reader, atomic writer. |
 | `ratchet.ts` | Tracked numbers, comparison with the baseline and the thresholds. |
 | `rules/` | The rule kind interface (`types.ts`), the registry (`registry.ts`), the shipped kinds (`index.ts`, `code/`, `design/`). |
@@ -129,7 +133,7 @@ type LintReport = {
   findings: LintFinding[];
   components: LintComponentCoverage[];
   files: LintFileStats[];
-  designs: LintDesignStats[] | null;        // one row per linked design and per board; null in reports from before the design side
+  designs: LintDesignStats[] | null;        // one row per board, plus a board: null row per linked design; null in reports from before the design side
   ratchet: LintRatchetResult;               // this run's comparison, see Ratchet
   ratchetBaseline: {
     generatedAt: string;                    // the passing run the numbers come from
@@ -185,7 +189,7 @@ type LintFileStats = {
 
 type LintDesignStats = {
   design: string;                           // design file id
-  board: string | null;                     // null: the row of the whole design
+  board: string | null;                     // null: what is on no board (not a total; a design's total is the sum of its rows)
   usages: number;                           // instances of the system's components placed there
   findings: { errors: number; warnings: number; info: number }; // findings located there
 };
@@ -241,7 +245,7 @@ Example (one stale file, one component used twice in the app and three times in 
 		{ "file": "src/ui/button.variants.ts", "role": "generated", "component": "button", "usages": 0, "findings": { "errors": 0, "warnings": 0, "info": 0 } }
 	],
 	"designs": [
-		{ "design": "5ed7a853-…", "board": null, "usages": 3, "findings": { "errors": 0, "warnings": 0, "info": 0 } },
+		{ "design": "5ed7a853-…", "board": null, "usages": 0, "findings": { "errors": 0, "warnings": 0, "info": 0 } },
 		{ "design": "5ed7a853-…", "board": "board-1", "usages": 3, "findings": { "errors": 0, "warnings": 0, "info": 0 } }
 	],
 	"ratchet": {
@@ -258,7 +262,7 @@ Example (one stale file, one component used twice in the app and three times in 
 }
 ```
 
-Ordering, so the committed file diffs cleanly: findings by side, rule, location (file, line, column; design, board, element, path), severity, component, message; components by slug; files by file; designs by design then board (the design's own row first); regressions and breaches by metric; every map by key. `files` lists only files that have a role, a usage or a finding; `summary.code.scanned` counts the rest. `designs` lists every linked design and each of its boards, clean or not; `summary.design.scanned` counts the linked designs read. `writeLintReport` writes through a temp file and a rename, and only into a folder that resolves (symlinks followed) to a direct child of `.trickroom/systems`.
+Ordering, so the committed file diffs cleanly: findings by side, rule, location (file, line, column; design, board, element, path), severity, component, message; components by slug; files by file; designs by design then board (the `board: null` row first); regressions and breaches by metric; every map by key. `files` lists only files that have a role, a usage or a finding; `summary.code.scanned` counts the rest. `designs` lists every board of every linked design, clean or not, and one `board: null` row per design for what is on no board (always zero today: usages and design findings sit on a board), so a design without boards is still listed; `summary.design.scanned` counts the linked designs read. `writeLintReport` writes through a temp file and a rename, and only into a folder that resolves (symlinks followed) to a direct child of `.trickroom/systems`.
 
 ## The system contract
 
@@ -278,7 +282,6 @@ type SystemContract = {
   components: SystemContractComponent[];   // sorted by slug
   tokens: {
     domains: Record<TailwindTokenDomain, string[]>; // resolved names: defaults minus removed, plus added
-    removed: Record<TailwindTokenDomain, string[]>; // defaults the system removed on purpose
     customUtilities: Array<{ root: string; kind: "functional" | "static" }>;
     snapshot: { syncedAt: string; reviewRequired: boolean } | null;
   };
@@ -325,7 +328,7 @@ type LintRuleKind = {
   side: "code" | "design";
   defaultSeverity: "error" | "warning" | "info";
   description: string;
-  validateOptions?: (options: Record<string, unknown>) => string[]; // issues name the option; any issue is INVALID_LINT_CONFIG
+  options?: LintRuleOptionSpec[];    // the options it takes; lint.json is validated against them (see the catalogue)
   run: (context: LintRuleContext) => LintRuleFinding[] | Promise<LintRuleFinding[]>;
 };
 
@@ -361,14 +364,14 @@ Code side:
 | --- | --- | --- | --- |
 | `code.variants-file-stale` | error | shipped (WP2) | A published component's variants file is missing, stale (`source-changed`, `body-edited`, `not-generated`) or could not be checked; codegen errors (formatter, paths). Without a `codegen` block: one `info` finding, no violations. |
 | `code.variants-file-orphaned` | warning | shipped (WP2) | A file in `outDir` carries this system's header but no selected component generates it. |
-| `code.wrapper-missing-variants-call` | error | planned (WP3) | The bound wrapper never calls its variants export. |
-| `code.slot-not-called` | warning | planned (WP3) | A slot emitted by codegen is never invoked in the wrapper. |
-| `code.unknown-variant-value` | error | planned (WP3) | A JSX attribute or variants call passes a value the axis does not have. |
-| `code.required-axis-missing` | error | planned (WP3) | A usage omits an axis without a default. |
-| `code.unknown-class-token` | warning | planned (WP3) | A class string in a wrapper or usage site uses a token the system does not define. |
-| `code.redundant-class` | warning | planned (WP3) | A class string repeats what a variant already provides. |
-| `code.variants-imported-outside-component` | error | planned (WP3) | A module other than the wrapper imports the variants file directly (re-exports from the wrapper are the sanctioned way). |
-| `code.component-styling-restricted` | warning | planned (WP3) | Configurable: styling of component X is allowed only in component X (`options`). |
+| `code.wrapper-missing-variants-call` | error | shipped (WP3) | A bound wrapper never calls its component's variants export (directly, through an alias or namespace, or a slot of its result). |
+| `code.slot-not-called` | warning | shipped (WP3) | A slot the generated file exports is never invoked in any wrapper of the component. |
+| `code.unknown-variant-value` | error | shipped (WP3) | A JSX attribute, or a literal object passed to the variants export or a slot, gives an axis a literal value it does not have. |
+| `code.required-axis-missing` | error | shipped (WP3) | A usage or a variants call omits an axis without a default. |
+| `code.unknown-class-token` | warning | shipped (WP3) | A class string uses a token or utility the system does not define. Options: `allow`, `scope`. |
+| `code.redundant-class` | warning | shipped (WP3) | A class in a usage's `className` changes nothing under `twMerge` (what tv() merges with): appending it to the component's base and selected variant classes, and removing it from the className, both leave the merged classes unchanged, under every value a dynamic axis may take. |
+| `code.variants-imported-outside-component` | error | shipped (WP3) | A module other than the wrapper imports the variants file directly (re-exports from the wrapper are the sanctioned way). |
+| `code.component-styling-restricted` | warning | shipped (WP3) | Configurable: styling of component X is allowed only in X's wrapper and the files its options allow. Options: `components`. Does nothing until configured. |
 
 Design side (run by the engine over every linked Design, and by `design_validate` and the editor on one design):
 
@@ -378,12 +381,19 @@ Design side (run by the engine over every linked Design, and by `design_validate
 | `design.design-only-class-target` | error | shipped (WP4) | A variant value or compound variant of a published component's current version adds classes to a path inside a design-only subtree. Mirrors codegen's `DESIGN_ONLY_CLASS_TARGET` from the design model, so it also covers components without codegen and design-only components. The finding names the component; its location is null. |
 | `design.unknown-variant-value` | error | shipped (WP4) | An instance in a Design records a variant value its axis does not have, or an axis the component does not have. Checked against the published version the instance uses; a version missing from the manifest is checked against the current one (the message says so). When an instance pinned to an older version is wrong there but right in the current version, the message says to migrate it. Instances of components the manifest does not know are left to the component usage checks. |
 
-`design.unknown-class-token` options:
+Options are data: a kind that takes options declares them as `options` on its `LintRuleKind`, one spec per option (`src/lint/rule-options.ts`): `{ key, label, description, type }` with `type` one of `boolean`, `number`, `string` (with `values`, one of them), `string-list` (with `values`, each entry one of them) or `component-map` (`{ [slug]: string[] }`, or with `entryKey` `{ [slug]: { [entryKey]: string[] } }`). The specs are the one source for two things: `getLintConfigIssues`, given the registry, checks every rule instance's `options` against them (a key no spec lists, a value of the wrong shape or outside `values` is `INVALID_LINT_CONFIG`; the dashboard's `PUT` refuses the same config), and `LINT_RULE_OPTION_SPECS` in `src/lint/rule-catalogue.ts`, derived from the kinds, drives the dashboard's form. A kind without specs takes no documented options and ignores any; the dashboard shows them read-only and keeps them on save. Checks a spec cannot express (a slug the system does not have) stay with the kind, as `info` findings. Ids are stable once shipped: they are keys in committed files.
 
-| Option | Type | Default | Meaning |
+Kinds with options:
+
+| Kind | Option | Spec | Meaning |
 | --- | --- | --- | --- |
-| `allow` | `string[]` | `[]` | Classes never reported. `*` matches any run of characters; a pattern matches the whole class (`hover:bg-legacy-500`) or the class without its variants and `!` (`bg-legacy-*` allows `md:hover:bg-legacy-500/50`). |
-| `codes` | `string[]` | all | Report only these checks: `UNKNOWN_COLOR_TOKEN`, `UNKNOWN_SPACING_TOKEN`, `UNKNOWN_FONT_TOKEN`, `UNKNOWN_TEXT_TOKEN`, `UNKNOWN_RADIUS_TOKEN`, `UNKNOWN_SHADOW_TOKEN`, `UNKNOWN_TAILWIND_TOKEN`, `OUT_OF_SYSTEM_COLOR`, `OUT_OF_SYSTEM_FONT`, `OUT_OF_SYSTEM_RADIUS`, `OUT_OF_SYSTEM_TEXT`, `OUT_OF_SYSTEM_SHADOW`, `OUT_OF_SYSTEM_BLUR`, `OUT_OF_SYSTEM_TAILWIND_TOKEN`, `UNKNOWN_TAILWIND_UTILITY`. |
+| `code.unknown-class-token` | `allow` | `string-list` | Class globs never reported, see below. |
+| | `scope` | `string`, values `wrappers`, `usages`, `all` | Which modules are checked; default `all`. |
+| `code.component-styling-restricted` | `components` | `component-map`, `entryKey: "allowIn"` | Per component slug, the file globs where its styling may be used. |
+| `design.unknown-class-token` | `allow` | `string-list` | Class globs never reported, see below. |
+| | `codes` | `string-list`, values the 15 check codes | Report only these checks; default all: `UNKNOWN_COLOR_TOKEN`, `UNKNOWN_SPACING_TOKEN`, `UNKNOWN_FONT_TOKEN`, `UNKNOWN_TEXT_TOKEN`, `UNKNOWN_RADIUS_TOKEN`, `UNKNOWN_SHADOW_TOKEN`, `UNKNOWN_TAILWIND_TOKEN`, `OUT_OF_SYSTEM_COLOR`, `OUT_OF_SYSTEM_FONT`, `OUT_OF_SYSTEM_RADIUS`, `OUT_OF_SYSTEM_TEXT`, `OUT_OF_SYSTEM_SHADOW`, `OUT_OF_SYSTEM_BLUR`, `OUT_OF_SYSTEM_TAILWIND_TOKEN`, `UNKNOWN_TAILWIND_UTILITY`. |
+
+Both class kinds match `allow` the same way (`compileClassAllowList` in `src/utils/class-token-diagnostics.ts`): `*` matches any run of characters and `?` one, against the class as written and against its utility without variants as Tailwind parses it, so `bg-legacy-*` allows `md:hover:bg-legacy-500` and `prose` allows `md:prose`.
 
 ```json
 {
@@ -397,7 +407,34 @@ Design side (run by the engine over every linked Design, and by `design_validate
 }
 ```
 
-An unknown option, a non-list or an unknown code is `INVALID_LINT_CONFIG`. The other design kinds take no options. Options are documented per kind when it ships. Ids are stable once shipped: they are keys in committed files.
+### Class checks
+
+One pure module holds the per-class checks: `src/utils/class-token-diagnostics.ts` (`collectClassNameTokenIssues` with a check context; `classTokenContextFromStorage` for a stored token snapshot, `classTokenContextFromResolved` for the contract's resolved names; the cached inspector with suggestions; the code list; the allow-list matcher). `code.unknown-class-token` runs class strings through it; `src/utils/design-class-diagnostics.ts` layers the design element on top (`createDesignClassChecker`: path, element id, className), which `getDesignDiagnostics` and `design.unknown-class-token` both walk the design with.
+
+### Code-side kinds (WP3)
+
+The kinds after the codegen pair live in `src/lint/rules/code/` and share `analysis.ts`, computed once per run: for every module, where a component's variants export is in scope (an import from the generated file, or any import that resolves to it through re-exports, barrels and `import { x } from; export { x }`), the calls of it, and the slot calls on its result (`traceCallOrigin` with a one-element path naming a contract slot). A name counts only when it resolves to an import binding at the call, so shadowing parameters and locals are not variants calls. Generated files are never checked.
+
+Shared behaviour:
+
+- Every finding carries the component slug when there is one and a 1-based code location from the source model. A rule that cannot decide skips. Options are checked against the kinds' option specs when `lint.json` is read (see above); what a spec cannot check becomes one `info` finding naming the problem, never a failure.
+- **Shadowing.** A JSX usage counts only when its element name (`Button`, or `UI` for `<UI.Button>`) resolves at the element, through the scope tree, to the import binding. `<Button>` inside `(Button) => …` or after a local `const UI = …` is something else and is skipped.
+- **Wrapper modules.** The rules check the modules that implement a component: the index's `wrappers`, except that a configured `components[slug].module` that does not import the generated file itself (a barrel) is followed through its re-exports (`export { x } from`, `export * from`, and `import { x }; export { x }`) to the importers of the generated file it reaches. The index binds usages through the barrel (the `resolveExport` chain); the rules look from the barrel down to the code. A configured module that reaches no importer is checked as it is.
+- **The component's own export.** JSX checks (`unknown-variant-value`, `required-axis-missing`, `redundant-class`) apply to usages that render the component itself, not every export of its wrapper: the export named after the slug or the name in PascalCase (`Button`, `OtpField`) or the default export. A member element (`<Card.Title>`) never counts. A wrapper that exports none of those names has no recognisable main export, and every export counts.
+- **Literal values.** A string, number or boolean literal (`variant="x"`, `variant={"x"}`, `size={2}`, a bare attribute as `true`) is judged; anything else (identifiers, expressions, `null`) is skipped. A literal JSX attribute followed by a `{...spread}` in source order may be overridden at runtime and is skipped like a dynamic value; a spread before it does not matter. The same holds for literal object properties followed by a spread.
+
+Per kind:
+
+- `code.wrapper-missing-variants-call`: every module in `wrappers` (configured, else the importers) must call the variants export. A module that imports the export only to pass it on (`export { buttonVariants }`) is still an importer, so it is reported with the hint to use `export { … } from` instead. A configured wrapper that does not import the export at all is reported too.
+- `code.slot-not-called`: slots shape only. The slot calls of every wrapper of the component are pooled; a slot that is referenced (`styles.title`) but never invoked does not count. Nothing is reported for a component whose wrappers never call the variants export (that is the previous kind's finding). The location is the first variants call.
+- `code.unknown-variant-value`: JSX attributes named like an axis, and literal-keyed properties of a literal object passed as the first argument of the variants export or a slot function. A property a later spread may override is skipped. Boolean axes accept `true` and `false`, as literals, strings or a bare attribute. Attributes that are not axes are ignored.
+- `code.required-axis-missing`: axes with `required: true`. JSX: a usage with a spread is skipped. Calls: only calls of the variants export itself (slot calls take overrides, not the full set); no argument at all counts as missing, a non-literal argument (`buttonVariants(props)`) or an object with a spread or a computed key is skipped. One finding per missing axis.
+- `code.unknown-class-token`: every complete class string (`classStrings`, through `className` and the configured class calls; template fragments are skipped) runs through `src/utils/class-token-diagnostics.ts`, the pipeline the design diagnostics use: theme tokens per domain from the contract (`tokens.domains`; tokens removed from the Tailwind defaults stay unavailable), arbitrary values in token domains (`bg-[#fff]`), and `context.tailwind.inspector()` for classes the token tables cannot decide (`UNKNOWN_TAILWIND_UTILITY`). Without a token snapshot only the inspector check runs; without both, one `info` finding. Options:
+  - `allow: string[]`: class globs (`*` any run, `?` one character) or exact classes never reported, matched as described above (the same matcher as `design.unknown-class-token`), so `"prose"` also allows `md:prose`.
+  - `scope: "wrappers" | "usages" | "all"` (default `"all"`): `wrappers` checks the wrapper modules only, `usages` the modules that render a bound component, `all` every scanned module (the app is where the system's tokens are used, bound or not).
+- `code.redundant-class`: redundancy follows `twMerge` from `tailwind-merge`, what tv() merges with. `provided` is the root slot's base classes followed by the root classes of the value each axis selects, in codegen's layering order; a class `c` of the usage's `className` is reported when `twMerge(provided + c)` equals `twMerge(provided)` and removing that occurrence of `c` from the className leaves `twMerge(provided + className)` unchanged. Merged results are compared as class sets (Tailwind's CSS does not depend on class order). So `px-3` over a selected value's `px-6` is an override, and so is `px-3` after `p-4` in the same className; an exact repeat with nothing overriding it is redundant. A literal attribute selects its value; an absent attribute selects the axis default (or nothing without one). An axis is dynamic when its attribute is not a literal, a later spread may override it, or it is absent and the element has a spread: a class is then redundant only if it is redundant under every value the dynamic axes may take, none included (each combination is checked; above 64 combinations the element is skipped). Class literals whose enclosing expression has non-literal parts (`cn(extra, "px-3")`, `mixed` in the source model) are skipped, as is a `className` followed by a spread. Compound variants are not considered.
+- `code.variants-imported-outside-component`: with `components[slug].module` configured, every module with a value import of the generated file other than the component's wrapper modules (a configured barrel counts through the modules it re-exports, see above). Without it, nothing is reported for a single importer; with several, the importer named like the component (`button.tsx` or `button/index.tsx` for slug `button`, or the generated file's stem) is the component and the others are findings; when no importer or several are named like that, each importer is reported, asking for `components[slug].module`. Type-only imports and re-exports never count.
+- `code.component-styling-restricted`: options `{ components: { [slug]: { allowIn: string[] } } }` with project-relative file globs. A module outside `allowIn` that calls the component's variants export or a slot function, or imports the export without calling it, gets one finding per component at its first call (or the import). The component's own wrapper is always allowed: the configured module, else the only importer, else the importer named like the component (as above). Malformed entries are `INVALID_LINT_CONFIG`; unknown slugs are noted as `info`. Without options the kind produces nothing.
 
 ## The source model
 
@@ -405,7 +442,7 @@ An unknown option, a non-list or an unknown code is `INVALID_LINT_CONFIG`. The o
 
 - `imports`: specifier, imported and local names (`default`, `*` for namespaces), type-only flag, and `resolved` (filled by the index).
 - `exports` and `reexports` (`export { x } from`, `export * from`, `export * as ns from`). A re-export carries a type-only flag per name, so `export { type Props, Button } from "./button"` keeps `Button` a value; the statement-level `type` is true only when every name is a type.
-- `jsx`: every element with its name (`Button`, `UI.Button`, `svg:path`), attributes whose values are string or primitive literals (`variant="danger"`, `variant={"danger"}`, bare attributes as `true`), `unknown` for anything else, and whether a spread is present.
+- `jsx`: every element with its name (`Button`, `UI.Button`, `svg:path`), attributes whose values are string or primitive literals (`variant="danger"`, `variant={"danger"}`, bare attributes as `true`), `unknown` for anything else, whether a spread is present (`spread`) and where each spread starts (`spreads`, source order; added by WP3), so a rule can tell a literal a later spread may override from one after the spread.
 - `classStrings`: every string literal under a `className` attribute or a class call (`tv`, `cn`, `clsx`, `cva`, `cx`, `twMerge`, `twJoin`; configurable), through conditionals, logical expressions, arrays, templates and nested calls. `tv`/`cva` configs are walked by their keys (`base`, `slots`, `variants`, `compoundVariants`, `compoundSlots`; conditions and defaults are not classes); `clsx`-style object keys are classes. `complete` is false for a template fragment; `mixed` is true when the enclosing expression also had non-literal parts.
 - `calls`: every call with its callee path (`buttonVariants`, `styles.root`) and its arguments. A call on another call's result (`buttonVariants().root()`, `(await load()).title()`) is recorded too, with `callee` written as `buttonVariants().root`, `root` the inner call's root, `members` the path after the inner call, and `receiver: { call, path }` naming that inner call; `receiver` is null when the callee starts with an identifier. `calls` is in traversal order: a call on a call result comes before its receiver call, which starts at the same position. A literal object argument is `{ kind: "object", properties, keys, members, hasSpread, hasComputed }`: `properties` maps literal keys to literal values (or `unknown`), `keys` lists them in source order, `members` lists every member in order as `{ kind: "property", key }`, `{ kind: "spread" }` or `{ kind: "computed" }`, so a rule can tell a missing axis from one a spread may supply and see what a later spread can override. Other arguments are literals or `unknown`.
 - `scopes`: the lexical scope tree. Scope 0 is the module; every function or arrow (parameters live there), block, `for` head, `catch` clause and class body nests under its `parent`, with the `start`/`end` positions it covers and its `bindings` in source order: `{ name, kind, position, origin }` with `kind` one of `const`, `let`, `var` (hoisted to the nearest function or module scope), `function` (hoisted, declared in the enclosing scope; a named function expression binds inside itself), `class`, `parameter` (including destructured and default parameters), `catch`, `import`, `enum`, `namespace`. `origin` is `{ call: { callee, root, members, position }, path }` when the value comes from a call, else null: `[]` for `const s = buttonVariants()`, `["root"]` for `const r = buttonVariants().root` and `const { root: r } = buttonVariants()`, `["0"]` for `const [a] = f()`; `await f()` is `f()`; a `...rest` binding has no origin.
@@ -460,7 +497,7 @@ type LintDesignIndex = {
 
 `design-lint.ts` runs the design-side kinds on one design: `loadDesignLintSetup` reads the linked system read-only (components, `lint.json`, token snapshot) into a contract and resolved config, and `lintDesign` builds the index of that design (or of some boards) and runs the design-side kinds through the same runner, with the same Tailwind inspector loader. Unlike a lint run it never fails:
 
-- An invalid or unreadable `lint.json` (a folder in its place, a permission problem) applies the defaults; invalid options of a kind apply that kind's defaults; each is an `INVALID_LINT_CONFIG` diagnostic. Components that cannot be read are an `INVALID_COMPONENT_MANIFEST` diagnostic and the component rules see none. A kind that throws is skipped with a `LINT_RULE_FAILED` diagnostic.
+- An invalid or unreadable `lint.json` (a folder in its place, a permission problem) applies the defaults, invalid options included (they make the file invalid); this is an `INVALID_LINT_CONFIG` diagnostic. Components that cannot be read are an `INVALID_COMPONENT_MANIFEST` diagnostic and the component rules see none. A kind that throws is skipped with a `LINT_RULE_FAILED` diagnostic.
 - Findings without a design location (`design.design-only-class-target`) are kept only for components the checked boards place.
 
 Two callers:
@@ -521,14 +558,29 @@ The `lint` tool (`src/mcp/tools/lint.ts`, group `designValidation`) takes `check
 
 | Route | Behaviour |
 | --- | --- |
-| `GET /api/trickroom/systems/:systemHandle/lint` | `{ systemId, systemName, report }`; 404 `{ error, code: "LINT_REPORT_NOT_FOUND" }` before the first run; 409 `LINT_REPORT_INVALID` when the file cannot be read. |
+| `GET /api/trickroom/systems/:systemHandle/lint` | `{ systemId, systemName, report, current: { contractHash } }`; `current.contractHash` is the hash of the system's contract now (null when an input cannot be read), so a report whose `contract.hash` differs is stale. 404 `{ error, code: "LINT_REPORT_NOT_FOUND" }` before the first run; 409 `LINT_REPORT_INVALID` when the file cannot be read. |
 | `POST /api/trickroom/systems/:systemHandle/lint` | Runs the engine for that system with `write: "always"` and returns `{ systemId, systemName, status, report, ratchet, written, diagnostics }`; 500 `LINT_FAILED` with `diagnostics` when the run cannot complete. |
+| `GET /api/trickroom/systems/:systemHandle/lint/config` | `{ systemId, systemName, path, present, revision, config, issues, text, defaults, ruleKinds }`. `config` is the stored `lint.json`, or `{ version: 1 }` when the file is absent (`present: false`), invalid or unreadable. An invalid file comes back with its `issues` and its `text`; one that cannot be read (a folder in its place) with its `issues` and `text: null`. `revision` is a `sha256:` hash of the file text, null when absent. `defaults.source` holds the include, exclude and class call lists an absent key means. `ruleKinds` is the catalogue: `{ id, side, defaultSeverity, description, options }` per shipped kind, in registry order. |
+| `PUT /api/trickroom/systems/:systemHandle/lint/config` | Body `{ config, revision? }`. Validates `config` with `getLintConfigIssues` and the registry, its ids and option specs (422 `LINT_CONFIG_INVALID` with `issues`), refuses with 409 `LINT_CONFIG_CONFLICT` when `revision` is sent and the file changed since (null means "I expect no file"), writes `serializeLintConfig` text atomically into the system folder and returns the same shape as `GET`. 400 for a body without `config`. |
 | `GET /api/trickroom/design/lint?id=<designId>` | The design-side kinds on one saved design (see [Design validation](#design-validation)): `{ designId, system, rules, findings, diagnostics }`; findings carry `details`. 404 for an unknown design, 422 for one that cannot be read. |
 
-Browser side, `src/queries/system-lint.ts`: `systemLintQueryOptions(systemId, projectScope)` (key prefix `trickroom-system-lint`, refreshed by file events on `lint.json` and `lint-report.json`), `runSystemLint(systemId)` for a mutation, `invalidateSystemLint`.
+Browser side, `src/queries/system-lint.ts`: `systemLintQueryOptions(systemId, projectScope)` (key prefix `trickroom-system-lint`), `systemLintConfigQueryOptions` (prefix `trickroom-system-lint-config`), both refreshed by file events on the system folder; `runSystemLint(systemId)` and `saveSystemLintConfig(systemId, { config, revision })` for mutations, which throw `SystemLintRequestError` carrying `code`, `issues` and `diagnostics`; `invalidateSystemLint`.
+
+## Dashboard
+
+The lint page of the System editor (`?tab=lint`, `src/components/system-editor/SystemEditorLintPanel.tsx` and `lint/`) reads the stored report through `systemLintQueryOptions` and `lint.json` through the config query. It reshapes the report and never recomputes it. Folder totals are sums of `files[]`, deltas are `ratchet.numbers` minus `ratchet.baseline.numbers`, and coverage states are the report's booleans. Nothing re-runs a rule or re-derives a state. The rail lists the views with what each holds. The inspector shows the selected finding, file, folder, component or design.
+
+- **Adherence.** Per side, the error, warning and info counts from `summary`, each tracked number with its delta against the baseline the run compared with, a "Regressed" mark for `ratchet.regressions` and an "Over max"/"Under min" mark for `ratchet.breaches`. Limits come from the current `lint.json` thresholds. Below that, one row per rule kind in `summary[side].rules` with its counts, the `rule.<id>` delta and its per-kind maximum; a row opens the findings of that kind. The severity shown is the one the report counted (errors, else warnings); a kind without findings shows the configured severity, muted. Catalogue kinds missing from the summary are listed as disabled. The design side reads "Not available yet" while `summary.design` is null.
+- **Coverage.** One row per `components[]` entry with a five-cell strip (published, generated, bound, used in app, used in designs): solid when met, an amber frame when it is a gap, dashed when the report has null. Gaps are listed as badges with what to do about them in the inspector; null is never a gap. Filters: all, any gap, or the gap of one state, plus a search. Above the table, the component count per state with the coverage delta and minimum.
+- **Code map.** A file tree built from `files[]`. Folders add up usages, findings and file counts, and a folder whose only child is a folder shares its row (`src/components/ui`). Each row has two square swatches, usage in cyan and findings (errors plus warnings) in red, on five discrete steps: zero, then the quartiles of the non-zero file values. Folders use their files' scale, so a busy folder reads as hot. Rows are virtualized with `@tanstack/react-virtual` against the workspace scroller. Filter by path or to files with findings, sort by name, usage or findings. A file shows its findings in the inspector; "Show in findings" opens the list filtered to that file or folder.
+- **Design map.** The same tree over `designs[]`: a design row adds up its board rows, and a row with `board: null` counts towards its design without being listed as a board. Design names come from the design summaries; boards show their id. Empty state while `designs` is null.
+- **Findings.** Every finding, filterable by side, severity, rule, component, file or folder, design and board, and text. The other views link into it with a filter set. A design finding has "Open in editor", a link to `buildDesignPath(design, { boardId, layerId })`, the deep link the editor channel's focus requests use.
+- **Rules.** The `lint.json` editor: per kind, enabled, severity (or the default) and maximum findings, and a form for the options `LINT_RULE_OPTION_SPECS` documents (`boolean`, `number`, `string`, `string` with `values` as a choice, `string-list` for allow lists and globs, `component-map` for per-component lists, `{ [slug]: string[] }` or `{ [slug]: { [entryKey]: string[] } }`). The shape check is the one `lint.json` validation uses (`optionValueHasSpecShape`). Stored options a spec does not list, and values that do not match their spec, are shown read-only as JSON and saved unchanged. Then the side maxima and coverage minima, the `components[slug].module` overrides and `source.include`, `exclude` and `classCalls` with the defaults as placeholders. Edits stay in a draft until "Save lint.json". The draft helpers drop keys that equal the default, so the file holds only real choices. A refused save lists the engine's issues. When the file changed on disk during an edit, saving needs an explicit "Overwrite".
+
+"Run lint" calls `runSystemLint`, shows the elapsed time while the engine runs, then the outcome: pass, or fail with each regression and breach. A failing run's report is written (the baseline inside it is kept), and the dashboard says it should not be committed as is. The header shows the report's status, when it was generated and a "Stale" badge when `current.contractHash` differs from `report.contract.hash`, which happens when components, tokens or the codegen block changed since the run. Changes to `lint.json` do not make a report stale; run lint again to see their effect. Before the first run the views show the CLI command and the run button; the Rules view works without a report.
 
 ## For the later packages
 
-- **WP3 (code-side rules)**: add kinds under `src/lint/rules/code/` and append them to `LINT_RULE_KINDS`. Use `context.sources` for identity (`components[].wrappers`, `importers`, `reexporters`), bindings and usages, `context.contract` for axes, slots and tokens, and `context.tailwind.inspector()` for utility checks. Locations come from `SourceModule` positions (1-based line and column). Document each kind's options in the catalogue above.
+- **WP3 (code-side rules)**: shipped; see the catalogue and [Code-side kinds](#code-side-kinds-wp3). A new kind with options declares them as `options` specs on the kind.
 - **WP4 (design-side rules)**: shipped; see the catalogue, [The design index](#the-design-index) and [Design validation](#design-validation).
-- **WP5 (dashboard)**: read `systemLintQueryOptions`; run with `runSystemLint`; edit `lint.json` through the server with `serializeLintConfig`. Adherence comes from `summary` and the report's `ratchet` block: `ratchet.numbers` against `ratchet.baseline.numbers` is the delta against the committed baseline, `regressions` and `breaches` are what to flag, and the thresholds themselves are in `lint.json` (`breaches` carry each broken limit). `ratchetBaseline` is only what the next run will compare against. Coverage comes from `components` (`usedInDesigns`, `designUsages`), the heat map from `files`, and the design-side equivalent from `designs` (one row per design with `board: null`, then one per board) with the findings whose location names that design and board.
+- **WP5 (dashboard)**: shipped, see [Dashboard](#dashboard). Coverage comes from `components` (`usedInDesigns`, `designUsages`), the heat map from `files`, and the design map from `designs`: a design's total is the sum of its rows, and the `board: null` row holds what is on no board.

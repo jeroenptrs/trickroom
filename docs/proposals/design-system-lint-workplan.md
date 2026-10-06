@@ -135,7 +135,7 @@ Deliverables, all in the repo:
 
 ### WP3: code-side rules
 
-Status: in progress. Model: Opus 5.5. Depends on WP2.
+Status: in review. Model: Opus 5.5. Depends on WP2.
 
 Rule kinds, each with tests on fixture TSX:
 
@@ -170,16 +170,23 @@ Decisions taken in WP4 (details in [docs/lint.md](../lint.md)):
 - Three kinds: `design.unknown-class-token` (warning; options `allow`
   and `codes`), `design.design-only-class-target` (error, component-level,
   location null) and `design.unknown-variant-value` (error, checked against
-  the version the instance uses). The class checks moved to
-  `src/utils/design-class-diagnostics.ts`, shared by `getDesignDiagnostics`
-  and the rule.
+  the version the instance uses). After merging WP3, one pure module holds
+  the per-class checks (`src/utils/class-token-diagnostics.ts`), shared by
+  both class kinds and `getDesignDiagnostics`; `design-class-diagnostics.ts`
+  only adds the design element on top.
 - The contract gains `versions` (axes of every published version, from the
-  variant schema), `classTargets` and `tokens.removed`, and uses WP1's
+  variant schema) and `classTargets`, and uses WP1's
   design-only path set (slot default children of a design-only host
   included).
-- Kinds may declare `validateOptions`; invalid options are
-  `INVALID_LINT_CONFIG` for a lint run, and fall back to the kind's
-  defaults (with a warning) in `design_validate` and the editor.
+- Kinds declare their options as specs (`LintRuleKind.options`,
+  `src/lint/rule-options.ts`); `getLintConfigIssues` validates `lint.json`
+  against them and `LINT_RULE_OPTION_SPECS` is derived from them. Invalid
+  options are `INVALID_LINT_CONFIG` for a lint run and the dashboard's save,
+  and fall back to the defaults (with a warning) in `design_validate` and
+  the editor.
+- `designs[]` follows the dashboard's convention: the `board: null` row of
+  a design holds only what is on no board; the design's total is the sum of
+  its rows.
 - Lint reads designs without the design lock (`readDesignFileWithoutLock`),
   so it never replays a journal or writes; unreadable designs are
   `DESIGN_UNREADABLE` warnings.
@@ -192,7 +199,7 @@ Decisions taken in WP4 (details in [docs/lint.md](../lint.md)):
 
 ### WP5: dashboard and rule configuration UI
 
-Status: in progress. Model: Opus 5.5. Depends on WP2; verify against WP3 and WP4
+Status: in review. Model: Opus 5.5. Depends on WP2; verify against WP3 and WP4
 output once merged.
 
 - New `lint` page in the System editor (`SYSTEM_EDITOR_PAGES`,

@@ -126,6 +126,7 @@ const view = (
 			root: "Button",
 			members: [],
 			spread: true,
+			spreads: [{ line: 3, column: 81 }],
 			position: { line: 3, column: 2 },
 		});
 		expect(button.attributes).toEqual([
