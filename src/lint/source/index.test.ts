@@ -143,6 +143,7 @@ describe("source index", () => {
 				generatedFiles: ["src/ui/badge.variants.ts"],
 				wrappers: ["src/ui/badge.tsx"],
 				configuredWrappers: [],
+				missingConfiguredWrappers: [],
 				importers: ["src/ui/badge.tsx"],
 				reexporters: [],
 			},
@@ -153,6 +154,7 @@ describe("source index", () => {
 				generatedFiles: ["src/ui/button.variants.ts"],
 				wrappers: ["src/ui/button.tsx"],
 				configuredWrappers: [],
+				missingConfiguredWrappers: [],
 				importers: ["src/ui/button.tsx"],
 				reexporters: ["src/ui/borrow.ts"],
 			},
@@ -180,6 +182,7 @@ describe("source index", () => {
 		expect(resolveExport(index.modules, "src/ui/index.ts", "Pill")).toEqual({
 			file: "src/ui/badge.tsx",
 			name: "Badge",
+			chain: ["src/ui/index.ts", "src/ui/badge.tsx"],
 		});
 		expect(
 			resolveExport(index.modules, "src/ui/index.ts", "default"),
@@ -216,8 +219,125 @@ describe("source index", () => {
 		expect(identity).toMatchObject({
 			wrappers: ["src/ui/button.tsx"],
 			configuredWrappers: ["src/ui/button.tsx"],
+			missingConfiguredWrappers: [],
 			importers: ["src/ui/button.tsx", "src/ui/legacy.tsx"],
 		});
 		expect(index.usages).toEqual([]);
+	});
+
+	it("keeps a configured barrel's identity while resolving its exports", () => {
+		const modules = [
+			parse(
+				"src/ui/button.variants.ts",
+				`${header("button", button.componentId)}\nexport const buttonVariants = 1;\n`,
+			),
+			parse(
+				"src/ui/button.tsx",
+				`import { buttonVariants } from "./button.variants";\nexport const Button = () => null;\n`,
+			),
+			parse(
+				"src/ui/index.ts",
+				`export { Button } from "./button";\nexport * from "./badge";\n`,
+			),
+			parse("src/ui/badge.tsx", `export const Badge = () => null;\n`),
+			parse(
+				"src/app.tsx",
+				`import { Button, Badge } from "./ui";\nimport * as UI from "./ui";\nexport const App = () => <><Button /><Badge /><UI.Button /></>;\n`,
+			),
+		];
+		const index = buildSourceIndex({
+			modules,
+			contract,
+			componentModules: { button: { modules: ["src/ui/index.ts"] } },
+		});
+		expect(
+			index.components.find((component) => component.slug === "button"),
+		).toMatchObject({
+			wrappers: ["src/ui/index.ts"],
+			importers: ["src/ui/button.tsx"],
+		});
+		expect(index.bindings["src/app.tsx"]).toEqual({
+			Button: "button",
+			Badge: "button",
+			UI: "button",
+		});
+		expect(index.usages.map((usage) => usage.element.name)).toEqual([
+			"Button",
+			"Badge",
+			"UI.Button",
+		]);
+	});
+
+	it("does not count a configured wrapper that was never scanned", () => {
+		const modules = [
+			parse(
+				"src/ui/button.variants.ts",
+				`${header("button", button.componentId)}\nexport const buttonVariants = 1;\n`,
+			),
+			parse(
+				"src/ui/button.tsx",
+				`import { buttonVariants } from "./button.variants";\nexport const Button = () => null;\n`,
+			),
+		];
+		const index = buildSourceIndex({
+			modules,
+			contract,
+			componentModules: {
+				button: { modules: ["src/does-not-exist.tsx", "./src/ui/button.tsx"] },
+				badge: { modules: ["src/missing-badge.tsx"] },
+			},
+		});
+		expect(
+			index.components.find((component) => component.slug === "button"),
+		).toMatchObject({
+			wrappers: ["src/ui/button.tsx"],
+			configuredWrappers: ["src/does-not-exist.tsx", "src/ui/button.tsx"],
+			missingConfiguredWrappers: ["src/does-not-exist.tsx"],
+		});
+		expect(
+			index.components.find((component) => component.slug === "badge"),
+		).toMatchObject({
+			wrappers: [],
+			missingConfiguredWrappers: ["src/missing-badge.tsx"],
+		});
+	});
+
+	it("builds identities in time linear in the sources, not components times files", () => {
+		// The old components-times-files walk takes well over a second here.
+		const count = 3000;
+		const records = Array.from({ length: count }, (_, index) =>
+			publishedComponent(`c${index}`, flatPayload("p-1"), {
+				componentId: `cmp_${String(index).padStart(8, "0")}-0000-4000-8000-00000000abcd`,
+			}),
+		);
+		const wide = buildSystemContract({
+			system: { id: CODEGEN_TEST_SYSTEM_ID, name: "Core" },
+			manifest: {
+				...createEmptySystemComponentManifest(),
+				components: Object.fromEntries(
+					records.map((record) => [record.componentId, record]),
+				),
+			},
+			tokens: null,
+			codegen: { status: "unconfigured" },
+		});
+		const modules = records.flatMap((record, index) => [
+			parse(
+				`src/ui/${record.slug}.variants.ts`,
+				`${header(record.slug, record.componentId)}\nexport const v = 1;\n`,
+			),
+			parse(
+				`src/ui/${record.slug}.tsx`,
+				`import { v } from "./${record.slug}.variants";\nimport a from "./x${index % 7}";\nimport b from "./y${index % 5}";\nexport const C = () => null;\n`,
+			),
+		]);
+		const started = performance.now();
+		const index = buildSourceIndex({ modules, contract: wide });
+		const elapsed = performance.now() - started;
+		expect(index.components).toHaveLength(count);
+		expect(index.components.every((entry) => entry.wrappers.length === 1)).toBe(
+			true,
+		);
+		expect(elapsed).toBeLessThan(600);
 	});
 });

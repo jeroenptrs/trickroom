@@ -99,6 +99,7 @@ export type LintRunDiagnosticCode =
 	| "SOURCES_TRUNCATED"
 	| "RULE_FAILED"
 	| "WRITE_FAILED"
+	| "WRAPPER_MODULE_NOT_SCANNED"
 	| "RUN_FAILED";
 
 export type LintRunDiagnostic = {
@@ -506,6 +507,15 @@ async function runLintInner(
 		contract,
 		componentModules: config.components,
 	});
+	for (const component of sources.components) {
+		for (const file of component.missingConfiguredWrappers) {
+			warn(
+				"WRAPPER_MODULE_NOT_SCANNED",
+				`${LINT_CONFIG_FILE_NAME} names ${file} as the wrapper of "${component.slug}", but no scanned source file has that path; the component counts as unbound. Check the path and the source globs.`,
+				file,
+			);
+		}
+	}
 
 	// Rules.
 	const tailwindInspector = createTailwindInspectorLoader(

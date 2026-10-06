@@ -89,8 +89,10 @@ export type SourceComponentIdentity = {
 	generatedFiles: string[];
 	/** The bound wrapper module(s): configured overrides, else the importers. */
 	wrappers: string[];
-	/** Wrappers from `lint.json`, before falling back to importers. */
+	/** Wrappers from `lint.json`, as configured. */
 	configuredWrappers: string[];
+	/** Configured wrappers that were not scanned (a run diagnostic). */
+	missingConfiguredWrappers: string[];
 	/** Every module with a value import of a generated file. */
 	importers: string[];
 	/** Modules re-exporting from a generated file (borrowing the styling). */
@@ -132,21 +134,41 @@ const compareStrings = (left: string, right: string) =>
 const comparePositions = (left: SourcePosition, right: SourcePosition) =>
 	left.line - right.line || left.column - right.column;
 
+export type ResolvedExport = {
+	/** The defining module. */
+	file: string;
+	/** The export's name there. */
+	name: string;
+	/** Every module visited, from the one asked about to the defining one. */
+	chain: string[];
+};
+
 /**
  * The module that defines export `name` of `file`, following re-exports
- * through barrels. Returns the defining module and the local export name,
- * or null when the name is not found within `depth` hops.
+ * through barrels. Returns the defining module, the local export name and
+ * the modules visited on the way, or null when the name is not found
+ * within `depth` hops.
  */
 export const resolveExport = (
 	modules: Readonly<Record<string, SourceModule>>,
 	file: string,
 	name: string,
 	depth = 8,
-): { file: string; name: string } | null => {
+): ResolvedExport | null => {
+	const found = resolveExportInner(modules, file, name, depth);
+	return found;
+};
+
+const resolveExportInner = (
+	modules: Readonly<Record<string, SourceModule>>,
+	file: string,
+	name: string,
+	depth: number,
+): ResolvedExport | null => {
 	const module = modules[file];
 	if (!module || depth < 0) return null;
 	if (module.exports.some((entry) => entry.name === name && !entry.type)) {
-		return { file, name };
+		return { file, name, chain: [file] };
 	}
 	for (const reexport of module.reexports) {
 		if (reexport.resolved === null) continue;
@@ -154,24 +176,29 @@ export const resolveExport = (
 			if (entry.type) continue;
 			if (entry.imported === "*" && entry.exported === null) {
 				if (name === "default") continue;
-				const found = resolveExport(
+				const found = resolveExportInner(
 					modules,
 					reexport.resolved,
 					name,
 					depth - 1,
 				);
-				if (found) return found;
+				if (found) return { ...found, chain: [file, ...found.chain] };
 			} else if (entry.exported === name) {
 				if (entry.imported === "*") {
 					// `export * as ns from`: the namespace is the module itself.
-					return { file: reexport.resolved, name: "*" };
+					return {
+						file: reexport.resolved,
+						name: "*",
+						chain: [file, reexport.resolved],
+					};
 				}
-				return resolveExport(
+				const found = resolveExportInner(
 					modules,
 					reexport.resolved,
 					entry.imported,
 					depth - 1,
 				);
+				return found ? { ...found, chain: [file, ...found.chain] } : null;
 			}
 		}
 	}
@@ -216,44 +243,60 @@ export function buildSourceIndex(input: BuildSourceIndexInput): SourceIndex {
 		generatedByComponent.set(header.componentId, list);
 	}
 
+	// Reverse indexes, built once: which modules import or re-export a file.
+	const importersByTarget = new Map<string, string[]>();
+	const reexportersByTarget = new Map<string, string[]>();
+	const link = (index: Map<string, string[]>, target: string, file: string) => {
+		const list = index.get(target) ?? [];
+		if (list[list.length - 1] !== file) list.push(file);
+		index.set(target, list);
+	};
+	for (const file of files) {
+		const module = modules[file];
+		for (const entry of module.imports) {
+			if (entry.resolved !== null && entry.names.some((name) => !name.type)) {
+				link(importersByTarget, entry.resolved, file);
+			}
+		}
+		for (const entry of module.reexports) {
+			if (entry.resolved !== null && entry.names.some((name) => !name.type)) {
+				link(reexportersByTarget, entry.resolved, file);
+			}
+		}
+	}
+	const referrers = (
+		index: Map<string, string[]>,
+		targets: readonly string[],
+	) => {
+		const found = new Set<string>();
+		for (const target of targets) {
+			for (const file of index.get(target) ?? []) {
+				if (!targets.includes(file)) found.add(file);
+			}
+		}
+		return [...found].sort(compareStrings);
+	};
+
 	const outDir = input.contract.codegen.outDir;
 	const wrapperToSlug = new Map<string, string>();
 	const components: SourceComponentIdentity[] = input.contract.components.map(
 		(component) => {
 			const generatedFiles =
 				generatedByComponent.get(component.componentId) ?? [];
-			const generatedSet = new Set(generatedFiles);
-			const importers: string[] = [];
-			const reexporters: string[] = [];
-			for (const file of files) {
-				if (generatedSet.has(file)) continue;
-				const module = modules[file];
-				if (
-					module.imports.some(
-						(entry) =>
-							entry.resolved !== null &&
-							generatedSet.has(entry.resolved) &&
-							entry.names.some((name) => !name.type),
-					)
-				) {
-					importers.push(file);
-				}
-				if (
-					module.reexports.some(
-						(entry) =>
-							entry.resolved !== null &&
-							generatedSet.has(entry.resolved) &&
-							!entry.type,
-					)
-				) {
-					reexporters.push(file);
-				}
-			}
+			const importers = referrers(importersByTarget, generatedFiles);
+			const reexporters = referrers(reexportersByTarget, generatedFiles);
 			const configuredWrappers = (
 				input.componentModules?.[component.slug]?.modules ?? []
 			).map(normalizePath);
+			// A configured wrapper counts only when it was scanned; a missing
+			// one is reported, never silently replaced by the importers.
+			const missingConfiguredWrappers = configuredWrappers.filter(
+				(file) => !fileSet.has(file),
+			);
 			const wrappers =
-				configuredWrappers.length > 0 ? configuredWrappers : importers;
+				configuredWrappers.length > 0
+					? configuredWrappers.filter((file) => fileSet.has(file))
+					: importers;
 			for (const wrapper of wrappers) {
 				if (!wrapperToSlug.has(wrapper))
 					wrapperToSlug.set(wrapper, component.slug);
@@ -268,6 +311,7 @@ export function buildSourceIndex(input: BuildSourceIndexInput): SourceIndex {
 				generatedFiles,
 				wrappers,
 				configuredWrappers,
+				missingConfiguredWrappers,
 				importers,
 				reexporters,
 			};
@@ -275,13 +319,21 @@ export function buildSourceIndex(input: BuildSourceIndexInput): SourceIndex {
 	);
 
 	// Bindings: for each module, which local names stand for a component,
-	// following imports through barrels to a wrapper.
+	// following imports through barrels to a wrapper. A configured barrel
+	// is itself a wrapper, so every module on the way is checked, nearest
+	// to the importer first.
 	const bindings: Record<string, Record<string, string>> = {};
 	const slugOfExport = (file: string, name: string): string | null => {
 		const defining =
-			name === "*" ? { file, name } : resolveExport(modules, file, name);
+			name === "*"
+				? { file, name, chain: [file] }
+				: resolveExport(modules, file, name);
 		if (!defining) return null;
-		return wrapperToSlug.get(defining.file) ?? null;
+		for (const visited of defining.chain) {
+			const slug = wrapperToSlug.get(visited);
+			if (slug) return slug;
+		}
+		return null;
 	};
 	const usages: SourceUsage[] = [];
 	for (const file of files) {

@@ -293,6 +293,36 @@ describe("runLint", () => {
 		]);
 	});
 
+	it("warns about a configured wrapper that was not scanned and counts it as unbound", async () => {
+		const project = await setup();
+		await writeFile(
+			project.path(".trickroom/systems/core/lint.json"),
+			JSON.stringify({
+				version: 1,
+				components: { badge: { module: "src/does-not-exist.tsx" } },
+				thresholds: { coverage: { bound: 1 } },
+			}),
+		);
+		const result = await runLint({ projectRoot: project.root, check: true });
+		expect(result.status).toBe("fail");
+		expect(result.diagnostics).toEqual([
+			{
+				code: "WRAPPER_MODULE_NOT_SCANNED",
+				severity: "warning",
+				message: expect.stringContaining(
+					'lint.json names src/does-not-exist.tsx as the wrapper of "badge"',
+				),
+				path: "src/does-not-exist.tsx",
+			},
+		]);
+		expect(
+			result.report?.components.find((component) => component.slug === "badge"),
+		).toMatchObject({ bound: false, wrappers: [] });
+		expect(result.ratchet?.breaches).toEqual([
+			{ metric: "coverage.bound", kind: "min", limit: 1, current: 0 },
+		]);
+	});
+
 	it("notes an unconfigured codegen block and scans src by default", async () => {
 		const project = await setup({ codegen: false });
 		const result = await runLint({ projectRoot: project.root, check: true });
