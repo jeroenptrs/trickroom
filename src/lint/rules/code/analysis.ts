@@ -511,12 +511,17 @@ export const usageClassStrings = (
 export const classTokenPosition = (
 	entry: SourceClassString,
 	classToken: string,
+	/** Which occurrence of the class in the string, from 0. */
+	occurrence = 0,
 ): SourcePosition => {
 	const pattern = new RegExp(
 		`(^|\\s)${classToken.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?=\\s|$)`,
-		"u",
+		"gu",
 	);
-	const match = pattern.exec(entry.value);
+	let match = pattern.exec(entry.value);
+	for (let skipped = 0; match && skipped < occurrence; skipped += 1) {
+		match = pattern.exec(entry.value);
+	}
 	if (!match) return entry.position;
 	const index = match.index + match[1].length;
 	const before = entry.value.slice(0, index);

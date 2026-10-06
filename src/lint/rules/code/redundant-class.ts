@@ -175,14 +175,22 @@ export const redundantClassRule: LintRuleKind = {
 			)
 				continue;
 			const scenarios = subsets(conditionalStrings);
-			const occurrences = strings.flatMap((entry) =>
-				classesOf(entry.value).map((className) => ({ entry, className })),
-			);
+			const occurrences = strings.flatMap((entry) => {
+				const seen = new Map<string, number>();
+				return classesOf(entry.value).map((className) => {
+					const occurrence = seen.get(className) ?? 0;
+					seen.set(className, occurrence + 1);
+					return { entry, className, occurrence };
+				});
+			});
 			const checks = combinations.map((provided) => {
 				const base = provided.map((entry) => entry.className);
 				return { provided, base, merged: mergedSet(base) };
 			});
-			for (const [index, { entry, className }] of occurrences.entries()) {
+			for (const [
+				index,
+				{ entry, className, occurrence },
+			] of occurrences.entries()) {
 				// Redundant only under every combination of dynamic axis values
 				// and in every scenario where its own string applies.
 				const redundant = checks.every(
@@ -218,7 +226,7 @@ export const redundantClassRule: LintRuleKind = {
 					component: component.slug,
 					location: codeLocation(
 						usage.file,
-						classTokenPosition(entry, className),
+						classTokenPosition(entry, className, occurrence),
 					),
 					message: `<${usage.element.name} className> repeats "${className}", which "${component.slug}" already applies through ${source}. Remove it from className.`,
 				});
