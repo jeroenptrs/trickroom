@@ -1407,12 +1407,29 @@ describe("SystemEditor collapsible panels", () => {
 		resetComponentDraftStore();
 	});
 
-	it("starts with the rail open and no floating header", () => {
+	it("starts with the rail collapsed behind a floating header", () => {
 		const html = renderSystemEditor("/system/core");
 
-		expect(html).toContain('class="flex min-h-0 w-[300px]');
-		expect(html).not.toContain('data-slot="floating-panel"');
-		expect(html).toContain('aria-label="Collapse sidebar"');
+		expect(html).toContain('class="hidden min-h-0 w-[300px]');
+		expect(html).toContain('data-slot="floating-panel"');
+		expect(html).toContain('aria-label="Expand sidebar"');
+		expect(html).not.toContain('aria-label="Collapse sidebar"');
+	});
+
+	it("points at the collapsed sidebar from the empty components page", () => {
+		const html = renderSystemEditor("/system/core");
+
+		expect(html).toContain(
+			"Expand the sidebar (Alt+[) to pick a component draft.",
+		);
+		expect(html).not.toContain("Select a component draft to open the editor.");
+	});
+
+	it("asks to select a component draft while the rail is open", () => {
+		setEditorPanelOpen("system", "rail", true);
+		const html = renderSystemEditor("/system/core");
+
+		expect(html).toContain("Select a component draft to open the editor.");
 	});
 
 	it("floats the header with a dark expand icon when the rail is collapsed", () => {
@@ -1459,7 +1476,9 @@ describe("SystemEditor collapsible panels", () => {
 		expect(panel).toContain('title="Expand sidebar (Alt+[)"');
 		expect(panel).toContain('aria-expanded="false"');
 		expect(panel).toContain("lucide-panel-left-open");
-		expect(html).toContain("Select a component draft to open the editor.");
+		expect(html).toContain(
+			"Expand the sidebar (Alt+[) to pick a component draft.",
+		);
 	});
 
 	it("renders no floating header while the rail is open", () => {
@@ -1506,8 +1525,21 @@ describe("SystemEditor collapsible panels", () => {
 		expect(html).toContain('aria-label="Collapse sidebar"');
 	});
 
+	it("collapses the inspector to an edge strip by default", () => {
+		selectDraftRoot();
+		const html = renderSystemEditor("/system/core?component=cmp_new_button", [
+			draftComponent,
+		]);
+
+		expect(html).toContain('data-editor-region="inspector"');
+		expect(html).toContain('aria-label="Expand inspector"');
+		expect(html).toContain('title="Expand inspector (Alt+])"');
+		expect(html).not.toContain("Close inspector");
+	});
+
 	it("adds an inspector collapse button next to the close button", () => {
 		selectDraftRoot();
+		setEditorPanelOpen("system", "inspector", true);
 		const html = renderSystemEditor("/system/core?component=cmp_new_button", [
 			draftComponent,
 		]);

@@ -47,6 +47,7 @@ describe("system panel toggle", () => {
 	});
 
 	it("leaves an open panel alone", () => {
+		setEditorPanelOpen("system", "inspector", true);
 		const commit = vi.fn((update: () => void) => update());
 
 		expect(revealSystemPanel("inspector", commit)).toBe(false);

@@ -121,7 +121,7 @@ describe("WorkspaceToolbar", () => {
 		resetEditorChrome();
 	});
 
-	it("starts with the collapsed rail's header and ends with a properties toggle", () => {
+	it("starts with the collapsed rail's header and ends with a collapsed properties toggle", () => {
 		const stage = {
 			mode: "canvas",
 			activeBoardId: "board-1",
@@ -129,7 +129,7 @@ describe("WorkspaceToolbar", () => {
 		} as const;
 		const html = renderToolbar(stage);
 
-		// The rail starts collapsed, so its header leads the toolbar.
+		// Both panels start collapsed, so the rail's header leads the toolbar.
 		expect(html).toContain('title="Back to project"');
 		expect(html).toContain("Toolbar test");
 		expect(html).toContain("No design system");
@@ -141,11 +141,11 @@ describe("WorkspaceToolbar", () => {
 		);
 
 		expect(html).toMatch(
-			/aria-label="Hide properties"[^>]*aria-expanded="true"/,
+			/aria-label="Show properties"[^>]*aria-expanded="false"/,
 		);
-		expect(html).toContain('title="Hide properties (Alt+])"');
-		expect(html).toContain("lucide-panel-right-close");
-		expect(html.indexOf("Hide properties")).toBeGreaterThan(
+		expect(html).toContain('title="Show properties (Alt+])"');
+		expect(html).toContain("lucide-panel-right-open");
+		expect(html.indexOf("Show properties")).toBeGreaterThan(
 			html.indexOf("Responsive"),
 		);
 	});
@@ -157,7 +157,7 @@ describe("WorkspaceToolbar", () => {
 			responsiveWidth: 768,
 		});
 
-		for (const label of ["Show layers", "Hide properties"]) {
+		for (const label of ["Show layers", "Show properties"]) {
 			const button = html.slice(
 				html.lastIndexOf("<button", html.indexOf(`aria-label="${label}"`)),
 			);
@@ -176,7 +176,7 @@ describe("WorkspaceToolbar", () => {
 
 	it("drops the rail header once the rail is open", () => {
 		setEditorPanelOpen("design", "rail", true);
-		setEditorPanelOpen("design", "inspector", false);
+		setEditorPanelOpen("design", "inspector", true);
 		const html = renderToolbar({
 			mode: "canvas",
 			activeBoardId: "board-1",
@@ -187,9 +187,10 @@ describe("WorkspaceToolbar", () => {
 		expect(html).not.toContain("Back to project");
 		expect(html).not.toContain("layers");
 		expect(html).toMatch(
-			/aria-label="Show properties"[^>]*aria-expanded="false"/,
+			/aria-label="Hide properties"[^>]*aria-expanded="true"/,
 		);
-		expect(html).toContain("lucide-panel-right-open");
+		expect(html).toContain('title="Hide properties (Alt+])"');
+		expect(html).toContain("lucide-panel-right-close");
 	});
 
 	it("labels panel toggles by the action they take", () => {
