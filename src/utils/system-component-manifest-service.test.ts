@@ -15,7 +15,11 @@ import {
 	SYSTEM_COMPONENT_EMPTY_TIMESTAMP,
 	type SystemComponentRecord,
 } from "./system-components";
-import { hashSystemComponentVariantSchema } from "./system-components-validation";
+import {
+	hashSystemComponentTemplate,
+	hashSystemComponentVariantSchema,
+	validateSystemComponentManifest,
+} from "./system-components-validation";
 
 const minimalRoot = () => ({
 	path: "root",
@@ -179,8 +183,8 @@ describe("system component manifest service", () => {
 			defaultValues: { size: "alpha" },
 		};
 
-		expect(read.manifest.version).toBe(2);
-		expect(read.manifest.metadata.schemaVersion).toBe(2);
+		expect(read.manifest.version).toBe(3);
+		expect(read.manifest.metadata.schemaVersion).toBe(3);
 		expect(record?.draft?.variants).toEqual(migratedVariants);
 		expect(publishedVersion?.variants).toEqual(migratedVariants);
 		expect(publishedVersion?.variantSchemaHash).toBe(
@@ -190,6 +194,185 @@ describe("system component manifest service", () => {
 		expect(
 			resolveSystemComponentVariantValues(record?.draft?.variants, {}),
 		).toEqual({ size: "alpha", tone: "brand" });
+	});
+
+	describe("v2 to v3: design-only template nodes", () => {
+		const manifestPath = () =>
+			path.join(
+				projectRoot,
+				".trickroom",
+				"systems",
+				"core",
+				"components.json",
+			);
+		const writeRaw = async (value: unknown) => {
+			await mkdir(path.dirname(manifestPath()), { recursive: true });
+			await writeFile(manifestPath(), JSON.stringify(value), "utf8");
+		};
+		const v2Manifest = (componentId: string, root: unknown) => {
+			// An optional axis without a default: v1 -> v2 backfill must not run.
+			const variants = {
+				axes: {
+					size: {
+						label: "Size",
+						values: { beta: { label: "Beta" }, alpha: { label: "Alpha" } },
+					},
+				},
+			};
+			return {
+				version: 2,
+				metadata: {
+					schemaVersion: 2,
+					createdAt: SYSTEM_COMPONENT_EMPTY_TIMESTAMP,
+					updatedAt: SYSTEM_COMPONENT_EMPTY_TIMESTAMP,
+				},
+				migrationPolicy: createEmptySystemComponentManifest().migrationPolicy,
+				components: {
+					[componentId]: {
+						...draftRecord(componentId, "field"),
+						draft: { root, variants },
+					},
+				},
+			};
+		};
+
+		it("reads a v2 manifest as v3 in memory and persists v3 on the next write", async () => {
+			const componentId = generateSystemComponentId();
+			await writeRaw(v2Manifest(componentId, minimalRoot()));
+
+			const read = await readSystemComponentManifest(projectRoot, "Core");
+			expect(read.manifest.version).toBe(3);
+			expect(read.manifest.metadata.schemaVersion).toBe(3);
+			const draft = read.manifest.components[componentId]?.draft;
+			expect(draft?.root).toEqual(minimalRoot());
+			expect(draft?.root).not.toHaveProperty("designOnly");
+			expect(draft?.variants?.defaultValues).toBeUndefined();
+			// Reading changes nothing on disk.
+			expect(JSON.parse(await readFile(manifestPath(), "utf8")).version).toBe(
+				2,
+			);
+
+			await writeSystemComponentManifest(projectRoot, "Core", read.manifest, {
+				expectedRevision: read.revision,
+				now: "2026-10-06T12:00:00.000Z",
+			});
+			const persisted = JSON.parse(await readFile(manifestPath(), "utf8"));
+			expect(persisted.version).toBe(3);
+			expect(persisted.metadata.schemaVersion).toBe(3);
+		});
+
+		it("round-trips designOnly on template nodes and slot default children", async () => {
+			const componentId = generateSystemComponentId();
+			const root = {
+				...minimalRoot(),
+				children: [
+					{
+						path: "guide",
+						library: "trickroom",
+						component: "container",
+						designOnly: true,
+						children: [
+							{ path: "guide-label", library: "trickroom", component: "text" },
+						],
+					},
+					{
+						path: "label",
+						library: "trickroom",
+						component: "text",
+						designOnly: false,
+					},
+				],
+			};
+			const manifest = v2Manifest(componentId, root);
+			const component = manifest.components[componentId];
+			Object.assign(component.draft, {
+				slots: {
+					main: {
+						name: "main",
+						hostPath: "root",
+						defaultChildren: [
+							{
+								path: "hint",
+								library: "trickroom",
+								component: "text",
+								designOnly: true,
+							},
+						],
+					},
+				},
+			});
+			await writeRaw(manifest);
+
+			const read = await readSystemComponentManifest(projectRoot, "Core");
+			const draft = read.manifest.components[componentId]?.draft;
+			expect(draft?.root.children?.[0]).toMatchObject({
+				path: "guide",
+				designOnly: true,
+			});
+			expect(draft?.root.children?.[0]?.children?.[0]).not.toHaveProperty(
+				"designOnly",
+			);
+			expect(draft?.root.children?.[1]?.designOnly).toBe(false);
+			expect(draft?.slots?.main.defaultChildren?.[0]?.designOnly).toBe(true);
+			expect(validateSystemComponentManifest(read.manifest).valid).toBe(true);
+		});
+
+		it("includes designOnly in the template hash, so toggling it changes the draft", () => {
+			const off = { root: minimalRoot() };
+			const on = { root: { ...minimalRoot(), designOnly: true } };
+			expect(hashSystemComponentTemplate(on)).not.toBe(
+				hashSystemComponentTemplate(off),
+			);
+		});
+
+		it("rejects a non-boolean designOnly", async () => {
+			const componentId = generateSystemComponentId();
+			await writeRaw(
+				v2Manifest(componentId, { ...minimalRoot(), designOnly: "yes" }),
+			);
+			await expect(
+				readSystemComponentManifest(projectRoot, "Core"),
+			).rejects.toMatchObject({
+				code: "INVALID_MANIFEST",
+				diagnostics: [
+					expect.objectContaining({
+						code: "INVALID_COMPONENT",
+						path: expect.stringContaining("designOnly"),
+					}),
+				],
+			});
+
+			const manifest = createEmptySystemComponentManifest();
+			manifest.components[componentId] = {
+				...draftRecord(componentId, "field"),
+				draft: {
+					root: {
+						...minimalRoot(),
+						designOnly: "yes" as unknown as boolean,
+					},
+				},
+			};
+			expect(validateSystemComponentManifest(manifest).diagnostics).toEqual([
+				expect.objectContaining({
+					code: "INVALID_TEMPLATE_DESIGN_ONLY",
+					severity: "error",
+					path: "root",
+				}),
+			]);
+		});
+
+		it("still rejects versions it does not know", async () => {
+			await writeRaw({
+				...v2Manifest(generateSystemComponentId(), minimalRoot()),
+				version: 4,
+			});
+			await expect(
+				readSystemComponentManifest(projectRoot, "Core"),
+			).rejects.toMatchObject({
+				code: "INVALID_MANIFEST",
+				diagnostics: [expect.objectContaining({ code: "UNSUPPORTED_VERSION" })],
+			});
+		});
 	});
 
 	it("rejects malformed component manifests with deterministic diagnostics", async () => {
