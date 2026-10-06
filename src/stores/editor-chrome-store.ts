@@ -11,14 +11,13 @@ export type EditorChromePanel = "rail" | "inspector";
 export type EditorChromePanels = Record<EditorChromePanel, boolean>;
 export type EditorChromeState = Record<EditorChromeView, EditorChromePanels>;
 
-// The left rail starts collapsed so the stage gets the room; the inspector
-// starts open.
-const defaultPanels: EditorChromePanels = { rail: false, inspector: true };
-
+// In the design editor the layers rail starts collapsed so the stage gets
+// the room. The system editor's rail holds its section tabs and lists, so
+// it starts open. Inspectors start open in both.
 function createDefaultState(): EditorChromeState {
 	return {
-		design: { ...defaultPanels },
-		system: { ...defaultPanels },
+		design: { rail: false, inspector: true },
+		system: { rail: true, inspector: true },
 	};
 }
 

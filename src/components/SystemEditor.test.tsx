@@ -1407,7 +1407,16 @@ describe("SystemEditor collapsible panels", () => {
 		resetComponentDraftStore();
 	});
 
-	it("starts with the rail collapsed and the header floating", () => {
+	it("starts with the rail open and no floating header", () => {
+		const html = renderSystemEditor("/system/core");
+
+		expect(html).toContain('class="flex min-h-0 w-[300px]');
+		expect(html).not.toContain('data-slot="floating-panel"');
+		expect(html).toContain('aria-label="Collapse sidebar"');
+	});
+
+	it("floats the header with a dark expand icon when the rail is collapsed", () => {
+		setEditorPanelOpen("system", "rail", false);
 		const html = renderSystemEditor("/system/core");
 
 		expect(html).toContain('class="hidden min-h-0 w-[300px]');

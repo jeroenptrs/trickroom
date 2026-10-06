@@ -34,10 +34,10 @@ describe("editor chrome store", () => {
 		resetEditorChrome();
 	});
 
-	it("starts with the rail collapsed and the inspector open", () => {
+	it("starts with the design rail collapsed and everything else open", () => {
 		expect(editorChromeStore.state).toEqual({
 			design: { rail: false, inspector: true },
-			system: { rail: false, inspector: true },
+			system: { rail: true, inspector: true },
 		});
 	});
 
@@ -47,14 +47,14 @@ describe("editor chrome store", () => {
 		resetEditorChrome();
 		expect(editorChromeStore.state).toEqual({
 			design: { rail: false, inspector: true },
-			system: { rail: false, inspector: true },
+			system: { rail: true, inspector: true },
 		});
 	});
 
 	it("toggles panels per view without touching the other view", () => {
 		toggleEditorPanel("design", "rail");
 		expect(isEditorPanelOpen("design", "rail")).toBe(true);
-		expect(isEditorPanelOpen("system", "rail")).toBe(false);
+		expect(isEditorPanelOpen("system", "rail")).toBe(true);
 		setEditorPanelOpen("design", "rail", false);
 		expect(isEditorPanelOpen("design", "rail")).toBe(false);
 	});
