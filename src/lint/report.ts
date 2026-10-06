@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import type { LintSeverity } from "./config";
+import type { LintRatchetResult } from "./ratchet";
 import type { LintLocation, LintSide } from "./rules/types";
 
 /**
@@ -99,7 +100,7 @@ export type LintReport = {
 	system: { id: string; name: string };
 	contract: { hash: string; components: number };
 	config: { present: boolean };
-	/** The ratchet outcome of the run that wrote this report. */
+	/** The ratchet outcome of the run that wrote this report (`ratchet.status`). */
 	status: "pass" | "fail";
 	summary: { code: LintSideSummary; design: LintSideSummary | null };
 	findings: LintFinding[];
@@ -108,6 +109,13 @@ export type LintReport = {
 	files: LintFileStats[];
 	/** Null until the design side (WP4) fills it. */
 	designs: LintDesignStats[] | null;
+	/**
+	 * This run's comparison: the baseline it compared against (with its
+	 * numbers), what got worse, what broke a threshold, and this run's
+	 * numbers. The dashboard's delta against the committed baseline comes
+	 * from here, so an improvement keeps the numbers it improved on.
+	 */
+	ratchet: LintRatchetResult;
 	/**
 	 * What the next run ratchets against. A passing run sets it to its own
 	 * numbers; a failing run written on demand keeps the previous baseline,
@@ -233,6 +241,31 @@ export const sortedDesigns = (designs: readonly LintDesignStats[]) =>
 			compareOptional(left.board ?? undefined, right.board ?? undefined),
 	);
 
+const sortedNumbers = (numbers: Record<string, number>) =>
+	Object.fromEntries(
+		Object.entries(numbers).sort(([left], [right]) =>
+			compareStrings(left, right),
+		),
+	);
+
+const normalizeBaseline = (
+	baseline: LintRatchetBaseline,
+): LintRatchetBaseline => ({
+	generatedAt: baseline.generatedAt,
+	numbers: sortedNumbers(baseline.numbers),
+});
+
+const byMetric = <T extends { metric: string }>(entries: readonly T[]) =>
+	[...entries].sort((left, right) => compareStrings(left.metric, right.metric));
+
+const normalizeRatchet = (ratchet: LintRatchetResult): LintRatchetResult => ({
+	status: ratchet.status,
+	baseline: ratchet.baseline ? normalizeBaseline(ratchet.baseline) : null,
+	regressions: byMetric(ratchet.regressions).map((entry) => ({ ...entry })),
+	breaches: byMetric(ratchet.breaches).map((entry) => ({ ...entry })),
+	numbers: sortedNumbers(ratchet.numbers),
+});
+
 /** A report with every list in its stable order. */
 export const normalizeLintReport = (report: LintReport): LintReport => ({
 	version: report.version,
@@ -249,14 +282,8 @@ export const normalizeLintReport = (report: LintReport): LintReport => ({
 	components: sortedComponents(report.components),
 	files: sortedFiles(report.files),
 	designs: report.designs ? sortedDesigns(report.designs) : null,
-	ratchetBaseline: {
-		generatedAt: report.ratchetBaseline.generatedAt,
-		numbers: Object.fromEntries(
-			Object.entries(report.ratchetBaseline.numbers).sort(([left], [right]) =>
-				compareStrings(left, right),
-			),
-		),
-	},
+	ratchet: normalizeRatchet(report.ratchet),
+	ratchetBaseline: normalizeBaseline(report.ratchetBaseline),
 });
 
 export const serializeLintReport = (report: LintReport): string =>
@@ -327,6 +354,38 @@ const isDesignStats = (value: unknown): value is LintDesignStats =>
 	typeof value.usages === "number" &&
 	isCounts(value.findings);
 
+const isNumbers = (value: unknown): value is Record<string, number> =>
+	isRecord(value) &&
+	Object.values(value).every((entry) => typeof entry === "number");
+
+const isBaseline = (value: unknown): value is LintRatchetBaseline =>
+	isRecord(value) &&
+	typeof value.generatedAt === "string" &&
+	isNumbers(value.numbers);
+
+const isRatchet = (value: unknown): value is LintRatchetResult =>
+	isRecord(value) &&
+	(value.status === "pass" || value.status === "fail") &&
+	(value.baseline === null || isBaseline(value.baseline)) &&
+	Array.isArray(value.regressions) &&
+	value.regressions.every(
+		(entry) =>
+			isRecord(entry) &&
+			typeof entry.metric === "string" &&
+			typeof entry.baseline === "number" &&
+			typeof entry.current === "number",
+	) &&
+	Array.isArray(value.breaches) &&
+	value.breaches.every(
+		(entry) =>
+			isRecord(entry) &&
+			typeof entry.metric === "string" &&
+			(entry.kind === "max" || entry.kind === "min") &&
+			typeof entry.limit === "number" &&
+			typeof entry.current === "number",
+	) &&
+	isNumbers(value.numbers);
+
 export type LintReportIssue = {
 	code: "INVALID_REPORT" | "UNSUPPORTED_VERSION";
 	message: string;
@@ -378,6 +437,7 @@ export const parseLintReport = (
 		value.files.every(isFileStats) &&
 		(value.designs === null ||
 			(Array.isArray(value.designs) && value.designs.every(isDesignStats))) &&
+		isRatchet(value.ratchet) &&
 		isRecord(value.ratchetBaseline) &&
 		typeof value.ratchetBaseline.generatedAt === "string" &&
 		isRecord(value.ratchetBaseline.numbers) &&

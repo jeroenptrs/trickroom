@@ -99,6 +99,19 @@ const report = (): LintReport => ({
 		},
 	],
 	designs: null,
+	ratchet: {
+		status: "pass",
+		baseline: {
+			generatedAt: "2025-12-01T00:00:00.000Z",
+			numbers: { "code.warnings": 1, "code.errors": 2 },
+		},
+		regressions: [],
+		breaches: [
+			{ metric: "rule.code.b", kind: "max", limit: 0, current: 1 },
+			{ metric: "code.errors", kind: "max", limit: 0, current: 1 },
+		],
+		numbers: { "code.warnings": 0, "code.errors": 1 },
+	},
 	ratchetBaseline: {
 		generatedAt: "2026-01-01T00:00:00.000Z",
 		numbers: { "code.warnings": 0, "code.errors": 1 },
@@ -187,6 +200,23 @@ describe("lint report", () => {
 			"code.variants-file-stale:src/a.tsx",
 			"code.variants-file-stale:src/b.tsx",
 		]);
+		expect(parsed.report?.ratchet).toEqual({
+			status: "pass",
+			baseline: {
+				generatedAt: "2025-12-01T00:00:00.000Z",
+				numbers: { "code.errors": 2, "code.warnings": 1 },
+			},
+			regressions: [],
+			breaches: [
+				{ metric: "code.errors", kind: "max", limit: 0, current: 1 },
+				{ metric: "rule.code.b", kind: "max", limit: 0, current: 1 },
+			],
+			numbers: { "code.errors": 1, "code.warnings": 0 },
+		});
+		expect(
+			parseLintReport({ ...JSON.parse(text), ratchet: { status: "pass" } })
+				.issue?.code,
+		).toBe("INVALID_REPORT");
 		expect(Object.keys(parsed.report?.ratchetBaseline.numbers ?? {})).toEqual([
 			"code.errors",
 			"code.warnings",

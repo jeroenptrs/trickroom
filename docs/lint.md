@@ -128,10 +128,19 @@ type LintReport = {
   components: LintComponentCoverage[];
   files: LintFileStats[];
   designs: LintDesignStats[] | null;        // null until WP4
+  ratchet: LintRatchetResult;               // this run's comparison, see Ratchet
   ratchetBaseline: {
     generatedAt: string;                    // the passing run the numbers come from
     numbers: Record<string, number>;        // tracked numbers, see Ratchet
   };
+};
+
+type LintRatchetResult = {
+  status: "pass" | "fail";
+  baseline: { generatedAt: string; numbers: Record<string, number> } | null; // what this run compared against
+  regressions: Array<{ metric: string; baseline: number; current: number }>;
+  breaches: Array<{ metric: string; kind: "max" | "min"; limit: number; current: number }>;
+  numbers: Record<string, number>;          // this run's tracked numbers
 };
 
 type LintSideSummary = {
@@ -220,6 +229,13 @@ Example (one stale file, one component used twice):
 		{ "file": "src/ui/button.variants.ts", "role": "generated", "component": "button", "usages": 0, "findings": { "errors": 0, "warnings": 0, "info": 0 } }
 	],
 	"designs": null,
+	"ratchet": {
+		"status": "pass",
+		"baseline": null,
+		"regressions": [],
+		"breaches": [],
+		"numbers": { "code.errors": 1, "code.warnings": 0, "coverage.bound": 1, "…": 0 }
+	},
 	"ratchetBaseline": {
 		"generatedAt": "2026-03-01T10:00:00.000Z",
 		"numbers": { "code.errors": 1, "code.warnings": 0, "coverage.bound": 1, "…": 0 }
@@ -227,7 +243,7 @@ Example (one stale file, one component used twice):
 }
 ```
 
-Ordering, so the committed file diffs cleanly: findings by side, rule, location (file, line, column; design, board, element, path), severity, component, message; components by slug; files by file; designs by design then board; every map by key. `files` lists only files that have a role, a usage or a finding; `summary.code.scanned` counts the rest. `writeLintReport` writes through a temp file and a rename, and only into a folder that resolves (symlinks followed) to a direct child of `.trickroom/systems`.
+Ordering, so the committed file diffs cleanly: findings by side, rule, location (file, line, column; design, board, element, path), severity, component, message; components by slug; files by file; designs by design then board; regressions and breaches by metric; every map by key. `files` lists only files that have a role, a usage or a finding; `summary.code.scanned` counts the rest. `writeLintReport` writes through a temp file and a rename, and only into a folder that resolves (symlinks followed) to a direct child of `.trickroom/systems`.
 
 ## The system contract
 
@@ -371,15 +387,20 @@ Tracked numbers:
 
 `info` findings are not tracked. A number missing on either side counts as 0, so switching a kind off or a kind that has not shipped never fails a run; a null coverage state counts as 0. Thresholds are maxima for errors, warnings and per-kind counts, minima for coverage.
 
+Two blocks of the report carry the ratchet, with different jobs:
+
+- `ratchet` is **this run's comparison**: the baseline it compared against (with that baseline's numbers), the regressions, the breaches and this run's numbers. It is what the dashboard shows as the delta against the committed baseline. On a passing improvement from one error to zero, `ratchet.baseline.numbers["code.errors"]` is still 1 and `ratchet.numbers["code.errors"]` is 0.
+- `ratchetBaseline` is **the forward-looking baseline**: what the next run compares against.
+
 Outcome and the baseline:
 
-- **First run** (no committed report): passes, and its numbers become the baseline.
+- **First run** (no committed report): passes with `ratchet.baseline: null`, and its numbers become the baseline.
 - **Pass**: the report is written with `ratchetBaseline` set to this run's numbers.
 - **Fail**: `trickroom lint` and the `lint` tool write nothing, so the committed baseline stands. The dashboard's `POST` runs with `write: "always"`: the failing report is written (so the UI can show it) but its `ratchetBaseline` is carried over from the previous report. The next run still ratchets against the last passing numbers; a failing report never lowers the bar. The working tree then shows a modified `lint-report.json` with `status: "fail"` that should not be committed as-is.
 - `--check` never writes, whatever the outcome.
 - An unreadable committed report (invalid JSON, unsupported version, a folder or a permission problem in its place) is reported as `INVALID_BASELINE` and the run starts a new baseline.
 
-`LintRatchetResult`, returned by every entry point: `{ status, baseline: { generatedAt } | null, regressions: [{ metric, baseline, current }], breaches: [{ metric, kind: "max" | "min", limit, current }], numbers }`.
+`LintRatchetResult`, returned by every entry point and stored as the report's `ratchet`: `{ status, baseline: { generatedAt, numbers } | null, regressions: [{ metric, baseline, current }], breaches: [{ metric, kind: "max" | "min", limit, current }], numbers }`.
 
 ## CLI
 
@@ -414,4 +435,4 @@ Browser side, `src/queries/system-lint.ts`: `systemLintQueryOptions(systemId, pr
 
 - **WP3 (code-side rules)**: add kinds under `src/lint/rules/code/` and append them to `LINT_RULE_KINDS`. Use `context.sources` for identity (`components[].wrappers`, `importers`, `reexporters`), bindings and usages, `context.contract` for axes, slots and tokens, and `context.tailwind.inspector()` for utility checks. Locations come from `SourceModule` positions (1-based line and column). Document each kind's options in the catalogue above.
 - **WP4 (design-side rules)**: add kinds under `src/lint/rules/design/`, replace `designs: null` in the context with the design inputs, fill `summary.design`, `designs` and `usedInDesigns` in `run-lint.ts`, and call the same kinds from `design_validate` with the system's resolved config. Design locations use `{ kind: "design", design, board, element, path }`.
-- **WP5 (dashboard)**: read `systemLintQueryOptions`; run with `runSystemLint`; edit `lint.json` through the server with `serializeLintConfig`. Adherence comes from `summary` and `ratchet` (the `POST` response carries the ratchet; the stored report carries `status` and `ratchetBaseline` for the delta), coverage from `components`, the heat map from `files` (and `designs` once WP4 fills it).
+- **WP5 (dashboard)**: read `systemLintQueryOptions`; run with `runSystemLint`; edit `lint.json` through the server with `serializeLintConfig`. Adherence comes from `summary` and the report's `ratchet` block: `ratchet.numbers` against `ratchet.baseline.numbers` is the delta against the committed baseline, `regressions` and `breaches` are what to flag, and the thresholds themselves are in `lint.json` (`breaches` carry each broken limit). `ratchetBaseline` is only what the next run will compare against. Coverage comes from `components`, the heat map from `files` (and `designs` once WP4 fills it).

@@ -221,6 +221,14 @@ describe("runLint", () => {
 			write: "always",
 		});
 		expect(fourth).toMatchObject({ status: "fail", written: true });
+		expect((await readReport(project))?.ratchet).toMatchObject({
+			status: "fail",
+			baseline: { generatedAt: "2026-03-01T10:00:00.000Z" },
+			regressions: [
+				{ metric: "code.errors", baseline: 1, current: 2 },
+				{ metric: "rule.code.variants-file-stale", baseline: 1, current: 2 },
+			],
+		});
 		expect((await readReport(project))?.ratchetBaseline).toEqual(
 			report?.ratchetBaseline,
 		);
@@ -230,7 +238,8 @@ describe("runLint", () => {
 			"rule.code.variants-file-stale",
 		]);
 
-		// Regenerating clears it, and the baseline moves on.
+		// Regenerating clears it, and the baseline moves on; the stored
+		// report keeps the comparison it improved on.
 		await generate(project);
 		const sixth = await runLint({ projectRoot: project.root });
 		expect(sixth).toMatchObject({ status: "pass", written: true });
@@ -239,9 +248,15 @@ describe("runLint", () => {
 			warnings: 0,
 			info: 0,
 		});
-		expect(
-			(await readReport(project))?.ratchetBaseline.numbers["code.errors"],
-		).toBe(0);
+		const stored = await readReport(project);
+		expect(stored?.ratchetBaseline.numbers["code.errors"]).toBe(0);
+		expect(stored?.ratchet).toEqual(sixth.ratchet);
+		expect(stored?.ratchet.baseline).toEqual({
+			generatedAt: "2026-03-01T10:00:00.000Z",
+			numbers: report?.ratchetBaseline.numbers,
+		});
+		expect(stored?.ratchet.baseline?.numbers["code.errors"]).toBe(1);
+		expect(stored?.ratchet.numbers["code.errors"]).toBe(0);
 	});
 
 	it("applies lint.json: severities, thresholds, disabled rules and wrapper overrides", async () => {

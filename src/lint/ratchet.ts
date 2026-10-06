@@ -70,8 +70,8 @@ export type LintRatchetBreach = {
 
 export type LintRatchetResult = {
 	status: "pass" | "fail";
-	/** The baseline compared against; null on a first run. */
-	baseline: { generatedAt: string } | null;
+	/** The baseline compared against, with its numbers; null on a first run. */
+	baseline: LintRatchetBaseline | null;
 	regressions: LintRatchetRegression[];
 	breaches: LintRatchetBreach[];
 	/** This run's tracked numbers. */
@@ -154,7 +154,9 @@ export const compareLintRatchet = ({
 		);
 	return {
 		status: regressions.length === 0 && breaches.length === 0 ? "pass" : "fail",
-		baseline: baseline ? { generatedAt: baseline.generatedAt } : null,
+		baseline: baseline
+			? { generatedAt: baseline.generatedAt, numbers: { ...baseline.numbers } }
+			: null,
 		regressions,
 		breaches,
 		numbers,

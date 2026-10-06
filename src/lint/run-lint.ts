@@ -615,6 +615,7 @@ async function runLintInner(
 		components,
 		files: buildFileStats(sources, findings),
 		designs: null,
+		ratchet,
 		ratchetBaseline: nextRatchetBaseline({
 			result: ratchet,
 			generatedAt,
