@@ -365,6 +365,19 @@ describe("System editor lint page", () => {
 		expect(html).toContain("Show 1 in findings");
 	});
 
+	it("shows a component's usages in the app and in designs in the inspector", () => {
+		const html = renderLintPage({
+			report: fullLintReport,
+			state: {
+				view: "coverage",
+				selection: { kind: "component", slug: "button" },
+			},
+			inspectorOpen: true,
+		});
+		expect(html).toMatch(/Usages in app<\/span><span[^>]*>5</);
+		expect(html).toMatch(/Usages in designs<\/span><span[^>]*>3</);
+	});
+
 	it("opens a design finding in the editor at its board and layer", () => {
 		const finding = fullLintReport.findings.find(
 			(entry) => entry.rule === "design.unknown-variant-value",

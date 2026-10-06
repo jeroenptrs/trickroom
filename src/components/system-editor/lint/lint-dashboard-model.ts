@@ -315,6 +315,19 @@ const addCounts = (target: LintSeverityCounts, source: LintSeverityCounts) => {
 	target.info += source.info;
 };
 
+/** Both sides' counts added up, for one total over the report. */
+export const totalFindings = (
+	summary: LintReport["summary"],
+): LintSeverityCounts => {
+	const total = { ...summary.code.findings };
+	if (summary.design) addCounts(total, summary.design.findings);
+	return total;
+};
+
+/** The designs `designs[]` lists, without counting their board rows. */
+export const countReportDesigns = (designs: readonly LintDesignStats[]) =>
+	new Set(designs.map((row) => row.design)).size;
+
 /** Errors plus warnings: the violations, as the ratchet tracks them. */
 export const violationCount = (counts: LintSeverityCounts) =>
 	counts.errors + counts.warnings;

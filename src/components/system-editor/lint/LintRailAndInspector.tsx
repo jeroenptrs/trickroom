@@ -25,6 +25,7 @@ import {
 } from "./LintParts";
 import {
 	countCoverage,
+	countReportDesigns,
 	coverageCellState,
 	findingKey,
 	formatFindingLocation,
@@ -32,6 +33,7 @@ import {
 	isUnderPath,
 	LINT_COVERAGE_STATES,
 	type LintDesignNames,
+	totalFindings,
 } from "./lint-dashboard-model";
 
 const MAX_LISTED_FINDINGS = 50;
@@ -57,15 +59,17 @@ export function SystemEditorLintRail({
 		if (!report) return null;
 		switch (value) {
 			case "adherence": {
-				const code = report.summary.code.findings;
-				return `${code.errors}E ${code.warnings}W`;
+				const total = totalFindings(report.summary);
+				return `${total.errors}E ${total.warnings}W`;
 			}
 			case "coverage":
 				return `${gapCount ?? 0} gaps`;
 			case "files":
 				return `${report.files.length} files`;
 			case "designs":
-				return report.designs ? `${report.designs.length} rows` : "n/a";
+				return report.designs
+					? `${countReportDesigns(report.designs)} designs`
+					: "n/a";
 			case "findings":
 				return String(report.findings.length);
 			default:
@@ -420,6 +424,10 @@ function ComponentInspector({
 			</ul>
 			<div className="flex flex-col">
 				<Field label="Usages in app" value={component.usages} />
+				<Field
+					label="Usages in designs"
+					value={component.designUsages ?? 0}
+				/>
 				<Field label="Wrappers" value={component.wrappers.length} />
 			</div>
 			{component.wrappers.length > 0 ? (
