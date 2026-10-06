@@ -209,15 +209,17 @@ const e = <div className={twMerge("p-3", cn("p-4"))} />;`);
 		});
 	});
 
-	it("models call sites with literal object arguments", () => {
+	it("models call sites with literal object arguments and their completeness", () => {
 		const module =
 			parse(`const s = buttonVariants({ size: "sm", active: true, tone, class: cx("a") });
+const spread = buttonVariants({ size: "sm", ...props, [key]: 1, "tone": "soft" });
 const root = s.root({ class: "x" });
 const t = s.title();
 obj.deep.fn(1, "two");`);
 		expect(module.calls.map((call) => call.callee)).toEqual([
 			"buttonVariants",
 			"cx",
+			"buttonVariants",
 			"s.root",
 			"s.title",
 			"obj.deep.fn",
@@ -234,10 +236,31 @@ obj.deep.fn(1, "two");`);
 						tone: { kind: "unknown" },
 						class: { kind: "unknown" },
 					},
+					keys: ["size", "active", "tone", "class"],
+					hasSpread: false,
+					hasComputed: false,
 				},
 			],
 		});
-		expect(module.calls[2]).toMatchObject({
+		expect(module.calls[2].arguments).toEqual([
+			{
+				kind: "object",
+				properties: {
+					size: { kind: "string", value: "sm" },
+					tone: { kind: "string", value: "soft" },
+				},
+				keys: ["size", "tone"],
+				members: [
+					{ kind: "property", key: "size" },
+					{ kind: "spread" },
+					{ kind: "computed" },
+					{ kind: "property", key: "tone" },
+				],
+				hasSpread: true,
+				hasComputed: true,
+			},
+		]);
+		expect(module.calls[3]).toMatchObject({
 			callee: "s.root",
 			root: "s",
 			members: ["root"],
@@ -248,8 +271,8 @@ obj.deep.fn(1, "two");`);
 				},
 			],
 		});
-		expect(module.calls[3]).toMatchObject({ arguments: [] });
-		expect(module.calls[4].arguments).toEqual([
+		expect(module.calls[4]).toMatchObject({ arguments: [] });
+		expect(module.calls[5].arguments).toEqual([
 			{ kind: "literal", value: 1 },
 			{ kind: "string", value: "two" },
 		]);

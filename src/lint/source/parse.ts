@@ -90,9 +90,26 @@ export type SourceClassString = {
 	position: SourcePosition;
 };
 
-export type SourceCallArgument =
-	| { kind: "object"; properties: Record<string, SourceLiteralValue> }
-	| SourceLiteralValue;
+export type SourceObjectMember =
+	| { kind: "property"; key: string }
+	/** `...rest`: may supply or override any key. */
+	| { kind: "spread" }
+	/** `[expr]: value`: an unknown key. */
+	| { kind: "computed" };
+
+export type SourceObjectArgument = {
+	kind: "object";
+	/** Literal-keyed properties; values are literals or `unknown`. */
+	properties: Record<string, SourceLiteralValue>;
+	/** Literal keys in source order. */
+	keys: string[];
+	/** Every member in source order, so a rule can see what a spread may override. */
+	members: SourceObjectMember[];
+	hasSpread: boolean;
+	hasComputed: boolean;
+};
+
+export type SourceCallArgument = SourceObjectArgument | SourceLiteralValue;
 
 export type SourceCall = {
 	/** As written: `buttonVariants` or `styles.root`. */
@@ -487,29 +504,34 @@ const collectClassStrings = (
 const callArgument = (node: AstNode): SourceCallArgument => {
 	const expression = unwrap(node);
 	if (expression.type === "ObjectExpression") {
-		const properties: Record<string, SourceLiteralValue> = {};
+		const argument: SourceObjectArgument = {
+			kind: "object",
+			properties: {},
+			keys: [],
+			members: [],
+			hasSpread: false,
+			hasComputed: false,
+		};
 		for (const property of (expression.properties as AstNode[]) ?? []) {
-			if (
-				property.type !== "Property" ||
-				property.computed === true ||
-				!isNode(property.key)
-			) {
+			if (property.type === "SpreadElement") {
+				argument.hasSpread = true;
+				argument.members.push({ kind: "spread" });
 				continue;
 			}
-			const key = property.key;
-			const name =
-				key.type === "Identifier"
-					? String(key.name)
-					: key.type === "Literal" && typeof key.value === "string"
-						? key.value
-						: null;
-			if (name === null) continue;
-			properties[name] =
+			const name = property.type === "Property" ? propertyName(property) : null;
+			if (name === null) {
+				argument.hasComputed = true;
+				argument.members.push({ kind: "computed" });
+				continue;
+			}
+			argument.properties[name] =
 				property.shorthand === true
 					? { kind: "unknown" }
 					: literalValue(property.value as AstNode);
+			argument.keys.push(name);
+			argument.members.push({ kind: "property", key: name });
 		}
-		return { kind: "object", properties };
+		return argument;
 	}
 	return literalValue(expression);
 };
