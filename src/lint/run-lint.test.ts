@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { resolveCodegenConfig } from "../codegen/config";
 import { runCodegen } from "../codegen/run-codegen";
 import {
+	CODEGEN_TEST_SYSTEM_ID,
 	type CodegenTestProject,
 	createCodegenTestProject,
 	flatPayload,
@@ -369,6 +370,26 @@ describe("runLint", () => {
 
 	it("never writes in check mode and leaves the project otherwise untouched", async () => {
 		const project = await setup();
+		// A manifest the store would normalise on a non-read-only read.
+		await writeFile(
+			project.path(".trickroom/systems/core/system.json"),
+			`${JSON.stringify({ version: 1, systemId: CODEGEN_TEST_SYSTEM_ID, systemName: " Core ", cssPath: "./src/styles.css" }, null, "\t")}\n`,
+		);
+		await writeFile(
+			project.path(".trickroom/systems/core/tokens.json"),
+			JSON.stringify({
+				version: 3,
+				metadata: {
+					cssPath: "./src/styles.css",
+					syncedAt: "2026-01-01T00:00:00.000Z",
+					tailwindBaselineVersion: "test",
+					reviewRequired: false,
+				},
+				domains: {},
+				customProperties: {},
+				customUtilities: [],
+			}),
+		);
 		const before = await project.snapshotMtimes();
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		await runLint({ projectRoot: project.root, check: true });
