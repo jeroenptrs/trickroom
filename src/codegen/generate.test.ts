@@ -1442,6 +1442,45 @@ describe("design-only nodes", () => {
 			);
 		});
 
+		it("ignores override targets that point inside a design-only subtree", () => {
+			const withTargets = (guidePath: string): SystemComponentDraftPayload => {
+				const payload = annotatedPayload();
+				const guide = payload.root.children?.[1];
+				if (guide) {
+					guide.path = guidePath;
+				}
+				payload.overrideTargets = {
+					label: { targetId: "label", label: "Label", path: "label" },
+					guide: { targetId: "guide", label: "Guide", path: guidePath },
+					hint: {
+						targetId: "hint",
+						label: "Hint",
+						path: "hint",
+						capabilities: ["text"],
+					},
+					note: { targetId: "note", label: "Note", path: "note" },
+				};
+				return payload;
+			};
+			const base = withTargets("guide");
+			const renamed = withTargets("ruler");
+			if (renamed.overrideTargets) {
+				renamed.overrideTargets.hint.capabilities = ["className"];
+				renamed.overrideTargets.note.props = ["placeholder"];
+			}
+			expect(hashCodegenSource(renamed)).toBe(hashCodegenSource(base));
+			expect(
+				generateOne(publishedRecord("field", renamed)).model.slots,
+			).toEqual(generateOne(publishedRecord("field", base)).model.slots);
+
+			// A target on a node that exists in code still counts.
+			const retargeted = withTargets("guide");
+			if (retargeted.overrideTargets) {
+				retargeted.overrideTargets.label.capabilities = ["text"];
+			}
+			expect(hashCodegenSource(retargeted)).not.toBe(hashCodegenSource(base));
+		});
+
 		it("changes when a node that contributes to codegen becomes design-only", () => {
 			const base = annotatedPayload();
 			const toggled = annotatedPayload();

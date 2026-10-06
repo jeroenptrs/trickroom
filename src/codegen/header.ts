@@ -43,8 +43,8 @@ const mapValues = <T, U>(
  * relabelling does not mark generated files stale; template node `name` and
  * `text` stay because they are part of the template the check compares.
  * Design-only subtrees are dropped from the template and from slot default
- * children (slots hosted inside one are dropped whole), so edits there never
- * mark generated files stale.
+ * children, as are slots hosted and override targets pointing inside one, so
+ * edits there never mark generated files stale.
  */
 export function hashCodegenSource(
 	payload: Pick<
@@ -52,10 +52,15 @@ export function hashCodegenSource(
 		"root" | "slots" | "variants" | "overrideTargets"
 	>,
 ): string {
-	const designOnlyHosts = collectDesignOnlyPaths({ root: payload.root });
+	const designOnlyPaths = collectDesignOnlyPaths(payload);
 	const codeSlots = Object.fromEntries(
 		Object.entries(payload.slots ?? {}).filter(
-			([, slot]) => !designOnlyHosts.has(slot.hostPath),
+			([, slot]) => !designOnlyPaths.has(slot.hostPath),
+		),
+	);
+	const codeOverrideTargets = Object.fromEntries(
+		Object.entries(payload.overrideTargets ?? {}).filter(
+			([, target]) => !designOnlyPaths.has(target.path),
 		),
 	);
 	const input = stableStringify({
@@ -72,7 +77,7 @@ export function hashCodegenSource(
 				values: mapValues(axis.values, (value) => omitKeys(value, ["label"])),
 			})),
 		},
-		overrideTargets: mapValues(payload.overrideTargets, (target) =>
+		overrideTargets: mapValues(codeOverrideTargets, (target) =>
 			omitKeys(target, ["label", "history"]),
 		),
 	});
