@@ -334,14 +334,14 @@ Code side:
 | --- | --- | --- | --- |
 | `code.variants-file-stale` | error | shipped (WP2) | A published component's variants file is missing, stale (`source-changed`, `body-edited`, `not-generated`) or could not be checked; codegen errors (formatter, paths). Without a `codegen` block: one `info` finding, no violations. |
 | `code.variants-file-orphaned` | warning | shipped (WP2) | A file in `outDir` carries this system's header but no selected component generates it. |
-| `code.wrapper-missing-variants-call` | error | planned (WP3) | The bound wrapper never calls its variants export. |
-| `code.slot-not-called` | warning | planned (WP3) | A slot emitted by codegen is never invoked in the wrapper. |
-| `code.unknown-variant-value` | error | planned (WP3) | A JSX attribute or variants call passes a value the axis does not have. |
-| `code.required-axis-missing` | error | planned (WP3) | A usage omits an axis without a default. |
-| `code.unknown-class-token` | warning | planned (WP3) | A class string in a wrapper or usage site uses a token the system does not define. |
-| `code.redundant-class` | warning | planned (WP3) | A class string repeats what a variant already provides. |
-| `code.variants-imported-outside-component` | error | planned (WP3) | A module other than the wrapper imports the variants file directly (re-exports from the wrapper are the sanctioned way). |
-| `code.component-styling-restricted` | warning | planned (WP3) | Configurable: styling of component X is allowed only in component X (`options`). |
+| `code.wrapper-missing-variants-call` | error | shipped (WP3) | A bound wrapper never calls its component's variants export (directly, through an alias or namespace, or a slot of its result). |
+| `code.slot-not-called` | warning | shipped (WP3) | A slot the generated file exports is never invoked in any wrapper of the component. |
+| `code.unknown-variant-value` | error | shipped (WP3) | A JSX attribute, or a literal object passed to the variants export or a slot, gives an axis a literal value it does not have. |
+| `code.required-axis-missing` | error | shipped (WP3) | A usage or a variants call omits an axis without a default. |
+| `code.unknown-class-token` | warning | shipped (WP3) | A class string uses a token or utility the system does not define. Options: `allow`, `scope`. |
+| `code.redundant-class` | warning | shipped (WP3) | A usage's `className` repeats a class the component's base or selected variants already provide. |
+| `code.variants-imported-outside-component` | error | shipped (WP3) | A module other than the wrapper imports the variants file directly (re-exports from the wrapper are the sanctioned way). |
+| `code.component-styling-restricted` | warning | shipped (WP3) | Configurable: styling of component X is allowed only in X's wrapper and the files its options allow. Options: `components`. Does nothing until configured. |
 
 Design side (planned, WP4; run by the engine and by `design_validate`):
 
@@ -352,6 +352,29 @@ Design side (planned, WP4; run by the engine and by `design_validate`):
 | `design.unknown-variant-value` | error | An instance passes a variant value the axis does not have. |
 
 Options are documented per kind when it ships. Ids are stable once shipped: they are keys in committed files.
+
+### Code-side kinds (WP3)
+
+The kinds after the codegen pair live in `src/lint/rules/code/` and share `analysis.ts`, computed once per run: for every module, where a component's variants export is in scope (an import from the generated file, or any import that resolves to it through re-exports, barrels and `import { x } from; export { x }`), the calls of it, and the slot calls on its result (`traceCallOrigin` with a one-element path naming a contract slot). A name counts only when it resolves to an import binding at the call, so shadowing parameters and locals are not variants calls. Generated files are never checked.
+
+Shared behaviour:
+
+- Every finding carries the component slug when there is one and a 1-based code location from the source model. A rule that cannot decide skips; invalid options become one `info` finding naming the problem, never a failure.
+- **The component's own export.** JSX checks (`unknown-variant-value`, `required-axis-missing`, `redundant-class`) apply to usages that render the component itself, not every export of its wrapper: the export named after the slug or the name in PascalCase (`Button`, `OtpField`) or the default export. A member element (`<Card.Title>`) never counts. A wrapper that exports none of those names has no recognisable main export, and every export counts.
+- **Literal values.** A string, number or boolean literal (`variant="x"`, `variant={"x"}`, `size={2}`, a bare attribute as `true`) is judged; anything else (identifiers, expressions, `null`) is skipped.
+
+Per kind:
+
+- `code.wrapper-missing-variants-call`: every module in `wrappers` (configured, else the importers) must call the variants export. A module that imports the export only to pass it on (`export { buttonVariants }`) is still an importer, so it is reported with the hint to use `export { … } from` instead. A configured wrapper that does not import the export at all is reported too.
+- `code.slot-not-called`: slots shape only. The slot calls of every wrapper of the component are pooled; a slot that is referenced (`styles.title`) but never invoked does not count. Nothing is reported for a component whose wrappers never call the variants export (that is the previous kind's finding). The location is the first variants call.
+- `code.unknown-variant-value`: JSX attributes named like an axis, and literal-keyed properties of a literal object passed as the first argument of the variants export or a slot function. A property a later spread may override is skipped. Boolean axes accept `true` and `false`, as literals, strings or a bare attribute. Attributes that are not axes are ignored.
+- `code.required-axis-missing`: axes with `required: true`. JSX: a usage with a spread is skipped. Calls: only calls of the variants export itself (slot calls take overrides, not the full set); no argument at all counts as missing, a non-literal argument (`buttonVariants(props)`) or an object with a spread or a computed key is skipped. One finding per missing axis.
+- `code.unknown-class-token`: every complete class string (`classStrings`, through `className` and the configured class calls; template fragments are skipped) runs through `src/utils/class-token-diagnostics.ts`, the pipeline the design diagnostics use: theme tokens per domain from the contract (`tokens.domains`; tokens removed from the Tailwind defaults stay unavailable), arbitrary values in token domains (`bg-[#fff]`), and `context.tailwind.inspector()` for classes the token tables cannot decide (`UNKNOWN_TAILWIND_UTILITY`). Without a token snapshot only the inspector check runs; without both, one `info` finding. Options:
+  - `allow: string[]`: class globs (`*` any run, `?` one character) or exact classes never reported. Matched against the class as written and without its variants, so `"prose"` also allows `md:prose`.
+  - `scope: "wrappers" | "usages" | "all"` (default `"all"`): `wrappers` checks the wrapper modules only, `usages` the modules that render a bound component, `all` every scanned module (the app is where the system's tokens are used, bound or not).
+- `code.redundant-class`: the classes a usage's `className` repeats from the component's root slot: its base classes and the root classes of the variant value each axis selects. A literal attribute selects its value; an absent attribute selects the axis default unless the element has a spread; a dynamic value selects nothing. Compound variants are not considered. Exact class matches only (`p-2` next to a base `p-4` is an override, not a repeat).
+- `code.variants-imported-outside-component`: with `components[slug].module` configured, every other module with a value import of the generated file. Without it, nothing is reported for a single importer; with several, the importer named like the component (`button.tsx` or `button/index.tsx` for slug `button`, or the generated file's stem) is the component and the others are findings; when no importer or several are named like that, each importer is reported, asking for `components[slug].module`. Type-only imports and re-exports never count.
+- `code.component-styling-restricted`: options `{ components: { [slug]: { allowIn: string[] } } }` with project-relative file globs. A module outside `allowIn` that calls the component's variants export or a slot function, or imports the export without calling it, gets one finding per component at its first call (or the import). The component's own wrapper is always allowed: the configured module, else the only importer, else the importer named like the component (as above). Unknown slugs and malformed entries are noted as `info`. Without options the kind produces nothing.
 
 ## The source model
 
