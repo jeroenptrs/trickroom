@@ -237,4 +237,31 @@ describe("lint report", () => {
 			writeLintReport(root, path.join(systemDir, "nested"), report()),
 		).rejects.toThrow();
 	});
+
+	it("refuses a systems folder that is a symlink out of the project", async () => {
+		const root = await realpath(
+			await mkdtemp(path.join(os.tmpdir(), "trickroom-lint-report-")),
+		);
+		temps.push(root);
+		const elsewhere = await realpath(
+			await mkdtemp(path.join(os.tmpdir(), "trickroom-lint-elsewhere-")),
+		);
+		temps.push(elsewhere);
+		await mkdir(path.join(elsewhere, "core"), { recursive: true });
+		await mkdir(path.join(root, ".trickroom"), { recursive: true });
+		await symlink(elsewhere, path.join(root, ".trickroom", "systems"));
+		const systemDir = path.join(root, ".trickroom", "systems", "core");
+		await expect(writeLintReport(root, systemDir, report())).rejects.toThrow(
+			"through a symlink",
+		);
+		await expect(
+			readFile(path.join(elsewhere, "core", "lint-report.json"), "utf8"),
+		).rejects.toThrow();
+
+		const linkedRoot = path.join(root, "link-to-trickroom");
+		await symlink(path.join(root, ".trickroom"), linkedRoot);
+		await expect(
+			writeLintReport(root, path.join(linkedRoot, "systems", "core"), report()),
+		).rejects.toThrow("through a symlink");
+	});
 });

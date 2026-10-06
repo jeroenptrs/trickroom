@@ -450,24 +450,28 @@ const isInside = (root: string, target: string) =>
 	target === root || target.startsWith(`${root}${path.sep}`);
 
 /**
- * Write the report atomically (temp file and rename) into a system folder,
- * which must resolve, symlinks followed, to a direct child of
- * `<projectRoot>/.trickroom/systems`. Returns the file text written.
+ * Write the report atomically (temp file and rename) into a system folder.
+ * With symlinks followed, `.trickroom/systems` must be exactly that folder
+ * under the real project root (not a link elsewhere) and the system folder
+ * a direct child of it, so nothing is ever written outside the project.
+ * Returns the file text written.
  */
 export async function writeLintReport(
 	projectRoot: string,
 	systemDir: string,
 	report: LintReport,
 ): Promise<{ path: string; contents: string }> {
-	const systemsDir = path.join(
-		path.resolve(projectRoot),
-		".trickroom",
-		"systems",
-	);
+	const realRoot = await realpath(projectRoot);
+	const systemsDir = path.join(realRoot, ".trickroom", "systems");
 	const realSystemsDir = await realpath(systemsDir);
+	if (realSystemsDir !== systemsDir) {
+		throw new LintReportWriteError(
+			`Refusing to write ${LINT_REPORT_FILE_NAME}: ${systemsDir} resolves to ${realSystemsDir} (through a symlink); the systems folder must be a real folder inside the project.`,
+		);
+	}
 	const realSystemDir = await realpath(systemDir);
 	if (
-		!isInside(realSystemsDir, realSystemDir) ||
+		!isInside(realRoot, realSystemDir) ||
 		path.dirname(realSystemDir) !== realSystemsDir
 	) {
 		throw new LintReportWriteError(
