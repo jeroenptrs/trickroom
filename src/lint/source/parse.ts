@@ -73,6 +73,11 @@ export type SourceJsxElement = {
 	attributes: SourceJsxAttribute[];
 	/** The element has a `{...spread}` attribute, so attributes are incomplete. */
 	spread: boolean;
+	/**
+	 * Where each `{...spread}` attribute starts, in source order. A literal
+	 * attribute before a spread may be overridden by it; one after is not.
+	 */
+	spreads: SourcePosition[];
 	position: SourcePosition;
 };
 
@@ -1060,10 +1065,10 @@ export function parseSourceModule(
 			const name = isNode(opening.name) ? memberPath(opening.name) : null;
 			if (name) {
 				const attributes: SourceJsxAttribute[] = [];
-				let spread = false;
+				const spreads: SourcePosition[] = [];
 				for (const attribute of (opening.attributes as AstNode[]) ?? []) {
 					if (attribute.type === "JSXSpreadAttribute") {
-						spread = true;
+						spreads.push(position(attribute.start));
 						continue;
 					}
 					if (attribute.type !== "JSXAttribute" || !isNode(attribute.name))
@@ -1101,7 +1106,8 @@ export function parseSourceModule(
 					root: name.root,
 					members: name.members,
 					attributes,
-					spread,
+					spread: spreads.length > 0,
+					spreads,
 					position: position(opening.start),
 				});
 			}

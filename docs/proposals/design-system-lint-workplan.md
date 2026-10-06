@@ -135,7 +135,7 @@ Deliverables, all in the repo:
 
 ### WP3: code-side rules
 
-Status: in progress. Model: Opus 5.5. Depends on WP2.
+Status: in review. Model: Opus 5.5. Depends on WP2.
 
 Rule kinds, each with tests on fixture TSX:
 

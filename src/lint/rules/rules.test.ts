@@ -35,6 +35,14 @@ describe("rule registry", () => {
 		expect([...lintRuleRegistry.ids]).toEqual([
 			"code.variants-file-stale",
 			"code.variants-file-orphaned",
+			"code.wrapper-missing-variants-call",
+			"code.slot-not-called",
+			"code.unknown-variant-value",
+			"code.required-axis-missing",
+			"code.unknown-class-token",
+			"code.redundant-class",
+			"code.variants-imported-outside-component",
+			"code.component-styling-restricted",
 		]);
 		expect(
 			lintRuleRegistry.get("code.variants-file-stale")?.defaultSeverity,
