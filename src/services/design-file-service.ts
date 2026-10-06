@@ -996,6 +996,19 @@ export class DesignFileService {
 		return this.toDesignFileRead(paths, stored);
 	}
 
+	/**
+	 * Reads a design without taking its lock: it never replays the journal
+	 * of an interrupted write, so it writes nothing, for read-only consumers
+	 * such as lint. Older designs are migrated in memory only. Throws when a
+	 * write is in progress or was interrupted (`readDesignFile` would finish
+	 * it first).
+	 */
+	async readDesignFileWithoutLock(designId: string): Promise<DesignFileRead> {
+		const paths = this.getDesignPaths(designId);
+		const stored = toStoredDesign(designId, await readDesignFiles(paths));
+		return this.toDesignFileRead(paths, stored);
+	}
+
 	private toDesignFileRead(
 		paths: DesignPaths,
 		stored: StoredDesign,

@@ -35,6 +35,9 @@ describe("rule registry", () => {
 		expect([...lintRuleRegistry.ids]).toEqual([
 			"code.variants-file-stale",
 			"code.variants-file-orphaned",
+			"design.unknown-class-token",
+			"design.design-only-class-target",
+			"design.unknown-variant-value",
 		]);
 		expect(
 			lintRuleRegistry.get("code.variants-file-stale")?.defaultSeverity,

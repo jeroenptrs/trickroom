@@ -1,4 +1,13 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveCodegenConfig } from "../codegen/config";
 import { runCodegen } from "../codegen/run-codegen";
@@ -10,6 +19,9 @@ import {
 	publishedComponent,
 } from "../codegen/test-support";
 import { readProjectConfigReadOnly } from "../project";
+import { createDesignFileService } from "../services/design-file-service";
+import type { Node } from "../types";
+import { getSystemComponentMarkerProps } from "../utils/system-component-markers";
 import { parseLintReport } from "./report";
 import { runLint } from "./run-lint";
 
@@ -121,8 +133,21 @@ describe("runLint", () => {
 				},
 				scanned: 4,
 			},
-			design: null,
+			design: {
+				findings: { errors: 0, warnings: 0, info: 0 },
+				rules: {
+					"design.design-only-class-target": {
+						errors: 0,
+						warnings: 0,
+						info: 0,
+					},
+					"design.unknown-class-token": { errors: 0, warnings: 0, info: 0 },
+					"design.unknown-variant-value": { errors: 0, warnings: 0, info: 0 },
+				},
+				scanned: 0,
+			},
 		});
+		expect(report?.designs).toEqual([]);
 		expect(report?.components).toEqual([
 			{
 				slug: "badge",
@@ -132,9 +157,10 @@ describe("runLint", () => {
 				generated: false,
 				bound: false,
 				usedInApp: false,
-				usedInDesigns: null,
+				usedInDesigns: false,
 				wrappers: [],
 				usages: 0,
+				designUsages: 0,
 			},
 			{
 				slug: "button",
@@ -144,9 +170,10 @@ describe("runLint", () => {
 				generated: true,
 				bound: true,
 				usedInApp: true,
-				usedInDesigns: null,
+				usedInDesigns: false,
 				wrappers: ["src/ui/button.tsx"],
 				usages: 2,
+				designUsages: 0,
 			},
 		]);
 		expect(report?.files).toEqual([
@@ -488,6 +515,175 @@ describe("runLint", () => {
 		expect(changed.sort()).toEqual([
 			".trickroom/systems/core",
 			".trickroom/systems/core/lint-report.json",
+		]);
+	});
+
+	it("lints the designs linked to the system and fills the design side of the report", async () => {
+		const chip = publishedComponent("chip", {
+			...flatPayload("px-2"),
+			variants: {
+				axes: {
+					size: { label: "Size", values: { sm: {}, lg: {} } },
+				},
+				compoundVariants: [],
+			},
+		});
+		const project = await createCodegenTestProject({
+			components: [chip, badge],
+		});
+		projects.push(project);
+		const home = await mkdtemp(path.join(os.tmpdir(), "trickroom-home-"));
+		const service = createDesignFileService(project.root, {
+			trickroomHome: home,
+		});
+		const layer = (
+			id: string,
+			props: Record<string, unknown> = {},
+			children: Node[] = [],
+		): Node => ({
+			id,
+			props: {
+				"data-trickroom-name": id,
+				"data-trickroom-library": "trickroom",
+				"data-trickroom-component": "container",
+				...props,
+			} as Node["props"],
+			children,
+		});
+		const chipAt = (id: string, size: string) =>
+			layer(id, {
+				...getSystemComponentMarkerProps({
+					systemId: CODEGEN_TEST_SYSTEM_ID,
+					componentId: chip.componentId,
+					instanceId: `inst_${id}`,
+					version: "1",
+					path: "root",
+					isRoot: true,
+					variantValues: { size },
+				}),
+			});
+		try {
+			await service.initializeDesignsDirectory();
+			await service.writeDesignFile("d-shop", {
+				name: "Shop",
+				systemId: CODEGEN_TEST_SYSTEM_ID,
+				boards: [
+					layer("cart", {}, [chipAt("ok", "sm"), chipAt("bad", "xl")]),
+					layer("checkout", {}, [chipAt("also-ok", "lg")]),
+				],
+			});
+			await service.writeDesignFile("d-elsewhere", {
+				name: "Elsewhere",
+				systemId: "sys_00000000-0000-4000-8000-0000000000ff",
+				boards: [layer("board", {}, [chipAt("ignored", "xl")])],
+			});
+		} finally {
+			await rm(home, { recursive: true, force: true });
+		}
+		await writeFile(project.path(".trickroom/designs/d-broken.json"), "{");
+
+		const result = await runLint({
+			projectRoot: project.root,
+			now: () => new Date("2026-03-01T10:00:00.000Z"),
+		});
+		expect(result.status).toBe("pass");
+		expect(result.diagnostics).toEqual([
+			{
+				code: "DESIGN_UNREADABLE",
+				severity: "warning",
+				message: expect.stringContaining(
+					'Design "d-broken" could not be read, so it was not linted',
+				),
+				path: ".trickroom/designs/d-broken",
+			},
+		]);
+		const report = result.report;
+		expect(report?.summary.design).toEqual({
+			findings: { errors: 1, warnings: 0, info: 0 },
+			rules: {
+				"design.design-only-class-target": { errors: 0, warnings: 0, info: 0 },
+				"design.unknown-class-token": { errors: 0, warnings: 0, info: 0 },
+				"design.unknown-variant-value": { errors: 1, warnings: 0, info: 0 },
+			},
+			scanned: 1,
+		});
+		expect(
+			report?.findings.filter((finding) => finding.side === "design"),
+		).toEqual([
+			{
+				rule: "design.unknown-variant-value",
+				severity: "error",
+				side: "design",
+				component: "chip",
+				message:
+					'Instance of "chip" sets "size" to "xl", which version 1 does not have. Pick one of "sm", "lg".',
+				location: {
+					kind: "design",
+					design: "d-shop",
+					board: "cart",
+					element: "bad",
+					path: "boards[0].children[1]",
+				},
+			},
+		]);
+		expect(report?.designs).toEqual([
+			{
+				design: "d-shop",
+				board: null,
+				usages: 3,
+				findings: { errors: 1, warnings: 0, info: 0 },
+			},
+			{
+				design: "d-shop",
+				board: "cart",
+				usages: 2,
+				findings: { errors: 1, warnings: 0, info: 0 },
+			},
+			{
+				design: "d-shop",
+				board: "checkout",
+				usages: 1,
+				findings: { errors: 0, warnings: 0, info: 0 },
+			},
+		]);
+		expect(
+			report?.components.map((component) => [
+				component.slug,
+				component.usedInDesigns,
+				component.designUsages,
+			]),
+		).toEqual([
+			["badge", false, 0],
+			["chip", true, 3],
+		]);
+		expect(report?.ratchet.numbers).toMatchObject({
+			"design.errors": 1,
+			"design.warnings": 0,
+			"coverage.usedInDesigns": 1,
+			"rule.design.unknown-variant-value": 1,
+		});
+		// The committed report round-trips with the design side.
+		expect(await readReport(project)).toEqual(report);
+	});
+
+	it("rejects invalid rule options as an invalid lint.json", async () => {
+		const project = await setup({ codegen: false });
+		await writeFile(
+			project.path(".trickroom/systems/core/lint.json"),
+			JSON.stringify({
+				version: 1,
+				rules: { "design.unknown-class-token": { options: { allow: "x" } } },
+			}),
+		);
+		const result = await runLint({ projectRoot: project.root, check: true });
+		expect(result.status).toBe("error");
+		expect(result.diagnostics).toEqual([
+			{
+				code: "INVALID_LINT_CONFIG",
+				severity: "error",
+				message:
+					'.trickroom/systems/core/lint.json is invalid: rules["design.unknown-class-token"].options.allow must be a list of non-empty strings.',
+			},
 		]);
 	});
 });

@@ -6,6 +6,7 @@ import type {
 	ResolvedLintRule,
 } from "../config";
 import type { SystemContract } from "../contract";
+import type { LintDesignIndex } from "../designs";
 import type { SourceIndex } from "../source/index";
 
 /**
@@ -29,10 +30,11 @@ export type LintLocation =
 			kind: "design";
 			/** Design file id. */
 			design: string;
+			/** Board id. */
 			board?: string;
 			/** Element id. */
 			element?: string;
-			/** Template path inside a component, when the finding is on one. */
+			/** The element's path in the design file, e.g. `boards[0].children[2].props.className`. */
 			path?: string;
 	  };
 
@@ -47,10 +49,18 @@ export type LintRuleFinding = {
 	 * that was skipped. Violations take the instance's severity.
 	 */
 	severity?: Extract<LintSeverity, "info">;
+	/**
+	 * Machine-readable extras for entry points other than the report, such
+	 * as the offending class and suggestions `design_validate` returns. The
+	 * report never stores them.
+	 */
+	details?: Record<string, unknown>;
 };
 
 export type LintTailwindInspector = {
 	inspect: (candidate: string) => TailwindUtilityInspection;
+	/** Nearest valid classes for an unsupported candidate, variants kept. */
+	suggest?: (candidate: string) => string[];
 };
 
 export type LintRuleContext = {
@@ -62,8 +72,11 @@ export type LintRuleContext = {
 	/** The codegen check of this run; null when the project has no codegen block. */
 	codegen: CodegenRunResult | null;
 	sources: SourceIndex;
-	/** Design-side inputs; WP4 fills this. */
-	designs: null;
+	/**
+	 * The designs linked to the system and where its components are placed.
+	 * `design_validate` hands in the one design (or the boards) it checks.
+	 */
+	designs: LintDesignIndex;
 	/**
 	 * The compiled Tailwind design system of the linked CSS, loaded on first
 	 * use and shared by every rule of the run. Null when the system has no
@@ -78,6 +91,12 @@ export type LintRuleKind = {
 	side: LintSide;
 	defaultSeverity: LintSeverity;
 	description: string;
+	/**
+	 * Problems with the instance's `options`, each naming the option; a run
+	 * with any is `INVALID_LINT_CONFIG`. Kinds without options may omit it,
+	 * and then any option is ignored.
+	 */
+	validateOptions?: (options: Record<string, unknown>) => string[];
 	run: (
 		context: LintRuleContext,
 	) => LintRuleFinding[] | Promise<LintRuleFinding[]>;

@@ -59,12 +59,17 @@ export type LintComponentCoverage = {
 	bound: boolean | null;
 	/** Rendered by JSX somewhere in the scanned sources; null as above. */
 	usedInApp: boolean | null;
-	/** Placed in a Design; null until the design side (WP4) fills it. */
+	/** Placed in a Design linked to the system. */
 	usedInDesigns: boolean | null;
 	/** The bound wrapper module(s). */
 	wrappers: string[];
 	/** JSX usages in the scanned sources. */
 	usages: number;
+	/**
+	 * Instances placed in the linked Designs. Always written by runs that
+	 * read designs; reports written before that read as 0.
+	 */
+	designUsages?: number;
 };
 
 export type LintFileStats = {
@@ -107,7 +112,10 @@ export type LintReport = {
 	components: LintComponentCoverage[];
 	/** Files with a role, a usage or a finding; other scanned files are counted only. */
 	files: LintFileStats[];
-	/** Null until the design side (WP4) fills it. */
+	/**
+	 * One row per linked design (`board: null`) and per board; null when
+	 * the report predates the design side.
+	 */
 	designs: LintDesignStats[] | null;
 	/**
 	 * This run's comparison: the baseline it compared against (with its
@@ -229,7 +237,12 @@ export const summarizeFindings = (
 export const sortedComponents = (
 	components: readonly LintComponentCoverage[],
 ) =>
-	[...components].sort((left, right) => compareStrings(left.slug, right.slug));
+	[...components]
+		.map((component) => ({
+			...component,
+			designUsages: component.designUsages ?? 0,
+		}))
+		.sort((left, right) => compareStrings(left.slug, right.slug));
 
 export const sortedFiles = (files: readonly LintFileStats[]) =>
 	[...files].sort((left, right) => compareStrings(left.file, right.file));
@@ -335,7 +348,8 @@ const isCoverage = (value: unknown): value is LintComponentCoverage =>
 	isNullableBoolean(value.usedInApp) &&
 	isNullableBoolean(value.usedInDesigns) &&
 	Array.isArray(value.wrappers) &&
-	typeof value.usages === "number";
+	typeof value.usages === "number" &&
+	(value.designUsages === undefined || typeof value.designUsages === "number");
 
 const isFileStats = (value: unknown): value is LintFileStats =>
 	isRecord(value) &&

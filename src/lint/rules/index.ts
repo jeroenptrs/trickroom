@@ -2,6 +2,9 @@ import {
 	variantsFileOrphanedRule,
 	variantsFileStaleRule,
 } from "./code/variants-file";
+import { designOnlyClassTargetRule } from "./design/design-only-class-target";
+import { unknownClassTokenRule } from "./design/unknown-class-token";
+import { unknownVariantValueRule } from "./design/unknown-variant-value";
 import { createLintRuleRegistry } from "./registry";
 import type { LintRuleKind } from "./types";
 
@@ -22,6 +25,9 @@ export type {
 export const LINT_RULE_KINDS: readonly LintRuleKind[] = [
 	variantsFileStaleRule,
 	variantsFileOrphanedRule,
+	unknownClassTokenRule,
+	designOnlyClassTargetRule,
+	unknownVariantValueRule,
 ];
 
 export const lintRuleRegistry = createLintRuleRegistry(LINT_RULE_KINDS);

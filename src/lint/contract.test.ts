@@ -265,6 +265,8 @@ describe("buildSystemContract", () => {
 		const first = build();
 		expect(first.tokens.domains.color).toContain("brand-500");
 		expect(first.tokens.domains.color).not.toContain("red-500");
+		expect(first.tokens.removed.color).toEqual(["red-500"]);
+		expect(first.tokens.removed.spacing).toEqual([]);
 		expect(first.tokens.domains.color).toContain("blue-500");
 		expect(first.tokens.customUtilities).toEqual([
 			{ root: "text-interaction", kind: "functional" },
@@ -282,5 +284,77 @@ describe("buildSystemContract", () => {
 		});
 		expect(without.tokens.snapshot).toBeNull();
 		expect(without.hash).not.toBe(first.hash);
+	});
+
+	it("keeps every published version's axes and the class targets for design rules", () => {
+		const payload = (axes: Record<string, string[]>) => ({
+			root: templateNode("root", "flex", [
+				{ ...templateNode("hint", "text-xs"), designOnly: true } as never,
+			]),
+			slots: {},
+			variants: {
+				axes: Object.fromEntries(
+					Object.entries(axes).map(([key, values]) => [
+						key,
+						{
+							label: key,
+							values: Object.fromEntries(values.map((value) => [value, {}])),
+						},
+					]),
+				),
+				compoundVariants: [],
+			},
+			overrideTargets: {},
+		});
+		const v1 = publishedComponent("chip", payload({ size: ["sm", "lg"] }), {
+			version: "1",
+		});
+		const current = payload({ size: ["sm", "md", "lg"], tone: ["plain"] });
+		current.variants.axes.tone.values.plain = {
+			classesByPath: { hint: "italic", root: "ring" },
+		} as never;
+		(current.variants as { compoundVariants: unknown[] }).compoundVariants = [
+			{ when: { size: "md" }, classesByPath: { hint: "underline" } },
+		];
+		const v2 = publishedComponent("chip", current, {
+			version: "2",
+			componentId: v1.componentId,
+		});
+		const record = {
+			...v2,
+			published: {
+				currentVersion: "2",
+				versions: {
+					...(v1.published?.versions ?? {}),
+					...(v2.published?.versions ?? {}),
+				},
+			},
+		};
+		const contract = buildSystemContract({
+			system,
+			manifest: manifestOf([record]),
+			tokens: null,
+			codegen: { status: "unconfigured" },
+		});
+		const chip = findContractComponent(contract, { slug: "chip" });
+		expect(chip?.versions).toEqual([
+			{ version: "1", axes: [{ key: "size", values: ["sm", "lg"] }] },
+			{
+				version: "2",
+				axes: [
+					{ key: "size", values: ["sm", "md", "lg"] },
+					{ key: "tone", values: ["plain"] },
+				],
+			},
+		]);
+		expect(chip?.classTargets).toEqual([
+			{ axis: "tone", value: "plain", compound: null, path: "hint" },
+			{ axis: "tone", value: "plain", compound: null, path: "root" },
+			{ axis: null, value: null, compound: 0, path: "hint" },
+		]);
+		expect(chip?.designOnlyPaths).toEqual(["hint"]);
+		// The design-only target makes the codegen model invalid; the design
+		// side still sees the axes.
+		expect(chip?.axes).toEqual([]);
 	});
 });
