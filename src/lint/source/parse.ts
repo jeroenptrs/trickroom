@@ -111,6 +111,20 @@ export type SourceObjectArgument = {
 
 export type SourceCallArgument = SourceObjectArgument | SourceLiteralValue;
 
+/** A call named by another record: its callee and where it is. */
+export type SourceCallRef = {
+	callee: string;
+	root: string;
+	members: string[];
+	position: SourcePosition;
+};
+
+/** A value derived from a call: the call and the member path taken from its result. */
+export type SourceCallOrigin = {
+	call: SourceCallRef;
+	path: string[];
+};
+
 export type SourceCall = {
 	/** As written: `buttonVariants` or `styles.root`. */
 	callee: string;
@@ -122,28 +136,71 @@ export type SourceCall = {
 	position: SourcePosition;
 };
 
+export type SourceBindingKind =
+	| "const"
+	| "let"
+	| "var"
+	| "function"
+	| "class"
+	| "parameter"
+	| "catch"
+	| "import"
+	| "enum"
+	| "namespace";
+
+/** A name declared in a scope. */
+export type SourceBinding = {
+	name: string;
+	kind: SourceBindingKind;
+	/** Where the name is introduced. */
+	position: SourcePosition;
+	/**
+	 * Set when the binding's value comes from a call: `const s = f()`
+	 * (path `[]`), `const r = f().root` and `const { root: r } = f()`
+	 * (path `["root"]`), `const [a] = f()` (path `["0"]`), `await f()`.
+	 * Null for every other binding, which still shadows outer ones.
+	 */
+	origin: SourceCallOrigin | null;
+};
+
+export type SourceScopeKind =
+	| "module"
+	| "function"
+	| "block"
+	| "for"
+	| "catch"
+	| "class";
+
 /**
- * A binding whose value comes from a call: `const s = buttonVariants()`,
- * `const { root, title: t } = buttonVariants()`, `const r = f().root`,
- * `const s = await f()`. Lets a later call site (`s.title()`) be traced
- * to the call it came from (`traceCallOrigin`).
+ * A lexical scope. The module is scope 0; every function or arrow body,
+ * block, `for` head, `catch` clause and class body nests inside its
+ * parent. `start`/`end` is the source span the scope covers, so a
+ * position finds its innermost scope.
+ */
+export type SourceScope = {
+	id: number;
+	parent: number | null;
+	kind: SourceScopeKind;
+	start: SourcePosition;
+	end: SourcePosition;
+	/** Bindings declared in this scope, in source order. */
+	bindings: SourceBinding[];
+};
+
+/**
+ * A binding whose value comes from a call: the call-initialised entries
+ * of the scope tree, flattened in source order, so a rule can list every
+ * `const s = buttonVariants()` without walking scopes.
  */
 export type SourceDeclaration = {
 	/** The local binding. */
 	name: string;
 	/** The call the value comes from. */
-	call: {
-		callee: string;
-		root: string;
-		members: string[];
-		position: SourcePosition;
-	};
-	/**
-	 * Property path from the call result to the binding: `[]` for
-	 * `const s = f()`, `["root"]` for `const r = f().root` and for
-	 * `const { root: r } = f()`.
-	 */
+	call: SourceCallRef;
+	/** Property path from the call result to the binding (see `SourceBinding.origin`). */
 	path: string[];
+	/** The scope (`module.scopes[scope]`) the binding is declared in. */
+	scope: number;
 	position: SourcePosition;
 };
 
@@ -156,7 +213,9 @@ export type SourceModule = {
 	jsx: SourceJsxElement[];
 	classStrings: SourceClassString[];
 	calls: SourceCall[];
-	/** Bindings initialised from a call, in source order. */
+	/** The lexical scopes, module first; `traceCallOrigin` resolves through them. */
+	scopes: SourceScope[];
+	/** Bindings initialised from a call, in source order (a view over `scopes`). */
 	declarations: SourceDeclaration[];
 	/** The Trickroom codegen header when this is a generated variants file. */
 	codegenHeader: CodegenHeader | null;
@@ -563,31 +622,40 @@ const callArgument = (node: AstNode): SourceCallArgument => {
 	return literalValue(expression);
 };
 
+const callRef = (
+	call: AstNode,
+	position: (offset: number) => SourcePosition,
+): SourceCallRef | null => {
+	if (!isNode(call.callee)) return null;
+	const callee = memberPath(call.callee);
+	if (callee) {
+		return {
+			callee: formatName(callee),
+			root: callee.root,
+			members: callee.members,
+			position: position(call.start),
+		};
+	}
+	return null;
+};
+
 /**
- * The call an initializer comes from and the member path taken from its
- * result: `f()` -> `[]`, `f().root` -> `["root"]`, `await f()` -> `[]`.
+ * The call an expression's value comes from and the member path taken
+ * from its result: `f()` -> `[]`, `f().root` -> `["root"]`,
+ * `(await f()).root` -> `["root"]`, `f().a().b` -> the `f().a()` call and
+ * `["b"]`. Null when the expression does not start with a call.
  */
 const callOrigin = (
 	node: AstNode,
 	position: (offset: number) => SourcePosition,
-): { call: SourceDeclaration["call"]; path: string[] } | null => {
+): SourceCallOrigin | null => {
 	const expression = unwrap(node);
 	if (expression.type === "AwaitExpression" && isNode(expression.argument)) {
 		return callOrigin(expression.argument, position);
 	}
-	if (expression.type === "CallExpression" && isNode(expression.callee)) {
-		const callee = memberPath(expression.callee);
-		return callee
-			? {
-					call: {
-						callee: formatName(callee),
-						root: callee.root,
-						members: callee.members,
-						position: position(expression.start),
-					},
-					path: [],
-				}
-			: null;
+	if (expression.type === "CallExpression") {
+		const call = callRef(expression, position);
+		return call ? { call, path: [] } : null;
 	}
 	if (
 		expression.type === "MemberExpression" &&
@@ -604,11 +672,11 @@ const callOrigin = (
 	return null;
 };
 
-/** The bindings a declarator id introduces, with their property paths. */
+/** The bindings a pattern introduces, with their property paths. */
 const collectBindings = (
 	id: AstNode,
 	path: string[],
-	out: Array<{ name: string; path: string[]; position: number }>,
+	out: Array<{ name: string; path: string[] | null; position: number }>,
 ) => {
 	const target = unwrap(id);
 	if (target.type === "Identifier") {
@@ -619,8 +687,19 @@ const collectBindings = (
 		collectBindings(target.left, path, out);
 		return;
 	}
+	if (target.type === "RestElement" && isNode(target.argument)) {
+		// `...rest` holds what is left, not one property: no path.
+		collectBindings(target.argument, [], out);
+		const last = out[out.length - 1];
+		if (last) last.path = null;
+		return;
+	}
 	if (target.type === "ObjectPattern") {
 		for (const property of (target.properties as AstNode[]) ?? []) {
+			if (property.type === "RestElement") {
+				collectBindings(property, path, out);
+				continue;
+			}
 			if (property.type !== "Property" || !isNode(property.value)) continue;
 			const key = propertyName(property);
 			if (key === null) continue;
@@ -637,29 +716,86 @@ const collectBindings = (
 	}
 };
 
+const comparePositions = (left: SourcePosition, right: SourcePosition) =>
+	left.line - right.line || left.column - right.column;
+
+/** The innermost scope whose span contains `position`. */
+export const scopeAt = (
+	module: Pick<SourceModule, "scopes">,
+	position: SourcePosition,
+): SourceScope | null => {
+	let found: SourceScope | null = null;
+	let depth = -1;
+	for (const scope of module.scopes) {
+		if (
+			comparePositions(scope.start, position) > 0 ||
+			comparePositions(position, scope.end) > 0
+		) {
+			continue;
+		}
+		let scopeDepth = 0;
+		for (let parent = scope.parent; parent !== null; ) {
+			scopeDepth += 1;
+			parent = module.scopes[parent]?.parent ?? null;
+		}
+		if (scopeDepth > depth) {
+			found = scope;
+			depth = scopeDepth;
+		}
+	}
+	return found;
+};
+
 /**
- * The call a call site's receiver comes from, when it is a binding
- * initialised from a call: for `s.title()` after `const s = f()`, the
- * `f()` call and the full path `["title"]`. Syntactic: the nearest
- * preceding declaration of the same name in the module wins, whatever
- * the scope. Null for receivers that are not such bindings.
+ * The binding `name` refers to at `position`: the innermost enclosing
+ * scope that declares it wins, as in the language. Within one scope the
+ * last declaration before the use is taken (`var` redeclarations), else
+ * the first (hoisted functions). Null for an undeclared name.
+ */
+export const resolveBinding = (
+	module: Pick<SourceModule, "scopes">,
+	name: string,
+	position: SourcePosition,
+): { binding: SourceBinding; scope: SourceScope } | null => {
+	for (
+		let scope = scopeAt(module, position);
+		scope;
+		scope = scope.parent === null ? null : (module.scopes[scope.parent] ?? null)
+	) {
+		const candidates = scope.bindings.filter((entry) => entry.name === name);
+		if (candidates.length === 0) continue;
+		const before = candidates.filter(
+			(entry) => comparePositions(entry.position, position) <= 0,
+		);
+		return { binding: before[before.length - 1] ?? candidates[0], scope };
+	}
+	return null;
+};
+
+/**
+ * The call a call site's receiver comes from, with the full member path
+ * from that call's result to the callee:
+ *
+ * - `s.title()` after `const s = buttonVariants()`: the `buttonVariants()`
+ *   call and `["title"]`, resolved through the scope tree, so a shadowing
+ *   `const s`, parameter or destructured name in an inner scope wins.
+ *
+ * Null when the receiver is not a call result: an undeclared name, a
+ * binding not initialised from a call, a parameter. Assignments after
+ * declaration are not followed.
  */
 export const traceCallOrigin = (
-	module: SourceModule,
+	module: Pick<SourceModule, "scopes">,
 	call: SourceCall,
-): { call: SourceDeclaration["call"]; path: string[] } | null => {
-	const before = (left: SourcePosition, right: SourcePosition) =>
-		left.line < right.line ||
-		(left.line === right.line && left.column <= right.column);
-	let found: SourceDeclaration | null = null;
-	for (const declaration of module.declarations) {
-		if (declaration.name !== call.root) continue;
-		if (!before(declaration.position, call.position)) break;
-		found = declaration;
-	}
-	return found
-		? { call: found.call, path: [...found.path, ...call.members] }
-		: null;
+	depth = 16,
+): SourceCallOrigin | null => {
+	if (depth < 0) return null;
+	const resolved = resolveBinding(module, call.root, call.position);
+	if (!resolved?.binding.origin) return null;
+	return {
+		call: resolved.binding.origin.call,
+		path: [...resolved.binding.origin.path, ...call.members],
+	};
 };
 
 const describeError = (
@@ -701,6 +837,7 @@ export function parseSourceModule(
 		jsx: [],
 		classStrings: [],
 		calls: [],
+		scopes: [],
 		declarations: [],
 		codegenHeader: parseCodegenHeader(text),
 		errors: result.errors
@@ -773,7 +910,94 @@ export function parseSourceModule(
 	}
 
 	const handledCalls = new Set<AstNode>();
-	const visit = (node: AstNode) => {
+
+	const openScope = (
+		kind: SourceScopeKind,
+		node: AstNode,
+		parent: number | null,
+	): number => {
+		const id = module.scopes.length;
+		module.scopes.push({
+			id,
+			parent,
+			kind,
+			start: position(node.start),
+			end: position(node.end),
+			bindings: [],
+		});
+		return id;
+	};
+	const bind = (
+		scope: number,
+		name: string,
+		kind: SourceBindingKind,
+		offset: number,
+		origin: SourceCallOrigin | null,
+	) => {
+		const bindingPosition = position(offset);
+		module.scopes[scope].bindings.push({
+			name,
+			kind,
+			position: bindingPosition,
+			origin,
+		});
+		if (origin) {
+			module.declarations.push({
+				name,
+				call: origin.call,
+				path: origin.path,
+				scope,
+				position: bindingPosition,
+			});
+		}
+	};
+	const bindPattern = (
+		scope: number,
+		pattern: AstNode,
+		kind: SourceBindingKind,
+		origin: SourceCallOrigin | null,
+	) => {
+		const bindings: Array<{
+			name: string;
+			path: string[] | null;
+			position: number;
+		}> = [];
+		collectBindings(pattern, [], bindings);
+		for (const binding of bindings) {
+			bind(
+				scope,
+				binding.name,
+				kind,
+				binding.position,
+				origin && binding.path !== null
+					? { call: origin.call, path: [...origin.path, ...binding.path] }
+					: null,
+			);
+		}
+	};
+	/** The nearest function or module scope, where `var` lands. */
+	const functionScope = (scope: number) => {
+		let current = scope;
+		while (
+			module.scopes[current].kind !== "function" &&
+			module.scopes[current].kind !== "module"
+		) {
+			current = module.scopes[current].parent ?? 0;
+		}
+		return current;
+	};
+	const bindParameters = (scope: number, params: AstNode[]) => {
+		for (const param of params) {
+			// TS parameter properties (`constructor(private x)`) wrap the pattern.
+			const pattern =
+				param.type === "TSParameterProperty" && isNode(param.parameter)
+					? param.parameter
+					: param;
+			bindPattern(scope, pattern, "parameter", null);
+		}
+	};
+
+	const visit = (node: AstNode, scope: number) => {
 		if (node.type === "JSXElement" && isNode(node.openingElement)) {
 			const opening = node.openingElement;
 			const name = isNode(opening.name) ? memberPath(opening.name) : null;
@@ -825,40 +1049,128 @@ export function parseSourceModule(
 				});
 			}
 		}
-		if (
-			node.type === "VariableDeclarator" &&
-			isNode(node.id) &&
-			isNode(node.init)
-		) {
-			const origin = callOrigin(node.init, position);
-			if (origin) {
-				const bindings: Array<{
-					name: string;
-					path: string[];
-					position: number;
-				}> = [];
-				collectBindings(node.id, [], bindings);
-				for (const binding of bindings) {
-					module.declarations.push({
-						name: binding.name,
-						call: origin.call,
-						path: [...origin.path, ...binding.path],
-						position: position(binding.position),
-					});
+
+		// Scopes and bindings.
+		switch (node.type) {
+			case "VariableDeclaration": {
+				const kind =
+					node.kind === "var" ? "var" : node.kind === "let" ? "let" : "const";
+				const target = kind === "var" ? functionScope(scope) : scope;
+				for (const declarator of (node.declarations as AstNode[]) ?? []) {
+					if (!isNode(declarator.id)) continue;
+					const origin = isNode(declarator.init)
+						? callOrigin(declarator.init, position)
+						: null;
+					bindPattern(target, declarator.id, kind, origin);
 				}
+				break;
 			}
+			case "FunctionDeclaration":
+			case "FunctionExpression":
+			case "ArrowFunctionExpression": {
+				const id =
+					isNode(node.id) && node.id.type === "Identifier" ? node.id : null;
+				if (id && node.type === "FunctionDeclaration") {
+					bind(scope, String(id.name), "function", id.start, null);
+				}
+				const inner = openScope("function", node, scope);
+				if (id && node.type === "FunctionExpression") {
+					bind(inner, String(id.name), "function", id.start, null);
+				}
+				bindParameters(inner, (node.params as AstNode[]) ?? []);
+				for (const child of childNodes(node)) {
+					if (child === node.id) continue;
+					visit(child, inner);
+				}
+				return;
+			}
+			case "ClassDeclaration":
+			case "ClassExpression": {
+				const id =
+					isNode(node.id) && node.id.type === "Identifier" ? node.id : null;
+				if (id && node.type === "ClassDeclaration") {
+					bind(scope, String(id.name), "class", id.start, null);
+				}
+				const inner = openScope("class", node, scope);
+				if (id && node.type === "ClassExpression") {
+					bind(inner, String(id.name), "class", id.start, null);
+				}
+				for (const child of childNodes(node)) {
+					if (child === node.id) continue;
+					visit(child, inner);
+				}
+				return;
+			}
+			case "BlockStatement":
+			case "StaticBlock": {
+				const inner = openScope("block", node, scope);
+				for (const child of childNodes(node)) visit(child, inner);
+				return;
+			}
+			case "ForStatement":
+			case "ForInStatement":
+			case "ForOfStatement": {
+				const inner = openScope("for", node, scope);
+				for (const child of childNodes(node)) visit(child, inner);
+				return;
+			}
+			case "CatchClause": {
+				const inner = openScope("catch", node, scope);
+				if (isNode(node.param)) bindPattern(inner, node.param, "catch", null);
+				for (const child of childNodes(node)) {
+					if (child === node.param) continue;
+					visit(child, inner);
+				}
+				return;
+			}
+			case "ImportDeclaration": {
+				for (const specifier of (node.specifiers as AstNode[]) ?? []) {
+					if (
+						isNode(specifier.local) &&
+						specifier.local.type === "Identifier"
+					) {
+						bind(
+							scope,
+							String(specifier.local.name),
+							"import",
+							specifier.local.start,
+							null,
+						);
+					}
+				}
+				break;
+			}
+			case "TSEnumDeclaration":
+			case "TSModuleDeclaration": {
+				if (isNode(node.id) && node.id.type === "Identifier") {
+					bind(
+						scope,
+						String(node.id.name),
+						node.type === "TSEnumDeclaration" ? "enum" : "namespace",
+						node.id.start,
+						null,
+					);
+				}
+				break;
+			}
+			default:
+				break;
 		}
+
 		if (node.type === "CallExpression" && isNode(node.callee)) {
 			const callee = memberPath(node.callee);
 			if (callee) {
 				const args = (node.arguments as AstNode[]) ?? [];
-				module.calls.push({
-					callee: formatName(callee),
-					root: callee.root,
-					members: callee.members,
-					arguments: args.map(callArgument),
-					position: position(node.start),
-				});
+				const ref = callRef(node, position);
+				if (ref) {
+					module.calls.push({
+						callee: ref.callee,
+						root: ref.root,
+						members: ref.members,
+						arguments: args.map(callArgument),
+						position: ref.position,
+					});
+				}
 				if (
 					callee.members.length === 0 &&
 					classCalls.has(callee.root) &&
@@ -879,10 +1191,11 @@ export function parseSourceModule(
 			}
 		}
 		for (const child of childNodes(node)) {
-			visit(child);
+			visit(child, scope);
 		}
 	};
-	visit(result.program as unknown as AstNode);
+	const program = result.program as unknown as AstNode;
+	visit(program, openScope("module", program, null));
 	const byOffset = (
 		left: { position: SourcePosition },
 		right: { position: SourcePosition },

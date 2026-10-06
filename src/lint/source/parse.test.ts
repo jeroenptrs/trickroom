@@ -303,6 +303,7 @@ plain.z();`);
 					position: { line: 1, column: 11 },
 				},
 				path: [],
+				scope: 0,
 				position: { line: 1, column: 7 },
 			},
 			{
@@ -314,36 +315,42 @@ plain.z();`);
 					position: { line: 2, column: 11 },
 				},
 				path: [],
+				scope: 0,
 				position: { line: 2, column: 7 },
 			},
 			{
 				name: "root",
 				call: expect.objectContaining({ callee: "buttonVariants" }),
 				path: ["root"],
+				scope: 0,
 				position: { line: 3, column: 9 },
 			},
 			{
 				name: "t",
 				call: expect.objectContaining({ callee: "buttonVariants" }),
 				path: ["title"],
+				scope: 0,
 				position: { line: 3, column: 22 },
 			},
 			{
 				name: "first",
 				call: expect.objectContaining({ callee: "list" }),
 				path: ["0"],
+				scope: 0,
 				position: { line: 4, column: 8 },
 			},
 			{
 				name: "r",
 				call: expect.objectContaining({ callee: "badgeVariants" }),
 				path: ["root"],
+				scope: 0,
 				position: { line: 5, column: 7 },
 			},
 			{
 				name: "w",
 				call: expect.objectContaining({ callee: "loadVariants" }),
 				path: [],
+				scope: 0,
 				position: { line: 6, column: 7 },
 			},
 		]);
@@ -372,6 +379,121 @@ plain.z();`);
 		expect(
 			swappedCall && traceCallOrigin(swapped, swappedCall)?.call.callee,
 		).toBe("otherVariants");
+	});
+
+	it("resolves receivers through lexical scope, so inner bindings shadow outer ones", () => {
+		const module = parse(`import { helper } from "./helper";
+const s = buttonVariants();
+{
+	const s = otherVariants();
+	s.title();
+}
+s.root();
+function wrapper(s, { t }, [u] = []) {
+	s.a();
+	t.b();
+	u.c();
+	hoisted.d();
+	function hoisted() {}
+	var v = badgeVariants();
+	if (s) {
+		var v = 1;
+		const { root: w } = cardVariants();
+		w.e();
+	}
+	v.f();
+	const arrow = (s = chipVariants()) => s.g();
+	for (const s of list) s.h();
+	try {} catch (s) { s.i(); }
+	class K { m(s) { s.j(); } }
+	const k = (function s() { return s.k(); })();
+	helper.l();
+	return s.m();
+}
+s.n();
+const t = 1;
+t.o();
+s = 2;
+`);
+		const trace = (callee: string, index = 0) => {
+			const calls = module.calls.filter((entry) => entry.callee === callee);
+			const call = calls[index];
+			if (!call) throw new Error(`no call ${callee}`);
+			const origin = traceCallOrigin(module, call);
+			return origin ? `${origin.call.callee} ${origin.path.join(".")}` : null;
+		};
+		// The reviewer's program: the inner block shadows, the outer call does not see it.
+		expect(trace("s.title")).toBe("otherVariants title");
+		expect(trace("s.root")).toBe("buttonVariants root");
+		// Parameters, destructured parameters and defaults shadow without an origin.
+		expect(trace("s.a")).toBeNull();
+		expect(trace("t.b")).toBeNull();
+		expect(trace("u.c")).toBeNull();
+		// Hoisted function declarations are bindings; `var` hoists to the function.
+		expect(trace("hoisted.d")).toBeNull();
+		expect(trace("v.f")).toBeNull();
+		// Destructuring from a call inside a nested block.
+		expect(trace("w.e")).toBe("cardVariants root.e");
+		// Arrow parameter defaults, for heads, catch params, class methods and
+		// named function expressions each introduce their own scope.
+		expect(trace("s.g")).toBeNull();
+		expect(trace("s.h")).toBeNull();
+		expect(trace("s.i")).toBeNull();
+		expect(trace("s.j")).toBeNull();
+		expect(trace("s.k")).toBeNull();
+		expect(trace("helper.l")).toBeNull();
+		expect(trace("s.m")).toBeNull();
+		// Back at module level the original binding is in scope; a later
+		// non-call const shadows nothing here but has no origin itself.
+		expect(trace("s.n")).toBe("buttonVariants n");
+		expect(trace("t.o")).toBeNull();
+
+		const scopeKinds = module.scopes.map((scope) => scope.kind);
+		expect(scopeKinds[0]).toBe("module");
+		expect(scopeKinds).toEqual(
+			expect.arrayContaining(["block", "function", "for", "catch", "class"]),
+		);
+		expect(
+			module.scopes[0].bindings.map(
+				(binding) => `${binding.kind} ${binding.name}`,
+			),
+		).toEqual(["import helper", "const s", "function wrapper", "const t"]);
+		const wrapper = module.scopes.find(
+			(scope) =>
+				scope.kind === "function" &&
+				scope.bindings.some((binding) => binding.name === "wrapper") ===
+					false &&
+				scope.bindings.some((binding) => binding.name === "hoisted"),
+		);
+		expect(wrapper).toBeUndefined();
+		const wrapperScope = module.scopes.find(
+			(scope) =>
+				scope.kind === "function" &&
+				scope.bindings.some((binding) => binding.name === "u"),
+		);
+		expect(
+			wrapperScope?.bindings.map(
+				(binding) => `${binding.kind} ${binding.name}`,
+			),
+		).toEqual(["parameter s", "parameter t", "parameter u", "var v", "var v"]);
+		const wrapperBody = module.scopes.find(
+			(scope) => scope.parent === wrapperScope?.id && scope.kind === "block",
+		);
+		expect(
+			wrapperBody?.bindings.map((binding) => `${binding.kind} ${binding.name}`),
+		).toEqual(["function hoisted", "const arrow", "class K", "const k"]);
+		expect(
+			module.declarations.map(
+				(declaration) => `${declaration.name}@${declaration.scope}`,
+			),
+		).toEqual([
+			"s@0",
+			`s@${module.scopes.find((scope) => scope.kind === "block" && scope.parent === 0)?.id}`,
+			`v@${wrapperScope?.id}`,
+			`w@${module.scopes.find((scope) => scope.bindings.some((binding) => binding.name === "w"))?.id}`,
+			// `k` is initialised by an immediately invoked function expression,
+			// whose callee is no identifier path: no origin.
+		]);
 	});
 
 	it("detects generated variants files and reports syntax errors", () => {
