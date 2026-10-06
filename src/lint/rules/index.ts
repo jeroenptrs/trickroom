@@ -1,3 +1,5 @@
+import { unknownClassTokenRule } from "./code/class-tokens";
+import { redundantClassRule } from "./code/redundant-class";
 import {
 	requiredAxisMissingRule,
 	unknownVariantValueRule,
@@ -34,6 +36,8 @@ export const LINT_RULE_KINDS: readonly LintRuleKind[] = [
 	slotNotCalledRule,
 	unknownVariantValueRule,
 	requiredAxisMissingRule,
+	unknownClassTokenRule,
+	redundantClassRule,
 ];
 
 export const lintRuleRegistry = createLintRuleRegistry(LINT_RULE_KINDS);

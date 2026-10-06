@@ -39,6 +39,8 @@ describe("rule registry", () => {
 			"code.slot-not-called",
 			"code.unknown-variant-value",
 			"code.required-axis-missing",
+			"code.unknown-class-token",
+			"code.redundant-class",
 		]);
 		expect(
 			lintRuleRegistry.get("code.variants-file-stale")?.defaultSeverity,
