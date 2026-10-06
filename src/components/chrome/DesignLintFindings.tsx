@@ -71,6 +71,9 @@ export function DesignLintFindingList({
 	);
 }
 
+const plural = (count: number, noun: string) =>
+	`${count} ${noun}${count === 1 ? "" : "s"}`;
+
 const summarize = (data: DesignFileLintResponse) => {
 	let errors = 0;
 	let warnings = 0;
@@ -97,7 +100,7 @@ export function DesignLintSummary({ designId }: { designId: string }) {
 			<div className="flex items-center justify-between text-[11px] font-semibold text-slate-700">
 				<span>Lint</span>
 				<span className="font-mono font-normal text-slate-500">
-					{errors} errors · {warnings} warnings
+					{plural(errors, "error")} · {plural(warnings, "warning")}
 				</span>
 			</div>
 			{unplaced.length > 0 ? (

@@ -619,11 +619,21 @@ export function resolveAttachedComponentClassInventoryLayers({
 		instanceId?: string;
 	};
 }): readonly ClassLayer[] {
+	// An instance can record a value its version does not have (the design
+	// lint rule design.unknown-variant-value reports it); resolve the classes
+	// as if that axis were unset rather than failing the whole inspector.
+	const axes = version.variants?.axes ?? {};
+	const knownValues = Object.fromEntries(
+		Object.entries(variantValues).filter(
+			([axis, value]) =>
+				Object.hasOwn(axes, axis) && Object.hasOwn(axes[axis].values, value),
+		),
+	);
 	return resolveSystemComponentClassComposition(
 		version,
 		targetPath,
 		getTemplateClassName(version, targetPath),
-		resolveSystemComponentVariantValues(version.variants, variantValues),
+		resolveSystemComponentVariantValues(version.variants, knownValues),
 		overrides ?? {},
 		context,
 	).layers;
