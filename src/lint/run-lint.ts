@@ -15,7 +15,7 @@ import {
 	readSystemComponentManifest,
 	SystemComponentManifestServiceError,
 } from "../utils/system-component-manifest-service";
-import { loadTailwindDesignSystem } from "../utils/tailwind-design-system";
+import { loadCachedTailwindDesignSystem } from "../utils/tailwind-design-system";
 import { readDomainTokensReadonly } from "../utils/tailwind-token-store";
 import {
 	getLintConfigIssues,
@@ -177,7 +177,11 @@ export const readLintConfigFile = async (
 		: { config: value as LintConfig, issues: [] };
 };
 
-/** Compiles the system CSS on first use, once, for every rule of a run. */
+/**
+ * Compiles the system CSS on first use for every rule of a run. The compiled
+ * system is cached across runs and validation calls until the CSS changes
+ * (`loadCachedTailwindDesignSystem`).
+ */
 export const createTailwindInspectorLoader = (
 	projectRoot: string,
 	cssPath: string | null,
@@ -187,7 +191,7 @@ export const createTailwindInspectorLoader = (
 		if (!cssPath?.trim()) {
 			return Promise.resolve(null);
 		}
-		pending ??= loadTailwindDesignSystem({ projectRoot, cssPath })
+		pending ??= loadCachedTailwindDesignSystem({ projectRoot, cssPath })
 			.then(({ designSystem }) => createDesignClassInspector(designSystem))
 			.catch(() => null);
 		return pending;

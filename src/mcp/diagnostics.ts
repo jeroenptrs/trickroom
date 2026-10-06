@@ -23,7 +23,7 @@ import {
 } from "../utils/design-resource-references";
 import { findDesignSystem } from "../utils/design-system-store";
 import { readIconManifest } from "../utils/icon-manifest-service";
-import { loadTailwindDesignSystem } from "../utils/tailwind-design-system";
+import { loadCachedTailwindDesignSystem } from "../utils/tailwind-design-system";
 import type { TailwindTokenDomain } from "../utils/tailwind-token-domains";
 import {
 	readDomainTokensReadonly,
@@ -502,7 +502,7 @@ const loadTailwindUtilityInspector = async (
 	}
 
 	try {
-		const { designSystem } = await loadTailwindDesignSystem({
+		const { designSystem } = await loadCachedTailwindDesignSystem({
 			projectRoot: context.projectRoot,
 			cssPath,
 		});

@@ -110,15 +110,33 @@ export const designClassTokensFromStorage = (
 	};
 };
 
-/** An inspector over a compiled design system, with suggestions. */
+const inspectorCache = new WeakMap<
+	TailwindDesignSystem,
+	DesignClassInspector
+>();
+
+/**
+ * An inspector over a compiled design system, with suggestions; one per
+ * design system object, so a cached design system keeps its inspector.
+ */
 export const createDesignClassInspector = (
 	designSystem: TailwindDesignSystem,
-): DesignClassInspector => ({
-	inspect: (candidate) =>
-		inspectTailwindUtilityCandidate(designSystem, candidate),
-	suggest: (candidate) =>
-		suggestTailwindClasses(getDesignSystemClassNames(designSystem), candidate),
-});
+): DesignClassInspector => {
+	let inspector = inspectorCache.get(designSystem);
+	if (!inspector) {
+		inspector = {
+			inspect: (candidate) =>
+				inspectTailwindUtilityCandidate(designSystem, candidate),
+			suggest: (candidate) =>
+				suggestTailwindClasses(
+					getDesignSystemClassNames(designSystem),
+					candidate,
+				),
+		};
+		inspectorCache.set(designSystem, inspector);
+	}
+	return inspector;
+};
 
 export type DesignClassInspector = {
 	inspect: (candidate: string) => TailwindUtilityInspection;
