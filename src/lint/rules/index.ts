@@ -1,4 +1,8 @@
 import {
+	requiredAxisMissingRule,
+	unknownVariantValueRule,
+} from "./code/variant-values";
+import {
 	variantsFileOrphanedRule,
 	variantsFileStaleRule,
 } from "./code/variants-file";
@@ -28,6 +32,8 @@ export const LINT_RULE_KINDS: readonly LintRuleKind[] = [
 	variantsFileOrphanedRule,
 	wrapperMissingVariantsCallRule,
 	slotNotCalledRule,
+	unknownVariantValueRule,
+	requiredAxisMissingRule,
 ];
 
 export const lintRuleRegistry = createLintRuleRegistry(LINT_RULE_KINDS);
