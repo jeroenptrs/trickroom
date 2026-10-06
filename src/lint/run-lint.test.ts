@@ -11,7 +11,21 @@ import {
 } from "../codegen/test-support";
 import { readProjectConfigReadOnly } from "../project";
 import { parseLintReport } from "./report";
-import { runLint } from "./run-lint";
+import {
+	variantsFileOrphanedRule,
+	variantsFileStaleRule,
+} from "./rules/code/variants-file";
+import { createLintRuleRegistry } from "./rules/registry";
+import { type RunLintInput, runLint as runLintWithEveryKind } from "./run-lint";
+
+// The engine is tested with the codegen kinds only, so finding lists stay
+// exact; every other kind has its own tests next to it in rules/.
+const engineRegistry = createLintRuleRegistry([
+	variantsFileStaleRule,
+	variantsFileOrphanedRule,
+]);
+const runLint = (input: RunLintInput) =>
+	runLintWithEveryKind({ registry: engineRegistry, ...input });
 
 describe("runLint", () => {
 	const projects: CodegenTestProject[] = [];
