@@ -9,6 +9,7 @@ import {
 	setLintCoverageFilter,
 	useLintCoverageFilter,
 } from "../../../stores/lint-dashboard-store";
+import { Badge } from "../../ui/badge";
 import { Card } from "../../ui/card";
 import { Input } from "../../ui/input";
 import { Segmented } from "../../ui/segmented";
@@ -140,7 +141,7 @@ export function LintCoverageView({
 						options={FILTER_OPTIONS}
 						value={filter}
 						onChange={(next) => setLintCoverageFilter(next ?? "all")}
-						className="flex-none"
+						className="flex-none [&_button]:whitespace-nowrap"
 					/>
 					<div className="relative min-w-48 flex-1">
 						<Search
@@ -175,7 +176,7 @@ export function LintCoverageView({
 					<div className="flex items-center gap-3 border-b border-slate-100 px-3 py-2 font-mono text-[10px] text-slate-500">
 						<span className="min-w-0 flex-1">component</span>
 						<span className="w-[108px] shrink-0">states</span>
-						<span className="w-40 shrink-0">gaps</span>
+						<span className="w-56 shrink-0">gaps</span>
 						<span className="w-48 shrink-0">wrapper</span>
 						<span className="w-14 shrink-0 text-right">usages</span>
 					</div>
@@ -213,23 +214,20 @@ export function LintCoverageView({
 								<span className="w-[108px] shrink-0">
 									<CoverageStrip component={component} />
 								</span>
-								<span className="flex w-40 shrink-0 flex-wrap gap-1">
+								<span className="flex w-56 shrink-0 flex-wrap gap-1">
 									{gaps.length === 0 ? (
 										<span className="font-mono text-[11px] text-slate-400">
 											none
 										</span>
 									) : (
 										gaps.map((gap) => (
-											<span
-												key={gap}
-												className="font-mono text-[10px] text-amber-800"
-											>
+											<Badge key={gap} tone="warning" edge="stamped">
 												{
 													LINT_COVERAGE_STATES.find(
 														(state) => state.key === gap,
 													)?.gap
 												}
-											</span>
+											</Badge>
 										))
 									)}
 								</span>

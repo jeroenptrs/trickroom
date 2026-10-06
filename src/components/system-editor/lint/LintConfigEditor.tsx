@@ -818,7 +818,11 @@ export function LintConfigEditor({
 				) : null}
 				{saveError && saveError.code !== "LINT_CONFIG_CONFLICT" ? (
 					<div className="flex flex-col gap-1">
-						<Alert tone="danger">{saveError.message}</Alert>
+						<Alert tone="danger">
+							{saveError.issues.length > 0
+								? `Not saved: lint.json would be invalid (${saveError.issues.length} ${saveError.issues.length === 1 ? "problem" : "problems"}).`
+								: saveError.message}
+						</Alert>
 						{saveError.issues.length > 0 ? (
 							<ul
 								className="flex flex-col gap-1 font-mono text-[11px] text-red-800"

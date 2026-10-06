@@ -270,6 +270,9 @@ export function SystemEditorLintPanel({
 				report={report}
 				config={configQuery.data?.config ?? null}
 				ruleKinds={configQuery.data?.ruleKinds ?? []}
+				showRatchet={
+					runMutation.data?.report.generatedAt !== report.generatedAt
+				}
 			/>
 		);
 	} else if (view === "coverage") {

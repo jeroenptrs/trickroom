@@ -195,7 +195,7 @@ function SystemLeftSidebar({
 									key={page.value}
 									value={page.value}
 									variant="block"
-									className="px-3 py-2"
+									className="flex-1 px-1.5 py-2"
 								>
 									{page.label}
 								</TabsTab>

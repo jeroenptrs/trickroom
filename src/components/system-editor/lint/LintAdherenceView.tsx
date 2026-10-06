@@ -1,6 +1,10 @@
 import { ChevronRight } from "lucide-react";
 import type { LintConfig, LintSeverity } from "../../../lint/config";
-import type { LintReport, LintSideSummary } from "../../../lint/report";
+import type {
+	LintReport,
+	LintSeverityCounts,
+	LintSideSummary,
+} from "../../../lint/report";
 import type { LintRuleKindSummary } from "../../../lint/rule-catalogue";
 import { showLintFindings } from "../../../stores/lint-dashboard-store";
 import { formatRelativeTime } from "../../project/project-view-utils";
@@ -195,8 +199,18 @@ function RuleTable({
 		(kind) => kind.side === side && !listed.has(kind.id),
 	);
 	const kindById = new Map(ruleKinds.map((kind) => [kind.id, kind]));
-	const severityOf = (id: string): LintSeverity | null =>
-		config?.rules?.[id]?.severity ?? kindById.get(id)?.defaultSeverity ?? null;
+	// The severity the report counted the kind at; for a clean kind, the
+	// one lint.json sets now (shown muted: it is not from the report).
+	const severityOf = (
+		id: string,
+		counts: LintSeverityCounts,
+	): { severity: LintSeverity; fromReport: boolean } | null => {
+		if (counts.errors > 0) return { severity: "error", fromReport: true };
+		if (counts.warnings > 0) return { severity: "warning", fromReport: true };
+		const configured =
+			config?.rules?.[id]?.severity ?? kindById.get(id)?.defaultSeverity;
+		return configured ? { severity: configured, fromReport: false } : null;
+	};
 
 	return (
 		<section
@@ -222,7 +236,7 @@ function RuleTable({
 					</Text>
 				) : null}
 				{rows.map((row) => {
-					const severity = severityOf(row.id);
+					const severity = severityOf(row.id, row.counts);
 					const threshold = thresholdForMetric(
 						config?.thresholds,
 						`rule.${row.id}`,
@@ -242,7 +256,18 @@ function RuleTable({
 								{row.id}
 							</span>
 							<span className="w-16 shrink-0">
-								{severity ? <SeverityBadge severity={severity} /> : null}
+								{severity ? (
+									<span
+										className={severity.fromReport ? "" : "opacity-50"}
+										title={
+											severity.fromReport
+												? "Severity of the findings in this report"
+												: "No findings; the severity lint.json sets"
+										}
+									>
+										<SeverityBadge severity={severity.severity} />
+									</span>
+								) : null}
 							</span>
 							<span className="w-28 shrink-0">
 								{total === 0 ? (
@@ -289,15 +314,18 @@ export function LintAdherenceView({
 	report,
 	config,
 	ruleKinds,
+	showRatchet = true,
 }: {
 	report: LintReport;
 	config: LintConfig | null;
 	ruleKinds: readonly LintRuleKindSummary[];
+	/** False right after a run, whose outcome is already shown above. */
+	showRatchet?: boolean;
 }) {
 	const thresholds = config?.thresholds;
 	return (
 		<div className="flex flex-col gap-6" data-lint-view="adherence">
-			<RatchetOutcome report={report} />
+			{showRatchet ? <RatchetOutcome report={report} /> : null}
 			<div className="flex flex-row flex-wrap gap-4">
 				<SideCard
 					side="code"
