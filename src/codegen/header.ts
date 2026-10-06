@@ -1,4 +1,8 @@
 import { sha256Hex } from "../utils/sha256";
+import {
+	collectDesignOnlyPaths,
+	stripDesignOnlyNodes,
+} from "../utils/system-component-design-only";
 import { stableStringify } from "../utils/system-component-template-hash";
 import type { SystemComponentDraftPayload } from "../utils/system-components";
 
@@ -37,6 +41,9 @@ const mapValues = <T, U>(
  * Axis, value, slot and override target labels and history are dropped so
  * relabelling does not mark generated files stale; template node `name` and
  * `text` stay because they are part of the template the check compares.
+ * Design-only subtrees are dropped from the template and from slot default
+ * children (slots hosted inside one are dropped whole), so edits there never
+ * mark generated files stale.
  */
 export function hashCodegenSource(
 	payload: Pick<
@@ -44,11 +51,25 @@ export function hashCodegenSource(
 		"root" | "slots" | "variants" | "overrideTargets"
 	>,
 ): string {
-	const input = stableStringify({
-		root: payload.root,
-		slots: mapValues(payload.slots, (slot) =>
-			omitKeys(slot, ["label", "history"]),
+	const designOnlyHosts = collectDesignOnlyPaths({ root: payload.root });
+	const codeSlots = Object.fromEntries(
+		Object.entries(payload.slots ?? {}).filter(
+			([, slot]) => !designOnlyHosts.has(slot.hostPath),
 		),
+	);
+	const input = stableStringify({
+		root: stripDesignOnlyNodes(payload.root),
+		slots: mapValues(codeSlots, (slot) => {
+			const hashed = omitKeys(slot, ["label", "history"]);
+			return slot.defaultChildren
+				? {
+						...hashed,
+						defaultChildren: slot.defaultChildren
+							.map(stripDesignOnlyNodes)
+							.filter((child) => child !== null),
+					}
+				: hashed;
+		}),
 		variants: {
 			...payload.variants,
 			axes: mapValues(payload.variants?.axes, (axis) => ({

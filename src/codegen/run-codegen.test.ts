@@ -11,6 +11,7 @@ import {
 	createCodegenTestProject,
 	flatPayload,
 	publishedComponent,
+	templateNode,
 } from "./test-support";
 
 const projects: CodegenTestProject[] = [];
@@ -468,6 +469,38 @@ describe("runCodegen", () => {
 		expect(result.diagnostics.map((entry) => entry.code)).toContain(
 			"UNKNOWN_INCLUDE_SLUG",
 		);
+		await expect(stat(project.path("src/ui"))).rejects.toThrow();
+	});
+
+	it("reports classes that target a design-only node as a check error", async () => {
+		const { project, run } = await setup();
+		await project.writeComponents([
+			button,
+			publishedComponent("field", {
+				root: templateNode("root", "flex", [
+					{ ...templateNode("guide", "border-dashed"), designOnly: true },
+				]),
+				variants: {
+					axes: {
+						size: {
+							label: "Size",
+							defaultValue: "sm",
+							values: { sm: { classesByPath: { guide: "p-1" } } },
+						},
+					},
+				},
+			}),
+		]);
+		const result = await run("check");
+		expect(result.status).toBe("error");
+		expect(result.diagnostics).toEqual([
+			expect.objectContaining({
+				code: "DESIGN_ONLY_CLASS_TARGET",
+				severity: "error",
+				slug: "field",
+				path: "guide",
+			}),
+		]);
 		await expect(stat(project.path("src/ui"))).rejects.toThrow();
 	});
 
