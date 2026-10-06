@@ -14,6 +14,7 @@ export const TOOL = {
 	designRead: "design_read",
 	designApply: "design_apply",
 	designValidate: "design_validate",
+	lint: "lint",
 	designCreate: "design_create",
 	designScreenshot: "design_screenshot",
 	designExport: "design_export",

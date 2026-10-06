@@ -66,6 +66,11 @@ describe("project file events", () => {
 		expect(isWatchedTrickroomFile("designs/home.memory.json")).toBe(true);
 		expect(isWatchedTrickroomFile("designs/.gitkeep")).toBe(false);
 		expect(isWatchedTrickroomFile("systems/core/tokens.json")).toBe(true);
+		expect(isWatchedTrickroomFile("systems/core/lint.json")).toBe(true);
+		expect(isWatchedTrickroomFile("systems/core/lint-report.json")).toBe(true);
+		expect(
+			isWatchedTrickroomFile("systems/core/lint-report.json.42.abc.tmp"),
+		).toBe(false);
 		expect(isWatchedTrickroomFile("config.json")).toBe(false);
 
 		expect(classifyTrickroomFile("designs/home/design.json")).toEqual({

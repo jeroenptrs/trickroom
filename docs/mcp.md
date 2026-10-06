@@ -43,6 +43,7 @@ R = read-only, W = writes. Reads and writes are separate tools because client pe
 | `design_read` | R | A design or one board (bounded tree; a board read reads only that board's file), one element's subtree, or a flat outline. | `designFileId`, `boardId` \| `elementId`, `view`, `depth`, `maxNodes`, `allowLarge`, `detail` |
 | `design_apply` | W | The one write tool for design content: ordered operations, validated together, one write. | `designFileId`, `expectedRevision`, `operations`, `response` |
 | `design_validate` | R | Validate a whole design, or dry-run operations against a revision. | `designFileId`, `operations`, `expectedRevision`, `response` |
+| `lint` | W | Lint a design system against its code and designs, ratchet against the committed report, and write the report. | `check`, `system`, `response` |
 | `design_create` | W | Create a design, empty or from a copy of an existing element. | `name`, `systemName`, `designFileId`, `from` |
 | `design_screenshot` | R | Render boards, elements or a system component and return PNG images. | `boardId`, `elementId`, `component`, `viewport`, `theme`, `scale`, `maxHeight` |
 | `design_export` | W | Write boards to disk as HTML or PNG, or write or check the project's component variants files. | `format`, `designFileId`, `destinationDir`, `boardIds`; variants: `check`, `source` |
@@ -68,7 +69,7 @@ Every project-scoped tool (all but `feedback_submit`) also takes an optional `pr
 | --- | --- | --- | --- | --- |
 | reads (`project_list`, `guide`, `design_list`, `design_read`, `design_validate`, `editor_context`, `memory_read`, `system_read`, `component_read`) | true | | | false |
 | `design_screenshot` | true | | | true (renders may load remote fonts) |
-| `project_select`, `editor_focus` | false | false | true | false |
+| `project_select`, `editor_focus`, `lint` | false | false | true | false |
 | `design_apply`, `memory_write`, `system_update`, `component_delete` | false | true | false | false |
 | `design_create`, `component_draft_create`, `component_draft_update`, `component_publish`, `component_migrate`, `feedback_submit` | false | false | false | false |
 | `design_export` | false | true (overwrites files of the same name; variants replace only files with a Trickroom header) | false | true (HTML loads React and Base UI from esm.sh) |
@@ -90,7 +91,7 @@ The app's MCP settings switch tools on and off by group. The eight group ids are
 | `projects` | `project_list`, `project_select`, `editor_context`, `editor_focus`, `feedback_submit` |
 | `designRead` | `design_list`, `design_read`, `design_screenshot`, `design_export` |
 | `designWrite` | `design_apply`, `design_create` |
-| `designValidation` | `design_validate` |
+| `designValidation` | `design_validate`, `lint` |
 | `registry` | `guide` |
 | `designSystems` | `system_read`, `system_update` |
 | `systemComponents` | `component_read`, `component_draft_create`, `component_draft_update`, `component_publish`, `component_delete`, `component_migrate` |
@@ -441,6 +442,17 @@ Screenshots need the optional `playwright-core` peer dependency and a Chrome or 
 
 Unknown boards fail with `NO_MATCHING_BOARDS` (HTML) or `BOARD_NOT_FOUND` (PNG) and the available boards. Export needs read-write mode, including variants checks.
 
+## Lint
+
+`lint` runs the design system lint engine ([Design System Lint](lint.md)): the code side checks the generated variants files of published components and, as rule kinds ship, how the app uses them; the design side checks how Designs use the system. Rule instances, source globs and thresholds come from the system's `lint.json`; without it every rule kind runs at its default severity.
+
+- Without `check`, a passing run writes `.trickroom/systems/<id>/lint-report.json` as the new ratchet baseline; a failing run writes nothing. `check: true` never writes.
+- `system` selects a system by id, name or storage key; the default is the `codegen` block's system, else the project's default system, else the only system.
+- `response: "summary"` (default) returns `lint` with `status` (`pass` or `fail`), `mode`, `system`, `ratchet` (numbers that got worse, thresholds broken), `baseline`, `reportPath`, `written`, `diagnostics`, `generatedAt` and the per-side `summary`; `"full"` adds the whole `report`.
+- A run that cannot complete (no or ambiguous system, invalid `lint.json`, a crashed rule) is a tool error `LINT_FAILED` carrying the diagnostics.
+
+It needs read-write mode in every case, like `design_export`: the codegen check runs the project's formatter command, and a non-check run writes the report.
+
 ## Editor Tools
 
 The editor tools talk to the browser tab where the human has the project open, through the running Trickroom server. They never fail because no browser is open.
@@ -643,7 +655,7 @@ With `mcp.auditLog: true`, MCP appends JSON Lines to `.trickroom/audit-log.jsonl
 
 - `src/mcp/tool-names.ts`: every tool name as a constant (`TOOL`), in list order. Strings that name a tool are built from these constants; a test scans descriptions, schemas, instructions, prompts, the guide and the string literals of `src/mcp` for retired or unknown tool names.
 - `src/mcp/tool-groups.ts`: the eight persisted tool groups.
-- `src/mcp/tools/`: tool registrations by family: `projects.ts`, `guide.ts`, `design-read.ts` (`design_list`, `design_read`, `design_export`), `design-write-batch.ts` (`design_apply`, `design_create`), `design-validation.ts`, `screenshots.ts`, `editor.ts`, `memory.ts`, `design-systems.ts` (`system_read`, `system_update`), `system-components.ts`, `feedback.ts`.
+- `src/mcp/tools/`: tool registrations by family: `projects.ts`, `guide.ts`, `design-read.ts` (`design_list`, `design_read`, `design_export`), `design-write-batch.ts` (`design_apply`, `design_create`), `design-validation.ts`, `lint.ts` (`lint`, over `src/lint/run-lint.ts`), `screenshots.ts`, `editor.ts`, `memory.ts`, `design-systems.ts` (`system_read`, `system_update`), `system-components.ts`, `feedback.ts`.
 - `src/mcp/tools/context.ts`: per-session state (selected project, project resolver, screenshot capture, editor channel, session id and call history) and the `withProjectContext` / `withPolicyErrorHandling` wrappers.
 - `src/mcp/call-history.ts`: records every `tools/call` (outcome, duration, sizes) in the session's ring buffer and the optional call log, and adds `feedbackHint` to a tool's second consecutive failure. `src/mcp/tools/feedback.ts` registers `feedback_submit`; `src/app-state/feedback.ts` holds the entry format and the JSON Lines storage, shared with `src/cli/feedback.ts` (`trickroom feedback`).
 - `src/mcp/tools/results.ts` (including the `REVISION_MISMATCH` result with stale boards and recovery reads), `schemas.ts`, `operation-schemas.ts`, `annotations.ts` (annotation presets and the `_meta` keys), `mutation-support.ts` (the read, revision check and write shared by every design write, and auditing), `input-validation.ts` (one line per invalid argument).

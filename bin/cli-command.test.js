@@ -68,6 +68,23 @@ describe("resolveTrickroomCommand", () => {
 		).toEqual({ command: "codegen", args: ["/project", "--check", "--json"] });
 	});
 
+	it("selects lint and forwards its arguments", () => {
+		expect(
+			resolveTrickroomCommand([
+				"node",
+				"trickroom",
+				"lint",
+				"/project",
+				"--check",
+				"--system",
+				"core",
+			]),
+		).toEqual({
+			command: "lint",
+			args: ["/project", "--check", "--system", "core"],
+		});
+	});
+
 	it("selects feedback and forwards its options", () => {
 		expect(
 			resolveTrickroomCommand([

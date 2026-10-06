@@ -423,11 +423,14 @@ Path:
   tokens.json
   assets.json
   icons.json
+  lint.json            optional: the system's lint rule configuration
+  lint-report.json     the latest lint run, the ratchet baseline
 ```
 
 Purpose:
 
 - Groups system-owned metadata under one folder per configured system.
+- Stores the lint configuration and the latest lint report (see [Design System Lint](lint.md) for both shapes; both carry `version: 1`).
 - Stores human-editable system metadata in `system.json`.
 - Stores meaningful Tailwind color tokens in `tokens.json`.
 - Stores project-relative raster image references in `assets.json`.
