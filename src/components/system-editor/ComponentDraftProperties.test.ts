@@ -7,8 +7,10 @@ import {
 	resetComponentDraftStore,
 	selectTemplateNode,
 	setComponentDraftStyleTarget,
+	setTemplateNodeDesignOnly,
 } from "../../stores/component-draft-store";
 import { FIXTURE_COMPONENT_ID } from "../../utils/system-component-test-fixtures";
+import { ComponentDraftLayers } from "./ComponentDraftLayers";
 import { ComponentDraftProperties } from "./ComponentDraftProperties";
 
 function renderInspector() {
@@ -97,5 +99,49 @@ describe("ComponentDraftProperties", () => {
 		expect(html).toMatch(
 			/<textarea[^>]*aria-label="Compound classes"[^>]*>shadow-lg<\/textarea>/,
 		);
+	});
+
+	it("toggles design only on the selected node", () => {
+		const off = renderInspector();
+		expect(off).toContain("Design only");
+		expect(off).toMatch(
+			/<label[^>]*for="root-design-only"[^>]*>Design only<\/label>/,
+		);
+		expect(off).toMatch(/role="switch"[^>]*aria-checked="false"/);
+
+		setTemplateNodeDesignOnly("root", true);
+		const on = renderInspector();
+		expect(on).toMatch(/role="switch"[^>]*aria-checked="true"/);
+		expect(on).not.toContain("Inherited from");
+	});
+
+	it("shows design only as inherited and read-only on descendants", () => {
+		setTemplateNodeDesignOnly("root", true);
+		selectTemplateNode("label");
+		const html = renderInspector();
+
+		const switchTag = html.match(/<[^>]*role="switch"[^>]*>/)?.[0] ?? "";
+		expect(switchTag).toContain('aria-checked="true"');
+		expect(switchTag).toMatch(/aria-disabled="true"|data-disabled/);
+		expect(html).toContain("Inherited from");
+		expect(html).not.toContain("Also set on this node.");
+	});
+});
+
+describe("ComponentDraftLayers", () => {
+	it("marks the design-only layer and dims its descendants", () => {
+		setTemplateNodeDesignOnly("root", true);
+		const html = renderToStaticMarkup(
+			React.createElement(
+				QueryClientProvider,
+				{ client: new QueryClient() },
+				React.createElement(ComponentDraftLayers, {
+					componentId: FIXTURE_COMPONENT_ID,
+				}),
+			),
+		);
+
+		expect(html.match(/>Design only</g)).toHaveLength(1);
+		expect(html).toContain("design only, inherited from a parent layer");
 	});
 });

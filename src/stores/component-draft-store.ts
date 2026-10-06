@@ -47,6 +47,8 @@ export type ComponentDraftEntity = {
 	className?: string;
 	props?: Record<string, JsonPrimitive | undefined>;
 	slot?: string;
+	/** This node's own flag; descendants inherit it, see getTemplateNodeDesignOnlyState. */
+	designOnly?: boolean;
 	childPaths?: string[];
 	text?: string;
 };
@@ -142,6 +144,9 @@ function normalizeTemplateNode(
 	if (node.slot !== undefined) {
 		entity.slot = node.slot;
 	}
+	if (node.designOnly !== undefined) {
+		entity.designOnly = node.designOnly;
+	}
 
 	entitiesByPath[node.path] = entity;
 
@@ -224,6 +229,9 @@ function serializeTemplateNode(
 	}
 	if (entity.slot !== undefined) {
 		node.slot = entity.slot;
+	}
+	if (entity.designOnly !== undefined) {
+		node.designOnly = entity.designOnly;
 	}
 
 	if (entity.role === "text") {
@@ -992,6 +1000,65 @@ export function updateTemplateNodeText(path: string, text: string) {
 	});
 }
 
+export type TemplateNodeDesignOnlyState = {
+	/** Design-only through its own flag or an ancestor's. */
+	designOnly: boolean;
+	/** The node's own flag. */
+	own: boolean;
+	/** Nearest design-only ancestor, null when the node does not inherit it. */
+	inheritedFromPath: string | null;
+};
+
+export function getTemplateNodeDesignOnlyState(
+	state: Pick<ComponentDraftStoreState, "entitiesByPath">,
+	path: string,
+): TemplateNodeDesignOnlyState {
+	const entity = state.entitiesByPath[path];
+	const own = entity?.designOnly === true;
+	let parentPath = entity?.parentPath ?? null;
+	while (parentPath) {
+		const parent = state.entitiesByPath[parentPath];
+		if (!parent) {
+			break;
+		}
+		if (parent.designOnly === true) {
+			return { designOnly: true, own, inheritedFromPath: parent.path };
+		}
+		parentPath = parent.parentPath;
+	}
+	return { designOnly: own, own, inheritedFromPath: null };
+}
+
+/** How a layer row shows design-only: its own flag wins over an inherited one. */
+const designOnlyMarker = (
+	designOnly: TemplateNodeDesignOnlyState,
+): "own" | "inherited" | null =>
+	designOnly.own ? "own" : designOnly.designOnly ? "inherited" : null;
+
+/** Sets or clears a node's own design-only flag; clearing removes the field. */
+export function setTemplateNodeDesignOnly(path: string, designOnly: boolean) {
+	componentDraftStore.setState((state) => {
+		const entity = state.entitiesByPath[path];
+		if (!entity || (entity.designOnly === true) === designOnly) {
+			return state;
+		}
+
+		const { designOnly: _previous, ...rest } = entity;
+		return {
+			...state,
+			entitiesByPath: {
+				...state.entitiesByPath,
+				[path]: designOnly ? { ...rest, designOnly: true } : rest,
+			},
+			dirtyPaths: {
+				...state.dirtyPaths,
+				[path]: true,
+			},
+			revision: state.revision + 1,
+		};
+	});
+}
+
 function defaultOverrideTargetId(
 	path: string,
 	overrideTargets: Record<string, SystemComponentOverrideTarget>,
@@ -1712,6 +1779,14 @@ export function useComponentDraftSelectedEntity() {
 	});
 }
 
+export function useComponentDraftDesignOnlyState(path: string) {
+	return useSelector(
+		componentDraftStore,
+		(state) => getTemplateNodeDesignOnlyState(state, path),
+		{ compare: shallow },
+	);
+}
+
 export function useComponentDraftSelectedOverrideTarget() {
 	return useSelector(componentDraftStore, (state) => {
 		if (!state.selectedPath) {
@@ -1821,6 +1896,9 @@ export function useComponentDraftLayerSummary(path: string) {
 				canHaveChildren: canHaveChildren(entity),
 				childPaths: entity?.childPaths ?? emptyPaths,
 				isSelected: state.selectedPath === path,
+				designOnly: designOnlyMarker(
+					getTemplateNodeDesignOnlyState(state, path),
+				),
 			};
 		},
 		{ compare: shallow },
