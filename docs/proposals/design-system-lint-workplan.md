@@ -31,6 +31,27 @@ These resolve ambiguities the analysis left open and apply to all WPs.
   `optionalRuntimeDependencies` in the `vite.*.config.ts` files).
 - Numbers the dashboard shows are read from the report file. Nothing in the
   browser recomputes findings.
+- Decisions taken in WP2 (details in [docs/lint.md](../lint.md)):
+  - `lint.json` keys rule instances by rule kind id, one instance per kind;
+    per-component scoping is a kind's `options`. Unknown ids are errors, so a
+    planned kind cannot be configured before it ships.
+  - Default source globs: the source-like root containing `codegen.outDir`
+    (up to and including the first `src`, `app`, `lib`, `source` or
+    `packages` segment, else the top-most segment), `src/**` without codegen.
+  - Every report carries `ratchetBaseline`. A passing run sets it to its own
+    numbers; a failing run written on demand (dashboard `POST`,
+    `write: "always"`) keeps the previous one, so a failing report never
+    lowers the bar. The CLI and the MCP tool write nothing on a failure.
+  - The compiled Tailwind utility inspector is the only lazy input of the
+    rule context; token names per domain are in the contract. The source
+    index is built once per run (the heat map needs it).
+  - Two code-side kinds ship in WP2: `code.variants-file-stale` (error) and
+    `code.variants-file-orphaned` (warning). A project without a `codegen`
+    block gets one `info` finding, not a violation.
+  - The `lint` MCP tool needs read-write mode in every case, like
+    `design_export`, and lives in the `designValidation` group.
+  - `oxc-parser` is external in every SSR bundle as `nativeRuntimeDependencies`,
+    a separate list from the optional `playwright-core`.
 - Dogfood target for WP6 is this repository's own `.trickroom` project
   (system `trickroom`, 16 components), with a `codegen` block pointing at a
   scratch `outDir`. The lead developer's day-to-day app is a second pass they
@@ -64,7 +85,7 @@ Status: todo. Model: Opus 5.5. Depends on nothing.
 
 ### WP2: lint foundation
 
-Status: todo. Model: Fable 5.1 (architecture). Depends on nothing; WP3,
+Status: in review. Model: Fable 5.1 (architecture). Depends on nothing; WP3,
 WP4 and WP5 depend on it.
 
 Deliverables, all in the repo:
