@@ -43,6 +43,9 @@ describe("rule registry", () => {
 			"code.redundant-class",
 			"code.variants-imported-outside-component",
 			"code.component-styling-restricted",
+			"design.unknown-class-token",
+			"design.design-only-class-target",
+			"design.unknown-variant-value",
 		]);
 		expect(
 			lintRuleRegistry.get("code.variants-file-stale")?.defaultSeverity,

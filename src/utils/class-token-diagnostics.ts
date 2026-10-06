@@ -1,5 +1,9 @@
 import { defaultTailwindTokensByDomain } from "./default-tailwind-tokens";
-import type { ResolvedTokenContext } from "./resolved-tailwind-domain-tokens";
+import { computeResolvedColorTokens } from "./resolved-color-tokens";
+import {
+	buildResolvedTokenContext,
+	type ResolvedTokenContext,
+} from "./resolved-tailwind-domain-tokens";
 import { formatDidYouMean, suggestClosest } from "./suggestions";
 import {
 	classifyParsedClass,
@@ -8,21 +12,53 @@ import {
 	type StyleIntent,
 	type UtilityIntent,
 } from "./tailwind-classname";
+import type { TailwindDesignSystem } from "./tailwind-design-system";
 import {
 	TAILWIND_TOKEN_DOMAINS,
 	type TailwindTokenDomain,
 } from "./tailwind-token-domains";
-import type { TailwindCustomUtilityStorage } from "./tailwind-token-store";
-import type { TailwindUtilityInspection } from "./tailwind-utility-inspector";
+import type {
+	TailwindCustomUtilityStorage,
+	TailwindTokenStorage,
+} from "./tailwind-token-store";
+import {
+	inspectTailwindUtilityCandidate,
+	type TailwindUtilityInspection,
+} from "./tailwind-utility-inspector";
 
 /**
  * Class token checks of one className string against a system's tokens:
  * unknown theme tokens per domain, arbitrary values in token domains, and
  * classes the system's Tailwind build cannot emit. Pure: the caller hands
  * in the resolved token names and, optionally, a compiled inspector. The
- * design diagnostics (`src/mcp/diagnostics.ts`) and the code-side lint rule
- * `code.unknown-class-token` both run every class through here.
+ * design diagnostics (`src/mcp/diagnostics.ts`), the code-side lint rule
+ * `code.unknown-class-token` and the design-side `design.unknown-class-token`
+ * (through `design-class-diagnostics.ts`, which adds the element) all run
+ * every class through here, with a context from `classTokenContextFromStorage`
+ * or `classTokenContextFromResolved`.
  */
+
+/** Every code a class check can report, in a stable order. */
+export const CLASS_TOKEN_DIAGNOSTIC_CODES = [
+	"UNKNOWN_COLOR_TOKEN",
+	"UNKNOWN_SPACING_TOKEN",
+	"UNKNOWN_FONT_TOKEN",
+	"UNKNOWN_TEXT_TOKEN",
+	"UNKNOWN_RADIUS_TOKEN",
+	"UNKNOWN_SHADOW_TOKEN",
+	"UNKNOWN_TAILWIND_TOKEN",
+	"OUT_OF_SYSTEM_COLOR",
+	"OUT_OF_SYSTEM_FONT",
+	"OUT_OF_SYSTEM_RADIUS",
+	"OUT_OF_SYSTEM_TEXT",
+	"OUT_OF_SYSTEM_SHADOW",
+	"OUT_OF_SYSTEM_BLUR",
+	"OUT_OF_SYSTEM_TAILWIND_TOKEN",
+	"UNKNOWN_TAILWIND_UTILITY",
+] as const;
+
+export type ClassTokenDiagnosticCode =
+	(typeof CLASS_TOKEN_DIAGNOSTIC_CODES)[number];
 
 export type ClassTokenIssue = {
 	severity: "warning";
@@ -448,4 +484,203 @@ export const collectClassNameTokenIssues = (
 		}
 	}
 	return issues;
+};
+
+/**
+ * The check context for a system's stored token snapshot, as the design
+ * diagnostics have always built it. Without a snapshot only the "is this a
+ * Tailwind utility" check runs.
+ */
+export const classTokenContextFromStorage = (
+	storedTokens: TailwindTokenStorage | null,
+	inspector: ClassTokenInspector | null,
+): ClassTokenCheckContext => {
+	if (!storedTokens) {
+		return {
+			resolvedTokens: createEmptyResolvedTokenContext(),
+			colorTokens: new Set<string>(),
+			customUtilityRoots: EMPTY_CUSTOM_UTILITY_ROOTS,
+			inspector,
+			isAvailableToken: noAvailableTokenCheck,
+			includeTokenDomainDiagnostics: false,
+		};
+	}
+	const colorDomain = storedTokens.domains.color;
+	const removed = new Set(
+		TAILWIND_TOKEN_DOMAINS.flatMap((domain) =>
+			(storedTokens.domains[domain]?.baselineDiff.removed ?? []).map(
+				(token) => `${domain}:${token.name}`,
+			),
+		),
+	);
+	return {
+		resolvedTokens: buildResolvedTokenContext(storedTokens),
+		colorTokens: computeResolvedColorTokens({
+			meaningfulTokens: colorDomain.tokens,
+			removed: colorDomain.baselineDiff.removed,
+		}).names,
+		customUtilityRoots: splitCustomUtilityRoots(storedTokens.customUtilities),
+		inspector,
+		isAvailableToken: createAvailableTokenCheck(inspector, removed),
+	};
+};
+
+/**
+ * The check context for resolved token names (the lint contract's
+ * `tokens`): removed defaults are the defaults missing from the names. With
+ * `hasSnapshot` false only the "is this a Tailwind utility" check runs.
+ */
+export const classTokenContextFromResolved = (
+	tokens: {
+		domains: Readonly<Record<TailwindTokenDomain, readonly string[]>>;
+		customUtilities: ReadonlyArray<{ root: string; kind?: string }>;
+		hasSnapshot: boolean;
+	},
+	inspector: ClassTokenInspector | null,
+): ClassTokenCheckContext => {
+	const resolvedTokens = {} as Record<TailwindTokenDomain, ReadonlySet<string>>;
+	for (const domain of TAILWIND_TOKEN_DOMAINS) {
+		resolvedTokens[domain] = new Set(tokens.domains[domain] ?? []);
+	}
+	return tokens.hasSnapshot
+		? {
+				resolvedTokens,
+				colorTokens: resolvedTokens.color,
+				customUtilityRoots: splitCustomUtilityRoots(tokens.customUtilities),
+				inspector,
+				isAvailableToken: createAvailableTokenCheck(
+					inspector,
+					removedDefaultTokenKeys(tokens.domains),
+				),
+			}
+		: {
+				resolvedTokens,
+				colorTokens: new Set(),
+				customUtilityRoots: EMPTY_CUSTOM_UTILITY_ROOTS,
+				inspector,
+				isAvailableToken: noAvailableTokenCheck,
+				includeTokenDomainDiagnostics: false,
+			};
+};
+
+const classNameCache = new WeakMap<TailwindDesignSystem, string[]>();
+
+export const getDesignSystemClassNames = (
+	designSystem: TailwindDesignSystem,
+) => {
+	let classNames = classNameCache.get(designSystem);
+	if (!classNames) {
+		classNames = designSystem.getClassList().map(([name]) => name);
+		classNameCache.set(designSystem, classNames);
+	}
+	return classNames;
+};
+
+/**
+ * Split `md:hover:!bg-red-500/50` into the variant prefix, important marker,
+ * utility root, and opacity modifier so suggestions only rewrite the utility.
+ */
+export const splitClassCandidate = (candidate: string) => {
+	let depth = 0;
+	let variantEnd = -1;
+	for (let index = 0; index < candidate.length; index++) {
+		const char = candidate[index];
+		if (char === "[" || char === "(") depth++;
+		else if (char === "]" || char === ")") depth--;
+		else if (char === ":" && depth === 0) variantEnd = index;
+	}
+	const prefix = candidate.slice(0, variantEnd + 1);
+	let utility = candidate.slice(variantEnd + 1);
+	let important = "";
+	if (utility.startsWith("!")) {
+		important = "!";
+		utility = utility.slice(1);
+	} else if (utility.endsWith("!")) {
+		important = "!";
+		utility = utility.slice(0, -1);
+	}
+	const modifierIndex = utility.includes("[") ? -1 : utility.lastIndexOf("/");
+	const modifier = modifierIndex > 0 ? utility.slice(modifierIndex) : "";
+	const root = modifierIndex > 0 ? utility.slice(0, modifierIndex) : utility;
+	return { prefix, important, root, modifier };
+};
+
+export const suggestTailwindClasses = (
+	classNames: readonly string[],
+	candidate: string,
+): string[] => {
+	const { prefix, important, root, modifier } = splitClassCandidate(candidate);
+	if (root.length < 2 || root.includes("[")) {
+		return [];
+	}
+	const maxDistance = Math.max(1, Math.min(3, Math.floor(root.length / 3)));
+	const nearby = classNames.filter(
+		(name) => Math.abs(name.length - root.length) <= maxDistance,
+	);
+	return suggestClosest(root, nearby, {
+		limit: 3,
+		maxDistance,
+		prefixMatches: false,
+	}).map((name) => `${prefix}${important}${name}${modifier}`);
+};
+
+const inspectorCache = new WeakMap<TailwindDesignSystem, ClassTokenInspector>();
+
+/**
+ * An inspector over a compiled design system, with suggestions; one per
+ * design system object, so a cached design system keeps its inspector.
+ */
+export const createClassTokenInspector = (
+	designSystem: TailwindDesignSystem,
+): ClassTokenInspector => {
+	let inspector = inspectorCache.get(designSystem);
+	if (!inspector) {
+		inspector = {
+			inspect: (candidate) =>
+				inspectTailwindUtilityCandidate(designSystem, candidate),
+			suggest: (candidate) =>
+				suggestTailwindClasses(
+					getDesignSystemClassNames(designSystem),
+					candidate,
+				),
+		};
+		inspectorCache.set(designSystem, inspector);
+	}
+	return inspector;
+};
+
+/**
+ * An allow-list of class globs (`*` any run of characters, `?` one): a class
+ * is allowed when the whole class (`md:hover:bg-legacy-500`) or its utility
+ * without variants as Tailwind parses it (`bg-legacy-500`) matches a
+ * pattern. Both class lint rules use it.
+ */
+export const compileClassAllowList = (
+	patterns: readonly string[],
+): ((classToken: string) => boolean) => {
+	const expressions = patterns
+		.map((pattern) => pattern.trim())
+		.filter((pattern) => pattern.length > 0)
+		.map(
+			(pattern) =>
+				new RegExp(
+					`^${pattern
+						.split("")
+						.map((char) =>
+							char === "*"
+								? ".*"
+								: char === "?"
+									? "."
+									: char.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"),
+						)
+						.join("")}$`,
+					"u",
+				),
+		);
+	if (expressions.length === 0) return () => false;
+	const matches = (value: string) =>
+		expressions.some((expression) => expression.test(value));
+	return (classToken) =>
+		matches(classToken) ||
+		matches(parseClassName(classToken)[0]?.utility ?? classToken);
 };

@@ -49,6 +49,7 @@ import {
 	setSourceList,
 	setThreshold,
 	undocumentedRuleOptions,
+	writeComponentMap,
 } from "./lint-config-draft";
 import { LINT_COVERAGE_STATES } from "./lint-dashboard-model";
 
@@ -153,20 +154,21 @@ function ComponentMapField({
 	value,
 	onChange,
 	slugs,
-	label,
-	placeholder,
+	spec,
 }: {
 	value: unknown;
-	onChange: (next: Record<string, string[]> | undefined) => void;
+	onChange: (next: Record<string, unknown> | undefined) => void;
 	slugs: readonly string[];
-	label: string;
-	placeholder?: string;
+	spec: Extract<LintRuleOptionSpec, { type: "component-map" }>;
 }) {
-	const map = readComponentMap(value);
+	const { label, placeholder } = spec;
+	const map = readComponentMap(value, spec);
 	const [adding, setAdding] = useState("");
 	const available = slugs.filter((slug) => !(slug in map));
 	const write = (next: Record<string, string[]>) =>
-		onChange(Object.keys(next).length > 0 ? next : undefined);
+		onChange(
+			Object.keys(next).length > 0 ? writeComponentMap(next, spec) : undefined,
+		);
 	return (
 		<div className="flex flex-col gap-2">
 			{Object.entries(map).map(([slug, entries]) => (
@@ -276,6 +278,22 @@ function OptionField({
 				onChange={onChange}
 			/>
 		);
+	} else if (spec.type === "string" && spec.values) {
+		control = (
+			<select
+				aria-label={spec.label}
+				className={selectClassName}
+				value={(value as string | undefined) ?? ""}
+				onChange={(event) => onChange(event.target.value || undefined)}
+			>
+				<option value="">Default</option>
+				{spec.values.map((choice) => (
+					<option key={choice} value={choice}>
+						{choice}
+					</option>
+				))}
+			</select>
+		);
 	} else if (spec.type === "string") {
 		control = (
 			<Input
@@ -299,10 +317,9 @@ function OptionField({
 	} else {
 		control = (
 			<ComponentMapField
-				label={spec.label}
+				spec={spec}
 				value={value}
 				slugs={slugs}
-				placeholder={spec.placeholder}
 				onChange={onChange}
 			/>
 		);

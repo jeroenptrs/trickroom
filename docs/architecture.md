@@ -132,7 +132,7 @@ See [Files And Safety](project-files.md#design-files) for the layout, revisions,
 
 ## Design System Lint
 
-`src/lint/` checks how the app and the Designs use a design system ([Design System Lint](lint.md)). `contract.ts`, `config.ts`, `report.ts`, `ratchet.ts`, `rules/` and `source/` are pure; `run-lint.ts` connects them to a project for `src/cli/lint.ts` (`trickroom lint`), the `lint` MCP tool and `src/routes/system-lint.ts` (`GET`/`POST /api/trickroom/systems/:system/lint`). The only file it writes is `.trickroom/systems/<id>/lint-report.json`, which the System editor reads through `src/queries/system-lint.ts`.
+`src/lint/` checks how the app and the Designs use a design system ([Design System Lint](lint.md)). `contract.ts`, `config.ts`, `report.ts`, `ratchet.ts`, `rules/` and `source/` are pure; `run-lint.ts` connects them to a project for `src/cli/lint.ts` (`trickroom lint`), the `lint` MCP tool and `src/routes/system-lint.ts` (`GET`/`POST /api/trickroom/systems/:system/lint`). The only file it writes is `.trickroom/systems/<id>/lint-report.json`, which the System editor reads through `src/queries/system-lint.ts`. Its design-side rules also run on one design through `src/lint/design-lint.ts`, for `design_validate` and the editor's `GET /api/trickroom/design/lint` (`src/queries/design-lint.ts`, shown in the design inspector).
 
 MCP screenshot tools lazily start a loopback-only capture host fixed to the selected project, so visual capture does not depend on the browser app's active project. Inline capture is allowed by read-only policy; writing an `outputPath` requires read-write policy. Screenshot attempts are audit logged when project auditing is enabled.
 

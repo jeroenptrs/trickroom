@@ -194,12 +194,12 @@ function LeftSidebar({ designId }: { designId: string }) {
 	);
 }
 
-function RightInspector() {
+function RightInspector({ designId }: { designId: string }) {
 	return (
 		// White, matching the right-rail design boards: control shells
 		// (slate-100/200) and the receipts footer read against it.
 		<aside className="flex min-h-0 w-[336px] shrink-0 flex-col border-l border-slate-200 bg-white text-xs">
-			<Properties />
+			<Properties designId={designId} />
 		</aside>
 	);
 }
@@ -280,7 +280,7 @@ function EditorShellComponent({ designId, children }: EditorShellProps) {
 				tabIndex={-1}
 				className="flex min-h-0 focus-visible:outline-none"
 			>
-				{inspectorOpen ? <RightInspector /> : null}
+				{inspectorOpen ? <RightInspector designId={designId} /> : null}
 			</div>
 		</div>
 	);

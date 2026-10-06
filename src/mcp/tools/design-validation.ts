@@ -28,7 +28,7 @@ export const registerDesignValidationTools = (ctx: McpToolContext) => {
 		TOOL.designValidate,
 		{
 			title: "Validate Design",
-			description: `Validate without writing. Without operations: check the whole design file (payload integrity, duplicate ids, registry and design-system references, class tokens) and return every issue. With operations and expectedRevision: dry-run ${TOOL.designApply}'s steps against that revision with the same executor, and return what each step would do (\`predicted\`) and the issues on the elements they touch, or the first failing step. Results share one shape: status, valid, a per-code summary, error issues, and warnings grouped by code and class; response "full" lists warnings ungrouped and adds token diagnostics and step details. Dry-runs never return generated ids.`,
+			description: `Validate without writing. Without operations: check the whole design file (payload integrity, duplicate ids, registry and design-system references, and the linked system's design lint rules from its lint.json: class tokens, variant values) and return every issue; lint issues use the rule kind id as code. With operations and expectedRevision: dry-run ${TOOL.designApply}'s steps against that revision with the same executor, and return what each step would do (\`predicted\`) and the issues on the elements they touch, or the first failing step. Results share one shape: status, valid, a per-code summary, error issues, and warnings grouped by code and class; response "full" lists warnings ungrouped and adds token diagnostics and step details. Dry-runs never return generated ids.`,
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
 				operations: createOperationPlanStepsInputSchema(

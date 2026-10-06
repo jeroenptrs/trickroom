@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { flatPayload, publishedComponent } from "./codegen/test-support";
 import { buildDesignResourceUri } from "./mcp/resources";
 import { expandRegistryRecipe } from "./recipes/expansion";
 import {
@@ -21,10 +22,12 @@ import { readStoredDesign as readStoredDesignFromService } from "./test-utils/de
 import type { Node, TrickroomDesign } from "./types";
 import { createDesignSystemStorage } from "./utils/design-system-store";
 import { assetIdProp } from "./utils/resource-props";
+import { serializeSystemComponentManifest } from "./utils/system-component-manifest-service";
 import {
 	getSystemComponentMarkerProps,
 	systemComponentRootProp,
 } from "./utils/system-component-markers";
+import { createEmptySystemComponentManifest } from "./utils/system-components";
 
 const validDesign = {
 	name: "Valid Design",
@@ -2005,5 +2008,159 @@ describe("server design routes", () => {
 		await expect(missingAsset.json()).resolves.toEqual({
 			error: 'Asset id "ast_missing" does not exist in system "Core".',
 		});
+	});
+});
+
+describe("server design lint route", () => {
+	let projectRoot: string;
+	let trickroomHome: string;
+
+	beforeEach(async () => {
+		projectRoot = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-design-lint-route-"),
+		);
+		trickroomHome = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-home-design-lint-"),
+		);
+	});
+
+	afterEach(async () => {
+		await rm(projectRoot, { force: true, recursive: true });
+		await rm(trickroomHome, { force: true, recursive: true });
+	});
+
+	it("returns the design rules' findings for a saved design, with lint.json applied", async () => {
+		const { systemId } = await createDesignSystemStorage(projectRoot, {
+			systemName: "Core",
+			cssPath: "src/core.css",
+		});
+		const chip = publishedComponent("chip", {
+			...flatPayload("px-2"),
+			variants: {
+				axes: { size: { label: "Size", values: { sm: {}, lg: {} } } },
+				compoundVariants: [],
+			},
+		});
+		const systemDir = path.join(projectRoot, ".trickroom", "systems", "core");
+		await writeFile(
+			path.join(systemDir, "components.json"),
+			serializeSystemComponentManifest({
+				...createEmptySystemComponentManifest(),
+				components: { [chip.componentId]: chip },
+			}),
+		);
+		await writeFile(
+			path.join(systemDir, "lint.json"),
+			JSON.stringify({
+				version: 1,
+				rules: { "design.unknown-variant-value": { severity: "warning" } },
+			}),
+		);
+		const design: TrickroomDesign = {
+			name: "Shop",
+			systemId,
+			boards: [
+				{
+					id: "board",
+					props: {
+						"data-trickroom-name": "Board",
+						"data-trickroom-library": "trickroom",
+						"data-trickroom-component": "container",
+						...getSystemComponentMarkerProps({
+							systemId,
+							componentId: chip.componentId,
+							instanceId: "inst_1",
+							version: "1",
+							path: "root",
+							isRoot: true,
+							variantValues: { size: "xl" },
+						}),
+					},
+					children: [],
+				},
+			],
+		};
+		await mkdir(path.join(projectRoot, ".trickroom", "designs"), {
+			recursive: true,
+		});
+		await writeFile(
+			path.join(projectRoot, ".trickroom", "designs", "shop.json"),
+			JSON.stringify(design),
+		);
+		const app = createTrickroomApp({
+			trickroomHome,
+			initialProjectRoot: projectRoot,
+		});
+
+		const response = await app.request("/api/trickroom/design/lint?id=shop");
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({
+			designId: "shop",
+			system: { id: systemId, name: "Core" },
+			rules: [
+				"design.unknown-class-token",
+				"design.design-only-class-target",
+				"design.unknown-variant-value",
+			],
+			findings: [
+				{
+					rule: "design.unknown-variant-value",
+					severity: "warning",
+					side: "design",
+					message:
+						'Instance of "chip" sets "size" to "xl", which version 1 does not have. Pick one of "sm", "lg".',
+					component: "chip",
+					location: {
+						kind: "design",
+						design: "shop",
+						board: "board",
+						element: "board",
+						path: "boards[0]",
+					},
+					details: { axis: "size", value: "xl", version: "1" },
+				},
+			],
+			diagnostics: [],
+		});
+
+		const missing = await app.request("/api/trickroom/design/lint?id=nope");
+		expect(missing.status).toBe(404);
+	});
+
+	it("applies the defaults with a warning when lint.json cannot be read", async () => {
+		const { systemId } = await createDesignSystemStorage(projectRoot, {
+			systemName: "Core",
+			cssPath: "src/core.css",
+		});
+		await mkdir(
+			path.join(projectRoot, ".trickroom", "systems", "core", "lint.json"),
+		);
+		await mkdir(path.join(projectRoot, ".trickroom", "designs"), {
+			recursive: true,
+		});
+		await writeFile(
+			path.join(projectRoot, ".trickroom", "designs", "shop.json"),
+			JSON.stringify({ ...validDesign, systemId }),
+		);
+		const app = createTrickroomApp({
+			trickroomHome,
+			initialProjectRoot: projectRoot,
+		});
+
+		const response = await app.request("/api/trickroom/design/lint?id=shop");
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			rules: string[];
+			diagnostics: Array<{ code: string; message: string }>;
+		};
+		expect(body.rules).toContain("design.unknown-variant-value");
+		expect(body.diagnostics).toEqual([
+			expect.objectContaining({
+				code: "INVALID_LINT_CONFIG",
+				message: expect.stringContaining(
+					".trickroom/systems/core/lint.json could not be read, so the default rules apply",
+				),
+			}),
+		]);
 	});
 });

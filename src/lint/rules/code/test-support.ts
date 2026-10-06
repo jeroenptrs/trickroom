@@ -22,6 +22,7 @@ import {
 	resolveLintConfig,
 } from "../../config";
 import { buildSystemContract, type SystemContract } from "../../contract";
+import { emptyLintDesignIndex } from "../../designs";
 import { buildSourceIndex, type SourceIndex } from "../../source/index";
 import { parseSourceModule } from "../../source/parse";
 import { walkSourceFiles } from "../../source/walk";
@@ -203,7 +204,7 @@ export async function createLintFixture(options: {
 				rule,
 				codegen: null,
 				sources,
-				designs: null,
+				designs: emptyLintDesignIndex(runContract.system.id),
 				tailwind: {
 					inspector: async () =>
 						inspect

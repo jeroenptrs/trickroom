@@ -16,6 +16,9 @@ import {
 	slotNotCalledRule,
 	wrapperMissingVariantsCallRule,
 } from "./code/wrapper";
+import { designOnlyClassTargetRule } from "./design/design-only-class-target";
+import { designUnknownClassTokenRule } from "./design/unknown-class-token";
+import { designUnknownVariantValueRule } from "./design/unknown-variant-value";
 import { createLintRuleRegistry } from "./registry";
 import type { LintRuleKind } from "./types";
 
@@ -44,6 +47,9 @@ export const LINT_RULE_KINDS: readonly LintRuleKind[] = [
 	redundantClassRule,
 	variantsImportedOutsideComponentRule,
 	componentStylingRestrictedRule,
+	designUnknownClassTokenRule,
+	designOnlyClassTargetRule,
+	designUnknownVariantValueRule,
 ];
 
 export const lintRuleRegistry = createLintRuleRegistry(LINT_RULE_KINDS);

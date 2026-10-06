@@ -100,7 +100,7 @@ describe("lint tool", () => {
 				ratchet: { status: "pass", regressions: [] },
 				summary: {
 					code: { findings: { errors: 1, warnings: 0, info: 0 } },
-					design: null,
+					design: { findings: { errors: 0, warnings: 0, info: 0 } },
 				},
 			},
 		});

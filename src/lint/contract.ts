@@ -11,10 +11,11 @@ import {
 	selectCodegenComponents,
 } from "../codegen/model";
 import { variantsExportName, variantsFileName } from "../codegen/names";
-import type { RecipeTemplateNode } from "../types";
 import { buildResolvedTokenContext } from "../utils/resolved-tailwind-domain-tokens";
 import { sha256Hex } from "../utils/sha256";
+import { collectDesignOnlyPaths } from "../utils/system-component-design-only";
 import { stableStringify } from "../utils/system-component-template-hash";
+import { compareSystemComponentVariantAxisKeys } from "../utils/system-component-variant-class-layers";
 import type {
 	SystemComponentDraftPayload,
 	SystemComponentManifest,
@@ -66,6 +67,25 @@ export type SystemContractCompound = {
 	classes: CodegenSlotClasses;
 };
 
+/** The variant axes of one published version, as design instances record values. */
+export type SystemContractVersion = {
+	version: string;
+	/** In codegen's axis order; values in schema order. */
+	axes: Array<{ key: string; values: string[] }>;
+};
+
+/**
+ * One class entry of the current published version's variants: a value of
+ * an axis (`axis`, `value`) or a compound variant (`compound`, 0-based),
+ * and the template path it adds classes to.
+ */
+export type SystemContractClassTarget = {
+	axis: string | null;
+	value: string | null;
+	compound: number | null;
+	path: string;
+};
+
 export type SystemContractComponent = {
 	componentId: string;
 	slug: string;
@@ -82,6 +102,15 @@ export type SystemContractComponent = {
 	compounds: SystemContractCompound[];
 	/** Template paths marked design-only, descendants included. */
 	designOnlyPaths: string[];
+	/**
+	 * Every published version with its variant axes, sorted by version, read
+	 * from the schema rather than the codegen model so design-only and
+	 * invalid components keep theirs. Design instances pinned to an older
+	 * version are checked against the version they use.
+	 */
+	versions: SystemContractVersion[];
+	/** Variant and compound class entries of the current published version. */
+	classTargets: SystemContractClassTarget[];
 	codegen: {
 		/** Selected by the codegen include/exclude lists and has a valid model. */
 		selected: boolean;
@@ -124,37 +153,48 @@ export type BuildSystemContractInput = {
 	codegen: ResolvedCodegenConfig;
 };
 
-/** A template node with the optional WP1 flag, read defensively until merged. */
-type TemplateNodeWithDesignOnly = RecipeTemplateNode & {
-	designOnly?: boolean;
-};
-
-const collectDesignOnlyPaths = (
-	payload: SystemComponentDraftPayload,
-): string[] => {
-	const paths: string[] = [];
-	const visit = (node: TemplateNodeWithDesignOnly, inherited: boolean) => {
-		const designOnly = inherited || node.designOnly === true;
-		if (designOnly) {
-			paths.push(node.path);
-		}
-		for (const child of node.children ?? []) {
-			visit(child, designOnly);
-		}
-	};
-	visit(payload.root, false);
-	for (const slot of Object.values(payload.slots ?? {})) {
-		for (const child of slot.defaultChildren ?? []) {
-			visit(child, false);
-		}
-	}
-	return [...new Set(paths)].sort();
-};
-
 const compareSlugs = (
 	left: SystemComponentRecord,
 	right: SystemComponentRecord,
 ) => (left.slug < right.slug ? -1 : left.slug > right.slug ? 1 : 0);
+
+const compareVersions = (left: string, right: string) =>
+	left.localeCompare(right, "en", { numeric: true });
+
+const buildVersions = (
+	record: SystemComponentRecord,
+): SystemContractVersion[] =>
+	Object.entries(record.published?.versions ?? {})
+		.sort(([left], [right]) => compareVersions(left, right))
+		.map(([version, payload]) => ({
+			version,
+			axes: Object.entries(payload.variants?.axes ?? {})
+				.sort(([left], [right]) =>
+					compareSystemComponentVariantAxisKeys(left, right),
+				)
+				.map(([key, axis]) => ({ key, values: Object.keys(axis.values) })),
+		}));
+
+const buildClassTargets = (
+	payload: SystemComponentDraftPayload,
+): SystemContractClassTarget[] => {
+	const targets: SystemContractClassTarget[] = [];
+	for (const [axis, entry] of Object.entries(payload.variants?.axes ?? {}).sort(
+		([left], [right]) => compareSystemComponentVariantAxisKeys(left, right),
+	)) {
+		for (const [value, valueEntry] of Object.entries(entry.values)) {
+			for (const path of Object.keys(valueEntry.classesByPath ?? {})) {
+				targets.push({ axis, value, compound: null, path });
+			}
+		}
+	}
+	(payload.variants?.compoundVariants ?? []).forEach((compound, index) => {
+		for (const path of Object.keys(compound.classesByPath)) {
+			targets.push({ axis: null, value: null, compound: index, path });
+		}
+	});
+	return targets;
+};
 
 const buildComponent = (
 	record: SystemComponentRecord,
@@ -183,6 +223,8 @@ const buildComponent = (
 			axes: [],
 			compounds: [],
 			designOnlyPaths: [],
+			versions: [],
+			classTargets: [],
 			codegen: { selected: false, issues: [...options.selectionIssues] },
 		};
 	}
@@ -197,7 +239,9 @@ const buildComponent = (
 		...options.selectionIssues,
 		...built.diagnostics.map((diagnostic) => diagnostic.message),
 	];
-	const designOnlyPaths = collectDesignOnlyPaths(payload);
+	const designOnlyPaths = [...collectDesignOnlyPaths(payload)].sort();
+	const versions = buildVersions(record);
+	const classTargets = buildClassTargets(payload);
 	if (!built.model) {
 		return {
 			...base,
@@ -206,6 +250,8 @@ const buildComponent = (
 			axes: [],
 			compounds: [],
 			designOnlyPaths,
+			versions,
+			classTargets,
 			codegen: { selected: false, issues },
 		};
 	}
@@ -237,6 +283,8 @@ const buildComponent = (
 			classes: compound.classes.map(([slot, className]) => [slot, className]),
 		})),
 		designOnlyPaths,
+		versions,
+		classTargets,
 		codegen: {
 			selected: options.selectedIds.has(record.componentId),
 			issues,

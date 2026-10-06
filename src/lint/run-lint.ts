@@ -3,7 +3,11 @@ import path from "node:path";
 import { resolveCodegenConfig } from "../codegen/config";
 import { type CodegenRunResult, runCodegen } from "../codegen/run-codegen";
 import { readProjectConfigReadOnly } from "../project";
+import { createDesignFileService } from "../services/design-file-service";
+import { createClassTokenInspector } from "../utils/class-token-diagnostics";
+import { designReferencesSystemHandle } from "../utils/design-resource-references";
 import {
+	type DesignSystemRecord,
 	findDesignSystem,
 	listDesignSystems,
 } from "../utils/design-system-store";
@@ -11,9 +15,8 @@ import {
 	readSystemComponentManifest,
 	SystemComponentManifestServiceError,
 } from "../utils/system-component-manifest-service";
-import { loadTailwindDesignSystem } from "../utils/tailwind-design-system";
+import { loadCachedTailwindDesignSystem } from "../utils/tailwind-design-system";
 import { readDomainTokensReadonly } from "../utils/tailwind-token-store";
-import { inspectTailwindUtilityCandidate } from "../utils/tailwind-utility-inspector";
 import {
 	LINT_CONFIG_FILE_NAME,
 	type ResolvedLintConfig,
@@ -21,6 +24,12 @@ import {
 } from "./config";
 import { readLintConfigFile } from "./config-file";
 import { buildSystemContract, type SystemContract } from "./contract";
+import {
+	buildLintDesignIndex,
+	countDesignUsages,
+	type LintDesignIndex,
+	type LintDesignInput,
+} from "./designs";
 import {
 	collectTrackedNumbers,
 	compareLintRatchet,
@@ -33,6 +42,7 @@ import {
 	LINT_REPORT_FILE_NAME,
 	LINT_REPORT_VERSION,
 	type LintComponentCoverage,
+	type LintDesignStats,
 	type LintFileStats,
 	type LintFinding,
 	type LintRatchetBaseline,
@@ -45,7 +55,8 @@ import {
 } from "./report";
 import { lintRuleRegistry } from "./rules/index";
 import type { LintRuleRegistry } from "./rules/registry";
-import type { LintRuleContext, LintTailwindInspector } from "./rules/types";
+import type { LintTailwindInspector } from "./rules/types";
+import { runLintRules, toReportFinding } from "./run-rules";
 import {
 	buildSourceIndex,
 	countUsagesByFile,
@@ -99,6 +110,7 @@ export type LintRunDiagnosticCode =
 	| "RULE_FAILED"
 	| "WRITE_FAILED"
 	| "WRAPPER_MODULE_NOT_SCANNED"
+	| "DESIGN_UNREADABLE"
 	| "RUN_FAILED";
 
 export type LintRunDiagnostic = {
@@ -128,7 +140,12 @@ const toPosix = (value: string) => value.split(path.sep).join("/");
 
 const MAX_PARSE_ERROR_DIAGNOSTICS = 50;
 
-const createTailwindInspectorLoader = (
+/**
+ * Compiles the system CSS on first use for every rule of a run. The compiled
+ * system is cached across runs and validation calls until the CSS changes
+ * (`loadCachedTailwindDesignSystem`).
+ */
+export const createTailwindInspectorLoader = (
 	projectRoot: string,
 	cssPath: string | null,
 ): (() => Promise<LintTailwindInspector | null>) => {
@@ -137,14 +154,52 @@ const createTailwindInspectorLoader = (
 		if (!cssPath?.trim()) {
 			return Promise.resolve(null);
 		}
-		pending ??= loadTailwindDesignSystem({ projectRoot, cssPath })
-			.then(({ designSystem }) => ({
-				inspect: (candidate: string) =>
-					inspectTailwindUtilityCandidate(designSystem, candidate),
-			}))
+		pending ??= loadCachedTailwindDesignSystem({ projectRoot, cssPath })
+			.then(({ designSystem }) => createClassTokenInspector(designSystem))
 			.catch(() => null);
 		return pending;
 	};
+};
+
+/**
+ * The designs linked to the system (by `systemId`, or a legacy
+ * `systemName`), read without the design lock so nothing is migrated or
+ * written. A design that cannot be read is listed in `unreadable` and
+ * skipped; designs linked to other systems or none are skipped silently.
+ */
+export const readLinkedDesigns = async (
+	projectRoot: string,
+	system: DesignSystemRecord,
+): Promise<{
+	designs: LintDesignInput[];
+	unreadable: Array<{ id: string; file: string; message: string }>;
+}> => {
+	const service = createDesignFileService(projectRoot);
+	const designs: LintDesignInput[] = [];
+	const unreadable: Array<{ id: string; file: string; message: string }> = [];
+	for (const id of await service.listDesignIds()) {
+		try {
+			const read = await service.readDesignFileWithoutLock(id);
+			if (
+				designReferencesSystemHandle(
+					read.design,
+					system.manifest.systemId,
+					system,
+				)
+			) {
+				designs.push({ id, design: read.design });
+			}
+		} catch (error) {
+			unreadable.push({
+				id,
+				file: toPosix(
+					path.relative(projectRoot, path.join(service.designsDir, id)),
+				),
+				message: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+	return { designs, unreadable };
 };
 
 const buildCoverage = ({
@@ -152,12 +207,15 @@ const buildCoverage = ({
 	codegen,
 	sources,
 	scanned,
+	designs,
 }: {
 	contract: SystemContract;
 	codegen: CodegenRunResult | null;
 	sources: SourceIndex;
 	scanned: boolean;
+	designs: LintDesignIndex;
 }): LintComponentCoverage[] => {
+	const designUsages = countDesignUsages(designs);
 	const codegenStatus = new Map(
 		(codegen?.components ?? []).map((component) => [
 			component.componentId,
@@ -184,9 +242,10 @@ const buildCoverage = ({
 					: codegenStatus.get(component.componentId) === "ok",
 			bound: scanned ? (identity?.wrappers.length ?? 0) > 0 : null,
 			usedInApp: scanned ? usages > 0 : null,
-			usedInDesigns: null,
+			usedInDesigns: (designUsages[component.componentId] ?? 0) > 0,
 			wrappers: identity?.wrappers ?? [],
 			usages,
+			designUsages: designUsages[component.componentId] ?? 0,
 		};
 	});
 };
@@ -241,6 +300,52 @@ const buildFileStats = (
 		});
 	}
 	return stats;
+};
+
+/**
+ * One row per board and one per linked design with `board: null`, each with
+ * the instances of the system's components placed there and the findings
+ * located there. The `board: null` row holds only what is on no board, not
+ * the design's total: the dashboard adds up all rows of a design. It is
+ * there for every linked design, clean or not, so a design without boards
+ * is still listed.
+ */
+const buildDesignStats = (
+	designs: LintDesignIndex,
+	findings: readonly LintFinding[],
+): LintDesignStats[] => {
+	const rows = new Map<string, LintDesignStats>();
+	const key = (design: string, board: string | null) =>
+		`${design}\u0000${board ?? ""}`;
+	for (const design of designs.designs) {
+		rows.set(key(design.id, null), {
+			design: design.id,
+			board: null,
+			usages: 0,
+			findings: emptySeverityCounts(),
+		});
+		for (const board of design.boards) {
+			rows.set(key(design.id, board.id), {
+				design: design.id,
+				board: board.id,
+				usages: 0,
+				findings: emptySeverityCounts(),
+			});
+		}
+	}
+	for (const usages of Object.values(designs.usages)) {
+		for (const usage of usages) {
+			const row = rows.get(key(usage.design, usage.board));
+			if (row) row.usages += 1;
+		}
+	}
+	for (const finding of findings) {
+		if (finding.location?.kind !== "design") continue;
+		const { design, board } = finding.location;
+		const row = rows.get(key(design, board ?? null));
+		if (row) countSeverity(row.findings, finding.severity);
+	}
+	return [...rows.values()];
 };
 
 /**
@@ -392,8 +497,11 @@ async function runLintInner(
 		warn("COMPONENT_MANIFEST_DIAGNOSTIC", diagnostic.message, diagnostic.path);
 	}
 
-	const lintConfigRead = await readLintConfigFile(system.dir, registry.ids);
-	if (lintConfigRead.status === "invalid") {
+	const lintConfigRead = await readLintConfigFile(system.dir, registry);
+	if (
+		lintConfigRead.status === "invalid" ||
+		lintConfigRead.status === "unreadable"
+	) {
 		return fail(
 			"INVALID_LINT_CONFIG",
 			`${toPosix(path.relative(projectRoot, path.join(system.dir, LINT_CONFIG_FILE_NAME)))} is invalid: ${lintConfigRead.issues.join(" ")}`,
@@ -488,45 +596,44 @@ async function runLintInner(
 		}
 	}
 
+	// Designs.
+	const linked = await readLinkedDesigns(projectRoot, system);
+	for (const entry of linked.unreadable) {
+		warn(
+			"DESIGN_UNREADABLE",
+			`Design "${entry.id}" could not be read, so it was not linted: ${entry.message}`,
+			entry.file,
+		);
+	}
+	const designs = buildLintDesignIndex({
+		systemId,
+		designs: linked.designs,
+	});
+
 	// Rules.
-	const tailwindInspector = createTailwindInspectorLoader(
-		projectRoot,
-		system.manifest.cssPath ?? tokens?.metadata.cssPath ?? null,
-	);
-	const findings: LintFinding[] = [];
-	const enabledIds = { code: [] as string[], design: [] as string[] };
-	for (const rule of config.rules) {
-		const kind = registry.get(rule.id);
-		if (!kind || !rule.enabled) continue;
-		enabledIds[kind.side].push(kind.id);
-		const context: LintRuleContext = {
+	const rulesRun = await runLintRules({
+		registry,
+		config,
+		context: {
 			projectRoot,
 			contract,
 			config,
-			rule,
 			codegen,
 			sources,
-			designs: null,
-			tailwind: { inspector: tailwindInspector },
-		};
-		try {
-			for (const finding of await kind.run(context)) {
-				findings.push({
-					rule: kind.id,
-					severity: finding.severity ?? rule.severity,
-					side: kind.side,
-					message: finding.message,
-					...(finding.component ? { component: finding.component } : {}),
-					location: finding.location,
-				});
-			}
-		} catch (error) {
-			fail(
-				"RULE_FAILED",
-				`Rule "${kind.id}" failed: ${error instanceof Error ? error.message : String(error)}`,
-			);
-		}
+			designs,
+			tailwind: {
+				inspector: createTailwindInspectorLoader(
+					projectRoot,
+					system.manifest.cssPath ?? tokens?.metadata.cssPath ?? null,
+				),
+			},
+		},
+	});
+	for (const failure of rulesRun.failures) {
+		fail("RULE_FAILED", `Rule "${failure.rule}" failed: ${failure.message}`);
 	}
+	const findings = rulesRun.findings.map(toReportFinding);
+	const enabledIds = rulesRun.enabled;
 	if (diagnostics.some((entry) => entry.severity === "error")) {
 		return result;
 	}
@@ -538,6 +645,7 @@ async function runLintInner(
 		codegen,
 		sources,
 		scanned: walked.files.length > 0,
+		designs,
 	});
 	const draft = {
 		summary: {
@@ -549,7 +657,12 @@ async function runLintInner(
 			),
 			design:
 				enabledIds.design.length > 0
-					? summarizeFindings(findings, "design", enabledIds.design, 0)
+					? summarizeFindings(
+							findings,
+							"design",
+							enabledIds.design,
+							designs.designs.length,
+						)
 					: null,
 		},
 		components,
@@ -585,7 +698,7 @@ async function runLintInner(
 		findings,
 		components,
 		files: buildFileStats(sources, findings),
-		designs: null,
+		designs: buildDesignStats(designs, findings),
 		ratchet,
 		ratchetBaseline: nextRatchetBaseline({
 			result: ratchet,

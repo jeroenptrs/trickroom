@@ -12,6 +12,7 @@ import {
 	parseCountText,
 	parseListText,
 	pruneLintConfig,
+	readComponentMap,
 	readThreshold,
 	setComponentModules,
 	setRuleEnabled,
@@ -20,6 +21,7 @@ import {
 	setSourceList,
 	setThreshold,
 	undocumentedRuleOptions,
+	writeComponentMap,
 } from "./lint-config-draft";
 
 const base: LintConfig = { version: 1 };
@@ -171,6 +173,29 @@ describe("lint config draft", () => {
 				"src/**",
 			),
 		).toBe(false);
+	});
+
+	it("reads and writes component maps whose entries nest under entryKey", () => {
+		const spec = {
+			key: "components",
+			label: "",
+			description: "",
+			type: "component-map" as const,
+			entryKey: "allowIn",
+		};
+		const stored = { button: { allowIn: ["src/features/**"] } };
+		expect(optionValueMatchesSpec(spec, stored)).toBe(true);
+		expect(optionValueMatchesSpec(spec, { button: ["src/**"] })).toBe(false);
+		expect(readComponentMap(stored, spec)).toEqual({
+			button: ["src/features/**"],
+		});
+		expect(writeComponentMap({ button: ["src/**"], card: [] }, spec)).toEqual({
+			button: { allowIn: ["src/**"] },
+			card: { allowIn: [] },
+		});
+		expect(readComponentMap({ button: ["src/**"] })).toEqual({
+			button: ["src/**"],
+		});
 	});
 });
 

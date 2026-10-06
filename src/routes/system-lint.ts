@@ -38,7 +38,7 @@ export type SystemLintConfigResponse = {
 	revision: string | null;
 	/** The stored config, or `{ version: 1 }` when absent or invalid. */
 	config: LintConfig;
-	/** Why the stored file is invalid; empty when it is valid or absent. */
+	/** Why the stored file is invalid or unreadable; empty when it is valid or absent. */
 	issues: string[];
 	/** The file text when it is invalid, so nothing in it is lost from view. */
 	text: string | null;
@@ -97,7 +97,10 @@ export const registerSystemLintRoutes = (
 			read.status === "present"
 				? read.config
 				: { version: LINT_CONFIG_VERSIONS[0] },
-		issues: read.status === "invalid" ? read.issues : [],
+		issues:
+			read.status === "invalid" || read.status === "unreadable"
+				? read.issues
+				: [],
 		text: read.status === "invalid" ? read.text : null,
 		defaults: {
 			source: {
@@ -144,10 +147,7 @@ export const registerSystemLintRoutes = (
 	systemsRoutes.get("/:systemName/lint/config", async (c) => {
 		const projectRoot = getProjectRoot(c);
 		const route = getRouteSystem(c);
-		const read = await readLintConfigFile(
-			route.system.dir,
-			lintRuleRegistry.ids,
-		);
+		const read = await readLintConfigFile(route.system.dir, lintRuleRegistry);
 		return c.json(await configResponse(projectRoot, route, read));
 	});
 
@@ -165,7 +165,7 @@ export const registerSystemLintRoutes = (
 				400,
 			);
 		}
-		const issues = getLintConfigIssues(body.config, lintRuleRegistry.ids);
+		const issues = getLintConfigIssues(body.config, lintRuleRegistry);
 		if (issues.length > 0) {
 			return c.json(
 				{
@@ -188,7 +188,7 @@ export const registerSystemLintRoutes = (
 							? body.revision
 							: null
 						: undefined,
-				knownRuleIds: lintRuleRegistry.ids,
+				knownRuleIds: lintRuleRegistry,
 			});
 		} catch (error) {
 			if (error instanceof LintConfigWriteError) {

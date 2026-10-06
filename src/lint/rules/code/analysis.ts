@@ -564,33 +564,6 @@ export const classTokenPosition = (
 	};
 };
 
-/** A class glob: `*` any run of characters, `?` one. */
-export const compileClassGlobs = (
-	patterns: readonly string[],
-): ((classToken: string) => boolean) => {
-	const expressions = patterns
-		.map((pattern) => pattern.trim())
-		.filter((pattern) => pattern.length > 0)
-		.map(
-			(pattern) =>
-				new RegExp(
-					`^${pattern
-						.split("")
-						.map((char) =>
-							char === "*"
-								? ".*"
-								: char === "?"
-									? "."
-									: char.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"),
-						)
-						.join("")}$`,
-					"u",
-				),
-		);
-	return (classToken) =>
-		expressions.some((expression) => expression.test(classToken));
-};
-
 /** Message for options a rule ignored, as an `info` finding. */
 export const optionsNote = (ruleId: string, problems: string[]) => ({
 	severity: "info" as const,

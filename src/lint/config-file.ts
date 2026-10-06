@@ -5,6 +5,7 @@ import {
 	getLintConfigIssues,
 	LINT_CONFIG_FILE_NAME,
 	type LintConfig,
+	type LintKnownRules,
 	serializeLintConfig,
 } from "./config";
 import { writeSystemFileAtomic } from "./system-file";
@@ -19,6 +20,8 @@ import { writeSystemFileAtomic } from "./system-file";
 
 export type LintConfigFileRead =
 	| { status: "absent"; path: string; revision: null }
+	/** A folder in its place, a permission problem: not a config, not absent. */
+	| { status: "unreadable"; path: string; revision: null; issues: string[] }
 	| {
 			status: "invalid";
 			path: string;
@@ -37,10 +40,14 @@ export type LintConfigFileRead =
 export const lintConfigRevision = (text: string) =>
 	`sha256:${createHash("sha256").update(text).digest("hex")}`;
 
-/** The stored config of a system folder; `knownRuleIds` catches unknown kinds. */
+/**
+ * The stored config of a system folder; `knownRuleIds` (the registry) catches
+ * unknown kinds and invalid options. Never throws on a read error: a file
+ * that cannot be read is `unreadable`.
+ */
 export async function readLintConfigFile(
 	systemDir: string,
-	knownRuleIds: ReadonlySet<string> | null,
+	knownRuleIds: LintKnownRules | null,
 ): Promise<LintConfigFileRead> {
 	const configPath = path.join(systemDir, LINT_CONFIG_FILE_NAME);
 	let text: string;
@@ -50,7 +57,14 @@ export async function readLintConfigFile(
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
 			return { status: "absent", path: configPath, revision: null };
 		}
-		throw error;
+		return {
+			status: "unreadable",
+			path: configPath,
+			revision: null,
+			issues: [
+				`${LINT_CONFIG_FILE_NAME} could not be read: ${error instanceof Error ? error.message : String(error)}`,
+			],
+		};
 	}
 	const revision = lintConfigRevision(text);
 	let value: unknown;
@@ -152,7 +166,7 @@ export async function saveLintConfigFile({
 	systemDir: string;
 	config: LintConfig;
 	expectedRevision: string | null | undefined;
-	knownRuleIds: ReadonlySet<string> | null;
+	knownRuleIds: LintKnownRules | null;
 }): Promise<LintConfigSaveResult> {
 	const configPath = path.resolve(systemDir, LINT_CONFIG_FILE_NAME);
 	return runExclusiveConfigSave(configPath, async () => {

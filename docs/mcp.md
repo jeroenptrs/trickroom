@@ -262,7 +262,7 @@ All validation results share one shape:
   "valid": true,
   "designFileId": "…",
   "revision": "r2.…",
-  "summary": { "errors": 0, "warnings": 3, "codes": { "UNKNOWN_COLOR_TOKEN": 2, "UNKNOWN_TAILWIND_UTILITY": 1 } },
+  "summary": { "errors": 1, "warnings": 3, "codes": { "design.unknown-class-token": 3, "design.unknown-variant-value": 1 } },
   "issues": [],
   "warnings": [{ "code": "…", "message": "…", "elementIds": ["…"], "count": 9 }]
 }
@@ -273,7 +273,13 @@ All validation results share one shape:
 - Without `operations`: the whole file, including payload integrity (a design with an unsupported version reports `UNSUPPORTED_DESIGN_VERSION`), duplicate ids, registry and design-system references, asset and icon ids, recipe instances, and class tokens.
 - With `operations` and `expectedRevision`: a dry run of the same steps `design_apply` takes, with the same executor. It adds `operationCount`, `predicted` (what each step would do: insertions report where and `nodeCount`, without generated ids) and `deletedCount`, and scopes warnings to the touched elements. A failing step reports `status: "INVALID_OPERATION"`, `failedStepIndex` and `failedOperation` as a normal result. Only the boards the steps touch are diagnosed. The revision check is the write's: a dry-run based on an older revision passes when the boards it changes did not change since; otherwise it reports `status: "REVISION_MISMATCH"` with `currentRevision`, `staleBoards` and `next`, like the write.
 
-Class and token warning codes: `UNKNOWN_TAILWIND_UTILITY` (Tailwind cannot emit the class; checked when the system CSS loads), `UNKNOWN_COLOR_TOKEN`, `UNKNOWN_SPACING_TOKEN`, `UNKNOWN_FONT_TOKEN`, `UNKNOWN_TEXT_TOKEN`, `UNKNOWN_RADIUS_TOKEN`, `UNKNOWN_SHADOW_TOKEN`, `UNKNOWN_TAILWIND_TOKEN`, and `OUT_OF_SYSTEM_*` for arbitrary values that bypass the system. Typo warnings carry `suggestions` with the nearest valid class, keeping variants, `!` and `/opacity` (`md:itmes-center` → `md:items-center`).
+Both modes run the linked system's design-side lint rules ([Design System Lint](lint.md#design-validation)) with its `lint.json`, so a kind it disables is skipped, its severity applies and its options (such as an allow-list of classes) are honoured. A lint finding is an issue whose `code` is the rule kind id:
+
+- `design.unknown-class-token` (warning by default): the class and token checks. The specific check is in `check`: `UNKNOWN_TAILWIND_UTILITY` (Tailwind cannot emit the class; checked when the system CSS loads), `UNKNOWN_COLOR_TOKEN`, `UNKNOWN_SPACING_TOKEN`, `UNKNOWN_FONT_TOKEN`, `UNKNOWN_TEXT_TOKEN`, `UNKNOWN_RADIUS_TOKEN`, `UNKNOWN_SHADOW_TOKEN`, `UNKNOWN_TAILWIND_TOKEN`, and `OUT_OF_SYSTEM_*` for arbitrary values that bypass the system. With `className`, `classToken`, `token`, `domain` and, for likely typos, `suggestions` with the nearest valid class, keeping variants, `!` and `/opacity` (`md:itmes-center` → `md:items-center`).
+- `design.unknown-variant-value` (error by default): an instance records a variant value or axis its component version does not have; with `component`, `axis`, `value`, `version` (and `currentVersion` when the instance is pinned to an older one).
+- `design.design-only-class-target` (error by default): a component the checked boards place has variant classes on a design-only node; a file-level issue with `component`.
+
+A finding at severity `info` is not an issue. When `lint.json` is invalid or cannot be read the defaults apply and an `INVALID_LINT_CONFIG` warning says why. `design_apply` and `design_create` still report the class checks under their own codes (`UNKNOWN_COLOR_TOKEN`, …), without `lint.json`.
 
 ### Errors
 

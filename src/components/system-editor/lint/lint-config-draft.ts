@@ -5,7 +5,11 @@ import type {
 	LintSeverity,
 	LintSourceConfig,
 } from "../../../lint/config";
-import type { LintRuleOptionSpec } from "../../../lint/rule-catalogue";
+import {
+	componentMapEntryList,
+	type LintRuleOptionSpec,
+	optionValueHasSpecShape,
+} from "../../../lint/rule-options";
 
 /**
  * Edits of a `lint.json` draft in the config editor. Each helper returns a
@@ -234,50 +238,51 @@ export const parseCountText = (text: string): number | undefined => {
 	return Number.isNaN(value) ? undefined : value;
 };
 
-/** `{ [slug]: string[] }` option values, read defensively. */
-export const readComponentMap = (value: unknown): Record<string, string[]> =>
+type ComponentMapSpec = Extract<LintRuleOptionSpec, { type: "component-map" }>;
+
+const PLAIN_COMPONENT_MAP: ComponentMapSpec = {
+	key: "",
+	label: "",
+	description: "",
+	type: "component-map",
+};
+
+/**
+ * A component-map option as `{ [slug]: string[] }`, read defensively; with
+ * `entryKey` the stored shape is `{ [slug]: { [entryKey]: string[] } }`.
+ */
+export const readComponentMap = (
+	value: unknown,
+	spec?: ComponentMapSpec,
+): Record<string, string[]> =>
 	isRecord(value)
 		? Object.fromEntries(
-				Object.entries(value).map(([slug, entries]) => [
+				Object.entries(value).map(([slug, entry]) => [
 					slug,
-					Array.isArray(entries)
-						? entries.filter(
-								(entry): entry is string => typeof entry === "string",
-							)
-						: [],
+					componentMapEntryList(spec ?? PLAIN_COMPONENT_MAP, entry) ?? [],
 				]),
 			)
 		: {};
 
-/** Whether a stored option value has the shape its spec edits. */
-export const optionValueMatchesSpec = (
-	spec: LintRuleOptionSpec,
-	value: unknown,
-) => {
-	if (value === undefined) return true;
-	switch (spec.type) {
-		case "boolean":
-			return typeof value === "boolean";
-		case "number":
-			return typeof value === "number";
-		case "string":
-			return typeof value === "string";
-		case "string-list":
-			return (
-				Array.isArray(value) &&
-				value.every((entry) => typeof entry === "string")
+/** The stored shape of a component map edited as `{ [slug]: string[] }`. */
+export const writeComponentMap = (
+	map: Record<string, string[]>,
+	spec?: ComponentMapSpec,
+): Record<string, unknown> =>
+	spec?.entryKey === undefined
+		? map
+		: Object.fromEntries(
+				Object.entries(map).map(([slug, list]) => [
+					slug,
+					{ [spec.entryKey as string]: list },
+				]),
 			);
-		case "component-map":
-			return (
-				isRecord(value) &&
-				Object.values(value).every(
-					(entries) =>
-						Array.isArray(entries) &&
-						entries.every((entry) => typeof entry === "string"),
-				)
-			);
-	}
-};
+
+/**
+ * Whether a stored option value has the shape its spec edits: the same
+ * check `lint.json` validation uses (`src/lint/rule-options.ts`).
+ */
+export const optionValueMatchesSpec = optionValueHasSpecShape;
 
 /**
  * An edit of `lint.json` in the editor: the file revision it started from

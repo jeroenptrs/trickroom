@@ -1,25 +1,15 @@
 import {
-	type ClassTokenCheckContext,
 	type ClassTokenIssue,
+	classTokenContextFromResolved,
 	collectClassNameTokenIssues,
-	createAvailableTokenCheck,
-	EMPTY_CUSTOM_UTILITY_ROOTS,
-	noAvailableTokenCheck,
-	removedDefaultTokenKeys,
-	splitCustomUtilityRoots,
+	compileClassAllowList,
 } from "../../../utils/class-token-diagnostics";
-import type { ResolvedTokenContext } from "../../../utils/resolved-tailwind-domain-tokens";
-import { parseClassName } from "../../../utils/tailwind-classname";
-import {
-	TAILWIND_TOKEN_DOMAINS,
-	type TailwindTokenDomain,
-} from "../../../utils/tailwind-token-domains";
 import type { TailwindUtilityInspection } from "../../../utils/tailwind-utility-inspector";
+import type { LintRuleOptionSpec } from "../../rule-options";
 import type { LintRuleFinding, LintRuleKind } from "../types";
 import {
 	classTokenPosition,
 	codeLocation,
-	compileClassGlobs,
 	getCodeAnalysis,
 	optionsNote,
 } from "./analysis";
@@ -80,9 +70,24 @@ const readOptions = (options: Record<string, unknown>) => {
 	return { allow, scope, problems };
 };
 
-/** The class with its variants stripped: `md:hover:!bg-x` -> `bg-x`. */
-const utilityOf = (classToken: string) =>
-	parseClassName(classToken)[0]?.utility ?? classToken;
+export const CODE_UNKNOWN_CLASS_TOKEN_OPTIONS: readonly LintRuleOptionSpec[] = [
+	{
+		key: "allow",
+		label: "Allowed classes",
+		description:
+			"Classes never reported. `*` matches any run of characters and `?` one; a pattern matches the whole class or its utility without variants.",
+		type: "string-list",
+		placeholder: "bg-legacy-*",
+	},
+	{
+		key: "scope",
+		label: "Scope",
+		description:
+			"Which class strings are checked: in bound wrappers, at usage sites, or all scanned sources (default).",
+		type: "string",
+		values: UNKNOWN_CLASS_TOKEN_SCOPES,
+	},
+];
 
 export const unknownClassTokenRule: LintRuleKind = {
 	id: RULE_ID,
@@ -90,6 +95,7 @@ export const unknownClassTokenRule: LintRuleKind = {
 	defaultSeverity: "warning",
 	description:
 		"A class string in a wrapper or usage site uses a token or utility the system does not define.",
+	options: CODE_UNKNOWN_CLASS_TOKEN_OPTIONS,
 	run: async (context) => {
 		const { allow, scope, problems } = readOptions(context.rule.options);
 		const findings: LintRuleFinding[] = [];
@@ -123,33 +129,15 @@ export const unknownClassTokenRule: LintRuleKind = {
 					},
 				}
 			: null;
-		const resolvedTokens = {} as Record<
-			TailwindTokenDomain,
-			ReadonlySet<string>
-		>;
-		for (const domain of TAILWIND_TOKEN_DOMAINS) {
-			resolvedTokens[domain] = new Set(tokens.domains[domain] ?? []);
-		}
-		const checkContext: ClassTokenCheckContext = hasSnapshot
-			? {
-					resolvedTokens: resolvedTokens as ResolvedTokenContext,
-					colorTokens: resolvedTokens.color,
-					customUtilityRoots: splitCustomUtilityRoots(tokens.customUtilities),
-					inspector,
-					isAvailableToken: createAvailableTokenCheck(
-						inspector,
-						removedDefaultTokenKeys(tokens.domains),
-					),
-				}
-			: {
-					resolvedTokens: resolvedTokens as ResolvedTokenContext,
-					colorTokens: new Set(),
-					customUtilityRoots: EMPTY_CUSTOM_UTILITY_ROOTS,
-					inspector,
-					isAvailableToken: noAvailableTokenCheck,
-					includeTokenDomainDiagnostics: false,
-				};
-		const allowed = compileClassGlobs(allow);
+		const checkContext = classTokenContextFromResolved(
+			{
+				domains: tokens.domains,
+				customUtilities: tokens.customUtilities,
+				hasSnapshot,
+			},
+			inspector,
+		);
+		const allowed = compileClassAllowList(allow);
 		const issuesByString = new Map<string, ClassTokenIssue[]>();
 
 		const sources = context.sources;
@@ -181,8 +169,7 @@ export const unknownClassTokenRule: LintRuleKind = {
 					issuesByString.set(entry.value, issues);
 				}
 				for (const issue of issues) {
-					if (allowed(issue.classToken) || allowed(utilityOf(issue.classToken)))
-						continue;
+					if (allowed(issue.classToken)) continue;
 					findings.push({
 						...(slug ? { component: slug } : {}),
 						location: codeLocation(

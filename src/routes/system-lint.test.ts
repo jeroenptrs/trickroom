@@ -380,4 +380,71 @@ describe("system lint routes", () => {
 			expect.stringContaining('rules["code.nope"] names an unknown rule kind'),
 		]);
 	});
+
+	it("serves the option specs of every kind that takes options, and refuses options they reject", async () => {
+		const app = await importTestServer();
+		const body = (await (
+			await app.request("/api/trickroom/systems/core/lint/config")
+		).json()) as {
+			ruleKinds: Array<{ id: string; options: Array<{ key: string }> }>;
+		};
+		const optionKeys = Object.fromEntries(
+			body.ruleKinds
+				.filter((kind) => kind.options.length > 0)
+				.map((kind) => [kind.id, kind.options.map((spec) => spec.key)]),
+		);
+		expect(optionKeys).toEqual({
+			"code.unknown-class-token": ["allow", "scope"],
+			"code.component-styling-restricted": ["components"],
+			"design.unknown-class-token": ["allow", "codes"],
+		});
+
+		const response = await app.request(
+			"/api/trickroom/systems/core/lint/config",
+			{
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					config: {
+						version: 1,
+						rules: {
+							"design.unknown-class-token": { options: { codes: ["NOPE"] } },
+							"code.component-styling-restricted": {
+								options: { components: { button: ["src/**"] } },
+							},
+						},
+					},
+				}),
+			},
+		);
+		expect(response.status).toBe(422);
+		const refused = (await response.json()) as { issues: string[] };
+		expect(refused.issues).toEqual([
+			expect.stringContaining(
+				'rules["design.unknown-class-token"].options.codes has unknown value "NOPE"',
+			),
+			'rules["code.component-styling-restricted"].options.components must be an object mapping component slugs to { allowIn: [...] }.',
+		]);
+	});
+
+	it("reports a lint.json it cannot read instead of failing", async () => {
+		const app = await importTestServer();
+		await mkdir(
+			path.join(tempProjectRoot, ".trickroom/systems/core/lint.json"),
+		);
+		const response = await app.request(
+			"/api/trickroom/systems/core/lint/config",
+		);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as Record<string, unknown>;
+		expect(body).toMatchObject({
+			present: true,
+			revision: null,
+			config: { version: 1 },
+			text: null,
+		});
+		expect(body.issues).toEqual([
+			expect.stringMatching(/^lint\.json could not be read: .*EISDIR/u),
+		]);
+	});
 });

@@ -1,3 +1,4 @@
+import type { LintRuleOptionSpec } from "../../rule-options";
 import { compileGlobs } from "../../source/glob";
 import type { SourceIndex } from "../../source/index";
 import type { SourcePosition } from "../../source/parse";
@@ -127,12 +128,26 @@ const readRestrictions = (
 	return { restrictions, problems };
 };
 
+export const COMPONENT_STYLING_RESTRICTED_OPTIONS: readonly LintRuleOptionSpec[] =
+	[
+		{
+			key: "components",
+			label: "Allowed files",
+			description:
+				"Per component: the file globs (project-relative) where its variants export or slot functions may be used, besides its own wrapper. One glob per line.",
+			type: "component-map",
+			entryKey: "allowIn",
+			placeholder: "src/features/checkout/**",
+		},
+	];
+
 export const componentStylingRestrictedRule: LintRuleKind = {
 	id: RESTRICTED_ID,
 	side: "code",
 	defaultSeverity: "warning",
 	description:
 		"Configurable: a component's variants export or slot functions are used outside the files its options allow. Does nothing until options name components.",
+	options: COMPONENT_STYLING_RESTRICTED_OPTIONS,
 	run: (context) => {
 		const analysis = getCodeAnalysis(context);
 		const { restrictions, problems } = readRestrictions(

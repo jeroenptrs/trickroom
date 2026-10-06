@@ -1,17 +1,23 @@
 import { resolveRegistryComponent } from "../libraries/registry";
 import { hasStageRenderer } from "../libraries/renderable-components";
+import {
+	type DesignLintResult,
+	lintDesign,
+	loadDesignLintSetup,
+} from "../lint/design-lint";
 import { validateRecipeInstances } from "../recipes/validation";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
 import { readAssetManifest } from "../utils/asset-manifest-service";
 import {
-	type ClassTokenCheckContext,
-	collectClassNameTokenIssues,
-	createAvailableTokenCheck,
-	createEmptyResolvedTokenContext,
-	EMPTY_CUSTOM_UTILITY_ROOTS,
-	noAvailableTokenCheck,
-	splitCustomUtilityRoots,
+	type ClassTokenInspector,
+	classTokenContextFromStorage,
+	createClassTokenInspector,
 } from "../utils/class-token-diagnostics";
+import {
+	createDesignClassChecker,
+	type DesignClassChecker,
+	type DesignClassDiagnostic,
+} from "../utils/design-class-diagnostics";
 import {
 	assetIdProp,
 	collectDesignResourceReferences,
@@ -19,26 +25,13 @@ import {
 } from "../utils/design-resource-references";
 import { findDesignSystem } from "../utils/design-system-store";
 import { readIconManifest } from "../utils/icon-manifest-service";
-import { computeResolvedColorTokens } from "../utils/resolved-color-tokens";
-import { buildResolvedTokenContext } from "../utils/resolved-tailwind-domain-tokens";
-import { suggestClosest } from "../utils/suggestions";
-import {
-	loadTailwindDesignSystem,
-	type TailwindDesignSystem,
-} from "../utils/tailwind-design-system";
-import {
-	TAILWIND_TOKEN_DOMAINS,
-	type TailwindTokenDomain,
-} from "../utils/tailwind-token-domains";
+import { loadCachedTailwindDesignSystem } from "../utils/tailwind-design-system";
+import type { TailwindTokenDomain } from "../utils/tailwind-token-domains";
 import {
 	readDomainTokensReadonly,
 	type TailwindCustomUtilityStorage,
 	type TailwindTokenStorage,
 } from "../utils/tailwind-token-store";
-import {
-	inspectTailwindUtilityCandidate,
-	type TailwindUtilityInspection,
-} from "../utils/tailwind-utility-inspector";
 import type { TrickroomMcpServerContext } from "./server";
 
 export type McpDesignIssue = {
@@ -246,70 +239,7 @@ export const shapeMutationDiagnostics = (
 	return shaped;
 };
 
-type TailwindUtilityInspector = {
-	inspect: (candidate: string) => TailwindUtilityInspection;
-	/** Nearest valid classes for an unsupported candidate, variants preserved. */
-	suggest: (candidate: string) => string[];
-};
-
-const classNameCache = new WeakMap<TailwindDesignSystem, string[]>();
-
-const getDesignSystemClassNames = (designSystem: TailwindDesignSystem) => {
-	let classNames = classNameCache.get(designSystem);
-	if (!classNames) {
-		classNames = designSystem.getClassList().map(([name]) => name);
-		classNameCache.set(designSystem, classNames);
-	}
-	return classNames;
-};
-
-/**
- * Split `md:hover:!bg-red-500/50` into the variant prefix, important marker,
- * utility root, and opacity modifier so suggestions only rewrite the utility.
- */
-const splitCandidate = (candidate: string) => {
-	let depth = 0;
-	let variantEnd = -1;
-	for (let index = 0; index < candidate.length; index++) {
-		const char = candidate[index];
-		if (char === "[" || char === "(") depth++;
-		else if (char === "]" || char === ")") depth--;
-		else if (char === ":" && depth === 0) variantEnd = index;
-	}
-	const prefix = candidate.slice(0, variantEnd + 1);
-	let utility = candidate.slice(variantEnd + 1);
-	let important = "";
-	if (utility.startsWith("!")) {
-		important = "!";
-		utility = utility.slice(1);
-	} else if (utility.endsWith("!")) {
-		important = "!";
-		utility = utility.slice(0, -1);
-	}
-	const modifierIndex = utility.includes("[") ? -1 : utility.lastIndexOf("/");
-	const modifier = modifierIndex > 0 ? utility.slice(modifierIndex) : "";
-	const root = modifierIndex > 0 ? utility.slice(0, modifierIndex) : utility;
-	return { prefix, important, root, modifier };
-};
-
-export const suggestTailwindClasses = (
-	classNames: readonly string[],
-	candidate: string,
-): string[] => {
-	const { prefix, important, root, modifier } = splitCandidate(candidate);
-	if (root.length < 2 || root.includes("[")) {
-		return [];
-	}
-	const maxDistance = Math.max(1, Math.min(3, Math.floor(root.length / 3)));
-	const nearby = classNames.filter(
-		(name) => Math.abs(name.length - root.length) <= maxDistance,
-	);
-	return suggestClosest(root, nearby, {
-		limit: 3,
-		maxDistance,
-		prefixMatches: false,
-	}).map((name) => `${prefix}${important}${name}${modifier}`);
-};
+export { suggestTailwindClasses } from "../utils/class-token-diagnostics";
 
 /** A board with its index in the design, so issue paths stay `boards[i]`. */
 type IndexedBoard = { board: DesignNode; index: number };
@@ -507,30 +437,27 @@ const hasClassNames = (nodes: DesignNode[]): boolean =>
 			(Array.isArray(node.children) && hasClassNames(node.children)),
 	);
 
+/** Run a class checker over every className of a board, depth first. */
 const collectClassDiagnostics = (
 	node: DesignNode,
 	path: string,
-	context: ClassTokenCheckContext,
+	check: DesignClassChecker,
 	issues: ClassTokenDiagnostic[],
 ) => {
 	const className = node.props.className;
 	if (className?.trim()) {
-		for (const issue of collectClassNameTokenIssues(className, context)) {
-			issues.push({
-				...issue,
-				path: `${path}.props.className`,
-				elementId: node.id,
-				className,
-			});
-		}
+		check(
+			className,
+			{ path: `${path}.props.className`, elementId: node.id },
+			issues as DesignClassDiagnostic[],
+		);
 	}
-
 	if (Array.isArray(node.children)) {
 		for (const [childIndex, child] of node.children.entries()) {
 			collectClassDiagnostics(
 				child,
 				`${path}.children[${childIndex}]`,
-				context,
+				check,
 				issues,
 			);
 		}
@@ -573,39 +500,79 @@ const getTokenSnapshotMetadata = (
 const loadTailwindUtilityInspector = async (
 	context: TrickroomMcpServerContext,
 	cssPath: string | undefined,
-): Promise<TailwindUtilityInspector | null> => {
+): Promise<ClassTokenInspector | null> => {
 	if (!cssPath?.trim()) {
 		return null;
 	}
 
 	try {
-		const { designSystem } = await loadTailwindDesignSystem({
+		const { designSystem } = await loadCachedTailwindDesignSystem({
 			projectRoot: context.projectRoot,
 			cssPath,
 		});
-		return {
-			inspect: (candidate) =>
-				inspectTailwindUtilityCandidate(designSystem, candidate),
-			suggest: (candidate) =>
-				suggestTailwindClasses(
-					getDesignSystemClassNames(designSystem),
-					candidate,
-				),
-		};
+		return createClassTokenInspector(designSystem);
 	} catch {
 		return null;
 	}
 };
 
 /**
+ * Lint findings as design issues: the code is the rule kind id, the
+ * severity the instance's (`info` findings are notes, not issues), and the
+ * kind's details (the offending class and suggestions, the axis and value)
+ * ride along. Problems that kept a rule from running are warnings.
+ */
+export const toDesignLintIssues = (
+	result: DesignLintResult,
+): ClassTokenDiagnostic[] => {
+	const issues: ClassTokenDiagnostic[] = [];
+	for (const finding of result.findings) {
+		if (finding.severity === "info") continue;
+		const location =
+			finding.location?.kind === "design" ? finding.location : null;
+		issues.push({
+			...finding.details,
+			severity: finding.severity,
+			code: finding.rule,
+			message: finding.message,
+			...(location?.path === undefined ? {} : { path: location.path }),
+			...(location?.element === undefined
+				? {}
+				: { elementId: location.element }),
+			...(finding.component === undefined
+				? {}
+				: { component: finding.component }),
+		});
+	}
+	for (const diagnostic of result.diagnostics) {
+		issues.push({
+			severity: "warning",
+			code: diagnostic.code,
+			message: diagnostic.message,
+		});
+	}
+	return issues;
+};
+
+/**
  * Diagnostics of a design: recipe instances, renderers, asset and icon
  * references, and class tokens. `boardIds` limits them to those boards (for
  * example the boards a write changed); file-level warnings are kept.
+ *
+ * With `lint`, the class and token checks run as the system's design-side
+ * lint rules instead (`design.unknown-class-token`,
+ * `design.unknown-variant-value`, `design.design-only-class-target`), with
+ * its `lint.json`: codes are rule kind ids and severities, enabled kinds
+ * and options follow the config. `design_validate` and the editor's design
+ * lint route pass it; without it the result is what it always was.
  */
 export const getDesignDiagnostics = async (
 	context: TrickroomMcpServerContext,
 	design: TrickroomDesign,
-	options: { boardIds?: ReadonlySet<string> } = {},
+	options: {
+		boardIds?: ReadonlySet<string>;
+		lint?: { designId: string };
+	} = {},
 ): Promise<DesignDiagnostics> => {
 	const systemHandle = design.systemId ?? design.systemName ?? null;
 	const system = systemHandle
@@ -636,40 +603,15 @@ export const getDesignDiagnostics = async (
 		context.projectRoot,
 		system.manifest.systemId,
 	);
-
-	if (!storedTokens) {
-		if (hasClassNames(design.boards)) {
-			issues.push({
-				severity: "warning",
-				code: "DESIGN_TOKENS_NOT_STORED",
-				message: `Design system "${system.manifest.systemName}" does not have a stored token snapshot; class token availability could not be verified.`,
-				path: "systemName",
-			});
-		}
-
-		const inspectUtility = await loadTailwindUtilityInspector(
-			context,
-			system.manifest.cssPath,
-		);
-		const classContext: ClassTokenCheckContext = {
-			resolvedTokens: createEmptyResolvedTokenContext(),
-			colorTokens: new Set<string>(),
-			customUtilityRoots: EMPTY_CUSTOM_UTILITY_ROOTS,
-			inspector: inspectUtility,
-			isAvailableToken: noAvailableTokenCheck,
-			includeTokenDomainDiagnostics: false,
-		};
-		for (const { board, index } of boards) {
-			collectClassDiagnostics(board, `boards[${index}]`, classContext, issues);
-		}
-
-		return {
-			issues,
-			tokenSnapshot: getTokenSnapshotMetadata(system.manifest, storedTokens),
-		};
+	if (!storedTokens && hasClassNames(design.boards)) {
+		issues.push({
+			severity: "warning",
+			code: "DESIGN_TOKENS_NOT_STORED",
+			message: `Design system "${system.manifest.systemName}" does not have a stored token snapshot; class token availability could not be verified.`,
+			path: "systemName",
+		});
 	}
-
-	if (storedTokens.metadata.reviewRequired) {
+	if (storedTokens?.metadata.reviewRequired) {
 		issues.push({
 			severity: "warning",
 			code: "DESIGN_SYSTEM_REVIEW_REQUIRED",
@@ -678,36 +620,35 @@ export const getDesignDiagnostics = async (
 		});
 	}
 
-	const resolvedTokens = buildResolvedTokenContext(storedTokens);
-	const colorDomain = storedTokens.domains.color;
-	const colorTokens = computeResolvedColorTokens({
-		meaningfulTokens: colorDomain.tokens,
-		removed: colorDomain.baselineDiff.removed,
-	}).names;
-	const customUtilityRoots = splitCustomUtilityRoots(
-		storedTokens.customUtilities,
-	);
-	const inspectUtility = await loadTailwindUtilityInspector(
-		context,
-		system.manifest.cssPath ?? storedTokens.metadata.cssPath,
-	);
-
-	const removedTokens = new Set(
-		TAILWIND_TOKEN_DOMAINS.flatMap((domain) =>
-			(storedTokens.domains[domain]?.baselineDiff.removed ?? []).map(
-				(token) => `${domain}:${token.name}`,
+	if (options.lint) {
+		const setup = await loadDesignLintSetup({
+			projectRoot: context.projectRoot,
+			system,
+		});
+		issues.push(
+			...toDesignLintIssues(
+				await lintDesign({
+					projectRoot: context.projectRoot,
+					setup,
+					designId: options.lint.designId,
+					design,
+					boardIds: options.boardIds,
+				}),
 			),
-		),
-	);
-	const classContext: ClassTokenCheckContext = {
-		resolvedTokens,
-		colorTokens,
-		customUtilityRoots,
-		inspector: inspectUtility,
-		isAvailableToken: createAvailableTokenCheck(inspectUtility, removedTokens),
-	};
-	for (const { board, index } of boards) {
-		collectClassDiagnostics(board, `boards[${index}]`, classContext, issues);
+		);
+	} else {
+		const check = createDesignClassChecker(
+			classTokenContextFromStorage(
+				storedTokens,
+				await loadTailwindUtilityInspector(
+					context,
+					system.manifest.cssPath ?? storedTokens?.metadata.cssPath,
+				),
+			),
+		);
+		for (const { board, index } of boards) {
+			collectClassDiagnostics(board, `boards[${index}]`, check, issues);
+		}
 	}
 
 	return {

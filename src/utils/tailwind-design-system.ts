@@ -265,11 +265,26 @@ async function resolveConfiguredTailwindSystemTargetInternal(
 	};
 }
 
-export async function loadTailwindDesignSystem({
+export async function loadTailwindDesignSystem(
+	options: LoadTailwindDesignSystemOptions,
+): Promise<LoadedTailwindDesignSystem> {
+	const { fileStamps: _fileStamps, ...loaded } =
+		await loadTrackedTailwindDesignSystem(options);
+	return loaded;
+}
+
+/** The design system plus a stamp of every file it read, keyed by abs path. */
+async function loadTrackedTailwindDesignSystem({
 	projectRoot,
 	cssPath,
-}: LoadTailwindDesignSystemOptions): Promise<LoadedTailwindDesignSystem> {
+}: LoadTailwindDesignSystemOptions): Promise<
+	LoadedTailwindDesignSystem & { fileStamps: Map<string, string | null> }
+> {
 	const rootPath = resolveTailwindCssPath(projectRoot, cssPath);
+	const fileStamps = new Map<string, string | null>();
+	// Stamp before reading, so a write that lands during the compile makes
+	// the entry stale rather than cached with the old content.
+	fileStamps.set(rootPath, await statStamp(rootPath));
 	const css = await readFile(rootPath, "utf8");
 
 	// Accumulate the content of every stylesheet the DS loads so callers can
@@ -278,6 +293,9 @@ export async function loadTailwindDesignSystem({
 	const collectedSources: string[] = [css];
 	const collectingLoadStylesheet = async (id: string, base: string) => {
 		const result = await loadStylesheet(id, base);
+		if (!fileStamps.has(result.path)) {
+			fileStamps.set(result.path, await statStamp(result.path));
+		}
 		collectedSources.push(result.content);
 		return result;
 	};
@@ -304,7 +322,77 @@ export async function loadTailwindDesignSystem({
 		);
 	});
 
-	return { designSystem, rootPath, cssSource: collectedSources.join("\n") };
+	return {
+		designSystem,
+		rootPath,
+		cssSource: collectedSources.join("\n"),
+		fileStamps,
+	};
+}
+
+/** `mtimeMs:size`, or null when the file cannot be stat'ed. */
+async function statStamp(filePath: string): Promise<string | null> {
+	try {
+		const stats = await stat(filePath);
+		return `${stats.mtimeMs}:${stats.size}`;
+	} catch {
+		return null;
+	}
+}
+
+type LoadedDesignSystemCacheEntry = {
+	loaded: LoadedTailwindDesignSystem;
+	fileStamps: Map<string, string | null>;
+};
+
+// Loading a design system parses the whole stylesheet, `tailwindcss` included,
+// which is far slower than the checks that use it. Validation runs on every
+// agent edit and editor autosave, so keep one per entry file (the absolute
+// path, so per project) and reuse it until the entry or any stylesheet it
+// imported changes (mtime or size). Failed loads are not kept.
+const loadedDesignSystemCache = new Map<
+	string,
+	Promise<LoadedDesignSystemCacheEntry>
+>();
+
+async function loadedDesignSystemIsFresh(
+	entry: LoadedDesignSystemCacheEntry,
+): Promise<boolean> {
+	for (const [filePath, stamp] of entry.fileStamps) {
+		if ((await statStamp(filePath)) !== stamp) {
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * `loadTailwindDesignSystem`, cached across calls: the same object comes back
+ * while the entry CSS and every file it imports are unchanged. Callers must
+ * treat the result as read-only.
+ */
+export async function loadCachedTailwindDesignSystem(
+	options: LoadTailwindDesignSystemOptions,
+): Promise<LoadedTailwindDesignSystem> {
+	const key = resolveTailwindCssPath(options.projectRoot, options.cssPath);
+	const cached = loadedDesignSystemCache.get(key);
+	if (cached) {
+		const entry = await cached.catch(() => null);
+		if (entry && (await loadedDesignSystemIsFresh(entry))) {
+			return entry.loaded;
+		}
+	}
+
+	const pending = loadTrackedTailwindDesignSystem(options).then(
+		({ fileStamps, ...loaded }) => ({ loaded, fileStamps }),
+	);
+	loadedDesignSystemCache.set(key, pending);
+	pending.catch(() => {
+		if (loadedDesignSystemCache.get(key) === pending) {
+			loadedDesignSystemCache.delete(key);
+		}
+	});
+	return (await pending).loaded;
 }
 
 type CompiledStylesheet = Awaited<ReturnType<typeof compile>>;
