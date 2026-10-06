@@ -281,12 +281,14 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			warnings: expect.arrayContaining([
 				expect.objectContaining({ code: "DESIGN_SYSTEM_REVIEW_REQUIRED" }),
 				expect.objectContaining({
-					code: "UNKNOWN_COLOR_TOKEN",
+					code: "design.unknown-class-token",
+					check: "UNKNOWN_COLOR_TOKEN",
 					elementId: "board",
 					token: "missing-500",
 				}),
 				expect.objectContaining({
-					code: "OUT_OF_SYSTEM_COLOR",
+					code: "design.unknown-class-token",
+					check: "OUT_OF_SYSTEM_COLOR",
 					elementId: "board",
 					classToken: "border-[#123456]",
 				}),
@@ -515,21 +517,22 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 			arguments: { designFileId: trickroomMcpTestDesignUuid, response: "full" },
 		});
 		const validation = toolPayload(validateResult) as {
-			warnings?: Array<{ code: string; token?: string }>;
+			warnings?: Array<{ code: string; check?: string; token?: string }>;
 		};
 		const unknownColorWarnings = (validation.warnings ?? []).filter(
-			(issue) => issue.code === "UNKNOWN_COLOR_TOKEN",
+			(issue) => issue.check === "UNKNOWN_COLOR_TOKEN",
 		);
 
 		expect(unknownColorWarnings).toEqual([
 			expect.objectContaining({
-				code: "UNKNOWN_COLOR_TOKEN",
+				code: "design.unknown-class-token",
+				check: "UNKNOWN_COLOR_TOKEN",
 				token: "slate-50",
 			}),
 		]);
 		expect(validation.warnings).not.toContainEqual(
 			expect.objectContaining({
-				code: "UNKNOWN_COLOR_TOKEN",
+				check: "UNKNOWN_COLOR_TOKEN",
 				token: "slate-950",
 			}),
 		);
