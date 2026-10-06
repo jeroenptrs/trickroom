@@ -94,7 +94,9 @@ System editor:
 
 - Add an icon folder by its project-relative path, for example `src/icons`. Trickroom indexes the SVGs inside it.
 - Register an image asset by its project-relative path, for example `public/images/hero.png`. The file stays where it is. The browser has no file picker or upload, so the image has to be in the project already.
-- The same `Alt` + `[` and `Alt` + `]` shortcuts collapse and expand the system editor's side panels.
+- Collapse the left sidebar with the panel button at the right end of its header (in the component editor, at the right end of the component header), or with `Alt` + `[`. A thin strip stays on the left edge with a button to expand it again. The sidebar keeps working while collapsed: draft sync and the layer shortcuts stay active, and the open component tab is kept.
+- Collapse the inspector with the panel button in its header, or with `Alt` + `]`. Collapsing keeps the selection and leaves a strip on the right edge to expand it again; the X next to it clears the selection instead. With nothing selected the right side stays empty, as before.
+- `Alt` + `1` and `Alt` + `3` expand a collapsed panel before focusing it. The collapsed state is remembered in the browser, separately from the design editor.
 
 Shared server:
 
