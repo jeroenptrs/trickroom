@@ -197,4 +197,36 @@ describe("code.redundant-class", () => {
 			'src/app.tsx:11:60 <Button className> repeats "rounded-md", which "button" already applies through its base classes. Remove it from className.',
 		]);
 	});
+
+	it("judges conditional class strings in every scenario where they apply", async () => {
+		const fixture = await fixtures.create({
+			components: [button()],
+			files: {
+				"src/ui/cn.ts": "export const cn = (...v: unknown[]) => v.join(' ');\n",
+				"src/ui/button.tsx": BUTTON_WRAPPER,
+				"src/app.tsx": [
+					'import { Button } from "./ui/button";',
+					'import { cn } from "./ui/cn";',
+					"declare const dense: boolean;",
+					"declare const compact: boolean;",
+					"declare const active: boolean;",
+					"export const App = () => (",
+					"\t<>",
+					// px-3 restores the base padding after p-0 when dense: not redundant.
+					'\t\t<Button variant="ghost" className={dense ? "p-0 px-3" : "px-1"} />',
+					'\t\t<Button variant="ghost" className={cn("p-0 px-3", compact && "px-1")} />',
+					'\t\t<Button variant="ghost" className={cn("p-0 px-3", { "px-1": compact })} />',
+					// Redundant whether or not the condition holds.
+					'\t\t<Button variant="ghost" className={cn("rounded-md", active && "px-3")} />',
+					"\t</>",
+					");",
+					"",
+				].join("\n"),
+			},
+		});
+		expect(describeFindings(await fixture.run(redundantClassRule))).toEqual([
+			'src/app.tsx:11:42 <Button className> repeats "rounded-md", which "button" already applies through its base classes. Remove it from className.',
+			'src/app.tsx:11:66 <Button className> repeats "px-3", which "button" already applies through its base classes. Remove it from className.',
+		]);
+	});
 });
