@@ -52,7 +52,7 @@ export const buttonPayload = (): SystemComponentDraftPayload => ({
 				label: "Size",
 				defaultValue: "md",
 				values: {
-					sm: { classesByPath: { root: "h-8 text-sm" } },
+					sm: { classesByPath: { root: "h-8 text-sm px-6" } },
 					md: { classesByPath: { root: "h-10" } },
 				},
 			},

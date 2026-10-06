@@ -122,7 +122,7 @@ describe("code.unknown-class-token", () => {
 });
 
 describe("code.redundant-class", () => {
-	it("reports classes the base or the selected variants already provide, skipping attributes a later spread may override and shadowed names", async () => {
+	it("reports classes that do not change the merged output, skipping attributes a later spread may override and shadowed names", async () => {
 		const fixture = await fixtures.create({
 			components: [button(), card()],
 			files: {
@@ -148,6 +148,7 @@ describe("code.redundant-class", () => {
 					'\t\t<Button variant="primary" disabled className="opacity-50 h-10" {...rest} />',
 					'\t\t<Button variant="primary" disabled {...rest} className="opacity-50 px-3" />',
 					'\t\t{((Button: any) => <Button variant="primary" className="px-3" />)(null)}',
+					'\t\t<Button variant="ghost" className="p-4 px-3 rounded-md" />',
 					"\t</Card>",
 					");",
 					"",
@@ -158,11 +159,11 @@ describe("code.redundant-class", () => {
 		expect(describeFindings(findings)).toEqual([
 			'src/app.tsx:7:19 <Card className> repeats "p-4", which "card" already applies through its base classes. Remove it from className.',
 			'src/app.tsx:7:23 <Card className> repeats "bg-white", which "card" already applies through the default tone="plain". Remove it from className.',
-			'src/app.tsx:9:41 <Card className> repeats "bg-red-500", which "card" already applies through tone="loud". Remove it from className.',
+			// bg-red-500 (from tone="loud") is not reported: removing it would let the bg-white before it win.
 			'src/app.tsx:9:88 <Button className> repeats "rounded-md", which "button" already applies through its base classes. Remove it from className.',
-			'src/app.tsx:10:48 <Button className> repeats "px-3", which "button" already applies through its base classes. Remove it from className.',
 			'src/app.tsx:10:53 <Button className> repeats "text-sm", which "button" already applies through size="sm". Remove it from className.',
 			'src/app.tsx:12:70 <Button className> repeats "px-3", which "button" already applies through its base classes. Remove it from className.',
+			'src/app.tsx:14:47 <Button className> repeats "rounded-md", which "button" already applies through its base classes. Remove it from className.',
 		]);
 	});
 });
