@@ -14,11 +14,14 @@ Everything lives in `src/lint/`. Pure modules take data and return data; one fil
 | `config.ts` | `lint.json`: shape, issues, normalisation, defaults, `resolveLintConfig`. |
 | `report.ts` | `LintReport` and `LintFinding`: stable ordering, validation, reader, atomic writer. |
 | `ratchet.ts` | Tracked numbers, comparison with the baseline and the thresholds. |
-| `rules/` | The rule kind interface (`types.ts`), the registry (`registry.ts`), the shipped kinds (`index.ts`, `code/`, later `design/`). |
+| `rules/` | The rule kind interface (`types.ts`), the registry (`registry.ts`), the shipped kinds (`index.ts`, `code/`, `design/`). |
+| `run-rules.ts` | The rule runner `runLint` and the design validation share: enabled kinds, severities, option checks, failures. |
+| `designs.ts` | `LintDesignIndex` and `buildLintDesignIndex`: the linked Designs as the design rules see them. |
 | `source/` | The syntactic source model: `glob.ts`, `walk.ts` (file walker), `parse.ts` (`oxc-parser` module model), `index.ts` (project index and component identity), `locations.ts`. |
-| `run-lint.ts` | The filesystem adapter: reads the project, builds the contract, indexes sources, runs the rules, ratchets, writes the report. |
+| `run-lint.ts` | The filesystem adapter: reads the project, builds the contract, indexes sources and designs, runs the rules, ratchets, writes the report. |
+| `design-lint.ts` | The design rules on one design, for `design_validate` and the editor (see [Design validation](#design-validation)). |
 
-Entry points: `src/cli/lint.ts` (`trickroom lint`, bundled by `vite.lint.config.ts` into `dist/lint.js`), `src/mcp/tools/lint.ts` (the `lint` MCP tool), `src/routes/system-lint.ts` (the Hono routes) and `src/queries/system-lint.ts` (the browser queries). All four call `runLint`; nothing else computes findings.
+Entry points: `src/cli/lint.ts` (`trickroom lint`, bundled by `vite.lint.config.ts` into `dist/lint.js`), `src/mcp/tools/lint.ts` (the `lint` MCP tool), `src/routes/system-lint.ts` (the Hono routes) and `src/queries/system-lint.ts` (the browser queries). All four call `runLint`. The design-side kinds also run on a single design through `design-lint.ts`, for `design_validate` and the editor's `GET /api/trickroom/design/lint`; both use the same registry, runner and `lint.json`. Nothing else computes findings.
 
 `oxc-parser` is the only dependency added. It is a native (napi) package, so every Vite SSR bundle keeps it external (`nativeRuntimeDependencies` in the `vite.*.config.ts` files, next to the optional `playwright-core`).
 
@@ -32,11 +35,10 @@ Entry points: `src/cli/lint.ts` (`trickroom lint`, bundled by `vite.lint.config.
 4. Builds the `SystemContract`.
 5. Runs the codegen check (`runCodegen` in check mode) when the project has a `codegen` block for this system. This runs the configured formatter command, as `trickroom codegen --check` does.
 6. Walks the source globs, parses every file with `oxc-parser` and builds the project index (component identity, usages).
-7. Runs every enabled rule kind of the registry and collects findings.
-8. Builds the report, reads the committed report, computes the ratchet.
-9. Writes the report according to the write mode (see [Ratchet](#ratchet)).
-
-Design-side inputs (`designs` in the rule context) are null until WP4 wires them.
+7. Reads the Designs linked to the system and builds the design index (see [The design index](#the-design-index)). A design that cannot be read is a `DESIGN_UNREADABLE` warning and is skipped.
+8. Runs every enabled rule kind of the registry and collects findings. Invalid `options` of a kind are `INVALID_LINT_CONFIG`, checked right after `lint.json` is read.
+9. Builds the report, reads the committed report, computes the ratchet.
+10. Writes the report according to the write mode (see [Ratchet](#ratchet)).
 
 ## Files
 
@@ -122,12 +124,12 @@ type LintReport = {
   status: "pass" | "fail";                  // the ratchet outcome of this run
   summary: {
     code: LintSideSummary;
-    design: LintSideSummary | null;         // null until WP4
+    design: LintSideSummary | null;         // null when every design-side kind is disabled
   };
   findings: LintFinding[];
   components: LintComponentCoverage[];
   files: LintFileStats[];
-  designs: LintDesignStats[] | null;        // null until WP4
+  designs: LintDesignStats[] | null;        // one row per linked design and per board; null in reports from before the design side
   ratchet: LintRatchetResult;               // this run's comparison, see Ratchet
   ratchetBaseline: {
     generatedAt: string;                    // the passing run the numbers come from
@@ -167,9 +169,10 @@ type LintComponentCoverage = {
   generated: boolean | null;                // variants file on disk and current; null without codegen
   bound: boolean | null;                    // a scanned module binds its variants file; null when nothing was scanned
   usedInApp: boolean | null;                // rendered by JSX in the scanned sources; null as above
-  usedInDesigns: boolean | null;            // null until WP4
+  usedInDesigns: boolean | null;            // placed in a linked Design
   wrappers: string[];                       // bound wrapper modules
   usages: number;                           // JSX usages in the scanned sources
+  designUsages?: number;                    // instances placed in the linked Designs; always written, read as 0 from older reports
 };
 
 type LintFileStats = {
@@ -180,14 +183,15 @@ type LintFileStats = {
   findings: { errors: number; warnings: number; info: number };
 };
 
-type LintDesignStats = {                    // planned (WP4)
-  design: string; board: string | null;
-  usages: number;
-  findings: { errors: number; warnings: number; info: number };
+type LintDesignStats = {
+  design: string;                           // design file id
+  board: string | null;                     // null: the row of the whole design
+  usages: number;                           // instances of the system's components placed there
+  findings: { errors: number; warnings: number; info: number }; // findings located there
 };
 ```
 
-Example (one stale file, one component used twice):
+Example (one stale file, one component used twice in the app and three times in a Design):
 
 ```json
 {
@@ -206,7 +210,15 @@ Example (one stale file, one component used twice):
 			},
 			"scanned": 4
 		},
-		"design": null
+		"design": {
+			"findings": { "errors": 0, "warnings": 0, "info": 0 },
+			"rules": {
+				"design.design-only-class-target": { "errors": 0, "warnings": 0, "info": 0 },
+				"design.unknown-class-token": { "errors": 0, "warnings": 0, "info": 0 },
+				"design.unknown-variant-value": { "errors": 0, "warnings": 0, "info": 0 }
+			},
+			"scanned": 1
+		}
 	},
 	"findings": [
 		{
@@ -219,8 +231,8 @@ Example (one stale file, one component used twice):
 		}
 	],
 	"components": [
-		{ "slug": "badge", "componentId": "cmp_…", "name": "badge", "published": true, "generated": false, "bound": false, "usedInApp": false, "usedInDesigns": null, "wrappers": [], "usages": 0 },
-		{ "slug": "button", "componentId": "cmp_…", "name": "button", "published": true, "generated": true, "bound": true, "usedInApp": true, "usedInDesigns": null, "wrappers": ["src/ui/button.tsx"], "usages": 2 }
+		{ "slug": "badge", "componentId": "cmp_…", "name": "badge", "published": true, "generated": false, "bound": false, "usedInApp": false, "usedInDesigns": false, "wrappers": [], "usages": 0, "designUsages": 0 },
+		{ "slug": "button", "componentId": "cmp_…", "name": "button", "published": true, "generated": true, "bound": true, "usedInApp": true, "usedInDesigns": true, "wrappers": ["src/ui/button.tsx"], "usages": 2, "designUsages": 3 }
 	],
 	"files": [
 		{ "file": "src/app.tsx", "role": null, "component": null, "usages": 2, "findings": { "errors": 0, "warnings": 0, "info": 0 } },
@@ -228,7 +240,10 @@ Example (one stale file, one component used twice):
 		{ "file": "src/ui/button.tsx", "role": "wrapper", "component": "button", "usages": 0, "findings": { "errors": 0, "warnings": 0, "info": 0 } },
 		{ "file": "src/ui/button.variants.ts", "role": "generated", "component": "button", "usages": 0, "findings": { "errors": 0, "warnings": 0, "info": 0 } }
 	],
-	"designs": null,
+	"designs": [
+		{ "design": "5ed7a853-…", "board": null, "usages": 3, "findings": { "errors": 0, "warnings": 0, "info": 0 } },
+		{ "design": "5ed7a853-…", "board": "board-1", "usages": 3, "findings": { "errors": 0, "warnings": 0, "info": 0 } }
+	],
 	"ratchet": {
 		"status": "pass",
 		"baseline": null,
@@ -243,7 +258,7 @@ Example (one stale file, one component used twice):
 }
 ```
 
-Ordering, so the committed file diffs cleanly: findings by side, rule, location (file, line, column; design, board, element, path), severity, component, message; components by slug; files by file; designs by design then board; regressions and breaches by metric; every map by key. `files` lists only files that have a role, a usage or a finding; `summary.code.scanned` counts the rest. `writeLintReport` writes through a temp file and a rename, and only into a folder that resolves (symlinks followed) to a direct child of `.trickroom/systems`.
+Ordering, so the committed file diffs cleanly: findings by side, rule, location (file, line, column; design, board, element, path), severity, component, message; components by slug; files by file; designs by design then board (the design's own row first); regressions and breaches by metric; every map by key. `files` lists only files that have a role, a usage or a finding; `summary.code.scanned` counts the rest. `designs` lists every linked design and each of its boards, clean or not; `summary.design.scanned` counts the linked designs read. `writeLintReport` writes through a temp file and a rename, and only into a folder that resolves (symlinks followed) to a direct child of `.trickroom/systems`.
 
 ## The system contract
 
@@ -263,6 +278,7 @@ type SystemContract = {
   components: SystemContractComponent[];   // sorted by slug
   tokens: {
     domains: Record<TailwindTokenDomain, string[]>; // resolved names: defaults minus removed, plus added
+    removed: Record<TailwindTokenDomain, string[]>; // defaults the system removed on purpose
     customUtilities: Array<{ root: string; kind: "functional" | "static" }>;
     snapshot: { syncedAt: string; reviewRequired: boolean } | null;
   };
@@ -284,11 +300,18 @@ type SystemContractComponent = {
   }>;
   compounds: Array<{ when: Array<[axisKey, value | value[]]>; classes: Array<[slotKey, className]> }>;
   designOnlyPaths: string[];         // template paths flagged design-only, descendants included
+  versions: Array<{                  // every published version, sorted by version
+    version: string;
+    axes: Array<{ key: string; values: string[] }>; // from the variant schema
+  }>;
+  classTargets: Array<{              // variant and compound class entries of the current version
+    axis: string | null; value: string | null; compound: number | null; path: string;
+  }>;
   codegen: { selected: boolean; issues: string[] }; // selected by include/exclude and valid
 };
 ```
 
-Slots, axes, compounds and the shape come from `src/codegen/model.ts`, so a rule sees exactly what the generated file contains. The axis order is codegen's layering order. Without a `codegen` block the codegen defaults apply so `fileName` and `exportName` are still meaningful. Design-only paths are read from the optional `designOnly` flag on template nodes (WP1), inherited by descendants.
+Slots, axes, compounds and the shape come from `src/codegen/model.ts`, so a rule sees exactly what the generated file contains. The axis order is codegen's layering order. Without a `codegen` block the codegen defaults apply so `fileName` and `exportName` are still meaningful. Design-only paths are read from the optional `designOnly` flag on template nodes (WP1), inherited by descendants and by the default children of a slot hosted on a design-only node (the same set codegen uses). `versions` and `classTargets` come from the variant schema, not the codegen model: a component whose model is invalid (a design-only class target is a codegen error) or that is design-only has no `axes`, but its instances in Designs still have values to check.
 
 **What stays out of the contract.** The compiled Tailwind design system (the utility inspector that answers "is `text-brand-500` a real utility here") is heavy to load and not serialisable, so it is not part of the contract. The rule context provides it lazily: `context.tailwind.inspector()` compiles the system's `cssPath` on first use, once per run, and returns null when there is no CSS or it fails to compile. Token names per domain are in the contract, so token-membership checks need no inspector.
 
@@ -302,6 +325,7 @@ type LintRuleKind = {
   side: "code" | "design";
   defaultSeverity: "error" | "warning" | "info";
   description: string;
+  validateOptions?: (options: Record<string, unknown>) => string[]; // issues name the option; any issue is INVALID_LINT_CONFIG
   run: (context: LintRuleContext) => LintRuleFinding[] | Promise<LintRuleFinding[]>;
 };
 
@@ -312,8 +336,8 @@ type LintRuleContext = {
   rule: ResolvedLintRule;            // this instance: enabled, severity, options
   codegen: CodegenRunResult | null;  // the check-mode result; null without a codegen block
   sources: SourceIndex;              // parsed modules, generated files, identities, usages
-  designs: null;                     // WP4
-  tailwind: { inspector: () => Promise<{ inspect(candidate: string): TailwindUtilityInspection } | null> };
+  designs: LintDesignIndex;          // the linked Designs; design_validate hands in the one it checks
+  tailwind: { inspector: () => Promise<{ inspect(candidate: string): TailwindUtilityInspection; suggest?(candidate: string): string[] } | null> };
 };
 
 type LintRuleFinding = {
@@ -321,10 +345,13 @@ type LintRuleFinding = {
   location: LintLocation | null;
   component?: string;                // slug
   severity?: "info";                 // only for notes that are not violations
+  details?: Record<string, unknown>; // extras for design_validate (offending class, suggestions); never in the report
 };
 ```
 
-The runner stamps `rule` and `side` on each finding and gives it the instance's severity; a finding may only lower itself to `info` (for example "codegen not configured, skipped"). A rule that throws fails the run (`RULE_FAILED`, exit 2) rather than silently passing. Kinds are registered in `src/lint/rules/index.ts` (`LINT_RULE_KINDS`, catalogue order); the registry rejects malformed or duplicate ids. Each kind has tests next to it on fixture input.
+A design location's `path` is the JSON path of the element in the design file (`boards[0].children[2]`, with `.props.className` for a class finding), the same path `design_validate` issues carry.
+
+The runner (`run-rules.ts`) stamps `rule` and `side` on each finding and gives it the instance's severity; a finding may only lower itself to `info` (for example "codegen not configured, skipped"). A rule that throws fails the run (`RULE_FAILED`, exit 2) rather than silently passing. Kinds are registered in `src/lint/rules/index.ts` (`LINT_RULE_KINDS`, catalogue order); the registry rejects malformed or duplicate ids. Each kind has tests next to it on fixture input.
 
 ### Catalogue
 
@@ -343,15 +370,34 @@ Code side:
 | `code.variants-imported-outside-component` | error | planned (WP3) | A module other than the wrapper imports the variants file directly (re-exports from the wrapper are the sanctioned way). |
 | `code.component-styling-restricted` | warning | planned (WP3) | Configurable: styling of component X is allowed only in component X (`options`). |
 
-Design side (planned, WP4; run by the engine and by `design_validate`):
+Design side (run by the engine over every linked Design, and by `design_validate` and the editor on one design):
 
-| Id | Default | Checks |
-| --- | --- | --- |
-| `design.unknown-class-token` | warning | The class and token checks of `getDesignDiagnostics`, configurable per system. |
-| `design.design-only-class-target` | error | A variant or compound class entry targets a design-only node. |
-| `design.unknown-variant-value` | error | An instance passes a variant value the axis does not have. |
+| Id | Default | Status | Checks |
+| --- | --- | --- | --- |
+| `design.unknown-class-token` | warning | shipped (WP4) | The class and token checks `getDesignDiagnostics` runs on every `className` of every board: a token the system does not define or removed (`UNKNOWN_<DOMAIN>_TOKEN`), an arbitrary value where the system has tokens (`OUT_OF_SYSTEM_<DOMAIN>`), a class the system's Tailwind cannot emit (`UNKNOWN_TAILWIND_UTILITY`, only when the system CSS compiles). Without a token snapshot only the last runs. Options below. |
+| `design.design-only-class-target` | error | shipped (WP4) | A variant value or compound variant of a published component's current version adds classes to a path inside a design-only subtree. Mirrors codegen's `DESIGN_ONLY_CLASS_TARGET` from the design model, so it also covers components without codegen and design-only components. The finding names the component; its location is null. |
+| `design.unknown-variant-value` | error | shipped (WP4) | An instance in a Design records a variant value its axis does not have, or an axis the component does not have. Checked against the published version the instance uses; a version missing from the manifest is checked against the current one (the message says so). When an instance pinned to an older version is wrong there but right in the current version, the message says to migrate it. Instances of components the manifest does not know are left to the component usage checks. |
 
-Options are documented per kind when it ships. Ids are stable once shipped: they are keys in committed files.
+`design.unknown-class-token` options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `allow` | `string[]` | `[]` | Classes never reported. `*` matches any run of characters; a pattern matches the whole class (`hover:bg-legacy-500`) or the class without its variants and `!` (`bg-legacy-*` allows `md:hover:bg-legacy-500/50`). |
+| `codes` | `string[]` | all | Report only these checks: `UNKNOWN_COLOR_TOKEN`, `UNKNOWN_SPACING_TOKEN`, `UNKNOWN_FONT_TOKEN`, `UNKNOWN_TEXT_TOKEN`, `UNKNOWN_RADIUS_TOKEN`, `UNKNOWN_SHADOW_TOKEN`, `UNKNOWN_TAILWIND_TOKEN`, `OUT_OF_SYSTEM_COLOR`, `OUT_OF_SYSTEM_FONT`, `OUT_OF_SYSTEM_RADIUS`, `OUT_OF_SYSTEM_TEXT`, `OUT_OF_SYSTEM_SHADOW`, `OUT_OF_SYSTEM_BLUR`, `OUT_OF_SYSTEM_TAILWIND_TOKEN`, `UNKNOWN_TAILWIND_UTILITY`. |
+
+```json
+{
+	"version": 1,
+	"rules": {
+		"design.unknown-class-token": {
+			"options": { "allow": ["bg-legacy-*"], "codes": ["UNKNOWN_COLOR_TOKEN", "UNKNOWN_TAILWIND_UTILITY"] }
+		},
+		"design.unknown-variant-value": { "severity": "warning" }
+	}
+}
+```
+
+An unknown option, a non-list or an unknown code is `INVALID_LINT_CONFIG`. The other design kinds take no options. Options are documented per kind when it ships. Ids are stable once shipped: they are keys in committed files.
 
 ## The source model
 
@@ -375,6 +421,52 @@ Options are documented per kind when it ships. Ids are stable once shipped: they
 - `usages` are the JSX elements whose name resolves to a bound component, including namespace members (`<UI.Button>`).
 
 These feed the coverage rows (`bound`, `usedInApp`, `usages`) and the heat map (`files`). WP3's rules build on the same index.
+
+## The design index
+
+`designs.ts` is pure: `buildLintDesignIndex({ systemId, designs })` turns designs already read into what the design rules check.
+
+```ts
+type LintDesignIndex = {
+  systemId: string;
+  designs: Array<{                 // linked designs, sorted by id
+    id: string; name: string;
+    boards: Array<{
+      id: string; name: string | null;  // the board layer's name
+      nodes: Array<{                    // every node, the board included, depth first
+        element: string;                // element id
+        path: string;                   // boards[0].children[2]
+        className: string | null;
+        instance: {                     // instance markers, when the node belongs to a placed component
+          systemId: string; componentId: string; instanceId: string;
+          version: string;              // the published version the instance uses
+          templatePath: string;         // the node's path inside the component
+          root: boolean;
+          variantValues: Record<string, string>; // recorded on the root only
+        } | null;
+      }>;
+    }>;
+  }>;
+  usages: Record<string, Array<{   // by component id: instance roots of this system's components
+    design: string; board: string; element: string; path: string;
+    instanceId: string; version: string; variantValues: Record<string, string>;
+  }>>;
+};
+```
+
+`run-lint.ts` reads every design under `.trickroom/designs` (both layouts) with `readDesignFileWithoutLock`: no lock, no journal replay, older designs migrated in memory only, so a lint run writes nothing there. A design is linked when its `systemId` is the system's id, or, for a legacy design without one, its `systemName` is the system's name, a previous name or its storage key. Designs linked to other systems or none are skipped; an unreadable design (invalid JSON, a newer version, a write in progress) is a `DESIGN_UNREADABLE` warning. Instances whose markers name another system are not usages. Coverage takes `usedInDesigns` and `designUsages` from `usages`; the `designs` rows count the usages and the findings located in each design and board.
+
+## Design validation
+
+`design-lint.ts` runs the design-side kinds on one design: `loadDesignLintSetup` reads the linked system read-only (components, `lint.json`, token snapshot) into a contract and resolved config, and `lintDesign` builds the index of that design (or of some boards) and runs the design-side kinds through the same runner, with the same Tailwind inspector loader. Unlike a lint run it never fails:
+
+- An invalid `lint.json` applies the defaults; invalid options of a kind apply that kind's defaults; each is an `INVALID_LINT_CONFIG` diagnostic. A kind that throws is skipped with a `LINT_RULE_FAILED` diagnostic.
+- Findings without a design location (`design.design-only-class-target`) are kept only for components the checked boards place.
+
+Two callers:
+
+- `design_validate` (whole file and operation-plan dry-runs) passes `lint` to `getDesignDiagnostics`, which then runs the kinds instead of its own class checks. Each finding is an issue whose `code` is the rule kind id and whose severity is the instance's; the kind's `details` ride along (`check` holds the former class code, plus `classToken`, `suggestions`, `axis`, `value`, …). `info` findings are not issues; diagnostics are warnings. The other checks (recipes, renderers, assets and icons, `DESIGN_TOKENS_NOT_STORED`, `DESIGN_SYSTEM_REVIEW_REQUIRED`) run as before. `design_apply` does not pass `lint`, so its write diagnostics keep their codes. See [MCP](mcp.md#validation-design_validate).
+- The editor: `GET /api/trickroom/design/lint?id=<designId>` returns `{ designId, system, rules, findings, diagnostics }` for the saved design (`system` null when the design links none). The design inspector lists the findings on the selected layer and, with nothing selected, the design's totals, the component-level findings and the diagnostics. The query (`src/queries/design-lint.ts`, prefix `trickroom-design-lint`) refreshes on design and system file events, so it follows autosave.
 
 ## Ratchet
 
@@ -417,7 +509,7 @@ trickroom lint [project] [--check] [--json] [--system <id|name>]
 | `--json` | Print the `LintRunResult` alone on stdout: `status`, `mode`, `system`, `report`, `ratchet`, `baseline` (`absent`, `invalid`, `present`), `reportPath`, `written`, `diagnostics`. |
 | `--system` | Select a system by id, name or storage key. |
 
-Exit codes: 0 pass, 1 ratchet failure, 2 error (no project, invalid config or `lint.json`, unknown or ambiguous system, a crashed rule, a refused write, or anything the engine did not foresee, reported as `RUN_FAILED`). An error never escapes `runLint` as an exception, so `--json` output stays valid. Human output lists each side's counts, then findings grouped by rule kind with their location, then every number that got worse and every threshold broken, then one closing line.
+Exit codes: 0 pass, 1 ratchet failure, 2 error (no project, invalid config or `lint.json` including invalid rule options, unknown or ambiguous system, a crashed rule, a refused write, or anything the engine did not foresee, reported as `RUN_FAILED`). Warnings that do not stop a run: `COMPONENT_MANIFEST_DIAGNOSTIC`, `CODEGEN_OTHER_SYSTEM`, `INVALID_BASELINE`, `SOURCE_PARSE_ERROR`, `SOURCES_TRUNCATED`, `WRAPPER_MODULE_NOT_SCANNED`, `DESIGN_UNREADABLE`. An error never escapes `runLint` as an exception, so `--json` output stays valid. Human output lists each side's counts, then findings grouped by rule kind with their location, then every number that got worse and every threshold broken, then one closing line.
 
 `pnpm build:lint` builds `dist/lint.js`; `pnpm build` includes it.
 
@@ -431,11 +523,12 @@ The `lint` tool (`src/mcp/tools/lint.ts`, group `designValidation`) takes `check
 | --- | --- |
 | `GET /api/trickroom/systems/:systemHandle/lint` | `{ systemId, systemName, report }`; 404 `{ error, code: "LINT_REPORT_NOT_FOUND" }` before the first run; 409 `LINT_REPORT_INVALID` when the file cannot be read. |
 | `POST /api/trickroom/systems/:systemHandle/lint` | Runs the engine for that system with `write: "always"` and returns `{ systemId, systemName, status, report, ratchet, written, diagnostics }`; 500 `LINT_FAILED` with `diagnostics` when the run cannot complete. |
+| `GET /api/trickroom/design/lint?id=<designId>` | The design-side kinds on one saved design (see [Design validation](#design-validation)): `{ designId, system, rules, findings, diagnostics }`; findings carry `details`. 404 for an unknown design, 422 for one that cannot be read. |
 
 Browser side, `src/queries/system-lint.ts`: `systemLintQueryOptions(systemId, projectScope)` (key prefix `trickroom-system-lint`, refreshed by file events on `lint.json` and `lint-report.json`), `runSystemLint(systemId)` for a mutation, `invalidateSystemLint`.
 
 ## For the later packages
 
 - **WP3 (code-side rules)**: add kinds under `src/lint/rules/code/` and append them to `LINT_RULE_KINDS`. Use `context.sources` for identity (`components[].wrappers`, `importers`, `reexporters`), bindings and usages, `context.contract` for axes, slots and tokens, and `context.tailwind.inspector()` for utility checks. Locations come from `SourceModule` positions (1-based line and column). Document each kind's options in the catalogue above.
-- **WP4 (design-side rules)**: add kinds under `src/lint/rules/design/`, replace `designs: null` in the context with the design inputs, fill `summary.design`, `designs` and `usedInDesigns` in `run-lint.ts`, and call the same kinds from `design_validate` with the system's resolved config. Design locations use `{ kind: "design", design, board, element, path }`.
-- **WP5 (dashboard)**: read `systemLintQueryOptions`; run with `runSystemLint`; edit `lint.json` through the server with `serializeLintConfig`. Adherence comes from `summary` and the report's `ratchet` block: `ratchet.numbers` against `ratchet.baseline.numbers` is the delta against the committed baseline, `regressions` and `breaches` are what to flag, and the thresholds themselves are in `lint.json` (`breaches` carry each broken limit). `ratchetBaseline` is only what the next run will compare against. Coverage comes from `components`, the heat map from `files` (and `designs` once WP4 fills it).
+- **WP4 (design-side rules)**: shipped; see the catalogue, [The design index](#the-design-index) and [Design validation](#design-validation).
+- **WP5 (dashboard)**: read `systemLintQueryOptions`; run with `runSystemLint`; edit `lint.json` through the server with `serializeLintConfig`. Adherence comes from `summary` and the report's `ratchet` block: `ratchet.numbers` against `ratchet.baseline.numbers` is the delta against the committed baseline, `regressions` and `breaches` are what to flag, and the thresholds themselves are in `lint.json` (`breaches` carry each broken limit). `ratchetBaseline` is only what the next run will compare against. Coverage comes from `components` (`usedInDesigns`, `designUsages`), the heat map from `files`, and the design-side equivalent from `designs` (one row per design with `board: null`, then one per board) with the findings whose location names that design and board.

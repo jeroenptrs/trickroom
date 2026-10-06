@@ -154,7 +154,7 @@ Rule kinds, each with tests on fixture TSX:
 
 ### WP4: design-side rules and configuration
 
-Status: in progress. Model: Opus 5.5. Depends on WP2 and WP1.
+Status: in review. Model: Opus 5.5. Depends on WP2 and WP1.
 
 - Design-side rule kinds through the engine: token and class rules (the
   existing `getDesignDiagnostics` checks, now configurable per system),
@@ -164,6 +164,31 @@ Status: in progress. Model: Opus 5.5. Depends on WP2 and WP1.
   rules with the system's `lint.json`, so severities and allow-lists apply.
 - The design side of the report: findings per Design file and board, and
   component usage in designs for the coverage view.
+
+Decisions taken in WP4 (details in [docs/lint.md](../lint.md)):
+
+- Three kinds: `design.unknown-class-token` (warning; options `allow`
+  and `codes`), `design.design-only-class-target` (error, component-level,
+  location null) and `design.unknown-variant-value` (error, checked against
+  the version the instance uses). The class checks moved to
+  `src/utils/design-class-diagnostics.ts`, shared by `getDesignDiagnostics`
+  and the rule.
+- The contract gains `versions` (axes of every published version, from the
+  variant schema), `classTargets` and `tokens.removed`, and uses WP1's
+  design-only path set (slot default children of a design-only host
+  included).
+- Kinds may declare `validateOptions`; invalid options are
+  `INVALID_LINT_CONFIG` for a lint run, and fall back to the kind's
+  defaults (with a warning) in `design_validate` and the editor.
+- Lint reads designs without the design lock (`readDesignFileWithoutLock`),
+  so it never replays a journal or writes; unreadable designs are
+  `DESIGN_UNREADABLE` warnings.
+- `design_validate` reports lint findings with the rule kind id as `code`
+  and the former class code in `check`; `design_apply` keeps its codes.
+- The editor gets `GET /api/trickroom/design/lint` and a findings list in
+  the design inspector (selected layer, or the design's totals).
+- Coverage rows gain `designUsages` (optional in the type so older reports
+  still parse).
 
 ### WP5: dashboard and rule configuration UI
 
