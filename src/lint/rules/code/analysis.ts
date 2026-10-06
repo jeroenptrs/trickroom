@@ -15,6 +15,7 @@ import {
 	type SourceCallArgument,
 	type SourceCallRef,
 	type SourceClassString,
+	type SourceJsxElement,
 	type SourceLiteralValue,
 	type SourceModule,
 	type SourcePosition,
@@ -77,6 +78,9 @@ const EMPTY_MODULE_VARIANTS: ModuleVariants = {
 };
 
 const cache = new WeakMap<SourceIndex, WeakMap<SystemContract, CodeAnalysis>>();
+
+const comparePositions = (left: SourcePosition, right: SourcePosition) =>
+	left.line - right.line || left.column - right.column;
 
 export const codeLocation = (
 	file: string,
@@ -358,6 +362,30 @@ export const isComponentUsage = (
 	);
 };
 
+/**
+ * The attribute `name` of a JSX element as far as it is known: absent,
+ * or its value. A literal followed by a `{...spread}` (in source order)
+ * may be overridden at runtime, so its value is `unknown`; a spread
+ * before it does not matter.
+ */
+export const jsxAttributeValue = (
+	element: SourceJsxElement,
+	name: string,
+): SourceLiteralValue | null => {
+	const attribute = element.attributes.findLast((entry) => entry.name === name);
+	if (!attribute) return null;
+	return spreadFollows(element, attribute.position)
+		? { kind: "unknown" }
+		: attribute.value;
+};
+
+/** A `{...spread}` comes after `position` on the element, so it may override what is there. */
+export const spreadFollows = (
+	element: SourceJsxElement,
+	position: SourcePosition,
+): boolean =>
+	element.spreads.some((spread) => comparePositions(spread, position) > 0);
+
 /** A literal as the variant key tailwind-variants would look up; null when unset or dynamic. */
 export const literalVariantKey = (value: SourceLiteralValue): string | null => {
 	if (value.kind === "string") return value.value;
@@ -382,9 +410,6 @@ export const objectArgument = (
 	argument: SourceCallArgument | undefined,
 ): Extract<SourceCallArgument, { kind: "object" }> | null =>
 	argument?.kind === "object" ? argument : null;
-
-const comparePositions = (left: SourcePosition, right: SourcePosition) =>
-	left.line - right.line || left.column - right.column;
 
 /**
  * The class strings of a usage's `className` attribute. Class strings carry

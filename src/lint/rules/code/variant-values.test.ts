@@ -57,6 +57,31 @@ describe("code.unknown-variant-value", () => {
 		);
 	});
 
+	it("skips a literal a later spread may override, but not one after the spread", async () => {
+		const fixture = await fixtures.create({
+			components: [button()],
+			files: {
+				"src/ui/button.tsx": BUTTON_WRAPPER,
+				"src/app.tsx": [
+					'import { Button } from "./ui/button";',
+					'declare const props: { variant: "ghost"; disabled: false };',
+					"export const App = () => (",
+					"\t<>",
+					'\t\t<Button variant="wrong" disabled="maybe" className="opacity-50" {...props} />',
+					'\t\t<Button {...props} variant="after" />',
+					"\t</>",
+					");",
+					"",
+				].join("\n"),
+			},
+		});
+		expect(
+			describeFindings(await fixture.run(unknownVariantValueRule)).map(
+				(line) => line.split(" passes")[0],
+			),
+		).toEqual(['src/app.tsx:6:22 <Button variant="after">']);
+	});
+
 	it("checks literal objects passed to the variants export and its slots", async () => {
 		const fixture = await fixtures.create({
 			components: [button(), card()],

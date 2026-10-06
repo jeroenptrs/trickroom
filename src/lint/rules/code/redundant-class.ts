@@ -7,7 +7,9 @@ import {
 	codeLocation,
 	getCodeAnalysis,
 	isComponentUsage,
+	jsxAttributeValue,
 	literalVariantKey,
+	spreadFollows,
 	usageClassStrings,
 } from "./analysis";
 
@@ -15,9 +17,11 @@ import {
  * A class on a usage's `className` that the component already applies:
  * the base classes of its root slot (where a wrapper puts `className`)
  * and the root classes of the variant values the element selects. A
- * literal attribute selects its value; an absent attribute selects the
- * axis default unless a spread may supply it; a dynamic value selects
- * nothing knowable, so only the base classes count for that axis.
+ * literal attribute selects its value unless a later spread may override
+ * it; an absent attribute selects the axis default unless a spread may
+ * supply it; a dynamic value selects nothing knowable, so only the base
+ * classes count for that axis. A className a later spread may replace is
+ * skipped.
  * Compound variants are not considered.
  */
 
@@ -37,21 +41,20 @@ const providedClasses = (
 		provided.set(className, "its base classes");
 	}
 	for (const axis of component.axes) {
-		const attribute = element.attributes.find(
-			(entry) => entry.name === axis.key,
-		);
+		const value = jsxAttributeValue(element, axis.key);
 		let key: string | null = null;
 		let source = "";
-		if (attribute) {
-			key = literalVariantKey(attribute.value);
+		if (value) {
+			// Dynamic, or a literal a later spread may override: unknown.
+			key = literalVariantKey(value);
 			source = `${axis.key}="${key}"`;
 		} else if (!element.spread && axis.default !== null) {
 			key = String(axis.default);
 			source = `the default ${axis.key}="${key}"`;
 		}
 		if (key === null) continue;
-		const value = axis.values.find((entry) => entry.key === key);
-		for (const [slot, className] of value?.classes ?? []) {
+		const selected = axis.values.find((entry) => entry.key === key);
+		for (const [slot, className] of selected?.classes ?? []) {
 			if (slot !== ROOT_SLOT) continue;
 			for (const entry of classesOf(className)) {
 				if (!provided.has(entry)) provided.set(entry, source);
@@ -73,6 +76,15 @@ export const redundantClassRule: LintRuleKind = {
 		for (const usage of context.sources.usages) {
 			const component = analysis.components.get(usage.slug);
 			if (!component || component.shape === null) continue;
+			// A className a later spread may replace is not known to render.
+			const classAttribute = usage.element.attributes.findLast(
+				(attribute) => attribute.name === "className",
+			);
+			if (
+				!classAttribute ||
+				spreadFollows(usage.element, classAttribute.position)
+			)
+				continue;
 			const module = context.sources.modules[usage.file];
 			const strings = usageClassStrings(module, usage).filter(
 				(entry) => entry.complete,

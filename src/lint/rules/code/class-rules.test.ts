@@ -122,7 +122,7 @@ describe("code.unknown-class-token", () => {
 });
 
 describe("code.redundant-class", () => {
-	it("reports classes the base or the selected variants already provide", async () => {
+	it("reports classes the base or the selected variants already provide, skipping attributes a later spread may override", async () => {
 		const fixture = await fixtures.create({
 			components: [button(), card()],
 			files: {
@@ -146,6 +146,7 @@ describe("code.redundant-class", () => {
 					'\t\t<Card tone="loud" className="bg-white bg-red-500"><Button variant="ghost" className="rounded-md" /></Card>',
 					'\t\t<Button variant={v} size="sm" className={cn("px-3 text-sm", "bg-transparent")} />',
 					'\t\t<Button variant="primary" disabled className="opacity-50 h-10" {...rest} />',
+					'\t\t<Button variant="primary" disabled {...rest} className="opacity-50 px-3" />',
 					"\t</Card>",
 					");",
 					"",
@@ -160,7 +161,7 @@ describe("code.redundant-class", () => {
 			'src/app.tsx:9:88 <Button className> repeats "rounded-md", which "button" already applies through its base classes. Remove it from className.',
 			'src/app.tsx:10:48 <Button className> repeats "px-3", which "button" already applies through its base classes. Remove it from className.',
 			'src/app.tsx:10:53 <Button className> repeats "text-sm", which "button" already applies through size="sm". Remove it from className.',
-			'src/app.tsx:11:49 <Button className> repeats "opacity-50", which "button" already applies through disabled="true". Remove it from className.',
+			'src/app.tsx:12:70 <Button className> repeats "px-3", which "button" already applies through its base classes. Remove it from className.',
 		]);
 	});
 });

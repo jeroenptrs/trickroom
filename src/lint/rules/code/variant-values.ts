@@ -10,6 +10,7 @@ import {
 	isComponentUsage,
 	literalVariantKey,
 	objectArgument,
+	spreadFollows,
 } from "./analysis";
 
 /**
@@ -80,7 +81,8 @@ export const unknownVariantValueRule: LintRuleKind = {
 				const axis = component.axes.find(
 					(entry) => entry.key === attribute.name,
 				);
-				if (!axis) continue;
+				// A later spread may override the literal: not a known value.
+				if (!axis || spreadFollows(usage.element, attribute.position)) continue;
 				const key = literalVariantKey(attribute.value);
 				if (key === null || axisAccepts(axis, key)) continue;
 				findings.push({
