@@ -496,6 +496,117 @@ s = 2;
 		]);
 	});
 
+	it("records calls and member accesses on call results, invoked or not", () => {
+		const invoked = parse(`buttonVariants().root();`);
+		const referenced = parse(`buttonVariants().root;`);
+		expect(invoked).not.toEqual(referenced);
+		// Traversal order: the outer call comes before its receiver call.
+		expect(invoked.calls.map((call) => call.callee)).toEqual([
+			"buttonVariants().root",
+			"buttonVariants",
+		]);
+		expect(invoked.calls[0]).toEqual({
+			callee: "buttonVariants().root",
+			root: "buttonVariants",
+			members: ["root"],
+			arguments: [],
+			receiver: {
+				call: {
+					callee: "buttonVariants",
+					root: "buttonVariants",
+					members: [],
+					position: { line: 1, column: 1 },
+				},
+				path: ["root"],
+			},
+			position: { line: 1, column: 1 },
+		});
+		expect(invoked.callResultUses).toEqual([
+			{
+				call: expect.objectContaining({ callee: "buttonVariants" }),
+				path: ["root"],
+				invoked: true,
+				position: { line: 1, column: 1 },
+			},
+		]);
+		expect(referenced.calls.map((call) => call.callee)).toEqual([
+			"buttonVariants",
+		]);
+		expect(referenced.callResultUses).toEqual([
+			{
+				call: expect.objectContaining({ callee: "buttonVariants" }),
+				path: ["root"],
+				invoked: false,
+				position: { line: 1, column: 1 },
+			},
+		]);
+
+		const module = parse(`const s = buttonVariants();
+const a = badgeVariants().slots.title;
+(await load()).title({ class: "x" });
+s.root().x();
+f().a().b();
+obj.m().n;
+const t = styles();
+t.root;
+`);
+		const trace = (callee: string) => {
+			const call = module.calls.find((entry) => entry.callee === callee);
+			if (!call) throw new Error(`no call ${callee}`);
+			const origin = traceCallOrigin(module, call);
+			return origin ? `${origin.call.callee} ${origin.path.join(".")}` : null;
+		};
+		expect(module.calls.map((call) => call.callee)).toEqual([
+			"buttonVariants",
+			"badgeVariants",
+			"load().title",
+			"load",
+			"s.root().x",
+			"s.root",
+			"f().a().b",
+			"f().a",
+			"f",
+			"obj.m",
+			"styles",
+		]);
+		expect(trace("load().title")).toBe("load title");
+		expect(trace("s.root().x")).toBe("buttonVariants root.x");
+		expect(trace("f().a().b")).toBe("f a.b");
+		expect(
+			module.calls.find((call) => call.callee === "load().title")?.arguments,
+		).toEqual([
+			{
+				kind: "object",
+				properties: { class: { kind: "string", value: "x" } },
+				keys: ["class"],
+				members: [{ kind: "property", key: "class" }],
+				hasSpread: false,
+				hasComputed: false,
+			},
+		]);
+		// Only the outermost access of a chain is a use, but each call in a
+		// chain has its own; `t.root` is a binding's member, not a call
+		// result's, so it is not one.
+		expect(
+			module.callResultUses.map(
+				(use) => `${use.call.callee} ${use.path.join(".")} ${use.invoked}`,
+			),
+		).toEqual([
+			"badgeVariants slots.title false",
+			"load title true",
+			"s.root x true",
+			"f().a b true",
+			"f a true",
+			"obj.m n false",
+		]);
+		expect(
+			module.declarations.find((declaration) => declaration.name === "a"),
+		).toMatchObject({
+			call: { callee: "badgeVariants" },
+			path: ["slots", "title"],
+		});
+	});
+
 	it("detects generated variants files and reports syntax errors", () => {
 		const header = formatCodegenHeader({
 			version: 1,

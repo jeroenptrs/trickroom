@@ -126,13 +126,34 @@ export type SourceCallOrigin = {
 };
 
 export type SourceCall = {
-	/** As written: `buttonVariants` or `styles.root`. */
+	/**
+	 * As written: `buttonVariants`, `styles.root`, or `buttonVariants().root`
+	 * for a call on another call's result.
+	 */
 	callee: string;
-	/** The first identifier: `styles` for `styles.root()`. */
+	/** The first identifier: `styles` for `styles.root()`, `buttonVariants` for `buttonVariants().root()`. */
 	root: string;
-	/** Member path after the root. */
+	/** Member path after the root, or after the receiver call for a call on a call result. */
 	members: string[];
 	arguments: SourceCallArgument[];
+	/**
+	 * Set when the receiver is another call's result (`buttonVariants().root()`,
+	 * `(await load()).title()`): that call and the member path from it to
+	 * this callee. Null when the callee starts with an identifier.
+	 */
+	receiver: SourceCallOrigin | null;
+	position: SourcePosition;
+};
+
+/**
+ * A member access taken directly off a call result: `buttonVariants().root`
+ * (not invoked, `invoked: false`) or `buttonVariants().root()` (invoked;
+ * the call itself is also in `calls` with a `receiver`). Only the
+ * outermost access of a chain is recorded: `f().a.b` is one use with
+ * path `["a", "b"]`.
+ */
+export type SourceCallResultUse = SourceCallOrigin & {
+	invoked: boolean;
 	position: SourcePosition;
 };
 
@@ -213,6 +234,8 @@ export type SourceModule = {
 	jsx: SourceJsxElement[];
 	classStrings: SourceClassString[];
 	calls: SourceCall[];
+	/** Member accesses taken directly off a call result, invoked or not. */
+	callResultUses: SourceCallResultUse[];
 	/** The lexical scopes, module first; `traceCallOrigin` resolves through them. */
 	scopes: SourceScope[];
 	/** Bindings initialised from a call, in source order (a view over `scopes`). */
@@ -636,8 +659,19 @@ const callRef = (
 			position: position(call.start),
 		};
 	}
-	return null;
+	const receiver = callOrigin(call.callee, position);
+	return receiver
+		? {
+				callee: formatReceiverCallee(receiver),
+				root: receiver.call.root,
+				members: receiver.path,
+				position: position(call.start),
+			}
+		: null;
 };
+
+const formatReceiverCallee = (receiver: SourceCallOrigin) =>
+	[`${receiver.call.callee}()`, ...receiver.path].join(".");
 
 /**
  * The call an expression's value comes from and the member path taken
@@ -779,17 +813,35 @@ export const resolveBinding = (
  * - `s.title()` after `const s = buttonVariants()`: the `buttonVariants()`
  *   call and `["title"]`, resolved through the scope tree, so a shadowing
  *   `const s`, parameter or destructured name in an inner scope wins.
+ * - `buttonVariants().root()`: the `buttonVariants()` call and `["root"]`.
+ * - `s.root().x()` or `f().a().b()`: followed recursively.
  *
  * Null when the receiver is not a call result: an undeclared name, a
  * binding not initialised from a call, a parameter. Assignments after
  * declaration are not followed.
  */
 export const traceCallOrigin = (
-	module: Pick<SourceModule, "scopes">,
+	module: Pick<SourceModule, "scopes" | "calls">,
 	call: SourceCall,
 	depth = 16,
 ): SourceCallOrigin | null => {
 	if (depth < 0) return null;
+	if (call.receiver) {
+		const inner = module.calls.find(
+			(entry) =>
+				comparePositions(
+					entry.position,
+					call.receiver?.call.position ?? entry.position,
+				) === 0 && entry.callee === call.receiver?.call.callee,
+		);
+		const base = inner
+			? (traceCallOrigin(module, inner, depth - 1) ?? {
+					call: call.receiver.call,
+					path: [],
+				})
+			: { call: call.receiver.call, path: [] };
+		return { call: base.call, path: [...base.path, ...call.receiver.path] };
+	}
 	const resolved = resolveBinding(module, call.root, call.position);
 	if (!resolved?.binding.origin) return null;
 	return {
@@ -837,6 +889,7 @@ export function parseSourceModule(
 		jsx: [],
 		classStrings: [],
 		calls: [],
+		callResultUses: [],
 		scopes: [],
 		declarations: [],
 		codegenHeader: parseCodegenHeader(text),
@@ -910,6 +963,10 @@ export function parseSourceModule(
 	}
 
 	const handledCalls = new Set<AstNode>();
+	// Member accesses off a call result that are a call's callee, and inner
+	// accesses of a chain already recorded by the outermost one.
+	const invokedAccesses = new Set<AstNode>();
+	const recordedAccesses = new Set<AstNode>();
 
 	const openScope = (
 		kind: SourceScopeKind,
@@ -1159,7 +1216,8 @@ export function parseSourceModule(
 
 		if (node.type === "CallExpression" && isNode(node.callee)) {
 			const callee = memberPath(node.callee);
-			if (callee) {
+			const receiver = callee ? null : callOrigin(node.callee, position);
+			if (callee || receiver) {
 				const args = (node.arguments as AstNode[]) ?? [];
 				const ref = callRef(node, position);
 				if (ref) {
@@ -1168,10 +1226,15 @@ export function parseSourceModule(
 						root: ref.root,
 						members: ref.members,
 						arguments: args.map(callArgument),
+						receiver,
 						position: ref.position,
 					});
 				}
+				if (receiver) {
+					invokedAccesses.add(unwrap(node.callee));
+				}
 				if (
+					callee &&
 					callee.members.length === 0 &&
 					classCalls.has(callee.root) &&
 					!handledCalls.has(node)
@@ -1187,6 +1250,26 @@ export function parseSourceModule(
 							origin: { kind: "call", callee: callee.root },
 						});
 					}
+				}
+			}
+		}
+		if (node.type === "MemberExpression" && !recordedAccesses.has(node)) {
+			const origin = callOrigin(node, position);
+			if (origin && origin.path.length > 0) {
+				module.callResultUses.push({
+					...origin,
+					invoked: invokedAccesses.has(node),
+					position: position(node.start),
+				});
+				// Inner accesses of this chain belong to this record.
+				let inner: AstNode = node;
+				while (
+					inner.type === "MemberExpression" &&
+					isNode(inner.object) &&
+					unwrap(inner.object).type === "MemberExpression"
+				) {
+					inner = unwrap(inner.object);
+					recordedAccesses.add(inner);
 				}
 			}
 		}
