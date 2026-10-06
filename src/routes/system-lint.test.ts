@@ -334,6 +334,34 @@ describe("system lint routes", () => {
 		expect((await put({ nope: true })).status).toBe(400);
 	});
 
+	it("lets only one of two simultaneous saves from the same revision win", async () => {
+		const app = await importTestServer();
+		const put = (errors: number) =>
+			app.request("/api/trickroom/systems/core/lint/config", {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					config: { version: 1, thresholds: { code: { errors } } },
+					revision: null,
+				}),
+			});
+		const responses = await Promise.all([put(1), put(2)]);
+		expect(responses.map((response) => response.status).sort()).toEqual([
+			200, 409,
+		]);
+		const winner = responses.findIndex((response) => response.status === 200);
+		const stored = JSON.parse(
+			await readFile(
+				path.join(tempProjectRoot, ".trickroom/systems/core/lint.json"),
+				"utf8",
+			),
+		);
+		expect(stored.thresholds.code.errors).toBe(winner + 1);
+		expect(await responses[1 - winner]?.json()).toMatchObject({
+			code: "LINT_CONFIG_CONFLICT",
+		});
+	});
+
 	it("reports the issues of an invalid stored lint.json and keeps its text", async () => {
 		const app = await importTestServer();
 		await writeFile(

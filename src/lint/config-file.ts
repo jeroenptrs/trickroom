@@ -13,7 +13,8 @@ import { writeSystemFileAtomic } from "./system-file";
  * `lint.json` on disk: reading it with its issues, and writing it the way
  * the dashboard saves it (validated, `serializeLintConfig`, atomic, only
  * inside a system folder). The revision is a hash of the file text so a save
- * can refuse to overwrite an edit it has not seen.
+ * can refuse to overwrite an edit it has not seen; `saveLintConfigFile`
+ * checks it and writes inside one queued section per file.
  */
 
 export type LintConfigFileRead =
@@ -105,4 +106,67 @@ export async function writeLintConfigFile(
 		text: written.contents,
 		revision: lintConfigRevision(written.contents),
 	};
+}
+
+const configSaveQueues = new Map<string, Promise<unknown>>();
+
+/** Runs saves of one `lint.json` one after another, in arrival order. */
+async function runExclusiveConfigSave<T>(
+	configPath: string,
+	operation: () => Promise<T>,
+): Promise<T> {
+	const previous = configSaveQueues.get(configPath);
+	const queued = previous
+		? previous.catch(() => undefined).then(operation)
+		: operation();
+	configSaveQueues.set(configPath, queued);
+	const release = () => {
+		if (configSaveQueues.get(configPath) === queued) {
+			configSaveQueues.delete(configPath);
+		}
+	};
+	queued.then(release, release);
+	return queued;
+}
+
+export type LintConfigSaveResult =
+	| { status: "conflict"; current: LintConfigFileRead }
+	| { status: "written"; read: LintConfigFileRead };
+
+/**
+ * The dashboard's save: compare the file's revision with the one the edit
+ * started from (`undefined` skips the check, null expects no file), write,
+ * and read the result back, all in one critical section per file so two
+ * saves from the same revision cannot both win. Saves from other processes
+ * (an editor, a CLI) are not serialized; the revision check still catches
+ * them when they land before this save reads the file.
+ */
+export async function saveLintConfigFile({
+	projectRoot,
+	systemDir,
+	config,
+	expectedRevision,
+	knownRuleIds,
+}: {
+	projectRoot: string;
+	systemDir: string;
+	config: LintConfig;
+	expectedRevision: string | null | undefined;
+	knownRuleIds: ReadonlySet<string> | null;
+}): Promise<LintConfigSaveResult> {
+	const configPath = path.resolve(systemDir, LINT_CONFIG_FILE_NAME);
+	return runExclusiveConfigSave(configPath, async () => {
+		const current = await readLintConfigFile(systemDir, knownRuleIds);
+		if (
+			expectedRevision !== undefined &&
+			expectedRevision !== current.revision
+		) {
+			return { status: "conflict", current };
+		}
+		await writeLintConfigFile(projectRoot, systemDir, config);
+		return {
+			status: "written",
+			read: await readLintConfigFile(systemDir, knownRuleIds),
+		};
+	});
 }

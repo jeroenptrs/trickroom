@@ -13,7 +13,7 @@ import {
 	type LintConfigFileRead,
 	LintConfigWriteError,
 	readLintConfigFile,
-	writeLintConfigFile,
+	saveLintConfigFile,
 } from "../lint/config-file";
 import { readCurrentContractHash } from "../lint/current-contract";
 import { readLintReport } from "../lint/report";
@@ -176,26 +176,20 @@ export const registerSystemLintRoutes = (
 				422,
 			);
 		}
-		const current = await readLintConfigFile(route.system.dir, null);
-		if (
-			"revision" in body &&
-			(body.revision ?? null) !== (current.revision ?? null)
-		) {
-			return c.json(
-				{
-					error:
-						"lint.json changed on disk since it was loaded. Reload it and apply your edits again.",
-					code: "LINT_CONFIG_CONFLICT",
-				},
-				409,
-			);
-		}
+		let saved: Awaited<ReturnType<typeof saveLintConfigFile>>;
 		try {
-			await writeLintConfigFile(
+			saved = await saveLintConfigFile({
 				projectRoot,
-				route.system.dir,
-				body.config as LintConfig,
-			);
+				systemDir: route.system.dir,
+				config: body.config as LintConfig,
+				expectedRevision:
+					"revision" in body
+						? typeof body.revision === "string"
+							? body.revision
+							: null
+						: undefined,
+				knownRuleIds: lintRuleRegistry.ids,
+			});
 		} catch (error) {
 			if (error instanceof LintConfigWriteError) {
 				return c.json(
@@ -205,10 +199,17 @@ export const registerSystemLintRoutes = (
 			}
 			throw error;
 		}
-		const read = await readLintConfigFile(
-			route.system.dir,
-			lintRuleRegistry.ids,
-		);
+		if (saved.status === "conflict") {
+			return c.json(
+				{
+					error:
+						"lint.json changed on disk since it was loaded. Reload it and apply your edits again.",
+					code: "LINT_CONFIG_CONFLICT",
+				},
+				409,
+			);
+		}
+		const read = saved.read;
 		return c.json(await configResponse(projectRoot, route, read));
 	});
 
