@@ -71,7 +71,7 @@ Project screen:
 
 Design editor:
 
-- Rename the design by clicking the title in the sidebar.
+- Rename the design by clicking its title in the layers panel header, or in the toolbar while the layers panel is collapsed.
 - Link or unlink a design system when no element is selected.
 - Add container layers.
 - Add text layers.
@@ -86,7 +86,7 @@ Design editor:
 - Pan with middle mouse drag or Space plus left drag.
 - Rely on autosave after edits.
 - Manually save while there are unsaved changes.
-- Collapse the layers panel with the panel button at the right end of its header, after the save state, or with `Alt` + `[` (`⌥ [` on macOS). A small header panel stays floating over the top-left of the stage with the back button, the design name (click it to rename) and a button to expand the layers panel again. Collapse and expand the properties panel with the toggle button at the right end of the toolbar, or with `Alt` + `]` (`⌥ ]`). The stage takes the freed width, and the choice is remembered in the browser. A collapsed layers panel keeps autosave, `Cmd`/`Ctrl` + `S` and the layer shortcuts working.
+- The layers panel starts collapsed. Its header sits at the start of the toolbar above the stage: the back button, the design name (click it to rename), the linked system, the design tokens button and a button to expand the layers panel. Expand it with that button or with `Alt` + `[` (`⌥ [` on macOS); the header then moves back into the panel. Collapse it again with the panel button at the right end of its header, after the save state, or the same shortcut. Collapse and expand the properties panel with the toggle button at the right end of the toolbar, or with `Alt` + `]` (`⌥ ]`). The stage takes the freed width. The choice holds while you move between designs and resets on a page reload. A collapsed layers panel keeps autosave, `Cmd`/`Ctrl` + `S` and the layer shortcuts working.
 - Move focus between the layers panel, the stage and the properties panel with `Alt` + `1`, `2` and `3`. Focusing a collapsed panel expands it first.
 - Go back to the project screen with `Cmd`/`Ctrl` + `[`.
 
@@ -94,9 +94,9 @@ System editor:
 
 - Add an icon folder by its project-relative path, for example `src/icons`. Trickroom indexes the SVGs inside it.
 - Register an image asset by its project-relative path, for example `public/images/hero.png`. The file stays where it is. The browser has no file picker or upload, so the image has to be in the project already.
-- Collapse the left sidebar with the panel button at the right end of its header (in the component editor, at the right end of the component header), or with `Alt` + `[`. Its header stays floating over the top-left of the workspace: the back button, the system name and sync state (in the component editor: back to components, the component name and its draft or published state), and a button to expand the sidebar again. The sidebar keeps working while collapsed: draft sync and the layer shortcuts stay active, and the open component tab is kept.
+- The left sidebar starts collapsed, with its header floating over the top-left of the workspace: the back button, the system name and sync state (in the component editor: back to components, the component name and its draft or published state), and a button to expand the sidebar. Expand it with that button or with `Alt` + `[`; collapse it again with the panel button at the right end of its header (in the component editor, at the right end of the component header) or the same shortcut. The sidebar keeps working while collapsed: draft sync and the layer shortcuts stay active, and the open component tab is kept.
 - Collapse the inspector with the panel button in its header, or with `Alt` + `]`. Collapsing keeps the selection and leaves a strip on the right edge to expand it again; the X next to it clears the selection instead. With nothing selected the right side stays empty, as before.
-- `Alt` + `1` and `Alt` + `3` expand a collapsed panel before focusing it. The collapsed state is remembered in the browser, separately from the design editor.
+- `Alt` + `1` and `Alt` + `3` expand a collapsed panel before focusing it. The choice holds for the session, separately from the design editor, and resets on a page reload.
 
 Shared server:
 

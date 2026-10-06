@@ -1407,7 +1407,19 @@ describe("SystemEditor collapsible panels", () => {
 		resetComponentDraftStore();
 	});
 
+	it("starts with the rail collapsed and the header floating", () => {
+		const html = renderSystemEditor("/system/core");
+
+		expect(html).toContain('class="hidden min-h-0 w-[300px]');
+		expect(html).toContain('data-slot="floating-panel"');
+		expect(html).toContain('aria-label="Expand sidebar"');
+		expect(html).toMatch(
+			/aria-label="Expand sidebar"[^>]*>(?:(?!<\/button>).)*size-4 text-slate-900/,
+		);
+	});
+
 	it("puts a rail collapse button in the system header", () => {
+		setEditorPanelOpen("system", "rail", true);
 		const html = renderSystemEditor("/system/core");
 
 		expect(html).toContain('class="flex min-h-0 w-[300px]');
@@ -1442,6 +1454,7 @@ describe("SystemEditor collapsible panels", () => {
 	});
 
 	it("renders no floating header while the rail is open", () => {
+		setEditorPanelOpen("system", "rail", true);
 		const html = renderSystemEditor("/system/core");
 
 		expect(html).not.toContain('data-slot="floating-panel"');
@@ -1474,6 +1487,7 @@ describe("SystemEditor collapsible panels", () => {
 	});
 
 	it("keeps a rail collapse button in the component context", () => {
+		setEditorPanelOpen("system", "rail", true);
 		const html = renderSystemEditor("/system/core?component=cmp_new_button", [
 			draftComponent,
 		]);

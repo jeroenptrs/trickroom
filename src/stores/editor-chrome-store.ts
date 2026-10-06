@@ -1,9 +1,9 @@
 import { createStore, useSelector } from "@tanstack/react-store";
 
 // Visibility of the side panels around an editor workspace. Shared by the
-// design editor and the system editor so both answer to the same toggles,
-// shortcuts and persisted preference. It is UI state, not design data: it
-// lives in localStorage, never in the project's `.trickroom` folder.
+// design editor and the system editor so both answer to the same toggles and
+// shortcuts. It is session UI state, held in memory only: switching designs
+// keeps the choice, a fresh page load starts from the defaults again.
 
 export type EditorChromeView = "design" | "system";
 export type EditorChromePanel = "rail" | "inspector";
@@ -11,55 +11,20 @@ export type EditorChromePanel = "rail" | "inspector";
 export type EditorChromePanels = Record<EditorChromePanel, boolean>;
 export type EditorChromeState = Record<EditorChromeView, EditorChromePanels>;
 
-export const EDITOR_CHROME_STORAGE_KEY = "trickroom:editor-chrome";
+// The left rail starts collapsed so the stage gets the room; the inspector
+// starts open.
+const defaultPanels: EditorChromePanels = { rail: false, inspector: true };
 
-const defaultPanels: EditorChromePanels = { rail: true, inspector: true };
-
-const defaultState: EditorChromeState = {
-	design: { ...defaultPanels },
-	system: { ...defaultPanels },
-};
-
-function readPersistedState(): EditorChromeState {
-	if (typeof window === "undefined") {
-		return defaultState;
-	}
-	try {
-		const raw = window.localStorage.getItem(EDITOR_CHROME_STORAGE_KEY);
-		if (!raw) {
-			return defaultState;
-		}
-		const parsed = JSON.parse(raw) as Partial<
-			Record<EditorChromeView, Partial<EditorChromePanels>>
-		>;
-		return {
-			design: { ...defaultPanels, ...parsed.design },
-			system: { ...defaultPanels, ...parsed.system },
-		};
-	} catch {
-		return defaultState;
-	}
-}
-
-function persistState(state: EditorChromeState) {
-	if (typeof window === "undefined") {
-		return;
-	}
-	try {
-		window.localStorage.setItem(
-			EDITOR_CHROME_STORAGE_KEY,
-			JSON.stringify(state),
-		);
-	} catch {
-		// Storage failures (private mode, quota) only lose the preference.
-	}
+function createDefaultState(): EditorChromeState {
+	return {
+		design: { ...defaultPanels },
+		system: { ...defaultPanels },
+	};
 }
 
 export const editorChromeStore = createStore<EditorChromeState>(
-	readPersistedState(),
+	createDefaultState(),
 );
-
-editorChromeStore.subscribe(() => persistState(editorChromeStore.state));
 
 export function setEditorPanelOpen(
 	view: EditorChromeView,
@@ -94,12 +59,9 @@ export function useEditorPanelOpen(
 	return useSelector(editorChromeStore, (state) => state[view][panel]);
 }
 
-/** Test and reset helper; also drops the persisted preference. */
+/** Test and reset helper: back to the defaults of a fresh page load. */
 export function resetEditorChrome() {
-	editorChromeStore.setState(() => ({
-		design: { ...defaultPanels },
-		system: { ...defaultPanels },
-	}));
+	editorChromeStore.setState(() => createDefaultState());
 }
 
 /**

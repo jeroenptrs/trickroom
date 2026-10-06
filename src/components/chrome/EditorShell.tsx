@@ -1,15 +1,7 @@
-import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, FileCheck, FileMinus, FileUp } from "lucide-react";
-import {
-	memo,
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
+import { FileCheck, FileMinus, FileUp } from "lucide-react";
+import { memo, type ReactNode, useCallback, useEffect, useRef } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
 import { saveDesignFile } from "../../queries/design-file";
@@ -18,12 +10,8 @@ import { commitDesignSave } from "../../queries/design-save";
 import type { DesignFileRevision } from "../../services/design-file-service.types";
 import {
 	serializeDesign,
-	setDesignName,
 	setDesignSavePending,
-	useDesignName,
 	useDesignRevision,
-	useDesignSystemId,
-	useDesignSystemName,
 	useExternalConflictPending,
 	useHasUnsavedChanges,
 	usePersistedDesignRevision,
@@ -33,7 +21,6 @@ import {
 	handleEditorChromeShortcut,
 	isEditorPanelOpen,
 	setEditorPanelOpen,
-	toggleEditorPanel,
 	useEditorPanelOpen,
 } from "../../stores/editor-chrome-store";
 import type { TrickroomDesign } from "../../types";
@@ -43,18 +30,11 @@ import {
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
 import { useProjectScope } from "../contexts";
-import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
 import { Button } from "../ui/button";
-import { FloatingPanel, FloatingPanelHeader } from "../ui/floating-panel";
-import { Input } from "../ui/input";
+import { DesignHeaderContent, DesignPanelToggle } from "./DesignHeader";
 import { Layers } from "./Layers";
 import { Properties } from "./Properties";
-import {
-	getPanelToggleIcon,
-	getPanelToggleLabel,
-	getPanelToggleTitle,
-	WorkspaceToolbar,
-} from "./WorkspaceToolbar";
+import { WorkspaceToolbar } from "./WorkspaceToolbar";
 
 const AUTOSAVE_DELAY_MS = 1000;
 
@@ -198,118 +178,6 @@ function SaveControl({ designId }: SaveControlProps) {
 	);
 }
 
-function DesignTitle() {
-	const designName = useDesignName();
-	const [isRenaming, setIsRenaming] = useState(false);
-	const [draftName, setDraftName] = useState("");
-	const cancelledRef = useRef(false);
-
-	const startRenaming = () => {
-		cancelledRef.current = false;
-		setDraftName(designName);
-		setIsRenaming(true);
-	};
-
-	const confirmRename = () => {
-		const nextName = draftName.trim();
-		if (!nextName) {
-			setDraftName(designName);
-			return;
-		}
-
-		setDesignName(nextName);
-		setIsRenaming(false);
-	};
-
-	const cancelRename = () => {
-		cancelledRef.current = true;
-		setIsRenaming(false);
-	};
-
-	useHotkey("Enter", confirmRename, {
-		enabled: isRenaming,
-		ignoreInputs: false,
-	});
-	useHotkey("Escape", cancelRename, { enabled: isRenaming });
-
-	if (isRenaming) {
-		return (
-			<Input
-				variant="inline"
-				className="w-full text-[13px] font-medium"
-				value={draftName}
-				onChange={(e) => setDraftName(e.target.value)}
-				onBlur={() => {
-					if (!cancelledRef.current) confirmRename();
-				}}
-				onFocus={(e) => (e.target as HTMLInputElement).select()}
-				autoFocus
-			/>
-		);
-	}
-
-	return (
-		<ButtonPrimitive
-			className="w-full truncate text-left text-[13px] font-medium text-slate-950 hover:bg-slate-100 cursor-text focus-visible:outline-none"
-			onClick={startRenaming}
-		>
-			{designName}
-		</ButtonPrimitive>
-	);
-}
-
-/** Collapses or expands the layers rail; the icon shows which it does. */
-function RailToggle() {
-	const open = useEditorPanelOpen("design", "rail");
-	const Icon = getPanelToggleIcon("rail", open);
-
-	return (
-		<Button
-			type="button"
-			variant="block"
-			className="flex size-7 shrink-0 items-center justify-center p-0"
-			onClick={() => toggleEditorPanel("design", "rail")}
-			title={getPanelToggleTitle("rail", open)}
-			aria-label={getPanelToggleLabel("rail", open)}
-			aria-expanded={open}
-		>
-			<Icon className="size-4 text-slate-500" aria-hidden="true" />
-		</Button>
-	);
-}
-
-/**
- * Header row shared by the rail and the floating panel left in its place
- * when it is collapsed. `children` trail the title.
- */
-function DesignHeaderContent({ children }: { children?: ReactNode }) {
-	const navigate = useNavigate();
-	const systemName = useDesignSystemName();
-	const systemId = useDesignSystemId();
-	const subtitle = systemName
-		? `${systemName} · design system`
-		: "No design system";
-
-	return (
-		<>
-			<Button
-				variant="block"
-				className="flex size-7 shrink-0 items-center justify-center p-0"
-				onClick={() => navigate("/")}
-				title="Back to project"
-			>
-				<ArrowLeft className="size-4 text-slate-500" />
-			</Button>
-			<div className="flex min-w-0 flex-1 flex-col">
-				<DesignTitle />
-				<span className="truncate text-[10px] text-slate-400">{subtitle}</span>
-			</div>
-			<OpenDesignTokensButton systemId={systemId} />
-			{children}
-		</>
-	);
-}
-
 function LeftSidebar({ designId }: { designId: string }) {
 	return (
 		<aside className="flex min-h-0 w-[264px] shrink-0 flex-col border-r border-slate-200 bg-white text-xs">
@@ -318,24 +186,11 @@ function LeftSidebar({ designId }: { designId: string }) {
 					{/* Only the rail renders the save control: it owns autosave and
 					    Mod+S, so it stays mounted exactly once. */}
 					<SaveControl designId={designId} />
-					<RailToggle />
+					<DesignPanelToggle panel="rail" />
 				</DesignHeaderContent>
 			</header>
 			<Layers designId={designId} className="flex-1" />
 		</aside>
-	);
-}
-
-/** Keeps the rail's header on screen over the stage while it is collapsed. */
-function CollapsedRailHeader() {
-	return (
-		<FloatingPanel className="w-[252px]">
-			<FloatingPanelHeader>
-				<DesignHeaderContent>
-					<RailToggle />
-				</DesignHeaderContent>
-			</FloatingPanelHeader>
-		</FloatingPanel>
 	);
 }
 
@@ -416,11 +271,9 @@ function EditorShellComponent({ designId, children }: EditorShellProps) {
 				tabIndex={-1}
 				className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-100 focus-visible:outline-none"
 			>
+				{/* With the rail collapsed, the toolbar takes over its header. */}
 				<WorkspaceToolbar />
-				<div className="relative min-h-0 flex-1">
-					{children}
-					{railOpen ? null : <CollapsedRailHeader />}
-				</div>
+				<div className="relative min-h-0 flex-1">{children}</div>
 			</main>
 			<div
 				data-editor-region="inspector"

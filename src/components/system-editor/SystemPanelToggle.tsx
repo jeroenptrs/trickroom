@@ -76,7 +76,7 @@ export function SystemPanelToggle({ panel }: { panel: EditorChromePanel }) {
 			aria-expanded={open}
 			title={getSystemPanelToggleTitle(panel, open)}
 		>
-			<Icon className="size-4 text-slate-500" aria-hidden="true" />
+			<Icon className="size-4 text-slate-900" aria-hidden="true" />
 		</Button>
 	);
 }

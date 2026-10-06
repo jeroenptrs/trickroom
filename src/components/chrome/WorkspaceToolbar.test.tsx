@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ViewState } from "../../hooks/useStageNavigation";
 import { hydrateDesign } from "../../stores/design-store";
@@ -18,9 +19,8 @@ import {
 	ResponsiveStageZoomContext,
 	resolveResponsiveStageScale,
 } from "../responsive-stage-zoom";
+import { getPanelToggleLabel, getPanelToggleTitle } from "./DesignHeader";
 import {
-	getPanelToggleLabel,
-	getPanelToggleTitle,
 	getResponsiveWidthDraftError,
 	RESPONSIVE_DEVICE_WIDTH_PRESETS,
 	resolveResponsiveWidthDraftCommit,
@@ -85,31 +85,33 @@ function renderToolbar(
 	const fitScale = stage.fitScale ?? 0.5;
 
 	return renderToStaticMarkup(
-		<ProjectConfigContext.Provider value={{ name: "Toolbar project" }}>
-			<IFrameViewContext.Provider value={view}>
-				<ResponsiveStageContext.Provider
-					value={{
-						mode: stage.mode,
-						activeBoardId: stage.activeBoardId,
-						responsiveWidth: stage.responsiveWidth,
-						breakpoints: stage.breakpoints ?? TEST_BREAKPOINTS,
-						controls: noopControls,
-					}}
-				>
-					<ResponsiveStageZoomContext.Provider
+		<MemoryRouter>
+			<ProjectConfigContext.Provider value={{ name: "Toolbar project" }}>
+				<IFrameViewContext.Provider value={view}>
+					<ResponsiveStageContext.Provider
 						value={{
-							zoom,
-							fitScale,
-							scale: resolveResponsiveStageScale(zoom, fitScale),
-							setZoom: () => {},
-							setFitScale: () => {},
+							mode: stage.mode,
+							activeBoardId: stage.activeBoardId,
+							responsiveWidth: stage.responsiveWidth,
+							breakpoints: stage.breakpoints ?? TEST_BREAKPOINTS,
+							controls: noopControls,
 						}}
 					>
-						<WorkspaceToolbar />
-					</ResponsiveStageZoomContext.Provider>
-				</ResponsiveStageContext.Provider>
-			</IFrameViewContext.Provider>
-		</ProjectConfigContext.Provider>,
+						<ResponsiveStageZoomContext.Provider
+							value={{
+								zoom,
+								fitScale,
+								scale: resolveResponsiveStageScale(zoom, fitScale),
+								setZoom: () => {},
+								setFitScale: () => {},
+							}}
+						>
+							<WorkspaceToolbar />
+						</ResponsiveStageZoomContext.Provider>
+					</ResponsiveStageContext.Provider>
+				</IFrameViewContext.Provider>
+			</ProjectConfigContext.Provider>
+		</MemoryRouter>,
 	);
 }
 
@@ -119,34 +121,75 @@ describe("WorkspaceToolbar", () => {
 		resetEditorChrome();
 	});
 
-	it("ends with a properties toggle and leaves the layers toggle to the rail", () => {
+	it("starts with the collapsed rail's header and ends with a properties toggle", () => {
 		const stage = {
 			mode: "canvas",
 			activeBoardId: "board-1",
 			responsiveWidth: 768,
 		} as const;
-		const open = renderToolbar(stage);
+		const html = renderToolbar(stage);
 
-		expect(open).toMatch(
-			/aria-label="Hide properties"[^>]*aria-pressed="true"/,
+		// The rail starts collapsed, so its header leads the toolbar.
+		expect(html).toContain('title="Back to project"');
+		expect(html).toContain("Toolbar test");
+		expect(html).toContain("No design system");
+		expect(html).toMatch(/aria-label="Show layers"[^>]*aria-expanded="false"/);
+		expect(html).toContain('title="Show layers (Alt+[)"');
+		expect(html).toContain("lucide-panel-left-open");
+		expect(html.indexOf("Back to project")).toBeLessThan(
+			html.indexOf("Canvas"),
 		);
-		expect(open).toContain('title="Hide properties (Alt+])"');
-		expect(open).toContain("lucide-panel-right-close");
-		expect(open.indexOf("Hide properties")).toBeGreaterThan(
-			open.indexOf("Responsive"),
-		);
-		// The layers rail collapses from its own header, not the toolbar.
-		expect(open).not.toContain("layers");
 
-		setEditorPanelOpen("design", "rail", false);
+		expect(html).toMatch(
+			/aria-label="Hide properties"[^>]*aria-expanded="true"/,
+		);
+		expect(html).toContain('title="Hide properties (Alt+])"');
+		expect(html).toContain("lucide-panel-right-close");
+		expect(html.indexOf("Hide properties")).toBeGreaterThan(
+			html.indexOf("Responsive"),
+		);
+	});
+
+	it("gives panel toggles the tokens button's shell and dark icon", () => {
+		const html = renderToolbar({
+			mode: "canvas",
+			activeBoardId: "board-1",
+			responsiveWidth: 768,
+		});
+
+		for (const label of ["Show layers", "Hide properties"]) {
+			const button = html.slice(
+				html.lastIndexOf("<button", html.indexOf(`aria-label="${label}"`)),
+			);
+			expect(button).toMatch(
+				/^<button[^>]*class="[^"]*flex size-7 shrink-0 items-center justify-center p-0"/,
+			);
+			// No selected (cyan) fill: the icon and aria-expanded carry the state.
+			expect(button).not.toMatch(
+				/^<button[^>]*class="[^"]*[" ]bg-cyan-100[" ]/,
+			);
+			expect(button.slice(0, button.indexOf("</button>"))).toContain(
+				"size-4 text-slate-900",
+			);
+		}
+	});
+
+	it("drops the rail header once the rail is open", () => {
+		setEditorPanelOpen("design", "rail", true);
 		setEditorPanelOpen("design", "inspector", false);
-		const collapsed = renderToolbar(stage);
+		const html = renderToolbar({
+			mode: "canvas",
+			activeBoardId: "board-1",
+			responsiveWidth: 768,
+		});
 
-		expect(collapsed).toMatch(
-			/aria-label="Show properties"[^>]*aria-pressed="false"/,
+		// The open rail carries its own header and collapse toggle.
+		expect(html).not.toContain("Back to project");
+		expect(html).not.toContain("layers");
+		expect(html).toMatch(
+			/aria-label="Show properties"[^>]*aria-expanded="false"/,
 		);
-		expect(collapsed).toContain("lucide-panel-right-open");
-		expect(collapsed).not.toContain("layers");
+		expect(html).toContain("lucide-panel-right-open");
 	});
 
 	it("labels panel toggles by the action they take", () => {

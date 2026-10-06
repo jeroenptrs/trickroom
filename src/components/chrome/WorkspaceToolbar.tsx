@@ -6,10 +6,6 @@ import {
 	LayoutGrid,
 	Minus,
 	Monitor,
-	PanelLeftClose,
-	PanelLeftOpen,
-	PanelRightClose,
-	PanelRightOpen,
 	Plus,
 	Smartphone,
 	Tablet,
@@ -29,11 +25,7 @@ import {
 	useDesignRoots,
 	useSelectedId,
 } from "../../stores/design-store";
-import {
-	type EditorChromePanel,
-	toggleEditorPanel,
-	useEditorPanelOpen,
-} from "../../stores/editor-chrome-store";
+import { useEditorPanelOpen } from "../../stores/editor-chrome-store";
 import { useExternallyChangedBoardIds } from "../../stores/external-change-store";
 import { useIFrameView, useProjectConfig } from "../contexts";
 import {
@@ -54,6 +46,7 @@ import {
 	useResponsiveStageZoom,
 } from "../responsive-stage-zoom";
 import { Button } from "../ui/button";
+import { DesignHeaderContent, DesignPanelToggle } from "./DesignHeader";
 
 export const RESPONSIVE_DEVICE_WIDTH_PRESETS = [
 	{ label: "Mobile S", width: 320, Icon: Smartphone },
@@ -122,63 +115,6 @@ const STAGE_MODE_OPTIONS: {
 	},
 ];
 
-const PANEL_TOGGLES = {
-	rail: {
-		name: "layers",
-		shortcut: "Alt+[",
-		CloseIcon: PanelLeftClose,
-		OpenIcon: PanelLeftOpen,
-	},
-	inspector: {
-		name: "properties",
-		shortcut: "Alt+]",
-		CloseIcon: PanelRightClose,
-		OpenIcon: PanelRightOpen,
-	},
-} as const satisfies Record<
-	EditorChromePanel,
-	{
-		name: string;
-		shortcut: string;
-		CloseIcon: typeof PanelLeftClose;
-		OpenIcon: typeof PanelLeftOpen;
-	}
->;
-
-export function getPanelToggleLabel(panel: EditorChromePanel, open: boolean) {
-	return `${open ? "Hide" : "Show"} ${PANEL_TOGGLES[panel].name}`;
-}
-
-export function getPanelToggleTitle(panel: EditorChromePanel, open: boolean) {
-	return `${getPanelToggleLabel(panel, open)} (${PANEL_TOGGLES[panel].shortcut})`;
-}
-
-export function getPanelToggleIcon(panel: EditorChromePanel, open: boolean) {
-	const { CloseIcon, OpenIcon } = PANEL_TOGGLES[panel];
-	return open ? CloseIcon : OpenIcon;
-}
-
-function InspectorToggle() {
-	const open = useEditorPanelOpen("design", "inspector");
-	const Icon = getPanelToggleIcon("inspector", open);
-	const label = getPanelToggleLabel("inspector", open);
-
-	return (
-		<Button
-			type="button"
-			variant="block"
-			isSelected={open}
-			className="size-7 shrink-0 p-0"
-			title={getPanelToggleTitle("inspector", open)}
-			aria-label={label}
-			aria-pressed={open}
-			onClick={() => toggleEditorPanel("design", "inspector")}
-		>
-			<Icon className="size-3.5" />
-		</Button>
-	);
-}
-
 function WorkspaceModeToggle() {
 	const { mode, controls } = useResponsiveStage();
 
@@ -197,7 +133,7 @@ function WorkspaceModeToggle() {
 						isSelected={isSelected}
 						title={title}
 						aria-pressed={isSelected}
-						className="flex items-center gap-1 px-2 py-1 text-[11px]"
+						className="flex h-7 items-center gap-1 px-2 text-[11px]"
 						onClick={() => controls.setMode(value)}
 					>
 						<Icon className="size-3.5 shrink-0" />
@@ -658,10 +594,20 @@ function ExportControl() {
 export function WorkspaceToolbar() {
 	const view = useIFrameView();
 	const { mode } = useResponsiveStage();
+	const railOpen = useEditorPanelOpen("design", "rail");
 	const zoomLabel = `${Math.round(view.scale * 100)}%`;
 
 	return (
 		<header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 text-[11px] text-slate-500">
+			{railOpen ? null : (
+				// The collapsed rail's header, ending where the rail's edge would
+				// be. It may shrink, never grow, so the controls keep their room.
+				<div className="flex w-[252px] min-w-0 shrink items-center gap-2 self-stretch border-r border-slate-200 pr-3 text-xs">
+					<DesignHeaderContent>
+						<DesignPanelToggle panel="rail" />
+					</DesignHeaderContent>
+				</div>
+			)}
 			<div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
 				{mode === "responsive" ? (
 					<>
@@ -681,7 +627,7 @@ export function WorkspaceToolbar() {
 				)}
 				<ExportControl />
 				<WorkspaceModeToggle />
-				<InspectorToggle />
+				<DesignPanelToggle panel="inspector" />
 			</div>
 		</header>
 	);
