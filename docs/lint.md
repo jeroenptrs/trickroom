@@ -355,7 +355,7 @@ Design side (planned, WP4; run by the engine and by `design_validate`):
 | `design.design-only-class-target` | error | A variant or compound class entry targets a design-only node. |
 | `design.unknown-variant-value` | error | An instance passes a variant value the axis does not have. |
 
-Options are documented per kind when it ships. Ids are stable once shipped: they are keys in committed files.
+Options are documented per kind when it ships. A kind that takes options must also add an entry to `LINT_RULE_OPTION_SPECS` in `src/lint/rule-catalogue.ts`: one `{ key, label, description, type }` per option, with `type` one of `boolean`, `number`, `string`, `string-list` or `component-map`. That spec only drives the dashboard's form; checking option values stays with the kind. Without a spec, the dashboard shows the kind's stored options read-only and keeps them on save. A test fails when a spec names a kind the registry does not have. Ids are stable once shipped: they are keys in committed files.
 
 ## The source model
 
