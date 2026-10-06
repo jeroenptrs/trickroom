@@ -1,17 +1,27 @@
 import type { Dirent } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
+import { SOURCE_EXTENSIONS } from "../config";
 import { compileGlobs, globStaticPrefix } from "./glob";
 
 /**
  * The files the code side scans: every regular file under the project root
- * matching the include globs and no exclude glob. `node_modules`, `dist`,
- * `.trickroom` and every dot folder are never entered, and symlinks are
- * skipped so the walk cannot leave the project. Sorted, project-relative,
- * `/` separators.
+ * with a source extension (`SOURCE_EXTENSIONS`), matching the include globs
+ * and no exclude glob. `node_modules`, `dist`, `.trickroom` and every dot
+ * folder are never entered, and symlinks are skipped so the walk cannot
+ * leave the project. A glob as broad as `src/**` still takes only the files
+ * the parser reads, not the CSS, Markdown or HTML next to them. Sorted,
+ * project-relative, `/` separators.
  */
 
 export const ALWAYS_SKIPPED_FOLDERS = new Set(["node_modules", "dist"]);
+
+const SOURCE_EXTENSION_SET: ReadonlySet<string> = new Set(SOURCE_EXTENSIONS);
+
+const hasSourceExtension = (name: string) => {
+	const dot = name.lastIndexOf(".");
+	return dot > 0 && SOURCE_EXTENSION_SET.has(name.slice(dot + 1));
+};
 
 export type WalkSourceFilesOptions = {
 	include: readonly string[];
@@ -78,7 +88,7 @@ export async function walkSourceFiles(
 				await visit(relative);
 				continue;
 			}
-			if (!entry.isFile()) continue;
+			if (!entry.isFile() || !hasSourceExtension(entry.name)) continue;
 			if (!include(relative) || exclude(relative)) continue;
 			if (files.length >= maxFiles) {
 				truncated = true;

@@ -53,6 +53,17 @@ describe("walkSourceFiles", () => {
 			(await walkSourceFiles(root, { include: ["**/*.ts"], exclude: [] }))
 				.files,
 		).toEqual(["other/d.ts", "src/a.ts", "src/types.d.ts"]);
+		// A glob without an extension takes the source files only: the CSS
+		// next to them is never parsed as TypeScript.
+		expect(
+			(await walkSourceFiles(root, { include: ["**"], exclude: [] })).files,
+		).toEqual([
+			"other/d.ts",
+			"src/a.ts",
+			"src/b.tsx",
+			"src/nested/c.jsx",
+			"src/types.d.ts",
+		]);
 		expect(
 			await walkSourceFiles(root, {
 				include: ["src/**/*.ts"],
