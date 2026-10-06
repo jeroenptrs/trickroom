@@ -10,7 +10,14 @@ import {
 	Trash2,
 	UploadCloud,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import type { ProjectQueryScope } from "../../queries/project-scope";
 import { systemComponentsUsageQueryOptions } from "../../queries/system-component-usage";
 import {
@@ -645,11 +652,14 @@ export function SystemEditorComponentsRail({
 	projectScope,
 	selectedComponentId,
 	onSelectComponent,
+	headerActions,
 }: {
 	systemId: string;
 	projectScope?: ProjectQueryScope;
 	selectedComponentId: string | null;
 	onSelectComponent: (componentId: string | null) => void;
+	/** Trailing controls for the component context header. */
+	headerActions?: ReactNode;
 }) {
 	const queryClient = useQueryClient();
 	const componentsQuery = useQuery(
@@ -807,8 +817,14 @@ export function SystemEditorComponentsRail({
 			return;
 		}
 
-		componentFilterRef.current?.focus();
-		componentFilterRef.current?.select();
+		const filter = componentFilterRef.current;
+		// The rail stays mounted while collapsed; leave the key to the browser.
+		if (!filter?.checkVisibility()) {
+			return;
+		}
+
+		filter.focus();
+		filter.select();
 		event.preventDefault();
 	}, []);
 
@@ -1128,6 +1144,7 @@ export function SystemEditorComponentsRail({
 					{selectedSummary ? (
 						<ComponentStatusBadge summary={selectedSummary} />
 					) : null}
+					{headerActions}
 				</header>
 				<Tabs
 					value={activeComponentTab}

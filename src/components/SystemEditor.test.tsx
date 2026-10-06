@@ -3,8 +3,17 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TailwindSyncController } from "../hooks/useTailwindSyncController";
-import { systemsProjectQueryKey } from "../queries/systems";
 import { StagePreviewDarkModeProvider } from "../preview/stage-preview-dark-mode";
+import { systemsProjectQueryKey } from "../queries/systems";
+import {
+	hydrateComponentDraft,
+	resetComponentDraftStore,
+	selectTemplateNode,
+} from "../stores/component-draft-store";
+import {
+	resetEditorChrome,
+	setEditorPanelOpen,
+} from "../stores/editor-chrome-store";
 import { TailwindSyncControllerContext } from "./contexts";
 import { SystemEditor } from "./SystemEditor";
 
@@ -1358,5 +1367,113 @@ describe("SystemEditor page panels", () => {
 				),
 			}),
 		);
+	});
+});
+
+describe("SystemEditor collapsible panels", () => {
+	const draftComponent = {
+		componentId: "cmp_new_button",
+		slug: "new-button",
+		name: "New Button",
+		hasDraft: true,
+		hasPublished: false,
+		createdAt: "2026-05-26T00:01:00.000Z",
+		updatedAt: "2026-05-26T00:01:00.000Z",
+	};
+
+	function selectDraftRoot() {
+		hydrateComponentDraft({
+			componentId: draftComponent.componentId,
+			root: {
+				library: "trickroom",
+				component: "container",
+				path: "root",
+				children: [],
+			},
+			slots: {},
+			overrideTargets: {},
+			variants: null,
+		});
+		selectTemplateNode("root");
+	}
+
+	beforeEach(() => {
+		vi.stubGlobal("fetch", createFetchMock());
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		resetEditorChrome();
+		resetComponentDraftStore();
+	});
+
+	it("puts a rail collapse button in the system header", () => {
+		const html = renderSystemEditor("/system/core");
+
+		expect(html).toContain('class="flex min-h-0 w-[300px]');
+		expect(html).toContain('aria-label="Collapse sidebar"');
+		expect(html).toContain('title="Collapse sidebar (Alt+[)"');
+		expect(html).not.toContain('data-slot="panel-edge-strip"');
+	});
+
+	it("hides a collapsed rail behind an edge strip that reopens it", () => {
+		setEditorPanelOpen("system", "rail", false);
+		const html = renderSystemEditor("/system/core");
+
+		expect(html).toContain('class="hidden min-h-0 w-[300px]');
+		expect(html).not.toContain('class="flex min-h-0 w-[300px]');
+		expect(html).toContain('data-slot="panel-edge-strip"');
+		expect(html.match(/data-editor-region="rail"/g)).toHaveLength(1);
+		expect(html).toContain('aria-label="Expand sidebar"');
+		expect(html).toContain("Select a component draft to open the editor.");
+	});
+
+	it("still renders the active page with the rail collapsed", () => {
+		setEditorPanelOpen("system", "rail", false);
+		const html = renderSystemEditor("/system/core?tab=tokens");
+
+		expect(html).toContain("Core Tokens");
+	});
+
+	it("keeps a rail collapse button in the component context", () => {
+		const html = renderSystemEditor("/system/core?component=cmp_new_button", [
+			draftComponent,
+		]);
+
+		expect(html).not.toContain("Core System");
+		expect(html).toContain("Back to components");
+		expect(html).toContain('aria-label="Collapse sidebar"');
+	});
+
+	it("adds an inspector collapse button next to the close button", () => {
+		selectDraftRoot();
+		const html = renderSystemEditor("/system/core?component=cmp_new_button", [
+			draftComponent,
+		]);
+
+		expect(html).toContain("Properties");
+		expect(html).toContain('aria-label="Collapse inspector"');
+		expect(html).toContain('title="Collapse inspector (Alt+])"');
+		expect(html).toContain("Close inspector");
+	});
+
+	it("collapses the inspector to an edge strip while keeping the selection", () => {
+		selectDraftRoot();
+		setEditorPanelOpen("system", "inspector", false);
+		const html = renderSystemEditor("/system/core?component=cmp_new_button", [
+			draftComponent,
+		]);
+
+		expect(html).not.toContain("Close inspector");
+		expect(html).toContain('data-editor-region="inspector"');
+		expect(html).toContain('aria-label="Expand inspector"');
+	});
+
+	it("renders nothing on the right without inspector context", () => {
+		setEditorPanelOpen("system", "inspector", false);
+		const html = renderSystemEditor("/system/core");
+
+		expect(html).not.toContain('data-editor-region="inspector"');
+		expect(html).not.toContain("Expand inspector");
 	});
 });
