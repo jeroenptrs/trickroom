@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatCodegenHeader } from "../../codegen/header";
 import { DEFAULT_CLASS_CALLS } from "../config";
-import { parseSourceModule } from "./parse";
+import { parseSourceModule, traceCallOrigin } from "./parse";
 
 const parse = (text: string, file = "src/x.tsx") =>
 	parseSourceModule(file, text, { classCalls: DEFAULT_CLASS_CALLS });
@@ -276,6 +276,102 @@ obj.deep.fn(1, "two");`);
 			{ kind: "literal", value: 1 },
 			{ kind: "string", value: "two" },
 		]);
+	});
+
+	it("traces call sites to the call their receiver came from", () => {
+		const module = parse(`const a = buttonVariants({ size: "sm" });
+const b = otherVariants();
+const { root, title: t = x } = buttonVariants();
+const [first] = list();
+const r = badgeVariants().root;
+const w = await loadVariants();
+const plain = 1;
+a.title();
+b.title();
+t();
+r({ class: "x" });
+w.root();
+first.y();
+plain.z();`);
+		expect(module.declarations).toEqual([
+			{
+				name: "a",
+				call: {
+					callee: "buttonVariants",
+					root: "buttonVariants",
+					members: [],
+					position: { line: 1, column: 11 },
+				},
+				path: [],
+				position: { line: 1, column: 7 },
+			},
+			{
+				name: "b",
+				call: {
+					callee: "otherVariants",
+					root: "otherVariants",
+					members: [],
+					position: { line: 2, column: 11 },
+				},
+				path: [],
+				position: { line: 2, column: 7 },
+			},
+			{
+				name: "root",
+				call: expect.objectContaining({ callee: "buttonVariants" }),
+				path: ["root"],
+				position: { line: 3, column: 9 },
+			},
+			{
+				name: "t",
+				call: expect.objectContaining({ callee: "buttonVariants" }),
+				path: ["title"],
+				position: { line: 3, column: 22 },
+			},
+			{
+				name: "first",
+				call: expect.objectContaining({ callee: "list" }),
+				path: ["0"],
+				position: { line: 4, column: 8 },
+			},
+			{
+				name: "r",
+				call: expect.objectContaining({ callee: "badgeVariants" }),
+				path: ["root"],
+				position: { line: 5, column: 7 },
+			},
+			{
+				name: "w",
+				call: expect.objectContaining({ callee: "loadVariants" }),
+				path: [],
+				position: { line: 6, column: 7 },
+			},
+		]);
+		const trace = (callee: string) => {
+			const call = module.calls.find((entry) => entry.callee === callee);
+			if (!call) throw new Error(`no call ${callee}`);
+			const origin = traceCallOrigin(module, call);
+			return origin ? `${origin.call.callee} ${origin.path.join(".")}` : null;
+		};
+		expect(trace("a.title")).toBe("buttonVariants title");
+		expect(trace("b.title")).toBe("otherVariants title");
+		expect(trace("t")).toBe("buttonVariants title");
+		expect(trace("r")).toBe("badgeVariants root");
+		expect(trace("w.root")).toBe("loadVariants root");
+		expect(trace("first.y")).toBe("list 0.y");
+		expect(trace("plain.z")).toBeNull();
+
+		// The swapped program is a different model.
+		const swapped = parse(
+			`const a = otherVariants();\nconst b = buttonVariants();\na.title();`,
+		);
+		expect(trace.call(null, "a.title")).toBe("buttonVariants title");
+		const swappedCall = swapped.calls.find(
+			(entry) => entry.callee === "a.title",
+		);
+		expect(
+			swappedCall && traceCallOrigin(swapped, swappedCall)?.call.callee,
+		).toBe("otherVariants");
 	});
 
 	it("detects generated variants files and reports syntax errors", () => {
