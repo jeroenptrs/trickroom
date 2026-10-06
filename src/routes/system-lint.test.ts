@@ -66,6 +66,7 @@ describe("system lint routes", () => {
 		const app = await importTestServer();
 		const missing = await app.request("/api/trickroom/systems/Core/lint");
 		expect(missing.status).toBe(404);
+		expect(missing.headers.get("spa-server")).toBe("false");
 		expect(await missing.json()).toMatchObject({
 			code: "LINT_REPORT_NOT_FOUND",
 		});

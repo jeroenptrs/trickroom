@@ -114,6 +114,9 @@ export const registerSystemLintRoutes = (
 		const { system, systemId, systemName } = getRouteSystem(c);
 		const read = await readLintReport(system.dir);
 		if (read.status === "absent") {
+			// A real 404 for the dev server's SPA fallback too (plugin/spa-server),
+			// so the dashboard can tell "no report yet" from a broken response.
+			c.header("spa-server", "false");
 			return c.json(
 				{
 					error: `No lint report for design system "${systemName}" yet. Run lint to create one.`,
