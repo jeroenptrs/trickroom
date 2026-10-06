@@ -167,7 +167,7 @@ Status: in progress. Model: Opus 5.5. Depends on WP2 and WP1.
 
 ### WP5: dashboard and rule configuration UI
 
-Status: in progress. Model: Opus 5.5. Depends on WP2; verify against WP3 and WP4
+Status: in review. Model: Opus 5.5. Depends on WP2; verify against WP3 and WP4
 output once merged.
 
 - New `lint` page in the System editor (`SYSTEM_EDITOR_PAGES`,
