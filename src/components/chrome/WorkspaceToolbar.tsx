@@ -25,6 +25,7 @@ import {
 	useDesignRoots,
 	useSelectedId,
 } from "../../stores/design-store";
+import { useEditorPanelOpen } from "../../stores/editor-chrome-store";
 import { useExternallyChangedBoardIds } from "../../stores/external-change-store";
 import { useIFrameView, useProjectConfig } from "../contexts";
 import {
@@ -45,6 +46,7 @@ import {
 	useResponsiveStageZoom,
 } from "../responsive-stage-zoom";
 import { Button } from "../ui/button";
+import { DesignHeaderContent, DesignPanelToggle } from "./DesignHeader";
 
 export const RESPONSIVE_DEVICE_WIDTH_PRESETS = [
 	{ label: "Mobile S", width: 320, Icon: Smartphone },
@@ -131,7 +133,7 @@ function WorkspaceModeToggle() {
 						isSelected={isSelected}
 						title={title}
 						aria-pressed={isSelected}
-						className="flex items-center gap-1 px-2 py-1 text-[11px]"
+						className="flex h-7 items-center gap-1 px-2 text-[11px]"
 						onClick={() => controls.setMode(value)}
 					>
 						<Icon className="size-3.5 shrink-0" />
@@ -592,10 +594,20 @@ function ExportControl() {
 export function WorkspaceToolbar() {
 	const view = useIFrameView();
 	const { mode } = useResponsiveStage();
+	const railOpen = useEditorPanelOpen("design", "rail");
 	const zoomLabel = `${Math.round(view.scale * 100)}%`;
 
 	return (
 		<header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 text-[11px] text-slate-500">
+			{railOpen ? null : (
+				// The collapsed rail's header, ending where the rail's edge would
+				// be. It may shrink, never grow, so the controls keep their room.
+				<div className="flex w-[252px] min-w-0 shrink items-center gap-2 self-stretch border-r border-slate-200 pr-3 text-xs">
+					<DesignHeaderContent>
+						<DesignPanelToggle panel="rail" />
+					</DesignHeaderContent>
+				</div>
+			)}
 			<div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
 				{mode === "responsive" ? (
 					<>
@@ -615,6 +627,7 @@ export function WorkspaceToolbar() {
 				)}
 				<ExportControl />
 				<WorkspaceModeToggle />
+				<DesignPanelToggle panel="inspector" />
 			</div>
 		</header>
 	);

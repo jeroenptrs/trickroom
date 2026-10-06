@@ -37,7 +37,7 @@ A design is a folder with a manifest and one file per board:
 
 ```text
 <projectRoot>/.trickroom/designs/<designId>/
-  design.json            version, name, systemId
+  design.json            version, name, systemId, updatedAt
   boards/<boardId>.json  version, order key, board tree
   memory.json            memory notes
 ```
@@ -46,6 +46,7 @@ In memory (and in the HTTP API and MCP tools) a design is one object:
 
 - `name`: display name in the app.
 - `systemId`: optional linked Tailwind system.
+- `updatedAt`: when the design last changed. Trickroom sets it on every write that changes the design and orders the project screen by it, so the order survives git checkouts, which reset file times. Writers do not set it.
 - `boards`: top-level root elements, in order.
 
 Storing boards separately keeps diffs small and lets people and agents work on different boards of one design at the same time: each board has its own revision, a write that changes board A does not conflict with a change to board B, and two branches that each add a board merge without a conflict. Board order comes from an `order` key in each board file, so reordering or inserting a board rewrites only that board.

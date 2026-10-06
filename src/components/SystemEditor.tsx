@@ -11,6 +11,10 @@ import {
 	useComponentDraftSelectedPath,
 } from "../stores/component-draft-store";
 import {
+	handleEditorChromeShortcut,
+	useEditorPanelOpen,
+} from "../stores/editor-chrome-store";
+import {
 	focusEditorRegion,
 	getKey,
 	useWindowKeyDown,
@@ -22,6 +26,7 @@ import {
 } from "./project/SystemStatusBadge";
 import { SystemEditorAssetsPanel } from "./system-editor/SystemEditorAssetsPanel";
 import {
+	CollapsedComponentContextHeader,
 	SystemEditorComponentsPanel,
 	SystemEditorComponentsRail,
 } from "./system-editor/SystemEditorComponentsPanel";
@@ -31,8 +36,14 @@ import {
 } from "./system-editor/SystemEditorIconsPanel";
 import { SystemEditorInspector } from "./system-editor/SystemEditorInspector";
 import { SystemEditorTokensPanel } from "./system-editor/SystemEditorTokensPanel";
+import {
+	revealSystemPanel,
+	SystemPanelToggle,
+} from "./system-editor/SystemPanelToggle";
 import type { SystemEditorPage } from "./system-editor/types";
 import { Button } from "./ui/button";
+import { FloatingPanel, FloatingPanelHeader } from "./ui/floating-panel";
+import { PanelEdgeStrip } from "./ui/panel-edge-strip";
 import { ScrollArea } from "./ui/scroll-area";
 import { Separator } from "./ui/separator";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "./ui/tabs";
@@ -83,12 +94,52 @@ function getInitialSystemEditorPage(
 	return "components";
 }
 
+/**
+ * System header row: back to the project, the system name and its sync
+ * state, then the rail toggle. Shared by the rail and the floating panel
+ * left in its place when the rail is collapsed.
+ */
+function SystemHeaderContent({
+	systemName,
+	systemStatus,
+	onClose,
+}: {
+	systemName: string;
+	systemStatus: SystemStatusBadgeState;
+	onClose: () => void;
+}) {
+	return (
+		<>
+			<Button
+				type="button"
+				variant="block"
+				className="flex size-7 shrink-0 items-center justify-center p-0"
+				onClick={onClose}
+				title="Back to project"
+			>
+				<ArrowLeft className="size-4 text-slate-500" />
+			</Button>
+			<div className="min-w-0 flex-1">
+				<Text
+					variant="label"
+					className="block truncate text-[12px] font-medium text-slate-900"
+				>
+					{systemName}
+				</Text>
+			</div>
+			<SystemStatusBadge state={systemStatus} />
+			<SystemPanelToggle panel="rail" />
+		</>
+	);
+}
+
 function SystemLeftSidebar({
 	systemName,
 	systemId,
 	systemStatus,
 	onClose,
 	collapseChrome = false,
+	collapsed = false,
 	children,
 }: {
 	systemName: string;
@@ -96,36 +147,24 @@ function SystemLeftSidebar({
 	systemStatus: SystemStatusBadgeState;
 	onClose: () => void;
 	collapseChrome?: boolean;
+	collapsed?: boolean;
 	children?: ReactNode;
 }) {
 	return (
 		<aside
-			data-editor-region="rail"
+			data-editor-region={collapsed ? undefined : "rail"}
 			tabIndex={-1}
-			className="flex min-h-0 w-[300px] shrink-0 flex-col border-r border-slate-200 bg-white text-xs"
+			className={`${collapsed ? "hidden" : "flex"} min-h-0 w-[300px] shrink-0 flex-col border-r border-slate-200 bg-white text-xs`}
 			data-system-id={systemId}
 		>
 			{collapseChrome ? null : (
 				<>
 					<header className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 px-3">
-						<Button
-							type="button"
-							variant="block"
-							className="flex size-7 shrink-0 items-center justify-center p-0"
-							onClick={onClose}
-							title="Back to project"
-						>
-							<ArrowLeft className="size-4 text-slate-500" />
-						</Button>
-						<div className="min-w-0 flex-1">
-							<Text
-								variant="label"
-								className="block truncate text-[12px] font-medium text-slate-900"
-							>
-								{systemName}
-							</Text>
-						</div>
-						<SystemStatusBadge state={systemStatus} />
+						<SystemHeaderContent
+							systemName={systemName}
+							systemStatus={systemStatus}
+							onClose={onClose}
+						/>
 					</header>
 					<nav className="px-2" aria-label="System editor sections">
 						<TabsList variant="block" className="w-full flex-row border-b-0">
@@ -235,8 +274,15 @@ export function SystemEditor() {
 
 	useHotkey("Escape", closeInspector, { enabled: hasInspectorContext });
 
+	const isRailOpen = useEditorPanelOpen("system", "rail");
+	const isInspectorOpen = useEditorPanelOpen("system", "inspector");
+
 	const handleSystemEditorShortcut = useCallback(
 		(event: KeyboardEvent) => {
+			if (handleEditorChromeShortcut(event, "system")) {
+				return;
+			}
+
 			if (
 				(event.metaKey || event.ctrlKey) &&
 				!event.altKey &&
@@ -280,10 +326,14 @@ export function SystemEditor() {
 
 			const key = getKey(event);
 			if (key === "1") {
+				revealSystemPanel("rail");
 				focusEditorRegion("rail");
 			} else if (key === "2") {
 				focusEditorRegion("workspace");
 			} else if (key === "3") {
+				if (hasInspectorContext) {
+					revealSystemPanel("inspector");
+				}
 				focusEditorRegion("inspector");
 			} else {
 				return;
@@ -291,7 +341,13 @@ export function SystemEditor() {
 
 			event.preventDefault();
 		},
-		[activePage, handlePageChange, isComponentContext, navigate],
+		[
+			activePage,
+			handlePageChange,
+			hasInspectorContext,
+			isComponentContext,
+			navigate,
+		],
 	);
 
 	useWindowKeyDown(handleSystemEditorShortcut);
@@ -333,93 +389,135 @@ export function SystemEditor() {
 	return (
 		<StagePreviewDarkModeProvider key={selectedComponentId ?? "none"}>
 			<div className="absolute inset-0 z-10 flex min-h-0 bg-slate-100 text-xs text-slate-950">
-			<Tabs
-				value={activePage}
-				onValueChange={handlePageChange}
-				className="flex min-h-0 flex-1 flex-row gap-0"
-			>
-				<SystemLeftSidebar
-					systemName={selectedSystem.systemName}
-					systemId={systemId}
-					systemStatus={systemStatus}
-					onClose={() => navigate("/")}
-					collapseChrome={isComponentContext}
+				<Tabs
+					value={activePage}
+					onValueChange={handlePageChange}
+					className="flex min-h-0 flex-1 flex-row gap-0"
 				>
-					{activePage === "components" ? (
-						<SystemEditorComponentsRail
+					{/* A collapsed rail stays mounted but hidden: in the component
+					    context it owns the draft sync and the layer shortcuts. */}
+					<SystemLeftSidebar
+						systemName={selectedSystem.systemName}
+						systemId={systemId}
+						systemStatus={systemStatus}
+						onClose={() => navigate("/")}
+						collapseChrome={isComponentContext}
+						collapsed={!isRailOpen}
+					>
+						{activePage === "components" ? (
+							<SystemEditorComponentsRail
+								systemId={systemId}
+								projectScope={projectScope}
+								selectedComponentId={selectedComponentId}
+								onSelectComponent={setSelectedComponentId}
+								headerActions={<SystemPanelToggle panel="rail" />}
+							/>
+						) : activePage === "icons" ? (
+							<SystemEditorIconFoldersRail
+								systemId={systemId}
+								projectScope={projectScope}
+							/>
+						) : null}
+					</SystemLeftSidebar>
+					<main
+						data-editor-region="workspace"
+						tabIndex={-1}
+						className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 focus-visible:outline-none"
+					>
+						{isRailOpen ? null : (
+							// Alt+1 focuses this header while the rail is collapsed.
+							<FloatingPanel
+								className="w-[288px]"
+								data-editor-region="rail"
+								tabIndex={-1}
+							>
+								<FloatingPanelHeader>
+									{isComponentContext && selectedComponentId !== null ? (
+										<CollapsedComponentContextHeader
+											systemId={systemId}
+											projectScope={projectScope}
+											componentId={selectedComponentId}
+											onSelectComponent={setSelectedComponentId}
+											actions={<SystemPanelToggle panel="rail" />}
+										/>
+									) : (
+										<SystemHeaderContent
+											systemName={selectedSystem.systemName}
+											systemStatus={systemStatus}
+											onClose={() => navigate("/")}
+										/>
+									)}
+								</FloatingPanelHeader>
+							</FloatingPanel>
+						)}
+						<ScrollArea
+							className="flex min-h-0 flex-1"
+							viewportRef={workspaceScrollRef}
+						>
+							{/* Clear the floating header so page titles, filters and the
+							    draft stage's top edge are not hidden under it. */}
+							<div
+								className={`flex min-h-full flex-col ${isRailOpen ? "" : "pt-12"}`}
+							>
+								<TabsPanel value="components" className="flex min-h-0 flex-1">
+									<SystemEditorComponentsPanel
+										systemId={systemId}
+										projectScope={projectScope}
+										selectedComponentId={selectedComponentId}
+										onSelectComponent={setSelectedComponentId}
+									/>
+								</TabsPanel>
+								<TabsPanel value="tokens" className="flex min-h-0 flex-1">
+									<SystemEditorTokensPanel
+										isActive={activePage === "tokens"}
+										systemId={systemId}
+										projectScope={projectScope}
+									/>
+								</TabsPanel>
+								<TabsPanel value="assets" className="flex min-h-0 flex-1">
+									<SystemEditorAssetsPanel
+										isActive={activePage === "assets"}
+										systemId={systemId}
+										projectScope={projectScope}
+										scrollElementRef={workspaceScrollRef}
+										selectedAssetId={selectedAssetId}
+										onSelectAsset={setSelectedAssetId}
+									/>
+								</TabsPanel>
+								<TabsPanel value="icons" className="flex min-h-0 flex-1">
+									<SystemEditorIconsPanel
+										isActive={activePage === "icons"}
+										systemId={systemId}
+										projectScope={projectScope}
+										scrollElementRef={workspaceScrollRef}
+										selectedIconId={selectedIconId}
+										onSelectIcon={setSelectedIconId}
+									/>
+								</TabsPanel>
+							</div>
+						</ScrollArea>
+					</main>
+					{!hasInspectorContext ? null : isInspectorOpen ? (
+						<SystemEditorInspector
+							page={activePage}
 							systemId={systemId}
 							projectScope={projectScope}
 							selectedComponentId={selectedComponentId}
-							onSelectComponent={setSelectedComponentId}
+							selectedAssetId={selectedAssetId}
+							selectedIconId={selectedIconId}
+							onClose={closeInspector}
 						/>
-					) : activePage === "icons" ? (
-						<SystemEditorIconFoldersRail
-							systemId={systemId}
-							projectScope={projectScope}
-						/>
-					) : null}
-				</SystemLeftSidebar>
-				<main
-					data-editor-region="workspace"
-					tabIndex={-1}
-					className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 focus-visible:outline-none"
-				>
-					<ScrollArea
-						className="flex min-h-0 flex-1"
-						viewportRef={workspaceScrollRef}
-					>
-						<div className="flex min-h-full flex-col">
-							<TabsPanel value="components" className="flex min-h-0 flex-1">
-								<SystemEditorComponentsPanel
-									systemId={systemId}
-									projectScope={projectScope}
-									selectedComponentId={selectedComponentId}
-									onSelectComponent={setSelectedComponentId}
-								/>
-							</TabsPanel>
-							<TabsPanel value="tokens" className="flex min-h-0 flex-1">
-								<SystemEditorTokensPanel
-									isActive={activePage === "tokens"}
-									systemId={systemId}
-									projectScope={projectScope}
-								/>
-							</TabsPanel>
-							<TabsPanel value="assets" className="flex min-h-0 flex-1">
-								<SystemEditorAssetsPanel
-									isActive={activePage === "assets"}
-									systemId={systemId}
-									projectScope={projectScope}
-									scrollElementRef={workspaceScrollRef}
-									selectedAssetId={selectedAssetId}
-									onSelectAsset={setSelectedAssetId}
-								/>
-							</TabsPanel>
-							<TabsPanel value="icons" className="flex min-h-0 flex-1">
-								<SystemEditorIconsPanel
-									isActive={activePage === "icons"}
-									systemId={systemId}
-									projectScope={projectScope}
-									scrollElementRef={workspaceScrollRef}
-									selectedIconId={selectedIconId}
-									onSelectIcon={setSelectedIconId}
-								/>
-							</TabsPanel>
-						</div>
-					</ScrollArea>
-				</main>
-				{hasInspectorContext ? (
-					<SystemEditorInspector
-						page={activePage}
-						systemId={systemId}
-						projectScope={projectScope}
-						selectedComponentId={selectedComponentId}
-						selectedAssetId={selectedAssetId}
-						selectedIconId={selectedIconId}
-						onClose={closeInspector}
-					/>
-				) : null}
-			</Tabs>
-		</div>
+					) : (
+						<PanelEdgeStrip
+							side="right"
+							data-editor-region="inspector"
+							tabIndex={-1}
+						>
+							<SystemPanelToggle panel="inspector" />
+						</PanelEdgeStrip>
+					)}
+				</Tabs>
+			</div>
 		</StagePreviewDarkModeProvider>
 	);
 }

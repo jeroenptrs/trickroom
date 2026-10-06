@@ -171,6 +171,7 @@ describe("design file migration chain", () => {
 	it("orders top-level keys with version first and boards last", () => {
 		const ordered = orderDesignFileKeys({
 			boards: [board],
+			updatedAt: "2026-10-01T10:00:00.000Z",
 			extra: true,
 			componentMigrationPolicy: "auto",
 			name: "Ordered",
@@ -183,8 +184,25 @@ describe("design file migration chain", () => {
 			"name",
 			"systemId",
 			"componentMigrationPolicy",
+			"updatedAt",
 			"extra",
 			"boards",
 		]);
+	});
+
+	it("reads updatedAt at the current version without a migration", () => {
+		const stored = {
+			version: DESIGN_FILE_VERSION,
+			name: "Stamped",
+			updatedAt: "2026-10-01T10:00:00.000Z",
+			boards: [board],
+		};
+
+		expect(migrateDesignFileValue(stored)).toEqual({
+			ok: true,
+			value: stored,
+			fromVersion: DESIGN_FILE_VERSION,
+			migrated: false,
+		});
 	});
 });

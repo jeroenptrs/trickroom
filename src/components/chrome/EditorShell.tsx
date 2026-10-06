@@ -1,15 +1,8 @@
-import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, FileCheck, FileMinus, FileUp } from "lucide-react";
-import {
-	memo,
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
+import { FileCheck, FileMinus, FileUp } from "lucide-react";
+import { memo, type ReactNode, useCallback, useEffect, useRef } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
 import { saveDesignFile } from "../../queries/design-file";
 import { requestDesignResync } from "../../queries/design-live-events";
@@ -17,16 +10,19 @@ import { commitDesignSave } from "../../queries/design-save";
 import type { DesignFileRevision } from "../../services/design-file-service.types";
 import {
 	serializeDesign,
-	setDesignName,
 	setDesignSavePending,
-	useDesignName,
 	useDesignRevision,
-	useDesignSystemId,
-	useDesignSystemName,
 	useExternalConflictPending,
 	useHasUnsavedChanges,
 	usePersistedDesignRevision,
 } from "../../stores/design-store";
+import {
+	type EditorChromePanel,
+	handleEditorChromeShortcut,
+	isEditorPanelOpen,
+	setEditorPanelOpen,
+	useEditorPanelOpen,
+} from "../../stores/editor-chrome-store";
 import type { TrickroomDesign } from "../../types";
 import {
 	focusEditorRegion,
@@ -34,9 +30,8 @@ import {
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
 import { useProjectScope } from "../contexts";
-import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
+import { DesignHeaderContent, DesignPanelToggle } from "./DesignHeader";
 import { Layers } from "./Layers";
 import { Properties } from "./Properties";
 import { WorkspaceToolbar } from "./WorkspaceToolbar";
@@ -183,93 +178,16 @@ function SaveControl({ designId }: SaveControlProps) {
 	);
 }
 
-function DesignTitle() {
-	const designName = useDesignName();
-	const [isRenaming, setIsRenaming] = useState(false);
-	const [draftName, setDraftName] = useState("");
-	const cancelledRef = useRef(false);
-
-	const startRenaming = () => {
-		cancelledRef.current = false;
-		setDraftName(designName);
-		setIsRenaming(true);
-	};
-
-	const confirmRename = () => {
-		const nextName = draftName.trim();
-		if (!nextName) {
-			setDraftName(designName);
-			return;
-		}
-
-		setDesignName(nextName);
-		setIsRenaming(false);
-	};
-
-	const cancelRename = () => {
-		cancelledRef.current = true;
-		setIsRenaming(false);
-	};
-
-	useHotkey("Enter", confirmRename, {
-		enabled: isRenaming,
-		ignoreInputs: false,
-	});
-	useHotkey("Escape", cancelRename, { enabled: isRenaming });
-
-	if (isRenaming) {
-		return (
-			<Input
-				variant="inline"
-				className="w-full text-[13px] font-medium"
-				value={draftName}
-				onChange={(e) => setDraftName(e.target.value)}
-				onBlur={() => {
-					if (!cancelledRef.current) confirmRename();
-				}}
-				onFocus={(e) => (e.target as HTMLInputElement).select()}
-				autoFocus
-			/>
-		);
-	}
-
-	return (
-		<ButtonPrimitive
-			className="w-full truncate text-left text-[13px] font-medium text-slate-950 hover:bg-slate-100 cursor-text focus-visible:outline-none"
-			onClick={startRenaming}
-		>
-			{designName}
-		</ButtonPrimitive>
-	);
-}
-
 function LeftSidebar({ designId }: { designId: string }) {
-	const navigate = useNavigate();
-	const systemName = useDesignSystemName();
-	const systemId = useDesignSystemId();
-	const subtitle = systemName
-		? `${systemName} · design system`
-		: "No design system";
-
 	return (
 		<aside className="flex min-h-0 w-[264px] shrink-0 flex-col border-r border-slate-200 bg-white text-xs">
 			<header className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 px-3">
-				<Button
-					variant="block"
-					className="flex size-7 shrink-0 items-center justify-center p-0"
-					onClick={() => navigate("/")}
-					title="Back to project"
-				>
-					<ArrowLeft className="size-4 text-slate-500" />
-				</Button>
-				<div className="flex min-w-0 flex-1 flex-col">
-					<DesignTitle />
-					<span className="truncate text-[10px] text-slate-400">
-						{subtitle}
-					</span>
-				</div>
-				<OpenDesignTokensButton systemId={systemId} />
-				<SaveControl designId={designId} />
+				<DesignHeaderContent>
+					{/* Only the rail renders the save control: it owns autosave and
+					    Mod+S, so it stays mounted exactly once. */}
+					<SaveControl designId={designId} />
+					<DesignPanelToggle panel="rail" />
+				</DesignHeaderContent>
 			</header>
 			<Layers designId={designId} className="flex-1" />
 		</aside>
@@ -286,8 +204,18 @@ function RightInspector() {
 	);
 }
 
+/** Opens a collapsed panel, then moves focus into it once it is mounted. */
+function revealAndFocusPanel(panel: EditorChromePanel) {
+	if (!isEditorPanelOpen("design", panel)) {
+		flushSync(() => setEditorPanelOpen("design", panel, true));
+	}
+	focusEditorRegion(panel);
+}
+
 function EditorShellComponent({ designId, children }: EditorShellProps) {
 	const navigate = useNavigate();
+	const railOpen = useEditorPanelOpen("design", "rail");
+	const inspectorOpen = useEditorPanelOpen("design", "inspector");
 	const handleFocusShortcut = useCallback(
 		(event: KeyboardEvent) => {
 			if (
@@ -301,17 +229,21 @@ function EditorShellComponent({ designId, children }: EditorShellProps) {
 				return;
 			}
 
+			if (handleEditorChromeShortcut(event, "design")) {
+				return;
+			}
+
 			if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
 				return;
 			}
 
 			const key = getKey(event);
 			if (key === "1") {
-				focusEditorRegion("rail");
+				revealAndFocusPanel("rail");
 			} else if (key === "2") {
 				focusEditorRegion("workspace");
 			} else if (key === "3") {
-				focusEditorRegion("inspector");
+				revealAndFocusPanel("inspector");
 			} else {
 				return;
 			}
@@ -325,7 +257,13 @@ function EditorShellComponent({ designId, children }: EditorShellProps) {
 
 	return (
 		<div className="absolute inset-0 z-10 flex min-h-0 bg-slate-100 text-xs text-slate-950">
-			<div data-editor-region="rail" tabIndex={-1} className="flex min-h-0">
+			{/* A collapsed rail stays mounted but hidden: it owns autosave and the
+			    layer shortcuts, which keep working without it on screen. */}
+			<div
+				data-editor-region="rail"
+				tabIndex={-1}
+				className={railOpen ? "flex min-h-0" : "hidden"}
+			>
 				<LeftSidebar designId={designId} />
 			</div>
 			<main
@@ -333,6 +271,7 @@ function EditorShellComponent({ designId, children }: EditorShellProps) {
 				tabIndex={-1}
 				className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-100 focus-visible:outline-none"
 			>
+				{/* With the rail collapsed, the toolbar takes over its header. */}
 				<WorkspaceToolbar />
 				<div className="relative min-h-0 flex-1">{children}</div>
 			</main>
@@ -341,7 +280,7 @@ function EditorShellComponent({ designId, children }: EditorShellProps) {
 				tabIndex={-1}
 				className="flex min-h-0 focus-visible:outline-none"
 			>
-				<RightInspector />
+				{inspectorOpen ? <RightInspector /> : null}
 			</div>
 		</div>
 	);

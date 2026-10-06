@@ -13,4 +13,6 @@ export type DesignFileSummary = TrickroomDesignSummary & {
 	 * designs that cannot be read.
 	 */
 	boards: { id: string; name: string | null; revision: string }[];
+	/** The manifest's `updatedAt`, as stored, when it has one. */
+	updatedAt?: string;
 };

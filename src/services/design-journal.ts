@@ -149,12 +149,27 @@ export const replayDesignJournal = async (paths: DesignPaths) => {
  * before unlinks; the manifest is written after the board files so a new
  * folder only becomes a design once its boards exist. Must run under the
  * design lock.
+ *
+ * A `stamp` (a manifest that changes only its `updatedAt`) joins the
+ * journal when the other operations need one. When they change a single
+ * file, it is written on its own right after that file instead: journaling
+ * it would write the changed board a second time (into the journal) on
+ * every save, for a timestamp an interrupted write may lose without harm.
  */
 export const commitDesignOperations = async (
 	paths: DesignPaths,
-	operations: DesignFileOperations,
+	{ stamp, ...content }: DesignFileOperations,
 	hooks: DesignJournalHooks = {},
 ) => {
+	const contentSteps = content.writes.length + content.unlinks.length;
+	if (stamp && contentSteps <= 1) {
+		await commitDesignOperations(paths, content, hooks);
+		await writeFileAtomically(stamp.path, stamp.contents);
+		return;
+	}
+	const operations: DesignFileOperations = stamp
+		? { ...content, writes: [...content.writes, stamp] }
+		: content;
 	const journal: DesignJournal = {
 		version: DESIGN_JOURNAL_VERSION,
 		designId: paths.designId,

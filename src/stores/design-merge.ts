@@ -385,7 +385,13 @@ export function mergeBoardOrder({
 	};
 }
 
-/** The design's top-level fields: what `design.json` holds besides boards. */
+/**
+ * The design's editable top-level fields: what `design.json` holds besides
+ * boards and the server-owned `version` and `updatedAt`. The server sets
+ * `updatedAt` on every write that changes the design, never from what the
+ * browser sends, so the store neither keeps nor merges it: the later value
+ * is always the one on disk.
+ */
 export type DesignManifest = Pick<
 	TrickroomDesign,
 	"name" | "systemId" | "systemName" | "componentMigrationPolicy"

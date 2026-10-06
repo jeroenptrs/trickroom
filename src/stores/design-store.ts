@@ -384,9 +384,13 @@ export const hasPendingDesignWork = (state = designStore.get()) =>
 	(state.conflicts ?? null) !== null ||
 	(state.designSavePending ?? false);
 
+/**
+ * Whether the store holds `design`. The store does not keep `updatedAt`
+ * (server-owned, see `TrickroomDesign`), so it is left out of the comparison.
+ */
 const isSameSerializedDesign = (
 	state: DesignStoreState,
-	design: TrickroomDesign,
+	{ updatedAt: _updatedAt, ...design }: TrickroomDesign,
 ) => JSON.stringify(serializeDesignState(state)) === JSON.stringify(design);
 
 /** The revision of each part of a design, as the server reports it. */

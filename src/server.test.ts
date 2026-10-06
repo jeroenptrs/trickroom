@@ -1483,10 +1483,15 @@ describe("server design routes", () => {
 		});
 
 		expect(response.status).toBe(200);
-		await expect(response.json()).resolves.toEqual(validDesign);
+		const written = await response.json();
+		expect(written).toEqual({
+			...validDesign,
+			updatedAt: expect.any(String),
+		});
 		await expect(readStoredDesign("existing.json")).resolves.toEqual({
 			version: DESIGN_FILE_VERSION,
 			...validDesign,
+			updatedAt: written.updatedAt,
 		});
 	});
 
@@ -1733,7 +1738,10 @@ describe("server design routes", () => {
 		});
 
 		expect(response.status).toBe(201);
-		await expect(response.json()).resolves.toEqual(validDesign);
+		await expect(response.json()).resolves.toEqual({
+			...validDesign,
+			updatedAt: expect.any(String),
+		});
 
 		const duplicate = await app.request("/api/trickroom/design?id=new", {
 			method: "POST",
@@ -1748,6 +1756,7 @@ describe("server design routes", () => {
 		await expect(readStoredDesign("new.json")).resolves.toEqual({
 			version: DESIGN_FILE_VERSION,
 			...validDesign,
+			updatedAt: expect.any(String),
 		});
 	});
 

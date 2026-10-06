@@ -64,6 +64,7 @@ import { AuthoredCompoundsList } from "./AuthoredCompoundsList";
 import { ComponentDraftProperties } from "./ComponentDraftProperties";
 import type { ComponentPublicationState } from "./component-catalog";
 import { getComponentPublicationState } from "./component-catalog";
+import { SystemPanelToggle } from "./SystemPanelToggle";
 import { pageTitleByTab, type SystemEditorPage } from "./types";
 
 function InspectorField({ label, value }: { label: string; value: string }) {
@@ -1761,16 +1762,19 @@ export function SystemEditorInspector({
 		>
 			<header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-slate-200 px-4 text-xs font-medium">
 				<span>{isNodeInspector ? "Properties" : "Inspector"}</span>
-				<Button
-					type="button"
-					variant="block"
-					className="flex size-7 shrink-0 items-center justify-center p-0"
-					onClick={onClose}
-					title="Close inspector"
-				>
-					<X className="size-3.5 text-slate-500" aria-hidden="true" />
-					<span className="sr-only">Close inspector</span>
-				</Button>
+				<div className="flex shrink-0 items-center gap-1">
+					<SystemPanelToggle panel="inspector" />
+					<Button
+						type="button"
+						variant="block"
+						className="flex size-7 shrink-0 items-center justify-center p-0"
+						onClick={onClose}
+						title="Close inspector"
+					>
+						<X className="size-3.5 text-slate-500" aria-hidden="true" />
+						<span className="sr-only">Close inspector</span>
+					</Button>
+				</div>
 			</header>
 			<div
 				className={

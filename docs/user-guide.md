@@ -71,7 +71,7 @@ Project screen:
 
 Design editor:
 
-- Rename the design by clicking the title in the sidebar.
+- Rename the design by clicking its title in the layers panel header, or in the toolbar while the layers panel is collapsed.
 - Link or unlink a design system when no element is selected.
 - Add container layers.
 - Add text layers.
@@ -86,11 +86,17 @@ Design editor:
 - Pan with middle mouse drag or Space plus left drag.
 - Rely on autosave after edits.
 - Manually save while there are unsaved changes.
+- The layers panel and the properties panel both start collapsed, so the stage gets the full width. The layers panel's header sits at the start of the toolbar above the stage: the back button, the design name (click it to rename), the linked system, the design tokens button and a button to expand the layers panel. Expand it with that button or with `Alt` + `[` (`⌥ [` on macOS); the header then moves back into the panel. Collapse it again with the panel button at the right end of its header, after the save state, or the same shortcut. Expand and collapse the properties panel with the toggle button at the right end of the toolbar, or with `Alt` + `]` (`⌥ ]`); while it is collapsed, selecting a layer shows no properties. The browser remembers your choice across designs and page reloads. A collapsed layers panel keeps autosave, `Cmd`/`Ctrl` + `S` and the layer shortcuts working.
+- Move focus between the layers panel, the stage and the properties panel with `Alt` + `1`, `2` and `3`. Focusing a collapsed panel expands it first.
+- Go back to the project screen with `Cmd`/`Ctrl` + `[`.
 
 System editor:
 
 - Add an icon folder by its project-relative path, for example `src/icons`. Trickroom indexes the SVGs inside it.
 - Register an image asset by its project-relative path, for example `public/images/hero.png`. The file stays where it is. The browser has no file picker or upload, so the image has to be in the project already.
+- The left sidebar starts collapsed. It holds the section tabs and the component and icon lists, so expand it to switch sections or pick a component: use the button in the header that floats over the top-left of the workspace, or `Alt` + `[`. That floating header also shows the back button and the system name and sync state (in the component editor: back to components, the component name and its draft or published state). Collapse the sidebar again with the panel button at the right end of its header (in the component editor, at the right end of the component header), or the same shortcut. The sidebar keeps working while collapsed: draft sync and the layer shortcuts stay active, and the open component tab is kept.
+- The inspector starts collapsed too. With something selected, a strip on the right edge holds the button to expand it; `Alt` + `]` does the same. Collapse it again with the panel button in its header or the same shortcut. Collapsing keeps the selection; the X next to the strip clears the selection instead. With nothing selected the right side stays empty.
+- `Alt` + `1` and `Alt` + `3` expand a collapsed panel before focusing it. The browser remembers your choice across page reloads, separately from the design editor.
 
 Shared server:
 

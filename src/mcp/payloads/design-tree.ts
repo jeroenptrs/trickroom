@@ -47,7 +47,11 @@ export const getDesignSystemHandle = (
 	return design.systemName ?? null;
 };
 
-/** The compact design header every read and write returns. */
+/**
+ * The compact design header every read and write returns. `updatedAt` is
+ * when the design last changed, set by Trickroom on every write that
+ * changes it; designs not written since it was introduced have none.
+ */
 export const getDesignHeader = (
 	designFileId: string,
 	read: Pick<DesignFileRead, "design" | "revision">,
@@ -55,6 +59,9 @@ export const getDesignHeader = (
 	id: designFileId,
 	name: read.design.name,
 	revision: read.revision,
+	...(typeof read.design.updatedAt === "string"
+		? { updatedAt: read.design.updatedAt }
+		: {}),
 });
 
 export const createBlankDesign = (

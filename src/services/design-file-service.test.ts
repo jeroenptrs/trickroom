@@ -4,6 +4,7 @@ import {
 	readdir,
 	readFile,
 	rm,
+	utimes,
 	writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -87,6 +88,9 @@ const withBoardName = (
 const boardNames = (design: TrickroomDesign) =>
 	design.boards.map((board) => board.props["data-trickroom-name"]);
 
+/** The `updatedAt` this suite's service stamps on writes. */
+const writtenAt = "2026-10-01T10:00:00.000Z";
+
 describe("DesignFileService", () => {
 	let tempProjectRoot: string;
 	let service: ReturnType<typeof createDesignFileService>;
@@ -95,7 +99,9 @@ describe("DesignFileService", () => {
 		tempProjectRoot = await mkdtemp(
 			path.join(process.cwd(), ".tmp-trickroom-design-service-test-"),
 		);
-		service = createDesignFileService(tempProjectRoot);
+		service = createDesignFileService(tempProjectRoot, {
+			now: () => new Date(writtenAt),
+		});
 	});
 
 	afterEach(async () => {
@@ -245,6 +251,44 @@ describe("DesignFileService", () => {
 		]);
 	});
 
+	it("lists a design's updatedAt as modifiedAt, and the file time without one", async () => {
+		await writeDesignFixture("legacy");
+		await service.createDesignFile("stamped", validDesign);
+		await mkdir(path.join(service.designsDir, "hand-edited", "boards"), {
+			recursive: true,
+		});
+		await writeFile(
+			path.join(service.designsDir, "hand-edited", "design.json"),
+			JSON.stringify({
+				version: DESIGN_FILE_VERSION,
+				name: "Hand edited",
+				updatedAt: "last tuesday",
+			}),
+			"utf8",
+		);
+		// A git checkout gives every file a fresh modification time.
+		const checkedOutAt = new Date("2026-10-05T08:00:00.000Z");
+		await utimes(
+			path.join(service.designsDir, "stamped", "design.json"),
+			checkedOutAt,
+			checkedOutAt,
+		);
+
+		const summaries = await service.listDesignSummaries();
+		const byId = new Map(summaries.map((summary) => [summary.uuid, summary]));
+
+		expect(byId.get("stamped")).toMatchObject({
+			modifiedAt: writtenAt,
+			updatedAt: writtenAt,
+		});
+		for (const id of ["legacy", "hand-edited"]) {
+			const summary = byId.get(id);
+			expect(summary?.modifiedAt).not.toBe(writtenAt);
+			expect(Date.parse(summary?.modifiedAt ?? "")).not.toBeNaN();
+		}
+		expect(byId.get("legacy")).not.toHaveProperty("updatedAt");
+	});
+
 	it("does not return cached summaries after a design file becomes invalid", async () => {
 		await writeDesignFixture("cached");
 		expect(await service.listDesignSummaries()).toHaveLength(1);
@@ -343,18 +387,22 @@ describe("DesignFileService", () => {
 	it("writes a design as a manifest plus one file per board", async () => {
 		const written = await service.writeDesignFile("created", validDesign);
 
-		expect(written.design).toEqual(validDesign);
+		expect(written.design).toEqual({ ...validDesign, updatedAt: writtenAt });
 		expect(written.revision).toBe(calculateDesignRevision(validDesign));
 		expect(written.path).toBe(path.join(service.designsDir, "created"));
 		expect(written.file).toBe("created/design.json");
 		await expect(readFolderFile("created", "design.json")).resolves.toBe(
-			`{\n\t"version": ${DESIGN_FILE_VERSION},\n\t"name": "Valid Design",\n\t"systemName": "Core"\n}\n`,
+			`{\n\t"version": ${DESIGN_FILE_VERSION},\n\t"name": "Valid Design",\n\t"systemName": "Core",\n\t"updatedAt": "${writtenAt}"\n}\n`,
 		);
 		const { boards: _boards, ...manifest } = validDesign;
 		void _boards;
 		await expect(
 			readFolderFile("created", "design.json").then(JSON.parse),
-		).resolves.toEqual({ version: DESIGN_FILE_VERSION, ...manifest });
+		).resolves.toEqual({
+			version: DESIGN_FILE_VERSION,
+			...manifest,
+			updatedAt: writtenAt,
+		});
 		await expect(
 			readFolderFile("created", "boards/root.json").then(JSON.parse),
 		).resolves.toEqual({
