@@ -158,8 +158,8 @@ describe("buildSystemContract", () => {
 		expect(toastContract?.slots.map((slot) => slot.key)).toEqual([
 			"root",
 			"title",
-			"icon",
 		]);
+		expect(toastContract?.designOnlyPaths).toEqual(["icon"]);
 		expect(toastContract?.axes.map((axis) => axis.key)).toEqual([
 			"open",
 			"size",
