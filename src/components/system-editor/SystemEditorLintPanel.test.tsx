@@ -234,6 +234,31 @@ describe("System editor lint page", () => {
 		expect(html).not.toContain("data-lint-stale");
 	});
 
+	it("shows info for a rule whose only findings are info notes", () => {
+		const withoutCodegen: LintReport = {
+			...codeOnlyLintReport,
+			summary: {
+				...codeOnlyLintReport.summary,
+				code: {
+					...codeOnlyLintReport.summary.code,
+					findings: { errors: 0, warnings: 0, info: 1 },
+					rules: {
+						"code.variants-file-orphaned": { errors: 0, warnings: 0, info: 0 },
+						"code.variants-file-stale": { errors: 0, warnings: 0, info: 1 },
+					},
+				},
+			},
+		};
+		const html = renderLintPage({ report: withoutCodegen });
+		const row = html.slice(
+			html.indexOf('data-lint-rule="code.variants-file-stale"'),
+		);
+		const badge = row.slice(0, row.indexOf("</button>"));
+		expect(badge).toContain('title="In this report: 1 info"');
+		expect(badge).toMatch(/data-slot="badge"[^>]*>info</);
+		expect(badge).not.toContain("No findings");
+	});
+
 	it("flags a stale report when the system's contract changed", () => {
 		const html = renderLintPage({ currentContractHash: "sha256:now" });
 		expect(html).toContain("data-lint-stale");

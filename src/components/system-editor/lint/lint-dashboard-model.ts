@@ -118,6 +118,55 @@ export const ruleRowsForSide = (
 		}));
 };
 
+export type LintRuleRowSeverity = {
+	severity: LintSeverity;
+	/** False when the kind had no findings and `severity` is lint.json's. */
+	fromReport: boolean;
+	/** What the badge's tooltip says. */
+	title: string;
+};
+
+const plural = (count: number, word: string) =>
+	`${count} ${word}${count === 1 ? "" : "s"}`;
+
+/**
+ * The severity a rule row shows: the most severe one the report counted for
+ * the kind (an info-only kind, such as the codegen check without a codegen
+ * block, is info), else the severity lint.json configures, muted.
+ */
+export const ruleRowSeverity = (
+	counts: LintSeverityCounts,
+	configured: LintSeverity | null,
+): LintRuleRowSeverity | null => {
+	const counted = [
+		counts.errors > 0 ? plural(counts.errors, "error") : null,
+		counts.warnings > 0 ? plural(counts.warnings, "warning") : null,
+		counts.info > 0 ? `${counts.info} info` : null,
+	].filter((part): part is string => part !== null);
+	const severity: LintSeverity | null =
+		counts.errors > 0
+			? "error"
+			: counts.warnings > 0
+				? "warning"
+				: counts.info > 0
+					? "info"
+					: null;
+	if (severity) {
+		return {
+			severity,
+			fromReport: true,
+			title: `In this report: ${counted.join(", ")}`,
+		};
+	}
+	return configured
+		? {
+				severity: configured,
+				fromReport: false,
+				title: "No findings in this report; the severity lint.json sets",
+			}
+		: null;
+};
+
 // ---------------------------------------------------------------------------
 // Coverage
 

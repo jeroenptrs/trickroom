@@ -16,6 +16,7 @@ import {
 	flattenHeatTree,
 	formatDelta,
 	isReportStale,
+	ruleRowSeverity,
 	ruleRowsForSide,
 	thresholdForMetric,
 } from "./lint-dashboard-model";
@@ -336,5 +337,38 @@ describe("lint dashboard findings filter", () => {
 		expect(new Set(keys).size).toBe(keys.length);
 		const [first] = fullLintReport.findings;
 		expect(first && findingKey(structuredClone(first))).toBe(keys[0]);
+	});
+});
+
+describe("lint dashboard rule row severity", () => {
+	it("shows the most severe counted severity, info included", () => {
+		expect(
+			ruleRowSeverity({ errors: 1, warnings: 2, info: 1 }, "warning"),
+		).toEqual({
+			severity: "error",
+			fromReport: true,
+			title: "In this report: 1 error, 2 warnings, 1 info",
+		});
+		// The codegen check without a codegen block: one info note.
+		expect(
+			ruleRowSeverity({ errors: 0, warnings: 0, info: 1 }, "error"),
+		).toEqual({
+			severity: "info",
+			fromReport: true,
+			title: "In this report: 1 info",
+		});
+	});
+
+	it("falls back to the configured severity only without findings", () => {
+		expect(
+			ruleRowSeverity({ errors: 0, warnings: 0, info: 0 }, "error"),
+		).toEqual({
+			severity: "error",
+			fromReport: false,
+			title: "No findings in this report; the severity lint.json sets",
+		});
+		expect(
+			ruleRowSeverity({ errors: 0, warnings: 0, info: 0 }, null),
+		).toBeNull();
 	});
 });

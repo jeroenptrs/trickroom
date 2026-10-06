@@ -1,10 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import type { LintConfig, LintSeverity } from "../../../lint/config";
-import type {
-	LintReport,
-	LintSeverityCounts,
-	LintSideSummary,
-} from "../../../lint/report";
+import type { LintReport, LintSideSummary } from "../../../lint/report";
 import type { LintRuleKindSummary } from "../../../lint/rule-catalogue";
 import { showLintFindings } from "../../../stores/lint-dashboard-store";
 import { formatRelativeTime } from "../../project/project-view-utils";
@@ -20,6 +16,7 @@ import {
 import {
 	compareLintMetric,
 	type LintSide,
+	ruleRowSeverity,
 	ruleRowsForSide,
 	thresholdForMetric,
 } from "./lint-dashboard-model";
@@ -199,18 +196,8 @@ function RuleTable({
 		(kind) => kind.side === side && !listed.has(kind.id),
 	);
 	const kindById = new Map(ruleKinds.map((kind) => [kind.id, kind]));
-	// The severity the report counted the kind at; for a clean kind, the
-	// one lint.json sets now (shown muted: it is not from the report).
-	const severityOf = (
-		id: string,
-		counts: LintSeverityCounts,
-	): { severity: LintSeverity; fromReport: boolean } | null => {
-		if (counts.errors > 0) return { severity: "error", fromReport: true };
-		if (counts.warnings > 0) return { severity: "warning", fromReport: true };
-		const configured =
-			config?.rules?.[id]?.severity ?? kindById.get(id)?.defaultSeverity;
-		return configured ? { severity: configured, fromReport: false } : null;
-	};
+	const configuredSeverity = (id: string): LintSeverity | null =>
+		config?.rules?.[id]?.severity ?? kindById.get(id)?.defaultSeverity ?? null;
 
 	return (
 		<section
@@ -236,7 +223,10 @@ function RuleTable({
 					</Text>
 				) : null}
 				{rows.map((row) => {
-					const severity = severityOf(row.id, row.counts);
+					const severity = ruleRowSeverity(
+						row.counts,
+						configuredSeverity(row.id),
+					);
 					const threshold = thresholdForMetric(
 						config?.thresholds,
 						`rule.${row.id}`,
@@ -259,11 +249,7 @@ function RuleTable({
 								{severity ? (
 									<span
 										className={severity.fromReport ? "" : "opacity-50"}
-										title={
-											severity.fromReport
-												? "Severity of the findings in this report"
-												: "No findings; the severity lint.json sets"
-										}
+										title={severity.title}
 									>
 										<SeverityBadge severity={severity.severity} />
 									</span>
