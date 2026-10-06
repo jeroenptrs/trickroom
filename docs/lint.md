@@ -376,7 +376,7 @@ Outcome and the baseline:
 - **Pass**: the report is written with `ratchetBaseline` set to this run's numbers.
 - **Fail**: `trickroom lint` and the `lint` tool write nothing, so the committed baseline stands. The dashboard's `POST` runs with `write: "always"`: the failing report is written (so the UI can show it) but its `ratchetBaseline` is carried over from the previous report. The next run still ratchets against the last passing numbers; a failing report never lowers the bar. The working tree then shows a modified `lint-report.json` with `status: "fail"` that should not be committed as-is.
 - `--check` never writes, whatever the outcome.
-- An unreadable committed report (invalid JSON, unsupported version) is reported as `INVALID_BASELINE` and the run starts a new baseline.
+- An unreadable committed report (invalid JSON, unsupported version, a folder or a permission problem in its place) is reported as `INVALID_BASELINE` and the run starts a new baseline.
 
 `LintRatchetResult`, returned by every entry point: `{ status, baseline: { generatedAt } | null, regressions: [{ metric, baseline, current }], breaches: [{ metric, kind: "max" | "min", limit, current }], numbers }`.
 
@@ -392,7 +392,7 @@ trickroom lint [project] [--check] [--json] [--system <id|name>]
 | `--json` | Print the `LintRunResult` alone on stdout: `status`, `mode`, `system`, `report`, `ratchet`, `baseline` (`absent`, `invalid`, `present`), `reportPath`, `written`, `diagnostics`. |
 | `--system` | Select a system by id, name or storage key. |
 
-Exit codes: 0 pass, 1 ratchet failure, 2 error (no project, invalid config or `lint.json`, unknown or ambiguous system, a crashed rule, a refused write). Human output lists each side's counts, then findings grouped by rule kind with their location, then every number that got worse and every threshold broken, then one closing line.
+Exit codes: 0 pass, 1 ratchet failure, 2 error (no project, invalid config or `lint.json`, unknown or ambiguous system, a crashed rule, a refused write, or anything the engine did not foresee, reported as `RUN_FAILED`). An error never escapes `runLint` as an exception, so `--json` output stays valid. Human output lists each side's counts, then findings grouped by rule kind with their location, then every number that got worse and every threshold broken, then one closing line.
 
 `pnpm build:lint` builds `dist/lint.js`; `pnpm build` includes it.
 

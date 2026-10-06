@@ -416,7 +416,15 @@ export async function readLintReport(
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
 			return { status: "absent", path: reportPath };
 		}
-		throw error;
+		// A folder, a permission problem, an unreadable link: not a baseline.
+		return {
+			status: "invalid",
+			path: reportPath,
+			issue: {
+				code: "INVALID_REPORT",
+				message: `lint-report.json could not be read: ${error instanceof Error ? error.message : String(error)}`,
+			},
+		};
 	}
 	let value: unknown;
 	try {

@@ -98,7 +98,8 @@ export type LintRunDiagnosticCode =
 	| "SOURCE_PARSE_ERROR"
 	| "SOURCES_TRUNCATED"
 	| "RULE_FAILED"
-	| "WRITE_FAILED";
+	| "WRITE_FAILED"
+	| "RUN_FAILED";
 
 export type LintRunDiagnostic = {
 	code: LintRunDiagnosticCode;
@@ -273,15 +274,14 @@ const buildFileStats = (
 	return stats;
 };
 
+/**
+ * Runs the lint; every failure, including one the engine did not foresee
+ * (an unreadable project folder, duplicate system identities), comes back
+ * as an `error` result with a diagnostic, never as a thrown error, so the
+ * CLI's JSON and exit code stay intact.
+ */
 export async function runLint(input: RunLintInput): Promise<LintRunResult> {
-	const projectRoot = path.resolve(input.projectRoot);
-	const registry = input.registry ?? lintRuleRegistry;
 	const mode: LintRunResult["mode"] = input.check ? "check" : "write";
-	const writeMode: LintWriteMode = input.check
-		? "never"
-		: (input.write ?? "on-pass");
-	const now = input.now ?? (() => new Date());
-	const diagnostics: LintRunDiagnostic[] = [];
 	const result: LintRunResult = {
 		status: "error",
 		mode,
@@ -291,8 +291,34 @@ export async function runLint(input: RunLintInput): Promise<LintRunResult> {
 		baseline: null,
 		reportPath: null,
 		written: false,
-		diagnostics,
+		diagnostics: [],
 	};
+	try {
+		return await runLintInner(input, result);
+	} catch (error) {
+		const code = (error as { code?: unknown }).code;
+		result.status = "error";
+		result.written = false;
+		result.diagnostics.push({
+			code: "RUN_FAILED",
+			severity: "error",
+			message: `Lint could not complete${typeof code === "string" ? ` (${code})` : ""}: ${error instanceof Error ? error.message : String(error)}`,
+		});
+		return result;
+	}
+}
+
+async function runLintInner(
+	input: RunLintInput,
+	result: LintRunResult,
+): Promise<LintRunResult> {
+	const projectRoot = path.resolve(input.projectRoot);
+	const registry = input.registry ?? lintRuleRegistry;
+	const writeMode: LintWriteMode = input.check
+		? "never"
+		: (input.write ?? "on-pass");
+	const now = input.now ?? (() => new Date());
+	const diagnostics = result.diagnostics;
 	const fail = (
 		code: LintRunDiagnosticCode,
 		message: string,

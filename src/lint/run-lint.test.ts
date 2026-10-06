@@ -368,6 +368,46 @@ describe("runLint", () => {
 		});
 	});
 
+	it("treats an unreadable committed report as no baseline, and reports what it cannot foresee", async () => {
+		const project = await setup();
+		await mkdir(project.path(".trickroom/systems/core/lint-report.json"));
+		const result = await runLint({ projectRoot: project.root, check: true });
+		expect(result.status).toBe("pass");
+		expect(result.baseline).toBe("invalid");
+		expect(result.diagnostics).toEqual([
+			{
+				code: "INVALID_BASELINE",
+				severity: "warning",
+				message: expect.stringContaining("could not be read"),
+				path: ".trickroom/systems/core/lint-report.json",
+			},
+		]);
+		expect(result.ratchet?.baseline).toBeNull();
+
+		// Two system folders with the same identity: the store throws.
+		await mkdir(project.path(".trickroom/systems/twin"), { recursive: true });
+		await writeFile(
+			project.path(".trickroom/systems/twin/system.json"),
+			JSON.stringify({
+				version: 1,
+				systemId: CODEGEN_TEST_SYSTEM_ID,
+				systemName: "Twin",
+			}),
+		);
+		const failed = await runLint({ projectRoot: project.root, check: true });
+		expect(failed.status).toBe("error");
+		expect(failed.report).toBeNull();
+		expect(failed.diagnostics).toEqual([
+			{
+				code: "RUN_FAILED",
+				severity: "error",
+				message: expect.stringMatching(
+					/^Lint could not complete \(DUPLICATE_SYSTEM_ID\): /u,
+				),
+			},
+		]);
+	});
+
 	it("never writes in check mode and leaves the project otherwise untouched", async () => {
 		const project = await setup();
 		// A manifest the store would normalise on a non-read-only read.

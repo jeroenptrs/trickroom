@@ -1,8 +1,9 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveCodegenConfig } from "../codegen/config";
 import { runCodegen } from "../codegen/run-codegen";
 import {
+	CODEGEN_TEST_SYSTEM_ID,
 	type CodegenTestProject,
 	createCodegenTestProject,
 	flatPayload,
@@ -133,5 +134,29 @@ describe("trickroom lint", () => {
 		expect(invalid.stderr).toContain("lint.json is not valid JSON");
 		expect(invalid.stderr).toContain("nothing written");
 		expect((await run(["--nope"])).code).toBe(2);
+	});
+
+	it("keeps --json output and exit 2 when the run fails unexpectedly", async () => {
+		const project = await setup();
+		await mkdir(project.path(".trickroom/systems/twin"), { recursive: true });
+		await writeFile(
+			project.path(".trickroom/systems/twin/system.json"),
+			JSON.stringify({
+				version: 1,
+				systemId: CODEGEN_TEST_SYSTEM_ID,
+				systemName: "Twin",
+			}),
+		);
+		const { code, stdout, stderr } = await run([
+			project.root,
+			"--check",
+			"--json",
+		]);
+		expect(code).toBe(2);
+		expect(stderr).toBe("");
+		expect(JSON.parse(stdout)).toMatchObject({
+			status: "error",
+			diagnostics: [{ code: "RUN_FAILED" }],
+		});
 	});
 });
