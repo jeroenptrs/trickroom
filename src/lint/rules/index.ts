@@ -9,6 +9,10 @@ import {
 	variantsFileStaleRule,
 } from "./code/variants-file";
 import {
+	componentStylingRestrictedRule,
+	variantsImportedOutsideComponentRule,
+} from "./code/variants-import";
+import {
 	slotNotCalledRule,
 	wrapperMissingVariantsCallRule,
 } from "./code/wrapper";
@@ -38,6 +42,8 @@ export const LINT_RULE_KINDS: readonly LintRuleKind[] = [
 	requiredAxisMissingRule,
 	unknownClassTokenRule,
 	redundantClassRule,
+	variantsImportedOutsideComponentRule,
+	componentStylingRestrictedRule,
 ];
 
 export const lintRuleRegistry = createLintRuleRegistry(LINT_RULE_KINDS);
