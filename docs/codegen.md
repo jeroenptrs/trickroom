@@ -11,6 +11,7 @@ What is not generated, and stays with you:
 - The React component that wraps the variants: markup, props, refs, behaviour.
 - Classes that come from a Library's registry Elements or Recipes.
 - Instance overrides set in Designs.
+- Design-only template nodes and everything under them (see [Design-Only Nodes](#design-only-nodes)).
 
 Every generated file starts with two header lines and imports `tv` from `tvImport` (default `./tv`, a module you provide, for example one that calls `createTV` with your `tailwind-merge` config).
 
@@ -48,6 +49,17 @@ return (
 );
 ```
 
+## Design-Only Nodes
+
+A template node with `designOnly: true` exists in Designs but not in code: an annotation, a measurement guide, a layout helper. The flag is inherited, so its whole subtree is design-only too, including the default children of slots hosted inside it. Set it with the "Design only" switch in the component inspector, or as a template node field over MCP.
+
+- Codegen skips design-only nodes with their subtree: none of them becomes a slot, and their classes do not count when `shape: "auto"` decides between flat and slots.
+- A variant value or compound variant whose `classesByPath` names a path inside a design-only subtree fails the run with `DESIGN_ONLY_CLASS_TARGET`. Remove or retarget the entry, or clear the flag. A path that is not in the template at all is still `UNKNOWN_CLASS_TARGET`.
+- A design-only root makes the whole Component design-only: it gets no file, and the run reports a `DESIGN_ONLY_COMPONENT` warning. A file generated for it earlier shows up as orphaned.
+- `sourceHash` leaves design-only subtrees out, so editing inside one does not change it. Turning the flag on or off for a node that codegen emits does change it, because the output changes.
+
+The flag is part of the Component's template, so changing it is a draft change that needs a publish like any other. A publish still moves `publishedVersion` and `templateHash` in the header, so a check reports the file `stale` (`source-changed`) until it is regenerated; when only design-only nodes changed, `sourceHash` is the same as on disk and regenerating rewrites only the header line.
+
 ## Names
 
 - File: `fileName` with `{slug}` replaced by the Component slug, default `{slug}.variants.ts` (`otp-field.variants.ts`).
@@ -70,7 +82,7 @@ Two Components that produce the same file or export name fail the whole run.
 | `source` | `published`, or `draft` when generated with `--source draft` from a Component that has a draft. |
 | `publishedVersion` | The published version used; null for a draft. |
 | `templateHash`, `variantSchemaHash` | The Component's own hashes for that version. |
-| `sourceHash` | A hash of everything generation reads. Renaming labels does not change it. |
+| `sourceHash` | A hash of everything generation reads. Renaming labels and editing design-only nodes do not change it. |
 
 The header is how Trickroom recognises its own files. A formatter must leave the two lines in place.
 
@@ -152,6 +164,30 @@ type CodegenRunResult = {
 ```
 
 `status` is `drift` only in check mode. In write mode, `components` shows the state after the run (written files are `ok`) and `written` lists what changed. Components skipped with a warning (for example an `include` slug that is not published) appear only in `diagnostics`. Without a `codegen` block, `--json` prints `{ "status": "error", "code": "CODEGEN_NOT_CONFIGURED", "message" }` instead.
+
+## Diagnostics
+
+Generation diagnostics carry a `code`, a `severity`, a `message` and, where they apply, the Component `slug`, `componentId` and template `path`. Any error stops the whole run; a warning skips one Component.
+
+| Code | Severity | When |
+| --- | --- | --- |
+| `UNKNOWN_INCLUDE_SLUG`, `UNKNOWN_EXCLUDE_SLUG` | error | `include` or `exclude` names a slug the system does not have. |
+| `UNPUBLISHED_COMPONENT` | error | An `include`d Component has no published version. |
+| `MISSING_PUBLISHED_VERSION` | error | `currentVersion` points at a version that is not stored. |
+| `NO_SOURCE_PAYLOAD` | warning, error when included | With `--source draft`, a Component has neither a draft nor a published version. |
+| `DESIGN_ONLY_COMPONENT` | warning | The template root is design-only; the Component is skipped. |
+| `DUPLICATE_FILE_NAME`, `DUPLICATE_EXPORT_NAME` | error | Two Components produce the same file or export name. |
+| `INVALID_EXPORT_NAME` | error | The slug does not produce a valid identifier. |
+| `DUPLICATE_PART_PATH` | error | A path appears twice across the template and slot default children. |
+| `RESERVED_PART_PATH`, `INVALID_PART_IDENTIFIER`, `PART_KEY_COLLISION` | error | A styled path maps to `base`, to an invalid identifier, or to the same slot key as another path. |
+| `UNKNOWN_CLASS_TARGET` | error | Variant or compound classes name a path that is not in the template. |
+| `DESIGN_ONLY_CLASS_TARGET` | error | Variant or compound classes name a path inside a design-only subtree. |
+| `DEFAULT_CHILD_CLASS_TARGET` | error | Variant or compound classes name a slot default child. |
+| `RESERVED_AXIS_NAME`, `INVALID_TYPE_ALIAS`, `DUPLICATE_TYPE_ALIAS` | error | An axis key collides with a tailwind-variants option or produces an unusable or duplicate type name. |
+| `INVALID_BOOLEAN_AXIS`, `BOOLEAN_AXIS_WITHOUT_DEFAULT` | error | A boolean axis does not have exactly `true` and `false`, or has no default. |
+| `TEMPLATE_PROPS_CLASS_NAME` | error | A template node sets `props.className`; move it to `className`. |
+
+`trickroom codegen --check` reports these like any other error: status `error`, exit code 2.
 
 ## From An Agent
 

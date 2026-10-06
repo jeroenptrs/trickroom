@@ -40,7 +40,7 @@ These resolve ambiguities the analysis left open and apply to all WPs.
 
 ### WP1: design-only template nodes
 
-Status: todo. Model: Opus 5.5. Depends on nothing.
+Status: in review. Model: Opus 5.5. Depends on nothing.
 
 - `RecipeTemplateNode.designOnly?: boolean` in `src/types.ts`; validation in
   `src/utils/system-components-validation.ts` accepts it.
