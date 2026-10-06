@@ -2,6 +2,10 @@ import {
 	variantsFileOrphanedRule,
 	variantsFileStaleRule,
 } from "./code/variants-file";
+import {
+	slotNotCalledRule,
+	wrapperMissingVariantsCallRule,
+} from "./code/wrapper";
 import { createLintRuleRegistry } from "./registry";
 import type { LintRuleKind } from "./types";
 
@@ -22,6 +26,8 @@ export type {
 export const LINT_RULE_KINDS: readonly LintRuleKind[] = [
 	variantsFileStaleRule,
 	variantsFileOrphanedRule,
+	wrapperMissingVariantsCallRule,
+	slotNotCalledRule,
 ];
 
 export const lintRuleRegistry = createLintRuleRegistry(LINT_RULE_KINDS);
