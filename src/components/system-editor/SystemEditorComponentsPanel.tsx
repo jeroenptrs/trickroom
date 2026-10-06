@@ -597,6 +597,94 @@ function ComponentStatusBadge({
 	);
 }
 
+/**
+ * Component context header row: back to the component list, the component's
+ * name and slug, and its publication state. Shared by the components rail
+ * and the floating header left in its place when the rail is collapsed.
+ */
+export function ComponentContextHeaderContent({
+	componentId,
+	summary,
+	onBack,
+	tools,
+	actions,
+}: {
+	componentId: string;
+	summary: SystemComponentSummary | null;
+	onBack: () => void;
+	/** Controls placed between the title and the status badge. */
+	tools?: ReactNode;
+	/** Trailing controls, after the status badge. */
+	actions?: ReactNode;
+}) {
+	return (
+		<>
+			<Button
+				type="button"
+				variant="block"
+				className="flex size-7 shrink-0 items-center justify-center p-0"
+				onClick={onBack}
+				title="Back to components"
+			>
+				<ArrowLeft className="size-4 text-slate-500" aria-hidden="true" />
+			</Button>
+			<div className="min-w-0 flex-1">
+				<Text
+					variant="label"
+					className="block truncate text-[13px] font-semibold text-slate-900"
+				>
+					{summary?.name ?? "Component"}
+				</Text>
+				<span className="block truncate font-mono text-[10px] text-slate-400">
+					{summary?.slug ?? componentId}
+				</span>
+			</div>
+			{tools}
+			{summary ? <ComponentStatusBadge summary={summary} /> : null}
+			{actions}
+		</>
+	);
+}
+
+/**
+ * The component context header for the floating panel shown while the rail
+ * is collapsed. Leaving the context resets the draft like the rail does.
+ */
+export function CollapsedComponentContextHeader({
+	systemId,
+	projectScope,
+	componentId,
+	onSelectComponent,
+	actions,
+}: {
+	systemId: string;
+	projectScope?: ProjectQueryScope;
+	componentId: string;
+	onSelectComponent: (componentId: string | null) => void;
+	actions?: ReactNode;
+}) {
+	const componentsQuery = useQuery(
+		systemComponentsQueryOptions(systemId, projectScope),
+	);
+	const summary =
+		componentsQuery.data?.components.find(
+			(component) => component.componentId === componentId,
+		) ?? null;
+
+	return (
+		<ComponentContextHeaderContent
+			componentId={componentId}
+			summary={summary}
+			onBack={() => {
+				resetComponentDraftStore();
+				resetComponentEditorSession();
+				onSelectComponent(null);
+			}}
+			actions={actions}
+		/>
+	);
+}
+
 type ComponentRailTab = "design" | "settings" | "variants" | "publish";
 const COMPONENT_RAIL_TABS: ComponentRailTab[] = [
 	"design",
@@ -1120,31 +1208,13 @@ export function SystemEditorComponentsRail({
 					componentId={selectedComponentId}
 				/>
 				<header className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 px-2">
-					<Button
-						type="button"
-						variant="block"
-						className="flex size-7 shrink-0 items-center justify-center p-0"
-						onClick={() => handleSelectComponent(null)}
-						title="Back to components"
-					>
-						<ArrowLeft className="size-4 text-slate-500" aria-hidden="true" />
-					</Button>
-					<div className="min-w-0 flex-1">
-						<Text
-							variant="label"
-							className="block truncate text-[13px] font-semibold text-slate-900"
-						>
-							{selectedSummary?.name ?? "Component"}
-						</Text>
-						<span className="block truncate font-mono text-[10px] text-slate-400">
-							{selectedSummary?.slug ?? selectedComponentId}
-						</span>
-					</div>
-					<OpenDesignTokensButton systemId={systemId} />
-					{selectedSummary ? (
-						<ComponentStatusBadge summary={selectedSummary} />
-					) : null}
-					{headerActions}
+					<ComponentContextHeaderContent
+						componentId={selectedComponentId}
+						summary={selectedSummary}
+						onBack={() => handleSelectComponent(null)}
+						tools={<OpenDesignTokensButton systemId={systemId} />}
+						actions={headerActions}
+					/>
 				</header>
 				<Tabs
 					value={activeComponentTab}

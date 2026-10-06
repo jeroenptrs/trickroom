@@ -1416,16 +1416,35 @@ describe("SystemEditor collapsible panels", () => {
 		expect(html).not.toContain('data-slot="panel-edge-strip"');
 	});
 
-	it("hides a collapsed rail behind an edge strip that reopens it", () => {
+	it("keeps the system header floating over the workspace when the rail collapses", () => {
 		setEditorPanelOpen("system", "rail", false);
 		const html = renderSystemEditor("/system/core");
 
 		expect(html).toContain('class="hidden min-h-0 w-[300px]');
 		expect(html).not.toContain('class="flex min-h-0 w-[300px]');
-		expect(html).toContain('data-slot="panel-edge-strip"');
+		expect(html).not.toContain('data-slot="panel-edge-strip"');
+		const panel = html.slice(html.indexOf('data-slot="floating-panel"'));
+		expect(html).toContain('data-slot="floating-panel"');
+		expect(panel).toMatch(/^[^>]*data-editor-region="rail"[^>]*tabindex="-1"/);
 		expect(html.match(/data-editor-region="rail"/g)).toHaveLength(1);
-		expect(html).toContain('aria-label="Expand sidebar"');
+		// The floating panel sits inside the workspace, ahead of its content.
+		expect(html.indexOf('data-slot="floating-panel"')).toBeGreaterThan(
+			html.indexOf('data-editor-region="workspace"'),
+		);
+		expect(panel).toContain('title="Back to project"');
+		expect(panel).toContain("Core System");
+		expect(panel).toContain("Synced");
+		expect(panel).toContain('aria-label="Expand sidebar"');
+		expect(panel).toContain('title="Expand sidebar (Alt+[)"');
+		expect(panel).toContain('aria-expanded="false"');
+		expect(panel).toContain("lucide-panel-left-open");
 		expect(html).toContain("Select a component draft to open the editor.");
+	});
+
+	it("renders no floating header while the rail is open", () => {
+		const html = renderSystemEditor("/system/core");
+
+		expect(html).not.toContain('data-slot="floating-panel"');
 	});
 
 	it("still renders the active page with the rail collapsed", () => {
@@ -1433,6 +1452,25 @@ describe("SystemEditor collapsible panels", () => {
 		const html = renderSystemEditor("/system/core?tab=tokens");
 
 		expect(html).toContain("Core Tokens");
+		expect(html).toContain('data-slot="floating-panel"');
+	});
+
+	it("floats the component header when the rail collapses in the component context", () => {
+		setEditorPanelOpen("system", "rail", false);
+		const html = renderSystemEditor("/system/core?component=cmp_new_button", [
+			draftComponent,
+		]);
+
+		const panel = html.slice(html.indexOf('data-slot="floating-panel"'));
+		expect(html).toContain('data-slot="floating-panel"');
+		expect(panel).toContain('title="Back to components"');
+		expect(panel).toContain("New Button");
+		expect(panel).toContain("new-button");
+		expect(panel).toContain("Draft only");
+		expect(panel).toContain('aria-label="Expand sidebar"');
+		expect(panel).not.toContain("Back to project");
+		expect(panel).not.toContain("Core System");
+		expect(html.match(/data-editor-region="rail"/g)).toHaveLength(1);
 	});
 
 	it("keeps a rail collapse button in the component context", () => {

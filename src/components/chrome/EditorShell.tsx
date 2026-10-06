@@ -33,6 +33,7 @@ import {
 	handleEditorChromeShortcut,
 	isEditorPanelOpen,
 	setEditorPanelOpen,
+	toggleEditorPanel,
 	useEditorPanelOpen,
 } from "../../stores/editor-chrome-store";
 import type { TrickroomDesign } from "../../types";
@@ -44,10 +45,16 @@ import {
 import { useProjectScope } from "../contexts";
 import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
 import { Button } from "../ui/button";
+import { FloatingPanel, FloatingPanelHeader } from "../ui/floating-panel";
 import { Input } from "../ui/input";
 import { Layers } from "./Layers";
 import { Properties } from "./Properties";
-import { WorkspaceToolbar } from "./WorkspaceToolbar";
+import {
+	getPanelToggleIcon,
+	getPanelToggleLabel,
+	getPanelToggleTitle,
+	WorkspaceToolbar,
+} from "./WorkspaceToolbar";
 
 const AUTOSAVE_DELAY_MS = 1000;
 
@@ -251,7 +258,31 @@ function DesignTitle() {
 	);
 }
 
-function LeftSidebar({ designId }: { designId: string }) {
+/** Collapses or expands the layers rail; the icon shows which it does. */
+function RailToggle() {
+	const open = useEditorPanelOpen("design", "rail");
+	const Icon = getPanelToggleIcon("rail", open);
+
+	return (
+		<Button
+			type="button"
+			variant="block"
+			className="flex size-7 shrink-0 items-center justify-center p-0"
+			onClick={() => toggleEditorPanel("design", "rail")}
+			title={getPanelToggleTitle("rail", open)}
+			aria-label={getPanelToggleLabel("rail", open)}
+			aria-expanded={open}
+		>
+			<Icon className="size-4 text-slate-500" aria-hidden="true" />
+		</Button>
+	);
+}
+
+/**
+ * Header row shared by the rail and the floating panel left in its place
+ * when it is collapsed. `children` trail the title.
+ */
+function DesignHeaderContent({ children }: { children?: ReactNode }) {
 	const navigate = useNavigate();
 	const systemName = useDesignSystemName();
 	const systemId = useDesignSystemId();
@@ -260,27 +291,51 @@ function LeftSidebar({ designId }: { designId: string }) {
 		: "No design system";
 
 	return (
+		<>
+			<Button
+				variant="block"
+				className="flex size-7 shrink-0 items-center justify-center p-0"
+				onClick={() => navigate("/")}
+				title="Back to project"
+			>
+				<ArrowLeft className="size-4 text-slate-500" />
+			</Button>
+			<div className="flex min-w-0 flex-1 flex-col">
+				<DesignTitle />
+				<span className="truncate text-[10px] text-slate-400">{subtitle}</span>
+			</div>
+			<OpenDesignTokensButton systemId={systemId} />
+			{children}
+		</>
+	);
+}
+
+function LeftSidebar({ designId }: { designId: string }) {
+	return (
 		<aside className="flex min-h-0 w-[264px] shrink-0 flex-col border-r border-slate-200 bg-white text-xs">
 			<header className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 px-3">
-				<Button
-					variant="block"
-					className="flex size-7 shrink-0 items-center justify-center p-0"
-					onClick={() => navigate("/")}
-					title="Back to project"
-				>
-					<ArrowLeft className="size-4 text-slate-500" />
-				</Button>
-				<div className="flex min-w-0 flex-1 flex-col">
-					<DesignTitle />
-					<span className="truncate text-[10px] text-slate-400">
-						{subtitle}
-					</span>
-				</div>
-				<OpenDesignTokensButton systemId={systemId} />
-				<SaveControl designId={designId} />
+				<DesignHeaderContent>
+					{/* Only the rail renders the save control: it owns autosave and
+					    Mod+S, so it stays mounted exactly once. */}
+					<SaveControl designId={designId} />
+					<RailToggle />
+				</DesignHeaderContent>
 			</header>
 			<Layers designId={designId} className="flex-1" />
 		</aside>
+	);
+}
+
+/** Keeps the rail's header on screen over the stage while it is collapsed. */
+function CollapsedRailHeader() {
+	return (
+		<FloatingPanel className="w-[252px]">
+			<FloatingPanelHeader>
+				<DesignHeaderContent>
+					<RailToggle />
+				</DesignHeaderContent>
+			</FloatingPanelHeader>
+		</FloatingPanel>
 	);
 }
 
@@ -362,7 +417,10 @@ function EditorShellComponent({ designId, children }: EditorShellProps) {
 				className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-100 focus-visible:outline-none"
 			>
 				<WorkspaceToolbar />
-				<div className="relative min-h-0 flex-1">{children}</div>
+				<div className="relative min-h-0 flex-1">
+					{children}
+					{railOpen ? null : <CollapsedRailHeader />}
+				</div>
 			</main>
 			<div
 				data-editor-region="inspector"

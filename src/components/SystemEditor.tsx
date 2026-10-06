@@ -26,6 +26,7 @@ import {
 } from "./project/SystemStatusBadge";
 import { SystemEditorAssetsPanel } from "./system-editor/SystemEditorAssetsPanel";
 import {
+	CollapsedComponentContextHeader,
 	SystemEditorComponentsPanel,
 	SystemEditorComponentsRail,
 } from "./system-editor/SystemEditorComponentsPanel";
@@ -41,6 +42,7 @@ import {
 } from "./system-editor/SystemPanelToggle";
 import type { SystemEditorPage } from "./system-editor/types";
 import { Button } from "./ui/button";
+import { FloatingPanel, FloatingPanelHeader } from "./ui/floating-panel";
 import { PanelEdgeStrip } from "./ui/panel-edge-strip";
 import { ScrollArea } from "./ui/scroll-area";
 import { Separator } from "./ui/separator";
@@ -92,6 +94,45 @@ function getInitialSystemEditorPage(
 	return "components";
 }
 
+/**
+ * System header row: back to the project, the system name and its sync
+ * state, then the rail toggle. Shared by the rail and the floating panel
+ * left in its place when the rail is collapsed.
+ */
+function SystemHeaderContent({
+	systemName,
+	systemStatus,
+	onClose,
+}: {
+	systemName: string;
+	systemStatus: SystemStatusBadgeState;
+	onClose: () => void;
+}) {
+	return (
+		<>
+			<Button
+				type="button"
+				variant="block"
+				className="flex size-7 shrink-0 items-center justify-center p-0"
+				onClick={onClose}
+				title="Back to project"
+			>
+				<ArrowLeft className="size-4 text-slate-500" />
+			</Button>
+			<div className="min-w-0 flex-1">
+				<Text
+					variant="label"
+					className="block truncate text-[12px] font-medium text-slate-900"
+				>
+					{systemName}
+				</Text>
+			</div>
+			<SystemStatusBadge state={systemStatus} />
+			<SystemPanelToggle panel="rail" />
+		</>
+	);
+}
+
 function SystemLeftSidebar({
 	systemName,
 	systemId,
@@ -119,25 +160,11 @@ function SystemLeftSidebar({
 			{collapseChrome ? null : (
 				<>
 					<header className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 px-3">
-						<Button
-							type="button"
-							variant="block"
-							className="flex size-7 shrink-0 items-center justify-center p-0"
-							onClick={onClose}
-							title="Back to project"
-						>
-							<ArrowLeft className="size-4 text-slate-500" />
-						</Button>
-						<div className="min-w-0 flex-1">
-							<Text
-								variant="label"
-								className="block truncate text-[12px] font-medium text-slate-900"
-							>
-								{systemName}
-							</Text>
-						</div>
-						<SystemStatusBadge state={systemStatus} />
-						<SystemPanelToggle panel="rail" />
+						<SystemHeaderContent
+							systemName={systemName}
+							systemStatus={systemStatus}
+							onClose={onClose}
+						/>
 					</header>
 					<nav className="px-2" aria-label="System editor sections">
 						<TabsList variant="block" className="w-full flex-row border-b-0">
@@ -392,21 +419,46 @@ export function SystemEditor() {
 							/>
 						) : null}
 					</SystemLeftSidebar>
-					{isRailOpen ? null : (
-						<PanelEdgeStrip side="left" data-editor-region="rail" tabIndex={-1}>
-							<SystemPanelToggle panel="rail" />
-						</PanelEdgeStrip>
-					)}
 					<main
 						data-editor-region="workspace"
 						tabIndex={-1}
 						className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-100 focus-visible:outline-none"
 					>
+						{isRailOpen ? null : (
+							// Alt+1 focuses this header while the rail is collapsed.
+							<FloatingPanel
+								className="w-[288px]"
+								data-editor-region="rail"
+								tabIndex={-1}
+							>
+								<FloatingPanelHeader>
+									{isComponentContext && selectedComponentId !== null ? (
+										<CollapsedComponentContextHeader
+											systemId={systemId}
+											projectScope={projectScope}
+											componentId={selectedComponentId}
+											onSelectComponent={setSelectedComponentId}
+											actions={<SystemPanelToggle panel="rail" />}
+										/>
+									) : (
+										<SystemHeaderContent
+											systemName={selectedSystem.systemName}
+											systemStatus={systemStatus}
+											onClose={() => navigate("/")}
+										/>
+									)}
+								</FloatingPanelHeader>
+							</FloatingPanel>
+						)}
 						<ScrollArea
 							className="flex min-h-0 flex-1"
 							viewportRef={workspaceScrollRef}
 						>
-							<div className="flex min-h-full flex-col">
+							{/* Clear the floating header so page titles, filters and the
+							    draft stage's top edge are not hidden under it. */}
+							<div
+								className={`flex min-h-full flex-col ${isRailOpen ? "" : "pt-12"}`}
+							>
 								<TabsPanel value="components" className="flex min-h-0 flex-1">
 									<SystemEditorComponentsPanel
 										systemId={systemId}
