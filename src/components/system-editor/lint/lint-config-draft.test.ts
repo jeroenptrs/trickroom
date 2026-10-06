@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { LintConfig } from "../../../lint/config";
 import {
 	componentModules,
+	editLintConfigSession,
+	isLintConfigSessionConflicted,
+	isLintConfigSessionDirty,
 	lintConfigEquals,
+	lintConfigSessionAfterFileChange,
 	optionValueMatchesSpec,
 	parseCountText,
 	parseListText,
@@ -166,5 +170,58 @@ describe("lint config draft", () => {
 				"src/**",
 			),
 		).toBe(false);
+	});
+});
+
+describe("lint config edit session", () => {
+	const absent = { revision: null, config: base };
+
+	it("keeps a null starting revision when another writer creates the file", () => {
+		// Editing before lint.json exists.
+		let session = editLintConfigSession(
+			null,
+			absent,
+			setThreshold(base, "code.errors", 0),
+		);
+		expect(session.revision).toBeNull();
+
+		// Someone else writes the file; the query refreshes.
+		const external = {
+			revision: "sha256:external",
+			config: {
+				version: 1,
+				thresholds: { code: { warnings: 3 } },
+			} as LintConfig,
+		};
+		expect(lintConfigSessionAfterFileChange(session, external.revision)).toBe(
+			session,
+		);
+		expect(isLintConfigSessionConflicted(session, external.revision)).toBe(
+			true,
+		);
+
+		// Editing another field must not adopt the external revision.
+		session = editLintConfigSession(
+			session,
+			external,
+			setThreshold(session.config, "code.warnings", 5),
+		);
+		expect(session.revision).toBeNull();
+		expect(session.base).toEqual(base);
+		expect(isLintConfigSessionConflicted(session, external.revision)).toBe(
+			true,
+		);
+	});
+
+	it("lets a clean session follow the file and ends it there", () => {
+		const session = editLintConfigSession(
+			null,
+			absent,
+			setThreshold(base, "code.errors", 0),
+		);
+		const reverted = editLintConfigSession(session, absent, base);
+		expect(isLintConfigSessionDirty(reverted)).toBe(false);
+		expect(lintConfigSessionAfterFileChange(reverted, "sha256:new")).toBeNull();
+		expect(lintConfigSessionAfterFileChange(null, "sha256:new")).toBeNull();
 	});
 });

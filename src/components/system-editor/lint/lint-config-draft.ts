@@ -278,3 +278,53 @@ export const optionValueMatchesSpec = (
 			);
 	}
 };
+
+/**
+ * An edit of `lint.json` in the editor: the file revision it started from
+ * (null when there was no file), the config at that revision, and the
+ * edited config. The revision is kept as it was, null included, until the
+ * user saves or discards, so a file written by someone else in between is
+ * a conflict rather than a silent new base.
+ */
+export type LintConfigEditSession = {
+	revision: string | null;
+	base: LintConfig;
+	config: LintConfig;
+};
+
+export type LintConfigFileState = {
+	revision: string | null;
+	config: LintConfig;
+};
+
+/** Applies an edit; the first edit starts from the file as loaded. */
+export const editLintConfigSession = (
+	session: LintConfigEditSession | null,
+	file: LintConfigFileState,
+	next: LintConfig,
+): LintConfigEditSession =>
+	session
+		? { ...session, config: next }
+		: { revision: file.revision, base: file.config, config: next };
+
+export const isLintConfigSessionDirty = (
+	session: LintConfigEditSession | null,
+): session is LintConfigEditSession =>
+	session !== null && !lintConfigEquals(session.config, session.base);
+
+/** The file moved on under unsaved edits. */
+export const isLintConfigSessionConflicted = (
+	session: LintConfigEditSession | null,
+	fileRevision: string | null,
+) => isLintConfigSessionDirty(session) && session.revision !== fileRevision;
+
+/** A clean session follows the file; a dirty one waits for the user. */
+export const lintConfigSessionAfterFileChange = (
+	session: LintConfigEditSession | null,
+	fileRevision: string | null,
+) =>
+	session &&
+	session.revision !== fileRevision &&
+	!isLintConfigSessionDirty(session)
+		? null
+		: session;

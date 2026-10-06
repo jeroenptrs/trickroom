@@ -29,9 +29,13 @@ import { Text } from "../../ui/text";
 import { SectionHeading } from "./LintParts";
 import {
 	componentModules,
+	editLintConfigSession,
 	formatListText,
+	isLintConfigSessionConflicted,
+	isLintConfigSessionDirty,
+	type LintConfigEditSession,
 	type LintThresholdPath,
-	lintConfigEquals,
+	lintConfigSessionAfterFileChange,
 	optionValueMatchesSpec,
 	parseCountText,
 	parseListText,
@@ -541,13 +545,6 @@ const SOURCE_FIELDS: Array<{
 	},
 ];
 
-type ConfigDraft = {
-	/** The file revision the edit started from. */
-	revision: string | null;
-	base: LintConfig;
-	config: LintConfig;
-};
-
 /**
  * The `lint.json` editor: every rule kind of the catalogue with its enabled
  * state, severity, per-kind threshold and documented options, the wrapper
@@ -583,32 +580,23 @@ export function LintConfigEditor({
 			].sort(),
 		[componentsQuery.data, extraSlugs],
 	);
-	const [draft, setDraft] = useState<ConfigDraft | null>(null);
+	const [draft, setDraft] = useState<LintConfigEditSession | null>(null);
 	const config = draft?.config ?? data.config;
-	const isDirty = draft !== null && !lintConfigEquals(draft.config, draft.base);
-	const changedOnDisk = isDirty && draft.revision !== data.revision;
+	const isDirty = isLintConfigSessionDirty(draft);
+	const changedOnDisk = isLintConfigSessionConflicted(draft, data.revision);
 
-	// A clean draft follows the file; a dirty one waits for the user.
 	useEffect(() => {
 		setDraft((current) =>
-			current &&
-			current.revision !== data.revision &&
-			lintConfigEquals(current.config, current.base)
-				? null
-				: current,
+			lintConfigSessionAfterFileChange(current, data.revision),
 		);
 	}, [data.revision]);
 
 	const change = (next: LintConfig) =>
-		setDraft((current) => ({
-			revision: current?.revision ?? data.revision,
-			base: current?.base ?? data.config,
-			config: next,
-		}));
+		setDraft((current) => editLintConfigSession(current, data, next));
 
 	const saveMutation = useMutation({
-		mutationFn: (revision: string | null) =>
-			saveSystemLintConfig(systemId, { config, revision }),
+		mutationFn: (input: { config: LintConfig; revision: string | null }) =>
+			saveSystemLintConfig(systemId, input),
 		onSuccess: (response) => {
 			queryClient.setQueryData(
 				systemLintConfigQueryKey(systemId, projectScope),
@@ -810,7 +798,9 @@ export function LintConfigEditor({
 							flavor="warning"
 							className="px-3 py-1.5 text-xs"
 							disabled={saveMutation.isPending}
-							onClick={() => saveMutation.mutate(data.revision)}
+							onClick={() =>
+								saveMutation.mutate({ config, revision: data.revision })
+							}
 						>
 							Overwrite
 						</Button>
@@ -865,7 +855,10 @@ export function LintConfigEditor({
 						className="px-3 py-1.5"
 						disabled={!isDirty || isConflict || saveMutation.isPending}
 						onClick={() =>
-							saveMutation.mutate(draft?.revision ?? data.revision)
+							saveMutation.mutate({
+								config,
+								revision: draft ? draft.revision : data.revision,
+							})
 						}
 					>
 						Save lint.json
