@@ -27,11 +27,10 @@ import {
  * after a `p-4` in the same className. Merged outputs are compared as
  * class sets: Tailwind's CSS does not depend on class order.
  *
- * A literal attribute selects its value unless a later spread may override
- * it; an absent attribute selects the axis default unless a spread may
- * supply it; a dynamic value selects nothing knowable, so only the base
- * classes count for that axis. A className a later spread may replace is
- * skipped. Compound variants are not considered.
+ * Unknowns never count as absent: a class must be redundant under every
+ * value a dynamic axis may take (`providedCombinations`), class literals
+ * next to non-literal parts (`mixed`) are skipped, and so is a className a
+ * later spread may replace. Compound variants are not considered.
  */
 
 const ROOT_SLOT = "root";
@@ -41,38 +40,82 @@ const classesOf = (className: string) =>
 
 type ProvidedClass = { className: string; source: string };
 
-/** What the component applies on the root for one element, in layering order. */
-const providedClasses = (
+/** Above this many combinations of dynamic axis values, the element is skipped. */
+export const MAX_REDUNDANT_CLASS_COMBINATIONS = 64;
+
+type AxisOption = { key: string | null; source: string };
+
+/**
+ * What the component may apply on the root for one element, in layering
+ * order, once per combination of the values its dynamic axes may take.
+ * A literal attribute selects its value; an absent attribute selects the
+ * default, or nothing without one. An axis is dynamic when its attribute
+ * is not a literal, a later spread may override it, or it is absent and a
+ * spread may supply it: it may take any of its values or none (an
+ * unknown value selects nothing). Null when there are more than
+ * `MAX_REDUNDANT_CLASS_COMBINATIONS` combinations.
+ */
+const providedCombinations = (
 	component: SystemContractComponent,
 	element: SourceJsxElement,
-): ProvidedClass[] => {
-	const provided: ProvidedClass[] = [];
+): ProvidedClass[][] | null => {
 	const root = component.slots.find((slot) => slot.key === ROOT_SLOT);
-	for (const className of classesOf(root?.className ?? "")) {
-		provided.push({ className, source: "its base classes" });
-	}
+	const base = classesOf(root?.className ?? "").map((className) => ({
+		className,
+		source: "its base classes",
+	}));
+	const options: Array<{
+		axis: (typeof component.axes)[number];
+		options: AxisOption[];
+	}> = [];
+	let count = 1;
 	for (const axis of component.axes) {
 		const value = jsxAttributeValue(element, axis.key);
-		let key: string | null = null;
-		let source = "";
-		if (value) {
-			// Dynamic, or a literal a later spread may override: unknown.
-			key = literalVariantKey(value);
-			source = `${axis.key}="${key}"`;
-		} else if (!element.spread && axis.default !== null) {
-			key = String(axis.default);
-			source = `the default ${axis.key}="${key}"`;
+		const key = value ? literalVariantKey(value) : null;
+		let axisOptions: AxisOption[];
+		if (value && key !== null) {
+			axisOptions = [{ key, source: `${axis.key}="${key}"` }];
+		} else if (!value && !element.spread) {
+			axisOptions = [
+				axis.default === null
+					? { key: null, source: "" }
+					: {
+							key: String(axis.default),
+							source: `the default ${axis.key}="${String(axis.default)}"`,
+						},
+			];
+		} else {
+			// Dynamic: any value of the axis, or none.
+			axisOptions = [
+				...axis.values.map((entry) => ({
+					key: entry.key,
+					source: `${axis.key}="${entry.key}"`,
+				})),
+				{ key: null, source: "" },
+			];
 		}
-		if (key === null) continue;
-		const selected = axis.values.find((entry) => entry.key === key);
-		for (const [slot, className] of selected?.classes ?? []) {
-			if (slot !== ROOT_SLOT) continue;
-			for (const entry of classesOf(className)) {
-				provided.push({ className: entry, source });
-			}
-		}
+		count *= axisOptions.length;
+		if (count > MAX_REDUNDANT_CLASS_COMBINATIONS) return null;
+		options.push({ axis, options: axisOptions });
 	}
-	return provided;
+	let combinations: ProvidedClass[][] = [base];
+	for (const { axis, options: axisOptions } of options) {
+		combinations = combinations.flatMap((provided) =>
+			axisOptions.map((option) => {
+				const selected = axis.values.find((entry) => entry.key === option.key);
+				const added = (selected?.classes ?? [])
+					.filter(([slot]) => slot === ROOT_SLOT)
+					.flatMap(([, className]) =>
+						classesOf(className).map((entry) => ({
+							className: entry,
+							source: option.source,
+						})),
+					);
+				return [...provided, ...added];
+			}),
+		);
+	}
+	return combinations;
 };
 
 const mergedSet = (classes: readonly string[]) =>
@@ -103,23 +146,41 @@ export const redundantClassRule: LintRuleKind = {
 			)
 				continue;
 			const module = context.sources.modules[usage.file];
+			// Classes next to non-literal parts (`cn(extra, "px-3")`) may be
+			// overridden by what those parts hold at runtime: skipped.
 			const strings = usageClassStrings(module, usage).filter(
-				(entry) => entry.complete,
+				(entry) => entry.complete && !entry.mixed,
 			);
 			if (strings.length === 0) continue;
 			if (!isComponentUsage(context.sources, component, usage)) continue;
-			const provided = providedClasses(component, usage.element);
-			const base = provided.map((entry) => entry.className);
-			const merged = mergedSet(base);
+			const combinations = providedCombinations(component, usage.element);
+			if (!combinations) continue;
 			const occurrences = strings.flatMap((entry) =>
 				classesOf(entry.value).map((className) => ({ entry, className })),
 			);
 			const all = occurrences.map((occurrence) => occurrence.className);
-			const mergedWithAll = mergedSet([...base, ...all]);
+			const checks = combinations.map((provided) => {
+				const base = provided.map((entry) => entry.className);
+				return {
+					provided,
+					base,
+					merged: mergedSet(base),
+					mergedWithAll: mergedSet([...base, ...all]),
+				};
+			});
 			for (const [index, { entry, className }] of occurrences.entries()) {
-				if (!sameSet(mergedSet([...base, className]), merged)) continue;
 				const without = all.filter((_, other) => other !== index);
-				if (!sameSet(mergedSet([...base, ...without]), mergedWithAll)) continue;
+				// Redundant only under every combination of dynamic axis values.
+				const redundant = checks.every(
+					(check) =>
+						sameSet(mergedSet([...check.base, className]), check.merged) &&
+						sameSet(
+							mergedSet([...check.base, ...without]),
+							check.mergedWithAll,
+						),
+				);
+				if (!redundant) continue;
+				const provided = checks[0].provided;
 				const source =
 					provided.findLast((candidate) => candidate.className === className)
 						?.source ?? "its classes";

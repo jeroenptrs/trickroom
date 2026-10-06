@@ -162,8 +162,39 @@ describe("code.redundant-class", () => {
 			// bg-red-500 (from tone="loud") is not reported: removing it would let the bg-white before it win.
 			'src/app.tsx:9:88 <Button className> repeats "rounded-md", which "button" already applies through its base classes. Remove it from className.',
 			'src/app.tsx:10:53 <Button className> repeats "text-sm", which "button" already applies through size="sm". Remove it from className.',
-			'src/app.tsx:12:70 <Button className> repeats "px-3", which "button" already applies through its base classes. Remove it from className.',
+			// Not px-3 on line 12: the spread may supply size="sm", whose px-6 it overrides.
 			'src/app.tsx:14:47 <Button className> repeats "rounded-md", which "button" already applies through its base classes. Remove it from className.',
+		]);
+	});
+	it("judges a class under every value a dynamic axis may take, and skips classes next to non-literal parts", async () => {
+		const fixture = await fixtures.create({
+			components: [button()],
+			files: {
+				"src/ui/cn.ts": "export const cn = (...v: unknown[]) => v.join(' ');\n",
+				"src/ui/button.tsx": BUTTON_WRAPPER,
+				"src/app.tsx": [
+					'import { Button } from "./ui/button";',
+					'import { cn } from "./ui/cn";',
+					"declare const size: string;",
+					"declare const extra: string;",
+					"declare const rest: Record<string, unknown>;",
+					"export const App = () => (",
+					"\t<>",
+					'\t\t<Button variant="ghost" size={size} className="px-3 rounded-md" />',
+					'\t\t<Button variant="ghost" {...rest} className="px-3 inline-flex" />',
+					'\t\t<Button variant="ghost" className={cn(extra, "px-3 rounded-md")} />',
+					'\t\t<Button variant="ghost" size="md" className={cn("px-3", "rounded-md")} />',
+					"\t</>",
+					");",
+					"",
+				].join("\n"),
+			},
+		});
+		expect(describeFindings(await fixture.run(redundantClassRule))).toEqual([
+			'src/app.tsx:8:55 <Button className> repeats "rounded-md", which "button" already applies through its base classes. Remove it from className.',
+			'src/app.tsx:9:53 <Button className> repeats "inline-flex", which "button" already applies through its base classes. Remove it from className.',
+			'src/app.tsx:11:52 <Button className> repeats "px-3", which "button" already applies through its base classes. Remove it from className.',
+			'src/app.tsx:11:60 <Button className> repeats "rounded-md", which "button" already applies through its base classes. Remove it from className.',
 		]);
 	});
 });
