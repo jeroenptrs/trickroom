@@ -1340,6 +1340,49 @@ describe("design-only nodes", () => {
 		]);
 	});
 
+	it("still rejects class targets when the root is design-only", () => {
+		const record = publishedRecord("annotation", {
+			root: designOnly(node("root", "bg-yellow-100", [node("pin", "size-2")])),
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						defaultValue: "warm",
+						values: {
+							warm: { classesByPath: { pin: "bg-red-500" } },
+							cool: {},
+						},
+					},
+					size: {
+						label: "Size",
+						defaultValue: "sm",
+						values: { sm: {}, lg: {} },
+					},
+				},
+				compoundVariants: [
+					{
+						when: { tone: "cool", size: "lg" },
+						classesByPath: { root: "p-4", ghost: "p-1" },
+					},
+				],
+			},
+		});
+		const result = generate([record, publishedRecord("ok", flatPayload())]);
+		expect(result.files).toEqual([]);
+		expect(
+			result.diagnostics.map(({ code, severity, path }) => ({
+				code,
+				severity,
+				path,
+			})),
+		).toEqual([
+			{ code: "DESIGN_ONLY_CLASS_TARGET", severity: "error", path: "pin" },
+			{ code: "DESIGN_ONLY_CLASS_TARGET", severity: "error", path: "root" },
+			{ code: "UNKNOWN_CLASS_TARGET", severity: "error", path: "ghost" },
+			{ code: "DESIGN_ONLY_COMPONENT", severity: "warning", path: "root" },
+		]);
+	});
+
 	describe("sourceHash", () => {
 		it("is unchanged for components without design-only nodes", () => {
 			// Computed before design-only nodes existed: existing generated files

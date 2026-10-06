@@ -295,29 +295,15 @@ export function buildCodegenComponentModel({
 		});
 	};
 
+	// A design-only root makes the whole component design-only: no file, so
+	// only its class targets are checked before it is skipped.
+	const designOnlyRoot = payload.root.designOnly === true;
 	const exportName = variantsExportName(slug);
-	if (!isValidIdentifier(exportName)) {
+	if (!designOnlyRoot && !isValidIdentifier(exportName)) {
 		report(
 			"INVALID_EXPORT_NAME",
 			`slug produces export name "${exportName}", which is not a valid identifier. Rename the slug so it starts with a letter.`,
 		);
-	}
-
-	// A design-only root makes the whole component design-only: no file.
-	if (payload.root.designOnly === true) {
-		return {
-			model: null,
-			diagnostics: [
-				{
-					code: "DESIGN_ONLY_COMPONENT",
-					severity: "warning",
-					message: `Component "${slug}" has a design-only root, so it exists in designs only; skipped.`,
-					slug,
-					componentId: record.componentId,
-					path: payload.root.path,
-				},
-			],
-		};
 	}
 
 	const designOnlyPaths = collectDesignOnlyPaths(payload);
@@ -408,6 +394,18 @@ export function buildCodegenComponentModel({
 			);
 		}
 	});
+
+	if (designOnlyRoot) {
+		diagnostics.push({
+			code: "DESIGN_ONLY_COMPONENT",
+			severity: "warning",
+			message: `Component "${slug}" has a design-only root, so it exists in designs only; skipped.`,
+			slug,
+			componentId: record.componentId,
+			path: payload.root.path,
+		});
+		return { model: null, diagnostics };
+	}
 
 	const rootPath = payload.root.path;
 	const slotted =
