@@ -135,7 +135,7 @@ Deliverables, all in the repo:
 
 ### WP3: code-side rules
 
-Status: in review. Model: Opus 5.5. Depends on WP2.
+Status: merged. Model: Opus 5.5. Depends on WP2.
 
 Rule kinds, each with tests on fixture TSX:
 
@@ -154,7 +154,7 @@ Rule kinds, each with tests on fixture TSX:
 
 ### WP4: design-side rules and configuration
 
-Status: in progress. Model: Opus 5.5. Depends on WP2 and WP1.
+Status: in review, integrating with the trunk. Model: Opus 5.5. Depends on WP2 and WP1.
 
 - Design-side rule kinds through the engine: token and class rules (the
   existing `getDesignDiagnostics` checks, now configurable per system),
@@ -167,7 +167,7 @@ Status: in progress. Model: Opus 5.5. Depends on WP2 and WP1.
 
 ### WP5: dashboard and rule configuration UI
 
-Status: in review. Model: Opus 5.5. Depends on WP2; verify against WP3 and WP4
+Status: merged. Model: Opus 5.5. Depends on WP2; verify against WP3 and WP4
 output once merged.
 
 - New `lint` page in the System editor (`SYSTEM_EDITOR_PAGES`,
