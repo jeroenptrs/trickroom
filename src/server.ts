@@ -21,6 +21,7 @@ import {
 	updateMcpToolGroupSettings,
 } from "./app-state/settings";
 import { describeCodegenConfigIssues } from "./codegen/config";
+import { lintLinkedDesign } from "./lint/design-lint";
 import { parseDesignResourceUri } from "./mcp/resources";
 import { MCP_TOOL_GROUPS } from "./mcp/tool-groups";
 import {
@@ -1444,6 +1445,49 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			}
 
 			return jsonError("Failed to scan design system component usage", 500);
+		}
+	});
+
+	// The design-side lint rules on the saved design, with its system's
+	// lint.json: the same findings design_validate returns to agents.
+	app.get("/api/trickroom/design/lint", async (c) => {
+		const project = await resolveProjectForRequest();
+		if (!project) {
+			return createNoProjectResponse();
+		}
+
+		const designId = c.req.query("id");
+		if (!designId) {
+			return jsonError("Missing required query parameter: id", 400);
+		}
+
+		const designFileService = createDesignFileService(project.projectRoot, {
+			trickroomHome,
+		});
+		try {
+			const read = await designFileService.readDesignFile(designId);
+			return c.json(
+				await lintLinkedDesign({
+					projectRoot: project.projectRoot,
+					designId,
+					design: read.design,
+				}),
+			);
+		} catch (error) {
+			if (isInvalidDesignIdError(error)) {
+				return invalidDesignIdResponse();
+			}
+			if (
+				error instanceof DesignFileServiceError &&
+				(error.code === "INVALID_DESIGN_PAYLOAD" ||
+					error.code === "UNSUPPORTED_DESIGN_VERSION")
+			) {
+				return jsonError(error.message, 422);
+			}
+			if (asErrnoException(error).code === "ENOENT") {
+				return designNotFoundResponse(designId);
+			}
+			return jsonError("Failed to lint trickroom design file", 500);
 		}
 	});
 

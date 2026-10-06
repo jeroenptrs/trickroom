@@ -70,6 +70,11 @@ import {
 	getPublishedVersionForInstance,
 } from "./attached-component-inspector";
 import { ClassCompositionPanel } from "./classes/ClassCompositionPanel";
+import {
+	DesignLintFindingList,
+	DesignLintSummary,
+	useElementLintFindings,
+} from "./DesignLintFindings";
 import { DesignSystemPicker } from "./DesignSystemPicker";
 
 type ComponentControlProps = {
@@ -657,8 +662,12 @@ function EmptyStateKbdMap() {
 	);
 }
 
-export function Properties() {
+export function Properties({ designId }: { designId?: string } = {}) {
 	const selectedElement = useSelectedElement();
+	const lintFindings = useElementLintFindings(
+		designId,
+		selectedElement?.id ?? null,
+	);
 	const systemId = useDesignSystemId() ?? null;
 	const recipeControlTargets = useRecipeControlTargets();
 	const attachedInspection = useAttachedComponentInspection();
@@ -680,6 +689,7 @@ export function Properties() {
 					<div className="flex flex-col gap-4 p-3">
 						<StagePreviewDarkModeToggle />
 						<DesignSystemPicker />
+						{designId ? <DesignLintSummary designId={designId} /> : null}
 						<EmptyStateKbdMap />
 					</div>
 				</ScrollArea>
@@ -779,6 +789,11 @@ export function Properties() {
 			<InspectorHeader element={selectedElement} />
 			<ScrollArea className="min-h-0 flex-1">
 				<div className="flex flex-col divide-y divide-slate-200">
+					{lintFindings.length > 0 ? (
+						<InspectorSection title="Lint">
+							<DesignLintFindingList findings={lintFindings} />
+						</InspectorSection>
+					) : null}
 					<InspectorSection
 						title={classOverride ? "Instance classes" : "Classes"}
 					>
