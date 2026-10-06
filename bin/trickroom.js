@@ -150,4 +150,7 @@ if (command?.command === "mcp") {
 } else if (command?.command === "feedback") {
 	const runtime = await import("../dist/feedback.js");
 	process.exitCode = await runtime.main(command.args);
+} else if (command?.command === "lint") {
+	const runtime = await import("../dist/lint.js");
+	process.exitCode = await runtime.main(command.args);
 }

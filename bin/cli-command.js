@@ -28,11 +28,15 @@ export const resolveTrickroomCommand = (argv = process.argv) => {
 		return { command: "feedback", args: argv.slice(3) };
 	}
 
+	if (command === "lint") {
+		return { command: "lint", args: argv.slice(3) };
+	}
+
 	if (command === undefined || command.startsWith("--")) {
 		return { command: "serve", argv };
 	}
 
 	throw new Error(
-		`Unknown command "${command}". Use "trickroom serve [project]", "trickroom mcp", "trickroom migrate [project]", "trickroom codegen [project] [--check]", "trickroom feedback" or "trickroom install-browser".`,
+		`Unknown command "${command}". Use "trickroom serve [project]", "trickroom mcp", "trickroom migrate [project]", "trickroom codegen [project] [--check]", "trickroom lint [project] [--check]", "trickroom feedback" or "trickroom install-browser".`,
 	);
 };
