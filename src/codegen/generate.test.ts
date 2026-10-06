@@ -1191,6 +1191,343 @@ describe("generateVariantsFiles", () => {
 	});
 });
 
+describe("design-only nodes", () => {
+	const designOnly = (
+		templateNode: RecipeTemplateNode,
+	): RecipeTemplateNode => ({
+		...templateNode,
+		designOnly: true,
+	});
+
+	// A styled label, a design-only guide with a styled child, a slot whose
+	// default children include a design-only hint, and a slot hosted inside
+	// the guide.
+	const annotatedPayload = (): SystemComponentDraftPayload => ({
+		root: node("root", "flex gap-2", [
+			node("label", "font-bold"),
+			designOnly(
+				node("guide", "border border-dashed", [
+					node("guide-label", "text-xs text-red-500"),
+				]),
+			),
+		]),
+		slots: {
+			main: {
+				name: "main",
+				hostPath: "root",
+				defaultChildren: [
+					node("placeholder", "opacity-50"),
+					designOnly(node("hint", "italic")),
+				],
+			},
+			notes: {
+				name: "notes",
+				hostPath: "guide-label",
+				defaultChildren: [node("note", "text-[10px]")],
+			},
+		},
+		variants: {
+			axes: {
+				size: {
+					label: "Size",
+					defaultValue: "sm",
+					values: {
+						sm: { classesByPath: { root: "p-1", label: "text-sm" } },
+						lg: { classesByPath: { root: "p-4" } },
+					},
+				},
+			},
+		},
+	});
+
+	it("skips a design-only node, its subtree and slots hosted inside it", () => {
+		const file = generateOne(publishedRecord("field", annotatedPayload()));
+		expect(file.model.slots.map((slot) => slot.path)).toEqual([
+			"root",
+			"label",
+			"placeholder",
+		]);
+		for (const skipped of [
+			"guide",
+			"border-dashed",
+			"text-red-500",
+			"italic",
+		]) {
+			expect(file.contents).not.toContain(skipped);
+		}
+		expect(file.contents).not.toContain("text-[10px]");
+	});
+
+	it("does not let a styled design-only node force the slots shape", () => {
+		const file = generateOne(
+			publishedRecord("chip", {
+				root: node("root", "inline-flex", [
+					designOnly(node("ruler", "border-t", [node("tick", "w-px")])),
+				]),
+			}),
+		);
+		expect(file.shape).toBe("flat");
+		expect(file.model.slots.map((slot) => slot.path)).toEqual(["root"]);
+	});
+
+	it("rejects variant and compound classes that target a design-only subtree", () => {
+		const variantTarget = annotatedPayload();
+		const sm = variantTarget.variants?.axes.size.values.sm;
+		if (sm) {
+			sm.classesByPath = { root: "p-1", "guide-label": "text-sm" };
+		}
+		const compoundTarget = annotatedPayload();
+		if (compoundTarget.variants) {
+			compoundTarget.variants.axes.tone = {
+				label: "Tone",
+				defaultValue: "neutral",
+				values: { neutral: {}, brand: {} },
+			};
+			compoundTarget.variants.compoundVariants = [
+				{
+					when: { size: "lg", tone: "brand" },
+					classesByPath: { guide: "p-2" },
+				},
+			];
+		}
+		const defaultChildTarget = annotatedPayload();
+		const lg = defaultChildTarget.variants?.axes.size.values.lg;
+		if (lg) {
+			lg.classesByPath = { hint: "p-2", note: "p-3", ghost: "p-4" };
+		}
+
+		for (const [payload, path] of [
+			[variantTarget, "guide-label"],
+			[compoundTarget, "guide"],
+		] as const) {
+			const record = publishedRecord("field", payload);
+			const result = generate([record]);
+			expect(result.files).toEqual([]);
+			expect(result.diagnostics).toEqual([
+				expect.objectContaining({
+					code: "DESIGN_ONLY_CLASS_TARGET",
+					severity: "error",
+					slug: "field",
+					componentId: record.componentId,
+					path,
+				}),
+			]);
+		}
+
+		const { codes } = diagnosticCodes([
+			publishedRecord("field", defaultChildTarget),
+		]);
+		expect(codes).toEqual([
+			"DESIGN_ONLY_CLASS_TARGET",
+			"DESIGN_ONLY_CLASS_TARGET",
+			"UNKNOWN_CLASS_TARGET",
+		]);
+	});
+
+	it("skips a component whose root is design-only with a warning", () => {
+		const annotation = publishedRecord("annotation", {
+			root: designOnly(node("root", "bg-yellow-100")),
+		});
+		const result = generate([annotation, publishedRecord("ok", flatPayload())]);
+		expect(result.files.map((file) => file.header.slug)).toEqual(["ok"]);
+		expect(result.diagnostics).toEqual([
+			expect.objectContaining({
+				code: "DESIGN_ONLY_COMPONENT",
+				severity: "warning",
+				slug: "annotation",
+				path: "root",
+			}),
+		]);
+	});
+
+	it("still rejects class targets when the root is design-only", () => {
+		const record = publishedRecord("annotation", {
+			root: designOnly(node("root", "bg-yellow-100", [node("pin", "size-2")])),
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						defaultValue: "warm",
+						values: {
+							warm: { classesByPath: { pin: "bg-red-500" } },
+							cool: {},
+						},
+					},
+					size: {
+						label: "Size",
+						defaultValue: "sm",
+						values: { sm: {}, lg: {} },
+					},
+				},
+				compoundVariants: [
+					{
+						when: { tone: "cool", size: "lg" },
+						classesByPath: { root: "p-4", ghost: "p-1" },
+					},
+				],
+			},
+		});
+		const result = generate([record, publishedRecord("ok", flatPayload())]);
+		expect(result.files).toEqual([]);
+		expect(
+			result.diagnostics.map(({ code, severity, path }) => ({
+				code,
+				severity,
+				path,
+			})),
+		).toEqual([
+			{ code: "DESIGN_ONLY_CLASS_TARGET", severity: "error", path: "pin" },
+			{ code: "DESIGN_ONLY_CLASS_TARGET", severity: "error", path: "root" },
+			{ code: "UNKNOWN_CLASS_TARGET", severity: "error", path: "ghost" },
+			{ code: "DESIGN_ONLY_COMPONENT", severity: "warning", path: "root" },
+		]);
+	});
+
+	describe("sourceHash", () => {
+		it("is unchanged for components without design-only nodes", () => {
+			// Computed before design-only nodes existed: existing generated files
+			// must not turn stale.
+			expect(hashCodegenSource(precedencePayload())).toBe(
+				"sha256:2b016a7cc641736378a0b6db374bc88e22be25c5a9d047ee73ff1cbe242fbb9d",
+			);
+			const explicitFalse = precedencePayload();
+			explicitFalse.root.designOnly = false;
+			expect(hashCodegenSource(explicitFalse)).toBe(
+				hashCodegenSource(precedencePayload()),
+			);
+		});
+
+		it("ignores edits inside a design-only subtree", () => {
+			const base = annotatedPayload();
+			const edited = annotatedPayload();
+			const guide = edited.root.children?.[1];
+			if (guide) {
+				guide.className = "border-2 border-solid";
+				guide.children = [
+					node("guide-label", "text-lg"),
+					node("guide-extra", "underline"),
+				];
+			}
+			const main = edited.slots?.main.defaultChildren?.[1];
+			if (main) {
+				main.className = "not-italic";
+			}
+			if (edited.slots) {
+				edited.slots.notes.defaultChildren = [];
+				edited.slots.notes.name = "renamed";
+			}
+			expect(hashCodegenSource(edited)).toBe(hashCodegenSource(base));
+			expect(
+				generateOne(publishedRecord("field", edited)).header.sourceHash,
+			).toBe(generateOne(publishedRecord("field", base)).header.sourceHash);
+		});
+
+		it("is unchanged when a node gains its first, design-only children", () => {
+			const bare = (): SystemComponentDraftPayload => ({
+				root: node("root", "flex"),
+				slots: { main: { name: "main", hostPath: "root" } },
+			});
+			const helpers = bare();
+			helpers.root.children = [designOnly(node("guide", "border-dashed"))];
+			if (helpers.slots) {
+				helpers.slots.main.defaultChildren = [designOnly(node("hint"))];
+			}
+			expect(hashCodegenSource(helpers)).toBe(hashCodegenSource(bare()));
+		});
+
+		describe("with explicit empty lists", () => {
+			const emptyLists = (): SystemComponentDraftPayload => ({
+				root: node("root", "flex", []),
+				slots: {
+					main: { name: "main", hostPath: "root", defaultChildren: [] },
+				},
+			});
+
+			it("is unchanged when children: [] gains a design-only child", () => {
+				const childAdded = emptyLists();
+				childAdded.root.children = [designOnly(node("guide", "border-dashed"))];
+				expect(hashCodegenSource(childAdded)).toBe(
+					hashCodegenSource(emptyLists()),
+				);
+			});
+
+			it("is unchanged when defaultChildren: [] gains a design-only child", () => {
+				const defaultChildAdded = emptyLists();
+				if (defaultChildAdded.slots) {
+					defaultChildAdded.slots.main.defaultChildren = [
+						designOnly(node("hint", "italic")),
+					];
+				}
+				expect(hashCodegenSource(defaultChildAdded)).toBe(
+					hashCodegenSource(emptyLists()),
+				);
+			});
+
+			it("hashes empty and omitted lists the same", () => {
+				expect(
+					hashCodegenSource({
+						root: node("root", "flex"),
+						slots: { main: { name: "main", hostPath: "root" } },
+					}),
+				).toBe(hashCodegenSource(emptyLists()));
+			});
+		});
+
+		it("ignores override targets that point inside a design-only subtree", () => {
+			const withTargets = (guidePath: string): SystemComponentDraftPayload => {
+				const payload = annotatedPayload();
+				const guide = payload.root.children?.[1];
+				if (guide) {
+					guide.path = guidePath;
+				}
+				payload.overrideTargets = {
+					label: { targetId: "label", label: "Label", path: "label" },
+					guide: { targetId: "guide", label: "Guide", path: guidePath },
+					hint: {
+						targetId: "hint",
+						label: "Hint",
+						path: "hint",
+						capabilities: ["text"],
+					},
+					note: { targetId: "note", label: "Note", path: "note" },
+				};
+				return payload;
+			};
+			const base = withTargets("guide");
+			const renamed = withTargets("ruler");
+			if (renamed.overrideTargets) {
+				renamed.overrideTargets.hint.capabilities = ["className"];
+				renamed.overrideTargets.note.props = ["placeholder"];
+			}
+			expect(hashCodegenSource(renamed)).toBe(hashCodegenSource(base));
+			expect(
+				generateOne(publishedRecord("field", renamed)).model.slots,
+			).toEqual(generateOne(publishedRecord("field", base)).model.slots);
+
+			// A target on a node that exists in code still counts.
+			const retargeted = withTargets("guide");
+			if (retargeted.overrideTargets) {
+				retargeted.overrideTargets.label.capabilities = ["text"];
+			}
+			expect(hashCodegenSource(retargeted)).not.toBe(hashCodegenSource(base));
+		});
+
+		it("changes when a node that contributes to codegen becomes design-only", () => {
+			const base = annotatedPayload();
+			const toggled = annotatedPayload();
+			const label = toggled.root.children?.[0];
+			if (label) {
+				label.designOnly = true;
+			}
+			const sm = toggled.variants?.axes.size.values.sm;
+			if (sm) {
+				sm.classesByPath = { root: "p-1" };
+			}
+			expect(hashCodegenSource(toggled)).not.toBe(hashCodegenSource(base));
+		});
+	});
+});
+
 describe("codegen names", () => {
 	it("converts paths and slugs rule-based", () => {
 		expect(toCamelCase("light-label")).toBe("lightLabel");

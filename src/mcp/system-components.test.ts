@@ -227,6 +227,108 @@ describe("trickroom MCP system component tools", () => {
 		});
 	});
 
+	it("round-trips designOnly template nodes through create, update and read", async () => {
+		const initial = await session.client.callTool({
+			name: "component_read",
+			arguments: { systemName: "Core" },
+		});
+		const guide = {
+			path: "guide",
+			library: "trickroom",
+			component: "container",
+			designOnly: true,
+			children: [{ ...textRoot(), path: "guide-label" }],
+		};
+		const created = await session.client.callTool({
+			name: "component_draft_create",
+			arguments: {
+				systemName: "Core",
+				expectedRevision: String(toolPayload(initial)?.revision),
+				slug: "annotated",
+				name: "Annotated",
+				draft: {
+					root: {
+						path: "root",
+						library: "trickroom",
+						component: "container",
+						children: [guide],
+					},
+				},
+			},
+		});
+		expect(toolPayload(created)).toMatchObject({
+			status: "success",
+			valid: true,
+		});
+		const componentId = String(toolPayload(created)?.componentId);
+		const readTemplate = async () =>
+			toolPayload(
+				await session.client.callTool({
+					name: "component_read",
+					arguments: {
+						systemName: "Core",
+						componentId,
+						source: "draft",
+						include: ["template"],
+					},
+				}),
+			);
+
+		const afterCreate = await readTemplate();
+		expect(afterCreate).toMatchObject({
+			root: { children: [{ path: "guide", designOnly: true }] },
+		});
+
+		const updated = await session.client.callTool({
+			name: "component_draft_update",
+			arguments: {
+				systemName: "Core",
+				componentId,
+				expectedRevision: afterCreate?.revision,
+				expectedDraftTemplateHash: afterCreate?.draftTemplateHash,
+				root: {
+					path: "root",
+					library: "trickroom",
+					component: "container",
+					designOnly: false,
+					children: [{ ...guide, designOnly: false }],
+				},
+			},
+		});
+		expect(toolPayload(updated)).toMatchObject({
+			status: "success",
+			changes: { templateChanged: true },
+		});
+		expect(await readTemplate()).toMatchObject({
+			root: {
+				designOnly: false,
+				children: [{ path: "guide", designOnly: false }],
+			},
+		});
+
+		const invalid = await session.client.callTool({
+			name: "component_draft_update",
+			arguments: {
+				systemName: "Core",
+				componentId,
+				expectedRevision: toolPayload(updated)?.revision,
+				root: { ...guide, path: "root", designOnly: "yes" },
+			},
+		});
+		expect(invalid.isError).toBe(true);
+		expect(JSON.stringify(toolPayload(invalid))).toContain(
+			"INVALID_SYSTEM_COMPONENT_DRAFT_INPUT",
+		);
+
+		const authoring = await session.client.callTool({
+			name: "guide",
+			arguments: { topic: ["component-authoring", "component-template"] },
+		});
+		const guideText = JSON.stringify(toolPayload(authoring));
+		expect(guideText).toContain("designOnly");
+		expect(guideText).toContain("DESIGN_ONLY_CLASS_TARGET");
+	});
+
 	it("filters the component index by query and group", async () => {
 		const initial = await session.client.callTool({
 			name: "component_read",

@@ -42,6 +42,7 @@ const CORE_RULES = [
 	`Writes take expectedRevision: the manifest revision from ${TOOL.componentRead}, or the revision your last write returned. ${TOOL.componentDraftUpdate} also accepts expectedDraftTemplateHash and expectedDraftVariantSchemaHash (draftTemplateHash and draftVariantSchemaHash from ${TOOL.componentRead} describe) to guard against concurrent draft edits.`,
 	"Paths are unique, non-empty and slashless. slots, variants.classesByPath and overrideTargets refer to template paths, so keep them stable.",
 	"Classes follow the design rules: Tailwind plus the system's tokens.",
+	"designOnly: true on a template node keeps it and its whole subtree in designs but out of code: codegen skips them, and variant or compound classesByPath may not target them. Use it for annotations and layout helpers. Omit it for false; descendants inherit it.",
 	`Publishing makes the draft the current version. Instances already placed keep their version and show as stale until migrated: ${TOOL.componentRead}({ view: "stale" }) finds them, ${TOOL.componentMigrate} moves them.`,
 ];
 
@@ -57,7 +58,15 @@ const CORE_WORKFLOW = [
 const buildTemplateTopic = () => ({
 	type: "RecipeTemplateNode",
 	required: ["path", "library", "component"],
-	optional: ["name", "className", "props", "text", "slot", "children"],
+	optional: [
+		"name",
+		"className",
+		"props",
+		"text",
+		"slot",
+		"designOnly",
+		"children",
+	],
 	pathRules: [
 		'Use "root" for the root node path.',
 		"Every template path must be unique, non-empty, stable and slashless.",
@@ -66,6 +75,8 @@ const buildTemplateTopic = () => ({
 	children: "Recursive array of RecipeTemplateNode, for branch-role nodes.",
 	props: "JSON-primitive registry control props only.",
 	text: "Default text of a text-role node; make it an override target with the text capability so instances can change it.",
+	designOnly:
+		"Boolean, omit for false. The node and every descendant (including default children of slots hosted inside it) render in designs but are skipped by codegen, and edits inside never mark generated files stale. variants and compoundVariants classesByPath must not target paths inside it (codegen error DESIGN_ONLY_CLASS_TARGET). A design-only root keeps the whole component out of code.",
 });
 
 const buildSlotsTopic = () => ({

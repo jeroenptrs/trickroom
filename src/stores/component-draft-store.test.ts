@@ -26,6 +26,7 @@ import {
 	getCompoundClassNameForPath,
 	getCompoundClassNameForWhen,
 	getDraftClassNameForStyleTab,
+	getTemplateNodeDesignOnlyState,
 	hydrateComponentDraft,
 	isComponentDraftCleanAtRevision,
 	markTemplateNodeAsSlotHost,
@@ -41,6 +42,7 @@ import {
 	serializeComponentDraftVariants,
 	setComponentDraftStyleTarget,
 	setDraftClassNameForStyleTab,
+	setTemplateNodeDesignOnly,
 	updateTemplateNodeClassName,
 	updateTemplateNodeName,
 	updateTemplateNodeOverrideTarget,
@@ -121,6 +123,67 @@ describe("component draft store", () => {
 		expect(state.selectedPath).toBeNull();
 		expect(state.dirtyPaths).toEqual({});
 		expect(state.revision).toBe(1);
+	});
+
+	it("sets, inherits and clears design only on template nodes", () => {
+		resetComponentDraftStore();
+		hydrateFixture({
+			...complexComponentTemplateRoot(),
+			children: [
+				{
+					path: "guide",
+					library: "trickroom",
+					component: "container",
+					designOnly: true,
+					children: [{ path: "tick", library: "trickroom", component: "icon" }],
+				},
+				...(complexComponentTemplateRoot().children ?? []),
+			],
+		});
+		const hydrated = componentDraftStore.get();
+		expect(getTemplateNodeDesignOnlyState(hydrated, "tick")).toEqual({
+			designOnly: true,
+			own: false,
+			inheritedFromPath: "guide",
+		});
+		expect(serializeComponentDraftState(hydrated).children?.[0]).toMatchObject({
+			path: "guide",
+			designOnly: true,
+		});
+		const hashBefore = getComponentDraftTemplateHash();
+
+		setTemplateNodeDesignOnly("label", true);
+		let state = componentDraftStore.get();
+		expect(state.dirtyPaths).toEqual({ label: true });
+		expect(state.revision).toBe(hydrated.revision + 1);
+		expect(getTemplateNodeDesignOnlyState(state, "label")).toEqual({
+			designOnly: true,
+			own: true,
+			inheritedFromPath: null,
+		});
+		expect(getComponentDraftTemplateHash()).not.toBe(hashBefore);
+
+		// Setting the same value again is a no-op.
+		setTemplateNodeDesignOnly("label", true);
+		expect(componentDraftStore.get().revision).toBe(state.revision);
+
+		setTemplateNodeDesignOnly("label", false);
+		setTemplateNodeDesignOnly("guide", false);
+		state = componentDraftStore.get();
+		expect(state.entitiesByPath.label).not.toHaveProperty("designOnly");
+		expect(getTemplateNodeDesignOnlyState(state, "tick").designOnly).toBe(
+			false,
+		);
+		expect(collectPaths(serializeComponentDraftState(state)).sort()).toEqual([
+			"guide",
+			"icon",
+			"label",
+			"root",
+			"tick",
+		]);
+		expect(JSON.stringify(serializeComponentDraftState(state))).not.toContain(
+			"designOnly",
+		);
 	});
 
 	it("serializes store state back to RecipeTemplateNode without losing structure", () => {

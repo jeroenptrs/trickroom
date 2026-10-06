@@ -55,6 +55,12 @@ export const recipeTemplateNodeSchema: z.ZodType<RecipeTemplateNode> = z.lazy(
 					.min(1)
 					.optional()
 					.describe("Optional slot name marker for authored slot content."),
+				designOnly: z
+					.boolean()
+					.optional()
+					.describe(
+						"Design-only node: rendered in designs, skipped by codegen together with its whole subtree. Descendants inherit it. Omit for false.",
+					),
 				children: z
 					.array(recipeTemplateNodeSchema)
 					.optional()
@@ -310,6 +316,7 @@ const docTemplateNode: z.ZodType<RecipeTemplateNode> = z.lazy(() =>
 		props: z.record(docString, jsonPrimitiveSchema).optional(),
 		text: docString.optional(),
 		slot: docString.optional(),
+		designOnly: z.boolean().optional(),
 		children: z.array(docTemplateNode).optional(),
 	}),
 );

@@ -112,6 +112,11 @@ export type RecipeTemplateNode = RecipeComponentRef & {
 	props?: Record<string, JsonPrimitive | undefined>;
 	text?: string;
 	slot?: string;
+	/**
+	 * Design-only nodes exist in the design but not in code: codegen skips the
+	 * node and its whole subtree. Inherited by descendants; absent means false.
+	 */
+	designOnly?: boolean;
 	children?: RecipeTemplateNode[];
 };
 
