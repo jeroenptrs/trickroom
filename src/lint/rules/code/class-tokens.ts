@@ -20,6 +20,7 @@ import {
 	classTokenPosition,
 	codeLocation,
 	compileClassGlobs,
+	getCodeAnalysis,
 	optionsNote,
 } from "./analysis";
 
@@ -155,7 +156,9 @@ export const unknownClassTokenRule: LintRuleKind = {
 		const wrappers = new Set(
 			sources.components.flatMap((identity) => identity.wrappers),
 		);
-		const usageFiles = new Set(sources.usages.map((usage) => usage.file));
+		const usageFiles = new Set(
+			getCodeAnalysis(context).usages.map((usage) => usage.file),
+		);
 		const inScope = (file: string) =>
 			scope === "all"
 				? true

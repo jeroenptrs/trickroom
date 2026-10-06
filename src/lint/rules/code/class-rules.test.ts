@@ -122,7 +122,7 @@ describe("code.unknown-class-token", () => {
 });
 
 describe("code.redundant-class", () => {
-	it("reports classes the base or the selected variants already provide, skipping attributes a later spread may override", async () => {
+	it("reports classes the base or the selected variants already provide, skipping attributes a later spread may override and shadowed names", async () => {
 		const fixture = await fixtures.create({
 			components: [button(), card()],
 			files: {
@@ -147,6 +147,7 @@ describe("code.redundant-class", () => {
 					'\t\t<Button variant={v} size="sm" className={cn("px-3 text-sm", "bg-transparent")} />',
 					'\t\t<Button variant="primary" disabled className="opacity-50 h-10" {...rest} />',
 					'\t\t<Button variant="primary" disabled {...rest} className="opacity-50 px-3" />',
+					'\t\t{((Button: any) => <Button variant="primary" className="px-3" />)(null)}',
 					"\t</Card>",
 					");",
 					"",

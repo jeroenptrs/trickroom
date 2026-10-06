@@ -82,6 +82,32 @@ describe("code.unknown-variant-value", () => {
 		).toEqual(['src/app.tsx:6:22 <Button variant="after">']);
 	});
 
+	it("skips JSX names that a parameter or local shadows", async () => {
+		const fixture = await fixtures.create({
+			components: [button()],
+			files: {
+				"src/ui/button.tsx": BUTTON_WRAPPER,
+				"src/app.tsx": [
+					'import { Button } from "./ui/button";',
+					'import * as UI from "./ui/button";',
+					'export const App = (Button: any) => <><Button variant="wrong" className="px-3" /><Button /></>;',
+					"export const Other = () => {",
+					"\tconst UI = { Button: (props: object) => null };",
+					'\treturn <UI.Button variant="wrong" />;',
+					"};",
+					'export const Real = () => <Button variant="real" />;',
+					"",
+				].join("\n"),
+			},
+		});
+		expect(
+			describeFindings(await fixture.run(unknownVariantValueRule)).map(
+				(line) => line.split(" passes")[0],
+			),
+		).toEqual(['src/app.tsx:8:35 <Button variant="real">']);
+		expect(await fixture.run(requiredAxisMissingRule)).toEqual([]);
+	});
+
 	it("checks literal objects passed to the variants export and its slots", async () => {
 		const fixture = await fixtures.create({
 			components: [button(), card()],

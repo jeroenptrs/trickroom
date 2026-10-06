@@ -73,7 +73,7 @@ export const unknownVariantValueRule: LintRuleKind = {
 	run: (context: LintRuleContext) => {
 		const analysis = getCodeAnalysis(context);
 		const findings: LintRuleFinding[] = [];
-		for (const usage of context.sources.usages) {
+		for (const usage of analysis.usages) {
 			const component = usableComponent(analysis, usage.slug);
 			if (!component) continue;
 			if (!isComponentUsage(context.sources, component, usage)) continue;
@@ -122,7 +122,7 @@ export const requiredAxisMissingRule: LintRuleKind = {
 	run: (context: LintRuleContext) => {
 		const analysis = getCodeAnalysis(context);
 		const findings: LintRuleFinding[] = [];
-		for (const usage of context.sources.usages) {
+		for (const usage of analysis.usages) {
 			const component = usableComponent(analysis, usage.slug);
 			if (!component || usage.element.spread) continue;
 			const required = component.axes.filter((axis) => axis.required);

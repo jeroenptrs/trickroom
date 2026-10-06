@@ -360,6 +360,7 @@ The kinds after the codegen pair live in `src/lint/rules/code/` and share `analy
 Shared behaviour:
 
 - Every finding carries the component slug when there is one and a 1-based code location from the source model. A rule that cannot decide skips; invalid options become one `info` finding naming the problem, never a failure.
+- **Shadowing.** A JSX usage counts only when its element name (`Button`, or `UI` for `<UI.Button>`) resolves at the element, through the scope tree, to the import binding. `<Button>` inside `(Button) => …` or after a local `const UI = …` is something else and is skipped.
 - **The component's own export.** JSX checks (`unknown-variant-value`, `required-axis-missing`, `redundant-class`) apply to usages that render the component itself, not every export of its wrapper: the export named after the slug or the name in PascalCase (`Button`, `OtpField`) or the default export. A member element (`<Card.Title>`) never counts. A wrapper that exports none of those names has no recognisable main export, and every export counts.
 - **Literal values.** A string, number or boolean literal (`variant="x"`, `variant={"x"}`, `size={2}`, a bare attribute as `true`) is judged; anything else (identifiers, expressions, `null`) is skipped. A literal JSX attribute followed by a `{...spread}` in source order may be overridden at runtime and is skipped like a dynamic value; a spread before it does not matter. The same holds for literal object properties followed by a spread.
 
