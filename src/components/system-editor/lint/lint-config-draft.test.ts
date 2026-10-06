@@ -7,6 +7,7 @@ import {
 	isLintConfigSessionDirty,
 	lintConfigEquals,
 	lintConfigSessionAfterFileChange,
+	lintConfigSessionAfterSave,
 	optionValueMatchesSpec,
 	parseCountText,
 	parseListText,
@@ -223,5 +224,48 @@ describe("lint config edit session", () => {
 		expect(isLintConfigSessionDirty(reverted)).toBe(false);
 		expect(lintConfigSessionAfterFileChange(reverted, "sha256:new")).toBeNull();
 		expect(lintConfigSessionAfterFileChange(null, "sha256:new")).toBeNull();
+	});
+});
+
+describe("lint config edit session after a save", () => {
+	const absent = { revision: null, config: base };
+
+	it("keeps edits made while the save was in flight", () => {
+		const submitted = setThreshold(base, "code.errors", 0);
+		let session = editLintConfigSession(null, absent, submitted);
+		// An edit lands between the click and the response.
+		session = editLintConfigSession(
+			session,
+			absent,
+			setThreshold(session.config, "code.warnings", 4),
+		);
+		const saved = { revision: "sha256:saved", config: submitted };
+		const after = lintConfigSessionAfterSave(session, submitted, saved);
+		expect(after).toEqual({
+			revision: "sha256:saved",
+			base: submitted,
+			config: { version: 1, thresholds: { code: { errors: 0, warnings: 4 } } },
+		});
+		expect(isLintConfigSessionDirty(after)).toBe(true);
+		expect(isLintConfigSessionConflicted(after, saved.revision)).toBe(false);
+	});
+
+	it("ends the session when nothing changed after the snapshot", () => {
+		const submitted = setThreshold(base, "code.errors", 0);
+		const session = editLintConfigSession(null, absent, submitted);
+		const saved = { revision: "sha256:saved", config: submitted };
+		expect(lintConfigSessionAfterSave(session, submitted, saved)).toBeNull();
+		// An edit that was undone again before the response is no edit.
+		const undone = editLintConfigSession(
+			editLintConfigSession(
+				session,
+				absent,
+				setThreshold(submitted, "code.warnings", 1),
+			),
+			absent,
+			submitted,
+		);
+		expect(lintConfigSessionAfterSave(undone, submitted, saved)).toBeNull();
+		expect(lintConfigSessionAfterSave(null, submitted, saved)).toBeNull();
 	});
 });

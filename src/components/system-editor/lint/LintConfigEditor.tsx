@@ -36,6 +36,7 @@ import {
 	type LintConfigEditSession,
 	type LintThresholdPath,
 	lintConfigSessionAfterFileChange,
+	lintConfigSessionAfterSave,
 	optionValueMatchesSpec,
 	parseCountText,
 	parseListText,
@@ -597,12 +598,15 @@ export function LintConfigEditor({
 	const saveMutation = useMutation({
 		mutationFn: (input: { config: LintConfig; revision: string | null }) =>
 			saveSystemLintConfig(systemId, input),
-		onSuccess: (response) => {
+		onSuccess: (response, submitted) => {
 			queryClient.setQueryData(
 				systemLintConfigQueryKey(systemId, projectScope),
 				response,
 			);
-			setDraft(null);
+			// Edits made while the save was in flight stay.
+			setDraft((current) =>
+				lintConfigSessionAfterSave(current, submitted.config, response),
+			);
 		},
 		onError: (error) => {
 			if (

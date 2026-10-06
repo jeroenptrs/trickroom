@@ -328,3 +328,21 @@ export const lintConfigSessionAfterFileChange = (
 	!isLintConfigSessionDirty(session)
 		? null
 		: session;
+
+/**
+ * After a save of `submitted` succeeded: edits made while the request was in
+ * flight are kept, on top of the file as saved; with none, the session ends.
+ */
+export const lintConfigSessionAfterSave = (
+	session: LintConfigEditSession | null,
+	submitted: LintConfig,
+	saved: LintConfigFileState,
+): LintConfigEditSession | null => {
+	if (!session || lintConfigEquals(session.config, submitted)) return null;
+	const next = {
+		revision: saved.revision,
+		base: saved.config,
+		config: session.config,
+	};
+	return isLintConfigSessionDirty(next) ? next : null;
+};
