@@ -33,6 +33,14 @@ MCP:
 - Prompts: `src/mcp/prompts.ts`
 - Governance: `src/mcp/governance.ts`
 
+Design system lint:
+
+- CLI: `bin/trickroom.js lint` (`src/cli/lint.ts`, built into `dist/lint.js`)
+- Engine: `src/lint/` (pure modules; `run-lint.ts` is the filesystem adapter)
+- MCP tool: `src/mcp/tools/lint.ts`
+- HTTP routes: `src/routes/system-lint.ts`; one design: `GET /api/trickroom/design/lint` in `src/server.ts`
+- Dashboard: `src/components/system-editor/SystemEditorLintPanel.tsx` and `src/components/system-editor/lint/`
+
 ## Project Session Flow
 
 Opening a project ensures `.trickroom/config.json` exists with a stable `projectId` and registers the location in per-user app state. The Hono app keeps the active project in memory, and project-scoped routes resolve it before reading config, designs, or Tailwind snapshots.

@@ -29,6 +29,7 @@ The server sends instructions at initialize: what Trickroom is, the tool familie
 2. `memory_read({ designFileId })` indexes the notes on the project, the design's linked design system and the design; read the relevant ones with `noteIds`.
 3. `guide({ designFileId })` returns the core: model, rules, workflow, an example batch, and this design's revision, boards and design system. Fetch topics when the task needs them.
 4. Loop: `design_read` the area you change, `design_apply` one batch with `expectedRevision` (checked per board: see [Revisions](#revisions)), fix the warnings it returns, `design_screenshot` the changed boards at several viewports in one call, `design_validate` before handing off, and `editor_focus` to show the human what changed. When the human says "this", call `editor_context`.
+5. When the change touches a design system or the code that uses it, `lint({ check: true })` before handing off: `fail` names every number that got worse than the committed baseline. Run `lint` without `check` only when asked to record a new baseline.
 
 ## Tools
 
@@ -450,7 +451,7 @@ Unknown boards fail with `NO_MATCHING_BOARDS` (HTML) or `BOARD_NOT_FOUND` (PNG) 
 
 ## Lint
 
-`lint` runs the design system lint engine ([Design System Lint](lint.md)): the code side checks the generated variants files of published components and, as rule kinds ship, how the app uses them; the design side checks how Designs use the system. Rule instances, source globs and thresholds come from the system's `lint.json`; without it every rule kind runs at its default severity.
+`lint` runs the design system lint engine ([Design System Lint](lint.md)): the code side checks the generated variants files of published components and how the app uses the system's components, variants and tokens; the design side checks how Designs use the system. Rule instances, source globs and thresholds come from the system's `lint.json`; without it every rule kind runs at its default severity.
 
 - Without `check`, a passing run writes `.trickroom/systems/<id>/lint-report.json` as the new ratchet baseline; a failing run writes nothing. `check: true` never writes.
 - `system` selects a system by id, name or storage key; the default is the `codegen` block's system, else the project's default system, else the only system.

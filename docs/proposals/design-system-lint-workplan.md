@@ -53,9 +53,10 @@ These resolve ambiguities the analysis left open and apply to all WPs.
   - `oxc-parser` is external in every SSR bundle as `nativeRuntimeDependencies`,
     a separate list from the optional `playwright-core`.
 - Dogfood target for WP6 is this repository's own `.trickroom` project
-  (system `trickroom`, 16 components), with a `codegen` block pointing at a
-  scratch `outDir`. The lead developer's day-to-day app is a second pass they
-  run themselves.
+  (system `trickroom`, 16 components). It has no `codegen` block (whether
+  to generate variants files into `src/` is the lead developer's call), so
+  the component rules were exercised on a scratch copy with one. The lead
+  developer's day-to-day app is a second pass they run themselves.
 
 ## Work packages
 
@@ -214,13 +215,63 @@ output once merged.
 
 ### WP6: dogfood and release
 
-Status: todo. Model: Opus 5.5 for fixes, orchestrator for the release.
+Status: in review. Model: Opus 5.5 for fixes, orchestrator for the release.
 
 - Run on this repository's project until the report is clean or every
   remaining finding is a real one. Fix false positives in the rules.
 - Docs pass: `docs/README.md`, `docs/mcp.md`, `docs/development.md`,
   `docs/user-guide.md`, CLAUDE.md pointers.
 - Pull request from the trunk to `main`.
+
+Done in WP6:
+
+- `.trickroom/systems/trickroom/lint.json` (`src/**` without tests) and the
+  committed baseline: 299 code and 238 design warnings, all arbitrary text
+  sizes where the system has text tokens.
+- Rule fixes from the dogfood: the walker takes source extensions only,
+  whatever the globs; an unconfigured component's wrapper is the importer
+  named like it (a module importing two variants files was taken for the
+  first component); `code.redundant-class` judges conditional class strings
+  per scenario; each occurrence of a repeated class gets its own location;
+  a usage's className after a JSX element in an earlier attribute is read.
+- Dashboard fixes: the rail totals both sides and counts designs, the
+  coverage inspector shows design usages.
+- Docs: Getting started and Limits in `docs/lint.md`, examples from the
+  real report, and the pointers in the other pages.
+
+## Follow-ups
+
+Deliberately left out of this feature:
+
+- A `codegen` block for this repository, so the component rules run on its
+  own code (the lead developer's decision: it generates files into `src/`).
+- Publishing moves `publishedVersion` and `templateHash` in the codegen
+  header, so a check reports the file stale even when only design-only
+  nodes changed (WP1); regenerating rewrites only the header line.
+- `design_apply` and `design_create` still report the pre-lint class codes
+  (`UNKNOWN_COLOR_TOKEN`, …) without `lint.json` (WP4).
+- The class field's live underline in the editor does not apply `lint.json`
+  (allow lists, disabled checks, severities) (WP4).
+- Source model limits that can produce false positives (see "Limits" in
+  `docs/lint.md`): slot calls through a second alias, a rest binding or a
+  computed member (`code.slot-not-called`), and `tv({ extend: x })`
+  (`code.wrapper-missing-variants-call`). Both need value tracing beyond
+  direct calls.
+- False negatives: class strings in module-level constants and
+  `[...].join(" ")`; arbitrary values outside the six checked domains
+  (`inset-shadow-[…]`, spacing).
+- `code.redundant-class` merges with plain `tailwind-merge`, not the
+  project's merge configuration.
+- No rule checks component templates' classes; Designs report them once per
+  placed instance.
+- `bound` is true for a configured wrapper module that never imports the
+  variants file (`code.wrapper-missing-variants-call` reports it).
+- A module that is the only importer of two components' variants files is
+  bound to the first in slug order.
+- `trickroom codegen` needs `system` in the block (or a `defaultSystemId`)
+  even when the project has one system; `trickroom lint` picks the only one.
+- No `--help` on `trickroom lint`, `codegen` or `migrate`.
+- The design map shows board ids, not board names (the report stores ids).
 
 ## Review protocol
 
