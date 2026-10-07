@@ -7,7 +7,7 @@
  */
 
 import { statSync } from "node:fs";
-import { suggestTailwindClasses } from "../mcp/diagnostics";
+import { suggestTailwindClasses } from "./class-token-diagnostics";
 import {
 	loadCanvasTailwindDesignSystem,
 	type TailwindDesignSystem,

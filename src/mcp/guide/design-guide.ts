@@ -277,6 +277,7 @@ const buildTokensTopic = async (input: DesignGuideInput) => {
 			"UNKNOWN_<DOMAIN>_TOKEN (COLOR, SPACING, FONT, TEXT, RADIUS, SHADOW): the system's Tailwind build cannot emit the class because it names a theme token the system lacks, or one the system removed on purpose.",
 			"Both come back in the write response with suggestions holding the nearest valid class, keeping variants, ! and /opacity. Fix them.",
 			'OUT_OF_SYSTEM_<DOMAIN>: an arbitrary value such as bg-[#123456] or rounded-[7px] that bypasses the system. Counted in warningCount, listed with response: "full". Prefer a token unless the user asked for that exact value.',
+			"design_validate runs these checks as the system's lint rule design.unknown-class-token (the code above is in check) with its lint.json, next to design.unknown-variant-value and design.design-only-class-target.",
 		],
 		classes:
 			"Tokens are Tailwind v4 theme variables, so a token's domain gives its utilities: color brand-500 → bg-brand-500, text-brand-500, border-brand-500; spacing pad-lg → p-pad-lg, gap-pad-lg; radius md → rounded-md; text sm → text-sm; font sans → font-sans; shadow card → shadow-card; breakpoint tablet → the tablet: variant.",

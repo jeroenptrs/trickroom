@@ -1,4 +1,5 @@
 import type { RecipeTemplateNode } from "../types";
+import { collectDesignOnlyPaths } from "../utils/system-component-design-only";
 import { compareSystemComponentVariantAxisKeys } from "../utils/system-component-variant-class-layers";
 import type {
 	SystemComponentDraftPayload,
@@ -32,6 +33,8 @@ export type CodegenDiagnosticCode =
 	| "INVALID_TYPE_ALIAS"
 	| "DUPLICATE_TYPE_ALIAS"
 	| "UNKNOWN_CLASS_TARGET"
+	| "DESIGN_ONLY_CLASS_TARGET"
+	| "DESIGN_ONLY_COMPONENT"
 	| "DEFAULT_CHILD_CLASS_TARGET"
 	| "INVALID_BOOLEAN_AXIS"
 	| "BOOLEAN_AXIS_WITHOUT_DEFAULT"
@@ -202,13 +205,23 @@ type CollectedPart = {
 	fromDefaultChildren: boolean;
 };
 
-const collectParts = (payload: SystemComponentDraftPayload) => {
+/**
+ * Template and slot default-child nodes, without design-only subtrees. Slots
+ * hosted inside a design-only subtree drop their default children too.
+ */
+const collectParts = (
+	payload: SystemComponentDraftPayload,
+	designOnlyPaths: ReadonlySet<string>,
+) => {
 	const parts: CollectedPart[] = [];
 	const visit = (
 		node: RecipeTemplateNode,
 		fromDefaultChildren: boolean,
 		isRoot: boolean,
 	) => {
+		if (node.designOnly === true) {
+			return;
+		}
 		parts.push({ path: node.path, node, isRoot, fromDefaultChildren });
 		for (const child of node.children ?? []) {
 			visit(child, fromDefaultChildren, false);
@@ -216,6 +229,9 @@ const collectParts = (payload: SystemComponentDraftPayload) => {
 	};
 	visit(payload.root, false, true);
 	for (const slot of Object.values(payload.slots ?? {})) {
+		if (designOnlyPaths.has(slot.hostPath)) {
+			continue;
+		}
 		for (const child of slot.defaultChildren ?? []) {
 			visit(child, true, false);
 		}
@@ -279,15 +295,19 @@ export function buildCodegenComponentModel({
 		});
 	};
 
+	// A design-only root makes the whole component design-only: no file, so
+	// only its class targets are checked before it is skipped.
+	const designOnlyRoot = payload.root.designOnly === true;
 	const exportName = variantsExportName(slug);
-	if (!isValidIdentifier(exportName)) {
+	if (!designOnlyRoot && !isValidIdentifier(exportName)) {
 		report(
 			"INVALID_EXPORT_NAME",
 			`slug produces export name "${exportName}", which is not a valid identifier. Rename the slug so it starts with a letter.`,
 		);
 	}
 
-	const parts = collectParts(payload);
+	const designOnlyPaths = collectDesignOnlyPaths(payload);
+	const parts = collectParts(payload, designOnlyPaths);
 	const partsByPath = new Map<string, CollectedPart>();
 	for (const part of parts) {
 		if (partsByPath.has(part.path)) {
@@ -317,6 +337,14 @@ export function buildCodegenComponentModel({
 	const styledPaths = new Set<string>();
 	const checkTarget = (pathValue: string, className: string, where: string) => {
 		const part = partsByPath.get(pathValue);
+		if (!part && designOnlyPaths.has(pathValue)) {
+			report(
+				"DESIGN_ONLY_CLASS_TARGET",
+				`${where} has classes for path "${pathValue}", which is inside a design-only subtree and does not exist in code. Remove the entry, retarget it, or clear design-only on the node.`,
+				pathValue,
+			);
+			return;
+		}
 		if (!part) {
 			report(
 				"UNKNOWN_CLASS_TARGET",
@@ -366,6 +394,18 @@ export function buildCodegenComponentModel({
 			);
 		}
 	});
+
+	if (designOnlyRoot) {
+		diagnostics.push({
+			code: "DESIGN_ONLY_COMPONENT",
+			severity: "warning",
+			message: `Component "${slug}" has a design-only root, so it exists in designs only; skipped.`,
+			slug,
+			componentId: record.componentId,
+			path: payload.root.path,
+		});
+		return { model: null, diagnostics };
+	}
 
 	const rootPath = payload.root.path;
 	const slotted =

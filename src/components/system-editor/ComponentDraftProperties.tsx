@@ -19,11 +19,14 @@ import {
 	removeTemplateNodeSlotHost,
 	setComponentDraftStyleTarget,
 	setDraftClassNameForStyleTab,
+	setTemplateNodeDesignOnly,
 	updateTemplateNodeOverrideTarget,
 	updateTemplateNodeProps,
 	updateTemplateNodeSlotMetadata,
 	updateTemplateNodeText,
 	useComponentDraftClassNameForStyleTab,
+	useComponentDraftDesignOnlyState,
+	useComponentDraftEntity,
 	useComponentDraftSelectedEntity,
 	useComponentDraftSelectedOverrideTarget,
 	useComponentDraftSelectedSlot,
@@ -43,6 +46,7 @@ import {
 } from "../chrome/Properties";
 import { InputField } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
+import { Switch } from "../ui/switch";
 import { Text } from "../ui/text";
 import { toDraftInspectableEntity } from "./component-draft-inspector";
 
@@ -525,6 +529,64 @@ function DraftInspectorHeader({
 	);
 }
 
+function DesignOnlySection({ path }: { path: string }) {
+	const state = useComponentDraftDesignOnlyState(path);
+	const ancestor = useComponentDraftEntity(state.inheritedFromPath ?? "");
+	const inherited = state.inheritedFromPath !== null;
+	const switchId = `${path}-design-only`;
+	const ancestorName =
+		ancestor?.name?.trim() || ancestor?.component || state.inheritedFromPath;
+
+	return (
+		<InspectorSection title="Code">
+			<div className="flex flex-row items-center justify-between gap-2 text-xs">
+				<label className="font-semibold" htmlFor={switchId}>
+					Design only
+				</label>
+				<Switch
+					id={switchId}
+					checked={state.designOnly}
+					disabled={inherited}
+					onCheckedChange={(checked) =>
+						setTemplateNodeDesignOnly(path, checked)
+					}
+					title={
+						inherited
+							? `Inherited from ${ancestorName}`
+							: "Keep this node and its children out of generated code"
+					}
+				/>
+			</div>
+			{inherited ? (
+				<p className="text-[11px] text-slate-500">
+					Inherited from{" "}
+					<span className="font-mono text-slate-700">{ancestorName}</span>: this
+					node and its children stay out of generated code. Change it on that
+					layer.
+				</p>
+			) : (
+				<p className="text-[11px] text-slate-500">
+					{state.designOnly
+						? "Shown in designs, left out of generated code together with its children."
+						: "Turn on for helpers that exist in designs only; codegen skips the node and its children."}
+				</p>
+			)}
+			{inherited && state.own ? (
+				<div className="flex items-center justify-between gap-2 text-xs">
+					<span className="text-slate-500">Also set on this node.</span>
+					<button
+						type="button"
+						className="border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 hover:bg-slate-100"
+						onClick={() => setTemplateNodeDesignOnly(path, false)}
+					>
+						Clear
+					</button>
+				</div>
+			) : null}
+		</InspectorSection>
+	);
+}
+
 function SlotMetadataSection({ path }: { path: string }) {
 	const slot = useComponentDraftSelectedSlot();
 
@@ -759,6 +821,7 @@ export function ComponentDraftProperties({
 							/>
 						))}
 					</section>
+					<DesignOnlySection path={path} />
 					<SlotMetadataSection path={path} />
 					<OverrideTargetSection path={path} />
 					{hasContentControls ? (

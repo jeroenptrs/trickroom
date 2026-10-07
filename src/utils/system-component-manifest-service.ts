@@ -45,10 +45,17 @@ export type SystemComponentManifestWarning = {
 	path?: string;
 };
 
+/**
+ * Versions read and migrated in memory to the current one; the next write
+ * persists it. 1 -> 2 backfills optional variant defaults; 2 -> 3 adds the
+ * optional `designOnly` template node flag, so v2 data needs no rewrite.
+ */
 const supportedSystemComponentManifestVersions = new Set<number>([
 	1,
+	2,
 	SYSTEM_COMPONENT_MANIFEST_VERSION,
 ]);
+const FIRST_VERSION_WITH_VARIANT_DEFAULTS = 2;
 
 type SystemComponentManifestNormalizationContext = {
 	backfillOptionalVariantDefaults: boolean;
@@ -378,7 +385,7 @@ export function normalizeSystemComponentManifest(
 	}
 	const normalizationContext: SystemComponentManifestNormalizationContext = {
 		backfillOptionalVariantDefaults:
-			value.version < SYSTEM_COMPONENT_MANIFEST_VERSION,
+			value.version < FIRST_VERSION_WITH_VARIANT_DEFAULTS,
 	};
 
 	const metadata = normalizeMetadata(value.metadata, manifestPath);
@@ -1027,6 +1034,15 @@ function normalizeRecipeTemplateNode(
 	}
 	if (typeof value.text === "string") {
 		node.text = value.text;
+	}
+	if (typeof value.designOnly === "boolean") {
+		node.designOnly = value.designOnly;
+	} else if (value.designOnly !== undefined) {
+		diagnostics.push({
+			code: "INVALID_COMPONENT",
+			message: `Component "${componentId}" template node "${value.path}" designOnly must be a boolean.`,
+			path: `${basePath}.designOnly`,
+		});
 	}
 	if (Array.isArray(value.children)) {
 		node.children = value.children

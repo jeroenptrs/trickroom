@@ -245,6 +245,44 @@ describe("resolveAttachedComponentClassInventoryLayers", () => {
 			expect.objectContaining({ prop: "className" }),
 		]);
 	});
+
+	it("leaves out variant values and axes the version does not have instead of throwing", () => {
+		const version = {
+			version: "1",
+			publishedAt: "2026-05-26T14:00:00.000Z",
+			templateHash: "sha256:template",
+			variantSchemaHash: "sha256:variants",
+			root: {
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				className: "base",
+			},
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						defaultValue: "plain",
+						values: {
+							plain: { classesByPath: { root: "text-slate-900" } },
+							brand: { classesByPath: { root: "text-blue-600" } },
+						},
+					},
+				},
+			},
+		};
+
+		const layers = resolveAttachedComponentClassInventoryLayers({
+			version,
+			targetPath: "root",
+			variantValues: { tone: "ghostly", shape: "round" },
+		});
+
+		expect(layers.map((layer) => layer.className)).toEqual([
+			"base",
+			"text-slate-900",
+		]);
+	});
 });
 
 describe("Properties", () => {

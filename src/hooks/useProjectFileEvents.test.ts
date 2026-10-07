@@ -58,11 +58,13 @@ describe("live project query invalidation", () => {
 			["trickroom-system-icons", "sys_1", "loc_1"],
 			["trickroom-system-icon-svg", "sys_1", "search", "loc_1"],
 			["trickroom-system-components", "sys_1", "loc_1"],
+			["trickroom-system-lint", "sys_1", "loc_1"],
+			["trickroom-system-lint-config", "sys_1", "loc_1"],
 		];
 		for (const key of keys) seed(queryClient, key);
 
 		await invalidateTrickroomFileEvent(queryClient, {
-			file: "systems/core/components.json",
+			file: "systems/core/lint-report.json",
 			operation: "changed",
 			revision,
 		});

@@ -165,8 +165,14 @@ export function resolveTokenSnapshotPath(
 async function resolveTokenSnapshotPathForHandle(
 	projectRoot: string,
 	systemHandle: string,
+	options: { readOnly?: boolean } = {},
 ): Promise<string> {
-	return resolveDesignSystemFilePath(projectRoot, systemHandle, "tokens.json");
+	return resolveDesignSystemFilePath(
+		projectRoot,
+		systemHandle,
+		"tokens.json",
+		options,
+	);
 }
 
 /**
@@ -289,6 +295,10 @@ export async function readDomainTokens(
 	});
 }
 
+/**
+ * Read without writing anything: neither the snapshot (not canonicalised)
+ * nor the system manifest the handle resolves through (not normalised).
+ */
 export async function readDomainTokensReadonly(
 	projectRoot: string,
 	systemName: string,
@@ -306,6 +316,7 @@ async function readDomainTokensInternal(
 	const snapshotPath = await resolveTokenSnapshotPathForHandle(
 		projectRoot,
 		systemName,
+		{ readOnly: !options.canonicalize },
 	);
 
 	try {

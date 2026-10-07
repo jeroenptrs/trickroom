@@ -46,6 +46,9 @@ const systemQueryPrefixes = new Set([
 	"trickroom-system-component-used-by",
 	"trickroom-system-component-usage",
 	"trickroom-system-components-usage",
+	"trickroom-system-lint",
+	"trickroom-system-lint-config",
+	"trickroom-design-lint",
 	"trickroom-design-system-component-usage",
 	"trickroom-system-used-by",
 	"trickroom-memory",
@@ -53,6 +56,7 @@ const systemQueryPrefixes = new Set([
 ]);
 
 const designUsageQueryPrefixes = new Set([
+	"trickroom-design-lint",
 	"trickroom-system-component-used-by",
 	"trickroom-system-component-usage",
 	"trickroom-system-components-usage",

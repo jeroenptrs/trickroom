@@ -28,6 +28,7 @@ import { registerEditorTools } from "./tools/editor";
 import { registerFeedbackTools } from "./tools/feedback";
 import { registerGuideTools } from "./tools/guide";
 import { installToolInputValidation } from "./tools/input-validation";
+import { registerLintTools } from "./tools/lint";
 import { registerMemoryTools } from "./tools/memory";
 import { registerProjectTools } from "./tools/projects";
 import { registerScreenshotTools } from "./tools/screenshots";
@@ -93,13 +94,14 @@ export const createTrickroomMcpServer = (
 	registerTrickroomPrompts(server);
 
 	// tools/list reports tools in registration order, which is TOOL_NAMES
-	// order (src/mcp/tool-names.ts): projects, guide, designs, editor,
-	// memory, design systems, components, feedback.
+	// order (src/mcp/tool-names.ts): projects, guide, designs (with lint),
+	// editor, memory, design systems, components, feedback.
 	registerProjectTools(ctx);
 	registerGuideTools(ctx);
 	registerDesignReadTools(ctx);
 	registerDesignApplyTool(ctx);
 	registerDesignValidationTools(ctx);
+	registerLintTools(ctx);
 	registerDesignCreateTool(ctx);
 	registerDesignExportTools(ctx, registerScreenshotTools(ctx));
 	registerEditorTools(ctx);

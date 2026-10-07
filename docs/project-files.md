@@ -423,11 +423,14 @@ Path:
   tokens.json
   assets.json
   icons.json
+  lint.json            optional: the system's lint rule configuration
+  lint-report.json     the latest lint run, the ratchet baseline
 ```
 
 Purpose:
 
 - Groups system-owned metadata under one folder per configured system.
+- Stores the lint configuration and the latest lint report (see [Design System Lint](lint.md) for both shapes; both carry `version: 1`).
 - Stores human-editable system metadata in `system.json`.
 - Stores meaningful Tailwind color tokens in `tokens.json`.
 - Stores project-relative raster image references in `assets.json`.
@@ -604,9 +607,9 @@ Top-level shape:
 
 ```ts
 type SystemComponentManifest = {
-  version: 1;
+  version: 3;
   metadata: {
-    schemaVersion: 1;
+    schemaVersion: 3;
     createdAt: string;
     updatedAt: string;
   };
@@ -620,6 +623,16 @@ type SystemComponentManifest = {
   components: Record<string, SystemComponentRecord>;
 };
 ```
+
+Manifest versions:
+
+Trickroom reads every version below and migrates it in memory to the current one, so reading never changes the file. The next write persists the current version. Newer versions are rejected with `UNSUPPORTED_VERSION`.
+
+| Version | Change | Migration |
+| --- | --- | --- |
+| 1 | First shape. | |
+| 2 | A variant axis without a default is genuinely unset; v1 implied its first value. | v1 axes without a default get their first value (sorted by key) in `defaultValues`, and published `variantSchemaHash` values are recomputed, so v1 components render as before. |
+| 3 | Template nodes may carry `designOnly`. | None: an absent flag means `false`, so v2 data is valid v3 data. |
 
 `components` record key invariant:
 
@@ -665,6 +678,14 @@ Template path terminology:
 - Invalid examples: `root/label`, `children/0/icon`.
 - Validation requires exactly one root node, conventionally with `path: "root"`, and unique non-empty paths across the tree.
 - Slots, variant class targets, and override targets reference these template paths via `hostPath` / `path` / `classesByPath` keys.
+
+Design-only nodes:
+
+- `RecipeTemplateNode.designOnly?: boolean` marks a node that exists in designs but not in code, such as an annotation or a layout helper. Absent means `false`; any other value than a boolean fails validation.
+- The flag is inherited: every descendant of a design-only node is design-only too, and so are the default children of slots hosted inside one.
+- Designs render design-only nodes like any other node. Codegen skips them with their subtree, and variant or compound classes may not target a path inside one. See [Component Codegen](codegen.md#design-only-nodes).
+- The flag is a template field like any other: it is part of the draft and published `templateHash`, so toggling it marks the draft as changed and needs a publish.
+- In the System editor the component inspector has a "Design only" switch under Code; descendants show the inherited state read-only, and the layer tree marks the flagged layer.
 
 Revision and hash write safety:
 

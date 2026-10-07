@@ -60,6 +60,7 @@ import {
 } from "../utils/project-default-system";
 import { registerSystemMemoryRoutes } from "./memory";
 import { registerSystemComponentRoutes } from "./system-components";
+import { registerSystemLintRoutes } from "./system-lint";
 
 export const systemsRoutes = new Hono();
 
@@ -1225,3 +1226,4 @@ systemsRoutes.get("/:systemName/icons/:iconId/svg", async (c) => {
 
 registerSystemComponentRoutes(systemsRoutes, getProjectRoot, getRouteSystem);
 registerSystemMemoryRoutes(systemsRoutes, getProjectRoot, getRouteSystem);
+registerSystemLintRoutes(systemsRoutes, getProjectRoot, getRouteSystem);

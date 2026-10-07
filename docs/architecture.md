@@ -33,6 +33,14 @@ MCP:
 - Prompts: `src/mcp/prompts.ts`
 - Governance: `src/mcp/governance.ts`
 
+Design system lint:
+
+- CLI: `bin/trickroom.js lint` (`src/cli/lint.ts`, built into `dist/lint.js`)
+- Engine: `src/lint/` (pure modules; `run-lint.ts` is the filesystem adapter)
+- MCP tool: `src/mcp/tools/lint.ts`
+- HTTP routes: `src/routes/system-lint.ts`; one design: `GET /api/trickroom/design/lint` in `src/server.ts`
+- Dashboard: `src/components/system-editor/SystemEditorLintPanel.tsx` and `src/components/system-editor/lint/`
+
 ## Project Session Flow
 
 Opening a project ensures `.trickroom/config.json` exists with a stable `projectId` and registers the location in per-user app state. The Hono app keeps the active project in memory, and project-scoped routes resolve it before reading config, designs, or Tailwind snapshots.
@@ -130,6 +138,10 @@ See [Files And Safety](project-files.md#design-files) for the layout, revisions,
 
 `src/codegen/` turns published system components into tailwind-variants files ([Component Codegen](codegen.md)). `generate.ts` (with `model.ts`, `emit.ts`, `header.ts`, `names.ts`) is pure: manifest in, file texts and diagnostics out. `config.ts` validates and resolves the `codegen` block. `run-codegen.ts` connects them to the filesystem for both callers, `src/cli/codegen.ts` (`trickroom codegen`) and `design_export` with `format: "variants"`: it reads the system and component manifests with `readOnly`, runs the configured formatter (`formatter.ts`, no shell), compares with disk and writes only what differs.
 
+## Design System Lint
+
+`src/lint/` checks how the app and the Designs use a design system ([Design System Lint](lint.md)). `contract.ts`, `config.ts`, `report.ts`, `ratchet.ts`, `rules/` and `source/` are pure; `run-lint.ts` connects them to a project for `src/cli/lint.ts` (`trickroom lint`), the `lint` MCP tool and `src/routes/system-lint.ts` (`GET`/`POST /api/trickroom/systems/:system/lint`). The only file it writes is `.trickroom/systems/<id>/lint-report.json`, which the System editor reads through `src/queries/system-lint.ts`. Its design-side rules also run on one design through `src/lint/design-lint.ts`, for `design_validate` and the editor's `GET /api/trickroom/design/lint` (`src/queries/design-lint.ts`, shown in the design inspector).
+
 MCP screenshot tools lazily start a loopback-only capture host fixed to the selected project, so visual capture does not depend on the browser app's active project. Inline capture is allowed by read-only policy; writing an `outputPath` requires read-write policy. Screenshot attempts are audit logged when project auditing is enabled.
 
 ## Editor Channel
@@ -193,6 +205,7 @@ Both list the discovery records, delete records whose process is gone (`process.
 - `pnpm build:migrate`: build `dist/migrate.js`, run by `trickroom migrate`.
 - `pnpm build:feedback`: build `dist/feedback.js`, run by `trickroom feedback`.
 - `pnpm build:codegen`: build `dist/codegen.js`, run by `trickroom codegen`.
+- `pnpm build:lint`: build `dist/lint.js`, run by `trickroom lint`.
 
 The custom Vite SPA server plugin serves Hono routes during development and falls through to Vite for browser routes. Production uses `TRICKROOM_HTTP_PORT` and `TRICKROOM_HTTP_HOST` at runtime.
 

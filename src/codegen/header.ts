@@ -1,4 +1,9 @@
 import { sha256Hex } from "../utils/sha256";
+import {
+	collectDesignOnlyPaths,
+	stripDesignOnlyChildren,
+	stripDesignOnlyNodes,
+} from "../utils/system-component-design-only";
 import { stableStringify } from "../utils/system-component-template-hash";
 import type { SystemComponentDraftPayload } from "../utils/system-components";
 
@@ -37,6 +42,9 @@ const mapValues = <T, U>(
  * Axis, value, slot and override target labels and history are dropped so
  * relabelling does not mark generated files stale; template node `name` and
  * `text` stay because they are part of the template the check compares.
+ * Design-only subtrees are dropped from the template and from slot default
+ * children, as are slots hosted and override targets pointing inside one, so
+ * edits there never mark generated files stale.
  */
 export function hashCodegenSource(
 	payload: Pick<
@@ -44,11 +52,24 @@ export function hashCodegenSource(
 		"root" | "slots" | "variants" | "overrideTargets"
 	>,
 ): string {
-	const input = stableStringify({
-		root: payload.root,
-		slots: mapValues(payload.slots, (slot) =>
-			omitKeys(slot, ["label", "history"]),
+	const designOnlyPaths = collectDesignOnlyPaths(payload);
+	const codeSlots = Object.fromEntries(
+		Object.entries(payload.slots ?? {}).filter(
+			([, slot]) => !designOnlyPaths.has(slot.hostPath),
 		),
+	);
+	const codeOverrideTargets = Object.fromEntries(
+		Object.entries(payload.overrideTargets ?? {}).filter(
+			([, target]) => !designOnlyPaths.has(target.path),
+		),
+	);
+	const input = stableStringify({
+		root: stripDesignOnlyNodes(payload.root),
+		slots: mapValues(codeSlots, (slot) => {
+			const hashed = omitKeys(slot, ["label", "history", "defaultChildren"]);
+			const defaultChildren = stripDesignOnlyChildren(slot.defaultChildren);
+			return defaultChildren ? { ...hashed, defaultChildren } : hashed;
+		}),
 		variants: {
 			...payload.variants,
 			axes: mapValues(payload.variants?.axes, (axis) => ({
@@ -56,7 +77,7 @@ export function hashCodegenSource(
 				values: mapValues(axis.values, (value) => omitKeys(value, ["label"])),
 			})),
 		},
-		overrideTargets: mapValues(payload.overrideTargets, (target) =>
+		overrideTargets: mapValues(codeOverrideTargets, (target) =>
 			omitKeys(target, ["label", "history"]),
 		),
 	});

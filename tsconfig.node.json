@@ -26,6 +26,7 @@
 		"vite.migrate.config.ts",
 		"vite.feedback.config.ts",
 		"vite.codegen.config.ts",
+		"vite.lint.config.ts",
 		"vite.server.config.ts"
 	]
 }

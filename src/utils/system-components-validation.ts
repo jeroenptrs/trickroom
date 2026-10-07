@@ -674,6 +674,31 @@ const validatePublishedVersionShape = (
 	}
 };
 
+const validateDesignOnlyFlags = (
+	componentId: string,
+	payload: SystemComponentDraftPayload,
+	diagnostics: SystemComponentManifestDiagnostic[],
+) => {
+	const nodes = [
+		...collectRecipeTemplateNodes(payload.root),
+		...Object.values(payload.slots ?? {}).flatMap((slot) =>
+			(slot.defaultChildren ?? []).flatMap(collectRecipeTemplateNodes),
+		),
+	];
+	for (const node of nodes) {
+		const designOnly: unknown = node.designOnly;
+		if (designOnly !== undefined && typeof designOnly !== "boolean") {
+			pushDiagnostic(diagnostics, {
+				code: "INVALID_TEMPLATE_DESIGN_ONLY",
+				severity: "error",
+				componentId,
+				path: node.path,
+				message: `Component "${componentId}" template node "${node.path}" designOnly must be a boolean.`,
+			});
+		}
+	}
+};
+
 const validateDraftOrPublishedPayload = (
 	componentId: string,
 	payload: SystemComponentDraftPayload,
@@ -689,6 +714,7 @@ const validateDraftOrPublishedPayload = (
 		payload.root,
 		diagnostics,
 	);
+	validateDesignOnlyFlags(componentId, payload, diagnostics);
 	validateSlots(
 		componentId,
 		payload.slots,

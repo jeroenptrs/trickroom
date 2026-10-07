@@ -184,11 +184,12 @@ const checkDryRunRevision = (
 };
 
 /**
- * Diagnostics on the boards a plan changed, warnings scoped to the touched
- * elements.
+ * Diagnostics on the boards a plan changed, with the system's design lint
+ * rules, warnings scoped to the touched elements.
  */
 const getScopedDesignIssues = async (
 	context: TrickroomMcpServerContext,
+	designFileId: string,
 	before: TrickroomDesign,
 	design: TrickroomDesign,
 	affectedElementIds: Iterable<string>,
@@ -196,6 +197,7 @@ const getScopedDesignIssues = async (
 	const affected = new Set(affectedElementIds);
 	const diagnostics = await getDesignDiagnostics(context, design, {
 		boardIds: getTouchedBoardIds(before, design, affected),
+		lint: { designId: designFileId },
 	});
 	return {
 		tokenSnapshot: diagnostics.tokenSnapshot,
@@ -249,7 +251,9 @@ export const validateDesignFilePayload = async (
 	}
 
 	const design = migration.design;
-	const diagnostics = await getDesignDiagnostics(context, design);
+	const diagnostics = await getDesignDiagnostics(context, design, {
+		lint: { designId: designFileId },
+	});
 	const issues: ValidationIssue[] = [
 		...diagnostics.issues,
 		...(read.warnings ?? []).map((warning) => ({
@@ -404,6 +408,7 @@ const validateOperations = async (
 
 	const scoped = await getScopedDesignIssues(
 		context,
+		input.designFileId,
 		read.design,
 		execution.design,
 		execution.affectedElementIds,

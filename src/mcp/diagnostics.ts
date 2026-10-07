@@ -1,8 +1,23 @@
 import { resolveRegistryComponent } from "../libraries/registry";
 import { hasStageRenderer } from "../libraries/renderable-components";
+import {
+	type DesignLintResult,
+	lintDesign,
+	loadDesignLintSetup,
+} from "../lint/design-lint";
 import { validateRecipeInstances } from "../recipes/validation";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
 import { readAssetManifest } from "../utils/asset-manifest-service";
+import {
+	type ClassTokenInspector,
+	classTokenContextFromStorage,
+	createClassTokenInspector,
+} from "../utils/class-token-diagnostics";
+import {
+	createDesignClassChecker,
+	type DesignClassChecker,
+	type DesignClassDiagnostic,
+} from "../utils/design-class-diagnostics";
 import {
 	assetIdProp,
 	collectDesignResourceReferences,
@@ -10,36 +25,13 @@ import {
 } from "../utils/design-resource-references";
 import { findDesignSystem } from "../utils/design-system-store";
 import { readIconManifest } from "../utils/icon-manifest-service";
-import { computeResolvedColorTokens } from "../utils/resolved-color-tokens";
-import {
-	buildResolvedTokenContext,
-	type ResolvedTokenContext,
-} from "../utils/resolved-tailwind-domain-tokens";
-import { formatDidYouMean, suggestClosest } from "../utils/suggestions";
-import {
-	classifyParsedClass,
-	parseClassName,
-	type SpacingIntent,
-	type StyleIntent,
-	type UtilityIntent,
-} from "../utils/tailwind-classname";
-import {
-	loadTailwindDesignSystem,
-	type TailwindDesignSystem,
-} from "../utils/tailwind-design-system";
-import {
-	TAILWIND_TOKEN_DOMAINS,
-	type TailwindTokenDomain,
-} from "../utils/tailwind-token-domains";
+import { loadCachedTailwindDesignSystem } from "../utils/tailwind-design-system";
+import type { TailwindTokenDomain } from "../utils/tailwind-token-domains";
 import {
 	readDomainTokensReadonly,
 	type TailwindCustomUtilityStorage,
 	type TailwindTokenStorage,
 } from "../utils/tailwind-token-store";
-import {
-	inspectTailwindUtilityCandidate,
-	type TailwindUtilityInspection,
-} from "../utils/tailwind-utility-inspector";
 import type { TrickroomMcpServerContext } from "./server";
 
 export type McpDesignIssue = {
@@ -247,215 +239,7 @@ export const shapeMutationDiagnostics = (
 	return shaped;
 };
 
-type TailwindUtilityInspector = {
-	inspect: (candidate: string) => TailwindUtilityInspection;
-	/** Nearest valid classes for an unsupported candidate, variants preserved. */
-	suggest: (candidate: string) => string[];
-};
-
-const classNameCache = new WeakMap<TailwindDesignSystem, string[]>();
-
-const getDesignSystemClassNames = (designSystem: TailwindDesignSystem) => {
-	let classNames = classNameCache.get(designSystem);
-	if (!classNames) {
-		classNames = designSystem.getClassList().map(([name]) => name);
-		classNameCache.set(designSystem, classNames);
-	}
-	return classNames;
-};
-
-/**
- * Split `md:hover:!bg-red-500/50` into the variant prefix, important marker,
- * utility root, and opacity modifier so suggestions only rewrite the utility.
- */
-const splitCandidate = (candidate: string) => {
-	let depth = 0;
-	let variantEnd = -1;
-	for (let index = 0; index < candidate.length; index++) {
-		const char = candidate[index];
-		if (char === "[" || char === "(") depth++;
-		else if (char === "]" || char === ")") depth--;
-		else if (char === ":" && depth === 0) variantEnd = index;
-	}
-	const prefix = candidate.slice(0, variantEnd + 1);
-	let utility = candidate.slice(variantEnd + 1);
-	let important = "";
-	if (utility.startsWith("!")) {
-		important = "!";
-		utility = utility.slice(1);
-	} else if (utility.endsWith("!")) {
-		important = "!";
-		utility = utility.slice(0, -1);
-	}
-	const modifierIndex = utility.includes("[") ? -1 : utility.lastIndexOf("/");
-	const modifier = modifierIndex > 0 ? utility.slice(modifierIndex) : "";
-	const root = modifierIndex > 0 ? utility.slice(0, modifierIndex) : utility;
-	return { prefix, important, root, modifier };
-};
-
-export const suggestTailwindClasses = (
-	classNames: readonly string[],
-	candidate: string,
-): string[] => {
-	const { prefix, important, root, modifier } = splitCandidate(candidate);
-	if (root.length < 2 || root.includes("[")) {
-		return [];
-	}
-	const maxDistance = Math.max(1, Math.min(3, Math.floor(root.length / 3)));
-	const nearby = classNames.filter(
-		(name) => Math.abs(name.length - root.length) <= maxDistance,
-	);
-	return suggestClosest(root, nearby, {
-		limit: 3,
-		maxDistance,
-		prefixMatches: false,
-	}).map((name) => `${prefix}${important}${name}${modifier}`);
-};
-
-/** Replace the last occurrence of `token` in a class with each suggestion. */
-const suggestTokenClasses = (
-	classToken: string,
-	token: string,
-	tokenNames: Iterable<string>,
-): string[] => {
-	const index = classToken.lastIndexOf(token);
-	if (index < 0) return [];
-	return suggestClosest(token, tokenNames, {
-		limit: 3,
-		prefixMatches: false,
-	}).map(
-		(name) =>
-			`${classToken.slice(0, index)}${name}${classToken.slice(index + token.length)}`,
-	);
-};
-
-const withSuggestions = (suggestions: string[]) =>
-	suggestions.length > 0
-		? {
-				suggestions,
-				messageSuffix: formatDidYouMean(suggestions),
-			}
-		: { suggestions: undefined, messageSuffix: "" };
-
-type CustomUtilityRoots = {
-	customFunctionalUtilityRoots: readonly string[];
-	customStaticUtilityRoots: readonly string[];
-};
-
-const EMPTY_CUSTOM_UTILITY_ROOTS: CustomUtilityRoots = {
-	customFunctionalUtilityRoots: [],
-	customStaticUtilityRoots: [],
-};
-
-/**
- * Split persisted custom @utility roots by kind for classification: functional
- * roots are prefix-matched, static roots exact-matched. Each list is sorted
- * longest-first. Legacy entries without `kind` are treated as functional.
- */
-function splitCustomUtilityRoots(
-	customUtilities: readonly TailwindCustomUtilityStorage[],
-): CustomUtilityRoots {
-	const functional: string[] = [];
-	const staticRoots: string[] = [];
-	for (const utility of customUtilities) {
-		(utility.kind === "static" ? staticRoots : functional).push(utility.root);
-	}
-	const byLengthDescending = (roots: string[]) =>
-		roots.sort((a, b) => b.length - a.length || a.localeCompare(b));
-	return {
-		customFunctionalUtilityRoots: byLengthDescending(functional),
-		customStaticUtilityRoots: byLengthDescending(staticRoots),
-	};
-}
-
-const STYLE_PROPERTY_TO_TOKEN_DOMAIN: Partial<
-	Record<StyleIntent["property"], TailwindTokenDomain>
-> = {
-	"typography.font": "font",
-	"typography.font-size": "text",
-	"typography.font-weight": "font-weight",
-	"typography.line-height": "leading",
-	"typography.letter-spacing": "tracking",
-	"border.radius": "radius",
-	"effects.shadow": "shadow",
-	"effects.inset-shadow": "inset-shadow",
-	"effects.drop-shadow": "drop-shadow",
-	"effects.text-shadow": "text-shadow",
-	"effects.blur": "blur",
-	"effects.backdrop-blur": "blur",
-	"size.aspect-ratio": "aspect",
-	"motion.animation": "animate",
-	"motion.easing": "ease",
-};
-
-const UNKNOWN_TOKEN_CODES: Partial<Record<TailwindTokenDomain, string>> = {
-	color: "UNKNOWN_COLOR_TOKEN",
-	spacing: "UNKNOWN_SPACING_TOKEN",
-	font: "UNKNOWN_FONT_TOKEN",
-	text: "UNKNOWN_TEXT_TOKEN",
-	radius: "UNKNOWN_RADIUS_TOKEN",
-	shadow: "UNKNOWN_SHADOW_TOKEN",
-};
-
-const OUT_OF_SYSTEM_CODES: Partial<Record<TailwindTokenDomain, string>> = {
-	color: "OUT_OF_SYSTEM_COLOR",
-	font: "OUT_OF_SYSTEM_FONT",
-	radius: "OUT_OF_SYSTEM_RADIUS",
-	text: "OUT_OF_SYSTEM_TEXT",
-	shadow: "OUT_OF_SYSTEM_SHADOW",
-	blur: "OUT_OF_SYSTEM_BLUR",
-};
-
-const ARBITRARY_WARN_DOMAINS = new Set<TailwindTokenDomain>([
-	"color",
-	"font",
-	"radius",
-	"text",
-	"shadow",
-	"blur",
-]);
-
-const IMPLICIT_SPACING_SCALE_PATTERN = /^(\d+|\d*\.\d+|px)$/u;
-
-/**
- * `group`/`peer` marker classes, optionally named (`group/sidebar`): they mark
- * an element for group-* and peer-* variants and emit no CSS of their own.
- */
-const GROUP_MARKER_PATTERN = /^(group|peer)(\/[\w-]+)?$/u;
-
-/**
- * The token snapshot only knows theme tokens, and the classifier only knows
- * colors: static utilities (`rounded-full`, `leading-none`) and tokens of a
- * sibling domain (`shadow-elevation-md`, a shadow token, read as a color) look
- * unknown to it. A class the system's Tailwind build can emit references an
- * available token, unless the system removed that token on purpose.
- */
-type AvailableTokenCheck = (
-	domain: TailwindTokenDomain,
-	token: string,
-	candidate: string,
-) => boolean;
-
-const createAvailableTokenCheck = (
-	inspectUtility: TailwindUtilityInspector | null,
-	storedTokens: TailwindTokenStorage,
-): AvailableTokenCheck => {
-	if (!inspectUtility) {
-		return () => false;
-	}
-	const removed = new Set(
-		TAILWIND_TOKEN_DOMAINS.flatMap((domain) =>
-			(storedTokens.domains[domain]?.baselineDiff.removed ?? []).map(
-				(token) => `${domain}:${token.name}`,
-			),
-		),
-	);
-	return (domain, token, candidate) =>
-		!removed.has(`${domain}:${token}`) &&
-		inspectUtility.inspect(candidate).supported;
-};
-
-const noAvailableTokenCheck: AvailableTokenCheck = () => false;
+export { suggestTailwindClasses } from "../utils/class-token-diagnostics";
 
 /** A board with its index in the design, so issue paths stay `boards[i]`. */
 type IndexedBoard = { board: DesignNode; index: number };
@@ -653,321 +437,28 @@ const hasClassNames = (nodes: DesignNode[]): boolean =>
 			(Array.isArray(node.children) && hasClassNames(node.children)),
 	);
 
-const pushClassDiagnostic = (
-	issues: ClassTokenDiagnostic[],
-	diagnostic: ClassTokenDiagnostic,
-) => {
-	issues.push(diagnostic);
-};
-
-const createClassDiagnosticBase = (
-	node: DesignNode,
-	path: string,
-	className: string,
-	parsedRaw: string,
-): Pick<
-	ClassTokenDiagnostic,
-	"path" | "elementId" | "className" | "classToken"
-> => ({
-	path: `${path}.props.className`,
-	elementId: node.id,
-	className,
-	classToken: parsedRaw,
-});
-
-const unknownTokenCodeForDomain = (domain: TailwindTokenDomain): string =>
-	UNKNOWN_TOKEN_CODES[domain] ?? "UNKNOWN_TAILWIND_TOKEN";
-
-const outOfSystemCodeForDomain = (domain: TailwindTokenDomain): string =>
-	OUT_OF_SYSTEM_CODES[domain] ?? "OUT_OF_SYSTEM_TAILWIND_TOKEN";
-
-const isSpacingScaleResolved = (
-	token: string,
-	spacingTokens: ReadonlySet<string>,
-): boolean => {
-	if (spacingTokens.has(token)) {
-		return true;
-	}
-
-	if (
-		spacingTokens.has("DEFAULT") &&
-		IMPLICIT_SPACING_SCALE_PATTERN.test(token)
-	) {
-		return true;
-	}
-
-	return false;
-};
-
-const collectColorDiagnostics = (
-	intent: Extract<UtilityIntent, { kind: "color" }>,
-	base: Pick<
-		ClassTokenDiagnostic,
-		"path" | "elementId" | "className" | "classToken"
-	>,
-	parsedRaw: string,
-	colorTokens: ReadonlySet<string>,
-	isAvailableToken: AvailableTokenCheck,
-	issues: ClassTokenDiagnostic[],
-) => {
-	if (
-		intent.token &&
-		!intent.resolved &&
-		!isAvailableToken("color", intent.token, parsedRaw)
-	) {
-		const { suggestions, messageSuffix } = withSuggestions(
-			suggestTokenClasses(parsedRaw, intent.token, colorTokens),
-		);
-		pushClassDiagnostic(issues, {
-			severity: "warning",
-			code: "UNKNOWN_COLOR_TOKEN",
-			message: `Class "${parsedRaw}" references unavailable color token "${intent.token}".${messageSuffix}`,
-			...base,
-			token: intent.token,
-			property: intent.property,
-			domain: "color",
-			...(suggestions ? { suggestions } : {}),
-		});
-	}
-
-	if (intent.arbitraryValue !== null) {
-		pushClassDiagnostic(issues, {
-			severity: "warning",
-			code: "OUT_OF_SYSTEM_COLOR",
-			message: `Class "${parsedRaw}" uses arbitrary color value ${intent.arbitraryValue}.`,
-			...base,
-			property: intent.property,
-			domain: "color",
-		});
-	}
-};
-
-const collectSpacingDiagnostics = (
-	intent: SpacingIntent,
-	base: Pick<
-		ClassTokenDiagnostic,
-		"path" | "elementId" | "className" | "classToken"
-	>,
-	parsedRaw: string,
-	resolvedTokens: ResolvedTokenContext,
-	isAvailableToken: AvailableTokenCheck,
-	issues: ClassTokenDiagnostic[],
-) => {
-	if (intent.value.kind !== "scale") {
-		return;
-	}
-
-	const spacingTokens = resolvedTokens.spacing;
-	if (
-		isSpacingScaleResolved(intent.value.value, spacingTokens) ||
-		isAvailableToken("spacing", intent.value.value, parsedRaw)
-	) {
-		return;
-	}
-
-	const { suggestions, messageSuffix } = withSuggestions(
-		suggestTokenClasses(parsedRaw, intent.value.value, spacingTokens),
-	);
-	pushClassDiagnostic(issues, {
-		severity: "warning",
-		code: "UNKNOWN_SPACING_TOKEN",
-		message: `Class "${parsedRaw}" references unavailable spacing token "${intent.value.value}".${messageSuffix}`,
-		...base,
-		token: intent.value.value,
-		property: intent.property,
-		domain: "spacing",
-		...(suggestions ? { suggestions } : {}),
-	});
-};
-
-const collectStyleDiagnostics = (
-	intent: StyleIntent,
-	base: Pick<
-		ClassTokenDiagnostic,
-		"path" | "elementId" | "className" | "classToken"
-	>,
-	parsedRaw: string,
-	resolvedTokens: ResolvedTokenContext,
-	isAvailableToken: AvailableTokenCheck,
-	issues: ClassTokenDiagnostic[],
-) => {
-	const domain = STYLE_PROPERTY_TO_TOKEN_DOMAIN[intent.property];
-	if (!domain) {
-		return;
-	}
-
-	if (intent.value.kind === "scale" || intent.value.kind === "keyword") {
-		const tokenName = intent.value.value;
-		const tokenNames = resolvedTokens[domain];
-		if (
-			tokenNames.has(tokenName) ||
-			isAvailableToken(domain, tokenName, parsedRaw)
-		) {
-			return;
-		}
-
-		const { suggestions, messageSuffix } = withSuggestions(
-			suggestTokenClasses(parsedRaw, tokenName, tokenNames),
-		);
-		pushClassDiagnostic(issues, {
-			severity: "warning",
-			code: unknownTokenCodeForDomain(domain),
-			message: `Class "${parsedRaw}" references unavailable ${domain} token "${tokenName}".${messageSuffix}`,
-			...base,
-			token: tokenName,
-			property: intent.property,
-			domain,
-			...(suggestions ? { suggestions } : {}),
-		});
-		return;
-	}
-
-	if (intent.value.kind === "arbitrary" && ARBITRARY_WARN_DOMAINS.has(domain)) {
-		pushClassDiagnostic(issues, {
-			severity: "warning",
-			code: outOfSystemCodeForDomain(domain),
-			message: `Class "${parsedRaw}" uses arbitrary ${domain} value ${intent.value.value}.`,
-			...base,
-			property: intent.property,
-			domain,
-		});
-	}
-};
-
-const collectUnknownUtilityDiagnostics = (
-	parsedRaw: string,
-	base: Pick<
-		ClassTokenDiagnostic,
-		"path" | "elementId" | "className" | "classToken"
-	>,
-	inspectUtility: TailwindUtilityInspector | null,
-	issues: ClassTokenDiagnostic[],
-) => {
-	if (!inspectUtility || GROUP_MARKER_PATTERN.test(parsedRaw)) {
-		return;
-	}
-
-	const inspection = inspectUtility.inspect(parsedRaw);
-	if (inspection.supported) {
-		return;
-	}
-
-	const { suggestions, messageSuffix } = withSuggestions(
-		inspectUtility.suggest(parsedRaw),
-	);
-	pushClassDiagnostic(issues, {
-		severity: "warning",
-		code: "UNKNOWN_TAILWIND_UTILITY",
-		message: `Class "${parsedRaw}" is not recognized as a supported Tailwind utility.${messageSuffix}`,
-		...base,
-		domain: "tailwind",
-		...(suggestions ? { suggestions } : {}),
-	});
-};
-
-type CollectClassDiagnosticsOptions = {
-	includeTokenDomainDiagnostics?: boolean;
-};
-
-const createEmptyResolvedTokenContext = (): ResolvedTokenContext =>
-	Object.fromEntries(
-		TAILWIND_TOKEN_DOMAINS.map((domain) => [domain, new Set<string>()]),
-	) as ResolvedTokenContext;
-
+/** Run a class checker over every className of a board, depth first. */
 const collectClassDiagnostics = (
 	node: DesignNode,
 	path: string,
-	resolvedTokens: ResolvedTokenContext,
-	colorTokens: ReadonlySet<string>,
-	customUtilityRoots: CustomUtilityRoots,
-	inspectUtility: TailwindUtilityInspector | null,
-	isAvailableToken: AvailableTokenCheck,
+	check: DesignClassChecker,
 	issues: ClassTokenDiagnostic[],
-	options: CollectClassDiagnosticsOptions = {},
 ) => {
-	const includeTokenDomainDiagnostics =
-		options.includeTokenDomainDiagnostics ?? true;
 	const className = node.props.className;
 	if (className?.trim()) {
-		for (const parsed of parseClassName(className)) {
-			const base = createClassDiagnosticBase(node, path, className, parsed.raw);
-			const intent = classifyParsedClass(parsed, {
-				colorTokens,
-				...customUtilityRoots,
-			});
-
-			switch (intent.kind) {
-				case "color":
-					if (includeTokenDomainDiagnostics) {
-						collectColorDiagnostics(
-							intent,
-							base,
-							parsed.raw,
-							colorTokens,
-							isAvailableToken,
-							issues,
-						);
-					}
-					break;
-				case "spacing":
-					if (includeTokenDomainDiagnostics) {
-						collectSpacingDiagnostics(
-							intent,
-							base,
-							parsed.raw,
-							resolvedTokens,
-							isAvailableToken,
-							issues,
-						);
-					}
-					break;
-				case "style":
-					if (includeTokenDomainDiagnostics) {
-						collectStyleDiagnostics(
-							intent,
-							base,
-							parsed.raw,
-							resolvedTokens,
-							isAvailableToken,
-							issues,
-						);
-					}
-					// Style intents without a token domain are plain Tailwind core
-					// utilities (e.g. flex direction); the classifier accepts any
-					// value for them, so ask Tailwind whether it can emit the class.
-					if (!STYLE_PROPERTY_TO_TOKEN_DOMAIN[intent.property]) {
-						collectUnknownUtilityDiagnostics(
-							parsed.raw,
-							base,
-							inspectUtility,
-							issues,
-						);
-					}
-					break;
-				case "unknown":
-					collectUnknownUtilityDiagnostics(
-						parsed.raw,
-						base,
-						inspectUtility,
-						issues,
-					);
-					break;
-			}
-		}
+		check(
+			className,
+			{ path: `${path}.props.className`, elementId: node.id },
+			issues as DesignClassDiagnostic[],
+		);
 	}
-
 	if (Array.isArray(node.children)) {
 		for (const [childIndex, child] of node.children.entries()) {
 			collectClassDiagnostics(
 				child,
 				`${path}.children[${childIndex}]`,
-				resolvedTokens,
-				colorTokens,
-				customUtilityRoots,
-				inspectUtility,
-				isAvailableToken,
+				check,
 				issues,
-				options,
 			);
 		}
 	}
@@ -1009,39 +500,79 @@ const getTokenSnapshotMetadata = (
 const loadTailwindUtilityInspector = async (
 	context: TrickroomMcpServerContext,
 	cssPath: string | undefined,
-): Promise<TailwindUtilityInspector | null> => {
+): Promise<ClassTokenInspector | null> => {
 	if (!cssPath?.trim()) {
 		return null;
 	}
 
 	try {
-		const { designSystem } = await loadTailwindDesignSystem({
+		const { designSystem } = await loadCachedTailwindDesignSystem({
 			projectRoot: context.projectRoot,
 			cssPath,
 		});
-		return {
-			inspect: (candidate) =>
-				inspectTailwindUtilityCandidate(designSystem, candidate),
-			suggest: (candidate) =>
-				suggestTailwindClasses(
-					getDesignSystemClassNames(designSystem),
-					candidate,
-				),
-		};
+		return createClassTokenInspector(designSystem);
 	} catch {
 		return null;
 	}
 };
 
 /**
+ * Lint findings as design issues: the code is the rule kind id, the
+ * severity the instance's (`info` findings are notes, not issues), and the
+ * kind's details (the offending class and suggestions, the axis and value)
+ * ride along. Problems that kept a rule from running are warnings.
+ */
+const toDesignLintIssues = (
+	result: DesignLintResult,
+): ClassTokenDiagnostic[] => {
+	const issues: ClassTokenDiagnostic[] = [];
+	for (const finding of result.findings) {
+		if (finding.severity === "info") continue;
+		const location =
+			finding.location?.kind === "design" ? finding.location : null;
+		issues.push({
+			...finding.details,
+			severity: finding.severity,
+			code: finding.rule,
+			message: finding.message,
+			...(location?.path === undefined ? {} : { path: location.path }),
+			...(location?.element === undefined
+				? {}
+				: { elementId: location.element }),
+			...(finding.component === undefined
+				? {}
+				: { component: finding.component }),
+		});
+	}
+	for (const diagnostic of result.diagnostics) {
+		issues.push({
+			severity: "warning",
+			code: diagnostic.code,
+			message: diagnostic.message,
+		});
+	}
+	return issues;
+};
+
+/**
  * Diagnostics of a design: recipe instances, renderers, asset and icon
  * references, and class tokens. `boardIds` limits them to those boards (for
  * example the boards a write changed); file-level warnings are kept.
+ *
+ * With `lint`, the class and token checks run as the system's design-side
+ * lint rules instead (`design.unknown-class-token`,
+ * `design.unknown-variant-value`, `design.design-only-class-target`), with
+ * its `lint.json`: codes are rule kind ids and severities, enabled kinds
+ * and options follow the config. `design_validate` and the editor's design
+ * lint route pass it; without it the result is what it always was.
  */
 export const getDesignDiagnostics = async (
 	context: TrickroomMcpServerContext,
 	design: TrickroomDesign,
-	options: { boardIds?: ReadonlySet<string> } = {},
+	options: {
+		boardIds?: ReadonlySet<string>;
+		lint?: { designId: string };
+	} = {},
 ): Promise<DesignDiagnostics> => {
 	const systemHandle = design.systemId ?? design.systemName ?? null;
 	const system = systemHandle
@@ -1072,45 +603,15 @@ export const getDesignDiagnostics = async (
 		context.projectRoot,
 		system.manifest.systemId,
 	);
-
-	if (!storedTokens) {
-		if (hasClassNames(design.boards)) {
-			issues.push({
-				severity: "warning",
-				code: "DESIGN_TOKENS_NOT_STORED",
-				message: `Design system "${system.manifest.systemName}" does not have a stored token snapshot; class token availability could not be verified.`,
-				path: "systemName",
-			});
-		}
-
-		const inspectUtility = await loadTailwindUtilityInspector(
-			context,
-			system.manifest.cssPath,
-		);
-		const emptyResolvedTokens = createEmptyResolvedTokenContext();
-		const emptyColorTokens = new Set<string>();
-
-		for (const { board, index } of boards) {
-			collectClassDiagnostics(
-				board,
-				`boards[${index}]`,
-				emptyResolvedTokens,
-				emptyColorTokens,
-				EMPTY_CUSTOM_UTILITY_ROOTS,
-				inspectUtility,
-				noAvailableTokenCheck,
-				issues,
-				{ includeTokenDomainDiagnostics: false },
-			);
-		}
-
-		return {
-			issues,
-			tokenSnapshot: getTokenSnapshotMetadata(system.manifest, storedTokens),
-		};
+	if (!storedTokens && hasClassNames(design.boards)) {
+		issues.push({
+			severity: "warning",
+			code: "DESIGN_TOKENS_NOT_STORED",
+			message: `Design system "${system.manifest.systemName}" does not have a stored token snapshot; class token availability could not be verified.`,
+			path: "systemName",
+		});
 	}
-
-	if (storedTokens.metadata.reviewRequired) {
+	if (storedTokens?.metadata.reviewRequired) {
 		issues.push({
 			severity: "warning",
 			code: "DESIGN_SYSTEM_REVIEW_REQUIRED",
@@ -1119,35 +620,35 @@ export const getDesignDiagnostics = async (
 		});
 	}
 
-	const resolvedTokens = buildResolvedTokenContext(storedTokens);
-	const colorDomain = storedTokens.domains.color;
-	const colorTokens = computeResolvedColorTokens({
-		meaningfulTokens: colorDomain.tokens,
-		removed: colorDomain.baselineDiff.removed,
-	}).names;
-	const customUtilityRoots = splitCustomUtilityRoots(
-		storedTokens.customUtilities,
-	);
-	const inspectUtility = await loadTailwindUtilityInspector(
-		context,
-		system.manifest.cssPath ?? storedTokens.metadata.cssPath,
-	);
-
-	const isAvailableToken = createAvailableTokenCheck(
-		inspectUtility,
-		storedTokens,
-	);
-	for (const { board, index } of boards) {
-		collectClassDiagnostics(
-			board,
-			`boards[${index}]`,
-			resolvedTokens,
-			colorTokens,
-			customUtilityRoots,
-			inspectUtility,
-			isAvailableToken,
-			issues,
+	if (options.lint) {
+		const setup = await loadDesignLintSetup({
+			projectRoot: context.projectRoot,
+			system,
+		});
+		issues.push(
+			...toDesignLintIssues(
+				await lintDesign({
+					projectRoot: context.projectRoot,
+					setup,
+					designId: options.lint.designId,
+					design,
+					boardIds: options.boardIds,
+				}),
+			),
 		);
+	} else {
+		const check = createDesignClassChecker(
+			classTokenContextFromStorage(
+				storedTokens,
+				await loadTailwindUtilityInspector(
+					context,
+					system.manifest.cssPath ?? storedTokens?.metadata.cssPath,
+				),
+			),
+		);
+		for (const { board, index } of boards) {
+			collectClassDiagnostics(board, `boards[${index}]`, check, issues);
+		}
 	}
 
 	return {

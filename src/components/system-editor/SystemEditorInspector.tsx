@@ -64,6 +64,7 @@ import { AuthoredCompoundsList } from "./AuthoredCompoundsList";
 import { ComponentDraftProperties } from "./ComponentDraftProperties";
 import type { ComponentPublicationState } from "./component-catalog";
 import { getComponentPublicationState } from "./component-catalog";
+import { SystemEditorLintInspector } from "./SystemEditorLintPanel";
 import { SystemPanelToggle } from "./SystemPanelToggle";
 import { pageTitleByTab, type SystemEditorPage } from "./types";
 
@@ -1731,6 +1732,13 @@ export function SystemEditorInspector({
 			<IconInspector
 				systemId={systemId}
 				iconId={selectedIconId}
+				projectScope={projectScope}
+			/>
+		);
+	} else if (page === "lint") {
+		body = (
+			<SystemEditorLintInspector
+				systemId={systemId}
 				projectScope={projectScope}
 			/>
 		);

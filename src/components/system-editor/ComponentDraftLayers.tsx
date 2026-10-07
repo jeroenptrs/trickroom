@@ -55,6 +55,7 @@ import {
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
 import { layerDropInsertionIndex } from "../../utils/reorder-insertion-index";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import {
@@ -581,7 +582,12 @@ const DraftLayerRow = memo(function DraftLayerRow({
 							title={canDragLayer ? `Drag ${layer.name}` : layer.name}
 						>
 							<span
-								className={`truncate ${hasChildren ? " font-semibold" : ""}`}
+								className={`truncate ${hasChildren ? " font-semibold" : ""}${layer.designOnly === "inherited" ? " opacity-60" : ""}`}
+								title={
+									layer.designOnly === "inherited"
+										? `${layer.name}: design only, inherited from a parent layer`
+										: undefined
+								}
 							>
 								{layer.name}
 							</span>
@@ -598,6 +604,16 @@ const DraftLayerRow = memo(function DraftLayerRow({
 							onBlur={commitLayerName}
 						/>
 					)}
+					{layer.designOnly === "own" ? (
+						<Badge
+							tone="info"
+							edge="stamped"
+							className="ml-1 shrink-0 py-0 leading-4"
+							title="Design only: this layer and its children stay out of generated code"
+						>
+							Design only
+						</Badge>
+					) : null}
 				</div>
 			</DraftLayerContextMenu>
 		</div>

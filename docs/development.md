@@ -15,13 +15,14 @@ pnpm install
 | Script | Purpose |
 | --- | --- |
 | `pnpm dev` | Generate Tailwind baseline tokens, then start Vite. |
-| `pnpm build` | Build the web, server, MCP, migrate, feedback and codegen runtimes. |
+| `pnpm build` | Build the web, server, MCP, migrate, feedback, codegen and lint runtimes. |
 | `pnpm build:web-runtime` | Generate tokens, typecheck, and build the client. |
 | `pnpm build:server` | Build the production Hono server. |
 | `pnpm build:mcp` | Build the stdio MCP output. |
 | `pnpm build:migrate` | Build `dist/migrate.js` for `trickroom migrate`. |
 | `pnpm build:feedback` | Build `dist/feedback.js` for `trickroom feedback`. |
 | `pnpm build:codegen` | Build `dist/codegen.js` for `trickroom codegen` (entry `src/cli/codegen.ts`, config `vite.codegen.config.ts`). |
+| `pnpm build:lint` | Build `dist/lint.js` for `trickroom lint` (entry `src/cli/lint.ts`, config `vite.lint.config.ts`). |
 
 Screenshot support is optional. The published package declares `playwright-core` as an optional peer, while keeping it as a development dependency for this repository. Install it alongside Trickroom and provide Chrome/Chromium before using screenshot APIs or MCP tools:
 
@@ -31,6 +32,8 @@ pnpm exec playwright-core install chromium
 ```
 
 An existing browser may instead be selected with `TRICKROOM_CHROME_PATH` or the screenshot request's `executablePath`. Both server builds keep `playwright-core` as a runtime external so normal Trickroom installation and startup do not bundle it.
+
+`oxc-parser` (the TSX parser behind `trickroom lint`) is a regular dependency with a native binding, so every SSR bundle keeps it external as well (`nativeRuntimeDependencies` in the `vite.*.config.ts` files).
 | `pnpm preview` | Preview the built client. |
 | `pnpm generate:tailwind-tokens` | Regenerate the Tailwind default color baseline. |
 | `pnpm test` | Run Vitest once. |
@@ -170,6 +173,17 @@ node bin/trickroom.js mcp
 
 Projects opened through MCP must enable MCP in `.trickroom/config.json`.
 
+## Running Lint Locally
+
+```sh
+pnpm build:lint
+node bin/trickroom.js lint --check
+```
+
+This repository lints its own `.trickroom` project: `.trickroom/systems/trickroom/lint.json` scans `src/**` without tests, and the committed `lint-report.json` is the baseline. `--check` writes nothing and exits 1 when a number got worse than the baseline, naming it. After a change that lowers a count (fewer arbitrary text sizes, say), run `node bin/trickroom.js lint` without `--check` and commit the new report with the change. Never commit a report with `"status": "fail"`: the dashboard's "Run lint" writes one when a run fails, so the UI can show it. `--json` prints the whole result. See [Design System Lint](lint.md).
+
+`oxc-parser` ships prebuilt native bindings per platform as optional dependencies; when `pnpm install` skips them (an unsupported platform, `--no-optional`), `trickroom lint` fails to load the parser. Reinstall with optional dependencies.
+
 ## Repository Layout
 
 ```text
@@ -183,6 +197,7 @@ src/components/            React UI, editor chrome, stage, and primitives
 src/hooks/                 Stage navigation and Tailwind sync hooks
 src/iframe/                Iframe shell used by the design stage
 src/libraries/             Component registry definitions
+src/lint/                  Design system lint engine (contract, rules, source model, report, ratchet)
 src/mcp/                   MCP server, governance, diagnostics, and tests
 src/queries/               Browser fetch/query wrappers
 src/routes/                Hono route modules

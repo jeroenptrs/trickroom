@@ -147,37 +147,43 @@ describe("MCP expanded class/token diagnostics", () => {
 		expect(validation.issues).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
-					code: "UNKNOWN_SPACING_TOKEN",
+					code: "design.unknown-class-token",
+					check: "UNKNOWN_SPACING_TOKEN",
 					token: "gap-missing",
 					domain: "spacing",
 					elementId: "board",
 				}),
 				expect.objectContaining({
-					code: "UNKNOWN_FONT_TOKEN",
+					code: "design.unknown-class-token",
+					check: "UNKNOWN_FONT_TOKEN",
 					token: "missing",
 					domain: "font",
 					elementId: "board",
 				}),
 				expect.objectContaining({
-					code: "UNKNOWN_RADIUS_TOKEN",
+					code: "design.unknown-class-token",
+					check: "UNKNOWN_RADIUS_TOKEN",
 					token: "missing",
 					domain: "radius",
 					elementId: "board",
 				}),
 				expect.objectContaining({
-					code: "OUT_OF_SYSTEM_FONT",
+					code: "design.unknown-class-token",
+					check: "OUT_OF_SYSTEM_FONT",
 					classToken: "font-[Inter]",
 					domain: "font",
 					elementId: "board",
 				}),
 				expect.objectContaining({
-					code: "OUT_OF_SYSTEM_RADIUS",
+					code: "design.unknown-class-token",
+					check: "OUT_OF_SYSTEM_RADIUS",
 					classToken: "rounded-[1.25rem]",
 					domain: "radius",
 					elementId: "board",
 				}),
 				expect.objectContaining({
-					code: "UNKNOWN_TAILWIND_UTILITY",
+					code: "design.unknown-class-token",
+					check: "UNKNOWN_TAILWIND_UTILITY",
 					classToken: "definitely-not-a-tailwind-utility",
 					domain: "tailwind",
 					elementId: "board",
@@ -188,15 +194,18 @@ describe("MCP expanded class/token diagnostics", () => {
 		expect(validation.issues).not.toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
-					code: "UNKNOWN_TAILWIND_UTILITY",
+					code: "design.unknown-class-token",
+					check: "UNKNOWN_TAILWIND_UTILITY",
 					classToken: "bg-brand-500",
 				}),
 				expect.objectContaining({
-					code: "UNKNOWN_COLOR_TOKEN",
+					code: "design.unknown-class-token",
+					check: "UNKNOWN_COLOR_TOKEN",
 					token: "brand-500",
 				}),
 				expect.objectContaining({
-					code: "UNKNOWN_SPACING_TOKEN",
+					code: "design.unknown-class-token",
+					check: "UNKNOWN_SPACING_TOKEN",
 					token: "card",
 				}),
 			]),
@@ -300,7 +309,8 @@ describe("MCP expanded class/token diagnostics", () => {
 		expect(validation.issues).not.toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
-					code: "UNKNOWN_SPACING_TOKEN",
+					code: "design.unknown-class-token",
+					check: "UNKNOWN_SPACING_TOKEN",
 					token: "card",
 				}),
 			]),
@@ -406,17 +416,17 @@ describe("MCP expanded class/token diagnostics", () => {
 			summary: {
 				errors: 0,
 				warnings: 2,
-				codes: { OUT_OF_SYSTEM_RADIUS: 1, UNKNOWN_FONT_TOKEN: 1 },
+				codes: { "design.unknown-class-token": 2 },
 			},
 			issues: [],
 			warnings: expect.arrayContaining([
 				{
-					code: "UNKNOWN_FONT_TOKEN",
+					code: "design.unknown-class-token",
 					message: expect.stringContaining('"font-missing"'),
 					elementIds: ["board"],
 				},
 				{
-					code: "OUT_OF_SYSTEM_RADIUS",
+					code: "design.unknown-class-token",
 					message: expect.stringContaining('"rounded-[2rem]"'),
 					elementIds: ["board"],
 				},
@@ -465,12 +475,12 @@ describe("MCP expanded class/token diagnostics", () => {
 		});
 		const warnings = (
 			toolPayload(validateResult) as {
-				warnings?: Array<{ code: string; classToken?: string }>;
+				warnings?: Array<{ check?: string; classToken?: string }>;
 			}
 		).warnings;
 
 		expect(
-			warnings?.map((warning) => [warning.code, warning.classToken]).sort(),
+			warnings?.map((warning) => [warning.check, warning.classToken]).sort(),
 		).toEqual([
 			["UNKNOWN_COLOR_TOKEN", "bg-brand-600"],
 			["UNKNOWN_RADIUS_TOKEN", "rounded-missing"],
@@ -513,15 +523,16 @@ describe("MCP expanded class/token diagnostics", () => {
 			expect.arrayContaining([
 				expect.objectContaining({ code: "DESIGN_TOKENS_NOT_STORED" }),
 				expect.objectContaining({
-					code: "UNKNOWN_TAILWIND_UTILITY",
+					code: "design.unknown-class-token",
+					check: "UNKNOWN_TAILWIND_UTILITY",
 					classToken: "definitely-not-a-tailwind-utility",
 				}),
 			]),
 		);
 		expect(validation.issues).not.toEqual(
 			expect.arrayContaining([
-				expect.objectContaining({ code: "UNKNOWN_SPACING_TOKEN" }),
-				expect.objectContaining({ code: "UNKNOWN_COLOR_TOKEN" }),
+				expect.objectContaining({ check: "UNKNOWN_SPACING_TOKEN" }),
+				expect.objectContaining({ check: "UNKNOWN_COLOR_TOKEN" }),
 			]),
 		);
 	});
@@ -575,16 +586,19 @@ describe("MCP expanded class/token diagnostics", () => {
 			issues.find((issue) => issue.classToken === classToken);
 
 		expect(byToken("flex-colum")).toMatchObject({
-			code: "UNKNOWN_TAILWIND_UTILITY",
+			code: "design.unknown-class-token",
+			check: "UNKNOWN_TAILWIND_UTILITY",
 			suggestions: expect.arrayContaining(["flex-col"]),
 		});
 		expect(byToken("md:itmes-center")).toMatchObject({
-			code: "UNKNOWN_TAILWIND_UTILITY",
+			code: "design.unknown-class-token",
+			check: "UNKNOWN_TAILWIND_UTILITY",
 			suggestions: ["md:items-center"],
 			message: expect.stringContaining('Did you mean "md:items-center"?'),
 		});
 		expect(byToken("bg-brand-600")).toMatchObject({
-			code: "UNKNOWN_COLOR_TOKEN",
+			code: "design.unknown-class-token",
+			check: "UNKNOWN_COLOR_TOKEN",
 			suggestions: expect.arrayContaining(["bg-brand-500"]),
 		});
 	});
@@ -634,7 +648,7 @@ describe("MCP expanded class/token diagnostics", () => {
 
 		expect(validation.issues).not.toEqual(
 			expect.arrayContaining([
-				expect.objectContaining({ code: "UNKNOWN_TAILWIND_UTILITY" }),
+				expect.objectContaining({ check: "UNKNOWN_TAILWIND_UTILITY" }),
 			]),
 		);
 	});
