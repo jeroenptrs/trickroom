@@ -215,7 +215,7 @@ output once merged.
 
 ### WP6: dogfood and release
 
-Status: in review. Model: Opus 5.5 for fixes, orchestrator for the release.
+Status: merged; release pull request pending. Model: Opus 5.5 for fixes, orchestrator for the release.
 
 - Run on this repository's project until the report is clean or every
   remaining finding is a real one. Fix false positives in the rules.
