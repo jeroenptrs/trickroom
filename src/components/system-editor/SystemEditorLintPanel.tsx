@@ -280,6 +280,7 @@ export function SystemEditorLintPanel({
 				report={report}
 				config={configQuery.data?.config ?? null}
 				selection={selection}
+				scrollElementRef={scrollElementRef}
 			/>
 		);
 	} else if (view === "files") {
