@@ -45,8 +45,8 @@ import {
 	type LintDesignStats,
 	type LintFileStats,
 	type LintFinding,
-	type LintRatchetBaseline,
 	type LintReport,
+	type LintReportRead,
 	LintReportWriteError,
 	normalizeLintReport,
 	readLintReport,
@@ -105,6 +105,7 @@ export type LintRunDiagnosticCode =
 	| "INVALID_LINT_CONFIG"
 	| "CODEGEN_OTHER_SYSTEM"
 	| "INVALID_BASELINE"
+	| "BASELINE_MOVED"
 	| "SOURCE_PARSE_ERROR"
 	| "SOURCE_ROOT_MISSING"
 	| "SOURCES_TRUNCATED"
@@ -353,6 +354,36 @@ const buildDesignStats = (
 	}
 	return [...rows.values()];
 };
+
+/**
+ * What identifies the committed report a run compared against: its
+ * `generatedAt`, or why there was none.
+ */
+const reportRevision = (read: LintReportRead) =>
+	read.status === "present"
+		? `present:${read.report.generatedAt}`
+		: read.status;
+
+const reportWriteQueues = new Map<string, Promise<unknown>>();
+
+/** One compare-and-write at a time per report path, in this process. */
+async function runExclusiveReportWrite<T>(
+	reportPath: string,
+	operation: () => Promise<T>,
+): Promise<T> {
+	const previousWrite = reportWriteQueues.get(reportPath);
+	const queuedWrite = previousWrite
+		? previousWrite.catch(() => undefined).then(operation)
+		: operation();
+	reportWriteQueues.set(reportPath, queuedWrite);
+	const release = () => {
+		if (reportWriteQueues.get(reportPath) === queuedWrite) {
+			reportWriteQueues.delete(reportPath);
+		}
+	};
+	queuedWrite.then(release, release);
+	return queuedWrite;
+}
 
 /**
  * Runs the lint; every failure, including one the engine did not foresee
@@ -719,66 +750,105 @@ async function runLintInner(
 		components,
 	};
 
-	const previous = await readLintReport(system.dir);
-	let previousBaseline: LintRatchetBaseline | null = null;
-	if (previous.status === "present") {
-		previousBaseline = previous.report.ratchetBaseline;
-	} else if (previous.status === "invalid") {
-		warn(
-			"INVALID_BASELINE",
-			`${result.reportPath} could not be used as the ratchet baseline (${previous.issue.message}); this run starts a new baseline.`,
-			result.reportPath,
-		);
-	}
-	result.baseline = previous.status;
-	const ratchet = compareLintRatchet({
-		numbers: collectTrackedNumbers(draft),
-		baseline: previousBaseline,
-		thresholds: config.thresholds,
-	});
-	result.ratchet = ratchet;
-
-	const report: LintReport = normalizeLintReport({
-		version: LINT_REPORT_VERSION,
-		generatedAt,
-		system: { id: systemId, name: system.manifest.systemName },
-		contract: { hash: contract.hash, components: contract.components.length },
-		config: { present: config.present },
-		status: ratchet.status,
-		summary: draft.summary,
-		findings,
-		components,
-		files: buildFileStats(sources, findings),
-		designs: buildDesignStats(designs, findings),
-		ratchet,
-		ratchetBaseline: nextRatchetBaseline({
-			result: ratchet,
-			generatedAt,
-			previous: previousBaseline,
-		}),
-	});
-	result.report = report;
-	result.status = ratchet.status;
-
-	const shouldWrite =
-		writeMode === "always" ||
-		(writeMode === "on-pass" && ratchet.status === "pass");
-	if (shouldWrite) {
-		try {
-			await writeLintReport(projectRoot, system.dir, report);
-			result.written = true;
-		} catch (error) {
-			if (error instanceof LintReportWriteError) {
-				fail("WRITE_FAILED", error.message, result.reportPath);
-			} else {
-				fail(
-					"WRITE_FAILED",
-					`Could not write ${result.reportPath}: ${error instanceof Error ? error.message : String(error)}`,
-					result.reportPath,
-				);
-			}
-			result.status = "error";
+	const numbers = collectTrackedNumbers(draft);
+	const files = buildFileStats(sources, findings);
+	const designStats = buildDesignStats(designs, findings);
+	const reportPath = result.reportPath;
+	const ratchetAgainst = (previous: LintReportRead) => {
+		if (previous.status === "invalid") {
+			warn(
+				"INVALID_BASELINE",
+				`${reportPath} could not be used as the ratchet baseline (${previous.issue.message}); this run starts a new baseline.`,
+				reportPath,
+			);
 		}
+		const previousBaseline =
+			previous.status === "present" ? previous.report.ratchetBaseline : null;
+		const ratchet = compareLintRatchet({
+			numbers,
+			baseline: previousBaseline,
+			thresholds: config.thresholds,
+		});
+		result.baseline = previous.status;
+		result.ratchet = ratchet;
+		result.status = ratchet.status;
+		result.report = normalizeLintReport({
+			version: LINT_REPORT_VERSION,
+			generatedAt,
+			system: { id: systemId, name: system.manifest.systemName },
+			contract: { hash: contract.hash, components: contract.components.length },
+			config: { present: config.present },
+			status: ratchet.status,
+			summary: draft.summary,
+			findings,
+			components,
+			files,
+			designs: designStats,
+			ratchet,
+			ratchetBaseline: nextRatchetBaseline({
+				result: ratchet,
+				generatedAt,
+				previous: previousBaseline,
+			}),
+		});
+		return ratchet;
+	};
+
+	if (writeMode === "never") {
+		ratchetAgainst(await readLintReport(system.dir));
+		return result;
 	}
+
+	// Compare and write as one step per report: runs in this process queue
+	// up, and a run in another process that replaced the report since this
+	// one read it is caught by reading it again just before the write.
+	await runExclusiveReportWrite(
+		path.resolve(system.dir, LINT_REPORT_FILE_NAME),
+		async () => {
+			const previous = await readLintReport(system.dir);
+			const ratchet = ratchetAgainst(previous);
+			if (writeMode === "on-pass" && ratchet.status !== "pass") return;
+			const current = await readLintReport(system.dir);
+			if (reportRevision(current) !== reportRevision(previous)) {
+				// The findings stand; only the comparison is redone.
+				const moved = ratchetAgainst(current);
+				if (moved.status !== "pass") {
+					const worse = [
+						...moved.regressions.map(
+							(entry) =>
+								`${entry.metric} ${entry.baseline} -> ${entry.current}`,
+						),
+						...moved.breaches.map(
+							(entry) =>
+								`${entry.metric} ${entry.current} (${entry.kind} ${entry.limit})`,
+						),
+					];
+					fail(
+						"BASELINE_MOVED",
+						`${reportPath} was replaced during this run (now from ${current.status === "present" ? current.report.generatedAt : "no usable report"}), and against it this run is worse: ${worse.join(", ")}. Nothing was written.`,
+						reportPath ?? undefined,
+					);
+					return;
+				}
+			}
+			const report = result.report;
+			if (!report) return;
+			try {
+				await writeLintReport(projectRoot, system.dir, report);
+				result.written = true;
+			} catch (error) {
+				if (error instanceof LintReportWriteError) {
+					fail("WRITE_FAILED", error.message, reportPath ?? undefined);
+				} else {
+					fail(
+						"WRITE_FAILED",
+						`Could not write ${reportPath}: ${error instanceof Error ? error.message : String(error)}`,
+						reportPath ?? undefined,
+					);
+				}
+				result.status = "error";
+			}
+		},
+	);
 	return result;
 }
