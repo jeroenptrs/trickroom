@@ -13,9 +13,12 @@ const lockModulePath = fileURLToPath(
 );
 
 // Holds the lock (for `holdMs`, or until killed with -1), or enters it
-// once and reports whether another process was inside at the same time.
+// once. Reports whether another process was inside at the same time and
+// whether its fencing check still found its own token before leaving
+// (`committed`), as a writer checks right before its rename. "serve"
+// stays alive for a while after releasing, like a server process.
 const worker = `
-import { existsSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import { writeFileSync, rmSync, readdirSync } from "node:fs";
 import path from "node:path";
 const [lockUrl, lockPath, dir, label, mode, holdMs, staleAfterMs, acquireTimeoutMs] = process.argv.slice(2);
 const { withFileLock } = await import(lockUrl);
@@ -26,71 +29,88 @@ const options = {
 	retryDelayMs: 10,
 };
 try {
-	const overlap = await withFileLock(lockPath, async () => {
+	const inside = await withFileLock(lockPath, async (lock) => {
 		writeFileSync(path.join(dir, "inside-" + label), "");
-		if (mode === "hold") {
-			writeFileSync(path.join(dir, "held-" + label), "");
+		writeFileSync(path.join(dir, "held-" + label), "");
+		if (mode === "hold" && Number(holdMs) < 0) {
 			// Until killed: a timer keeps the event loop alive.
-			if (Number(holdMs) < 0) setInterval(() => {}, 1000);
-			await (Number(holdMs) < 0 ? new Promise(() => {}) : sleep(Number(holdMs)));
-		} else {
-			await sleep(300);
+			setInterval(() => {}, 1000);
+			await new Promise(() => {});
 		}
+		await sleep(mode === "enter" ? 300 : Number(holdMs));
 		const others = readdirSync(dir).filter(
 			(name) => name.startsWith("inside-") && name !== "inside-" + label,
 		);
 		rmSync(path.join(dir, "inside-" + label));
-		return others.length > 0;
+		const committed = await lock.assertHeld().then(() => true, () => false);
+		return { overlap: others.length > 0, committed };
 	}, options);
-	console.log(JSON.stringify({ label, outcome: "acquired", overlap }));
+	writeFileSync(path.join(dir, "released-" + label), "");
+	if (mode === "serve") await sleep(4000);
+	console.log(JSON.stringify({ label, outcome: "acquired", ...inside }));
 } catch (error) {
 	console.log(JSON.stringify({ label, outcome: error.name }));
 }
 `;
 
-// Interleaves two reclaimers of one abandoned lock: each waits at its first
-// reclaim of the lockfile (a rename or unlink of it) until both are there,
-// and "second" then waits until "first" has created its replacement lock.
+// Choreographs the processes at the lockfile; every wait is bounded, so
+// code that never reaches a step only loses time.
+// - "race": two reclaimers of one dead lock both pass their re-read, then
+//   "first" replaces the lock and "second" replaces it after.
+// - "released": "reclaimer" reads the dead lock, then pauses until
+//   "server" has reclaimed it; a move-aside reclaimer would put the
+//   server's lock back only after the server released it.
 const interleave = `
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
 
-const { LOCK_PATH: lockPath, BARRIER_DIR: barrier, LABEL: label } = process.env;
+const { LOCK_PATH: lockPath, BARRIER_DIR: barrier, LABEL: label, SCENARIO: scenario } = process.env;
 const promises = fs.promises;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const mark = (name) => promises.writeFile(path.join(barrier, name), "");
 const until = async (ready, timeoutMs) => {
 	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline && !(await ready())) {
-		await new Promise((resolve) => setTimeout(resolve, 10));
-	}
+	while (Date.now() < deadline && !(await ready())) await sleep(10);
 };
-let reclaimed = false;
-const atReclaim = async (target) => {
-	if (String(target) !== lockPath || reclaimed) return;
-	reclaimed = true;
-	await promises.writeFile(path.join(barrier, "reclaim-" + label), "");
-	await until(async () => (await promises.readdir(barrier)).filter((name) => name.startsWith("reclaim-")).length >= 2, 3000);
-	if (label === "second") {
-		await until(() => fs.existsSync(path.join(barrier, "created-first")), 3000);
-	}
-};
+const exists = (name) => () => fs.existsSync(path.join(barrier, name));
+const once = new Set();
+const first = (key) => !once.has(key) && once.add(key);
+
 const rename = promises.rename;
 promises.rename = async (from, to) => {
-	await atReclaim(from);
+	if (scenario === "race" && String(to) === lockPath && first("replace")) {
+		await mark("replace-" + label);
+		await until(async () => (await promises.readdir(barrier)).filter((name) => name.startsWith("replace-")).length >= 2, 3000);
+		if (label === "second") await until(exists("replaced-first"), 3000);
+		const result = await rename(from, to);
+		if (label === "first") await mark("replaced-first");
+		return result;
+	}
 	return rename(from, to);
 };
-const unlink = promises.unlink;
-promises.unlink = async (target) => {
-	await atReclaim(target);
-	return unlink(target);
+const readFile = promises.readFile;
+promises.readFile = async (...args) => {
+	const result = await readFile(...args);
+	if (scenario === "released" && label === "reclaimer" && String(args[0]) === lockPath && first("read")) {
+		await mark("read-reclaimer");
+		await until(exists("held-server"), 4000);
+	}
+	return result;
 };
 const open = promises.open;
 promises.open = async (target, flags, ...rest) => {
-	const handle = await open(target, flags, ...rest);
-	if (String(target) === lockPath && flags === "wx" && label === "first") {
-		await promises.writeFile(path.join(barrier, "created-first"), "");
+	if (scenario === "released" && label === "server" && String(target) === lockPath && first("open")) {
+		await until(exists("read-reclaimer"), 4000);
 	}
-	return handle;
+	return open(target, flags, ...rest);
+};
+const link = promises.link;
+promises.link = async (from, to) => {
+	if (scenario === "released" && label === "reclaimer") {
+		await until(exists("released-server"), 3000);
+	}
+	return link(from, to);
 };
 syncBuiltinESMExports();
 `;
@@ -99,6 +119,7 @@ type WorkerResult = {
 	label: string;
 	outcome: string;
 	overlap?: boolean;
+	committed?: boolean;
 };
 
 describe("file lock across processes", () => {
@@ -114,10 +135,10 @@ describe("file lock across processes", () => {
 	beforeEach(async () => {
 		temp = await mkdtemp(path.join(os.tmpdir(), "trickroom-file-lock-"));
 		lockPath = path.join(temp, "lint-report.json.lock");
-		dir = path.join(temp, "inside");
-		barrier = path.join(temp, "barrier");
+		// One folder for the workers' markers and the choreography's.
+		dir = path.join(temp, "markers");
+		barrier = dir;
 		await mkdir(dir);
-		await mkdir(barrier);
 		hookPath = path.join(temp, "hook.mjs");
 		interleavePath = path.join(temp, "interleave.mjs");
 		workerPath = path.join(temp, "worker.mjs");
@@ -133,12 +154,12 @@ describe("file lock across processes", () => {
 
 	const start = (
 		label: string,
-		mode: "hold" | "enter",
+		mode: "hold" | "enter" | "serve",
 		{
 			holdMs = -1,
 			staleAfterMs = 30_000,
 			acquireTimeoutMs = 5_000,
-			interleaved = false,
+			scenario = "",
 		} = {},
 	) => {
 		const child = spawn(
@@ -147,9 +168,7 @@ describe("file lock across processes", () => {
 				"--no-warnings",
 				"--import",
 				pathToFileURL(hookPath).href,
-				...(interleaved
-					? ["--import", pathToFileURL(interleavePath).href]
-					: []),
+				...(scenario ? ["--import", pathToFileURL(interleavePath).href] : []),
 				workerPath,
 				pathToFileURL(lockModulePath).href,
 				lockPath,
@@ -167,6 +186,7 @@ describe("file lock across processes", () => {
 					LOCK_PATH: lockPath,
 					BARRIER_DIR: barrier,
 					LABEL: label,
+					SCENARIO: scenario,
 				},
 			},
 		);
@@ -210,32 +230,59 @@ describe("file lock across processes", () => {
 		}
 	};
 
-	it("lets one of two processes reclaim a dead holder's lock, never both at once", async () => {
+	const deadLock = async () => {
 		const holder = start("holder", "hold");
 		await waitFor(path.join(dir, "held-holder"));
 		holder.child.kill("SIGKILL");
 		await expect(holder.result).resolves.toMatchObject({ outcome: "SIGKILL" });
 		await rm(path.join(dir, "inside-holder"), { force: true });
+		await rm(path.join(dir, "held-holder"), { force: true });
 		expect(await exists(lockPath)).toBe(true);
+	};
 
+	const lockFilesLeft = async () =>
+		(await readdir(temp)).filter((name) => name.includes(".lock"));
+
+	it("lets only the last of two reclaimers of a dead holder's lock commit", async () => {
+		await deadLock();
+		// Both judged the dead lock and re-read it unchanged; both replace it,
+		// "second" last.
 		const [first, second] = await Promise.all([
-			start("first", "enter", { interleaved: true }).result,
-			start("second", "enter", { interleaved: true }).result,
+			start("first", "enter", { scenario: "race" }).result,
+			start("second", "enter", { scenario: "race" }).result,
 		]);
-		expect(first).toEqual({
-			label: "first",
+		expect(second).toMatchObject({ outcome: "acquired", committed: true });
+		// "first" was replaced: its fencing check fails, so it writes nothing.
+		expect(first).toMatchObject({ outcome: "acquired", committed: false });
+		// Its release did not remove the lock it no longer owned; the owner's
+		// did. Nothing is left behind.
+		expect(await lockFilesLeft()).toEqual([]);
+	}, 60_000);
+
+	it("never puts back a lock its owner released, so the next run gets it at once", async () => {
+		await deadLock();
+		const reclaimer = start("reclaimer", "enter", { scenario: "released" });
+		const server = start("server", "serve", {
+			holdMs: 1_000,
+			scenario: "released",
+		});
+		// The server released its lock and stays alive.
+		await waitFor(path.join(dir, "released-server"));
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		const next = await start("next", "enter", { acquireTimeoutMs: 1_500 })
+			.result;
+		expect(next).toMatchObject({ outcome: "acquired", committed: true });
+		await expect(server.result).resolves.toMatchObject({
 			outcome: "acquired",
 			overlap: false,
+			committed: true,
 		});
-		expect(second).toEqual({
-			label: "second",
+		await expect(reclaimer.result).resolves.toMatchObject({
 			outcome: "acquired",
 			overlap: false,
+			committed: true,
 		});
-		// Both released; nothing set aside is left behind.
-		expect(await readdir(temp)).not.toContainEqual(
-			expect.stringContaining(".lock"),
-		);
+		expect(await lockFilesLeft()).toEqual([]);
 	}, 60_000);
 
 	it("never reclaims a live holder's lock, however long it holds it", async () => {
@@ -257,6 +304,7 @@ describe("file lock across processes", () => {
 			label: "holder",
 			outcome: "acquired",
 			overlap: false,
+			committed: true,
 		});
 	}, 60_000);
 });

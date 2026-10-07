@@ -1,13 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
 	type FileHandle,
-	link,
 	mkdir,
 	open,
 	readFile,
 	rename,
 	stat,
 	unlink,
+	writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -188,67 +188,72 @@ const readLock = async (lockPath: string) => {
 };
 
 /**
- * Takes the lock at `lockPath` out of the way if it still holds `expected`:
- * renames it to a unique sibling (`<lock>.<pid>.<random>`), which only one
- * process can do to one file, and removes it there. A rename that moved a
- * different lock (the stale one was reclaimed and replaced since `expected`
- * was read) puts it back with an exclusive link and reports false. Never
- * unlinks the lock path itself, so it cannot remove a lock it did not judge.
+ * Reclaims an abandoned lock (see `isStale`) by replacing it, never by
+ * emptying the slot: writes this acquisition's lock (`serialized`) to a
+ * temp sibling, reads the lock path again and, only if it still holds
+ * exactly the abandoned contents it judged, renames the temp file over it,
+ * an atomic replace. Anything else there (another reclaimer's lock, a new
+ * owner's) sends the caller back to waiting. Two reclaimers that both pass
+ * the re-read both replace; the later one holds the lock, and the earlier
+ * one's fencing check (`assertHeld`) fails. Only an owner's release (or
+ * its unfinished create) ever empties the slot.
  */
-const setAsideIfUnchanged = async (lockPath: string, expected: string) => {
-	const aside = `${lockPath}.${process.pid}.${randomUUID()}`;
-	try {
-		await rename(lockPath, aside);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			return false;
-		}
-		throw error;
-	}
-	const moved = await readFile(aside, "utf8").catch(() => null);
-	if (moved !== expected) {
-		// Another holder's lock: restore it, unless yet another lock took
-		// its place (then that holder lost it, which its fencing check sees).
-		await link(aside, lockPath).catch(() => undefined);
-	}
-	await unlink(aside).catch(() => undefined);
-	return moved === expected;
-};
-
-/**
- * Reclaims the lock when its holder is gone or it has outlived
- * `staleAfterMs`, through `setAsideIfUnchanged`. Returns whether the caller
- * should retry the exclusive create immediately; a reclaimer that lost the
- * race goes back to waiting.
- */
-const breakStaleLock = async (lockPath: string, staleAfterMs: number) => {
+const reclaimStaleLock = async (
+	lockPath: string,
+	serialized: string,
+	staleAfterMs: number,
+): Promise<{
+	acquired: boolean;
+	/** Retry the exclusive create at once: the slot is empty. */
+	retry: boolean;
+	holder: Partial<LockContents> | null;
+}> => {
 	let current: Awaited<ReturnType<typeof readLock>>;
 	try {
 		current = await readLock(lockPath);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			return { retry: true, holder: null };
+			return { acquired: false, retry: true, holder: null };
 		}
 		throw error;
 	}
 
 	const holder = parseLockContents(current.contents);
 	if (!isStale(holder, current.modifiedAtMs, staleAfterMs)) {
-		return { retry: false, holder };
+		return { acquired: false, retry: false, holder };
 	}
-	const reclaimed = await setAsideIfUnchanged(lockPath, current.contents);
-	return { retry: reclaimed, holder: reclaimed ? null : holder };
+	const temp = `${lockPath}.${process.pid}.${randomUUID()}.tmp`;
+	try {
+		await writeFile(temp, serialized, "utf8");
+		const again = await readFile(lockPath, "utf8").catch(() => null);
+		if (again === null) {
+			// Released by its owner meanwhile: compete for the exclusive create.
+			return { acquired: false, retry: true, holder: null };
+		}
+		if (again !== current.contents) {
+			return {
+				acquired: false,
+				retry: false,
+				holder: parseLockContents(again),
+			};
+		}
+		await rename(temp, lockPath);
+		return { acquired: true, retry: false, holder: null };
+	} finally {
+		// Gone after the replace; left over when the reclaim backed off.
+		await unlink(temp).catch(() => undefined);
+	}
 };
 
 /**
- * Removes a lock this process created but could not finish writing, through
- * the same rename as a reclaim: only when what is there is still (a prefix
- * of) the contents it was writing, so another holder's lock is left alone.
+ * Releases a lock this process created but could not finish writing, as
+ * its owner: only when what is there is still (a prefix of) the contents it
+ * was writing, so another holder's lock is left alone.
  */
 const discardUnfinishedLock = async (lockPath: string, serialized: string) => {
 	const current = await readFile(lockPath, "utf8").catch(() => null);
 	if (current !== null && serialized.startsWith(current)) {
-		await setAsideIfUnchanged(lockPath, current).catch(() => undefined);
+		await unlink(lockPath).catch(() => undefined);
 	}
 };
 
@@ -293,19 +298,23 @@ const acquireLock = async (
 				await handle.writeFile(serialized, "utf8");
 				await handle.close();
 			} catch (error) {
-				// The lock exists but does not say whose it is: take it out of
-				// the way rather than leave it blocking everyone until it ages.
+				// The lock exists but does not say whose it is: release it rather
+				// than leave it blocking everyone until it ages.
 				await handle.close().catch(() => undefined);
 				await discardUnfinishedLock(lockPath, serialized);
 				throw error;
 			}
-			return { serialized, token: contents.token };
+			return contents.token;
 		}
 
-		const { retry, holder } = await breakStaleLock(
+		const { acquired, retry, holder } = await reclaimStaleLock(
 			lockPath,
+			serialized,
 			options.staleAfterMs,
 		);
+		if (acquired) {
+			return contents.token;
+		}
 		if (retry) {
 			continue;
 		}
@@ -316,15 +325,16 @@ const acquireLock = async (
 	}
 };
 
-const releaseLock = async (lockPath: string, serialized: string) => {
+const releaseLock = async (lockPath: string, token: string) => {
 	try {
-		// Only remove the lock if it is still ours: a holder that overran
-		// `staleAfterMs` may have had its lock broken and replaced.
-		if ((await readFile(lockPath, "utf8")) === serialized) {
+		// Only remove the lock if it still holds this acquisition's token: a
+		// lock reclaimed and replaced by another process is not ours to remove.
+		const current = parseLockContents(await readFile(lockPath, "utf8"));
+		if (current?.token === token) {
 			await unlink(lockPath);
 		}
 	} catch {
-		// The operation already finished; a lock left behind ages out.
+		// The operation already finished; a lock left behind is reclaimed.
 	}
 };
 
@@ -351,7 +361,7 @@ export const withFileLock = <T>(
 	};
 
 	return runQueued(lockPath, async () => {
-		const { serialized, token } = await acquireLock(
+		const token = await acquireLock(
 			lockPath,
 			options.target ?? lockPath,
 			resolvedOptions,
@@ -367,7 +377,7 @@ export const withFileLock = <T>(
 		try {
 			return await operation(handle);
 		} finally {
-			await releaseLock(lockPath, serialized);
+			await releaseLock(lockPath, token);
 		}
 	});
 };

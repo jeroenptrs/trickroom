@@ -1,5 +1,13 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	realpath,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -95,6 +103,67 @@ console.log(JSON.stringify({
 }));
 `;
 
+// Three runs around a dead holder's lock (LOCK_PATH):
+// - B reads the dead lock, then pauses until A is about to rename the
+//   report into place (past its fencing check).
+// - A first waits for B's read, then reclaims the lock and runs; before
+//   renaming the report it waits (bounded) for C to have written.
+// - C waits (bounded) for the lock slot to be emptied by someone other
+//   than its owner, which a move-aside reclaimer did before restoring it.
+const threeWay = `
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import path from "node:path";
+
+const { LINT_BARRIER_DIR: barrier, LINT_LABEL: label, LOCK_PATH: lockPath, REPORT_PATH: reportPath } = process.env;
+const promises = fs.promises;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const mark = (name) => promises.writeFile(path.join(barrier, name), "");
+const until = async (name, timeoutMs) => {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline && !fs.existsSync(path.join(barrier, name))) await sleep(10);
+};
+const once = new Set();
+const first = (key) => !once.has(key) && once.add(key);
+
+const readFile = promises.readFile;
+promises.readFile = async (...args) => {
+	const result = await readFile(...args);
+	if (label === "B" && String(args[0]) === lockPath && first("read")) {
+		await mark("B-read-lock");
+		await until("A-before-report-rename", 6000);
+	}
+	return result;
+};
+const open = promises.open;
+promises.open = async (target, flags, ...rest) => {
+	if (String(target) === lockPath && flags === "wx") {
+		if (label === "A" && first("open")) await until("B-read-lock", 6000);
+		if (label === "C" && first("open")) await until("B-emptied", 4000);
+	}
+	return open(target, flags, ...rest);
+};
+const rename = promises.rename;
+promises.rename = async (from, to) => {
+	if (String(to) === reportPath && label === "A") {
+		await mark("A-before-report-rename");
+		await until("C-done", 3000);
+	}
+	const result = await rename(from, to);
+	if (String(to) === reportPath && label === "C") await mark("C-done");
+	return result;
+};
+const link = promises.link;
+promises.link = async (from, to) => {
+	if (label === "B") {
+		await mark("B-emptied");
+		await until("C-done", 3000);
+	}
+	return link(from, to);
+};
+syncBuiltinESMExports();
+`;
+
 type WorkerResult = {
 	label: string;
 	status: string;
@@ -128,7 +197,10 @@ describe("lint runs in separate processes", () => {
 		);
 	});
 
-	it("never let a later writer raise the baseline an earlier one lowered", async () => {
+	const DEAD_LOCK = "lint-report.json.lock";
+
+	/** A project with a committed baseline of 10, and lint runs as processes. */
+	const prepare = async (choreography: string) => {
 		const project = await createCodegenTestProject({
 			components: [publishedComponent("button", flatPayload("px-3"))],
 		});
@@ -141,16 +213,17 @@ describe("lint runs in separate processes", () => {
 			now: () => new Date("2026-10-07T10:00:00.000Z"),
 		});
 		expect(baseline.written).toBe(true);
+		const systemDir = await realpath(project.path(".trickroom/systems/core"));
 
 		const temp = await mkdtemp(path.join(os.tmpdir(), "trickroom-lint-race-"));
 		temps.push(temp);
 		const barrier = path.join(temp, "barrier");
 		await mkdir(barrier);
 		const hookPath = path.join(temp, "hook.mjs");
-		const interleavePath = path.join(temp, "interleave.mjs");
+		const choreographyPath = path.join(temp, "choreography.mjs");
 		const workerPath = path.join(temp, "worker.mjs");
 		await writeFile(hookPath, typeStrippingResolveHook, "utf8");
-		await writeFile(interleavePath, interleave, "utf8");
+		await writeFile(choreographyPath, choreography, "utf8");
 		await writeFile(workerPath, worker, "utf8");
 
 		const run = (label: string, count: number, minute: string) => {
@@ -161,7 +234,7 @@ describe("lint runs in separate processes", () => {
 					"--import",
 					pathToFileURL(hookPath).href,
 					"--import",
-					pathToFileURL(interleavePath).href,
+					pathToFileURL(choreographyPath).href,
 					workerPath,
 					pathToFileURL(runLintPath).href,
 					pathToFileURL(registryPath).href,
@@ -176,6 +249,8 @@ describe("lint runs in separate processes", () => {
 						...process.env,
 						LINT_BARRIER_DIR: barrier,
 						LINT_LABEL: label,
+						LOCK_PATH: path.join(systemDir, DEAD_LOCK),
+						REPORT_PATH: path.join(systemDir, "lint-report.json"),
 					},
 				},
 			);
@@ -199,6 +274,19 @@ describe("lint runs in separate processes", () => {
 			});
 		};
 
+		const committedWarnings = async () =>
+			parseLintReport(
+				JSON.parse(
+					await readFile(path.join(systemDir, "lint-report.json"), "utf8"),
+				),
+			).report?.ratchetBaseline.numbers["code.warnings"];
+		const lockFilesLeft = async () =>
+			(await readdir(systemDir)).filter((name) => name.includes(".lock"));
+		return { project, systemDir, run, committedWarnings, lockFilesLeft };
+	};
+
+	it("never let a later writer raise the baseline an earlier one lowered", async () => {
+		const { run, committedWarnings } = await prepare(interleave);
 		const [five, eight] = await Promise.all([
 			run("five", 5, "01"),
 			run("eight", 8, "02"),
@@ -217,14 +305,40 @@ describe("lint runs in separate processes", () => {
 				compared: 5,
 			});
 		}
-		const committed = parseLintReport(
-			JSON.parse(
-				await readFile(
-					project.path(".trickroom/systems/core/lint-report.json"),
-					"utf8",
-				),
-			),
-		).report;
-		expect(committed?.ratchetBaseline.numbers["code.warnings"]).toBe(5);
+		expect(await committedWarnings()).toBe(5);
+	}, 60_000);
+
+	it("keeps the tighter baseline when a stale reclaimer meets a live owner and a fresh acquirer", async () => {
+		const { systemDir, run, committedWarnings, lockFilesLeft } =
+			await prepare(threeWay);
+		// A run that died holding the lock.
+		const dead = spawn(process.execPath, ["-e", ""]);
+		await new Promise((resolve) => dead.on("exit", resolve));
+		await writeFile(
+			path.join(systemDir, DEAD_LOCK),
+			JSON.stringify({
+				pid: dead.pid,
+				hostname: os.hostname(),
+				token: "dead",
+				acquiredAt: Date.now(),
+			}),
+		);
+
+		// A (8) reclaims the dead lock after B (9) judged it, and pauses past
+		// its fencing check; B goes on; C (5) tries to get in meanwhile.
+		const results = await Promise.all([
+			run("A", 8, "01"),
+			run("B", 9, "02"),
+			run("C", 5, "03"),
+		]);
+		expect(await committedWarnings()).toBe(5);
+		const [a, , c] = results;
+		expect(a).toMatchObject({ status: "pass", written: true });
+		expect(c).toMatchObject({ status: "pass", written: true, compared: 8 });
+		// Whoever did not write says why: the baseline moved, or the lock.
+		for (const result of results.filter((entry) => !entry.written)) {
+			expect(["BASELINE_MOVED", "REPORT_LOCKED"]).toContain(result.codes[0]);
+		}
+		expect(await lockFilesLeft()).toEqual([]);
 	}, 60_000);
 });
