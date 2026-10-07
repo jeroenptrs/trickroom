@@ -1,4 +1,5 @@
 import { twMerge } from "tailwind-merge";
+import type { CodegenConditionValue } from "../../../codegen/model";
 import { parseClassName } from "../../../utils/tailwind-classname";
 import type { SystemContractComponent } from "../../contract";
 import type { SourceJsxElement } from "../../source/parse";
@@ -18,7 +19,8 @@ import {
  * A class on a usage's `className` that changes nothing: the component
  * already applies it through the base classes of its root slot (where a
  * wrapper puts `className`) or the root classes of the variant values the
- * element selects. Redundancy follows `twMerge`, what tv() merges with: a
+ * element selects, and of the compound variants those values match.
+ * Redundancy follows `twMerge`, what tv() merges with: a
  * class is redundant when appending it to the provided classes (base,
  * then the selected values in codegen's layering order) leaves the merged
  * classes unchanged, and removing it from the usage's className leaves
@@ -30,7 +32,11 @@ import {
  * Unknowns never count as absent: a class must be redundant under every
  * value a dynamic axis may take (`providedCombinations`), class literals
  * next to non-literal parts (`mixed`) are skipped, and so is a className a
- * later spread may replace. Compound variants are not considered.
+ * later spread may replace. A compound variant is matched the way tv()
+ * matches it, by strict equality on the selected values; when that cannot
+ * be decided (an axis that may hold `null` or `false` against a `false`
+ * condition, or a condition on a prop that is not an axis), the element
+ * is skipped.
  */
 
 const ROOT_SLOT = "root";
@@ -46,7 +52,68 @@ type ProvidedClass = { className: string; source: string };
  */
 export const MAX_REDUNDANT_CLASS_COMBINATIONS = 64;
 
-type AxisOption = { key: string | null; source: string };
+/**
+ * The value tv() sees for an axis: known (`undefined` when absent without
+ * a default), or `other` for a dynamic value that is none of the axis's
+ * values.
+ */
+type AxisRuntimeValue =
+	| { kind: "known"; value: string | number | boolean | undefined }
+	| { kind: "other" };
+
+type AxisOption = {
+	key: string | null;
+	value: AxisRuntimeValue;
+	source: string;
+};
+
+const isBlank = (value: unknown) =>
+	value === null || value === undefined || value === false;
+
+/**
+ * Whether tv() applies a compound for these axis values: every condition
+ * holds, with tv's rules (an array lists accepted values; `false` and
+ * absent match each other). Null when it cannot be decided.
+ */
+const compoundMatches = (
+	when: SystemContractComponent["compounds"][number]["when"],
+	values: ReadonlyMap<string, AxisRuntimeValue>,
+): boolean | null => {
+	let undecided = false;
+	for (const [axisKey, condition] of when) {
+		const value = values.get(axisKey);
+		if (!value) {
+			undecided = true;
+			continue;
+		}
+		const accepted: readonly CodegenConditionValue[] = Array.isArray(condition)
+			? condition
+			: [condition];
+		if (value.kind === "other") {
+			// Some value that is no axis value: it may still be `false`.
+			if (accepted.some(isBlank)) undecided = true;
+			else return false;
+			continue;
+		}
+		const holds = Array.isArray(condition)
+			? accepted.includes(value.value as CodegenConditionValue)
+			: (isBlank(condition) && isBlank(value.value)) ||
+				value.value === condition;
+		if (!holds) return false;
+	}
+	return undecided ? null : true;
+};
+
+const describeCondition = (
+	when: SystemContractComponent["compounds"][number]["when"],
+) =>
+	when
+		.map(([axisKey, condition]) =>
+			Array.isArray(condition)
+				? `${axisKey} in [${condition.map((entry) => JSON.stringify(entry)).join(", ")}]`
+				: `${axisKey}=${JSON.stringify(condition)}`,
+		)
+		.join(", ");
 
 /**
  * What the component may apply on the root for one element, in layering
@@ -55,8 +122,10 @@ type AxisOption = { key: string | null; source: string };
  * default, or nothing without one. An axis is dynamic when its attribute
  * is not a literal, a later spread may override it, or it is absent and a
  * spread may supply it: it may take any of its values or none (an
- * unknown value selects nothing). Null when there are more than
- * `MAX_REDUNDANT_CLASS_COMBINATIONS` combinations.
+ * unknown value selects nothing). Then the root classes of each compound
+ * variant those values match, in order. Null when there are more than
+ * `MAX_REDUNDANT_CLASS_COMBINATIONS` combinations, or when whether a
+ * compound with root classes applies cannot be decided.
  */
 const providedCombinations = (
 	component: SystemContractComponent,
@@ -76,49 +145,95 @@ const providedCombinations = (
 		const value = jsxAttributeValue(element, axis.key);
 		const key = value ? literalVariantKey(value) : null;
 		let axisOptions: AxisOption[];
-		if (value && key !== null) {
-			axisOptions = [{ key, source: `${axis.key}="${key}"` }];
+		if (value && key !== null && value.kind !== "unknown") {
+			axisOptions = [
+				{
+					key,
+					value: { kind: "known", value: value.value ?? undefined },
+					source: `${axis.key}="${key}"`,
+				},
+			];
 		} else if (!value && !element.spread) {
 			axisOptions = [
 				axis.default === null
-					? { key: null, source: "" }
+					? {
+							key: null,
+							value: { kind: "known", value: undefined },
+							source: "",
+						}
 					: {
 							key: String(axis.default),
+							value: { kind: "known", value: axis.default },
 							source: `the default ${axis.key}="${String(axis.default)}"`,
 						},
 			];
 		} else {
-			// Dynamic: any value of the axis, or none.
+			// Dynamic: any value of the axis (typed as the variants function
+			// takes it: booleans for a boolean axis), or none.
 			axisOptions = [
 				...axis.values.map((entry) => ({
 					key: entry.key,
+					value: {
+						kind: "known" as const,
+						value: axis.boolean ? entry.key === "true" : entry.key,
+					},
 					source: `${axis.key}="${entry.key}"`,
 				})),
-				{ key: null, source: "" },
+				{ key: null, value: { kind: "other" }, source: "" },
 			];
 		}
 		count *= axisOptions.length;
 		if (count > MAX_REDUNDANT_CLASS_COMBINATIONS) return null;
 		options.push({ axis, options: axisOptions });
 	}
-	let combinations: ProvidedClass[][] = [base];
+	const rootClasses = (
+		classes: SystemContractComponent["compounds"][number]["classes"],
+		source: string,
+	) =>
+		classes
+			.filter(([slot]) => slot === ROOT_SLOT)
+			.flatMap(([, className]) =>
+				classesOf(className).map((entry) => ({ className: entry, source })),
+			);
+	let combinations: Array<{
+		provided: ProvidedClass[];
+		values: Map<string, AxisRuntimeValue>;
+	}> = [{ provided: base, values: new Map() }];
 	for (const { axis, options: axisOptions } of options) {
-		combinations = combinations.flatMap((provided) =>
+		combinations = combinations.flatMap(({ provided, values }) =>
 			axisOptions.map((option) => {
 				const selected = axis.values.find((entry) => entry.key === option.key);
-				const added = (selected?.classes ?? [])
-					.filter(([slot]) => slot === ROOT_SLOT)
-					.flatMap(([, className]) =>
-						classesOf(className).map((entry) => ({
-							className: entry,
-							source: option.source,
-						})),
-					);
-				return [...provided, ...added];
+				return {
+					provided: [
+						...provided,
+						...rootClasses(selected?.classes ?? [], option.source),
+					],
+					values: new Map(values).set(axis.key, option.value),
+				};
 			}),
 		);
 	}
-	return combinations;
+	const compounds = component.compounds.filter(
+		(compound) => rootClasses(compound.classes, "").length > 0,
+	);
+	const provided: ProvidedClass[][] = [];
+	for (const combination of combinations) {
+		const added: ProvidedClass[] = [];
+		for (const compound of compounds) {
+			const matches = compoundMatches(compound.when, combination.values);
+			if (matches === null) return null;
+			if (matches) {
+				added.push(
+					...rootClasses(
+						compound.classes,
+						`the compound variant ${describeCondition(compound.when)}`,
+					),
+				);
+			}
+		}
+		provided.push([...combination.provided, ...added]);
+	}
+	return provided;
 };
 
 const mergedSet = (classes: readonly string[]) =>
