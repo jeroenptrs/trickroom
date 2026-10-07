@@ -241,7 +241,7 @@ Done in WP6:
 
 ### WP7: release review fixes
 
-Status: in review. Model: Opus 5.5. Depends on WP1 to WP6.
+Status: merged. Model: Opus 5.5. Depends on WP1 to WP6.
 
 The fixes from the release review of the whole trunk, one commit each with a
 regression test:
