@@ -72,7 +72,7 @@ type WatchedFile =
  * design (its manifest, board files and journal, or a legacy single file)
  * are design changes, batched per design; memory files and system files
  * (including `lint.json` and `lint-report.json`) are reported as files.
- * Temporary files and saved conflicts are ignored.
+ * Temporary files, lock files and saved conflicts are ignored.
  */
 export const classifyTrickroomFile = (
 	relativeFile: string,
@@ -80,7 +80,10 @@ export const classifyTrickroomFile = (
 	if (relativeFile.startsWith("systems/")) {
 		// Atomic writes (components.json, lint-report.json) go through a
 		// `.tmp` sibling that is renamed into place; only the target matters.
-		return relativeFile.endsWith(".tmp") ? null : { kind: "file" };
+		// A `.lock` sibling (lint-report.json.lock) only guards the write.
+		return relativeFile.endsWith(".tmp") || relativeFile.endsWith(".lock")
+			? null
+			: { kind: "file" };
 	}
 	if (!relativeFile.startsWith("designs/")) {
 		return null;

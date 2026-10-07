@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	type CodegenTestProject,
@@ -268,4 +269,62 @@ describe("runLint on a misbehaving filesystem", () => {
 		);
 		expect(await committedWarnings(project)).toBe(4);
 	});
+
+	const LOCK = `${REPORT}.lock`;
+	const exists = (file: string) =>
+		stat(file).then(
+			() => true,
+			() => false,
+		);
+
+	it("fails with REPORT_LOCKED while another run holds the report lock, and replaces a stale one", async () => {
+		const project = await setup();
+		await runLint({ projectRoot: project.root });
+		const committed = await readFile(project.path(REPORT), "utf8");
+		expect(await exists(project.path(LOCK))).toBe(false);
+
+		// A live holder (this process) that took the lock just now.
+		const held = JSON.stringify({
+			pid: process.pid,
+			hostname: os.hostname(),
+			token: "other-run",
+			acquiredAt: Date.now(),
+			designPath: project.path(REPORT),
+		});
+		await writeFile(project.path(LOCK), held);
+		const locked = await runLint({ projectRoot: project.root });
+		expect(locked).toMatchObject({ status: "error", written: false });
+		expect(locked.diagnostics).toEqual([
+			{
+				code: "REPORT_LOCKED",
+				severity: "error",
+				message: expect.stringContaining("locked by another lint run"),
+				path: REPORT,
+			},
+		]);
+		expect(await readFile(project.path(REPORT), "utf8")).toBe(committed);
+		expect(await readFile(project.path(LOCK), "utf8")).toBe(held);
+
+		// Older than 30 seconds: abandoned, replaced, and released after.
+		await writeFile(
+			project.path(LOCK),
+			JSON.stringify({
+				pid: process.pid,
+				hostname: os.hostname(),
+				token: "crashed-run",
+				acquiredAt: Date.now() - 31_000,
+				designPath: project.path(REPORT),
+			}),
+		);
+		const replaced = await runLint({
+			projectRoot: project.root,
+			now: () => new Date("2026-10-07T11:00:00.000Z"),
+		});
+		expect(replaced).toMatchObject({ status: "pass", written: true });
+		expect(replaced.diagnostics).toEqual([]);
+		expect(await exists(project.path(LOCK))).toBe(false);
+		expect(await readFile(project.path(REPORT), "utf8")).toContain(
+			"2026-10-07T11:00:00.000Z",
+		);
+	}, 20_000);
 });

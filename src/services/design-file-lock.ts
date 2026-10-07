@@ -11,9 +11,10 @@ import path from "node:path";
  *
  * In-process callers wait on a promise queue keyed by design. The queue head
  * then takes a lockfile created with `open(path, "wx")`, so only one process
- * can hold it. Lockfiles live outside the project (by default under the
- * Trickroom home) so they are never committed and never seen by the project
- * file watchers.
+ * can hold it. Design lockfiles live outside the project (by default under
+ * the Trickroom home) so they are never committed and never seen by the
+ * project file watchers. `withFileLock` takes the lockfile path itself, for
+ * a lock that belongs next to the file it guards (the lint report's).
  */
 
 export type DesignFileLockOptions = {
@@ -29,11 +30,20 @@ export type DesignFileLockOptions = {
 	retryDelayMs?: number;
 };
 
+export type FileLockOptions = Omit<DesignFileLockOptions, "lockDirectory"> & {
+	/**
+	 * Create the lockfile's folder when it is missing (the default). False
+	 * fails instead, for a lock inside a folder that must already exist.
+	 */
+	createDirectory?: boolean;
+};
+
 type LockContents = {
 	pid: number;
 	hostname: string;
 	token: string;
 	acquiredAt: number;
+	/** The file the lock guards. */
 	designPath: string;
 };
 
@@ -178,10 +188,14 @@ const breakStaleLock = async (lockPath: string, staleAfterMs: number) => {
 	return { retry: true, holder: null };
 };
 
+type ResolvedLockOptions = Required<Omit<FileLockOptions, "label">> & {
+	label: string;
+};
+
 const acquireLock = async (
 	lockPath: string,
 	designPath: string,
-	options: Required<DesignFileLockOptions>,
+	options: ResolvedLockOptions,
 ) => {
 	const deadline = Date.now() + options.acquireTimeoutMs;
 	const contents: LockContents = {
@@ -205,8 +219,8 @@ const acquireLock = async (
 			return serialized;
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
-			if (code === "ENOENT") {
-				await mkdir(options.lockDirectory, { recursive: true });
+			if (code === "ENOENT" && options.createDirectory) {
+				await mkdir(path.dirname(lockPath), { recursive: true });
 				continue;
 			}
 			if (code !== "EEXIST") {
@@ -241,6 +255,40 @@ const releaseLock = async (lockPath: string, serialized: string) => {
 };
 
 /**
+ * Runs `operation` while holding the in-process queue and the cross-process
+ * lockfile at `lockPath`, created with `open(lockPath, "wx")`. Every process
+ * has to derive the same `lockPath` for the same guarded file. The lock is
+ * released when `operation` settles, and broken by others once it is older
+ * than `staleAfterMs` or its holder on this host has exited.
+ */
+export const withFileLock = <T>(
+	lockPath: string,
+	operation: () => Promise<T>,
+	options: FileLockOptions & { target?: string } = {},
+): Promise<T> => {
+	const resolvedOptions: ResolvedLockOptions = {
+		label: options.label ?? "design file",
+		staleAfterMs: options.staleAfterMs ?? defaultStaleAfterMs,
+		acquireTimeoutMs: options.acquireTimeoutMs ?? defaultAcquireTimeoutMs,
+		retryDelayMs: options.retryDelayMs ?? defaultRetryDelayMs,
+		createDirectory: options.createDirectory ?? true,
+	};
+
+	return runQueued(lockPath, async () => {
+		const serialized = await acquireLock(
+			lockPath,
+			options.target ?? lockPath,
+			resolvedOptions,
+		);
+		try {
+			return await operation();
+		} finally {
+			await releaseLock(lockPath, serialized);
+		}
+	});
+};
+
+/**
  * Runs `operation` while holding the per-design in-process queue and the
  * cross-process lockfile. `designPath` must be canonical (for example with
  * the project root resolved through `realpath`) so every process derives the
@@ -249,26 +297,9 @@ const releaseLock = async (lockPath: string, serialized: string) => {
 export const withDesignFileLock = <T>(
 	designPath: string,
 	operation: () => Promise<T>,
-	options: DesignFileLockOptions,
-): Promise<T> => {
-	const resolvedOptions: Required<DesignFileLockOptions> = {
-		lockDirectory: options.lockDirectory,
-		label: options.label ?? "design file",
-		staleAfterMs: options.staleAfterMs ?? defaultStaleAfterMs,
-		acquireTimeoutMs: options.acquireTimeoutMs ?? defaultAcquireTimeoutMs,
-		retryDelayMs: options.retryDelayMs ?? defaultRetryDelayMs,
-	};
-	const lockPath = getDesignFileLockPath(
-		resolvedOptions.lockDirectory,
-		designPath,
-	);
-
-	return runQueued(lockPath, async () => {
-		const serialized = await acquireLock(lockPath, designPath, resolvedOptions);
-		try {
-			return await operation();
-		} finally {
-			await releaseLock(lockPath, serialized);
-		}
+	{ lockDirectory, ...options }: DesignFileLockOptions,
+): Promise<T> =>
+	withFileLock(getDesignFileLockPath(lockDirectory, designPath), operation, {
+		...options,
+		target: designPath,
 	});
-};

@@ -3,6 +3,7 @@ import path from "node:path";
 import { resolveCodegenConfig } from "../codegen/config";
 import { type CodegenRunResult, runCodegen } from "../codegen/run-codegen";
 import { readProjectConfigReadOnly } from "../project";
+import { DesignFileLockTimeoutError } from "../services/design-file-lock";
 import { createDesignFileService } from "../services/design-file-service";
 import { createClassTokenInspector } from "../utils/class-token-diagnostics";
 import { designReferencesSystemHandle } from "../utils/design-resource-references";
@@ -40,6 +41,7 @@ import {
 	countSeverity,
 	emptySeverityCounts,
 	LINT_REPORT_FILE_NAME,
+	LINT_REPORT_LOCK_FILE_NAME,
 	LINT_REPORT_VERSION,
 	type LintComponentCoverage,
 	type LintDesignStats,
@@ -51,6 +53,7 @@ import {
 	normalizeLintReport,
 	readLintReport,
 	summarizeFindings,
+	withLintReportLock,
 	writeLintReport,
 } from "./report";
 import { lintRuleRegistry } from "./rules/index";
@@ -106,6 +109,7 @@ export type LintRunDiagnosticCode =
 	| "CODEGEN_OTHER_SYSTEM"
 	| "INVALID_BASELINE"
 	| "BASELINE_MOVED"
+	| "REPORT_LOCKED"
 	| "SOURCE_PARSE_ERROR"
 	| "SOURCE_ROOT_MISSING"
 	| "SOURCES_TRUNCATED"
@@ -800,44 +804,55 @@ async function runLintInner(
 	}
 
 	// Compare and write as one step per report: runs in this process queue
-	// up, and a run in another process that replaced the report since this
-	// one read it is caught by reading it again just before the write.
+	// up, and across processes the report is read again under its lock file
+	// just before the write, so a run that replaced it since this one read
+	// it is caught.
 	await runExclusiveReportWrite(
 		path.resolve(system.dir, LINT_REPORT_FILE_NAME),
 		async () => {
 			const previous = await readLintReport(system.dir);
 			const ratchet = ratchetAgainst(previous);
 			if (writeMode === "on-pass" && ratchet.status !== "pass") return;
-			const current = await readLintReport(system.dir);
-			if (reportRevision(current) !== reportRevision(previous)) {
-				// The findings stand; only the comparison is redone.
-				const moved = ratchetAgainst(current);
-				if (moved.status !== "pass") {
-					const worse = [
-						...moved.regressions.map(
-							(entry) =>
-								`${entry.metric} ${entry.baseline} -> ${entry.current}`,
-						),
-						...moved.breaches.map(
-							(entry) =>
-								`${entry.metric} ${entry.current} (${entry.kind} ${entry.limit})`,
-						),
-					];
+			try {
+				// The lock is held from the re-read through the rename, so no
+				// other process replaces the report in between.
+				await withLintReportLock(projectRoot, system.dir, async () => {
+					const current = await readLintReport(system.dir);
+					if (reportRevision(current) !== reportRevision(previous)) {
+						// The findings stand; only the comparison is redone.
+						const moved = ratchetAgainst(current);
+						if (moved.status !== "pass") {
+							const worse = [
+								...moved.regressions.map(
+									(entry) =>
+										`${entry.metric} ${entry.baseline} -> ${entry.current}`,
+								),
+								...moved.breaches.map(
+									(entry) =>
+										`${entry.metric} ${entry.current} (${entry.kind} ${entry.limit})`,
+								),
+							];
+							fail(
+								"BASELINE_MOVED",
+								`${reportPath} was replaced during this run (now from ${current.status === "present" ? current.report.generatedAt : "no usable report"}), and against it this run is worse: ${worse.join(", ")}. Nothing was written.`,
+								reportPath ?? undefined,
+							);
+							return;
+						}
+					}
+					if (!result.report) return;
+					await writeLintReport(projectRoot, system.dir, result.report);
+					result.written = true;
+				});
+			} catch (error) {
+				result.status = "error";
+				if (error instanceof DesignFileLockTimeoutError) {
 					fail(
-						"BASELINE_MOVED",
-						`${reportPath} was replaced during this run (now from ${current.status === "present" ? current.report.generatedAt : "no usable report"}), and against it this run is worse: ${worse.join(", ")}. Nothing was written.`,
+						"REPORT_LOCKED",
+						`${reportPath} is locked by another lint run (${LINT_REPORT_LOCK_FILE_NAME}: ${error.message}); nothing was written. Run lint again, or delete the lock file if no run is active.`,
 						reportPath ?? undefined,
 					);
-					return;
-				}
-			}
-			const report = result.report;
-			if (!report) return;
-			try {
-				await writeLintReport(projectRoot, system.dir, report);
-				result.written = true;
-			} catch (error) {
-				if (error instanceof LintReportWriteError) {
+				} else if (error instanceof LintReportWriteError) {
 					fail("WRITE_FAILED", error.message, reportPath ?? undefined);
 				} else {
 					fail(
@@ -846,7 +861,6 @@ async function runLintInner(
 						reportPath ?? undefined,
 					);
 				}
-				result.status = "error";
 			}
 		},
 	);
