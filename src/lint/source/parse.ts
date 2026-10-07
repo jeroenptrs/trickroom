@@ -550,6 +550,7 @@ const visitClassExpression = (
  * A call to a class call: `tv`/`cva` configs are walked by their known
  * keys (base, slots, variants, compoundVariants, compoundSlots; conditions
  * and defaults are not classes), other class calls by their arguments.
+ * `cva(base, options)` takes its base classes from the first argument.
  * Null when the callee is not a class call.
  */
 const visitClassCall = (
@@ -573,11 +574,24 @@ const visitClassCall = (
 		}
 		return complete;
 	}
-	const config = args[0] ? unwrap(args[0]) : null;
+	let complete = true;
+	let configArgument: AstNode | undefined = args[0];
+	// `cva(base, options)`: the base is a class value (strings, nested
+	// arrays, clsx-style objects), the options a config like tv's. cva 1.x
+	// and tv take one config object.
+	if (
+		callee.root === "cva" &&
+		args[0] &&
+		unwrap(args[0]).type !== "ObjectExpression"
+	) {
+		if (!visitClassExpression(collector, args[0], "keys")) complete = false;
+		configArgument = args[1];
+		if (!configArgument) return complete;
+	}
+	const config = configArgument ? unwrap(configArgument) : null;
 	if (!config || config.type !== "ObjectExpression") {
 		return false;
 	}
-	let complete = true;
 	const leaf = (node: AstNode) => {
 		if (!visitClassExpression(collector, node, "values")) complete = false;
 	};
