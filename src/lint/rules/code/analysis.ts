@@ -475,7 +475,9 @@ export const objectArgument = (
  * The class strings of a usage's `className` attribute. Class strings carry
  * the element name, not the element, so the attribute's span is bounded by
  * the next attribute of the element and the next JSX element of the module
- * (elements are recorded in pre-order, so that is a child or a sibling).
+ * after the attribute starts (elements are recorded in pre-order, so that
+ * is a child or a sibling; one inside an earlier attribute, such as
+ * `title={<span />}`, starts before it).
  */
 export const usageClassStrings = (
 	module: SourceModule,
@@ -491,7 +493,7 @@ export const usageClassStrings = (
 	const nextAttribute = element.attributes[index + 1];
 	if (nextAttribute) bounds.push(nextAttribute.position);
 	const nextElement = module.jsx.find(
-		(candidate) => comparePositions(candidate.position, element.position) > 0,
+		(candidate) => comparePositions(candidate.position, start) > 0,
 	);
 	if (nextElement) bounds.push(nextElement.position);
 	return module.classStrings.filter(

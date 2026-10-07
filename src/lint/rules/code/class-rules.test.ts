@@ -235,6 +235,26 @@ describe("code.redundant-class", () => {
 		).toEqual(["src/app.tsx:2:61", "src/app.tsx:2:76"]);
 	});
 
+	it("reads a className that follows a JSX element in an earlier attribute", async () => {
+		const fixture = await fixtures.create({
+			components: [button()],
+			files: {
+				"src/ui/cn.ts": "export const cn = (...v: unknown[]) => v.join(' ');\n",
+				"src/ui/button.tsx": BUTTON_WRAPPER,
+				"src/app.tsx": [
+					'import { Button } from "./ui/button";',
+					'export const App = () => <Button variant="ghost" title={<span />} className="rounded-md" />;',
+					"",
+				].join("\n"),
+			},
+		});
+		expect(
+			describeFindings(await fixture.run(redundantClassRule)).map(
+				(line) => line.split(" <Button")[0],
+			),
+		).toEqual(["src/app.tsx:2:78"]);
+	});
+
 	it("judges conditional class strings in every scenario where they apply", async () => {
 		const fixture = await fixtures.create({
 			components: [button()],
