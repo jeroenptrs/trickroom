@@ -1,5 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, stat, unlink } from "node:fs/promises";
+import {
+	link,
+	mkdir,
+	open,
+	readFile,
+	rename,
+	stat,
+	unlink,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -152,8 +160,38 @@ const readLock = async (lockPath: string) => {
 };
 
 /**
- * Removes the lock when its holder is gone or it has outlived `staleAfterMs`.
- * Returns whether the caller should retry immediately.
+ * Takes the lock at `lockPath` out of the way if it still holds `expected`:
+ * renames it to a unique sibling (`<lock>.<pid>.<random>`), which only one
+ * process can do to one file, and removes it there. A rename that moved a
+ * different lock (the stale one was reclaimed and replaced since `expected`
+ * was read) puts it back with an exclusive link and reports false. Never
+ * unlinks the lock path itself, so it cannot remove a lock it did not judge.
+ */
+const setAsideIfUnchanged = async (lockPath: string, expected: string) => {
+	const aside = `${lockPath}.${process.pid}.${randomUUID()}`;
+	try {
+		await rename(lockPath, aside);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+			return false;
+		}
+		throw error;
+	}
+	const moved = await readFile(aside, "utf8").catch(() => null);
+	if (moved !== expected) {
+		// Another holder's lock: restore it, unless yet another lock took
+		// its place (then that holder lost it, which its fencing check sees).
+		await link(aside, lockPath).catch(() => undefined);
+	}
+	await unlink(aside).catch(() => undefined);
+	return moved === expected;
+};
+
+/**
+ * Reclaims the lock when its holder is gone or it has outlived
+ * `staleAfterMs`, through `setAsideIfUnchanged`. Returns whether the caller
+ * should retry the exclusive create immediately; a reclaimer that lost the
+ * race goes back to waiting.
  */
 const breakStaleLock = async (lockPath: string, staleAfterMs: number) => {
 	let current: Awaited<ReturnType<typeof readLock>>;
@@ -170,22 +208,8 @@ const breakStaleLock = async (lockPath: string, staleAfterMs: number) => {
 	if (!isStale(holder, current.modifiedAtMs, staleAfterMs)) {
 		return { retry: false, holder };
 	}
-
-	// Re-read right before removing so a lock that was just replaced by a
-	// live holder is left alone.
-	try {
-		const again = await readFile(lockPath, "utf8");
-		if (again !== current.contents) {
-			return { retry: true, holder: null };
-		}
-		await unlink(lockPath);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-			throw error;
-		}
-	}
-
-	return { retry: true, holder: null };
+	const reclaimed = await setAsideIfUnchanged(lockPath, current.contents);
+	return { retry: reclaimed, holder: reclaimed ? null : holder };
 };
 
 type ResolvedLockOptions = Required<Omit<FileLockOptions, "label">> & {

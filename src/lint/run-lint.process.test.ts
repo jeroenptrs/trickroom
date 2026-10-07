@@ -10,6 +10,7 @@ import {
 	flatPayload,
 	publishedComponent,
 } from "../codegen/test-support";
+import { typeStrippingResolveHook } from "../test-utils/child-process-hooks";
 import { parseLintReport } from "./report";
 import { createLintRuleRegistry } from "./rules/registry";
 import type { LintRuleKind } from "./rules/types";
@@ -17,34 +18,11 @@ import { runLint } from "./run-lint";
 
 // Two Node processes stand in for two `trickroom lint` runs (or a CLI run
 // and the server). They load the real engine through Node's TypeScript
-// type stripping; the hook only adds the extensions the source omits.
+// type stripping.
 const runLintPath = fileURLToPath(new URL("./run-lint.ts", import.meta.url));
 const registryPath = fileURLToPath(
 	new URL("./rules/registry.ts", import.meta.url),
 );
-
-const resolveHook = `
-import { existsSync } from "node:fs";
-import { registerHooks } from "node:module";
-import { fileURLToPath } from "node:url";
-
-registerHooks({
-	resolve(specifier, context, next) {
-		if (specifier.startsWith(".") && context.parentURL?.startsWith("file:")) {
-			const url = new URL(specifier, context.parentURL);
-			const filePath = fileURLToPath(url);
-			if (!existsSync(filePath) || !/\\.[cm]?[jt]s$/.test(filePath)) {
-				for (const extension of [".ts", "/index.ts"]) {
-					if (existsSync(filePath + extension)) {
-						return next(url.href + extension, context);
-					}
-				}
-			}
-		}
-		return next(specifier, context);
-	},
-});
-`;
 
 // Interleaves the two runs at the report: each waits after its first read
 // of lint-report.json until both have read it (so both compare against the
@@ -171,7 +149,7 @@ describe("lint runs in separate processes", () => {
 		const hookPath = path.join(temp, "hook.mjs");
 		const interleavePath = path.join(temp, "interleave.mjs");
 		const workerPath = path.join(temp, "worker.mjs");
-		await writeFile(hookPath, resolveHook, "utf8");
+		await writeFile(hookPath, typeStrippingResolveHook, "utf8");
 		await writeFile(interleavePath, interleave, "utf8");
 		await writeFile(workerPath, worker, "utf8");
 
