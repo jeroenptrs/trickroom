@@ -181,7 +181,7 @@ export type AvailableTokenCheck = (
 ) => boolean;
 
 /** `removed` holds `domain:token` keys of tokens the system removed. */
-export const createAvailableTokenCheck = (
+const createAvailableTokenCheck = (
 	inspector: ClassTokenInspector | null,
 	removed: ReadonlySet<string>,
 ): AvailableTokenCheck => {
@@ -193,14 +193,14 @@ export const createAvailableTokenCheck = (
 		inspector.inspect(candidate).supported;
 };
 
-export const noAvailableTokenCheck: AvailableTokenCheck = () => false;
+const noAvailableTokenCheck: AvailableTokenCheck = () => false;
 
 /**
  * The `domain:token` keys of Tailwind default tokens missing from resolved
  * token names (defaults minus removed, plus added), that is the tokens a
  * system removed, for `createAvailableTokenCheck`.
  */
-export const removedDefaultTokenKeys = (
+const removedDefaultTokenKeys = (
 	resolved: Readonly<Record<TailwindTokenDomain, Iterable<string>>>,
 ): Set<string> => {
 	const removed = new Set<string>();
@@ -218,7 +218,7 @@ export const removedDefaultTokenKeys = (
 	return removed;
 };
 
-export const createEmptyResolvedTokenContext = (): ResolvedTokenContext => {
+const createEmptyResolvedTokenContext = (): ResolvedTokenContext => {
 	const context = {} as Record<TailwindTokenDomain, ReadonlySet<string>>;
 	for (const domain of TAILWIND_TOKEN_DOMAINS) {
 		context[domain] = new Set<string>();
@@ -565,9 +565,7 @@ export const classTokenContextFromResolved = (
 
 const classNameCache = new WeakMap<TailwindDesignSystem, string[]>();
 
-export const getDesignSystemClassNames = (
-	designSystem: TailwindDesignSystem,
-) => {
+const getDesignSystemClassNames = (designSystem: TailwindDesignSystem) => {
 	let classNames = classNameCache.get(designSystem);
 	if (!classNames) {
 		classNames = designSystem.getClassList().map(([name]) => name);
@@ -580,7 +578,7 @@ export const getDesignSystemClassNames = (
  * Split `md:hover:!bg-red-500/50` into the variant prefix, important marker,
  * utility root, and opacity modifier so suggestions only rewrite the utility.
  */
-export const splitClassCandidate = (candidate: string) => {
+const splitClassCandidate = (candidate: string) => {
 	let depth = 0;
 	let variantEnd = -1;
 	for (let index = 0; index < candidate.length; index++) {

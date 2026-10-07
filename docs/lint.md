@@ -53,7 +53,7 @@ Everything lives in `src/lint/`. Pure modules take data and return data; one fil
 | --- | --- |
 | `contract.ts` | `SystemContract` and `buildSystemContract`: the system as serialisable data rules check against. |
 | `config.ts` | `lint.json`: shape, issues, normalisation, defaults, `resolveLintConfig`. |
-| `config-file.ts` | `lint.json` on disk: `readLintConfigFile` (with issues and a revision hash) and `writeLintConfigFile` for the dashboard. |
+| `config-file.ts` | `lint.json` on disk: `readLintConfigFile` (with issues and a revision hash) and `saveLintConfigFile` for the dashboard (the revision check, then an atomic write). |
 | `system-file.ts` | `writeSystemFileAtomic`: the temp-file-and-rename writer both lint files use, refusing anything but a direct child of `.trickroom/systems`. |
 | `current-contract.ts` | `readCurrentContractHash`: the contract hash a run would check against now, for the dashboard's stale flag. |
 | `rule-catalogue.ts` | The rule kinds as plain data for the browser, with `LINT_RULE_OPTION_SPECS`, the documented options per kind. |

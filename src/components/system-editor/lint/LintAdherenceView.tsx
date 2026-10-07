@@ -23,7 +23,7 @@ import {
 
 const SIDE_LABEL: Record<LintSide, string> = { code: "Code", design: "Design" };
 
-export function RatchetOutcome({ report }: { report: LintReport }) {
+function RatchetOutcome({ report }: { report: LintReport }) {
 	const { ratchet } = report;
 	const problems = ratchet.regressions.length + ratchet.breaches.length;
 	return (

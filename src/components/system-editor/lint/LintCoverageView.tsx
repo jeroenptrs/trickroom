@@ -35,7 +35,7 @@ const FILTER_OPTIONS: Array<{ value: LintCoverageFilter; label: string }> = [
 	})),
 ];
 
-export function CoverageStrip({
+function CoverageStrip({
 	component,
 }: {
 	component: LintReport["components"][number];

@@ -425,9 +425,6 @@ export function buildSourceIndex(input: BuildSourceIndexInput): SourceIndex {
 	};
 }
 
-export const createEmptySourceIndex = (contract: SystemContract): SourceIndex =>
-	buildSourceIndex({ modules: [], contract });
-
 /** JSX usages per file, for the heat map. */
 export const countUsagesByFile = (
 	index: SourceIndex,

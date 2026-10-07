@@ -795,7 +795,7 @@ const comparePositions = (left: SourcePosition, right: SourcePosition) =>
 	left.line - right.line || left.column - right.column;
 
 /** The innermost scope whose span contains `position`. */
-export const scopeAt = (
+const scopeAt = (
 	module: Pick<SourceModule, "scopes">,
 	position: SourcePosition,
 ): SourceScope | null => {

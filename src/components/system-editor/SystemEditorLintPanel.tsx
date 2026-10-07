@@ -12,7 +12,6 @@ import {
 import {
 	LINT_DASHBOARD_VIEWS,
 	type LintDashboardView,
-	selectLintItem,
 	setLintDashboardView,
 	useLintDashboardView,
 	useLintSelection,
@@ -411,6 +410,3 @@ export function SystemEditorLintPanel({
 		</div>
 	);
 }
-
-/** Clears the lint selection when the inspector closes. */
-export const closeLintInspector = () => selectLintItem(null);

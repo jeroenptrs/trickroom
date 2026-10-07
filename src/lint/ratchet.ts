@@ -27,8 +27,7 @@ const COVERAGE_KEYS = [
 	"usedInDesigns",
 ] as const;
 
-export const isHigherBetter = (metric: string) =>
-	metric.startsWith("coverage.");
+const isHigherBetter = (metric: string) => metric.startsWith("coverage.");
 
 export const collectTrackedNumbers = (
 	report: Pick<LintReport, "summary" | "components">,

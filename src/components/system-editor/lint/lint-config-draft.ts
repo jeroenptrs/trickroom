@@ -10,6 +10,7 @@ import {
 	type LintRuleOptionSpec,
 	optionValueHasSpecShape,
 } from "../../../lint/rule-options";
+import { stableStringify } from "../../../utils/system-component-template-hash";
 
 /**
  * Edits of a `lint.json` draft in the config editor. Each helper returns a
@@ -54,19 +55,6 @@ export const pruneLintConfig = (config: LintConfig): LintConfig => {
 		if (isEmptyRecord(thresholds)) delete next.thresholds;
 	}
 	return next;
-};
-
-const stableStringify = (value: unknown): string => {
-	if (Array.isArray(value)) {
-		return `[${value.map(stableStringify).join(",")}]`;
-	}
-	if (isRecord(value)) {
-		return `{${Object.keys(value)
-			.sort()
-			.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-			.join(",")}}`;
-	}
-	return JSON.stringify(value) ?? "null";
 };
 
 /** Same config once pruned, whatever the key order. */

@@ -26,8 +26,7 @@ export type LintSide = "code" | "design";
 // Ratchet
 
 /** Metrics where a higher number is better, as `src/lint/ratchet.ts` has it. */
-export const isHigherBetterMetric = (metric: string) =>
-	metric.startsWith("coverage.");
+const isHigherBetterMetric = (metric: string) => metric.startsWith("coverage.");
 
 export type LintMetricComparison = {
 	metric: string;
@@ -610,9 +609,6 @@ export const findingKey = (finding: LintFinding) => {
 		finding.message,
 	].join("\u0000");
 };
-
-export const findingFile = (finding: LintFinding) =>
-	finding.location?.kind === "code" ? finding.location.file : null;
 
 export const isUnderPath = (file: string, pathOrFolder: string) =>
 	file === pathOrFolder || file.startsWith(`${pathOrFolder}/`);

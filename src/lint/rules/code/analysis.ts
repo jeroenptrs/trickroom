@@ -110,7 +110,7 @@ export const codeLocation = (
  * (`import { x } from "./a"; export { x }`), so a wrapper that passes its
  * variants export on still leads back to the generated file.
  */
-export const resolveValueOrigin = (
+const resolveValueOrigin = (
 	modules: SourceIndex["modules"],
 	file: string,
 	name: string,
@@ -274,7 +274,7 @@ const analyse = (
  * code. A configured module that reaches no importer stays as it is, so
  * the rules still report it.
  */
-export const implementingModules = (
+const implementingModules = (
 	modules: SourceIndex["modules"],
 	identity: Pick<
 		SourceComponentIdentity,

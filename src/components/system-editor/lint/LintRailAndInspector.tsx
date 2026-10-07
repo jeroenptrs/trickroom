@@ -424,10 +424,7 @@ function ComponentInspector({
 			</ul>
 			<div className="flex flex-col">
 				<Field label="Usages in app" value={component.usages} />
-				<Field
-					label="Usages in designs"
-					value={component.designUsages ?? 0}
-				/>
+				<Field label="Usages in designs" value={component.designUsages ?? 0} />
 				<Field label="Wrappers" value={component.wrappers.length} />
 			</div>
 			{component.wrappers.length > 0 ? (
@@ -552,7 +549,7 @@ export function SystemEditorLintInspector({
 	);
 }
 
-export function LintSelectionDetails({
+function LintSelectionDetails({
 	report,
 	selection,
 	designNames,
