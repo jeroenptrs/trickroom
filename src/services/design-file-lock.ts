@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+	type FileHandle,
 	link,
 	mkdir,
 	open,
@@ -239,6 +240,18 @@ const breakStaleLock = async (lockPath: string, staleAfterMs: number) => {
 	return { retry: reclaimed, holder: reclaimed ? null : holder };
 };
 
+/**
+ * Removes a lock this process created but could not finish writing, through
+ * the same rename as a reclaim: only when what is there is still (a prefix
+ * of) the contents it was writing, so another holder's lock is left alone.
+ */
+const discardUnfinishedLock = async (lockPath: string, serialized: string) => {
+	const current = await readFile(lockPath, "utf8").catch(() => null);
+	if (current !== null && serialized.startsWith(current)) {
+		await setAsideIfUnchanged(lockPath, current).catch(() => undefined);
+	}
+};
+
 type ResolvedLockOptions = Required<Omit<FileLockOptions, "label">> & {
 	label: string;
 };
@@ -262,14 +275,9 @@ const acquireLock = async (
 		contents.token = randomUUID();
 		contents.acquiredAt = Date.now();
 		const serialized = JSON.stringify(contents);
+		let handle: FileHandle | null = null;
 		try {
-			const handle = await open(lockPath, "wx");
-			try {
-				await handle.writeFile(serialized, "utf8");
-			} finally {
-				await handle.close();
-			}
-			return { serialized, token: contents.token };
+			handle = await open(lockPath, "wx");
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
 			if (code === "ENOENT" && options.createDirectory) {
@@ -279,6 +287,19 @@ const acquireLock = async (
 			if (code !== "EEXIST") {
 				throw error;
 			}
+		}
+		if (handle) {
+			try {
+				await handle.writeFile(serialized, "utf8");
+				await handle.close();
+			} catch (error) {
+				// The lock exists but does not say whose it is: take it out of
+				// the way rather than leave it blocking everyone until it ages.
+				await handle.close().catch(() => undefined);
+				await discardUnfinishedLock(lockPath, serialized);
+				throw error;
+			}
+			return { serialized, token: contents.token };
 		}
 
 		const { retry, holder } = await breakStaleLock(
