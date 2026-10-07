@@ -106,11 +106,14 @@ export type LintRunDiagnosticCode =
 	| "CODEGEN_OTHER_SYSTEM"
 	| "INVALID_BASELINE"
 	| "SOURCE_PARSE_ERROR"
+	| "SOURCE_ROOT_MISSING"
 	| "SOURCES_TRUNCATED"
+	| "SOURCES_UNREADABLE"
 	| "RULE_FAILED"
 	| "WRITE_FAILED"
 	| "WRAPPER_MODULE_NOT_SCANNED"
 	| "DESIGN_UNREADABLE"
+	| "DESIGNS_UNREADABLE"
 	| "RUN_FAILED";
 
 export type LintRunDiagnostic = {
@@ -167,6 +170,8 @@ export const createTailwindInspectorLoader = (
  * `systemName`), read without the design lock so nothing is migrated or
  * written. A design that cannot be read is listed in `unreadable` and
  * skipped; designs linked to other systems or none are skipped silently.
+ * A designs folder that cannot be listed throws (a missing one has no
+ * designs).
  */
 export const readLinkedDesigns = async (
 	projectRoot: string,
@@ -552,8 +557,30 @@ async function runLintInner(
 		}
 	}
 
-	// Sources.
+	// Sources. A folder or file that cannot be read fails the run: fewer
+	// files means fewer findings, which the ratchet would take for an
+	// improvement and record as the baseline.
 	const walked = await walkSourceFiles(projectRoot, config.source);
+	// Only roots lint.json names: a project without sources (designs only)
+	// is not told about the default `src/**`.
+	const includeConfigured =
+		lintConfigRead.status === "present" &&
+		lintConfigRead.config.source?.include !== undefined;
+	for (const root of includeConfigured ? walked.missingRoots : []) {
+		warn(
+			"SOURCE_ROOT_MISSING",
+			`${root} does not exist, so source.include has nothing to scan there. Check the globs in ${LINT_CONFIG_FILE_NAME}.`,
+			root,
+		);
+	}
+	for (const entry of walked.unreadable) {
+		fail(
+			"SOURCES_UNREADABLE",
+			`Could not read the source folder ${entry.path}, so the scan would be incomplete: ${entry.message}`,
+			entry.path,
+		);
+	}
+	if (walked.unreadable.length > 0) return result;
 	if (walked.truncated) {
 		warn(
 			"SOURCES_TRUNCATED",
@@ -563,10 +590,16 @@ async function runLintInner(
 	const modules: SourceModule[] = [];
 	let parseErrorCount = 0;
 	for (const file of walked.files) {
-		const text = await readFile(
-			path.join(projectRoot, ...file.split("/")),
-			"utf8",
-		);
+		let text: string;
+		try {
+			text = await readFile(path.join(projectRoot, ...file.split("/")), "utf8");
+		} catch (error) {
+			return fail(
+				"SOURCES_UNREADABLE",
+				`Could not read the source file ${file}, so the scan would be incomplete: ${error instanceof Error ? error.message : String(error)}`,
+				file,
+			);
+		}
 		const module = parseSourceModule(file, text, {
 			classCalls: config.source.classCalls,
 		});
@@ -597,8 +630,25 @@ async function runLintInner(
 		}
 	}
 
-	// Designs.
-	const linked = await readLinkedDesigns(projectRoot, system);
+	// Designs. A single design that cannot be read is skipped with a
+	// warning; a designs folder that cannot be listed fails the run, for
+	// the same reason as an unreadable source folder.
+	let linked: Awaited<ReturnType<typeof readLinkedDesigns>>;
+	try {
+		linked = await readLinkedDesigns(projectRoot, system);
+	} catch (error) {
+		const designsPath = toPosix(
+			path.relative(
+				projectRoot,
+				createDesignFileService(projectRoot).designsDir,
+			),
+		);
+		return fail(
+			"DESIGNS_UNREADABLE",
+			`Could not list the designs in ${designsPath}, so the design side would be incomplete: ${error instanceof Error ? error.message : String(error)}`,
+			designsPath,
+		);
+	}
 	for (const entry of linked.unreadable) {
 		warn(
 			"DESIGN_UNREADABLE",

@@ -79,8 +79,8 @@ Entry points: `src/cli/lint.ts` (`trickroom lint`, bundled by `vite.lint.config.
 3. Reads `components.json` and `tokens.json` read-only (nothing is migrated), then `lint.json` (an invalid one is an error, naming every problem).
 4. Builds the `SystemContract`.
 5. Runs the codegen check (`runCodegen` in check mode) when the project has a `codegen` block for this system. This runs the configured formatter command, as `trickroom codegen --check` does.
-6. Walks the source globs, parses every file with `oxc-parser` and builds the project index (component identity, usages).
-7. Reads the Designs linked to the system and builds the design index (see [The design index](#the-design-index)). A design that cannot be read is a `DESIGN_UNREADABLE` warning and is skipped.
+6. Walks the source globs, parses every file with `oxc-parser` and builds the project index (component identity, usages). A source folder or file that cannot be read fails the run with `SOURCES_UNREADABLE` (see below).
+7. Reads the Designs linked to the system and builds the design index (see [The design index](#the-design-index)). A design that cannot be read is a `DESIGN_UNREADABLE` warning and is skipped; a designs folder that cannot be listed fails the run with `DESIGNS_UNREADABLE`.
 8. Runs every enabled rule kind of the registry and collects findings. Invalid `options` of a kind are `INVALID_LINT_CONFIG`, checked right after `lint.json` is read.
 9. Builds the report, reads the committed report, computes the ratchet.
 10. Writes the report according to the write mode (see [Ratchet](#ratchet)).
@@ -156,6 +156,8 @@ Rules:
 - `normalizeLintConfig` sorts the maps and trims strings; `serializeLintConfig` is the text the server and the dashboard write, so a save that changes nothing leaves the file byte for byte as it was. Defaults are applied in memory by `resolveLintConfig` and never written back.
 
 **Default source globs.** The walker starts at the source-like root that contains the codegen `outDir`: the path up to and including the first segment named `src`, `app`, `lib`, `source` or `packages`, else the top-most segment. `src/components/ui` scans `src/**`, `packages/ui/src/variants` scans `packages/**`, `design-system/variants` scans `design-system/**`. Without a `codegen` block the default is `src/**`. Extensions: `ts, tsx, js, jsx, mjs, cjs`; only files with these extensions are walked, whatever the globs say, so `src/**` takes the sources under `src` and not the CSS or Markdown next to them. `node_modules`, `dist`, `.trickroom` and every dot folder are never entered, and symlinks are skipped, whatever the globs say. The walk stops at 50,000 files with a `SOURCES_TRUNCATED` warning.
+
+**Unreadable sources.** A folder the walk cannot read (a permission problem, a folder removed mid-walk) or a source file that cannot be read fails the run: a `SOURCES_UNREADABLE` error naming the path, exit 2, nothing written. Fewer files means fewer findings, which the ratchet would take for an improvement and record as the new baseline. Only an include root that does not exist is harmless: when `lint.json` sets `source.include`, the static folder of each glob (`packages/app/src` for `packages/app/src/**`) that is not there is a `SOURCE_ROOT_MISSING` warning. The default globs are not reported, so a project without sources lints its designs quietly.
 
 ### `lint-report.json`
 
@@ -529,7 +531,7 @@ type LintDesignIndex = {
 };
 ```
 
-`run-lint.ts` reads every design under `.trickroom/designs` (both layouts) with `readDesignFileWithoutLock`: no lock, no journal replay, older designs migrated in memory only, so a lint run writes nothing there. A design is linked when its `systemId` is the system's id, or, for a legacy design without one, its `systemName` is the system's name, a previous name or its storage key. Designs linked to other systems or none are skipped; an unreadable design (invalid JSON, a newer version, a write in progress) is a `DESIGN_UNREADABLE` warning. Instances whose markers name another system are not usages. Coverage takes `usedInDesigns` and `designUsages` from `usages`; the `designs` rows count the usages and the findings located in each design and board.
+`run-lint.ts` reads every design under `.trickroom/designs` (both layouts) with `readDesignFileWithoutLock`: no lock, no journal replay, older designs migrated in memory only, so a lint run writes nothing there. A design is linked when its `systemId` is the system's id, or, for a legacy design without one, its `systemName` is the system's name, a previous name or its storage key. Designs linked to other systems or none are skipped; an unreadable design (invalid JSON, a newer version, a write in progress) is a `DESIGN_UNREADABLE` warning. A `.trickroom/designs` folder that cannot be listed (anything but absent) fails the run with a `DESIGNS_UNREADABLE` error, for the same reason as unreadable sources: a design side with no designs would pass as clean. Instances whose markers name another system are not usages. Coverage takes `usedInDesigns` and `designUsages` from `usages`; the `designs` rows count the usages and the findings located in each design and board.
 
 ## Design validation
 
@@ -584,7 +586,7 @@ trickroom lint [project] [--check] [--json] [--system <id|name>]
 | `--json` | Print the `LintRunResult` alone on stdout: `status`, `mode`, `system`, `report`, `ratchet`, `baseline` (`absent`, `invalid`, `present`), `reportPath`, `written`, `diagnostics`. |
 | `--system` | Select a system by id, name or storage key. |
 
-Exit codes: 0 pass, 1 ratchet failure, 2 error (no project, invalid config or `lint.json` including invalid rule options and a `lint.json` that cannot be read, unknown or ambiguous system, a crashed rule, a refused write, or anything the engine did not foresee, reported as `RUN_FAILED`). Warnings that do not stop a run: `COMPONENT_MANIFEST_DIAGNOSTIC`, `CODEGEN_OTHER_SYSTEM`, `INVALID_BASELINE`, `SOURCE_PARSE_ERROR`, `SOURCES_TRUNCATED`, `WRAPPER_MODULE_NOT_SCANNED`, `DESIGN_UNREADABLE`. An error never escapes `runLint` as an exception, so `--json` output stays valid. Human output lists each side's counts, then findings grouped by rule kind with their location, then every number that got worse and every threshold broken, then one closing line.
+Exit codes: 0 pass, 1 ratchet failure, 2 error (no project, invalid config or `lint.json` including invalid rule options and a `lint.json` that cannot be read, unknown or ambiguous system, a source folder or file that cannot be read (`SOURCES_UNREADABLE`), a designs folder that cannot be listed (`DESIGNS_UNREADABLE`), a crashed rule, a refused write, or anything the engine did not foresee, reported as `RUN_FAILED`). Warnings that do not stop a run: `COMPONENT_MANIFEST_DIAGNOSTIC`, `CODEGEN_OTHER_SYSTEM`, `INVALID_BASELINE`, `SOURCE_PARSE_ERROR`, `SOURCE_ROOT_MISSING`, `SOURCES_TRUNCATED`, `WRAPPER_MODULE_NOT_SCANNED`, `DESIGN_UNREADABLE`. An error never escapes `runLint` as an exception, so `--json` output stays valid. Human output lists each side's counts, then findings grouped by rule kind with their location, then every number that got worse and every threshold broken, then one closing line.
 
 There is no `--help`: an unknown option prints the usage line and exits 2, as `trickroom codegen` does. The unknown-command message of `trickroom` lists `lint`.
 
