@@ -150,7 +150,9 @@ export const unknownClassTokenRule: LintRuleKind = {
 				if (!wrapperSlug.has(file)) wrapperSlug.set(file, slug);
 			}
 		}
-		const usageFiles = new Set(analysis.usages.map((usage) => usage.file));
+		const usageFiles = new Set(
+			context.sources.usages.map((usage) => usage.file),
+		);
 		const inScope = (file: string) =>
 			scope === "all"
 				? true

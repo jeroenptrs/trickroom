@@ -70,12 +70,6 @@ export type CodeAnalysis = {
 	/** Variants use per module; generated files are left out. */
 	modules: Map<string, ModuleVariants>;
 	/**
-	 * The index's usages whose element name resolves, at the element, to
-	 * the import binding: `<Button>` inside `(Button) => …` is the
-	 * parameter, not the component.
-	 */
-	usages: SourceUsage[];
-	/**
 	 * Per slug, the modules that implement the component: the index's
 	 * wrappers, with a configured barrel replaced by the importers of the
 	 * generated file it re-exports (see `implementingModules`).
@@ -243,15 +237,6 @@ const analyse = (
 		}
 	}
 
-	const usages = sources.usages.filter(
-		(usage) =>
-			resolveBinding(
-				sources.modules[usage.file],
-				usage.element.root,
-				usage.element.position,
-			)?.binding.kind === "import",
-	);
-
 	const wrappers = new Map(
 		sources.components.map((identity) => [
 			identity.slug,
@@ -259,7 +244,7 @@ const analyse = (
 		]),
 	);
 
-	return { components, identities, generatedSlug, modules, usages, wrappers };
+	return { components, identities, generatedSlug, modules, wrappers };
 };
 
 /**

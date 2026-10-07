@@ -1,6 +1,11 @@
 import type { CodegenHeader } from "../../codegen/header";
 import type { SystemContract } from "../contract";
-import type { SourceJsxElement, SourceModule, SourcePosition } from "./parse";
+import {
+	resolveBinding,
+	type SourceJsxElement,
+	type SourceModule,
+	type SourcePosition,
+} from "./parse";
 
 /**
  * The project index over parsed modules: resolved relative imports, the
@@ -119,7 +124,12 @@ export type SourceIndex = {
 	unknownGenerated: string[];
 	/** One per contract component, sorted by slug. */
 	components: SourceComponentIdentity[];
-	/** JSX elements that render a bound component, in file then source order. */
+	/**
+	 * JSX elements that render a bound component, in file then source order:
+	 * the element name resolves through the scope tree to the import, so a
+	 * shadowing parameter or local is not a usage. Coverage, the heat map
+	 * and the rules all count these.
+	 */
 	usages: SourceUsage[];
 	/** For each module and local name: the component it stands for. */
 	bindings: Record<string, Record<string, string>>;
@@ -405,6 +415,13 @@ export function buildSourceIndex(input: BuildSourceIndexInput): SourceIndex {
 				if (namespace) slug = slugOfExport(namespace, element.members[0]);
 			}
 			if (slug === null) continue;
+			// The name has to resolve, at the element, to the import:
+			// `<Button>` inside `(Button) => …` is the parameter.
+			if (
+				resolveBinding(module, element.root, element.position)?.binding.kind !==
+				"import"
+			)
+				continue;
 			usages.push({ file, slug, element });
 		}
 	}

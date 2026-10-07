@@ -258,7 +258,7 @@ export const redundantClassRule: LintRuleKind = {
 	run: (context) => {
 		const analysis = getCodeAnalysis(context);
 		const findings: LintRuleFinding[] = [];
-		for (const usage of analysis.usages) {
+		for (const usage of context.sources.usages) {
 			const component = analysis.components.get(usage.slug);
 			if (!component || component.shape === null) continue;
 			// A className a later spread may replace is not known to render.
