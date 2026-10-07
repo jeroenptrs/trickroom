@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"generatedAt": "2026-10-06T20:48:08.434Z",
+	"generatedAt": "2026-10-07T03:58:17.930Z",
 	"system": {
 		"id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
 		"name": "Trickroom"
@@ -2305,7 +2305,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorLintPanel.tsx",
-				"line": 107,
+				"line": 106,
 				"column": 50
 			}
 		},
@@ -2317,7 +2317,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorLintPanel.tsx",
-				"line": 122,
+				"line": 121,
 				"column": 25
 			}
 		},
@@ -2329,7 +2329,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorLintPanel.tsx",
-				"line": 151,
+				"line": 150,
 				"column": 40
 			}
 		},
@@ -2341,7 +2341,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorLintPanel.tsx",
-				"line": 353,
+				"line": 352,
 				"column": 35
 			}
 		},
@@ -2353,7 +2353,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorLintPanel.tsx",
-				"line": 384,
+				"line": 383,
 				"column": 56
 			}
 		},
@@ -3361,7 +3361,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 88,
+				"line": 92,
 				"column": 34
 			}
 		},
@@ -3373,7 +3373,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 111,
+				"line": 115,
 				"column": 47
 			}
 		},
@@ -3385,7 +3385,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 116,
+				"line": 120,
 				"column": 36
 			}
 		},
@@ -3397,7 +3397,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 129,
+				"line": 133,
 				"column": 59
 			}
 		},
@@ -3409,7 +3409,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 158,
+				"line": 162,
 				"column": 43
 			}
 		},
@@ -3421,7 +3421,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 164,
+				"line": 168,
 				"column": 34
 			}
 		},
@@ -3433,7 +3433,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 172,
+				"line": 176,
 				"column": 36
 			}
 		},
@@ -3445,20 +3445,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 386,
+				"line": 390,
 				"column": 45
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 408,
-				"column": 27
 			}
 		},
 		{
@@ -3481,7 +3469,19 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 426,
+				"line": 416,
+				"column": 27
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
+				"line": 431,
 				"column": 52
 			}
 		},
@@ -3493,7 +3493,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 481,
+				"line": 486,
 				"column": 45
 			}
 		},
@@ -7914,7 +7914,33 @@
 	],
 	"ratchet": {
 		"status": "pass",
-		"baseline": null,
+		"baseline": {
+			"generatedAt": "2026-10-06T20:48:08.434Z",
+			"numbers": {
+				"code.errors": 0,
+				"code.warnings": 299,
+				"coverage.bound": 0,
+				"coverage.generated": 0,
+				"coverage.published": 16,
+				"coverage.usedInApp": 0,
+				"coverage.usedInDesigns": 5,
+				"design.errors": 0,
+				"design.warnings": 238,
+				"rule.code.component-styling-restricted": 0,
+				"rule.code.redundant-class": 0,
+				"rule.code.required-axis-missing": 0,
+				"rule.code.slot-not-called": 0,
+				"rule.code.unknown-class-token": 299,
+				"rule.code.unknown-variant-value": 0,
+				"rule.code.variants-file-orphaned": 0,
+				"rule.code.variants-file-stale": 0,
+				"rule.code.variants-imported-outside-component": 0,
+				"rule.code.wrapper-missing-variants-call": 0,
+				"rule.design.design-only-class-target": 0,
+				"rule.design.unknown-class-token": 238,
+				"rule.design.unknown-variant-value": 0
+			}
+		},
 		"regressions": [],
 		"breaches": [],
 		"numbers": {
@@ -7943,7 +7969,7 @@
 		}
 	},
 	"ratchetBaseline": {
-		"generatedAt": "2026-10-06T20:48:08.434Z",
+		"generatedAt": "2026-10-07T03:58:17.930Z",
 		"numbers": {
 			"code.errors": 0,
 			"code.warnings": 299,
