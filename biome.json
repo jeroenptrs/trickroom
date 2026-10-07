@@ -6,7 +6,12 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"includes": ["**", "!!**/dist"]
+		"includes": [
+			"**",
+			"!!**/dist",
+			"!!**/.trickroom/systems/**/lint.json",
+			"!!**/.trickroom/systems/**/lint-report.json"
+		]
 	},
 	"formatter": {
 		"enabled": true,

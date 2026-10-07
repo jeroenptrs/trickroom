@@ -6,7 +6,7 @@ This page is the reference for the engine, its two files and its entry points. W
 
 ## Getting started
 
-1. **Configure.** Create `.trickroom/systems/<key>/lint.json` next to `system.json` with the source globs of your app. Without the file every rule kind runs at its default severity over `src/**`. This repository's own:
+1. **Configure.** Create `.trickroom/systems/<key>/lint.json` next to `system.json` with the source globs of your app. Without the file every rule kind runs at its default severity over the default source globs: `src/**` when the project has no `codegen` block, otherwise the source root that contains `codegen.outDir` (see [Default source globs](#lintjson)). This repository's own:
 
    ```json
    {
