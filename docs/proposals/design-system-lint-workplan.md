@@ -4,7 +4,7 @@ Companion to [design-system-lint.md](./design-system-lint.md), which is the
 locked analysis. This file is the implementation breakdown the orchestrating
 thread follows. Trunk branch: `t3/design-system-lint-orchestration`. Each work
 package (WP) is developed on its own branch off the trunk, reviewed, then
-merged into the trunk. The trunk is merged into `main` once WP6 is done.
+merged into the trunk. The trunk is merged into `main` once WP7 is done.
 
 Status key: todo, in progress, in review, merged.
 
@@ -238,6 +238,33 @@ Done in WP6:
   coverage inspector shows design usages.
 - Docs: Getting started and Limits in `docs/lint.md`, examples from the
   real report, and the pointers in the other pages.
+
+### WP7: release review fixes
+
+Status: in review. Model: Opus 5.5. Depends on WP1 to WP6.
+
+The fixes from the release review of the whole trunk, one commit each with a
+regression test:
+
+- Blocking: a source folder the walk cannot read was taken for an empty one,
+  so a permissions error could record a falsely clean baseline. It now fails
+  the run with `SOURCES_UNREADABLE` (exit 2, nothing written); an include
+  root `lint.json` names that does not exist is a `SOURCE_ROOT_MISSING`
+  warning; a designs folder that cannot be listed fails with
+  `DESIGNS_UNREADABLE` (a single unreadable design stays a warning).
+- Blocking: comparing against the baseline and replacing it had no lock.
+  Runs that write queue up per report path in one process, and a write is a
+  compare-and-swap across processes: the report is read again before the
+  write, the ratchet re-runs against a moved baseline, and a run that now
+  fails reports `BASELINE_MOVED` and writes nothing.
+- `code.redundant-class` counts the compound variants the element's values
+  match, as tv() matches them, and skips an element when that cannot be
+  decided.
+- The source model reads `cva(base, options)`.
+- Coverage and the heat map count the same scope-aware usages as the rules:
+  the shadowing check moved into `buildSourceIndex`.
+- The coverage table is virtualized (checked in headless Chromium with
+  5,000 components).
 
 ## Follow-ups
 
