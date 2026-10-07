@@ -108,6 +108,23 @@ describe("code.unknown-class-token", () => {
 		]);
 	});
 
+	it("locates a class written twice in one string at each occurrence", async () => {
+		const fixture = await fixtures.create({
+			components: [button()],
+			files: {
+				"src/app.tsx":
+					'export const App = () => <p className="text-[#f00] p-2 text-[#f00]" />;\n',
+			},
+		});
+		const findings = await fixture.run(unknownClassTokenRule, {
+			tokens: TOKENS,
+			inspect,
+		});
+		expect(
+			describeFindings(findings).map((line) => line.split(" Class")[0]),
+		).toEqual(["src/app.tsx:1:40", "src/app.tsx:1:56"]);
+	});
+
 	it("checks only utilities without a token snapshot, and notes when it can check nothing", async () => {
 		const fixture = await fixtures.create({ components: [button()], files });
 		const utilitiesOnly = await fixture.run(unknownClassTokenRule, { inspect });
@@ -195,6 +212,78 @@ describe("code.redundant-class", () => {
 			'src/app.tsx:9:53 <Button className> repeats "inline-flex", which "button" already applies through its base classes. Remove it from className.',
 			'src/app.tsx:11:52 <Button className> repeats "px-3", which "button" already applies through its base classes. Remove it from className.',
 			'src/app.tsx:11:60 <Button className> repeats "rounded-md", which "button" already applies through its base classes. Remove it from className.',
+		]);
+	});
+
+	it("locates a class written twice in one className at each occurrence", async () => {
+		const fixture = await fixtures.create({
+			components: [button()],
+			files: {
+				"src/ui/cn.ts": "export const cn = (...v: unknown[]) => v.join(' ');\n",
+				"src/ui/button.tsx": BUTTON_WRAPPER,
+				"src/app.tsx": [
+					'import { Button } from "./ui/button";',
+					'export const App = () => <Button variant="ghost" className="px-3 text-left px-3" />;',
+					"",
+				].join("\n"),
+			},
+		});
+		expect(
+			describeFindings(await fixture.run(redundantClassRule)).map(
+				(line) => line.split(" <Button")[0],
+			),
+		).toEqual(["src/app.tsx:2:61", "src/app.tsx:2:76"]);
+	});
+
+	it("reads a className that follows a JSX element in an earlier attribute", async () => {
+		const fixture = await fixtures.create({
+			components: [button()],
+			files: {
+				"src/ui/cn.ts": "export const cn = (...v: unknown[]) => v.join(' ');\n",
+				"src/ui/button.tsx": BUTTON_WRAPPER,
+				"src/app.tsx": [
+					'import { Button } from "./ui/button";',
+					'export const App = () => <Button variant="ghost" title={<span />} className="rounded-md" />;',
+					"",
+				].join("\n"),
+			},
+		});
+		expect(
+			describeFindings(await fixture.run(redundantClassRule)).map(
+				(line) => line.split(" <Button")[0],
+			),
+		).toEqual(["src/app.tsx:2:78"]);
+	});
+
+	it("judges conditional class strings in every scenario where they apply", async () => {
+		const fixture = await fixtures.create({
+			components: [button()],
+			files: {
+				"src/ui/cn.ts": "export const cn = (...v: unknown[]) => v.join(' ');\n",
+				"src/ui/button.tsx": BUTTON_WRAPPER,
+				"src/app.tsx": [
+					'import { Button } from "./ui/button";',
+					'import { cn } from "./ui/cn";',
+					"declare const dense: boolean;",
+					"declare const compact: boolean;",
+					"declare const active: boolean;",
+					"export const App = () => (",
+					"\t<>",
+					// px-3 restores the base padding after p-0 when dense: not redundant.
+					'\t\t<Button variant="ghost" className={dense ? "p-0 px-3" : "px-1"} />',
+					'\t\t<Button variant="ghost" className={cn("p-0 px-3", compact && "px-1")} />',
+					'\t\t<Button variant="ghost" className={cn("p-0 px-3", { "px-1": compact })} />',
+					// Redundant whether or not the condition holds.
+					'\t\t<Button variant="ghost" className={cn("rounded-md", active && "px-3")} />',
+					"\t</>",
+					");",
+					"",
+				].join("\n"),
+			},
+		});
+		expect(describeFindings(await fixture.run(redundantClassRule))).toEqual([
+			'src/app.tsx:11:42 <Button className> repeats "rounded-md", which "button" already applies through its base classes. Remove it from className.',
+			'src/app.tsx:11:66 <Button className> repeats "px-3", which "button" already applies through its base classes. Remove it from className.',
 		]);
 	});
 });

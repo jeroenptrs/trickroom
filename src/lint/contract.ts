@@ -318,9 +318,8 @@ const buildTokens = (
 	};
 };
 
-export const hashSystemContract = (
-	contract: Omit<SystemContract, "hash">,
-): string => `sha256:${sha256Hex(stableStringify(contract))}`;
+const hashSystemContract = (contract: Omit<SystemContract, "hash">): string =>
+	`sha256:${sha256Hex(stableStringify(contract))}`;
 
 /**
  * The contract of one system. Components always come from their published

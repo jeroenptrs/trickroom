@@ -27,7 +27,7 @@ const describeComponentStatus = (
 };
 
 export const CODEGEN_NOT_CONFIGURED_MESSAGE =
-	"Codegen is not configured for this project, so variants files were not checked. Add a codegen block to .trickroom/config.json to enable the code side (see docs/codegen.md).";
+	"Codegen is not configured for this project, so variants files were not checked. The class rules still ran; the rules on wrappers, usages and variants imports find components in the code through their generated variants files. Add a codegen block to .trickroom/config.json to enable them (see docs/codegen.md).";
 
 export const variantsFileStaleRule: LintRuleKind = {
 	id: "code.variants-file-stale",

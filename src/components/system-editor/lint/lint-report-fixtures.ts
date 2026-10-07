@@ -261,6 +261,8 @@ export const fullLintReport: LintReport = {
 	components: codeOnlyLintReport.components.map((component) => ({
 		...component,
 		usedInDesigns: component.slug === "button" || component.slug === "card",
+		designUsages:
+			component.slug === "button" ? 3 : component.slug === "card" ? 1 : 0,
 	})),
 	designs: [
 		{ design: "dsg_home", board: null, usages: 0, findings: counts(0, 0, 0) },

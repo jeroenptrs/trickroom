@@ -110,7 +110,7 @@ export const codeLocation = (
  * (`import { x } from "./a"; export { x }`), so a wrapper that passes its
  * variants export on still leads back to the generated file.
  */
-export const resolveValueOrigin = (
+const resolveValueOrigin = (
 	modules: SourceIndex["modules"],
 	file: string,
 	name: string,
@@ -264,7 +264,7 @@ const analyse = (
 
 /**
  * The modules that implement a component. Without configuration they are
- * the index's wrappers (the importers of the generated file). A
+ * the index's wrappers (see `SourceComponentIdentity.wrappers`). A
  * configured module that imports the generated file is itself the
  * implementation; one that does not (a barrel) is followed through its
  * re-exports (`export { x } from`, `export * from`, and exported
@@ -274,7 +274,7 @@ const analyse = (
  * code. A configured module that reaches no importer stays as it is, so
  * the rules still report it.
  */
-export const implementingModules = (
+const implementingModules = (
 	modules: SourceIndex["modules"],
 	identity: Pick<
 		SourceComponentIdentity,
@@ -346,47 +346,16 @@ export const moduleVariants = (
 	file: string,
 ): ModuleVariants => analysis.modules.get(file) ?? EMPTY_MODULE_VARIANTS;
 
-const stem = (file: string) => {
-	const name = file.slice(file.lastIndexOf("/") + 1);
-	const dot = name.indexOf(".");
-	return dot === -1 ? name : name.slice(0, dot);
-};
-
-/**
- * The importer named like the component when no wrapper is configured:
- * `button.tsx` or `button/index.tsx` for slug `button` (or for the
- * generated file's stem). Null when none or several match.
- */
-export const conventionalWrapper = (
-	slug: string,
-	identity: Pick<SourceComponentIdentity, "importers" | "generatedFiles">,
-): string | null => {
-	const names = new Set([slug, ...identity.generatedFiles.map(stem)]);
-	const matches = identity.importers.filter((file) => {
-		const own = stem(file);
-		if (own === "index") {
-			const parts = file.split("/");
-			return names.has(parts[parts.length - 2] ?? "");
-		}
-		return names.has(own);
-	});
-	return matches.length === 1 ? matches[0] : null;
-};
-
 /**
  * The component's own wrapper(s), for rules that exempt it: the
- * configured modules (a barrel resolved to its implementations); else the only importer; else the importer named
- * like the component; else, when that is ambiguous, every importer.
+ * configured modules (a barrel resolved to its implementations); else the
+ * index's wrappers (the only importer, the importer named like the
+ * component, or every importer when that is ambiguous).
  */
 export const componentWrappers = (
 	analysis: CodeAnalysis,
 	identity: SourceComponentIdentity,
-): string[] => {
-	if (identity.configuredWrappers.length > 0 || identity.wrappers.length < 2)
-		return analysis.wrappers.get(identity.slug) ?? identity.wrappers;
-	const conventional = conventionalWrapper(identity.slug, identity);
-	return conventional ? [conventional] : identity.wrappers;
-};
+): string[] => analysis.wrappers.get(identity.slug) ?? identity.wrappers;
 
 /** `otp-field` -> `OtpField`, `OTP field` -> `OTPField`. */
 export const pascalCase = (value: string): string =>
@@ -506,7 +475,9 @@ export const objectArgument = (
  * The class strings of a usage's `className` attribute. Class strings carry
  * the element name, not the element, so the attribute's span is bounded by
  * the next attribute of the element and the next JSX element of the module
- * (elements are recorded in pre-order, so that is a child or a sibling).
+ * after the attribute starts (elements are recorded in pre-order, so that
+ * is a child or a sibling; one inside an earlier attribute, such as
+ * `title={<span />}`, starts before it).
  */
 export const usageClassStrings = (
 	module: SourceModule,
@@ -522,7 +493,7 @@ export const usageClassStrings = (
 	const nextAttribute = element.attributes[index + 1];
 	if (nextAttribute) bounds.push(nextAttribute.position);
 	const nextElement = module.jsx.find(
-		(candidate) => comparePositions(candidate.position, element.position) > 0,
+		(candidate) => comparePositions(candidate.position, start) > 0,
 	);
 	if (nextElement) bounds.push(nextElement.position);
 	return module.classStrings.filter(
@@ -542,12 +513,17 @@ export const usageClassStrings = (
 export const classTokenPosition = (
 	entry: SourceClassString,
 	classToken: string,
+	/** Which occurrence of the class in the string, from 0. */
+	occurrence = 0,
 ): SourcePosition => {
 	const pattern = new RegExp(
 		`(^|\\s)${classToken.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?=\\s|$)`,
-		"u",
+		"gu",
 	);
-	const match = pattern.exec(entry.value);
+	let match = pattern.exec(entry.value);
+	for (let skipped = 0; match && skipped < occurrence; skipped += 1) {
+		match = pattern.exec(entry.value);
+	}
 	if (!match) return entry.position;
 	const index = match.index + match[1].length;
 	const before = entry.value.slice(0, index);

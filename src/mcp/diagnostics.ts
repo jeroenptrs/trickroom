@@ -522,7 +522,7 @@ const loadTailwindUtilityInspector = async (
  * kind's details (the offending class and suggestions, the axis and value)
  * ride along. Problems that kept a rule from running are warnings.
  */
-export const toDesignLintIssues = (
+const toDesignLintIssues = (
 	result: DesignLintResult,
 ): ClassTokenDiagnostic[] => {
 	const issues: ClassTokenDiagnostic[] = [];

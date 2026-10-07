@@ -188,7 +188,7 @@ const SEVERITY_ORDER: Record<LintSeverity, number> = {
 };
 
 /** Side, rule, location, severity, component, message. */
-export const compareLintFindings = (left: LintFinding, right: LintFinding) =>
+const compareLintFindings = (left: LintFinding, right: LintFinding) =>
 	compareStrings(left.side, right.side) ||
 	compareStrings(left.rule, right.rule) ||
 	compareLocations(left.location, right.location) ||
@@ -228,9 +228,7 @@ export const summarizeFindings = (
 	return summary;
 };
 
-export const sortedComponents = (
-	components: readonly LintComponentCoverage[],
-) =>
+const sortedComponents = (components: readonly LintComponentCoverage[]) =>
 	[...components]
 		.map((component) => ({
 			...component,
@@ -238,10 +236,10 @@ export const sortedComponents = (
 		}))
 		.sort((left, right) => compareStrings(left.slug, right.slug));
 
-export const sortedFiles = (files: readonly LintFileStats[]) =>
+const sortedFiles = (files: readonly LintFileStats[]) =>
 	[...files].sort((left, right) => compareStrings(left.file, right.file));
 
-export const sortedDesigns = (designs: readonly LintDesignStats[]) =>
+const sortedDesigns = (designs: readonly LintDesignStats[]) =>
 	[...designs].sort(
 		(left, right) =>
 			compareStrings(left.design, right.design) ||

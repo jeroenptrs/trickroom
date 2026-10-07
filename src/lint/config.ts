@@ -402,11 +402,6 @@ export const getLintConfigIssues = (
 	return issues;
 };
 
-export const isLintConfig = (
-	value: unknown,
-	known: LintKnownRules | null,
-): value is LintConfig => getLintConfigIssues(value, known).length === 0;
-
 const sortedEntries = <T>(record: Record<string, T>) =>
 	Object.entries(record).sort(([left], [right]) => left.localeCompare(right));
 
@@ -549,9 +544,3 @@ export const resolveLintConfig = (
 		thresholds: normalized?.thresholds ?? {},
 	};
 };
-
-export const getResolvedLintRule = (
-	config: ResolvedLintConfig,
-	id: string,
-): ResolvedLintRule | null =>
-	config.rules.find((rule) => rule.id === id) ?? null;

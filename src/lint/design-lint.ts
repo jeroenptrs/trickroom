@@ -20,7 +20,7 @@ import { buildSystemContract, type SystemContract } from "./contract";
 import { buildLintDesignIndex } from "./designs";
 import { lintRuleRegistry } from "./rules/index";
 import type { LintRuleRegistry } from "./rules/registry";
-import { createTailwindInspectorLoader } from "./run-lint";
+import { createTailwindInspectorLoader, toPosix } from "./run-lint";
 import { type LintRunFinding, runLintRules } from "./run-rules";
 import { buildSourceIndex } from "./source/index";
 
@@ -65,8 +65,6 @@ export type DesignLintSetup = {
 	diagnostics: DesignLintDiagnostic[];
 	inspector: ReturnType<typeof createTailwindInspectorLoader>;
 };
-
-const toPosix = (value: string) => value.split(path.sep).join("/");
 
 /** Everything the design rules need from the system, read once per call. */
 export async function loadDesignLintSetup({

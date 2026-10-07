@@ -92,6 +92,11 @@ export type SourceClassString = {
 	complete: boolean;
 	/** The enclosing expression also had parts that are not literals. */
 	mixed: boolean;
+	/**
+	 * The string applies only under a condition: a branch of a conditional,
+	 * a side of a logical expression, a clsx-style object key.
+	 */
+	conditional: boolean;
 	position: SourcePosition;
 };
 
@@ -378,7 +383,12 @@ const memberPath = (
 const formatName = (path: { root: string; members: string[] }) =>
 	[path.root, ...path.members].join(".");
 
-type Collected = { value: string; complete: boolean; position: SourcePosition };
+type Collected = {
+	value: string;
+	complete: boolean;
+	conditional: boolean;
+	position: SourcePosition;
+};
 
 /** Calls whose first argument is a tailwind-variants or cva config object. */
 export const TV_CONFIG_CALLS: readonly string[] = ["tv", "cva"];
@@ -390,6 +400,22 @@ type Collector = {
 	classCalls: ReadonlySet<string>;
 	position: (offset: number) => SourcePosition;
 	handledCalls: Set<AstNode>;
+	/** Inside a branch, a logical operand or an object key: depth > 0. */
+	conditional: number;
+};
+
+/** Visits `node` as an expression that applies only under a condition. */
+const visitConditionally = (
+	collector: Collector,
+	node: AstNode,
+	objectMode: "keys" | "values",
+): boolean => {
+	collector.conditional += 1;
+	try {
+		return visitClassExpression(collector, node, objectMode);
+	} finally {
+		collector.conditional -= 1;
+	}
 };
 
 const propertyName = (property: AstNode): string | null => {
@@ -426,6 +452,7 @@ const visitClassExpression = (
 				out.push({
 					value: expression.value,
 					complete: true,
+					conditional: collector.conditional > 0,
 					position: position(expression.start),
 				});
 				return true;
@@ -446,6 +473,7 @@ const visitClassExpression = (
 					out.push({
 						value: cooked,
 						complete: expressions.length === 0,
+						conditional: collector.conditional > 0,
 						position: position(quasi.start),
 					});
 				}
@@ -460,19 +488,19 @@ const visitClassExpression = (
 		case "ConditionalExpression": {
 			const left =
 				isNode(expression.consequent) &&
-				visitClassExpression(collector, expression.consequent, objectMode);
+				visitConditionally(collector, expression.consequent, objectMode);
 			const right =
 				isNode(expression.alternate) &&
-				visitClassExpression(collector, expression.alternate, objectMode);
+				visitConditionally(collector, expression.alternate, objectMode);
 			return left && right;
 		}
 		case "LogicalExpression": {
 			const left =
 				isNode(expression.left) &&
-				visitClassExpression(collector, expression.left, objectMode);
+				visitConditionally(collector, expression.left, objectMode);
 			const right =
 				isNode(expression.right) &&
-				visitClassExpression(collector, expression.right, objectMode);
+				visitConditionally(collector, expression.right, objectMode);
 			return expression.operator === "&&" ? right : left && right;
 		}
 		case "ArrayExpression": {
@@ -493,9 +521,11 @@ const visitClassExpression = (
 						complete = false;
 						continue;
 					}
+					// `clsx({ "p-2": active })`: the key applies when its value is truthy.
 					out.push({
 						value: name,
 						complete: true,
+						conditional: true,
 						position: position(property.start),
 					});
 					continue;
@@ -605,7 +635,13 @@ const collectClassStrings = (
 	position: (offset: number) => SourcePosition,
 	handledCalls: Set<AstNode>,
 ): Array<Collected & { mixed: boolean }> => {
-	const collector: Collector = { out: [], classCalls, position, handledCalls };
+	const collector: Collector = {
+		out: [],
+		classCalls,
+		position,
+		handledCalls,
+		conditional: 0,
+	};
 	const unwrapped = unwrap(node);
 	const complete =
 		unwrapped.type === "CallExpression"
@@ -759,7 +795,7 @@ const comparePositions = (left: SourcePosition, right: SourcePosition) =>
 	left.line - right.line || left.column - right.column;
 
 /** The innermost scope whose span contains `position`. */
-export const scopeAt = (
+const scopeAt = (
 	module: Pick<SourceModule, "scopes">,
 	position: SourcePosition,
 ): SourceScope | null => {

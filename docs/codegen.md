@@ -54,7 +54,7 @@ return (
 A template node with `designOnly: true` exists in Designs but not in code: an annotation, a measurement guide, a layout helper. The flag is inherited, so its whole subtree is design-only too, including the default children of slots hosted inside it. Set it with the "Design only" switch in the component inspector, or as a template node field over MCP.
 
 - Codegen skips design-only nodes with their subtree: none of them becomes a slot, and their classes do not count when `shape: "auto"` decides between flat and slots.
-- A variant value or compound variant whose `classesByPath` names a path inside a design-only subtree fails the run with `DESIGN_ONLY_CLASS_TARGET`. Remove or retarget the entry, or clear the flag. A path that is not in the template at all is still `UNKNOWN_CLASS_TARGET`.
+- A variant value or compound variant whose `classesByPath` names a path inside a design-only subtree fails the run with `DESIGN_ONLY_CLASS_TARGET`. Remove or retarget the entry, or clear the flag. The `design.design-only-class-target` lint rule reports the same from the design model, also for systems without a `codegen` block ([Design System Lint](lint.md)). A path that is not in the template at all is still `UNKNOWN_CLASS_TARGET`.
 - A design-only root makes the whole Component design-only: it gets no file, and the run reports a `DESIGN_ONLY_COMPONENT` warning. Its variant and compound classes are still checked first, so any class entry fails with `DESIGN_ONLY_CLASS_TARGET`. A file generated for it earlier shows up as orphaned.
 - `sourceHash` leaves design-only subtrees out, together with slots hosted and override targets pointing inside them, so editing inside one does not change it. Empty `children` and `defaultChildren` lists are left out of the hash too, so an empty list, an omitted one and one holding only design-only nodes hash the same; a Component stored with an explicit empty list gets a one-time `sourceHash` change from this rule. Turning the flag on or off for a node that codegen emits does change it, because the output changes.
 
@@ -113,7 +113,7 @@ Exit codes:
 | 1 | Check: something is `missing`, `stale` or orphaned. |
 | 2 | No or invalid `codegen` block, a generation error, a formatter failure, a path outside the project, or a refused overwrite. |
 
-Run `trickroom codegen --check` in CI to catch Components that changed without their files being regenerated.
+Run `trickroom codegen --check` in CI to catch Components that changed without their files being regenerated. `trickroom lint` runs the same check as its `code.variants-file-stale` and `code.variants-file-orphaned` rules, and then checks how the app uses the generated files: wrappers that never call them, variant values an axis does not have, styling borrowed outside the component. See [Design System Lint](lint.md).
 
 ### Ownership And `--force`
 

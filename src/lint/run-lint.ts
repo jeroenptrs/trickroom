@@ -136,7 +136,8 @@ export type LintRunResult = {
 	diagnostics: LintRunDiagnostic[];
 };
 
-const toPosix = (value: string) => value.split(path.sep).join("/");
+/** A platform path with `/` separators, as the report and diagnostics write it. */
+export const toPosix = (value: string) => value.split(path.sep).join("/");
 
 const MAX_PARSE_ERROR_DIAGNOSTICS = 50;
 

@@ -40,7 +40,10 @@ const classesOf = (className: string) =>
 
 type ProvidedClass = { className: string; source: string };
 
-/** Above this many combinations of dynamic axis values, the element is skipped. */
+/**
+ * Above this many combinations of dynamic axis values times subsets of
+ * conditional class strings, the element is skipped.
+ */
 export const MAX_REDUNDANT_CLASS_COMBINATIONS = 64;
 
 type AxisOption = { key: string | null; source: string };
@@ -124,6 +127,13 @@ const mergedSet = (classes: readonly string[]) =>
 const sameSet = (left: ReadonlySet<string>, right: ReadonlySet<string>) =>
 	left.size === right.size && [...left].every((entry) => right.has(entry));
 
+/** Every subset of `items`, the empty one included. */
+const subsets = <T>(items: readonly T[]): Array<ReadonlySet<T>> =>
+	Array.from(
+		{ length: 2 ** items.length },
+		(_, mask) => new Set(items.filter((_, bit) => mask & (1 << bit))),
+	);
+
 export const redundantClassRule: LintRuleKind = {
 	id: "code.redundant-class",
 	side: "code",
@@ -155,29 +165,57 @@ export const redundantClassRule: LintRuleKind = {
 			if (!isComponentUsage(context.sources, component, usage)) continue;
 			const combinations = providedCombinations(component, usage.element);
 			if (!combinations) continue;
-			const occurrences = strings.flatMap((entry) =>
-				classesOf(entry.value).map((className) => ({ entry, className })),
-			);
-			const all = occurrences.map((occurrence) => occurrence.className);
+			// Strings under a condition (`dense ? "py-2" : "py-1"`,
+			// `active && "px-3"`) may or may not apply: each subset of them is
+			// a scenario, and the unconditional strings apply in all of them.
+			const conditionalStrings = strings.filter((entry) => entry.conditional);
+			if (
+				combinations.length * 2 ** conditionalStrings.length >
+				MAX_REDUNDANT_CLASS_COMBINATIONS
+			)
+				continue;
+			const scenarios = subsets(conditionalStrings);
+			const occurrences = strings.flatMap((entry) => {
+				const seen = new Map<string, number>();
+				return classesOf(entry.value).map((className) => {
+					const occurrence = seen.get(className) ?? 0;
+					seen.set(className, occurrence + 1);
+					return { entry, className, occurrence };
+				});
+			});
 			const checks = combinations.map((provided) => {
 				const base = provided.map((entry) => entry.className);
-				return {
-					provided,
-					base,
-					merged: mergedSet(base),
-					mergedWithAll: mergedSet([...base, ...all]),
-				};
+				return { provided, base, merged: mergedSet(base) };
 			});
-			for (const [index, { entry, className }] of occurrences.entries()) {
-				const without = all.filter((_, other) => other !== index);
-				// Redundant only under every combination of dynamic axis values.
+			for (const [
+				index,
+				{ entry, className, occurrence },
+			] of occurrences.entries()) {
+				// Redundant only under every combination of dynamic axis values
+				// and in every scenario where its own string applies.
 				const redundant = checks.every(
 					(check) =>
 						sameSet(mergedSet([...check.base, className]), check.merged) &&
-						sameSet(
-							mergedSet([...check.base, ...without]),
-							check.mergedWithAll,
-						),
+						scenarios.every((applies) => {
+							if (entry.conditional && !applies.has(entry)) return true;
+							const active = occurrences.flatMap((occurrence, other) =>
+								!occurrence.entry.conditional || applies.has(occurrence.entry)
+									? [{ className: occurrence.className, other }]
+									: [],
+							);
+							return sameSet(
+								mergedSet([
+									...check.base,
+									...active
+										.filter((candidate) => candidate.other !== index)
+										.map((candidate) => candidate.className),
+								]),
+								mergedSet([
+									...check.base,
+									...active.map((candidate) => candidate.className),
+								]),
+							);
+						}),
 				);
 				if (!redundant) continue;
 				const provided = checks[0].provided;
@@ -188,7 +226,7 @@ export const redundantClassRule: LintRuleKind = {
 					component: component.slug,
 					location: codeLocation(
 						usage.file,
-						classTokenPosition(entry, className),
+						classTokenPosition(entry, className, occurrence),
 					),
 					message: `<${usage.element.name} className> repeats "${className}", which "${component.slug}" already applies through ${source}. Remove it from className.`,
 				});

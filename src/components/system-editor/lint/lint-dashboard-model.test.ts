@@ -7,6 +7,7 @@ import {
 	collectFolderIds,
 	compareLintMetric,
 	countCoverage,
+	countReportDesigns,
 	coverageGaps,
 	filterCoverage,
 	filterFiles,
@@ -19,6 +20,7 @@ import {
 	ruleRowSeverity,
 	ruleRowsForSide,
 	thresholdForMetric,
+	totalFindings,
 } from "./lint-dashboard-model";
 import { codeOnlyLintReport, fullLintReport } from "./lint-report-fixtures";
 
@@ -370,5 +372,28 @@ describe("lint dashboard rule row severity", () => {
 		expect(
 			ruleRowSeverity({ errors: 0, warnings: 0, info: 0 }, null),
 		).toBeNull();
+	});
+});
+
+describe("lint dashboard totals", () => {
+	it("adds both sides' counts, and the code side alone without a design summary", () => {
+		const { code, design } = fullLintReport.summary;
+		if (!design) throw new Error("fixture has a design summary");
+		expect(totalFindings(fullLintReport.summary)).toEqual({
+			errors: code.findings.errors + design.findings.errors,
+			warnings: code.findings.warnings + design.findings.warnings,
+			info: code.findings.info + design.findings.info,
+		});
+		expect(totalFindings(codeOnlyLintReport.summary)).toEqual(
+			codeOnlyLintReport.summary.code.findings,
+		);
+		expect(totalFindings(fullLintReport.summary)).not.toBe(code.findings);
+	});
+
+	it("counts designs, not their board rows", () => {
+		const designs = fullLintReport.designs ?? [];
+		expect(designs.length).toBeGreaterThan(countReportDesigns(designs));
+		expect(countReportDesigns(designs)).toBe(2);
+		expect(countReportDesigns([])).toBe(0);
 	});
 });

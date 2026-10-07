@@ -168,13 +168,17 @@ export const unknownClassTokenRule: LintRuleKind = {
 					issues = collectClassNameTokenIssues(entry.value, checkContext);
 					issuesByString.set(entry.value, issues);
 				}
+				// A class written twice is two findings, each at its own place.
+				const seen = new Map<string, number>();
 				for (const issue of issues) {
+					const occurrence = seen.get(issue.classToken) ?? 0;
+					seen.set(issue.classToken, occurrence + 1);
 					if (allowed(issue.classToken)) continue;
 					findings.push({
 						...(slug ? { component: slug } : {}),
 						location: codeLocation(
 							file,
-							classTokenPosition(entry, issue.classToken),
+							classTokenPosition(entry, issue.classToken, occurrence),
 						),
 						message: `${issue.message} Use a token of the system, or add "${issue.classToken}" to this rule's allow list if it is intended.`,
 					});

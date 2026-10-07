@@ -80,7 +80,7 @@ const createDefaultState = (): LintDashboardState => ({
 	coverageFilter: "all",
 });
 
-export const lintDashboardStore = createStore<LintDashboardState>(
+const lintDashboardStore = createStore<LintDashboardState>(
 	createDefaultState(),
 );
 

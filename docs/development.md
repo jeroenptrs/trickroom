@@ -173,6 +173,17 @@ node bin/trickroom.js mcp
 
 Projects opened through MCP must enable MCP in `.trickroom/config.json`.
 
+## Running Lint Locally
+
+```sh
+pnpm build:lint
+node bin/trickroom.js lint --check
+```
+
+This repository lints its own `.trickroom` project: `.trickroom/systems/trickroom/lint.json` scans `src/**` without tests, and the committed `lint-report.json` is the baseline. `--check` writes nothing and exits 1 when a number got worse than the baseline, naming it. After a change that lowers a count (fewer arbitrary text sizes, say), run `node bin/trickroom.js lint` without `--check` and commit the new report with the change. Never commit a report with `"status": "fail"`: the dashboard's "Run lint" writes one when a run fails, so the UI can show it. `--json` prints the whole result. See [Design System Lint](lint.md).
+
+`oxc-parser` ships prebuilt native bindings per platform as optional dependencies; when `pnpm install` skips them (an unsupported platform, `--no-optional`), `trickroom lint` fails to load the parser. Reinstall with optional dependencies.
+
 ## Repository Layout
 
 ```text

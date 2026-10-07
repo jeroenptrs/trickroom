@@ -167,7 +167,7 @@ const view = (
 		});
 	});
 
-	it("collects class strings from className and class calls, flagging dynamic parts", () => {
+	it("collects class strings from className and class calls, flagging dynamic and conditional parts", () => {
 		const module = parse(`const a = <div className="p-1 flex" />;
 const b = <div className={cn("p-2", active && "bg-red-500", cond ? "x" : "y", [\`q-\${n}\`, "z"])} />;
 const c = <div className={styles.root} />;
@@ -179,25 +179,28 @@ const e = <div className={twMerge("p-3", cn("p-4"))} />;`);
 				entry.value,
 				entry.complete,
 				entry.mixed,
+				entry.conditional,
 				entry.origin.kind,
 				entry.position.line,
 			]),
 		).toEqual([
-			["p-1 flex", true, false, "jsx-attribute", 1],
-			["p-2", true, true, "jsx-attribute", 2],
-			["bg-red-500", true, true, "jsx-attribute", 2],
-			["x", true, true, "jsx-attribute", 2],
-			["y", true, true, "jsx-attribute", 2],
-			["q-", false, true, "jsx-attribute", 2],
-			["z", true, true, "jsx-attribute", 2],
-			["px-1", true, false, "call", 4],
-			["font-bold", true, false, "call", 4],
-			["text-sm", true, false, "call", 4],
-			["ring", true, false, "call", 4],
-			["m-1", true, true, "call", 5],
-			["mt-1", true, true, "call", 5],
-			["p-3", true, false, "jsx-attribute", 6],
-			["p-4", true, false, "jsx-attribute", 6],
+			["p-1 flex", true, false, false, "jsx-attribute", 1],
+			["p-2", true, true, false, "jsx-attribute", 2],
+			["bg-red-500", true, true, true, "jsx-attribute", 2],
+			["x", true, true, true, "jsx-attribute", 2],
+			["y", true, true, true, "jsx-attribute", 2],
+			["q-", false, true, false, "jsx-attribute", 2],
+			["z", true, true, false, "jsx-attribute", 2],
+			// tv config values always apply to their slot or value.
+			["px-1", true, false, false, "call", 4],
+			["font-bold", true, false, false, "call", 4],
+			["text-sm", true, false, false, "call", 4],
+			["ring", true, false, false, "call", 4],
+			["m-1", true, true, false, "call", 5],
+			// A clsx object key applies when its value is truthy.
+			["mt-1", true, true, true, "call", 5],
+			["p-3", true, false, false, "jsx-attribute", 6],
+			["p-4", true, false, false, "jsx-attribute", 6],
 		]);
 		expect(module.classStrings[0].origin).toEqual({
 			kind: "jsx-attribute",
