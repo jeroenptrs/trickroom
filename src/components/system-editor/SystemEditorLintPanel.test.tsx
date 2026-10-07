@@ -303,6 +303,26 @@ describe("System editor lint page", () => {
 		expect(unbound).toContain('data-lint-component="dialog"');
 	});
 
+	it("virtualizes the coverage table, rendering a screenful of a large system", () => {
+		const template = codeOnlyLintReport.components[0];
+		const components = Array.from({ length: 5000 }, (_, index) => ({
+			...template,
+			slug: `component-${String(index).padStart(4, "0")}`,
+			componentId: `cmp_${index}`,
+			name: `Component ${index}`,
+		}));
+		const html = renderLintPage({
+			report: { ...codeOnlyLintReport, components },
+			state: { view: "coverage" },
+		});
+		expect(html).toContain("of 5000 components have a gap");
+		const rendered = countMatches(html, /data-lint-component="/);
+		expect(rendered).toBeGreaterThan(5);
+		expect(rendered).toBeLessThan(60);
+		expect(html).toContain('data-lint-component="component-0000"');
+		expect(html).not.toContain('data-lint-component="component-4999"');
+	});
+
 	it("renders the codebase heat map as an aggregated file tree", () => {
 		const html = renderLintPage({ state: { view: "files" } });
 		expect(html).toContain('data-lint-view="files"');

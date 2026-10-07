@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { publishedComponent } from "../../../codegen/test-support";
+import {
+	publishedComponent,
+	templateNode,
+} from "../../../codegen/test-support";
 import { unknownClassTokenRule } from "./class-tokens";
 import { redundantClassRule } from "./redundant-class";
 import {
@@ -284,6 +287,94 @@ describe("code.redundant-class", () => {
 		expect(describeFindings(await fixture.run(redundantClassRule))).toEqual([
 			'src/app.tsx:11:42 <Button className> repeats "rounded-md", which "button" already applies through its base classes. Remove it from className.',
 			'src/app.tsx:11:66 <Button className> repeats "px-3", which "button" already applies through its base classes. Remove it from className.',
+		]);
+	});
+
+	it("counts the compound variants the element selects as provided", async () => {
+		// Base px-3; a compound replaces it with px-6 when tone="loud" and
+		// size="md"; another adds ring when disabled is set, a third shadow
+		// when it is not and tone="plain".
+		const pill = publishedComponent("pill", {
+			root: templateNode("root", "inline-flex px-3"),
+			slots: {},
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						defaultValue: "plain",
+						values: {
+							plain: { classesByPath: { root: "bg-white" } },
+							loud: { classesByPath: { root: "bg-red-500" } },
+						},
+					},
+					size: {
+						label: "Size",
+						defaultValue: "md",
+						values: {
+							md: { classesByPath: { root: "h-8" } },
+							lg: { classesByPath: { root: "h-10" } },
+						},
+					},
+					disabled: {
+						label: "Disabled",
+						defaultValue: "false",
+						values: { true: {}, false: {} },
+					},
+				},
+				compoundVariants: [
+					{
+						when: { tone: "loud", size: "md" },
+						classesByPath: { root: "px-6" },
+					},
+					{ when: { disabled: "true" }, classesByPath: { root: "ring" } },
+					{
+						when: { disabled: "false", tone: "plain" },
+						classesByPath: { root: "shadow" },
+					},
+				],
+			},
+			overrideTargets: {},
+		});
+		const fixture = await fixtures.create({
+			components: [pill],
+			files: {
+				"src/ui/pill.tsx": [
+					'import { pillVariants } from "./pill.variants";',
+					"export const Pill = (props: { className?: string; tone?: string; size?: string; disabled?: boolean }) => <span className={pillVariants({ ...props, class: props.className })} />;",
+					"",
+				].join("\n"),
+				"src/app.tsx": [
+					'import { Pill } from "./ui/pill";',
+					"declare const tone: string;",
+					"declare const off: boolean | null;",
+					"export const App = () => (",
+					"\t<>",
+					// The compound's px-6 wins, so px-3 brings the base padding back.
+					'\t\t<Pill tone="loud" className="px-3" />',
+					'\t\t<Pill tone={tone} className="px-3" />',
+					// No compound applies: px-3 repeats the base.
+					'\t\t<Pill tone="loud" size="lg" className="px-3" />',
+					'\t\t<Pill className="px-3" />',
+					// The compound applies px-6 (the default size is "md").
+					'\t\t<Pill tone="loud" className="px-6" />',
+					'\t\t<Pill disabled className="ring" />',
+					'\t\t<Pill disabled={false} className="ring" />',
+					// `off` may be null, which tv matches against disabled=false
+					// like an absent value: undecidable, so skipped.
+					'\t\t<Pill disabled={off} className="inline-flex" />',
+					'\t\t<Pill tone="loud" disabled={off} className="inline-flex" />',
+					"\t</>",
+					");",
+					"",
+				].join("\n"),
+			},
+		});
+		expect(describeFindings(await fixture.run(redundantClassRule))).toEqual([
+			'src/app.tsx:8:42 <Pill className> repeats "px-3", which "pill" already applies through its base classes. Remove it from className.',
+			'src/app.tsx:9:20 <Pill className> repeats "px-3", which "pill" already applies through its base classes. Remove it from className.',
+			'src/app.tsx:10:32 <Pill className> repeats "px-6", which "pill" already applies through the compound variant tone="loud", size="md". Remove it from className.',
+			'src/app.tsx:11:29 <Pill className> repeats "ring", which "pill" already applies through the compound variant disabled=true. Remove it from className.',
+			'src/app.tsx:14:47 <Pill className> repeats "inline-flex", which "pill" already applies through its base classes. Remove it from className.',
 		]);
 	});
 });

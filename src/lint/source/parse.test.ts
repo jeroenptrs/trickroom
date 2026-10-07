@@ -213,6 +213,45 @@ const e = <div className={twMerge("p-3", cn("p-4"))} />;`);
 		});
 	});
 
+	it("reads cva's base classes from its first argument and walks its options like a tv config", () => {
+		const module =
+			parse(`const a = cva("bg-missing px-2", { variants: { size: { sm: "text-sm", lg: ["text-lg", "px-4"] } }, compoundVariants: [{ size: "sm", class: "ring" }], defaultVariants: { size: "sm" } });
+const b = cva(["inline-flex", ["gap-1", { "opacity-50": off }]]);
+const c = cva({ base: "p-1", variants: { tone: { loud: "font-bold" } } });
+const d = cva(base, { variants: { tone: { loud: "underline" } } });
+const e = cva({ "bg-missing": true }, { variants: { size: { sm: "text-sm" } } });
+const f = cva({ "inline-block": true, "m-1": on });`);
+		expect(
+			module.classStrings.map((entry) => [
+				entry.value,
+				entry.mixed,
+				entry.conditional,
+				entry.position.line,
+			]),
+		).toEqual([
+			["bg-missing px-2", false, false, 1],
+			["text-sm", false, false, 1],
+			["text-lg", false, false, 1],
+			["px-4", false, false, 1],
+			["ring", false, false, 1],
+			// The base is a class value: nested arrays, clsx-style object keys.
+			["inline-flex", false, false, 2],
+			["gap-1", false, false, 2],
+			["opacity-50", false, true, 2],
+			// cva 1.x takes one config object, as tv does.
+			["p-1", false, false, 3],
+			["font-bold", false, false, 3],
+			// A base that is not a literal leaves the options' classes mixed.
+			["underline", true, false, 4],
+			// With two arguments the first is the base, even as an object.
+			["bg-missing", false, true, 5],
+			["text-sm", false, false, 5],
+			// One object without config keys is a clsx-style base.
+			["inline-block", false, true, 6],
+			["m-1", false, true, 6],
+		]);
+	});
+
 	it("models call sites with literal object arguments and their completeness", () => {
 		const module =
 			parse(`const s = buttonVariants({ size: "sm", active: true, tone, class: cx("a") });

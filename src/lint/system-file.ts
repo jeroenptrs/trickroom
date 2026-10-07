@@ -13,19 +13,21 @@ import path from "node:path";
 const isInside = (root: string, target: string) =>
 	target === root || target.startsWith(`${root}${path.sep}`);
 
-export async function writeSystemFileAtomic({
+/**
+ * The real path of a system folder that lint files may be written into, or
+ * the error `refuse` builds. Also where the report's lockfile goes.
+ */
+export async function resolveWritableSystemDir({
 	projectRoot,
 	systemDir,
 	fileName,
-	contents,
 	refuse,
 }: {
 	projectRoot: string;
 	systemDir: string;
 	fileName: string;
-	contents: string;
 	refuse: (message: string) => Error;
-}): Promise<{ path: string; contents: string }> {
+}): Promise<string> {
 	const realRoot = await realpath(projectRoot);
 	const systemsDir = path.join(realRoot, ".trickroom", "systems");
 	const realSystemsDir = await realpath(systemsDir);
@@ -43,10 +45,40 @@ export async function writeSystemFileAtomic({
 			`Refusing to write ${fileName}: ${systemDir} is not a system folder under ${systemsDir}.`,
 		);
 	}
+	return realSystemDir;
+}
+
+/**
+ * Writes a temp sibling and renames it into place, so a crash never leaves
+ * the target half-written (at most a `.tmp` file next to it).
+ */
+export async function writeSystemFileAtomic({
+	projectRoot,
+	systemDir,
+	fileName,
+	contents,
+	refuse,
+	beforeRename,
+}: {
+	projectRoot: string;
+	systemDir: string;
+	fileName: string;
+	contents: string;
+	refuse: (message: string) => Error;
+	/** Runs after the temp file is written; throwing writes nothing. */
+	beforeRename?: () => Promise<void>;
+}): Promise<{ path: string; contents: string }> {
+	const realSystemDir = await resolveWritableSystemDir({
+		projectRoot,
+		systemDir,
+		fileName,
+		refuse,
+	});
 	const filePath = path.join(realSystemDir, fileName);
 	const tempPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
 	try {
 		await writeFile(tempPath, contents, "utf8");
+		await beforeRename?.();
 		await rename(tempPath, filePath);
 	} catch (error) {
 		await unlink(tempPath).catch(() => undefined);

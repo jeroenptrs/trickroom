@@ -120,11 +120,28 @@ describe("design file lock", () => {
 		).resolves.toBe("acquired");
 	});
 
-	it("breaks a lock older than the stale timeout even if the pid is alive", async () => {
+	it("never breaks a live holder's lock, however old", async () => {
 		await writeHolder({
 			pid: process.ppid,
 			hostname: os.hostname(),
 			token: "old",
+			acquiredAt: Date.now() - 60_000,
+		});
+
+		await expect(
+			withDesignFileLock(designPath, async () => "acquired", {
+				lockDirectory,
+				staleAfterMs: 1_000,
+				acquireTimeoutMs: 100,
+			}),
+		).rejects.toBeInstanceOf(DesignFileLockTimeoutError);
+	});
+
+	it("falls back to age for a holder on another host, whose pid it cannot check", async () => {
+		await writeHolder({
+			pid: process.ppid,
+			hostname: `${os.hostname()}-elsewhere`,
+			token: "remote",
 			acquiredAt: Date.now() - 60_000,
 		});
 
@@ -176,6 +193,48 @@ describe("design file lock", () => {
 		await expect(readdir(lockDirectory)).resolves.toEqual([
 			path.basename(lockPath),
 		]);
+	});
+
+	it("reclaims only through the reclaim lock, never past a live reclaimer, and removes an abandoned one", async () => {
+		const reclaimPath = lockPath.replace(/\.lock$/u, ".reclaim");
+		const deadHolder = async () =>
+			writeHolder({
+				pid: await findDeadPid(),
+				hostname: os.hostname(),
+				token: "dead",
+				acquiredAt: Date.now(),
+			});
+		const attempt = (acquireTimeoutMs: number) =>
+			withDesignFileLock(designPath, async () => "acquired", {
+				lockDirectory,
+				acquireTimeoutMs,
+			});
+
+		// Another process is inside the reclaim section: wait, however old.
+		await deadHolder();
+		await writeFile(
+			reclaimPath,
+			JSON.stringify({
+				pid: process.ppid,
+				hostname: os.hostname(),
+				token: "reclaiming",
+				acquiredAt: Date.now() - 60_000,
+			}),
+		);
+		await expect(attempt(100)).rejects.toBeInstanceOf(
+			DesignFileLockTimeoutError,
+		);
+
+		// An unreadable reclaim lock (a crash while creating it) is removed
+		// only once it is older than 10 seconds.
+		await writeFile(reclaimPath, "");
+		await expect(attempt(100)).rejects.toBeInstanceOf(
+			DesignFileLockTimeoutError,
+		);
+		const past = new Date(Date.now() - 11_000);
+		await utimes(reclaimPath, past, past);
+		await expect(attempt(1_000)).resolves.toBe("acquired");
+		await expect(readdir(lockDirectory)).resolves.toEqual([]);
 	});
 
 	it("keys locks by design path", () => {

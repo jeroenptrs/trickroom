@@ -395,6 +395,17 @@ export const TV_CONFIG_CALLS: readonly string[] = ["tv", "cva"];
 
 const TV_CLASS_KEYS = new Set(["class", "className"]);
 
+/** The keys of a tv()/cva() config; an object with none of them is not one. */
+const TV_CONFIG_KEYS = new Set([
+	"base",
+	"slots",
+	"variants",
+	"compoundVariants",
+	"compoundSlots",
+	"defaultVariants",
+	"extend",
+]);
+
 type Collector = {
 	out: Collected[];
 	classCalls: ReadonlySet<string>;
@@ -550,6 +561,8 @@ const visitClassExpression = (
  * A call to a class call: `tv`/`cva` configs are walked by their known
  * keys (base, slots, variants, compoundVariants, compoundSlots; conditions
  * and defaults are not classes), other class calls by their arguments.
+ * `cva(base, options)` takes its base classes from the first argument;
+ * a lone cva argument is the config only when it has config keys.
  * Null when the callee is not a class call.
  */
 const visitClassCall = (
@@ -573,11 +586,31 @@ const visitClassCall = (
 		}
 		return complete;
 	}
-	const config = args[0] ? unwrap(args[0]) : null;
+	let complete = true;
+	let configArgument: AstNode | undefined = args[0];
+	// `cva(base, options)`: with two arguments the first is always the base,
+	// a class value (strings, nested arrays, clsx-style objects), and the
+	// second a config like tv's. One argument is the config (cva 1.x, tv),
+	// unless it is not an object with config keys: then it is the base.
+	if (callee.root === "cva" && args[0]) {
+		const first = unwrap(args[0]);
+		const isBase =
+			args.length > 1 ||
+			first.type !== "ObjectExpression" ||
+			!((first.properties as AstNode[]) ?? []).some((property) => {
+				const name = propertyName(property);
+				return name !== null && TV_CONFIG_KEYS.has(name);
+			});
+		if (isBase) {
+			if (!visitClassExpression(collector, args[0], "keys")) complete = false;
+			configArgument = args[1];
+			if (!configArgument) return complete;
+		}
+	}
+	const config = configArgument ? unwrap(configArgument) : null;
 	if (!config || config.type !== "ObjectExpression") {
 		return false;
 	}
-	let complete = true;
 	const leaf = (node: AstNode) => {
 		if (!visitClassExpression(collector, node, "values")) complete = false;
 	};

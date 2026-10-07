@@ -3,6 +3,10 @@ import path from "node:path";
 import { resolveCodegenConfig } from "../codegen/config";
 import { type CodegenRunResult, runCodegen } from "../codegen/run-codegen";
 import { readProjectConfigReadOnly } from "../project";
+import {
+	DesignFileLockTimeoutError,
+	FileLockLostError,
+} from "../services/design-file-lock";
 import { createDesignFileService } from "../services/design-file-service";
 import { createClassTokenInspector } from "../utils/class-token-diagnostics";
 import { designReferencesSystemHandle } from "../utils/design-resource-references";
@@ -40,17 +44,19 @@ import {
 	countSeverity,
 	emptySeverityCounts,
 	LINT_REPORT_FILE_NAME,
+	LINT_REPORT_LOCK_FILE_NAME,
 	LINT_REPORT_VERSION,
 	type LintComponentCoverage,
 	type LintDesignStats,
 	type LintFileStats,
 	type LintFinding,
-	type LintRatchetBaseline,
 	type LintReport,
+	type LintReportRead,
 	LintReportWriteError,
 	normalizeLintReport,
 	readLintReport,
 	summarizeFindings,
+	withLintReportLock,
 	writeLintReport,
 } from "./report";
 import { lintRuleRegistry } from "./rules/index";
@@ -105,12 +111,17 @@ export type LintRunDiagnosticCode =
 	| "INVALID_LINT_CONFIG"
 	| "CODEGEN_OTHER_SYSTEM"
 	| "INVALID_BASELINE"
+	| "BASELINE_MOVED"
+	| "REPORT_LOCKED"
 	| "SOURCE_PARSE_ERROR"
+	| "SOURCE_ROOT_MISSING"
 	| "SOURCES_TRUNCATED"
+	| "SOURCES_UNREADABLE"
 	| "RULE_FAILED"
 	| "WRITE_FAILED"
 	| "WRAPPER_MODULE_NOT_SCANNED"
 	| "DESIGN_UNREADABLE"
+	| "DESIGNS_UNREADABLE"
 	| "RUN_FAILED";
 
 export type LintRunDiagnostic = {
@@ -167,6 +178,8 @@ export const createTailwindInspectorLoader = (
  * `systemName`), read without the design lock so nothing is migrated or
  * written. A design that cannot be read is listed in `unreadable` and
  * skipped; designs linked to other systems or none are skipped silently.
+ * A designs folder that cannot be listed throws (a missing one has no
+ * designs).
  */
 export const readLinkedDesigns = async (
 	projectRoot: string,
@@ -348,6 +361,36 @@ const buildDesignStats = (
 	}
 	return [...rows.values()];
 };
+
+/**
+ * What identifies the committed report a run compared against: its
+ * `generatedAt`, or why there was none.
+ */
+const reportRevision = (read: LintReportRead) =>
+	read.status === "present"
+		? `present:${read.report.generatedAt}`
+		: read.status;
+
+const reportWriteQueues = new Map<string, Promise<unknown>>();
+
+/** One compare-and-write at a time per report path, in this process. */
+async function runExclusiveReportWrite<T>(
+	reportPath: string,
+	operation: () => Promise<T>,
+): Promise<T> {
+	const previousWrite = reportWriteQueues.get(reportPath);
+	const queuedWrite = previousWrite
+		? previousWrite.catch(() => undefined).then(operation)
+		: operation();
+	reportWriteQueues.set(reportPath, queuedWrite);
+	const release = () => {
+		if (reportWriteQueues.get(reportPath) === queuedWrite) {
+			reportWriteQueues.delete(reportPath);
+		}
+	};
+	queuedWrite.then(release, release);
+	return queuedWrite;
+}
 
 /**
  * Runs the lint; every failure, including one the engine did not foresee
@@ -552,8 +595,30 @@ async function runLintInner(
 		}
 	}
 
-	// Sources.
+	// Sources. A folder or file that cannot be read fails the run: fewer
+	// files means fewer findings, which the ratchet would take for an
+	// improvement and record as the baseline.
 	const walked = await walkSourceFiles(projectRoot, config.source);
+	// Only roots lint.json names: a project without sources (designs only)
+	// is not told about the default `src/**`.
+	const includeConfigured =
+		lintConfigRead.status === "present" &&
+		lintConfigRead.config.source?.include !== undefined;
+	for (const root of includeConfigured ? walked.missingRoots : []) {
+		warn(
+			"SOURCE_ROOT_MISSING",
+			`${root} does not exist, so source.include has nothing to scan there. Check the globs in ${LINT_CONFIG_FILE_NAME}.`,
+			root,
+		);
+	}
+	for (const entry of walked.unreadable) {
+		fail(
+			"SOURCES_UNREADABLE",
+			`Could not read the source folder ${entry.path}, so the scan would be incomplete: ${entry.message}`,
+			entry.path,
+		);
+	}
+	if (walked.unreadable.length > 0) return result;
 	if (walked.truncated) {
 		warn(
 			"SOURCES_TRUNCATED",
@@ -563,10 +628,16 @@ async function runLintInner(
 	const modules: SourceModule[] = [];
 	let parseErrorCount = 0;
 	for (const file of walked.files) {
-		const text = await readFile(
-			path.join(projectRoot, ...file.split("/")),
-			"utf8",
-		);
+		let text: string;
+		try {
+			text = await readFile(path.join(projectRoot, ...file.split("/")), "utf8");
+		} catch (error) {
+			return fail(
+				"SOURCES_UNREADABLE",
+				`Could not read the source file ${file}, so the scan would be incomplete: ${error instanceof Error ? error.message : String(error)}`,
+				file,
+			);
+		}
 		const module = parseSourceModule(file, text, {
 			classCalls: config.source.classCalls,
 		});
@@ -597,8 +668,25 @@ async function runLintInner(
 		}
 	}
 
-	// Designs.
-	const linked = await readLinkedDesigns(projectRoot, system);
+	// Designs. A single design that cannot be read is skipped with a
+	// warning; a designs folder that cannot be listed fails the run, for
+	// the same reason as an unreadable source folder.
+	let linked: Awaited<ReturnType<typeof readLinkedDesigns>>;
+	try {
+		linked = await readLinkedDesigns(projectRoot, system);
+	} catch (error) {
+		const designsPath = toPosix(
+			path.relative(
+				projectRoot,
+				createDesignFileService(projectRoot).designsDir,
+			),
+		);
+		return fail(
+			"DESIGNS_UNREADABLE",
+			`Could not list the designs in ${designsPath}, so the design side would be incomplete: ${error instanceof Error ? error.message : String(error)}`,
+			designsPath,
+		);
+	}
 	for (const entry of linked.unreadable) {
 		warn(
 			"DESIGN_UNREADABLE",
@@ -669,66 +757,124 @@ async function runLintInner(
 		components,
 	};
 
-	const previous = await readLintReport(system.dir);
-	let previousBaseline: LintRatchetBaseline | null = null;
-	if (previous.status === "present") {
-		previousBaseline = previous.report.ratchetBaseline;
-	} else if (previous.status === "invalid") {
-		warn(
-			"INVALID_BASELINE",
-			`${result.reportPath} could not be used as the ratchet baseline (${previous.issue.message}); this run starts a new baseline.`,
-			result.reportPath,
-		);
-	}
-	result.baseline = previous.status;
-	const ratchet = compareLintRatchet({
-		numbers: collectTrackedNumbers(draft),
-		baseline: previousBaseline,
-		thresholds: config.thresholds,
-	});
-	result.ratchet = ratchet;
-
-	const report: LintReport = normalizeLintReport({
-		version: LINT_REPORT_VERSION,
-		generatedAt,
-		system: { id: systemId, name: system.manifest.systemName },
-		contract: { hash: contract.hash, components: contract.components.length },
-		config: { present: config.present },
-		status: ratchet.status,
-		summary: draft.summary,
-		findings,
-		components,
-		files: buildFileStats(sources, findings),
-		designs: buildDesignStats(designs, findings),
-		ratchet,
-		ratchetBaseline: nextRatchetBaseline({
-			result: ratchet,
-			generatedAt,
-			previous: previousBaseline,
-		}),
-	});
-	result.report = report;
-	result.status = ratchet.status;
-
-	const shouldWrite =
-		writeMode === "always" ||
-		(writeMode === "on-pass" && ratchet.status === "pass");
-	if (shouldWrite) {
-		try {
-			await writeLintReport(projectRoot, system.dir, report);
-			result.written = true;
-		} catch (error) {
-			if (error instanceof LintReportWriteError) {
-				fail("WRITE_FAILED", error.message, result.reportPath);
-			} else {
-				fail(
-					"WRITE_FAILED",
-					`Could not write ${result.reportPath}: ${error instanceof Error ? error.message : String(error)}`,
-					result.reportPath,
-				);
-			}
-			result.status = "error";
+	const numbers = collectTrackedNumbers(draft);
+	const files = buildFileStats(sources, findings);
+	const designStats = buildDesignStats(designs, findings);
+	const reportPath = result.reportPath;
+	const ratchetAgainst = (previous: LintReportRead) => {
+		if (previous.status === "invalid") {
+			warn(
+				"INVALID_BASELINE",
+				`${reportPath} could not be used as the ratchet baseline (${previous.issue.message}); this run starts a new baseline.`,
+				reportPath,
+			);
 		}
+		const previousBaseline =
+			previous.status === "present" ? previous.report.ratchetBaseline : null;
+		const ratchet = compareLintRatchet({
+			numbers,
+			baseline: previousBaseline,
+			thresholds: config.thresholds,
+		});
+		result.baseline = previous.status;
+		result.ratchet = ratchet;
+		result.status = ratchet.status;
+		result.report = normalizeLintReport({
+			version: LINT_REPORT_VERSION,
+			generatedAt,
+			system: { id: systemId, name: system.manifest.systemName },
+			contract: { hash: contract.hash, components: contract.components.length },
+			config: { present: config.present },
+			status: ratchet.status,
+			summary: draft.summary,
+			findings,
+			components,
+			files,
+			designs: designStats,
+			ratchet,
+			ratchetBaseline: nextRatchetBaseline({
+				result: ratchet,
+				generatedAt,
+				previous: previousBaseline,
+			}),
+		});
+		return ratchet;
+	};
+
+	if (writeMode === "never") {
+		ratchetAgainst(await readLintReport(system.dir));
+		return result;
 	}
+
+	// Compare and write as one step per report: runs in this process queue
+	// up, and across processes the report is read again under its lock file
+	// just before the write, so a run that replaced it since this one read
+	// it is caught.
+	await runExclusiveReportWrite(
+		path.resolve(system.dir, LINT_REPORT_FILE_NAME),
+		async () => {
+			const previous = await readLintReport(system.dir);
+			const ratchet = ratchetAgainst(previous);
+			if (writeMode === "on-pass" && ratchet.status !== "pass") return;
+			try {
+				// The lock is held from the re-read through the rename, so no
+				// other process replaces the report in between.
+				await withLintReportLock(projectRoot, system.dir, async (lock) => {
+					const current = await readLintReport(system.dir);
+					if (reportRevision(current) !== reportRevision(previous)) {
+						// The findings stand; only the comparison is redone.
+						const moved = ratchetAgainst(current);
+						if (moved.status !== "pass") {
+							const worse = [
+								...moved.regressions.map(
+									(entry) =>
+										`${entry.metric} ${entry.baseline} -> ${entry.current}`,
+								),
+								...moved.breaches.map(
+									(entry) =>
+										`${entry.metric} ${entry.current} (${entry.kind} ${entry.limit})`,
+								),
+							];
+							fail(
+								"BASELINE_MOVED",
+								`${reportPath} was replaced during this run (now from ${current.status === "present" ? current.report.generatedAt : "no usable report"}), and against it this run is worse: ${worse.join(", ")}. Nothing was written.`,
+								reportPath ?? undefined,
+							);
+							return;
+						}
+					}
+					if (!result.report) return;
+					// Fencing: write only while the lock is still this run's.
+					await writeLintReport(projectRoot, system.dir, result.report, {
+						beforeRename: lock.assertHeld,
+					});
+					result.written = true;
+				});
+			} catch (error) {
+				result.status = "error";
+				if (error instanceof DesignFileLockTimeoutError) {
+					fail(
+						"REPORT_LOCKED",
+						`${reportPath} is locked by another lint run (${LINT_REPORT_LOCK_FILE_NAME}: ${error.message}); nothing was written. Run lint again, or delete the lock file if no run is active.`,
+						reportPath ?? undefined,
+					);
+				} else if (error instanceof FileLockLostError) {
+					fail(
+						"REPORT_LOCKED",
+						`This run lost its lock on ${reportPath} before writing (${LINT_REPORT_LOCK_FILE_NAME} was reclaimed or removed); nothing was written. Run lint again.`,
+						reportPath ?? undefined,
+					);
+				} else if (error instanceof LintReportWriteError) {
+					fail("WRITE_FAILED", error.message, reportPath ?? undefined);
+				} else {
+					fail(
+						"WRITE_FAILED",
+						`Could not write ${reportPath}: ${error instanceof Error ? error.message : String(error)}`,
+						reportPath ?? undefined,
+					);
+				}
+			}
+		},
+	);
 	return result;
 }

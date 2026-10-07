@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { SOURCE_EXTENSIONS } from "../config";
 import { compileGlobs, globStaticPrefix } from "./glob";
@@ -12,6 +12,11 @@ import { compileGlobs, globStaticPrefix } from "./glob";
  * leave the project. A glob as broad as `src/**` still takes only the files
  * the parser reads, not the CSS, Markdown or HTML next to them. Sorted,
  * project-relative, `/` separators.
+ *
+ * A folder that cannot be read is never taken for an empty one: it is
+ * listed in `unreadable`, and the caller decides (a lint run fails, since
+ * fewer files means fewer findings and would read as an improvement). An
+ * include root that does not exist is only listed in `missingRoots`.
  */
 
 export const ALWAYS_SKIPPED_FOLDERS = new Set(["node_modules", "dist"]);
@@ -33,6 +38,15 @@ export type WalkSourceFilesOptions = {
 export type WalkedSourceFiles = {
 	files: string[];
 	truncated: boolean;
+	/** Static folders of the include globs that do not exist, sorted. */
+	missingRoots: string[];
+	/** Folders the walk could not read (`.` for the project root). */
+	unreadable: Array<{ path: string; code: string | null; message: string }>;
+};
+
+const errorCode = (error: unknown): string | null => {
+	const code = (error as { code?: unknown } | null)?.code;
+	return typeof code === "string" ? code : null;
 };
 
 const DEFAULT_MAX_FILES = 50_000;
@@ -46,6 +60,7 @@ export async function walkSourceFiles(
 	const prefixes = options.include.map(globStaticPrefix);
 	const maxFiles = options.maxFiles ?? DEFAULT_MAX_FILES;
 	const files: string[] = [];
+	const unreadable: WalkedSourceFiles["unreadable"] = [];
 	let truncated = false;
 
 	const mayContainMatches = (relativeDir: string) =>
@@ -66,7 +81,12 @@ export async function walkSourceFiles(
 		let entries: Dirent[];
 		try {
 			entries = await readdir(absolute, { withFileTypes: true });
-		} catch {
+		} catch (error) {
+			unreadable.push({
+				path: relativeDir || ".",
+				code: errorCode(error),
+				message: error instanceof Error ? error.message : String(error),
+			});
 			return;
 		}
 		entries.sort((left, right) =>
@@ -98,5 +118,19 @@ export async function walkSourceFiles(
 		}
 	};
 	await visit("");
-	return { files, truncated };
+
+	// The walk only descends into folders it lists, so a root that is not
+	// there never comes up: check each one. Other failures to reach a root
+	// are the walk's to report, at the folder it could not read.
+	const missingRoots: string[] = [];
+	for (const root of [...new Set(prefixes)].sort()) {
+		if (root === "") continue;
+		try {
+			await stat(path.join(projectRoot, ...root.split("/")));
+		} catch (error) {
+			const code = errorCode(error);
+			if (code === "ENOENT" || code === "ENOTDIR") missingRoots.push(root);
+		}
+	}
+	return { files, truncated, missingRoots, unreadable };
 }

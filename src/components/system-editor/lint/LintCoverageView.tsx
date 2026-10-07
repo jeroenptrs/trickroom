@@ -1,5 +1,5 @@
 import { Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type RefObject, useMemo, useState } from "react";
 import type { LintConfig } from "../../../lint/config";
 import type { LintReport } from "../../../lint/report";
 import {
@@ -25,6 +25,7 @@ import {
 	LINT_COVERAGE_STATES,
 	thresholdForMetric,
 } from "./lint-dashboard-model";
+import { useVirtualRows } from "./useVirtualRows";
 
 const FILTER_OPTIONS: Array<{ value: LintCoverageFilter; label: string }> = [
 	{ value: "all", label: "All" },
@@ -65,14 +66,19 @@ function CoverageStrip({
 	);
 }
 
+/** A row with one line of gaps; rows whose gaps wrap are measured. */
+const ROW_ESTIMATE = 49;
+
 export function LintCoverageView({
 	report,
 	config,
 	selection,
+	scrollElementRef,
 }: {
 	report: LintReport;
 	config: LintConfig | null;
 	selection: LintSelection | null;
+	scrollElementRef: RefObject<HTMLDivElement | null>;
 }) {
 	const filter = useLintCoverageFilter();
 	const [search, setSearch] = useState("");
@@ -85,6 +91,14 @@ export function LintCoverageView({
 		[report.components, filter, search],
 	);
 	const total = report.components.length;
+	const { containerRef, virtualizer, scrollMargin } = useVirtualRows({
+		count: rows.length,
+		estimateSize: ROW_ESTIMATE,
+		scrollElementRef,
+		getItemKey: (index) => rows[index]?.slug ?? String(index),
+		measure: true,
+	});
+	const selectedSlug = selection?.kind === "component" ? selection.slug : null;
 
 	return (
 		<div className="flex flex-col gap-6" data-lint-view="coverage">
@@ -187,65 +201,76 @@ export function LintCoverageView({
 								: "No components match this filter."}
 						</Text>
 					) : null}
-					{rows.map((component) => {
-						const gaps = coverageGaps(component);
-						const isSelected =
-							selection?.kind === "component" &&
-							selection.slug === component.slug;
-						return (
-							<button
-								key={component.slug}
-								type="button"
-								data-lint-component={component.slug}
-								data-selected={isSelected}
-								className="flex items-center gap-3 border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500 data-[selected=true]:bg-cyan-50"
-								onClick={() =>
-									selectLintItem({ kind: "component", slug: component.slug })
-								}
-							>
-								<span className="flex min-w-0 flex-1 flex-col">
-									<span className="truncate text-xs font-medium text-slate-900">
-										{component.name}
-									</span>
-									<span className="truncate font-mono text-[10px] text-slate-500">
-										{component.slug}
-									</span>
-								</span>
-								<span className="w-[108px] shrink-0">
-									<CoverageStrip component={component} />
-								</span>
-								<span className="flex w-56 shrink-0 flex-wrap gap-1">
-									{gaps.length === 0 ? (
-										<span className="font-mono text-[11px] text-slate-400">
-											none
-										</span>
-									) : (
-										gaps.map((gap) => (
-											<Badge key={gap} tone="warning" edge="stamped">
-												{
-													LINT_COVERAGE_STATES.find(
-														(state) => state.key === gap,
-													)?.gap
-												}
-											</Badge>
-										))
-									)}
-								</span>
-								<span
-									className="w-48 shrink-0 truncate font-mono text-[11px] text-slate-600"
-									title={component.wrappers.join("\n")}
+					<div
+						ref={containerRef}
+						className="relative w-full"
+						style={{ height: virtualizer.getTotalSize() }}
+					>
+						{virtualizer.getVirtualItems().map((item) => {
+							const component = rows[item.index];
+							if (!component) return null;
+							const gaps = coverageGaps(component);
+							return (
+								<button
+									key={item.key}
+									ref={virtualizer.measureElement}
+									data-index={item.index}
+									type="button"
+									data-lint-component={component.slug}
+									data-selected={selectedSlug === component.slug}
+									data-last={item.index === rows.length - 1}
+									className="absolute inset-x-0 top-0 flex items-center gap-3 border-b border-slate-100 px-3 py-2 text-left hover:bg-slate-50 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500 data-[last=true]:border-b-0 data-[selected=true]:bg-cyan-50"
+									style={{
+										transform: `translateY(${item.start - scrollMargin}px)`,
+									}}
+									onClick={() =>
+										selectLintItem({ kind: "component", slug: component.slug })
+									}
 								>
-									{component.wrappers[0] ?? "—"}
-									{component.wrappers.length > 1
-										? ` +${component.wrappers.length - 1}`
-										: ""}
-								</span>
-								<span className="w-14 shrink-0 text-right font-mono text-xs text-slate-900">
-									{component.usages}
-								</span>
-							</button>
-						);
-					})}
+									<span className="flex min-w-0 flex-1 flex-col">
+										<span className="truncate text-xs font-medium text-slate-900">
+											{component.name}
+										</span>
+										<span className="truncate font-mono text-[10px] text-slate-500">
+											{component.slug}
+										</span>
+									</span>
+									<span className="w-[108px] shrink-0">
+										<CoverageStrip component={component} />
+									</span>
+									<span className="flex w-56 shrink-0 flex-wrap gap-1">
+										{gaps.length === 0 ? (
+											<span className="font-mono text-[11px] text-slate-400">
+												none
+											</span>
+										) : (
+											gaps.map((gap) => (
+												<Badge key={gap} tone="warning" edge="stamped">
+													{
+														LINT_COVERAGE_STATES.find(
+															(state) => state.key === gap,
+														)?.gap
+													}
+												</Badge>
+											))
+										)}
+									</span>
+									<span
+										className="w-48 shrink-0 truncate font-mono text-[11px] text-slate-600"
+										title={component.wrappers.join("\n")}
+									>
+										{component.wrappers[0] ?? "—"}
+										{component.wrappers.length > 1
+											? ` +${component.wrappers.length - 1}`
+											: ""}
+									</span>
+									<span className="w-14 shrink-0 text-right font-mono text-xs text-slate-900">
+										{component.usages}
+									</span>
+								</button>
+							);
+						})}
+					</div>
 				</Card>
 			</section>
 		</div>

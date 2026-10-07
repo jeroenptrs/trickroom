@@ -700,6 +700,42 @@ describe("runLint", () => {
 		expect(await readReport(project)).toEqual(report);
 	});
 
+	it("counts usages for coverage and the heat map the way the rules do, skipping shadowed names", async () => {
+		const project = await setup();
+		await generate(project);
+		await writeFile(
+			project.path("src/app.tsx"),
+			[
+				'import { Button } from "./ui/button";',
+				// A parameter named Button: <Button /> is not the component.
+				"export function App(Button: () => null) {",
+				"\treturn <Button />;",
+				"}",
+				"",
+			].join("\n"),
+		);
+		const result = await runLint({ projectRoot: project.root, check: true });
+		expect(
+			result.report?.components.find((entry) => entry.slug === "button"),
+		).toMatchObject({ bound: true, usedInApp: false, usages: 0 });
+		expect(
+			result.report?.files.find((entry) => entry.file === "src/app.tsx"),
+		).toBeUndefined();
+
+		// The same file with the import in scope counts.
+		await writeFile(
+			project.path("src/app.tsx"),
+			'import { Button } from "./ui/button";\nexport function App() {\n\treturn <Button />;\n}\n',
+		);
+		const used = await runLint({ projectRoot: project.root, check: true });
+		expect(
+			used.report?.components.find((entry) => entry.slug === "button"),
+		).toMatchObject({ usedInApp: true, usages: 1 });
+		expect(
+			used.report?.files.find((entry) => entry.file === "src/app.tsx"),
+		).toMatchObject({ usages: 1 });
+	});
+
 	it("reports a lint.json it cannot read as an invalid lint.json", async () => {
 		const project = await setup({ codegen: false });
 		await mkdir(project.path(".trickroom/systems/core/lint.json"));

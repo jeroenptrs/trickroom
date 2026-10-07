@@ -1,9 +1,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import {
+	type FileLockHandle,
+	withFileLock,
+} from "../services/design-file-lock";
 import type { LintSeverity } from "./config";
 import type { LintRatchetResult } from "./ratchet";
 import type { LintLocation, LintSide } from "./rules/types";
-import { writeSystemFileAtomic } from "./system-file";
+import { resolveWritableSystemDir, writeSystemFileAtomic } from "./system-file";
 
 /**
  * `.trickroom/systems/<id>/lint-report.json`: the latest lint run of one
@@ -527,10 +531,51 @@ export class LintReportWriteError extends Error {
  * a direct child of it, so nothing is ever written outside the project.
  * Returns the file text written.
  */
+export const LINT_REPORT_LOCK_FILE_NAME = `${LINT_REPORT_FILE_NAME}.lock`;
+
+/**
+ * Runs `operation` holding `lint-report.json.lock` in the system folder,
+ * taken with an exclusive create, so one process at a time reads the
+ * committed report and replaces it. The lock names its pid, host, time
+ * and a token; one whose holder on this host has exited is reclaimed (one
+ * whose pid cannot be checked once older than 30 seconds), a live holder's
+ * never. `operation` gets the lock handle for the fencing check before its
+ * rename. Throws `DesignFileLockTimeoutError` after waiting 5 seconds, and
+ * `LintReportWriteError` when the folder is not a writable system folder
+ * (the lock is never created outside one).
+ */
+export async function withLintReportLock<T>(
+	projectRoot: string,
+	systemDir: string,
+	operation: (lock: FileLockHandle) => Promise<T>,
+): Promise<T> {
+	const realSystemDir = await resolveWritableSystemDir({
+		projectRoot,
+		systemDir,
+		fileName: LINT_REPORT_FILE_NAME,
+		refuse: (message) => new LintReportWriteError(message),
+	});
+	return withFileLock(
+		path.join(realSystemDir, LINT_REPORT_LOCK_FILE_NAME),
+		operation,
+		{
+			label: "lint report",
+			staleAfterMs: 30_000,
+			acquireTimeoutMs: 5_000,
+			retryDelayMs: 25,
+			createDirectory: false,
+		},
+	);
+}
+
 export async function writeLintReport(
 	projectRoot: string,
 	systemDir: string,
 	report: LintReport,
+	options: {
+		/** Runs between writing the temp file and renaming it into place. */
+		beforeRename?: () => Promise<void>;
+	} = {},
 ): Promise<{ path: string; contents: string }> {
 	return writeSystemFileAtomic({
 		projectRoot,
@@ -538,5 +583,6 @@ export async function writeLintReport(
 		fileName: LINT_REPORT_FILE_NAME,
 		contents: serializeLintReport(report),
 		refuse: (message) => new LintReportWriteError(message),
+		beforeRename: options.beforeRename,
 	});
 }

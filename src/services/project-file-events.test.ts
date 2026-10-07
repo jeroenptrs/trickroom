@@ -71,6 +71,15 @@ describe("project file events", () => {
 		expect(
 			isWatchedTrickroomFile("systems/core/lint-report.json.42.abc.tmp"),
 		).toBe(false);
+		expect(isWatchedTrickroomFile("systems/core/lint-report.json.lock")).toBe(
+			false,
+		);
+		expect(
+			isWatchedTrickroomFile("systems/core/lint-report.json.lock.42.abc"),
+		).toBe(false);
+		expect(
+			isWatchedTrickroomFile("systems/core/lint-report.json.reclaim"),
+		).toBe(false);
 		expect(isWatchedTrickroomFile("config.json")).toBe(false);
 
 		expect(classifyTrickroomFile("designs/home/design.json")).toEqual({
