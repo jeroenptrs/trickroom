@@ -1,4 +1,13 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import {
+	mkdir,
+	readdir,
+	readFile,
+	stat,
+	unlink,
+	utimes,
+	writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -25,6 +34,8 @@ const injected = vi.hoisted(() => ({
 	readdirFailures: new Map<string, string>(),
 	/** Runs once, right after the next read of a file with this path. */
 	afterRead: new Map<string, () => Promise<void>>(),
+	/** Runs once, right after the report's temp file is written. */
+	afterReportTempWrite: null as (() => Promise<void>) | null,
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -50,6 +61,18 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 			}
 			return result;
 		}) as typeof actual.readFile,
+		writeFile: (async (...args: Parameters<typeof actual.writeFile>) => {
+			const result = await actual.writeFile(...args);
+			const hook = injected.afterReportTempWrite;
+			if (
+				hook &&
+				/lint-report\.json\.\d+\.[^/\\]+\.tmp$/u.test(String(args[0]))
+			) {
+				injected.afterReportTempWrite = null;
+				await hook();
+			}
+			return result;
+		}) as typeof actual.writeFile,
 	};
 });
 
@@ -83,6 +106,7 @@ describe("runLint on a misbehaving filesystem", () => {
 	afterEach(async () => {
 		injected.readdirFailures.clear();
 		injected.afterRead.clear();
+		injected.afterReportTempWrite = null;
 		await Promise.all(projects.splice(0).map((project) => project.cleanup()));
 	});
 
@@ -277,54 +301,105 @@ describe("runLint on a misbehaving filesystem", () => {
 			() => false,
 		);
 
-	it("fails with REPORT_LOCKED while another run holds the report lock, and replaces a stale one", async () => {
+	const findDeadPid = async () => {
+		// A process that has exited and been reaped leaves its pid unused.
+		const child = spawn(process.execPath, ["-e", ""]);
+		await new Promise((resolve) => child.on("exit", resolve));
+		return child.pid as number;
+	};
+
+	it("fails with REPORT_LOCKED while a live run holds the report lock, however old, and reclaims an abandoned one", async () => {
 		const project = await setup();
 		await runLint({ projectRoot: project.root });
 		const committed = await readFile(project.path(REPORT), "utf8");
 		expect(await exists(project.path(LOCK))).toBe(false);
+		const holder = (pid: number, acquiredAt: number) =>
+			JSON.stringify({
+				pid,
+				hostname: os.hostname(),
+				token: "other-run",
+				acquiredAt,
+				designPath: project.path(REPORT),
+			});
 
-		// A live holder (this process) that took the lock just now.
-		const held = JSON.stringify({
-			pid: process.pid,
-			hostname: os.hostname(),
-			token: "other-run",
-			acquiredAt: Date.now(),
-			designPath: project.path(REPORT),
-		});
-		await writeFile(project.path(LOCK), held);
-		const locked = await runLint({ projectRoot: project.root });
-		expect(locked).toMatchObject({ status: "error", written: false });
-		expect(locked.diagnostics).toEqual([
-			{
-				code: "REPORT_LOCKED",
-				severity: "error",
-				message: expect.stringContaining("locked by another lint run"),
-				path: REPORT,
-			},
-		]);
-		expect(await readFile(project.path(REPORT), "utf8")).toBe(committed);
-		expect(await readFile(project.path(LOCK), "utf8")).toBe(held);
+		// A live holder (this process): just taken, or held for a minute.
+		for (const acquiredAt of [Date.now(), Date.now() - 60_000]) {
+			const held = holder(process.pid, acquiredAt);
+			await writeFile(project.path(LOCK), held);
+			const locked = await runLint({ projectRoot: project.root });
+			expect(locked).toMatchObject({ status: "error", written: false });
+			expect(locked.diagnostics).toEqual([
+				{
+					code: "REPORT_LOCKED",
+					severity: "error",
+					message: expect.stringContaining("locked by another lint run"),
+					path: REPORT,
+				},
+			]);
+			expect(await readFile(project.path(REPORT), "utf8")).toBe(committed);
+			expect(await readFile(project.path(LOCK), "utf8")).toBe(held);
+		}
 
-		// Older than 30 seconds: abandoned, replaced, and released after.
+		// A holder that has exited: reclaimed at once, whatever its age.
 		await writeFile(
 			project.path(LOCK),
-			JSON.stringify({
-				pid: process.pid,
-				hostname: os.hostname(),
-				token: "crashed-run",
-				acquiredAt: Date.now() - 31_000,
-				designPath: project.path(REPORT),
-			}),
+			holder(await findDeadPid(), Date.now()),
 		);
-		const replaced = await runLint({
+		const reclaimed = await runLint({
 			projectRoot: project.root,
 			now: () => new Date("2026-10-07T11:00:00.000Z"),
 		});
-		expect(replaced).toMatchObject({ status: "pass", written: true });
-		expect(replaced.diagnostics).toEqual([]);
+		expect(reclaimed).toMatchObject({ status: "pass", written: true });
+		expect(reclaimed.diagnostics).toEqual([]);
 		expect(await exists(project.path(LOCK))).toBe(false);
 		expect(await readFile(project.path(REPORT), "utf8")).toContain(
 			"2026-10-07T11:00:00.000Z",
 		);
-	}, 20_000);
+
+		// No readable pid (a run that crashed while creating it): only age
+		// tells, after 30 seconds.
+		await writeFile(project.path(LOCK), "");
+		const past = new Date(Date.now() - 31_000);
+		await utimes(project.path(LOCK), past, past);
+		const aged = await runLint({ projectRoot: project.root });
+		expect(aged).toMatchObject({ status: "pass", written: true });
+		expect(await exists(project.path(LOCK))).toBe(false);
+	}, 30_000);
+
+	it("writes nothing when the lock stops being its own before the report is renamed", async () => {
+		const project = await setup();
+		await runLint({ projectRoot: project.root });
+		const committed = await readFile(project.path(REPORT), "utf8");
+		const systemDir = project.path(".trickroom/systems/core");
+
+		// Another run's lock replaced this run's (as a reclaimer could), or
+		// the lock is gone, between acquisition and the rename.
+		const foreign = JSON.stringify({
+			pid: process.pid,
+			hostname: os.hostname(),
+			token: "someone-else",
+			acquiredAt: Date.now(),
+		});
+		for (const tamper of [
+			() => writeFile(project.path(LOCK), foreign),
+			() => unlink(project.path(LOCK)),
+		]) {
+			injected.afterReportTempWrite = tamper;
+			const result = await runLint({ projectRoot: project.root });
+			expect(result).toMatchObject({ status: "error", written: false });
+			expect(result.diagnostics).toEqual([
+				{
+					code: "REPORT_LOCKED",
+					severity: "error",
+					message: expect.stringContaining("lost its lock"),
+					path: REPORT,
+				},
+			]);
+			expect(await readFile(project.path(REPORT), "utf8")).toBe(committed);
+			expect(
+				(await readdir(systemDir)).filter((name) => name.endsWith(".tmp")),
+			).toEqual([]);
+			await unlink(project.path(LOCK)).catch(() => undefined);
+		}
+	});
 });

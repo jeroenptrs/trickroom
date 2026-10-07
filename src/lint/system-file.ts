@@ -58,12 +58,15 @@ export async function writeSystemFileAtomic({
 	fileName,
 	contents,
 	refuse,
+	beforeRename,
 }: {
 	projectRoot: string;
 	systemDir: string;
 	fileName: string;
 	contents: string;
 	refuse: (message: string) => Error;
+	/** Runs after the temp file is written; throwing writes nothing. */
+	beforeRename?: () => Promise<void>;
 }): Promise<{ path: string; contents: string }> {
 	const realSystemDir = await resolveWritableSystemDir({
 		projectRoot,
@@ -75,6 +78,7 @@ export async function writeSystemFileAtomic({
 	const tempPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
 	try {
 		await writeFile(tempPath, contents, "utf8");
+		await beforeRename?.();
 		await rename(tempPath, filePath);
 	} catch (error) {
 		await unlink(tempPath).catch(() => undefined);

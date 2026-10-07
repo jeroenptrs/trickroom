@@ -237,4 +237,26 @@ describe("file lock across processes", () => {
 			expect.stringContaining(".lock"),
 		);
 	}, 60_000);
+
+	it("never reclaims a live holder's lock, however long it holds it", async () => {
+		// The holder outlives the contender's stale threshold several times.
+		const holder = start("holder", "hold", {
+			holdMs: 2_000,
+			staleAfterMs: 200,
+		});
+		await waitFor(path.join(dir, "held-holder"));
+		const contender = await start("contender", "enter", {
+			staleAfterMs: 200,
+			acquireTimeoutMs: 1_000,
+		}).result;
+		expect(contender).toEqual({
+			label: "contender",
+			outcome: "DesignFileLockTimeoutError",
+		});
+		await expect(holder.result).resolves.toEqual({
+			label: "holder",
+			outcome: "acquired",
+			overlap: false,
+		});
+	}, 60_000);
 });

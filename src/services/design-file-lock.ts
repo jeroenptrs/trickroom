@@ -73,6 +73,30 @@ export class DesignFileLockTimeoutError extends Error {
 	}
 }
 
+/**
+ * Thrown by `FileLockHandle.assertHeld` when the lockfile no longer holds
+ * this acquisition's token (it was reclaimed and replaced, or removed).
+ */
+export class FileLockLostError extends Error {
+	readonly lockPath: string;
+
+	constructor(lockPath: string, label = "design file") {
+		super(`The ${label} lock at ${lockPath} is no longer held by this process`);
+		this.name = "FileLockLostError";
+		this.lockPath = lockPath;
+	}
+}
+
+/** What the operation under a lock can ask about it. */
+export type FileLockHandle = {
+	/**
+	 * Fencing: rejects with `FileLockLostError` unless the lockfile still
+	 * holds this acquisition's token. Call it right before the write the
+	 * lock guards becomes visible (an atomic rename).
+	 */
+	assertHeld: () => Promise<void>;
+};
+
 const defaultStaleAfterMs = 10_000;
 const defaultAcquireTimeoutMs = 5_000;
 const defaultRetryDelayMs = 10;
@@ -127,28 +151,31 @@ const isProcessAlive = (pid: number) => {
 		process.kill(pid, 0);
 		return true;
 	} catch (error) {
-		// EPERM: the process exists but belongs to someone else.
-		return (error as NodeJS.ErrnoException).code === "EPERM";
+		// Only ESRCH says there is no such process; EPERM means it exists but
+		// belongs to someone else, and anything else is not proof of death.
+		return (error as NodeJS.ErrnoException).code !== "ESRCH";
 	}
 };
 
+/**
+ * Whether a lock is abandoned. A holder on this host with a readable pid
+ * decides by itself: a live process keeps its lock however long it holds
+ * it, a dead one loses it at once. Age (`staleAfterMs`, from `acquiredAt`
+ * or the file's mtime) is only the fallback when the pid cannot be checked:
+ * no readable pid (empty or partly written lock) or a holder on another
+ * host.
+ */
 const isStale = (
 	holder: Partial<LockContents> | null,
 	modifiedAtMs: number,
 	staleAfterMs: number,
 ) => {
+	if (typeof holder?.pid === "number" && holder.hostname === os.hostname()) {
+		return !isProcessAlive(holder.pid);
+	}
 	const acquiredAt =
 		typeof holder?.acquiredAt === "number" ? holder.acquiredAt : modifiedAtMs;
-	if (Date.now() - acquiredAt > staleAfterMs) {
-		return true;
-	}
-
-	// A lock without readable contents may be mid-creation; only age breaks it.
-	if (typeof holder?.pid !== "number") {
-		return false;
-	}
-
-	return holder.hostname === os.hostname() && !isProcessAlive(holder.pid);
+	return Date.now() - acquiredAt > staleAfterMs;
 };
 
 const readLock = async (lockPath: string) => {
@@ -231,6 +258,8 @@ const acquireLock = async (
 	};
 
 	for (;;) {
+		// A fresh token per attempt: every acquisition is told apart.
+		contents.token = randomUUID();
 		contents.acquiredAt = Date.now();
 		const serialized = JSON.stringify(contents);
 		try {
@@ -240,7 +269,7 @@ const acquireLock = async (
 			} finally {
 				await handle.close();
 			}
-			return serialized;
+			return { serialized, token: contents.token };
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
 			if (code === "ENOENT" && options.createDirectory) {
@@ -282,12 +311,14 @@ const releaseLock = async (lockPath: string, serialized: string) => {
  * Runs `operation` while holding the in-process queue and the cross-process
  * lockfile at `lockPath`, created with `open(lockPath, "wx")`. Every process
  * has to derive the same `lockPath` for the same guarded file. The lock is
- * released when `operation` settles, and broken by others once it is older
- * than `staleAfterMs` or its holder on this host has exited.
+ * released when `operation` settles. Others reclaim it once its holder on
+ * this host has exited (or, when that cannot be checked, once it is older
+ * than `staleAfterMs`); `operation` gets a handle to check, right before
+ * its write, that it still holds the lock.
  */
 export const withFileLock = <T>(
 	lockPath: string,
-	operation: () => Promise<T>,
+	operation: (lock: FileLockHandle) => Promise<T>,
 	options: FileLockOptions & { target?: string } = {},
 ): Promise<T> => {
 	const resolvedOptions: ResolvedLockOptions = {
@@ -299,13 +330,21 @@ export const withFileLock = <T>(
 	};
 
 	return runQueued(lockPath, async () => {
-		const serialized = await acquireLock(
+		const { serialized, token } = await acquireLock(
 			lockPath,
 			options.target ?? lockPath,
 			resolvedOptions,
 		);
+		const handle: FileLockHandle = {
+			assertHeld: async () => {
+				const current = await readFile(lockPath, "utf8").catch(() => null);
+				if (current === null || parseLockContents(current)?.token !== token) {
+					throw new FileLockLostError(lockPath, resolvedOptions.label);
+				}
+			},
+		};
 		try {
-			return await operation();
+			return await operation(handle);
 		} finally {
 			await releaseLock(lockPath, serialized);
 		}
@@ -320,7 +359,7 @@ export const withFileLock = <T>(
  */
 export const withDesignFileLock = <T>(
 	designPath: string,
-	operation: () => Promise<T>,
+	operation: (lock: FileLockHandle) => Promise<T>,
 	{ lockDirectory, ...options }: DesignFileLockOptions,
 ): Promise<T> =>
 	withFileLock(getDesignFileLockPath(lockDirectory, designPath), operation, {

@@ -3,7 +3,10 @@ import path from "node:path";
 import { resolveCodegenConfig } from "../codegen/config";
 import { type CodegenRunResult, runCodegen } from "../codegen/run-codegen";
 import { readProjectConfigReadOnly } from "../project";
-import { DesignFileLockTimeoutError } from "../services/design-file-lock";
+import {
+	DesignFileLockTimeoutError,
+	FileLockLostError,
+} from "../services/design-file-lock";
 import { createDesignFileService } from "../services/design-file-service";
 import { createClassTokenInspector } from "../utils/class-token-diagnostics";
 import { designReferencesSystemHandle } from "../utils/design-resource-references";
@@ -816,7 +819,7 @@ async function runLintInner(
 			try {
 				// The lock is held from the re-read through the rename, so no
 				// other process replaces the report in between.
-				await withLintReportLock(projectRoot, system.dir, async () => {
+				await withLintReportLock(projectRoot, system.dir, async (lock) => {
 					const current = await readLintReport(system.dir);
 					if (reportRevision(current) !== reportRevision(previous)) {
 						// The findings stand; only the comparison is redone.
@@ -841,7 +844,10 @@ async function runLintInner(
 						}
 					}
 					if (!result.report) return;
-					await writeLintReport(projectRoot, system.dir, result.report);
+					// Fencing: write only while the lock is still this run's.
+					await writeLintReport(projectRoot, system.dir, result.report, {
+						beforeRename: lock.assertHeld,
+					});
 					result.written = true;
 				});
 			} catch (error) {
@@ -850,6 +856,12 @@ async function runLintInner(
 					fail(
 						"REPORT_LOCKED",
 						`${reportPath} is locked by another lint run (${LINT_REPORT_LOCK_FILE_NAME}: ${error.message}); nothing was written. Run lint again, or delete the lock file if no run is active.`,
+						reportPath ?? undefined,
+					);
+				} else if (error instanceof FileLockLostError) {
+					fail(
+						"REPORT_LOCKED",
+						`This run lost its lock on ${reportPath} before writing (${LINT_REPORT_LOCK_FILE_NAME} was reclaimed or removed); nothing was written. Run lint again.`,
 						reportPath ?? undefined,
 					);
 				} else if (error instanceof LintReportWriteError) {

@@ -120,11 +120,28 @@ describe("design file lock", () => {
 		).resolves.toBe("acquired");
 	});
 
-	it("breaks a lock older than the stale timeout even if the pid is alive", async () => {
+	it("never breaks a live holder's lock, however old", async () => {
 		await writeHolder({
 			pid: process.ppid,
 			hostname: os.hostname(),
 			token: "old",
+			acquiredAt: Date.now() - 60_000,
+		});
+
+		await expect(
+			withDesignFileLock(designPath, async () => "acquired", {
+				lockDirectory,
+				staleAfterMs: 1_000,
+				acquireTimeoutMs: 100,
+			}),
+		).rejects.toBeInstanceOf(DesignFileLockTimeoutError);
+	});
+
+	it("falls back to age for a holder on another host, whose pid it cannot check", async () => {
+		await writeHolder({
+			pid: process.ppid,
+			hostname: `${os.hostname()}-elsewhere`,
+			token: "remote",
 			acquiredAt: Date.now() - 60_000,
 		});
 
