@@ -218,7 +218,9 @@ const e = <div className={twMerge("p-3", cn("p-4"))} />;`);
 			parse(`const a = cva("bg-missing px-2", { variants: { size: { sm: "text-sm", lg: ["text-lg", "px-4"] } }, compoundVariants: [{ size: "sm", class: "ring" }], defaultVariants: { size: "sm" } });
 const b = cva(["inline-flex", ["gap-1", { "opacity-50": off }]]);
 const c = cva({ base: "p-1", variants: { tone: { loud: "font-bold" } } });
-const d = cva(base, { variants: { tone: { loud: "underline" } } });`);
+const d = cva(base, { variants: { tone: { loud: "underline" } } });
+const e = cva({ "bg-missing": true }, { variants: { size: { sm: "text-sm" } } });
+const f = cva({ "inline-block": true, "m-1": on });`);
 		expect(
 			module.classStrings.map((entry) => [
 				entry.value,
@@ -241,6 +243,12 @@ const d = cva(base, { variants: { tone: { loud: "underline" } } });`);
 			["font-bold", false, false, 3],
 			// A base that is not a literal leaves the options' classes mixed.
 			["underline", true, false, 4],
+			// With two arguments the first is the base, even as an object.
+			["bg-missing", false, true, 5],
+			["text-sm", false, false, 5],
+			// One object without config keys is a clsx-style base.
+			["inline-block", false, true, 6],
+			["m-1", false, true, 6],
 		]);
 	});
 
