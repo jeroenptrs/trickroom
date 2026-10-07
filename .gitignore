@@ -14,3 +14,4 @@ assets/**/.DS_Store
 .antigravitycli
 solo.yml
 .trickroom/systems/*/lint-report.json.lock*
+.trickroom/systems/*/lint-report.json.reclaim

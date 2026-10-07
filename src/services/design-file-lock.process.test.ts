@@ -55,8 +55,11 @@ try {
 
 // Choreographs the processes at the lockfile; every wait is bounded, so
 // code that never reaches a step only loses time.
-// - "race": two reclaimers of one dead lock both pass their re-read, then
-//   "first" replaces the lock and "second" replaces it after.
+// - "race": two reclaimers of one dead lock both read it a second time
+//   (the re-read before replacing), then "first" replaces it and "second"
+//   goes on only after.
+// - "crash": "crasher" dies inside the reclaim section, holding the
+//   reclaim lock (RECLAIM_PATH), at its re-read of the dead lock.
 // - "released": "reclaimer" reads the dead lock, then pauses until
 //   "server" has reclaimed it; a move-aside reclaimer would put the
 //   server's lock back only after the server released it.
@@ -79,19 +82,28 @@ const first = (key) => !once.has(key) && once.add(key);
 
 const rename = promises.rename;
 promises.rename = async (from, to) => {
-	if (scenario === "race" && String(to) === lockPath && first("replace")) {
-		await mark("replace-" + label);
-		await until(async () => (await promises.readdir(barrier)).filter((name) => name.startsWith("replace-")).length >= 2, 3000);
-		if (label === "second") await until(exists("replaced-first"), 3000);
-		const result = await rename(from, to);
-		if (label === "first") await mark("replaced-first");
-		return result;
+	const result = await rename(from, to);
+	if (scenario === "race" && String(to) === lockPath && label === "first") {
+		await mark("replaced-first");
 	}
-	return rename(from, to);
+	return result;
 };
+let lockReads = 0;
 const readFile = promises.readFile;
 promises.readFile = async (...args) => {
 	const result = await readFile(...args);
+	if (scenario === "crash" && label === "crasher" && String(args[0]) === lockPath && ++lockReads === 2) {
+		// The re-read inside the reclaim section: killed here, holding the
+		// reclaim lock.
+		await mark("in-reclaim");
+		setInterval(() => {}, 1000);
+		await new Promise(() => {});
+	}
+	if (scenario === "race" && String(args[0]) === lockPath && ++lockReads === 2) {
+		await mark("reread-" + label);
+		await until(async () => (await promises.readdir(barrier)).filter((name) => name.startsWith("reread-")).length >= 2, 8000);
+		if (label === "second") await until(exists("replaced-first"), 4000);
+	}
 	if (scenario === "released" && label === "reclaimer" && String(args[0]) === lockPath && first("read")) {
 		await mark("read-reclaimer");
 		await until(exists("held-server"), 4000);
@@ -103,7 +115,8 @@ promises.open = async (target, flags, ...rest) => {
 	if (scenario === "released" && label === "server" && String(target) === lockPath && first("open")) {
 		await until(exists("read-reclaimer"), 4000);
 	}
-	return open(target, flags, ...rest);
+	const handle = await open(target, flags, ...rest);
+	return handle;
 };
 const link = promises.link;
 promises.link = async (from, to) => {
@@ -125,6 +138,7 @@ type WorkerResult = {
 describe("file lock across processes", () => {
 	let temp: string;
 	let lockPath: string;
+	let reclaimPath: string;
 	let dir: string;
 	let barrier: string;
 	let hookPath: string;
@@ -135,6 +149,7 @@ describe("file lock across processes", () => {
 	beforeEach(async () => {
 		temp = await mkdtemp(path.join(os.tmpdir(), "trickroom-file-lock-"));
 		lockPath = path.join(temp, "lint-report.json.lock");
+		reclaimPath = path.join(temp, "lint-report.json.reclaim");
 		// One folder for the workers' markers and the choreography's.
 		dir = path.join(temp, "markers");
 		barrier = dir;
@@ -241,21 +256,41 @@ describe("file lock across processes", () => {
 	};
 
 	const lockFilesLeft = async () =>
-		(await readdir(temp)).filter((name) => name.includes(".lock"));
+		(await readdir(temp)).filter(
+			(name) => name.includes(".lock") || name.includes(".reclaim"),
+		);
 
-	it("lets only the last of two reclaimers of a dead holder's lock commit", async () => {
+	it("lets one of two reclaimers of a dead holder's lock replace it; the other backs off", async () => {
 		await deadLock();
-		// Both judged the dead lock and re-read it unchanged; both replace it,
-		// "second" last.
+		// Both judged the dead lock and read it again; "first" replaces it,
+		// and "second" must not replace that live lock in turn.
 		const [first, second] = await Promise.all([
 			start("first", "enter", { scenario: "race" }).result,
 			start("second", "enter", { scenario: "race" }).result,
 		]);
-		expect(second).toMatchObject({ outcome: "acquired", committed: true });
-		// "first" was replaced: its fencing check fails, so it writes nothing.
-		expect(first).toMatchObject({ outcome: "acquired", committed: false });
-		// Its release did not remove the lock it no longer owned; the owner's
-		// did. Nothing is left behind.
+		for (const result of [first, second]) {
+			expect(result).toMatchObject({
+				outcome: "acquired",
+				overlap: false,
+				committed: true,
+			});
+		}
+		expect(await lockFilesLeft()).toEqual([]);
+	}, 60_000);
+
+	it("recovers from a reclaimer that died inside the reclaim section", async () => {
+		await deadLock();
+		const crasher = start("crasher", "enter", { scenario: "crash" });
+		await waitFor(path.join(dir, "in-reclaim"));
+		crasher.child.kill("SIGKILL");
+		await expect(crasher.result).resolves.toMatchObject({ outcome: "SIGKILL" });
+		expect(await exists(reclaimPath)).toBe(true);
+
+		// Its reclaim lock names a dead pid: removed, and the dead main lock
+		// reclaimed, well within the wait.
+		const next = await start("next", "enter", { acquireTimeoutMs: 2_000 })
+			.result;
+		expect(next).toMatchObject({ outcome: "acquired", committed: true });
 		expect(await lockFilesLeft()).toEqual([]);
 	}, 60_000);
 

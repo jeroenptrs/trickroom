@@ -80,9 +80,10 @@ export const classifyTrickroomFile = (
 	if (relativeFile.startsWith("systems/")) {
 		// Atomic writes (components.json, lint-report.json) go through a
 		// `.tmp` sibling that is renamed into place; only the target matters.
-		// A `.lock` sibling (lint-report.json.lock) only guards the write, and
-		// so does a reclaimed one set aside (`.lock.<pid>.<random>`).
-		return relativeFile.endsWith(".tmp") || /\.lock(\.|$)/u.test(relativeFile)
+		// Lock files (lint-report.json.lock, its `.lock.<pid>.<random>.tmp`
+		// replacements and the `.reclaim` lock) only guard the write.
+		return relativeFile.endsWith(".tmp") ||
+			/\.(lock|reclaim)(\.|$)/u.test(relativeFile)
 			? null
 			: { kind: "file" };
 	}

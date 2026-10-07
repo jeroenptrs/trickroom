@@ -188,19 +188,103 @@ const readLock = async (lockPath: string) => {
 };
 
 /**
+ * Releases a lock this process created but could not finish writing, as
+ * its owner: only when what is there is still (a prefix of) the contents it
+ * was writing, so another holder's lock is left alone.
+ */
+const discardUnfinishedLock = async (lockPath: string, serialized: string) => {
+	const current = await readFile(lockPath, "utf8").catch(() => null);
+	if (current !== null && serialized.startsWith(current)) {
+		await unlink(lockPath).catch(() => undefined);
+	}
+};
+
+/**
+ * Creates `filePath` holding `serialized` with an exclusive create; false
+ * when it exists. When the contents cannot be written, removes what it
+ * created before rethrowing, so no empty lock is left blocking others.
+ */
+const createExclusive = async (filePath: string, serialized: string) => {
+	let handle: FileHandle;
+	try {
+		handle = await open(filePath, "wx");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+			return false;
+		}
+		throw error;
+	}
+	try {
+		await handle.writeFile(serialized, "utf8");
+		await handle.close();
+	} catch (error) {
+		await handle.close().catch(() => undefined);
+		await discardUnfinishedLock(filePath, serialized);
+		throw error;
+	}
+	return true;
+};
+
+/** A reclaim lock is held for milliseconds; one this old was abandoned. */
+const reclaimStaleAfterMs = 10_000;
+
+/** `lint-report.json.lock` → `lint-report.json.reclaim`. */
+const reclaimLockPath = (lockPath: string) =>
+	lockPath.endsWith(".lock")
+		? `${lockPath.slice(0, -".lock".length)}.reclaim`
+		: `${lockPath}.reclaim`;
+
+/**
+ * Enters the reclaim section: takes the reclaim lock with an exclusive
+ * create. One whose owner is dead, or that is unreadable and older than
+ * `reclaimStaleAfterMs` (a reclaimer that crashed inside the section), is
+ * removed first; a live owner's is never, and the caller goes back to
+ * waiting.
+ */
+const enterReclaimSection = async (reclaimPath: string, serialized: string) => {
+	if (await createExclusive(reclaimPath, serialized)) {
+		return true;
+	}
+	let current: Awaited<ReturnType<typeof readLock>>;
+	try {
+		current = await readLock(reclaimPath);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+			return createExclusive(reclaimPath, serialized);
+		}
+		throw error;
+	}
+	if (
+		!isStale(
+			parseLockContents(current.contents),
+			current.modifiedAtMs,
+			reclaimStaleAfterMs,
+		)
+	) {
+		return false;
+	}
+	const again = await readFile(reclaimPath, "utf8").catch(() => null);
+	if (again === current.contents) {
+		await unlink(reclaimPath).catch(() => undefined);
+	}
+	return createExclusive(reclaimPath, serialized);
+};
+
+/**
  * Reclaims an abandoned lock (see `isStale`) by replacing it, never by
- * emptying the slot: writes this acquisition's lock (`serialized`) to a
- * temp sibling, reads the lock path again and, only if it still holds
- * exactly the abandoned contents it judged, renames the temp file over it,
- * an atomic replace. Anything else there (another reclaimer's lock, a new
- * owner's) sends the caller back to waiting. Two reclaimers that both pass
- * the re-read both replace; the later one holds the lock, and the earlier
- * one's fencing check (`assertHeld`) fails. Only an owner's release (or
- * its unfinished create) ever empties the slot.
+ * emptying the slot, and one reclaimer at a time: inside the reclaim
+ * section (`<name>.reclaim`, `enterReclaimSection`) it reads the lock path
+ * again and, only if it still holds exactly the abandoned contents it
+ * judged, renames its own lock (`serialized`, written to a temp sibling)
+ * over it, an atomic replace. Anything else there (another reclaimer's
+ * lock, a new owner's) sends the caller back to waiting, as does a reclaim
+ * section held by a live process. Only an owner's release (or its
+ * unfinished create) ever empties the lock slot.
  */
 const reclaimStaleLock = async (
 	lockPath: string,
 	serialized: string,
+	token: string,
 	staleAfterMs: number,
 ): Promise<{
 	acquired: boolean;
@@ -222,9 +306,12 @@ const reclaimStaleLock = async (
 	if (!isStale(holder, current.modifiedAtMs, staleAfterMs)) {
 		return { acquired: false, retry: false, holder };
 	}
+	const reclaimPath = reclaimLockPath(lockPath);
+	if (!(await enterReclaimSection(reclaimPath, serialized))) {
+		return { acquired: false, retry: false, holder };
+	}
 	const temp = `${lockPath}.${process.pid}.${randomUUID()}.tmp`;
 	try {
-		await writeFile(temp, serialized, "utf8");
 		const again = await readFile(lockPath, "utf8").catch(() => null);
 		if (again === null) {
 			// Released by its owner meanwhile: compete for the exclusive create.
@@ -237,23 +324,13 @@ const reclaimStaleLock = async (
 				holder: parseLockContents(again),
 			};
 		}
+		await writeFile(temp, serialized, "utf8");
 		await rename(temp, lockPath);
 		return { acquired: true, retry: false, holder: null };
 	} finally {
-		// Gone after the replace; left over when the reclaim backed off.
+		// Gone after the replace; left over when writing it failed.
 		await unlink(temp).catch(() => undefined);
-	}
-};
-
-/**
- * Releases a lock this process created but could not finish writing, as
- * its owner: only when what is there is still (a prefix of) the contents it
- * was writing, so another holder's lock is left alone.
- */
-const discardUnfinishedLock = async (lockPath: string, serialized: string) => {
-	const current = await readFile(lockPath, "utf8").catch(() => null);
-	if (current !== null && serialized.startsWith(current)) {
-		await unlink(lockPath).catch(() => undefined);
+		await releaseLock(reclaimPath, token);
 	}
 };
 
@@ -280,36 +357,27 @@ const acquireLock = async (
 		contents.token = randomUUID();
 		contents.acquiredAt = Date.now();
 		const serialized = JSON.stringify(contents);
-		let handle: FileHandle | null = null;
+		let created: boolean;
 		try {
-			handle = await open(lockPath, "wx");
+			created = await createExclusive(lockPath, serialized);
 		} catch (error) {
-			const code = (error as NodeJS.ErrnoException).code;
-			if (code === "ENOENT" && options.createDirectory) {
+			if (
+				(error as NodeJS.ErrnoException).code === "ENOENT" &&
+				options.createDirectory
+			) {
 				await mkdir(path.dirname(lockPath), { recursive: true });
 				continue;
 			}
-			if (code !== "EEXIST") {
-				throw error;
-			}
+			throw error;
 		}
-		if (handle) {
-			try {
-				await handle.writeFile(serialized, "utf8");
-				await handle.close();
-			} catch (error) {
-				// The lock exists but does not say whose it is: release it rather
-				// than leave it blocking everyone until it ages.
-				await handle.close().catch(() => undefined);
-				await discardUnfinishedLock(lockPath, serialized);
-				throw error;
-			}
+		if (created) {
 			return contents.token;
 		}
 
 		const { acquired, retry, holder } = await reclaimStaleLock(
 			lockPath,
 			serialized,
+			contents.token,
 			options.staleAfterMs,
 		);
 		if (acquired) {

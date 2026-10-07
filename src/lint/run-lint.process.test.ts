@@ -164,6 +164,47 @@ promises.link = async (from, to) => {
 syncBuiltinESMExports();
 `;
 
+// Two runs reclaim one dead holder's lock: each, after reading the lock
+// for the second time (the re-read before replacing it), waits until both
+// have; then "eight" replaces it first, and "five" only after. "eight"
+// waits (bounded) for "five" to have written before renaming its report.
+const twoReclaimers = `
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import path from "node:path";
+
+const { LINT_BARRIER_DIR: barrier, LINT_LABEL: label, LOCK_PATH: lockPath, REPORT_PATH: reportPath } = process.env;
+const promises = fs.promises;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const mark = (name) => promises.writeFile(path.join(barrier, name), "");
+const until = async (ready, timeoutMs) => {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline && !(await ready())) await sleep(10);
+};
+const exists = (name) => () => fs.existsSync(path.join(barrier, name));
+let lockReads = 0;
+
+const readFile = promises.readFile;
+promises.readFile = async (...args) => {
+	const result = await readFile(...args);
+	if (String(args[0]) === lockPath && ++lockReads === 2) {
+		await mark("reread-" + label);
+		await until(async () => (await promises.readdir(barrier)).filter((name) => name.startsWith("reread-")).length >= 2, 8000);
+		if (label === "five") await until(exists("replaced-eight"), 4000);
+	}
+	return result;
+};
+const rename = promises.rename;
+promises.rename = async (from, to) => {
+	if (String(to) === reportPath && label === "eight") await until(exists("five-done"), 2000);
+	const result = await rename(from, to);
+	if (String(to) === lockPath && label === "eight") await mark("replaced-eight");
+	if (String(to) === reportPath && label === "five") await mark("five-done");
+	return result;
+};
+syncBuiltinESMExports();
+`;
+
 type WorkerResult = {
 	label: string;
 	status: string;
@@ -281,7 +322,9 @@ describe("lint runs in separate processes", () => {
 				),
 			).report?.ratchetBaseline.numbers["code.warnings"];
 		const lockFilesLeft = async () =>
-			(await readdir(systemDir)).filter((name) => name.includes(".lock"));
+			(await readdir(systemDir)).filter(
+				(name) => name.includes(".lock") || name.includes(".reclaim"),
+			);
 		return { project, systemDir, run, committedWarnings, lockFilesLeft };
 	};
 
@@ -339,6 +382,39 @@ describe("lint runs in separate processes", () => {
 		for (const result of results.filter((entry) => !entry.written)) {
 			expect(["BASELINE_MOVED", "REPORT_LOCKED"]).toContain(result.codes[0]);
 		}
+		expect(await lockFilesLeft()).toEqual([]);
+	}, 60_000);
+
+	it("lets one of two reclaimers of the same dead lock replace it, and keeps the tighter baseline", async () => {
+		const { systemDir, run, committedWarnings, lockFilesLeft } =
+			await prepare(twoReclaimers);
+		const dead = spawn(process.execPath, ["-e", ""]);
+		await new Promise((resolve) => dead.on("exit", resolve));
+		await writeFile(
+			path.join(systemDir, DEAD_LOCK),
+			JSON.stringify({
+				pid: dead.pid,
+				hostname: os.hostname(),
+				token: "dead",
+				acquiredAt: Date.now(),
+			}),
+		);
+
+		const [eight, five] = await Promise.all([
+			run("eight", 8, "01"),
+			run("five", 5, "02"),
+		]);
+		// Whichever got the reclaim section first replaced the dead lock; the
+		// other never replaced that live lock in turn, so it either waited
+		// and compared against the first one's numbers, or says why it did
+		// not write.
+		if (eight.written && five.written) {
+			expect(five.compared).toBe(8);
+		}
+		for (const result of [eight, five].filter((entry) => !entry.written)) {
+			expect(["BASELINE_MOVED", "REPORT_LOCKED"]).toContain(result.codes[0]);
+		}
+		expect(await committedWarnings()).toBe(5);
 		expect(await lockFilesLeft()).toEqual([]);
 	}, 60_000);
 });

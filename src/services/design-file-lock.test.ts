@@ -195,6 +195,48 @@ describe("design file lock", () => {
 		]);
 	});
 
+	it("reclaims only through the reclaim lock, never past a live reclaimer, and removes an abandoned one", async () => {
+		const reclaimPath = lockPath.replace(/\.lock$/u, ".reclaim");
+		const deadHolder = async () =>
+			writeHolder({
+				pid: await findDeadPid(),
+				hostname: os.hostname(),
+				token: "dead",
+				acquiredAt: Date.now(),
+			});
+		const attempt = (acquireTimeoutMs: number) =>
+			withDesignFileLock(designPath, async () => "acquired", {
+				lockDirectory,
+				acquireTimeoutMs,
+			});
+
+		// Another process is inside the reclaim section: wait, however old.
+		await deadHolder();
+		await writeFile(
+			reclaimPath,
+			JSON.stringify({
+				pid: process.ppid,
+				hostname: os.hostname(),
+				token: "reclaiming",
+				acquiredAt: Date.now() - 60_000,
+			}),
+		);
+		await expect(attempt(100)).rejects.toBeInstanceOf(
+			DesignFileLockTimeoutError,
+		);
+
+		// An unreadable reclaim lock (a crash while creating it) is removed
+		// only once it is older than 10 seconds.
+		await writeFile(reclaimPath, "");
+		await expect(attempt(100)).rejects.toBeInstanceOf(
+			DesignFileLockTimeoutError,
+		);
+		const past = new Date(Date.now() - 11_000);
+		await utimes(reclaimPath, past, past);
+		await expect(attempt(1_000)).resolves.toBe("acquired");
+		await expect(readdir(lockDirectory)).resolves.toEqual([]);
+	});
+
 	it("keys locks by design path", () => {
 		expect(getDesignFileLockPath(lockDirectory, designPath)).not.toBe(
 			getDesignFileLockPath(lockDirectory, `${designPath}.other`),
