@@ -7,6 +7,8 @@
 
 import path from "node:path";
 import type { Node, TrickroomConfig } from "../types";
+import { createClassMerge } from "../utils/class-merge";
+import { resolveClassMergeSettings } from "../utils/class-merge-settings";
 import {
 	compileBaselineTailwindCss,
 	compileTailwindCss,
@@ -110,10 +112,19 @@ export async function exportDesignBoards({
 		? path.dirname(path.resolve(projectRoot, resolved.cssPath))
 		: null;
 
+	// Component classes merge as on the canvas, like the project's code.
+	const classMerge = createClassMerge(
+		await resolveClassMergeSettings({
+			projectRoot,
+			config,
+			systemId: resolved?.systemId ?? null,
+		}),
+	);
+
 	const files: ExportedBoardFile[] = [];
 	for (const board of boards) {
 		const name = boardName(board);
-		const prepared = prepareRenderTree(board);
+		const prepared = prepareRenderTree(board, classMerge);
 		const resources = await resolveBoardResources({
 			projectRoot,
 			systemId: resolved?.systemId ?? null,

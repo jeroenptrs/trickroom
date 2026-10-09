@@ -13,6 +13,7 @@ import {
 	resetComponentDraftStore,
 	setComponentDraftStyleTarget,
 } from "../../stores/component-draft-store";
+import { createClassMerge } from "../../utils/class-merge";
 import { FIXTURE_COMPONENT_ID } from "../../utils/system-component-test-fixtures";
 import {
 	getComponentDraftPreviewRenderableProps,
@@ -83,6 +84,38 @@ describe("ComponentDraftStage", () => {
 			orientation: "horizontal",
 		});
 		expect(props).not.toHaveProperty(MATERIALIZED_BASE_CLASS_PROP);
+	});
+
+	it("merges the draft's classes like tv(), but not the registry base or the selection outline", () => {
+		const renderResolution = resolveRenderableRegistryComponent(
+			"base-ui",
+			"separator",
+		);
+		if (renderResolution.status !== "known") {
+			throw new Error("separator renderer missing");
+		}
+		const entity = {
+			path: "root",
+			library: "base-ui",
+			component: "separator",
+			parentPath: null,
+			role: "leaf",
+			props: { orientation: "horizontal" },
+			className: "my-2",
+		} satisfies ComponentDraftEntity;
+
+		const props = getComponentDraftPreviewRenderableProps({
+			entity,
+			path: "root",
+			previewClassName: "my-2 outline-none my-4",
+			selectedPath: "root",
+			definition: renderResolution.definition,
+			classMerge: createClassMerge({ mode: "stock" }),
+		});
+
+		expect(props.className).toBe(
+			`${separatorBaseClassName} outline-none my-4 outline outline-2 outline-offset-2 outline-cyan-500`,
+		);
 	});
 
 	it("keeps trickroom icon draft previews unstyled unless authored", () => {

@@ -35,6 +35,7 @@ const systemQueryPrefixes = new Set([
 	"trickroom-systems",
 	"trickroom-tailwind-tokens",
 	"trickroom-tailwind-class-catalog",
+	"trickroom-tailwind-class-merge",
 	"trickroom-tailwind-class-inspect",
 	"trickroom-system-assets",
 	"trickroom-system-asset-used-by",

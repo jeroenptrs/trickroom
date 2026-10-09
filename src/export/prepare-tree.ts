@@ -8,7 +8,8 @@
  * `getRenderableProps` (which composes base + authored className and strips all
  * system-component / recipe marker props), then recurse by role. Because the
  * stored tree already has final classNames materialized, no per-instance detach
- * is needed — the output matches the editor exactly.
+ * is needed. With a `classMerge`, component classes merge as on the canvas
+ * (`ClassMergeSettings`), so the output matches the editor exactly.
  *
  * Icons and assets are emitted as placeholder nodes; `inlineResources` swaps
  * them for concrete `svg` / `img` nodes once their bytes have been fetched.
@@ -19,6 +20,7 @@ import {
 	resolveRegistryComponent,
 } from "../libraries/registry";
 import type { Node } from "../types";
+import type { ClassMerge } from "../utils/class-merge";
 import { assetIdProp, iconIdProp } from "../utils/resource-props";
 import { resolveExportDescriptor } from "./descriptors";
 
@@ -85,7 +87,7 @@ export type PreparedBoard = {
 type Accumulator = Pick<
 	PreparedBoard,
 	"usedBaseUiComponents" | "classNames" | "iconIds" | "assetIds"
->;
+> & { classMerge: ClassMerge | null };
 
 function asString(value: unknown): string | null {
 	return typeof value === "string" ? value : null;
@@ -129,7 +131,11 @@ function prepareNode(node: Node, acc: Accumulator): PrepNode | null {
 		return null;
 	}
 
-	const renderProps = getRenderableProps(props, resolution.definition);
+	const renderProps = getRenderableProps(
+		props,
+		resolution.definition,
+		acc.classMerge,
+	);
 	collectClassNames(renderProps.className, acc.classNames);
 	const className = asString(renderProps.className);
 	const role = asString(props["data-trickroom-role"]);
@@ -192,15 +198,25 @@ function prepareNode(node: Node, acc: Accumulator): PrepNode | null {
 	return { ref, props: cleaned, children };
 }
 
-export function prepareRenderTree(board: Node): PreparedBoard {
+export function prepareRenderTree(
+	board: Node,
+	classMerge: ClassMerge | null = null,
+): PreparedBoard {
 	const acc: Accumulator = {
 		usedBaseUiComponents: new Set(),
 		classNames: new Set(),
 		iconIds: new Set(),
 		assetIds: new Set(),
+		classMerge,
 	};
 	const tree = prepareNode(board, acc);
-	return { tree, ...acc };
+	return {
+		tree,
+		usedBaseUiComponents: acc.usedBaseUiComponents,
+		classNames: acc.classNames,
+		iconIds: acc.iconIds,
+		assetIds: acc.assetIds,
+	};
 }
 
 /** A parsed inline SVG: root attributes plus inner markup. */

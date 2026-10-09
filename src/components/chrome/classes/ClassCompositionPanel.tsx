@@ -2,7 +2,9 @@ import { useMemo } from "react";
 import { useResolvedColorTokens } from "../../../hooks/useResolvedColorTokens";
 import { useResolvedCustomUtilities } from "../../../hooks/useResolvedCustomUtilities";
 import type { ClassLayer } from "../../../utils/class-layers";
+import { findClassesRemovedByMerge } from "../../../utils/class-merge";
 import type { ClassNameOptions } from "../../../utils/tailwind-classname";
+import { useClassMergeContext } from "../../stage/class-merge-context";
 import { Chip } from "../../ui/chip";
 import { ClassField, type ClassFieldHint } from "./ClassField";
 import { buildClassInventory, type InventoryItem } from "./classInventory";
@@ -54,6 +56,8 @@ function groupReadOnlyItems(
 	return groups;
 }
 
+const REMOVED_BY_MERGE = "is removed when the classes merge";
+
 function shadowedHints(items: readonly InventoryItem[]): ClassFieldHint[] {
 	return items.flatMap((item) => {
 		if (item.readOnly || item.status !== "shadowed") return [];
@@ -63,13 +67,22 @@ function shadowedHints(items: readonly InventoryItem[]): ClassFieldHint[] {
 			{
 				token: item.raw,
 				tone: "shadowed" as const,
-				message: winner
-					? `is overridden by ${winner.raw}`
-					: "is overridden by a later class",
+				message: item.removedByMerge
+					? `${REMOVED_BY_MERGE}: a later class overrides it`
+					: winner
+						? `is overridden by ${winner.raw}`
+						: "is overridden by a later class",
 				fix: { label: "remove", replacement: "" },
 			},
 		];
 	});
+}
+
+function chipTitle(item: InventoryItem): string | undefined {
+	if (item.removedByMerge) {
+		return "Removed when the classes merge: a later class overrides it";
+	}
+	return item.status === "shadowed" ? "Overridden by a later class" : undefined;
 }
 
 /**
@@ -98,9 +111,24 @@ export function ClassCompositionPanel({
 		() => ({ colorTokens: resolved.names, ...customUtilityRoots }),
 		[resolved.names, customUtilityRoots],
 	);
+	// Component and override layers merge on the canvas like in code; the
+	// classes that merging removes are struck through.
+	const classMerge = useClassMergeContext().merge;
+	const removedByMerge = useMemo(
+		() =>
+			layers && classMerge
+				? findClassesRemovedByMerge(layers, classMerge)
+				: undefined,
+		[classMerge, layers],
+	);
 	const inventory = useMemo(
-		() => buildClassInventory(layers ? { layers } : className, options),
-		[className, layers, options],
+		() =>
+			buildClassInventory(
+				layers ? { layers } : className,
+				options,
+				removedByMerge,
+			),
+		[className, layers, options, removedByMerge],
 	);
 	const readOnlyGroups = useMemo(
 		() => (layers ? groupReadOnlyItems(layers, inventory.items) : []),
@@ -123,11 +151,7 @@ export function ClassCompositionPanel({
 							<Chip
 								key={`${item.layerIndex}:${item.tokenIndex}`}
 								tone={item.status === "shadowed" ? "struck" : "base"}
-								title={
-									item.status === "shadowed"
-										? "Overridden by a later class"
-										: undefined
-								}
+								title={chipTitle(item)}
 							>
 								{item.raw}
 							</Chip>

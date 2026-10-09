@@ -8,6 +8,7 @@ import {
 	isTrickroomConfig,
 	jsonError,
 } from "../server-utils";
+import { resolveClassMergeSettings } from "../utils/class-merge-settings";
 import { rewriteCssFontUrls } from "../utils/css-font-urls";
 import {
 	defaultTailwindTokensByDomain,
@@ -678,6 +679,39 @@ tailwindRoutes.get("/class-catalog", async (c) => {
 		return c.json({ systemId, ...catalog });
 	} catch (error) {
 		return classCatalogErrorResponse(error, "Failed to load Tailwind classes");
+	}
+});
+
+/**
+ * GET /class-merge?systemId= — how the canvas merges the component classes
+ * of a design linked to the system (`ClassMergeSettings`): the derived
+ * tailwind-merge config when codegen generates it for the system, stock
+ * tailwind-merge otherwise, no merging without a resolvable system.
+ */
+tailwindRoutes.get("/class-merge", async (c) => {
+	const projectRoot = c.get("projectRoot") as string;
+	const configPath = c.get("configPath") as string;
+	const systemId = readOptionalSystemId(c.req.query("systemId"));
+
+	try {
+		const config = await readJsonFile<unknown>(configPath);
+		if (!isTrickroomConfig(config)) {
+			return jsonError(
+				`Invalid trickroom config file.${describeCodegenConfigIssues(config)}`,
+				400,
+			);
+		}
+		const settings = await resolveClassMergeSettings({
+			projectRoot,
+			config,
+			systemId,
+		});
+		return c.json({ systemId, ...settings });
+	} catch (error) {
+		return classCatalogErrorResponse(
+			error,
+			"Failed to resolve how classes merge",
+		);
 	}
 });
 

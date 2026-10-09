@@ -213,6 +213,57 @@ describe("tailwind sync endpoint validation", () => {
 		expect(response.status).toBe(400);
 	});
 
+	it("reports how component classes merge for a design's system", async () => {
+		await mkdir(path.join(tempProjectRoot, "src"), { recursive: true });
+		await writeFile(
+			path.join(tempProjectRoot, "src/core.css"),
+			"@theme { --color-royal-9: oklch(54% 0.22 263); }\n",
+			"utf8",
+		);
+		const systemId = "sys_00000000-0000-4000-8000-0000000000c1";
+		await mkdir(path.join(tempProjectRoot, ".trickroom/systems/core"), {
+			recursive: true,
+		});
+		await writeFile(
+			path.join(tempProjectRoot, ".trickroom/systems/core/system.json"),
+			JSON.stringify({
+				version: 1,
+				systemId,
+				systemName: "Core",
+				cssPath: "src/core.css",
+			}),
+			"utf8",
+		);
+		await writeFile(
+			path.join(tempProjectRoot, ".trickroom/config.json"),
+			JSON.stringify({
+				schemaVersion: 1,
+				projectId: "proj_class_merge",
+				name: "Test Project",
+				defaultSystemId: systemId,
+			}),
+			"utf8",
+		);
+		const app = await importTestServer();
+		const read = async (query: string) => {
+			const response = await app.request(
+				`/api/trickroom/tailwind/class-merge${query}`,
+			);
+			expect(response.status).toBe(200);
+			return response.json();
+		};
+
+		expect(await read(`?systemId=${systemId}`)).toEqual({
+			systemId,
+			mode: "stock",
+		});
+		expect(await read("")).toEqual({ systemId: null, mode: "none" });
+		expect(await read("?systemId=Missing")).toEqual({
+			systemId: "Missing",
+			mode: "none",
+		});
+	});
+
 	it("returns a deterministic preview with baseline diff metadata for the targeted system", async () => {
 		await writeFile(
 			path.join(tempProjectRoot, "trickroom.config.json"),

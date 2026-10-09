@@ -5,12 +5,14 @@ import {
 	resolveRegistryComponent,
 } from "../../libraries/registry";
 import { hydrateDesign } from "../../stores/design-store";
-import type { TrickroomDesign } from "../../types";
+import type { Node, TrickroomDesign } from "../../types";
+import { createClassMerge } from "../../utils/class-merge";
 import {
 	ResponsiveStageContext,
 	type ResponsiveStageContextValue,
 } from "../responsive-stage-context";
 import { Artboards } from "./Artboards";
+import { ClassMergeContext, type ClassMergeState } from "./class-merge-context";
 
 const boardOneId = "board-one";
 const boardTwoId = "board-two";
@@ -49,7 +51,15 @@ const noopControls = {
 
 function renderArtboards(
 	stage: Pick<ResponsiveStageContextValue, "mode" | "activeBoardId">,
+	classMerge?: ClassMergeState,
 ) {
+	const artboards = classMerge ? (
+		<ClassMergeContext.Provider value={classMerge}>
+			<Artboards />
+		</ClassMergeContext.Provider>
+	) : (
+		<Artboards />
+	);
 	return renderToStaticMarkup(
 		<ResponsiveStageContext.Provider
 			value={{
@@ -60,7 +70,7 @@ function renderArtboards(
 				controls: noopControls,
 			}}
 		>
-			<Artboards />
+			{artboards}
 		</ResponsiveStageContext.Provider>,
 	);
 }
@@ -247,5 +257,73 @@ describe("Artboards", () => {
 		const html = renderArtboards({ mode: "canvas", activeBoardId: null });
 
 		expect(html).not.toContain("data-trickroom-board-portal");
+	});
+});
+
+describe("Artboards class merging", () => {
+	const node = (id: string, className: string, instance: boolean): Node => ({
+		id,
+		props: {
+			"data-trickroom-name": id,
+			"data-trickroom-library": "trickroom",
+			"data-trickroom-component": "container",
+			"data-trickroom-role": "branch",
+			className,
+			...(instance
+				? {
+						"data-trickroom-system-component-system-id": "sys_core",
+						"data-trickroom-system-component-id": "cmp_card",
+						"data-trickroom-system-component-instance": "inst_1",
+						"data-trickroom-system-component-path": "root",
+					}
+				: {}),
+		},
+		children: [],
+	});
+	const canvas = { mode: "canvas", activeBoardId: null } as const;
+
+	beforeEach(() => {
+		hydrateDesign({
+			name: "Class merge test",
+			boards: [
+				{
+					...node("board", "flex flex-col", false),
+					children: [
+						node("raw", "flex hidden", false),
+						node("instance", "flex items-center hidden", true),
+						node("important", "flex !hidden", true),
+					],
+				},
+			],
+		} satisfies TrickroomDesign);
+	});
+
+	it("merges component classes and keeps raw elements as written", () => {
+		const html = renderArtboards(canvas, {
+			merge: createClassMerge({ mode: "stock" }),
+			ready: true,
+		});
+
+		expect(html).toContain('class="flex hidden" data-trickroom-node-id="raw"');
+		expect(html).toContain(
+			'class="items-center hidden" data-trickroom-node-id="instance"',
+		);
+		expect(html).toContain(
+			'class="flex !hidden" data-trickroom-node-id="important"',
+		);
+	});
+
+	it("renders today's classes without a merge", () => {
+		const html = renderArtboards(canvas);
+
+		expect(html).toContain(
+			'class="flex items-center hidden" data-trickroom-node-id="instance"',
+		);
+	});
+
+	it("waits for the merge settings before rendering boards", () => {
+		const html = renderArtboards(canvas, { merge: null, ready: false });
+
+		expect(html).not.toContain("data-trickroom-root-id");
 	});
 });

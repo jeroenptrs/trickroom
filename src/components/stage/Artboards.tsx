@@ -19,6 +19,7 @@ import {
 	useResponsiveStage,
 } from "../responsive-stage-context";
 import { resolveBoardSizing } from "./board-sizing";
+import { useClassMergeContext } from "./class-merge-context";
 import { MissingRenderer } from "./MissingRenderer";
 
 type BoardRender = {
@@ -44,6 +45,7 @@ const SerializedElement = memo(function SerializedElementView({
 	const isRoot = board !== undefined;
 	const element = useElement(id);
 	const childIds = useChildren(id);
+	const classMerge = useClassMergeContext().merge;
 
 	if (!element) {
 		return null;
@@ -74,7 +76,11 @@ const SerializedElement = memo(function SerializedElementView({
 		);
 	}
 
-	const props = getRenderableProps(element.props, resolution.definition);
+	const props = getRenderableProps(
+		element.props,
+		resolution.definition,
+		classMerge,
+	);
 	props["data-trickroom-node-id"] = id;
 	if (isRoot) {
 		props["data-trickroom-root-id"] = rootId;
@@ -145,6 +151,9 @@ export const Artboards = memo(function Artboards() {
 	const rootIds = useDesignRoots();
 	const systemId = useDesignSystemId() ?? null;
 	const { mode, activeBoardId } = useResponsiveStage();
+	// Component classes merge like the project's code; the boards wait for
+	// the settings so they never paint unmerged first.
+	const classMergeReady = useClassMergeContext().ready;
 
 	const visibleRootIds = useMemo(() => {
 		if (mode === "canvas") {
@@ -162,6 +171,10 @@ export const Artboards = memo(function Artboards() {
 		);
 		return activeRootId ? [activeRootId] : [];
 	}, [activeBoardId, mode, rootIds]);
+
+	if (!classMergeReady) {
+		return null;
+	}
 
 	return (
 		<DesignSystemRenderContext.Provider value={systemId}>

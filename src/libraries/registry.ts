@@ -18,6 +18,11 @@ import {
 	flattenClassLayers,
 } from "../utils/class-layers";
 import {
+	type ClassMerge,
+	isComponentClassTarget,
+	mergeComponentClassName,
+} from "../utils/class-merge";
+import {
 	type ClassResolution,
 	type ResolveClassLayersOptions,
 	resolveClassLayers,
@@ -130,17 +135,32 @@ export const stripBaseClassName = (
 		: undefined;
 };
 
+const getComposableClassLayers = (
+	className: string | undefined,
+	baseClassName: string | undefined,
+	isBaseClassMaterialized: boolean,
+): ClassLayer[] =>
+	createClassLayers(
+		isBaseClassMaterialized
+			? [{ source: "materialized-snapshot", className }]
+			: [
+					{ source: "registry-base", className: baseClassName },
+					{
+						source: "authored",
+						className: stripBaseClassName(className, baseClassName),
+					},
+				],
+	);
+
+/** The composed className alone, without resolving the class layers. */
 export const getComposableClassName = (
 	className: string | undefined,
 	baseClassName: string | undefined,
 	isBaseClassMaterialized = false,
-): string | undefined => {
-	return getComposableClassComposition(
-		className,
-		baseClassName,
-		isBaseClassMaterialized,
-	).className;
-};
+): string | undefined =>
+	flattenClassLayers(
+		getComposableClassLayers(className, baseClassName, isBaseClassMaterialized),
+	);
 
 export const getComposableClassComposition = (
 	className: string | undefined,
@@ -148,16 +168,10 @@ export const getComposableClassComposition = (
 	isBaseClassMaterialized = false,
 	options: ResolveClassLayersOptions = defaultClassResolutionOptions,
 ): RegistryClassComposition => {
-	const authoredClassName = isBaseClassMaterialized
-		? className
-		: stripBaseClassName(className, baseClassName);
-	const layers = createClassLayers(
-		isBaseClassMaterialized
-			? [{ source: "materialized-snapshot", className: authoredClassName }]
-			: [
-					{ source: "registry-base", className: baseClassName },
-					{ source: "authored", className: authoredClassName },
-				],
+	const layers = getComposableClassLayers(
+		className,
+		baseClassName,
+		isBaseClassMaterialized,
 	);
 
 	return {
@@ -425,14 +439,34 @@ export const getDefaultProps = (
 	"data-trickroom-role": definition.role,
 });
 
+/**
+ * The props a node renders with. With a `classMerge`, a component node's
+ * classes are merged the way the project's code merges them (see
+ * `ClassMergeSettings`); other nodes keep their className as written.
+ */
 export function getRenderableProps(
 	props: Props,
 	definition: RegistryComponentDefinition,
+	classMerge?: ClassMerge | null,
 ) {
 	const controlProps = new Set(
 		getControlDefinitions(definition).map((control) => control.prop),
 	);
-	const classComposition = getRenderableClassComposition(props, definition);
+	// Rendering needs the className only; the class resolution
+	// (getRenderableClassComposition) is for the inspector.
+	const composedClassName = getComposableClassName(
+		typeof props.className === "string" ? props.className : undefined,
+		definition.baseClassName,
+		isBaseClassMaterialized(props),
+	);
+	const className =
+		classMerge && isComponentClassTarget(props)
+			? mergeComponentClassName(
+					composedClassName,
+					definition.baseClassName,
+					classMerge,
+				)
+			: composedClassName;
 
 	const renderableProps = Object.fromEntries(
 		Object.entries(props).filter(
@@ -443,8 +477,8 @@ export function getRenderableProps(
 		),
 	);
 
-	if (typeof classComposition.className === "string") {
-		renderableProps.className = classComposition.className;
+	if (typeof className === "string") {
+		renderableProps.className = className;
 	}
 
 	return {

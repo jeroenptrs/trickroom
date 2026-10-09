@@ -10,6 +10,7 @@ import {
 } from "react";
 import Frame from "react-frame-component";
 import { useParams, useSearchParams } from "react-router";
+import { useClassMerge } from "../hooks/useClassMerge";
 import { useCompiledTailwind } from "../hooks/useCompiledTailwind";
 import { useInjectSystemAssets } from "../hooks/useInjectSystemAssets";
 import { useInjectSystemFonts } from "../hooks/useInjectSystemFonts";
@@ -33,6 +34,7 @@ import {
 	type ResponsiveStageContextValue,
 } from "./responsive-stage-context";
 import { Artboards } from "./stage/Artboards";
+import { ClassMergeContext } from "./stage/class-merge-context";
 
 const stageDoc = resolveStageDoc(stageDocRaw);
 const CAPTURE_SETTLE_TIMEOUT_MS = 10_000;
@@ -242,6 +244,7 @@ function CaptureStage({
 	const stylesReady = useCompiledTailwind(iframeRef, didMount, systemId);
 	const assetsReady = useInjectSystemAssets(iframeRef, didMount, systemId);
 	const fontsReady = useInjectSystemFonts(iframeRef, didMount, systemId);
+	const classMerge = useClassMerge(systemId);
 
 	const responsiveStage = useMemo<ResponsiveStageContextValue>(
 		() => ({
@@ -288,7 +291,8 @@ function CaptureStage({
 			!themeReady ||
 			!stylesReady ||
 			!assetsReady ||
-			!fontsReady
+			!fontsReady ||
+			!classMerge.ready
 		) {
 			return;
 		}
@@ -340,6 +344,7 @@ function CaptureStage({
 		assetsReady,
 		boardId,
 		captureId,
+		classMerge.ready,
 		didMount,
 		error,
 		fontsReady,
@@ -352,11 +357,13 @@ function CaptureStage({
 		<div className="h-screen w-screen overflow-hidden bg-white">
 			{design && boardId && !error ? (
 				<ResponsiveStageContext.Provider value={responsiveStage}>
-					<CaptureFrame
-						iframeRef={iframeRef}
-						onMount={() => setDidMount(true)}
-						dark={theme === "dark"}
-					/>
+					<ClassMergeContext.Provider value={classMerge}>
+						<CaptureFrame
+							iframeRef={iframeRef}
+							onMount={() => setDidMount(true)}
+							dark={theme === "dark"}
+						/>
+					</ClassMergeContext.Provider>
 				</ResponsiveStageContext.Provider>
 			) : null}
 		</div>
