@@ -28,7 +28,8 @@ const CODEGEN_KEYS = new Set([
 	"twMerge",
 ]);
 const FORMATTER_KEYS = new Set(["command", "args"]);
-const TW_MERGE_KEYS = new Set(["fileName"]);
+const TW_MERGE_KEYS = new Set(["fileName", "mergeGroups"]);
+const MERGE_GROUP_KEY = /^[A-Za-z0-9_-]+$/u;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
@@ -106,6 +107,44 @@ const fileNameIssues = (value: unknown): string[] => {
 	return issues;
 };
 
+/**
+ * The shape of `codegen.twMerge.mergeGroups`. Whether each pattern matches
+ * a utility of the design system is checked when the config is derived.
+ */
+const mergeGroupsIssues = (value: unknown): string[] => {
+	if (value === undefined) {
+		return [];
+	}
+	if (!isRecord(value)) {
+		return [
+			'codegen.twMerge.mergeGroups must be an object of group names to utility patterns, for example { "typography": ["text-title-*", "text-body-*"] }.',
+		];
+	}
+	return Object.entries(value).flatMap(([key, patterns]) => {
+		const field = `codegen.twMerge.mergeGroups.${key}`;
+		const issues: string[] = [];
+		if (!MERGE_GROUP_KEY.test(key)) {
+			issues.push(
+				`codegen.twMerge.mergeGroups has the group name "${key}"; use letters, digits, "-" and "_".`,
+			);
+		}
+		if (!Array.isArray(patterns) || patterns.length === 0) {
+			return [
+				...issues,
+				`${field} must be a non-empty array of utility patterns.`,
+			];
+		}
+		patterns.forEach((pattern, index) => {
+			if (!isNonEmptyString(pattern) || /\s/u.test(pattern.trim())) {
+				issues.push(
+					`${field}[${index}] must be a utility class or a pattern with "*", without spaces.`,
+				);
+			}
+		});
+		return issues;
+	});
+};
+
 const twMergeIssues = (value: unknown): string[] => {
 	if (value === undefined) {
 		return [];
@@ -116,6 +155,7 @@ const twMergeIssues = (value: unknown): string[] => {
 		];
 	}
 	const issues = unknownKeyIssues(value, TW_MERGE_KEYS, "codegen.twMerge");
+	issues.push(...mergeGroupsIssues(value.mergeGroups));
 	if (value.fileName === undefined) {
 		return issues;
 	}
@@ -262,9 +302,23 @@ export const normalizeCodegenConfig = (
 		: {}),
 	...(config.twMerge
 		? {
-				twMerge: config.twMerge.fileName
-					? { fileName: config.twMerge.fileName.trim() }
-					: {},
+				twMerge: {
+					...(config.twMerge.fileName
+						? { fileName: config.twMerge.fileName.trim() }
+						: {}),
+					...(config.twMerge.mergeGroups
+						? {
+								mergeGroups: Object.fromEntries(
+									Object.entries(config.twMerge.mergeGroups).map(
+										([key, patterns]) => [
+											key,
+											patterns.map((pattern) => pattern.trim()),
+										],
+									),
+								),
+							}
+						: {}),
+				},
 			}
 		: {}),
 });
@@ -289,7 +343,11 @@ export type ResolvedCodegenConfig =
 			exclude: string[];
 			formatter: { command: string; args: string[] } | null;
 			/** The generated tailwind-merge config file; null when not enabled. */
-			twMerge: { fileName: string } | null;
+			twMerge: {
+				fileName: string;
+				/** The project's merge groups; empty without any. */
+				mergeGroups: Record<string, string[]>;
+			} | null;
 	  };
 
 /** The block with its defaults applied, or `unconfigured` without one. */
@@ -321,6 +379,7 @@ export const resolveCodegenConfig = (
 			? {
 					fileName:
 						codegen.twMerge.fileName ?? DEFAULT_CODEGEN_TW_MERGE_FILE_NAME,
+					mergeGroups: codegen.twMerge.mergeGroups ?? {},
 				}
 			: null,
 	};

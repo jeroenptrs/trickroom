@@ -73,6 +73,14 @@ export function generateTwMergeFile({
 		"// group sets joins that group; every other one gets a group of its own",
 		'// ("@utility …"), which stock classes never remove, and conflicts with the',
 		"// groups whose every declaration it overrides, so a later one removes them.",
+		...(Object.keys(config.extend.classGroups).some((id) =>
+			id.startsWith("mergeGroups."),
+		)
+			? [
+					'// "mergeGroups.…" groups are codegen.twMerge.mergeGroups in .trickroom/config.json:',
+					"// the project declares their members interchangeable, so the last one wins.",
+				]
+			: []),
 		"// Pass twMergeConfig to createTV so tv() merges like twMerge.",
 		"export const twMergeConfig = {",
 		...(config.prefix

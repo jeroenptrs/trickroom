@@ -857,6 +857,18 @@ describe("createTwMergeConfigLoader", () => {
 			]);
 			expect(await load()).toBe(config);
 			expect(await createTwMergeConfigLoader(dir, null)()).toBeNull();
+			// The project's merge groups, and stock merging when they do not fit.
+			const grouped = await createTwMergeConfigLoader(dir, "theme.css", {
+				labels: ["text-label-*"],
+			})();
+			expect(grouped?.extend.classGroups["mergeGroups.labels"]).toEqual([
+				"text-label-sm",
+			]);
+			expect(
+				await createTwMergeConfigLoader(dir, "theme.css", {
+					labels: ["text-caption-*"],
+				})(),
+			).toBeNull();
 			expect(await createTwMergeConfigLoader(dir, "broken.css")()).toBeNull();
 		} finally {
 			await rm(dir, { recursive: true, force: true });

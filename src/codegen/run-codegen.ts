@@ -18,7 +18,10 @@ import {
 	readSystemComponentManifest,
 	SystemComponentManifestServiceError,
 } from "../utils/system-component-manifest-service";
-import { loadDerivedTwMerge } from "../utils/tailwind-merge-derive";
+import {
+	loadDerivedTwMerge,
+	TwMergeGroupError,
+} from "../utils/tailwind-merge-derive";
 import type { ResolvedCodegenConfig } from "./config";
 import {
 	FORMATTER_CONCURRENCY,
@@ -75,7 +78,8 @@ export type CodegenRunDiagnosticCode =
 	| "REFUSED_OVERWRITE"
 	| "WRITE_FAILED"
 	| "TW_MERGE_NO_CSS"
-	| "TW_MERGE_CSS_FAILED";
+	| "TW_MERGE_CSS_FAILED"
+	| "TW_MERGE_GROUP_INVALID";
 
 export type CodegenRunDiagnostic = {
 	code: CodegenRunDiagnosticCode;
@@ -458,11 +462,20 @@ export async function runCodegen(
 		}
 		try {
 			twMergeFile = generateTwMergeFile({
-				derived: await loadDerivedTwMerge({ projectRoot, cssPath }),
+				derived: await loadDerivedTwMerge(
+					{ projectRoot, cssPath },
+					config.twMerge.mergeGroups,
+				),
 				systemId,
 				fileName: config.twMerge.fileName,
 			});
 		} catch (error) {
+			if (error instanceof TwMergeGroupError) {
+				return fail({
+					code: "TW_MERGE_GROUP_INVALID",
+					message: `codegen.twMerge.mergeGroups does not fit the design system: ${error.message}`,
+				});
+			}
 			return fail({
 				code: "TW_MERGE_CSS_FAILED",
 				message: `codegen.twMerge could not load the system's Tailwind CSS (${cssPath}): ${error instanceof Error ? error.message : String(error)}`,

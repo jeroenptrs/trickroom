@@ -198,6 +198,85 @@ describe("runCodegen with codegen.twMerge", () => {
 		);
 	});
 
+	it("emits a project's merge groups, where the last member wins in twMerge and createTV", async () => {
+		const { project, run } = await setup(
+			{
+				twMerge: {
+					mergeGroups: { typography: ["text-title-*", "text-label-*"] },
+				},
+			},
+			{ parent: process.cwd() },
+		);
+		await writeFile(
+			project.path("src/theme.css"),
+			[
+				"@theme {",
+				"\t--color-royal-9: oklch(54% 0.22 263);",
+				"\t--db-label-sm: 0.875rem;",
+				"\t--db-title-lg: 1.5rem;",
+				"\t--db-caption-sm: 0.75rem;",
+				"}",
+				"@utility text-label-* { --label--size: --value(--db-label-*); font-size: var(--label--size); line-height: 1.25; }",
+				"@utility text-title-* { --title--size: --value(--db-title-*); font-size: var(--title--size); line-height: 1.1; }",
+				"@utility text-caption-* { --caption--size: --value(--db-caption-*); font-size: var(--caption--size); line-height: 1.2; }",
+				"",
+			].join("\n"),
+		);
+		expect((await run("write")).status).toBe("ok");
+		const contents = await read(project, "src/ui/tw-merge.ts");
+		expect(contents).toContain(
+			'\t\t\t"mergeGroups.typography": [\n\t\t\t\t"text-label-sm",\n\t\t\t\t"text-title-lg",\n\t\t\t],',
+		);
+		const { twMerge, twMergeConfig } = (await import(
+			/* @vite-ignore */ project.path("src/ui/tw-merge.ts")
+		)) as {
+			twMerge: (...classes: string[]) => string;
+			twMergeConfig: TWMConfig["twMergeConfig"];
+		};
+		expect(twMerge("text-label-sm text-title-lg")).toBe("text-title-lg");
+		expect(twMerge("text-title-lg text-label-sm")).toBe("text-label-sm");
+		expect(twMerge("text-caption-sm text-title-lg")).toBe(
+			"text-caption-sm text-title-lg",
+		);
+
+		const tv = createTV({ twMergeConfig });
+		const heading = tv({
+			base: "text-label-sm text-royal-9",
+			variants: { level: { one: "text-title-lg" } },
+		});
+		expect(heading({ level: "one" })).toBe("text-royal-9 text-title-lg");
+		expect(heading({ level: "one", class: "text-label-sm" })).toBe(
+			"text-royal-9 text-label-sm",
+		);
+		// A non-member stays protected from members, but it overrides all a
+		// member sets except the member's private properties, which the
+		// merge group declares plumbing: a later caption replaces the label.
+		expect(heading({ class: "text-caption-sm" })).toBe(
+			"text-royal-9 text-caption-sm",
+		);
+	});
+
+	it("rejects merge groups the design system cannot honour, in --check too", async () => {
+		const { run } = await setup({
+			twMerge: {
+				mergeGroups: { typography: ["text-label-*", "text-headline-*"] },
+			},
+		});
+		for (const mode of ["check", "write"] as const) {
+			const result = await run(mode);
+			expect(result.status).toBe("error");
+			expect(result.diagnostics).toEqual([
+				{
+					code: "TW_MERGE_GROUP_INVALID",
+					severity: "error",
+					message:
+						'codegen.twMerge.mergeGroups does not fit the design system: codegen.twMerge.mergeGroups.typography: "text-headline-*" matches no custom utility of the design system.',
+				},
+			]);
+			expect(result.written).toEqual([]);
+		}
+	});
+
 	it("reports a CSS change as source-changed and an edited body as body-edited", async () => {
 		const { project, run } = await setup();
 		await run("write");

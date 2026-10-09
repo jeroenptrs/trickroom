@@ -234,6 +234,12 @@ export type TrickroomCodegenConfig = {
 	 */
 	twMerge?: {
 		fileName?: string;
+		/**
+		 * Per group name, utility patterns (`text-title-*`) the project
+		 * declares interchangeable: the last class of a group wins, and the
+		 * members' own custom properties are plumbing only they read.
+		 */
+		mergeGroups?: Record<string, string[]>;
 	};
 };
 
