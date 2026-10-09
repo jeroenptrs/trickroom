@@ -22,9 +22,17 @@ export const designNonCanonicalClassRule: LintRuleKind = {
 		"A class in a design is one Tailwind writes differently (an arbitrary value or variant with a named equivalent, a renamed utility); the finding names the canonical form.",
 	options: NON_CANONICAL_CLASS_OPTIONS,
 	run: async ({ designs, rule, tailwind }) => {
-		const check = createCanonicalClassChecker(
+		const classNames = designs.designs.flatMap((design) =>
+			design.boards.flatMap((board) =>
+				board.nodes.flatMap((node) =>
+					node.className === null ? [] : [node.className],
+				),
+			),
+		);
+		const check = await createCanonicalClassChecker(
 			await tailwind.inspector(),
 			rule.options,
+			classNames,
 		);
 		if (!check) {
 			return designs.designs.length > 0 ? [noCompiledCssNote] : [];

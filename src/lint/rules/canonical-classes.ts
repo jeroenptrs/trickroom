@@ -32,33 +32,41 @@ export type NonCanonicalClass = {
 };
 
 /**
- * A checker over one run: the canonical form of each distinct class is
- * computed once. Null when the inspector cannot canonicalize (no compiled
- * CSS).
+ * A checker over the class strings of one run: every distinct class is
+ * canonicalized once, in one batch (in a worker on the server), and the
+ * checker then answers per string without waiting. Null when the inspector
+ * cannot canonicalize (no compiled CSS).
  */
-export const createCanonicalClassChecker = (
+export const createCanonicalClassChecker = async (
 	inspector: LintTailwindInspector | null,
 	options: Record<string, unknown>,
-): ((className: string) => NonCanonicalClass[]) | null => {
+	classNames: Iterable<string>,
+): Promise<((className: string) => NonCanonicalClass[]) | null> => {
 	const canonicalize = inspector?.canonicalize;
 	if (!canonicalize) return null;
 	const allowed = compileClassAllowList(
 		Array.isArray(options.allow) ? (options.allow as string[]) : [],
 	);
-	const canonical = new Map<string, string>();
+	const tokens = new Set<string>();
+	for (const className of classNames) {
+		for (const { raw } of parseClassName(className)) {
+			if (!allowed(raw)) tokens.add(raw);
+		}
+	}
+	const distinct = [...tokens];
+	const written = await canonicalize(distinct);
+	const canonical = new Map(
+		distinct.map((token, index) => [token, written[index] ?? token]),
+	);
 	return (className) => {
 		const found: NonCanonicalClass[] = [];
 		const seen = new Map<string, number>();
 		for (const { raw } of parseClassName(className)) {
 			const occurrence = seen.get(raw) ?? 0;
 			seen.set(raw, occurrence + 1);
-			let written = canonical.get(raw);
-			if (written === undefined) {
-				written = canonicalize(raw);
-				canonical.set(raw, written);
-			}
-			if (written === raw || allowed(raw)) continue;
-			found.push({ classToken: raw, canonical: written, occurrence });
+			const form = canonical.get(raw) ?? raw;
+			if (form === raw) continue;
+			found.push({ classToken: raw, canonical: form, occurrence });
 		}
 		return found;
 	};

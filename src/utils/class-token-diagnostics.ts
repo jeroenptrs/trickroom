@@ -22,7 +22,6 @@ import type {
 	TailwindTokenStorage,
 } from "./tailwind-token-store";
 import {
-	canonicalizeTailwindCandidate,
 	inspectTailwindUtilityCandidate,
 	type TailwindUtilityInspection,
 } from "./tailwind-utility-inspector";
@@ -78,8 +77,6 @@ export type ClassTokenInspector = {
 	inspect: (candidate: string) => TailwindUtilityInspection;
 	/** Nearest valid classes for an unsupported candidate, variants preserved. */
 	suggest?: (candidate: string) => string[];
-	/** The class as Tailwind would write it; the candidate itself when it already is. */
-	canonicalize?: (candidate: string) => string;
 };
 
 export type CustomUtilityRoots = {
@@ -644,8 +641,6 @@ export const createClassTokenInspector = (
 					getDesignSystemClassNames(designSystem),
 					candidate,
 				),
-			canonicalize: (candidate) =>
-				canonicalizeTailwindCandidate(designSystem, candidate),
 		};
 		inspectorCache.set(designSystem, inspector);
 	}

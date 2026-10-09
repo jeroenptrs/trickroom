@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { flatPayload, publishedComponent } from "../codegen/test-support";
 import type { Node, TrickroomDesign } from "../types";
 import { serializeSystemComponentManifest } from "../utils/system-component-manifest-service";
@@ -14,6 +14,7 @@ import {
 	type TrickroomMcpProjectFixture,
 	toolPayload,
 	trickroomMcpTestDesignUuid,
+	warmTailwindCanonicalization,
 } from "./test-support";
 
 type Issue = McpDesignIssue & {
@@ -48,12 +49,10 @@ const layer = (
 /** Puts a folder where lint.json goes, so reading it fails with EISDIR. */
 const LINT_JSON_DIRECTORY = Symbol("lint.json is a directory");
 
-// Each session compiles its own system CSS, and the first canonicalization
-// (design.non-canonical-class) builds Tailwind's lookup tables: seconds
-// under a parallel run.
-describe("design_validate with the system's design lint rules", {
-	timeout: 30_000,
-}, () => {
+describe("design_validate with the system's design lint rules", () => {
+	// The system CSS these sessions use, canonicalized once up front.
+	beforeAll(() => warmTailwindCanonicalization(), 30_000);
+
 	let fixture: TrickroomMcpProjectFixture | undefined;
 	let session: TrickroomMcpClientSession | undefined;
 

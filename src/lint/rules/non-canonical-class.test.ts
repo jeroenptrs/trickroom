@@ -8,8 +8,8 @@ import {
 import type { TrickroomDesign } from "../../types";
 import { createClassTokenInspector } from "../../utils/class-token-diagnostics";
 import { createEmptySystemComponentManifest } from "../../utils/system-components";
+import { canonicalizeTailwindCandidatesInWorker } from "../../utils/tailwind-canonicalize-client";
 import { loadTailwindDesignSystem } from "../../utils/tailwind-design-system";
-import { canonicalizeTailwindCandidate } from "../../utils/tailwind-utility-inspector";
 import { resolveLintConfig } from "../config";
 import { buildSystemContract } from "../contract";
 import { buildLintDesignIndex } from "../designs";
@@ -50,28 +50,73 @@ beforeAll(async () => {
 		projectRoot,
 		cssPath: "src/index.css",
 	}));
-	inspector = createClassTokenInspector(designSystem);
-	// The first canonicalization builds Tailwind's lookup tables; warm them
-	// here so the tests below stay inside the default timeout.
-	inspector.canonicalize?.("bg-white");
-}, 60_000);
+	const system = { projectRoot, cssPath: "src/index.css" };
+	inspector = {
+		...createClassTokenInspector(designSystem),
+		canonicalize: (candidates) =>
+			canonicalizeTailwindCandidatesInWorker(system, candidates),
+	};
+	// The first canonicalization builds Tailwind's lookup tables in the
+	// worker (seconds); pay it once here rather than in the first test.
+	await inspector.canonicalize?.(["bg-white"]);
+}, 30_000);
+
+/** Specificity of a simple selector: ids, classes and attributes, elements. */
+const specificity = (selector: string): [number, number, number] => {
+	const counted = selector.replace(/:where\([^)]*\)/gu, "");
+	return [
+		(counted.match(/#[\w-]+/gu) ?? []).length,
+		(counted.match(/\.[\w\\:[\]&-]+|\[[^\]]+\]|:(?!where)[\w-]+/gu) ?? [])
+			.length,
+		(counted.match(/(^|[\s>+~])[a-z]+/gu) ?? []).length,
+	];
+};
 
 afterAll(() => rm(projectRoot, { force: true, recursive: true }));
 
-describe("canonicalizeTailwindCandidate", () => {
-	it("writes a class the way Tailwind does, one class at a time", () => {
-		const canonical = (candidate: string) =>
-			canonicalizeTailwindCandidate(designSystem, candidate);
-		expect(canonical("[scrollbar-width:thin]")).toBe("scrollbar-thin");
-		expect(canonical("bg-[#FFF]")).toBe("bg-white");
-		expect(canonical("[&:has(.active)]:p-2")).toBe("has-[.active]:p-2");
-		expect(canonical("hover:bg-[#FFF]")).toBe("hover:bg-white");
-		// Already canonical, unknown to Tailwind, or only equal at one root
-		// font size: unchanged.
-		expect(canonical("bg-white")).toBe("bg-white");
-		expect(canonical("has-[.active]:p-2")).toBe("has-[.active]:p-2");
-		expect(canonical("not-a-utility")).toBe("not-a-utility");
-		expect(canonical("w-[16px]")).toBe("w-[16px]");
+describe("canonicalizeTailwindCandidatesInWorker", () => {
+	it("writes each class the way Tailwind does, one class at a time", async () => {
+		const canonical = await inspector.canonicalize?.([
+			"[scrollbar-width:thin]",
+			"bg-[#FFF]",
+			"[&:has(.active)]:p-2",
+			"hover:bg-[#FFF]",
+			// Already canonical, unknown to Tailwind, or only equal at one root
+			// font size: unchanged.
+			"bg-white",
+			"has-[.active]:p-2",
+			"not-a-utility",
+			"w-[16px]",
+		]);
+		expect(canonical).toEqual([
+			"scrollbar-thin",
+			"bg-white",
+			"has-[.active]:p-2",
+			"hover:bg-white",
+			"bg-white",
+			"has-[.active]:p-2",
+			"not-a-utility",
+			"w-[16px]",
+		]);
+	});
+
+	it("may change specificity: an `in-*` form loses to a selector the original beat", async () => {
+		const original = "[[data-panel-open]_&]:hidden";
+		const [canonical] = (await inspector.canonicalize?.([original])) ?? [];
+		expect(canonical).toBe("in-data-panel-open:hidden");
+		const selectorOf = (candidate: string) =>
+			(designSystem.candidatesToCss([candidate])[0] ?? "").split("{")[0].trim();
+		expect(selectorOf(original)).toBe(
+			"[data-panel-open] .\\[\\[data-panel-open\\]_\\&\\]\\:hidden",
+		);
+		expect(selectorOf(canonical)).toBe(
+			":where([data-panel-open]) .in-data-panel-open\\:hidden",
+		);
+		// A competing `.panel .icon { display: block }` ties with the original
+		// (later source order decides) but beats the canonical form outright.
+		const competing = specificity(".panel .icon");
+		expect(specificity(selectorOf(original))).toEqual(competing);
+		expect(specificity(selectorOf(canonical))).toEqual([0, 1, 0]);
 	});
 });
 
@@ -136,6 +181,40 @@ describe("code.non-canonical-class", () => {
 			},
 		});
 		expect(await fixture.run(nonCanonicalClassRule, { inspector })).toEqual([]);
+	});
+
+	it("skips strings an interpolation splices into a class, and checks conditional branches", async () => {
+		const fixture = await fixtures.create({
+			components: [],
+			files: {
+				"src/app.tsx": [
+					"declare const on: boolean;",
+					"export const App = () => (",
+					"\t<div>",
+					// biome-ignore lint/suspicious/noTemplateCurlyInString: fixture source with a template literal
+					'\t\t<p className={`[&_.${"break-words"}]:p-2`} />',
+					'\t\t<p className={on ? "break-words" : "flex-grow"} />',
+					// biome-ignore lint/suspicious/noTemplateCurlyInString: fixture source with a template literal
+					'\t\t<p className={`p-2 ${on ? "bg-[#FFF]" : ""}`} />',
+					"\t</div>",
+					");",
+					"",
+				].join("\n"),
+			},
+		});
+		expect(
+			(await fixture.run(nonCanonicalClassRule, { inspector })).map(
+				(finding) => [
+					finding.details?.classToken,
+					finding.details?.canonical,
+					finding.location?.kind === "code" ? finding.location.line : null,
+				],
+			),
+		).toEqual([
+			["break-words", "wrap-break-word", 5],
+			["flex-grow", "grow", 5],
+			["bg-[#FFF]", "bg-white", 6],
+		]);
 	});
 
 	it("honours allow globs, and notes when there is no compiled CSS", async () => {

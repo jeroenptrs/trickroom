@@ -63,11 +63,13 @@ export type LintTailwindInspector = {
 	/** Nearest valid classes for an unsupported candidate, variants kept. */
 	suggest?: (candidate: string) => string[];
 	/**
-	 * The class as the system's Tailwind would write it
-	 * (`designSystem.canonicalizeCandidates`); the candidate itself when it
-	 * already is, or when Tailwind does not know it.
+	 * Each class as the system's Tailwind writes it
+	 * (`designSystem.canonicalizeCandidates`), in order; a class that already
+	 * is canonical, or that Tailwind does not know, comes back unchanged.
+	 * Asynchronous: the server computes it in a worker
+	 * (`src/utils/tailwind-canonicalize-client.ts`).
 	 */
-	canonicalize?: (candidate: string) => string;
+	canonicalize?: (candidates: readonly string[]) => Promise<string[]>;
 };
 
 export type LintRuleContext = {

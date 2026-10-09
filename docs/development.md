@@ -23,6 +23,7 @@ pnpm install
 | `pnpm build:feedback` | Build `dist/feedback.js` for `trickroom feedback`. |
 | `pnpm build:codegen` | Build `dist/codegen.js` for `trickroom codegen` (entry `src/cli/codegen.ts`, config `vite.codegen.config.ts`). |
 | `pnpm build:lint` | Build `dist/lint.js` for `trickroom lint` (entry `src/cli/lint.ts`, config `vite.lint.config.ts`). |
+| `pnpm build:tailwind-worker` | Build `dist/tailwind-canonicalize-worker.js`, the worker thread the server, MCP and lint bundles start for Tailwind canonicalization (entry `src/utils/tailwind-canonicalize-worker.ts`, config `vite.tailwind-worker.config.ts`). From source (dev server, tests) the `.ts` worker runs under Node's type stripping. |
 
 Screenshot support is optional. The published package declares `playwright-core` as an optional peer, while keeping it as a development dependency for this repository. Install it alongside Trickroom and provide Chrome/Chromium before using screenshot APIs or MCP tools:
 

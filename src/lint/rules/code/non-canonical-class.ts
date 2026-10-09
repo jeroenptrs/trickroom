@@ -25,36 +25,40 @@ export const nonCanonicalClassRule: LintRuleKind = {
 		"A class string uses a class Tailwind writes differently (an arbitrary value or variant with a named equivalent, a renamed utility); the finding names the canonical form.",
 	options: NON_CANONICAL_CLASS_OPTIONS,
 	run: async (context) => {
-		const check = createCanonicalClassChecker(
+		const { sources } = context;
+		const checked = sources.files
+			.filter((file) => sources.generated[file] === undefined)
+			.flatMap((file) =>
+				sources.modules[file].classStrings
+					.filter((entry) => entry.complete)
+					.map((entry) => ({ file, entry })),
+			);
+		const check = await createCanonicalClassChecker(
 			await context.tailwind.inspector(),
 			context.rule.options,
+			checked.map(({ entry }) => entry.value),
 		);
 		if (!check) return [noCompiledCssNote];
 
 		const findings: LintRuleFinding[] = [];
-		const { sources } = context;
 		const wrapperSlug = new Map<string, string>();
 		for (const [slug, files] of getCodeAnalysis(context).wrappers) {
 			for (const file of files) {
 				if (!wrapperSlug.has(file)) wrapperSlug.set(file, slug);
 			}
 		}
-		for (const file of sources.files) {
-			if (sources.generated[file] !== undefined) continue;
+		for (const { file, entry } of checked) {
 			const slug = wrapperSlug.get(file);
-			for (const entry of sources.modules[file].classStrings) {
-				if (!entry.complete) continue;
-				for (const found of check(entry.value)) {
-					findings.push({
-						...(slug ? { component: slug } : {}),
-						location: codeLocation(
-							file,
-							classTokenPosition(entry, found.classToken, found.occurrence),
-						),
-						message: `${nonCanonicalClassMessage(found)} Use "${found.canonical}", or add "${found.classToken}" to this rule's allow list if it is intended.`,
-						details: nonCanonicalClassDetails(entry.value, found),
-					});
-				}
+			for (const found of check(entry.value)) {
+				findings.push({
+					...(slug ? { component: slug } : {}),
+					location: codeLocation(
+						file,
+						classTokenPosition(entry, found.classToken, found.occurrence),
+					),
+					message: `${nonCanonicalClassMessage(found)} Use "${found.canonical}", or add "${found.classToken}" to this rule's allow list if it is intended.`,
+					details: nonCanonicalClassDetails(entry.value, found),
+				});
 			}
 		}
 		return findings;

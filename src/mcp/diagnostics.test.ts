@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { TrickroomDesign } from "../types";
 import {
 	getDesignDiagnostics,
@@ -17,6 +17,7 @@ import {
 	type TrickroomMcpProjectFixture,
 	toolPayload,
 	trickroomMcpTestDesignUuid,
+	warmTailwindCanonicalization,
 } from "./test-support";
 
 // Every registry component currently has a renderer; pretend meter.track has
@@ -56,10 +57,16 @@ const expandedDiagnosticsDesign = {
 	],
 } satisfies TrickroomDesign;
 
-// Each session compiles its own system CSS, and the first canonicalization
-// (design.non-canonical-class) builds Tailwind's lookup tables: seconds
-// under a parallel run.
-describe("MCP expanded class/token diagnostics", { timeout: 30_000 }, () => {
+describe("MCP expanded class/token diagnostics", () => {
+	// The system CSS these sessions use, canonicalized once up front.
+	beforeAll(
+		() =>
+			warmTailwindCanonicalization([
+				'@import "tailwindcss";\n@theme {\n\t--shadow-elevation-md: 0 1px 2px rgb(0 0 0 / 0.2);\n}\n',
+			]),
+		30_000,
+	);
+
 	const fixtures: TrickroomMcpProjectFixture[] = [];
 	const sessions: TrickroomMcpClientSession[] = [];
 
