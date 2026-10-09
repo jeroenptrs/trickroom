@@ -50,7 +50,7 @@ export async function loadTailwindDesignSystem(
 }
 
 /** The design system plus a stamp of every file it read, keyed by abs path. */
-async function loadTrackedTailwindDesignSystem({
+export async function loadTrackedTailwindDesignSystem({
 	projectRoot,
 	cssPath,
 }: LoadTailwindDesignSystemOptions): Promise<
@@ -134,7 +134,14 @@ const loadedDesignSystemCache = new Map<
 async function loadedDesignSystemIsFresh(
 	entry: LoadedDesignSystemCacheEntry,
 ): Promise<boolean> {
-	for (const [filePath, stamp] of entry.fileStamps) {
+	return fileStampsAreFresh(entry.fileStamps);
+}
+
+/** True while every file still has the stamp it had when it was read. */
+export async function fileStampsAreFresh(
+	fileStamps: ReadonlyMap<string, string | null>,
+): Promise<boolean> {
+	for (const [filePath, stamp] of fileStamps) {
 		if ((await statStamp(filePath)) !== stamp) {
 			return false;
 		}
