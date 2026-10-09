@@ -56,13 +56,16 @@ export const twMergeConfig = {
 			spacing: ["pad-sm", "pad-base", …],
 		},
 		classGroups: {
-			"font-size": ["text-label-sm", "text-label-lg", …],
-			"bg-color": ["bg-royal-ui", …],
+			"@utility text-label-*": ["text-label-sm", "text-label-lg", …],
+			p: ["card-padding"],
+		},
+		conflictingClassGroups: {
+			"@utility text-label-*": ["font-size", "font-weight", "leading", "tracking"],
 		},
 	},
 } as const;
 
-export const twMerge = extendTailwindMerge(twMergeConfig);
+export const twMerge = extendTailwindMerge<string>(twMergeConfig);
 ```
 
 Hand `twMergeConfig` to tailwind-variants in your `tv` module, and use `twMerge` where your wrappers merge a `className` override, so both merge the same way:
@@ -77,12 +80,16 @@ export const tv = createTV({ twMergeConfig });
 How it is derived:
 
 - **Theme.** tailwind-merge's theme keys are Tailwind's theme namespaces (`color` is `--color-*`, `text` is `--text-*`, `spacing` is `--spacing-*`, and so on for every key tailwind-merge has). Each key lists the keys of its namespace, without sub-keys (`--text-sm--line-height`) and without keys of a longer namespace (`--font-weight-*` is not a `font`).
-- **Custom utilities.** Every `@utility` in the system's stylesheets (static ones and each value of a functional one) is compiled with Tailwind, and joins the tailwind-merge class group whose stock utility generates the same declarations, on the same element: `text-label-sm` sets `font-size` (with `line-height`, `font-weight` and `letter-spacing`, which Tailwind's own `text-*` also sets from theme sub-keys) and merges like `text-sm`; `bg-royal-ui` sets `background-color`, also under `:hover` and `.dark`, and merges like `bg-red-500`; `divide-royal-dim` sets `border-color` on the children and merges like `divide-red-500`. Variants inside a utility do not change its group. A utility that matches no single group, such as a component class that sets a background, a colour and padding, is left out (tailwind-merge then keeps it as it is, which is what it did before) and listed in a comment above the config, with the properties it sets.
+- **Custom utilities.** Every `@utility` in the system's stylesheets (static ones and each value of a functional one) is compiled with Tailwind. Each declaration counts with where it applies (the selector, pseudo-classes such as `:hover` and `.dark` included, and the `@media` or `@supports` around it), whether it is `!important`, and custom properties count like any property. Tailwind's own `--tw-*` variables are the exception: they are plumbing between its utilities and never decide a group on their own.
+- **Joining a stock group.** A utility joins a tailwind-merge class group only when any member of that group could replace it without losing anything: it sets exactly what the group's stock utility sets (compiled from an arbitrary value, `p-[1px]`, `text-[red]`), with no condition and no `!important`. `@utility card-padding { padding: 1rem }` joins `p`, so `card-padding p-4` keeps `p-4`.
+- **Its own group.** Every other utility gets a class group of its own, named after its first member (`"@utility text-label-*"`), shared with the utilities that set exactly the same declarations: `bg-royal-ui` and `bg-pale-ui` (background, hover and dark backgrounds) share one, so the later wins. tailwind-merge's stock rules never put these classes in a stock group, so no stock class removes one: `text-label-sm text-royal-9` keeps both, and so do `text-label-sm text-sm`, `bg-royal-ui bg-red-500` and `bg-panel bg-red-500` for a panel that also sets padding.
+- **Conflicts.** A group lists in `conflictingClassGroups` the stock and own groups whose every declaration it overrides, in the same place and at least as `!important`. The relation is one-directional: a later `text-label-sm` removes an earlier `text-sm`, `leading-6`, `font-bold` or `tracking-wide`, and a later `bg-royal-ui` an earlier `bg-red-500`, but never the other way round.
+- **Prefix.** A system with `prefix(tw)` is compiled with prefixed candidates (`tw:text-label-sm`), and the config sets tailwind-merge's `prefix`.
 - Keys and values are sorted, so the file only changes when the CSS does.
 
-The file follows the same rules as variants files: the formatter runs on it, `--check` reports it `missing` or `stale` (`source-changed` when the derived config changed, `body-edited` when the body did, `not-generated` for a file without the header), only a file with its header is replaced, and a file left behind after `twMerge` is removed or renamed is listed as orphaned. To replace a hand-written `tw-merge.ts`, check that its exports are `twMergeConfig` and `twMerge` (the names the generated file keeps), then run `trickroom codegen --force` once.
+The file follows the same rules as variants files: the formatter runs on it and must keep its two header lines exactly, `--check` reports it `missing` or `stale` (`source-changed` when the derived config changed, `body-edited` when the body did, `not-generated` for a file without the header), only a file with its header is replaced, and a file left behind after `twMerge` is removed or renamed is listed as orphaned. To replace a hand-written `tw-merge.ts`, check that its exports are `twMergeConfig` and `twMerge` (the names the generated file keeps), then run `trickroom codegen --force` once.
 
-The derived config is a plain JSON-serialisable object (`deriveTwMergeConfig` in `src/utils/tailwind-merge-derive.ts`). `trickroom lint` merges with the same config, see `code.redundant-class` in [Design System Lint](lint.md).
+The derived config is a plain JSON-serialisable object (`deriveTwMergeConfig` in `src/utils/tailwind-merge-derive.ts`). With `codegen.twMerge` on, `trickroom lint` merges with the same config, see `code.redundant-class` in [Design System Lint](lint.md).
 
 ## Shapes
 

@@ -166,7 +166,7 @@ Fields and defaults (defaults are applied when the block is read and never writt
 | `include` | no | every published Component | Exact Component slugs. Whether they exist is checked at generation time. |
 | `exclude` | no | none | Exact Component slugs. |
 | `formatter` | no | none | `command` is a non-empty string, `args` an optional array of strings. It runs without a shell from the project root, with the source on stdin and `{file}` in `args` replaced by the output path. |
-| `twMerge` | no | off | An object; present turns on the generated tailwind-merge config (see [Component Codegen](codegen.md#the-tailwind-merge-config)). `fileName` defaults to `tw-merge.ts`: a file name in `outDir` without a path separator or `{slug}`, ending in `.ts`. Needs the system's `cssPath`. |
+| `twMerge` | no | off | An object; present turns on the generated tailwind-merge config (see [Component Codegen](codegen.md#the-tailwind-merge-config)). `fileName` defaults to `tw-merge.ts`: a file name in `outDir` without a path separator or `{slug}`, ending in `.ts`. Needs the system's `cssPath`, and makes `code.redundant-class` merge with the same config, which assumes your `tv` module passes the generated `twMergeConfig` to `createTV`. |
 
 What is generated, the check statuses and the ownership rule are described in [Component Codegen](codegen.md). Codegen reads the config, `system.json` and `components.json` without migrating them, in both modes.
 
