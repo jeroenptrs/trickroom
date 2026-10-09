@@ -47,3 +47,8 @@ export function readSystemComponentDeepLinkNode(params: URLSearchParams) {
 export function buildSystemTabSearch(page: string) {
 	return page === "components" ? "" : `?tab=${encodeURIComponent(page)}`;
 }
+
+/** The search string that opens a component, or the component list without one. */
+export function buildSystemComponentSearch(componentId: string | null) {
+	return componentId ? `?component=${encodeURIComponent(componentId)}` : "";
+}

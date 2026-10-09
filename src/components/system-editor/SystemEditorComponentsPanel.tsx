@@ -495,11 +495,7 @@ export function CollapsedComponentContextHeader({
 		<ComponentContextHeaderContent
 			componentId={componentId}
 			summary={summary}
-			onBack={() => {
-				resetComponentDraftStore();
-				resetComponentEditorSession();
-				onSelectComponent(null);
-			}}
+			onBack={() => onSelectComponent(null)}
 			actions={actions}
 		/>
 	);
@@ -673,16 +669,9 @@ export function SystemEditorComponentsRail({
 	const [activeComponentTab, setActiveComponentTab] =
 		useState<ComponentRailTab>("design");
 	const componentFilterRef = useRef<HTMLInputElement>(null);
-	const handleSelectComponent = useCallback(
-		(nextComponentId: string | null) => {
-			if (nextComponentId !== selectedComponentId) {
-				resetComponentDraftStore();
-				resetComponentEditorSession();
-			}
-			onSelectComponent(nextComponentId);
-		},
-		[onSelectComponent, selectedComponentId],
-	);
+	// Selection goes through the editor's guarded navigation, which drops the
+	// open draft once leaving it is confirmed.
+	const handleSelectComponent = onSelectComponent;
 
 	useEffect(() => {
 		if (selectedComponentId !== null) {
@@ -842,6 +831,10 @@ export function SystemEditorComponentsRail({
 		onSuccess: async (response) => {
 			setDeleteError(null);
 			if (selectedComponentId === response.componentId) {
+				// The draft belongs to a component that no longer exists: nothing to
+				// ask about.
+				resetComponentDraftStore();
+				resetComponentEditorSession();
 				handleSelectComponent(null);
 			}
 			queryClient.removeQueries({

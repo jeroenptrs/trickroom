@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildSystemComponentPath,
+	buildSystemComponentSearch,
 	buildSystemTabSearch,
 	readSystemComponentDeepLinkNode,
 } from "./system-deep-link";
@@ -37,5 +38,10 @@ describe("system component deep links", () => {
 	it("keeps the tab in the search, none for the default Components tab", () => {
 		expect(buildSystemTabSearch("lint")).toBe("?tab=lint");
 		expect(buildSystemTabSearch("components")).toBe("");
+	});
+
+	it("builds the search that opens a component, none for the list", () => {
+		expect(buildSystemComponentSearch("cmp_1")).toBe("?component=cmp_1");
+		expect(buildSystemComponentSearch(null)).toBe("");
 	});
 });

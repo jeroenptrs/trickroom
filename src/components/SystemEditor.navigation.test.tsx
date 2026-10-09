@@ -13,7 +13,10 @@ import {
 	updateTemplateNodeClassName,
 } from "../stores/component-draft-store";
 import { resetComponentEditorSession } from "../stores/component-editor-session-store";
-import { resetEditorChrome } from "../stores/editor-chrome-store";
+import {
+	resetEditorChrome,
+	setEditorPanelOpen,
+} from "../stores/editor-chrome-store";
 import { buildSystemComponentPath } from "../utils/system-deep-link";
 import { TailwindSyncControllerContext } from "./contexts";
 import { SystemEditor } from "./SystemEditor";
@@ -143,6 +146,81 @@ const flush = () =>
 		await new Promise((resolve) => setTimeout(resolve, 20));
 	});
 
+const json = (body: unknown) =>
+	new Response(JSON.stringify(body), {
+		status: 200,
+		headers: { "content-type": "application/json" },
+	});
+
+/** Holds back the draft save until the test releases it. */
+let saveGate: { promise: Promise<void>; release: () => void } | null = null;
+const holdSaves = () => {
+	let release = () => {};
+	const promise = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	saveGate = { promise, release };
+	return saveGate;
+};
+
+async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
+	const url = String(input);
+	const method = init?.method ?? "GET";
+	const detail = url.match(/\/components\/(cmp_[a-z]+)(\/draft)?$/);
+	if (detail?.[2] && method === "POST") {
+		await saveGate?.promise;
+		return json({
+			systemId: "core",
+			systemName: "Core",
+			revision: "sha256:components-saved",
+			updatedAt: now,
+			componentId: detail[1],
+		});
+	}
+	if (detail && !detail[2] && method === "GET") {
+		const entry = component(
+			detail[1] as string,
+			detail[1] === "cmp_a" ? "Alpha" : "Beta",
+		);
+		return json({
+			systemId: "core",
+			systemName: "Core",
+			revision: "sha256:components-test",
+			updatedAt: now,
+			componentId: detail[1],
+			record: entry.record,
+			valid: true,
+			diagnostics: [],
+		});
+	}
+	return new Response("Not found", { status: 404 });
+}
+
+const clickByTitle = async (title: string) => {
+	const target = document.body.querySelector(`button[title="${title}"]`);
+	expect(target, `button titled "${title}"`).not.toBeNull();
+	await act(async () => {
+		(target as HTMLElement).click();
+	});
+	await flush();
+};
+
+const clickListItem = async (name: string) => {
+	const target = [...document.body.querySelectorAll("button")].find(
+		(element) =>
+			element.textContent?.includes(name) &&
+			element.textContent.includes(name.toLowerCase()),
+	);
+	expect(target, `list item "${name}"`).toBeDefined();
+	await act(async () => {
+		target?.click();
+	});
+	await flush();
+};
+
+const dialogOpen = () =>
+	document.body.textContent?.includes("Discard unsaved changes?") ?? false;
+
 const button = (label: string) =>
 	[...document.body.querySelectorAll("button, [role=tab]")].find(
 		(element) => element.textContent?.trim() === label,
@@ -159,10 +237,8 @@ const click = async (label: string) => {
 
 describe("SystemEditor URL navigation", () => {
 	beforeEach(() => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () => new Response("Not found", { status: 404 })),
-		);
+		saveGate = null;
+		vi.stubGlobal("fetch", vi.fn(fetchMock));
 		resetComponentDraftStore();
 		resetComponentEditorSession();
 		resetEditorChrome();
@@ -285,5 +361,143 @@ describe("SystemEditor URL navigation", () => {
 		await flush();
 		expect(componentDraftStore.get().componentId).toBe("cmp_a");
 		expect(componentDraftStore.get().selectedPath).toBeNull();
+	});
+
+	describe("navigation through the component list and the back button", () => {
+		beforeEach(() => setEditorPanelOpen("system", "rail", true));
+
+		it("asks before the back button drops unsaved edits, and Cancel keeps the view without a duplicate history entry", async () => {
+			const router = mount("/system/core");
+			await flush();
+			await clickListItem("Alpha");
+			expect(router.state.location.search).toBe("?component=cmp_a");
+			expect(componentDraftStore.get().componentId).toBe("cmp_a");
+			act(() => updateTemplateNodeClassName("root", "p-2"));
+
+			await clickByTitle("Back to components");
+			expect(dialogOpen()).toBe(true);
+			expect(componentDraftStore.get().componentId).toBe("cmp_a");
+			expect(hasUnsavedComponentDraft()).toBe(true);
+
+			await click("Cancel");
+			await flush();
+			expect(dialogOpen()).toBe(false);
+			expect(router.state.location.search).toBe("?component=cmp_a");
+			expect(hasUnsavedComponentDraft()).toBe(true);
+
+			// The blocked push was undone: one Back reaches the list, not a copy of A.
+			await act(async () => {
+				await router.navigate(-1);
+			});
+			await flush();
+			expect(router.state.location.search).toBe("");
+			expect(dialogOpen()).toBe(true);
+		});
+
+		it("goes back to the list once the edits are discarded", async () => {
+			const router = mount("/system/core");
+			await flush();
+			await clickListItem("Alpha");
+			act(() => updateTemplateNodeClassName("root", "p-2"));
+			await clickByTitle("Back to components");
+			await click("Discard changes");
+			expect(dialogOpen()).toBe(false);
+			expect(router.state.location.search).toBe("");
+			expect(componentDraftStore.get().componentId).toBeNull();
+			expect(hasUnsavedComponentDraft()).toBe(false);
+		});
+
+		it("lets a clean draft go back without asking", async () => {
+			const router = mount("/system/core?component=cmp_a");
+			await flush();
+			await clickByTitle("Back to components");
+			expect(dialogOpen()).toBe(false);
+			expect(router.state.location.search).toBe("");
+		});
+
+		it("restores the URL when Cancel follows a list selection of another component", async () => {
+			const router = mount("/system/core");
+			await flush();
+			await clickListItem("Alpha");
+			act(() => updateTemplateNodeClassName("root", "p-2"));
+			await act(async () => {
+				await router.navigate("/system/core?component=cmp_b");
+			});
+			await flush();
+			expect(dialogOpen()).toBe(true);
+			await click("Cancel");
+			await flush();
+			expect(router.state.location.search).toBe("?component=cmp_a");
+			expect(dialogOpen()).toBe(false);
+		});
+	});
+
+	describe("a save that is still running when the view moves on", () => {
+		it("does not open the destination Cancel gave up on", async () => {
+			const gate = holdSaves();
+			const router = mount("/system/core?component=cmp_a");
+			await flush();
+			act(() => updateTemplateNodeClassName("root", "p-2"));
+			await act(async () => {
+				await router.navigate("/system/core?component=cmp_b");
+			});
+			await flush();
+			await click("Save");
+			await click("Cancel");
+			expect(router.state.location.search).toBe("?component=cmp_a");
+
+			await act(async () => {
+				gate.release();
+			});
+			await flush();
+			expect(router.state.location.search).toBe("?component=cmp_a");
+			expect(componentDraftStore.get().componentId).toBe("cmp_a");
+			expect(dialogOpen()).toBe(false);
+		});
+
+		it("does not open a destination a newer navigation replaced", async () => {
+			const gate = holdSaves();
+			const router = mount("/system/core?component=cmp_a");
+			await flush();
+			act(() => updateTemplateNodeClassName("root", "p-2"));
+			await act(async () => {
+				await router.navigate("/system/core?component=cmp_b");
+			});
+			await flush();
+			await click("Save");
+			await act(async () => {
+				await router.navigate("/system/core?tab=lint");
+			});
+			await flush();
+			expect(document.body.textContent).toContain("Run lint");
+
+			await act(async () => {
+				gate.release();
+			});
+			await flush();
+			expect(router.state.location.search).toBe("?tab=lint");
+			expect(document.body.textContent).toContain("Run lint");
+			expect(dialogOpen()).toBe(false);
+		});
+
+		it("opens the destination when nothing overtook the save", async () => {
+			const gate = holdSaves();
+			const router = mount("/system/core?component=cmp_a");
+			await flush();
+			act(() => updateTemplateNodeClassName("root", "p-2"));
+			await act(async () => {
+				await router.navigate("/system/core?component=cmp_b");
+			});
+			await flush();
+			await click("Save");
+			await act(async () => {
+				gate.release();
+			});
+			await flush();
+			expect(dialogOpen()).toBe(false);
+			expect(router.state.location.search).toBe("?component=cmp_b");
+			expect(componentDraftStore.get().componentId).toBe("cmp_b");
+			expect(hasUnsavedComponentDraft()).toBe(false);
+		});
 	});
 });

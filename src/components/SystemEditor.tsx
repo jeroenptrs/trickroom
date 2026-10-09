@@ -39,6 +39,7 @@ import {
 	useWindowKeyDown,
 } from "../utils/editor-shortcuts";
 import {
+	buildSystemComponentSearch,
 	buildSystemTabSearch,
 	readSystemComponentDeepLinkNode,
 } from "../utils/system-deep-link";
@@ -67,7 +68,10 @@ import {
 	revealSystemPanel,
 	SystemPanelToggle,
 } from "./system-editor/SystemPanelToggle";
-import type { SystemEditorPage } from "./system-editor/types";
+import {
+	getSystemEditorPage,
+	type SystemEditorPage,
+} from "./system-editor/types";
 import {
 	discardOpenComponentDraft,
 	useGuardedComponentLocation,
@@ -109,26 +113,6 @@ function getSystemBadgeState(
 	}
 
 	return "synced";
-}
-
-function getInitialSystemEditorPage(
-	tab: string | null,
-	componentId: string | null,
-): SystemEditorPage {
-	if (componentId) {
-		return "components";
-	}
-
-	if (
-		tab === "tokens" ||
-		tab === "assets" ||
-		tab === "icons" ||
-		tab === "lint"
-	) {
-		return tab;
-	}
-
-	return "components";
 }
 
 /**
@@ -255,10 +239,7 @@ export function SystemEditor() {
 		() => searchParams.get("component"),
 	);
 	const [activePage, setActivePage] = useState<SystemEditorPage>(() =>
-		getInitialSystemEditorPage(
-			searchParams.get("tab"),
-			searchParams.get("component"),
-		),
+		getSystemEditorPage(searchParams.get("tab"), searchParams.get("component")),
 	);
 	const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
 	const [selectedIconId, setSelectedIconId] = useState<string | null>(null);
@@ -292,19 +273,28 @@ export function SystemEditor() {
 		return getSystemBadgeState(syncStatus, reviewRequired);
 	}, [selectedSystem, syncController]);
 
-	// The URL is the way in from outside the page: a link ("Go to component"),
-	// Back and Forward, a tab click. Every navigation has its own key, so
-	// following the same link twice works too.
+	// The URL is the single way the open view changes: links ("Go to component"),
+	// Back and Forward, tab clicks, and the component list and back button (via
+	// `openComponent`). Every navigation has its own key, so following the same
+	// link twice works too.
+	const openComponentIdRef = useRef<string | null>(null);
+	openComponentIdRef.current =
+		activePage === "components" ? selectedComponentId : null;
 	const applyLocationSearch = useCallback((search: string) => {
 		const params = new URLSearchParams(search);
 		const componentId = params.get("component");
-		if (
+		const page = getSystemEditorPage(params.get("tab"), componentId);
+		const opensOther =
 			componentId !== null &&
-			componentId !== componentDraftStore.get().componentId
-		) {
+			componentId !== componentDraftStore.get().componentId;
+		const backToList =
+			componentId === null &&
+			page === "components" &&
+			openComponentIdRef.current !== null;
+		if (opensOther || backToList) {
 			discardOpenComponentDraft();
 		}
-		setActivePage(getInitialSystemEditorPage(params.get("tab"), componentId));
+		setActivePage(page);
 		setSelectedComponentId(componentId);
 		setSelectedAssetId(null);
 		setSelectedIconId(null);
@@ -315,7 +305,22 @@ export function SystemEditor() {
 		systemId: selectedSystem?.systemId ?? "",
 		projectScope,
 		onApply: applyLocationSearch,
+		getOpenComponentId: () => openComponentIdRef.current,
 	});
+	// The component list and the back button navigate (push) like a link, so
+	// they get the same unsaved-changes question.
+	const openComponent = useCallback(
+		(componentId: string | null) => {
+			if (componentId === openComponentIdRef.current) {
+				return;
+			}
+			navigate({
+				pathname: location.pathname,
+				search: buildSystemComponentSearch(componentId),
+			});
+		},
+		[navigate, location.pathname],
+	);
 
 	const pendingRecordQuery = useQuery({
 		...systemComponentQueryOptions(
@@ -416,7 +421,7 @@ export function SystemEditor() {
 				event.key === "["
 			) {
 				if (isComponentContext) {
-					setSelectedComponentId(null);
+					openComponent(null);
 				} else {
 					navigate("/");
 				}
@@ -473,6 +478,7 @@ export function SystemEditor() {
 			hasInspectorContext,
 			isComponentContext,
 			navigate,
+			openComponent,
 		],
 	);
 
@@ -536,7 +542,7 @@ export function SystemEditor() {
 								systemId={systemId}
 								projectScope={projectScope}
 								selectedComponentId={selectedComponentId}
-								onSelectComponent={setSelectedComponentId}
+								onSelectComponent={openComponent}
 								headerActions={<SystemPanelToggle panel="rail" />}
 							/>
 						) : activePage === "icons" ? (
@@ -569,7 +575,7 @@ export function SystemEditor() {
 											systemId={systemId}
 											projectScope={projectScope}
 											componentId={selectedComponentId}
-											onSelectComponent={setSelectedComponentId}
+											onSelectComponent={openComponent}
 											actions={<SystemPanelToggle panel="rail" />}
 										/>
 									) : (
@@ -596,7 +602,7 @@ export function SystemEditor() {
 										systemId={systemId}
 										projectScope={projectScope}
 										selectedComponentId={selectedComponentId}
-										onSelectComponent={setSelectedComponentId}
+										onSelectComponent={openComponent}
 									/>
 								</TabsPanel>
 								<TabsPanel value="tokens" className="flex min-h-0 flex-1">
