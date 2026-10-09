@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { describeComponentLocation } from "../../lint/component-location";
 import type { LintRunFinding } from "../../lint/run-rules";
 import {
 	type DesignFileLintResponse,
@@ -64,6 +65,9 @@ export function DesignLintFindingList({
 					</Alert>
 					<span className="pl-5 font-mono text-[10px] text-slate-500">
 						{finding.rule}
+						{finding.componentLocation
+							? ` · ${describeComponentLocation(finding.componentLocation, finding.component)}`
+							: null}
 					</span>
 				</li>
 			))}

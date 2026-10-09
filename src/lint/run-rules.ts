@@ -58,6 +58,9 @@ export async function runLintRules({
 					message: finding.message,
 					...(finding.component ? { component: finding.component } : {}),
 					location: finding.location,
+					...(finding.componentLocation
+						? { componentLocation: finding.componentLocation }
+						: {}),
 					...(finding.details ? { details: finding.details } : {}),
 				});
 			}

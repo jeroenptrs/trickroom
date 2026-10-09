@@ -1,3 +1,4 @@
+import { describeComponentLocation } from "../../../lint/component-location";
 import type { LintSeverity, LintThresholds } from "../../../lint/config";
 import type { LintRatchetResult } from "../../../lint/ratchet";
 import type {
@@ -594,9 +595,12 @@ export const buildHeatScale = (values: readonly number[]): LintHeatScale => {
 /** Stable identity of a finding within a report. */
 export const findingKey = (finding: LintFinding) => {
 	const location = finding.location;
+	const component = finding.componentLocation;
 	const where =
 		location === null
-			? ""
+			? component
+				? `${component.componentId}@${component.version}/${component.path ?? ""}/${component.axis ?? ""}/${component.value ?? ""}/${component.compound ?? ""}`
+				: ""
 			: location.kind === "code"
 				? `${location.file}:${location.line ?? ""}:${location.column ?? ""}`
 				: `${location.design}/${location.board ?? ""}/${location.element ?? ""}/${location.path ?? ""}`;
@@ -618,7 +622,11 @@ export const formatFindingLocation = (
 	designNames: LintDesignNames = new Map(),
 ) => {
 	const location = finding.location;
-	if (location === null) return null;
+	if (location === null) {
+		return finding.componentLocation
+			? describeComponentLocation(finding.componentLocation, finding.component)
+			: null;
+	}
 	if (location.kind === "code") {
 		return [location.file, location.line, location.column]
 			.filter((part) => part !== undefined)

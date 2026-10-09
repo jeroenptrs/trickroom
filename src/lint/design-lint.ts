@@ -5,7 +5,10 @@ import {
 	findDesignSystem,
 } from "../utils/design-system-store";
 import { readSystemComponentManifest } from "../utils/system-component-manifest-service";
-import { createEmptySystemComponentManifest } from "../utils/system-components";
+import {
+	createEmptySystemComponentManifest,
+	type SystemComponentManifest,
+} from "../utils/system-components";
 import {
 	readDomainTokensReadonly,
 	type TailwindTokenStorage,
@@ -40,7 +43,8 @@ import { buildSourceIndex } from "./source/index";
  * `diagnostics`.
  * Findings without a design location (a component-level finding such as
  * `design.design-only-class-target`) are kept only for components the
- * checked boards place.
+ * checked boards place, and findings located on a component definition only
+ * for the versions they place.
  */
 
 export type DesignLintDiagnostic = {
@@ -64,6 +68,8 @@ export type DesignLintResult = {
 export type DesignLintSetup = {
 	system: DesignSystemRecord;
 	contract: SystemContract;
+	/** The system's components; empty when they could not be read. */
+	components: SystemComponentManifest["components"];
 	config: ResolvedLintConfig;
 	tokens: TailwindTokenStorage | null;
 	diagnostics: DesignLintDiagnostic[];
@@ -133,6 +139,7 @@ export async function loadDesignLintSetup({
 	return {
 		system,
 		contract,
+		components: manifest.components,
 		config,
 		tokens,
 		diagnostics,
@@ -162,6 +169,7 @@ export async function lintDesign({
 	const designs = buildLintDesignIndex({
 		systemId: contract.system.id,
 		designs: [{ id: designId, design, boardIds }],
+		components: setup.components,
 	});
 	const { config } = setup;
 	const run = await runLintRules({
@@ -190,14 +198,24 @@ export async function lintDesign({
 			)
 			.map((component) => component.slug),
 	);
+	const placedVersions = new Set(
+		Object.entries(designs.usages).flatMap(([componentId, usages]) =>
+			usages.map((usage) => `${componentId}\u0000${usage.version}`),
+		),
+	);
 	return {
 		system: { id: contract.system.id, name: contract.system.name },
 		rules: run.enabled.design,
-		findings: run.findings.filter(
-			(finding) =>
-				finding.location?.kind === "design" ||
-				(finding.component !== undefined && placed.has(finding.component)),
-		),
+		findings: run.findings.filter((finding) => {
+			if (finding.location?.kind === "design") return true;
+			const located = finding.componentLocation;
+			if (located) {
+				return placedVersions.has(
+					`${located.componentId}\u0000${located.version}`,
+				);
+			}
+			return finding.component !== undefined && placed.has(finding.component);
+		}),
 		diagnostics: [
 			...setup.diagnostics,
 			...run.failures.map((failure) => ({

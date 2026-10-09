@@ -9,14 +9,16 @@ import {
 } from "../../../utils/design-class-diagnostics";
 import type { LintRuleOptionSpec } from "../../rule-options";
 import type { LintRuleFinding, LintRuleKind } from "../types";
+import { collectLintClassTargets, targetLocationFields } from "./class-targets";
 
 /**
  * The class and token checks `getDesignDiagnostics` runs on every
  * `className` (unknown or removed tokens, arbitrary values where the system
- * has tokens, utilities Tailwind cannot emit), over every board of every
- * linked design, configurable per system with the options below. The
- * per-class checks are `src/utils/class-token-diagnostics.ts`, shared with
- * `code.unknown-class-token`.
+ * has tokens, utilities Tailwind cannot emit), over the classes of the
+ * system's component definitions and of the layers of every linked design
+ * (`collectLintClassTargets`), configurable per system with the options
+ * below. The per-class checks are `src/utils/class-token-diagnostics.ts`,
+ * shared with `code.unknown-class-token`.
  */
 
 export const UNKNOWN_CLASS_TOKEN_RULE_ID = "design.unknown-class-token";
@@ -89,36 +91,28 @@ export const designUnknownClassTokenRule: LintRuleKind = {
 		);
 		const findings: LintRuleFinding[] = [];
 		const diagnostics: DesignClassDiagnostic[] = [];
-		for (const design of designs.designs) {
-			for (const board of design.boards) {
-				for (const node of board.nodes) {
-					if (node.className === null) continue;
-					diagnostics.length = 0;
-					check(
-						node.className,
-						{ path: `${node.path}.props.className`, elementId: node.element },
-						diagnostics,
-					);
-					for (const diagnostic of diagnostics) {
-						if (
-							!options.codes.has(diagnostic.code) ||
-							isAllowed(diagnostic.classToken)
-						) {
-							continue;
-						}
-						findings.push({
-							message: diagnostic.message,
-							location: {
-								kind: "design",
-								design: design.id,
-								board: board.id,
-								element: node.element,
-								path: diagnostic.path,
-							},
-							details: detailsOf(diagnostic),
-						});
-					}
+		for (const target of collectLintClassTargets(designs)) {
+			diagnostics.length = 0;
+			check(
+				target.className,
+				{
+					path: target.location?.path ?? target.componentLocation?.path ?? "",
+					elementId: target.element ?? "",
+				},
+				diagnostics,
+			);
+			for (const diagnostic of diagnostics) {
+				if (
+					!options.codes.has(diagnostic.code) ||
+					isAllowed(diagnostic.classToken)
+				) {
+					continue;
 				}
+				findings.push({
+					message: diagnostic.message,
+					...targetLocationFields(target),
+					details: detailsOf(diagnostic),
+				});
 			}
 		}
 		return findings;

@@ -1,11 +1,24 @@
-import type { Node, TrickroomDesign } from "../types";
-import { getSystemComponentStructuralMetadata } from "../utils/system-component-markers";
+import { resolveRegistryComponent } from "../libraries/registry";
+import type { Node, RecipeTemplateNode, TrickroomDesign } from "../types";
+import { splitClassLayerTokens } from "../utils/class-layers";
+import {
+	getSystemComponentStructuralMetadata,
+	type SystemComponentInstanceOverrides,
+	type SystemComponentStructuralMetadata,
+} from "../utils/system-component-markers";
+import { resolveSystemComponentOverrideValue } from "../utils/system-component-override-targets";
+import { compareSystemComponentVariantAxisKeys } from "../utils/system-component-variant-class-layers";
+import type {
+	PublishedSystemComponentVersion,
+	SystemComponentRecord,
+} from "../utils/system-components";
 
 /**
  * The design side of a lint run: the Designs linked to the linted system,
  * reduced to what design rules check (classes, instance markers, element
- * ids, paths), plus where each of the system's components is placed. Pure:
- * `run-lint.ts` and `design-lint.ts` read the designs and hand them in.
+ * ids, paths), plus where each of the system's components is placed and the
+ * classes the system's component definitions declare. Pure: `run-lint.ts`
+ * and `design-lint.ts` read the designs and components and hand them in.
  * Documented in docs/lint.md.
  */
 
@@ -23,12 +36,30 @@ export type LintDesignInstanceMarker = {
 	variantValues: Record<string, string>;
 };
 
+/**
+ * Where the classes the design class rules check on a node come from:
+ * - `layer`: a layer that is not part of a component instance (raw layers,
+ *   slot content, recipe nodes): its stored className.
+ * - `override`: a node of a component instance whose version resolves: only
+ *   the className override the instance adds. The classes it inherits are
+ *   checked once, on the component (`LintDesignIndex.components`).
+ * - `stored`: a node of an instance whose version cannot be resolved (a
+ *   version or component the manifest does not have, another system's
+ *   component, no instance root among its ancestors): its stored className,
+ *   as materialized.
+ */
+export type LintDesignClassSource = "layer" | "override" | "stored";
+
 export type LintDesignNode = {
 	/** Element id. */
 	element: string;
 	/** Path of the node in the design file, e.g. `boards[0].children[2]`. */
 	path: string;
+	/** The stored className. */
 	className: string | null;
+	/** The classes the design class rules check, see `classSource`. */
+	checkedClassName: string | null;
+	classSource: LintDesignClassSource;
 	instance: LintDesignInstanceMarker | null;
 };
 
@@ -58,8 +89,40 @@ export type LintDesignUsage = {
 	variantValues: Record<string, string>;
 };
 
+/** One class string of a component definition. */
+export type LintComponentClassEntry = {
+	/** Template path of the node the classes style. */
+	path: string;
+	/** The axis and value whose classes these are; null for template and compound classes. */
+	axis: string | null;
+	value: string | null;
+	/** Index of the compound variant whose classes these are; null otherwise. */
+	compound: number | null;
+	className: string;
+};
+
+/** The classes one published version of a component declares. */
+export type LintComponentDefinition = {
+	componentId: string;
+	slug: string;
+	version: string;
+	/** The current published version; others are listed because instances use them. */
+	current: boolean;
+	/**
+	 * Template classes depth first, then each axis's values (codegen's axis
+	 * order), then the compound variants in order.
+	 */
+	classes: LintComponentClassEntry[];
+};
+
 export type LintDesignIndex = {
 	systemId: string;
+	/**
+	 * The published component versions whose classes the design class rules
+	 * check: every component's current version plus every other published
+	 * version an instance in the index uses, sorted by slug and version.
+	 */
+	components: LintComponentDefinition[];
 	/** The linked designs, sorted by id. */
 	designs: LintDesign[];
 	/**
@@ -69,6 +132,11 @@ export type LintDesignIndex = {
 	 */
 	usages: Record<string, LintDesignUsage[]>;
 };
+
+/** The system's components, as `components.json` holds them. */
+export type LintDesignComponents = Readonly<
+	Record<string, Pick<SystemComponentRecord, "slug" | "published">>
+>;
 
 export type LintDesignInput = {
 	id: string;
@@ -82,8 +150,9 @@ const nameOf = (node: Node) => {
 	return typeof name === "string" ? name : null;
 };
 
-const toMarker = (node: Node): LintDesignInstanceMarker | null => {
-	const metadata = getSystemComponentStructuralMetadata(node.props);
+const toMarker = (
+	metadata: SystemComponentStructuralMetadata | null,
+): LintDesignInstanceMarker | null => {
 	if (!metadata) return null;
 	return {
 		systemId: metadata.systemId,
@@ -96,47 +165,234 @@ const toMarker = (node: Node): LintDesignInstanceMarker | null => {
 	};
 };
 
-const walkBoard = (board: Node, boardPath: string): LintDesignNode[] => {
+const nonEmpty = (className: unknown) =>
+	typeof className === "string" && className.trim().length > 0
+		? className
+		: null;
+
+/** What resolving instance classes reads, besides the node's own markers. */
+type InstanceClassContext = {
+	systemId: string;
+	components: LintDesignComponents;
+};
+
+/**
+ * The overrides of the instance roots among a node's ancestors (the node
+ * included), by instance id. A part resolves through its own root, found by
+ * walking up like the canvas does (`useInstanceRootMarkers`), never through
+ * a root elsewhere in the design that shares its instance id (a part moved
+ * or copied out of its instance).
+ */
+type AncestorRoots = ReadonlyMap<string, SystemComponentInstanceOverrides>;
+
+const publishedVersion = (
+	components: LintDesignComponents,
+	componentId: string,
+	version: string,
+): PublishedSystemComponentVersion | undefined => {
+	const versions = Object.hasOwn(components, componentId)
+		? components[componentId].published?.versions
+		: undefined;
+	return versions && Object.hasOwn(versions, version)
+		? versions[version]
+		: undefined;
+};
+
+/**
+ * The classes the class rules check on a node: an instance node adds only
+ * its className override (the same structured source the canvas resolves
+ * classes from, `resolveComponentNodeClasses`); when its version cannot be
+ * resolved, the stored className, as the canvas renders it then.
+ */
+const checkedClasses = (
+	className: string | null,
+	instance: LintDesignInstanceMarker | null,
+	context: InstanceClassContext,
+	roots: AncestorRoots,
+): Pick<LintDesignNode, "checkedClassName" | "classSource"> => {
+	if (!instance) return { checkedClassName: className, classSource: "layer" };
+	const version =
+		instance.systemId === context.systemId
+			? publishedVersion(
+					context.components,
+					instance.componentId,
+					instance.version,
+				)
+			: undefined;
+	const overrides = roots.get(instance.instanceId);
+	if (!version || !overrides) {
+		return { checkedClassName: className, classSource: "stored" };
+	}
+	return {
+		checkedClassName: nonEmpty(
+			resolveSystemComponentOverrideValue(
+				version,
+				instance.templatePath,
+				"className",
+				overrides,
+			),
+		),
+		classSource: "override",
+	};
+};
+
+const walkBoard = (
+	board: Node,
+	boardPath: string,
+	context: InstanceClassContext,
+): LintDesignNode[] => {
 	const nodes: LintDesignNode[] = [];
-	const visit = (node: Node, nodePath: string) => {
-		const className = node.props.className;
+	const visit = (node: Node, nodePath: string, ancestors: AncestorRoots) => {
+		const className = nonEmpty(node.props.className);
+		const metadata = getSystemComponentStructuralMetadata(node.props);
+		const instance = toMarker(metadata);
+		const roots = metadata?.isRoot
+			? new Map(ancestors).set(metadata.instanceId, metadata.overrides)
+			: ancestors;
 		nodes.push({
 			element: node.id,
 			path: nodePath,
-			className:
-				typeof className === "string" && className.trim().length > 0
-					? className
-					: null,
-			instance: toMarker(node),
+			className,
+			...checkedClasses(className, instance, context, roots),
+			instance,
 		});
 		if (Array.isArray(node.children)) {
 			for (const [index, child] of node.children.entries()) {
-				visit(child, `${nodePath}.children[${index}]`);
+				visit(child, `${nodePath}.children[${index}]`, roots);
 			}
 		}
 	};
-	visit(board, boardPath);
+	visit(board, boardPath, new Map());
 	return nodes;
 };
 
 const compareIds = (left: { id: string }, right: { id: string }) =>
 	left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
 
-/** The index over designs already known to link the system. */
+const compareStrings = (left: string, right: string) =>
+	left < right ? -1 : left > right ? 1 : 0;
+
+// A template that keeps its classes in props.className (older drafts):
+// instances fall back to them, without the registry base classes.
+const templateClassName = (template: RecipeTemplateNode) => {
+	const className = nonEmpty(template.className);
+	if (className !== null) return className;
+	const propsClassName = nonEmpty(template.props?.className);
+	if (propsClassName === null) return null;
+	const resolution = resolveRegistryComponent(
+		template.library,
+		template.component,
+	);
+	const base = new Set(
+		splitClassLayerTokens(
+			resolution.status === "known"
+				? resolution.definition.baseClassName
+				: undefined,
+		),
+	);
+	return nonEmpty(
+		splitClassLayerTokens(propsClassName)
+			.filter((token) => !base.has(token))
+			.join(" "),
+	);
+};
+
+/** Every class string a published version declares, see `LintComponentDefinition`. */
+const componentClassEntries = (
+	version: PublishedSystemComponentVersion,
+): LintComponentClassEntry[] => {
+	const entries: LintComponentClassEntry[] = [];
+	const add = (
+		path: string,
+		className: unknown,
+		source: Pick<LintComponentClassEntry, "axis" | "value" | "compound">,
+	) => {
+		const value = nonEmpty(className);
+		if (value !== null) entries.push({ path, ...source, className: value });
+	};
+	const visit = (template: RecipeTemplateNode) => {
+		add(template.path, templateClassName(template), {
+			axis: null,
+			value: null,
+			compound: null,
+		});
+		for (const child of template.children ?? []) visit(child);
+	};
+	visit(version.root);
+	const axes = Object.entries(version.variants?.axes ?? {}).sort(
+		([left], [right]) => compareSystemComponentVariantAxisKeys(left, right),
+	);
+	for (const [axis, definition] of axes) {
+		for (const [value, entry] of Object.entries(definition.values)) {
+			for (const [path, className] of Object.entries(
+				entry.classesByPath ?? {},
+			)) {
+				add(path, className, { axis, value, compound: null });
+			}
+		}
+	}
+	for (const [compound, entry] of (
+		version.variants?.compoundVariants ?? []
+	).entries()) {
+		for (const [path, className] of Object.entries(entry.classesByPath)) {
+			add(path, className, { axis: null, value: null, compound });
+		}
+	}
+	return entries;
+};
+
+const buildComponentDefinitions = (
+	components: LintDesignComponents,
+	usages: Readonly<Record<string, readonly LintDesignUsage[]>>,
+): LintComponentDefinition[] => {
+	const definitions: LintComponentDefinition[] = [];
+	for (const [componentId, record] of Object.entries(components)) {
+		const published = record.published;
+		if (!published) continue;
+		const versions = new Set([published.currentVersion]);
+		for (const usage of usages[componentId] ?? []) versions.add(usage.version);
+		for (const versionId of versions) {
+			const version = publishedVersion(components, componentId, versionId);
+			if (!version) continue;
+			definitions.push({
+				componentId,
+				slug: record.slug,
+				version: versionId,
+				current: versionId === published.currentVersion,
+				classes: componentClassEntries(version),
+			});
+		}
+	}
+	return definitions.sort(
+		(left, right) =>
+			compareStrings(left.slug, right.slug) ||
+			compareStrings(left.componentId, right.componentId) ||
+			compareStrings(left.version, right.version),
+	);
+};
+
+/**
+ * The index over designs already known to link the system. `components` is
+ * the system's component manifest; without it no instance resolves, so
+ * every instance node is checked by its stored className.
+ */
 export function buildLintDesignIndex({
 	systemId,
 	designs,
+	components = {},
 }: {
 	systemId: string;
 	designs: readonly LintDesignInput[];
+	components?: LintDesignComponents;
 }): LintDesignIndex {
 	const indexed: LintDesign[] = [];
 	const usages: Record<string, LintDesignUsage[]> = {};
 	for (const input of [...designs].sort(compareIds)) {
 		const boards: LintDesignBoard[] = [];
+		const context: InstanceClassContext = { systemId, components };
 		for (const [index, board] of input.design.boards.entries()) {
 			if (input.boardIds && !input.boardIds.has(board.id)) continue;
-			const nodes = walkBoard(board, `boards[${index}]`);
+			const nodes = walkBoard(board, `boards[${index}]`, context);
 			boards.push({ id: board.id, name: nameOf(board), nodes });
 			for (const node of nodes) {
 				const instance = node.instance;
@@ -158,6 +414,7 @@ export function buildLintDesignIndex({
 	}
 	return {
 		systemId,
+		components: buildComponentDefinitions(components, usages),
 		designs: indexed,
 		usages: Object.fromEntries(
 			Object.entries(usages).sort(([left], [right]) =>
@@ -170,6 +427,7 @@ export function buildLintDesignIndex({
 /** An index with no designs, for runs that have none to check. */
 export const emptyLintDesignIndex = (systemId: string): LintDesignIndex => ({
 	systemId,
+	components: [],
 	designs: [],
 	usages: {},
 });

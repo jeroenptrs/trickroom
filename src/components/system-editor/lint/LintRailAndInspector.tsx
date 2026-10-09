@@ -1,6 +1,7 @@
 import { ExternalLink } from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "react-router";
+import { describeComponentClassSource } from "../../../lint/component-location";
 import type { LintFinding, LintReport } from "../../../lint/report";
 import type { ProjectQueryScope } from "../../../queries/project-scope";
 import {
@@ -229,6 +230,7 @@ function FindingInspector({
 	designNames: LintDesignNames;
 }) {
 	const location = finding.location;
+	const componentLocation = finding.componentLocation;
 	return (
 		<div className="flex flex-col gap-3">
 			<div className="flex items-center gap-2">
@@ -269,7 +271,20 @@ function FindingInspector({
 						) : null}
 					</>
 				) : null}
-				{location === null ? <Field label="Location" value="none" /> : null}
+				{componentLocation ? (
+					<>
+						<Field label="Version" value={componentLocation.version} />
+						{componentLocation.path ? (
+							<Field label="Template path" value={componentLocation.path} />
+						) : null}
+						<Field
+							label="Classes of"
+							value={describeComponentClassSource(componentLocation)}
+						/>
+					</>
+				) : location === null ? (
+					<Field label="Location" value="none" />
+				) : null}
 			</div>
 			{location?.kind === "design" ? (
 				<OpenInEditorLink
@@ -289,6 +304,12 @@ function FindingInspector({
 					<ShowFindingsButton
 						label="All in this file"
 						onClick={() => showLintFindings({ file: location.file })}
+					/>
+				) : null}
+				{componentLocation && finding.component ? (
+					<ShowFindingsButton
+						label="All of this component"
+						onClick={() => showLintFindings({ component: finding.component })}
 					/>
 				) : null}
 			</div>

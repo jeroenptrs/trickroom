@@ -542,6 +542,9 @@ const toDesignLintIssues = (
 			...(finding.component === undefined
 				? {}
 				: { component: finding.component }),
+			...(finding.componentLocation
+				? { componentLocation: finding.componentLocation }
+				: {}),
 		});
 	}
 	for (const diagnostic of result.diagnostics) {

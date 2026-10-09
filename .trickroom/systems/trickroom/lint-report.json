@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"generatedAt": "2026-10-09T14:50:32.766Z",
+	"generatedAt": "2026-10-09T15:16:44.349Z",
 	"system": {
 		"id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
 		"name": "Trickroom"
@@ -77,12 +77,12 @@
 					"info": 0
 				}
 			},
-			"scanned": 501
+			"scanned": 504
 		},
 		"design": {
 			"findings": {
 				"errors": 0,
-				"warnings": 238,
+				"warnings": 254,
 				"info": 0
 			},
 			"rules": {
@@ -93,12 +93,12 @@
 				},
 				"design.non-canonical-class": {
 					"errors": 0,
-					"warnings": 0,
+					"warnings": 10,
 					"info": 0
 				},
 				"design.unknown-class-token": {
 					"errors": 0,
-					"warnings": 238,
+					"warnings": 244,
 					"info": 0
 				},
 				"design.unknown-variant-value": {
@@ -491,7 +491,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/DesignLintFindings.tsx",
-				"line": 65,
+				"line": 66,
 				"column": 38
 			}
 		},
@@ -503,7 +503,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/DesignLintFindings.tsx",
-				"line": 100,
+				"line": 104,
 				"column": 54
 			}
 		},
@@ -3371,7 +3371,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 92,
+				"line": 93,
 				"column": 34
 			}
 		},
@@ -3383,7 +3383,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 115,
+				"line": 116,
 				"column": 47
 			}
 		},
@@ -3395,7 +3395,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 120,
+				"line": 121,
 				"column": 36
 			}
 		},
@@ -3407,7 +3407,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 133,
+				"line": 134,
 				"column": 59
 			}
 		},
@@ -3419,7 +3419,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 162,
+				"line": 163,
 				"column": 43
 			}
 		},
@@ -3431,7 +3431,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 168,
+				"line": 169,
 				"column": 34
 			}
 		},
@@ -3443,7 +3443,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 176,
+				"line": 177,
 				"column": 36
 			}
 		},
@@ -3455,7 +3455,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 390,
+				"line": 411,
 				"column": 45
 			}
 		},
@@ -3467,7 +3467,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 412,
+				"line": 433,
 				"column": 27
 			}
 		},
@@ -3479,7 +3479,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 416,
+				"line": 437,
 				"column": 27
 			}
 		},
@@ -3491,7 +3491,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 431,
+				"line": 452,
 				"column": 52
 			}
 		},
@@ -3503,7 +3503,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 486,
+				"line": 507,
 				"column": 45
 			}
 		},
@@ -3707,6 +3707,227 @@
 			"location": null
 		},
 		{
+			"rule": "design.non-canonical-class",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"data-[ending-style]:opacity-0\" is written \"data-ending-style:opacity-0\" in Tailwind's canonical form.",
+			"component": "dialog",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0",
+				"version": "3",
+				"path": "backdrop"
+			}
+		},
+		{
+			"rule": "design.non-canonical-class",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"data-[starting-style]:opacity-0\" is written \"data-starting-style:opacity-0\" in Tailwind's canonical form.",
+			"component": "dialog",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0",
+				"version": "3",
+				"path": "backdrop"
+			}
+		},
+		{
+			"rule": "design.non-canonical-class",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"data-[ending-style]:opacity-0\" is written \"data-ending-style:opacity-0\" in Tailwind's canonical form.",
+			"component": "dialog",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0",
+				"version": "3",
+				"path": "popup"
+			}
+		},
+		{
+			"rule": "design.non-canonical-class",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"data-[ending-style]:scale-90\" is written \"data-ending-style:scale-90\" in Tailwind's canonical form.",
+			"component": "dialog",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0",
+				"version": "3",
+				"path": "popup"
+			}
+		},
+		{
+			"rule": "design.non-canonical-class",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"data-[starting-style]:opacity-0\" is written \"data-starting-style:opacity-0\" in Tailwind's canonical form.",
+			"component": "dialog",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0",
+				"version": "3",
+				"path": "popup"
+			}
+		},
+		{
+			"rule": "design.non-canonical-class",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"data-[starting-style]:scale-90\" is written \"data-starting-style:scale-90\" in Tailwind's canonical form.",
+			"component": "dialog",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0",
+				"version": "3",
+				"path": "popup"
+			}
+		},
+		{
+			"rule": "design.non-canonical-class",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"data-[ending-style]:opacity-0\" is written \"data-ending-style:opacity-0\" in Tailwind's canonical form.",
+			"component": "popover",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_60d59882-154d-4544-b5ba-95b64e3bf741",
+				"version": "3",
+				"path": "popup"
+			}
+		},
+		{
+			"rule": "design.non-canonical-class",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"data-[ending-style]:scale-95\" is written \"data-ending-style:scale-95\" in Tailwind's canonical form.",
+			"component": "popover",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_60d59882-154d-4544-b5ba-95b64e3bf741",
+				"version": "3",
+				"path": "popup"
+			}
+		},
+		{
+			"rule": "design.non-canonical-class",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"data-[starting-style]:opacity-0\" is written \"data-starting-style:opacity-0\" in Tailwind's canonical form.",
+			"component": "popover",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_60d59882-154d-4544-b5ba-95b64e3bf741",
+				"version": "3",
+				"path": "popup"
+			}
+		},
+		{
+			"rule": "design.non-canonical-class",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"data-[starting-style]:scale-95\" is written \"data-starting-style:scale-95\" in Tailwind's canonical form.",
+			"component": "popover",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_60d59882-154d-4544-b5ba-95b64e3bf741",
+				"version": "3",
+				"path": "popup"
+			}
+		},
+		{
+			"rule": "design.unknown-class-token",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px].",
+			"component": "disclosure",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_0c60f371-19cd-4937-a3c1-0d66ca54fa91",
+				"version": "1",
+				"path": "trigger"
+			}
+		},
+		{
+			"rule": "design.unknown-class-token",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px].",
+			"component": "keycap",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_2f8d41d6-8871-4fb1-935d-d6dd2fec452f",
+				"version": "1",
+				"path": "root"
+			}
+		},
+		{
+			"rule": "design.unknown-class-token",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px].",
+			"component": "alert",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_49642f54-e844-451a-b538-4b165a8bd7e4",
+				"version": "1",
+				"path": "root"
+			}
+		},
+		{
+			"rule": "design.unknown-class-token",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px].",
+			"component": "tag",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_829b6591-835c-4269-8baa-62b1f9925a98",
+				"version": "1",
+				"path": "root"
+			}
+		},
+		{
+			"rule": "design.unknown-class-token",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px].",
+			"component": "segmented",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_9d513c29-5b37-4d91-b5fb-d225bc809f31",
+				"version": "1",
+				"path": "option-a"
+			}
+		},
+		{
+			"rule": "design.unknown-class-token",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px].",
+			"component": "segmented",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_9d513c29-5b37-4d91-b5fb-d225bc809f31",
+				"version": "1",
+				"path": "option-b"
+			}
+		},
+		{
+			"rule": "design.unknown-class-token",
+			"severity": "warning",
+			"side": "design",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px].",
+			"component": "segmented",
+			"location": null,
+			"componentLocation": {
+				"componentId": "cmp_9d513c29-5b37-4d91-b5fb-d225bc809f31",
+				"version": "1",
+				"path": "option-c"
+			}
+		},
+		{
 			"rule": "design.unknown-class-token",
 			"severity": "warning",
 			"side": "design",
@@ -3860,19 +4081,6 @@
 				"board": "a091c1ec-5085-4ed0-95dc-904d153d8f8d",
 				"element": "909071a7-dd72-4afa-a9c3-b79d5d65b336",
 				"path": "boards[0].children[0].children[1].children[3].children[1].children[1].props.className"
-			}
-		},
-		{
-			"rule": "design.unknown-class-token",
-			"severity": "warning",
-			"side": "design",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px].",
-			"location": {
-				"kind": "design",
-				"design": "5ed7a853-16d5-4a6d-84a2-559c5f78af93",
-				"board": "a091c1ec-5085-4ed0-95dc-904d153d8f8d",
-				"element": "a4dfd3ee-05e8-475f-9381-7df9dcba4eeb",
-				"path": "boards[0].children[0].children[1].children[4].children[0].props.className"
 			}
 		},
 		{
@@ -7667,7 +7875,7 @@
 			"usages": 10,
 			"findings": {
 				"errors": 0,
-				"warnings": 9,
+				"warnings": 8,
 				"info": 0
 			}
 		},
@@ -7924,47 +8132,10 @@
 	],
 	"ratchet": {
 		"status": "pass",
-		"baseline": {
-			"generatedAt": "2026-10-07T03:58:17.930Z",
-			"numbers": {
-				"code.errors": 0,
-				"code.warnings": 299,
-				"coverage.bound": 0,
-				"coverage.generated": 0,
-				"coverage.published": 16,
-				"coverage.usedInApp": 0,
-				"coverage.usedInDesigns": 5,
-				"design.errors": 0,
-				"design.warnings": 238,
-				"rule.code.component-styling-restricted": 0,
-				"rule.code.non-canonical-class": 0,
-				"rule.code.redundant-class": 0,
-				"rule.code.required-axis-missing": 0,
-				"rule.code.slot-not-called": 0,
-				"rule.code.unknown-class-token": 299,
-				"rule.code.unknown-variant-value": 0,
-				"rule.code.variants-file-orphaned": 0,
-				"rule.code.variants-file-stale": 0,
-				"rule.code.variants-imported-outside-component": 0,
-				"rule.code.wrapper-missing-variants-call": 0,
-				"rule.design.design-only-class-target": 0,
-				"rule.design.non-canonical-class": 0,
-				"rule.design.unknown-class-token": 238,
-				"rule.design.unknown-variant-value": 0
-			}
-		},
+		"baseline": null,
 		"regressions": [],
 		"breaches": [],
-		"adopted": [
-			{
-				"metric": "rule.code.non-canonical-class",
-				"current": 0
-			},
-			{
-				"metric": "rule.design.non-canonical-class",
-				"current": 0
-			}
-		],
+		"adopted": [],
 		"numbers": {
 			"code.errors": 0,
 			"code.warnings": 299,
@@ -7974,7 +8145,7 @@
 			"coverage.usedInApp": 0,
 			"coverage.usedInDesigns": 5,
 			"design.errors": 0,
-			"design.warnings": 238,
+			"design.warnings": 254,
 			"rule.code.component-styling-restricted": 0,
 			"rule.code.non-canonical-class": 0,
 			"rule.code.redundant-class": 0,
@@ -7987,13 +8158,13 @@
 			"rule.code.variants-imported-outside-component": 0,
 			"rule.code.wrapper-missing-variants-call": 0,
 			"rule.design.design-only-class-target": 0,
-			"rule.design.non-canonical-class": 0,
-			"rule.design.unknown-class-token": 238,
+			"rule.design.non-canonical-class": 10,
+			"rule.design.unknown-class-token": 244,
 			"rule.design.unknown-variant-value": 0
 		}
 	},
 	"ratchetBaseline": {
-		"generatedAt": "2026-10-09T14:50:32.766Z",
+		"generatedAt": "2026-10-09T15:16:44.349Z",
 		"numbers": {
 			"code.errors": 0,
 			"code.warnings": 299,
@@ -8003,7 +8174,7 @@
 			"coverage.usedInApp": 0,
 			"coverage.usedInDesigns": 5,
 			"design.errors": 0,
-			"design.warnings": 238,
+			"design.warnings": 254,
 			"rule.code.component-styling-restricted": 0,
 			"rule.code.non-canonical-class": 0,
 			"rule.code.redundant-class": 0,
@@ -8016,8 +8187,8 @@
 			"rule.code.variants-imported-outside-component": 0,
 			"rule.code.wrapper-missing-variants-call": 0,
 			"rule.design.design-only-class-target": 0,
-			"rule.design.non-canonical-class": 0,
-			"rule.design.unknown-class-token": 238,
+			"rule.design.non-canonical-class": 10,
+			"rule.design.unknown-class-token": 244,
 			"rule.design.unknown-variant-value": 0
 		},
 		"kinds": [

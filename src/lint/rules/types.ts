@@ -40,10 +40,33 @@ export type LintLocation =
 			path?: string;
 	  };
 
+/**
+ * Where in a published version of a system component (as `components.json`
+ * defines it) a finding is. Not a `LintLocation` kind: a finding located on
+ * a component has `location: null` and carries this as `componentLocation`,
+ * so a report reader from before it still reads the report (it ignores the
+ * field) instead of discarding the whole baseline.
+ */
+export type LintComponentLocation = {
+	/** System component id. */
+	componentId: string;
+	/** The published version the classes belong to. */
+	version: string;
+	/** Template path of the node the classes style, e.g. `root` or `label`. */
+	path?: string;
+	/** The variant axis and value whose classes these are. */
+	axis?: string;
+	value?: string;
+	/** Index of the compound variant whose classes these are, 0-based. */
+	compound?: number;
+};
+
 /** What a rule returns; the runner adds `rule`, `side` and the severity. */
 export type LintRuleFinding = {
 	message: string;
 	location: LintLocation | null;
+	/** Where in a component definition, for findings located on one (`location` is null). */
+	componentLocation?: LintComponentLocation;
 	/** Component slug, when the finding is about one. */
 	component?: string;
 	/**

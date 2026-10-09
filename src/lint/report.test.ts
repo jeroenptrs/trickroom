@@ -20,6 +20,7 @@ import {
 	summarizeFindings,
 	writeLintReport,
 } from "./report";
+import type { LintComponentLocation } from "./rules/types";
 
 const finding = (overrides: Partial<LintFinding>): LintFinding => ({
 	rule: "code.variants-file-stale",
@@ -159,6 +160,146 @@ describe("lint report", () => {
 			'code code.variants-file-stale {"kind":"code","file":"src/a.tsx","line":2} m',
 			'design design.x {"kind":"design","design":"d","board":"b"} m',
 		]);
+	});
+
+	it("orders component locations after code and before design locations", () => {
+		const component = (componentLocation: Partial<LintComponentLocation>) =>
+			finding({
+				side: "design",
+				rule: "design.x",
+				location: null,
+				componentLocation: {
+					componentId: "cmp_a",
+					version: "1",
+					...componentLocation,
+				},
+			});
+		const sorted = sortLintFindings([
+			finding({
+				side: "design",
+				rule: "design.x",
+				location: { kind: "design", design: "d" },
+			}),
+			component({ path: "root", compound: 0 }),
+			component({ path: "root", axis: "tone", value: "loud" }),
+			component({ path: "root" }),
+			component({ version: "2", path: "label" }),
+			component({ componentId: "cmp_0", version: "3" }),
+			finding({ side: "design", rule: "design.x", location: null }),
+		]);
+		expect(
+			sorted.map((entry) =>
+				entry.componentLocation
+					? `${entry.componentLocation.componentId}@${entry.componentLocation.version} ${entry.componentLocation.path ?? ""} ${entry.componentLocation.axis ?? ""} ${entry.componentLocation.compound ?? ""}`
+					: String(entry.location?.kind ?? null),
+			),
+		).toEqual([
+			"null",
+			"cmp_0@3   ",
+			"cmp_a@1 root  ",
+			"cmp_a@1 root  0",
+			"cmp_a@1 root tone ",
+			"cmp_a@2 label  ",
+			"design",
+		]);
+	});
+
+	const located: LintFinding = {
+		rule: "design.non-canonical-class",
+		severity: "warning",
+		side: "design",
+		message: "m",
+		component: "badge",
+		location: null,
+		componentLocation: {
+			componentId: "cmp_a",
+			version: "1",
+			path: "root",
+			axis: "tone",
+			value: "loud",
+		},
+	};
+
+	it("reads reports with and without component locations", () => {
+		// A report written before component locations existed reads as it was.
+		const old = JSON.parse(serializeLintReport(report()));
+		old.findings.push({
+			rule: "design.non-canonical-class",
+			severity: "warning",
+			side: "design",
+			message: "m",
+			location: {
+				kind: "design",
+				design: "d",
+				board: "b",
+				element: "e",
+				path: "boards[0].props.className",
+			},
+		});
+		expect(parseLintReport(old).issue).toBeNull();
+
+		const text = serializeLintReport({
+			...report(),
+			findings: [...report().findings, located],
+		});
+		const parsed = parseLintReport(JSON.parse(text));
+		expect(parsed.issue).toBeNull();
+		expect(parsed.report?.findings.at(-1)).toEqual(located);
+		expect(serializeLintReport(parsed.report as LintReport)).toBe(text);
+		// The id and version are required.
+		expect(
+			parseLintReport({
+				...JSON.parse(text),
+				findings: [{ ...located, componentLocation: { version: "1" } }],
+			}).issue?.code,
+		).toBe("INVALID_REPORT");
+	});
+
+	it("keeps a report with component findings readable by readers from before them", async () => {
+		// The finding check of the report reader before `componentLocation`
+		// (src/lint/report.ts as of e622f3f, PR #18): a location kind it does not
+		// know made the whole report unusable, and the run started a new
+		// baseline, enforcing nothing. Frozen here so the persisted shape
+		// stays inside what it accepts.
+		const isRecord = (value: unknown): value is Record<string, unknown> =>
+			typeof value === "object" && value !== null && !Array.isArray(value);
+		const legacyIsLocation = (value: unknown) =>
+			value === null ||
+			(isRecord(value) &&
+				((value.kind === "code" && typeof value.file === "string") ||
+					(value.kind === "design" && typeof value.design === "string")));
+		const legacyIsFinding = (value: unknown) =>
+			isRecord(value) &&
+			typeof value.rule === "string" &&
+			(value.severity === "error" ||
+				value.severity === "warning" ||
+				value.severity === "info") &&
+			(value.side === "code" || value.side === "design") &&
+			typeof value.message === "string" &&
+			legacyIsLocation(value.location);
+
+		const written = JSON.parse(
+			serializeLintReport({
+				...report(),
+				findings: [...report().findings, located],
+			}),
+		) as { findings: unknown[] };
+		expect(written.findings).toHaveLength(4);
+		expect(written.findings.every(legacyIsFinding)).toBe(true);
+		// And so is this repository's committed report.
+		const committed = JSON.parse(
+			await readFile(
+				path.join(
+					process.cwd(),
+					".trickroom/systems/trickroom/lint-report.json",
+				),
+				"utf8",
+			),
+		) as { findings: Array<{ componentLocation?: unknown }> };
+		expect(committed.findings.some((entry) => entry.componentLocation)).toBe(
+			true,
+		);
+		expect(committed.findings.every(legacyIsFinding)).toBe(true);
 	});
 
 	it("summarises a side with every enabled rule present", () => {
