@@ -62,6 +62,12 @@ export type LintTailwindInspector = {
 	inspect: (candidate: string) => TailwindUtilityInspection;
 	/** Nearest valid classes for an unsupported candidate, variants kept. */
 	suggest?: (candidate: string) => string[];
+	/**
+	 * The class as the system's Tailwind would write it
+	 * (`designSystem.canonicalizeCandidates`); the candidate itself when it
+	 * already is, or when Tailwind does not know it.
+	 */
+	canonicalize?: (candidate: string) => string;
 };
 
 export type LintRuleContext = {

@@ -2099,6 +2099,7 @@ describe("server design lint route", () => {
 			system: { id: systemId, name: "Core" },
 			rules: [
 				"design.unknown-class-token",
+				"design.non-canonical-class",
 				"design.design-only-class-target",
 				"design.unknown-variant-value",
 			],

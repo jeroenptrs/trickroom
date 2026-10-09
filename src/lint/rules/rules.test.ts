@@ -41,9 +41,11 @@ describe("rule registry", () => {
 			"code.required-axis-missing",
 			"code.unknown-class-token",
 			"code.redundant-class",
+			"code.non-canonical-class",
 			"code.variants-imported-outside-component",
 			"code.component-styling-restricted",
 			"design.unknown-class-token",
+			"design.non-canonical-class",
 			"design.design-only-class-target",
 			"design.unknown-variant-value",
 		]);

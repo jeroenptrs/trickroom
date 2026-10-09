@@ -395,8 +395,10 @@ describe("system lint routes", () => {
 		);
 		expect(optionKeys).toEqual({
 			"code.unknown-class-token": ["allow", "scope"],
+			"code.non-canonical-class": ["allow"],
 			"code.component-styling-restricted": ["components"],
 			"design.unknown-class-token": ["allow", "codes"],
+			"design.non-canonical-class": ["allow"],
 		});
 
 		const response = await app.request(

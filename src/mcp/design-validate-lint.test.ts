@@ -48,7 +48,12 @@ const layer = (
 /** Puts a folder where lint.json goes, so reading it fails with EISDIR. */
 const LINT_JSON_DIRECTORY = Symbol("lint.json is a directory");
 
-describe("design_validate with the system's design lint rules", () => {
+// Each session compiles its own system CSS, and the first canonicalization
+// (design.non-canonical-class) builds Tailwind's lookup tables: seconds
+// under a parallel run.
+describe("design_validate with the system's design lint rules", {
+	timeout: 30_000,
+}, () => {
 	let fixture: TrickroomMcpProjectFixture | undefined;
 	let session: TrickroomMcpClientSession | undefined;
 

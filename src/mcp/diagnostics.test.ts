@@ -56,7 +56,10 @@ const expandedDiagnosticsDesign = {
 	],
 } satisfies TrickroomDesign;
 
-describe("MCP expanded class/token diagnostics", () => {
+// Each session compiles its own system CSS, and the first canonicalization
+// (design.non-canonical-class) builds Tailwind's lookup tables: seconds
+// under a parallel run.
+describe("MCP expanded class/token diagnostics", { timeout: 30_000 }, () => {
 	const fixtures: TrickroomMcpProjectFixture[] = [];
 	const sessions: TrickroomMcpClientSession[] = [];
 
@@ -415,8 +418,11 @@ describe("MCP expanded class/token diagnostics", () => {
 			valid: true,
 			summary: {
 				errors: 0,
-				warnings: 2,
-				codes: { "design.unknown-class-token": 2 },
+				warnings: 3,
+				codes: {
+					"design.non-canonical-class": 1,
+					"design.unknown-class-token": 2,
+				},
 			},
 			issues: [],
 			warnings: expect.arrayContaining([
@@ -428,6 +434,13 @@ describe("MCP expanded class/token diagnostics", () => {
 				{
 					code: "design.unknown-class-token",
 					message: expect.stringContaining('"rounded-[2rem]"'),
+					elementIds: ["board"],
+				},
+				// The arbitrary radius equals a theme token, which this names.
+				{
+					code: "design.non-canonical-class",
+					message:
+						'Class "rounded-[2rem]" is written "rounded-4xl" in Tailwind\'s canonical form.',
 					elementIds: ["board"],
 				},
 			]),
