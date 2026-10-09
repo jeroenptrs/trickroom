@@ -23,24 +23,29 @@ import type { TwMergeConfig } from "./tailwind-merge-config";
  * - Theme: tailwind-merge's theme keys are Tailwind's theme namespaces
  *   (`color` ↔ `--color-*`, `text` ↔ `--text-*`, `spacing` ↔ `--spacing-*`),
  *   so each key lists the keys of its namespace.
- * - Custom `@utility` classes are compiled with Tailwind and compared, by
- *   their declarations, with a stock utility of each class group (an
- *   arbitrary-value probe compiled through the same design system). A
- *   declaration counts with where it lands (selector, pseudo-classes,
- *   `@media`/`@supports`) and whether it is `!important`; custom
- *   properties count too, except Tailwind's own `--tw-*` plumbing.
+ * - Custom `@utility` classes are compiled with Tailwind and compared,
+ *   declaration by declaration, with sampled stock members of each class
+ *   group: arbitrary values, modifiers (`/50`, `/[2]`) and the theme keys
+ *   with sub-keys (`--text-sm--line-height`), compiled through the same
+ *   design system. A declaration counts with its selector (pseudo-classes
+ *   and `.dark` included), the at-rules around it, `!important`, and the
+ *   variables its value reads.
  *
- * The rule: a utility joins a stock class group only when replacing it
- * with any member of that group loses nothing, that is when it sets
- * exactly what the group's probe sets. `card-padding { padding: 1rem }`
- * merges like `p-4`. Every other utility is protected: it gets a class
- * group of its own, shared with the utilities that set exactly the same
- * declarations (so `bg-royal-ui bg-pale-ui` still keeps the last), and
- * stock classes never remove it. Where it overrides everything another
- * group sets, a one-directional conflict lets a later protected utility
- * remove that group's earlier classes: `text-sm text-label-sm` keeps
- * `text-label-sm`, `text-label-sm text-sm` keeps both, and
- * `text-label-sm text-royal-9` keeps both.
+ * The rule: a class may be removed in favour of a later one only when the
+ * later one overrides every declaration it makes (same selector, at-rules
+ * no narrower, at least as `!important`). A `--tw-*` variable it sets is
+ * the one exception, and only when nothing reads it: not the later class,
+ * and no class in Tailwind's class list. Any other custom property may be
+ * read by descendants, so it must be overridden too.
+ *
+ * A custom utility joins a stock class group only when it and every
+ * sampled member can replace each other under that rule. Every other
+ * utility is protected: it gets a class group of its own, shared with the
+ * utilities that make the same declarations, and stock classes never
+ * remove it. A protected group conflicts (one-directionally) with the
+ * stock and own groups all of whose sampled members it may remove:
+ * `text-sm text-label-sm` keeps `text-label-sm`, `text-label-sm text-sm`
+ * keeps both, and `text-label-sm text-royal-9` keeps both.
  */
 
 export type DerivedTwMerge = {
@@ -49,81 +54,144 @@ export type DerivedTwMerge = {
 
 type GroupProbe = {
 	group: DefaultClassGroupIds;
-	/** A stock candidate of the group, theme-independent (arbitrary values). */
-	candidate: string;
+	/** Stock members that need no theme: arbitrary values, with modifiers. */
+	candidates: readonly string[];
+	/** The utility root theme keys are sampled with. */
+	root?: string;
+	/** Theme namespaces whose keys are members (`text` → `text-sm`). */
+	themes?: readonly DefaultThemeGroupIds[];
+	/** Modifiers each sampled theme member is also compiled with. */
+	modifiers?: readonly string[];
 };
 
+const color = (
+	group: DefaultClassGroupIds,
+	root: string,
+	opacity = true,
+): GroupProbe => ({
+	group,
+	candidates: opacity
+		? [`${root}-[red]`, `${root}-[red]/50`]
+		: [`${root}-[red]`],
+	root,
+	themes: ["color"],
+	modifiers: opacity ? ["/50"] : [],
+});
+
+const spacing = (
+	group: DefaultClassGroupIds,
+	root: string,
+	extra: readonly string[] = [],
+	themes: readonly DefaultThemeGroupIds[] = ["spacing"],
+): GroupProbe => ({
+	group,
+	candidates: [`${root}-[1px]`, `${root}-4`, `${root}-px`, ...extra],
+	root,
+	themes,
+});
+
+const size = (group: DefaultClassGroupIds, root: string): GroupProbe =>
+	spacing(
+		group,
+		root,
+		[`${root}-full`, `${root}-auto`, `${root}-1/2`],
+		["spacing", "container"],
+	);
+
 /**
- * The stock class groups a custom utility can join, each with a stock
- * candidate whose generated CSS defines what a member sets. First match
- * wins; the same probes decide which stock groups a protected utility
- * overrides.
+ * The stock class groups a custom utility can join or override, with the
+ * stock members sampled for each. Joining tries them in order.
  */
 export const TW_MERGE_GROUP_PROBES: readonly GroupProbe[] = [
-	{ group: "font-size", candidate: "text-[1px]" },
-	{ group: "font-weight", candidate: "font-[700]" },
-	{ group: "font-family", candidate: "font-[family-name:x]" },
-	{ group: "leading", candidate: "leading-[2]" },
-	{ group: "tracking", candidate: "tracking-[1px]" },
-	{ group: "text-color", candidate: "text-[red]" },
-	{ group: "text-decoration-color", candidate: "decoration-[red]" },
-	{ group: "placeholder-color", candidate: "placeholder-[red]" },
-	{ group: "bg-color", candidate: "bg-[red]" },
-	{ group: "bg-image", candidate: "bg-[url(x)]" },
-	{ group: "border-color", candidate: "border-[red]" },
-	{ group: "border-color-x", candidate: "border-x-[red]" },
-	{ group: "border-color-y", candidate: "border-y-[red]" },
-	{ group: "border-color-s", candidate: "border-s-[red]" },
-	{ group: "border-color-e", candidate: "border-e-[red]" },
-	{ group: "border-color-t", candidate: "border-t-[red]" },
-	{ group: "border-color-r", candidate: "border-r-[red]" },
-	{ group: "border-color-b", candidate: "border-b-[red]" },
-	{ group: "border-color-l", candidate: "border-l-[red]" },
-	{ group: "divide-color", candidate: "divide-[red]" },
-	{ group: "outline-color", candidate: "outline-[red]" },
-	{ group: "ring-color", candidate: "ring-[red]" },
-	{ group: "rounded", candidate: "rounded-[1px]" },
-	{ group: "rounded-t", candidate: "rounded-t-[1px]" },
-	{ group: "rounded-r", candidate: "rounded-r-[1px]" },
-	{ group: "rounded-b", candidate: "rounded-b-[1px]" },
-	{ group: "rounded-l", candidate: "rounded-l-[1px]" },
-	{ group: "shadow", candidate: "shadow-[0_0_red]" },
-	{ group: "opacity", candidate: "opacity-[0.5]" },
-	{ group: "fill", candidate: "fill-[red]" },
-	{ group: "stroke", candidate: "stroke-[red]" },
-	{ group: "caret-color", candidate: "caret-[red]" },
-	{ group: "accent", candidate: "accent-[red]" },
-	{ group: "p", candidate: "p-[1px]" },
-	{ group: "px", candidate: "px-[1px]" },
-	{ group: "py", candidate: "py-[1px]" },
-	{ group: "ps", candidate: "ps-[1px]" },
-	{ group: "pe", candidate: "pe-[1px]" },
-	{ group: "pt", candidate: "pt-[1px]" },
-	{ group: "pr", candidate: "pr-[1px]" },
-	{ group: "pb", candidate: "pb-[1px]" },
-	{ group: "pl", candidate: "pl-[1px]" },
-	{ group: "m", candidate: "m-[1px]" },
-	{ group: "mx", candidate: "mx-[1px]" },
-	{ group: "my", candidate: "my-[1px]" },
-	{ group: "ms", candidate: "ms-[1px]" },
-	{ group: "me", candidate: "me-[1px]" },
-	{ group: "mt", candidate: "mt-[1px]" },
-	{ group: "mr", candidate: "mr-[1px]" },
-	{ group: "mb", candidate: "mb-[1px]" },
-	{ group: "ml", candidate: "ml-[1px]" },
-	{ group: "gap", candidate: "gap-[1px]" },
-	{ group: "gap-x", candidate: "gap-x-[1px]" },
-	{ group: "gap-y", candidate: "gap-y-[1px]" },
-	{ group: "space-x", candidate: "space-x-[1px]" },
-	{ group: "space-y", candidate: "space-y-[1px]" },
-	{ group: "size", candidate: "size-[1px]" },
-	{ group: "w", candidate: "w-[1px]" },
-	{ group: "h", candidate: "h-[1px]" },
-	{ group: "min-w", candidate: "min-w-[1px]" },
-	{ group: "min-h", candidate: "min-h-[1px]" },
-	{ group: "max-w", candidate: "max-w-[1px]" },
-	{ group: "max-h", candidate: "max-h-[1px]" },
-	{ group: "z", candidate: "z-[1]" },
+	{
+		group: "font-size",
+		candidates: ["text-[1px]", "text-[1px]/[2]", "text-[1px]/6"],
+		root: "text",
+		themes: ["text"],
+		modifiers: ["/[2]", "/6"],
+	},
+	{
+		group: "font-weight",
+		candidates: ["font-[700]"],
+		root: "font",
+		themes: ["font-weight"],
+	},
+	{
+		group: "font-family",
+		candidates: ["font-[family-name:x]"],
+		root: "font",
+		themes: ["font"],
+	},
+	{
+		group: "leading",
+		candidates: ["leading-[2]", "leading-6", "leading-none"],
+		root: "leading",
+		themes: ["leading"],
+	},
+	{
+		group: "tracking",
+		candidates: ["tracking-[1px]"],
+		root: "tracking",
+		themes: ["tracking"],
+	},
+	color("text-color", "text"),
+	color("text-decoration-color", "decoration"),
+	color("placeholder-color", "placeholder"),
+	color("bg-color", "bg"),
+	{ group: "bg-image", candidates: ["bg-[url(x)]", "bg-none"] },
+	color("border-color", "border"),
+	color("border-color-x", "border-x"),
+	color("border-color-y", "border-y"),
+	color("border-color-s", "border-s"),
+	color("border-color-e", "border-e"),
+	color("border-color-t", "border-t"),
+	color("border-color-r", "border-r"),
+	color("border-color-b", "border-b"),
+	color("border-color-l", "border-l"),
+	color("divide-color", "divide"),
+	color("outline-color", "outline"),
+	color("ring-color", "ring"),
+	...(
+		["rounded", "rounded-t", "rounded-r", "rounded-b", "rounded-l"] as const
+	).map(
+		(root): GroupProbe => ({
+			group: root,
+			candidates: [`${root}-[1px]`, `${root}-full`, `${root}-none`],
+			root,
+			themes: ["radius"],
+		}),
+	),
+	{
+		group: "shadow",
+		candidates: ["shadow-[0_0_red]", "shadow-[0_0_red]/50", "shadow-none"],
+		root: "shadow",
+		themes: ["shadow"],
+		modifiers: ["/50"],
+	},
+	{ group: "opacity", candidates: ["opacity-[0.5]", "opacity-50"] },
+	color("fill", "fill", false),
+	color("stroke", "stroke", false),
+	color("caret-color", "caret", false),
+	color("accent", "accent", false),
+	...(["p", "px", "py", "ps", "pe", "pt", "pr", "pb", "pl"] as const).map(
+		(root) => spacing(root, root),
+	),
+	...(["m", "mx", "my", "ms", "me", "mt", "mr", "mb", "ml"] as const).map(
+		(root) => spacing(root, root, [`${root}-auto`]),
+	),
+	spacing("gap", "gap"),
+	spacing("gap-x", "gap-x"),
+	spacing("gap-y", "gap-y"),
+	spacing("space-x", "space-x"),
+	spacing("space-y", "space-y"),
+	size("size", "size"),
+	size("w", "w"),
+	size("h", "h"),
+	size("min-w", "min-w"),
+	size("min-h", "min-h"),
+	size("max-w", "max-w"),
+	size("max-h", "max-h"),
+	{ group: "z", candidates: ["z-[1]", "z-10", "z-auto"] },
 ];
 
 export const compareTwMergeValues = (left: string, right: string) =>
@@ -139,25 +207,31 @@ const CLASS_SELECTOR = /\.(?:\\.|[^\s.#:,>+~()[\]\\])+/u;
 const normalizeWhitespace = (value: string) =>
 	value.replace(/\s+/gu, " ").trim();
 
+const VARIABLE_READ = /var\(\s*(--[\w-]+)/gu;
+
 /** One declaration and where it applies. */
 type Declaration = {
-	/** The selector with `&` for the element, then the at-rules around it. */
-	context: string;
+	/** The selector with `&` for the element, pseudo-classes kept. */
+	selector: string;
+	/** The at-rules around it (`@media (hover: hover)`), sorted. */
+	atRules: readonly string[];
 	property: string;
+	value: string;
 	important: boolean;
+	/** The custom properties its value reads through `var()`, sorted. */
+	reads: readonly string[];
 };
 
-/** `context|property`: what a later declaration of the same key overrides. */
+/** `selector|property`: what a later declaration must set to override it. */
 const targetOf = (declaration: Declaration) =>
-	`${declaration.context}|${declaration.property}`;
+	`${declaration.selector}|${declaration.property}`;
 
-const isTailwindPlumbing = (declaration: Declaration) =>
-	declaration.property.startsWith("--tw-");
+const isTailwindVariable = (property: string) => property.startsWith("--tw-");
 
 /**
- * Every declaration a candidate's CSS makes, with its context: the
- * selector (the candidate's class as `&`, pseudo-classes and nesting kept)
- * and the at-rules it sits in (`@media (hover: hover)`). `@property` and
+ * Every declaration a candidate's CSS makes: its selector (the candidate's
+ * class as `&`, pseudo-classes and nesting kept), the at-rules around it,
+ * importance and the variables its value reads. `@property` and
  * `@keyframes` are not declarations of the element and are left out.
  */
 const declarationsOf = (nodes: readonly CandidateAstNode[]): Declaration[] => {
@@ -172,14 +246,22 @@ const declarationsOf = (nodes: readonly CandidateAstNode[]): Declaration[] => {
 				const property = node.property?.trim();
 				if (selector === null || !property) continue;
 				const declaration: Declaration = {
-					context: [normalizeWhitespace(selector), ...atRules].join(" "),
+					selector: normalizeWhitespace(selector),
+					atRules: sortedUnique(atRules),
 					property: property.startsWith("--")
 						? property
 						: property.toLowerCase(),
+					value: node.value ?? "",
 					important: node.important === true,
+					reads: sortedUnique(
+						[...(node.value ?? "").matchAll(VARIABLE_READ)].map(
+							(match) => match[1],
+						),
+					),
 				};
+				// A later declaration of the same property in the same place wins.
 				declarations.set(
-					`${targetOf(declaration)}|${declaration.important}`,
+					`${targetOf(declaration)}|${declaration.atRules.join(" ")}`,
 					declaration,
 				);
 			} else if (node.kind === "rule" && node.selector !== undefined) {
@@ -207,48 +289,69 @@ const declarationsOf = (nodes: readonly CandidateAstNode[]): Declaration[] => {
 };
 
 /**
- * Whether `later` sets everything `earlier` sets, in the same place and at
- * least as `!important`, so removing an earlier class loses nothing.
- * Tailwind plumbing (`--tw-*`) counts only for a set made of nothing else.
+ * What decides whether two declaration sets replace each other: where each
+ * declaration lands, its importance and the `--tw-*` variables it reads
+ * (the only reads removal looks at). Values do not count, so `bg-royal-ui`
+ * and `bg-pale-ui` share a shape.
  */
-const overrides = (
-	later: ReadonlyMap<string, boolean>,
-	earlier: readonly Declaration[],
-) => {
-	const own = earlier.filter((entry) => !isTailwindPlumbing(entry));
-	return (own.length > 0 ? own : earlier).every((entry) => {
-		const important = later.get(targetOf(entry));
-		return important !== undefined && (important || !entry.important);
-	});
-};
+const shapeOf = (declarations: readonly Declaration[]) =>
+	sortedUnique(
+		declarations.map(
+			(entry) =>
+				`${targetOf(entry)}|${entry.atRules.join(" ")}|${entry.important ? "!" : ""}|${entry.reads.filter(isTailwindVariable).join(" ")}`,
+		),
+	).join("\n");
 
-type CompiledProbe = {
-	group: DefaultClassGroupIds;
-	declarations: Declaration[];
+/**
+ * Whether `later` overrides `earlier`'s declaration: same selector and
+ * property, at-rules no narrower, at least as `!important`.
+ */
+const overridesDeclaration = (later: Declaration, earlier: Declaration) =>
+	later.selector === earlier.selector &&
+	later.property === earlier.property &&
+	later.atRules.every((rule) => earlier.atRules.includes(rule)) &&
+	(later.important || !earlier.important);
+
+type Removal = {
+	/** Whether a `--tw-*` variable is read by any class Tailwind can list. */
+	isRead: (property: string) => boolean;
 };
 
 /**
- * Whether a utility can join the probe's group: it sets exactly the
- * probe's declarations, none `!important`, and Tailwind plumbing only
- * where the probe sets it too.
+ * Whether an earlier class may be removed in favour of a later one without
+ * losing anything: the later class overrides every declaration, except
+ * `--tw-*` variables that neither it nor any listed class reads.
  */
-const joins = (declarations: readonly Declaration[], probe: CompiledProbe) => {
-	if (declarations.some((entry) => entry.important)) return false;
-	const own = new Set(
-		declarations.filter((entry) => !isTailwindPlumbing(entry)).map(targetOf),
-	);
-	const probeOwn = new Set(
-		probe.declarations
-			.filter((entry) => !isTailwindPlumbing(entry))
-			.map(targetOf),
-	);
-	const probeAll = new Set(probe.declarations.map(targetOf));
-	return (
-		own.size === probeOwn.size &&
-		[...own].every((target) => probeOwn.has(target)) &&
-		declarations.every((entry) => probeAll.has(targetOf(entry)))
+const mayRemove = (
+	earlier: readonly Declaration[],
+	later: readonly Declaration[],
+	removal: Removal,
+) => {
+	const laterByTarget = new Map<string, Declaration[]>();
+	for (const entry of later) {
+		const list = laterByTarget.get(targetOf(entry)) ?? [];
+		list.push(entry);
+		laterByTarget.set(targetOf(entry), list);
+	}
+	const laterReads = new Set(later.flatMap((entry) => entry.reads));
+	return earlier.every(
+		(entry) =>
+			(laterByTarget.get(targetOf(entry)) ?? []).some((candidate) =>
+				overridesDeclaration(candidate, entry),
+			) ||
+			(isTailwindVariable(entry.property) &&
+				!laterReads.has(entry.property) &&
+				!removal.isRead(entry.property)),
 	);
 };
+
+/** Targets a later class must set to remove these declarations, whatever it reads. */
+const requiredTargets = (declarations: readonly Declaration[]) =>
+	new Set(
+		declarations
+			.filter((entry) => !isTailwindVariable(entry.property))
+			.map(targetOf),
+	);
 
 /**
  * Per tailwind-merge theme key, the keys of the namespace of the same name.
@@ -256,29 +359,91 @@ const joins = (declarations: readonly Declaration[], probe: CompiledProbe) => {
  * keys of a longer namespace (`--font-weight-*` under `--font`,
  * `--text-shadow-*` under `--text`) are left out.
  */
+const themeKeyCache = new WeakMap<
+	TailwindIntrospection,
+	Map<string, { keys: string[]; withSubKeys: Set<string> }>
+>();
+
+const themeKeysOf = (
+	introspection: TailwindIntrospection,
+	key: DefaultThemeGroupIds,
+	allKeys: readonly string[],
+) => {
+	const cache =
+		themeKeyCache.get(introspection) ??
+		new Map<string, { keys: string[]; withSubKeys: Set<string> }>();
+	themeKeyCache.set(introspection, cache);
+	const cached = cache.get(key);
+	if (cached) return cached;
+	const longer = allKeys
+		.filter((other) => other.startsWith(`${key}-`))
+		.map((other) => `${other.slice(key.length + 1)}-`);
+	const raw = [...introspection.resolveNamespace(`--${key}`).keys()];
+	const keys = sortedUnique(
+		raw.filter(
+			(value): value is string =>
+				value !== null &&
+				value.length > 0 &&
+				!value.includes("--") &&
+				!longer.some((prefix) => value.startsWith(prefix)),
+		),
+	);
+	const withSubKeys = new Set(
+		raw.flatMap((value) =>
+			value?.includes("--") ? [value.slice(0, value.indexOf("--"))] : [],
+		),
+	);
+	const result = { keys, withSubKeys };
+	cache.set(key, result);
+	return result;
+};
+
+const THEME_KEYS = Object.keys(getDefaultConfig().theme).sort(
+	compareTwMergeValues,
+) as DefaultThemeGroupIds[];
+
 const deriveTheme = (
 	introspection: TailwindIntrospection,
 ): TwMergeConfig["extend"]["theme"] => {
-	const keys = Object.keys(getDefaultConfig().theme).sort(
-		compareTwMergeValues,
-	) as DefaultThemeGroupIds[];
 	const theme: TwMergeConfig["extend"]["theme"] = {};
-	for (const key of keys) {
-		const longer = keys
-			.filter((other) => other.startsWith(`${key}-`))
-			.map((other) => `${other.slice(key.length + 1)}-`);
-		const values = sortedUnique(
-			[...introspection.resolveNamespace(`--${key}`).keys()].filter(
-				(value): value is string =>
-					value !== null &&
-					value.length > 0 &&
-					!value.includes("--") &&
-					!longer.some((prefix) => value.startsWith(prefix)),
-			),
-		);
-		if (values.length > 0) theme[key] = values;
+	for (const key of THEME_KEYS) {
+		const { keys } = themeKeysOf(introspection, key, THEME_KEYS);
+		if (keys.length > 0) theme[key] = keys;
 	}
 	return theme;
+};
+
+/**
+ * The stock members sampled for a group: its arbitrary candidates, and per
+ * theme namespace every key with sub-keys plus the first key without, each
+ * also with the group's modifiers. Sub-keys are what make one theme member
+ * set more than another (`text-sm` sets line-height through
+ * `--text-sm--line-height`); keys without any compile alike.
+ */
+const sampleCandidates = (
+	introspection: TailwindIntrospection,
+	probe: GroupProbe,
+) => {
+	const samples = [...probe.candidates];
+	if (!probe.root) return samples;
+	for (const namespace of probe.themes ?? []) {
+		const { keys, withSubKeys } = themeKeysOf(
+			introspection,
+			namespace,
+			THEME_KEYS,
+		);
+		const sampled = keys.filter((key) => withSubKeys.has(key));
+		const plain = keys.find((key) => !withSubKeys.has(key));
+		if (plain) sampled.push(plain);
+		for (const key of sampled) {
+			const member = `${probe.root}-${key}`;
+			samples.push(
+				member,
+				...(probe.modifiers ?? []).map((modifier) => `${member}${modifier}`),
+			);
+		}
+	}
+	return samples;
 };
 
 type Candidate = {
@@ -311,32 +476,132 @@ const candidatesOf = (
 	return candidates;
 };
 
-type ProtectedGroup = {
+/** A class group as the conflict pass sees it. */
+type ConflictTarget = {
 	id: string;
-	members: string[];
-	declarations: Declaration[];
-	/** Importance by target; a target set twice counts as important if either is. */
-	targets: ReadonlyMap<string, boolean>;
+	/** Every member's declarations (one entry for an own group: its members make the same). */
+	members: ReadonlyArray<readonly Declaration[]>;
+	/** Targets every remover must set, over all members. */
+	required: ReadonlySet<string>;
+};
+
+/**
+ * The groups `group` may remove: those all of whose members it overrides.
+ * Each target group is indexed under its rarest required target, so a
+ * group is checked only against the groups whose rarest target it sets,
+ * not against every group sharing a common one (`background-color`).
+ */
+const conflictsOf = (
+	groups: ReadonlyArray<{ id: string; declarations: readonly Declaration[] }>,
+	targets: readonly ConflictTarget[],
+	removal: Removal,
+) => {
+	const frequency = new Map<string, number>();
+	for (const target of targets) {
+		for (const key of target.required) {
+			frequency.set(key, (frequency.get(key) ?? 0) + 1);
+		}
+	}
+	const byRarest = new Map<string, ConflictTarget[]>();
+	for (const target of targets) {
+		let rarest: string | null = null;
+		for (const key of target.required) {
+			if (
+				rarest === null ||
+				(frequency.get(key) ?? 0) < (frequency.get(rarest) ?? 0)
+			) {
+				rarest = key;
+			}
+		}
+		if (rarest === null) continue;
+		const list = byRarest.get(rarest) ?? [];
+		list.push(target);
+		byRarest.set(rarest, list);
+	}
+	const conflicts: Record<string, string[]> = {};
+	for (const group of groups) {
+		const own = new Set(group.declarations.map(targetOf));
+		const removed: string[] = [];
+		for (const key of own) {
+			for (const target of byRarest.get(key) ?? []) {
+				if (
+					target.id !== group.id &&
+					[...target.required].every((required) => own.has(required)) &&
+					target.members.every((member) =>
+						mayRemove(member, group.declarations, removal),
+					)
+				) {
+					removed.push(target.id);
+				}
+			}
+		}
+		if (removed.length > 0) conflicts[group.id] = sortedUnique(removed);
+	}
+	return conflicts;
 };
 
 export const deriveTwMergeConfig = (
 	introspection: TailwindIntrospection,
 ): DerivedTwMerge => {
 	const prefix = introspection.getPrefix();
-	const compile = (candidate: string) =>
-		introspection.getCandidateAst(
-			prefix ? `${prefix}:${candidate}` : candidate,
-		);
-	const probes = TW_MERGE_GROUP_PROBES.flatMap((probe): CompiledProbe[] => {
-		const ast = compile(probe.candidate);
-		const declarations = ast ? declarationsOf(ast) : [];
-		return declarations.length > 0
-			? [{ group: probe.group, declarations }]
-			: [];
+	const withPrefix = (candidate: string) =>
+		prefix ? `${prefix}:${candidate}` : candidate;
+	const compile = (candidate: string) => {
+		const ast = introspection.getCandidateAst(withPrefix(candidate));
+		return ast ? declarationsOf(ast) : [];
+	};
+
+	// Which `--tw-*` variables some listed class reads: compiled once, and
+	// only when a removal depends on it.
+	let readVariables: Set<string> | null = null;
+	const removal: Removal = {
+		isRead: (property) => {
+			readVariables ??= new Set(
+				introspection
+					.getCandidatesCss(
+						introspection
+							.getClassNames()
+							.map((name) =>
+								prefix && !name.startsWith(`${prefix}:`)
+									? withPrefix(name)
+									: name,
+							),
+					)
+					.flatMap((css) =>
+						[...(css ?? "").matchAll(VARIABLE_READ)].map((match) => match[1]),
+					)
+					.filter(isTailwindVariable),
+			);
+			return readVariables.has(property);
+		},
+	};
+
+	const probes = TW_MERGE_GROUP_PROBES.flatMap((probe) => {
+		const members = sampleCandidates(introspection, probe)
+			.map(compile)
+			.filter((declarations) => declarations.length > 0);
+		if (members.length === 0) return [];
+		const targets = members.map((member) => new Set(member.map(targetOf)));
+		return [
+			{
+				group: probe.group,
+				members,
+				// A joining utility sets every target some member needs set, and
+				// needs set only targets every member sets.
+				required: new Set(
+					members.flatMap((member) => [...requiredTargets(member)]),
+				),
+				shared: new Set(
+					[...targets[0]].filter((key) =>
+						targets.every((member) => member.has(key)),
+					),
+				),
+			},
+		];
 	});
 
 	const joined = new Map<string, Set<string>>();
-	// Protected utilities by the exact declarations they make.
+	// Protected utilities by the declarations they make.
 	const shapes = new Map<
 		string,
 		{ members: Candidate[]; declarations: Declaration[] }
@@ -346,22 +611,27 @@ export const deriveTwMergeConfig = (
 	);
 	for (const root of roots) {
 		for (const entry of candidatesOf(introspection, root)) {
-			const ast = compile(entry.candidate);
-			const declarations = ast ? declarationsOf(ast) : [];
+			const declarations = compile(entry.candidate);
 			if (declarations.length === 0) continue;
-			const probe = probes.find((candidate) => joins(declarations, candidate));
+			const own = new Set(declarations.map(targetOf));
+			const needs = requiredTargets(declarations);
+			const probe = probes.find(
+				(candidate) =>
+					[...candidate.required].every((key) => own.has(key)) &&
+					[...needs].every((key) => candidate.shared.has(key)) &&
+					candidate.members.every(
+						(member) =>
+							mayRemove(declarations, member, removal) &&
+							mayRemove(member, declarations, removal),
+					),
+			);
 			if (probe) {
 				const members = joined.get(probe.group) ?? new Set<string>();
 				members.add(entry.candidate);
 				joined.set(probe.group, members);
 				continue;
 			}
-			const shape = sortedUnique(
-				declarations.map(
-					(declaration) =>
-						`${targetOf(declaration)}${declaration.important ? "!" : ""}`,
-				),
-			).join("\n");
+			const shape = shapeOf(declarations);
 			const group = shapes.get(shape) ?? { members: [], declarations };
 			group.members.push(entry);
 			shapes.set(shape, group);
@@ -370,7 +640,7 @@ export const deriveTwMergeConfig = (
 
 	// Name each protected group after its first member's utility.
 	const taken = new Set<string>();
-	const protectedGroups: ProtectedGroup[] = [...shapes.values()]
+	const protectedGroups = [...shapes.values()]
 		.map((group) => ({
 			...group,
 			members: [...group.members].sort((left, right) =>
@@ -392,14 +662,6 @@ export const deriveTwMergeConfig = (
 				id,
 				members: group.members.map((member) => member.candidate),
 				declarations: group.declarations,
-				targets: group.declarations.reduce(
-					(targets, entry) =>
-						targets.set(
-							targetOf(entry),
-							entry.important || targets.get(targetOf(entry)) === true,
-						),
-					new Map<string, boolean>(),
-				),
 			};
 		});
 
@@ -408,24 +670,22 @@ export const deriveTwMergeConfig = (
 		classGroups[group] = sortedUnique(members);
 	for (const group of protectedGroups) classGroups[group.id] = group.members;
 
-	const conflictingClassGroups: TwMergeConfig["extend"]["conflictingClassGroups"] =
-		{};
-	for (const group of protectedGroups) {
-		const overridden = [
-			...probes
-				.filter((probe) => overrides(group.targets, probe.declarations))
-				.map((probe) => probe.group),
-			...protectedGroups
-				.filter(
-					(other) =>
-						other !== group && overrides(group.targets, other.declarations),
-				)
-				.map((other) => other.id),
-		];
-		if (overridden.length > 0) {
-			conflictingClassGroups[group.id] = sortedUnique(overridden);
-		}
-	}
+	const conflictingClassGroups = conflictsOf(
+		protectedGroups,
+		[
+			...probes.map((probe) => ({
+				id: probe.group,
+				members: probe.members,
+				required: probe.required,
+			})),
+			...protectedGroups.map((group) => ({
+				id: group.id,
+				members: [group.declarations],
+				required: requiredTargets(group.declarations),
+			})),
+		].filter((target) => target.required.size > 0),
+		removal,
+	);
 
 	const sortKeys = <T>(record: Record<string, T>) =>
 		Object.fromEntries(

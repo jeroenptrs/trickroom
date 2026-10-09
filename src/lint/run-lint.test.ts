@@ -852,7 +852,7 @@ describe("createTwMergeConfigLoader", () => {
 			);
 			const load = createTwMergeConfigLoader(dir, "theme.css");
 			const config = await load();
-			expect(config?.extend.classGroups["font-size"]).toEqual([
+			expect(config?.extend.classGroups["@utility text-label-*"]).toEqual([
 				"text-label-sm",
 			]);
 			expect(await load()).toBe(config);

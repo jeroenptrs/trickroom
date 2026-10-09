@@ -121,12 +121,9 @@ describe("deriveTwMergeConfig", () => {
 		expect(config.extend.conflictingClassGroups).toEqual({
 			"@utility bg-pale-ui": ["bg-color"],
 			"@utility divide-royal-dim": ["divide-color"],
-			"@utility text-label-*": [
-				"font-size",
-				"font-weight",
-				"leading",
-				"tracking",
-			],
+			// Not leading: text-2xs reads the --tw-leading a leading-* class
+			// sets, and text-label-* does not set it.
+			"@utility text-label-*": ["font-size", "font-weight", "tracking"],
 		});
 		expect(config).not.toHaveProperty("prefix");
 	});
@@ -158,6 +155,70 @@ describe("deriveTwMergeConfig", () => {
 		const merged = await mergeWith(THEME_CSS);
 		expect(merged("text-label-sm text-sm")).toBe("text-label-sm text-sm");
 		expect(merged("text-sm text-label-sm")).toBe("text-label-sm");
+	});
+
+	it("conflicts with a stock group only when it overrides every sampled member, theme sub-keys and modifiers included", async () => {
+		const css = [
+			"@theme {",
+			"\t--spacing: 0.25rem;",
+			"\t--text-sm: 0.875rem;",
+			"\t--text-sm--line-height: 1.25rem;",
+			"\t--color-red-500: red;",
+			"}",
+			"@utility big-ink { font-size: 20px; color: red; }",
+			"@utility huge { font-size: 3rem; }",
+			"",
+		].join("\n");
+		const { config } = await derive(css);
+		// text-sm also sets line-height, text-[1px] does not: neither joins
+		// nor removes the font-size group.
+		expect(config.extend.classGroups).toEqual({
+			"@utility big-ink": ["big-ink"],
+			"@utility huge": ["huge"],
+		});
+		expect(config.extend.conflictingClassGroups).toEqual({
+			"@utility big-ink": ["@utility huge", "text-color"],
+		});
+		const merge = createTwMerge(config);
+		expect(merge("text-sm big-ink")).toBe("text-sm big-ink");
+		expect(merge("text-sm/8 big-ink")).toBe("text-sm/8 big-ink");
+		expect(merge("text-[16px] huge")).toBe("text-[16px] huge");
+		expect(merge("text-red-500 big-ink")).toBe("big-ink");
+	});
+
+	it("keeps a --tw-* variable that the later class or any listed class reads", async () => {
+		const merge = await mergeWith(
+			[
+				"@theme { --spacing: 0.25rem; }",
+				"@utility label { font-size: 20px; line-height: var(--tw-leading, 2); }",
+				"@utility heading { font-size: 20px; line-height: 2; }",
+				"",
+			].join("\n"),
+		);
+		// label reads the --tw-leading leading-8 sets, so neither it nor any
+		// other class may drop it.
+		expect(merge("leading-8 label")).toBe("leading-8 label");
+		expect(merge("leading-8 heading")).toBe("leading-8 heading");
+
+		const unread = await mergeWith(
+			[
+				"@theme { --spacing: 0.25rem; }",
+				"@utility heading { font-size: 20px; line-height: 2; }",
+				"",
+			].join("\n"),
+		);
+		// Nothing reads --tw-leading here: heading overrides all leading-8 does.
+		expect(unread("leading-8 heading")).toBe("heading");
+
+		const read = await mergeWith(
+			[
+				"@theme { --spacing: 0.25rem; --text-sm: 0.875rem; --text-sm--line-height: 1.25rem; }",
+				"@utility heading { font-size: 20px; line-height: 2; }",
+				"",
+			].join("\n"),
+		);
+		// text-sm reads --tw-leading: a later heading must not drop it.
+		expect(read("leading-8 heading")).toBe("leading-8 heading");
 	});
 
 	it("protects utilities with declarations under pseudo-classes, variants or at-rules", async () => {
@@ -267,7 +328,7 @@ describe("deriveTwMergeConfig", () => {
 });
 
 describe("TW_MERGE_GROUP_PROBES", () => {
-	it("each probe is a member of its class group in tailwind-merge", () => {
+	it("every sampled stock candidate is a member of its class group in tailwind-merge", () => {
 		// Without conflicts, a later class removes an earlier one only when
 		// both are in the same group.
 		const sameGroup = createTailwindMerge(() => ({
@@ -276,7 +337,7 @@ describe("TW_MERGE_GROUP_PROBES", () => {
 			conflictingClassGroupModifiers: {},
 		}));
 		const groups = getDefaultConfig().classGroups;
-		for (const { group, candidate } of TW_MERGE_GROUP_PROBES) {
+		for (const { group, candidates } of TW_MERGE_GROUP_PROBES) {
 			expect(groups[group as DefaultClassGroupIds]).toBeDefined();
 			const marker = createTailwindMerge(() => {
 				const config = getDefaultConfig();
@@ -290,8 +351,12 @@ describe("TW_MERGE_GROUP_PROBES", () => {
 					},
 				};
 			});
-			expect(marker(`${candidate} probe-marker`), group).toBe("probe-marker");
-			expect(sameGroup(`${candidate} ${candidate}`)).toBe(candidate);
+			for (const candidate of candidates) {
+				expect(marker(`${candidate} probe-marker`), candidate).toBe(
+					"probe-marker",
+				);
+				expect(sameGroup(`${candidate} ${candidate}`)).toBe(candidate);
+			}
 		}
 	});
 });
