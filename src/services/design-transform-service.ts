@@ -54,8 +54,8 @@ import type {
 	Role,
 	TrickroomDesign,
 } from "../types";
-import { createClassMerge } from "../utils/class-merge";
-import { resolveClassMergeSettings } from "../utils/class-merge-settings";
+import { toComponentClassSource } from "../utils/class-merge";
+import { resolveComponentClassMerge } from "../utils/class-merge-settings";
 import { designReferencesSystemHandle } from "../utils/design-resource-references";
 import { findDesignSystem } from "../utils/design-system-store";
 import { suggestClosest } from "../utils/suggestions";
@@ -2458,15 +2458,19 @@ export const applyMigrateSystemComponentInstance = async (
 	};
 };
 
-/** The design's class merge (`ClassMergeSettings`); null when it cannot be read. */
-const loadDetachClassMerge = async (
+/**
+ * The component class source the canvas renders the design with
+ * (`toComponentClassSource`); null when it renders stored classes or the
+ * config cannot be read.
+ */
+const loadDetachClassSource = async (
 	projectRoot: string,
 	systemId: string | null,
 ) => {
 	try {
 		const { config } = await readProjectConfigReadOnly(projectRoot);
-		return createClassMerge(
-			await resolveClassMergeSettings({ projectRoot, config, systemId }),
+		return toComponentClassSource(
+			await resolveComponentClassMerge({ projectRoot, config, systemId }),
 		);
 	} catch {
 		return null;
@@ -2506,8 +2510,8 @@ export const applyDetachSystemComponent = async (
 		}
 	}
 
-	// Each layer keeps the merged className it rendered with on the canvas.
-	const classMerge = await loadDetachClassMerge(
+	// Each layer keeps the className it renders with on the canvas.
+	const classSource = await loadDetachClassSource(
 		params.projectRoot,
 		design.systemId ?? null,
 	);
@@ -2515,7 +2519,7 @@ export const applyDetachSystemComponent = async (
 		design.boards,
 		params.elementId,
 		version,
-		classMerge,
+		classSource,
 	);
 	if (!result) {
 		throw new DesignTransformError(

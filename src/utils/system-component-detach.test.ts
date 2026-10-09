@@ -6,7 +6,7 @@ import {
 	resolveRegistryComponent,
 } from "../libraries/registry";
 import type { Node } from "../types";
-import { createClassMerge } from "./class-merge";
+import { type ComponentClassSource, createClassMerge } from "./class-merge";
 import { detachSystemComponentInstance } from "./system-component-detach";
 import {
 	getSystemComponentMarkerProps,
@@ -14,6 +14,18 @@ import {
 	SYSTEM_COMPONENT_MARKER_PROP_KEYS,
 } from "./system-component-markers";
 import type { PublishedSystemComponentVersion } from "./system-components";
+
+const STOCK = createClassMerge({ mode: "stock" });
+if (!STOCK) throw new Error("stock settings must merge");
+
+/** The source the canvas renders with when the version is in its table. */
+const sourceFor = (
+	version: PublishedSystemComponentVersion,
+): ComponentClassSource => ({
+	systemId: "sys-core",
+	merge: STOCK,
+	components: { "cmp_11111111-1111-4111-8111-111111111111": { "1": version } },
+});
 
 const baseProps = (name: string, component = "container") => ({
 	"data-trickroom-name": name,
@@ -86,7 +98,7 @@ describe("detachSystemComponentInstance", () => {
 		).toBeNull();
 	});
 
-	it("flattens resolved template, variant, compound, and override classes into ordinary props", () => {
+	it("flattens resolved template, variant, compound, and override classes into ordinary props, as the canvas renders them", () => {
 		const version: PublishedSystemComponentVersion = {
 			version: "1",
 			publishedAt: "2026-05-26T00:00:00.000Z",
@@ -177,7 +189,12 @@ describe("detachSystemComponentInstance", () => {
 			},
 		];
 
-		const result = detachSystemComponentInstance(roots, "label", version);
+		const result = detachSystemComponentInstance(
+			roots,
+			"label",
+			version,
+			sourceFor(version),
+		);
 		expect(result).not.toBeNull();
 		const root = result?.roots[0];
 		const label = Array.isArray(root?.children) ? root.children[0] : null;
@@ -250,7 +267,12 @@ describe("detachSystemComponentInstance", () => {
 			},
 		];
 
-		const result = detachSystemComponentInstance(roots, "root", version);
+		const result = detachSystemComponentInstance(
+			roots,
+			"root",
+			version,
+			sourceFor(version),
+		);
 		const root = result?.roots[0];
 
 		expect(root?.props.className).toBe(
@@ -390,11 +412,10 @@ describe("detachSystemComponentInstance", () => {
 		});
 	});
 
-	describe("with a class merge", () => {
-		const stock = createClassMerge({ mode: "stock" });
+	describe("keeps the className each layer renders with", () => {
 		const separator = resolveRegistryComponent("base-ui", "separator");
-		if (!stock || separator.status !== "known") {
-			throw new Error("stock merge and separator expected");
+		if (separator.status !== "known") {
+			throw new Error("separator expected");
 		}
 		const SEPARATOR_BASE = separator.definition.baseClassName ?? "";
 		const version: PublishedSystemComponentVersion = {
@@ -439,6 +460,7 @@ describe("detachSystemComponentInstance", () => {
 						}
 					: {}),
 			});
+		const STORED_RULE = `${SEPARATOR_BASE} data-[orientation=horizontal]:w-8`;
 		const instance = (): Node[] => [
 			{
 				id: "card",
@@ -455,7 +477,8 @@ describe("detachSystemComponentInstance", () => {
 							"data-trickroom-name": "Rule",
 							"data-trickroom-library": "base-ui",
 							"data-trickroom-component": "separator",
-							className: `${SEPARATOR_BASE} data-[orientation=horizontal]:w-8`,
+							// Materialization dropped the override equal to a base class.
+							className: STORED_RULE,
 							[MATERIALIZED_BASE_CLASS_PROP]: "true",
 							...markers("rule"),
 						},
@@ -481,17 +504,21 @@ describe("detachSystemComponentInstance", () => {
 				],
 			},
 		];
-
-		it("keeps the merged className each layer rendered with", () => {
+		const detached = (source: ComponentClassSource | null) => {
 			const result = detachSystemComponentInstance(
 				instance(),
 				"card",
 				version,
-				stock,
+				source,
 			);
 			const card = result?.roots[0];
 			const children = Array.isArray(card?.children) ? card.children : [];
-			const [rule, slotText, nested] = children;
+			return { result, card, rule: children[0], children };
+		};
+
+		it("with the canvas resolving and merging the instance", () => {
+			const { result, card, rule, children } = detached(sourceFor(version));
+			const [, slotText, nested] = children;
 
 			expect(card?.props.className).toBe("items-center p-4 hidden");
 			expect(card?.props).not.toHaveProperty(MATERIALIZED_BASE_CLASS_PROP);
@@ -513,16 +540,23 @@ describe("detachSystemComponentInstance", () => {
 			expect(result?.detachedElementIds.sort()).toEqual(["card", "rule"]);
 		});
 
-		it("materializes the unmerged classes without a merge, as before", () => {
-			const result = detachSystemComponentInstance(
-				instance(),
-				"card",
-				version,
-				null,
-			);
-			expect(result?.roots[0].props.className).toBe(
-				"flex items-center p-4 hidden",
-			);
+		it("with the canvas on stored classes (no component table): unchanged", () => {
+			// The canvas renders stored classes here, so detach must not
+			// reconstruct and merge the version's: flex stays.
+			const { card, rule } = detached(null);
+
+			expect(card?.props.className).toBe("flex items-center p-4 hidden");
+			expect(rule.props.className).toBe(STORED_RULE);
+			expect(rule.props[MATERIALIZED_BASE_CLASS_PROP]).toBe("true");
+		});
+
+		it("with a table that lacks the instance's version: unchanged", () => {
+			const { card } = detached({
+				...sourceFor(version),
+				components: {},
+			});
+
+			expect(card?.props.className).toBe("flex items-center p-4 hidden");
 		});
 	});
 });

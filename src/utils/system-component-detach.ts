@@ -1,15 +1,15 @@
 import {
+	getRenderedClassName,
 	MATERIALIZED_BASE_CLASS_PROP,
 	resolveRegistryComponent,
 } from "../libraries/registry";
 import type { Node, Props, RecipeTemplateNode } from "../types";
 import {
-	type ClassMerge,
-	renderComponentClassName,
-	resolveComponentNodeClasses,
+	type ComponentClassSource,
+	collectInstanceRootMarkers,
+	type InstanceRootMarkers,
 } from "./class-merge";
 import { assetIdProp, iconIdProp } from "./resource-props";
-import { resolveSystemComponentInstanceNodeClassProps } from "./system-component-instance-update";
 import {
 	getSystemComponentStructuralMetadata,
 	omitSystemComponentMarkerProps,
@@ -114,56 +114,46 @@ const findSystemComponentRootMetadata = (
 };
 
 /**
- * The className a detached node keeps when classes merge: what it rendered
- * with, the registry base classes leading and marked materialized, so the
- * plain element looks the same.
+ * The className a detached node keeps: exactly what it renders with
+ * (`getRenderedClassName`, with the canvas's component class source), the
+ * registry base classes leading and marked materialized, so the plain
+ * element looks the same.
  */
 const renderedClassNameProps = (
 	node: Node,
-	version: PublishedSystemComponentVersion,
-	path: string,
-	variantValues: Record<string, string>,
-	overrides: SystemComponentStructuralMetadata["overrides"],
-	merge: ClassMerge,
-): Partial<Props> => {
+	source: ComponentClassSource | null,
+	root: InstanceRootMarkers | null,
+): Partial<Props> | null => {
 	const resolution = resolveRegistryComponent(
 		node.props["data-trickroom-library"],
 		node.props["data-trickroom-component"],
 	);
-	const baseClassName =
-		resolution.status === "known"
-			? resolution.definition.baseClassName
-			: undefined;
-	const className = renderComponentClassName(
-		resolveComponentNodeClasses({
-			version,
-			path,
-			variantValues,
-			overrides,
-			baseClassName,
-		}),
-		baseClassName,
-		merge,
+	if (resolution.status !== "known") return null;
+	const className = getRenderedClassName(
+		node.props,
+		resolution.definition,
+		source ? { source, root } : null,
 	);
 	return {
 		...(className ? { className } : {}),
-		...(baseClassName?.trim()
+		...(resolution.definition.baseClassName?.trim()
 			? { [MATERIALIZED_BASE_CLASS_PROP]: "true" }
 			: {}),
 	};
 };
 
 /**
- * Turns an instance into plain elements. With a `merge` (the design's
- * `ClassMergeSettings`), each node keeps the merged className it rendered
- * with; without one, its classes are materialized from the version as
- * before. Nested instances and slot content keep their props.
+ * Turns an instance into plain elements. Each node keeps the className it
+ * renders with: pass the `source` the canvas renders with (null when it
+ * renders stored classes), so detaching never changes how a layer looks.
+ * Text, icon, asset and prop overrides come from `version`. Nested
+ * instances and slot content keep their props.
  */
 export const detachSystemComponentInstance = (
 	roots: readonly Node[],
 	target: DetachSystemComponentInstanceTarget,
 	version?: PublishedSystemComponentVersion,
-	merge?: ClassMerge | null,
+	source?: ComponentClassSource | null,
 ): DetachSystemComponentInstanceResult | null => {
 	const targetElementId = getTargetElementId(target);
 	const componentTarget = findSystemComponentTargetInRoots(
@@ -178,12 +168,13 @@ export const detachSystemComponentInstance = (
 	const rootMetadata =
 		findSystemComponentRootMetadata(roots, instanceId) ??
 		componentTarget.metadata;
-	const variantValues = rootMetadata.variantValues;
 	const overrides = rootMetadata.overrides;
 	const resolvedVersion = version;
 	const templatesByPath = resolvedVersion
 		? getTemplateNodesByPath(resolvedVersion)
 		: null;
+	const instanceRoot =
+		collectInstanceRootMarkers(roots).get(instanceId) ?? null;
 	const detachedElementIds: string[] = [];
 	let rootElementId: string | null = null;
 
@@ -205,32 +196,20 @@ export const detachSystemComponentInstance = (
 		const nextProps = isTargetInstance
 			? omitSystemComponentMarkerProps(node.props)
 			: node.props;
+		if (isTargetInstance) {
+			const classNameProps = renderedClassNameProps(
+				node,
+				source ?? null,
+				instanceRoot,
+			);
+			if (classNameProps) {
+				delete nextProps.className;
+				delete nextProps[MATERIALIZED_BASE_CLASS_PROP];
+				Object.assign(nextProps, classNameProps);
+			}
+		}
 		if (isTargetInstance && metadata && resolvedVersion && templatesByPath) {
 			const template = templatesByPath.get(metadata.path);
-			const classNameProps = merge
-				? renderedClassNameProps(
-						node,
-						resolvedVersion,
-						metadata.path,
-						variantValues,
-						overrides,
-						merge,
-					)
-				: resolveSystemComponentInstanceNodeClassProps(
-						resolvedVersion,
-						template,
-						metadata.path,
-						variantValues,
-						overrides,
-						{
-							systemId,
-							componentId,
-							instanceId,
-						},
-					);
-			delete nextProps.className;
-			delete nextProps[MATERIALIZED_BASE_CLASS_PROP];
-			Object.assign(nextProps, classNameProps);
 			if (template) {
 				for (const [prop, value] of Object.entries(
 					resolveSystemComponentTargetPropValues(

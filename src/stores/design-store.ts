@@ -36,7 +36,7 @@ import type {
 	TrickroomDesign,
 } from "../types";
 import {
-	type ClassMerge,
+	type ComponentClassSource,
 	type InstanceRootMarkers,
 	readInstanceRootMarkers,
 } from "../utils/class-merge";
@@ -1212,20 +1212,21 @@ export function detachRecipe(id: string) {
 }
 
 /**
- * Detaches an instance. Pass the stage's class merge so each layer keeps
- * the merged className it rendered with.
+ * Detaches an instance. Pass the stage's component class source (null when
+ * the canvas renders stored classes) so each layer keeps exactly the
+ * className it rendered with.
  */
 export function detachSystemComponent(
 	id: string,
 	version?: PublishedSystemComponentVersion,
-	merge?: ClassMerge | null,
+	source?: ComponentClassSource | null,
 ) {
 	mutateDesign((state) => {
 		const result = detachSystemComponentInstance(
 			serializeDesignState(state).boards,
 			id,
 			version,
-			merge,
+			source,
 		);
 		if (!result) {
 			return state;

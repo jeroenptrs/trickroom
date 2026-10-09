@@ -210,8 +210,8 @@ function AttachedComponentRootControls({
 	const variantAxes = version?.variants?.axes ?? {};
 	const canUpdate = isAttachedComponentStaleStatus(status);
 	const designRevision = useDesignRevision();
-	// Detached layers keep the merged classes they rendered with.
-	const classMerge = useClassMergeContext().merge;
+	// Detached layers keep exactly the classes the canvas renders them with.
+	const classSource = useClassMergeContext().source;
 	// biome-ignore lint/correctness/useExhaustiveDependencies: designRevision and instance.overrides are intentional recompute triggers — the memo reads live design state via serializeDesign(), which is not otherwise reactive.
 	const migrationPreview = useMemo(() => {
 		if (
@@ -291,7 +291,7 @@ function AttachedComponentRootControls({
 		if (!confirmed) {
 			return;
 		}
-		detachSystemComponent(rootElementId, version ?? undefined, classMerge);
+		detachSystemComponent(rootElementId, version ?? undefined, classSource);
 	};
 
 	const handleUpdate = () => {

@@ -450,6 +450,38 @@ export type RenderComponentClasses = {
 };
 
 /**
+ * The className a node renders with: for a component node with
+ * `componentClasses`, resolved from its component version and instance
+ * overrides and merged like the project's code merges them; when that
+ * cannot be resolved, and for other nodes, the stored className (with the
+ * registry base classes). The one decision the canvas, the HTML export and
+ * detach share.
+ */
+export function getRenderedClassName(
+	props: Props,
+	definition: RegistryComponentDefinition,
+	componentClasses?: RenderComponentClasses | null,
+): string | undefined {
+	const resolved =
+		componentClasses && isComponentClassTarget(props)
+			? resolveRenderedComponentClassName(
+					props,
+					definition.baseClassName,
+					componentClasses.source,
+					componentClasses.root,
+				)
+			: null;
+	if (resolved !== null) return resolved;
+	// The className only; the class resolution
+	// (getRenderableClassComposition) is for the inspector.
+	return getComposableClassName(
+		typeof props.className === "string" ? props.className : undefined,
+		definition.baseClassName,
+		isBaseClassMaterialized(props),
+	);
+}
+
+/**
  * The props a node renders with. With `componentClasses`, a component node's
  * className is resolved from its component version and instance overrides
  * and merged the way the project's code merges them (see
@@ -464,23 +496,7 @@ export function getRenderableProps(
 	const controlProps = new Set(
 		getControlDefinitions(definition).map((control) => control.prop),
 	);
-	// Rendering needs the className only; the class resolution
-	// (getRenderableClassComposition) is for the inspector.
-	const composedClassName = getComposableClassName(
-		typeof props.className === "string" ? props.className : undefined,
-		definition.baseClassName,
-		isBaseClassMaterialized(props),
-	);
-	const resolved =
-		componentClasses && isComponentClassTarget(props)
-			? resolveRenderedComponentClassName(
-					props,
-					definition.baseClassName,
-					componentClasses.source,
-					componentClasses.root,
-				)
-			: null;
-	const className = resolved === null ? composedClassName : resolved;
+	const className = getRenderedClassName(props, definition, componentClasses);
 
 	const renderableProps = Object.fromEntries(
 		Object.entries(props).filter(
