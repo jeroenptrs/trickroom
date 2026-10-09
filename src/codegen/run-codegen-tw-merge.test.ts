@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+// biome-ignore lint/style/noRestrictedImports: the integration test runs createTV against the emitted tw-merge module, not component styling.
 import { createTV, type TWMConfig } from "tailwind-variants";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TrickroomCodegenConfig } from "../types";
@@ -130,7 +131,6 @@ describe("runCodegen with codegen.twMerge", () => {
 				"\t\tconflictingClassGroups: {",
 				'\t\t\t"@utility text-label-*": [',
 				'\t\t\t\t"font-size",',
-				'\t\t\t\t"leading",',
 				"\t\t\t],",
 				"\t\t},",
 			].join("\n"),
@@ -158,6 +158,8 @@ describe("runCodegen with codegen.twMerge", () => {
 				THEME_CSS,
 				"@theme { --text-sm: 0.875rem; --color-pale-9: oklch(50% 0 0); }",
 				"@utility bg-royal-ui { @apply bg-royal-9 hover:bg-pale-9; }",
+				"@utility bg-mixed { background-color: blue !important; background-color: red; }",
+				"@utility heading { font-size: 20px; line-height: 2; }",
 				"",
 			].join("\n"),
 		);
@@ -176,6 +178,12 @@ describe("runCodegen with codegen.twMerge", () => {
 		expect(twMerge("text-label-sm text-sm")).toBe("text-label-sm text-sm");
 		expect(twMerge("bg-royal-ui bg-pale-9")).toBe("bg-royal-ui bg-pale-9");
 		expect(twMerge("bg-pale-9 bg-royal-ui")).toBe("bg-royal-ui");
+		// The !important declaration is the one CSS applies.
+		expect(twMerge("bg-mixed bg-[green]")).toBe("bg-mixed bg-[green]");
+		// The arbitrary property reads the --tw-leading leading-8 sets.
+		expect(twMerge("leading-8 heading [font-size:var(--tw-leading)]")).toBe(
+			"leading-8 heading [font-size:var(--tw-leading)]",
+		);
 
 		const tv = createTV({ twMergeConfig });
 		const tag = tv({
@@ -191,6 +199,15 @@ describe("runCodegen with codegen.twMerge", () => {
 		);
 		expect(tag({ class: "text-label-lg" })).toBe(
 			"text-royal-9 bg-pale-9 text-label-lg",
+		);
+		const panel = tv({
+			base: "bg-mixed leading-8",
+			variants: { tone: { green: "bg-[green] heading" } },
+		});
+		expect(
+			panel({ tone: "green", class: "[font-size:var(--tw-leading)]" }),
+		).toBe(
+			"bg-mixed leading-8 bg-[green] heading [font-size:var(--tw-leading)]",
 		);
 		// Stock tailwind-variants takes the size for a colour and drops one.
 		expect(createTV({})({ base: "text-label-sm text-royal-9" })()).toBe(
