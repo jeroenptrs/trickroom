@@ -90,7 +90,10 @@ describe("canonicalizeTailwindCandidatesInWorker", () => {
 			}, 0);
 			return pending;
 		});
-		expect(measured.result).toEqual(["bg-white", "p-2"]);
+		expect(measured.result).toEqual([
+			{ canonical: "bg-white", verdict: { status: "equivalent" } },
+			{ canonical: "p-2" },
+		]);
 		expect(zeroDelayFired).toBe(true);
 		expect(stayedResponsive(measured)).toBe(true);
 	}, 30_000);
@@ -99,7 +102,7 @@ describe("canonicalizeTailwindCandidatesInWorker", () => {
 		const system = await createProject('@import "tailwindcss";\n');
 		expect(
 			await canonicalizeTailwindCandidatesInWorker(system, ["bg-[#123456]"]),
-		).toEqual(["bg-[#123456]"]);
+		).toEqual([{ canonical: "bg-[#123456]" }]);
 		await writeFile(
 			path.join(system.projectRoot, system.cssPath),
 			'@import "tailwindcss";\n@theme {\n\t--color-brand: #123456;\n}\n',
@@ -107,7 +110,7 @@ describe("canonicalizeTailwindCandidatesInWorker", () => {
 		);
 		expect(
 			await canonicalizeTailwindCandidatesInWorker(system, ["bg-[#123456]"]),
-		).toEqual(["bg-brand"]);
+		).toEqual([{ canonical: "bg-brand", verdict: { status: "equivalent" } }]);
 	}, 30_000);
 
 	it("rejects when the system CSS cannot be loaded, and keeps serving", async () => {
@@ -120,7 +123,7 @@ describe("canonicalizeTailwindCandidatesInWorker", () => {
 		).rejects.toThrow();
 		expect(
 			await canonicalizeTailwindCandidatesInWorker(system, ["p-2"]),
-		).toEqual(["p-2"]);
+		).toEqual([{ canonical: "p-2" }]);
 	}, 30_000);
 });
 

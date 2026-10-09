@@ -185,7 +185,10 @@ const inspector: LintTailwindInspector = {
 	inspect: (candidate) =>
 		({ supported: !candidate.includes("nope") }) as TailwindUtilityInspection,
 	canonicalize: async (candidates) =>
-		candidates.map((candidate) => CANONICAL[candidate] ?? candidate),
+		candidates.map((candidate) => ({
+			canonical: CANONICAL[candidate] ?? candidate,
+			verdict: { status: "equivalent" },
+		})),
 };
 
 const contract = buildSystemContract({
@@ -255,9 +258,10 @@ describe("design class rules on components and instances", () => {
 			"badge@1 label compound 0: [&:has(.x)]:p-2",
 			// The instance's override.
 			`${elementOf(instances.overridden)}: [mask-type:alpha]`,
-			// An override equal to an Element base class, which the stored
-			// className leaves out.
-			`${elementOf(instances.separator)}: ${BASE_EQUAL_OVERRIDE}`,
+			// Not the separator's override (an Element base class, which the
+			// index still checks, see below): tv's merge removes the template's
+			// `data-[orientation=horizontal]:w-8` under it, but would keep it
+			// under the stand-in canonical `data-horizontal:w-full`.
 			// A version the manifest does not have: the stored className.
 			`${elementOf(instances.unresolved)}: bg-[#FFF]`,
 			`${elementOf(instances.unresolved)}: [scrollbar-width:thin]`,
@@ -526,7 +530,10 @@ describe("component definitions in the design index", () => {
 							inspect: () => ({ supported: true }) as TailwindUtilityInspection,
 							// Both versions' paddings are "non-canonical" here.
 							canonicalize: async (candidates) =>
-								candidates.map((candidate) => `${candidate}-x`),
+								candidates.map((candidate) => ({
+									canonical: `${candidate}-x`,
+									verdict: { status: "equivalent" },
+								})),
 						}),
 						mergeConfig: async () => ({ status: "stock" }),
 					},

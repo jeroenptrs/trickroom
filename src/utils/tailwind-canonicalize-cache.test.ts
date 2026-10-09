@@ -10,7 +10,10 @@ const harness = (options: { warmSystems?: number; paths?: number } = {}) => {
 	const content = new Map<string, string>();
 	const stamps = new Map<string, number>();
 	let loads = 0;
-	const cache = createCanonicalizeCache<{ id: number; content: string }>({
+	const cache = createCanonicalizeCache<
+		{ id: number; content: string },
+		string
+	>({
 		warmSystems: options.warmSystems ?? 4,
 		paths: options.paths ?? 32,
 		load: async (rootPath) => {
@@ -108,5 +111,41 @@ describe("createCanonicalizeCache", () => {
 		]);
 		expect(first).toBe(second);
 		expect(loads()).toBe(1);
+	});
+
+	it("computes a check in context once per warm system and set of classes", async () => {
+		let computed = 0;
+		const cache = createCanonicalizeCache<{ id: number }, string, string>({
+			warmSystems: 4,
+			paths: 32,
+			load: async () => ({
+				system: { id: 1 },
+				cssSource: "css",
+				fileStamps: new Map(),
+			}),
+			isFresh: async () => true,
+			canonicalize: (_, candidate) => candidate,
+			contextual: (_, check) => {
+				computed += 1;
+				return `${check.candidate}:${[...check.classes].join(",")}`;
+			},
+		});
+		const check = (classes: string[]) => ({
+			classes,
+			candidate: "bg-[#FFF]",
+			canonical: "bg-white",
+		});
+		const [first] = await cache.contextual("/a.css", [
+			check(["bg-[#FFF]", "bg-red-500"]),
+		]);
+		// The same classes in another order, or repeated, are the same check.
+		const again = await cache.contextual("/a.css", [
+			check(["bg-red-500", "bg-[#FFF]"]),
+			check(["bg-[#FFF]", "bg-red-500", "bg-red-500"]),
+		]);
+		expect(again).toEqual([first, first]);
+		expect(computed).toBe(1);
+		await cache.contextual("/a.css", [check(["bg-[#FFF]", "p-2"])]);
+		expect(computed).toBe(2);
 	});
 });

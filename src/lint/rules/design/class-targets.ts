@@ -1,4 +1,9 @@
-import type { LintDesignIndex } from "../../designs";
+import type { PublishedSystemComponentVersion } from "../../../utils/system-components";
+import type {
+	LintComponentClassEntry,
+	LintDesignIndex,
+	LintNodeRender,
+} from "../../designs";
 import type { LintComponentLocation, LintLocation } from "../types";
 
 /**
@@ -25,7 +30,25 @@ export type LintClassTarget = {
 	component?: string;
 	/** Element id, for the classes of a design node. */
 	element?: string;
+	/** What renders next to these classes (see `LintClassTargetContext`). */
+	context: LintClassTargetContext;
 };
+
+/**
+ * The classes that may render next to a target's, for the cascade check of
+ * `design.non-canonical-class`: a design node's render (`LintNodeRender`),
+ * or, for a component definition, the version and the entry the classes
+ * belong to, which render per variant configuration.
+ */
+export type LintClassTargetContext =
+	| { kind: "node"; render: LintNodeRender }
+	| {
+			kind: "definition";
+			version: PublishedSystemComponentVersion;
+			/** Which of the version's class strings the target is. */
+			entry: LintComponentClassEntry;
+			baseClassName: string | undefined;
+	  };
 
 /** The finding fields that locate a target. */
 export const targetLocationFields = (target: LintClassTarget) => ({
@@ -43,6 +66,12 @@ export const collectLintClassTargets = (
 	for (const definition of designs.components) {
 		for (const entry of definition.classes) {
 			targets.push({
+				context: {
+					kind: "definition",
+					version: definition.source,
+					entry,
+					baseClassName: definition.baseClassNames[entry.path],
+				},
 				className: entry.className,
 				component: definition.slug,
 				location: null,
@@ -62,6 +91,7 @@ export const collectLintClassTargets = (
 			for (const node of board.nodes) {
 				if (node.checkedClassName === null) continue;
 				targets.push({
+					context: { kind: "node", render: node.render },
 					className: node.checkedClassName,
 					element: node.element,
 					location: {

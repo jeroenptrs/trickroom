@@ -25,15 +25,37 @@ export type LoadedForCanonicalization<System> = {
 	fileStamps: ReadonlyMap<string, string | null>;
 };
 
-export type CanonicalizeCacheOptions<System> = {
+export type CanonicalizeCacheOptions<System, Result, Contextual = never> = {
 	warmSystems: number;
 	paths: number;
 	load: (rootPath: string) => Promise<LoadedForCanonicalization<System>>;
 	isFresh: (fileStamps: ReadonlyMap<string, string | null>) => Promise<boolean>;
-	canonicalize: (system: System, candidate: string) => string;
+	/** One candidate's result, computed once per warm system. */
+	canonicalize: (system: System, candidate: string) => Result;
+	/**
+	 * One check of a class among other classes, computed once per warm
+	 * system and `key` (at most `contextResults` kept per system).
+	 */
+	contextual?: (system: System, check: ContextualCheck) => Contextual;
+	contextResults?: number;
 };
 
-type Warm<System> = { system: System; results: Map<string, string> };
+/** A check whose result depends on the classes only, keyed by them. */
+export type ContextualCheck = {
+	classes: readonly string[];
+	candidate: string;
+	canonical: string;
+};
+
+type Warm<System, Result, Contextual> = {
+	system: System;
+	results: Map<string, Result>;
+	contextual: Map<string, Contextual>;
+};
+
+/** The same classes in any order, repeats included, are one key. */
+const contextKey = ({ classes, candidate, canonical }: ContextualCheck) =>
+	JSON.stringify([[...new Set(classes)].sort(), candidate, canonical]);
 
 type PathEntry = {
 	fileStamps: ReadonlyMap<string, string | null>;
@@ -54,36 +76,48 @@ const evictBeyond = (map: Map<string, unknown>, limit: number) => {
 	}
 };
 
-export const createCanonicalizeCache = <System>(
-	options: CanonicalizeCacheOptions<System>,
+export const createCanonicalizeCache = <System, Result, Contextual = never>(
+	options: CanonicalizeCacheOptions<System, Result, Contextual>,
 ) => {
-	const warmByContent = new Map<string, Warm<System>>();
+	const warmByContent = new Map<string, Warm<System, Result, Contextual>>();
 	const paths = new Map<string, PathEntry>();
-	const loading = new Map<string, Promise<Warm<System>>>();
+	const loading = new Map<string, Promise<Warm<System, Result, Contextual>>>();
 	let built = 0;
 
-	const remember = (rootPath: string, entry: PathEntry, warm: Warm<System>) => {
+	const remember = (
+		rootPath: string,
+		entry: PathEntry,
+		warm: Warm<System, Result, Contextual>,
+	) => {
 		touch(paths, rootPath, entry);
 		evictBeyond(paths, options.paths);
 		touch(warmByContent, entry.contentKey, warm);
 		evictBeyond(warmByContent, options.warmSystems);
 	};
 
-	const loadWarm = async (rootPath: string): Promise<Warm<System>> => {
+	const loadWarm = async (
+		rootPath: string,
+	): Promise<Warm<System, Result, Contextual>> => {
 		const loaded = await options.load(rootPath);
 		const contentKey = createHash("sha256")
 			.update(loaded.cssSource)
 			.digest("hex");
 		let warm = warmByContent.get(contentKey);
 		if (!warm) {
-			warm = { system: loaded.system, results: new Map() };
+			warm = {
+				system: loaded.system,
+				results: new Map(),
+				contextual: new Map(),
+			};
 			built += 1;
 		}
 		remember(rootPath, { fileStamps: loaded.fileStamps, contentKey }, warm);
 		return warm;
 	};
 
-	const warmFor = async (rootPath: string): Promise<Warm<System>> => {
+	const warmFor = async (
+		rootPath: string,
+	): Promise<Warm<System, Result, Contextual>> => {
 		const entry = paths.get(rootPath);
 		if (entry && (await options.isFresh(entry.fileStamps))) {
 			const warm = warmByContent.get(entry.contentKey);
@@ -105,7 +139,7 @@ export const createCanonicalizeCache = <System>(
 		canonicalize: async (
 			rootPath: string,
 			candidates: readonly string[],
-		): Promise<string[]> => {
+		): Promise<Result[]> => {
 			const { system, results } = await warmFor(rootPath);
 			return candidates.map((candidate) => {
 				let canonical = results.get(candidate);
@@ -114,6 +148,26 @@ export const createCanonicalizeCache = <System>(
 					results.set(candidate, canonical);
 				}
 				return canonical;
+			});
+		},
+		/** Each check's result among its classes (`options.contextual`), in order. */
+		contextual: async (
+			rootPath: string,
+			checks: readonly ContextualCheck[],
+		): Promise<Contextual[]> => {
+			const compute = options.contextual;
+			if (!compute) throw new Error("This cache has no contextual check");
+			const { system, contextual } = await warmFor(rootPath);
+			const limit = options.contextResults ?? 10_000;
+			return checks.map((check) => {
+				const key = contextKey(check);
+				let result = contextual.get(key);
+				if (result === undefined) {
+					result = compute(system, check);
+					if (contextual.size >= limit) contextual.clear();
+					contextual.set(key, result);
+				}
+				return result;
 			});
 		},
 		/** What is held, for tests: warm systems and paths, and how many were built. */

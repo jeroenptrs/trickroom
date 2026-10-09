@@ -85,6 +85,8 @@ export type SourceClassStringOrigin =
 	| { kind: "jsx-attribute"; element: string; attribute: string }
 	| { kind: "call"; callee: string };
 
+export type SourceClassBranch = { choice: number; side: number };
+
 export type SourceClassString = {
 	value: string;
 	origin: SourceClassStringOrigin;
@@ -97,7 +99,20 @@ export type SourceClassString = {
 	 * a side of a logical expression, a clsx-style object key.
 	 */
 	conditional: boolean;
+	/**
+	 * The choices the string sits under, outermost first: a conditional or
+	 * logical expression (`choice`, numbered per class string, one number
+	 * per expression however they nest) evaluates to one operand (`side`),
+	 * so two strings on different sides of one choice never apply together.
+	 */
+	branch: SourceClassBranch[];
 	position: SourcePosition;
+	/**
+	 * Where the `className` attribute or class call it was collected from
+	 * starts: the strings that share it are the parts of one class string
+	 * (the attribute's position for `jsx-attribute` strings).
+	 */
+	expression: SourcePosition;
 };
 
 export type SourceObjectMember =
@@ -387,6 +402,7 @@ type Collected = {
 	value: string;
 	complete: boolean;
 	conditional: boolean;
+	branch: SourceClassBranch[];
 	position: SourcePosition;
 };
 
@@ -413,6 +429,13 @@ type Collector = {
 	handledCalls: Set<AstNode>;
 	/** Inside a branch, a logical operand or an object key: depth > 0. */
 	conditional: number;
+	/** The choices being visited, outermost first. */
+	branch: SourceClassBranch[];
+	/**
+	 * The next choice number. A node's offset is no id: `a && b || c`
+	 * starts both expressions at `a`.
+	 */
+	choices: number;
 };
 
 /** Visits `node` as an expression that applies only under a condition. */
@@ -420,12 +443,15 @@ const visitConditionally = (
 	collector: Collector,
 	node: AstNode,
 	objectMode: "keys" | "values",
+	choice: SourceClassBranch,
 ): boolean => {
 	collector.conditional += 1;
+	collector.branch.push(choice);
 	try {
 		return visitClassExpression(collector, node, objectMode);
 	} finally {
 		collector.conditional -= 1;
+		collector.branch.pop();
 	}
 };
 
@@ -464,6 +490,7 @@ const visitClassExpression = (
 					value: expression.value,
 					complete: true,
 					conditional: collector.conditional > 0,
+					branch: [...collector.branch],
 					position: position(expression.start),
 				});
 				return true;
@@ -501,6 +528,7 @@ const visitClassExpression = (
 						value: text,
 						complete: expressions.length === 0,
 						conditional: collector.conditional > 0,
+						branch: [...collector.branch],
 						position: position(quasi.start),
 					});
 				}
@@ -513,21 +541,36 @@ const visitClassExpression = (
 				visitClassExpression(collector, expression.expression, objectMode)
 			);
 		case "ConditionalExpression": {
+			const choice = collector.choices++;
 			const left =
 				isNode(expression.consequent) &&
-				visitConditionally(collector, expression.consequent, objectMode);
+				visitConditionally(collector, expression.consequent, objectMode, {
+					choice,
+					side: 0,
+				});
 			const right =
 				isNode(expression.alternate) &&
-				visitConditionally(collector, expression.alternate, objectMode);
+				visitConditionally(collector, expression.alternate, objectMode, {
+					choice,
+					side: 1,
+				});
 			return left && right;
 		}
 		case "LogicalExpression": {
+			// `a || b`, `a && b`, `a ?? b`: the value is one of the operands.
+			const choice = collector.choices++;
 			const left =
 				isNode(expression.left) &&
-				visitConditionally(collector, expression.left, objectMode);
+				visitConditionally(collector, expression.left, objectMode, {
+					choice,
+					side: 0,
+				});
 			const right =
 				isNode(expression.right) &&
-				visitConditionally(collector, expression.right, objectMode);
+				visitConditionally(collector, expression.right, objectMode, {
+					choice,
+					side: 1,
+				});
 			return expression.operator === "&&" ? right : left && right;
 		}
 		case "ArrayExpression": {
@@ -553,6 +596,7 @@ const visitClassExpression = (
 						value: name,
 						complete: true,
 						conditional: true,
+						branch: [...collector.branch],
 						position: position(property.start),
 					});
 					continue;
@@ -683,13 +727,16 @@ const collectClassStrings = (
 	classCalls: ReadonlySet<string>,
 	position: (offset: number) => SourcePosition,
 	handledCalls: Set<AstNode>,
-): Array<Collected & { mixed: boolean }> => {
+	expression: SourcePosition,
+): Array<Collected & { mixed: boolean; expression: SourcePosition }> => {
 	const collector: Collector = {
 		out: [],
 		classCalls,
 		position,
 		handledCalls,
 		conditional: 0,
+		branch: [],
+		choices: 0,
 	};
 	const unwrapped = unwrap(node);
 	const complete =
@@ -697,7 +744,11 @@ const collectClassStrings = (
 			? (visitClassCall(collector, unwrapped) ??
 				visitClassExpression(collector, unwrapped, "keys"))
 			: visitClassExpression(collector, unwrapped, "keys");
-	return collector.out.map((entry) => ({ ...entry, mixed: !complete }));
+	return collector.out.map((entry) => ({
+		...entry,
+		mixed: !complete,
+		expression,
+	}));
 };
 
 const callArgument = (node: AstNode): SourceCallArgument => {
@@ -1174,6 +1225,7 @@ export function parseSourceModule(
 							classCalls,
 							position,
 							handledCalls,
+							position(attribute.start),
 						)) {
 							module.classStrings.push({
 								...collected,
@@ -1335,6 +1387,7 @@ export function parseSourceModule(
 						classCalls,
 						position,
 						handledCalls,
+						position(node.start),
 					)) {
 						module.classStrings.push({
 							...collected,
