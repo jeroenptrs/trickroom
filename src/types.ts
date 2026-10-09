@@ -228,6 +228,13 @@ export type TrickroomCodegenConfig = {
 		command: string;
 		args?: string[];
 	};
+	/**
+	 * Also generate a tailwind-merge config derived from the system's
+	 * Tailwind CSS. `fileName` (default `tw-merge.ts`) is a file in `outDir`.
+	 */
+	twMerge?: {
+		fileName?: string;
+	};
 };
 
 export type TrickroomDesign = {

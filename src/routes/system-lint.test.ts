@@ -123,6 +123,7 @@ describe("system lint routes", () => {
 					include: null,
 					exclude: [],
 					formatter: null,
+					twMerge: null,
 				},
 				mode: "write",
 			},

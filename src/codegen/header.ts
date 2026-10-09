@@ -149,3 +149,62 @@ export function parseCodegenHeader(contents: string): CodegenHeader | null {
 		sourceHash: value.sourceHash,
 	};
 }
+
+/**
+ * The header of the generated tailwind-merge config file: one per system,
+ * so it names the system and a hash of the derived config instead of a
+ * component. `parseCodegenHeader` does not accept it.
+ */
+export type TwMergeCodegenHeader = {
+	version: 1;
+	kind: "tw-merge";
+	systemId: string;
+	sourceHash: string;
+};
+
+export function formatTwMergeHeader(header: TwMergeCodegenHeader): string {
+	const ordered: TwMergeCodegenHeader = {
+		version: header.version,
+		kind: header.kind,
+		systemId: header.systemId,
+		sourceHash: header.sourceHash,
+	};
+	return `${CODEGEN_HEADER_COMMENT}\n${CODEGEN_HEADER_PREFIX}${JSON.stringify(ordered)}`;
+}
+
+/** The header of a generated tailwind-merge config file, or null. */
+export function parseTwMergeHeader(
+	contents: string,
+): TwMergeCodegenHeader | null {
+	const [first, second] = contents.split(/\r?\n/u, 2);
+	if (
+		first !== CODEGEN_HEADER_COMMENT ||
+		!second?.startsWith(CODEGEN_HEADER_PREFIX)
+	) {
+		return null;
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(second.slice(CODEGEN_HEADER_PREFIX.length));
+	} catch {
+		return null;
+	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		return null;
+	}
+	const value = parsed as Record<string, unknown>;
+	if (
+		value.version !== 1 ||
+		value.kind !== "tw-merge" ||
+		!isString(value.systemId) ||
+		!isString(value.sourceHash)
+	) {
+		return null;
+	}
+	return {
+		version: 1,
+		kind: "tw-merge",
+		systemId: value.systemId,
+		sourceHash: value.sourceHash,
+	};
+}

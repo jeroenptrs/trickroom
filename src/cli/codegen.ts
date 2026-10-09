@@ -89,15 +89,19 @@ const plural = (count: number, noun: string) =>
 
 const describeResult = (result: CodegenRunResult): string[] => {
 	const lines: string[] = [];
-	for (const component of result.components) {
-		if (component.status === "ok") {
+	const files = [
+		...result.components,
+		...(result.twMerge ? [result.twMerge] : []),
+	];
+	for (const file of files) {
+		if (file.status === "ok") {
 			continue;
 		}
 		lines.push(
 			[
-				component.status.padEnd(8),
-				component.file,
-				component.message ? `  ${component.message}` : "",
+				file.status.padEnd(8),
+				file.file,
+				file.message ? `  ${file.message}` : "",
 			].join(" "),
 		);
 	}
@@ -126,14 +130,17 @@ const describeResult = (result: CodegenRunResult): string[] => {
 				? [`${result.orphaned.length} orphaned`]
 				: []),
 		];
+		const twMerge = result.twMerge
+			? ` and ${result.twMerge.file} (${result.twMerge.status})`
+			: "";
 		lines.push(
-			`Checked ${plural(result.components.length, "component")} for ${where}: ${parts.join(", ")}.${result.status === "drift" ? ` Run "trickroom codegen${result.source === "draft" ? " --source draft" : ""}" to update.` : ""}`,
+			`Checked ${plural(result.components.length, "component")}${twMerge} for ${where}: ${parts.join(", ")}.${result.status === "drift" ? ` Run "trickroom codegen${result.source === "draft" ? " --source draft" : ""}" to update.` : ""}`,
 		);
 	} else if (result.status === "error") {
 		lines.push(`Nothing written for ${where}.`);
 	} else {
 		lines.push(
-			`Wrote ${plural(result.written.length, "file")} for ${where}; ${result.components.length - result.written.length} already current.${result.orphaned.length > 0 ? ` ${plural(result.orphaned.length, "orphaned file")} left in place.` : ""}`,
+			`Wrote ${plural(result.written.length, "file")} for ${where}; ${files.length - result.written.length} already current.${result.orphaned.length > 0 ? ` ${plural(result.orphaned.length, "orphaned file")} left in place.` : ""}`,
 		);
 	}
 	return lines;

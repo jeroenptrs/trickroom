@@ -18,6 +18,7 @@ import {
 	readSystemComponentManifest,
 	SystemComponentManifestServiceError,
 } from "../utils/system-component-manifest-service";
+import { loadDerivedTwMerge } from "../utils/tailwind-merge-derive";
 import type { ResolvedCodegenConfig } from "./config";
 import {
 	FORMATTER_CONCURRENCY,
@@ -32,6 +33,11 @@ import {
 	generateVariantsFiles,
 	parseCodegenHeader,
 } from "./generate";
+import { parseTwMergeHeader, type TwMergeCodegenHeader } from "./header";
+import {
+	type GeneratedTwMergeFile,
+	generateTwMergeFile,
+} from "./tw-merge-file";
 
 /**
  * Connects the pure generator to the filesystem, for `trickroom codegen` and
@@ -67,7 +73,9 @@ export type CodegenRunDiagnosticCode =
 	| "TARGET_NOT_A_FILE"
 	| "FORMATTER_FAILED"
 	| "REFUSED_OVERWRITE"
-	| "WRITE_FAILED";
+	| "WRITE_FAILED"
+	| "TW_MERGE_NO_CSS"
+	| "TW_MERGE_CSS_FAILED";
 
 export type CodegenRunDiagnostic = {
 	code: CodegenRunDiagnosticCode;
@@ -101,6 +109,19 @@ export type CodegenComponentResult = {
 	message?: string;
 };
 
+/** The generated tailwind-merge config file (`codegen.twMerge`). */
+export type CodegenTwMergeResult = {
+	/** Output path, relative to the project root, with `/` separators. */
+	file: string;
+	status: CodegenComponentStatus;
+	/** Hash of the config derived from the system's Tailwind CSS. */
+	sourceHash: string;
+	/** The header of the file on disk; null when missing or not ours. */
+	onDisk: { sourceHash: string } | null;
+	reason?: CodegenStaleReason;
+	message?: string;
+};
+
 export type CodegenRunResult = {
 	status: "ok" | "drift" | "error";
 	mode: CodegenMode;
@@ -111,6 +132,8 @@ export type CodegenRunResult = {
 	components: CodegenComponentResult[];
 	/** Files in outDir with this system's header that no selected component generates. */
 	orphaned: string[];
+	/** The tailwind-merge config file; null when `codegen.twMerge` is not set. */
+	twMerge: CodegenTwMergeResult | null;
 	diagnostics: CodegenRunDiagnostic[];
 	/** Files this run wrote; always empty in check mode. */
 	written: string[];
@@ -180,13 +203,19 @@ const readIfExists = async (filePath: string): Promise<string | null> => {
 	}
 };
 
-/** The first bytes of a file: enough for the two header lines. */
-const peekHeader = async (filePath: string): Promise<CodegenHeader | null> => {
+/**
+ * The header in the first bytes of a file, enough for the two header
+ * lines: a variants file's or the tailwind-merge config's.
+ */
+const peekHeader = async (
+	filePath: string,
+): Promise<CodegenHeader | TwMergeCodegenHeader | null> => {
 	const handle = await open(filePath, "r");
 	try {
 		const buffer = Buffer.alloc(HEADER_PEEK_BYTES);
 		const { bytesRead } = await handle.read(buffer, 0, HEADER_PEEK_BYTES, 0);
-		return parseCodegenHeader(buffer.subarray(0, bytesRead).toString("utf8"));
+		const text = buffer.subarray(0, bytesRead).toString("utf8");
+		return parseCodegenHeader(text) ?? parseTwMergeHeader(text);
 	} finally {
 		await handle.close();
 	}
@@ -207,10 +236,10 @@ const describeStale = (
 	onDisk: CodegenHeader | null,
 ) => {
 	if (reason === "not-generated") {
-		return "The file has no Trickroom codegen header, so Trickroom did not generate it.";
+		return NOT_GENERATED_MESSAGE;
 	}
 	if (reason === "body-edited") {
-		return "The file body differs from the generated output (edited by hand or reformatted); its header matches.";
+		return BODY_EDITED_MESSAGE;
 	}
 	if (onDisk && onDisk.source !== expected.source) {
 		return `Generated from the ${onDisk.source} source; this run uses the ${expected.source} source.`;
@@ -221,14 +250,102 @@ const describeStale = (
 	return "The component changed since the file was generated.";
 };
 
-type Planned = {
-	file: GeneratedVariantsFile;
+const NOT_GENERATED_MESSAGE =
+	"The file has no Trickroom codegen header, so Trickroom did not generate it.";
+const BODY_EDITED_MESSAGE =
+	"The file body differs from the generated output (edited by hand or reformatted); its header matches.";
+
+type PlannedCommon = {
 	absolutePath: string;
 	relativePath: string;
 	expected: string | null;
 	onDisk: string | null;
-	onDiskHeader: CodegenHeader | null;
-	result: CodegenComponentResult;
+};
+
+/**
+ * A file this run generates: a component's variants file or the
+ * tailwind-merge config. Both go through the same path checks, formatter,
+ * comparison, ownership rule and write; the header decides the rest.
+ */
+type PlanSource =
+	| { kind: "component"; file: GeneratedVariantsFile }
+	| { kind: "tw-merge"; file: GeneratedTwMergeFile };
+
+type Planned = PlannedCommon &
+	(
+		| {
+				kind: "component";
+				file: GeneratedVariantsFile;
+				onDiskHeader: CodegenHeader | null;
+				result: CodegenComponentResult;
+		  }
+		| {
+				kind: "tw-merge";
+				file: GeneratedTwMergeFile;
+				onDiskHeader: TwMergeCodegenHeader | null;
+				result: CodegenTwMergeResult;
+		  }
+	);
+
+const hasHeaderOf = (entry: Planned, text: string) =>
+	entry.kind === "component"
+		? parseCodegenHeader(text) !== null
+		: parseTwMergeHeader(text) !== null;
+
+/** What diagnostics about the file name. */
+const ownerOf = (entry: PlanSource) =>
+	entry.kind === "component"
+		? {
+				slug: entry.file.header.slug,
+				componentId: entry.file.header.componentId,
+			}
+		: {};
+
+/** Why the file on disk, which differs from the expected output, is stale. */
+const staleOf = (
+	entry: Planned,
+): { reason: CodegenStaleReason; message: string } => {
+	if (entry.kind === "component") {
+		const reason: CodegenStaleReason = !entry.onDiskHeader
+			? "not-generated"
+			: sameSource(entry.onDiskHeader, entry.file.header)
+				? "body-edited"
+				: "source-changed";
+		return {
+			reason,
+			message: describeStale(reason, entry.file.header, entry.onDiskHeader),
+		};
+	}
+	if (!entry.onDiskHeader) {
+		return { reason: "not-generated", message: NOT_GENERATED_MESSAGE };
+	}
+	return entry.onDiskHeader.systemId === entry.file.header.systemId &&
+		entry.onDiskHeader.sourceHash === entry.file.header.sourceHash
+		? { reason: "body-edited", message: BODY_EDITED_MESSAGE }
+		: {
+				reason: "source-changed",
+				message:
+					"The design system's Tailwind CSS changed since the file was generated.",
+			};
+};
+
+/** Records `header` (on disk, or just written) in the entry's result. */
+const recordOnDisk = (entry: Planned, written: boolean) => {
+	if (entry.kind === "component") {
+		const header = written ? entry.file.header : entry.onDiskHeader;
+		if (header) {
+			entry.result.onDisk = {
+				publishedVersion: header.publishedVersion,
+				sourceHash: header.sourceHash,
+				source: header.source,
+			};
+		}
+		return;
+	}
+	const header = written ? entry.file.header : entry.onDiskHeader;
+	if (header) {
+		entry.result.onDisk = { sourceHash: header.sourceHash };
+	}
 };
 
 export async function runCodegen(
@@ -246,6 +363,7 @@ export async function runCodegen(
 		outDir: toPosix(path.normalize(config.outDir)),
 		components: [],
 		orphaned: [],
+		twMerge: null,
 		diagnostics,
 		written: [],
 	};
@@ -315,6 +433,41 @@ export async function runCodegen(
 		return result;
 	}
 
+	// The tailwind-merge config, derived from the system's Tailwind CSS.
+	let twMergeFile: GeneratedTwMergeFile | null = null;
+	if (config.twMerge) {
+		const cssPath = system.manifest.cssPath?.trim();
+		if (!cssPath) {
+			return fail({
+				code: "TW_MERGE_NO_CSS",
+				message: `codegen.twMerge derives ${config.twMerge.fileName} from the system's Tailwind CSS, but system "${system.manifest.systemName}" has no cssPath.`,
+			});
+		}
+		try {
+			twMergeFile = generateTwMergeFile({
+				derived: await loadDerivedTwMerge({ projectRoot, cssPath }),
+				systemId,
+				fileName: config.twMerge.fileName,
+			});
+		} catch (error) {
+			return fail({
+				code: "TW_MERGE_CSS_FAILED",
+				message: `codegen.twMerge could not load the system's Tailwind CSS (${cssPath}): ${error instanceof Error ? error.message : String(error)}`,
+			});
+		}
+		const clash = generated.files.find(
+			(file) => file.fileName === twMergeFile?.fileName,
+		);
+		if (clash) {
+			return fail({
+				code: "DUPLICATE_FILE_NAME",
+				message: `codegen.twMerge.fileName "${twMergeFile.fileName}" is also the variants file of component "${clash.header.slug}". Choose another file name for one of them.`,
+				slug: clash.header.slug,
+				componentId: clash.header.componentId,
+			});
+		}
+	}
+
 	// Paths: outDir and every target must stay inside the project, symlinks
 	// followed.
 	let outDirPath: string;
@@ -348,17 +501,21 @@ export async function runCodegen(
 		});
 	}
 
+	const toPlan: PlanSource[] = [
+		...generated.files.map((file) => ({ kind: "component" as const, file })),
+		...(twMergeFile ? [{ kind: "tw-merge" as const, file: twMergeFile }] : []),
+	];
 	const planned: Planned[] = [];
-	for (const file of generated.files) {
-		const absolutePath = path.join(outDirPath, file.fileName);
+	for (const next of toPlan) {
+		const absolutePath = path.join(outDirPath, next.file.fileName);
 		const relativePath = toPosix(path.relative(projectRoot, absolutePath));
+		const owner = ownerOf(next);
 		const realTarget = await realpathOfNearest(absolutePath);
 		if (!isInside(realRoot, realTarget)) {
 			fail({
 				code: "TARGET_OUTSIDE_PROJECT",
 				message: `${relativePath} resolves to ${realTarget}, outside the project root (through a symlink).`,
-				slug: file.header.slug,
-				componentId: file.header.componentId,
+				...owner,
 				path: relativePath,
 			});
 			continue;
@@ -371,32 +528,46 @@ export async function runCodegen(
 			fail({
 				code: "TARGET_NOT_A_FILE",
 				message: `${relativePath} exists and is not a file.`,
-				slug: file.header.slug,
-				componentId: file.header.componentId,
+				...owner,
 				path: relativePath,
 			});
 			continue;
 		}
 		const onDisk = targetStat ? await readIfExists(realTarget) : null;
-		planned.push({
-			file,
-			absolutePath,
-			relativePath,
-			expected: null,
-			onDisk,
-			onDiskHeader: onDisk === null ? null : parseCodegenHeader(onDisk),
-			result: {
-				slug: file.header.slug,
-				componentId: file.header.componentId,
-				file: relativePath,
-				status: "ok",
-				source: file.header.source,
-				shape: file.shape,
-				publishedVersion: file.header.publishedVersion,
-				sourceHash: file.header.sourceHash,
-				onDisk: null,
-			},
-		});
+		const common = { absolutePath, relativePath, expected: null, onDisk };
+		if (next.kind === "component") {
+			const { file } = next;
+			planned.push({
+				...common,
+				kind: "component",
+				file,
+				onDiskHeader: onDisk === null ? null : parseCodegenHeader(onDisk),
+				result: {
+					slug: file.header.slug,
+					componentId: file.header.componentId,
+					file: relativePath,
+					status: "ok",
+					source: file.header.source,
+					shape: file.shape,
+					publishedVersion: file.header.publishedVersion,
+					sourceHash: file.header.sourceHash,
+					onDisk: null,
+				},
+			});
+		} else {
+			planned.push({
+				...common,
+				kind: "tw-merge",
+				file: next.file,
+				onDiskHeader: onDisk === null ? null : parseTwMergeHeader(onDisk),
+				result: {
+					file: relativePath,
+					status: "ok",
+					sourceHash: next.file.header.sourceHash,
+					onDisk: null,
+				},
+			});
+		}
 	}
 	if (diagnostics.some((entry) => entry.severity === "error")) {
 		return result;
@@ -420,7 +591,7 @@ export async function runCodegen(
 			entry.result.message = formatted.message;
 			return;
 		}
-		if (!parseCodegenHeader(formatted.contents)) {
+		if (!hasHeaderOf(entry, formatted.contents)) {
 			entry.result.status = "error";
 			entry.result.message = `Formatter "${formatter.command}" changed the two Trickroom header lines of ${entry.relativePath}; they must stay the first two lines, unchanged.`;
 			return;
@@ -429,27 +600,20 @@ export async function runCodegen(
 	});
 
 	for (const entry of planned) {
-		const { result: component, onDiskHeader } = entry;
-		if (onDiskHeader) {
-			component.onDisk = {
-				publishedVersion: onDiskHeader.publishedVersion,
-				sourceHash: onDiskHeader.sourceHash,
-				source: onDiskHeader.source,
-			};
-		}
-		if (component.status === "error") {
+		const { result: file } = entry;
+		recordOnDisk(entry, false);
+		if (file.status === "error") {
 			diagnostics.push({
 				code: "FORMATTER_FAILED",
 				severity: "error",
-				message: component.message ?? "Formatter failed.",
-				slug: component.slug,
-				componentId: component.componentId,
+				message: file.message ?? "Formatter failed.",
+				...ownerOf(entry),
 				path: entry.relativePath,
 			});
 			continue;
 		}
 		if (entry.onDisk === null) {
-			component.status = "missing";
+			file.status = "missing";
 			continue;
 		}
 		if (
@@ -458,14 +622,10 @@ export async function runCodegen(
 		) {
 			continue;
 		}
-		const reason: CodegenStaleReason = !onDiskHeader
-			? "not-generated"
-			: sameSource(onDiskHeader, entry.file.header)
-				? "body-edited"
-				: "source-changed";
-		component.status = "stale";
-		component.reason = reason;
-		component.message = describeStale(reason, entry.file.header, onDiskHeader);
+		const stale = staleOf(entry);
+		file.status = "stale";
+		file.reason = stale.reason;
+		file.message = stale.message;
 	}
 
 	// Orphans: this system's generated files that no selected component owns.
@@ -491,12 +651,16 @@ export async function runCodegen(
 
 	const hasErrors = () =>
 		diagnostics.some((entry) => entry.severity === "error");
-	result.components = planned.map((entry) => entry.result);
+	result.components = planned.flatMap((entry) =>
+		entry.kind === "component" ? [entry.result] : [],
+	);
+	result.twMerge =
+		planned.find((entry) => entry.kind === "tw-merge")?.result ?? null;
 
 	if (mode === "check" || hasErrors()) {
 		result.status = hasErrors()
 			? "error"
-			: result.components.some((component) => component.status !== "ok") ||
+			: planned.some((entry) => entry.result.status !== "ok") ||
 					result.orphaned.length > 0
 				? "drift"
 				: "ok";
@@ -534,8 +698,7 @@ export async function runCodegen(
 			fail({
 				code: "WRITE_FAILED",
 				message: entry.result.message,
-				slug: entry.result.slug,
-				componentId: entry.result.componentId,
+				...ownerOf(entry),
 				path: entry.relativePath,
 			});
 			continue;
@@ -544,11 +707,7 @@ export async function runCodegen(
 		entry.result.status = "ok";
 		delete entry.result.reason;
 		delete entry.result.message;
-		entry.result.onDisk = {
-			publishedVersion: entry.file.header.publishedVersion,
-			sourceHash: entry.file.header.sourceHash,
-			source: entry.file.header.source,
-		};
+		recordOnDisk(entry, true);
 	}
 	result.status = hasErrors() ? "error" : "ok";
 	return result;
