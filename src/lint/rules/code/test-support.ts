@@ -106,6 +106,8 @@ export type LintFixture = {
 			inspect?: (candidate: string) => boolean;
 			/** The derived tailwind-merge config; stock merging without one. */
 			mergeConfig?: TwMergeConfig;
+			/** A derivation failure, instead of a config. */
+			mergeFailure?: { status: "failed"; message: string };
 			tokens?: Partial<Record<TailwindTokenDomain, string[]>> | null;
 		},
 	) => Promise<LintRuleFinding[]>;
@@ -220,7 +222,10 @@ export async function createLintFixture(options: {
 									}),
 								}
 							: null,
-					mergeConfig: async () => runOptions.mergeConfig ?? null,
+					mergeConfig: async () =>
+						runOptions.mergeConfig
+							? { status: "derived", config: runOptions.mergeConfig }
+							: (runOptions.mergeFailure ?? { status: "stock" }),
 				},
 			};
 			return kind.run(context);

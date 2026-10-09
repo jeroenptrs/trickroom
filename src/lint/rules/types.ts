@@ -65,6 +65,12 @@ export type LintTailwindInspector = {
 	suggest?: (candidate: string) => string[];
 };
 
+/** How tv() merges for the linted system (`LintRuleContext.tailwind.mergeConfig`). */
+export type LintTwMergeConfig =
+	| { status: "stock" }
+	| { status: "derived"; config: TwMergeConfig }
+	| { status: "failed"; message: string };
+
 export type LintRuleContext = {
 	projectRoot: string;
 	contract: SystemContract;
@@ -87,12 +93,13 @@ export type LintRuleContext = {
 	tailwind: {
 		inspector: () => Promise<LintTailwindInspector | null>;
 		/**
-		 * The tailwind-merge config derived from the linked CSS
-		 * (`deriveTwMergeConfig`), shared like the inspector. Null unless
-		 * `codegen.twMerge` generates it for this system, or when the CSS
-		 * fails to compile: merge with stock tailwind-merge.
+		 * How tv() merges for this system, shared like the inspector:
+		 * `derived` with the tailwind-merge config derived from the linked CSS
+		 * (`deriveTwMergeConfig`) when `codegen.twMerge` generates it for this
+		 * system, `stock` otherwise, `failed` when that config cannot be
+		 * derived (the CSS does not compile, the merge groups do not fit).
 		 */
-		mergeConfig: () => Promise<TwMergeConfig | null>;
+		mergeConfig: () => Promise<LintTwMergeConfig>;
 	};
 };
 

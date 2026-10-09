@@ -837,7 +837,7 @@ describe("runLint with codegen.twMerge", () => {
 });
 
 describe("createTwMergeConfigLoader", () => {
-	it("derives the merge config from the system CSS once, and is null without CSS or when it fails", async () => {
+	it("derives the merge config from the system CSS once, is stock without CSS, and reports a failure", async () => {
 		const dir = await mkdtemp(
 			path.join(os.tmpdir(), "trickroom-tw-merge-lint-"),
 		);
@@ -851,25 +851,32 @@ describe("createTwMergeConfigLoader", () => {
 				"@utility broken { @apply not-a-utility; }\n",
 			);
 			const load = createTwMergeConfigLoader(dir, "theme.css");
-			const config = await load();
-			expect(config?.extend.classGroups["@utility text-label-*"]).toEqual([
-				"text-label-sm",
-			]);
-			expect(await load()).toBe(config);
-			expect(await createTwMergeConfigLoader(dir, null)()).toBeNull();
-			// The project's merge groups, and stock merging when they do not fit.
+			const loaded = await load();
+			expect(loaded.status).toBe("derived");
+			expect(
+				loaded.status === "derived" &&
+					loaded.config.extend.classGroups["@utility text-label-*"],
+			).toEqual(["text-label-sm"]);
+			expect(await load()).toBe(loaded);
+			expect(await createTwMergeConfigLoader(dir, null)()).toEqual({
+				status: "stock",
+			});
+			// The project's merge groups, and a failure when they do not fit.
 			const grouped = await createTwMergeConfigLoader(dir, "theme.css", {
 				labels: ["text-label-*"],
 			})();
-			expect(grouped?.extend.classGroups["mergeGroups.labels"]).toEqual([
-				"text-label-sm",
-			]);
+			expect(
+				grouped.status === "derived" &&
+					grouped.config.extend.classGroups["mergeGroups.labels"],
+			).toEqual(["text-label-sm"]);
 			expect(
 				await createTwMergeConfigLoader(dir, "theme.css", {
 					labels: ["text-caption-*"],
 				})(),
-			).toBeNull();
-			expect(await createTwMergeConfigLoader(dir, "broken.css")()).toBeNull();
+			).toMatchObject({ status: "failed", message: expect.any(String) });
+			expect(
+				await createTwMergeConfigLoader(dir, "broken.css")(),
+			).toMatchObject({ status: "failed" });
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
