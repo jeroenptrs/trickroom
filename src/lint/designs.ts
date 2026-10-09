@@ -242,6 +242,8 @@ type AncestorRoots = ReadonlyMap<
 	{
 		overrides: SystemComponentInstanceOverrides;
 		variantValues: Record<string, string>;
+		/** The published version the root's markers name. */
+		version: string;
 	}
 >;
 
@@ -469,6 +471,7 @@ const walkBoard = (
 			? new Map(ancestors).set(metadata.instanceId, {
 					overrides: metadata.overrides,
 					variantValues: metadata.variantValues,
+					version: metadata.version,
 				})
 			: ancestors;
 		const { version, ...checked } = checkedClasses(
@@ -493,10 +496,14 @@ const walkBoard = (
 		if (!Array.isArray(node.children)) return;
 		// A copy's children are paired with its default's, edited or not; a
 		// slot host's with its slot's default children in the version the
-		// instance uses.
+		// instance uses, only when the host's markers name the version its
+		// root does: with inconsistent markers no default is known for sure,
+		// and the layers are checked as layers.
 		const defaults =
 			slotDefault?.children ??
-			(version && instance
+			(version &&
+			instance &&
+			roots.get(instance.instanceId)?.version === instance.version
 				? (() => {
 						const template = templateAt(version, instance.templatePath);
 						return template

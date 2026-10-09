@@ -208,15 +208,24 @@ const inspector: LintTailwindInspector = {
 		})),
 };
 
-const components = { [tab.componentId]: tab };
-const contract = buildSystemContract({
-	system: { id: CODEGEN_TEST_SYSTEM_ID, name: "Core" },
-	manifest: { ...createEmptySystemComponentManifest(), components },
-	tokens: null,
-	codegen: { status: "unconfigured" },
-});
+const components: Record<string, SystemComponentRecord> = {
+	[tab.componentId]: tab,
+};
 
-const contextFor = (ruleId: string): LintRuleContext => {
+const contextFor = (
+	ruleId: string,
+	placedDesign: TrickroomDesign = design,
+	placedComponents: Record<string, SystemComponentRecord> = components,
+): LintRuleContext => {
+	const contract = buildSystemContract({
+		system: { id: CODEGEN_TEST_SYSTEM_ID, name: "Core" },
+		manifest: {
+			...createEmptySystemComponentManifest(),
+			components: placedComponents,
+		},
+		tokens: null,
+		codegen: { status: "unconfigured" },
+	});
 	const config = resolveLintConfig(
 		{ version: 1 },
 		{ ruleKinds: lintRuleRegistry.kinds, codegenOutDir: null },
@@ -232,8 +241,8 @@ const contextFor = (ruleId: string): LintRuleContext => {
 		sources: buildSourceIndex({ modules: [], contract, componentModules: {} }),
 		designs: buildLintDesignIndex({
 			systemId: CODEGEN_TEST_SYSTEM_ID,
-			designs: [{ id: "design-1", design }],
-			components,
+			designs: [{ id: "design-1", design: placedDesign }],
+			components: placedComponents,
 		}),
 		tailwind: {
 			inspector: async () => inspector,
@@ -362,5 +371,91 @@ describe("design class rules on slot default children", () => {
 			"tab@2 children/inner",
 			`#${editedLabel.id}`,
 		]);
+	});
+
+	it("checks the layers of a slot host whose markers name another version than its root", async () => {
+		// The slot is hosted on a part, not the root: version 1's default
+		// has a non-canonical class, version 2's does not.
+		const panelPayload = (
+			bodyClassName: string,
+		): SystemComponentDraftPayload => ({
+			root: templateNode("root", "flex", [templateNode("body", "grid")]),
+			slots: {
+				content: {
+					name: "content",
+					label: "Content",
+					hostPath: "body",
+					defaultChildren: [text("copy", bodyClassName, "Body")],
+				},
+			},
+			variants: { axes: {}, compoundVariants: [] },
+			overrideTargets: {},
+		});
+		const panel: SystemComponentRecord = (() => {
+			const v1 = publishedComponent("panel", panelPayload("bg-[#FFF]"), {
+				componentId: "cmp_panel",
+				version: "1",
+			});
+			const v2 = publishedComponent("panel", panelPayload("bg-white"), {
+				componentId: "cmp_panel",
+				version: "2",
+			});
+			return {
+				...v2,
+				published: {
+					currentVersion: "2",
+					versions: { ...v1.published?.versions, ...v2.published?.versions },
+				},
+			};
+		})();
+		const placePanel = (version: string) => {
+			const published = panel.published?.versions[version];
+			if (!published) throw new Error("no version");
+			return expandResolvedSystemComponent(
+				{
+					systemId: CODEGEN_TEST_SYSTEM_ID,
+					componentId: panel.componentId,
+					record: panel,
+					version: published,
+				},
+				{
+					createInstanceId: () => "mixed",
+					createElementId: () => {
+						ids += 1;
+						return `mixed-${ids}`;
+					},
+				},
+			).root;
+		};
+		// A version 2 root around version 1's body part, same instance id.
+		const [oldBody] = childrenOf(placePanel("1"));
+		const mixed = withChildren(placePanel("2"), [oldBody]);
+		const [copy] = childrenOf(oldBody);
+		const mixedDesign: TrickroomDesign = {
+			...design,
+			boards: [withChildren(design.boards[0], [mixed])],
+		};
+		const placedComponents = { [panel.componentId]: panel };
+
+		const index = buildLintDesignIndex({
+			systemId: CODEGEN_TEST_SYSTEM_ID,
+			designs: [{ id: "design-1", design: mixedDesign }],
+			components: placedComponents,
+		});
+		expect(
+			index.designs[0].boards[0].nodes.find((node) => node.element === copy.id),
+		).toMatchObject({ classSource: "layer", checkedClassName: "bg-[#FFF]" });
+		// Only version 2 is in use, so version 1's default is not linted on
+		// the component: the copy reports its class itself.
+		const findings = await designNonCanonicalClassRule.run(
+			contextFor(designNonCanonicalClassRule.id, mixedDesign, placedComponents),
+		);
+		expect(
+			findings.map((finding) =>
+				finding.location?.kind === "design"
+					? `#${finding.location.element}: ${finding.details?.classToken}`
+					: `component ${finding.componentLocation?.version}`,
+			),
+		).toEqual([`#${copy.id}: bg-[#FFF]`]);
 	});
 });
