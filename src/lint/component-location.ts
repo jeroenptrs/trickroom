@@ -8,17 +8,25 @@ import type { LintComponentLocation } from "./rules/types";
 
 export type { LintComponentLocation } from "./rules/types";
 
-/** The template, variant value or compound variant the classes belong to. */
+/**
+ * The template, slot default, variant value or compound variant the
+ * classes belong to.
+ */
 export const describeComponentClassSource = (
-	location: Pick<LintComponentLocation, "axis" | "value" | "compound">,
+	location: Pick<LintComponentLocation, "slot" | "axis" | "value" | "compound">,
 ) =>
-	location.compound !== undefined
-		? `compound variant ${location.compound + 1}`
-		: location.axis !== undefined
-			? `variant ${location.axis}=${location.value ?? ""}`
-			: "template";
+	location.slot !== undefined
+		? `slot ${location.slot} default`
+		: location.compound !== undefined
+			? `compound variant ${location.compound + 1}`
+			: location.axis !== undefined
+				? `variant ${location.axis}=${location.value ?? ""}`
+				: "template";
 
-/** `button@1.2.0 › label › variant size=sm`, with the slug when known. */
+/**
+ * `button@1.2.0 › label › variant size=sm` or `tab@3 › label › slot
+ * children default`, with the slug when known.
+ */
 export const describeComponentLocation = (
 	location: LintComponentLocation,
 	slug?: string,

@@ -21,13 +21,19 @@ export const registerLintTools = (ctx: McpToolContext) => {
 		TOOL.lint,
 		{
 			title: "Lint Design System",
-			description: `Lint a design system on both sides and ratchet the result against the committed report (.trickroom/systems/<id>/lint-report.json). Code side: the generated variants files of published components (stale, missing, orphaned) and how the app uses the system (wrappers, variant values, required axes, classes and tokens, imports); design side: how Designs use the system (classes and tokens, variant values, design-only targets). Rule instances, source globs and thresholds come from the system's lint.json; without it every rule kind runs at its default severity. Without check, a passing run writes the report as the new baseline; a failing run writes nothing. check: true never writes. system selects a system by id, name or storage key (default: the codegen block's system, else the project's default system). response "summary" (default) returns the status, the ratchet result (numbers that got worse, thresholds broken) and the per-side counts; "full" adds the whole report with every finding, component coverage and file counts. Fails with LINT_FAILED when the run could not complete (no system, invalid lint.json, a crashed rule).`,
+			description: `Lint a design system on both sides and ratchet the result against the committed report (.trickroom/systems/<id>/lint-report.json). Code side: the generated variants files of published components (stale, missing, orphaned) and how the app uses the system (wrappers, variant values, required axes, classes and tokens, imports); design side: how Designs use the system (classes and tokens, variant values, design-only targets). Rule instances, source globs and thresholds come from the system's lint.json; without it every rule kind runs at its default severity. Without check, a passing run writes the report as the new baseline; a failing run writes nothing. check: true never writes. adopt lists rule kind ids (e.g. ["design.unknown-class-token"]) whose current count the run accepts as their new baseline, for a kind switched on with findings or one a Trickroom upgrade made check more; the run still fails when anything else got worse, records the adoption in ratchet.adopted with reason "explicit" and writes the report. Name each kind; there is no "all", and adopt cannot be combined with check. system selects a system by id, name or storage key (default: the codegen block's system, else the project's default system). response "summary" (default) returns the status, the ratchet result (numbers that got worse, thresholds broken) and the per-side counts; "full" adds the whole report with every finding, component coverage and file counts. Fails with LINT_FAILED when the run could not complete (no system, invalid lint.json, a crashed rule).`,
 			inputSchema: withProjectScopedInput({
 				check: z
 					.boolean()
 					.optional()
 					.describe(
 						"Compare and report without writing the report file. Default false.",
+					),
+				adopt: z
+					.array(z.string().min(1))
+					.optional()
+					.describe(
+						"Rule kind ids to adopt into the baseline at their current count. Not with check.",
 					),
 				system: z
 					.string()
@@ -50,13 +56,14 @@ export const registerLintTools = (ctx: McpToolContext) => {
 					"lint check design system adherence variants stale ratchet baseline report coverage findings",
 			},
 		},
-		async ({ check, system, response, project }) =>
+		async ({ check, adopt, system, response, project }) =>
 			withPolicyErrorHandling(project, async (context) => {
 				assertCanWriteProject(getMcpPolicy(context.config));
 				const result = await runLint({
 					projectRoot: context.projectRoot,
 					system: system ?? null,
 					check: check === true,
+					adopt: adopt ?? [],
 				});
 				if (result.status === "error" || !result.report || !result.ratchet) {
 					return createToolErrorResult(

@@ -599,7 +599,7 @@ export const findingKey = (finding: LintFinding) => {
 	const where =
 		location === null
 			? component
-				? `${component.componentId}@${component.version}/${component.path ?? ""}/${component.axis ?? ""}/${component.value ?? ""}/${component.compound ?? ""}`
+				? `${component.componentId}@${component.version}/${component.slot ?? ""}/${component.path ?? ""}/${component.axis ?? ""}/${component.value ?? ""}/${component.compound ?? ""}`
 				: ""
 			: location.kind === "code"
 				? `${location.file}:${location.line ?? ""}:${location.column ?? ""}`

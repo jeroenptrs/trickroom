@@ -52,7 +52,24 @@ describe("trickroom lint", () => {
 			check: true,
 			json: true,
 			system: "core",
+			adopt: [],
 		});
+		expect(
+			parseLintArgs(
+				[
+					"--adopt",
+					"code.redundant-class",
+					"--adopt=design.unknown-class-token",
+				],
+				"/work",
+			).adopt,
+		).toEqual(["code.redundant-class", "design.unknown-class-token"]);
+		expect(() => parseLintArgs(["--adopt"])).toThrow(
+			"--adopt needs a rule kind id",
+		);
+		expect(() => parseLintArgs(["--adopt", "all"])).toThrow(
+			"--adopt all is not allowed",
+		);
 		expect(parseLintArgs(["--system", "Core"], "/work")).toMatchObject({
 			projectRoot: "/work",
 			system: "Core",
@@ -138,6 +155,60 @@ describe("trickroom lint", () => {
 		const again = await run([project.root, "--check"]);
 		expect(again.code).toBe(0);
 		expect(again.stdout).not.toContain("adopted");
+	});
+
+	it("adopts a named kind that got worse with --adopt, and refuses it with --check", async () => {
+		const project = await setup();
+		expect((await run([project.root])).code).toBe(0);
+		await writeFile(
+			project.path("src/ui/badge.variants.ts"),
+			`${await readFile(project.path("src/ui/badge.variants.ts"), "utf8")}// edited\n`,
+		);
+		const refused = await run([
+			project.root,
+			"--check",
+			"--adopt",
+			"code.variants-file-stale",
+		]);
+		expect(refused.code).toBe(2);
+		expect(refused.stderr).toContain("cannot run with --check");
+
+		const unknown = await run([project.root, "--adopt", "code.nope"]);
+		expect(unknown.code).toBe(2);
+		expect(unknown.stderr).toContain('"code.nope": not a rule kind id');
+
+		// Coverage got worse too (badge is no longer generated), so adopting
+		// the stale kind alone still fails.
+		const partial = await run([
+			project.root,
+			"--adopt",
+			"code.variants-file-stale",
+		]);
+		expect(partial.code).toBe(1);
+		expect(partial.stdout).toContain(
+			"adopted: rule.code.variants-file-stale 0 -> 1 (--adopt)",
+		);
+		expect(partial.stdout).toContain("worse: coverage.generated 2 -> 1");
+		expect(partial.stdout).not.toContain("worse: code.errors");
+
+		await writeFile(
+			project.path("src/ui/badge.variants.ts"),
+			(
+				await readFile(project.path("src/ui/badge.variants.ts"), "utf8")
+			).replace("// edited\n", ""),
+		);
+		const passing = await run([
+			project.root,
+			"--adopt",
+			"code.variants-file-stale",
+		]);
+		expect(passing.code).toBe(0);
+		expect(passing.stdout).toContain(
+			"adopted: rule.code.variants-file-stale 0 -> 0 (--adopt)",
+		);
+		expect(passing.stdout).toContain(
+			"1 rule kind named with --adopt adopted into the baseline.",
+		);
 	});
 
 	it("prints the run result JSON alone with --json", async () => {

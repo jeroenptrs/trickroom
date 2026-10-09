@@ -1,10 +1,12 @@
 import {
+	getDefaultProps,
 	getRenderedClassName,
 	resolveRegistryComponent,
 } from "../libraries/registry";
 import type { Node, RecipeTemplateNode, TrickroomDesign } from "../types";
 import { splitClassLayerTokens } from "../utils/class-layers";
 import { resolveComponentNodeClasses } from "../utils/class-merge";
+import { getTemplateSlotDefinition } from "../utils/system-component-expansion.core";
 import {
 	getSystemComponentStructuralMetadata,
 	type SystemComponentInstanceOverrides,
@@ -44,6 +46,10 @@ export type LintDesignInstanceMarker = {
  * Where the classes the design class rules check on a node come from:
  * - `layer`: a layer that is not part of a component instance (raw layers,
  *   slot content, recipe nodes): its stored className.
+ * - `slot-default`: a copy of one of its instance's slot default children
+ *   (see `LintComponentClassEntry.slot`) whose classes still equal the
+ *   default's in the version the instance uses: nothing. They are checked
+ *   once, on the component. A copy whose classes were edited is a `layer`.
  * - `override`: a node of a component instance whose version resolves: only
  *   the className override the instance adds. The classes it inherits are
  *   checked once, on the component (`LintDesignIndex.components`).
@@ -52,7 +58,11 @@ export type LintDesignInstanceMarker = {
  *   component, no instance root among its ancestors): its stored className,
  *   as materialized.
  */
-export type LintDesignClassSource = "layer" | "override" | "stored";
+export type LintDesignClassSource =
+	| "layer"
+	| "slot-default"
+	| "override"
+	| "stored";
 
 /**
  * What a node renders its className from, the way the canvas does
@@ -124,6 +134,14 @@ export type LintDesignUsage = {
 export type LintComponentClassEntry = {
 	/** Template path of the node the classes style. */
 	path: string;
+	/**
+	 * The slot whose default children the node is one of; null for the
+	 * template itself. Placing an instance copies a slot's default children
+	 * into the design as plain layers, styled by these classes alone.
+	 */
+	slot: string | null;
+	/** For a slot default child: what its copies render, as a layer. */
+	render: LintNodeRender | null;
 	/** The axis and value whose classes these are; null for template and compound classes. */
 	axis: string | null;
 	value: string | null;
@@ -140,8 +158,9 @@ export type LintComponentDefinition = {
 	/** The current published version; others are listed because instances use them. */
 	current: boolean;
 	/**
-	 * Template classes depth first, then each axis's values (codegen's axis
-	 * order), then the compound variants in order.
+	 * Template classes depth first, then each slot's default children depth
+	 * first (slots in the version's order), then each axis's values
+	 * (codegen's axis order), then the compound variants in order.
 	 */
 	classes: LintComponentClassEntry[];
 	/** The registry Element's base classes per template path, where it has any. */
@@ -223,6 +242,8 @@ type AncestorRoots = ReadonlyMap<
 	{
 		overrides: SystemComponentInstanceOverrides;
 		variantValues: Record<string, string>;
+		/** The published version the root's markers name. */
+		version: string;
 	}
 >;
 
@@ -261,7 +282,10 @@ const checkedClasses = (
 	instance: LintDesignInstanceMarker | null,
 	context: InstanceClassContext,
 	roots: AncestorRoots,
-): Pick<LintDesignNode, "checkedClassName" | "classSource" | "render"> => {
+): Pick<LintDesignNode, "checkedClassName" | "classSource" | "render"> & {
+	/** The version an instance node resolves through. */
+	version?: PublishedSystemComponentVersion;
+} => {
 	const definition = registryDefinition(node.props);
 	const asStored = (known: boolean): LintNodeRender => ({
 		kind: "classes",
@@ -301,6 +325,7 @@ const checkedClasses = (
 		baseClassName: definition?.baseClassName,
 	});
 	return {
+		version,
 		checkedClassName: nonEmpty(
 			resolveSystemComponentOverrideValue(
 				version,
@@ -322,13 +347,123 @@ const checkedClasses = (
 	};
 };
 
+const templatesByPath = new WeakMap<
+	PublishedSystemComponentVersion,
+	ReadonlyMap<string, RecipeTemplateNode>
+>();
+
+const templateAt = (version: PublishedSystemComponentVersion, path: string) => {
+	let byPath = templatesByPath.get(version);
+	if (!byPath) {
+		const map = new Map<string, RecipeTemplateNode>();
+		const visit = (template: RecipeTemplateNode) => {
+			map.set(template.path, template);
+			for (const child of template.children ?? []) visit(child);
+		};
+		visit(version.root);
+		byPath = map;
+		templatesByPath.set(version, byPath);
+	}
+	return byPath.get(path);
+};
+
+/** The classes a slot default child is copied with, as tokens. */
+const slotDefaultTokens = (template: RecipeTemplateNode) => {
+	const tokens = splitClassLayerTokens(template.className);
+	return tokens.length > 0
+		? tokens
+		: splitClassLayerTokens(
+				typeof template.props?.className === "string"
+					? template.props.className
+					: undefined,
+			);
+};
+
+const sameElement = (node: Node, template: RecipeTemplateNode) =>
+	node.props["data-trickroom-library"] === template.library &&
+	node.props["data-trickroom-component"] === template.component;
+
+/** Whether a copy still has its default's classes. */
+const hasDefaultClasses = (node: Node, template: RecipeTemplateNode) => {
+	const tokens = splitClassLayerTokens(
+		typeof node.props.className === "string" ? node.props.className : undefined,
+	);
+	const expected = slotDefaultTokens(template);
+	return (
+		tokens.length === expected.length &&
+		tokens.every((token, index) => token === expected[index])
+	);
+};
+
+/**
+ * Which layers are copies of which slot default children, in order. First
+ * the layers that still have a default's classes are paired with the next
+ * such default of the same Element; then each other layer with an unpaired
+ * default of its Element between its neighbours' pairs, so an edited copy's
+ * children are still paired with its default's. A part of an instance is
+ * never a copy, and a layer the designer added or a default they removed
+ * does not shift the others.
+ */
+const pairSlotDefaults = (
+	children: readonly Node[],
+	defaults: readonly RecipeTemplateNode[],
+): Map<Node, RecipeTemplateNode> => {
+	const layers = children.filter(
+		(child) => !getSystemComponentStructuralMetadata(child.props),
+	);
+	const exact = new Map<Node, number>();
+	let next = 0;
+	for (const layer of layers) {
+		const index = defaults.findIndex(
+			(template, position) =>
+				position >= next &&
+				sameElement(layer, template) &&
+				hasDefaultClasses(layer, template),
+		);
+		if (index === -1) continue;
+		exact.set(layer, index);
+		next = index + 1;
+	}
+	// The default index of the next exactly paired layer, per layer.
+	const upperBounds: number[] = [];
+	let upper = defaults.length;
+	for (let position = layers.length - 1; position >= 0; position -= 1) {
+		upperBounds[position] = upper;
+		upper = exact.get(layers[position]) ?? upper;
+	}
+	const pairs = new Map<Node, RecipeTemplateNode>();
+	let lower = 0;
+	for (const [position, layer] of layers.entries()) {
+		const paired = exact.get(layer);
+		if (paired !== undefined) {
+			pairs.set(layer, defaults[paired]);
+			lower = paired + 1;
+			continue;
+		}
+		const upper = upperBounds[position];
+		const index = defaults.findIndex(
+			(template, candidate) =>
+				candidate >= lower && candidate < upper && sameElement(layer, template),
+		);
+		if (index === -1) continue;
+		pairs.set(layer, defaults[index]);
+		lower = index + 1;
+	}
+	return pairs;
+};
+
 const walkBoard = (
 	board: Node,
 	boardPath: string,
 	context: InstanceClassContext,
 ): LintDesignNode[] => {
 	const nodes: LintDesignNode[] = [];
-	const visit = (node: Node, nodePath: string, ancestors: AncestorRoots) => {
+	const visit = (
+		node: Node,
+		nodePath: string,
+		ancestors: AncestorRoots,
+		slotDefault: RecipeTemplateNode | undefined,
+	) => {
 		const className = nonEmpty(node.props.className);
 		const metadata = getSystemComponentStructuralMetadata(node.props);
 		const instance = toMarker(metadata);
@@ -336,22 +471,55 @@ const walkBoard = (
 			? new Map(ancestors).set(metadata.instanceId, {
 					overrides: metadata.overrides,
 					variantValues: metadata.variantValues,
+					version: metadata.version,
 				})
 			: ancestors;
+		const { version, ...checked } = checkedClasses(
+			node,
+			className,
+			instance,
+			context,
+			roots,
+		);
+		const copy =
+			slotDefault !== undefined && hasDefaultClasses(node, slotDefault);
 		nodes.push({
 			element: node.id,
 			path: nodePath,
 			className,
-			...checkedClasses(node, className, instance, context, roots),
+			...checked,
+			...(copy
+				? { checkedClassName: null, classSource: "slot-default" as const }
+				: {}),
 			instance,
 		});
-		if (Array.isArray(node.children)) {
-			for (const [index, child] of node.children.entries()) {
-				visit(child, `${nodePath}.children[${index}]`, roots);
-			}
+		if (!Array.isArray(node.children)) return;
+		// A copy's children are paired with its default's, edited or not; a
+		// slot host's with its slot's default children in the version the
+		// instance uses, only when the host's markers name the version its
+		// root does: with inconsistent markers no default is known for sure,
+		// and the layers are checked as layers.
+		const defaults =
+			slotDefault?.children ??
+			(version &&
+			instance &&
+			roots.get(instance.instanceId)?.version === instance.version
+				? (() => {
+						const template = templateAt(version, instance.templatePath);
+						return template
+							? getTemplateSlotDefinition(version, template)?.defaultChildren
+							: undefined;
+					})()
+				: undefined);
+		const pairs =
+			defaults && defaults.length > 0
+				? pairSlotDefaults(node.children, defaults)
+				: null;
+		for (const [index, child] of node.children.entries()) {
+			visit(child, `${nodePath}.children[${index}]`, roots, pairs?.get(child));
 		}
 	};
-	visit(board, boardPath, new Map());
+	visit(board, boardPath, new Map(), undefined);
 	return nodes;
 };
 
@@ -407,6 +575,34 @@ const templateBaseClassNames = (
 	return bases;
 };
 
+/** What a copy of a slot default child renders, as a layer does. */
+const slotDefaultRender = (template: RecipeTemplateNode): LintNodeRender => {
+	const resolution = resolveRegistryComponent(
+		template.library,
+		template.component,
+	);
+	const className = slotDefaultTokens(template).join(" ");
+	return resolution.status === "known"
+		? {
+				kind: "classes",
+				className: nonEmpty(
+					getRenderedClassName(
+						{
+							...getDefaultProps(
+								template.library,
+								template.component,
+								resolution.definition,
+							),
+							...(className ? { className } : {}),
+						},
+						resolution.definition,
+					),
+				),
+				known: true,
+			}
+		: { kind: "classes", className: nonEmpty(className), known: false };
+};
+
 /** Every class string a published version declares, see `LintComponentDefinition`. */
 const componentClassEntries = (
 	version: PublishedSystemComponentVersion,
@@ -416,19 +612,32 @@ const componentClassEntries = (
 		path: string,
 		className: unknown,
 		source: Pick<LintComponentClassEntry, "axis" | "value" | "compound">,
+		slot: Pick<LintComponentClassEntry, "slot" | "render"> = {
+			slot: null,
+			render: null,
+		},
 	) => {
 		const value = nonEmpty(className);
-		if (value !== null) entries.push({ path, ...source, className: value });
+		if (value !== null) {
+			entries.push({ path, ...slot, ...source, className: value });
+		}
 	};
-	const visit = (template: RecipeTemplateNode) => {
-		add(template.path, templateClassName(template), {
-			axis: null,
-			value: null,
-			compound: null,
-		});
-		for (const child of template.children ?? []) visit(child);
+	const template = { axis: null, value: null, compound: null };
+	const visit = (node: RecipeTemplateNode) => {
+		add(node.path, templateClassName(node), template);
+		for (const child of node.children ?? []) visit(child);
 	};
 	visit(version.root);
+	for (const slot of Object.values(version.slots ?? {})) {
+		const visitDefault = (node: RecipeTemplateNode) => {
+			add(node.path, templateClassName(node), template, {
+				slot: slot.name,
+				render: slotDefaultRender(node),
+			});
+			for (const child of node.children ?? []) visitDefault(child);
+		};
+		for (const node of slot.defaultChildren ?? []) visitDefault(node);
+	}
 	const axes = Object.entries(version.variants?.axes ?? {}).sort(
 		([left], [right]) => compareSystemComponentVariantAxisKeys(left, right),
 	);

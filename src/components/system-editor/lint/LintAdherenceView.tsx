@@ -67,12 +67,14 @@ function RatchetOutcome({ report }: { report: LintReport }) {
 			{ratchet.adopted.length > 0 ? (
 				<div className="flex flex-col gap-1">
 					<Text className="text-xs text-slate-700">
-						New rule kinds, adopted into the baseline as they are:
+						Rule kinds adopted into the baseline as they are:
 					</Text>
 					<ul className="flex flex-col gap-1 font-mono text-xs text-slate-800">
 						{ratchet.adopted.map((entry) => (
 							<li key={`a:${entry.metric}`}>
-								{entry.metric}: {entry.current}
+								{entry.reason === "explicit"
+									? `${entry.metric}: ${entry.baseline ?? 0} → ${entry.current} (--adopt)`
+									: `${entry.metric}: ${entry.current} (new rule kind)`}
 							</li>
 						))}
 					</ul>
