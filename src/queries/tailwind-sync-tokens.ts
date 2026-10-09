@@ -175,4 +175,7 @@ export const storedTailwindTokensQueryOptions = (
 	queryOptions({
 		queryKey: storedTailwindTokensQueryKey(systemId, projectScope),
 		queryFn: () => getStoredTailwindTokens(systemId),
+		// A local endpoint: the browser being offline says nothing about it,
+		// and compiled canvas styles append the stored theme.
+		networkMode: "always",
 	});

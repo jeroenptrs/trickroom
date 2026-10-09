@@ -41,5 +41,8 @@ export const tailwindClassMergeQueryOptions = (
 		},
 		// A failure renders unmerged right away; file events refetch it.
 		retry: false,
+		// A local endpoint: never pause because the browser is offline, or the
+		// boards would wait for a request that does not start.
+		networkMode: "always",
 		staleTime: 5 * 60_000,
 	});

@@ -1,4 +1,8 @@
-import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import {
+	onlineManager,
+	QueryClient,
+	QueryObserver,
+} from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { invalidateTrickroomFileEvent } from "../hooks/useProjectFileEvents";
 import { createClassMerge } from "../utils/class-merge";
@@ -7,6 +11,7 @@ import {
 	tailwindClassMergeQueryOptions,
 } from "./tailwind-class-merge";
 import { getTailwindSourceRevision } from "./tailwind-sources";
+import { storedTailwindTokensQueryOptions } from "./tailwind-sync-tokens";
 
 const SYSTEM = "sys_core";
 
@@ -31,6 +36,7 @@ const DERIVED: TailwindClassMergeResponse = {
 
 afterEach(() => {
 	vi.unstubAllGlobals();
+	onlineManager.setOnline(true);
 });
 
 /** A query observer stays subscribed, like the open design's useClassMerge. */
@@ -129,6 +135,43 @@ describe("class merge settings in an open design", () => {
 			},
 		);
 		expect(createClassMerge(observer.getCurrentResult().data)).toBeNull();
+		unsubscribe();
+	});
+
+	it("fetches while the browser is offline, as the endpoint is local", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond(STOCK)));
+		onlineManager.setOnline(false);
+		const queryClient = new QueryClient();
+		const { observer, unsubscribe } = mount(queryClient);
+
+		expect(observer.getCurrentResult().fetchStatus).not.toBe("paused");
+		await vi.waitFor(() =>
+			expect(observer.getCurrentResult().data).toEqual(STOCK),
+		);
+		unsubscribe();
+	});
+
+	it("loads the stored theme compiled styles append while offline", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi
+				.fn()
+				.mockResolvedValue(
+					new Response(JSON.stringify({ found: false }), { status: 404 }),
+				),
+		);
+		onlineManager.setOnline(false);
+		const queryClient = new QueryClient();
+		const observer = new QueryObserver(
+			queryClient,
+			storedTailwindTokensQueryOptions(SYSTEM, "loc_1"),
+		);
+		const unsubscribe = observer.subscribe(() => {});
+
+		expect(observer.getCurrentResult().fetchStatus).not.toBe("paused");
+		await vi.waitFor(() =>
+			expect(observer.getCurrentResult().fetchStatus).toBe("idle"),
+		);
 		unsubscribe();
 	});
 });
