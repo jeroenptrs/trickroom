@@ -24,7 +24,6 @@ import {
 	loadCachedTailwindDesignSystem,
 	type TailwindDesignSystem,
 } from "../utils/tailwind-design-system";
-import type { TwMergeConfig } from "../utils/tailwind-merge-config";
 import {
 	loadDerivedTwMerge,
 	type TwMergeGroups,
@@ -70,7 +69,7 @@ import {
 } from "./report";
 import { lintRuleRegistry } from "./rules/index";
 import type { LintRuleRegistry } from "./rules/registry";
-import type { LintTailwindInspector } from "./rules/types";
+import type { LintTailwindInspector, LintTwMergeConfig } from "./rules/types";
 import { runLintRules, toReportFinding } from "./run-rules";
 import {
 	buildSourceIndex,
@@ -207,24 +206,36 @@ export const createTailwindInspectorLoader = (
 /**
  * Derives the tailwind-merge config from the system CSS on first use for
  * every rule of a run, through the same cached design system as the
- * inspector, with the project's merge groups. Null without a `cssPath`
- * (the runner passes none unless `codegen.twMerge` generates the config
- * for the linted system), when the CSS fails to compile, or when the merge
- * groups do not fit it (the codegen check reports that).
+ * inspector, with the project's merge groups. `stock` without a `cssPath`
+ * (the runner passes none unless `codegen.twMerge` generates the config for
+ * the linted system); `failed`, with the reason, when the CSS fails to
+ * compile or the merge groups do not fit it (the codegen check reports that
+ * too): rules that depend on the merge skip their checks then, like the
+ * canvas renders unmerged.
  */
 export const createTwMergeConfigLoader = (
 	projectRoot: string,
 	cssPath: string | null,
 	mergeGroups: TwMergeGroups = {},
-): (() => Promise<TwMergeConfig | null>) => {
-	let pending: Promise<TwMergeConfig | null> | null = null;
+): (() => Promise<LintTwMergeConfig>) => {
+	let pending: Promise<LintTwMergeConfig> | null = null;
 	return () => {
 		if (!cssPath?.trim()) {
-			return Promise.resolve(null);
+			return Promise.resolve({ status: "stock" });
 		}
 		pending ??= loadDerivedTwMerge({ projectRoot, cssPath }, mergeGroups)
-			.then((derived) => derived.config)
-			.catch(() => null);
+			.then(
+				(derived): LintTwMergeConfig => ({
+					status: "derived",
+					config: derived.config,
+				}),
+			)
+			.catch(
+				(error: unknown): LintTwMergeConfig => ({
+					status: "failed",
+					message: error instanceof Error ? error.message : String(error),
+				}),
+			);
 		return pending;
 	};
 };

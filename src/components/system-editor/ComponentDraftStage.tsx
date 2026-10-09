@@ -13,6 +13,7 @@ import {
 	useState,
 } from "react";
 import Frame from "react-frame-component";
+import { useClassMerge } from "../../hooks/useClassMerge";
 import { useCompiledTailwind } from "../../hooks/useCompiledTailwind";
 import { useInjectSystemAssets } from "../../hooks/useInjectSystemAssets";
 import { useInjectSystemFonts } from "../../hooks/useInjectSystemFonts";
@@ -47,8 +48,13 @@ import {
 	useComponentDraftSelectedPath,
 } from "../../stores/component-draft-store";
 import { useEditorPanelOpen } from "../../stores/editor-chrome-store";
+import type { ClassMerge } from "../../utils/class-merge";
 import { resolveStageDoc } from "../../utils/tailwind-render-mode";
 import { Canvas } from "../stage/Canvas";
+import {
+	ClassMergeContext,
+	useClassMergeContext,
+} from "../stage/class-merge-context";
 import { MissingRenderer } from "../stage/MissingRenderer";
 import { Alert } from "../ui/alert";
 import { Card } from "../ui/card";
@@ -75,18 +81,23 @@ export function getComponentDraftPreviewRenderableProps({
 	previewClassName,
 	selectedPath,
 	definition,
+	classMerge = null,
 }: {
 	entity: ComponentDraftEntity;
 	path: string;
 	previewClassName: string;
 	selectedPath: string | null;
 	definition: RenderableRegistryComponentDefinition;
+	/** Merges the template, variant and compound classes like `tv()` does. */
+	classMerge?: ClassMerge | null;
 }) {
 	return getRenderableProps(
 		{
 			...(entity.props ?? {}),
 			className: [
-				previewClassName,
+				classMerge && previewClassName
+					? classMerge(previewClassName)
+					: previewClassName,
 				selectedPath === path
 					? "outline outline-2 outline-offset-2 outline-cyan-500"
 					: null,
@@ -107,6 +118,7 @@ export function SerializedDraftNode({ path }: { path: string }): ReactNode {
 	const childPaths = useComponentDraftChildPaths(path);
 	const selectedPath = useComponentDraftSelectedPath();
 	const previewClassName = useComponentDraftPreviewClassName(path);
+	const classMerge = useClassMergeContext().merge;
 
 	if (!entity) {
 		return null;
@@ -145,6 +157,7 @@ export function SerializedDraftNode({ path }: { path: string }): ReactNode {
 		previewClassName,
 		selectedPath,
 		definition: resolution.definition,
+		classMerge,
 	});
 
 	if (entity.role === "text") {
@@ -188,6 +201,9 @@ function ComponentDraftBoard({
 }) {
 	const rootPath = useComponentDraftRootPath();
 	const { value: boardPortal, host: portalHost } = useStageBoardPortal(true);
+	// Like the canvas, wait for the merge settings instead of painting the
+	// draft unmerged first.
+	const classMergeReady = useClassMergeContext().ready;
 
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: clicking empty board space clears the draft node selection.
@@ -206,7 +222,9 @@ function ComponentDraftBoard({
 					data-trickroom-draft-board=""
 				>
 					{portalHost}
-					{rootPath ? <SerializedDraftNode path={rootPath} /> : null}
+					{rootPath && classMergeReady ? (
+						<SerializedDraftNode path={rootPath} />
+					) : null}
 				</div>
 			</StageBoardPortalContext.Provider>
 		</section>
@@ -257,6 +275,7 @@ export function ComponentDraftStage({
 
 	const handleStageMount = useCallback(() => setDidMount(true), []);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: componentId and systemId are triggers; the frame is keyed by them, so a new one mounts and reports didMount again.
 	useEffect(() => {
 		setDidMount(false);
 	}, [componentId, systemId]);
@@ -292,6 +311,7 @@ export function ComponentDraftStage({
 	useCompiledTailwind(iframeRef, didMount, systemId);
 	useInjectSystemAssets(iframeRef, didMount, systemId);
 	useInjectSystemFonts(iframeRef, didMount, systemId);
+	const classMerge = useClassMerge(systemId);
 
 	useHotkey("Escape", () => selectTemplateNode(null), {
 		enabled: selectedPath !== null,
@@ -371,7 +391,9 @@ export function ComponentDraftStage({
 
 	return (
 		<div className="relative min-h-0 flex-1 overflow-hidden bg-slate-200">
-			{stage}
+			<ClassMergeContext.Provider value={classMerge}>
+				{stage}
+			</ClassMergeContext.Provider>
 		</div>
 	);
 }

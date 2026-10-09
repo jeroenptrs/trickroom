@@ -17,9 +17,11 @@ import { shallow, useSelector } from "@tanstack/react-store";
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { useProjectScope } from "../components/contexts";
 import {
-	getRenderableClassComposition,
+	getComposableClassName,
+	MATERIALIZED_BASE_CLASS_PROP,
 	resolveRegistryComponent,
 } from "../libraries/registry";
+import { useTailwindSourceRevision } from "../queries/tailwind-sources";
 import {
 	compileTailwindCss,
 	storedTailwindTokensQueryOptions,
@@ -60,13 +62,20 @@ export function collectDesignStoreCandidateClassNames(
 			entity.props["data-trickroom-library"],
 			entity.props["data-trickroom-component"],
 		);
+		// The composed className only: resolving the class layers would parse
+		// every class of the design on each store change.
+		const storedClassName =
+			typeof entity.props.className === "string"
+				? entity.props.className
+				: undefined;
 		const className =
 			resolution.status === "known"
-				? getRenderableClassComposition(entity.props, resolution.definition)
-						.className
-				: typeof entity.props.className === "string"
-					? entity.props.className
-					: undefined;
+				? getComposableClassName(
+						storedClassName,
+						resolution.definition.baseClassName,
+						entity.props[MATERIALIZED_BASE_CLASS_PROP] === "true",
+					)
+				: storedClassName;
 
 		if (className) {
 			addClassNameCandidates(candidates, className);
@@ -170,6 +179,8 @@ export function useCompiledTailwind(
 		);
 		return css === "@theme {}" ? "" : css;
 	}, [tokensQuery.data]);
+	// A changed system stylesheet compiles differently for the same classes.
+	const sourceRevision = useTailwindSourceRevision();
 	const designCandidateClassNames = useSelector(
 		designStore,
 		(state) =>
@@ -179,6 +190,7 @@ export function useCompiledTailwind(
 		{ compare: shallow },
 	);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: sourceRevision is a trigger; a changed system stylesheet rebuilds the same candidates.
 	useEffect(() => {
 		// Runs even without a system: the server compiles baseline Tailwind so
 		// the canvas is never left unstyled.
@@ -271,6 +283,7 @@ export function useCompiledTailwind(
 		themeOverrides,
 		designCandidateClassNames,
 		iframeRef,
+		sourceRevision,
 	]);
 
 	return stylesReady;

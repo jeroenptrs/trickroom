@@ -12,6 +12,7 @@ import {
 	type ClassLayer,
 	createClassLayers,
 } from "../../../utils/class-layers";
+import { classLayerTokenKey } from "../../../utils/class-merge";
 import {
 	type ClassResolution,
 	type ResolvedClassToken,
@@ -46,6 +47,11 @@ export type InventoryItem = {
 	/** True when a later class overrides this one in the same slot. */
 	shadowed?: boolean;
 	shadowedBy?: number;
+	/**
+	 * True when merging the component's classes removes this one, so it does
+	 * not render (see `ClassMergeSettings`).
+	 */
+	removedByMerge?: boolean;
 };
 
 export type ClassConflict = {
@@ -150,18 +156,21 @@ function getInventoryResolution(
 function itemFromToken(
 	token: ResolvedClassToken,
 	options: ClassNameOptions,
+	removedByMerge: boolean,
 ): InventoryItem {
 	const source = token.layer.source;
+	const status = removedByMerge ? "shadowed" : token.status;
 	const base = {
 		raw: token.classToken,
 		source,
 		sourceLabel: sourceLabel(source),
 		layerIndex: token.layer.index,
 		tokenIndex: token.layer.tokenIndex,
-		status: token.status,
+		status,
 		readOnly: isReadOnlySource(source),
-		shadowed: token.status === "shadowed" ? true : undefined,
+		shadowed: status === "shadowed" ? true : undefined,
 		shadowedBy: token.shadowedBy,
+		removedByMerge: removedByMerge || undefined,
 	};
 	const intent =
 		token.intent ??
@@ -188,9 +197,15 @@ function itemFromToken(
 	};
 }
 
+/**
+ * `removedByMerge`: the tokens merging removes, keyed by
+ * `classLayerTokenKey` (`findClassesRemovedByMerge`). They count as
+ * shadowed, whatever the syntactic conflict check says.
+ */
 export function buildClassInventory(
 	input: ClassInventoryInput,
 	options: ClassNameOptions,
+	removedByMerge?: ReadonlySet<string>,
 ): ClassInventory {
 	const { resolution, hasLayerMetadata } = getInventoryResolution(
 		input,
@@ -199,7 +214,15 @@ export function buildClassInventory(
 	const items: InventoryItem[] = [];
 
 	for (const token of resolution.tokens) {
-		items.push(itemFromToken(token, options));
+		items.push(
+			itemFromToken(
+				token,
+				options,
+				removedByMerge?.has(
+					classLayerTokenKey(token.layer.index, token.layer.tokenIndex),
+				) ?? false,
+			),
+		);
 	}
 
 	const slots = new Map<string, { property: string; raws: string[] }>();

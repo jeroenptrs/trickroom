@@ -130,6 +130,7 @@ Classes:
 - Suggestions for the class under the caret come from the linked system's compiled Tailwind design system: every utility, including the project's theme tokens and custom `@utility` definitions, and every variant (`hover:`, `md:`, `dark:`, `group-hover:` …). Without a linked system, suggestions come from default Tailwind. Use the arrow keys to move through suggestions, `Enter` or `Tab` to accept, `Escape` to close the list, and `Ctrl` + `Space` to open it.
 - Classes Tailwind does not recognize get a wavy red underline and a line below the field, with a "did you mean" fix when a close match exists. Classes that a later class overrides (`p-4` followed by `p-6`) are listed with a one-click remove.
 - Classes the layer inherits are listed above the field as read-only chips, grouped by where they come from: **Recipe** (library base classes), **Component**, **Variant**, and **Compound variant**. A struck-through chip is overridden by a later class. On a component instance, the field edits the instance's class override, not the component.
+- On a component instance, classes merge like in code: a class in the override removes the component class it conflicts with (`hidden` removes the component's `flex`), and the struck-through chips show which ones merging removed. See [Canvas Class Merging](tailwind-design-systems.md#canvas-class-merging).
 - In the component draft inspector, the **Style target** picker chooses which classes you edit: the base template, a variant value, or a compound variant. Each active target gets its own field.
 
 Properties:

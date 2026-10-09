@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { classLayerTokenKey } from "../../../utils/class-merge";
 import { buildClassInventory } from "./classInventory";
 
 const opts = { colorTokens: new Set(["red-500"]) };
@@ -159,5 +160,31 @@ describe("buildClassInventory", () => {
 			"authored-separator",
 		]);
 		expect(inv.items.every((item) => item.readOnly)).toBe(true);
+	});
+
+	it("marks the classes merging removes as shadowed, by the merge", () => {
+		const inv = buildClassInventory(
+			{
+				layers: [
+					{ source: "system-template", className: "flex text-label-sm" },
+					{ source: "instance-override", className: "hidden" },
+				],
+			},
+			opts,
+			new Set([classLayerTokenKey(0, 0)]),
+		);
+
+		expect(
+			inv.items.map((item) => ({
+				raw: item.raw,
+				status: item.status,
+				removedByMerge: item.removedByMerge,
+			})),
+		).toEqual([
+			{ raw: "flex", status: "shadowed", removedByMerge: true },
+			{ raw: "text-label-sm", status: "active", removedByMerge: undefined },
+			{ raw: "hidden", status: "active", removedByMerge: undefined },
+		]);
+		expect(inv.shadowed.map((item) => item.raw)).toEqual(["flex"]);
 	});
 });

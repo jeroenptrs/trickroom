@@ -302,7 +302,7 @@ describe("design.non-canonical-class", () => {
 			}),
 			tailwind: {
 				inspector: async () => loaded,
-				mergeConfig: async () => null,
+				mergeConfig: async () => ({ status: "stock" }),
 			},
 		};
 	};

@@ -82,7 +82,7 @@ export const findOverrideTargetForCapability = (
 };
 
 export const getOverrideTargetIdsForCapability = (
-	version: PublishedSystemComponentVersion,
+	version: Pick<PublishedSystemComponentVersion, "overrideTargets">,
 	path: string,
 	capability: SystemComponentOverrideCapability,
 ) =>
@@ -247,7 +247,7 @@ export const readSystemComponentOverrideValue = (
 };
 
 export const resolveSystemComponentOverrideValue = (
-	version: PublishedSystemComponentVersion,
+	version: Pick<PublishedSystemComponentVersion, "overrideTargets">,
 	path: string,
 	capability: SystemComponentOverrideCapability,
 	overrides: SystemComponentInstanceOverrides = {},

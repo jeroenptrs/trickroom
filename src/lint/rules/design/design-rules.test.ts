@@ -264,7 +264,7 @@ const contextFor = (
 		}),
 		tailwind: {
 			inspector: async () => inspector,
-			mergeConfig: async () => null,
+			mergeConfig: async () => ({ status: "stock" }),
 		},
 	};
 };

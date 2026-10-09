@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
+import {
+	getTailwindSourceFiles,
+	subscribeTailwindSourceFiles,
+} from "../utils/tailwind-source-files";
 import { createDesignFileService } from "./design-file-service";
 import { calculateManifestRevision } from "./design-revision";
 import { inspectDesignStorage } from "./design-storage";
@@ -9,9 +14,15 @@ import { inspectDesignStorage } from "./design-storage";
 export type TrickroomFileEvent = {
 	/**
 	 * What changed, relative to `.trickroom`. Design events name the design,
-	 * `designs/<id>`, whatever files of it changed.
+	 * `designs/<id>`, whatever files of it changed. For `tailwind-source`
+	 * events, relative to the project root.
 	 */
 	file: string;
+	/**
+	 * `tailwind-source`: a stylesheet a system's Tailwind CSS reads (its
+	 * entry or an imported file) changed, outside `.trickroom`.
+	 */
+	kind?: "tailwind-source";
 	/**
 	 * Opaque revision of the changed file or, for a design, the design's
 	 * revision; null when it was deleted.
@@ -54,6 +65,9 @@ const DEFAULT_MAX_WAIT_MS = 250;
  */
 const WATCHER_REPEAT_WINDOW_MS = 60;
 
+/** How long after watching a new folder its entries are checked once more. */
+const ANCESTOR_RECHECK_MS = 150;
+
 const toRevision = (contents: Buffer): string =>
 	`sha256:${createHash("sha256").update(contents).digest("hex")}`;
 
@@ -70,13 +84,18 @@ type WatchedFile =
 /**
  * Classifies a path relative to `.trickroom`. Changes to any file of a
  * design (its manifest, board files and journal, or a legacy single file)
- * are design changes, batched per design; memory files and system files
- * (including `lint.json` and `lint-report.json`) are reported as files.
+ * are design changes, batched per design; memory files, system files
+ * (including `lint.json` and `lint-report.json`) and the project config are
+ * reported as files.
  * Temporary files, lock files and saved conflicts are ignored.
  */
 export const classifyTrickroomFile = (
 	relativeFile: string,
 ): WatchedFile | null => {
+	// The project config: `codegen.twMerge` decides how classes merge.
+	if (relativeFile === "config.json") {
+		return { kind: "file" };
+	}
 	if (relativeFile.startsWith("systems/")) {
 		// Atomic writes (components.json, lint-report.json) go through a
 		// `.tmp` sibling that is renamed into place; only the target matters.
@@ -166,6 +185,12 @@ export class ProjectFileEvents {
 	/** Designs whose last event reported them deleted, to drop repeats. */
 	private readonly deletedDesigns = new Set<string>();
 	private watcher: FSWatcher | null = null;
+	/** Watches the system stylesheets the Tailwind caches have read. */
+	private sourceWatcher: FSWatcher | null = null;
+	private ancestorWatcher: FSWatcher | null = null;
+	/** The folders `ancestorWatcher` watches, with how many files wait on each. */
+	private stylesheetAncestorRefs: Map<string, number> = new Map();
+	private unsubscribeSources: (() => void) | null = null;
 	private projectRoot: string | null = null;
 	private watcherGeneration = 0;
 	private readonly debounceMs: number;
@@ -249,6 +274,209 @@ export class ProjectFileEvents {
 		watcher.on("add", schedule);
 		watcher.on("change", schedule);
 		watcher.on("unlink", schedule);
+
+		this.watchTailwindSources(this.projectRoot);
+	}
+
+	/**
+	 * Reports edits to the stylesheets a system's Tailwind CSS reads (its entry
+	 * and the files it imports) that live in the project but outside
+	 * `.trickroom`, as `tailwind-source` events. Files join as the Tailwind
+	 * caches resolve them, before reading them, so a missing import is watched
+	 * too and creating it (or its folder) lets a failed load recover. Files
+	 * outside the project and packages under `node_modules` are left out.
+	 */
+	private watchTailwindSources(projectRoot: string) {
+		const sourceWatcher = chokidar.watch([], { ignoreInitial: true });
+		this.sourceWatcher = sourceWatcher;
+		const trickroomDir = path.join(projectRoot, ".trickroom") + path.sep;
+		const isProjectSource = (filePath: string) => {
+			const relative = path.relative(projectRoot, filePath);
+			return (
+				relative.length > 0 &&
+				!relative.startsWith("..") &&
+				!path.isAbsolute(relative) &&
+				!filePath.startsWith(trickroomDir) &&
+				!relative.split(path.sep).includes("node_modules")
+			);
+		};
+		const schedule = (filePath: string) =>
+			this.scheduleTailwindSource(projectRoot, filePath);
+		/**
+		 * Files whose folder does not exist yet, each with the nearest existing
+		 * folder above it, which `ancestorWatcher` watches (only its direct
+		 * entries) to see the next folder appear. Folders are counted and
+		 * dropped once no file waits on them; the watcher exists only while a
+		 * file waits.
+		 */
+		const waiting = new Map<string, string>();
+		/** Files whose folder appeared before they did, checked once more. */
+		const settling = new Set<string>();
+		const ancestorRefs = new Map<string, number>();
+		this.stylesheetAncestorRefs = ancestorRefs;
+		const nearestExistingAncestor = (filePath: string) => {
+			let ancestor = path.dirname(path.dirname(filePath));
+			while (
+				!existsSync(ancestor) &&
+				ancestor.length > projectRoot.length &&
+				ancestor !== path.dirname(ancestor)
+			) {
+				ancestor = path.dirname(ancestor);
+			}
+			return ancestor;
+		};
+		// A folder created right after its parent joins the watcher, before
+		// chokidar watches it, reports nothing: look again shortly after.
+		const recheckKey = "tailwind-source-ancestors";
+		const scheduleRecheck = () => {
+			if (this.pending.has(recheckKey)) return;
+			this.pending.set(
+				recheckKey,
+				setTimeout(() => {
+					this.pending.delete(recheckKey);
+					if (this.sourceWatcher !== sourceWatcher) return;
+					onAddDir();
+					// Files whose folder appeared before they did: written before
+					// their watch was ready, they report nothing either.
+					for (const filePath of settling) {
+						if (existsSync(filePath)) schedule(filePath);
+					}
+					settling.clear();
+				}, ANCESTOR_RECHECK_MS),
+			);
+		};
+		/** The folders the current ancestor watcher watches. */
+		let watchedAncestors = new Set<string>();
+		// Brings the ancestor watcher in line with the counted folders. New
+		// folders are added; when one is no longer needed the watcher is
+		// replaced, since chokidar's unwatch also ignores everything below the
+		// folder, where other waiting files may be. No folder, no watcher.
+		const syncAncestorWatcher = () => {
+			const needed = new Set(ancestorRefs.keys());
+			const removed = [...watchedAncestors].some((dir) => !needed.has(dir));
+			if (needed.size === 0 || removed) {
+				const watcher = this.ancestorWatcher;
+				this.ancestorWatcher = null;
+				watchedAncestors = new Set();
+				if (watcher) void watcher.close();
+				if (needed.size === 0) return;
+			}
+			const added = [...needed].filter((dir) => !watchedAncestors.has(dir));
+			if (added.length === 0) return;
+			if (!this.ancestorWatcher) {
+				const watcher = chokidar.watch([], { ignoreInitial: true, depth: 0 });
+				watcher.on("addDir", onAddDir);
+				this.ancestorWatcher = watcher;
+			}
+			this.ancestorWatcher.add(added);
+			for (const dir of added) watchedAncestors.add(dir);
+			scheduleRecheck();
+		};
+		const retain = (ancestor: string) => {
+			ancestorRefs.set(ancestor, (ancestorRefs.get(ancestor) ?? 0) + 1);
+		};
+		const release = (ancestor: string) => {
+			const count = (ancestorRefs.get(ancestor) ?? 0) - 1;
+			if (count > 0) ancestorRefs.set(ancestor, count);
+			else ancestorRefs.delete(ancestor);
+		};
+		const wait = (filePath: string) => {
+			const ancestor = nearestExistingAncestor(filePath);
+			const previous = waiting.get(filePath);
+			if (previous === ancestor) return;
+			waiting.set(filePath, ancestor);
+			retain(ancestor);
+			if (previous !== undefined) release(previous);
+		};
+		function onAddDir() {
+			for (const [filePath, ancestor] of [...waiting]) {
+				if (!existsSync(path.dirname(filePath))) {
+					wait(filePath);
+					continue;
+				}
+				// The folder exists now: watch the file afresh, and report it
+				// when it was created along with its folder.
+				waiting.delete(filePath);
+				release(ancestor);
+				sourceWatcher.unwatch(filePath);
+				sourceWatcher.add(filePath);
+				if (existsSync(filePath)) {
+					schedule(filePath);
+				} else {
+					settling.add(filePath);
+					scheduleRecheck();
+				}
+			}
+			syncAncestorWatcher();
+		}
+		const add = (files: readonly string[]) => {
+			const watched = files.filter(isProjectSource);
+			if (watched.length === 0) return;
+			sourceWatcher.add(watched);
+			for (const filePath of watched) {
+				if (!existsSync(path.dirname(filePath))) wait(filePath);
+			}
+			syncAncestorWatcher();
+		};
+		add(getTailwindSourceFiles());
+		this.unsubscribeSources = subscribeTailwindSourceFiles(add);
+		sourceWatcher.on("add", schedule);
+		sourceWatcher.on("change", schedule);
+		sourceWatcher.on("unlink", schedule);
+	}
+
+	/**
+	 * The folders watched for missing stylesheet folders to appear; null
+	 * while no stylesheet waits for its folder. For tests.
+	 */
+	getWatchedStylesheetAncestors(): string[] | null {
+		return this.ancestorWatcher
+			? [...this.stylesheetAncestorRefs.keys()].sort()
+			: null;
+	}
+
+	private scheduleTailwindSource(projectRoot: string, filePath: string) {
+		const key = `tailwind-source:${filePath}`;
+		const previous = this.pending.get(key);
+		if (previous) {
+			clearTimeout(previous);
+		}
+		this.pending.set(
+			key,
+			setTimeout(() => {
+				this.pending.delete(key);
+				void this.emitTailwindSource(projectRoot, filePath);
+			}, this.debounceMs),
+		);
+	}
+
+	private async emitTailwindSource(projectRoot: string, filePath: string) {
+		if (this.projectRoot !== projectRoot) {
+			return;
+		}
+		const file = path.relative(projectRoot, filePath).split(path.sep).join("/");
+		let event: TrickroomFileEvent;
+		try {
+			event = {
+				file,
+				kind: "tailwind-source",
+				revision: toRevision(await readFile(filePath)),
+				operation: "changed",
+			};
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+				return;
+			}
+			event = {
+				file,
+				kind: "tailwind-source",
+				revision: null,
+				operation: "deleted",
+			};
+		}
+		for (const listener of this.listeners) {
+			listener(event);
+		}
 	}
 
 	private schedule(filePath: string) {
@@ -515,6 +743,18 @@ export class ProjectFileEvents {
 		this.watcher = null;
 		if (watcher) {
 			await watcher.close();
+		}
+		this.unsubscribeSources?.();
+		this.unsubscribeSources = null;
+		const sourceWatcher = this.sourceWatcher;
+		this.sourceWatcher = null;
+		if (sourceWatcher) {
+			await sourceWatcher.close();
+		}
+		const ancestorWatcher = this.ancestorWatcher;
+		this.ancestorWatcher = null;
+		if (ancestorWatcher) {
+			await ancestorWatcher.close();
 		}
 
 		for (const timer of this.pending.values()) {

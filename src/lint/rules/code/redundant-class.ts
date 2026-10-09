@@ -26,7 +26,8 @@ import {
  * Redundancy follows `twMerge`, what tv() merges with: with the
  * tailwind-merge config derived from the system's Tailwind CSS when
  * `codegen.twMerge` generates it for this system (so `text-label-sm` keeps
- * its own group next to `text-brand-9`), stock otherwise: a
+ * its own group next to `text-brand-9`), stock otherwise; when that config
+ * cannot be derived, nothing is checked and one `info` finding says why: a
  * class is redundant when appending it to the provided classes (base,
  * then the selected values in codegen's layering order) leaves the merged
  * classes unchanged, and removing it from the usage's className leaves
@@ -264,7 +265,21 @@ export const redundantClassRule: LintRuleKind = {
 	run: async (context) => {
 		const analysis = getCodeAnalysis(context);
 		const findings: LintRuleFinding[] = [];
-		const merge = createTwMerge(await context.tailwind.mergeConfig());
+		const mergeConfig = await context.tailwind.mergeConfig();
+		// Every finding depends on how tv() merges: without the project's
+		// config, stock tailwind-merge would report classes the app keeps.
+		if (mergeConfig.status === "failed") {
+			return [
+				{
+					message: `The tailwind-merge config codegen.twMerge generates could not be derived, so redundant classes were not checked: ${mergeConfig.message}`,
+					location: null,
+					severity: "info",
+				},
+			];
+		}
+		const merge = createTwMerge(
+			mergeConfig.status === "derived" ? mergeConfig.config : null,
+		);
 		const mergedSet = (classes: readonly string[]) =>
 			mergedSetOf(merge, classes);
 		for (const usage of context.sources.usages) {

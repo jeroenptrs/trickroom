@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { __unstable__loadDesignSystem } from "tailwindcss";
 import { defaultTailwindTokensByDomain } from "./default-tailwind-tokens.ts";
+import { recordTailwindSourceFiles } from "./tailwind-source-files.ts";
 
 /**
  * Loading a project's Tailwind design system: stylesheet resolution, the
@@ -61,6 +62,8 @@ export async function loadTrackedTailwindDesignSystem({
 	// Stamp before reading, so a write that lands during the compile makes
 	// the entry stale rather than cached with the old content.
 	fileStamps.set(rootPath, await statStamp(rootPath));
+	// Watched before it is read, so a failing load still recovers on an edit.
+	recordTailwindSourceFiles([rootPath]);
 	const css = await readFile(rootPath, "utf8");
 
 	// Accumulate the content of every stylesheet the DS loads so callers can
@@ -226,6 +229,9 @@ export function resolveTailwindCssPath(projectRoot: string, cssPath: string) {
 
 export async function loadStylesheet(id: string, base: string) {
 	const stylesheetPath = await resolveStylesheet(id, base);
+	// Recorded before the read: an import of a missing file is watched, so
+	// creating it lets a failed load recover.
+	recordTailwindSourceFiles([stylesheetPath]);
 
 	return {
 		path: stylesheetPath,

@@ -16,6 +16,7 @@ import {
 	sanitizeSpacingThemeToken,
 	type TailwindDesignSystem,
 } from "./tailwind-design-system-loader.ts";
+import { recordTailwindSourceFiles } from "./tailwind-source-files.ts";
 
 export {
 	type LoadedTailwindDesignSystem,
@@ -304,6 +305,7 @@ async function getCompiledStylesheet(
 		return cached.compiled;
 	}
 
+	recordTailwindSourceFiles([rootPath]);
 	const rawCss = await readFile(rootPath, "utf8");
 	// A system's configured cssPath may be a *theme fragment* that is meant to be
 	// imported AFTER `@import "tailwindcss"` (e.g. a `themes/*.css` consumed by an
@@ -468,6 +470,7 @@ export async function loadCanvasTailwindDesignSystem({
 
 	if (cssPath !== null) {
 		const rootPath = resolveTailwindCssPath(projectRoot, cssPath);
+		recordTailwindSourceFiles([rootPath]);
 		const rawCss = await readFile(rootPath, "utf8");
 		const entryMtime = await statMtimeMs(rootPath);
 		if (entryMtime !== null) {

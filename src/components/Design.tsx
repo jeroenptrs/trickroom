@@ -12,6 +12,7 @@ import {
 } from "react";
 import Frame from "react-frame-component";
 import { useParams } from "react-router";
+import { useClassMerge } from "../hooks/useClassMerge";
 import { useCompiledTailwind } from "../hooks/useCompiledTailwind";
 import { useDesignDeepLink } from "../hooks/useDesignDeepLink";
 import { useDesignLiveSync } from "../hooks/useDesignLiveSync";
@@ -77,6 +78,7 @@ import {
 } from "./responsive-stage-zoom";
 import { Artboards } from "./stage/Artboards";
 import { Canvas } from "./stage/Canvas";
+import { ClassMergeContext } from "./stage/class-merge-context";
 import { StageChangeHighlight } from "./stage/StageChangeHighlight";
 import { StageFocusHighlight } from "./stage/StageFocusHighlight";
 
@@ -301,6 +303,7 @@ export function Design() {
 	useCompiledTailwind(iframeRef, didMount, liveSystemId);
 	useInjectSystemAssets(iframeRef, didMount, liveSystemId);
 	useInjectSystemFonts(iframeRef, didMount, liveSystemId);
+	const classMerge = useClassMerge(liveSystemId);
 
 	const selectedId = useSelectedId();
 	useHotkey("Escape", () => selectElement(null), {
@@ -380,9 +383,11 @@ export function Design() {
 			<IFrameViewContext.Provider value={view}>
 				<ResponsiveStageContext.Provider value={responsiveStage}>
 					<ResponsiveStageZoomContext.Provider value={responsiveStageZoom}>
-						<StagePreviewDarkModeProvider key={designId}>
-							<EditorShell designId={designId}>{stage}</EditorShell>
-						</StagePreviewDarkModeProvider>
+						<ClassMergeContext.Provider value={classMerge}>
+							<StagePreviewDarkModeProvider key={designId}>
+								<EditorShell designId={designId}>{stage}</EditorShell>
+							</StagePreviewDarkModeProvider>
+						</ClassMergeContext.Provider>
 					</ResponsiveStageZoomContext.Provider>
 				</ResponsiveStageContext.Provider>
 			</IFrameViewContext.Provider>

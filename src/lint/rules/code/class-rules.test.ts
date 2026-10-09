@@ -344,6 +344,24 @@ describe("code.redundant-class", () => {
 		expect(describeFindings(await fixture.run(redundantClassRule))).toEqual([
 			'src/app.tsx:5:19 <Tag className> repeats "text-royal-9", which "tag" already applies through its base classes. Remove it from className.',
 		]);
+		// codegen.twMerge is on but its config cannot be derived: stock
+		// tailwind-merge is not what the app merges with, so nothing is
+		// checked, and one note says why.
+		expect(
+			await fixture.run(redundantClassRule, {
+				mergeFailure: {
+					status: "failed",
+					message: "merge group typography matches no utility",
+				},
+			}),
+		).toEqual([
+			{
+				message:
+					"The tailwind-merge config codegen.twMerge generates could not be derived, so redundant classes were not checked: merge group typography matches no utility",
+				location: null,
+				severity: "info",
+			},
+		]);
 	});
 
 	it("counts the compound variants the element selects as provided", async () => {

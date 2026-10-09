@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Node, TrickroomDesign } from "../types";
+import { loadDerivedTwMerge } from "../utils/tailwind-merge-derive";
+import { recordTailwindSourceFiles } from "../utils/tailwind-source-files";
 import { createDesignFileService } from "./design-file-service";
 import { calculateManifestRevision } from "./design-revision";
 import {
@@ -80,7 +82,8 @@ describe("project file events", () => {
 		expect(
 			isWatchedTrickroomFile("systems/core/lint-report.json.reclaim"),
 		).toBe(false);
-		expect(isWatchedTrickroomFile("config.json")).toBe(false);
+		expect(isWatchedTrickroomFile("config.json")).toBe(true);
+		expect(isWatchedTrickroomFile(".config.json.123.tmp")).toBe(false);
 
 		expect(classifyTrickroomFile("designs/home/design.json")).toEqual({
 			kind: "design",
@@ -386,6 +389,219 @@ describe("project file events", () => {
 			file: "designs/home/memory.json",
 			operation: "changed",
 		});
+		unsubscribe();
+	});
+
+	it("reports the project config as a file", async () => {
+		const root = await createProjectRoot();
+		const { received, unsubscribe } = await subscribe(root);
+
+		await writeFile(path.join(root, ".trickroom", "config.json"), "{}");
+
+		await vi.waitFor(() => expect(received).toHaveLength(1), {
+			timeout: 2_000,
+		});
+		expect(received[0]).toMatchObject({
+			file: "config.json",
+			operation: "changed",
+		});
+		unsubscribe();
+	});
+
+	it("reports edits to the system stylesheets the Tailwind caches read", async () => {
+		const root = await createProjectRoot();
+		await mkdir(path.join(root, "styles"), { recursive: true });
+		const theme = path.join(root, "styles", "theme.css");
+		const vendored = path.join(root, "node_modules", "pkg", "index.css");
+		await mkdir(path.dirname(vendored), { recursive: true });
+		await writeFile(theme, "@theme {}\n");
+		await writeFile(vendored, "\n");
+		// Read before the watcher starts, and after: both are watched.
+		recordTailwindSourceFiles([theme]);
+		const { received, unsubscribe } = await subscribe(root);
+		const imported = path.join(root, "styles", "utilities.css");
+		await writeFile(imported, "\n");
+		recordTailwindSourceFiles([imported, vendored]);
+		await new Promise((resolve) => setTimeout(resolve, 150));
+
+		await writeFile(theme, "@theme { --color-brand: red; }\n");
+		await writeFile(imported, "@utility card { padding: 1rem; }\n");
+		await writeFile(vendored, "/* not watched */\n");
+
+		await vi.waitFor(() => expect(received).toHaveLength(2), {
+			timeout: 2_000,
+		});
+		expect(
+			received.map(({ file, kind, operation }) => ({ file, kind, operation })),
+		).toEqual(
+			expect.arrayContaining([
+				{
+					file: "styles/theme.css",
+					kind: "tailwind-source",
+					operation: "changed",
+				},
+				{
+					file: "styles/utilities.css",
+					kind: "tailwind-source",
+					operation: "changed",
+				},
+			]),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(received).toHaveLength(2);
+		unsubscribe();
+	});
+
+	describe("a system stylesheet that fails to load cold", () => {
+		const coldFailure = async (entryCss: string) => {
+			const root = await createProjectRoot();
+			await mkdir(path.join(root, "styles"), { recursive: true });
+			await writeFile(path.join(root, "styles", "theme.css"), entryCss);
+			const { received, unsubscribe } = await subscribe(root);
+			const options = { projectRoot: root, cssPath: "styles/theme.css" };
+			// Nothing was ever loaded from this project: the load fails cold.
+			await expect(loadDerivedTwMerge(options)).rejects.toThrow();
+			await new Promise((resolve) => setTimeout(resolve, 150));
+			return { root, received, unsubscribe, options };
+		};
+		const sourceEvents = (received: TrickroomFileEvent[]) =>
+			received
+				.filter((event) => event.kind === "tailwind-source")
+				.map((event) => event.file);
+
+		it("recovers when the entry CSS is repaired", async () => {
+			const { root, received, unsubscribe, options } = await coldFailure(
+				'@import "./missing.css";\n',
+			);
+
+			await writeFile(
+				path.join(root, "styles", "theme.css"),
+				"@utility card { padding: 1rem; }\n",
+			);
+
+			await vi.waitFor(
+				() => expect(sourceEvents(received)).toContain("styles/theme.css"),
+				{ timeout: 2_000 },
+			);
+			await expect(loadDerivedTwMerge(options)).resolves.toBeTruthy();
+			unsubscribe();
+		});
+
+		it("recovers when the missing import is created", async () => {
+			const { root, received, unsubscribe, options } = await coldFailure(
+				'@import "./missing.css";\n',
+			);
+
+			await writeFile(
+				path.join(root, "styles", "missing.css"),
+				"@utility card { padding: 1rem; }\n",
+			);
+
+			await vi.waitFor(
+				() => expect(sourceEvents(received)).toContain("styles/missing.css"),
+				{ timeout: 2_000 },
+			);
+			await expect(loadDerivedTwMerge(options)).resolves.toBeTruthy();
+			unsubscribe();
+		});
+
+		it("recovers when the missing import's folder is created with it", async () => {
+			const { root, received, unsubscribe, options } = await coldFailure(
+				'@import "./parts/deep/missing.css";\n',
+			);
+
+			await mkdir(path.join(root, "styles", "parts", "deep"), {
+				recursive: true,
+			});
+			await writeFile(
+				path.join(root, "styles", "parts", "deep", "missing.css"),
+				"@utility card { padding: 1rem; }\n",
+			);
+
+			await vi.waitFor(
+				() =>
+					expect(sourceEvents(received)).toContain(
+						"styles/parts/deep/missing.css",
+					),
+				{ timeout: 3_000 },
+			);
+			await expect(loadDerivedTwMerge(options)).resolves.toBeTruthy();
+			unsubscribe();
+		});
+	});
+
+	it("stops watching a missing folder's ancestors once nothing waits on them", async () => {
+		const root = await createProjectRoot();
+		const styles = path.join(root, "styles");
+		await mkdir(styles, { recursive: true });
+		const events = new ProjectFileEvents(20, {
+			trickroomHome: path.join(root, "home"),
+		});
+		const received: TrickroomFileEvent[] = [];
+		events.setProjectRoot(root);
+		const unsubscribe = events.subscribe((event) => received.push(event));
+		await new Promise((resolve) => setTimeout(resolve, 75));
+		const files = Array.from({ length: 20 }, (_, index) =>
+			path.join(styles, `part-${index}`, "deep", "missing.css"),
+		);
+		recordTailwindSourceFiles(files);
+		await vi.waitFor(() =>
+			expect(events.getWatchedStylesheetAncestors()).toContain(styles),
+		);
+		const initial = events.getWatchedStylesheetAncestors()?.length ?? 0;
+
+		// Stage 1: every part folder appears; each file now waits on its own.
+		for (const file of files) {
+			await mkdir(path.dirname(path.dirname(file)));
+		}
+		await vi.waitFor(() =>
+			expect(events.getWatchedStylesheetAncestors()).toContain(
+				path.dirname(path.dirname(files[19])),
+			),
+		);
+		// `styles` is no longer needed.
+		await vi.waitFor(() =>
+			expect(events.getWatchedStylesheetAncestors()).not.toContain(styles),
+		);
+
+		// Stage 2: half of the files appear with their folders.
+		for (const file of files.slice(0, 10)) {
+			await mkdir(path.dirname(file));
+			await writeFile(file, "/* created */\n");
+		}
+		await vi.waitFor(() => {
+			const watched = events.getWatchedStylesheetAncestors() ?? [];
+			expect(
+				files
+					.slice(0, 10)
+					.some((file) => watched.includes(path.dirname(path.dirname(file)))),
+			).toBe(false);
+			expect(watched).toContain(path.dirname(path.dirname(files[10])));
+		});
+		expect(
+			events.getWatchedStylesheetAncestors()?.length ?? 0,
+		).toBeLessThanOrEqual(initial + 10);
+
+		// Stage 3: the rest; nothing waits, so the ancestor watcher is closed.
+		for (const file of files.slice(10)) {
+			await mkdir(path.dirname(file));
+			await writeFile(file, "/* created */\n");
+		}
+		await vi.waitFor(
+			() => expect(events.getWatchedStylesheetAncestors()).toBeNull(),
+			{ timeout: 3_000 },
+		);
+		await vi.waitFor(
+			() =>
+				expect(
+					new Set(
+						received
+							.filter((event) => event.kind === "tailwind-source")
+							.map((event) => event.file),
+					).size,
+				).toBe(20),
+			{ timeout: 3_000 },
+		);
 		unsubscribe();
 	});
 });
