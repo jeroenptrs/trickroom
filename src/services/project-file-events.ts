@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
@@ -183,6 +184,7 @@ export class ProjectFileEvents {
 	private watcher: FSWatcher | null = null;
 	/** Watches the system stylesheets the Tailwind caches have read. */
 	private sourceWatcher: FSWatcher | null = null;
+	private ancestorWatcher: FSWatcher | null = null;
 	private unsubscribeSources: (() => void) | null = null;
 	private projectRoot: string | null = null;
 	private watcherGeneration = 0;
@@ -275,29 +277,73 @@ export class ProjectFileEvents {
 	 * Reports edits to the stylesheets a system's Tailwind CSS reads (its entry
 	 * and the files it imports) that live in the project but outside
 	 * `.trickroom`, as `tailwind-source` events. Files join as the Tailwind
-	 * caches read them; packages under `node_modules` are left out.
+	 * caches resolve them, before reading them, so a missing import is watched
+	 * too and creating it (or its folder) lets a failed load recover. Files
+	 * outside the project and packages under `node_modules` are left out.
 	 */
 	private watchTailwindSources(projectRoot: string) {
 		const sourceWatcher = chokidar.watch([], { ignoreInitial: true });
+		// The nearest existing folder above a file whose folder does not exist
+		// yet; only its direct entries, to see the next folder appear.
+		const ancestorWatcher = chokidar.watch([], {
+			ignoreInitial: true,
+			depth: 0,
+		});
 		this.sourceWatcher = sourceWatcher;
+		this.ancestorWatcher = ancestorWatcher;
 		const trickroomDir = path.join(projectRoot, ".trickroom") + path.sep;
-		const add = (files: readonly string[]) => {
-			const watched = files.filter((filePath) => {
-				const relative = path.relative(projectRoot, filePath);
-				return (
-					relative.length > 0 &&
-					!relative.startsWith("..") &&
-					!path.isAbsolute(relative) &&
-					!filePath.startsWith(trickroomDir) &&
-					!relative.split(path.sep).includes("node_modules")
-				);
-			});
-			if (watched.length > 0) sourceWatcher.add(watched);
+		const isProjectSource = (filePath: string) => {
+			const relative = path.relative(projectRoot, filePath);
+			return (
+				relative.length > 0 &&
+				!relative.startsWith("..") &&
+				!path.isAbsolute(relative) &&
+				!filePath.startsWith(trickroomDir) &&
+				!relative.split(path.sep).includes("node_modules")
+			);
 		};
-		add(getTailwindSourceFiles());
-		this.unsubscribeSources = subscribeTailwindSourceFiles(add);
 		const schedule = (filePath: string) =>
 			this.scheduleTailwindSource(projectRoot, filePath);
+		/** Files whose folder does not exist yet. */
+		const waiting = new Set<string>();
+		const watchAncestorOf = (filePath: string) => {
+			let ancestor = path.dirname(path.dirname(filePath));
+			while (
+				!existsSync(ancestor) &&
+				ancestor.length > projectRoot.length &&
+				ancestor !== path.dirname(ancestor)
+			) {
+				ancestor = path.dirname(ancestor);
+			}
+			ancestorWatcher.add(ancestor);
+		};
+		const add = (files: readonly string[]) => {
+			const watched = files.filter(isProjectSource);
+			if (watched.length === 0) return;
+			sourceWatcher.add(watched);
+			for (const filePath of watched) {
+				if (!existsSync(path.dirname(filePath))) {
+					waiting.add(filePath);
+					watchAncestorOf(filePath);
+				}
+			}
+		};
+		ancestorWatcher.on("addDir", () => {
+			for (const filePath of [...waiting]) {
+				if (!existsSync(path.dirname(filePath))) {
+					watchAncestorOf(filePath);
+					continue;
+				}
+				// The folder exists now: watch the file afresh, and report it
+				// when it was created along with its folder.
+				waiting.delete(filePath);
+				sourceWatcher.unwatch(filePath);
+				sourceWatcher.add(filePath);
+				if (existsSync(filePath)) schedule(filePath);
+			}
+		});
+		add(getTailwindSourceFiles());
+		this.unsubscribeSources = subscribeTailwindSourceFiles(add);
 		sourceWatcher.on("add", schedule);
 		sourceWatcher.on("change", schedule);
 		sourceWatcher.on("unlink", schedule);
@@ -618,6 +664,11 @@ export class ProjectFileEvents {
 		this.sourceWatcher = null;
 		if (sourceWatcher) {
 			await sourceWatcher.close();
+		}
+		const ancestorWatcher = this.ancestorWatcher;
+		this.ancestorWatcher = null;
+		if (ancestorWatcher) {
+			await ancestorWatcher.close();
 		}
 
 		for (const timer of this.pending.values()) {

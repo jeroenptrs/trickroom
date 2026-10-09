@@ -286,6 +286,8 @@ async function loadTrackedTailwindDesignSystem({
 	// Stamp before reading, so a write that lands during the compile makes
 	// the entry stale rather than cached with the old content.
 	fileStamps.set(rootPath, await statStamp(rootPath));
+	// Watched before it is read, so a failing load still recovers on an edit.
+	recordTailwindSourceFiles([rootPath]);
 	const css = await readFile(rootPath, "utf8");
 
 	// Accumulate the content of every stylesheet the DS loads so callers can
@@ -323,7 +325,6 @@ async function loadTrackedTailwindDesignSystem({
 		);
 	});
 
-	recordTailwindSourceFiles(fileStamps.keys());
 	return {
 		designSystem,
 		rootPath,
@@ -449,6 +450,7 @@ async function getCompiledStylesheet(
 		return cached.compiled;
 	}
 
+	recordTailwindSourceFiles([rootPath]);
 	const rawCss = await readFile(rootPath, "utf8");
 	// A system's configured cssPath may be a *theme fragment* that is meant to be
 	// imported AFTER `@import "tailwindcss"` (e.g. a `themes/*.css` consumed by an
@@ -501,7 +503,6 @@ async function getCompiledStylesheet(
 		fileMtimes,
 		compiled,
 	});
-	recordTailwindSourceFiles(fileMtimes.keys());
 	return compiled;
 }
 
@@ -614,6 +615,7 @@ export async function loadCanvasTailwindDesignSystem({
 
 	if (cssPath !== null) {
 		const rootPath = resolveTailwindCssPath(projectRoot, cssPath);
+		recordTailwindSourceFiles([rootPath]);
 		const rawCss = await readFile(rootPath, "utf8");
 		const entryMtime = await statMtimeMs(rootPath);
 		if (entryMtime !== null) {
@@ -645,7 +647,6 @@ export async function loadCanvasTailwindDesignSystem({
 		);
 	});
 
-	recordTailwindSourceFiles(fileMtimes.keys());
 	return { designSystem, fileMtimes };
 }
 
@@ -701,6 +702,9 @@ function normalizeConfiguredCssPath(projectRoot: string, cssPath: string) {
 
 async function loadStylesheet(id: string, base: string) {
 	const stylesheetPath = await resolveStylesheet(id, base);
+	// Recorded before the read: an import of a missing file is watched, so
+	// creating it lets a failed load recover.
+	recordTailwindSourceFiles([stylesheetPath]);
 
 	return {
 		path: stylesheetPath,

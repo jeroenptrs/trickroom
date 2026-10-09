@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Node, TrickroomDesign } from "../types";
+import { loadDerivedTwMerge } from "../utils/tailwind-merge-derive";
 import { recordTailwindSourceFiles } from "../utils/tailwind-source-files";
 import { createDesignFileService } from "./design-file-service";
 import { calculateManifestRevision } from "./design-revision";
@@ -449,5 +450,83 @@ describe("project file events", () => {
 		await new Promise((resolve) => setTimeout(resolve, 150));
 		expect(received).toHaveLength(2);
 		unsubscribe();
+	});
+
+	describe("a system stylesheet that fails to load cold", () => {
+		const coldFailure = async (entryCss: string) => {
+			const root = await createProjectRoot();
+			await mkdir(path.join(root, "styles"), { recursive: true });
+			await writeFile(path.join(root, "styles", "theme.css"), entryCss);
+			const { received, unsubscribe } = await subscribe(root);
+			const options = { projectRoot: root, cssPath: "styles/theme.css" };
+			// Nothing was ever loaded from this project: the load fails cold.
+			await expect(loadDerivedTwMerge(options)).rejects.toThrow();
+			await new Promise((resolve) => setTimeout(resolve, 150));
+			return { root, received, unsubscribe, options };
+		};
+		const sourceEvents = (received: TrickroomFileEvent[]) =>
+			received
+				.filter((event) => event.kind === "tailwind-source")
+				.map((event) => event.file);
+
+		it("recovers when the entry CSS is repaired", async () => {
+			const { root, received, unsubscribe, options } = await coldFailure(
+				'@import "./missing.css";\n',
+			);
+
+			await writeFile(
+				path.join(root, "styles", "theme.css"),
+				"@utility card { padding: 1rem; }\n",
+			);
+
+			await vi.waitFor(
+				() => expect(sourceEvents(received)).toContain("styles/theme.css"),
+				{ timeout: 2_000 },
+			);
+			await expect(loadDerivedTwMerge(options)).resolves.toBeTruthy();
+			unsubscribe();
+		});
+
+		it("recovers when the missing import is created", async () => {
+			const { root, received, unsubscribe, options } = await coldFailure(
+				'@import "./missing.css";\n',
+			);
+
+			await writeFile(
+				path.join(root, "styles", "missing.css"),
+				"@utility card { padding: 1rem; }\n",
+			);
+
+			await vi.waitFor(
+				() => expect(sourceEvents(received)).toContain("styles/missing.css"),
+				{ timeout: 2_000 },
+			);
+			await expect(loadDerivedTwMerge(options)).resolves.toBeTruthy();
+			unsubscribe();
+		});
+
+		it("recovers when the missing import's folder is created with it", async () => {
+			const { root, received, unsubscribe, options } = await coldFailure(
+				'@import "./parts/deep/missing.css";\n',
+			);
+
+			await mkdir(path.join(root, "styles", "parts", "deep"), {
+				recursive: true,
+			});
+			await writeFile(
+				path.join(root, "styles", "parts", "deep", "missing.css"),
+				"@utility card { padding: 1rem; }\n",
+			);
+
+			await vi.waitFor(
+				() =>
+					expect(sourceEvents(received)).toContain(
+						"styles/parts/deep/missing.css",
+					),
+				{ timeout: 3_000 },
+			);
+			await expect(loadDerivedTwMerge(options)).resolves.toBeTruthy();
+			unsubscribe();
+		});
 	});
 });
