@@ -32,7 +32,11 @@ import { designOnlyClassTargetRule } from "./rules/design/design-only-class-targ
 import { designUnknownClassTokenRule } from "./rules/design/unknown-class-token";
 import { designUnknownVariantValueRule } from "./rules/design/unknown-variant-value";
 import { createLintRuleRegistry } from "./rules/registry";
-import { type RunLintInput, runLint as runLintWithEveryKind } from "./run-lint";
+import {
+	createTwMergeConfigLoader,
+	type RunLintInput,
+	runLint as runLintWithEveryKind,
+} from "./run-lint";
 
 // The engine is tested with the codegen kinds and the design kinds, so
 // finding lists stay exact (the fixtures have no class or design problems
@@ -771,5 +775,33 @@ describe("runLint", () => {
 					'.trickroom/systems/core/lint.json is invalid: rules["design.unknown-class-token"].options.allow must be a list of strings.',
 			},
 		]);
+	});
+});
+
+describe("createTwMergeConfigLoader", () => {
+	it("derives the merge config from the system CSS once, and is null without CSS or when it fails", async () => {
+		const dir = await mkdtemp(
+			path.join(os.tmpdir(), "trickroom-tw-merge-lint-"),
+		);
+		try {
+			await writeFile(
+				path.join(dir, "theme.css"),
+				"@theme { --db-label-sm: 0.875rem; }\n@utility text-label-* { font-size: --value(--db-label-*); }\n",
+			);
+			await writeFile(
+				path.join(dir, "broken.css"),
+				"@utility broken { @apply not-a-utility; }\n",
+			);
+			const load = createTwMergeConfigLoader(dir, "theme.css");
+			const config = await load();
+			expect(config?.extend.classGroups["font-size"]).toEqual([
+				"text-label-sm",
+			]);
+			expect(await load()).toBe(config);
+			expect(await createTwMergeConfigLoader(dir, null)()).toBeNull();
+			expect(await createTwMergeConfigLoader(dir, "broken.css")()).toBeNull();
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 });

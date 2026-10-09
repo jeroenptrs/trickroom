@@ -20,7 +20,11 @@ import { buildSystemContract, type SystemContract } from "./contract";
 import { buildLintDesignIndex } from "./designs";
 import { lintRuleRegistry } from "./rules/index";
 import type { LintRuleRegistry } from "./rules/registry";
-import { createTailwindInspectorLoader, toPosix } from "./run-lint";
+import {
+	createTailwindInspectorLoader,
+	createTwMergeConfigLoader,
+	toPosix,
+} from "./run-lint";
 import { type LintRunFinding, runLintRules } from "./run-rules";
 import { buildSourceIndex } from "./source/index";
 
@@ -64,6 +68,7 @@ export type DesignLintSetup = {
 	tokens: TailwindTokenStorage | null;
 	diagnostics: DesignLintDiagnostic[];
 	inspector: ReturnType<typeof createTailwindInspectorLoader>;
+	mergeConfig: ReturnType<typeof createTwMergeConfigLoader>;
 };
 
 /** Everything the design rules need from the system, read once per call. */
@@ -124,16 +129,15 @@ export async function loadDesignLintSetup({
 		tokens,
 		codegen: { status: "unconfigured" },
 	});
+	const cssPath = system.manifest.cssPath ?? tokens?.metadata.cssPath ?? null;
 	return {
 		system,
 		contract,
 		config,
 		tokens,
 		diagnostics,
-		inspector: createTailwindInspectorLoader(
-			projectRoot,
-			system.manifest.cssPath ?? tokens?.metadata.cssPath ?? null,
-		),
+		inspector: createTailwindInspectorLoader(projectRoot, cssPath),
+		mergeConfig: createTwMergeConfigLoader(projectRoot, cssPath),
 	};
 }
 
@@ -174,7 +178,7 @@ export async function lintDesign({
 				componentModules: {},
 			}),
 			designs,
-			tailwind: { inspector: setup.inspector },
+			tailwind: { inspector: setup.inspector, mergeConfig: setup.mergeConfig },
 		},
 	});
 

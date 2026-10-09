@@ -14,6 +14,7 @@ import {
 	type SystemComponentDraftPayload,
 	type SystemComponentRecord,
 } from "../../../utils/system-components";
+import type { TwMergeConfig } from "../../../utils/tailwind-merge-config";
 import type { TailwindTokenDomain } from "../../../utils/tailwind-token-domains";
 import type { TailwindUtilityInspection } from "../../../utils/tailwind-utility-inspector";
 import {
@@ -103,6 +104,8 @@ export type LintFixture = {
 		options?: {
 			options?: Record<string, unknown>;
 			inspect?: (candidate: string) => boolean;
+			/** The derived tailwind-merge config; stock merging without one. */
+			mergeConfig?: TwMergeConfig;
 			tokens?: Partial<Record<TailwindTokenDomain, string[]>> | null;
 		},
 	) => Promise<LintRuleFinding[]>;
@@ -217,6 +220,7 @@ export async function createLintFixture(options: {
 									}),
 								}
 							: null,
+					mergeConfig: async () => runOptions.mergeConfig ?? null,
 				},
 			};
 			return kind.run(context);

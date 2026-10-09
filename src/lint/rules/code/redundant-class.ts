@@ -1,6 +1,9 @@
-import { twMerge } from "tailwind-merge";
 import type { CodegenConditionValue } from "../../../codegen/model";
 import { parseClassName } from "../../../utils/tailwind-classname";
+import {
+	createTwMerge,
+	type TwMergeFunction,
+} from "../../../utils/tailwind-merge-config";
 import type { SystemContractComponent } from "../../contract";
 import type { SourceJsxElement } from "../../source/parse";
 import type { LintRuleFinding, LintRuleKind } from "../types";
@@ -20,7 +23,10 @@ import {
  * already applies it through the base classes of its root slot (where a
  * wrapper puts `className`) or the root classes of the variant values the
  * element selects, and of the compound variants those values match.
- * Redundancy follows `twMerge`, what tv() merges with: a
+ * Redundancy follows `twMerge`, what tv() merges with, configured with
+ * the tailwind-merge config derived from the system's Tailwind CSS (so
+ * `text-label-sm` is a font size and `text-brand-9` a colour), or stock
+ * when the system has no CSS: a
  * class is redundant when appending it to the provided classes (base,
  * then the selected values in codegen's layering order) leaves the merged
  * classes unchanged, and removing it from the usage's className leaves
@@ -236,8 +242,8 @@ const providedCombinations = (
 	return provided;
 };
 
-const mergedSet = (classes: readonly string[]) =>
-	new Set(classesOf(twMerge(classes.join(" "))));
+const mergedSetOf = (merge: TwMergeFunction, classes: readonly string[]) =>
+	new Set(classesOf(merge(classes.join(" "))));
 
 const sameSet = (left: ReadonlySet<string>, right: ReadonlySet<string>) =>
 	left.size === right.size && [...left].every((entry) => right.has(entry));
@@ -255,9 +261,12 @@ export const redundantClassRule: LintRuleKind = {
 	defaultSeverity: "warning",
 	description:
 		"A class on a usage's className repeats a class the component already applies through its base classes or the selected variant values.",
-	run: (context) => {
+	run: async (context) => {
 		const analysis = getCodeAnalysis(context);
 		const findings: LintRuleFinding[] = [];
+		const merge = createTwMerge(await context.tailwind.mergeConfig());
+		const mergedSet = (classes: readonly string[]) =>
+			mergedSetOf(merge, classes);
 		for (const usage of context.sources.usages) {
 			const component = analysis.components.get(usage.slug);
 			if (!component || component.shape === null) continue;

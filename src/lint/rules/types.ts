@@ -1,4 +1,5 @@
 import type { CodegenRunResult } from "../../codegen/run-codegen";
+import type { TwMergeConfig } from "../../utils/tailwind-merge-config";
 import type { TailwindUtilityInspection } from "../../utils/tailwind-utility-inspector";
 import type {
 	LintSeverity,
@@ -83,7 +84,15 @@ export type LintRuleContext = {
 	 * use and shared by every rule of the run. Null when the system has no
 	 * `cssPath` or it fails to compile.
 	 */
-	tailwind: { inspector: () => Promise<LintTailwindInspector | null> };
+	tailwind: {
+		inspector: () => Promise<LintTailwindInspector | null>;
+		/**
+		 * The tailwind-merge config derived from the linked CSS
+		 * (`deriveTwMergeConfig`), shared like the inspector. Null without a
+		 * `cssPath` or when it fails to compile: merge with stock tailwind-merge.
+		 */
+		mergeConfig: () => Promise<TwMergeConfig | null>;
+	};
 };
 
 export type LintRuleKind = {

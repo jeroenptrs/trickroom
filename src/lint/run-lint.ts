@@ -20,6 +20,8 @@ import {
 	SystemComponentManifestServiceError,
 } from "../utils/system-component-manifest-service";
 import { loadCachedTailwindDesignSystem } from "../utils/tailwind-design-system";
+import type { TwMergeConfig } from "../utils/tailwind-merge-config";
+import { loadDerivedTwMerge } from "../utils/tailwind-merge-derive";
 import { readDomainTokensReadonly } from "../utils/tailwind-token-store";
 import {
 	LINT_CONFIG_FILE_NAME,
@@ -168,6 +170,27 @@ export const createTailwindInspectorLoader = (
 		}
 		pending ??= loadCachedTailwindDesignSystem({ projectRoot, cssPath })
 			.then(({ designSystem }) => createClassTokenInspector(designSystem))
+			.catch(() => null);
+		return pending;
+	};
+};
+
+/**
+ * Derives the tailwind-merge config from the system CSS on first use for
+ * every rule of a run, through the same cached design system as the
+ * inspector. Null without a `cssPath` or when the CSS fails to compile.
+ */
+export const createTwMergeConfigLoader = (
+	projectRoot: string,
+	cssPath: string | null,
+): (() => Promise<TwMergeConfig | null>) => {
+	let pending: Promise<TwMergeConfig | null> | null = null;
+	return () => {
+		if (!cssPath?.trim()) {
+			return Promise.resolve(null);
+		}
+		pending ??= loadDerivedTwMerge({ projectRoot, cssPath })
+			.then((derived) => derived.config)
 			.catch(() => null);
 		return pending;
 	};
@@ -700,6 +723,7 @@ async function runLintInner(
 	});
 
 	// Rules.
+	const cssPath = system.manifest.cssPath ?? tokens?.metadata.cssPath ?? null;
 	const rulesRun = await runLintRules({
 		registry,
 		config,
@@ -711,10 +735,8 @@ async function runLintInner(
 			sources,
 			designs,
 			tailwind: {
-				inspector: createTailwindInspectorLoader(
-					projectRoot,
-					system.manifest.cssPath ?? tokens?.metadata.cssPath ?? null,
-				),
+				inspector: createTailwindInspectorLoader(projectRoot, cssPath),
+				mergeConfig: createTwMergeConfigLoader(projectRoot, cssPath),
 			},
 		},
 	});
