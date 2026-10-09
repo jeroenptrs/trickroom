@@ -23,50 +23,44 @@ import type { TwMergeConfig } from "./tailwind-merge-config";
  * - Theme: tailwind-merge's theme keys are Tailwind's theme namespaces
  *   (`color` ↔ `--color-*`, `text` ↔ `--text-*`, `spacing` ↔ `--spacing-*`),
  *   so each key lists the keys of its namespace.
- * - Custom `@utility` classes are classified by the CSS Tailwind generates
- *   for them: a class whose declarations are those of a stock utility's
- *   (compiled from an arbitrary-value probe through the same design system)
- *   joins that utility's class group. `text-label-sm` sets font-size (and
- *   line-height, font-weight, letter-spacing, which Tailwind's own `text-*`
- *   sets from theme sub-keys) and merges like `text-sm`; `bg-brand-ui`
- *   sets background-color, also under `:hover` and `.dark`, and merges
- *   like `bg-red-500`. A class that matches no single group (a component
- *   class setting background, colour and padding) is left out and listed
- *   in `unclassified`: tailwind-merge then keeps it, as it would anyway.
+ * - Custom `@utility` classes are compiled with Tailwind and compared, by
+ *   their declarations, with a stock utility of each class group (an
+ *   arbitrary-value probe compiled through the same design system). A
+ *   declaration counts with where it lands (selector, pseudo-classes,
+ *   `@media`/`@supports`) and whether it is `!important`; custom
+ *   properties count too, except Tailwind's own `--tw-*` plumbing.
+ *
+ * The rule: a utility joins a stock class group only when replacing it
+ * with any member of that group loses nothing, that is when it sets
+ * exactly what the group's probe sets. `card-padding { padding: 1rem }`
+ * merges like `p-4`. Every other utility is protected: it gets a class
+ * group of its own, shared with the utilities that set exactly the same
+ * declarations (so `bg-royal-ui bg-pale-ui` still keeps the last), and
+ * stock classes never remove it. Where it overrides everything another
+ * group sets, a one-directional conflict lets a later protected utility
+ * remove that group's earlier classes: `text-sm text-label-sm` keeps
+ * `text-label-sm`, `text-label-sm text-sm` keeps both, and
+ * `text-label-sm text-royal-9` keeps both.
  */
-
-export type TwMergeUnclassifiedUtility = {
-	/** The class, or `root-*` when every value of a functional utility is unclassified. */
-	utility: string;
-	/** The CSS properties it sets, sorted; empty when it sets only custom properties. */
-	properties: string[];
-};
 
 export type DerivedTwMerge = {
 	config: TwMergeConfig;
-	unclassified: TwMergeUnclassifiedUtility[];
 };
 
 type GroupProbe = {
 	group: DefaultClassGroupIds;
 	/** A stock candidate of the group, theme-independent (arbitrary values). */
 	candidate: string;
-	/** Properties a member may set besides the probe's. */
-	also?: readonly string[];
 };
 
 /**
- * The class groups a custom utility can join, each with a stock candidate
- * whose generated CSS defines the group's declarations. First match wins.
+ * The stock class groups a custom utility can join, each with a stock
+ * candidate whose generated CSS defines what a member sets. First match
+ * wins; the same probes decide which stock groups a protected utility
+ * overrides.
  */
 export const TW_MERGE_GROUP_PROBES: readonly GroupProbe[] = [
-	// Tailwind's `text-*` sets line-height, letter-spacing and font-weight too
-	// when the theme has `--text-*--line-height` (and the other sub-keys).
-	{
-		group: "font-size",
-		candidate: "text-[1px]",
-		also: ["line-height", "letter-spacing", "font-weight"],
-	},
+	{ group: "font-size", candidate: "text-[1px]" },
 	{ group: "font-weight", candidate: "font-[700]" },
 	{ group: "font-family", candidate: "font-[family-name:x]" },
 	{ group: "leading", candidate: "leading-[2]" },
@@ -87,6 +81,7 @@ export const TW_MERGE_GROUP_PROBES: readonly GroupProbe[] = [
 	{ group: "border-color-l", candidate: "border-l-[red]" },
 	{ group: "divide-color", candidate: "divide-[red]" },
 	{ group: "outline-color", candidate: "outline-[red]" },
+	{ group: "ring-color", candidate: "ring-[red]" },
 	{ group: "rounded", candidate: "rounded-[1px]" },
 	{ group: "rounded-t", candidate: "rounded-t-[1px]" },
 	{ group: "rounded-r", candidate: "rounded-r-[1px]" },
@@ -138,78 +133,55 @@ export const compareTwMergeValues = (left: string, right: string) =>
 const sortedUnique = (values: Iterable<string>) =>
 	[...new Set(values)].sort(compareTwMergeValues);
 
-/**
- * Drops pseudo-classes that do not wrap the element itself (`:hover`,
- * `:where(.dark, .dark *)`, `:not(:last-child)`), so the variants a
- * utility applies under (`hover:`, `dark:`) do not change where its
- * declarations land. Pseudo-elements (`::placeholder`) and pseudo-classes
- * around `&` (`:where(& > …)`) stay.
- */
-const stripPseudoClasses = (selector: string): string => {
-	let result = "";
-	let index = 0;
-	const readParens = (start: number) => {
-		let depth = 0;
-		let end = start;
-		do {
-			if (selector[end] === "(") depth++;
-			else if (selector[end] === ")") depth--;
-			end++;
-		} while (depth > 0 && end < selector.length);
-		return end;
-	};
-	while (index < selector.length) {
-		const char = selector[index];
-		if (char === "\\") {
-			result += selector.slice(index, index + 2);
-			index += 2;
-			continue;
-		}
-		if (char !== ":") {
-			result += char;
-			index++;
-			continue;
-		}
-		const pseudoElement = selector[index + 1] === ":";
-		let end = index + (pseudoElement ? 2 : 1);
-		while (end < selector.length && /[\w-]/u.test(selector[end])) end++;
-		const name = selector.slice(index, end);
-		let args: string | null = null;
-		if (selector[end] === "(") {
-			const close = readParens(end);
-			args = selector.slice(end + 1, close - 1);
-			end = close;
-		}
-		if (pseudoElement) {
-			result += args === null ? name : `${name}(${args})`;
-		} else if (args?.includes("&")) {
-			result += `${name}(${stripPseudoClasses(args)})`;
-		}
-		index = end;
-	}
-	return result;
-};
-
 /** The candidate's own class in its top-level selector becomes `&`. */
 const CLASS_SELECTOR = /\.(?:\\.|[^\s.#:,>+~()[\]\\])+/u;
 
-const scopeOf = (selector: string) =>
-	stripPseudoClasses(selector).replace(/\s+/gu, " ").trim();
+const normalizeWhitespace = (value: string) =>
+	value.replace(/\s+/gu, " ").trim();
+
+/** One declaration and where it applies. */
+type Declaration = {
+	/** The selector with `&` for the element, then the at-rules around it. */
+	context: string;
+	property: string;
+	important: boolean;
+};
+
+/** `context|property`: what a later declaration of the same key overrides. */
+const targetOf = (declaration: Declaration) =>
+	`${declaration.context}|${declaration.property}`;
+
+const isTailwindPlumbing = (declaration: Declaration) =>
+	declaration.property.startsWith("--tw-");
 
 /**
- * Where each declaration lands (`&`, `&::placeholder`, `:where(& > )`)
- * with its property, as `scope|property`. Custom properties, `@property`
- * and `@keyframes` are left out; at-rules (`@media`) are transparent.
+ * Every declaration a candidate's CSS makes, with its context: the
+ * selector (the candidate's class as `&`, pseudo-classes and nesting kept)
+ * and the at-rules it sits in (`@media (hover: hover)`). `@property` and
+ * `@keyframes` are not declarations of the element and are left out.
  */
-const declarationsOf = (nodes: readonly CandidateAstNode[]): Set<string> => {
-	const declarations = new Set<string>();
-	const walk = (list: readonly CandidateAstNode[], selector: string | null) => {
+const declarationsOf = (nodes: readonly CandidateAstNode[]): Declaration[] => {
+	const declarations = new Map<string, Declaration>();
+	const walk = (
+		list: readonly CandidateAstNode[],
+		selector: string | null,
+		atRules: readonly string[],
+	) => {
 		for (const node of list) {
 			if (node.kind === "declaration") {
-				const property = node.property?.toLowerCase();
-				if (selector === null || !property || property.startsWith("--"))
-					continue;
-				declarations.add(`${scopeOf(selector)}|${property}`);
+				const property = node.property?.trim();
+				if (selector === null || !property) continue;
+				const declaration: Declaration = {
+					context: [normalizeWhitespace(selector), ...atRules].join(" "),
+					property: property.startsWith("--")
+						? property
+						: property.toLowerCase(),
+					important: node.important === true,
+				};
+				declarations.set(
+					`${targetOf(declaration)}|${declaration.important}`,
+					declaration,
+				);
 			} else if (node.kind === "rule" && node.selector !== undefined) {
 				const next =
 					selector === null
@@ -217,65 +189,65 @@ const declarationsOf = (nodes: readonly CandidateAstNode[]): Set<string> => {
 						: node.selector.includes("&")
 							? node.selector.replaceAll("&", selector)
 							: `${selector} ${node.selector}`;
-				walk(node.nodes ?? [], next);
+				walk(node.nodes ?? [], next, atRules);
 			} else if (node.kind === "at-rule") {
-				const name = node.name?.replace(/^@/u, "");
+				const name = node.name?.replace(/^@/u, "") ?? "";
 				if (name === "property" || name === "keyframes") continue;
-				walk(node.nodes ?? [], selector);
+				walk(node.nodes ?? [], selector, [
+					...atRules,
+					normalizeWhitespace(`@${name} ${node.params ?? ""}`),
+				]);
 			} else if (node.nodes) {
-				walk(node.nodes, selector);
+				walk(node.nodes, selector, atRules);
 			}
 		}
 	};
-	walk(nodes, null);
-	return declarations;
+	walk(nodes, null, []);
+	return [...declarations.values()];
 };
 
-const propertiesOf = (declarations: ReadonlySet<string>) =>
-	sortedUnique(
-		[...declarations].map((entry) => entry.slice(entry.lastIndexOf("|") + 1)),
-	);
+/**
+ * Whether `later` sets everything `earlier` sets, in the same place and at
+ * least as `!important`, so removing an earlier class loses nothing.
+ * Tailwind plumbing (`--tw-*`) counts only for a set made of nothing else.
+ */
+const overrides = (
+	later: ReadonlyMap<string, boolean>,
+	earlier: readonly Declaration[],
+) => {
+	const own = earlier.filter((entry) => !isTailwindPlumbing(entry));
+	return (own.length > 0 ? own : earlier).every((entry) => {
+		const important = later.get(targetOf(entry));
+		return important !== undefined && (important || !entry.important);
+	});
+};
 
 type CompiledProbe = {
 	group: DefaultClassGroupIds;
-	required: ReadonlySet<string>;
-	allowed: ReadonlySet<string>;
+	declarations: Declaration[];
 };
 
-const compileProbes = (introspection: TailwindIntrospection) =>
-	TW_MERGE_GROUP_PROBES.flatMap((probe): CompiledProbe[] => {
-		const ast = introspection.getCandidateAst(probe.candidate);
-		if (!ast) return [];
-		const required = declarationsOf(ast);
-		if (required.size === 0) return [];
-		const scopes = new Set(
-			[...required].map((entry) => entry.slice(0, entry.lastIndexOf("|"))),
-		);
-		const allowed = new Set(required);
-		for (const property of probe.also ?? []) {
-			for (const scope of scopes) allowed.add(`${scope}|${property}`);
-		}
-		return [{ group: probe.group, required, allowed }];
-	});
-
 /**
- * The class group a set of declarations belongs to: it sets every
- * declaration of the group's probe and nothing the group does not allow.
+ * Whether a utility can join the probe's group: it sets exactly the
+ * probe's declarations, none `!important`, and Tailwind plumbing only
+ * where the probe sets it too.
  */
-const classify = (
-	declarations: ReadonlySet<string>,
-	probes: readonly CompiledProbe[],
-): DefaultClassGroupIds | null => {
-	if (declarations.size === 0) return null;
-	for (const probe of probes) {
-		if (
-			[...probe.required].every((entry) => declarations.has(entry)) &&
-			[...declarations].every((entry) => probe.allowed.has(entry))
-		) {
-			return probe.group;
-		}
-	}
-	return null;
+const joins = (declarations: readonly Declaration[], probe: CompiledProbe) => {
+	if (declarations.some((entry) => entry.important)) return false;
+	const own = new Set(
+		declarations.filter((entry) => !isTailwindPlumbing(entry)).map(targetOf),
+	);
+	const probeOwn = new Set(
+		probe.declarations
+			.filter((entry) => !isTailwindPlumbing(entry))
+			.map(targetOf),
+	);
+	const probeAll = new Set(probe.declarations.map(targetOf));
+	return (
+		own.size === probeOwn.size &&
+		[...own].every((target) => probeOwn.has(target)) &&
+		declarations.every((entry) => probeAll.has(targetOf(entry)))
+	);
 };
 
 /**
@@ -309,11 +281,20 @@ const deriveTheme = (
 	return theme;
 };
 
+type Candidate = {
+	candidate: string;
+	/** `root-*` for a functional utility's value, the class for a static one. */
+	origin: string;
+};
+
 /** Candidates of a custom `@utility` root: the static class and every functional value. */
-const candidatesOf = (introspection: TailwindIntrospection, root: string) => {
-	const candidates: Array<{ candidate: string; functional: boolean }> = [];
+const candidatesOf = (
+	introspection: TailwindIntrospection,
+	root: string,
+): Candidate[] => {
+	const candidates: Candidate[] = [];
 	if (introspection.hasUtility(root, "static")) {
-		candidates.push({ candidate: root, functional: false });
+		candidates.push({ candidate: root, origin: root });
 	}
 	if (introspection.hasUtility(root, "functional")) {
 		const values = introspection
@@ -323,68 +304,144 @@ const candidatesOf = (introspection: TailwindIntrospection, root: string) => {
 			values.map((value) => (value === null ? root : `${root}-${value}`)),
 		)) {
 			if (value !== root || candidates.length === 0) {
-				candidates.push({ candidate: value, functional: true });
+				candidates.push({ candidate: value, origin: `${root}-*` });
 			}
 		}
 	}
 	return candidates;
 };
 
+type ProtectedGroup = {
+	id: string;
+	members: string[];
+	declarations: Declaration[];
+	/** Importance by target; a target set twice counts as important if either is. */
+	targets: ReadonlyMap<string, boolean>;
+};
+
 export const deriveTwMergeConfig = (
 	introspection: TailwindIntrospection,
 ): DerivedTwMerge => {
-	const probes = compileProbes(introspection);
-	const groups = new Map<DefaultClassGroupIds, Set<string>>();
-	const unclassified = new Map<string, Set<string>>();
+	const prefix = introspection.getPrefix();
+	const compile = (candidate: string) =>
+		introspection.getCandidateAst(
+			prefix ? `${prefix}:${candidate}` : candidate,
+		);
+	const probes = TW_MERGE_GROUP_PROBES.flatMap((probe): CompiledProbe[] => {
+		const ast = compile(probe.candidate);
+		const declarations = ast ? declarationsOf(ast) : [];
+		return declarations.length > 0
+			? [{ group: probe.group, declarations }]
+			: [];
+	});
+
+	const joined = new Map<string, Set<string>>();
+	// Protected utilities by the exact declarations they make.
+	const shapes = new Map<
+		string,
+		{ members: Candidate[]; declarations: Declaration[] }
+	>();
 	const roots = sortedUnique(
 		introspection.getCustomFunctionalUtilities().map((utility) => utility.root),
 	);
 	for (const root of roots) {
-		const candidates = candidatesOf(introspection, root);
-		const missed: Array<{ candidate: string; properties: string[] }> = [];
-		let functionalCount = 0;
-		for (const { candidate, functional } of candidates) {
-			if (functional) functionalCount++;
-			const ast = introspection.getCandidateAst(candidate);
-			if (!ast) continue;
-			const declarations = declarationsOf(ast);
-			const group = classify(declarations, probes);
-			if (group) {
-				const members = groups.get(group) ?? new Set<string>();
-				members.add(candidate);
-				groups.set(group, members);
-			} else {
-				missed.push({ candidate, properties: propertiesOf(declarations) });
+		for (const entry of candidatesOf(introspection, root)) {
+			const ast = compile(entry.candidate);
+			const declarations = ast ? declarationsOf(ast) : [];
+			if (declarations.length === 0) continue;
+			const probe = probes.find((candidate) => joins(declarations, candidate));
+			if (probe) {
+				const members = joined.get(probe.group) ?? new Set<string>();
+				members.add(entry.candidate);
+				joined.set(probe.group, members);
+				continue;
 			}
-		}
-		const allFunctionalMissed =
-			functionalCount > 1 &&
-			missed.length === candidates.length &&
-			candidates.every((entry) => entry.functional);
-		if (allFunctionalMissed) {
-			unclassified.set(
-				`${root}-*`,
-				new Set(missed.flatMap((entry) => entry.properties)),
-			);
-			continue;
-		}
-		for (const entry of missed) {
-			unclassified.set(entry.candidate, new Set(entry.properties));
+			const shape = sortedUnique(
+				declarations.map(
+					(declaration) =>
+						`${targetOf(declaration)}${declaration.important ? "!" : ""}`,
+				),
+			).join("\n");
+			const group = shapes.get(shape) ?? { members: [], declarations };
+			group.members.push(entry);
+			shapes.set(shape, group);
 		}
 	}
 
+	// Name each protected group after its first member's utility.
+	const taken = new Set<string>();
+	const protectedGroups: ProtectedGroup[] = [...shapes.values()]
+		.map((group) => ({
+			...group,
+			members: [...group.members].sort((left, right) =>
+				compareTwMergeValues(left.candidate, right.candidate),
+			),
+		}))
+		.sort((left, right) =>
+			compareTwMergeValues(
+				left.members[0].candidate,
+				right.members[0].candidate,
+			),
+		)
+		.map((group) => {
+			const base = `@utility ${group.members[0].origin}`;
+			let id = base;
+			for (let index = 2; taken.has(id); index++) id = `${base} #${index}`;
+			taken.add(id);
+			return {
+				id,
+				members: group.members.map((member) => member.candidate),
+				declarations: group.declarations,
+				targets: group.declarations.reduce(
+					(targets, entry) =>
+						targets.set(
+							targetOf(entry),
+							entry.important || targets.get(targetOf(entry)) === true,
+						),
+					new Map<string, boolean>(),
+				),
+			};
+		});
+
 	const classGroups: TwMergeConfig["extend"]["classGroups"] = {};
-	for (const group of [...groups.keys()].sort(compareTwMergeValues)) {
-		classGroups[group] = sortedUnique(groups.get(group) ?? []);
+	for (const [group, members] of joined)
+		classGroups[group] = sortedUnique(members);
+	for (const group of protectedGroups) classGroups[group.id] = group.members;
+
+	const conflictingClassGroups: TwMergeConfig["extend"]["conflictingClassGroups"] =
+		{};
+	for (const group of protectedGroups) {
+		const overridden = [
+			...probes
+				.filter((probe) => overrides(group.targets, probe.declarations))
+				.map((probe) => probe.group),
+			...protectedGroups
+				.filter(
+					(other) =>
+						other !== group && overrides(group.targets, other.declarations),
+				)
+				.map((other) => other.id),
+		];
+		if (overridden.length > 0) {
+			conflictingClassGroups[group.id] = sortedUnique(overridden);
+		}
 	}
+
+	const sortKeys = <T>(record: Record<string, T>) =>
+		Object.fromEntries(
+			Object.keys(record)
+				.sort(compareTwMergeValues)
+				.map((key) => [key, record[key]]),
+		) as Record<string, T>;
 	return {
-		config: { extend: { theme: deriveTheme(introspection), classGroups } },
-		unclassified: [...unclassified.keys()]
-			.sort(compareTwMergeValues)
-			.map((utility) => ({
-				utility,
-				properties: sortedUnique(unclassified.get(utility) ?? []),
-			})),
+		config: {
+			...(prefix ? { prefix } : {}),
+			extend: {
+				theme: deriveTheme(introspection),
+				classGroups: sortKeys(classGroups),
+				conflictingClassGroups: sortKeys(conflictingClassGroups),
+			},
+		},
 	};
 };
 

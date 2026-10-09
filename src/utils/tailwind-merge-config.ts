@@ -1,5 +1,4 @@
 import {
-	type DefaultClassGroupIds,
 	type DefaultThemeGroupIds,
 	extendTailwindMerge,
 	twMerge,
@@ -12,18 +11,22 @@ import {
  * object can be written into a generated `tw-merge.ts`, handed to
  * tailwind-variants' `createTV({ twMergeConfig })`, or sent to the browser.
  *
+ * - `prefix`: the design system's prefix (`prefix(tw)`), when it has one.
  * - `theme`: per tailwind-merge theme key, the keys of the Tailwind theme
  *   namespace of the same name (`color` ↔ `--color-*`, `text` ↔ `--text-*`).
- * - `classGroups`: per tailwind-merge class group, the custom `@utility`
- *   classes that merge like it, classified by the CSS Tailwind generates.
+ * - `classGroups`: custom `@utility` classes, in the stock class group they
+ *   merge like, or in a group of their own (`@utility text-label-*`).
+ * - `conflictingClassGroups`: per own group, the groups whose every
+ *   declaration it overrides, so a later member removes their classes.
  *
- * Only tailwind-merge's own theme keys and class group ids are used, so the
- * extension needs no new conflict rules. Keys and values are sorted.
+ * Keys and values are sorted.
  */
 export type TwMergeConfig = {
+	prefix?: string;
 	extend: {
 		theme: Partial<Record<DefaultThemeGroupIds, string[]>>;
-		classGroups: Partial<Record<DefaultClassGroupIds, string[]>>;
+		classGroups: Record<string, string[]>;
+		conflictingClassGroups: Record<string, string[]>;
 	};
 };
 
@@ -41,7 +44,7 @@ export const createTwMerge = (
 	if (!config) return twMerge;
 	let merge = merges.get(config);
 	if (!merge) {
-		merge = extendTailwindMerge(config);
+		merge = extendTailwindMerge<string>(config);
 		merges.set(config, merge);
 	}
 	return merge;

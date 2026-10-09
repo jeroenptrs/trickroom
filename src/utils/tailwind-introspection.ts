@@ -14,7 +14,8 @@ export type ThemeEntry = {
 /**
  * A node of the CSS Tailwind generates for a candidate
  * (`candidatesToAst`), narrowed to what callers read: rules with their
- * selector, at-rules with their name, declarations with their property.
+ * selector, at-rules with their name and params, declarations with their
+ * property and importance.
  */
 export type CandidateAstNode = {
 	kind: string;
@@ -22,6 +23,7 @@ export type CandidateAstNode = {
 	name?: string;
 	params?: string;
 	property?: string;
+	important?: boolean;
 	nodes?: CandidateAstNode[];
 };
 
@@ -59,6 +61,8 @@ export type TailwindIntrospection = {
 	 * does not resolve it. Nested rules keep their `&` selectors.
 	 */
 	getCandidateAst(candidate: string): CandidateAstNode[] | null;
+	/** The DS prefix (`prefix(tw)` makes candidates `tw:flex`), or null. */
+	getPrefix(): string | null;
 	/** Whether the DS has a utility with this root of this kind. */
 	hasUtility(root: string, kind: "static" | "functional"): boolean;
 	/**
@@ -102,6 +106,9 @@ export function createTailwindIntrospection(
 			return nodes && nodes.length > 0
 				? (nodes as unknown as CandidateAstNode[])
 				: null;
+		},
+		getPrefix() {
+			return designSystem.theme.prefix || null;
 		},
 		hasUtility(root, kind) {
 			return designSystem.utilities.has(root, kind);

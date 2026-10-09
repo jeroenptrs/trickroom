@@ -49,6 +49,8 @@ const THEME_CSS = [
 	"\t--color-royal-9: oklch(54% 0.22 263);",
 	"\t--color-royal-10: oklch(49% 0.2 263);",
 	"\t--color-royaldark-9: oklch(54% 0.22 263);",
+	"\t--color-pale-2: oklch(98% 0 0);",
+	"\t--color-pale-9: oklch(50% 0 0);",
 	"\t--text-2xs: 0.6875rem;",
 	"\t--text-2xs--line-height: 1.27;",
 	"\t--text-shadow-glow: 0 0 2px red;",
@@ -57,22 +59,19 @@ const THEME_CSS = [
 	"\t--spacing-pad-xs: 0.25rem;",
 	"\t--shadow-elevation-sm: 0 1px 2px black;",
 	"\t--db-label-sm: 0.875rem;",
-	"\t--db-label-sm--line-height: 1.28;",
 	"\t--db-label-lg: 1.125rem;",
 	"}",
 	"@utility text-label-* {",
-	"\t--label--text-size: --value(--db-label-*);",
-	"\t--label--line-height: --value(--db-label-*--line-height);",
-	"\tfont-size: var(--label--text-size);",
-	"\tline-height: var(--label--line-height, 1.25);",
+	"\tfont-size: --value(--db-label-*);",
+	"\tline-height: 1.25;",
 	"\tfont-weight: 500;",
 	"\tletter-spacing: normal;",
 	"}",
 	"@utility bg-royal-ui {",
 	"\t@apply bg-royal-2 hover:bg-royal-9 dark:bg-royaldark-9;",
 	"}",
-	"@utility text-royal-dim {",
-	"\t@apply text-royal-9 dark:text-royaldark-9;",
+	"@utility bg-pale-ui {",
+	"\t@apply bg-pale-2 hover:bg-pale-9 dark:bg-pale-9;",
 	"}",
 	"@utility divide-royal-dim {",
 	"\t@apply divide-royal-9 dark:divide-royaldark-9;",
@@ -80,20 +79,27 @@ const THEME_CSS = [
 	"@utility card-padding {",
 	"\tpadding: 1rem;",
 	"}",
-	"@utility btn-primary {",
-	"\t@apply bg-royal-9 text-royal-2 px-[2px];",
-	"}",
-	"@utility glow {",
-	"\t--glow: 1;",
+	"@utility text-ink {",
+	"\tcolor: var(--color-royal-9);",
 	"}",
 	"",
 ].join("\n");
+
+const mergeWith = async (css: string) =>
+	createTwMerge((await derive(css)).config);
 
 describe("deriveTwMergeConfig", () => {
 	it("maps theme namespaces to tailwind-merge theme keys", async () => {
 		const { config } = await derive(THEME_CSS);
 		expect(config.extend.theme).toEqual({
-			color: ["royal-2", "royal-9", "royal-10", "royaldark-9"],
+			color: [
+				"pale-2",
+				"pale-9",
+				"royal-2",
+				"royal-9",
+				"royal-10",
+				"royaldark-9",
+			],
 			font: ["display"],
 			"font-weight": ["heavy"],
 			shadow: ["elevation-sm"],
@@ -103,40 +109,128 @@ describe("deriveTwMergeConfig", () => {
 		});
 	});
 
-	it("classifies custom utilities by the CSS Tailwind generates for them", async () => {
-		const { config, unclassified } = await derive(THEME_CSS);
+	it("puts a utility in a stock group only when it sets exactly what the group sets, and protects the others", async () => {
+		const { config } = await derive(THEME_CSS);
 		expect(config.extend.classGroups).toEqual({
-			"bg-color": ["bg-royal-ui"],
-			"divide-color": ["divide-royal-dim"],
-			"font-size": ["text-label-lg", "text-label-sm"],
+			"@utility bg-pale-ui": ["bg-pale-ui", "bg-royal-ui"],
+			"@utility divide-royal-dim": ["divide-royal-dim"],
+			"@utility text-label-*": ["text-label-lg", "text-label-sm"],
 			p: ["card-padding"],
-			"text-color": ["text-royal-dim"],
+			"text-color": ["text-ink"],
 		});
-		expect(unclassified).toEqual([
-			{
-				utility: "btn-primary",
-				properties: ["background-color", "color", "padding-inline"],
-			},
-			{ utility: "glow", properties: [] },
-		]);
+		expect(config.extend.conflictingClassGroups).toEqual({
+			"@utility bg-pale-ui": ["bg-color"],
+			"@utility divide-royal-dim": ["divide-color"],
+			"@utility text-label-*": [
+				"font-size",
+				"font-weight",
+				"leading",
+				"tracking",
+			],
+		});
+		expect(config).not.toHaveProperty("prefix");
 	});
 
 	it("keeps a size and a colour on the same text-* root, which stock tailwind-merge drops", async () => {
-		const { config } = await derive(THEME_CSS);
-		const merge = createTwMerge(config);
+		const merge = await mergeWith(THEME_CSS);
 		expect(twMerge("text-label-sm text-royal-9")).toBe("text-royal-9");
 		expect(merge("text-label-sm text-royal-9")).toBe(
 			"text-label-sm text-royal-9",
 		);
 		expect(merge("text-label-sm text-label-lg")).toBe("text-label-lg");
-		expect(merge("text-sm text-label-lg")).toBe("text-label-lg");
-		expect(merge("leading-6 text-label-sm")).toBe("text-label-sm");
 		expect(merge("p-pad-xs p-4")).toBe("p-4");
 		expect(merge("shadow-elevation-sm shadow-royal-9")).toBe(
 			"shadow-elevation-sm shadow-royal-9",
 		);
-		expect(merge("bg-royal-ui bg-royal-9")).toBe("bg-royal-9");
-		expect(merge("btn-primary bg-royal-9")).toBe("btn-primary bg-royal-9");
+		expect(merge("card-padding p-4")).toBe("p-4");
+		expect(merge("text-ink text-royal-9")).toBe("text-royal-9");
+	});
+
+	it("never lets a stock class remove a typography bundle, while a later bundle replaces what it covers", async () => {
+		const merge = await mergeWith(
+			"@utility label { font-size: 1rem; font-weight: 600; letter-spacing: 1px; line-height: 2; }\n",
+		);
+		expect(merge("label text-[16px]")).toBe("label text-[16px]");
+		expect(merge("label font-bold")).toBe("label font-bold");
+		expect(merge("text-[16px] leading-6 font-bold tracking-wide label")).toBe(
+			"label",
+		);
+		const merged = await mergeWith(THEME_CSS);
+		expect(merged("text-label-sm text-sm")).toBe("text-label-sm text-sm");
+		expect(merged("text-sm text-label-sm")).toBe("text-label-sm");
+	});
+
+	it("protects utilities with declarations under pseudo-classes, variants or at-rules", async () => {
+		const merge = await mergeWith(
+			"@utility hover-paint { &:hover { background-color: blue; } }\n@utility wide-paint { @media (width >= 40rem) { background-color: blue; } }\n",
+		);
+		expect(merge("hover-paint bg-[red]")).toBe("hover-paint bg-[red]");
+		expect(merge("bg-[red] hover-paint")).toBe("bg-[red] hover-paint");
+		expect(merge("wide-paint bg-[red]")).toBe("wide-paint bg-[red]");
+
+		// bg-royal-ui also sets the background on hover and in dark mode.
+		const merged = await mergeWith(THEME_CSS);
+		expect(merged("bg-royal-ui bg-royal-9")).toBe("bg-royal-ui bg-royal-9");
+		expect(merged("bg-royal-9 bg-royal-ui")).toBe("bg-royal-ui");
+		expect(merged("bg-royal-ui bg-pale-ui")).toBe("bg-pale-ui");
+		expect(merged("divide-royal-dim divide-royal-9")).toBe(
+			"divide-royal-dim divide-royal-9",
+		);
+	});
+
+	it("protects utilities that set more than one stock group, instead of leaving them to stock validators", async () => {
+		const merge = await mergeWith(
+			"@utility bg-panel { background-color: blue; padding: 20px; }\n",
+		);
+		expect(twMerge("bg-panel bg-[red]")).toBe("bg-[red]");
+		expect(merge("bg-panel bg-[red]")).toBe("bg-panel bg-[red]");
+		expect(merge("p-4 bg-[red] bg-panel")).toBe("bg-panel");
+	});
+
+	it("protects !important declarations and custom properties other than Tailwind's --tw-* plumbing", async () => {
+		const { config } = await derive(
+			[
+				"@utility bg-loud { background-color: blue !important; }",
+				"@utility bg-gap { background-color: blue; --panel-gap: 4px; }",
+				"@utility leading-roomy { line-height: 2; --tw-leading: 2; }",
+				"",
+			].join("\n"),
+		);
+		expect(config.extend.classGroups).toEqual({
+			"@utility bg-gap": ["bg-gap"],
+			"@utility bg-loud": ["bg-loud"],
+			leading: ["leading-roomy"],
+		});
+		// A later bg-gap does not remove an earlier !important bg-loud.
+		expect(config.extend.conflictingClassGroups).toEqual({
+			"@utility bg-gap": ["bg-color"],
+			"@utility bg-loud": ["bg-color"],
+		});
+		const merge = createTwMerge(config);
+		expect(merge("bg-loud bg-[red]")).toBe("bg-loud bg-[red]");
+		expect(merge("bg-gap bg-[red]")).toBe("bg-gap bg-[red]");
+		expect(merge("bg-loud bg-gap")).toBe("bg-loud bg-gap");
+	});
+
+	it("compiles candidates with the design system's prefix and carries it into the config", async () => {
+		const { config } = await derive(
+			"@theme prefix(tw) { --color-brand: red; --db-label-sm: 1rem; }\n@utility text-label-* { font-size: --value(--db-label-*); line-height: 1.2; }\n",
+		);
+		expect(config).toEqual({
+			prefix: "tw",
+			extend: {
+				theme: { color: ["brand"] },
+				classGroups: { "@utility text-label-*": ["text-label-sm"] },
+				conflictingClassGroups: {
+					"@utility text-label-*": ["font-size", "leading"],
+				},
+			},
+		});
+		const merge = createTwMerge(config);
+		expect(merge("tw:text-label-sm tw:text-brand")).toBe(
+			"tw:text-label-sm tw:text-brand",
+		);
+		expect(merge("tw:text-sm tw:text-label-sm")).toBe("tw:text-label-sm");
 	});
 
 	it("is a plain serialisable object with stable ordering", async () => {
@@ -156,15 +250,16 @@ describe("deriveTwMergeConfig", () => {
 
 	it("derives an empty extension for a system without tokens or utilities", async () => {
 		expect(await derive("@theme { --color-*: initial; }\n")).toEqual({
-			config: { extend: { theme: {}, classGroups: {} } },
-			unclassified: [],
+			config: {
+				extend: { theme: {}, classGroups: {}, conflictingClassGroups: {} },
+			},
 		});
 	});
 
 	it("loads through the cached design system, once per compiled system", async () => {
 		const options = await writeCss(THEME_CSS);
 		const first = await loadDerivedTwMerge(options);
-		expect(first.config.extend.classGroups["font-size"]).toContain(
+		expect(first.config.extend.classGroups["@utility text-label-*"]).toContain(
 			"text-label-sm",
 		);
 		expect(await loadDerivedTwMerge(options)).toBe(first);
