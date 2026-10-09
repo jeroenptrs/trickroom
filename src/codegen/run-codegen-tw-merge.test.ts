@@ -273,6 +273,71 @@ describe("runCodegen with codegen.twMerge", () => {
 		);
 	});
 
+	it("emits modifier forms with postfix lookup, so twMerge and createTV keep what the form adds", async () => {
+		const { project, run } = await setup({}, { parent: process.cwd() });
+		await writeFile(
+			project.path("src/theme.css"),
+			[
+				"@theme { --text-sm: 14px; --text-lg: 20px; --color-blue: blue; }",
+				"@utility badge-* {",
+				"\tfont-size: --value(--text-*);",
+				"\tbackground-color: --modifier(--color-*);",
+				"}",
+				"",
+			].join("\n"),
+		);
+		expect((await run("write")).status).toBe("ok");
+		expect(await read(project, "src/ui/tw-merge.ts")).toContain(
+			'\t\tpostfixLookupClassGroups: [\n\t\t\t"@utility badge-*",\n\t\t],',
+		);
+		const { twMerge, twMergeConfig } = (await import(
+			/* @vite-ignore */ project.path("src/ui/tw-merge.ts")
+		)) as {
+			twMerge: (...classes: string[]) => string;
+			twMergeConfig: TWMConfig["twMergeConfig"];
+		};
+		expect(twMerge("badge-sm/blue badge-lg")).toBe("badge-sm/blue badge-lg");
+		expect(twMerge("badge-lg badge-sm/blue")).toBe("badge-sm/blue");
+		expect(twMerge("badge-sm badge-lg")).toBe("badge-lg");
+
+		const badge = createTV({ twMergeConfig })({
+			base: "badge-sm/blue",
+			variants: { size: { lg: "badge-lg" } },
+		});
+		expect(badge({ size: "lg" })).toBe("badge-sm/blue badge-lg");
+		expect(badge({ class: "badge-lg" })).toBe("badge-sm/blue badge-lg");
+		// Stock tailwind-variants knows no badge-*: it keeps both too.
+		expect(
+			createTV({})({
+				base: "badge-sm/blue",
+				variants: { size: { lg: "badge-lg" } },
+			})({
+				size: "lg",
+			}),
+		).toBe("badge-sm/blue badge-lg");
+	});
+
+	it("fails on a utility with open-ended modifiers that a class group claims, in --check too", async () => {
+		const { project, run } = await setup();
+		await writeFile(
+			project.path("src/theme.css"),
+			"@theme { --color-blue: blue; }\n@utility text-ink-* { color: --value(--color-*); background-color: --modifier([color]); }\n",
+		);
+		for (const mode of ["check", "write"] as const) {
+			const result = await run(mode);
+			expect(result.status).toBe("error");
+			expect(result.diagnostics).toEqual([
+				expect.objectContaining({
+					code: "TW_MERGE_OPEN_MODIFIER",
+					severity: "error",
+					message: expect.stringContaining(
+						'text-ink-* takes open-ended modifiers, so tailwind-merge would merge "text-ink-blue/[…]" through "text-ink-blue"',
+					),
+				}),
+			]);
+		}
+	});
+
 	it("rejects merge groups the design system cannot honour, in --check too", async () => {
 		const { run } = await setup({
 			twMerge: {

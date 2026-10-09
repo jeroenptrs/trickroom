@@ -21,6 +21,7 @@ import {
 import {
 	loadDerivedTwMerge,
 	TwMergeGroupError,
+	TwMergeModifierError,
 } from "../utils/tailwind-merge-derive";
 import type { ResolvedCodegenConfig } from "./config";
 import {
@@ -79,7 +80,8 @@ export type CodegenRunDiagnosticCode =
 	| "WRITE_FAILED"
 	| "TW_MERGE_NO_CSS"
 	| "TW_MERGE_CSS_FAILED"
-	| "TW_MERGE_GROUP_INVALID";
+	| "TW_MERGE_GROUP_INVALID"
+	| "TW_MERGE_OPEN_MODIFIER";
 
 export type CodegenRunDiagnostic = {
 	code: CodegenRunDiagnosticCode;
@@ -470,6 +472,12 @@ export async function runCodegen(
 				fileName: config.twMerge.fileName,
 			});
 		} catch (error) {
+			if (error instanceof TwMergeModifierError) {
+				return fail({
+					code: "TW_MERGE_OPEN_MODIFIER",
+					message: `codegen.twMerge cannot represent a utility's modifiers safely: ${error.message}`,
+				});
+			}
 			if (error instanceof TwMergeGroupError) {
 				return fail({
 					code: "TW_MERGE_GROUP_INVALID",

@@ -94,6 +94,15 @@ export function generateTwMergeFile({
 			config.extend.conflictingClassGroups,
 			level,
 		),
+		...(config.extend.postfixLookupClassGroups
+			? [
+					`${level}postfixLookupClassGroups: [`,
+					...config.extend.postfixLookupClassGroups.map(
+						(group) => `${level}${INDENT}${JSON.stringify(group)},`,
+					),
+					`${level}],`,
+				]
+			: []),
 		`${INDENT}},`,
 		"} as const;",
 		"",
