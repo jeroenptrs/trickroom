@@ -9,14 +9,23 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import {
+	useLocation,
+	useNavigate,
+	useParams,
+	useSearchParams,
+} from "react-router";
 import { StagePreviewDarkModeProvider } from "../preview/stage-preview-dark-mode";
+import { systemComponentQueryOptions } from "../queries/system-components";
 import { systemsQueryOptions } from "../queries/systems";
 import {
+	componentDraftStore,
+	resetComponentDraftStore,
 	selectTemplateNode,
 	useComponentDraftComponentId,
 	useComponentDraftSelectedPath,
 } from "../stores/component-draft-store";
+import { resetComponentEditorSession } from "../stores/component-editor-session-store";
 import {
 	handleEditorChromeShortcut,
 	useEditorPanelOpen,
@@ -31,6 +40,7 @@ import {
 	getKey,
 	useWindowKeyDown,
 } from "../utils/editor-shortcuts";
+import { readSystemComponentDeepLinkNode } from "../utils/system-deep-link";
 import { useProjectScope, useTailwindSyncController } from "./contexts";
 import {
 	SystemStatusBadge,
@@ -215,6 +225,7 @@ function SystemLeftSidebar({
 export function SystemEditor() {
 	const { systemId: rawSystemId } = useParams<{ systemId: string }>();
 	const [searchParams] = useSearchParams();
+	const location = useLocation();
 	const navigate = useNavigate();
 	const projectScope = useProjectScope();
 	const syncController = useTailwindSyncController();
@@ -248,6 +259,10 @@ export function SystemEditor() {
 	const [selectedIconId, setSelectedIconId] = useState<string | null>(null);
 	const selectedTemplatePath = useComponentDraftSelectedPath();
 	const draftComponentId = useComponentDraftComponentId();
+	// A template node a deep link asked for, selected once its draft has loaded.
+	const [pendingNode, setPendingNode] = useState(() =>
+		readSystemComponentDeepLinkNode(searchParams),
+	);
 	const lintSelection = useLintSelection();
 	const selectedSystemId = selectedSystem?.systemId ?? null;
 
@@ -271,6 +286,64 @@ export function SystemEditor() {
 
 		return getSystemBadgeState(syncStatus, reviewRequired);
 	}, [selectedSystem, syncController]);
+
+	// A link into this route from inside the editor (the lint dashboard's "Go to
+	// component") changes the URL without remounting, so follow it. Every
+	// navigation has its own key, so following the same link again works too.
+	const handledLocationKey = useRef(location.key);
+	useEffect(() => {
+		if (handledLocationKey.current === location.key) {
+			return;
+		}
+		handledLocationKey.current = location.key;
+		const params = new URLSearchParams(location.search);
+		const componentId = params.get("component");
+		if (
+			componentId !== null &&
+			componentId !== componentDraftStore.get().componentId
+		) {
+			resetComponentDraftStore();
+			resetComponentEditorSession();
+		}
+		setActivePage(getInitialSystemEditorPage(params.get("tab"), componentId));
+		setSelectedComponentId(componentId);
+		setSelectedAssetId(null);
+		setSelectedIconId(null);
+		selectLintItem(null);
+		setPendingNode(readSystemComponentDeepLinkNode(params));
+	}, [location.key, location.search]);
+
+	const pendingRecordQuery = useQuery({
+		...systemComponentQueryOptions(
+			selectedSystem?.systemId ?? "",
+			pendingNode?.componentId ?? "",
+			projectScope,
+		),
+		enabled: selectedSystem !== null && pendingNode !== null,
+	});
+	const pendingRecord = pendingRecordQuery.data?.record;
+	useEffect(() => {
+		if (!pendingNode) {
+			return;
+		}
+		if (pendingNode.componentId !== selectedComponentId) {
+			setPendingNode(null);
+			return;
+		}
+		if (!pendingRecord || draftComponentId !== pendingNode.componentId) {
+			// Not loaded yet; a component without a draft keeps waiting harmlessly.
+			return;
+		}
+		setPendingNode(null);
+		// A finding names a published version; the draft shows the same template
+		// only while it is made over that version.
+		const draftIsOver =
+			pendingRecord.draft?.baseVersion ??
+			pendingRecord.published?.currentVersion;
+		if (pendingNode.version === null || pendingNode.version === draftIsOver) {
+			selectTemplateNode(pendingNode.path);
+		}
+	}, [pendingNode, pendingRecord, selectedComponentId, draftComponentId]);
 
 	const handlePageChange = useCallback((nextPage: string) => {
 		setActivePage(nextPage as SystemEditorPage);
