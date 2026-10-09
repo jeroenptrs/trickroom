@@ -408,6 +408,20 @@ export function SystemEditor() {
 	const isRailOpen = useEditorPanelOpen("system", "rail");
 	const isInspectorOpen = useEditorPanelOpen("system", "inspector");
 
+	// A delete finishes later than it starts, and the rail that started it may
+	// have been remounted: what is open when it completes decides.
+	const handleComponentDeleted = useCallback(
+		(componentId: string) => {
+			if (openComponentIdRef.current === componentId) {
+				// The draft belongs to a component that no longer exists: nothing to
+				// ask about.
+				discardOpenComponentDraft();
+				openComponent(null);
+			}
+		},
+		[openComponent],
+	);
+
 	const handleSystemEditorShortcut = useCallback(
 		(event: KeyboardEvent) => {
 			if (handleEditorChromeShortcut(event, "system")) {
@@ -543,6 +557,7 @@ export function SystemEditor() {
 								projectScope={projectScope}
 								selectedComponentId={selectedComponentId}
 								onSelectComponent={openComponent}
+								onComponentDeleted={handleComponentDeleted}
 								headerActions={<SystemPanelToggle panel="rail" />}
 							/>
 						) : activePage === "icons" ? (

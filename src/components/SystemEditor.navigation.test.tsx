@@ -166,7 +166,28 @@ const holdSaves = () => {
 async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
 	const url = String(input);
 	const method = init?.method ?? "GET";
+	if (url.endsWith("/components") && method === "GET") {
+		return json({
+			systemId: "core",
+			systemName: "Core",
+			revision: "sha256:components-test",
+			updatedAt: now,
+			components: [component("cmp_a", "Alpha"), component("cmp_b", "Beta")].map(
+				(entry) => entry.summary,
+			),
+		});
+	}
 	const detail = url.match(/\/components\/(cmp_[a-z]+)(\/draft)?$/);
+	if (detail && !detail[2] && method === "DELETE") {
+		await saveGate?.promise;
+		return json({
+			systemId: "core",
+			systemName: "Core",
+			revision: "sha256:components-deleted",
+			updatedAt: now,
+			componentId: detail[1],
+		});
+	}
 	if (detail?.[2] && method === "POST") {
 		await saveGate?.promise;
 		return json({
@@ -498,6 +519,69 @@ describe("SystemEditor URL navigation", () => {
 			expect(router.state.location.search).toBe("?component=cmp_b");
 			expect(componentDraftStore.get().componentId).toBe("cmp_b");
 			expect(hasUnsavedComponentDraft()).toBe(false);
+		});
+	});
+
+	describe("edits kept while another tab is open", () => {
+		beforeEach(() => setEditorPanelOpen("system", "rail", true));
+
+		it("reopens their component instead of clearing them with the list", async () => {
+			const router = mount("/system/core?component=cmp_a");
+			await flush();
+			act(() => updateTemplateNodeClassName("root", "p-2"));
+			await act(async () => {
+				await router.navigate("/system/core?tab=lint");
+			});
+			await flush();
+			expect(document.body.textContent).toContain("Run lint");
+			expect(hasUnsavedComponentDraft()).toBe(true);
+
+			await click("Components");
+			expect(router.state.location.search).toBe("?component=cmp_a");
+			expect(componentDraftStore.get().componentId).toBe("cmp_a");
+			expect(hasUnsavedComponentDraft()).toBe(true);
+			expect(document.body.textContent).toContain("Save draft");
+			expect(dialogOpen()).toBe(false);
+		});
+
+		it("shows the list when nothing is kept", async () => {
+			const router = mount("/system/core?component=cmp_a");
+			await flush();
+			await act(async () => {
+				await router.navigate("/system/core?tab=lint");
+			});
+			await flush();
+			await click("Components");
+			expect(router.state.location.search).toBe("");
+			expect(document.body.textContent).not.toContain("Save draft");
+		});
+	});
+
+	describe("a delete that finishes after the view moved", () => {
+		it("closes the deleted component even when it was opened meanwhile", async () => {
+			window.confirm = () => true;
+			const gate = holdSaves();
+			const router = mount("/system/core");
+			await flush();
+			const remove = document.body.querySelector(
+				'button[aria-label="Delete Alpha"]',
+			) as HTMLElement | null;
+			expect(remove).not.toBeNull();
+			await act(async () => {
+				remove?.click();
+			});
+			await act(async () => {
+				await router.navigate("/system/core?component=cmp_a");
+			});
+			await flush();
+			expect(componentDraftStore.get().componentId).toBe("cmp_a");
+
+			await act(async () => {
+				gate.release();
+			});
+			await flush();
+			expect(router.state.location.search).toBe("");
+			expect(componentDraftStore.get().componentId).toBeNull();
 		});
 	});
 });

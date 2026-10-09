@@ -32,14 +32,12 @@ import {
 	systemComponentsQueryOptions,
 } from "../../queries/system-components";
 import {
-	resetComponentDraftStore,
 	useComponentDraftComponentId,
 	useComponentDraftRootPath,
 	useComponentDraftTemplateDirty,
 	useComponentDraftVariantsDirty,
 } from "../../stores/component-draft-store";
 import {
-	resetComponentEditorSession,
 	useEditorDraftConflict,
 	useEditorMetadataChanged,
 	useEditorVariantsValid,
@@ -556,12 +554,15 @@ export function SystemEditorComponentsRail({
 	projectScope,
 	selectedComponentId,
 	onSelectComponent,
+	onComponentDeleted,
 	headerActions,
 }: {
 	systemId: string;
 	projectScope?: ProjectQueryScope;
 	selectedComponentId: string | null;
 	onSelectComponent: (componentId: string | null) => void;
+	/** A component was deleted; the editor closes it if it is open by then. */
+	onComponentDeleted?: (componentId: string) => void;
 	/** Trailing controls for the component context header. */
 	headerActions?: ReactNode;
 }) {
@@ -830,13 +831,9 @@ export function SystemEditorComponentsRail({
 		},
 		onSuccess: async (response) => {
 			setDeleteError(null);
-			if (selectedComponentId === response.componentId) {
-				// The draft belongs to a component that no longer exists: nothing to
-				// ask about.
-				resetComponentDraftStore();
-				resetComponentEditorSession();
-				handleSelectComponent(null);
-			}
+			// This rail may have been remounted since the delete started, so the
+			// editor decides whether the deleted component is open now.
+			onComponentDeleted?.(response.componentId);
 			queryClient.removeQueries({
 				queryKey: systemComponentQueryKey(
 					systemId,

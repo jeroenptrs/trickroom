@@ -17,6 +17,7 @@ import {
 	componentEditorSessionStore,
 	resetComponentEditorSession,
 } from "../../stores/component-editor-session-store";
+import { buildSystemComponentSearch } from "../../utils/system-deep-link";
 import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { getSystemEditorPage } from "./types";
@@ -108,12 +109,30 @@ export function useGuardedComponentLocation({
 		const params = new URLSearchParams(target.search);
 		const opens = params.get("component");
 		const unsaved = getUnsavedComponentId();
+		const toList =
+			opens === null &&
+			getSystemEditorPage(params.get("tab"), null) === "components";
+		if (
+			toList &&
+			unsaved !== null &&
+			getOpenComponentIdRef.current() === null
+		) {
+			// Edits kept while another tab was open: the Components page would
+			// clear them with its list, so it reopens their component instead.
+			navigate(
+				{
+					pathname: target.pathname,
+					search: buildSystemComponentSearch(unsaved),
+				},
+				{ replace: true },
+			);
+			return;
+		}
 		const leaves =
 			unsaved !== null &&
 			(opens !== null
 				? opens !== unsaved
-				: getSystemEditorPage(params.get("tab"), null) === "components" &&
-					getOpenComponentIdRef.current() === unsaved);
+				: toList && getOpenComponentIdRef.current() === unsaved);
 		if (leaves && unsaved !== null) {
 			blockedPushes.current =
 				navigationType === "PUSH" && blockedPushes.current >= 0
@@ -123,7 +142,14 @@ export function useGuardedComponentLocation({
 			return;
 		}
 		apply(target);
-	}, [location.key, location.pathname, location.search, navigationType, apply]);
+	}, [
+		location.key,
+		location.pathname,
+		location.search,
+		navigationType,
+		navigate,
+		apply,
+	]);
 
 	const cancel = () => {
 		latestRequestId.current += 1;
