@@ -277,11 +277,13 @@ This means:
 
 In code, a Component's classes are merged: its generated `tv()` variants merge the template, variant and compound classes, and the wrapper merges the instance's `className` over them (`twMerge(variants(…), className)`), so the last class wins. The canvas resolves an instance's classes the same way, instead of leaving conflicting classes to stylesheet order.
 
-What merges:
+What merges, and how:
 
-- Every node of a Component instance: its stored `className` holds the template, variant and compound classes and the instance override, in codegen's layering order, and is merged in one pass. A registry Element's base classes (`data-trickroom-materialized-base-class`), which lead the string, stay as they are.
-- In the System editor, the draft stage's preview of the template, variant and compound classes.
+- Every node of a Component instance. Its classes are not read from its stored `className` but resolved from the Component version the instance records and the instance root's variant values and overrides: the template's classes for the node's path, the classes of the selected variant values (axes in codegen's layering order) and of the matching compound variants, then the override for the path. They merge in two passes, like the wrapper: `twMerge(twMerge(component classes), override)` (`mergeComponentClasses` in `src/utils/class-merge.ts`).
+- The registry Element's base classes (a Base UI Separator's `data-[orientation=horizontal]:w-full`) stay out of the merge and lead the className, as the Element applies them. A Component class equal to a base class is kept: an override `data-[orientation=horizontal]:w-full` still beats the template's `data-[orientation=horizontal]:w-8`.
+- In the System editor, the draft stage's preview of the template, variant and compound classes (no override there).
 - Not raw elements, slot content or Recipe instances: code does not merge them either, so their `className` renders as written.
+- An instance whose version the system no longer has, or of another system, renders its stored `className`, unmerged.
 
 What it merges with, decided per design by its system (`resolveClassMergeSettings` in `src/utils/class-merge-settings.ts`):
 
@@ -292,15 +294,17 @@ What it merges with, decided per design by its system (`resolveClassMergeSetting
 | No system, or one that does not resolve | None: classes resolve by stylesheet order |
 | `codegen.twMerge` on, but the config cannot be derived | None, with an `error` |
 
-`GET /api/trickroom/tailwind/class-merge?systemId=` returns that decision as `{ systemId, mode: "none" | "stock" | "derived", config?, error? }`. The derived config comes from the same cache as codegen and lint, so it is derived once per compiled design system and again only when the system's CSS changes. The browser caches the response like the class catalog (file events under `systems/` invalidate it; a change to `codegen` in `.trickroom/config.json` shows after the five-minute stale time or a reload). The design route, the capture route and the System editor's draft stage load it (`useClassMerge`) and share it through `ClassMergeContext`. The boards render once it has loaded (a failed load renders without merging), so the canvas never paints unmerged classes first, and a capture is ready only after it.
+`GET /api/trickroom/tailwind/class-merge?systemId=` returns that decision, `{ systemId, mode: "none" | "stock" | "derived", config?, error? }`, and, when classes merge, `components: { systemId, table }`: per Component and version (published versions and the draft), the template paths and classes, variants and override targets class resolution reads (`ComponentClassTable`). The derived config comes from the same cache as codegen and lint, so it is derived once per compiled design system and again only when the system's CSS changes.
 
-`createClassMerge` (`src/utils/class-merge.ts`) builds one merge function per config and caches its results by class string. Instances of a Component repeat the same strings, so a board merges a few hundred distinct strings at most.
+The design route, the capture route and the System editor's draft stage load it (`useClassMerge`) and share it through `ClassMergeContext`. The boards render once it has loaded, so the canvas never paints unmerged classes first, and a capture is ready only after it. The request times out after 8 seconds; a timeout or an error renders unmerged. It stays current while a design is open: the server's file events report `.trickroom/config.json` (a change to `codegen.twMerge` or `mergeGroups`), changes under `.trickroom/systems/` (components, tokens) and, as `tailwind-source` events, edits to the stylesheets the system's Tailwind CSS reads outside `.trickroom` (its entry and imported files, as the server's Tailwind caches recorded them; `node_modules` is left out). Each refetches the merge settings, and a stylesheet edit also recompiles the canvas styles.
+
+Resolved classNames are cached per merge function and component table, by Component, version, path, base classes and the instance root's raw markers, so a board resolves each distinct instance state once. An internal node finds its instance root by walking up its parents (`useInstanceRootMarkers` in the design store), and re-renders when the root's variant values or overrides change.
 
 `!important` classes are never removed by a class without `!`, and do not remove one: `flex !hidden` stays `flex !hidden`, so designs that use `!` to beat a Component's classes render as before. The workaround is no longer needed: `hidden` in an override now removes the Component's `flex`.
 
-The HTML export merges the same way (`exportDesignBoards` resolves the settings for the design's system), so an exported board matches the canvas. Persisted `className` strings are not changed: merging happens when a node renders.
+The HTML export resolves instances the same way (`exportDesignBoards` loads the settings and the component table for the design's system), so an exported board matches the canvas. Detaching an instance (inspector or `detachSystemComponent` over MCP) writes each detached layer's rendered, merged className, the Element's base classes first and marked materialized, so the plain layers look as they did; nested instances and slot content keep their props. Without merging, detach materializes the classes as before. Persisted `className` strings of attached instances are not changed: they are what materialization writes, and they are only rendered when an instance cannot be resolved.
 
-The inspector strikes through the inherited classes that merging removes ("Removed when the classes merge"), and the hint below the class field says the same for the instance's own classes.
+The inspector strikes through the inherited classes that merging removes ("Removed when the classes merge"), with the same two passes, and the hint below the class field says the same for the instance's own classes.
 
 ## Current Limits
 

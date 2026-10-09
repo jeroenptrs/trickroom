@@ -71,7 +71,7 @@ Routes under `/api/trickroom` include runtime health and session state, project 
 
 The design route reads a design and its content-hash revision through the HTTP API, hydrates `designStore`, renders boards inside an iframe, and keeps editor chrome outside it. Dirty serialized state autosaves through revision-checked API writes. Linked system theme CSS is injected into the iframe when applicable.
 
-The server watches design files and system-owned files under `.trickroom` and broadcasts settled changes through `GET /api/trickroom/events`. Changes to the files of one design are batched into one event per design (after 75 ms without a change, or at least every 250 ms while writes keep coming), emitted only when no journaled multi-file write is in progress, carrying the design id, its revision, the boards that changed and `state`: the manifest revision and every board's revision, in order. The same event is broadcast to every connected browser client.
+The server watches design files, system-owned files and the project config (`config.json`) under `.trickroom`, plus the stylesheets a system's Tailwind CSS reads elsewhere in the project (`tailwind-source` events, see [Canvas Class Merging](tailwind-design-systems.md#canvas-class-merging)), and broadcasts settled changes through `GET /api/trickroom/events`. Changes to the files of one design are batched into one event per design (after 75 ms without a change, or at least every 250 ms while writes keep coming), emitted only when no journaled multi-file write is in progress, carrying the design id, its revision, the boards that changed and `state`: the manifest revision and every board's revision, in order. The same event is broadcast to every connected browser client.
 
 The open design follows the disk board by board (`src/hooks/useDesignLiveSync.ts`, `src/stores/design-sync.ts`):
 
@@ -87,7 +87,7 @@ Boards and layers changed by an external write are marked until the human has se
 
 The inspector edits a selected layer's `className` as text. Its autocomplete reads `GET /api/trickroom/tailwind/class-catalog` (every utility and variant of the linked system's compiled Tailwind design system, cached server-side) and checks unrecognized classes with `POST /api/trickroom/tailwind/class-inspect`.
 
-Component instances render with their classes merged the way the project's code merges them (`GET /api/trickroom/tailwind/class-merge`, `useClassMerge`, `ClassMergeContext`); raw elements render their `className` as written. See [Canvas Class Merging](tailwind-design-systems.md#canvas-class-merging).
+Component instances render with classes resolved from their Component version and overrides and merged the way the project's code merges them (`GET /api/trickroom/tailwind/class-merge`, `useClassMerge`, `ClassMergeContext`); raw elements render their `className` as written. See [Canvas Class Merging](tailwind-design-systems.md#canvas-class-merging).
 
 The iframe shell is `src/iframe/shell.html`; it loads the Tailwind browser runtime from `public/tailwind/index.global.js`.
 
