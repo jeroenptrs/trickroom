@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createTV, type TWMConfig } from "tailwind-variants";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TrickroomCodegenConfig } from "../types";
 import { resolveCodegenConfig } from "./config";
@@ -44,7 +45,7 @@ const writeSystem = (project: CodegenTestProject, cssPath?: string) =>
 
 const setup = async (
 	codegen: Partial<TrickroomCodegenConfig> = {},
-	options: { css?: boolean } = {},
+	options: { css?: boolean; parent?: string } = {},
 ) => {
 	const block: TrickroomCodegenConfig = {
 		version: 1,
@@ -55,6 +56,7 @@ const setup = async (
 	const project = await createCodegenTestProject({
 		codegen: block,
 		components: [label],
+		...(options.parent ? { parent: options.parent } : {}),
 	});
 	projects.push(project);
 	if (options.css !== false) {
@@ -145,6 +147,55 @@ describe("runCodegen with codegen.twMerge", () => {
 		});
 		expect(checked.orphaned).toEqual([]);
 		expect((await run("write")).written).toEqual([]);
+	});
+
+	it("emits a module whose twMerge and twMergeConfig merge like the design system, also through createTV", async () => {
+		// Inside the repository, so the module resolves tailwind-merge.
+		const { project, run } = await setup({}, { parent: process.cwd() });
+		await writeFile(
+			project.path("src/theme.css"),
+			[
+				THEME_CSS,
+				"@theme { --text-sm: 0.875rem; --color-pale-9: oklch(50% 0 0); }",
+				"@utility bg-royal-ui { @apply bg-royal-9 hover:bg-pale-9; }",
+				"",
+			].join("\n"),
+		);
+		expect((await run("write")).status).toBe("ok");
+		const generated = (await import(
+			/* @vite-ignore */ project.path("src/ui/tw-merge.ts")
+		)) as {
+			twMerge: (...classes: string[]) => string;
+			twMergeConfig: TWMConfig["twMergeConfig"];
+		};
+		const { twMerge, twMergeConfig } = generated;
+		expect(twMerge("text-label-sm text-royal-9")).toBe(
+			"text-label-sm text-royal-9",
+		);
+		expect(twMerge("text-sm text-label-sm")).toBe("text-label-sm");
+		expect(twMerge("text-label-sm text-sm")).toBe("text-label-sm text-sm");
+		expect(twMerge("bg-royal-ui bg-pale-9")).toBe("bg-royal-ui bg-pale-9");
+		expect(twMerge("bg-pale-9 bg-royal-ui")).toBe("bg-royal-ui");
+
+		const tv = createTV({ twMergeConfig });
+		const tag = tv({
+			base: "text-label-sm text-royal-9 bg-pale-9",
+			variants: {
+				size: { lg: "text-label-lg" },
+				tone: { ui: "bg-royal-ui" },
+			},
+		});
+		expect(tag()).toBe("text-label-sm text-royal-9 bg-pale-9");
+		expect(tag({ size: "lg", tone: "ui" })).toBe(
+			"text-royal-9 text-label-lg bg-royal-ui",
+		);
+		expect(tag({ class: "text-label-lg" })).toBe(
+			"text-royal-9 bg-pale-9 text-label-lg",
+		);
+		// Stock tailwind-variants takes the size for a colour and drops one.
+		expect(createTV({})({ base: "text-label-sm text-royal-9" })()).toBe(
+			"text-royal-9",
+		);
 	});
 
 	it("reports a CSS change as source-changed and an edited body as body-edited", async () => {
