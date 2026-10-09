@@ -70,7 +70,7 @@ export type ClassScenario = {
 	after: readonly string[];
 	/**
 	 * Classes may be merged (tailwind-merge) on the way, though `before` and
-	 * `after` are not: merged, they must agree too.
+	 * `after` are not: merged, they must pass too, the cascade included.
 	 */
 	merge?: (className: string) => string;
 };
@@ -145,44 +145,35 @@ export const settleInContext = async (
 		// string too): which of the two wins is not checked.
 		let partial = false;
 		for (const scenario of context.scenarios) {
-			if (
-				!replacedAlike(scenario.before, scenario.after, classToken, canonical)
-			) {
-				return null;
+			// As written, and merged where classes may be merged on the way:
+			// either may be what renders, so both must pass. Merged, a class
+			// the merge drops (a `bg-white` before `bg-[#FFF]`) is not there to
+			// compete or to stand in for the class.
+			const renders = [{ before: scenario.before, after: scenario.after }];
+			if (scenario.merge) {
+				renders.push({
+					before: classesOf(scenario.merge(scenario.before.join(" "))),
+					after: classesOf(scenario.merge(scenario.after.join(" "))),
+				});
 			}
-			if (
-				scenario.merge &&
-				!replacedAlike(
-					classesOf(scenario.merge(scenario.before.join(" "))),
-					classesOf(scenario.merge(scenario.after.join(" "))),
+			for (const { before, after } of renders) {
+				if (!replacedAlike(before, after, classToken, canonical)) return null;
+			}
+			for (const { before, after } of renders) {
+				if (before.includes(classToken) && after.includes(classToken)) {
+					partial = true;
+					continue;
+				}
+				const others = before.filter((entry) => entry !== classToken);
+				if (!before.includes(classToken) || others.length === 0) continue;
+				const key = JSON.stringify([
+					[...new Set(before)].sort(),
 					classToken,
 					canonical,
-				)
-			) {
-				return null;
+				]);
+				checks.set(key, { classes: before, candidate: classToken, canonical });
+				keys.push(key);
 			}
-			if (
-				scenario.before.includes(classToken) &&
-				scenario.after.includes(classToken)
-			) {
-				partial = true;
-				continue;
-			}
-			const others = scenario.before.filter((entry) => entry !== classToken);
-			if (!scenario.before.includes(classToken) || others.length === 0) {
-				continue;
-			}
-			const key = JSON.stringify([
-				[...new Set(scenario.before)].sort(),
-				classToken,
-				canonical,
-			]);
-			checks.set(key, {
-				classes: scenario.before,
-				candidate: classToken,
-				canonical,
-			});
-			keys.push(key);
 		}
 		return { found, complete: context.complete && !partial, keys };
 	});

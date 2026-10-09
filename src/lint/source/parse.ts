@@ -101,9 +101,9 @@ export type SourceClassString = {
 	conditional: boolean;
 	/**
 	 * The choices the string sits under, outermost first: a conditional or
-	 * logical expression (`choice`, by its offset) evaluates to one operand
-	 * (`side`), so two strings on different sides of one choice never apply
-	 * together.
+	 * logical expression (`choice`, numbered per class string, one number
+	 * per expression however they nest) evaluates to one operand (`side`),
+	 * so two strings on different sides of one choice never apply together.
 	 */
 	branch: SourceClassBranch[];
 	position: SourcePosition;
@@ -431,6 +431,11 @@ type Collector = {
 	conditional: number;
 	/** The choices being visited, outermost first. */
 	branch: SourceClassBranch[];
+	/**
+	 * The next choice number. A node's offset is no id: `a && b || c`
+	 * starts both expressions at `a`.
+	 */
+	choices: number;
 };
 
 /** Visits `node` as an expression that applies only under a condition. */
@@ -536,7 +541,7 @@ const visitClassExpression = (
 				visitClassExpression(collector, expression.expression, objectMode)
 			);
 		case "ConditionalExpression": {
-			const choice = Number(expression.start);
+			const choice = collector.choices++;
 			const left =
 				isNode(expression.consequent) &&
 				visitConditionally(collector, expression.consequent, objectMode, {
@@ -553,7 +558,7 @@ const visitClassExpression = (
 		}
 		case "LogicalExpression": {
 			// `a || b`, `a && b`, `a ?? b`: the value is one of the operands.
-			const choice = Number(expression.start);
+			const choice = collector.choices++;
 			const left =
 				isNode(expression.left) &&
 				visitConditionally(collector, expression.left, objectMode, {
@@ -731,6 +736,7 @@ const collectClassStrings = (
 		handledCalls,
 		conditional: 0,
 		branch: [],
+		choices: 0,
 	};
 	const unwrapped = unwrap(node);
 	const complete =

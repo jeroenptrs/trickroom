@@ -222,6 +222,40 @@ const view = (
 		expect(m1.expression).not.toEqual(p1.expression);
 	});
 
+	it("numbers every choice of a chain, however the expressions nest", () => {
+		// `a && b || c`, `a || b || c` and `a ?? b ?? c` start their outer and
+		// inner expressions at the same offset.
+		const module = parse(
+			[
+				'const a = <p className={on && cn("p-1", "p-2") || "p-3"} />;',
+				'const b = <p className={x || cn("m-1", "m-2") || "m-3"} />;',
+				'const c = <p className={x ?? cn("w-1", "w-2") ?? "w-3"} />;',
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: fixture source with a template literal
+				'const d = <p className={`h-1 ${on && cn("h-2", "h-3") || "h-4"}`} />;',
+			].join("\n"),
+		);
+		const byValue = new Map(
+			module.classStrings.map((entry) => [entry.value, entry]),
+		);
+		const choices = (value: string) =>
+			(byValue.get(value)?.branch ?? []).map((choice) => choice.choice);
+		for (const [first, second, other] of [
+			["p-1", "p-2", "p-3"],
+			["m-1", "m-2", "m-3"],
+			["w-1", "w-2", "w-3"],
+			["h-2", "h-3", "h-4"],
+		]) {
+			// Two choices, distinct, the call's strings on the same sides.
+			expect(new Set(choices(first)).size).toBe(2);
+			expect(byValue.get(first)?.branch).toEqual(byValue.get(second)?.branch);
+			// The fallback is on the other side of the outer choice only.
+			expect(choices(other)).toEqual([choices(first)[0]]);
+			expect(byValue.get(other)?.branch[0].side).not.toBe(
+				byValue.get(first)?.branch[0].side,
+			);
+		}
+	});
+
 	it("collects class strings from className and class calls, flagging dynamic and conditional parts", () => {
 		const module = parse(`const a = <div className="p-1 flex" />;
 const b = <div className={cn("p-2", active && "bg-red-500", cond ? "x" : "y", [\`q-\${n}\`, "z"])} />;

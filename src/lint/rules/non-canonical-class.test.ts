@@ -509,6 +509,86 @@ describe("code.non-canonical-class", () => {
 		]);
 	});
 
+	it("tells nested choices apart: chains of `&&`, `||` and `??`", async () => {
+		// Each `cn(...)` renders "bg-[#FFF] bg-red-500" together, red; as
+		// "bg-white bg-red-500" it would be white. Its strings are on one side
+		// of every choice, never on different sides of a shared one.
+		const pair = 'cn("bg-[#FFF]", "bg-red-500")';
+		const fixture = await fixtures.create({
+			components: [],
+			files: {
+				"src/app.tsx": [
+					'import { cn } from "./cn";',
+					"declare const on: boolean;",
+					"declare const value: string | undefined;",
+					"export const App = () => (",
+					"\t<div>",
+					`\t\t<p className={on && ${pair} || "bg-white"} />`,
+					`\t\t<p className={value || ${pair} || "bg-white"} />`,
+					`\t\t<p className={value ?? ${pair} ?? "bg-white"} />`,
+					`\t\t<p className={\`p-2 \${on && ${pair} || "bg-white"}\`} />`,
+					"\t</div>",
+					");",
+					"",
+				].join("\n"),
+				"src/cn.ts": "export const cn = (...v: unknown[]) => v.join(' ');\n",
+			},
+		});
+		expect(await fixture.run(nonCanonicalClassRule, { inspector })).toEqual([]);
+	});
+
+	it("checks the cascade among the merged classes too", async () => {
+		// A project utility tailwind-merge takes for a blend mode, which sets
+		// the background colour. Merged, `bg-white` is gone (`bg-[#FFF]`
+		// overrides it), so it cannot stand in for the class: the original
+		// renders red, the replacement `bg-white` would render white.
+		const cssPath = "src/blend.css";
+		await writeFile(
+			path.join(projectRoot, cssPath),
+			'@import "tailwindcss";\n@utility bg-blend-hard-light {\n\tbackground-color: red;\n}\n',
+			"utf8",
+		);
+		const { designSystem: blendSystem } = await loadTailwindDesignSystem({
+			projectRoot,
+			cssPath,
+		});
+		const system = { projectRoot, cssPath };
+		const blendInspector: LintTailwindInspector = {
+			...createClassTokenInspector(blendSystem),
+			canonicalize: (candidates) =>
+				canonicalizeTailwindCandidatesInWorker(system, candidates),
+			verifyInContext: (checks) =>
+				verifyCanonicalClassesInContextInWorker(system, checks),
+		};
+		const fixture = await fixtures.create({
+			components: [],
+			files: {
+				"src/app.tsx": [
+					'import { cn } from "./cn";',
+					"export const App = () => (",
+					"\t<div>",
+					'\t\t<p className={cn("bg-white bg-blend-hard-light bg-[#FFF]")} />',
+					// Without the merged-away `bg-white`, still reported.
+					'\t\t<p className={cn("bg-blend-hard-light p-2 bg-[#FFF] bg-white")} />',
+					"\t</div>",
+					");",
+					"",
+				].join("\n"),
+				"src/cn.ts": "export const cn = (...v: unknown[]) => v.join(' ');\n",
+			},
+		});
+		const findings = await fixture.run(nonCanonicalClassRule, {
+			inspector: blendInspector,
+		});
+		expect(
+			findings.map((finding) => [
+				finding.location?.kind === "code" ? finding.location.line : null,
+				finding.details?.classToken,
+				finding.details?.contextDependent ?? false,
+			]),
+		).toEqual([[5, "bg-[#FFF]", false]]);
+	}, 30_000);
+
 	it("honours allow globs, and notes when there is no compiled CSS", async () => {
 		const fixture = await fixtures.create({
 			components: [publishedComponent("button", buttonPayload())],
