@@ -1,6 +1,7 @@
 import {
 	type DefaultClassGroupIds,
 	type DefaultThemeGroupIds,
+	extendTailwindMerge,
 	getDefaultConfig,
 } from "tailwind-merge";
 import { stableStringify } from "./system-component-template-hash";
@@ -65,6 +66,22 @@ export type TwMergeGroups = Readonly<Record<string, readonly string[]>>;
 
 /** The class group id of a merge group in the generated config. */
 export const mergeGroupId = (key: string) => `mergeGroups.${key}`;
+
+/**
+ * A custom utility whose modifier forms tailwind-merge cannot keep apart:
+ * it takes open-ended modifiers (`--modifier([color])`, `integer`), which
+ * cannot be listed, so `badge-sm/[red]` would merge through the group of
+ * `badge-sm`, and some class group claims `badge-sm`.
+ */
+export class TwMergeModifierError extends Error {
+	readonly issues: readonly string[];
+
+	constructor(issues: readonly string[]) {
+		super(issues.join(" "));
+		this.name = "TwMergeModifierError";
+		this.issues = issues;
+	}
+}
 
 /** A `mergeGroups` entry the design system cannot honour. */
 export class TwMergeGroupError extends Error {
@@ -478,7 +495,23 @@ type Candidate = {
 	candidate: string;
 	/** `root-*` for a functional utility's value, the class for a static one. */
 	origin: string;
+	/** For a modifier form (`badge-sm/blue`), the class without it. */
+	base?: string;
+	/**
+	 * The form compiled for this one: the first modifier that resolves in
+	 * the same theme namespaces makes the same declarations (values aside).
+	 */
+	representative?: string;
 };
+
+const THEME_MODIFIER = /^(--[\w-]+)-\*(--[\w-]+)?$/u;
+
+/**
+ * A modifier argument that names theme keys (`--color-*`, `--text-*--x`),
+ * so its values can be listed; anything else (`[color]`, `integer`) is
+ * open-ended.
+ */
+const isThemeModifier = (argument: string) => THEME_MODIFIER.test(argument);
 
 /** Candidates of a custom `@utility` root: the static class and every functional value. */
 const candidatesOf = (
@@ -498,6 +531,53 @@ const candidatesOf = (
 		)) {
 			if (value !== root || candidates.length === 0) {
 				candidates.push({ candidate: value, origin: `${root}-*` });
+			}
+		}
+		// Each modifier form is a class of its own: `badge-sm/blue` sets what
+		// `badge-sm` sets and more. Completions list the modifiers per group
+		// of values. Tailwind drops a `--modifier()` declaration only when the
+		// key does not resolve, so modifiers that resolve in the same theme
+		// namespaces make the same declarations: one of them is compiled.
+		const namespaces = introspection
+			.getCustomUtilityModifierArguments(root)
+			.flatMap((argument) => {
+				const match = THEME_MODIFIER.exec(argument);
+				return match
+					? [
+							{
+								keys: new Set(
+									[...introspection.resolveNamespace(match[1]).keys()].filter(
+										(key): key is string => key !== null,
+									),
+								),
+								suffix: match[2] ?? "",
+							},
+						]
+					: [];
+			});
+		const signatureOf = (modifier: string) =>
+			namespaces
+				.map(({ keys, suffix }) => (keys.has(`${modifier}${suffix}`) ? 1 : 0))
+				.join("");
+		for (const group of introspection.getCompletions(root)) {
+			const modifiers = sortedUnique(group.modifiers);
+			const representatives = new Map<string, string>();
+			for (const modifier of modifiers) {
+				const signature = signatureOf(modifier);
+				if (!representatives.has(signature)) {
+					representatives.set(signature, modifier);
+				}
+			}
+			for (const value of group.values) {
+				const base = value === null ? root : `${root}-${value}`;
+				for (const modifier of modifiers) {
+					candidates.push({
+						candidate: `${base}/${modifier}`,
+						origin: `${root}-*`,
+						base,
+						representative: `${base}/${representatives.get(signatureOf(modifier))}`,
+					});
+				}
 			}
 		}
 	}
@@ -630,11 +710,28 @@ export const deriveTwMergeConfig = (
 	const roots = sortedUnique(
 		introspection.getCustomFunctionalUtilities().map((utility) => utility.root),
 	);
+	const compiled = new Map<string, Declaration[]>();
 	const utilities = roots.flatMap((root) =>
 		candidatesOf(introspection, root).flatMap((entry) => {
-			const declarations = compile(entry.candidate);
-			return declarations.length > 0 ? [{ ...entry, declarations }] : [];
+			const name = entry.representative ?? entry.candidate;
+			let declarations = compiled.get(name);
+			if (!declarations) {
+				declarations = compile(name);
+				compiled.set(name, declarations);
+			}
+			return declarations.length > 0 ? [{ ...entry, root, declarations }] : [];
 		}),
+	);
+	// Utilities whose modifiers are open-ended (an arbitrary or bare type,
+	// `--modifier([color])`, `--modifier(integer)`): their modifier forms
+	// cannot all be listed, and tailwind-merge merges an unlisted form
+	// through the group of its base class.
+	const openEnded = new Set(
+		roots.filter((root) =>
+			introspection
+				.getCustomUtilityModifierArguments(root)
+				.some((argument) => !isThemeModifier(argument)),
+		),
 	);
 
 	// The project's merge groups: validated against the utilities, then
@@ -670,6 +767,36 @@ export const deriveTwMergeConfig = (
 		}
 	}
 	if (issues.length > 0) throw new TwMergeGroupError(issues);
+
+	// An open-ended utility stays in the config only where a merge group's
+	// contract covers its forms too (`badge-*` matches `badge-sm/[red]`):
+	// then every form, listed or not, merges as a member. The others are
+	// left out, so tailwind-merge keeps all their classes.
+	const coversForms = (candidate: string) => {
+		const key = membership.get(candidate)?.[0];
+		return (
+			key !== undefined &&
+			(options.mergeGroups?.[key] ?? []).some((pattern) =>
+				patternMatcher(pattern).test(`${candidate}/[x]`),
+			)
+		);
+	};
+	const excluded = new Set(
+		utilities
+			.filter(
+				(utility) =>
+					openEnded.has(utility.root) &&
+					!coversForms(utility.base ?? utility.candidate),
+			)
+			.map((utility) => utility.candidate),
+	);
+	const modifierIssues = [...membership.keys()]
+		.filter((candidate) => excluded.has(candidate))
+		.map((candidate) => {
+			const utility = utilities.find((entry) => entry.candidate === candidate);
+			return `"${candidate}" is in mergeGroups "${membership.get(candidate)?.[0]}", but ${utility?.origin} takes open-ended modifiers; add a pattern that also matches its modifier forms ("${candidate}*" or "${utility?.origin}").`;
+		});
+	if (modifierIssues.length > 0) throw new TwMergeModifierError(modifierIssues);
 	const mergeGroups = groupKeys.map((key) => {
 		const members = utilities.filter(
 			(utility) => membership.get(utility.candidate)?.[0] === key,
@@ -698,27 +825,42 @@ export const deriveTwMergeConfig = (
 		string,
 		{ members: Candidate[]; declarations: Declaration[] }
 	>();
+	// Forms sharing a representative share its declarations: classify once.
+	const classified = new Map<
+		readonly Declaration[],
+		{ probe: (typeof probes)[number] | undefined; shape: string }
+	>();
+	const classify = (declarations: readonly Declaration[]) => {
+		let result = classified.get(declarations);
+		if (!result) {
+			const own = new Set(declarations.map(targetOf));
+			const needs = requiredTargets(declarations);
+			const probe = probes.find(
+				(candidate) =>
+					[...candidate.required].every((key) => own.has(key)) &&
+					[...needs].every((key) => candidate.shared.has(key)) &&
+					candidate.members.every(
+						(member) =>
+							mayRemove(declarations, member) &&
+							mayRemove(member, declarations),
+					),
+			);
+			result = { probe, shape: probe ? "" : shapeOf(declarations) };
+			classified.set(declarations, result);
+		}
+		return result;
+	};
 	for (const entry of utilities) {
-		if (membership.has(entry.candidate)) continue;
+		if (membership.has(entry.candidate) || excluded.has(entry.candidate))
+			continue;
 		const declarations = entry.declarations;
-		const own = new Set(declarations.map(targetOf));
-		const needs = requiredTargets(declarations);
-		const probe = probes.find(
-			(candidate) =>
-				[...candidate.required].every((key) => own.has(key)) &&
-				[...needs].every((key) => candidate.shared.has(key)) &&
-				candidate.members.every(
-					(member) =>
-						mayRemove(declarations, member) && mayRemove(member, declarations),
-				),
-		);
+		const { probe, shape } = classify(declarations);
 		if (probe) {
 			const members = joined.get(probe.group) ?? new Set<string>();
 			members.add(entry.candidate);
 			joined.set(probe.group, members);
 			continue;
 		}
-		const shape = shapeOf(declarations);
 		const group = shapes.get(shape) ?? { members: [], declarations };
 		group.members.push(entry);
 		shapes.set(shape, group);
@@ -790,22 +932,67 @@ export const deriveTwMergeConfig = (
 		].filter((target) => target.required.size > 0),
 	);
 
+	// tailwind-merge looks a modifier form up through its base class first;
+	// for these groups it then looks up the full class, which the config
+	// lists in its own group.
+	const groupOf = new Map<string, string>();
+	for (const [group, members] of Object.entries(classGroups)) {
+		for (const member of members) groupOf.set(member, group);
+	}
+	const postfixLookupClassGroups = sortedUnique(
+		utilities.flatMap((utility) => {
+			const group =
+				utility.base !== undefined && groupOf.has(utility.candidate)
+					? groupOf.get(utility.base)
+					: undefined;
+			return group === undefined ? [] : [group];
+		}),
+	);
+
 	const sortKeys = <T>(record: Record<string, T>) =>
 		Object.fromEntries(
 			Object.keys(record)
 				.sort(compareTwMergeValues)
 				.map((key) => [key, record[key]]),
 		) as Record<string, T>;
-	return {
-		config: {
-			...(prefix ? { prefix } : {}),
-			extend: {
-				theme: deriveTheme(introspection),
-				classGroups: sortKeys(classGroups),
-				conflictingClassGroups: sortKeys(conflictingClassGroups),
-			},
+	const config: TwMergeConfig = {
+		...(prefix ? { prefix } : {}),
+		extend: {
+			theme: deriveTheme(introspection),
+			classGroups: sortKeys(classGroups),
+			conflictingClassGroups: sortKeys(conflictingClassGroups),
+			...(postfixLookupClassGroups.length > 0
+				? { postfixLookupClassGroups }
+				: {}),
 		},
 	};
+
+	// A left-out open-ended utility is safe only while nothing claims its
+	// classes: tailwind-merge then keeps them all as unknown classes.
+	const merge = extendTailwindMerge<string>(config);
+	const claimed = sortedUnique(
+		utilities
+			.filter((utility) => excluded.has(utility.candidate) && !utility.base)
+			.filter(({ candidate }) =>
+				[candidate, `${candidate}/[x]`].some(
+					(name) =>
+						merge(`${withPrefix(name)} ${withPrefix(name)}`) ===
+						withPrefix(name),
+				),
+			)
+			.map((utility) => utility.candidate),
+	);
+	if (claimed.length > 0) {
+		throw new TwMergeModifierError(
+			claimed.map((candidate) => {
+				const origin = utilities.find(
+					(utility) => utility.candidate === candidate,
+				)?.origin;
+				return `${origin} takes open-ended modifiers, so tailwind-merge would merge "${candidate}/[…]" through "${candidate}", which a class group claims; a later class could remove the modifier form. Restrict its --modifier() to theme keys (--color-*), or declare its classes and forms interchangeable in a merge group ("${origin}").`;
+			}),
+		);
+	}
+	return { config };
 };
 
 const derivedByDesignSystem = new WeakMap<

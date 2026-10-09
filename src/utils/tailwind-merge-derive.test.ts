@@ -17,6 +17,7 @@ import {
 	TW_MERGE_GROUP_PROBES,
 	TwMergeGroupError,
 	type TwMergeGroups,
+	TwMergeModifierError,
 } from "./tailwind-merge-derive";
 
 const dirs: string[] = [];
@@ -455,6 +456,109 @@ describe("deriveTwMergeConfig with merge groups", () => {
 			}),
 		).toBe(grouped);
 		expect(await loadDerivedTwMerge(options)).toBe(plain);
+	});
+});
+
+const BADGE_THEME =
+	"@theme { --text-sm: 14px; --text-lg: 20px; --color-blue: blue; --color-red: red; }";
+
+describe("deriveTwMergeConfig with modifier forms", () => {
+	it("lists each theme-keyed modifier form in a group of its own and looks it up through the base", async () => {
+		const { config } = await derive(
+			`${BADGE_THEME}\n@utility badge-* { font-size: --value(--text-*); background-color: --modifier(--color-*); }\n`,
+		);
+		expect(config.extend.classGroups).toEqual({
+			"@utility badge-*": ["badge-lg", "badge-sm"],
+			"@utility badge-* #2": [
+				"badge-lg/blue",
+				"badge-lg/red",
+				"badge-sm/blue",
+				"badge-sm/red",
+			],
+		});
+		expect(config.extend.postfixLookupClassGroups).toEqual([
+			"@utility badge-*",
+		]);
+		const merge = createTwMerge(config);
+		// badge-sm/blue also sets the background badge-lg does not.
+		expect(merge("badge-sm/blue badge-lg")).toBe("badge-sm/blue badge-lg");
+		expect(merge("badge-lg badge-sm/blue")).toBe("badge-sm/blue");
+		expect(merge("badge-sm/blue badge-lg/red")).toBe("badge-lg/red");
+		expect(merge("badge-sm badge-lg")).toBe("badge-lg");
+	});
+
+	it("compiles one form per set of namespaces a modifier resolves in, and lists every form", async () => {
+		const { config } = await derive(
+			[
+				"@theme { --text-sm: 14px; --color-blue: blue; --color-red: red; --color-green: green; --edge-blue: navy; }",
+				"@utility chip-* {",
+				"\tfont-size: --value(--text-*);",
+				"\tbackground-color: --modifier(--color-*);",
+				"\tborder-color: --modifier(--edge-*);",
+				"}",
+				"",
+			].join("\n"),
+		);
+		// blue resolves in --color and --edge; green and red only in --color.
+		expect(config.extend.classGroups).toEqual({
+			"@utility chip-*": ["chip-sm"],
+			"@utility chip-* #2": ["chip-sm/blue"],
+			"@utility chip-* #3": ["chip-sm/green", "chip-sm/red"],
+		});
+		const merge = createTwMerge(config);
+		expect(merge("chip-sm/blue chip-sm/red")).toBe("chip-sm/blue chip-sm/red");
+		expect(merge("chip-sm/red chip-sm/blue")).toBe("chip-sm/blue");
+		expect(merge("chip-sm/red chip-sm/green")).toBe("chip-sm/green");
+	});
+
+	it("leaves a utility with open-ended modifiers out when nothing claims its classes", async () => {
+		const { config } = await derive(
+			`${BADGE_THEME}\n@utility badge-* { font-size: --value(--text-*); opacity: calc(--modifier(integer) * 1%); }\n`,
+		);
+		expect(config.extend.classGroups).toEqual({});
+		expect(config.extend).not.toHaveProperty("postfixLookupClassGroups");
+		const merge = createTwMerge(config);
+		expect(merge("badge-sm/50 badge-lg")).toBe("badge-sm/50 badge-lg");
+		expect(merge("badge-sm badge-lg")).toBe("badge-sm badge-lg");
+	});
+
+	it("fails when a class group would claim a utility with open-ended modifiers", async () => {
+		await expect(
+			derive(
+				`${BADGE_THEME}\n@utility text-ink-* { color: --value(--color-*); background-color: --modifier([color]); }\n`,
+			),
+		).rejects.toThrow(TwMergeModifierError);
+		await expect(
+			derive(
+				`${BADGE_THEME}\n@utility text-ink-* { color: --value(--color-*); background-color: --modifier([color]); }\n`,
+			),
+		).rejects.toThrow(
+			'text-ink-* takes open-ended modifiers, so tailwind-merge would merge "text-ink-blue/[…]" through "text-ink-blue"',
+		);
+	});
+
+	it("keeps open-ended forms under a merge group whose patterns cover them, and fails when they do not", async () => {
+		const css = `${BADGE_THEME}\n@utility badge-* { font-size: --value(--text-*); background-color: --modifier(--color-*, [color]); }\n`;
+		const { config } = await deriveWithGroups(css, { badges: ["badge-*"] });
+		expect(config.extend.classGroups).toEqual({
+			"mergeGroups.badges": [
+				"badge-lg",
+				"badge-lg/blue",
+				"badge-lg/red",
+				"badge-sm",
+				"badge-sm/blue",
+				"badge-sm/red",
+			],
+		});
+		const merge = createTwMerge(config);
+		// The project declared every badge form interchangeable.
+		expect(merge("badge-sm/[green] badge-lg")).toBe("badge-lg");
+
+		await expect(
+			deriveWithGroups(css, { badges: ["badge-sm", "badge-lg"] }),
+		).rejects.toThrow(
+			'"badge-lg" is in mergeGroups "badges", but badge-* takes open-ended modifiers',
+		);
 	});
 });
 

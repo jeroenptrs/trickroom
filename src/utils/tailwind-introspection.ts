@@ -78,6 +78,12 @@ export type TailwindIntrospection = {
 	 * the CSS variable namespaces they consume via --value/--modifier.
 	 */
 	getCustomFunctionalUtilities(): readonly CustomFunctionalUtility[];
+	/**
+	 * The arguments of every `--modifier(…)` in the `@utility root-*`
+	 * blocks of `root` (`--color-*`, `[color]`, `integer`), one string per
+	 * argument, in source order. Empty when the utility takes no modifier.
+	 */
+	getCustomUtilityModifierArguments(root: string): string[];
 };
 
 export function createTailwindIntrospection(
@@ -85,6 +91,7 @@ export function createTailwindIntrospection(
 	cssSource: string,
 ): TailwindIntrospection {
 	let cachedCustomUtilities: CustomFunctionalUtility[] | null = null;
+	let cachedModifierArguments: Map<string, string[]> | null = null;
 
 	return {
 		isKnownCandidate(candidate) {
@@ -124,6 +131,10 @@ export function createTailwindIntrospection(
 			cachedCustomUtilities ??= extractCustomFunctionalUtilities(cssSource);
 			return cachedCustomUtilities;
 		},
+		getCustomUtilityModifierArguments(root) {
+			cachedModifierArguments ??= extractModifierArguments(cssSource);
+			return cachedModifierArguments.get(root) ?? [];
+		},
 	};
 }
 
@@ -145,7 +156,42 @@ export function extractCustomFunctionalUtilities(
 	return utilities;
 }
 
-type UtilityBlock = { root: string; body: string };
+/**
+ * Per functional `@utility` root, the arguments of its `--modifier(…)`
+ * calls, split on top-level commas (`--modifier(--color-*, [color])` gives
+ * `--color-*` and `[color]`).
+ */
+function extractModifierArguments(cssSource: string): Map<string, string[]> {
+	const byRoot = new Map<string, string[]>();
+	for (const { root, body, functional } of parseAtUtilityBlocks(cssSource)) {
+		if (!functional) continue;
+		const list = byRoot.get(root) ?? [];
+		for (const match of body.matchAll(/--modifier\(/gu)) {
+			const start = match.index + match[0].length;
+			let depth = 1;
+			let index = start;
+			let current = "";
+			while (index < body.length && depth > 0) {
+				const char = body[index];
+				if (char === "(") depth++;
+				else if (char === ")") depth--;
+				if (depth === 0) break;
+				if (char === "," && depth === 1) {
+					list.push(current.trim());
+					current = "";
+				} else {
+					current += char;
+				}
+				index++;
+			}
+			if (current.trim()) list.push(current.trim());
+		}
+		byRoot.set(root, list);
+	}
+	return byRoot;
+}
+
+type UtilityBlock = { root: string; body: string; functional: boolean };
 
 function parseAtUtilityBlocks(rawCss: string): UtilityBlock[] {
 	// Strip `/* … */` comments first so a commented-out `@utility` draft is not
@@ -165,7 +211,11 @@ function parseAtUtilityBlocks(rawCss: string): UtilityBlock[] {
 		const bodyStart = match.index + match[0].length;
 		const body = extractBalancedBlock(css, bodyStart);
 		if (body !== null) {
-			blocks.push({ root, body });
+			blocks.push({
+				root,
+				body,
+				functional: nameWithWildcard.endsWith("-*"),
+			});
 		}
 	}
 
