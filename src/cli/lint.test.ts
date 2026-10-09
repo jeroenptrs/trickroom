@@ -190,6 +190,25 @@ describe("trickroom lint", () => {
 		);
 		expect(partial.stdout).toContain("worse: coverage.generated 2 -> 1");
 		expect(partial.stdout).not.toContain("worse: code.errors");
+
+		await writeFile(
+			project.path("src/ui/badge.variants.ts"),
+			(
+				await readFile(project.path("src/ui/badge.variants.ts"), "utf8")
+			).replace("// edited\n", ""),
+		);
+		const passing = await run([
+			project.root,
+			"--adopt",
+			"code.variants-file-stale",
+		]);
+		expect(passing.code).toBe(0);
+		expect(passing.stdout).toContain(
+			"adopted: rule.code.variants-file-stale 0 -> 0 (--adopt)",
+		);
+		expect(passing.stdout).toContain(
+			"1 rule kind named with --adopt adopted into the baseline.",
+		);
 	});
 
 	it("prints the run result JSON alone with --json", async () => {

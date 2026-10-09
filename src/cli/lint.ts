@@ -176,7 +176,7 @@ const describeResult = (result: LintRunResult): string[] => {
 		const explicit = ratchet.adopted.length - newKinds;
 		const adoptedParts = [
 			newKinds > 0 ? plural(newKinds, "new rule kind") : "",
-			explicit > 0 ? `${plural(explicit, "rule kind")} by --adopt` : "",
+			explicit > 0 ? `${plural(explicit, "rule kind")} named with --adopt` : "",
 		].filter(Boolean);
 		const adopted =
 			adoptedParts.length > 0
