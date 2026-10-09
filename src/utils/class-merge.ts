@@ -327,7 +327,10 @@ export const resolveComponentNodeClasses = ({
 	path: string;
 	variantValues: Record<string, string>;
 	overrides: SystemComponentInstanceOverrides;
-	/** The registry Element's base classes, which stay out of the merge. */
+	/**
+	 * The registry Element's base classes, removed from a template's
+	 * `props.className` fallback (`renderComponentClassName` adds them).
+	 */
 	baseClassName?: string;
 }): { component: string; override: string | undefined } => {
 	const template = getTemplateNode(version, path);
@@ -354,21 +357,23 @@ export const resolveComponentNodeClasses = ({
 };
 
 /**
- * The className a component node renders with: the registry base classes,
- * then the component classes and the override merged like code merges them.
+ * The className a component node renders with, merged like code merges it:
+ * the registry Element's base classes are the lowest layer of the component
+ * classes (a wrapper that passes its Element's defaults to `twMerge` before
+ * the variants), then the override merges over both. A component or override
+ * class that conflicts with a base class replaces it.
  */
 export const renderComponentClassName = (
 	classes: { component: string; override: string | undefined },
 	baseClassName: string | undefined,
 	merge: ClassMerge,
 ): string | undefined => {
-	const merged = mergeComponentClasses(
-		classes.component,
+	const base = splitClassLayerTokens(baseClassName).join(" ");
+	const className = mergeComponentClasses(
+		[base, classes.component].filter(Boolean).join(" "),
 		classes.override,
 		merge,
 	);
-	const base = splitClassLayerTokens(baseClassName).join(" ");
-	const className = [base, merged].filter(Boolean).join(" ");
 	return className || undefined;
 };
 
@@ -492,9 +497,11 @@ const mergeKeyedTokens = (
 
 /**
  * The tokens of the merged layers that merging removes, keyed by
- * `classLayerTokenKey`, merged like `mergeComponentClasses`: the component
- * layers first, then the instance override over what they kept. Other layers
- * are not merged and never listed.
+ * `classLayerTokenKey`, merged like `renderComponentClassName`: the
+ * registry base and component layers first, then the instance override over
+ * what they kept. The registry base merges only in a stack with component or
+ * override layers (an instance's); a raw element's base classes are not
+ * merged. Other layers are not merged and never listed.
  */
 export const findClassesRemovedByMerge = (
 	layers: readonly ClassLayer[],
@@ -502,8 +509,14 @@ export const findClassesRemovedByMerge = (
 ): Set<string> => {
 	const component: KeyedToken[] = [];
 	const override: KeyedToken[] = [];
+	const isInstance = layers.some(isMergedClassLayer);
 	layers.forEach((layer, layerIndex) => {
-		if (!isMergedClassLayer(layer)) return;
+		if (
+			!isMergedClassLayer(layer) &&
+			!(isInstance && layer.source === "registry-base")
+		) {
+			return;
+		}
 		const into = layer.source === "instance-override" ? override : component;
 		splitClassLayerTokens(layer.className).forEach((token, tokenIndex) => {
 			into.push({ token, key: classLayerTokenKey(layerIndex, tokenIndex) });

@@ -13,7 +13,7 @@ function layerLabel(layer: ClassLayer): string {
 	const { metadata } = layer;
 	switch (layer.source) {
 		case "registry-base":
-			return "Recipe";
+			return metadata?.recipeId ? "Recipe" : "Element";
 		case "system-template":
 			return "Component";
 		case "system-variant":
