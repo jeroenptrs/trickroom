@@ -46,9 +46,9 @@ describe("resolveExportDescriptor", () => {
 	});
 
 	it("honors the irregular otp-field export name", () => {
-		expect(baseUi("otp-field.input").importName).toBe("OTPFieldPreview");
+		expect(baseUi("otp-field.input").importName).toBe("OTPField");
 		expect(baseUiAccessExpression(baseUi("otp-field.input"))).toBe(
-			"OTPFieldPreview.Input",
+			"OTPField.Input",
 		);
 	});
 
