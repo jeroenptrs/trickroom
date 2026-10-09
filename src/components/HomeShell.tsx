@@ -110,7 +110,7 @@ export function HomeShell() {
 	return (
 		<main className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-950">
 			<div className="flex w-full max-w-5xl flex-col gap-4 px-12 py-16">
-				<section className="flex min-h-[26rem] w-full bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
+				<section className="flex min-h-104 w-full bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
 					<aside className="flex w-56 shrink-0 flex-col border-r border-slate-200">
 						<button
 							type="button"

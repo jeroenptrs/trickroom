@@ -167,6 +167,37 @@ const view = (
 		});
 	});
 
+	it("takes strings inside an interpolation as whole classes only when whitespace delimits it", () => {
+		const module = parse(
+			[
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: fixture source with template literals
+				'const a = <div className={`[&_.${"break-words"}]:p-2`} />;',
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: fixture source with template literals
+				'const b = <div className={`p-2 ${on ? "bg-[#FFF]" : "flex"} m-1`} />;',
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: fixture source with template literals
+				'const c = <div className={`${"grow"} px-${"2"}`} />;',
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: fixture source with template literals
+				'const d = <div className={`${"a"}${"b"}`} />;',
+			].join("\n"),
+		);
+		expect(
+			module.classStrings.map((entry) => [entry.value, entry.complete]),
+		).toEqual([
+			["[&_.", false],
+			["break-words", false],
+			["]:p-2", false],
+			["p-2 ", false],
+			["bg-[#FFF]", true],
+			["flex", true],
+			[" m-1", false],
+			["grow", true],
+			[" px-", false],
+			["2", false],
+			["a", false],
+			["b", false],
+		]);
+	});
+
 	it("collects class strings from className and class calls, flagging dynamic and conditional parts", () => {
 		const module = parse(`const a = <div className="p-1 flex" />;
 const b = <div className={cn("p-2", active && "bg-red-500", cond ? "x" : "y", [\`q-\${n}\`, "z"])} />;

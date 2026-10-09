@@ -1,4 +1,5 @@
 import { unknownClassTokenRule } from "./code/class-tokens";
+import { nonCanonicalClassRule } from "./code/non-canonical-class";
 import { redundantClassRule } from "./code/redundant-class";
 import {
 	requiredAxisMissingRule,
@@ -17,6 +18,7 @@ import {
 	wrapperMissingVariantsCallRule,
 } from "./code/wrapper";
 import { designOnlyClassTargetRule } from "./design/design-only-class-target";
+import { designNonCanonicalClassRule } from "./design/non-canonical-class";
 import { designUnknownClassTokenRule } from "./design/unknown-class-token";
 import { designUnknownVariantValueRule } from "./design/unknown-variant-value";
 import { createLintRuleRegistry } from "./registry";
@@ -45,9 +47,11 @@ export const LINT_RULE_KINDS: readonly LintRuleKind[] = [
 	requiredAxisMissingRule,
 	unknownClassTokenRule,
 	redundantClassRule,
+	nonCanonicalClassRule,
 	variantsImportedOutsideComponentRule,
 	componentStylingRestrictedRule,
 	designUnknownClassTokenRule,
+	designNonCanonicalClassRule,
 	designOnlyClassTargetRule,
 	designUnknownVariantValueRule,
 ];

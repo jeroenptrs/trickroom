@@ -227,6 +227,7 @@ describe("code rules through runLint", () => {
 			),
 		).toEqual([
 			"code.component-styling-restricted warning card src/ui/stray.tsx",
+			"code.non-canonical-class info - -",
 			"code.redundant-class warning button src/app.tsx",
 			"code.required-axis-missing error button src/app.tsx",
 			// card.tsx, named like the component, is its wrapper; the body()

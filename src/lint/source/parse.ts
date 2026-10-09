@@ -474,15 +474,31 @@ const visitClassExpression = (
 			const quasis = (expression.quasis as AstNode[]) ?? [];
 			const expressions = (expression.expressions as AstNode[]) ?? [];
 			let complete = true;
-			for (const inner of expressions) {
+			const cooked = (index: number) =>
+				(quasis[index]?.value as { cooked?: string } | undefined)?.cooked ?? "";
+			for (const [index, inner] of expressions.entries()) {
+				const first = out.length;
 				if (!visitClassExpression(collector, inner, objectMode))
 					complete = false;
+				// The strings an interpolation yields are whole classes only when
+				// whitespace, or the template's start or end, sits on both sides:
+				// `[&_.${"x"}]:p-2` makes "x" part of a selector, not a class.
+				const before = cooked(index);
+				const after = cooked(index + 1);
+				const bounded =
+					(before === "" ? index === 0 : /\s$/u.test(before)) &&
+					(after === ""
+						? index === expressions.length - 1
+						: /^\s/u.test(after));
+				if (!bounded) {
+					for (const entry of out.slice(first)) entry.complete = false;
+				}
 			}
 			for (const quasi of quasis) {
-				const cooked = (quasi.value as { cooked?: string }).cooked ?? "";
-				if (cooked.trim().length > 0) {
+				const text = (quasi.value as { cooked?: string }).cooked ?? "";
+				if (text.trim().length > 0) {
 					out.push({
-						value: cooked,
+						value: text,
 						complete: expressions.length === 0,
 						conditional: collector.conditional > 0,
 						position: position(quasi.start),

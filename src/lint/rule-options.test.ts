@@ -83,8 +83,10 @@ describe("rule option specs", () => {
 		);
 		expect(withOptions.map((kind) => kind.id)).toEqual([
 			"code.unknown-class-token",
+			"code.non-canonical-class",
 			"code.component-styling-restricted",
 			"design.unknown-class-token",
+			"design.non-canonical-class",
 		]);
 		for (const kind of withOptions) {
 			expect(LINT_RULE_OPTION_SPECS[kind.id]).toBe(kind.options);
