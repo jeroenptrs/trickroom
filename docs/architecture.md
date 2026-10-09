@@ -87,6 +87,8 @@ Boards and layers changed by an external write are marked until the human has se
 
 The inspector edits a selected layer's `className` as text. Its autocomplete reads `GET /api/trickroom/tailwind/class-catalog` (every utility and variant of the linked system's compiled Tailwind design system, cached server-side) and checks unrecognized classes with `POST /api/trickroom/tailwind/class-inspect`.
 
+Component instances render with their classes merged the way the project's code merges them (`GET /api/trickroom/tailwind/class-merge`, `useClassMerge`, `ClassMergeContext`); raw elements render their `className` as written. See [Canvas Class Merging](tailwind-design-systems.md#canvas-class-merging).
+
 The iframe shell is `src/iframe/shell.html`; it loads the Tailwind browser runtime from `public/tailwind/index.global.js`.
 
 The chrome-less `/capture/:design/:board?` route reuses the same iframe shell and `Artboards` renderer. It exposes persistent node IDs as render-only DOM attributes and signals readiness only after design hydration, managed styles, Tailwind compilation, font stylesheets, and `document.fonts.ready` settle. `POST /api/trickroom/screenshot` drives this route through an optional Playwright/Chrome runtime and returns PNG data, optionally writing an explicit `.png` path.

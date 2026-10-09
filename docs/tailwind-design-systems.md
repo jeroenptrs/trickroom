@@ -271,7 +271,36 @@ This means:
 
 ## Merging
 
-`deriveTwMergeConfig` (`src/utils/tailwind-merge-derive.ts`) turns a loaded system into a [tailwind-merge](https://github.com/dcastil/tailwind-merge) config: the keys of each theme namespace under the tailwind-merge theme key of the same name, each custom `@utility` that every sampled member of a stock class group can replace losslessly (and the other way round) in that group, every other one in a group of its own, and one-directional conflicts from those groups to the groups they fully override. The rules are in [Component Codegen](codegen.md#the-tailwind-merge-config). It is a plain JSON-serialisable object (`TwMergeConfig` in `src/utils/tailwind-merge-config.ts`, with `createTwMerge` to build the merge function), cached per compiled design system. Codegen writes it as `tw-merge.ts` with `codegen.twMerge` ([Component Codegen](codegen.md#the-tailwind-merge-config)) and, with that on, `code.redundant-class` merges with it ([Design System Lint](lint.md)). The design canvas does not merge class layers yet: `flattenClassLayers` concatenates them.
+`deriveTwMergeConfig` (`src/utils/tailwind-merge-derive.ts`) turns a loaded system into a [tailwind-merge](https://github.com/dcastil/tailwind-merge) config: the keys of each theme namespace under the tailwind-merge theme key of the same name, each custom `@utility` that every sampled member of a stock class group can replace losslessly (and the other way round) in that group, every other one in a group of its own, and one-directional conflicts from those groups to the groups they fully override. The rules are in [Component Codegen](codegen.md#the-tailwind-merge-config). It is a plain JSON-serialisable object (`TwMergeConfig` in `src/utils/tailwind-merge-config.ts`, with `createTwMerge` to build the merge function), cached per compiled design system. Codegen writes it as `tw-merge.ts` with `codegen.twMerge` ([Component Codegen](codegen.md#the-tailwind-merge-config)) and, with that on, `code.redundant-class` merges with it ([Design System Lint](lint.md)). The design canvas merges component classes the same way, see [Canvas Class Merging](#canvas-class-merging).
+
+## Canvas Class Merging
+
+In code, a Component's classes are merged: its generated `tv()` variants merge the template, variant and compound classes, and the wrapper merges the instance's `className` over them (`twMerge(variants(…), className)`), so the last class wins. The canvas resolves an instance's classes the same way, instead of leaving conflicting classes to stylesheet order.
+
+What merges:
+
+- Every node of a Component instance: its stored `className` holds the template, variant and compound classes and the instance override, in codegen's layering order, and is merged in one pass. A registry Element's base classes (`data-trickroom-materialized-base-class`), which lead the string, stay as they are.
+- In the System editor, the draft stage's preview of the template, variant and compound classes.
+- Not raw elements, slot content or Recipe instances: code does not merge them either, so their `className` renders as written.
+
+What it merges with, decided per design by its system (`resolveClassMergeSettings` in `src/utils/class-merge-settings.ts`):
+
+| Design | Merge |
+| --- | --- |
+| Linked to a system that `codegen.twMerge` generates the config for | The derived config, with `mergeGroups` |
+| Linked to any other system | Stock tailwind-merge, which `tv()` uses without a config |
+| No system, or one that does not resolve | None: classes resolve by stylesheet order |
+| `codegen.twMerge` on, but the config cannot be derived | None, with an `error` |
+
+`GET /api/trickroom/tailwind/class-merge?systemId=` returns that decision as `{ systemId, mode: "none" | "stock" | "derived", config?, error? }`. The derived config comes from the same cache as codegen and lint, so it is derived once per compiled design system and again only when the system's CSS changes. The browser caches the response like the class catalog (file events under `systems/` invalidate it; a change to `codegen` in `.trickroom/config.json` shows after the five-minute stale time or a reload). The design route, the capture route and the System editor's draft stage load it (`useClassMerge`) and share it through `ClassMergeContext`. The boards render once it has loaded (a failed load renders without merging), so the canvas never paints unmerged classes first, and a capture is ready only after it.
+
+`createClassMerge` (`src/utils/class-merge.ts`) builds one merge function per config and caches its results by class string. Instances of a Component repeat the same strings, so a board merges a few hundred distinct strings at most.
+
+`!important` classes are never removed by a class without `!`, and do not remove one: `flex !hidden` stays `flex !hidden`, so designs that use `!` to beat a Component's classes render as before. The workaround is no longer needed: `hidden` in an override now removes the Component's `flex`.
+
+The HTML export merges the same way (`exportDesignBoards` resolves the settings for the design's system), so an exported board matches the canvas. Persisted `className` strings are not changed: merging happens when a node renders.
+
+The inspector strikes through the inherited classes that merging removes ("Removed when the classes merge"), and the hint below the class field says the same for the instance's own classes.
 
 ## Current Limits
 

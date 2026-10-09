@@ -116,7 +116,7 @@ The contract:
 
 `trickroom lint` picks the groups up with the rest of the config (`code.redundant-class`).
 
-The derived config is a plain JSON-serialisable object (`deriveTwMergeConfig` in `src/utils/tailwind-merge-derive.ts`). With `codegen.twMerge` on, `trickroom lint` merges with the same config, see `code.redundant-class` in [Design System Lint](lint.md).
+The derived config is a plain JSON-serialisable object (`deriveTwMergeConfig` in `src/utils/tailwind-merge-derive.ts`). With `codegen.twMerge` on, `trickroom lint` merges with the same config, see `code.redundant-class` in [Design System Lint](lint.md), and so do the design canvas and the HTML export when they render Component instances of the system ([Canvas Class Merging](tailwind-design-systems.md#canvas-class-merging)).
 
 ## Shapes
 
