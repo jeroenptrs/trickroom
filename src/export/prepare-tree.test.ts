@@ -98,7 +98,7 @@ describe("prepareRenderTree", () => {
 		expect(hasTrickroomMarker(button.props)).toBe(false);
 	});
 
-	it("merges component classes like the canvas, and only those", () => {
+	it("resolves and merges component classes like the canvas, and only those", () => {
 		const board = makeBoard();
 		board.props.className = "flex hidden";
 		const instance: Node = {
@@ -108,20 +108,42 @@ describe("prepareRenderTree", () => {
 				"data-trickroom-component": "container",
 				"data-trickroom-role": "branch",
 				"data-trickroom-name": "Card",
-				className: "flex gap-2 p-4 hidden p-2",
+				className: "flex gap-2 p-4 hidden",
 				"data-trickroom-system-component-system-id": "sys_core",
 				"data-trickroom-system-component-id": "cmp_card",
 				"data-trickroom-system-component-instance": "inst_1",
+				"data-trickroom-system-component-version": "1",
 				"data-trickroom-system-component-path": "root",
+				"data-trickroom-system-component-root": "true",
+				"data-trickroom-system-component-overrides": JSON.stringify({
+					root: { className: "hidden p-2" },
+				}),
 			},
 			children: [],
 		};
 		(board.children as Node[]).push(instance);
+		const merge = createClassMerge({ mode: "stock" });
+		if (!merge) throw new Error("stock settings must merge");
 
-		const merged = prepareRenderTree(
-			board,
-			createClassMerge({ mode: "stock" }),
-		);
+		const merged = prepareRenderTree(board, {
+			systemId: "sys_core",
+			merge,
+			components: {
+				cmp_card: {
+					"1": {
+						root: {
+							path: "root",
+							library: "trickroom",
+							component: "container",
+							className: "flex gap-2 p-4",
+						},
+						overrideTargets: {
+							root: { targetId: "root", label: "Card", path: "root" },
+						},
+					},
+				},
+			},
+		});
 		const root = merged.tree as Extract<PrepNode, { ref: string }>;
 		const card = root.children?.[3] as Extract<PrepNode, { ref: string }>;
 		expect(root.props.className).toBe("flex hidden");
@@ -133,7 +155,7 @@ describe("prepareRenderTree", () => {
 		const unmerged = prepareRenderTree(board);
 		const unmergedCard = (unmerged.tree as Extract<PrepNode, { ref: string }>)
 			.children?.[3] as Extract<PrepNode, { ref: string }>;
-		expect(unmergedCard.props.className).toBe("flex gap-2 p-4 hidden p-2");
+		expect(unmergedCard.props.className).toBe("flex gap-2 p-4 hidden");
 	});
 });
 

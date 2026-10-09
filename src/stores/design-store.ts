@@ -1,4 +1,5 @@
 import { createStore, shallow, useSelector } from "@tanstack/react-store";
+import { useMemo } from "react";
 import {
 	canHaveElementChildren,
 	getDefaultProps,
@@ -34,6 +35,11 @@ import type {
 	Role,
 	TrickroomDesign,
 } from "../types";
+import {
+	type ClassMerge,
+	type InstanceRootMarkers,
+	readInstanceRootMarkers,
+} from "../utils/class-merge";
 import { detachSystemComponentInstance } from "../utils/system-component-detach";
 import {
 	type SystemComponentInstanceMigrationContext,
@@ -48,7 +54,12 @@ import {
 	setSystemComponentVariantValueOnRoots,
 	updateSystemComponentInstanceOnRoots,
 } from "../utils/system-component-instance-update";
-import { isSystemComponentMarkerPropKey } from "../utils/system-component-markers";
+import {
+	isSystemComponentMarkerPropKey,
+	systemComponentInstanceProp,
+	systemComponentOverridesProp,
+	systemComponentVariantValuesProp,
+} from "../utils/system-component-markers";
 import {
 	canDeleteElementAcrossSystemComponentBoundary,
 	canInsertIntoSystemComponentBoundary,
@@ -1200,15 +1211,21 @@ export function detachRecipe(id: string) {
 	});
 }
 
+/**
+ * Detaches an instance. Pass the stage's class merge so each layer keeps
+ * the merged className it rendered with.
+ */
 export function detachSystemComponent(
 	id: string,
 	version?: PublishedSystemComponentVersion,
+	merge?: ClassMerge | null,
 ) {
 	mutateDesign((state) => {
 		const result = detachSystemComponentInstance(
 			serializeDesignState(state).boards,
 			id,
 			version,
+			merge,
 		);
 		if (!result) {
 			return state;
@@ -1846,6 +1863,57 @@ export function useDesignRevision() {
 
 export function useElement(id: string) {
 	return useSelector(designStore, (state) => state.entitiesById[id]);
+}
+
+/**
+ * The entity id of the root of the component instance an element belongs
+ * to (the element itself for a root), or null outside an instance. Walks up
+ * the parents, so it follows moves; slot content has no instance markers.
+ */
+export const findInstanceRootId = (
+	entitiesById: Record<string, DesignEntity>,
+	id: string,
+): string | null => {
+	const instanceId = entitiesById[id]?.props[systemComponentInstanceProp];
+	if (typeof instanceId !== "string") return null;
+	let current: DesignEntity | undefined = entitiesById[id];
+	for (let depth = 0; current && depth < 1000; depth += 1) {
+		if (
+			current.props[systemComponentInstanceProp] === instanceId &&
+			readInstanceRootMarkers(current.props)
+		) {
+			return current.id;
+		}
+		current = current.parentId ? entitiesById[current.parentId] : undefined;
+	}
+	return null;
+};
+
+/**
+ * The instance root markers (raw variant values and overrides) an element of
+ * a component instance resolves its classes with, or null outside one.
+ * Re-renders only when those markers change.
+ */
+export function useInstanceRootMarkers(id: string): InstanceRootMarkers | null {
+	const rootId = useSelector(designStore, (state) =>
+		findInstanceRootId(state.entitiesById, id),
+	);
+	const variantValues = useSelector(designStore, (state) => {
+		const value = rootId
+			? state.entitiesById[rootId]?.props[systemComponentVariantValuesProp]
+			: undefined;
+		return typeof value === "string" ? value : undefined;
+	});
+	const overrides = useSelector(designStore, (state) => {
+		const value = rootId
+			? state.entitiesById[rootId]?.props[systemComponentOverridesProp]
+			: undefined;
+		return typeof value === "string" ? value : undefined;
+	});
+	return useMemo(
+		() => (rootId ? { variantValues, overrides } : null),
+		[rootId, variantValues, overrides],
+	);
 }
 
 export function useChildren(parentId: string) {

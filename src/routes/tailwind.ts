@@ -8,7 +8,7 @@ import {
 	isTrickroomConfig,
 	jsonError,
 } from "../server-utils";
-import { resolveClassMergeSettings } from "../utils/class-merge-settings";
+import { resolveComponentClassMerge } from "../utils/class-merge-settings";
 import { rewriteCssFontUrls } from "../utils/css-font-urls";
 import {
 	defaultTailwindTokensByDomain,
@@ -686,7 +686,9 @@ tailwindRoutes.get("/class-catalog", async (c) => {
  * GET /class-merge?systemId= — how the canvas merges the component classes
  * of a design linked to the system (`ClassMergeSettings`): the derived
  * tailwind-merge config when codegen generates it for the system, stock
- * tailwind-merge otherwise, no merging without a resolvable system.
+ * tailwind-merge otherwise, no merging without a resolvable system. When
+ * classes merge, `components` carries the class data of the system's
+ * component versions, which instances resolve their classes from.
  */
 tailwindRoutes.get("/class-merge", async (c) => {
 	const projectRoot = c.get("projectRoot") as string;
@@ -701,12 +703,12 @@ tailwindRoutes.get("/class-merge", async (c) => {
 				400,
 			);
 		}
-		const settings = await resolveClassMergeSettings({
+		const merge = await resolveComponentClassMerge({
 			projectRoot,
 			config,
 			systemId,
 		});
-		return c.json({ systemId, ...settings });
+		return c.json({ systemId, ...merge });
 	} catch (error) {
 		return classCatalogErrorResponse(
 			error,

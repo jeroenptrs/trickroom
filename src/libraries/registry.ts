@@ -18,9 +18,10 @@ import {
 	flattenClassLayers,
 } from "../utils/class-layers";
 import {
-	type ClassMerge,
+	type ComponentClassSource,
+	type InstanceRootMarkers,
 	isComponentClassTarget,
-	mergeComponentClassName,
+	resolveRenderedComponentClassName,
 } from "../utils/class-merge";
 import {
 	type ClassResolution,
@@ -440,14 +441,25 @@ export const getDefaultProps = (
 });
 
 /**
- * The props a node renders with. With a `classMerge`, a component node's
- * classes are merged the way the project's code merges them (see
- * `ClassMergeSettings`); other nodes keep their className as written.
+ * How a component node's classes resolve when it renders: the design's
+ * component class source and the node's instance root markers.
+ */
+export type RenderComponentClasses = {
+	source: ComponentClassSource;
+	root: InstanceRootMarkers | null;
+};
+
+/**
+ * The props a node renders with. With `componentClasses`, a component node's
+ * className is resolved from its component version and instance overrides
+ * and merged the way the project's code merges them (see
+ * `ClassMergeSettings`); when that cannot be resolved, and for other nodes,
+ * the stored className renders as written.
  */
 export function getRenderableProps(
 	props: Props,
 	definition: RegistryComponentDefinition,
-	classMerge?: ClassMerge | null,
+	componentClasses?: RenderComponentClasses | null,
 ) {
 	const controlProps = new Set(
 		getControlDefinitions(definition).map((control) => control.prop),
@@ -459,14 +471,16 @@ export function getRenderableProps(
 		definition.baseClassName,
 		isBaseClassMaterialized(props),
 	);
-	const className =
-		classMerge && isComponentClassTarget(props)
-			? mergeComponentClassName(
-					composedClassName,
+	const resolved =
+		componentClasses && isComponentClassTarget(props)
+			? resolveRenderedComponentClassName(
+					props,
 					definition.baseClassName,
-					classMerge,
+					componentClasses.source,
+					componentClasses.root,
 				)
-			: composedClassName;
+			: null;
+	const className = resolved === null ? composedClassName : resolved;
 
 	const renderableProps = Object.fromEntries(
 		Object.entries(props).filter(

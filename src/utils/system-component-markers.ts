@@ -159,6 +159,18 @@ const normalizeOverrides = (
 	return result;
 };
 
+/** An instance root's stored variant values marker, parsed and normalized. */
+export const parseSystemComponentVariantValuesMarker = (
+	value: string | null | undefined,
+): Record<string, string> =>
+	normalizeStringRecord(parseRecord(value?.trim() ? value : null));
+
+/** An instance root's stored overrides marker, parsed and normalized. */
+export const parseSystemComponentOverridesMarker = (
+	value: string | null | undefined,
+): SystemComponentInstanceOverrides =>
+	normalizeOverrides(parseRecord(value?.trim() ? value : null));
+
 export const isSystemComponentMarkerPropKey = (
 	key: string,
 ): key is SystemComponentMarkerPropKey =>

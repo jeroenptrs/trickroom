@@ -1,7 +1,12 @@
 import { resolveCodegenConfig } from "../codegen/config";
 import type { TrickroomConfig } from "../types";
-import type { ClassMergeSettings } from "./class-merge";
+import {
+	buildComponentClassTable,
+	type ClassMergeSettings,
+	type ComponentClassMerge,
+} from "./class-merge";
 import { findDesignSystem } from "./design-system-store";
+import { readSystemComponentManifest } from "./system-component-manifest-service";
 import {
 	resolveConfiguredTailwindSystemTarget,
 	TailwindSystemResolutionError,
@@ -69,5 +74,46 @@ export const resolveClassMergeSettings = async ({
 			mode: "none",
 			error: `The tailwind-merge config could not be derived, so classes are not merged: ${error instanceof Error ? error.message : String(error)}`,
 		};
+	}
+};
+
+/**
+ * `resolveClassMergeSettings` plus, when classes merge, the class data of the
+ * system's components under the resolved system id. A component manifest
+ * that cannot be read leaves them out: instances then render their stored
+ * className.
+ */
+export const resolveComponentClassMerge = async (options: {
+	projectRoot: string;
+	config: TrickroomConfig;
+	systemId: string | null;
+}): Promise<ComponentClassMerge> => {
+	const settings = await resolveClassMergeSettings(options);
+	if (settings.mode === "none" || !options.systemId?.trim()) return settings;
+	const system = await resolveConfiguredTailwindSystemTarget(
+		options.projectRoot,
+		options.config,
+		{ systemId: options.systemId.trim() },
+	);
+	try {
+		const read = await readSystemComponentManifest(
+			options.projectRoot,
+			system.systemId,
+			{ readOnly: true },
+		);
+		return {
+			...settings,
+			components: {
+				systemId: system.systemId,
+				table: buildComponentClassTable(read.manifest),
+			},
+		};
+	} catch (error) {
+		// Instances then render their stored className; say why.
+		console.warn(
+			`[Trickroom] component classes of system "${system.systemId}" not resolved, the component manifest could not be read:`,
+			error,
+		);
+		return settings;
 	}
 };

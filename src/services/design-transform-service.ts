@@ -17,6 +17,7 @@ import {
 	describeUnknownRegistryLibrary,
 	describeUnknownRegistryRecipe,
 } from "../libraries/registry-suggestions";
+import { readProjectConfigReadOnly } from "../project";
 import {
 	findRecipeControlTargetElement,
 	getRecipeControlByPathAndProp,
@@ -53,6 +54,8 @@ import type {
 	Role,
 	TrickroomDesign,
 } from "../types";
+import { createClassMerge } from "../utils/class-merge";
+import { resolveClassMergeSettings } from "../utils/class-merge-settings";
 import { designReferencesSystemHandle } from "../utils/design-resource-references";
 import { findDesignSystem } from "../utils/design-system-store";
 import { suggestClosest } from "../utils/suggestions";
@@ -2455,6 +2458,21 @@ export const applyMigrateSystemComponentInstance = async (
 	};
 };
 
+/** The design's class merge (`ClassMergeSettings`); null when it cannot be read. */
+const loadDetachClassMerge = async (
+	projectRoot: string,
+	systemId: string | null,
+) => {
+	try {
+		const { config } = await readProjectConfigReadOnly(projectRoot);
+		return createClassMerge(
+			await resolveClassMergeSettings({ projectRoot, config, systemId }),
+		);
+	} catch {
+		return null;
+	}
+};
+
 export const applyDetachSystemComponent = async (
 	design: TrickroomDesign,
 	params: DetachSystemComponentParams,
@@ -2488,10 +2506,16 @@ export const applyDetachSystemComponent = async (
 		}
 	}
 
+	// Each layer keeps the merged className it rendered with on the canvas.
+	const classMerge = await loadDetachClassMerge(
+		params.projectRoot,
+		design.systemId ?? null,
+	);
 	const result = detachSystemComponentInstance(
 		design.boards,
 		params.elementId,
 		version,
+		classMerge,
 	);
 	if (!result) {
 		throw new DesignTransformError(

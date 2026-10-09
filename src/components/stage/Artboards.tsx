@@ -13,6 +13,7 @@ import {
 	useDesignRoots,
 	useDesignSystemId,
 	useElement,
+	useInstanceRootMarkers,
 } from "../../stores/design-store";
 import {
 	resolveResponsiveStageActiveBoardId,
@@ -45,7 +46,8 @@ const SerializedElement = memo(function SerializedElementView({
 	const isRoot = board !== undefined;
 	const element = useElement(id);
 	const childIds = useChildren(id);
-	const classMerge = useClassMergeContext().merge;
+	const classSource = useClassMergeContext().source;
+	const instanceRoot = useInstanceRootMarkers(id);
 
 	if (!element) {
 		return null;
@@ -79,7 +81,7 @@ const SerializedElement = memo(function SerializedElementView({
 	const props = getRenderableProps(
 		element.props,
 		resolution.definition,
-		classMerge,
+		classSource ? { source: classSource, root: instanceRoot } : null,
 	);
 	props["data-trickroom-node-id"] = id;
 	if (isRoot) {

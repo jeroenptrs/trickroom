@@ -4,24 +4,37 @@ import {
 	MATERIALIZED_BASE_CLASS_PROP,
 	resolveRegistryComponent,
 } from "../libraries/registry";
-import type { Props } from "../types";
+import type { Node, Props } from "../types";
 import { createClassLayers } from "./class-layers";
 import {
+	buildComponentClassTable,
+	type ClassMerge,
+	type ComponentClassSource,
+	type ComponentClassVersion,
 	classLayerTokenKey,
+	collectInstanceRootMarkers,
 	createClassMerge,
 	findClassesRemovedByMerge,
+	type InstanceRootMarkers,
 	isComponentClassTarget,
-	mergeComponentClassName,
+	mergeComponentClasses,
+	resolveRenderedComponentClassName,
+	toComponentClassSource,
 } from "./class-merge";
 import {
 	systemComponentIdProp,
 	systemComponentInstanceProp,
+	systemComponentOverridesProp,
 	systemComponentPathProp,
+	systemComponentRootProp,
 	systemComponentSystemIdProp,
+	systemComponentVariantValuesProp,
+	systemComponentVersionProp,
 } from "./system-component-markers";
+import type { SystemComponentRecord } from "./system-components";
 import type { TwMergeConfig } from "./tailwind-merge-config";
 
-const stock = () => {
+const stock = (): ClassMerge => {
 	const merge = createClassMerge({ mode: "stock" });
 	if (!merge) throw new Error("stock settings must merge");
 	return merge;
@@ -39,20 +52,110 @@ const DERIVED: TwMergeConfig = {
 	},
 };
 
-const componentProps = (
+const separator = resolveRegistryComponent("base-ui", "separator");
+const container = resolveRegistryComponent("trickroom", "container");
+if (separator.status !== "known" || container.status !== "known") {
+	throw new Error("registry components missing");
+}
+const SEPARATOR_BASE = separator.definition.baseClassName ?? "";
+
+/** A card: root with size and tone axes and a compound, and a separator. */
+const CARD: ComponentClassVersion = {
+	root: {
+		path: "root",
+		library: "trickroom",
+		component: "container",
+		className: "flex items-center p-4",
+		children: [
+			{
+				path: "rule",
+				library: "base-ui",
+				component: "separator",
+				className: "data-[orientation=horizontal]:w-8",
+			},
+		],
+	},
+	variants: {
+		axes: {
+			size: {
+				label: "Size",
+				defaultValue: "md",
+				values: {
+					md: {},
+					sm: { classesByPath: { root: "p-2" } },
+				},
+			},
+			tone: {
+				label: "Tone",
+				defaultValue: "plain",
+				values: {
+					plain: {},
+					loud: { classesByPath: { root: "bg-red-500 p-3" } },
+				},
+			},
+		},
+		compoundVariants: [
+			{ when: { size: "sm", tone: "loud" }, classesByPath: { root: "p-1" } },
+		],
+	},
+	overrideTargets: {
+		root: {
+			targetId: "root",
+			label: "Card",
+			path: "root",
+			capabilities: ["className"],
+		},
+		rule: {
+			targetId: "rule",
+			label: "Rule",
+			path: "rule",
+			capabilities: ["className"],
+		},
+	},
+};
+
+const source = (merge: ClassMerge = stock()): ComponentClassSource => ({
+	systemId: "sys_core",
+	merge,
+	components: { cmp_card: { "1": CARD } },
+});
+
+const nodeProps = (
+	path: string,
 	className: string,
 	extra: Record<string, string> = {},
-): Props => ({
-	"data-trickroom-name": "Button",
-	"data-trickroom-library": "trickroom",
-	"data-trickroom-component": "container",
-	"data-trickroom-role": "branch",
-	className,
-	[systemComponentSystemIdProp]: "sys_core",
-	[systemComponentIdProp]: "cmp_button",
-	[systemComponentInstanceProp]: "inst_1",
-	[systemComponentPathProp]: "root",
-	...(extra as Partial<Props>),
+): Props =>
+	({
+		"data-trickroom-name": path,
+		"data-trickroom-library": "trickroom",
+		"data-trickroom-component": "container",
+		"data-trickroom-role": "branch",
+		className,
+		[systemComponentSystemIdProp]: "sys_core",
+		[systemComponentIdProp]: "cmp_card",
+		[systemComponentInstanceProp]: "inst_1",
+		[systemComponentVersionProp]: "1",
+		[systemComponentPathProp]: path,
+		...extra,
+	}) as Props;
+
+const separatorProps = (
+	className: string,
+	extra: Record<string, string> = {},
+) =>
+	nodeProps("rule", className, {
+		"data-trickroom-library": "base-ui",
+		"data-trickroom-component": "separator",
+		"data-trickroom-role": "leaf",
+		...extra,
+	});
+
+const root = (
+	variantValues: Record<string, string> = {},
+	overrides: Record<string, { className: string }> = {},
+): InstanceRootMarkers => ({
+	variantValues: JSON.stringify(variantValues),
+	overrides: JSON.stringify(overrides),
 });
 
 const rawProps = (className: string): Props => ({
@@ -62,6 +165,10 @@ const rawProps = (className: string): Props => ({
 	"data-trickroom-role": "branch",
 	className,
 });
+
+const WIDE_RULE = {
+	rule: { className: "data-[orientation=horizontal]:w-full" },
+};
 
 describe("createClassMerge", () => {
 	it("does not merge without settings or in mode none", () => {
@@ -95,7 +202,6 @@ describe("createClassMerge", () => {
 		expect(derived("text-label-sm text-royal-9")).toBe(
 			"text-label-sm text-royal-9",
 		);
-		// The merge group: its members are interchangeable.
 		expect(derived("text-label-sm text-title-lg")).toBe("text-title-lg");
 		expect(derived("text-title-lg text-label-sm")).toBe("text-label-sm");
 		expect(derived("text-[13px] text-title-lg")).toBe("text-title-lg");
@@ -108,93 +214,222 @@ describe("createClassMerge", () => {
 		expect(createClassMerge({ mode: "derived", config: DERIVED })).toBe(
 			createClassMerge({ mode: "derived", config: DERIVED }),
 		);
-		expect(createClassMerge({ mode: "derived", config: DERIVED })).not.toBe(
-			createClassMerge({ mode: "stock" }),
-		);
 	});
 });
 
-describe("mergeComponentClassName", () => {
-	it("merges the component's classes", () => {
+describe("mergeComponentClasses", () => {
+	it("merges the component classes, then the override over them", () => {
 		expect(
-			mergeComponentClassName("flex gap-2 hidden", undefined, stock()),
-		).toBe("gap-2 hidden");
-		expect(mergeComponentClassName(undefined, undefined, stock())).toBe(
-			undefined,
+			mergeComponentClasses("flex gap-2 p-4 p-2", undefined, stock()),
+		).toBe("flex gap-2 p-2");
+		expect(mergeComponentClasses("flex gap-2", "hidden", stock())).toBe(
+			"gap-2 hidden",
 		);
+		expect(mergeComponentClasses("", "hidden", stock())).toBe("hidden");
+		expect(mergeComponentClasses("", undefined, stock())).toBe("");
 	});
 
-	it("leaves the registry Element's leading base classes out of the merge", () => {
-		expect(
-			mergeComponentClassName("h-px w-full w-4 h-2", "h-px w-full", stock()),
-		).toBe("h-px w-full w-4 h-2");
-		expect(
-			mergeComponentClassName("h-px w-full p-4 p-2", "h-px w-full", stock()),
-		).toBe("h-px w-full p-2");
-		// Base classes that do not lead the string are merged with the rest.
-		expect(mergeComponentClassName("w-4 w-full", "h-px w-full", stock())).toBe(
-			"w-full",
-		);
+	it("merges in two passes, like twMerge(variants(…), className)", () => {
+		// x is removed by y in the component pass; the override removes y but
+		// does not conflict with x. One pass over all three would keep x.
+		const merge: ClassMerge = (className) =>
+			({ "x y": "y", "y z": "z", "x y z": "x z" })[className] ?? className;
+		expect(mergeComponentClasses("x y", "z", merge)).toBe("z");
+		expect(merge("x y z")).toBe("x z");
 	});
 });
 
 describe("isComponentClassTarget", () => {
 	it("is true for component instance nodes only", () => {
-		expect(isComponentClassTarget(componentProps("flex"))).toBe(true);
+		expect(isComponentClassTarget(nodeProps("root", "flex"))).toBe(true);
 		expect(isComponentClassTarget(rawProps("flex"))).toBe(false);
 	});
 });
 
-describe("getRenderableProps with a class merge", () => {
-	const container = resolveRegistryComponent("trickroom", "container");
-	const separator = resolveRegistryComponent("base-ui", "separator");
-	if (container.status !== "known" || separator.status !== "known") {
-		throw new Error("registry components missing");
-	}
+describe("resolveRenderedComponentClassName", () => {
+	it("resolves template, selected variants and compounds in codegen order, then the override", () => {
+		const props = nodeProps("root", "stored classes are ignored");
+		expect(
+			resolveRenderedComponentClassName(props, undefined, source(), root()),
+		).toBe("flex items-center p-4");
+		expect(
+			resolveRenderedComponentClassName(
+				props,
+				undefined,
+				source(),
+				root({ size: "sm", tone: "loud" }),
+			),
+		).toBe("flex items-center bg-red-500 p-1");
+		expect(
+			resolveRenderedComponentClassName(
+				props,
+				undefined,
+				source(),
+				root({ size: "sm" }, { root: { className: "hidden p-6" } }),
+			),
+		).toBe("items-center hidden p-6");
+	});
 
-	it("merges a component node's classes", () => {
+	it("keeps the registry Element's base classes out of the merge, ahead of the rest", () => {
+		// The override equals a base class; it still beats the template's w-8.
+		expect(
+			resolveRenderedComponentClassName(
+				separatorProps(""),
+				SEPARATOR_BASE,
+				source(),
+				root({}, WIDE_RULE),
+			),
+		).toBe(`${SEPARATOR_BASE} data-[orientation=horizontal]:w-full`);
+	});
+
+	it("ignores a variant value the version does not have", () => {
+		expect(
+			resolveRenderedComponentClassName(
+				nodeProps("root", ""),
+				undefined,
+				source(),
+				root({ size: "xl" }),
+			),
+		).toBe("flex items-center p-4");
+	});
+
+	it("is null when it cannot resolve, so the stored className renders", () => {
+		expect(
+			resolveRenderedComponentClassName(
+				nodeProps("root", "flex hidden"),
+				undefined,
+				source(),
+				null,
+			),
+		).toBeNull();
+		expect(
+			resolveRenderedComponentClassName(
+				nodeProps("root", "", { [systemComponentVersionProp]: "9" }),
+				undefined,
+				source(),
+				root(),
+			),
+		).toBeNull();
+		expect(
+			resolveRenderedComponentClassName(
+				nodeProps("root", "", { [systemComponentSystemIdProp]: "sys_other" }),
+				undefined,
+				source(),
+				root(),
+			),
+		).toBeNull();
+	});
+});
+
+describe("getRenderableProps with component classes", () => {
+	it("renders a component node's resolved, merged classes", () => {
 		expect(
 			getRenderableProps(
-				componentProps("flex items-center hidden"),
+				nodeProps("root", "flex items-center p-4"),
 				container.definition,
-				stock(),
+				{ source: source(), root: root({}, { root: { className: "hidden" } }) },
 			).className,
-		).toBe("items-center hidden");
+		).toBe("items-center p-4 hidden");
 	});
 
 	it("keeps a raw element's className as written", () => {
 		expect(
-			getRenderableProps(rawProps("flex hidden"), container.definition, stock())
-				.className,
+			getRenderableProps(rawProps("flex hidden"), container.definition, {
+				source: source(),
+				root: null,
+			}).className,
 		).toBe("flex hidden");
 	});
 
-	it("does not merge without a merge", () => {
+	it("renders the stored className without a source or when it cannot resolve", () => {
+		const props = nodeProps("root", "flex hidden");
+		expect(getRenderableProps(props, container.definition).className).toBe(
+			"flex hidden",
+		);
 		expect(
-			getRenderableProps(componentProps("flex hidden"), container.definition)
-				.className,
-		).toBe("flex hidden");
-		expect(
-			getRenderableProps(
-				componentProps("flex hidden"),
-				container.definition,
-				null,
-			).className,
+			getRenderableProps(props, container.definition, {
+				source: source(),
+				root: null,
+			}).className,
 		).toBe("flex hidden");
 	});
 
-	it("keeps a materialized registry base ahead of the merged component classes", () => {
-		const base = separator.definition.baseClassName ?? "";
-		expect(base.length).toBeGreaterThan(0);
-		const props = componentProps(`${base} my-2 my-4`, {
-			"data-trickroom-library": "base-ui",
-			"data-trickroom-component": "separator",
-			"data-trickroom-role": "leaf",
-			[MATERIALIZED_BASE_CLASS_PROP]: "true",
+	it("renders the separator override that materialization strips from the stored className", () => {
+		// The override equals a base token, so the stored string lost it.
+		const stored = separatorProps(
+			`${SEPARATOR_BASE} data-[orientation=horizontal]:w-8`,
+			{ [MATERIALIZED_BASE_CLASS_PROP]: "true" },
+		);
+		// Rendered as stored, the override is gone and the template's w-8 is last.
+		expect(getRenderableProps(stored, separator.definition).className).toBe(
+			`${SEPARATOR_BASE} data-[orientation=horizontal]:w-8`,
+		);
+		expect(
+			getRenderableProps(stored, separator.definition, {
+				source: source(),
+				root: root({}, WIDE_RULE),
+			}).className,
+		).toBe(`${SEPARATOR_BASE} data-[orientation=horizontal]:w-full`);
+	});
+});
+
+describe("component class sources", () => {
+	it("builds a table of every published version and the draft", () => {
+		const record = {
+			componentId: "cmp_card",
+			slug: "card",
+			name: "Card",
+			createdAt: "",
+			updatedAt: "",
+			draft: { root: { ...CARD.root, props: { "data-x": "1" } } },
+			published: {
+				currentVersion: "1",
+				versions: {
+					"1": {
+						...CARD,
+						version: "1",
+						publishedAt: "",
+						templateHash: "",
+						variantSchemaHash: "",
+					},
+				},
+			},
+		} as unknown as SystemComponentRecord;
+		const table = buildComponentClassTable({
+			components: { cmp_card: record },
 		});
+		expect(Object.keys(table.cmp_card).sort()).toEqual(["1", "draft"]);
+		expect(table.cmp_card["1"].variants).toEqual(CARD.variants);
+		// Only what class resolution reads.
+		expect(table.cmp_card.draft.root).not.toHaveProperty("props");
+	});
+
+	it("is null without merging or components", () => {
+		expect(toComponentClassSource({ mode: "none" })).toBeNull();
+		expect(toComponentClassSource({ mode: "stock" })).toBeNull();
 		expect(
-			getRenderableProps(props, separator.definition, stock()).className,
-		).toBe(`${base} my-4`);
+			toComponentClassSource({
+				mode: "stock",
+				components: { systemId: "sys_core", table: {} },
+			}),
+		).toMatchObject({ systemId: "sys_core", components: {} });
+	});
+
+	it("collects instance root markers by instance id", () => {
+		const tree: Node = {
+			id: "card",
+			props: nodeProps("root", "", {
+				[systemComponentRootProp]: "true",
+				[systemComponentVariantValuesProp]: '{"size":"sm"}',
+				[systemComponentOverridesProp]: "{}",
+			}),
+			children: [{ id: "rule", props: nodeProps("rule", ""), children: [] }],
+		};
+		expect(collectInstanceRootMarkers([tree])).toEqual(
+			new Map([
+				["inst_1", { variantValues: '{"size":"sm"}', overrides: "{}" }],
+			]),
+		);
 	});
 });
 
@@ -236,6 +471,35 @@ describe("findClassesRemovedByMerge", () => {
 		]);
 		expect([...findClassesRemovedByMerge(layers, stock())]).toEqual([
 			classLayerTokenKey(0, 2),
+		]);
+	});
+
+	it("merges the override over what the component layers kept", () => {
+		const merge: ClassMerge = (className) =>
+			({ "x y": "y", "y z": "z", "x y z": "x z" })[className] ?? className;
+		const layers = createClassLayers([
+			{ source: "system-template", className: "x y" },
+			{ source: "instance-override", className: "z" },
+		]);
+		expect([...findClassesRemovedByMerge(layers, merge)].sort()).toEqual([
+			classLayerTokenKey(0, 0),
+			classLayerTokenKey(0, 1),
+		]);
+	});
+
+	it("strikes the template class the separator override beats", () => {
+		const layers = createClassLayers([
+			{
+				source: "system-template",
+				className: "data-[orientation=horizontal]:w-8",
+			},
+			{
+				source: "instance-override",
+				className: "data-[orientation=horizontal]:w-full",
+			},
+		]);
+		expect([...findClassesRemovedByMerge(layers, stock())]).toEqual([
+			classLayerTokenKey(0, 0),
 		]);
 	});
 });

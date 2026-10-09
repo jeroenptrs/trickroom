@@ -27,6 +27,7 @@ import type {
 	SystemComponentVariantAxis,
 } from "../../utils/system-components";
 import { useProjectScope } from "../contexts";
+import { useClassMergeContext } from "../stage/class-merge-context";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 import {
@@ -209,6 +210,8 @@ function AttachedComponentRootControls({
 	const variantAxes = version?.variants?.axes ?? {};
 	const canUpdate = isAttachedComponentStaleStatus(status);
 	const designRevision = useDesignRevision();
+	// Detached layers keep the merged classes they rendered with.
+	const classMerge = useClassMergeContext().merge;
 	// biome-ignore lint/correctness/useExhaustiveDependencies: designRevision and instance.overrides are intentional recompute triggers — the memo reads live design state via serializeDesign(), which is not otherwise reactive.
 	const migrationPreview = useMemo(() => {
 		if (
@@ -288,7 +291,7 @@ function AttachedComponentRootControls({
 		if (!confirmed) {
 			return;
 		}
-		detachSystemComponent(rootElementId, version ?? undefined);
+		detachSystemComponent(rootElementId, version ?? undefined, classMerge);
 	};
 
 	const handleUpdate = () => {

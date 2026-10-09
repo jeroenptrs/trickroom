@@ -6,12 +6,13 @@ import {
 	NOT_MERGED,
 } from "../components/stage/class-merge-context";
 import { tailwindClassMergeQueryOptions } from "../queries/tailwind-class-merge";
-import { createClassMerge } from "../utils/class-merge";
+import { createClassMerge, toComponentClassSource } from "../utils/class-merge";
 
 /**
  * The merge for component classes in a design linked to `systemId`, so the
  * canvas resolves them like the project's code. Without a system nothing is
- * fetched and nothing merges.
+ * fetched and nothing merges; a failed or timed-out request settles without
+ * merging.
  */
 export function useClassMerge(
 	systemId: string | null | undefined,
@@ -27,6 +28,10 @@ export function useClassMerge(
 
 	return useMemo(() => {
 		if (!enabled) return NOT_MERGED;
-		return { merge: createClassMerge(query.data), ready: settled };
+		return {
+			merge: createClassMerge(query.data),
+			source: toComponentClassSource(query.data),
+			ready: settled,
+		};
 	}, [enabled, query.data, settled]);
 }

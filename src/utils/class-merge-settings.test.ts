@@ -3,8 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TrickroomCodegenConfig, TrickroomConfig } from "../types";
-import { createClassMerge } from "./class-merge";
-import { resolveClassMergeSettings } from "./class-merge-settings";
+import { createClassMerge, mergeComponentClasses } from "./class-merge";
+import {
+	resolveClassMergeSettings,
+	resolveComponentClassMerge,
+} from "./class-merge-settings";
 
 const CORE = "sys_00000000-0000-4000-8000-0000000000c1";
 const OTHER = "sys_00000000-0000-4000-8000-0000000000c2";
@@ -37,12 +40,12 @@ afterEach(async () => {
 	);
 });
 
-const createProject = async () => {
+const createProject = async (css = CSS) => {
 	const root = await realpath(
 		await mkdtemp(path.join(os.tmpdir(), "trickroom-class-merge-")),
 	);
 	roots.push(root);
-	await writeFile(path.join(root, "theme.css"), CSS);
+	await writeFile(path.join(root, "theme.css"), css);
 	for (const [key, systemId, name] of [
 		["core", CORE, "Core"],
 		["other", OTHER, "Other"],
@@ -168,5 +171,47 @@ describe("resolveClassMergeSettings", () => {
 			/could not be derived/u,
 		);
 		expect(createClassMerge(settings)).toBeNull();
+	});
+
+	it("merges the override over the merged component classes, like the wrapper", async () => {
+		const projectRoot = await createProject(
+			"@utility headline {\n\tfont-size: 2rem;\n\tline-height: 2;\n}\n",
+		);
+		const merge = createClassMerge(
+			await resolveClassMergeSettings({
+				projectRoot,
+				config: config({ version: 1, outDir: "src/ui", twMerge: {} }),
+				systemId: CORE,
+			}),
+		);
+		if (!merge) throw new Error("derived settings must merge");
+		// tv() keeps text-sm/8 over leading-6; the wrapper's twMerge then
+		// replaces text-sm/8 with headline.
+		expect(
+			mergeComponentClasses("leading-6 text-sm/8", "headline", merge),
+		).toBe("headline");
+		// One pass keeps leading-6: text-sm/8 removed it, and is removed itself.
+		expect(merge("leading-6 text-sm/8 headline")).toBe("leading-6 headline");
+	});
+
+	it("adds the system's component class data when classes merge", async () => {
+		const projectRoot = await createProject();
+		expect(
+			await resolveComponentClassMerge({
+				projectRoot,
+				config: config(),
+				systemId: CORE,
+			}),
+		).toEqual({
+			mode: "stock",
+			components: { systemId: CORE, table: {} },
+		});
+		expect(
+			await resolveComponentClassMerge({
+				projectRoot,
+				config: config(),
+				systemId: null,
+			}),
+		).toEqual({ mode: "none" });
 	});
 });

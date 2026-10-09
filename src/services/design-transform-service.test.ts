@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -2973,6 +2973,7 @@ describe("applyDetachSystemComponent", () => {
 				path: "root",
 				library: "trickroom",
 				component: "container",
+				className: "flex hidden",
 				children: [
 					{
 						path: "label",
@@ -3038,6 +3039,47 @@ describe("applyDetachSystemComponent", () => {
 		expect(
 			persistedRoot?.props["data-trickroom-system-component-instance"],
 		).toBeUndefined();
+	});
+
+	it("keeps the merged className the canvas rendered, with the project's merge", async () => {
+		const added = await applyAddSystemComponent(
+			{ ...simpleDesign, systemId },
+			{
+				projectRoot,
+				parentId: "root",
+				index: 0,
+				systemId,
+				componentId,
+			},
+		);
+		expect(
+			findNode(added.design.boards, added.changedElementId)?.props.className,
+		).toBe("flex hidden");
+		const detach = () =>
+			applyDetachSystemComponent(added.design, {
+				projectRoot,
+				elementId: added.changedElementId,
+			});
+
+		// No readable project config: nothing merges, classes as before.
+		expect(
+			findNode((await detach()).design.boards, added.changedElementId)?.props
+				.className,
+		).toBe("flex hidden");
+
+		await writeFile(
+			path.join(projectRoot, ".trickroom", "config.json"),
+			JSON.stringify({
+				schemaVersion: 1,
+				projectId: "proj_detach_merge",
+				name: "Detach",
+				defaultSystemId: systemId,
+			}),
+		);
+		expect(
+			findNode((await detach()).design.boards, added.changedElementId)?.props
+				.className,
+		).toBe("hidden");
 	});
 });
 

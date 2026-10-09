@@ -5,8 +5,12 @@ import {
 	resolveRegistryComponent,
 } from "../../libraries/registry";
 import { hydrateDesign } from "../../stores/design-store";
-import type { Node, TrickroomDesign } from "../../types";
-import { createClassMerge } from "../../utils/class-merge";
+import type { Node, Props, TrickroomDesign } from "../../types";
+import {
+	type ClassMerge,
+	type ComponentClassSource,
+	createClassMerge,
+} from "../../utils/class-merge";
 import {
 	ResponsiveStageContext,
 	type ResponsiveStageContextValue,
@@ -261,7 +265,32 @@ describe("Artboards", () => {
 });
 
 describe("Artboards class merging", () => {
-	const node = (id: string, className: string, instance: boolean): Node => ({
+	// A card instance: root (flex, override hidden) with a child whose
+	// template is `flex` and override `!hidden`.
+	const instanceProps = (
+		path: string,
+		className: string,
+		rootMarkers?: { overrides: string },
+	): Props => ({
+		"data-trickroom-name": path,
+		"data-trickroom-library": "trickroom",
+		"data-trickroom-component": "container",
+		"data-trickroom-role": "branch",
+		className,
+		"data-trickroom-system-component-system-id": "sys_core",
+		"data-trickroom-system-component-id": "cmp_card",
+		"data-trickroom-system-component-instance": "inst_1",
+		"data-trickroom-system-component-version": "1",
+		"data-trickroom-system-component-path": path,
+		...(rootMarkers
+			? {
+					"data-trickroom-system-component-root": "true",
+					"data-trickroom-system-component-variant-values": "{}",
+					"data-trickroom-system-component-overrides": rootMarkers.overrides,
+				}
+			: {}),
+	});
+	const raw = (id: string, className: string): Node => ({
 		id,
 		props: {
 			"data-trickroom-name": id,
@@ -269,17 +298,37 @@ describe("Artboards class merging", () => {
 			"data-trickroom-component": "container",
 			"data-trickroom-role": "branch",
 			className,
-			...(instance
-				? {
-						"data-trickroom-system-component-system-id": "sys_core",
-						"data-trickroom-system-component-id": "cmp_card",
-						"data-trickroom-system-component-instance": "inst_1",
-						"data-trickroom-system-component-path": "root",
-					}
-				: {}),
 		},
 		children: [],
 	});
+	const source: ComponentClassSource = {
+		systemId: "sys_core",
+		merge: createClassMerge({ mode: "stock" }) as ClassMerge,
+		components: {
+			cmp_card: {
+				"1": {
+					root: {
+						path: "root",
+						library: "trickroom",
+						component: "container",
+						className: "flex items-center",
+						children: [
+							{
+								path: "body",
+								library: "trickroom",
+								component: "container",
+								className: "flex",
+							},
+						],
+					},
+					overrideTargets: {
+						root: { targetId: "root", label: "Card", path: "root" },
+						body: { targetId: "body", label: "Body", path: "body" },
+					},
+				},
+			},
+		},
+	};
 	const canvas = { mode: "canvas", activeBoardId: null } as const;
 
 	beforeEach(() => {
@@ -287,11 +336,25 @@ describe("Artboards class merging", () => {
 			name: "Class merge test",
 			boards: [
 				{
-					...node("board", "flex flex-col", false),
+					...raw("board", "flex flex-col"),
 					children: [
-						node("raw", "flex hidden", false),
-						node("instance", "flex items-center hidden", true),
-						node("important", "flex !hidden", true),
+						raw("raw", "flex hidden"),
+						{
+							id: "instance",
+							props: instanceProps("root", "flex items-center hidden", {
+								overrides: JSON.stringify({
+									root: { className: "hidden" },
+									body: { className: "!hidden" },
+								}),
+							}),
+							children: [
+								{
+									id: "body",
+									props: instanceProps("body", "flex !hidden"),
+									children: [],
+								},
+							],
+						},
 					],
 				},
 			],
@@ -300,7 +363,8 @@ describe("Artboards class merging", () => {
 
 	it("merges component classes and keeps raw elements as written", () => {
 		const html = renderArtboards(canvas, {
-			merge: createClassMerge({ mode: "stock" }),
+			merge: source.merge,
+			source,
 			ready: true,
 		});
 
@@ -308,12 +372,14 @@ describe("Artboards class merging", () => {
 		expect(html).toContain(
 			'class="items-center hidden" data-trickroom-node-id="instance"',
 		);
+		// An internal node resolves with its instance root's overrides; the
+		// !important workaround survives the merge.
 		expect(html).toContain(
-			'class="flex !hidden" data-trickroom-node-id="important"',
+			'class="flex !hidden" data-trickroom-node-id="body"',
 		);
 	});
 
-	it("renders today's classes without a merge", () => {
+	it("renders the stored classes without a merge", () => {
 		const html = renderArtboards(canvas);
 
 		expect(html).toContain(
@@ -322,7 +388,11 @@ describe("Artboards class merging", () => {
 	});
 
 	it("waits for the merge settings before rendering boards", () => {
-		const html = renderArtboards(canvas, { merge: null, ready: false });
+		const html = renderArtboards(canvas, {
+			merge: null,
+			source: null,
+			ready: false,
+		});
 
 		expect(html).not.toContain("data-trickroom-root-id");
 	});

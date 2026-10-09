@@ -256,6 +256,7 @@ describe("tailwind sync endpoint validation", () => {
 		expect(await read(`?systemId=${systemId}`)).toEqual({
 			systemId,
 			mode: "stock",
+			components: { systemId, table: {} },
 		});
 		expect(await read("")).toEqual({ systemId: null, mode: "none" });
 		expect(await read("?systemId=Missing")).toEqual({

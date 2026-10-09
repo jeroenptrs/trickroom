@@ -6,6 +6,7 @@ import {
 	resolveRegistryComponent,
 } from "../libraries/registry";
 import type { Node } from "../types";
+import { createClassMerge } from "./class-merge";
 import { detachSystemComponentInstance } from "./system-component-detach";
 import {
 	getSystemComponentMarkerProps,
@@ -189,7 +190,10 @@ describe("detachSystemComponentInstance", () => {
 	});
 
 	it("materializes registry base classes when detaching system components", () => {
-		const separatorResolution = resolveRegistryComponent("base-ui", "separator");
+		const separatorResolution = resolveRegistryComponent(
+			"base-ui",
+			"separator",
+		);
 		expect(separatorResolution.status).toBe("known");
 		if (separatorResolution.status !== "known") return;
 
@@ -383,6 +387,142 @@ describe("detachSystemComponentInstance", () => {
 		)?.toMatchObject({
 			componentId: "cmp_22222222-2222-4222-8222-222222222222",
 			instanceId: "nested-instance",
+		});
+	});
+
+	describe("with a class merge", () => {
+		const stock = createClassMerge({ mode: "stock" });
+		const separator = resolveRegistryComponent("base-ui", "separator");
+		if (!stock || separator.status !== "known") {
+			throw new Error("stock merge and separator expected");
+		}
+		const SEPARATOR_BASE = separator.definition.baseClassName ?? "";
+		const version: PublishedSystemComponentVersion = {
+			version: "1",
+			publishedAt: "2026-05-26T00:00:00.000Z",
+			root: {
+				path: "root",
+				library: "trickroom",
+				component: "container",
+				className: "flex items-center p-4",
+				children: [
+					{
+						path: "rule",
+						library: "base-ui",
+						component: "separator",
+						className: "data-[orientation=horizontal]:w-8",
+					},
+				],
+			},
+			overrideTargets: {
+				root: { targetId: "root", label: "Card", path: "root" },
+				rule: { targetId: "rule", label: "Rule", path: "rule" },
+			},
+			templateHash: "sha256:template",
+			variantSchemaHash: "sha256:variants",
+		};
+		const markers = (path: string, isRoot = false, instanceId = "instance-1") =>
+			getSystemComponentMarkerProps({
+				systemId: "sys-core",
+				componentId: "cmp_11111111-1111-4111-8111-111111111111",
+				instanceId,
+				version: "1",
+				path,
+				isRoot,
+				...(isRoot
+					? {
+							variantValues: {},
+							overrides: {
+								root: { className: "hidden" },
+								rule: { className: "data-[orientation=horizontal]:w-full" },
+							},
+						}
+					: {}),
+			});
+		const instance = (): Node[] => [
+			{
+				id: "card",
+				props: {
+					...baseProps("Card"),
+					// Stored as materialized: unmerged.
+					className: "flex items-center p-4 hidden",
+					...markers("root", true),
+				},
+				children: [
+					{
+						id: "rule",
+						props: {
+							"data-trickroom-name": "Rule",
+							"data-trickroom-library": "base-ui",
+							"data-trickroom-component": "separator",
+							className: `${SEPARATOR_BASE} data-[orientation=horizontal]:w-8`,
+							[MATERIALIZED_BASE_CLASS_PROP]: "true",
+							...markers("rule"),
+						},
+						children: [],
+					},
+					{
+						id: "slot-text",
+						props: {
+							...baseProps("Slot text", "text"),
+							className: "flex hidden",
+						},
+						children: "Raw slot content",
+					},
+					{
+						id: "nested",
+						props: {
+							...baseProps("Nested"),
+							className: "flex hidden",
+							...markers("root", true, "nested-instance"),
+						},
+						children: [],
+					},
+				],
+			},
+		];
+
+		it("keeps the merged className each layer rendered with", () => {
+			const result = detachSystemComponentInstance(
+				instance(),
+				"card",
+				version,
+				stock,
+			);
+			const card = result?.roots[0];
+			const children = Array.isArray(card?.children) ? card.children : [];
+			const [rule, slotText, nested] = children;
+
+			expect(card?.props.className).toBe("items-center p-4 hidden");
+			expect(card?.props).not.toHaveProperty(MATERIALIZED_BASE_CLASS_PROP);
+			// The base stays first and materialized; the override that equals a
+			// base class beats the template's w-8.
+			expect(rule.props.className).toBe(
+				`${SEPARATOR_BASE} data-[orientation=horizontal]:w-full`,
+			);
+			expect(rule.props[MATERIALIZED_BASE_CLASS_PROP]).toBe("true");
+			expect(
+				getRenderableProps(rule.props, separator.definition).className,
+			).toBe(rule.props.className);
+			// Slot content and nested instances keep their props.
+			expect(slotText.props.className).toBe("flex hidden");
+			expect(nested.props.className).toBe("flex hidden");
+			expect(getSystemComponentStructuralMetadata(nested.props)).toMatchObject({
+				instanceId: "nested-instance",
+			});
+			expect(result?.detachedElementIds.sort()).toEqual(["card", "rule"]);
+		});
+
+		it("materializes the unmerged classes without a merge, as before", () => {
+			const result = detachSystemComponentInstance(
+				instance(),
+				"card",
+				version,
+				null,
+			);
+			expect(result?.roots[0].props.className).toBe(
+				"flex items-center p-4 hidden",
+			);
 		});
 	});
 });
