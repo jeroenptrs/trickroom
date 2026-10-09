@@ -290,6 +290,62 @@ describe("code.redundant-class", () => {
 		]);
 	});
 
+	it("merges with the system's derived tailwind-merge config, and stock tailwind-merge without one", async () => {
+		const tag = publishedComponent("tag", {
+			root: templateNode("root", "text-label-sm text-royal-9"),
+			slots: {},
+			variants: { axes: {}, compoundVariants: [] },
+			overrideTargets: {},
+		});
+		const fixture = await fixtures.create({
+			components: [tag],
+			files: {
+				"src/ui/tag.tsx": [
+					'import { tagVariants } from "./tag.variants";',
+					"export const Tag = (props: { className?: string }) => <span className={tagVariants({ class: props.className })} />;",
+					"",
+				].join("\n"),
+				"src/app.tsx": [
+					'import { Tag } from "./ui/tag";',
+					"export const App = () => (",
+					"\t<>",
+					'\t\t<Tag className="text-label-sm" />',
+					'\t\t<Tag className="text-royal-9" />',
+					'\t\t<Tag className="text-label-lg" />',
+					"\t</>",
+					");",
+					"",
+				].join("\n"),
+			},
+		});
+		// text-label-sm has a group of its own: it repeats the base next to the colour.
+		expect(
+			describeFindings(
+				await fixture.run(redundantClassRule, {
+					mergeConfig: {
+						extend: {
+							theme: {},
+							classGroups: {
+								"@utility text-label-*": ["text-label-lg", "text-label-sm"],
+							},
+							conflictingClassGroups: {
+								"@utility text-label-*": ["font-size", "leading"],
+							},
+						},
+					},
+				}),
+			),
+		).toEqual([
+			'src/app.tsx:4:19 <Tag className> repeats "text-label-sm", which "tag" already applies through its base classes. Remove it from className.',
+			'src/app.tsx:5:19 <Tag className> repeats "text-royal-9", which "tag" already applies through its base classes. Remove it from className.',
+		]);
+		// Stock tailwind-merge takes text-label-sm for a colour, which the
+		// base's text-royal-9 replaces, so repeating it looks like a change.
+		expect(describeFindings(await fixture.run(redundantClassRule))).toEqual([
+			'src/app.tsx:5:19 <Tag className> repeats "text-royal-9", which "tag" already applies through its base classes. Remove it from className.',
+		]);
+	});
+
 	it("counts the compound variants the element selects as provided", async () => {
 		// Base px-3; a compound replaces it with px-6 when tone="loud" and
 		// size="md"; another adds ring when disabled is set, a third shadow

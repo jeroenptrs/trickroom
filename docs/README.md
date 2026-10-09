@@ -19,7 +19,7 @@ These docs are organized as a user guide first and implementation notes second. 
 
 ## Quick Safety Summary
 
-Trickroom writes project metadata under `.trickroom`, recent-project state, settings and agent feedback on the MCP tools under `~/.trickroom`, and no application source files, except the variants files `trickroom codegen` writes to the `outDir` you configure. `trickroom lint` reads application sources and writes only `lint-report.json` under the system folder. MCP writes are gated by project config, design-file allowlists, component allowlists, and content-hash revisions. A `deleteElement` operation removes a subtree and cannot be undone by Trickroom itself.
+Trickroom writes project metadata under `.trickroom`, recent-project state, settings and agent feedback on the MCP tools under `~/.trickroom`, and no application source files, except the variants files (and, when configured, the derived tailwind-merge config) `trickroom codegen` writes to the `outDir` you configure. `trickroom lint` reads application sources and writes only `lint-report.json` under the system folder. MCP writes are gated by project config, design-file allowlists, component allowlists, and content-hash revisions. A `deleteElement` operation removes a subtree and cannot be undone by Trickroom itself.
 
 ## Source Pointers
 
@@ -30,5 +30,5 @@ Trickroom writes project metadata under `.trickroom`, recent-project state, sett
 - `src/services/design-transform-service.ts`: MCP mutation semantics.
 - `src/lint/`: design system lint engine (contract, rules, source model, report, ratchet); `src/cli/`: the `codegen` and `lint` commands.
 - `src/mcp/tools/`: MCP tools, one module per tool group; `src/mcp/prompts.ts`: MCP prompts; `src/mcp/governance.ts`: policy and audit logging.
-- `src/utils/tailwind-*`: Tailwind token sync, storage, theme CSS, and class-name modeling.
+- `src/utils/tailwind-*`: Tailwind token sync, storage, theme CSS, class-name modeling, and the tailwind-merge config derived from a design system (`tailwind-merge-derive.ts`).
 - `src/server-entry.ts`: production HTTP server startup, host policy, and static app serving.

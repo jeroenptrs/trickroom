@@ -24,6 +24,7 @@ import { createDesignFileService } from "../services/design-file-service";
 import type { Node } from "../types";
 import { getSystemComponentMarkerProps } from "../utils/system-component-markers";
 import { parseLintReport } from "./report";
+import { redundantClassRule } from "./rules/code/redundant-class";
 import {
 	variantsFileOrphanedRule,
 	variantsFileStaleRule,
@@ -32,7 +33,11 @@ import { designOnlyClassTargetRule } from "./rules/design/design-only-class-targ
 import { designUnknownClassTokenRule } from "./rules/design/unknown-class-token";
 import { designUnknownVariantValueRule } from "./rules/design/unknown-variant-value";
 import { createLintRuleRegistry } from "./rules/registry";
-import { type RunLintInput, runLint as runLintWithEveryKind } from "./run-lint";
+import {
+	createTwMergeConfigLoader,
+	type RunLintInput,
+	runLint as runLintWithEveryKind,
+} from "./run-lint";
 
 // The engine is tested with the codegen kinds and the design kinds, so
 // finding lists stay exact (the fixtures have no class or design problems
@@ -771,5 +776,102 @@ describe("runLint", () => {
 					'.trickroom/systems/core/lint.json is invalid: rules["design.unknown-class-token"].options.allow must be a list of strings.',
 			},
 		]);
+	});
+});
+
+describe("runLint with codegen.twMerge", () => {
+	const projects: CodegenTestProject[] = [];
+	afterEach(async () => {
+		await Promise.all(projects.splice(0).map((project) => project.cleanup()));
+	});
+
+	it("merges code.redundant-class with the derived config only when codegen.twMerge generates it", async () => {
+		const tag = publishedComponent(
+			"tag",
+			flatPayload("text-label-sm text-royal-9"),
+		);
+		const lint = async (twMerge: boolean) => {
+			const project = await createCodegenTestProject({
+				codegen: {
+					version: 1,
+					outDir: "src/ui",
+					...(twMerge ? { twMerge: {} } : {}),
+				},
+				components: [tag],
+			});
+			projects.push(project);
+			await writeFile(
+				project.path(".trickroom/systems/core/system.json"),
+				`${JSON.stringify({ version: 1, systemId: CODEGEN_TEST_SYSTEM_ID, systemName: "Core", cssPath: "src/theme.css" }, null, "\t")}\n`,
+			);
+			await mkdir(project.path("src/ui"), { recursive: true });
+			await writeFile(
+				project.path("src/theme.css"),
+				"@theme { --color-royal-9: oklch(54% 0.22 263); --db-label-sm: 0.875rem; }\n@utility text-label-* { font-size: --value(--db-label-*); line-height: 1.25; }\n",
+			);
+			await writeFile(
+				project.path("src/ui/tag.tsx"),
+				'import { tagVariants } from "./tag.variants";\nexport const Tag = (props: { className?: string }) => <span className={tagVariants({ class: props.className })} />;\n',
+			);
+			await writeFile(
+				project.path("src/app.tsx"),
+				'import { Tag } from "./ui/tag";\nexport const App = () => <Tag className="text-label-sm" />;\n',
+			);
+			const read = await readProjectConfigReadOnly(project.root);
+			const config = resolveCodegenConfig(read.config);
+			if (config.status !== "configured") throw new Error("unconfigured");
+			await runCodegen({ projectRoot: project.root, config, mode: "write" });
+			const result = await runLintWithEveryKind({
+				registry: createLintRuleRegistry([redundantClassRule]),
+				projectRoot: project.root,
+				check: true,
+			});
+			return (result.report?.findings ?? []).map((finding) => finding.message);
+		};
+		expect(await lint(true)).toEqual([
+			'<Tag className> repeats "text-label-sm", which "tag" already applies through its base classes. Remove it from className.',
+		]);
+		// Stock tailwind-merge takes text-label-sm for a colour the base replaces.
+		expect(await lint(false)).toEqual([]);
+	});
+});
+
+describe("createTwMergeConfigLoader", () => {
+	it("derives the merge config from the system CSS once, and is null without CSS or when it fails", async () => {
+		const dir = await mkdtemp(
+			path.join(os.tmpdir(), "trickroom-tw-merge-lint-"),
+		);
+		try {
+			await writeFile(
+				path.join(dir, "theme.css"),
+				"@theme { --db-label-sm: 0.875rem; }\n@utility text-label-* { font-size: --value(--db-label-*); }\n",
+			);
+			await writeFile(
+				path.join(dir, "broken.css"),
+				"@utility broken { @apply not-a-utility; }\n",
+			);
+			const load = createTwMergeConfigLoader(dir, "theme.css");
+			const config = await load();
+			expect(config?.extend.classGroups["@utility text-label-*"]).toEqual([
+				"text-label-sm",
+			]);
+			expect(await load()).toBe(config);
+			expect(await createTwMergeConfigLoader(dir, null)()).toBeNull();
+			// The project's merge groups, and stock merging when they do not fit.
+			const grouped = await createTwMergeConfigLoader(dir, "theme.css", {
+				labels: ["text-label-*"],
+			})();
+			expect(grouped?.extend.classGroups["mergeGroups.labels"]).toEqual([
+				"text-label-sm",
+			]);
+			expect(
+				await createTwMergeConfigLoader(dir, "theme.css", {
+					labels: ["text-caption-*"],
+				})(),
+			).toBeNull();
+			expect(await createTwMergeConfigLoader(dir, "broken.css")()).toBeNull();
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 });

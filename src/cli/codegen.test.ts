@@ -1,6 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	CODEGEN_TEST_SYSTEM_ID,
 	type CodegenTestProject,
 	createCodegenTestProject,
 	flatPayload,
@@ -77,6 +78,33 @@ describe("trickroom codegen", () => {
 		expect(checked.code).toBe(0);
 		expect(checked.stdout).toBe(
 			'Checked 2 components for system "Core" -> src/ui: 2 ok.',
+		);
+	});
+
+	it("counts the tailwind-merge config among the checked files", async () => {
+		const project = await createCodegenTestProject({
+			codegen: { version: 1, outDir: "src/ui", twMerge: {} },
+			components: [publishedComponent("button", flatPayload("px-3"))],
+		});
+		projects.push(project);
+		await mkdir(project.path("src"), { recursive: true });
+		await writeFile(
+			project.path("src/theme.css"),
+			"@utility card-padding { padding: 1rem; }\n",
+		);
+		await writeFile(
+			project.path(".trickroom/systems/core/system.json"),
+			`${JSON.stringify({ version: 1, systemId: CODEGEN_TEST_SYSTEM_ID, systemName: "Core", cssPath: "src/theme.css" })}\n`,
+		);
+		const drift = await run([project.root, "--check"]);
+		expect(drift.code).toBe(1);
+		expect(drift.stdout).toContain("missing  src/ui/tw-merge.ts");
+		expect(drift.stdout).toContain(
+			'Checked 2 files (1 component and the tailwind-merge config) for system "Core" -> src/ui: 0 ok, 2 missing.',
+		);
+		expect((await run([project.root])).stdout).toContain("Wrote 2 files");
+		expect((await run([project.root, "--check"])).stdout).toBe(
+			'Checked 2 files (1 component and the tailwind-merge config) for system "Core" -> src/ui: 2 ok.',
 		);
 	});
 

@@ -2,7 +2,8 @@ import type { LintRuleFinding, LintRuleKind } from "../types";
 
 /**
  * The codegen check as diagnostics: every selected component's variants
- * file is `ok`, and no generated file of the system is orphaned. Built on
+ * file, and the tailwind-merge config when `codegen.twMerge` is set, is
+ * `ok`, and no generated file of the system is orphaned. Built on
  * `runCodegen` in check mode (the runner provides the result). A project
  * without a `codegen` block gets one informational finding and no
  * violations.
@@ -24,6 +25,16 @@ const describeComponentStatus = (
 		default:
 			return "is stale";
 	}
+};
+
+/** The run's message says what changed, so a source change is just stale. */
+const describeTwMergeStatus = (
+	status: "missing" | "stale" | "error",
+	reason?: string,
+) => {
+	if (status === "missing") return "is missing";
+	if (status === "stale" && reason === "source-changed") return "is stale";
+	return describeComponentStatus(status, reason);
 };
 
 export const CODEGEN_NOT_CONFIGURED_MESSAGE =
@@ -62,6 +73,13 @@ export const variantsFileStaleRule: LintRuleKind = {
 				message: `Component "${component.slug}" ${describeComponentStatus(component.status, component.reason)}${component.message ? ` (${component.message})` : ""}. Run "trickroom codegen" to regenerate.`,
 				location: { kind: "code", file: component.file, line: 1, column: 1 },
 				component: component.slug,
+			});
+		}
+		const twMerge = codegen.twMerge;
+		if (twMerge && twMerge.status !== "ok") {
+			findings.push({
+				message: `The tailwind-merge config ${twMerge.file} ${describeTwMergeStatus(twMerge.status, twMerge.reason)}${twMerge.message ? ` (${twMerge.message})` : ""}. Run "trickroom codegen" to regenerate.`,
+				location: { kind: "code", file: twMerge.file, line: 1, column: 1 },
 			});
 		}
 		return findings;

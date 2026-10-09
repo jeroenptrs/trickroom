@@ -269,6 +269,10 @@ This means:
 - Overridden defaults replace baseline values.
 - Confirmed overrides help reset removed defaults in injected theme CSS.
 
+## Merging
+
+`deriveTwMergeConfig` (`src/utils/tailwind-merge-derive.ts`) turns a loaded system into a [tailwind-merge](https://github.com/dcastil/tailwind-merge) config: the keys of each theme namespace under the tailwind-merge theme key of the same name, each custom `@utility` that every sampled member of a stock class group can replace losslessly (and the other way round) in that group, every other one in a group of its own, and one-directional conflicts from those groups to the groups they fully override. The rules are in [Component Codegen](codegen.md#the-tailwind-merge-config). It is a plain JSON-serialisable object (`TwMergeConfig` in `src/utils/tailwind-merge-config.ts`, with `createTwMerge` to build the merge function), cached per compiled design system. Codegen writes it as `tw-merge.ts` with `codegen.twMerge` ([Component Codegen](codegen.md#the-tailwind-merge-config)) and, with that on, `code.redundant-class` merges with it ([Design System Lint](lint.md)). The design canvas does not merge class layers yet: `flattenClassLayers` concatenates them.
+
 ## Current Limits
 
 - Token sync stores color tokens only.

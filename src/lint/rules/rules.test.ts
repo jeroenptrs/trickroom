@@ -24,6 +24,7 @@ const codegenResult = (
 	outDir: "src/ui",
 	components: [],
 	orphaned: [],
+	twMerge: null,
 	diagnostics: [],
 	written: [],
 	...overrides,
@@ -224,6 +225,53 @@ describe("code.variants-file-stale", () => {
 				},
 				component: "chip",
 			},
+		]);
+	});
+});
+
+describe("code.variants-file-stale on the tailwind-merge config", () => {
+	it("reports the generated tw-merge file unless it is ok", () => {
+		const twMerge = (
+			overrides: Partial<NonNullable<CodegenRunResult["twMerge"]>>,
+		) =>
+			variantsFileStaleRule.run(
+				context(
+					codegenResult({
+						twMerge: {
+							file: "src/ui/tw-merge.ts",
+							status: "ok",
+							sourceHash: "sha256:b",
+							onDisk: { sourceHash: "sha256:a" },
+							...overrides,
+						},
+					}),
+				),
+			);
+		expect(twMerge({})).toEqual([]);
+		expect(
+			twMerge({
+				status: "stale",
+				reason: "source-changed",
+				message:
+					"The design system's Tailwind CSS changed since the file was generated.",
+			}),
+		).toEqual([
+			{
+				message:
+					'The tailwind-merge config src/ui/tw-merge.ts is stale (The design system\'s Tailwind CSS changed since the file was generated.). Run "trickroom codegen" to regenerate.',
+				location: {
+					kind: "code",
+					file: "src/ui/tw-merge.ts",
+					line: 1,
+					column: 1,
+				},
+			},
+		]);
+		expect(twMerge({ status: "missing", onDisk: null })).toEqual([
+			expect.objectContaining({
+				message:
+					'The tailwind-merge config src/ui/tw-merge.ts is missing. Run "trickroom codegen" to regenerate.',
+			}),
 		]);
 	});
 });

@@ -126,6 +126,10 @@ type TrickroomCodegenConfig = {
     command: string;
     args?: string[];
   };
+  twMerge?: {
+    fileName?: string;
+    mergeGroups?: Record<string, string[]>;
+  };
 };
 ```
 
@@ -144,7 +148,11 @@ Example:
     "shape": "auto",
     "include": ["toast", "button"],
     "exclude": ["topbar"],
-    "formatter": { "command": "./node_modules/.bin/biome", "args": ["format", "--stdin-file-path={file}"] }
+    "formatter": { "command": "./node_modules/.bin/biome", "args": ["format", "--stdin-file-path={file}"] },
+    "twMerge": {
+      "fileName": "tw-merge.ts",
+      "mergeGroups": { "typography": ["text-title-*", "text-body-*", "text-label-*"] }
+    }
   }
 }
 ```
@@ -162,12 +170,15 @@ Fields and defaults (defaults are applied when the block is read and never writt
 | `include` | no | every published Component | Exact Component slugs. Whether they exist is checked at generation time. |
 | `exclude` | no | none | Exact Component slugs. |
 | `formatter` | no | none | `command` is a non-empty string, `args` an optional array of strings. It runs without a shell from the project root, with the source on stdin and `{file}` in `args` replaced by the output path. |
+| `twMerge` | no | off | An object; present turns on the generated tailwind-merge config (see [Component Codegen](codegen.md#the-tailwind-merge-config)). `fileName` defaults to `tw-merge.ts`: a file name in `outDir` without a path separator or `{slug}`, ending in `.ts`. Needs the system's `cssPath`, and makes `code.redundant-class` merge with the same config, which assumes your `tv` module passes the generated `twMergeConfig` to `createTV`. `mergeGroups` is optional: per group name (letters, digits, `-`, `_`), a non-empty list of utility classes or patterns with `*`, without spaces, that the project declares interchangeable, with the contract in [Merge Groups](codegen.md#merge-groups). Whether each pattern matches a utility is checked when codegen runs. |
 
 What is generated, the check statuses and the ownership rule are described in [Component Codegen](codegen.md). Codegen reads the config, `system.json` and `components.json` without migrating them, in both modes.
 
-Unknown keys inside `codegen` or `formatter` are validation errors, so a typo fails loudly instead of being ignored. Saving normalises the block (trimmed strings, key order as above) and keeps it otherwise unchanged.
+Unknown keys inside `codegen`, `formatter` or `twMerge` are validation errors, so a typo fails loudly instead of being ignored. Saving normalises the block (trimmed strings, key order as above) and keeps it otherwise unchanged.
 
 A Trickroom older than this block drops it the next time it saves the config, for example when you rename the project or change MCP settings.
+
+`twMerge` and its `mergeGroups` were added to version 1 of the block without a version change: both are optional, and every block without them means what it did before, so no migration is needed. A Trickroom from before `twMerge` rejects a block that has it as an unknown key, and one from before `mergeGroups` rejects that key inside `twMerge`; remove the key to use that Trickroom.
 
 ## Design Files
 

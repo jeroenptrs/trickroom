@@ -24,6 +24,11 @@ import {
 	loadCachedTailwindDesignSystem,
 	type TailwindDesignSystem,
 } from "../utils/tailwind-design-system";
+import type { TwMergeConfig } from "../utils/tailwind-merge-config";
+import {
+	loadDerivedTwMerge,
+	type TwMergeGroups,
+} from "../utils/tailwind-merge-derive";
 import { readDomainTokensReadonly } from "../utils/tailwind-token-store";
 import {
 	LINT_CONFIG_FILE_NAME,
@@ -194,6 +199,31 @@ export const createTailwindInspectorLoader = (
 				}
 				return inspector;
 			})
+			.catch(() => null);
+		return pending;
+	};
+};
+
+/**
+ * Derives the tailwind-merge config from the system CSS on first use for
+ * every rule of a run, through the same cached design system as the
+ * inspector, with the project's merge groups. Null without a `cssPath`
+ * (the runner passes none unless `codegen.twMerge` generates the config
+ * for the linted system), when the CSS fails to compile, or when the merge
+ * groups do not fit it (the codegen check reports that).
+ */
+export const createTwMergeConfigLoader = (
+	projectRoot: string,
+	cssPath: string | null,
+	mergeGroups: TwMergeGroups = {},
+): (() => Promise<TwMergeConfig | null>) => {
+	let pending: Promise<TwMergeConfig | null> | null = null;
+	return () => {
+		if (!cssPath?.trim()) {
+			return Promise.resolve(null);
+		}
+		pending ??= loadDerivedTwMerge({ projectRoot, cssPath }, mergeGroups)
+			.then((derived) => derived.config)
 			.catch(() => null);
 		return pending;
 	};
@@ -726,6 +756,7 @@ async function runLintInner(
 	});
 
 	// Rules.
+	const cssPath = system.manifest.cssPath ?? tokens?.metadata.cssPath ?? null;
 	const rulesRun = await runLintRules({
 		registry,
 		config,
@@ -737,10 +768,19 @@ async function runLintInner(
 			sources,
 			designs,
 			tailwind: {
-				inspector: createTailwindInspectorLoader(
-					projectRoot,
-					system.manifest.cssPath ?? tokens?.metadata.cssPath ?? null,
-				),
+				inspector: createTailwindInspectorLoader(projectRoot, cssPath),
+				// tv() merges with the derived config only when codegen writes it
+				// for this system (and the project wires it into createTV).
+				mergeConfig:
+					codegen !== null &&
+					codegenConfig.status === "configured" &&
+					codegenConfig.twMerge
+						? createTwMergeConfigLoader(
+								projectRoot,
+								system.manifest.cssPath ?? null,
+								codegenConfig.twMerge.mergeGroups,
+							)
+						: createTwMergeConfigLoader(projectRoot, null),
 			},
 		},
 	});

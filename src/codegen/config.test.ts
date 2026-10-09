@@ -22,6 +22,10 @@ const fullBlock: TrickroomCodegenConfig = {
 		command: "./node_modules/.bin/biome",
 		args: ["format", "--stdin-file-path={file}"],
 	},
+	twMerge: {
+		fileName: "tw-merge.ts",
+		mergeGroups: { typography: ["text-title-*", "text-body-*"] },
+	},
 };
 
 describe("codegen config validation", () => {
@@ -70,6 +74,51 @@ describe("codegen config validation", () => {
 		[
 			{ version: 1, outDir: "src", formatter: { command: "x", cwd: "." } },
 			"codegen.formatter.cwd is not",
+		],
+		[{ version: 1, outDir: "src", twMerge: true }, "codegen.twMerge must be"],
+		[
+			{ version: 1, outDir: "src", twMerge: { file: "x.ts" } },
+			"codegen.twMerge.file is not",
+		],
+		[
+			{ version: 1, outDir: "src", twMerge: { fileName: " " } },
+			"codegen.twMerge.fileName must be a non-empty",
+		],
+		[
+			{ version: 1, outDir: "src", twMerge: { fileName: "lib/tw-merge.ts" } },
+			"without a path separator",
+		],
+		[
+			{ version: 1, outDir: "src", twMerge: { fileName: "{slug}.ts" } },
+			"cannot contain {slug}",
+		],
+		[
+			{ version: 1, outDir: "src", twMerge: { fileName: "tw-merge.js" } },
+			"end in .ts",
+		],
+		[
+			{ version: 1, outDir: "src", twMerge: { mergeGroups: ["text-*"] } },
+			"codegen.twMerge.mergeGroups must be an object",
+		],
+		[
+			{ version: 1, outDir: "src", twMerge: { mergeGroups: { type: [] } } },
+			"codegen.twMerge.mergeGroups.type must be a non-empty array",
+		],
+		[
+			{
+				version: 1,
+				outDir: "src",
+				twMerge: { mergeGroups: { type: ["text-*", "text title"] } },
+			},
+			"codegen.twMerge.mergeGroups.type[1] must be a utility class",
+		],
+		[
+			{
+				version: 1,
+				outDir: "src",
+				twMerge: { mergeGroups: { "type face": ["text-*"] } },
+			},
+			'the group name "type face"',
 		],
 	])("reports %j as %s", (block, message) => {
 		const issues = getCodegenConfigIssues(block);
@@ -131,6 +180,32 @@ describe("codegen config normalisation", () => {
 		});
 	});
 
+	it("keeps an empty twMerge block, which turns the file on with its default name", () => {
+		const block = normalizeCodegenConfig({
+			version: 1,
+			outDir: "src/ui",
+			twMerge: {},
+		});
+		expect(block).toEqual({ version: 1, outDir: "src/ui", twMerge: {} });
+		expect(
+			normalizeCodegenConfig({
+				version: 1,
+				outDir: "src/ui",
+				twMerge: { fileName: " merge.ts " },
+			}).twMerge,
+		).toEqual({ fileName: "merge.ts" });
+		expect(resolveCodegenConfig({ name: "App", codegen: block })).toMatchObject(
+			{ twMerge: { fileName: "tw-merge.ts", mergeGroups: {} } },
+		);
+		expect(
+			normalizeCodegenConfig({
+				version: 1,
+				outDir: "src/ui",
+				twMerge: { mergeGroups: { typography: [" text-title-* "] } },
+			}).twMerge,
+		).toEqual({ mergeGroups: { typography: ["text-title-*"] } });
+	});
+
 	it("does not add a block to a config without one", () => {
 		expect(normalizeTrickroomConfig({ name: "App" })).not.toHaveProperty(
 			"codegen",
@@ -163,6 +238,7 @@ describe("resolveCodegenConfig", () => {
 			include: null,
 			exclude: [],
 			formatter: null,
+			twMerge: null,
 		});
 		expect(
 			resolveCodegenConfig({

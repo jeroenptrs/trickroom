@@ -300,7 +300,10 @@ describe("design.non-canonical-class", () => {
 				systemId: CODEGEN_TEST_SYSTEM_ID,
 				designs: [{ id: "design-1", design }],
 			}),
-			tailwind: { inspector: async () => loaded },
+			tailwind: {
+				inspector: async () => loaded,
+				mergeConfig: async () => null,
+			},
 		};
 	};
 

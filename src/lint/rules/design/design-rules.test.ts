@@ -262,7 +262,10 @@ const contextFor = (
 			systemId: CODEGEN_TEST_SYSTEM_ID,
 			designs: [{ id: "design-1", design }],
 		}),
-		tailwind: { inspector: async () => inspector },
+		tailwind: {
+			inspector: async () => inspector,
+			mergeConfig: async () => null,
+		},
 	};
 };
 

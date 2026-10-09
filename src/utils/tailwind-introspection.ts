@@ -11,6 +11,29 @@ export type ThemeEntry = {
 	src?: unknown;
 };
 
+/**
+ * A node of the CSS Tailwind generates for a candidate
+ * (`candidatesToAst`), narrowed to what callers read: rules with their
+ * selector, at-rules with their name and params, declarations with their
+ * property, value and importance.
+ */
+export type CandidateAstNode = {
+	kind: string;
+	selector?: string;
+	name?: string;
+	params?: string;
+	property?: string;
+	value?: string;
+	important?: boolean;
+	nodes?: CandidateAstNode[];
+};
+
+export type CustomUtilityArguments = {
+	values: string[];
+	modifiers: string[];
+	usesModifier: boolean;
+};
+
 export type CustomFunctionalUtility = {
 	/** The @utility root (e.g. "text-interaction" from "@utility text-interaction-*"). */
 	root: string;
@@ -41,6 +64,15 @@ export type TailwindIntrospection = {
 	 */
 	getCandidateCss(candidate: string): string | null;
 	/**
+	 * The CSS for a single candidate as Tailwind's AST, or null if the DS
+	 * does not resolve it. Nested rules keep their `&` selectors.
+	 */
+	getCandidateAst(candidate: string): CandidateAstNode[] | null;
+	/** The DS prefix (`prefix(tw)` makes candidates `tw:flex`), or null. */
+	getPrefix(): string | null;
+	/** Whether the DS has a utility with this root of this kind. */
+	hasUtility(root: string, kind: "static" | "functional"): boolean;
+	/**
 	 * Theme entries via the public theme.entries() API.
 	 * Use this instead of the private theme.values map.
 	 */
@@ -52,6 +84,13 @@ export type TailwindIntrospection = {
 	 * the CSS variable namespaces they consume via --value/--modifier.
 	 */
 	getCustomFunctionalUtilities(): readonly CustomFunctionalUtility[];
+	/**
+	 * The arguments of every `--value(…)` and `--modifier(…)` in the
+	 * `@utility root-*` blocks of `root` (`--color-*`, `[length]`,
+	 * `integer`), one string per argument, in source order, and whether the
+	 * utility uses `--modifier(…)` at all.
+	 */
+	getCustomUtilityArguments(root: string): CustomUtilityArguments;
 };
 
 export function createTailwindIntrospection(
@@ -59,6 +98,7 @@ export function createTailwindIntrospection(
 	cssSource: string,
 ): TailwindIntrospection {
 	let cachedCustomUtilities: CustomFunctionalUtility[] | null = null;
+	let cachedArguments: Map<string, CustomUtilityArguments> | null = null;
 
 	return {
 		isKnownCandidate(candidate) {
@@ -76,6 +116,18 @@ export function createTailwindIntrospection(
 		getCandidateCss(candidate) {
 			return designSystem.candidatesToCss([candidate])[0] ?? null;
 		},
+		getCandidateAst(candidate) {
+			const nodes = designSystem.candidatesToAst([candidate])[0];
+			return nodes && nodes.length > 0
+				? (nodes as unknown as CandidateAstNode[])
+				: null;
+		},
+		getPrefix() {
+			return designSystem.theme.prefix || null;
+		},
+		hasUtility(root, kind) {
+			return designSystem.utilities.has(root, kind);
+		},
 		getThemeEntries() {
 			return designSystem.theme.entries() as Iterable<[string, ThemeEntry]>;
 		},
@@ -85,6 +137,16 @@ export function createTailwindIntrospection(
 		getCustomFunctionalUtilities() {
 			cachedCustomUtilities ??= extractCustomFunctionalUtilities(cssSource);
 			return cachedCustomUtilities;
+		},
+		getCustomUtilityArguments(root) {
+			cachedArguments ??= extractUtilityArguments(cssSource);
+			return (
+				cachedArguments.get(root) ?? {
+					values: [],
+					modifiers: [],
+					usesModifier: false,
+				}
+			);
 		},
 	};
 }
@@ -107,7 +169,56 @@ export function extractCustomFunctionalUtilities(
 	return utilities;
 }
 
-type UtilityBlock = { root: string; body: string };
+/** The arguments of each `name(…)` call in `body`, split on top-level commas. */
+function callArguments(body: string, name: string): string[] {
+	const list: string[] = [];
+	for (const match of body.matchAll(new RegExp(`${name}\\(`, "gu"))) {
+		let depth = 1;
+		let index = match.index + match[0].length;
+		let current = "";
+		while (index < body.length) {
+			const char = body[index];
+			if (char === "(") depth++;
+			else if (char === ")") depth--;
+			if (depth === 0) break;
+			if (char === "," && depth === 1) {
+				list.push(current.trim());
+				current = "";
+			} else {
+				current += char;
+			}
+			index++;
+		}
+		if (current.trim()) list.push(current.trim());
+	}
+	return list;
+}
+
+/**
+ * Per functional `@utility` root, the arguments of its `--value(…)` and
+ * `--modifier(…)` calls (`--modifier(--color-*, [color])` gives
+ * `--color-*` and `[color]`).
+ */
+function extractUtilityArguments(
+	cssSource: string,
+): Map<string, CustomUtilityArguments> {
+	const byRoot = new Map<string, CustomUtilityArguments>();
+	for (const { root, body, functional } of parseAtUtilityBlocks(cssSource)) {
+		if (!functional) continue;
+		const entry = byRoot.get(root) ?? {
+			values: [],
+			modifiers: [],
+			usesModifier: false,
+		};
+		entry.values.push(...callArguments(body, "--value"));
+		entry.modifiers.push(...callArguments(body, "--modifier"));
+		entry.usesModifier ||= /--modifier\(/u.test(body);
+		byRoot.set(root, entry);
+	}
+	return byRoot;
+}
+
+type UtilityBlock = { root: string; body: string; functional: boolean };
 
 function parseAtUtilityBlocks(rawCss: string): UtilityBlock[] {
 	// Strip `/* … */` comments first so a commented-out `@utility` draft is not
@@ -127,7 +238,11 @@ function parseAtUtilityBlocks(rawCss: string): UtilityBlock[] {
 		const bodyStart = match.index + match[0].length;
 		const body = extractBalancedBlock(css, bodyStart);
 		if (body !== null) {
-			blocks.push({ root, body });
+			blocks.push({
+				root,
+				body,
+				functional: nameWithWildcard.endsWith("-*"),
+			});
 		}
 	}
 
