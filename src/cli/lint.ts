@@ -73,12 +73,12 @@ const plural = (count: number, noun: string) =>
 
 const describeLocation = (finding: LintFinding) => {
 	const location = finding.location;
+	if (finding.componentLocation) {
+		return `component ${describeComponentLocation(finding.componentLocation, finding.component)}`;
+	}
 	if (!location) return "";
 	if (location.kind === "code") {
 		return `${location.file}${location.line === undefined ? "" : `:${location.line}${location.column === undefined ? "" : `:${location.column}`}`}`;
-	}
-	if (location.kind === "component") {
-		return `component ${describeComponentLocation(location, finding.component)}`;
 	}
 	return [
 		`design ${location.design}`,

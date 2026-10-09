@@ -207,11 +207,11 @@ export async function lintDesign({
 		system: { id: contract.system.id, name: contract.system.name },
 		rules: run.enabled.design,
 		findings: run.findings.filter((finding) => {
-			const location = finding.location;
-			if (location?.kind === "design") return true;
-			if (location?.kind === "component") {
+			if (finding.location?.kind === "design") return true;
+			const located = finding.componentLocation;
+			if (located) {
 				return placedVersions.has(
-					`${location.componentId}\u0000${location.version}`,
+					`${located.componentId}\u0000${located.version}`,
 				);
 			}
 			return finding.component !== undefined && placed.has(finding.component);

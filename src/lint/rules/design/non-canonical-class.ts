@@ -6,7 +6,11 @@ import {
 	nonCanonicalClassMessage,
 } from "../canonical-classes";
 import type { LintRuleFinding, LintRuleKind } from "../types";
-import { collectLintClassTargets, hasLintClassScope } from "./class-targets";
+import {
+	collectLintClassTargets,
+	hasLintClassScope,
+	targetLocationFields,
+} from "./class-targets";
 
 /**
  * The classes of the system's component definitions and of the layers of
@@ -39,8 +43,7 @@ export const designNonCanonicalClassRule: LintRuleKind = {
 			for (const found of check(target.className)) {
 				findings.push({
 					message: nonCanonicalClassMessage(found),
-					location: target.location,
-					...(target.component ? { component: target.component } : {}),
+					...targetLocationFields(target),
 					details: nonCanonicalClassDetails(target.className, found),
 				});
 			}

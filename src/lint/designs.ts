@@ -4,6 +4,7 @@ import { splitClassLayerTokens } from "../utils/class-layers";
 import {
 	getSystemComponentStructuralMetadata,
 	type SystemComponentInstanceOverrides,
+	type SystemComponentStructuralMetadata,
 } from "../utils/system-component-markers";
 import { resolveSystemComponentOverrideValue } from "../utils/system-component-override-targets";
 import { compareSystemComponentVariantAxisKeys } from "../utils/system-component-variant-class-layers";
@@ -44,7 +45,8 @@ export type LintDesignInstanceMarker = {
  *   checked once, on the component (`LintDesignIndex.components`).
  * - `stored`: a node of an instance whose version cannot be resolved (a
  *   version or component the manifest does not have, another system's
- *   component, no instance root): its stored className, as materialized.
+ *   component, no instance root among its ancestors): its stored className,
+ *   as materialized.
  */
 export type LintDesignClassSource = "layer" | "override" | "stored";
 
@@ -148,8 +150,9 @@ const nameOf = (node: Node) => {
 	return typeof name === "string" ? name : null;
 };
 
-const toMarker = (node: Node): LintDesignInstanceMarker | null => {
-	const metadata = getSystemComponentStructuralMetadata(node.props);
+const toMarker = (
+	metadata: SystemComponentStructuralMetadata | null,
+): LintDesignInstanceMarker | null => {
 	if (!metadata) return null;
 	return {
 		systemId: metadata.systemId,
@@ -171,9 +174,16 @@ const nonEmpty = (className: unknown) =>
 type InstanceClassContext = {
 	systemId: string;
 	components: LintDesignComponents;
-	/** The overrides of each instance root of the design, by instance id. */
-	rootOverrides: ReadonlyMap<string, SystemComponentInstanceOverrides>;
 };
+
+/**
+ * The overrides of the instance roots among a node's ancestors (the node
+ * included), by instance id. A part resolves through its own root, found by
+ * walking up like the canvas does (`useInstanceRootMarkers`), never through
+ * a root elsewhere in the design that shares its instance id (a part moved
+ * or copied out of its instance).
+ */
+type AncestorRoots = ReadonlyMap<string, SystemComponentInstanceOverrides>;
 
 const publishedVersion = (
 	components: LintDesignComponents,
@@ -198,6 +208,7 @@ const checkedClasses = (
 	className: string | null,
 	instance: LintDesignInstanceMarker | null,
 	context: InstanceClassContext,
+	roots: AncestorRoots,
 ): Pick<LintDesignNode, "checkedClassName" | "classSource"> => {
 	if (!instance) return { checkedClassName: className, classSource: "layer" };
 	const version =
@@ -208,7 +219,7 @@ const checkedClasses = (
 					instance.version,
 				)
 			: undefined;
-	const overrides = context.rootOverrides.get(instance.instanceId);
+	const overrides = roots.get(instance.instanceId);
 	if (!version || !overrides) {
 		return { checkedClassName: className, classSource: "stored" };
 	}
@@ -225,44 +236,33 @@ const checkedClasses = (
 	};
 };
 
-const collectRootOverrides = (boards: readonly Node[]) => {
-	const overrides = new Map<string, SystemComponentInstanceOverrides>();
-	const stack = [...boards];
-	while (stack.length > 0) {
-		const node = stack.pop();
-		if (!node) continue;
-		const metadata = getSystemComponentStructuralMetadata(node.props);
-		if (metadata?.isRoot) {
-			overrides.set(metadata.instanceId, metadata.overrides);
-		}
-		if (Array.isArray(node.children)) stack.push(...node.children);
-	}
-	return overrides;
-};
-
 const walkBoard = (
 	board: Node,
 	boardPath: string,
 	context: InstanceClassContext,
 ): LintDesignNode[] => {
 	const nodes: LintDesignNode[] = [];
-	const visit = (node: Node, nodePath: string) => {
+	const visit = (node: Node, nodePath: string, ancestors: AncestorRoots) => {
 		const className = nonEmpty(node.props.className);
-		const instance = toMarker(node);
+		const metadata = getSystemComponentStructuralMetadata(node.props);
+		const instance = toMarker(metadata);
+		const roots = metadata?.isRoot
+			? new Map(ancestors).set(metadata.instanceId, metadata.overrides)
+			: ancestors;
 		nodes.push({
 			element: node.id,
 			path: nodePath,
 			className,
-			...checkedClasses(className, instance, context),
+			...checkedClasses(className, instance, context, roots),
 			instance,
 		});
 		if (Array.isArray(node.children)) {
 			for (const [index, child] of node.children.entries()) {
-				visit(child, `${nodePath}.children[${index}]`);
+				visit(child, `${nodePath}.children[${index}]`, roots);
 			}
 		}
 	};
-	visit(board, boardPath);
+	visit(board, boardPath, new Map());
 	return nodes;
 };
 
@@ -389,11 +389,7 @@ export function buildLintDesignIndex({
 	const usages: Record<string, LintDesignUsage[]> = {};
 	for (const input of [...designs].sort(compareIds)) {
 		const boards: LintDesignBoard[] = [];
-		const context: InstanceClassContext = {
-			systemId,
-			components,
-			rootOverrides: collectRootOverrides(input.design.boards),
-		};
+		const context: InstanceClassContext = { systemId, components };
 		for (const [index, board] of input.design.boards.entries()) {
 			if (input.boardIds && !input.boardIds.has(board.id)) continue;
 			const nodes = walkBoard(board, `boards[${index}]`, context);

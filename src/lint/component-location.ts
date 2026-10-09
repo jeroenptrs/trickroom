@@ -1,14 +1,12 @@
-import type { LintLocation } from "./rules/types";
+import type { LintComponentLocation } from "./rules/types";
 
 /**
- * Text for a finding located on a component definition, shared by the CLI,
- * the dashboard and the design inspector. Pure, so the browser can use it.
+ * Text for a finding located on a component definition (its
+ * `componentLocation`), shared by the CLI, the dashboard and the design
+ * inspector. Pure, so the browser can use it.
  */
 
-export type LintComponentLocation = Extract<
-	LintLocation,
-	{ kind: "component" }
->;
+export type { LintComponentLocation } from "./rules/types";
 
 /** The template, variant value or compound variant the classes belong to. */
 export const describeComponentClassSource = (

@@ -1,12 +1,13 @@
 import type { LintDesignIndex } from "../../designs";
-import type { LintLocation } from "../types";
+import type { LintComponentLocation, LintLocation } from "../types";
 
 /**
  * The class strings the design class rules (`design.unknown-class-token`,
  * `design.non-canonical-class`) check, each with where to report it:
  *
  * - every class string of the component definitions in the index, once per
- *   published version, located on the component;
+ *   published version, located on the component (`componentLocation`, with
+ *   `location: null`);
  * - every node of the linked designs with classes of its own: a layer's
  *   className, an instance node's className override, or, when its
  *   instance's version cannot be resolved, its stored className (see
@@ -16,12 +17,24 @@ import type { LintLocation } from "../types";
 
 export type LintClassTarget = {
 	className: string;
-	location: Extract<LintLocation, { kind: "design" | "component" }>;
+	/** Where the finding is reported: a design node, or null for a component. */
+	location: Extract<LintLocation, { kind: "design" }> | null;
+	/** Where in a component definition, for its classes. */
+	componentLocation?: LintComponentLocation;
 	/** Component slug, for the classes of a component definition. */
 	component?: string;
 	/** Element id, for the classes of a design node. */
 	element?: string;
 };
+
+/** The finding fields that locate a target. */
+export const targetLocationFields = (target: LintClassTarget) => ({
+	location: target.location,
+	...(target.componentLocation
+		? { componentLocation: target.componentLocation }
+		: {}),
+	...(target.component ? { component: target.component } : {}),
+});
 
 export const collectLintClassTargets = (
 	designs: LintDesignIndex,
@@ -32,8 +45,8 @@ export const collectLintClassTargets = (
 			targets.push({
 				className: entry.className,
 				component: definition.slug,
-				location: {
-					kind: "component",
+				location: null,
+				componentLocation: {
 					componentId: definition.componentId,
 					version: definition.version,
 					path: entry.path,

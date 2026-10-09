@@ -9,7 +9,7 @@ import {
 } from "../../../utils/design-class-diagnostics";
 import type { LintRuleOptionSpec } from "../../rule-options";
 import type { LintRuleFinding, LintRuleKind } from "../types";
-import { collectLintClassTargets } from "./class-targets";
+import { collectLintClassTargets, targetLocationFields } from "./class-targets";
 
 /**
  * The class and token checks `getDesignDiagnostics` runs on every
@@ -95,7 +95,10 @@ export const designUnknownClassTokenRule: LintRuleKind = {
 			diagnostics.length = 0;
 			check(
 				target.className,
-				{ path: target.location.path ?? "", elementId: target.element ?? "" },
+				{
+					path: target.location?.path ?? target.componentLocation?.path ?? "",
+					elementId: target.element ?? "",
+				},
 				diagnostics,
 			);
 			for (const diagnostic of diagnostics) {
@@ -107,8 +110,7 @@ export const designUnknownClassTokenRule: LintRuleKind = {
 				}
 				findings.push({
 					message: diagnostic.message,
-					location: target.location,
-					...(target.component ? { component: target.component } : {}),
+					...targetLocationFields(target),
 					details: detailsOf(diagnostic),
 				});
 			}

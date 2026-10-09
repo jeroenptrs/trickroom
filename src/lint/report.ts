@@ -6,7 +6,11 @@ import {
 } from "../services/design-file-lock";
 import type { LintSeverity } from "./config";
 import type { LintRatchetResult } from "./ratchet";
-import type { LintLocation, LintSide } from "./rules/types";
+import type {
+	LintComponentLocation,
+	LintLocation,
+	LintSide,
+} from "./rules/types";
 import { resolveWritableSystemDir, writeSystemFileAtomic } from "./system-file";
 
 /**
@@ -29,6 +33,12 @@ export type LintFinding = {
 	/** Component slug, when known. */
 	component?: string;
 	location: LintLocation | null;
+	/**
+	 * Where in a component definition the finding is; `location` is then
+	 * null. Optional and outside `location`, so readers from before it keep
+	 * the report.
+	 */
+	componentLocation?: LintComponentLocation;
 };
 
 export type LintSeverityCounts = {
@@ -168,13 +178,6 @@ const compareOptional = (
 		: compareStrings(String(left), String(right));
 };
 
-// Component definitions before the designs that place them.
-const LOCATION_KIND_ORDER: Record<LintLocation["kind"], number> = {
-	code: 0,
-	component: 1,
-	design: 2,
-};
-
 const compareLocations = (
 	left: LintLocation | null,
 	right: LintLocation | null,
@@ -182,7 +185,7 @@ const compareLocations = (
 	if (left === null || right === null)
 		return left === right ? 0 : left === null ? -1 : 1;
 	if (left.kind !== right.kind) {
-		return LOCATION_KIND_ORDER[left.kind] - LOCATION_KIND_ORDER[right.kind];
+		return left.kind === "code" ? -1 : 1;
 	}
 	if (left.kind === "code" && right.kind === "code") {
 		return (
@@ -199,17 +202,24 @@ const compareLocations = (
 			compareOptional(left.path, right.path)
 		);
 	}
-	if (left.kind === "component" && right.kind === "component") {
-		return (
-			compareStrings(left.componentId, right.componentId) ||
-			compareStrings(left.version, right.version) ||
-			compareOptional(left.path, right.path) ||
-			compareOptional(left.axis, right.axis) ||
-			compareOptional(left.value, right.value) ||
-			compareOptional(left.compound, right.compound)
-		);
-	}
 	return 0;
+};
+
+const compareComponentLocations = (
+	left: LintComponentLocation | undefined,
+	right: LintComponentLocation | undefined,
+) => {
+	if (left === undefined || right === undefined) {
+		return left === right ? 0 : left === undefined ? -1 : 1;
+	}
+	return (
+		compareStrings(left.componentId, right.componentId) ||
+		compareStrings(left.version, right.version) ||
+		compareOptional(left.path, right.path) ||
+		compareOptional(left.axis, right.axis) ||
+		compareOptional(left.value, right.value) ||
+		compareOptional(left.compound, right.compound)
+	);
 };
 
 const SEVERITY_ORDER: Record<LintSeverity, number> = {
@@ -218,11 +228,12 @@ const SEVERITY_ORDER: Record<LintSeverity, number> = {
 	info: 2,
 };
 
-/** Side, rule, location, severity, component, message. */
+/** Side, rule, location, component location, severity, component, message. */
 const compareLintFindings = (left: LintFinding, right: LintFinding) =>
 	compareStrings(left.side, right.side) ||
 	compareStrings(left.rule, right.rule) ||
 	compareLocations(left.location, right.location) ||
+	compareComponentLocations(left.componentLocation, right.componentLocation) ||
 	SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity] ||
 	compareOptional(left.component, right.component) ||
 	compareStrings(left.message, right.message);
@@ -350,10 +361,13 @@ const isLocation = (value: unknown): value is LintLocation | null =>
 	value === null ||
 	(isRecord(value) &&
 		((value.kind === "code" && typeof value.file === "string") ||
-			(value.kind === "design" && typeof value.design === "string") ||
-			(value.kind === "component" &&
-				typeof value.componentId === "string" &&
-				typeof value.version === "string")));
+			(value.kind === "design" && typeof value.design === "string")));
+
+const isComponentLocation = (value: unknown) =>
+	value === undefined ||
+	(isRecord(value) &&
+		typeof value.componentId === "string" &&
+		typeof value.version === "string");
 
 const isFinding = (value: unknown): value is LintFinding =>
 	isRecord(value) &&
@@ -363,7 +377,8 @@ const isFinding = (value: unknown): value is LintFinding =>
 		value.severity === "info") &&
 	(value.side === "code" || value.side === "design") &&
 	typeof value.message === "string" &&
-	isLocation(value.location);
+	isLocation(value.location) &&
+	isComponentLocation(value.componentLocation);
 
 const isNullableBoolean = (value: unknown) =>
 	value === null || typeof value === "boolean";

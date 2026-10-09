@@ -595,14 +595,15 @@ export const buildHeatScale = (values: readonly number[]): LintHeatScale => {
 /** Stable identity of a finding within a report. */
 export const findingKey = (finding: LintFinding) => {
 	const location = finding.location;
+	const component = finding.componentLocation;
 	const where =
 		location === null
-			? ""
+			? component
+				? `${component.componentId}@${component.version}/${component.path ?? ""}/${component.axis ?? ""}/${component.value ?? ""}/${component.compound ?? ""}`
+				: ""
 			: location.kind === "code"
 				? `${location.file}:${location.line ?? ""}:${location.column ?? ""}`
-				: location.kind === "component"
-					? `${location.componentId}@${location.version}/${location.path ?? ""}/${location.axis ?? ""}/${location.value ?? ""}/${location.compound ?? ""}`
-					: `${location.design}/${location.board ?? ""}/${location.element ?? ""}/${location.path ?? ""}`;
+				: `${location.design}/${location.board ?? ""}/${location.element ?? ""}/${location.path ?? ""}`;
 	return [
 		finding.side,
 		finding.rule,
@@ -621,14 +622,15 @@ export const formatFindingLocation = (
 	designNames: LintDesignNames = new Map(),
 ) => {
 	const location = finding.location;
-	if (location === null) return null;
+	if (location === null) {
+		return finding.componentLocation
+			? describeComponentLocation(finding.componentLocation, finding.component)
+			: null;
+	}
 	if (location.kind === "code") {
 		return [location.file, location.line, location.column]
 			.filter((part) => part !== undefined)
 			.join(":");
-	}
-	if (location.kind === "component") {
-		return describeComponentLocation(location, finding.component);
 	}
 	return [
 		designNames.get(location.design) ?? location.design,

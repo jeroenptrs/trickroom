@@ -212,14 +212,13 @@ type LintFinding = {
   location:
     | { kind: "code"; file: string; line?: number; column?: number }   // 1-based
     | { kind: "design"; design: string; board?: string; element?: string; path?: string }
-    | {                                     // a published component version, see Component classes
-        kind: "component";
-        componentId: string; version: string;
-        path?: string;                      // template path of the node: "root", "label"
-        axis?: string; value?: string;      // the variant value the classes belong to
-        compound?: number;                  // or the compound variant, 0-based
-      }
-    | null;
+    | null;                                 // null also for a finding located on a component
+  componentLocation?: {                     // a published component version, see Component classes
+    componentId: string; version: string;
+    path?: string;                          // template path of the node: "root", "label"
+    axis?: string; value?: string;          // the variant value the classes belong to
+    compound?: number;                      // or the compound variant, 0-based
+  };
 };
 
 type LintComponentCoverage = {
@@ -316,7 +315,7 @@ Example, cut from this repository's own report (no `codegen` block, so `generate
 }
 ```
 
-Ordering, so the committed file diffs cleanly: findings by side, rule, location (code, then component, then design locations; file, line, column; component id, version, path, axis, value, compound; design, board, element, path), severity, component, message; components by slug; files by file; designs by design then board (the `board: null` row first); regressions, breaches and adoptions by metric; baseline kinds by id; every map by key.
+Ordering, so the committed file diffs cleanly: findings by side, rule, location (none, then code, then design locations; file, line, column; design, board, element, path), component location (component id, version, path, axis, value, compound), severity, component, message; components by slug; files by file; designs by design then board (the `board: null` row first); regressions, breaches and adoptions by metric; baseline kinds by id; every map by key.
 
 `ratchetBaseline.kinds` and `ratchet.adopted` were added without a version bump: both are optional on read, so a report written before them still reads (no kinds, nothing adopted), and a Trickroom from before them reads a newer report and ignores both. A version bump would have made that older Trickroom take every newer report as unusable and start a new baseline. `files` lists only files that have a role, a usage or a finding; `summary.code.scanned` counts the rest. `designs` lists every board of every linked design, clean or not, and one `board: null` row per design for what is on no board (always zero today: usages and design findings sit on a board), so a design without boards is still listed; `summary.design.scanned` counts the linked designs read. `writeLintReport` writes through a temp file and a rename, and only into a folder that resolves (symlinks followed) to a direct child of `.trickroom/systems`.
 
@@ -405,13 +404,14 @@ type LintRuleContext = {
 type LintRuleFinding = {
   message: string;
   location: LintLocation | null;
+  componentLocation?: LintComponentLocation; // with location null, for a finding on a component definition
   component?: string;                // slug
   severity?: "info";                 // only for notes that are not violations
   details?: Record<string, unknown>; // extras for design_validate (offending class, suggestions); never in the report
 };
 ```
 
-A design location's `path` is the JSON path of the element in the design file (`boards[0].children[2]`, with `.props.className` for a class finding), the same path `design_validate` issues carry. A component location names a published version of a system component and, for its classes, the template path and the variant value or compound variant they come from; template classes have neither (see [Component classes](#component-classes)). The `component` location kind was added after the first reports were written: reports without it read as before, and a report that has one needs this version of Trickroom to read it (older versions reject it as `INVALID_BASELINE` and start a new baseline).
+A design location's `path` is the JSON path of the element in the design file (`boards[0].children[2]`, with `.props.className` for a class finding), the same path `design_validate` issues carry. A finding located on a component has `location: null` and a `componentLocation`: a published version of a system component and, for its classes, the template path and the variant value or compound variant they come from; template classes have neither (see [Component classes](#component-classes)). It is a separate, optional field rather than a `location` kind so that reports stay readable both ways: a report without it reads as before, and a Trickroom from before it reads a newer report, ignores the field and keeps the baseline. A new `location` kind would make that older reader reject the whole report as `INVALID_BASELINE` and start a new baseline, enforcing nothing.
 
 The runner (`run-rules.ts`) stamps `rule` and `side` on each finding and gives it the instance's severity; a finding may only lower itself to `info` (for example "codegen not configured, skipped"). A rule that throws fails the run (`RULE_FAILED`, exit 2) rather than silently passing. Kinds are registered in `src/lint/rules/index.ts` (`LINT_RULE_KINDS`, catalogue order); the registry rejects malformed or duplicate ids. Each kind has tests next to it on fixture input.
 
@@ -478,10 +478,10 @@ One pure module holds the per-class checks: `src/utils/class-token-diagnostics.t
 
 The design class kinds (`design.unknown-class-token`, `design.non-canonical-class`) check a component's classes once, where they are defined, and an instance only for what it adds. Both take their class strings from `collectLintClassTargets` (`src/lint/rules/design/class-targets.ts`) over the design index:
 
-- **Component definitions.** Every published component's current version, plus every other published version an instance in the checked designs uses (instances pinned to it render its classes). Drafts are never linted, as in the contract. Per version: each template node's classes (depth first; a template that keeps its classes in `props.className`, as older drafts did, is read without the registry Element's base classes, as instances read it), then every variant value's classes per path (axes in codegen's order), then every compound variant's classes per path. A finding is located on the component: `{ kind: "component", componentId, version, path, axis?, value?, compound? }`, with the component's slug as the finding's `component`. A class used by a hundred instances is one finding, on the place to fix it.
+- **Component definitions.** Every published component's current version, plus every other published version an instance in the checked designs uses (instances pinned to it render its classes). Drafts are never linted, as in the contract. Per version: each template node's classes (depth first; a template that keeps its classes in `props.className`, as older drafts did, is read without the registry Element's base classes, as instances read it), then every variant value's classes per path (axes in codegen's order), then every compound variant's classes per path. A finding is located on the component: `location` is null and `componentLocation` is `{ componentId, version, path, axis?, value?, compound? }`, with the component's slug as the finding's `component`. A class used by a hundred instances is one finding, on the place to fix it.
 - **Instances.** A node of a component instance whose version resolves contributes only its className override (`resolveSystemComponentOverrideValue` for the node's template path, from the instance root's overrides marker), read from the same structured source the canvas, export and detach resolve classes from (see [Canvas Class Merging](tailwind-design-systems.md#canvas-class-merging)), not from its stored `className`. The stored string is what materialization wrote: the Element's base classes, then the component's and the override's classes without those equal to a base class, so an override such as a Separator's `data-[orientation=horizontal]:w-full` is checked now and was not before. The finding is located on the node, as before (`<node path>.props.className`).
 - **Slot content, raw layers and recipe nodes** carry no instance markers and are checked by their stored `className`, as before. A slot's default children are copied into each instance as plain layers, so their classes are checked per instance.
-- **Fallback.** An instance node whose version cannot be resolved, the same cases in which the canvas renders the stored `className` (a component or version the manifest does not have, an instance of another system, no instance root found in the design), is checked by its stored `className`, as before: inherited classes included, once per node. A run whose component manifest cannot be read fails anyway; `design_validate` then sees no components, so every instance falls back.
+- **Fallback.** An instance node whose version cannot be resolved, the same cases in which the canvas renders the stored `className` (a component or version the manifest does not have, an instance of another system, no root of its instance among its ancestors: a part resolves through its own root, found by walking up like the canvas does, never through a root elsewhere in the design with the same instance id), is checked by its stored `className`, as before: inherited classes included, once per node. A run whose component manifest cannot be read fails anyway; `design_validate` then sees no components, so every instance falls back.
 
 The registry Element's base classes are library-owned and checked on neither the component nor the instance.
 

@@ -65,8 +65,8 @@ export function DesignLintFindingList({
 					</Alert>
 					<span className="pl-5 font-mono text-[10px] text-slate-500">
 						{finding.rule}
-						{finding.location?.kind === "component"
-							? ` · ${describeComponentLocation(finding.location, finding.component)}`
+						{finding.componentLocation
+							? ` · ${describeComponentLocation(finding.componentLocation, finding.component)}`
 							: null}
 					</span>
 				</li>

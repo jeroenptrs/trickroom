@@ -228,12 +228,12 @@ const contextFor = (
 const describe_ = (findings: readonly LintRuleFinding[]) =>
 	findings.map((finding) => {
 		const location = finding.location;
-		const where =
-			location?.kind === "component"
-				? `${finding.component}@${location.version} ${location.path}${location.axis ? ` ${location.axis}=${location.value}` : ""}${location.compound === undefined ? "" : ` compound ${location.compound}`}`
-				: location?.kind === "design"
-					? `#${location.element}`
-					: "-";
+		const component = finding.componentLocation;
+		const where = component
+			? `${finding.component}@${component.version} ${component.path}${component.axis ? ` ${component.axis}=${component.value}` : ""}${component.compound === undefined ? "" : ` compound ${component.compound}`}`
+			: location?.kind === "design"
+				? `#${location.element}`
+				: "-";
 		return `${where}: ${finding.details?.classToken}`;
 	});
 
@@ -263,17 +263,18 @@ describe("design class rules on components and instances", () => {
 			`${elementOf(instances.unresolved)}: [scrollbar-width:thin]`,
 			`${labelOf(instances.unresolved)}: [&:has(.x)]:p-2`,
 		]);
+		// Located on the component outside `location`, which stays null so
+		// report readers from before component locations keep the report.
 		expect(findings[0]).toMatchObject({
 			component: "badge",
-			location: {
-				kind: "component",
+			location: null,
+			componentLocation: {
 				componentId: "cmp_badge",
 				version: "1",
 				path: "root",
 			},
 		});
-		expect(findings[1].location).toEqual({
-			kind: "component",
+		expect(findings[1].componentLocation).toEqual({
 			componentId: "cmp_badge",
 			version: "1",
 			path: "root",
@@ -333,6 +334,46 @@ describe("design class rules on components and instances", () => {
 			classSource: "override",
 			checkedClassName: BASE_EQUAL_OVERRIDE,
 		});
+	});
+
+	it("resolves a part only through an instance root among its ancestors", async () => {
+		// A part moved out of its instance still carries the instance id; the
+		// root elsewhere on the board is not its ancestor, so it is checked
+		// by its stored className, as the canvas renders it.
+		const owner = place(badge, "moved", loud);
+		const [label] = owner.children as Node[];
+		const orphan: Node = {
+			...label,
+			id: "orphan",
+			props: { ...label.props, className: "font-bold [mask-type:alpha]" },
+		};
+		const moved: TrickroomDesign = {
+			...design,
+			boards: [{ ...design.boards[0], children: [owner, orphan] }],
+		};
+		const context = contextFor(designNonCanonicalClassRule.id);
+		context.designs = buildLintDesignIndex({
+			systemId: CODEGEN_TEST_SYSTEM_ID,
+			designs: [{ id: "design-1", design: moved }],
+			components,
+		});
+		const nodes = context.designs.designs[0].boards[0].nodes;
+		expect(
+			nodes
+				.filter((entry) => entry.instance?.templatePath === "label")
+				.map((entry) => [
+					entry.element,
+					entry.classSource,
+					entry.checkedClassName,
+				]),
+		).toEqual([
+			[label.id, "override", null],
+			["orphan", "stored", "font-bold [mask-type:alpha]"],
+		]);
+		const findings = await designNonCanonicalClassRule.run(context);
+		expect(
+			describe_(findings).filter((entry) => entry.startsWith("#")),
+		).toEqual(["#orphan: [mask-type:alpha]"]);
 	});
 
 	it("checks every instance node by its stored className without the components", async () => {
@@ -493,11 +534,10 @@ describe("component definitions in the design index", () => {
 					design: placed,
 				})
 			).findings
-				.filter((finding) => finding.location?.kind === "component")
-				.map((finding) =>
-					finding.location?.kind === "component"
-						? `${finding.rule} ${finding.component}@${finding.location.version}`
-						: "",
+				.filter((finding) => finding.componentLocation)
+				.map(
+					(finding) =>
+						`${finding.rule} ${finding.component}@${finding.componentLocation?.version}`,
 				);
 		expect(await run(chipIn("1"))).toEqual([
 			"design.non-canonical-class chip@1",
