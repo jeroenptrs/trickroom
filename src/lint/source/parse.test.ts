@@ -198,6 +198,30 @@ const view = (
 		]);
 	});
 
+	it("records the choices a class string sits under, and the expression it belongs to", () => {
+		const module = parse(
+			`const a = <div className={on ? (dense ? "p-1" : "p-2") : "p-3"} />;\nconst b = cn("m-1", wide && "w-full");`,
+		);
+		const [p1, p2, p3, m1, wFull] = module.classStrings;
+		const sides = (entry: (typeof module.classStrings)[number]) =>
+			entry.branch.map((choice) => choice.side);
+		expect([p1, p2, p3, m1, wFull].map(sides)).toEqual([
+			[0, 0],
+			[0, 1],
+			[1],
+			[],
+			[1],
+		]);
+		// One outer choice for the three ternary strings, another for the inner one.
+		expect(p1.branch[0].choice).toBe(p3.branch[0].choice);
+		expect(p1.branch[1].choice).toBe(p2.branch[1].choice);
+		expect(p1.branch[1].choice).not.toBe(p1.branch[0].choice);
+		// The attribute's strings share one expression, the call's another.
+		expect(p1.expression).toEqual(p3.expression);
+		expect(m1.expression).toEqual(wFull.expression);
+		expect(m1.expression).not.toEqual(p1.expression);
+	});
+
 	it("collects class strings from className and class calls, flagging dynamic and conditional parts", () => {
 		const module = parse(`const a = <div className="p-1 flex" />;
 const b = <div className={cn("p-2", active && "bg-red-500", cond ? "x" : "y", [\`q-\${n}\`, "z"])} />;

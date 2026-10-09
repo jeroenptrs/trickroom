@@ -1618,9 +1618,10 @@ export type ContextVerdict =
 
 /**
  * Properties that can override one another, by family: a shorthand and its
- * longhands, logical and physical sides. Deliberately wide (`margin-top`
- * and `margin-bottom` are one family): a family only selects which classes
- * are compared, and comparing more classes never claims more.
+ * longhands, logical and physical sides (and `all`, see `overlaps`).
+ * Deliberately wide (`margin-top` and `margin-bottom` are one family): a
+ * family only selects which classes are compared, and comparing more
+ * classes never claims more.
  */
 const PROPERTY_FAMILIES: ReadonlyArray<[RegExp, string]> = [
 	[/^(?:top|right|bottom|left|inset(?:-.+)?)$/u, "inset"],
@@ -1632,6 +1633,22 @@ const PROPERTY_FAMILIES: ReadonlyArray<[RegExp, string]> = [
 	[/^columns?(?:-|$)/u, "column"],
 	[/^(?:transform|translate|rotate|scale)(?:-|$)/u, "transform"],
 ];
+
+/** Properties `all` does not reset. */
+const OUTSIDE_ALL = new Set(["direction", "unicode-bidi"]);
+
+/**
+ * Whether declarations of two properties can override one another: the same
+ * family, or `all` (which resets every property but custom properties,
+ * `direction` and `unicode-bidi`) against such a property.
+ */
+const overlaps = (left: string, right: string) => {
+	if (left.startsWith("--") || right.startsWith("--")) return left === right;
+	const resetsAll = (property: string) => property.toLowerCase() === "all";
+	if (resetsAll(left)) return !OUTSIDE_ALL.has(right.toLowerCase());
+	if (resetsAll(right)) return !OUTSIDE_ALL.has(left.toLowerCase());
+	return propertyFamily(left) === propertyFamily(right);
+};
 
 const propertyFamily = (property: string) => {
 	if (property.startsWith("--")) return property;
@@ -1743,8 +1760,7 @@ const precedence = (
 		for (const theirs of positioned(competitor)) {
 			for (const ours of mine) {
 				if (
-					propertyFamily(ours.entry.property) !==
-						propertyFamily(theirs.entry.property) ||
+					!overlaps(ours.entry.property, theirs.entry.property) ||
 					declaresTheSame(ours.entry, theirs.entry)
 				) {
 					continue;
@@ -1781,14 +1797,11 @@ export const verifyCanonicalInContext = (
 				reason: "its declarations could not be matched with the replacement's",
 			};
 		}
-		const families = new Set(
-			own.map((entry) => propertyFamily(entry.property)),
-		);
 		const competitors = [...new Set(classes)].filter((className) => {
 			if (className === candidate || className === canonical) return false;
 			const compiled = compileClass(designSystem, className);
 			return compiled?.some((entry) =>
-				families.has(propertyFamily(entry.property)),
+				own.some((mine) => overlaps(mine.property, entry.property)),
 			);
 		});
 		if (competitors.length === 0) {

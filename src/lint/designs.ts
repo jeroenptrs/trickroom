@@ -146,6 +146,8 @@ export type LintComponentDefinition = {
 	classes: LintComponentClassEntry[];
 	/** The registry Element's base classes per template path, where it has any. */
 	baseClassNames: Record<string, string>;
+	/** The published version itself, which renders its classes per configuration. */
+	source: PublishedSystemComponentVersion;
 };
 
 export type LintDesignIndex = {
@@ -469,6 +471,7 @@ const buildComponentDefinitions = (
 				current: versionId === published.currentVersion,
 				classes: componentClassEntries(version),
 				baseClassNames: templateBaseClassNames(version),
+				source: version,
 			});
 		}
 	}

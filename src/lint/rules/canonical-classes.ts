@@ -57,23 +57,38 @@ export type NonCanonicalClass = {
 	contextDependent?: boolean;
 };
 
+/**
+ * One way the classes on the element can render with the finding's class:
+ * one branch combination of a class string, one variant configuration of
+ * a component. Never a union of alternatives: a class from another branch
+ * is not there to compete with, or to stand in for, the class.
+ */
+export type ClassScenario = {
+	/** The classes that render, in order, with the class as written. */
+	before: readonly string[];
+	/** The classes that render once the finding's own string uses the canonical form. */
+	after: readonly string[];
+	/**
+	 * Classes may be merged (tailwind-merge) on the way, though `before` and
+	 * `after` are not: merged, they must agree too.
+	 */
+	merge?: (className: string) => string;
+};
+
 /** The classes that may render on the element a class string styles. */
 export type ClassContext = {
+	/** Every combination that can render, or those known (`complete` false). */
+	scenarios: readonly ClassScenario[];
 	/**
-	 * Every class that may render there, the checked class included (when
-	 * it renders): as rendered where that is known (merged), else a
-	 * superset, as if every class string that may apply did.
+	 * False when more combinations, or more classes, may render than the
+	 * scenarios hold: a part the source model does not know, or more
+	 * combinations than `MAX_CONTEXT_SCENARIOS`.
 	 */
-	classes: readonly string[];
-	/** False when more classes may render there than `classes`. */
 	complete: boolean;
-	/**
-	 * Where classes may be merged (tailwind-merge) before they render: true
-	 * when replacing the class by `canonical` changes the merged classes in
-	 * nothing but that class.
-	 */
-	mergesAlike?: (classToken: string, canonical: string) => boolean;
 };
+
+/** Above this many combinations, a context is checked by what is always there. */
+export const MAX_CONTEXT_SCENARIOS = 64;
 
 const classesOf = (className: string) =>
 	className.split(/\s+/u).filter(Boolean);
@@ -89,32 +104,34 @@ export const replaceClass = (
 		.join(" ");
 
 /**
- * Whether `merge` treats `canonical` like `classToken` in `className`: the
- * merged classes with the replacement are the merged classes with the class
- * replaced, as sets.
+ * `before` and `after` hold the same classes once the class and its
+ * canonical form count as one: the replacement adds or removes nothing
+ * else (merging keeps or drops the same classes).
  */
-export const mergeTreatsAlike = (
-	merge: (className: string) => string,
-	className: string,
+const replacedAlike = (
+	before: readonly string[],
+	after: readonly string[],
 	classToken: string,
 	canonical: string,
 ) => {
-	const before = new Set(
-		classesOf(replaceClass(merge(className), classToken, canonical)),
+	const spelled = (classes: readonly string[]) =>
+		new Set(classes.map((entry) => (entry === classToken ? canonical : entry)));
+	const expected = spelled(before);
+	const actual = spelled(after);
+	return (
+		expected.size === actual.size &&
+		[...expected].every((entry) => actual.has(entry))
 	);
-	const after = new Set(
-		classesOf(merge(replaceClass(className, classToken, canonical))),
-	);
-	return before.size === after.size && [...before].every((c) => after.has(c));
 };
 
 /**
- * Settles each finding among the classes that may render with it: null when
- * the replacement would change the result there (merging treats it
- * differently, or a competing declaration wins where it lost or loses where
- * it won, `verifyCanonicalInContext`); otherwise the finding, marked
- * `contextDependent` when the context is incomplete. Checks without other
- * classes need no compiling; the others go to the inspector in one batch.
+ * Settles each finding in every scenario of its context: null when the
+ * replacement changes the result in any of them (another set of classes
+ * renders, merged or not, or a competing declaration wins where it lost or
+ * loses where it won, `verifyCanonicalInContext`); otherwise the finding,
+ * marked `contextDependent` when the context is incomplete. Scenarios
+ * without other classes need no compiling; the others go to the inspector
+ * in one batch.
  */
 export const settleInContext = async (
 	inspector: LintTailwindInspector | null,
@@ -123,25 +140,51 @@ export const settleInContext = async (
 	const checks = new Map<string, ContextCheck>();
 	const plans = items.map(({ found, context }) => {
 		const { classToken, canonical } = found;
-		if (context.mergesAlike && !context.mergesAlike(classToken, canonical)) {
-			return null;
+		const keys: string[] = [];
+		// The class still renders after the replacement (it is in another
+		// string too): which of the two wins is not checked.
+		let partial = false;
+		for (const scenario of context.scenarios) {
+			if (
+				!replacedAlike(scenario.before, scenario.after, classToken, canonical)
+			) {
+				return null;
+			}
+			if (
+				scenario.merge &&
+				!replacedAlike(
+					classesOf(scenario.merge(scenario.before.join(" "))),
+					classesOf(scenario.merge(scenario.after.join(" "))),
+					classToken,
+					canonical,
+				)
+			) {
+				return null;
+			}
+			if (
+				scenario.before.includes(classToken) &&
+				scenario.after.includes(classToken)
+			) {
+				partial = true;
+				continue;
+			}
+			const others = scenario.before.filter((entry) => entry !== classToken);
+			if (!scenario.before.includes(classToken) || others.length === 0) {
+				continue;
+			}
+			const key = JSON.stringify([
+				[...new Set(scenario.before)].sort(),
+				classToken,
+				canonical,
+			]);
+			checks.set(key, {
+				classes: scenario.before,
+				candidate: classToken,
+				canonical,
+			});
+			keys.push(key);
 		}
-		const others = context.classes.filter((entry) => entry !== classToken);
-		if (!context.classes.includes(classToken) || others.length === 0) {
-			return { found, complete: context.complete, key: null };
-		}
-		const check = {
-			classes: context.classes,
-			candidate: classToken,
-			canonical,
-		};
-		const key = JSON.stringify([
-			[...new Set(context.classes)].sort(),
-			classToken,
-			canonical,
-		]);
-		checks.set(key, check);
-		return { found, complete: context.complete, key };
+		return { found, complete: context.complete && !partial, keys };
 	});
 	const keys = [...checks.keys()];
 	const verify = inspector?.verifyInContext;
@@ -151,10 +194,12 @@ export const settleInContext = async (
 	const byKey = new Map(keys.map((key, index) => [key, verdicts[index]]));
 	return plans.map((plan) => {
 		if (!plan) return null;
-		const verdict = plan.key === null ? null : byKey.get(plan.key);
-		if (verdict?.status === "changed") return null;
+		const results = plan.keys.map((key) => byKey.get(key));
+		if (results.some((verdict) => verdict?.status === "changed")) return null;
 		// Without a verdict for competing classes nothing was verified.
-		const verified = plan.key === null || verdict?.status === "unchanged";
+		const verified = results.every(
+			(verdict) => verdict?.status === "unchanged",
+		);
 		const contextDependent = !plan.complete || !verified;
 		return contextDependent ? { ...plan.found, contextDependent } : plan.found;
 	});

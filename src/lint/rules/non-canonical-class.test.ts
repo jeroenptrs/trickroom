@@ -7,7 +7,10 @@ import {
 } from "../../codegen/test-support";
 import type { TrickroomDesign } from "../../types";
 import { createClassTokenInspector } from "../../utils/class-token-diagnostics";
-import { createEmptySystemComponentManifest } from "../../utils/system-components";
+import {
+	createEmptySystemComponentManifest,
+	type SystemComponentManifest,
+} from "../../utils/system-components";
 import { selectorSpecificity } from "../../utils/tailwind-canonical-equivalence";
 import {
 	canonicalizeTailwindCandidatesInWorker,
@@ -282,6 +285,18 @@ describe("canonicalizeTailwindCandidatesInWorker", () => {
 		expect(
 			await check("w-[38.5rem] md:w-auto", "w-[38.5rem]", "w-154"),
 		).toEqual({ status: "unchanged", competitors: 1 });
+		// `all` resets every property but custom properties, `direction` and
+		// `unicode-bidi`: a competitor of `background-color`, not of `direction`.
+		expect(
+			await check("[&:focus]:[all:unset] bg-[#FFF]", "bg-[#FFF]", "bg-white"),
+		).toEqual({ status: "unchanged", competitors: 1 });
+		expect(
+			await check(
+				"[&:focus]:[all:unset] [direction:rtl]",
+				"[direction:rtl]",
+				"[direction:rtl]",
+			),
+		).toEqual({ status: "unchanged", competitors: 0 });
 		// The canonical form already there: removing the class changes nothing.
 		expect(
 			await check("bg-[#FFF] bg-red-500 bg-white", "bg-[#FFF]", "bg-white"),
@@ -457,6 +472,43 @@ describe("code.non-canonical-class", () => {
 		);
 	});
 
+	it("verifies each branch combination, never a union of branches", async () => {
+		const many = Array.from({ length: 7 }, (_, index) => `on && "p-${index}"`);
+		const fixture = await fixtures.create({
+			components: [],
+			files: {
+				"src/app.tsx": [
+					'import { cn } from "./cn";',
+					"declare const on: boolean;",
+					"export const App = () => (",
+					"\t<div>",
+					// When `on`, `bg-white` would turn the red background white;
+					// the other branch's `bg-white` is not there to stand in.
+					'\t\t<p className={on ? "bg-[#FFF] bg-red-500" : "bg-white"} />',
+					// The other branch competes in no combination: reported.
+					'\t\t<p className={on ? "bg-[#FFF]" : "bg-red-500"} />',
+					// More combinations than the cap: what is always there only.
+					`\t\t<p className={cn("bg-[#FFF]", ${many.join(", ")})} />`,
+					"\t</div>",
+					");",
+					"",
+				].join("\n"),
+				"src/cn.ts": "export const cn = (...v: unknown[]) => v.join(' ');\n",
+			},
+		});
+		const findings = await fixture.run(nonCanonicalClassRule, { inspector });
+		expect(
+			findings.map((finding) => [
+				finding.location?.kind === "code" ? finding.location.line : null,
+				finding.details?.classToken,
+				finding.details?.contextDependent ?? false,
+			]),
+		).toEqual([
+			[6, "bg-[#FFF]", false],
+			[7, "bg-[#FFF]", true],
+		]);
+	});
+
 	it("honours allow globs, and notes when there is no compiled CSS", async () => {
 		const fixture = await fixtures.create({
 			components: [publishedComponent("button", buttonPayload())],
@@ -530,6 +582,7 @@ describe("design.non-canonical-class", () => {
 	const contextFor = (
 		loaded: LintTailwindInspector | null,
 		options: Record<string, unknown> = {},
+		components: SystemComponentManifest["components"] = {},
 	): LintRuleContext => {
 		const contract = buildSystemContract({
 			system: { id: CODEGEN_TEST_SYSTEM_ID, name: "Core" },
@@ -562,6 +615,7 @@ describe("design.non-canonical-class", () => {
 			designs: buildLintDesignIndex({
 				systemId: CODEGEN_TEST_SYSTEM_ID,
 				designs: [{ id: "design-1", design }],
+				components,
 			}),
 			tailwind: {
 				inspector: async () => loaded,
@@ -569,6 +623,70 @@ describe("design.non-canonical-class", () => {
 			},
 		};
 	};
+
+	it("verifies a component's classes in every variant configuration it can render", async () => {
+		// With `small`, tv's merge keeps `has-[[data-x]]:p-4` next to
+		// `has-data-x:p-2` (other modifier) but drops `has-data-x:p-4` for it:
+		// 16px would become 8px.
+		const box = publishedComponent(
+			"box",
+			{
+				root: {
+					path: "root",
+					library: "trickroom",
+					component: "container",
+					className: "has-[[data-x]]:p-4",
+				},
+				slots: {},
+				variants: {
+					axes: {
+						size: {
+							label: "Size",
+							values: {
+								small: { classesByPath: { root: "has-data-x:p-2" } },
+								large: { classesByPath: { root: "has-data-x:p-4" } },
+							},
+						},
+					},
+					compoundVariants: [],
+				},
+				overrideTargets: {},
+			},
+			{ componentId: "cmp_box" },
+		);
+		// The same template without the axis: nothing competes, reported.
+		const plain = publishedComponent(
+			"plain",
+			{
+				root: {
+					path: "root",
+					library: "trickroom",
+					component: "container",
+					className: "has-[[data-x]]:p-4",
+				},
+				slots: {},
+				variants: { axes: {}, compoundVariants: [] },
+				overrideTargets: {},
+			},
+			{ componentId: "cmp_plain" },
+		);
+		const findings = await designNonCanonicalClassRule.run(
+			contextFor(
+				inspector,
+				{},
+				{ [box.componentId]: box, [plain.componentId]: plain },
+			),
+		);
+		expect(
+			findings
+				.filter((finding) => finding.component !== undefined)
+				.map((finding) => [
+					finding.component,
+					finding.details?.classToken,
+					finding.details?.contextDependent ?? false,
+				]),
+		).toEqual([["plain", "has-[[data-x]]:p-4", false]]);
+	});
 
 	it("reports each class of each layer with its canonical form as the suggestion", async () => {
 		const findings = await designNonCanonicalClassRule.run(

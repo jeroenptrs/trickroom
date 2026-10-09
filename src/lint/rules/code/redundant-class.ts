@@ -51,7 +51,7 @@ const ROOT_SLOT = "root";
 const classesOf = (className: string) =>
 	parseClassName(className).map((parsed) => parsed.raw);
 
-type ProvidedClass = { className: string; source: string };
+export type ProvidedClass = { className: string; source: string };
 
 /**
  * Above this many combinations of dynamic axis values times subsets of
@@ -134,7 +134,7 @@ const describeCondition = (
  * `MAX_REDUNDANT_CLASS_COMBINATIONS` combinations, or when whether a
  * compound with root classes applies cannot be decided.
  */
-const providedCombinations = (
+export const providedCombinations = (
 	component: SystemContractComponent,
 	element: SourceJsxElement,
 ): ProvidedClass[][] | null => {
