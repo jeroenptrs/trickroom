@@ -287,10 +287,23 @@ type Planned = PlannedCommon &
 		  }
 	);
 
-const hasHeaderOf = (entry: Planned, text: string) =>
-	entry.kind === "component"
-		? parseCodegenHeader(text) !== null
-		: parseTwMergeHeader(text) !== null;
+/** Whether `text` starts with exactly the header this run generated. */
+const keepsHeader = (entry: Planned, text: string) => {
+	if (entry.kind === "component") {
+		const header = parseCodegenHeader(text);
+		return (
+			header !== null &&
+			header.slug === entry.file.header.slug &&
+			sameSource(header, entry.file.header)
+		);
+	}
+	const header = parseTwMergeHeader(text);
+	return (
+		header !== null &&
+		header.systemId === entry.file.header.systemId &&
+		header.sourceHash === entry.file.header.sourceHash
+	);
+};
 
 /** What diagnostics about the file name. */
 const ownerOf = (entry: PlanSource) =>
@@ -591,7 +604,7 @@ export async function runCodegen(
 			entry.result.message = formatted.message;
 			return;
 		}
-		if (!hasHeaderOf(entry, formatted.contents)) {
+		if (!keepsHeader(entry, formatted.contents)) {
 			entry.result.status = "error";
 			entry.result.message = `Formatter "${formatter.command}" changed the two Trickroom header lines of ${entry.relativePath}; they must stay the first two lines, unchanged.`;
 			return;

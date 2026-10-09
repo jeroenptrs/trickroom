@@ -118,10 +118,23 @@ describe("runCodegen with codegen.twMerge", () => {
 		);
 		expect(contents).toContain("export const twMergeConfig = {");
 		expect(contents).toContain(
-			'\t\tclassGroups: {\n\t\t\t"font-size": [\n\t\t\t\t"text-label-lg",\n\t\t\t\t"text-label-sm",\n\t\t\t],\n\t\t},',
+			[
+				"\t\tclassGroups: {",
+				'\t\t\t"@utility text-label-*": [',
+				'\t\t\t\t"text-label-lg",',
+				'\t\t\t\t"text-label-sm",',
+				"\t\t\t],",
+				"\t\t},",
+				"\t\tconflictingClassGroups: {",
+				'\t\t\t"@utility text-label-*": [',
+				'\t\t\t\t"font-size",',
+				'\t\t\t\t"leading",',
+				"\t\t\t],",
+				"\t\t},",
+			].join("\n"),
 		);
 		expect(contents).toContain(
-			"export const twMerge = extendTailwindMerge(twMergeConfig);",
+			"export const twMerge = extendTailwindMerge<string>(twMergeConfig);",
 		);
 
 		const checked = await run("check");
@@ -237,6 +250,27 @@ describe("runCodegen with codegen.twMerge", () => {
 			'  extend: {\n    theme: {\n      color: [\n        "royal-9",',
 		);
 		expect((await run("check", { codegen })).status).toBe("ok");
+	});
+
+	it("fails when the formatter changes the header, even to another valid one", async () => {
+		const { project, run } = await setup();
+		await writeFile(
+			project.path("rehash.js"),
+			'let input = "";\nprocess.stdin.on("data", (c) => { input += c; });\nprocess.stdin.on("end", () => { process.stdout.write(input.replace(/sha256:[0-9a-f]+/, "sha256:0")); });\n',
+		);
+		const result = await run("check", {
+			codegen: {
+				version: 1,
+				outDir: "src/ui",
+				twMerge: {},
+				formatter: { command: process.execPath, args: ["rehash.js"] },
+			},
+		});
+		expect(result.status).toBe("error");
+		expect(result.twMerge).toMatchObject({ status: "error" });
+		expect(
+			result.diagnostics.filter((entry) => entry.code === "FORMATTER_FAILED"),
+		).toHaveLength(2);
 	});
 
 	it("fails without a system cssPath and on a name clash with a variants file", async () => {

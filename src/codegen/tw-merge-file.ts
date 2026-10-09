@@ -8,7 +8,9 @@ import { formatObjectKey } from "./names";
  * The generated tailwind-merge config file (`codegen.twMerge`): the config
  * derived from the system's Tailwind CSS, exported as `twMergeConfig` for
  * tailwind-variants' `createTV({ twMergeConfig })`, and `twMerge` built
- * from it. Pure: the caller derives the config and writes the file.
+ * from it. Its own class groups are not tailwind-merge's, hence
+ * `extendTailwindMerge<string>`. Pure: the caller derives the config and
+ * writes the file.
  */
 
 export type GeneratedTwMergeFile = {
@@ -60,32 +62,34 @@ export function generateTwMergeFile({
 		sourceHash: hashTwMergeSource(derived),
 	};
 	const level = INDENT.repeat(2);
-	const unclassified = derived.unclassified.map(
-		({ utility, properties }) =>
-			`//   ${utility}${properties.length > 0 ? ` (${properties.join(", ")})` : " (custom properties only)"}`,
-	);
+	const { config } = derived;
 	const contents = [
 		formatTwMergeHeader(header),
 		"",
 		'import { extendTailwindMerge } from "tailwind-merge";',
 		"",
-		"// tailwind-merge config derived from the design system's Tailwind CSS: theme",
-		"// keys per namespace, and custom utilities by the CSS properties they set.",
+		"// tailwind-merge config derived from the design system's Tailwind CSS. Theme keys",
+		"// list each namespace. A custom utility that sets exactly what a stock class",
+		"// group sets joins that group; every other one gets a group of its own",
+		'// ("@utility …"), which stock classes never remove, and conflicts with the',
+		"// groups whose every declaration it overrides, so a later one removes them.",
 		"// Pass twMergeConfig to createTV so tv() merges like twMerge.",
-		...(unclassified.length > 0
-			? [
-					"// Custom utilities that match no single class group, kept as they are:",
-					...unclassified,
-				]
-			: []),
 		"export const twMergeConfig = {",
+		...(config.prefix
+			? [`${INDENT}prefix: ${JSON.stringify(config.prefix)},`]
+			: []),
 		`${INDENT}extend: {`,
-		...formatGroups("theme", derived.config.extend.theme, level),
-		...formatGroups("classGroups", derived.config.extend.classGroups, level),
+		...formatGroups("theme", config.extend.theme, level),
+		...formatGroups("classGroups", config.extend.classGroups, level),
+		...formatGroups(
+			"conflictingClassGroups",
+			config.extend.conflictingClassGroups,
+			level,
+		),
 		`${INDENT}},`,
 		"} as const;",
 		"",
-		"export const twMerge = extendTailwindMerge(twMergeConfig);",
+		"export const twMerge = extendTailwindMerge<string>(twMergeConfig);",
 		"",
 	];
 	return { fileName, header, contents: contents.join("\n") };

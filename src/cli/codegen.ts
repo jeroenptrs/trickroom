@@ -118,7 +118,7 @@ const describeResult = (result: CodegenRunResult): string[] => {
 	}
 
 	const count = (status: string) =>
-		result.components.filter((component) => component.status === status).length;
+		files.filter((file) => file.status === status).length;
 	const where = `${result.system ? `system "${result.system.name}"` : "codegen"} -> ${result.outDir}${result.source === "draft" ? " (draft source)" : ""}`;
 	if (result.mode === "check") {
 		const parts = [
@@ -130,11 +130,11 @@ const describeResult = (result: CodegenRunResult): string[] => {
 				? [`${result.orphaned.length} orphaned`]
 				: []),
 		];
-		const twMerge = result.twMerge
-			? ` and ${result.twMerge.file} (${result.twMerge.status})`
-			: "";
+		const checked = result.twMerge
+			? `${plural(files.length, "file")} (${plural(result.components.length, "component")} and the tailwind-merge config)`
+			: plural(result.components.length, "component");
 		lines.push(
-			`Checked ${plural(result.components.length, "component")}${twMerge} for ${where}: ${parts.join(", ")}.${result.status === "drift" ? ` Run "trickroom codegen${result.source === "draft" ? " --source draft" : ""}" to update.` : ""}`,
+			`Checked ${checked} for ${where}: ${parts.join(", ")}.${result.status === "drift" ? ` Run "trickroom codegen${result.source === "draft" ? " --source draft" : ""}" to update.` : ""}`,
 		);
 	} else if (result.status === "error") {
 		lines.push(`Nothing written for ${where}.`);
