@@ -88,8 +88,9 @@ export type LintRuleContext = {
 		inspector: () => Promise<LintTailwindInspector | null>;
 		/**
 		 * The tailwind-merge config derived from the linked CSS
-		 * (`deriveTwMergeConfig`), shared like the inspector. Null without a
-		 * `cssPath` or when it fails to compile: merge with stock tailwind-merge.
+		 * (`deriveTwMergeConfig`), shared like the inspector. Null unless
+		 * `codegen.twMerge` generates it for this system, or when the CSS
+		 * fails to compile: merge with stock tailwind-merge.
 		 */
 		mergeConfig: () => Promise<TwMergeConfig | null>;
 	};

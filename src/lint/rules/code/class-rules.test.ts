@@ -318,14 +318,19 @@ describe("code.redundant-class", () => {
 				].join("\n"),
 			},
 		});
-		// text-label-sm is a font size: it repeats the base next to the colour.
+		// text-label-sm has a group of its own: it repeats the base next to the colour.
 		expect(
 			describeFindings(
 				await fixture.run(redundantClassRule, {
 					mergeConfig: {
 						extend: {
 							theme: {},
-							classGroups: { "font-size": ["text-label-lg", "text-label-sm"] },
+							classGroups: {
+								"@utility text-label-*": ["text-label-lg", "text-label-sm"],
+							},
+							conflictingClassGroups: {
+								"@utility text-label-*": ["font-size", "leading"],
+							},
 						},
 					},
 				}),

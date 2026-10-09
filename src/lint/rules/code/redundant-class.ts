@@ -23,10 +23,10 @@ import {
  * already applies it through the base classes of its root slot (where a
  * wrapper puts `className`) or the root classes of the variant values the
  * element selects, and of the compound variants those values match.
- * Redundancy follows `twMerge`, what tv() merges with, configured with
- * the tailwind-merge config derived from the system's Tailwind CSS (so
- * `text-label-sm` is a font size and `text-brand-9` a colour), or stock
- * when the system has no CSS: a
+ * Redundancy follows `twMerge`, what tv() merges with: with the
+ * tailwind-merge config derived from the system's Tailwind CSS when
+ * `codegen.twMerge` generates it for this system (so `text-label-sm` keeps
+ * its own group next to `text-brand-9`), stock otherwise: a
  * class is redundant when appending it to the provided classes (base,
  * then the selected values in codegen's layering order) leaves the merged
  * classes unchanged, and removing it from the usage's className leaves

@@ -178,7 +178,9 @@ export const createTailwindInspectorLoader = (
 /**
  * Derives the tailwind-merge config from the system CSS on first use for
  * every rule of a run, through the same cached design system as the
- * inspector. Null without a `cssPath` or when the CSS fails to compile.
+ * inspector. Null without a `cssPath` (the runner passes none unless
+ * `codegen.twMerge` generates the config for the linted system) or when
+ * the CSS fails to compile.
  */
 export const createTwMergeConfigLoader = (
 	projectRoot: string,
@@ -736,7 +738,16 @@ async function runLintInner(
 			designs,
 			tailwind: {
 				inspector: createTailwindInspectorLoader(projectRoot, cssPath),
-				mergeConfig: createTwMergeConfigLoader(projectRoot, cssPath),
+				// tv() merges with the derived config only when codegen writes it
+				// for this system (and the project wires it into createTV).
+				mergeConfig: createTwMergeConfigLoader(
+					projectRoot,
+					codegen !== null &&
+						codegenConfig.status === "configured" &&
+						codegenConfig.twMerge
+						? (system.manifest.cssPath ?? null)
+						: null,
+				),
 			},
 		},
 	});

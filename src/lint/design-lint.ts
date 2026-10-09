@@ -137,7 +137,8 @@ export async function loadDesignLintSetup({
 		tokens,
 		diagnostics,
 		inspector: createTailwindInspectorLoader(projectRoot, cssPath),
-		mergeConfig: createTwMergeConfigLoader(projectRoot, cssPath),
+		// Design-side kinds do not merge; the codegen block is not read here.
+		mergeConfig: createTwMergeConfigLoader(projectRoot, null),
 	};
 }
 
