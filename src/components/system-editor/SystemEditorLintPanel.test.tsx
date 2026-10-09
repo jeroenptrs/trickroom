@@ -271,12 +271,27 @@ describe("System editor lint page", () => {
 				...codeOnlyLintReport,
 				ratchet: {
 					...codeOnlyLintReport.ratchet,
-					adopted: [{ metric: "rule.code.unknown-variant-value", current: 1 }],
+					adopted: [
+						{
+							metric: "rule.code.unknown-variant-value",
+							current: 1,
+							reason: "new-kind",
+						},
+						{
+							metric: "rule.code.unknown-class-token",
+							current: 7,
+							reason: "explicit",
+							baseline: 3,
+						},
+					],
 				},
 			},
 		});
-		expect(html).toContain("New rule kinds, adopted into the baseline");
-		expect(html).toContain("rule.code.unknown-variant-value: 1");
+		expect(html).toContain("Rule kinds adopted into the baseline");
+		expect(html).toContain(
+			"rule.code.unknown-variant-value: 1 (new rule kind)",
+		);
+		expect(html).toContain("rule.code.unknown-class-token: 3 → 7 (--adopt)");
 		expect(renderLintPage()).not.toContain("adopted into the baseline");
 	});
 

@@ -22,7 +22,13 @@ import type { LintRatchetBaseline, LintReport } from "./report";
  * the previous baseline's `kinds`, enabled or not) does not list it; a
  * baseline without `kinds` (written before they were recorded) predates
  * the kinds it has no `rule.<id>` number for, since every run writes one
- * for each kind it ran. Documented in docs/lint.md.
+ * for each kind it ran.
+ *
+ * A run can also adopt kinds the baseline knows, explicitly (`--adopt`):
+ * for a kind switched on with findings, or one whose scope a Trickroom
+ * upgrade widened. Its `rule.<id>` number is taken as this run's, and the
+ * side aggregate of its severity rises by what the kind rose, so every
+ * other kind still ratchets. Documented in docs/lint.md.
  */
 
 export type LintTrackedNumbers = Record<string, number>;
@@ -75,11 +81,19 @@ export type LintRatchetBreach = {
 	current: number;
 };
 
-/** A newly shipped kind whose count entered the baseline as is. */
+/** A kind whose count entered the baseline as is. */
 export type LintRatchetAdoption = {
 	/** `rule.<kind id>`. */
 	metric: string;
 	current: number;
+	/**
+	 * `new-kind`: the baseline predates the kind. `explicit`: the run was
+	 * asked to adopt it (`--adopt`). Reports from before explicit adoption
+	 * have no reason; they read as `new-kind`.
+	 */
+	reason: "new-kind" | "explicit";
+	/** For an explicit adoption, the baseline's number it replaced. */
+	baseline?: number;
 };
 
 export type LintRatchetResult = {
@@ -92,7 +106,10 @@ export type LintRatchetResult = {
 	baseline: LintRatchetBaseline | null;
 	regressions: LintRatchetRegression[];
 	breaches: LintRatchetBreach[];
-	/** Kinds the baseline predates, not compared; empty on a first run. */
+	/**
+	 * Kinds the baseline predates and kinds adopted explicitly, not
+	 * compared; empty on a first run.
+	 */
 	adopted: LintRatchetAdoption[];
 	/** This run's tracked numbers. */
 	numbers: LintTrackedNumbers;
@@ -143,26 +160,41 @@ const baselinePredatesKind = (baseline: LintRatchetBaseline, kind: string) =>
 		: !Object.hasOwn(baseline.numbers, `rule.${kind}`);
 
 /**
- * The baseline with the kinds it predates folded in: their `rule.<id>`
- * number set to this run's and their counts added to the side aggregates,
- * so they compare equal and every other kind ratchets as before.
+ * The baseline with the adopted kinds folded in: their `rule.<id>` number
+ * set to this run's and what they rose by added to the side aggregate, so
+ * they compare equal and every other kind ratchets as before. A kind the
+ * baseline predates counts as risen by all of it (its errors and warnings
+ * are added); an explicit kind by its count minus the baseline's number,
+ * added to the aggregate of the severity it has now (a kind's findings
+ * share one severity), never lowering one.
  */
 const adoptKinds = (
 	baseline: LintRatchetBaseline,
 	summary: LintReport["summary"],
+	explicit: ReadonlySet<string>,
 ): { baseline: LintRatchetBaseline; adopted: LintRatchetAdoption[] } => {
 	const numbers = { ...baseline.numbers };
 	const adopted: LintRatchetAdoption[] = [];
 	for (const side of ["code", "design"] as const) {
 		for (const [kind, counts] of Object.entries(summary[side]?.rules ?? {})) {
-			if (!baselinePredatesKind(baseline, kind)) continue;
+			const metric = `rule.${kind}`;
 			const current = counts.errors + counts.warnings;
-			adopted.push({ metric: `rule.${kind}`, current });
-			numbers[`rule.${kind}`] = current;
-			numbers[`${side}.errors`] =
-				(numbers[`${side}.errors`] ?? 0) + counts.errors;
-			numbers[`${side}.warnings`] =
-				(numbers[`${side}.warnings`] ?? 0) + counts.warnings;
+			if (baselinePredatesKind(baseline, kind)) {
+				adopted.push({ metric, current, reason: "new-kind" });
+				numbers[`${side}.errors`] =
+					(numbers[`${side}.errors`] ?? 0) + counts.errors;
+				numbers[`${side}.warnings`] =
+					(numbers[`${side}.warnings`] ?? 0) + counts.warnings;
+			} else if (explicit.has(kind)) {
+				const before = baseline.numbers[metric] ?? 0;
+				adopted.push({ metric, current, reason: "explicit", baseline: before });
+				const aggregate = `${side}.${counts.errors > 0 ? "errors" : "warnings"}`;
+				numbers[aggregate] =
+					(numbers[aggregate] ?? 0) + Math.max(0, current - before);
+			} else {
+				continue;
+			}
+			numbers[metric] = current;
 		}
 	}
 	adopted.sort((left, right) =>
@@ -178,16 +210,19 @@ export const compareLintRatchet = ({
 	baseline: stored,
 	thresholds,
 	summary,
+	adopt = [],
 }: {
 	numbers: LintTrackedNumbers;
 	baseline: LintRatchetBaseline | null;
 	thresholds: LintThresholds;
 	/** This run's per-kind counts; without them no kind is adopted. */
 	summary?: LintReport["summary"];
+	/** Kind ids to adopt explicitly; only kinds in `summary` are. */
+	adopt?: readonly string[];
 }): LintRatchetResult => {
 	const { baseline, adopted } =
 		stored && summary
-			? adoptKinds(stored, summary)
+			? adoptKinds(stored, summary, new Set(adopt))
 			: { baseline: stored, adopted: [] };
 	const regressions: LintRatchetRegression[] = [];
 	if (baseline) {

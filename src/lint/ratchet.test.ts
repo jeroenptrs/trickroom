@@ -192,8 +192,8 @@ describe("ratchet", () => {
 			expect(result.status).toBe("pass");
 			expect(result.regressions).toEqual([]);
 			expect(result.adopted).toEqual([
-				{ metric: "rule.code.new", current: 5 },
-				{ metric: "rule.design.new", current: 3 },
+				{ metric: "rule.code.new", current: 5, reason: "new-kind" },
+				{ metric: "rule.design.new", current: 3, reason: "new-kind" },
 			]);
 			expect(result.baseline).toEqual({
 				generatedAt: "2026-01-01T00:00:00.000Z",
@@ -269,13 +269,142 @@ describe("ratchet", () => {
 				summary: current,
 			});
 			expect(result.adopted).toEqual([
-				{ metric: "rule.design.new", current: 3 },
+				{ metric: "rule.design.new", current: 3, reason: "new-kind" },
 			]);
 			expect(result.regressions).toEqual([
 				{ metric: "code.warnings", baseline: 2, current: 7 },
 				{ metric: "rule.code.new", baseline: 4, current: 5 },
 			]);
 			expect(result.baseline).not.toHaveProperty("kinds");
+		});
+
+		describe("explicitly (--adopt)", () => {
+			const known = {
+				...baseline,
+				kinds: ["code.new", "code.old", "design.new"],
+			};
+
+			it("adopts a known kind that got worse, and passes", () => {
+				const result = compareLintRatchet({
+					numbers,
+					baseline: {
+						...known,
+						numbers: {
+							...known.numbers,
+							"design.warnings": 1,
+							"rule.design.new": 1,
+						},
+					},
+					thresholds: {},
+					summary: current,
+					adopt: ["code.new", "design.new"],
+				});
+				expect(result.status).toBe("pass");
+				expect(result.regressions).toEqual([]);
+				expect(result.adopted).toEqual([
+					{
+						metric: "rule.code.new",
+						current: 5,
+						reason: "explicit",
+						baseline: 0,
+					},
+					{
+						metric: "rule.design.new",
+						current: 3,
+						reason: "explicit",
+						baseline: 1,
+					},
+				]);
+				// Each aggregate rises by what its kind rose.
+				expect(result.baseline?.numbers).toMatchObject({
+					"code.errors": 1,
+					"code.warnings": 7,
+					"design.warnings": 3,
+					"rule.code.new": 5,
+					"rule.design.new": 3,
+				});
+			});
+
+			it("still fails a second kind that got worse", () => {
+				const result = compareLintRatchet({
+					numbers,
+					baseline: known,
+					thresholds: {},
+					summary: current,
+					adopt: ["code.new"],
+				});
+				expect(result.status).toBe("fail");
+				expect(result.adopted).toEqual([
+					{
+						metric: "rule.code.new",
+						current: 5,
+						reason: "explicit",
+						baseline: 0,
+					},
+				]);
+				expect(result.regressions).toEqual([
+					{ metric: "design.warnings", baseline: 0, current: 3 },
+					{ metric: "rule.design.new", baseline: 0, current: 3 },
+				]);
+			});
+
+			it("adds a rise to the aggregate of the kind's severity and never lowers one", () => {
+				const errors = {
+					code: summary(4, 2, { "code.old": [4, 0], "code.new": [0, 2] }),
+					design: null,
+				};
+				const result = compareLintRatchet({
+					numbers: collectTrackedNumbers({ summary: errors, components: [] }),
+					baseline: {
+						...known,
+						numbers: {
+							...known.numbers,
+							"rule.code.old": 1,
+							"rule.code.new": 6,
+							"code.warnings": 8,
+						},
+					},
+					thresholds: {},
+					summary: errors,
+					adopt: ["code.old", "code.new"],
+				});
+				expect(result.status).toBe("pass");
+				expect(result.baseline?.numbers).toMatchObject({
+					"code.errors": 4,
+					"code.warnings": 8,
+					"rule.code.new": 2,
+					"rule.code.old": 4,
+				});
+				expect(result.adopted).toEqual([
+					{
+						metric: "rule.code.new",
+						current: 2,
+						reason: "explicit",
+						baseline: 6,
+					},
+					{
+						metric: "rule.code.old",
+						current: 4,
+						reason: "explicit",
+						baseline: 1,
+					},
+				]);
+			});
+
+			it("records a kind the baseline predates as new, even when named", () => {
+				const result = compareLintRatchet({
+					numbers,
+					baseline,
+					thresholds: {},
+					summary: current,
+					adopt: ["code.new"],
+				});
+				expect(result.status).toBe("pass");
+				expect(result.adopted).toEqual([
+					{ metric: "rule.code.new", current: 5, reason: "new-kind" },
+					{ metric: "rule.design.new", current: 3, reason: "new-kind" },
+				]);
+			});
 		});
 
 		it("adopts nothing on a first run and keeps thresholds absolute", () => {

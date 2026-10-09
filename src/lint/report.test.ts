@@ -112,8 +112,8 @@ const report = (): LintReport => ({
 			{ metric: "code.errors", kind: "max", limit: 0, current: 1 },
 		],
 		adopted: [
-			{ metric: "rule.code.b", current: 1 },
-			{ metric: "rule.code.a", current: 0 },
+			{ metric: "rule.code.b", current: 1, reason: "explicit", baseline: 0 },
+			{ metric: "rule.code.a", current: 0, reason: "new-kind" },
 		],
 		numbers: { "code.warnings": 0, "code.errors": 1 },
 	},
@@ -182,6 +182,7 @@ describe("lint report", () => {
 			}),
 			component({ path: "root", compound: 0 }),
 			component({ path: "root", axis: "tone", value: "loud" }),
+			component({ path: "root", slot: "children" }),
 			component({ path: "root" }),
 			component({ version: "2", path: "label" }),
 			component({ componentId: "cmp_0", version: "3" }),
@@ -190,16 +191,17 @@ describe("lint report", () => {
 		expect(
 			sorted.map((entry) =>
 				entry.componentLocation
-					? `${entry.componentLocation.componentId}@${entry.componentLocation.version} ${entry.componentLocation.path ?? ""} ${entry.componentLocation.axis ?? ""} ${entry.componentLocation.compound ?? ""}`
+					? `${entry.componentLocation.componentId}@${entry.componentLocation.version} ${entry.componentLocation.path ?? ""} ${entry.componentLocation.slot ?? ""} ${entry.componentLocation.axis ?? ""} ${entry.componentLocation.compound ?? ""}`
 					: String(entry.location?.kind ?? null),
 			),
 		).toEqual([
 			"null",
-			"cmp_0@3   ",
-			"cmp_a@1 root  ",
-			"cmp_a@1 root  0",
-			"cmp_a@1 root tone ",
-			"cmp_a@2 label  ",
+			"cmp_0@3    ",
+			"cmp_a@1 root   ",
+			"cmp_a@1 root   0",
+			"cmp_a@1 root  tone ",
+			"cmp_a@1 root children  ",
+			"cmp_a@2 label   ",
 			"design",
 		]);
 	});
@@ -246,6 +248,20 @@ describe("lint report", () => {
 		expect(parsed.issue).toBeNull();
 		expect(parsed.report?.findings.at(-1)).toEqual(located);
 		expect(serializeLintReport(parsed.report as LintReport)).toBe(text);
+		// A slot default child's location keeps its slot.
+		const slotted: LintFinding = {
+			...located,
+			componentLocation: {
+				componentId: "cmp_a",
+				version: "1",
+				slot: "children",
+				path: "label",
+			},
+		};
+		const withSlot = parseLintReport(
+			JSON.parse(serializeLintReport({ ...report(), findings: [slotted] })),
+		);
+		expect(withSlot.report?.findings).toEqual([slotted]);
 		// The id and version are required.
 		expect(
 			parseLintReport({
@@ -285,6 +301,12 @@ describe("lint report", () => {
 			}),
 		) as { findings: unknown[] };
 		expect(written.findings).toHaveLength(4);
+		expect(
+			legacyIsFinding({
+				...located,
+				componentLocation: { ...located.componentLocation, slot: "children" },
+			}),
+		).toBe(true);
 		expect(written.findings.every(legacyIsFinding)).toBe(true);
 		// And so is this repository's committed report.
 		const committed = JSON.parse(
@@ -358,8 +380,8 @@ describe("lint report", () => {
 				{ metric: "rule.code.b", kind: "max", limit: 0, current: 1 },
 			],
 			adopted: [
-				{ metric: "rule.code.a", current: 0 },
-				{ metric: "rule.code.b", current: 1 },
+				{ metric: "rule.code.a", current: 0, reason: "new-kind" },
+				{ metric: "rule.code.b", current: 1, reason: "explicit", baseline: 0 },
 			],
 			numbers: { "code.errors": 1, "code.warnings": 0 },
 		});
@@ -373,6 +395,17 @@ describe("lint report", () => {
 		expect(
 			parseLintReport({ ...JSON.parse(text), ratchet: { status: "pass" } })
 				.issue?.code,
+		).toBe("INVALID_REPORT");
+		const withAdoption = (entry: Record<string, unknown>) =>
+			parseLintReport({
+				...JSON.parse(text),
+				ratchet: { ...JSON.parse(text).ratchet, adopted: [entry] },
+			}).issue?.code;
+		expect(
+			withAdoption({ metric: "rule.code.a", current: 0, reason: "all" }),
+		).toBe("INVALID_REPORT");
+		expect(
+			withAdoption({ metric: "rule.code.a", current: 0, baseline: "1" }),
 		).toBe("INVALID_REPORT");
 		expect(Object.keys(parsed.report?.ratchetBaseline.numbers ?? {})).toEqual([
 			"code.errors",
@@ -405,6 +438,16 @@ describe("lint report", () => {
 			numbers: { "code.errors": 1, "code.warnings": 0 },
 		});
 		expect(parsed.report?.ratchetBaseline).not.toHaveProperty("kinds");
+	});
+
+	it("reads adoptions written before they had a reason as new kinds", () => {
+		const legacy = JSON.parse(serializeLintReport(report()));
+		legacy.ratchet.adopted = [{ metric: "rule.code.a", current: 2 }];
+		const parsed = parseLintReport(legacy);
+		expect(parsed.issue).toBeNull();
+		expect(parsed.report?.ratchet.adopted).toEqual([
+			{ metric: "rule.code.a", current: 2, reason: "new-kind" },
+		]);
 	});
 
 	it("reads, writes atomically and refuses folders outside .trickroom/systems", async () => {

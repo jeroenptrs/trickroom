@@ -57,6 +57,11 @@ export type LintComponentLocation = {
 	componentId: string;
 	/** The published version the classes belong to. */
 	version: string;
+	/**
+	 * The slot whose default children the node is one of; absent for the
+	 * template's own nodes.
+	 */
+	slot?: string;
 	/** Template path of the node the classes style, e.g. `root` or `label`. */
 	path?: string;
 	/** The variant axis and value whose classes these are. */

@@ -216,6 +216,7 @@ const compareComponentLocations = (
 		compareStrings(left.componentId, right.componentId) ||
 		compareStrings(left.version, right.version) ||
 		compareOptional(left.path, right.path) ||
+		compareOptional(left.slot, right.slot) ||
 		compareOptional(left.axis, right.axis) ||
 		compareOptional(left.value, right.value) ||
 		compareOptional(left.compound, right.compound)
@@ -313,8 +314,12 @@ const normalizeRatchet = (ratchet: LintRatchetResult): LintRatchetResult => ({
 	baseline: ratchet.baseline ? normalizeBaseline(ratchet.baseline) : null,
 	regressions: byMetric(ratchet.regressions).map((entry) => ({ ...entry })),
 	breaches: byMetric(ratchet.breaches).map((entry) => ({ ...entry })),
-	// Reports written before adoption have no list.
-	adopted: byMetric(ratchet.adopted ?? []).map((entry) => ({ ...entry })),
+	// Reports written before adoption have no list, and before explicit
+	// adoption no reason: every adoption then was of a new kind.
+	adopted: byMetric(ratchet.adopted ?? []).map((entry) => ({
+		...entry,
+		reason: entry.reason ?? "new-kind",
+	})),
 	numbers: sortedNumbers(ratchet.numbers),
 });
 
@@ -453,7 +458,11 @@ const isRatchet = (value: unknown): value is LintRatchetResult =>
 				(entry) =>
 					isRecord(entry) &&
 					typeof entry.metric === "string" &&
-					typeof entry.current === "number",
+					typeof entry.current === "number" &&
+					(entry.reason === undefined ||
+						entry.reason === "new-kind" ||
+						entry.reason === "explicit") &&
+					(entry.baseline === undefined || typeof entry.baseline === "number"),
 			))) &&
 	isNumbers(value.numbers);
 

@@ -929,8 +929,8 @@ describe("runLint adopting newly shipped kinds", () => {
 		expect(checked.status).toBe("pass");
 		expect(checked.ratchet?.regressions).toEqual([]);
 		expect(checked.ratchet?.adopted).toEqual([
-			{ metric: "rule.code.fresh", current: 2 },
-			{ metric: "rule.code.fresh-error", current: 1 },
+			{ metric: "rule.code.fresh", current: 2, reason: "new-kind" },
+			{ metric: "rule.code.fresh-error", current: 1, reason: "new-kind" },
 		]);
 		// The baseline compared against has the adopted counts folded in.
 		expect(checked.ratchet?.baseline?.numbers).toMatchObject({
@@ -1085,7 +1085,7 @@ describe("runLint adopting newly shipped kinds", () => {
 		});
 		expect(on.status).toBe("pass");
 		expect(on.ratchet?.adopted).toEqual([
-			{ metric: "rule.code.fresh", current: 2 },
+			{ metric: "rule.code.fresh", current: 2, reason: "new-kind" },
 		]);
 	});
 
@@ -1116,9 +1116,135 @@ describe("runLint adopting newly shipped kinds", () => {
 		// Both have no number in the old baseline: code.fresh as a kind it
 		// predates, code.fresh-error as one it had switched off.
 		expect(upgraded.ratchet?.adopted).toEqual([
-			{ metric: "rule.code.fresh", current: 2 },
-			{ metric: "rule.code.fresh-error", current: 1 },
+			{ metric: "rule.code.fresh", current: 2, reason: "new-kind" },
+			{ metric: "rule.code.fresh-error", current: 1, reason: "new-kind" },
 		]);
+	});
+
+	describe("--adopt", () => {
+		const baselined = async () => {
+			const project = await setup();
+			const first = await runLintWithEveryKind({
+				registry: newRegistry,
+				projectRoot: project.root,
+			});
+			expect(first.written).toBe(true);
+			return project;
+		};
+
+		it("adopts a known kind that got worse, passes and writes the adoption", async () => {
+			const project = await baselined();
+			fresh.warnings = 5;
+			const plain = await runLintWithEveryKind({
+				registry: newRegistry,
+				projectRoot: project.root,
+			});
+			expect(plain.status).toBe("fail");
+			expect(plain.written).toBe(false);
+
+			const adopted = await runLintWithEveryKind({
+				registry: newRegistry,
+				projectRoot: project.root,
+				adopt: ["code.fresh"],
+			});
+			expect(adopted).toMatchObject({ status: "pass", written: true });
+			expect(adopted.ratchet?.regressions).toEqual([]);
+			const stored = JSON.parse(await readFile(reportFile(project), "utf8"));
+			expect(stored.ratchet.adopted).toEqual([
+				{
+					metric: "rule.code.fresh",
+					current: 5,
+					reason: "explicit",
+					baseline: 2,
+				},
+			]);
+			expect(stored.ratchetBaseline.numbers).toMatchObject({
+				"code.warnings": 5,
+				"rule.code.fresh": 5,
+			});
+
+			const next = await runLintWithEveryKind({
+				registry: newRegistry,
+				projectRoot: project.root,
+				check: true,
+			});
+			expect(next.status).toBe("pass");
+			expect(next.ratchet?.adopted).toEqual([]);
+		});
+
+		it("adopts a kind switched on with findings", async () => {
+			const project = await setup();
+			await writeLintJson(project, { "code.fresh": { enabled: false } });
+			await runLintWithEveryKind({
+				registry: newRegistry,
+				projectRoot: project.root,
+			});
+			await writeLintJson(project, {});
+			const on = await runLintWithEveryKind({
+				registry: newRegistry,
+				projectRoot: project.root,
+				adopt: ["code.fresh"],
+			});
+			expect(on).toMatchObject({ status: "pass", written: true });
+			expect(on.ratchet?.adopted).toEqual([
+				{
+					metric: "rule.code.fresh",
+					current: 2,
+					reason: "explicit",
+					baseline: 0,
+				},
+			]);
+		});
+
+		it("still fails when a second kind got worse, and writes nothing", async () => {
+			const project = await baselined();
+			fresh.warnings = 5;
+			fresh.errors = 3;
+			const result = await runLintWithEveryKind({
+				registry: newRegistry,
+				projectRoot: project.root,
+				adopt: ["code.fresh"],
+			});
+			expect(result).toMatchObject({ status: "fail", written: false });
+			expect(result.ratchet?.regressions).toEqual([
+				{ metric: "code.errors", baseline: 1, current: 3 },
+				{ metric: "rule.code.fresh-error", baseline: 1, current: 3 },
+			]);
+		});
+
+		it("refuses --check, an unknown kind and a kind that does not run", async () => {
+			const project = await baselined();
+			const before = await readFile(reportFile(project), "utf8");
+			const refused = async (input: Partial<RunLintInput>, message: RegExp) => {
+				const result = await runLintWithEveryKind({
+					registry: newRegistry,
+					projectRoot: project.root,
+					...input,
+				});
+				expect(result).toMatchObject({ status: "error", written: false });
+				expect(result.diagnostics).toEqual([
+					expect.objectContaining({
+						code: "INVALID_ADOPT",
+						severity: "error",
+						message: expect.stringMatching(message),
+					}),
+				]);
+			};
+			await refused({ adopt: ["code.fresh"], check: true }, /--check/);
+			await refused(
+				{ adopt: ["code.fresh", "code.nope"] },
+				/"code\.nope": not a rule kind id/,
+			);
+			await refused({ adopt: ["all"] }, /"all": not a rule kind id/);
+			await writeLintJson(project, { "code.fresh": { enabled: false } });
+			await refused({ adopt: ["code.fresh"] }, /not enabled in this run/);
+			// A retired or shipped kind this registry does not run.
+			await refused(
+				{ adopt: ["design.unknown-class-token"] },
+				/not enabled in this run/,
+			);
+			expect(await readFile(reportFile(project), "utf8")).toBe(before);
+		});
 	});
 });
 

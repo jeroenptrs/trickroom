@@ -136,6 +136,31 @@ describe("lint tool", () => {
 				],
 			},
 		});
+
+		const refused = await call({
+			check: true,
+			adopt: ["code.variants-file-stale"],
+		});
+		expect(refused?.isError).toBe(true);
+		expect(JSON.stringify(toolPayload(refused))).toContain("INVALID_ADOPT");
+
+		const adopted = await call({ adopt: ["code.variants-file-stale"] });
+		expect(adopted?.isError).toBeFalsy();
+		expect(toolPayload(adopted).lint).toMatchObject({
+			status: "pass",
+			written: true,
+			ratchet: {
+				regressions: [],
+				adopted: [
+					{
+						metric: "rule.code.variants-file-stale",
+						current: 1,
+						reason: "explicit",
+						baseline: 0,
+					},
+				],
+			},
+		});
 	});
 
 	it("fails as a tool error when the run cannot complete", async () => {

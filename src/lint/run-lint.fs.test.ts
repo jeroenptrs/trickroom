@@ -315,7 +315,7 @@ describe("runLint on a misbehaving filesystem", () => {
 			check: true,
 		});
 		expect(other.ratchet?.adopted).toEqual([
-			{ metric: "rule.code.counted", current: 2 },
+			{ metric: "rule.code.counted", current: 2, reason: "new-kind" },
 		]);
 		const otherReport = other.report;
 		if (!otherReport) throw new Error("no report");

@@ -108,6 +108,12 @@ export type RunLintInput = {
 	check?: boolean;
 	/** When to write the report; `on-pass` unless `check` is set. */
 	write?: LintWriteMode;
+	/**
+	 * Rule kind ids whose current count this run accepts as their baseline
+	 * (see Ratchet in docs/lint.md). Each must be in the ledger and enabled;
+	 * a run that adopts must be able to write.
+	 */
+	adopt?: readonly string[];
 	registry?: LintRuleRegistry;
 	formatterTimeoutMs?: number;
 	now?: () => Date;
@@ -121,6 +127,7 @@ export type LintRunDiagnosticCode =
 	| "INVALID_COMPONENT_MANIFEST"
 	| "COMPONENT_MANIFEST_DIAGNOSTIC"
 	| "INVALID_LINT_CONFIG"
+	| "INVALID_ADOPT"
 	| "CODEGEN_OTHER_SYSTEM"
 	| "INVALID_BASELINE"
 	| "BASELINE_MOVED"
@@ -539,6 +546,27 @@ async function runLintInner(
 		});
 	};
 
+	const adopt = [...new Set(input.adopt ?? [])].sort();
+	if (adopt.length > 0) {
+		if (writeMode === "never") {
+			return fail(
+				"INVALID_ADOPT",
+				"Adopting a rule kind writes the new baseline, so it cannot run with --check.",
+			);
+		}
+		const unknown = adopt.filter(
+			(kind) =>
+				!LINT_RULE_KIND_LEDGER_IDS.includes(kind) &&
+				!registry.kinds.some((entry) => entry.id === kind),
+		);
+		if (unknown.length > 0) {
+			return fail(
+				"INVALID_ADOPT",
+				`Cannot adopt ${unknown.map((kind) => `"${kind}"`).join(", ")}: not a rule kind id. Adopt kinds one by one, by id (for example design.unknown-class-token).`,
+			);
+		}
+	}
+
 	const isProject = await stat(path.join(projectRoot, ".trickroom")).then(
 		(entry) => entry.isDirectory(),
 		() => false,
@@ -635,6 +663,16 @@ async function runLintInner(
 				codegenConfig.status === "configured" ? codegenConfig.outDir : null,
 		},
 	);
+
+	const notRunning = adopt.filter(
+		(kind) => !config.rules.some((rule) => rule.id === kind && rule.enabled),
+	);
+	if (notRunning.length > 0) {
+		return fail(
+			"INVALID_ADOPT",
+			`Cannot adopt ${notRunning.map((kind) => `"${kind}"`).join(", ")}: not enabled in this run (switched off in lint.json, or not in this Trickroom), so there is no count to adopt.`,
+		);
+	}
 
 	const tokens = await readDomainTokensReadonly(projectRoot, systemId);
 	const contract = buildSystemContract({
@@ -863,6 +901,7 @@ async function runLintInner(
 			baseline: previousBaseline,
 			thresholds: config.thresholds,
 			summary: draft.summary,
+			adopt,
 		});
 		result.baseline = previous.status;
 		result.ratchet = ratchet;
