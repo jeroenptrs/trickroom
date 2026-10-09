@@ -1,7 +1,10 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defaultTailwindColorTokens } from "../utils/default-tailwind-tokens";
+import {
+	defaultTailwindColorTokens,
+	defaultTailwindTokensVersion,
+} from "../utils/default-tailwind-tokens";
 
 describe("tailwind sync endpoint validation", () => {
 	let tempProjectRoot: string;
@@ -259,7 +262,7 @@ describe("tailwind sync endpoint validation", () => {
 			status: "updated",
 			systemName: "Core",
 			cssPath: "src/core.css",
-			tailwindBaselineVersion: "4.2.4",
+			tailwindBaselineVersion: defaultTailwindTokensVersion,
 			tokens: [
 				{ name: "brand-100", value: "#abcdef", domain: "color" },
 				{ name: "brand-500", value: "#123456", domain: "color" },
@@ -434,7 +437,7 @@ describe("tailwind sync endpoint validation", () => {
 		expect(stored).toMatchObject({
 			metadata: {
 				cssPath: "src/core.css",
-				tailwindBaselineVersion: "4.2.4",
+				tailwindBaselineVersion: defaultTailwindTokensVersion,
 				reviewRequired: true,
 			},
 			domains: {
@@ -561,7 +564,7 @@ describe("tailwind sync endpoint validation", () => {
 			projectRoot: tempProjectRoot,
 			systemName: "Core",
 			cssPath: "./src/core.css",
-			tailwindBaselineVersion: "4.2.4",
+			tailwindBaselineVersion: defaultTailwindTokensVersion,
 			tokens: initialStored?.domains.color.tokens ?? {},
 			overrides: ["--color-brand-500"],
 			baselineDiff: initialStored?.domains.color.baselineDiff ?? {

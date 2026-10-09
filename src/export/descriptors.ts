@@ -11,7 +11,7 @@
  * `src/libraries/base-ui/*.tsx` (e.g. `import { Accordion } from
  * "@base-ui/react/accordion"`). Almost all are regular PascalCase of the
  * subpath; the irregular case is `otp-field`, whose base-ui export is
- * `OTPFieldPreview`. The id set and roles are owned by the registries
+ * `OTPField`, not `OtpField`. The id set and roles are owned by the registries
  * (`src/libraries/base-ui/registry.ts`, `trickroom/registry.ts`); this table is
  * the one mapping no registry file carries, so a test validates it covers every
  * base-ui subpath present in the registry (drift guard). Because the export
@@ -48,7 +48,7 @@ const BASE_UI_NAMESPACE_IMPORTS: Record<string, string> = {
 	menubar: "Menubar",
 	meter: "Meter",
 	"number-field": "NumberField",
-	"otp-field": "OTPFieldPreview",
+	"otp-field": "OTPField",
 	popover: "Popover",
 	"preview-card": "PreviewCard",
 	progress: "Progress",
