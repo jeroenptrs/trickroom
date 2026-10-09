@@ -20,12 +20,10 @@ import { systemComponentQueryOptions } from "../queries/system-components";
 import { systemsQueryOptions } from "../queries/systems";
 import {
 	componentDraftStore,
-	resetComponentDraftStore,
 	selectTemplateNode,
 	useComponentDraftComponentId,
 	useComponentDraftSelectedPath,
 } from "../stores/component-draft-store";
-import { resetComponentEditorSession } from "../stores/component-editor-session-store";
 import {
 	handleEditorChromeShortcut,
 	useEditorPanelOpen,
@@ -40,7 +38,10 @@ import {
 	getKey,
 	useWindowKeyDown,
 } from "../utils/editor-shortcuts";
-import { readSystemComponentDeepLinkNode } from "../utils/system-deep-link";
+import {
+	buildSystemTabSearch,
+	readSystemComponentDeepLinkNode,
+} from "../utils/system-deep-link";
 import { useProjectScope, useTailwindSyncController } from "./contexts";
 import {
 	SystemStatusBadge,
@@ -67,6 +68,10 @@ import {
 	SystemPanelToggle,
 } from "./system-editor/SystemPanelToggle";
 import type { SystemEditorPage } from "./system-editor/types";
+import {
+	discardOpenComponentDraft,
+	useGuardedComponentLocation,
+} from "./system-editor/useGuardedComponentLocation";
 import { Button } from "./ui/button";
 import { FloatingPanel, FloatingPanelHeader } from "./ui/floating-panel";
 import { PanelEdgeStrip } from "./ui/panel-edge-strip";
@@ -287,23 +292,17 @@ export function SystemEditor() {
 		return getSystemBadgeState(syncStatus, reviewRequired);
 	}, [selectedSystem, syncController]);
 
-	// A link into this route from inside the editor (the lint dashboard's "Go to
-	// component") changes the URL without remounting, so follow it. Every
-	// navigation has its own key, so following the same link again works too.
-	const handledLocationKey = useRef(location.key);
-	useEffect(() => {
-		if (handledLocationKey.current === location.key) {
-			return;
-		}
-		handledLocationKey.current = location.key;
-		const params = new URLSearchParams(location.search);
+	// The URL is the way in from outside the page: a link ("Go to component"),
+	// Back and Forward, a tab click. Every navigation has its own key, so
+	// following the same link twice works too.
+	const applyLocationSearch = useCallback((search: string) => {
+		const params = new URLSearchParams(search);
 		const componentId = params.get("component");
 		if (
 			componentId !== null &&
 			componentId !== componentDraftStore.get().componentId
 		) {
-			resetComponentDraftStore();
-			resetComponentEditorSession();
+			discardOpenComponentDraft();
 		}
 		setActivePage(getInitialSystemEditorPage(params.get("tab"), componentId));
 		setSelectedComponentId(componentId);
@@ -311,7 +310,12 @@ export function SystemEditor() {
 		setSelectedIconId(null);
 		selectLintItem(null);
 		setPendingNode(readSystemComponentDeepLinkNode(params));
-	}, [location.key, location.search]);
+	}, []);
+	const leaveDialog = useGuardedComponentLocation({
+		systemId: selectedSystem?.systemId ?? "",
+		projectScope,
+		onApply: applyLocationSearch,
+	});
 
 	const pendingRecordQuery = useQuery({
 		...systemComponentQueryOptions(
@@ -330,28 +334,40 @@ export function SystemEditor() {
 			setPendingNode(null);
 			return;
 		}
-		if (!pendingRecord || draftComponentId !== pendingNode.componentId) {
+		if (draftComponentId !== pendingNode.componentId) {
 			// Not loaded yet; a component without a draft keeps waiting harmlessly.
 			return;
 		}
+		// A finding names a published version; the loaded draft shows the same
+		// template only while it is made over that version. Drafts from before
+		// `baseVersion` are over the component's current version.
+		const { baseVersion } = componentDraftStore.get();
+		if (
+			baseVersion === undefined &&
+			pendingNode.version !== null &&
+			!pendingRecord
+		) {
+			return;
+		}
 		setPendingNode(null);
-		// A finding names a published version; the draft shows the same template
-		// only while it is made over that version.
-		const draftIsOver =
-			pendingRecord.draft?.baseVersion ??
-			pendingRecord.published?.currentVersion;
+		const draftIsOver = baseVersion ?? pendingRecord?.published?.currentVersion;
 		if (pendingNode.version === null || pendingNode.version === draftIsOver) {
 			selectTemplateNode(pendingNode.path);
 		}
 	}, [pendingNode, pendingRecord, selectedComponentId, draftComponentId]);
 
-	const handlePageChange = useCallback((nextPage: string) => {
-		setActivePage(nextPage as SystemEditorPage);
-		setSelectedComponentId(null);
-		setSelectedAssetId(null);
-		setSelectedIconId(null);
-		selectLintItem(null);
-	}, []);
+	// Tabs live in the URL (`tab=`), so Back from a component reached through a
+	// link returns to the tab it was followed from. A tab click replaces the
+	// current entry instead of adding one.
+	const handlePageChange = useCallback(
+		(nextPage: string) => {
+			navigate(
+				{ pathname: location.pathname, search: buildSystemTabSearch(nextPage) },
+				{ replace: true },
+			);
+		},
+		[navigate, location.pathname],
+	);
 
 	const isComponentContext =
 		activePage === "components" && selectedComponentId !== null;
@@ -499,6 +515,7 @@ export function SystemEditor() {
 	return (
 		<StagePreviewDarkModeProvider key={selectedComponentId ?? "none"}>
 			<div className="absolute inset-0 z-10 flex min-h-0 bg-slate-100 text-xs text-slate-950">
+				{leaveDialog}
 				<Tabs
 					value={activePage}
 					onValueChange={handlePageChange}

@@ -42,3 +42,8 @@ export function readSystemComponentDeepLinkNode(params: URLSearchParams) {
 		version: params.get(systemDeepLinkVersionParam),
 	};
 }
+
+/** The search string of a System editor tab; Components, the default, has none. */
+export function buildSystemTabSearch(page: string) {
+	return page === "components" ? "" : `?tab=${encodeURIComponent(page)}`;
+}
