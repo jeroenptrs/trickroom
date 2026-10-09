@@ -529,4 +529,79 @@ describe("project file events", () => {
 			unsubscribe();
 		});
 	});
+
+	it("stops watching a missing folder's ancestors once nothing waits on them", async () => {
+		const root = await createProjectRoot();
+		const styles = path.join(root, "styles");
+		await mkdir(styles, { recursive: true });
+		const events = new ProjectFileEvents(20, {
+			trickroomHome: path.join(root, "home"),
+		});
+		const received: TrickroomFileEvent[] = [];
+		events.setProjectRoot(root);
+		const unsubscribe = events.subscribe((event) => received.push(event));
+		await new Promise((resolve) => setTimeout(resolve, 75));
+		const files = Array.from({ length: 20 }, (_, index) =>
+			path.join(styles, `part-${index}`, "deep", "missing.css"),
+		);
+		recordTailwindSourceFiles(files);
+		await vi.waitFor(() =>
+			expect(events.getWatchedStylesheetAncestors()).toContain(styles),
+		);
+		const initial = events.getWatchedStylesheetAncestors()?.length ?? 0;
+
+		// Stage 1: every part folder appears; each file now waits on its own.
+		for (const file of files) {
+			await mkdir(path.dirname(path.dirname(file)));
+		}
+		await vi.waitFor(() =>
+			expect(events.getWatchedStylesheetAncestors()).toContain(
+				path.dirname(path.dirname(files[19])),
+			),
+		);
+		// `styles` is no longer needed.
+		await vi.waitFor(() =>
+			expect(events.getWatchedStylesheetAncestors()).not.toContain(styles),
+		);
+
+		// Stage 2: half of the files appear with their folders.
+		for (const file of files.slice(0, 10)) {
+			await mkdir(path.dirname(file));
+			await writeFile(file, "/* created */\n");
+		}
+		await vi.waitFor(() => {
+			const watched = events.getWatchedStylesheetAncestors() ?? [];
+			expect(
+				files
+					.slice(0, 10)
+					.some((file) => watched.includes(path.dirname(path.dirname(file)))),
+			).toBe(false);
+			expect(watched).toContain(path.dirname(path.dirname(files[10])));
+		});
+		expect(
+			events.getWatchedStylesheetAncestors()?.length ?? 0,
+		).toBeLessThanOrEqual(initial + 10);
+
+		// Stage 3: the rest; nothing waits, so the ancestor watcher is closed.
+		for (const file of files.slice(10)) {
+			await mkdir(path.dirname(file));
+			await writeFile(file, "/* created */\n");
+		}
+		await vi.waitFor(
+			() => expect(events.getWatchedStylesheetAncestors()).toBeNull(),
+			{ timeout: 3_000 },
+		);
+		await vi.waitFor(
+			() =>
+				expect(
+					new Set(
+						received
+							.filter((event) => event.kind === "tailwind-source")
+							.map((event) => event.file),
+					).size,
+				).toBe(20),
+			{ timeout: 3_000 },
+		);
+		unsubscribe();
+	});
 });

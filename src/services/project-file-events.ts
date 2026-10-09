@@ -65,6 +65,9 @@ const DEFAULT_MAX_WAIT_MS = 250;
  */
 const WATCHER_REPEAT_WINDOW_MS = 60;
 
+/** How long after watching a new folder its entries are checked once more. */
+const ANCESTOR_RECHECK_MS = 150;
+
 const toRevision = (contents: Buffer): string =>
 	`sha256:${createHash("sha256").update(contents).digest("hex")}`;
 
@@ -185,6 +188,8 @@ export class ProjectFileEvents {
 	/** Watches the system stylesheets the Tailwind caches have read. */
 	private sourceWatcher: FSWatcher | null = null;
 	private ancestorWatcher: FSWatcher | null = null;
+	/** The folders `ancestorWatcher` watches, with how many files wait on each. */
+	private stylesheetAncestorRefs: Map<string, number> = new Map();
 	private unsubscribeSources: (() => void) | null = null;
 	private projectRoot: string | null = null;
 	private watcherGeneration = 0;
@@ -283,14 +288,7 @@ export class ProjectFileEvents {
 	 */
 	private watchTailwindSources(projectRoot: string) {
 		const sourceWatcher = chokidar.watch([], { ignoreInitial: true });
-		// The nearest existing folder above a file whose folder does not exist
-		// yet; only its direct entries, to see the next folder appear.
-		const ancestorWatcher = chokidar.watch([], {
-			ignoreInitial: true,
-			depth: 0,
-		});
 		this.sourceWatcher = sourceWatcher;
-		this.ancestorWatcher = ancestorWatcher;
 		const trickroomDir = path.join(projectRoot, ".trickroom") + path.sep;
 		const isProjectSource = (filePath: string) => {
 			const relative = path.relative(projectRoot, filePath);
@@ -304,9 +302,19 @@ export class ProjectFileEvents {
 		};
 		const schedule = (filePath: string) =>
 			this.scheduleTailwindSource(projectRoot, filePath);
-		/** Files whose folder does not exist yet. */
-		const waiting = new Set<string>();
-		const watchAncestorOf = (filePath: string) => {
+		/**
+		 * Files whose folder does not exist yet, each with the nearest existing
+		 * folder above it, which `ancestorWatcher` watches (only its direct
+		 * entries) to see the next folder appear. Folders are counted and
+		 * dropped once no file waits on them; the watcher exists only while a
+		 * file waits.
+		 */
+		const waiting = new Map<string, string>();
+		/** Files whose folder appeared before they did, checked once more. */
+		const settling = new Set<string>();
+		const ancestorRefs = new Map<string, number>();
+		this.stylesheetAncestorRefs = ancestorRefs;
+		const nearestExistingAncestor = (filePath: string) => {
 			let ancestor = path.dirname(path.dirname(filePath));
 			while (
 				!existsSync(ancestor) &&
@@ -315,38 +323,116 @@ export class ProjectFileEvents {
 			) {
 				ancestor = path.dirname(ancestor);
 			}
-			ancestorWatcher.add(ancestor);
+			return ancestor;
 		};
-		const add = (files: readonly string[]) => {
-			const watched = files.filter(isProjectSource);
-			if (watched.length === 0) return;
-			sourceWatcher.add(watched);
-			for (const filePath of watched) {
-				if (!existsSync(path.dirname(filePath))) {
-					waiting.add(filePath);
-					watchAncestorOf(filePath);
-				}
+		// A folder created right after its parent joins the watcher, before
+		// chokidar watches it, reports nothing: look again shortly after.
+		const recheckKey = "tailwind-source-ancestors";
+		const scheduleRecheck = () => {
+			if (this.pending.has(recheckKey)) return;
+			this.pending.set(
+				recheckKey,
+				setTimeout(() => {
+					this.pending.delete(recheckKey);
+					if (this.sourceWatcher !== sourceWatcher) return;
+					onAddDir();
+					// Files whose folder appeared before they did: written before
+					// their watch was ready, they report nothing either.
+					for (const filePath of settling) {
+						if (existsSync(filePath)) schedule(filePath);
+					}
+					settling.clear();
+				}, ANCESTOR_RECHECK_MS),
+			);
+		};
+		/** The folders the current ancestor watcher watches. */
+		let watchedAncestors = new Set<string>();
+		// Brings the ancestor watcher in line with the counted folders. New
+		// folders are added; when one is no longer needed the watcher is
+		// replaced, since chokidar's unwatch also ignores everything below the
+		// folder, where other waiting files may be. No folder, no watcher.
+		const syncAncestorWatcher = () => {
+			const needed = new Set(ancestorRefs.keys());
+			const removed = [...watchedAncestors].some((dir) => !needed.has(dir));
+			if (needed.size === 0 || removed) {
+				const watcher = this.ancestorWatcher;
+				this.ancestorWatcher = null;
+				watchedAncestors = new Set();
+				if (watcher) void watcher.close();
+				if (needed.size === 0) return;
 			}
+			const added = [...needed].filter((dir) => !watchedAncestors.has(dir));
+			if (added.length === 0) return;
+			if (!this.ancestorWatcher) {
+				const watcher = chokidar.watch([], { ignoreInitial: true, depth: 0 });
+				watcher.on("addDir", onAddDir);
+				this.ancestorWatcher = watcher;
+			}
+			this.ancestorWatcher.add(added);
+			for (const dir of added) watchedAncestors.add(dir);
+			scheduleRecheck();
 		};
-		ancestorWatcher.on("addDir", () => {
-			for (const filePath of [...waiting]) {
+		const retain = (ancestor: string) => {
+			ancestorRefs.set(ancestor, (ancestorRefs.get(ancestor) ?? 0) + 1);
+		};
+		const release = (ancestor: string) => {
+			const count = (ancestorRefs.get(ancestor) ?? 0) - 1;
+			if (count > 0) ancestorRefs.set(ancestor, count);
+			else ancestorRefs.delete(ancestor);
+		};
+		const wait = (filePath: string) => {
+			const ancestor = nearestExistingAncestor(filePath);
+			const previous = waiting.get(filePath);
+			if (previous === ancestor) return;
+			waiting.set(filePath, ancestor);
+			retain(ancestor);
+			if (previous !== undefined) release(previous);
+		};
+		function onAddDir() {
+			for (const [filePath, ancestor] of [...waiting]) {
 				if (!existsSync(path.dirname(filePath))) {
-					watchAncestorOf(filePath);
+					wait(filePath);
 					continue;
 				}
 				// The folder exists now: watch the file afresh, and report it
 				// when it was created along with its folder.
 				waiting.delete(filePath);
+				release(ancestor);
 				sourceWatcher.unwatch(filePath);
 				sourceWatcher.add(filePath);
-				if (existsSync(filePath)) schedule(filePath);
+				if (existsSync(filePath)) {
+					schedule(filePath);
+				} else {
+					settling.add(filePath);
+					scheduleRecheck();
+				}
 			}
-		});
+			syncAncestorWatcher();
+		}
+		const add = (files: readonly string[]) => {
+			const watched = files.filter(isProjectSource);
+			if (watched.length === 0) return;
+			sourceWatcher.add(watched);
+			for (const filePath of watched) {
+				if (!existsSync(path.dirname(filePath))) wait(filePath);
+			}
+			syncAncestorWatcher();
+		};
 		add(getTailwindSourceFiles());
 		this.unsubscribeSources = subscribeTailwindSourceFiles(add);
 		sourceWatcher.on("add", schedule);
 		sourceWatcher.on("change", schedule);
 		sourceWatcher.on("unlink", schedule);
+	}
+
+	/**
+	 * The folders watched for missing stylesheet folders to appear; null
+	 * while no stylesheet waits for its folder. For tests.
+	 */
+	getWatchedStylesheetAncestors(): string[] | null {
+		return this.ancestorWatcher
+			? [...this.stylesheetAncestorRefs.keys()].sort()
+			: null;
 	}
 
 	private scheduleTailwindSource(projectRoot: string, filePath: string) {
