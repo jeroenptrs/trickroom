@@ -61,7 +61,10 @@ const baselineColorDesign = {
 	],
 } satisfies TrickroomDesign;
 
-describe("MCP Phase 2 and Phase 3 tools", () => {
+// Sessions with system CSS run design_validate, whose first canonicalization
+// (design.non-canonical-class) builds Tailwind's lookup tables: seconds
+// under a parallel run.
+describe("MCP Phase 2 and Phase 3 tools", { timeout: 30_000 }, () => {
 	const fixtures: TrickroomMcpProjectFixture[] = [];
 	const sessions: TrickroomMcpClientSession[] = [];
 
