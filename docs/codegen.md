@@ -91,7 +91,27 @@ How it is derived:
 
 The file follows the same rules as variants files: the formatter runs on it and must keep its two header lines exactly, `--check` reports it `missing` or `stale` (`source-changed` when the derived config changed, `body-edited` when the body did, `not-generated` for a file without the header), only a file with its header is replaced, and a file left behind after `twMerge` is removed or renamed is listed as orphaned. To replace a hand-written `tw-merge.ts`, check that its exports are `twMergeConfig` and `twMerge` (the names the generated file keeps), then run `trickroom codegen --force` once.
 
-The generated config is not equivalent to a typical hand-written one, and it is not meant to be. It never removes a class unless it can show nothing is lost, so it keeps more classes than a hand-written list that puts custom utilities into stock groups. Two families that set different private variables, such as `text-label-*` and `text-title-*` with their own `--label--*` and `--title--*` properties, keep both classes in either order (`text-label-sm text-title-lg`), where a hand-written config putting both in `theme.text` keeps only the last. Trickroom cannot prove those variables are private to the family. Review such merges before handing a hand-written file over, and pick one class where the classes are written.
+The generated config is not equivalent to a typical hand-written one, and it is not meant to be. It never removes a class unless it can show nothing is lost, so it keeps more classes than a hand-written list that puts custom utilities into stock groups. Two families that set different private variables, such as `text-label-*` and `text-title-*` with their own `--label--*` and `--title--*` properties, keep both classes in either order (`text-label-sm text-title-lg`), where a hand-written config putting both in `theme.text` keeps only the last. Trickroom cannot prove those variables are private to the family. When they are, say so with a merge group (below). Otherwise review such merges before handing a hand-written file over, and pick one class where the classes are written.
+
+### Merge Groups
+
+A merge group is the project's own statement that some utilities are interchangeable: within a group, the last class wins. Declare it in the `codegen` block, as utility patterns per group name (`*` matches any run of characters, against the class name without the design system's prefix):
+
+```json
+"twMerge": {
+  "mergeGroups": {
+    "typography": ["text-title-*", "text-body-*", "text-label-*", "text-interaction-*"]
+  }
+}
+```
+
+The contract:
+
+- **What the project promises.** The custom properties a member sets, other than Tailwind's `--tw-*` variables, are plumbing between the member's own declarations: no other class and no descendant reads them. In the example, `--label--text-size` and `--title--text-size` only feed the `font-size` of the utility that sets them.
+- **What Trickroom then assumes.** All members share one class group, `"mergeGroups.typography"` in the generated file, so `text-label-sm text-title-lg` keeps `text-title-lg` and `text-title-lg text-label-sm` keeps `text-label-sm`. Any class may drop a member's private properties when it removes the member, unless that class reads them itself. Nothing else changes: the group's conflicts follow the rules above. The group removes an earlier stock class only when every member overrides every sampled member of that stock group, and another class removes a member only when it overrides what all members set, the private properties aside. A single-property class such as `text-sm`, `leading-6` or `font-bold` never removes a member. Utilities outside every group stay protected as before.
+- **What is checked.** Every pattern must match at least one custom utility of the design system, and a utility may belong to only one group. Otherwise codegen, `--check` included, fails with `TW_MERGE_GROUP_INVALID` and names the pattern or the utility. Whether the properties really are private is not checked: that is the promise.
+
+`trickroom lint` picks the groups up with the rest of the config (`code.redundant-class`).
 
 The derived config is a plain JSON-serialisable object (`deriveTwMergeConfig` in `src/utils/tailwind-merge-derive.ts`). With `codegen.twMerge` on, `trickroom lint` merges with the same config, see `code.redundant-class` in [Design System Lint](lint.md).
 
@@ -258,6 +278,7 @@ Generation diagnostics carry a `code`, a `severity`, a `message` and, where they
 | `TEMPLATE_PROPS_CLASS_NAME` | error | A template node sets `props.className`; move it to `className`. |
 | `TW_MERGE_NO_CSS` | error | `codegen.twMerge` is set but the system has no `cssPath`. |
 | `TW_MERGE_CSS_FAILED` | error | `codegen.twMerge` is set but the system's Tailwind CSS does not compile. |
+| `TW_MERGE_GROUP_INVALID` | error | A `codegen.twMerge.mergeGroups` pattern matches no custom utility of the design system, or a utility matches patterns of two groups. |
 
 `DUPLICATE_FILE_NAME` is also an error when `codegen.twMerge.fileName` is the file name of a Component's variants file.
 
