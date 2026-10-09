@@ -72,7 +72,8 @@ const getTemplateSlotName = (
 	)?.name ??
 	null;
 
-const getTemplateSlotDefinition = (
+/** The slot a template node hosts, by its `slot` or the slot's `hostPath`. */
+export const getTemplateSlotDefinition = (
 	version: PublishedSystemComponentVersion,
 	template: RecipeTemplateNode,
 ) => {

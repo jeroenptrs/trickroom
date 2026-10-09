@@ -12,12 +12,13 @@ import type { LintComponentLocation, LintLocation } from "../types";
  *
  * - every class string of the component definitions in the index, once per
  *   published version, located on the component (`componentLocation`, with
- *   `location: null`);
+ *   `location: null`), its slots' default children included;
  * - every node of the linked designs with classes of its own: a layer's
  *   className, an instance node's className override, or, when its
  *   instance's version cannot be resolved, its stored className (see
  *   `LintDesignClassSource`). An instance does not repeat the classes it
- *   inherits from its component.
+ *   inherits from its component, nor the classes of the slot default
+ *   children it was placed with while they are unedited.
  */
 
 export type LintClassTarget = {
@@ -66,18 +67,23 @@ export const collectLintClassTargets = (
 	for (const definition of designs.components) {
 		for (const entry of definition.classes) {
 			targets.push({
-				context: {
-					kind: "definition",
-					version: definition.source,
-					entry,
-					baseClassName: definition.baseClassNames[entry.path],
-				},
+				// A slot default child renders as the layer its copies are,
+				// outside the variants.
+				context: entry.render
+					? { kind: "node", render: entry.render }
+					: {
+							kind: "definition",
+							version: definition.source,
+							entry,
+							baseClassName: definition.baseClassNames[entry.path],
+						},
 				className: entry.className,
 				component: definition.slug,
 				location: null,
 				componentLocation: {
 					componentId: definition.componentId,
 					version: definition.version,
+					...(entry.slot === null ? {} : { slot: entry.slot }),
 					path: entry.path,
 					...(entry.axis === null ? {} : { axis: entry.axis }),
 					...(entry.value === null ? {} : { value: entry.value }),

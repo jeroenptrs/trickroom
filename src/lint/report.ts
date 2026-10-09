@@ -216,6 +216,7 @@ const compareComponentLocations = (
 		compareStrings(left.componentId, right.componentId) ||
 		compareStrings(left.version, right.version) ||
 		compareOptional(left.path, right.path) ||
+		compareOptional(left.slot, right.slot) ||
 		compareOptional(left.axis, right.axis) ||
 		compareOptional(left.value, right.value) ||
 		compareOptional(left.compound, right.compound)

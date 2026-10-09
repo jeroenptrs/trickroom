@@ -182,6 +182,7 @@ describe("lint report", () => {
 			}),
 			component({ path: "root", compound: 0 }),
 			component({ path: "root", axis: "tone", value: "loud" }),
+			component({ path: "root", slot: "children" }),
 			component({ path: "root" }),
 			component({ version: "2", path: "label" }),
 			component({ componentId: "cmp_0", version: "3" }),
@@ -190,16 +191,17 @@ describe("lint report", () => {
 		expect(
 			sorted.map((entry) =>
 				entry.componentLocation
-					? `${entry.componentLocation.componentId}@${entry.componentLocation.version} ${entry.componentLocation.path ?? ""} ${entry.componentLocation.axis ?? ""} ${entry.componentLocation.compound ?? ""}`
+					? `${entry.componentLocation.componentId}@${entry.componentLocation.version} ${entry.componentLocation.path ?? ""} ${entry.componentLocation.slot ?? ""} ${entry.componentLocation.axis ?? ""} ${entry.componentLocation.compound ?? ""}`
 					: String(entry.location?.kind ?? null),
 			),
 		).toEqual([
 			"null",
-			"cmp_0@3   ",
-			"cmp_a@1 root  ",
-			"cmp_a@1 root  0",
-			"cmp_a@1 root tone ",
-			"cmp_a@2 label  ",
+			"cmp_0@3    ",
+			"cmp_a@1 root   ",
+			"cmp_a@1 root   0",
+			"cmp_a@1 root  tone ",
+			"cmp_a@1 root children  ",
+			"cmp_a@2 label   ",
 			"design",
 		]);
 	});
@@ -246,6 +248,20 @@ describe("lint report", () => {
 		expect(parsed.issue).toBeNull();
 		expect(parsed.report?.findings.at(-1)).toEqual(located);
 		expect(serializeLintReport(parsed.report as LintReport)).toBe(text);
+		// A slot default child's location keeps its slot.
+		const slotted: LintFinding = {
+			...located,
+			componentLocation: {
+				componentId: "cmp_a",
+				version: "1",
+				slot: "children",
+				path: "label",
+			},
+		};
+		const withSlot = parseLintReport(
+			JSON.parse(serializeLintReport({ ...report(), findings: [slotted] })),
+		);
+		expect(withSlot.report?.findings).toEqual([slotted]);
 		// The id and version are required.
 		expect(
 			parseLintReport({
@@ -285,6 +301,12 @@ describe("lint report", () => {
 			}),
 		) as { findings: unknown[] };
 		expect(written.findings).toHaveLength(4);
+		expect(
+			legacyIsFinding({
+				...located,
+				componentLocation: { ...located.componentLocation, slot: "children" },
+			}),
+		).toBe(true);
 		expect(written.findings.every(legacyIsFinding)).toBe(true);
 		// And so is this repository's committed report.
 		const committed = JSON.parse(
