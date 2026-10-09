@@ -23,13 +23,17 @@ import type { TailwindDesignSystem } from "./tailwind-design-system-loader.ts";
  * - **At-rules and declarations**: in order, with `!important`; at-rule
  *   preludes by text. An `@property` rule only the canonical form emits is
  *   a difference (it changes how the variable inherits and starts) unless the
- *   stylesheets already register that name identically.
+ *   stylesheets already register that name identically and unconditionally
+ *   (`StylesheetFacts.registrations`).
  * - **Values**: compared as CSS tokens. Whitespace, hex colour case and
  *   length, and number spelling are normalised (numbers exactly, as
- *   fractions); strings and `url()` are kept as written. A top-level `calc()`
- *   over numbers of one unit is replaced by its result only where the
- *   property treats both alike (see `FoldPolicy`): `z-index: calc(1 * -1)` is
- *   `-1`, `z-index: calc(1.5 * -1)` is not `-1.5`.
+ *   fractions, keeping CSS's integer flag and the sign of zero: `order: 1.0`
+ *   is invalid where `order: 1` is not); strings and `url()` are kept as
+ *   written. A top-level `calc()` over numbers of one unit is replaced by its
+ *   result only where the property treats both alike (see `FoldPolicy`):
+ *   `z-index: calc(1 * -1)` is `-1`, `z-index: calc(1.5 * -1)` is not
+ *   `-1.5`; and only where the browser's arithmetic cannot differ (see
+ *   `evaluateCalc`).
  * - **Theme variables**: one outside a math function that the stylesheets
  *   set nowhere but in `@theme` is replaced by its value, since naming the
  *   token is the point of the suggestion (`bg-white` for `bg-[#FFF]`). An
@@ -664,7 +668,18 @@ type ValueToken =
 	/** Strings and unquoted `url()` contents are kept exactly as written. */
 	| { type: "string"; raw: string }
 	| { type: "url"; raw: string }
-	| { type: "number"; value: Rational; unit: string }
+	| {
+			type: "number";
+			value: Rational;
+			unit: string;
+			/**
+			 * CSS's type flag: `1` is an integer, `1.0` and `1e0` are numbers.
+			 * `order: 1.0` is invalid where `order: 1` is not, so they differ.
+			 */
+			integer: boolean;
+			/** `-0`, which differs from `0` as a divisor. */
+			negativeZero: boolean;
+	  }
 	| { type: "function"; name: string; args: ValueToken[] }
 	| { type: "block"; args: ValueToken[] };
 
@@ -756,7 +771,14 @@ const tokenizeValue = (text: string): ValueToken[] => {
 					unit = name.toLowerCase();
 					index = next;
 				}
-				out.push({ type: "number", value: parseRational(number[0]), unit });
+				const value = parseRational(number[0]);
+				out.push({
+					type: "number",
+					value,
+					unit,
+					integer: /^[+-]?\d+$/u.test(number[0]),
+					negativeZero: value.n === 0n && number[0].startsWith("-"),
+				});
 				continue;
 			}
 			if (char === "#" && isIdentChar(text[index + 1] ?? "")) {
@@ -860,7 +882,7 @@ const serializeToken = (token: ValueToken): string => {
 		case "url":
 			return `u${JSON.stringify(token.raw)}`;
 		case "number":
-			return `n${token.value.n}/${token.value.d}${JSON.stringify(token.unit)}`;
+			return `${token.integer ? "int" : "num"}${token.negativeZero ? "-" : ""}${token.value.n}/${token.value.d}${JSON.stringify(token.unit)}`;
 		case "function":
 			return `${token.name}(${serializeTokens(token.args)})`;
 		case "block":
@@ -870,66 +892,88 @@ const serializeToken = (token: ValueToken): string => {
 
 type Quantity = { value: Rational; unit: string };
 
-/** `calc()` over numbers of one unit, exactly; null for anything else. */
+/**
+ * Past these, exact arithmetic and the browser's doubles may disagree
+ * (`calc(1e16px + 1px - 1e16px)` is `0px` in Chromium): magnitudes up to a
+ * million, and at most six decimals.
+ */
+const SAFE_MAGNITUDE = 1_000_000n;
+
+const withinSafeBounds = ({ value }: Quantity) =>
+	abs(value.n) <= SAFE_MAGNITUDE * value.d && value.d <= SAFE_MAGNITUDE;
+
+/**
+ * `calc()` over numbers of one unit, exactly; null for anything else and for
+ * anything whose result the browser may compute otherwise: `+` and `-`
+ * without whitespace on both sides (`calc(1px+ 1px)` is invalid), division
+ * (by `-0` or otherwise), a `-0` operand, and values outside
+ * `withinSafeBounds`.
+ */
 const evaluateCalc = (args: ValueToken[]): Quantity | null => {
-	const tokens = args.filter((token) => token.type !== "space");
+	// Non-space tokens, with whether whitespace surrounds each.
+	const tokens: Array<{ token: ValueToken; spaced: [boolean, boolean] }> = [];
+	args.forEach((token, index) => {
+		if (token.type === "space") return;
+		tokens.push({
+			token,
+			spaced: [
+				args[index - 1]?.type === "space",
+				args[index + 1]?.type === "space",
+			],
+		});
+	});
 	let position = 0;
 	const operator = (chars: string) => {
-		const token = tokens[position];
-		return token?.type === "delim" && chars.includes(token.char)
-			? token.char
+		const entry = tokens[position];
+		return entry?.token.type === "delim" && chars.includes(entry.token.char)
+			? entry
 			: null;
 	};
+	const safe = (quantity: Quantity | null) =>
+		quantity && withinSafeBounds(quantity) ? quantity : null;
 	const parseSum = (): Quantity | null => {
 		let left = parseProduct();
 		for (let op = operator("+-"); left && op; op = operator("+-")) {
+			if (!op.spaced[0] || !op.spaced[1]) return null;
 			position += 1;
 			const right = parseProduct();
 			if (!right || left.unit !== right.unit) return null;
-			const sign = op === "+" ? 1n : -1n;
-			left = {
+			const sign =
+				op.token.type === "delim" && op.token.char === "+" ? 1n : -1n;
+			left = safe({
 				value: rational(
 					left.value.n * right.value.d + sign * right.value.n * left.value.d,
 					left.value.d * right.value.d,
 				),
 				unit: left.unit,
-			};
+			});
 		}
 		return left;
 	};
 	const parseProduct = (): Quantity | null => {
 		let left = parseFactor();
 		for (let op = operator("*/"); left && op; op = operator("*/")) {
+			if (op.token.type === "delim" && op.token.char === "/") return null;
 			position += 1;
 			const right = parseFactor();
-			if (!right) return null;
-			if (op === "*") {
-				if (left.unit && right.unit) return null;
-				left = {
-					value: rational(
-						left.value.n * right.value.n,
-						left.value.d * right.value.d,
-					),
-					unit: left.unit || right.unit,
-				};
-			} else {
-				if (right.unit || right.value.n === 0n) return null;
-				left = {
-					value: rational(
-						left.value.n * right.value.d,
-						left.value.d * right.value.n,
-					),
-					unit: left.unit,
-				};
-			}
+			if (!right || (left.unit && right.unit)) return null;
+			left = safe({
+				value: rational(
+					left.value.n * right.value.n,
+					left.value.d * right.value.d,
+				),
+				unit: left.unit || right.unit,
+			});
 		}
 		return left;
 	};
 	const parseFactor = (): Quantity | null => {
-		const token = tokens[position];
+		const token = tokens[position]?.token;
 		position += 1;
-		if (token?.type === "number")
-			return { value: token.value, unit: token.unit };
+		if (token?.type === "number") {
+			if (token.negativeZero) return null;
+			return safe({ value: token.value, unit: token.unit });
+		}
 		if (
 			token?.type === "block" ||
 			(token?.type === "function" && token.name === "calc")
@@ -998,7 +1042,15 @@ const foldCalc = (tokens: ValueToken[], policy: FoldPolicy): ValueToken[] =>
 		if (token.type !== "function" || token.name !== "calc") return token;
 		const result = evaluateCalc(token.args);
 		return result && foldAccepts(policy, result)
-			? { type: "number", value: result.value, unit: result.unit }
+			? {
+					type: "number",
+					value: result.value,
+					unit: result.unit,
+					// A whole result counts as the integer literal it equals
+					// (`z-index: calc(1 * -1)` is `-1`); `1.0` stays a number.
+					integer: result.value.d === 1n,
+					negativeZero: false,
+				}
 			: token;
 	});
 
@@ -1143,8 +1195,12 @@ export type StylesheetFacts = {
 	 */
 	contextVariables: ReadonlySet<string>;
 	/**
-	 * `@property` registrations by name, their descriptors as compared;
-	 * null when a name is registered twice, differently.
+	 * Unconditional `@property` registrations by name, their descriptors as
+	 * compared: at the top level or inside `@layer` only. Null when a name is
+	 * registered twice differently, or also under a condition (`@media`,
+	 * `@supports`, a rule). Empty when an `@import` carries anything but
+	 * `layer` or `source(…)`: the sheets' text is concatenated, so which
+	 * registrations a conditional import brings in cannot be told apart.
 	 */
 	registrations: ReadonlyMap<string, string | null>;
 	/** False when the text could not be read: nothing above can then be relied on. */
@@ -1182,11 +1238,15 @@ export const scanStylesheetFacts = (css: string): StylesheetFacts => {
 	};
 	const stack: Frame[] = [];
 	let buffer = "";
+	let importsUnconditional = true;
 	const insideTheme = () =>
 		stack.some((frame) => /^@theme\b/iu.test(frame.prelude));
 	const statement = () => {
 		const text = buffer.trim();
 		buffer = "";
+		if (/^@import\b/iu.test(text) && !isUnconditionalImport(text)) {
+			importsUnconditional = false;
+		}
 		if (!text || stack.length === 0 || insideTheme()) return;
 		const colon = text.indexOf(":");
 		if (colon === -1) return;
@@ -1222,7 +1282,12 @@ export const scanStylesheetFacts = (css: string): StylesheetFacts => {
 				if (!frame) throw new Error("Unbalanced }");
 				const property = /^@property\s+(--\S+)$/iu.exec(frame.prelude);
 				if (property && !insideTheme()) {
-					const body = registrationBody(frame.descriptors);
+					const unconditional = stack.every((outer) =>
+						/^@layer\b/iu.test(outer.prelude),
+					);
+					const body = unconditional
+						? registrationBody(frame.descriptors)
+						: null;
 					const known = registrations.get(property[1]);
 					registrations.set(
 						property[1],
@@ -1239,7 +1304,27 @@ export const scanStylesheetFacts = (css: string): StylesheetFacts => {
 	} catch {
 		return { contextVariables, registrations, complete: false };
 	}
-	return { contextVariables, registrations, complete: true };
+	return {
+		contextVariables,
+		registrations: importsUnconditional ? registrations : new Map(),
+		complete: true,
+	};
+};
+
+/**
+ * An `@import` whose content is always included: the URL, then only
+ * `layer`, `layer(…)` or `source(…)`. A media query, `supports(…)`, or an
+ * option Tailwind reads (`reference`, `theme(…)`, `prefix(…)`) is not.
+ */
+const isUnconditionalImport = (text: string) => {
+	const match =
+		/^@import\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|url\([^)]*\))([\s\S]*)$/iu.exec(
+			text,
+		);
+	if (!match) return false;
+	return /^(?:\s+(?:layer(?:\([^)]*\))?|source\([^)]*\)))*\s*$/iu.test(
+		match[1],
+	);
 };
 
 // ---------------------------------------------------------------------------

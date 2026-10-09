@@ -179,6 +179,31 @@ describe("canonicalizeTailwindCandidatesInWorker", () => {
 		});
 	});
 
+	it("rejects an integer for a number its property does not accept", async () => {
+		// `order: 1.0` and `grid-column-start: 1.0` are invalid; `1` is not.
+		const results = await inspector.canonicalize?.([
+			"order-[1.0]",
+			"col-start-[1.0]",
+		]);
+		expect(results).toEqual([
+			{
+				canonical: "order-1",
+				verdict: {
+					status: "different",
+					reason: 'declares "order: 1" where the class declares "order: 1.0"',
+				},
+			},
+			{
+				canonical: "col-start-1",
+				verdict: {
+					status: "different",
+					reason:
+						'declares "grid-column-start: 1" where the class declares "grid-column-start: 1.0"',
+				},
+			},
+		]);
+	});
+
 	it("rejects a form that registers a variable the class leaves inheriting", async () => {
 		const [result] =
 			(await inspector.canonicalize?.(["[transform:var(--tw-rotate-x)]"])) ??

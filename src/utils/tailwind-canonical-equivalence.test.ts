@@ -197,13 +197,20 @@ describe("compareCompiledClasses", () => {
 		expect(
 			compare(rule(".a", "opacity: 0.0000001;"), rule(".b", "opacity: 0;")),
 		).toMatchObject({ status: "different" });
-		// Spelling only: the same numbers and colours.
+		// Spelling only: the same numbers, units and colours.
 		expect(
 			compare(
-				rule(".a", "opacity: .50; color: #FFF; translate: 1E1PX 0"),
+				rule(".a", "opacity: .50; color: #FFF; translate: 10PX 0"),
 				rule(".b", "opacity: 0.5; color: #ffffff; translate: 10px 0"),
 			),
 		).toEqual({ status: "equivalent" });
+		// `1e1` is a number and `10` an integer: kept apart (see round 2).
+		expect(
+			compare(
+				rule(".a", "translate: 1e1px 0;"),
+				rule(".b", "translate: 10px 0;"),
+			),
+		).toMatchObject({ status: "different" });
 	});
 
 	it("replaces `calc()` by its result only where the property treats both alike", () => {
@@ -270,6 +277,104 @@ describe("compareCompiledClasses", () => {
 		expect(
 			compare(rule(".a", "width: 1rem;"), rule(".b", "width: var(--unknown);")),
 		).toMatchObject({ status: "different" });
+	});
+});
+
+describe("round 2: numbers and `calc()` the browser reads otherwise", () => {
+	const pair = (property: string, original: string, canonical: string) =>
+		compare(
+			rule(".a", `${property}: ${original};`),
+			rule(".b", `${property}: ${canonical};`),
+		).status;
+
+	it("keeps CSS's integer flag: `1.0` is a number, `1` an integer", () => {
+		// `order-[1.0]` and `col-start-[1.0]` are invalid in the browser.
+		expect(pair("order", "1.0", "1")).toBe("different");
+		expect(pair("grid-column-start", "1.0", "1")).toBe("different");
+		expect(pair("order", "1e0", "1")).toBe("different");
+		// Spellings of the same number, and a whole `calc()` for an integer.
+		expect(pair("opacity", ".50", "0.5")).toBe("equivalent");
+		expect(pair("order", "calc(1 * -1)", "-1")).toBe("equivalent");
+		expect(pair("order", "calc(1 * -1)", "-1.0")).toBe("different");
+	});
+
+	it("does not fold `+` or `-` without whitespace on both sides", () => {
+		expect(pair("margin-top", "calc(1px+ 1px)", "2px")).toBe("different");
+		expect(pair("margin-top", "calc(1px +1px)", "2px")).toBe("different");
+		expect(pair("margin-top", "calc(1px + 1px)", "2px")).toBe("equivalent");
+		expect(pair("margin-top", "calc(3px*2)", "6px")).toBe("equivalent");
+	});
+
+	it("does not fold past safe magnitudes or precision, or any division", () => {
+		// Chromium: `0px`, not `1px`.
+		expect(
+			pair(
+				"margin-top",
+				"calc(10000000000000000px + 1px - 10000000000000000px)",
+				"1px",
+			),
+		).toBe("different");
+		expect(pair("margin-top", "calc(0.0000001px * 10)", "0.000001px")).toBe(
+			"different",
+		);
+		expect(pair("margin-top", "calc(4px / 2)", "2px")).toBe("different");
+	});
+
+	it("keeps the sign of zero", () => {
+		expect(pair("width", "calc(1px/-0)", "calc(1px/0)")).toBe("different");
+		expect(pair("margin-top", "calc(1px * -0)", "0px")).toBe("different");
+	});
+});
+
+describe("round 2: only unconditional registrations justify an added one", () => {
+	const base = rule(".a", "transform: var(--tw-rotate-x);");
+	const added = `${rule(".b", "transform: var(--tw-rotate-x);")}${registration("--tw-rotate-x")}`;
+	const withSheet = (css: string) =>
+		compare(base, added, { stylesheet: scanStylesheetFacts(css) }).status;
+
+	it("accepts one at the top level or inside `@layer` only", () => {
+		expect(withSheet(registration("--tw-rotate-x"))).toBe("equivalent");
+		expect(
+			withSheet(`@layer properties {\n${registration("--tw-rotate-x")}}\n`),
+		).toBe("equivalent");
+		expect(
+			withSheet(
+				`@import "tailwindcss" source("../src");\n@import "./a.css" layer(base);\n${registration("--tw-rotate-x")}`,
+			),
+		).toBe("equivalent");
+	});
+
+	it("rejects one under a condition, or next to one", () => {
+		expect(
+			withSheet(`@media (width < 0px) {\n${registration("--tw-rotate-x")}}\n`),
+		).toBe("different");
+		expect(
+			withSheet(
+				`@supports (display: grid) {\n${registration("--tw-rotate-x")}}\n`,
+			),
+		).toBe("different");
+		expect(
+			withSheet(
+				`${registration("--tw-rotate-x")}@media (width < 0px) {\n${registration("--tw-rotate-x")}}\n`,
+			),
+		).toBe("different");
+	});
+
+	it("rejects every registration once an import may be conditional", () => {
+		for (const condition of [
+			"(width < 0px)",
+			"supports(display: grid)",
+			"layer(base) screen",
+			"reference",
+			"theme(static)",
+		]) {
+			expect(
+				withSheet(
+					`@import "./a.css" ${condition};\n${registration("--tw-rotate-x")}`,
+				),
+				condition,
+			).toBe("different");
+		}
 	});
 });
 
