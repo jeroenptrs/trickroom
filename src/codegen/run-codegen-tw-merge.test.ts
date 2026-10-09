@@ -273,55 +273,63 @@ describe("runCodegen with codegen.twMerge", () => {
 		);
 	});
 
-	it("emits modifier forms with postfix lookup, so twMerge and createTV keep what the form adds", async () => {
-		const { project, run } = await setup({}, { parent: process.cwd() });
+	it("keeps every class of a utility that uses --modifier, in twMerge and createTV", async () => {
+		const { project, run } = await setup(
+			{ twMerge: { mergeGroups: { badges: ["badge-*"] } } },
+			{ parent: process.cwd() },
+		);
 		await writeFile(
 			project.path("src/theme.css"),
 			[
-				"@theme { --text-sm: 14px; --text-lg: 20px; --color-blue: blue; }",
-				"@utility badge-* {",
-				"\tfont-size: --value(--text-*);",
-				"\tbackground-color: --modifier(--color-*);",
+				"@theme {",
+				"\t--text-sm: 14px;",
+				"\t--text-lg: 20px;",
+				"\t--color-blue: blue;",
+				"\t--leading-1_5: 1.5;",
+				"\t--leading-2_5: 2.5;",
 				"}",
+				"@utility chip-* { font-size: --value(--text-*); line-height: --modifier(--leading-*, number); }",
+				"@utility badge-* { font-size: --value(--text-*); background-color: --modifier(--color-*, [color]); }",
+				"@utility heading { font-size: 20px; background-color: white; }",
 				"",
 			].join("\n"),
 		);
 		expect((await run("write")).status).toBe("ok");
-		expect(await read(project, "src/ui/tw-merge.ts")).toContain(
-			'\t\tpostfixLookupClassGroups: [\n\t\t\t"@utility badge-*",\n\t\t],',
-		);
+		const contents = await read(project, "src/ui/tw-merge.ts");
+		expect(contents).not.toContain("chip-");
+		expect(contents).not.toContain("postfixLookupClassGroups");
 		const { twMerge, twMergeConfig } = (await import(
 			/* @vite-ignore */ project.path("src/ui/tw-merge.ts")
 		)) as {
 			twMerge: (...classes: string[]) => string;
 			twMergeConfig: TWMConfig["twMergeConfig"];
 		};
-		expect(twMerge("badge-sm/blue badge-lg")).toBe("badge-sm/blue badge-lg");
-		expect(twMerge("badge-lg badge-sm/blue")).toBe("badge-sm/blue");
-		expect(twMerge("badge-sm badge-lg")).toBe("badge-lg");
+		// chip-* is left out: tailwind-merge keeps its classes.
+		expect(twMerge("chip-sm/1.5 chip-sm/2.5")).toBe("chip-sm/1.5 chip-sm/2.5");
+		// badge-* is a merge group: the last member wins, nothing else
+		// removes one.
+		expect(twMerge("badge-sm/[red] badge-lg")).toBe("badge-lg");
+		expect(twMerge("badge-sm/[red] heading")).toBe("badge-sm/[red] heading");
 
-		const badge = createTV({ twMergeConfig })({
-			base: "badge-sm/blue",
-			variants: { size: { lg: "badge-lg" } },
+		const tv = createTV({ twMergeConfig });
+		const chip = tv({
+			base: "chip-sm/1.5",
+			variants: { loose: { true: "chip-sm/2.5" } },
 		});
-		expect(badge({ size: "lg" })).toBe("badge-sm/blue badge-lg");
-		expect(badge({ class: "badge-lg" })).toBe("badge-sm/blue badge-lg");
-		// Stock tailwind-variants knows no badge-*: it keeps both too.
-		expect(
-			createTV({})({
-				base: "badge-sm/blue",
-				variants: { size: { lg: "badge-lg" } },
-			})({
-				size: "lg",
-			}),
-		).toBe("badge-sm/blue badge-lg");
+		expect(chip({ loose: true })).toBe("chip-sm/1.5 chip-sm/2.5");
+		const badge = tv({
+			base: "badge-sm/[red]",
+			variants: { tone: { heading: "heading" }, size: { lg: "badge-lg" } },
+		});
+		expect(badge({ tone: "heading" })).toBe("badge-sm/[red] heading");
+		expect(badge({ size: "lg" })).toBe("badge-lg");
 	});
 
-	it("fails on a utility with open-ended modifiers that a class group claims, in --check too", async () => {
+	it("fails on a left-out utility a class group would claim, in --check too", async () => {
 		const { project, run } = await setup();
 		await writeFile(
 			project.path("src/theme.css"),
-			"@theme { --color-blue: blue; }\n@utility text-ink-* { color: --value(--color-*); background-color: --modifier([color]); }\n",
+			"@theme { --color-blue: blue; }\n@utility text-ink-* { font-size: --value([length]); background-color: --modifier([color]); }\n",
 		);
 		for (const mode of ["check", "write"] as const) {
 			const result = await run(mode);
@@ -331,10 +339,11 @@ describe("runCodegen with codegen.twMerge", () => {
 					code: "TW_MERGE_OPEN_MODIFIER",
 					severity: "error",
 					message: expect.stringContaining(
-						'text-ink-* takes open-ended modifiers, so tailwind-merge would merge "text-ink-blue/[…]" through "text-ink-blue"',
+						"text-ink-* uses --modifier(…), so it is left out of the tailwind-merge config, but a class group claims",
 					),
 				}),
 			]);
+			expect(result.written).toEqual([]);
 		}
 	});
 
