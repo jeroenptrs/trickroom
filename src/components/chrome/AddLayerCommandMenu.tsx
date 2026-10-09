@@ -285,13 +285,13 @@ export function AddLayerCommandMenu({
 	return (
 		<BaseUiDialog.Root open={open} onOpenChange={onOpenChange}>
 			<BaseUiDialog.Portal>
-				<BaseUiDialog.Backdrop className="fixed inset-0 bg-slate-950/70 transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
+				<BaseUiDialog.Backdrop className="fixed inset-0 bg-slate-950/70 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
 				<BaseUiDialog.Popup
 					data-shortcuts-disabled=""
 					aria-label={page === "root" ? "Command menu" : "Add layer"}
 					initialFocus={inputRef}
 					onKeyDownCapture={handleMenuKeyDown}
-					className="fixed top-24 left-1/2 z-20 w-[640px] -translate-x-1/2 shadow-2xl outline-none transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0"
+					className="fixed top-24 left-1/2 z-20 w-[640px] -translate-x-1/2 shadow-2xl outline-none transition-all duration-150 data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
 				>
 					{/* Key remounts CommandRoot to clear search on page change. */}
 					<CommandRoot

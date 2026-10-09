@@ -141,7 +141,7 @@ export function DesignConflictDialog() {
 				<AlertDialogViewport>
 					<AlertDialogPopup
 						initialFocus={false}
-						className="w-[calc(100vw-2rem)] max-w-[30rem] gap-0 overflow-hidden"
+						className="w-[calc(100vw-2rem)] max-w-120 gap-0 overflow-hidden"
 						data-testid="design-conflict-dialog"
 					>
 						<div className="flex items-center gap-2 px-4 py-3">

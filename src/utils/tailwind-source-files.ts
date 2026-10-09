@@ -6,13 +6,21 @@
  * editors ask again.
  */
 
+import { isMainThread } from "node:worker_threads";
+
 type Listener = (files: readonly string[]) => void;
 
 const files = new Set<string>();
 const listeners = new Set<Listener>();
 
-/** Records files a load read; listeners hear about the ones not seen before. */
+/**
+ * Records files a load is about to read; listeners hear about the ones not
+ * seen before. A no-op in a worker thread (the canonicalization worker
+ * loads through the same loader): nothing watches there, and the main
+ * thread records the same files when the canvas, codegen or lint load them.
+ */
 export const recordTailwindSourceFiles = (paths: Iterable<string>) => {
+	if (!isMainThread) return;
 	const added: string[] = [];
 	for (const filePath of paths) {
 		if (!files.has(filePath)) {

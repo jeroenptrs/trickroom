@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { TrickroomDesign } from "../types";
 import {
 	applyOperation,
@@ -11,6 +11,7 @@ import {
 	toolPayload,
 	trickroomMcpTestDesign,
 	trickroomMcpTestDesignUuid,
+	warmTailwindCanonicalization,
 } from "./test-support";
 
 const secondDesignFileId = "20000000-0000-4000-8000-000000000002";
@@ -62,6 +63,12 @@ const baselineColorDesign = {
 } satisfies TrickroomDesign;
 
 describe("MCP Phase 2 and Phase 3 tools", () => {
+	// The system CSS these sessions use, canonicalized once up front.
+	beforeAll(
+		() => warmTailwindCanonicalization(['@import "tailwindcss";\n']),
+		30_000,
+	);
+
 	const fixtures: TrickroomMcpProjectFixture[] = [];
 	const sessions: TrickroomMcpClientSession[] = [];
 

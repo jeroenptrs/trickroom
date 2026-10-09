@@ -115,7 +115,7 @@ export function Designs({
 	});
 
 	return (
-		<section className="flex flex-col flex-[2] min-h-0">
+		<section className="flex flex-col flex-2 min-h-0">
 			<div className="flex flex-col gap-2 px-4 py-3">
 				{/* Header */}
 				<div className="flex items-center justify-between">

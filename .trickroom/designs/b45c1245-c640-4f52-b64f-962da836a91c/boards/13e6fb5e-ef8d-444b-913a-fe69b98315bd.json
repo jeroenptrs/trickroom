@@ -354,7 +354,7 @@
 									"data-trickroom-library": "trickroom",
 									"data-trickroom-component": "container",
 									"data-trickroom-role": "branch",
-									"className": "flex flex-[5] min-h-0 flex-col items-center justify-center gap-3 px-6 py-8 text-center"
+									"className": "flex flex-5 min-h-0 flex-col items-center justify-center gap-3 px-6 py-8 text-center"
 								},
 								"children": [
 									{
@@ -413,7 +413,7 @@
 									"data-trickroom-library": "trickroom",
 									"data-trickroom-component": "container",
 									"data-trickroom-role": "branch",
-									"className": "flex flex-[4] min-h-0 flex-col border-t border-slate-200"
+									"className": "flex flex-4 min-h-0 flex-col border-t border-slate-200"
 								},
 								"children": [
 									{
