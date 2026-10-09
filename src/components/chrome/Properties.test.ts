@@ -246,6 +246,34 @@ describe("resolveAttachedComponentClassInventoryLayers", () => {
 		]);
 	});
 
+	it("leads with the Element's base classes, the lowest merged layer", () => {
+		const version = {
+			version: "1",
+			publishedAt: "2026-05-26T14:00:00.000Z",
+			templateHash: "sha256:template",
+			variantSchemaHash: "sha256:variants",
+			root: {
+				path: "root",
+				library: "base-ui",
+				component: "separator",
+				className: "my-2",
+			},
+		};
+
+		const layers = resolveAttachedComponentClassInventoryLayers({
+			version,
+			targetPath: "root",
+			variantValues: {},
+			baseClassName: "data-[orientation=horizontal]:w-full",
+			context: { instanceId: "instance-1" },
+		});
+
+		expect(layers.map((layer) => [layer.source, layer.className])).toEqual([
+			["registry-base", "data-[orientation=horizontal]:w-full"],
+			["system-template", "my-2"],
+		]);
+	});
+
 	it("leaves out variant values and axes the version does not have instead of throwing", () => {
 		const version = {
 			version: "1",

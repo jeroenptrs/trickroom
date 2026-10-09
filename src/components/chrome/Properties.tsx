@@ -38,7 +38,7 @@ import type {
 	RecipeControlDefinition,
 	RecipeTemplateNode,
 } from "../../types";
-import type { ClassLayer } from "../../utils/class-layers";
+import { type ClassLayer, createClassLayer } from "../../utils/class-layers";
 import { assetIdProp, iconIdProp } from "../../utils/resource-props";
 import type { SystemComponentInstanceOverrides } from "../../utils/system-component-markers";
 import {
@@ -607,12 +607,18 @@ export function resolveAttachedComponentClassInventoryLayers({
 	targetPath,
 	variantValues,
 	overrides,
+	baseClassName,
 	context,
 }: {
 	version: PublishedSystemComponentVersion;
 	targetPath: string;
 	variantValues: Record<string, string>;
 	overrides?: SystemComponentInstanceOverrides;
+	/**
+	 * The registry Element's base classes: the lowest layer, which the
+	 * component classes and the override merge over.
+	 */
+	baseClassName?: string;
 	context?: {
 		systemId?: string;
 		componentId?: string;
@@ -629,14 +635,16 @@ export function resolveAttachedComponentClassInventoryLayers({
 				Object.hasOwn(axes, axis) && Object.hasOwn(axes[axis].values, value),
 		),
 	);
-	return resolveSystemComponentClassComposition(
+	const { layers } = resolveSystemComponentClassComposition(
 		version,
 		targetPath,
 		getTemplateClassName(version, targetPath),
 		resolveSystemComponentVariantValues(version.variants, knownValues),
 		overrides ?? {},
 		context,
-	).layers;
+	);
+	const base = createClassLayer("registry-base", baseClassName, context);
+	return base ? [base, ...layers] : layers;
 }
 
 const KBD_MAP = [
@@ -749,6 +757,10 @@ export function Properties({ designId }: { designId?: string } = {}) {
 					attachedInspection.kind === "owned-internal"
 						? attachedInspection.instance.overrides
 						: {},
+				baseClassName:
+					registryResolution.status === "known"
+						? registryResolution.definition.baseClassName
+						: undefined,
 				context: {
 					systemId:
 						attachedInspection.kind === "root" ||

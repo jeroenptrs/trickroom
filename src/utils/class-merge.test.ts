@@ -270,16 +270,68 @@ describe("resolveRenderedComponentClassName", () => {
 		).toBe("items-center hidden p-6");
 	});
 
-	it("keeps the registry Element's base classes out of the merge, ahead of the rest", () => {
-		// The override equals a base class; it still beats the template's w-8.
-		expect(
+	it("merges the registry Element's base classes as the lowest layer", () => {
+		const render = (overrides?: Record<string, { className: string }>) =>
 			resolveRenderedComponentClassName(
 				separatorProps(""),
 				SEPARATOR_BASE,
 				source(),
-				root({}, WIDE_RULE),
+				root({}, overrides),
+			);
+		const VERTICAL =
+			"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch";
+		// The template's w-8 replaces the base w-full; the base classes it does
+		// not conflict with stay, ahead of the rest.
+		expect(render()).toBe(
+			`${VERTICAL} data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-8`,
+		);
+		// An override equal to a base class still beats the template's w-8.
+		expect(render(WIDE_RULE)).toBe(
+			`${VERTICAL} data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full`,
+		);
+		// An override replaces the base class it conflicts with, as in a
+		// wrapper that merges the Element's defaults: no `!` needed.
+		expect(
+			render({
+				rule: {
+					className:
+						"data-[orientation=horizontal]:w-[calc(100%+1.5rem)] data-[orientation=horizontal]:h-0.5",
+				},
+			}),
+		).toBe(
+			`${VERTICAL} data-[orientation=horizontal]:w-[calc(100%+1.5rem)] data-[orientation=horizontal]:h-0.5`,
+		);
+	});
+
+	it("lets a component class replace a base class it conflicts with", () => {
+		const table = {
+			cmp_card: {
+				"1": {
+					...CARD,
+					root: {
+						...CARD.root,
+						children: [
+							{
+								path: "rule",
+								library: "base-ui",
+								component: "separator",
+								className: "data-[orientation=vertical]:self-center",
+							},
+						],
+					},
+				},
+			},
+		};
+		expect(
+			resolveRenderedComponentClassName(
+				separatorProps(""),
+				SEPARATOR_BASE,
+				{ ...source(), components: table },
+				root(),
 			),
-		).toBe(`${SEPARATOR_BASE} data-[orientation=horizontal]:w-full`);
+		).toBe(
+			"data-[orientation=vertical]:w-px data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full data-[orientation=vertical]:self-center",
+		);
 	});
 
 	it("ignores a variant value the version does not have", () => {
@@ -369,7 +421,23 @@ describe("getRenderableProps with component classes", () => {
 				source: source(),
 				root: root({}, WIDE_RULE),
 			}).className,
-		).toBe(`${SEPARATOR_BASE} data-[orientation=horizontal]:w-full`);
+		).toBe(
+			"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
+		);
+	});
+
+	it("keeps a raw element's base classes and className unmerged", () => {
+		const props = {
+			...rawProps("data-[orientation=horizontal]:w-8"),
+			"data-trickroom-library": "base-ui",
+			"data-trickroom-component": "separator",
+		};
+		expect(
+			getRenderableProps(props, separator.definition, {
+				source: source(),
+				root: null,
+			}).className,
+		).toBe(`${SEPARATOR_BASE} data-[orientation=horizontal]:w-8`);
 	});
 });
 
@@ -448,6 +516,7 @@ describe("findClassesRemovedByMerge", () => {
 		]);
 		expect([...findClassesRemovedByMerge(layers, stock())].sort()).toEqual(
 			[
+				classLayerTokenKey(0, 0), // the base block, by flex
 				classLayerTokenKey(1, 0), // flex, by hidden
 				classLayerTokenKey(1, 1), // p-4, by p-2
 				classLayerTokenKey(1, 2), // gap-2, by the compound's gap-2
@@ -483,6 +552,23 @@ describe("findClassesRemovedByMerge", () => {
 		]);
 		expect([...findClassesRemovedByMerge(layers, merge)].sort()).toEqual([
 			classLayerTokenKey(0, 0),
+			classLayerTokenKey(0, 1),
+		]);
+	});
+
+	it("strikes the Element base class an instance's override beats", () => {
+		const layers = createClassLayers([
+			{
+				source: "registry-base",
+				className:
+					"data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
+			},
+			{
+				source: "instance-override",
+				className: "data-[orientation=horizontal]:w-[calc(100%+1.5rem)]",
+			},
+		]);
+		expect([...findClassesRemovedByMerge(layers, stock())]).toEqual([
 			classLayerTokenKey(0, 1),
 		]);
 	});

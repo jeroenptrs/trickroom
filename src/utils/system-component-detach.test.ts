@@ -442,7 +442,12 @@ describe("detachSystemComponentInstance", () => {
 			templateHash: "sha256:template",
 			variantSchemaHash: "sha256:variants",
 		};
-		const markers = (path: string, isRoot = false, instanceId = "instance-1") =>
+		const markers = (
+			path: string,
+			isRoot = false,
+			instanceId = "instance-1",
+			ruleOverride = "data-[orientation=horizontal]:w-full",
+		) =>
 			getSystemComponentMarkerProps({
 				systemId: "sys-core",
 				componentId: "cmp_11111111-1111-4111-8111-111111111111",
@@ -455,20 +460,20 @@ describe("detachSystemComponentInstance", () => {
 							variantValues: {},
 							overrides: {
 								root: { className: "hidden" },
-								rule: { className: "data-[orientation=horizontal]:w-full" },
+								rule: { className: ruleOverride },
 							},
 						}
 					: {}),
 			});
 		const STORED_RULE = `${SEPARATOR_BASE} data-[orientation=horizontal]:w-8`;
-		const instance = (): Node[] => [
+		const instance = (ruleOverride?: string): Node[] => [
 			{
 				id: "card",
 				props: {
 					...baseProps("Card"),
 					// Stored as materialized: unmerged.
 					className: "flex items-center p-4 hidden",
-					...markers("root", true),
+					...markers("root", true, "instance-1", ruleOverride),
 				},
 				children: [
 					{
@@ -504,9 +509,12 @@ describe("detachSystemComponentInstance", () => {
 				],
 			},
 		];
-		const detached = (source: ComponentClassSource | null) => {
+		const detached = (
+			source: ComponentClassSource | null,
+			ruleOverride?: string,
+		) => {
 			const result = detachSystemComponentInstance(
-				instance(),
+				instance(ruleOverride),
 				"card",
 				version,
 				source,
@@ -522,10 +530,11 @@ describe("detachSystemComponentInstance", () => {
 
 			expect(card?.props.className).toBe("items-center p-4 hidden");
 			expect(card?.props).not.toHaveProperty(MATERIALIZED_BASE_CLASS_PROP);
-			// The base stays first and materialized; the override that equals a
-			// base class beats the template's w-8.
+			// The base classes merge first and stay materialized: the template's
+			// w-8 replaces the base w-full, and the override that equals it
+			// beats the w-8.
 			expect(rule.props.className).toBe(
-				`${SEPARATOR_BASE} data-[orientation=horizontal]:w-full`,
+				"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full",
 			);
 			expect(rule.props[MATERIALIZED_BASE_CLASS_PROP]).toBe("true");
 			expect(
@@ -538,6 +547,21 @@ describe("detachSystemComponentInstance", () => {
 				instanceId: "nested-instance",
 			});
 			expect(result?.detachedElementIds.sort()).toEqual(["card", "rule"]);
+		});
+
+		it("writes the merged result when an override replaces a base class", () => {
+			const { rule } = detached(
+				sourceFor(version),
+				"data-[orientation=horizontal]:w-[calc(100%+1.5rem)]",
+			);
+
+			expect(rule.props.className).toBe(
+				"data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-[calc(100%+1.5rem)]",
+			);
+			expect(rule.props[MATERIALIZED_BASE_CLASS_PROP]).toBe("true");
+			expect(
+				getRenderableProps(rule.props, separator.definition).className,
+			).toBe(rule.props.className);
 		});
 
 		it("with the canvas on stored classes (no component table): unchanged", () => {
