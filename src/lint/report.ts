@@ -95,6 +95,14 @@ export type LintRatchetBaseline = {
 	generatedAt: string;
 	/** Tracked numbers, see `ratchet.ts`. */
 	numbers: Record<string, number>;
+	/**
+	 * Every rule kind id the writers of the baseline knew (the ledger of
+	 * ever-shipped ids, the registry, earlier baselines' `kinds`), enabled
+	 * or not; only grows. A kind not listed is adopted by the next run.
+	 * Absent in baselines written before kinds were recorded, see
+	 * `ratchet.ts`.
+	 */
+	kinds?: string[];
 };
 
 export type LintReport = {
@@ -262,6 +270,9 @@ const normalizeBaseline = (
 ): LintRatchetBaseline => ({
 	generatedAt: baseline.generatedAt,
 	numbers: sortedNumbers(baseline.numbers),
+	...(baseline.kinds
+		? { kinds: [...baseline.kinds].sort(compareStrings) }
+		: {}),
 });
 
 const byMetric = <T extends { metric: string }>(entries: readonly T[]) =>
@@ -272,6 +283,8 @@ const normalizeRatchet = (ratchet: LintRatchetResult): LintRatchetResult => ({
 	baseline: ratchet.baseline ? normalizeBaseline(ratchet.baseline) : null,
 	regressions: byMetric(ratchet.regressions).map((entry) => ({ ...entry })),
 	breaches: byMetric(ratchet.breaches).map((entry) => ({ ...entry })),
+	// Reports written before adoption have no list.
+	adopted: byMetric(ratchet.adopted ?? []).map((entry) => ({ ...entry })),
 	numbers: sortedNumbers(ratchet.numbers),
 });
 
@@ -371,7 +384,10 @@ const isNumbers = (value: unknown): value is Record<string, number> =>
 const isBaseline = (value: unknown): value is LintRatchetBaseline =>
 	isRecord(value) &&
 	typeof value.generatedAt === "string" &&
-	isNumbers(value.numbers);
+	isNumbers(value.numbers) &&
+	(value.kinds === undefined ||
+		(Array.isArray(value.kinds) &&
+			value.kinds.every((entry) => typeof entry === "string")));
 
 const isRatchet = (value: unknown): value is LintRatchetResult =>
 	isRecord(value) &&
@@ -394,6 +410,14 @@ const isRatchet = (value: unknown): value is LintRatchetResult =>
 			typeof entry.limit === "number" &&
 			typeof entry.current === "number",
 	) &&
+	(value.adopted === undefined ||
+		(Array.isArray(value.adopted) &&
+			value.adopted.every(
+				(entry) =>
+					isRecord(entry) &&
+					typeof entry.metric === "string" &&
+					typeof entry.current === "number",
+			))) &&
 	isNumbers(value.numbers);
 
 export type LintReportIssue = {
@@ -448,12 +472,7 @@ export const parseLintReport = (
 		(value.designs === null ||
 			(Array.isArray(value.designs) && value.designs.every(isDesignStats))) &&
 		isRatchet(value.ratchet) &&
-		isRecord(value.ratchetBaseline) &&
-		typeof value.ratchetBaseline.generatedAt === "string" &&
-		isRecord(value.ratchetBaseline.numbers) &&
-		Object.values(value.ratchetBaseline.numbers).every(
-			(entry) => typeof entry === "number",
-		);
+		isBaseline(value.ratchetBaseline);
 	if (!valid) {
 		return {
 			report: null,

@@ -68,6 +68,7 @@ import {
 	writeLintReport,
 } from "./report";
 import { lintRuleRegistry } from "./rules/index";
+import { LINT_RULE_KIND_LEDGER_IDS } from "./rules/ledger";
 import type { LintRuleRegistry } from "./rules/registry";
 import type { LintTailwindInspector, LintTwMergeConfig } from "./rules/types";
 import { runLintRules, toReportFinding } from "./run-rules";
@@ -852,6 +853,7 @@ async function runLintInner(
 			numbers,
 			baseline: previousBaseline,
 			thresholds: config.thresholds,
+			summary: draft.summary,
 		});
 		result.baseline = previous.status;
 		result.ratchet = ratchet;
@@ -873,6 +875,10 @@ async function runLintInner(
 				result: ratchet,
 				generatedAt,
 				previous: previousBaseline,
+				kinds: [
+					...LINT_RULE_KIND_LEDGER_IDS,
+					...registry.kinds.map((kind) => kind.id),
+				],
 			}),
 		});
 		return ratchet;

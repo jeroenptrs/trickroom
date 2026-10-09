@@ -124,6 +124,11 @@ const describeResult = (result: LintRunResult): string[] => {
 	}
 	lines.push(...describeReport(result.report));
 	const ratchet = result.ratchet;
+	for (const adoption of ratchet.adopted) {
+		lines.push(
+			`adopted: ${adoption.metric} ${adoption.current} (new rule kind)`,
+		);
+	}
 	for (const regression of ratchet.regressions) {
 		lines.push(
 			`worse: ${regression.metric} ${regression.baseline} -> ${regression.current}`,
@@ -142,8 +147,12 @@ const describeResult = (result: LintRunResult): string[] => {
 			`Lint failed for ${where}: ${plural(ratchet.regressions.length, "number")} worse than the baseline${ratchet.baseline ? ` of ${ratchet.baseline.generatedAt}` : ""}, ${plural(ratchet.breaches.length, "threshold")} broken.${result.written ? ` Report written to ${result.reportPath}.` : ""}`,
 		);
 	} else {
+		const adopted =
+			ratchet.adopted.length > 0
+				? ` ${plural(ratchet.adopted.length, "new rule kind")} adopted into the baseline${result.mode === "check" ? " once lint runs without --check" : ""}.`
+				: "";
 		lines.push(
-			`Lint passed for ${where}${ratchet.baseline ? ` against the baseline of ${ratchet.baseline.generatedAt}` : " (no baseline yet)"}.${result.written ? ` Report written to ${result.reportPath}.` : result.mode === "check" ? " Nothing written (--check)." : ""}`,
+			`Lint passed for ${where}${ratchet.baseline ? ` against the baseline of ${ratchet.baseline.generatedAt}` : " (no baseline yet)"}.${result.written ? ` Report written to ${result.reportPath}.` : result.mode === "check" ? " Nothing written (--check)." : ""}${adopted}`,
 		);
 	}
 	return lines;

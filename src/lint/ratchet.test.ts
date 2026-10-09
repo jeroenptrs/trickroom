@@ -157,4 +157,193 @@ describe("ratchet", () => {
 			numbers: { "code.errors": 3 },
 		});
 	});
+
+	describe("adopting kinds the baseline predates", () => {
+		const current = {
+			code: summary(1, 7, {
+				"code.old": [1, 2],
+				"code.new": [0, 5],
+			}),
+			design: summary(0, 3, { "design.new": [0, 3] }),
+		};
+		const numbers = collectTrackedNumbers({
+			summary: current,
+			components: [],
+		});
+		const baseline = {
+			generatedAt: "2026-01-01T00:00:00.000Z",
+			numbers: {
+				"code.errors": 1,
+				"code.warnings": 2,
+				"design.errors": 0,
+				"design.warnings": 0,
+				"rule.code.old": 3,
+			},
+			kinds: ["code.old"],
+		};
+
+		it("adopts a kind the baseline does not list and compares the aggregates without it", () => {
+			const result = compareLintRatchet({
+				numbers,
+				baseline,
+				thresholds: {},
+				summary: current,
+			});
+			expect(result.status).toBe("pass");
+			expect(result.regressions).toEqual([]);
+			expect(result.adopted).toEqual([
+				{ metric: "rule.code.new", current: 5 },
+				{ metric: "rule.design.new", current: 3 },
+			]);
+			expect(result.baseline).toEqual({
+				generatedAt: "2026-01-01T00:00:00.000Z",
+				numbers: {
+					"code.errors": 1,
+					"code.warnings": 7,
+					"design.errors": 0,
+					"design.warnings": 3,
+					"rule.code.new": 5,
+					"rule.code.old": 3,
+					"rule.design.new": 3,
+				},
+				kinds: ["code.old"],
+			});
+			// Without the per-kind counts nothing is adopted.
+			expect(
+				compareLintRatchet({ numbers, baseline, thresholds: {} }).regressions,
+			).toEqual([
+				{ metric: "code.warnings", baseline: 2, current: 7 },
+				{ metric: "design.warnings", baseline: 0, current: 3 },
+				{ metric: "rule.code.new", baseline: 0, current: 5 },
+				{ metric: "rule.design.new", baseline: 0, current: 3 },
+			]);
+		});
+
+		it("still fails a known kind that got worse, and its aggregate", () => {
+			const worse = {
+				...current,
+				code: summary(2, 7, { "code.old": [2, 2], "code.new": [0, 5] }),
+			};
+			const result = compareLintRatchet({
+				numbers: collectTrackedNumbers({ summary: worse, components: [] }),
+				baseline,
+				thresholds: {},
+				summary: worse,
+			});
+			expect(result.status).toBe("fail");
+			expect(result.adopted).toHaveLength(2);
+			expect(result.regressions).toEqual([
+				{ metric: "code.errors", baseline: 1, current: 2 },
+				{ metric: "rule.code.old", baseline: 3, current: 4 },
+			]);
+		});
+
+		it("compares a listed kind without a number, one switched off when the baseline was written, as usual", () => {
+			const result = compareLintRatchet({
+				numbers,
+				baseline: {
+					...baseline,
+					kinds: ["code.new", "code.old", "design.new"],
+				},
+				thresholds: {},
+				summary: current,
+			});
+			expect(result.adopted).toEqual([]);
+			expect(result.regressions).toEqual([
+				{ metric: "code.warnings", baseline: 2, current: 7 },
+				{ metric: "design.warnings", baseline: 0, current: 3 },
+				{ metric: "rule.code.new", baseline: 0, current: 5 },
+				{ metric: "rule.design.new", baseline: 0, current: 3 },
+			]);
+		});
+
+		it("takes the kinds without a number as new in a baseline without kinds", () => {
+			const { kinds: _kinds, ...legacy } = baseline;
+			const result = compareLintRatchet({
+				numbers,
+				baseline: {
+					...legacy,
+					numbers: { ...legacy.numbers, "rule.code.new": 4 },
+				},
+				thresholds: {},
+				summary: current,
+			});
+			expect(result.adopted).toEqual([
+				{ metric: "rule.design.new", current: 3 },
+			]);
+			expect(result.regressions).toEqual([
+				{ metric: "code.warnings", baseline: 2, current: 7 },
+				{ metric: "rule.code.new", baseline: 4, current: 5 },
+			]);
+			expect(result.baseline).not.toHaveProperty("kinds");
+		});
+
+		it("adopts nothing on a first run and keeps thresholds absolute", () => {
+			const first = compareLintRatchet({
+				numbers,
+				baseline: null,
+				thresholds: { code: { warnings: 6 } },
+				summary: current,
+			});
+			expect(first.adopted).toEqual([]);
+			const adopted = compareLintRatchet({
+				numbers,
+				baseline,
+				thresholds: { code: { warnings: 6 } },
+				summary: current,
+			});
+			expect(adopted.regressions).toEqual([]);
+			expect(adopted.breaches).toEqual([
+				{ metric: "code.warnings", kind: "max", limit: 6, current: 7 },
+			]);
+		});
+
+		it("only grows the kinds: a previous baseline's kinds stay when this run knows fewer", () => {
+			const result = compareLintRatchet({
+				numbers,
+				baseline,
+				thresholds: {},
+				summary: current,
+			});
+			const previous = { ...baseline, kinds: ["code.gone", "code.old"] };
+			expect(
+				nextRatchetBaseline({
+					result,
+					generatedAt: "2026-02-01T00:00:00.000Z",
+					previous,
+					kinds: ["code.old"],
+				}).kinds,
+			).toEqual(["code.gone", "code.old"]);
+			// A failing run keeps the previous baseline as it is.
+			expect(
+				nextRatchetBaseline({
+					result: { ...result, status: "fail" },
+					generatedAt: "2026-02-01T00:00:00.000Z",
+					previous,
+					kinds: ["code.new"],
+				}),
+			).toBe(previous);
+		});
+
+		it("records the shipped kinds in the next baseline", () => {
+			const result = compareLintRatchet({
+				numbers,
+				baseline,
+				thresholds: {},
+				summary: current,
+			});
+			expect(
+				nextRatchetBaseline({
+					result,
+					generatedAt: "2026-02-01T00:00:00.000Z",
+					previous: baseline,
+					kinds: ["design.new", "code.old", "code.new"],
+				}),
+			).toEqual({
+				generatedAt: "2026-02-01T00:00:00.000Z",
+				numbers,
+				kinds: ["code.new", "code.old", "design.new"],
+			});
+		});
+	});
 });

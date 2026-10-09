@@ -456,7 +456,7 @@ Unknown boards fail with `NO_MATCHING_BOARDS` (HTML) or `BOARD_NOT_FOUND` (PNG) 
 
 - Without `check`, a passing run writes `.trickroom/systems/<id>/lint-report.json` as the new ratchet baseline; a failing run writes nothing. `check: true` never writes.
 - `system` selects a system by id, name or storage key; the default is the `codegen` block's system, else the project's default system, else the only system.
-- `response: "summary"` (default) returns `lint` with `status` (`pass` or `fail`), `mode`, `system`, `ratchet` (numbers that got worse, thresholds broken), `baseline`, `reportPath`, `written`, `diagnostics`, `generatedAt` and the per-side `summary`; `"full"` adds the whole `report`.
+- `response: "summary"` (default) returns `lint` with `status` (`pass` or `fail`), `mode`, `system`, `ratchet` (numbers that got worse, thresholds broken, new rule kinds adopted into the baseline), `baseline`, `reportPath`, `written`, `diagnostics`, `generatedAt` and the per-side `summary`; `"full"` adds the whole `report`.
 - A run that cannot complete (no or ambiguous system, invalid `lint.json`, a crashed rule) is a tool error `LINT_FAILED` carrying the diagnostics.
 
 It needs read-write mode in every case, like `design_export`: the codegen check runs the project's formatter command, and a non-check run writes the report.
