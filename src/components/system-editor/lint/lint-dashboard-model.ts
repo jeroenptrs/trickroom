@@ -1,3 +1,4 @@
+import { describeComponentLocation } from "../../../lint/component-location";
 import type { LintSeverity, LintThresholds } from "../../../lint/config";
 import type { LintRatchetResult } from "../../../lint/ratchet";
 import type {
@@ -599,7 +600,9 @@ export const findingKey = (finding: LintFinding) => {
 			? ""
 			: location.kind === "code"
 				? `${location.file}:${location.line ?? ""}:${location.column ?? ""}`
-				: `${location.design}/${location.board ?? ""}/${location.element ?? ""}/${location.path ?? ""}`;
+				: location.kind === "component"
+					? `${location.componentId}@${location.version}/${location.path ?? ""}/${location.axis ?? ""}/${location.value ?? ""}/${location.compound ?? ""}`
+					: `${location.design}/${location.board ?? ""}/${location.element ?? ""}/${location.path ?? ""}`;
 	return [
 		finding.side,
 		finding.rule,
@@ -623,6 +626,9 @@ export const formatFindingLocation = (
 		return [location.file, location.line, location.column]
 			.filter((part) => part !== undefined)
 			.join(":");
+	}
+	if (location.kind === "component") {
+		return describeComponentLocation(location, finding.component);
 	}
 	return [
 		designNames.get(location.design) ?? location.design,

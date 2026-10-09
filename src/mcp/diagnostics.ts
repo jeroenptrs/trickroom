@@ -1,5 +1,6 @@
 import { resolveRegistryComponent } from "../libraries/registry";
 import { hasStageRenderer } from "../libraries/renderable-components";
+import type { LintComponentLocation } from "../lint/component-location";
 import {
 	type DesignLintResult,
 	lintDesign,
@@ -522,6 +523,12 @@ const loadTailwindUtilityInspector = async (
  * kind's details (the offending class and suggestions, the axis and value)
  * ride along. Problems that kept a rule from running are warnings.
  */
+/** Where in a component definition a finding is, for `design_validate`. */
+const toComponentLocation = ({
+	kind: _kind,
+	...location
+}: LintComponentLocation) => location;
+
 const toDesignLintIssues = (
 	result: DesignLintResult,
 ): ClassTokenDiagnostic[] => {
@@ -542,6 +549,9 @@ const toDesignLintIssues = (
 			...(finding.component === undefined
 				? {}
 				: { component: finding.component }),
+			...(finding.location?.kind === "component"
+				? { componentLocation: toComponentLocation(finding.location) }
+				: {}),
 		});
 	}
 	for (const diagnostic of result.diagnostics) {

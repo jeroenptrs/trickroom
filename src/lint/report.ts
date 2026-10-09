@@ -160,13 +160,22 @@ const compareOptional = (
 		: compareStrings(String(left), String(right));
 };
 
+// Component definitions before the designs that place them.
+const LOCATION_KIND_ORDER: Record<LintLocation["kind"], number> = {
+	code: 0,
+	component: 1,
+	design: 2,
+};
+
 const compareLocations = (
 	left: LintLocation | null,
 	right: LintLocation | null,
 ) => {
 	if (left === null || right === null)
 		return left === right ? 0 : left === null ? -1 : 1;
-	if (left.kind !== right.kind) return left.kind === "code" ? -1 : 1;
+	if (left.kind !== right.kind) {
+		return LOCATION_KIND_ORDER[left.kind] - LOCATION_KIND_ORDER[right.kind];
+	}
 	if (left.kind === "code" && right.kind === "code") {
 		return (
 			compareStrings(left.file, right.file) ||
@@ -180,6 +189,16 @@ const compareLocations = (
 			compareOptional(left.board, right.board) ||
 			compareOptional(left.element, right.element) ||
 			compareOptional(left.path, right.path)
+		);
+	}
+	if (left.kind === "component" && right.kind === "component") {
+		return (
+			compareStrings(left.componentId, right.componentId) ||
+			compareStrings(left.version, right.version) ||
+			compareOptional(left.path, right.path) ||
+			compareOptional(left.axis, right.axis) ||
+			compareOptional(left.value, right.value) ||
+			compareOptional(left.compound, right.compound)
 		);
 	}
 	return 0;
@@ -318,7 +337,10 @@ const isLocation = (value: unknown): value is LintLocation | null =>
 	value === null ||
 	(isRecord(value) &&
 		((value.kind === "code" && typeof value.file === "string") ||
-			(value.kind === "design" && typeof value.design === "string")));
+			(value.kind === "design" && typeof value.design === "string") ||
+			(value.kind === "component" &&
+				typeof value.componentId === "string" &&
+				typeof value.version === "string")));
 
 const isFinding = (value: unknown): value is LintFinding =>
 	isRecord(value) &&

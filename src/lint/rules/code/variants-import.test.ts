@@ -237,6 +237,9 @@ describe("code rules through runLint", () => {
 			"code.unknown-class-token info - -",
 			"code.unknown-variant-value error button src/app.tsx",
 			"code.variants-imported-outside-component error card src/ui/stray.tsx",
+			// No designs, but the published components' classes are checked
+			// on the design side, which needs the compiled CSS.
+			"design.non-canonical-class info - -",
 		]);
 	});
 });

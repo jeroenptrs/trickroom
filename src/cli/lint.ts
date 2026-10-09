@@ -1,4 +1,5 @@
 import path from "node:path";
+import { describeComponentLocation } from "../lint/component-location";
 import type { LintFinding, LintReport } from "../lint/report";
 import { type LintRunResult, runLint } from "../lint/run-lint";
 
@@ -75,6 +76,9 @@ const describeLocation = (finding: LintFinding) => {
 	if (!location) return "";
 	if (location.kind === "code") {
 		return `${location.file}${location.line === undefined ? "" : `:${location.line}${location.column === undefined ? "" : `:${location.column}`}`}`;
+	}
+	if (location.kind === "component") {
+		return `component ${describeComponentLocation(location, finding.component)}`;
 	}
 	return [
 		`design ${location.design}`,

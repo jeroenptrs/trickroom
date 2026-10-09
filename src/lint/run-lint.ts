@@ -764,6 +764,7 @@ async function runLintInner(
 	const designs = buildLintDesignIndex({
 		systemId,
 		designs: linked.designs,
+		components: manifestRead.manifest.components,
 	});
 
 	// Rules.

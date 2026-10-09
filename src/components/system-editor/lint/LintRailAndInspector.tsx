@@ -1,6 +1,7 @@
 import { ExternalLink } from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "react-router";
+import { describeComponentClassSource } from "../../../lint/component-location";
 import type { LintFinding, LintReport } from "../../../lint/report";
 import type { ProjectQueryScope } from "../../../queries/project-scope";
 import {
@@ -269,6 +270,18 @@ function FindingInspector({
 						) : null}
 					</>
 				) : null}
+				{location?.kind === "component" ? (
+					<>
+						<Field label="Version" value={location.version} />
+						{location.path ? (
+							<Field label="Template path" value={location.path} />
+						) : null}
+						<Field
+							label="Classes of"
+							value={describeComponentClassSource(location)}
+						/>
+					</>
+				) : null}
 				{location === null ? <Field label="Location" value="none" /> : null}
 			</div>
 			{location?.kind === "design" ? (
@@ -289,6 +302,12 @@ function FindingInspector({
 					<ShowFindingsButton
 						label="All in this file"
 						onClick={() => showLintFindings({ file: location.file })}
+					/>
+				) : null}
+				{location?.kind === "component" && finding.component ? (
+					<ShowFindingsButton
+						label="All of this component"
+						onClick={() => showLintFindings({ component: finding.component })}
 					/>
 				) : null}
 			</div>

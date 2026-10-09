@@ -156,6 +156,102 @@ describe("lint report", () => {
 		]);
 	});
 
+	it("orders component locations after code and before design locations", () => {
+		const component = (
+			location: Partial<
+				Extract<LintFinding["location"], { kind: "component" }>
+			>,
+		) =>
+			finding({
+				side: "design",
+				rule: "design.x",
+				location: {
+					kind: "component",
+					componentId: "cmp_a",
+					version: "1",
+					...location,
+				},
+			});
+		const sorted = sortLintFindings([
+			finding({
+				side: "design",
+				rule: "design.x",
+				location: { kind: "design", design: "d" },
+			}),
+			component({ path: "root", compound: 0 }),
+			component({ path: "root", axis: "tone", value: "loud" }),
+			component({ path: "root" }),
+			component({ version: "2", path: "label" }),
+			component({ componentId: "cmp_0", version: "3" }),
+		]);
+		expect(
+			sorted.map((entry) =>
+				entry.location?.kind === "component"
+					? `${entry.location.componentId}@${entry.location.version} ${entry.location.path ?? ""} ${entry.location.axis ?? ""} ${entry.location.compound ?? ""}`
+					: entry.location?.kind,
+			),
+		).toEqual([
+			"cmp_0@3   ",
+			"cmp_a@1 root  ",
+			"cmp_a@1 root  0",
+			"cmp_a@1 root tone ",
+			"cmp_a@2 label  ",
+			"design",
+		]);
+	});
+
+	it("reads reports with and without component locations", () => {
+		// A report written before component locations existed reads as it was.
+		const old = JSON.parse(serializeLintReport(report()));
+		old.findings.push({
+			rule: "design.non-canonical-class",
+			severity: "warning",
+			side: "design",
+			message: "m",
+			location: {
+				kind: "design",
+				design: "d",
+				board: "b",
+				element: "e",
+				path: "boards[0].props.className",
+			},
+		});
+		expect(parseLintReport(old).issue).toBeNull();
+
+		const located: LintFinding = {
+			rule: "design.non-canonical-class",
+			severity: "warning",
+			side: "design",
+			message: "m",
+			component: "badge",
+			location: {
+				kind: "component",
+				componentId: "cmp_a",
+				version: "1",
+				path: "root",
+				axis: "tone",
+				value: "loud",
+			},
+		};
+		const text = serializeLintReport({
+			...report(),
+			findings: [...report().findings, located],
+		});
+		const parsed = parseLintReport(JSON.parse(text));
+		expect(parsed.issue).toBeNull();
+		expect(parsed.report?.findings.at(-1)).toEqual(located);
+		expect(serializeLintReport(parsed.report as LintReport)).toBe(text);
+		// The id and version are required.
+		expect(
+			parseLintReport({
+				...JSON.parse(text),
+				findings: [
+					{ ...located, location: { kind: "component", version: "1" } },
+				],
+			}).issue?.code,
+		).toBe("INVALID_REPORT");
+	});
+
 	it("summarises a side with every enabled rule present", () => {
 		const summary = summarizeFindings(
 			[

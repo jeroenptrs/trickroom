@@ -281,6 +281,8 @@ Both modes run the linked system's design-side lint rules ([Design System Lint](
 - `design.unknown-variant-value` (error by default): an instance records a variant value or axis its component version does not have; with `component`, `axis`, `value`, `version` (and `currentVersion` when the instance is pinned to an older one).
 - `design.design-only-class-target` (error by default): a component the checked boards place has variant classes on a design-only node; a file-level issue with `component`.
 
+The class kinds check a component's own classes once, on the component, and an instance only for the className override it adds. A finding in a component's template, variant or compound classes has no `path` or `elementId`; it carries `component` and `componentLocation` (`componentId`, `version`, the template `path`, and `axis` and `value` or `compound`), and is listed only when the checked boards place that version. See [Component classes](lint.md#component-classes).
+
 A finding at severity `info` is not an issue. When `lint.json` is invalid or cannot be read the defaults apply and an `INVALID_LINT_CONFIG` warning says why. `design_apply` and `design_create` still report the class checks under their own codes (`UNKNOWN_COLOR_TOKEN`, …), without `lint.json`.
 
 ### Errors

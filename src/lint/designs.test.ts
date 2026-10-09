@@ -151,6 +151,8 @@ describe("design index", () => {
 			element: "cart",
 			path: "boards[0]",
 			className: "flex gap-2",
+			checkedClassName: "flex gap-2",
+			classSource: "layer",
 			instance: null,
 		});
 		expect(design.boards[0].nodes[1].instance).toEqual({
