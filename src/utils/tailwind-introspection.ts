@@ -11,6 +11,20 @@ export type ThemeEntry = {
 	src?: unknown;
 };
 
+/**
+ * A node of the CSS Tailwind generates for a candidate
+ * (`candidatesToAst`), narrowed to what callers read: rules with their
+ * selector, at-rules with their name, declarations with their property.
+ */
+export type CandidateAstNode = {
+	kind: string;
+	selector?: string;
+	name?: string;
+	params?: string;
+	property?: string;
+	nodes?: CandidateAstNode[];
+};
+
 export type CustomFunctionalUtility = {
 	/** The @utility root (e.g. "text-interaction" from "@utility text-interaction-*"). */
 	root: string;
@@ -40,6 +54,13 @@ export type TailwindIntrospection = {
 	 * which UI domain(s) a custom utility folds into from the properties it sets.
 	 */
 	getCandidateCss(candidate: string): string | null;
+	/**
+	 * The CSS for a single candidate as Tailwind's AST, or null if the DS
+	 * does not resolve it. Nested rules keep their `&` selectors.
+	 */
+	getCandidateAst(candidate: string): CandidateAstNode[] | null;
+	/** Whether the DS has a utility with this root of this kind. */
+	hasUtility(root: string, kind: "static" | "functional"): boolean;
 	/**
 	 * Theme entries via the public theme.entries() API.
 	 * Use this instead of the private theme.values map.
@@ -75,6 +96,15 @@ export function createTailwindIntrospection(
 		},
 		getCandidateCss(candidate) {
 			return designSystem.candidatesToCss([candidate])[0] ?? null;
+		},
+		getCandidateAst(candidate) {
+			const nodes = designSystem.candidatesToAst([candidate])[0];
+			return nodes && nodes.length > 0
+				? (nodes as unknown as CandidateAstNode[])
+				: null;
+		},
+		hasUtility(root, kind) {
+			return designSystem.utilities.has(root, kind);
 		},
 		getThemeEntries() {
 			return designSystem.theme.entries() as Iterable<[string, ThemeEntry]>;
