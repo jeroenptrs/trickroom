@@ -62,10 +62,6 @@ export type TailwindIntrospection = {
 	 * does not resolve it. Nested rules keep their `&` selectors.
 	 */
 	getCandidateAst(candidate: string): CandidateAstNode[] | null;
-	/** Every class the DS can list (Tailwind's class list, as completions see it). */
-	getClassNames(): string[];
-	/** Compiled CSS for many candidates at once, in order; null where unresolved. */
-	getCandidatesCss(candidates: readonly string[]): Array<string | null>;
 	/** The DS prefix (`prefix(tw)` makes candidates `tw:flex`), or null. */
 	getPrefix(): string | null;
 	/** Whether the DS has a utility with this root of this kind. */
@@ -111,14 +107,6 @@ export function createTailwindIntrospection(
 			return nodes && nodes.length > 0
 				? (nodes as unknown as CandidateAstNode[])
 				: null;
-		},
-		getClassNames() {
-			return designSystem.getClassList().map(([name]) => name);
-		},
-		getCandidatesCss(candidates) {
-			return designSystem
-				.candidatesToCss([...candidates])
-				.map((css) => css ?? null);
 		},
 		getPrefix() {
 			return designSystem.theme.prefix || null;

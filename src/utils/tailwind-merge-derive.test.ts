@@ -123,9 +123,10 @@ describe("deriveTwMergeConfig", () => {
 		expect(config.extend.conflictingClassGroups).toEqual({
 			"@utility bg-pale-ui": ["bg-color"],
 			"@utility divide-royal-dim": ["divide-color"],
-			// Not leading: text-2xs reads the --tw-leading a leading-* class
-			// sets, and text-label-* does not set it.
-			"@utility text-label-*": ["font-size", "font-weight", "tracking"],
+			// Not leading, font-weight or tracking: their members set
+			// --tw-leading, --tw-font-weight and --tw-tracking, which
+			// text-label-* does not set, and any class may read them.
+			"@utility text-label-*": ["font-size"],
 		});
 		expect(config).not.toHaveProperty("prefix");
 	});
@@ -151,7 +152,16 @@ describe("deriveTwMergeConfig", () => {
 		);
 		expect(merge("label text-[16px]")).toBe("label text-[16px]");
 		expect(merge("label font-bold")).toBe("label font-bold");
+		// label overrides font-size, so text-[16px] goes; leading-6, font-bold
+		// and tracking-wide also set --tw-* variables label does not set.
 		expect(merge("text-[16px] leading-6 font-bold tracking-wide label")).toBe(
+			"leading-6 font-bold tracking-wide label",
+		);
+		// A bundle that sets the variables too replaces them.
+		const full = await mergeWith(
+			"@utility label { font-size: 1rem; --tw-font-weight: 600; font-weight: 600; --tw-tracking: 1px; letter-spacing: 1px; --tw-leading: 2; line-height: 2; }\n",
+		);
+		expect(full("text-[16px] leading-6 font-bold tracking-wide label")).toBe(
 			"label",
 		);
 		const merged = await mergeWith(THEME_CSS);
@@ -188,39 +198,43 @@ describe("deriveTwMergeConfig", () => {
 		expect(merge("text-red-500 big-ink")).toBe("big-ink");
 	});
 
-	it("keeps a --tw-* variable that the later class or any listed class reads", async () => {
+	it("never drops a variable setter unless the later class sets the same variable", async () => {
 		const merge = await mergeWith(
 			[
 				"@theme { --spacing: 0.25rem; }",
 				"@utility label { font-size: 20px; line-height: var(--tw-leading, 2); }",
 				"@utility heading { font-size: 20px; line-height: 2; }",
+				"@utility leading-roomy { --tw-leading: 2; line-height: 2; }",
 				"",
 			].join("\n"),
 		);
-		// label reads the --tw-leading leading-8 sets, so neither it nor any
-		// other class may drop it.
 		expect(merge("leading-8 label")).toBe("leading-8 label");
 		expect(merge("leading-8 heading")).toBe("leading-8 heading");
+		// Tailwind's class list has no arbitrary properties, but they read
+		// variables too: the --tw-leading leading-8 sets must survive.
+		expect(merge("leading-8 heading [font-size:var(--tw-leading)]")).toBe(
+			"leading-8 heading [font-size:var(--tw-leading)]",
+		);
+		// leading-roomy sets --tw-leading itself: it may replace leading-8.
+		expect(merge("leading-8 leading-roomy")).toBe("leading-roomy");
+	});
 
-		const unread = await mergeWith(
+	it("resolves duplicate declarations the way CSS does, importance first", async () => {
+		const { config } = await derive(
 			[
-				"@theme { --spacing: 0.25rem; }",
-				"@utility heading { font-size: 20px; line-height: 2; }",
+				"@utility bg-mixed { background-color: blue !important; background-color: red; }",
+				"@utility bg-later { background-color: blue; background-color: red; }",
 				"",
 			].join("\n"),
 		);
-		// Nothing reads --tw-leading here: heading overrides all leading-8 does.
-		expect(unread("leading-8 heading")).toBe("heading");
-
-		const read = await mergeWith(
-			[
-				"@theme { --spacing: 0.25rem; --text-sm: 0.875rem; --text-sm--line-height: 1.25rem; }",
-				"@utility heading { font-size: 20px; line-height: 2; }",
-				"",
-			].join("\n"),
-		);
-		// text-sm reads --tw-leading: a later heading must not drop it.
-		expect(read("leading-8 heading")).toBe("leading-8 heading");
+		// bg-mixed applies the !important blue: it does not join bg-color.
+		expect(config.extend.classGroups).toEqual({
+			"@utility bg-mixed": ["bg-mixed"],
+			"bg-color": ["bg-later"],
+		});
+		const merge = createTwMerge(config);
+		expect(merge("bg-mixed bg-[green]")).toBe("bg-mixed bg-[green]");
+		expect(merge("bg-later bg-[green]")).toBe("bg-[green]");
 	});
 
 	it("protects utilities with declarations under pseudo-classes, variants or at-rules", async () => {
@@ -285,7 +299,7 @@ describe("deriveTwMergeConfig", () => {
 				theme: { color: ["brand"] },
 				classGroups: { "@utility text-label-*": ["text-label-sm"] },
 				conflictingClassGroups: {
-					"@utility text-label-*": ["font-size", "leading"],
+					"@utility text-label-*": ["font-size"],
 				},
 			},
 		});
@@ -389,19 +403,8 @@ describe("deriveTwMergeConfig with merge groups", () => {
 		// The group overrides what every member sets, its private properties
 		// aside; caption sets --caption--size, which no member overrides.
 		expect(config.extend.conflictingClassGroups).toEqual({
-			"@utility text-caption-*": [
-				"font-size",
-				"font-weight",
-				"leading",
-				"mergeGroups.typography",
-				"tracking",
-			],
-			"mergeGroups.typography": [
-				"font-size",
-				"font-weight",
-				"leading",
-				"tracking",
-			],
+			"@utility text-caption-*": ["font-size", "mergeGroups.typography"],
+			"mergeGroups.typography": ["font-size"],
 		});
 		const merge = createTwMerge(config);
 		expect(merge("text-label-sm text-title-lg")).toBe("text-title-lg");
@@ -411,7 +414,7 @@ describe("deriveTwMergeConfig with merge groups", () => {
 		);
 		expect(
 			merge("text-[13px] leading-6 font-bold tracking-wide text-title-lg"),
-		).toBe("text-title-lg");
+		).toBe("leading-6 font-bold tracking-wide text-title-lg");
 		expect(merge("text-title-lg text-[13px]")).toBe(
 			"text-title-lg text-[13px]",
 		);

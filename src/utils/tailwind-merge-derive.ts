@@ -34,10 +34,10 @@ import type { TwMergeConfig } from "./tailwind-merge-config";
  *
  * The rule: a class may be removed in favour of a later one only when the
  * later one overrides every declaration it makes (same selector, at-rules
- * no narrower, at least as `!important`). A `--tw-*` variable it sets is
- * the one exception, and only when nothing reads it: not the later class,
- * and no class in Tailwind's class list. Any other custom property may be
- * read by descendants, so it must be overridden too.
+ * no narrower, at least as `!important`), custom properties included:
+ * Tailwind's `--tw-*` variables like any other, since an arbitrary
+ * property or a descendant may read them. A merge group's contract is the
+ * one exception, for its members' own custom properties.
  *
  * A custom utility joins a stock class group only when it and every
  * sampled member can replace each other under that rule. Every other
@@ -284,11 +284,14 @@ const declarationsOf = (nodes: readonly CandidateAstNode[]): Declaration[] => {
 						),
 					),
 				};
-				// A later declaration of the same property in the same place wins.
-				declarations.set(
-					`${targetOf(declaration)}|${declaration.atRules.join(" ")}`,
-					declaration,
-				);
+				// Of two declarations of a property in the same place, the one CSS
+				// applies counts: an !important one over a normal one, else the
+				// later one.
+				const key = `${targetOf(declaration)}|${declaration.atRules.join(" ")}`;
+				const existing = declarations.get(key);
+				if (!existing || declaration.important || !existing.important) {
+					declarations.set(key, declaration);
+				}
 			} else if (node.kind === "rule" && node.selector !== undefined) {
 				const next =
 					selector === null
@@ -315,15 +318,14 @@ const declarationsOf = (nodes: readonly CandidateAstNode[]): Declaration[] => {
 
 /**
  * What decides whether two declaration sets replace each other: where each
- * declaration lands, its importance and the `--tw-*` variables it reads
- * (the only reads removal looks at). Values do not count, so `bg-royal-ui`
- * and `bg-pale-ui` share a shape.
+ * declaration lands and its importance. Values do not count, so
+ * `bg-royal-ui` and `bg-pale-ui` share a shape.
  */
 const shapeOf = (declarations: readonly Declaration[]) =>
 	sortedUnique(
 		declarations.map(
 			(entry) =>
-				`${targetOf(entry)}|${entry.atRules.join(" ")}|${entry.important ? "!" : ""}|${entry.reads.filter(isTailwindVariable).join(" ")}`,
+				`${targetOf(entry)}|${entry.atRules.join(" ")}|${entry.important ? "!" : ""}`,
 		),
 	).join("\n");
 
@@ -337,22 +339,17 @@ const overridesDeclaration = (later: Declaration, earlier: Declaration) =>
 	later.atRules.every((rule) => earlier.atRules.includes(rule)) &&
 	(later.important || !earlier.important);
 
-type Removal = {
-	/** Whether a `--tw-*` variable is read by any class Tailwind can list. */
-	isRead: (property: string) => boolean;
-};
-
 /**
  * Whether an earlier class may be removed in favour of a later one without
- * losing anything: the later class overrides every declaration, except
- * `--tw-*` variables that neither it nor any listed class reads, and the
- * earlier class's private properties (a merge group's contract) that the
- * later class does not read.
+ * losing anything: the later class overrides every declaration, custom
+ * properties included (`--tw-*` too: any class, an arbitrary property
+ * such as `[font-size:var(--tw-leading)]` among them, may read one). The
+ * only exception is the earlier class's private properties under a merge
+ * group's contract, when the later class does not read them.
  */
 const mayRemove = (
 	earlier: readonly Declaration[],
 	later: readonly Declaration[],
-	removal: Removal,
 	earlierPrivate: ReadonlySet<string> = NONE,
 ) => {
 	const laterByTarget = new Map<string, Declaration[]>();
@@ -367,27 +364,20 @@ const mayRemove = (
 			(laterByTarget.get(targetOf(entry)) ?? []).some((candidate) =>
 				overridesDeclaration(candidate, entry),
 			) ||
-			(isTailwindVariable(entry.property) &&
-				!laterReads.has(entry.property) &&
-				!removal.isRead(entry.property)) ||
 			(earlierPrivate.has(entry.property) && !laterReads.has(entry.property)),
 	);
 };
 
 const NONE: ReadonlySet<string> = new Set();
 
-/** Targets a later class must set to remove these declarations, whatever it reads. */
+/** Targets a later class must set to remove these declarations. */
 const requiredTargets = (
 	declarations: readonly Declaration[],
 	privateProperties: ReadonlySet<string> = NONE,
 ) =>
 	new Set(
 		declarations
-			.filter(
-				(entry) =>
-					!isTailwindVariable(entry.property) &&
-					!privateProperties.has(entry.property),
-			)
+			.filter((entry) => !privateProperties.has(entry.property))
 			.map(targetOf),
 	);
 
@@ -538,7 +528,6 @@ const conflictsOf = (
 		variants: ReadonlyArray<readonly Declaration[]>;
 	}>,
 	targets: readonly ConflictTarget[],
-	removal: Removal,
 ) => {
 	const frequency = new Map<string, number>();
 	for (const target of targets) {
@@ -579,7 +568,7 @@ const conflictsOf = (
 					[...target.required].every((required) => own.has(required)) &&
 					group.variants.every((variant) =>
 						target.members.every((member) =>
-							mayRemove(member, variant, removal, target.private),
+							mayRemove(member, variant, target.private),
 						),
 					)
 				) {
@@ -612,31 +601,6 @@ export const deriveTwMergeConfig = (
 	const compile = (candidate: string) => {
 		const ast = introspection.getCandidateAst(withPrefix(candidate));
 		return ast ? declarationsOf(ast) : [];
-	};
-
-	// Which `--tw-*` variables some listed class reads: compiled once, and
-	// only when a removal depends on it.
-	let readVariables: Set<string> | null = null;
-	const removal: Removal = {
-		isRead: (property) => {
-			readVariables ??= new Set(
-				introspection
-					.getCandidatesCss(
-						introspection
-							.getClassNames()
-							.map((name) =>
-								prefix && !name.startsWith(`${prefix}:`)
-									? withPrefix(name)
-									: name,
-							),
-					)
-					.flatMap((css) =>
-						[...(css ?? "").matchAll(VARIABLE_READ)].map((match) => match[1]),
-					)
-					.filter(isTailwindVariable),
-			);
-			return readVariables.has(property);
-		},
 	};
 
 	const probes = TW_MERGE_GROUP_PROBES.flatMap((probe) => {
@@ -745,8 +709,7 @@ export const deriveTwMergeConfig = (
 				[...needs].every((key) => candidate.shared.has(key)) &&
 				candidate.members.every(
 					(member) =>
-						mayRemove(declarations, member, removal) &&
-						mayRemove(member, declarations, removal),
+						mayRemove(declarations, member) && mayRemove(member, declarations),
 				),
 		);
 		if (probe) {
@@ -825,7 +788,6 @@ export const deriveTwMergeConfig = (
 				private: group.privateProperties,
 			})),
 		].filter((target) => target.required.size > 0),
-		removal,
 	);
 
 	const sortKeys = <T>(record: Record<string, T>) =>
