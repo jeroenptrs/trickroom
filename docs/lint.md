@@ -62,7 +62,7 @@ Everything lives in `src/lint/`. Pure modules take data and return data; one fil
 | `rule-catalogue.ts` | The rule kinds as plain data for the browser, with `LINT_RULE_OPTION_SPECS`, the documented options per kind. |
 | `report.ts` | `LintReport` and `LintFinding`: stable ordering, validation, reader, atomic writer, and `withLintReportLock`, the cross-process lock on the report (`withFileLock` from `src/services/design-file-lock.ts`). |
 | `ratchet.ts` | Tracked numbers, comparison with the baseline and the thresholds. |
-| `rules/` | The rule kind interface (`types.ts`), the registry (`registry.ts`), the shipped kinds (`index.ts`, `code/`, `design/`). |
+| `rules/` | The rule kind interface (`types.ts`), the registry (`registry.ts`), the shipped kinds (`index.ts`, `code/`, `design/`), the ledger of every kind id ever shipped (`ledger.ts`). |
 | `run-rules.ts` | The rule runner `runLint` and the design validation share: enabled kinds, severities, option checks, failures. |
 | `designs.ts` | `LintDesignIndex` and `buildLintDesignIndex`: the linked Designs as the design rules see them. |
 | `source/` | The syntactic source model: `glob.ts`, `walk.ts` (file walker), `parse.ts` (`oxc-parser` module model), `index.ts` (project index and component identity), `locations.ts`. |
@@ -184,7 +184,7 @@ type LintReport = {
   ratchetBaseline: {
     generatedAt: string;                    // the passing run the numbers come from
     numbers: Record<string, number>;        // tracked numbers, see Ratchet
-    kinds?: string[];                       // every rule kind id the writing Trickroom shipped, enabled or not; absent in baselines from before it was recorded, see Ratchet
+    kinds?: string[];                       // every rule kind id its writers knew (ledger, registry, earlier kinds), enabled or not; only grows; absent in baselines from before it was recorded, see Ratchet
   };
 };
 
@@ -586,11 +586,14 @@ Tracked numbers:
 
 A Trickroom release that ships a new rule kind would fail every project's next run on that kind's existing findings, and since a failing run writes nothing, the project could not even record a new baseline. Instead, a kind the baseline **predates** is **adopted**: it is not compared, its count enters the next baseline as it is, and from then on it ratchets like any other kind.
 
-- **Predates.** Every baseline lists in `ratchetBaseline.kinds` all the rule kinds the Trickroom that wrote it shipped, enabled in `lint.json` or not. A kind that ran in this run and is not in that list is new. Whether the baseline has a number for it does not matter.
+- **Predates.** Every baseline lists in `ratchetBaseline.kinds` every rule kind id its writers knew, enabled in `lint.json` or not: the ledger of ids Trickroom has ever shipped, the running registry, and the previous baseline's `kinds`. The list only grows. A kind that ran in this run and is not in that list is new. Whether the baseline has a number for it does not matter.
+- **Removed, downgraded, restored.** A run on a Trickroom without a kind (one that removed it, or an older release it was downgraded to) keeps the kind in `kinds` but writes no number for it. When the kind comes back it is compared as usual against 0, like a kind switched back on, and never adopted again.
 - **Switched off and on again.** A kind switched off is still listed (it shipped), so switching it back on is compared as usual: its findings count against a missing number, 0, and fail the run. Switching a kind off, adding violations and switching it back on cannot launder them. Adoption is only for kinds the baseline could not have known.
 - **Baselines without `kinds`**, written before it was recorded: every run writes a `rule.<id>` number for each kind it ran, 0 included, so a kind without a number in such a baseline is taken as new. That also adopts a kind that was switched off when the old baseline was written and is on now, once: the next passing run writes `kinds` and the strict rule applies from there.
+- **Older writers.** A Trickroom without `kinds` support drops the list (and `adopted`) when it writes a report, and its baseline is then read as one without `kinds`, with the gap above: a kind switched off at that point is adopted when it is switched back on. The strict guarantee holds only while every Trickroom that writes the report understands `kinds`; nothing enforces that.
 - **Aggregates.** `code.errors`, `code.warnings`, `design.errors` and `design.warnings` are compared with the adopted kinds' errors and warnings left out, so the kinds the baseline knew still ratchet exactly as before. In `ratchet.baseline` the adopted kinds are folded in: their `rule.<id>` number is this run's and their counts are added to the aggregates, so the regressions, the CLI and the dashboard's deltas all compare against the same numbers. `ratchetBaseline` (the committed baseline) is never changed by a comparison.
 - **Thresholds** stay absolute. A `lint.json` maximum on `code.warnings` counts the new kind's warnings too, and a run that breaks it fails as before.
+- **Kind ids are permanent.** Adoption is decided by id, so renaming a kind would make the new id new, adopted with whatever findings it has, and its aggregate would even show an improvement. `src/lint/rules/ledger.ts` lists every id Trickroom has ever shipped, and `ledger.test.ts` fails when a registered kind is missing from it or a listed id leaves the registry without being marked `retired`, so a rename or a removal cannot happen silently. Retired ids stay in the ledger, and every written `kinds` includes the whole ledger, so they are never new again. A real rename would need an explicit alias that maps the old `rule.<id>` number onto the new id; there is none yet.
 - **Reported.** `ratchet.adopted` lists `{ metric: "rule.<id>", current }` for every adopted kind, 0 counts included, sorted by metric; empty on a first run and once the baseline lists the kind. `--check` passes when adoption is all that happened but writes nothing, so it adopts the same kinds again next time; a run without `--check` writes the baseline with them and with the current `kinds`. A failing run keeps the previous baseline, so the kinds are adopted on the next passing one.
 
 Two blocks of the report carry the ratchet, with different jobs:
@@ -601,7 +604,7 @@ Two blocks of the report carry the ratchet, with different jobs:
 Outcome and the baseline:
 
 - **First run** (no committed report): passes with `ratchet.baseline: null`, and its numbers become the baseline.
-- **Pass**: the report is written with `ratchetBaseline` set to this run's numbers and the rule kinds this Trickroom ships.
+- **Pass**: the report is written with `ratchetBaseline` set to this run's numbers and the known rule kinds (see [New rule kinds](#new-rule-kinds)).
 - **Fail**: `trickroom lint` and the `lint` tool write nothing, so the committed baseline stands. The dashboard's `POST` runs with `write: "always"`: the failing report is written (so the UI can show it) but its `ratchetBaseline` is carried over from the previous report. The next run still ratchets against the last passing numbers; a failing report never lowers the bar. The working tree then shows a modified `lint-report.json` with `status: "fail"` that should not be committed as-is.
 - `--check` never writes, whatever the outcome.
 - An unreadable committed report (invalid JSON, unsupported version, a folder or a permission problem in its place) is reported as `INVALID_BASELINE` and the run starts a new baseline.

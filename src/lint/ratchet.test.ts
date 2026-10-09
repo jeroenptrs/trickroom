@@ -298,6 +298,33 @@ describe("ratchet", () => {
 			]);
 		});
 
+		it("only grows the kinds: a previous baseline's kinds stay when this run knows fewer", () => {
+			const result = compareLintRatchet({
+				numbers,
+				baseline,
+				thresholds: {},
+				summary: current,
+			});
+			const previous = { ...baseline, kinds: ["code.gone", "code.old"] };
+			expect(
+				nextRatchetBaseline({
+					result,
+					generatedAt: "2026-02-01T00:00:00.000Z",
+					previous,
+					kinds: ["code.old"],
+				}).kinds,
+			).toEqual(["code.gone", "code.old"]);
+			// A failing run keeps the previous baseline as it is.
+			expect(
+				nextRatchetBaseline({
+					result: { ...result, status: "fail" },
+					generatedAt: "2026-02-01T00:00:00.000Z",
+					previous,
+					kinds: ["code.new"],
+				}),
+			).toBe(previous);
+		});
+
 		it("records the shipped kinds in the next baseline", () => {
 			const result = compareLintRatchet({
 				numbers,

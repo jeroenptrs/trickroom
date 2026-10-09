@@ -96,9 +96,11 @@ export type LintRatchetBaseline = {
 	/** Tracked numbers, see `ratchet.ts`. */
 	numbers: Record<string, number>;
 	/**
-	 * Every rule kind id the Trickroom that wrote the baseline shipped,
-	 * enabled or not; a kind not listed is adopted by the next run. Absent
-	 * in baselines written before kinds were recorded, see `ratchet.ts`.
+	 * Every rule kind id the writers of the baseline knew (the ledger of
+	 * ever-shipped ids, the registry, earlier baselines' `kinds`), enabled
+	 * or not; only grows. A kind not listed is adopted by the next run.
+	 * Absent in baselines written before kinds were recorded, see
+	 * `ratchet.ts`.
 	 */
 	kinds?: string[];
 };

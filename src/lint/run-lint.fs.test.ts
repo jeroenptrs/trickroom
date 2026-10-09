@@ -294,6 +294,75 @@ describe("runLint on a misbehaving filesystem", () => {
 		expect(await committedWarnings(project)).toBe(4);
 	});
 
+	it("compares a kind it would adopt against a moved baseline that already adopted it", async () => {
+		const project = await setup();
+		// The committed baseline predates code.counted.
+		const before = await runLint({ projectRoot: project.root, now: at(0) });
+		expect(before.written).toBe(true);
+		expect(before.report?.ratchetBaseline.kinds).not.toContain("code.counted");
+		const withCounted = (count: number) =>
+			createLintRuleRegistry([
+				variantsFileStaleRule,
+				...countingRegistry(count).kinds,
+			]);
+		const beforeReport = before.report;
+		if (!beforeReport) throw new Error("no report");
+		// Another process upgraded first and adopted code.counted at 2.
+		const other = await runLintWithEveryKind({
+			projectRoot: project.root,
+			registry: withCounted(2),
+			now: at(1),
+			check: true,
+		});
+		expect(other.ratchet?.adopted).toEqual([
+			{ metric: "rule.code.counted", current: 2 },
+		]);
+		const otherReport = other.report;
+		if (!otherReport) throw new Error("no report");
+		const replaceReport = async () => {
+			await writeFile(project.path(REPORT), serializeLintReport(otherReport));
+		};
+
+		// This run read the old baseline and would adopt 3; against the moved
+		// one the kind is known, so 3 is worse than 2 and nothing is written.
+		injected.afterRead.set(project.path(REPORT), replaceReport);
+		const three = await runLintWithEveryKind({
+			projectRoot: project.root,
+			registry: withCounted(3),
+			now: at(2),
+		});
+		expect(three).toMatchObject({ status: "fail", written: false });
+		expect(three.ratchet?.adopted).toEqual([]);
+		expect(three.ratchet?.regressions).toContainEqual({
+			metric: "rule.code.counted",
+			baseline: 2,
+			current: 3,
+		});
+		expect(three.diagnostics).toEqual([
+			{
+				code: "BASELINE_MOVED",
+				severity: "error",
+				message: expect.stringContaining("rule.code.counted 2 -> 3"),
+				path: REPORT,
+			},
+		]);
+		expect(await committedWarnings(project)).toBe(2);
+
+		// With the same count it passes against the moved baseline, adopting
+		// nothing, and is written.
+		await writeFile(project.path(REPORT), serializeLintReport(beforeReport));
+		injected.afterRead.set(project.path(REPORT), replaceReport);
+		const two = await runLintWithEveryKind({
+			projectRoot: project.root,
+			registry: withCounted(2),
+			now: at(3),
+		});
+		expect(two).toMatchObject({ status: "pass", written: true });
+		expect(two.ratchet?.adopted).toEqual([]);
+		expect(two.ratchet?.baseline?.generatedAt).toBe("2026-10-07T10:01:00.000Z");
+		expect(two.report?.ratchetBaseline.kinds).toContain("code.counted");
+	});
+
 	const LOCK = `${REPORT}.lock`;
 	const exists = (file: string) =>
 		stat(file).then(

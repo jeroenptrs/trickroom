@@ -18,10 +18,11 @@ import type { LintRatchetBaseline, LintReport } from "./report";
  * A kind the baseline predates is adopted instead of compared: its
  * `rule.<id>` count enters the baseline as is, and the side aggregates are
  * compared with its counts left out. The baseline predates a kind when its
- * `kinds` (every kind the Trickroom that wrote it shipped, enabled or not)
- * does not list it; a baseline without `kinds` (written before they were
- * recorded) predates the kinds it has no `rule.<id>` number for, since
- * every run writes one for each kind it ran. Documented in docs/lint.md.
+ * `kinds` (every kind id its writers knew: the ledger, the registry and
+ * the previous baseline's `kinds`, enabled or not) does not list it; a
+ * baseline without `kinds` (written before they were recorded) predates
+ * the kinds it has no `rule.<id>` number for, since every run writes one
+ * for each kind it ran. Documented in docs/lint.md.
  */
 
 export type LintTrackedNumbers = Record<string, number>;
@@ -241,13 +242,21 @@ export const nextRatchetBaseline = ({
 	result: LintRatchetResult;
 	generatedAt: string;
 	previous: LintRatchetBaseline | null;
-	/** Every kind id this Trickroom ships, enabled or not. */
+	/**
+	 * Every kind id this Trickroom knows: the ledger and the registry.
+	 * Merged with the previous baseline's, so the list only grows and a
+	 * kind removed or missing from an older Trickroom is never new again.
+	 */
 	kinds?: readonly string[];
-}): LintRatchetBaseline =>
-	result.status === "pass" || previous === null
-		? {
-				generatedAt,
-				numbers: result.numbers,
-				...(kinds ? { kinds: [...kinds].sort() } : {}),
-			}
-		: previous;
+}): LintRatchetBaseline => {
+	if (result.status !== "pass" && previous !== null) return previous;
+	const known =
+		kinds || previous?.kinds
+			? [...new Set([...(previous?.kinds ?? []), ...(kinds ?? [])])].sort()
+			: null;
+	return {
+		generatedAt,
+		numbers: result.numbers,
+		...(known ? { kinds: known } : {}),
+	};
+};

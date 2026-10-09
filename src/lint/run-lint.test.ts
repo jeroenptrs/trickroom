@@ -32,6 +32,7 @@ import {
 import { designOnlyClassTargetRule } from "./rules/design/design-only-class-target";
 import { designUnknownClassTokenRule } from "./rules/design/unknown-class-token";
 import { designUnknownVariantValueRule } from "./rules/design/unknown-variant-value";
+import { LINT_RULE_KIND_LEDGER_IDS } from "./rules/ledger";
 import { createLintRuleRegistry } from "./rules/registry";
 import type { LintRuleKind } from "./rules/types";
 import {
@@ -53,6 +54,10 @@ const engineRegistry = createLintRuleRegistry([
 ]);
 const runLint = (input: RunLintInput) =>
 	runLintWithEveryKind({ registry: engineRegistry, ...input });
+
+/** The `kinds` a baseline records: the ledger plus the given ids, sorted. */
+const knownKinds = (...extra: string[]) =>
+	[...new Set([...LINT_RULE_KIND_LEDGER_IDS, ...extra])].sort();
 
 describe("runLint", () => {
 	const projects: CodegenTestProject[] = [];
@@ -237,13 +242,8 @@ describe("runLint", () => {
 		]);
 		expect(report?.ratchetBaseline).toEqual({
 			generatedAt: "2026-03-01T10:00:00.000Z",
-			kinds: [
-				"code.variants-file-orphaned",
-				"code.variants-file-stale",
-				"design.design-only-class-target",
-				"design.unknown-class-token",
-				"design.unknown-variant-value",
-			],
+			// The ledger: every id ever shipped, not only this registry's.
+			kinds: knownKinds(),
 			numbers: expect.objectContaining({
 				"code.errors": 1,
 				"coverage.bound": 1,
@@ -919,10 +919,7 @@ describe("runLint adopting newly shipped kinds", () => {
 			projectRoot: project.root,
 		});
 		expect(first.written).toBe(true);
-		expect(first.report?.ratchetBaseline.kinds).toEqual([
-			"code.variants-file-orphaned",
-			"code.variants-file-stale",
-		]);
+		expect(first.report?.ratchetBaseline.kinds).toEqual(knownKinds());
 
 		const checked = await runLintWithEveryKind({
 			registry: newRegistry,
@@ -973,12 +970,7 @@ describe("runLint adopting newly shipped kinds", () => {
 		});
 		expect(written).toMatchObject({ status: "pass", written: true });
 		expect(written.report?.ratchetBaseline).toMatchObject({
-			kinds: [
-				"code.fresh",
-				"code.fresh-error",
-				"code.variants-file-orphaned",
-				"code.variants-file-stale",
-			],
+			kinds: knownKinds("code.fresh", "code.fresh-error"),
 			numbers: { "rule.code.fresh": 2, "code.warnings": 2 },
 		});
 
@@ -1025,6 +1017,75 @@ describe("runLint adopting newly shipped kinds", () => {
 		expect(on.ratchet?.regressions).toEqual([
 			{ metric: "code.warnings", baseline: 0, current: 2 },
 			{ metric: "rule.code.fresh", baseline: 0, current: 2 },
+		]);
+	});
+
+	it("never adopts a kind again once a baseline knew it: removed and restored, or after a downgrade and upgrade", async () => {
+		const project = await setup();
+		fresh.warnings = 1;
+		const known = await runLintWithEveryKind({
+			registry: newRegistry,
+			projectRoot: project.root,
+		});
+		expect(known.report?.ratchetBaseline.numbers["rule.code.fresh"]).toBe(1);
+
+		// A Trickroom without the kind (one that removed it, or an older one
+		// it is downgraded to) writes a passing baseline: the kind stays known.
+		const without = await runLintWithEveryKind({
+			registry: oldRegistry,
+			projectRoot: project.root,
+		});
+		expect(without.written).toBe(true);
+		expect(without.report?.ratchetBaseline.kinds).toEqual(
+			knownKinds("code.fresh", "code.fresh-error"),
+		);
+		expect(without.report?.ratchetBaseline.numbers).not.toHaveProperty(
+			"rule.code.fresh",
+		);
+
+		// The kind comes back with 100 findings: compared, not adopted.
+		fresh.warnings = 100;
+		const restored = await runLintWithEveryKind({
+			registry: newRegistry,
+			projectRoot: project.root,
+			check: true,
+		});
+		expect(restored.status).toBe("fail");
+		expect(restored.ratchet?.adopted).toEqual([]);
+		expect(restored.ratchet?.regressions).toEqual([
+			{ metric: "code.errors", baseline: 0, current: 1 },
+			{ metric: "code.warnings", baseline: 0, current: 100 },
+			{ metric: "rule.code.fresh", baseline: 0, current: 100 },
+			{ metric: "rule.code.fresh-error", baseline: 0, current: 1 },
+		]);
+	});
+
+	it("loses the toggle history when a Trickroom without kinds rewrites the baseline", async () => {
+		const project = await setup();
+		await writeLintJson(project, { "code.fresh": { enabled: false } });
+		await runLintWithEveryKind({
+			registry: newRegistry,
+			projectRoot: project.root,
+		});
+		// A Trickroom from before kinds reads the report and writes its next
+		// passing one without them (and without `adopted`).
+		const stored = JSON.parse(await readFile(reportFile(project), "utf8"));
+		expect(stored.ratchetBaseline.kinds).toContain("code.fresh");
+		delete stored.ratchetBaseline.kinds;
+		delete stored.ratchet.adopted;
+		await writeFile(reportFile(project), JSON.stringify(stored));
+
+		// Switched back on, the kind has no number in a legacy baseline, so
+		// it is adopted: the documented gap.
+		await writeLintJson(project, {});
+		const on = await runLintWithEveryKind({
+			registry: newRegistry,
+			projectRoot: project.root,
+			check: true,
+		});
+		expect(on.status).toBe("pass");
+		expect(on.ratchet?.adopted).toEqual([
+			{ metric: "rule.code.fresh", current: 2 },
 		]);
 	});
 
