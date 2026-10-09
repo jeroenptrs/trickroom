@@ -30,41 +30,23 @@ import {
 	systemComponentQueryKey,
 	systemComponentQueryOptions,
 	systemComponentsQueryOptions,
-	updateSystemComponentDraft,
-	updateSystemComponentMetadata,
 } from "../../queries/system-components";
 import {
-	clearComponentDraftDirty,
-	componentDraftStore,
-	getComponentDraftTemplateHash,
-	isComponentDraftForComponent,
-	resetComponentDraftStore,
-	serializeComponentDraftState,
-	serializeComponentDraftVariants,
 	useComponentDraftComponentId,
-	useComponentDraftRevision,
 	useComponentDraftRootPath,
 	useComponentDraftTemplateDirty,
 	useComponentDraftVariantsDirty,
 } from "../../stores/component-draft-store";
 import {
-	componentEditorSessionStore,
-	isEditorMetadataChanged,
-	markEditorMetadataSaved,
-	resetComponentEditorSession,
-	setLoadedDraftHashes,
 	useEditorDraftConflict,
 	useEditorMetadataChanged,
 	useEditorVariantsValid,
-	useLoadedDraftTemplateHash,
-	useLoadedDraftVariantSchemaHash,
 } from "../../stores/component-editor-session-store";
 import {
 	buildComponentGroupTree,
 	type ComponentGroupTreeNode,
 } from "../../utils/component-groups";
 import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
-import { isSystemComponentSlug } from "../../utils/system-components";
 import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
@@ -84,6 +66,7 @@ import {
 	SystemEditorComponentContextPanel,
 	SystemEditorComponentContextSync,
 } from "./SystemEditorInspector";
+import { useSaveComponentDraft } from "./useSaveComponentDraft";
 
 export function hasPublishableComponentDraftChanges({
 	hasDraft,
@@ -211,14 +194,11 @@ function ComponentWorkspaceActions({
 	componentId: string | null;
 }) {
 	const queryClient = useQueryClient();
-	const draftRevision = useComponentDraftRevision();
 	const templateDirty = useComponentDraftTemplateDirty();
 	const variantsDirty = useComponentDraftVariantsDirty();
 	const draftComponentId = useComponentDraftComponentId();
 	const draftRootPath = useComponentDraftRootPath();
 	const metadataChanged = useEditorMetadataChanged();
-	const loadedDraftTemplateHash = useLoadedDraftTemplateHash();
-	const loadedDraftVariantSchemaHash = useLoadedDraftVariantSchemaHash();
 	const variantsValid = useEditorVariantsValid();
 	const draftConflict = useEditorDraftConflict();
 	const componentQuery = useQuery({
@@ -252,12 +232,6 @@ function ComponentWorkspaceActions({
 	const errorDiagnostics = diagnostics.filter(
 		(diagnostic) => diagnostic.severity === "error",
 	);
-	const canSave =
-		hasDraft &&
-		!draftConflict &&
-		variantsValid &&
-		!draftNeedsRoot &&
-		(metadataChanged || hasUnsavedTemplateOrVariantChanges);
 	const canPublish =
 		Boolean(componentQuery.data?.valid) &&
 		hasDraft &&
@@ -265,167 +239,11 @@ function ComponentWorkspaceActions({
 		!hasUnsavedDraftChanges &&
 		variantsValid &&
 		errorDiagnostics.length === 0;
-	const [saveError, setSaveError] = useState<string | null>(null);
 	const [publishError, setPublishError] = useState<string | null>(null);
-
-	const saveDraftMutation = useMutation({
-		// The single save path for the whole draft: component metadata, the
-		// template tree, and the variant schema. Metadata is edited in the
-		// inspector but persisted here so this stays the only "Save draft" button.
-		mutationFn: async () => {
-			if (!componentId || !componentQuery.data?.record.draft) {
-				throw new Error("Select a component draft before saving.");
-			}
-
-			const session = componentEditorSessionStore.get();
-			const storeRevision = draftRevision;
-			let expectedRevision = componentQuery.data.revision;
-			const trimmedName = session.metadata.name.trim();
-			if (!trimmedName) {
-				throw new Error("Component name is required.");
-			}
-			const trimmedSlug = session.metadata.slug.trim();
-			if (!trimmedSlug) {
-				throw new Error("Component slug is required.");
-			}
-			if (!isSystemComponentSlug(trimmedSlug)) {
-				throw new Error(
-					"Component slug must use lowercase alphanumeric segments separated by hyphens.",
-				);
-			}
-			if (!session.variantsValid) {
-				throw new Error("Resolve variant diagnostics before saving.");
-			}
-
-			const draftDirty = templateDirty || variantsDirty;
-			if (draftDirty && !isComponentDraftForComponent(componentId)) {
-				throw new Error(
-					"The open draft no longer matches the selected component. Reload the component before saving.",
-				);
-			}
-
-			const savedMetadata = session.metadata;
-			if (isEditorMetadataChanged(session)) {
-				const metadataResult = await updateSystemComponentMetadata(
-					systemId,
-					componentId,
-					{
-						expectedRevision,
-						name: trimmedName,
-						slug: trimmedSlug,
-						description: session.metadata.description.trim()
-							? session.metadata.description
-							: null,
-						group: session.metadata.group.trim()
-							? session.metadata.group
-							: null,
-						order: session.metadata.order.trim()
-							? Number(session.metadata.order)
-							: null,
-					},
-				);
-				expectedRevision = metadataResult.revision;
-			}
-
-			let savedDraftTemplate = false;
-			let savedDraftVariants = false;
-			if (draftDirty) {
-				if (templateDirty && session.draftConflict) {
-					throw new Error(session.draftConflict);
-				}
-				const state = componentDraftStore.get();
-				if (templateDirty && !state.rootPath) {
-					throw new Error("Add a root layer before saving the draft.");
-				}
-				const savedTemplateHash = getComponentDraftTemplateHash(state);
-				savedDraftTemplate = templateDirty;
-				savedDraftVariants = variantsDirty;
-				await updateSystemComponentDraft(systemId, componentId, {
-					expectedRevision,
-					expectedDraftTemplateHash: templateDirty
-						? (loadedDraftTemplateHash ?? undefined)
-						: undefined,
-					expectedDraftVariantSchemaHash: variantsDirty
-						? (loadedDraftVariantSchemaHash ?? undefined)
-						: undefined,
-					...(templateDirty
-						? {
-								root: serializeComponentDraftState(state),
-								slots: Object.keys(state.slots).length > 0 ? state.slots : null,
-								overrideTargets:
-									Object.keys(state.overrideTargets).length > 0
-										? state.overrideTargets
-										: null,
-							}
-						: {}),
-					...(variantsDirty
-						? { variants: serializeComponentDraftVariants(state) }
-						: {}),
-				});
-				if (
-					templateDirty &&
-					savedTemplateHash === getComponentDraftTemplateHash()
-				) {
-					clearComponentDraftDirty(storeRevision);
-				}
-			}
-
-			return {
-				savedMetadata,
-				savedDraftTemplate,
-				savedDraftVariants,
-				storeRevision,
-			};
-		},
-		onMutate: () => setSaveError(null),
-		onError: async (error) => {
-			setSaveError(
-				error instanceof Error
-					? error.message
-					: "Failed to save component draft.",
-			);
-			if (componentId) {
-				await invalidateSystemComponents(
-					queryClient,
-					systemId,
-					projectScope,
-					componentId,
-				);
-			}
-		},
-		onSuccess: async ({
-			savedMetadata,
-			savedDraftTemplate,
-			savedDraftVariants,
-			storeRevision,
-		}) => {
-			clearComponentDraftDirty(storeRevision);
-			markEditorMetadataSaved(savedMetadata);
-			setSaveError(null);
-			if (componentId) {
-				if (savedDraftTemplate || savedDraftVariants) {
-					const refreshed = await queryClient.fetchQuery(
-						systemComponentQueryOptions(systemId, componentId, projectScope),
-					);
-					setLoadedDraftHashes({
-						...(savedDraftTemplate
-							? { templateHash: refreshed.draftTemplateHash ?? null }
-							: {}),
-						...(savedDraftVariants
-							? {
-									variantSchemaHash: refreshed.draftVariantSchemaHash ?? null,
-								}
-							: {}),
-					});
-				}
-				await invalidateSystemComponents(
-					queryClient,
-					systemId,
-					projectScope,
-					componentId,
-				);
-			}
-		},
+	const { saveDraftMutation, saveError, canSave } = useSaveComponentDraft({
+		systemId,
+		projectScope,
+		componentId,
 	});
 
 	const publishDraftMutation = useMutation({
@@ -675,11 +493,7 @@ export function CollapsedComponentContextHeader({
 		<ComponentContextHeaderContent
 			componentId={componentId}
 			summary={summary}
-			onBack={() => {
-				resetComponentDraftStore();
-				resetComponentEditorSession();
-				onSelectComponent(null);
-			}}
+			onBack={() => onSelectComponent(null)}
 			actions={actions}
 		/>
 	);
@@ -740,12 +554,15 @@ export function SystemEditorComponentsRail({
 	projectScope,
 	selectedComponentId,
 	onSelectComponent,
+	onComponentDeleted,
 	headerActions,
 }: {
 	systemId: string;
 	projectScope?: ProjectQueryScope;
 	selectedComponentId: string | null;
 	onSelectComponent: (componentId: string | null) => void;
+	/** A component was deleted; the editor closes it if it is open by then. */
+	onComponentDeleted?: (componentId: string) => void;
 	/** Trailing controls for the component context header. */
 	headerActions?: ReactNode;
 }) {
@@ -853,16 +670,9 @@ export function SystemEditorComponentsRail({
 	const [activeComponentTab, setActiveComponentTab] =
 		useState<ComponentRailTab>("design");
 	const componentFilterRef = useRef<HTMLInputElement>(null);
-	const handleSelectComponent = useCallback(
-		(nextComponentId: string | null) => {
-			if (nextComponentId !== selectedComponentId) {
-				resetComponentDraftStore();
-				resetComponentEditorSession();
-			}
-			onSelectComponent(nextComponentId);
-		},
-		[onSelectComponent, selectedComponentId],
-	);
+	// Selection goes through the editor's guarded navigation, which drops the
+	// open draft once leaving it is confirmed.
+	const handleSelectComponent = onSelectComponent;
 
 	useEffect(() => {
 		if (selectedComponentId !== null) {
@@ -1021,9 +831,9 @@ export function SystemEditorComponentsRail({
 		},
 		onSuccess: async (response) => {
 			setDeleteError(null);
-			if (selectedComponentId === response.componentId) {
-				handleSelectComponent(null);
-			}
+			// This rail may have been remounted since the delete started, so the
+			// editor decides whether the deleted component is open now.
+			onComponentDeleted?.(response.componentId);
 			queryClient.removeQueries({
 				queryKey: systemComponentQueryKey(
 					systemId,

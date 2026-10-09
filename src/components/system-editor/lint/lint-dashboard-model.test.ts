@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { LintFinding } from "../../../lint/report";
 import { emptyLintFindingsFilter } from "../../../stores/lint-dashboard-store";
 import {
 	buildDesignTree,
@@ -332,6 +333,45 @@ describe("lint dashboard findings filter", () => {
 		expect(filter({ text: "HOME.TSX" })).toEqual([
 			"code.unknown-variant-value",
 		]);
+	});
+
+	it("filters by component across its definition and its instances", () => {
+		const definition = (version: string, path: string): LintFinding => ({
+			rule: "design.non-canonical-class",
+			severity: "warning",
+			side: "design",
+			message: `Class on ${path}`,
+			component: "dialog",
+			location: null,
+			componentLocation: { componentId: "cmp_dialog", version, path },
+		});
+		const instance: LintFinding = {
+			rule: "design.unknown-class-token",
+			severity: "warning",
+			side: "design",
+			message: "Unknown class on a placed dialog",
+			component: "dialog",
+			location: { kind: "design", design: "dsg_home", element: "el_1" },
+		};
+		const findings: LintFinding[] = [
+			definition("4", "backdrop"),
+			definition("3", "popup"),
+			instance,
+			{ ...definition("2", "root"), component: "popover" },
+			fullLintReport.findings[0] as LintFinding,
+		];
+		const byComponent = (component: string | null) =>
+			filterFindings(findings, { ...emptyLintFindingsFilter(), component }).map(
+				(finding) => finding.message,
+			);
+		expect(byComponent("dialog")).toEqual([
+			"Class on backdrop",
+			"Class on popup",
+			"Unknown class on a placed dialog",
+		]);
+		expect(byComponent("popover")).toEqual(["Class on root"]);
+		expect(byComponent("nope")).toEqual([]);
+		expect(byComponent(null)).toHaveLength(5);
 	});
 
 	it("keys findings stably and uniquely", () => {

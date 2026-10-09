@@ -24,6 +24,7 @@ import {
 	isSystemComponentSlug,
 	systemComponentSlugFromName,
 } from "../../utils/system-components";
+import { buildSystemComponentPath } from "../../utils/system-deep-link";
 import { useProjectScope } from "../contexts";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
@@ -120,12 +121,7 @@ type ExtractSystemComponentMutationInput = {
 	replaceSelection: boolean;
 };
 
-export function getSystemComponentEditorPath(
-	systemId: string,
-	componentId: string,
-) {
-	return `/system/${encodeURIComponent(systemId)}?component=${encodeURIComponent(componentId)}`;
-}
+export const getSystemComponentEditorPath = buildSystemComponentPath;
 
 export function promptToOpenExtractedComponent({
 	replacedSelection,

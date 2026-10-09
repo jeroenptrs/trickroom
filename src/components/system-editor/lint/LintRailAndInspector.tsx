@@ -1,4 +1,4 @@
-import { ExternalLink } from "lucide-react";
+import { Boxes, ExternalLink } from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "react-router";
 import { describeComponentClassSource } from "../../../lint/component-location";
@@ -13,6 +13,7 @@ import {
 	useLintSelection,
 } from "../../../stores/lint-dashboard-store";
 import { buildDesignPath } from "../../../utils/design-deep-link";
+import { buildSystemComponentPath } from "../../../utils/system-deep-link";
 import { formatRelativeTime } from "../../project/project-view-utils";
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
@@ -139,10 +140,12 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function FindingList({
+	systemId,
 	findings,
 	designNames,
 	showLocation = true,
 }: {
+	systemId: string;
 	findings: readonly LintFinding[];
 	designNames: LintDesignNames;
 	showLocation?: boolean;
@@ -169,6 +172,9 @@ function FindingList({
 						<span className="font-mono text-[10px] text-slate-500">
 							{formatFindingLocation(finding, designNames)}
 						</span>
+					) : null}
+					{finding.componentLocation ? (
+						<GoToComponentLink systemId={systemId} finding={finding} compact />
 					) : null}
 				</li>
 			))}
@@ -203,6 +209,40 @@ function OpenInEditorLink({
 	);
 }
 
+/**
+ * Opens the component a definition finding is on in the System editor, at the
+ * template node of `componentLocation.path` when the draft is of its version.
+ */
+function GoToComponentLink({
+	systemId,
+	finding,
+	compact = false,
+}: {
+	systemId: string;
+	finding: LintFinding;
+	compact?: boolean;
+}) {
+	const componentLocation = finding.componentLocation;
+	if (!componentLocation) return null;
+	return (
+		<Link
+			to={buildSystemComponentPath(systemId, componentLocation.componentId, {
+				version: componentLocation.version,
+				path: componentLocation.path,
+			})}
+			data-lint-go-to-component={componentLocation.componentId}
+			className={
+				compact
+					? "inline-flex items-center gap-1 self-start font-mono text-xs text-cyan-700 hover:underline"
+					: "inline-flex items-center gap-1.5 self-start px-2 py-1.5 text-xs font-medium text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"
+			}
+		>
+			<Boxes className={compact ? "size-3" : "size-3.5"} aria-hidden="true" />
+			Go to component
+		</Link>
+	);
+}
+
 function ShowFindingsButton({
 	label,
 	onClick,
@@ -223,9 +263,11 @@ function ShowFindingsButton({
 }
 
 function FindingInspector({
+	systemId,
 	finding,
 	designNames,
 }: {
+	systemId: string;
 	finding: LintFinding;
 	designNames: LintDesignNames;
 }) {
@@ -293,6 +335,9 @@ function FindingInspector({
 					element={location.element}
 				/>
 			) : null}
+			{componentLocation ? (
+				<GoToComponentLink systemId={systemId} finding={finding} />
+			) : null}
 			<div className="flex flex-wrap gap-2">
 				<ShowFindingsButton
 					label="All findings of this rule"
@@ -318,11 +363,13 @@ function FindingInspector({
 }
 
 function FileInspector({
+	systemId,
 	report,
 	path,
 	isFolder,
 	designNames,
 }: {
+	systemId: string;
 	report: LintReport;
 	path: string;
 	isFolder: boolean;
@@ -374,6 +421,7 @@ function FileInspector({
 				/>
 			) : null}
 			<FindingList
+				systemId={systemId}
 				findings={findings}
 				designNames={designNames}
 				showLocation={isFolder}
@@ -383,10 +431,12 @@ function FileInspector({
 }
 
 function ComponentInspector({
+	systemId,
 	report,
 	slug,
 	designNames,
 }: {
+	systemId: string;
 	report: LintReport;
 	slug: string;
 	designNames: LintDesignNames;
@@ -463,17 +513,23 @@ function ComponentInspector({
 					onClick={() => showLintFindings({ component: slug })}
 				/>
 			) : null}
-			<FindingList findings={findings} designNames={designNames} />
+			<FindingList
+				systemId={systemId}
+				findings={findings}
+				designNames={designNames}
+			/>
 		</div>
 	);
 }
 
 function DesignInspector({
+	systemId,
 	report,
 	design,
 	board,
 	designNames,
 }: {
+	systemId: string;
 	report: LintReport;
 	design: string;
 	board: string | null;
@@ -535,7 +591,11 @@ function DesignInspector({
 					onClick={() => showLintFindings({ design, board })}
 				/>
 			) : null}
-			<FindingList findings={findings} designNames={designNames} />
+			<FindingList
+				systemId={systemId}
+				findings={findings}
+				designNames={designNames}
+			/>
 		</div>
 	);
 }
@@ -563,6 +623,7 @@ export function SystemEditorLintInspector({
 	}
 	return (
 		<LintSelectionDetails
+			systemId={systemId}
 			report={report}
 			selection={selection}
 			designNames={designNames}
@@ -571,10 +632,12 @@ export function SystemEditorLintInspector({
 }
 
 function LintSelectionDetails({
+	systemId,
 	report,
 	selection,
 	designNames,
 }: {
+	systemId: string;
 	report: LintReport;
 	selection: LintSelection;
 	designNames: LintDesignNames;
@@ -585,7 +648,11 @@ function LintSelectionDetails({
 				(entry) => findingKey(entry) === selection.key,
 			);
 			return finding ? (
-				<FindingInspector finding={finding} designNames={designNames} />
+				<FindingInspector
+					systemId={systemId}
+					finding={finding}
+					designNames={designNames}
+				/>
 			) : (
 				<Text tone="faint" className="text-xs">
 					This finding is not in the current report.
@@ -596,6 +663,7 @@ function LintSelectionDetails({
 		case "folder":
 			return (
 				<FileInspector
+					systemId={systemId}
 					report={report}
 					path={selection.path}
 					isFolder={selection.kind === "folder"}
@@ -605,6 +673,7 @@ function LintSelectionDetails({
 		case "component":
 			return (
 				<ComponentInspector
+					systemId={systemId}
 					report={report}
 					slug={selection.slug}
 					designNames={designNames}
@@ -613,6 +682,7 @@ function LintSelectionDetails({
 		case "design":
 			return (
 				<DesignInspector
+					systemId={systemId}
 					report={report}
 					design={selection.design}
 					board={selection.board}

@@ -9,10 +9,17 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import {
+	useLocation,
+	useNavigate,
+	useParams,
+	useSearchParams,
+} from "react-router";
 import { StagePreviewDarkModeProvider } from "../preview/stage-preview-dark-mode";
+import { systemComponentQueryOptions } from "../queries/system-components";
 import { systemsQueryOptions } from "../queries/systems";
 import {
+	componentDraftStore,
 	selectTemplateNode,
 	useComponentDraftComponentId,
 	useComponentDraftSelectedPath,
@@ -31,6 +38,11 @@ import {
 	getKey,
 	useWindowKeyDown,
 } from "../utils/editor-shortcuts";
+import {
+	buildSystemComponentSearch,
+	buildSystemTabSearch,
+	readSystemComponentDeepLinkNode,
+} from "../utils/system-deep-link";
 import { useProjectScope, useTailwindSyncController } from "./contexts";
 import {
 	SystemStatusBadge,
@@ -56,7 +68,14 @@ import {
 	revealSystemPanel,
 	SystemPanelToggle,
 } from "./system-editor/SystemPanelToggle";
-import type { SystemEditorPage } from "./system-editor/types";
+import {
+	getSystemEditorPage,
+	type SystemEditorPage,
+} from "./system-editor/types";
+import {
+	discardOpenComponentDraft,
+	useGuardedComponentLocation,
+} from "./system-editor/useGuardedComponentLocation";
 import { Button } from "./ui/button";
 import { FloatingPanel, FloatingPanelHeader } from "./ui/floating-panel";
 import { PanelEdgeStrip } from "./ui/panel-edge-strip";
@@ -94,26 +113,6 @@ function getSystemBadgeState(
 	}
 
 	return "synced";
-}
-
-function getInitialSystemEditorPage(
-	tab: string | null,
-	componentId: string | null,
-): SystemEditorPage {
-	if (componentId) {
-		return "components";
-	}
-
-	if (
-		tab === "tokens" ||
-		tab === "assets" ||
-		tab === "icons" ||
-		tab === "lint"
-	) {
-		return tab;
-	}
-
-	return "components";
 }
 
 /**
@@ -215,6 +214,7 @@ function SystemLeftSidebar({
 export function SystemEditor() {
 	const { systemId: rawSystemId } = useParams<{ systemId: string }>();
 	const [searchParams] = useSearchParams();
+	const location = useLocation();
 	const navigate = useNavigate();
 	const projectScope = useProjectScope();
 	const syncController = useTailwindSyncController();
@@ -239,15 +239,16 @@ export function SystemEditor() {
 		() => searchParams.get("component"),
 	);
 	const [activePage, setActivePage] = useState<SystemEditorPage>(() =>
-		getInitialSystemEditorPage(
-			searchParams.get("tab"),
-			searchParams.get("component"),
-		),
+		getSystemEditorPage(searchParams.get("tab"), searchParams.get("component")),
 	);
 	const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
 	const [selectedIconId, setSelectedIconId] = useState<string | null>(null);
 	const selectedTemplatePath = useComponentDraftSelectedPath();
 	const draftComponentId = useComponentDraftComponentId();
+	// A template node a deep link asked for, selected once its draft has loaded.
+	const [pendingNode, setPendingNode] = useState(() =>
+		readSystemComponentDeepLinkNode(searchParams),
+	);
 	const lintSelection = useLintSelection();
 	const selectedSystemId = selectedSystem?.systemId ?? null;
 
@@ -272,13 +273,106 @@ export function SystemEditor() {
 		return getSystemBadgeState(syncStatus, reviewRequired);
 	}, [selectedSystem, syncController]);
 
-	const handlePageChange = useCallback((nextPage: string) => {
-		setActivePage(nextPage as SystemEditorPage);
-		setSelectedComponentId(null);
+	// The URL is the single way the open view changes: links ("Go to component"),
+	// Back and Forward, tab clicks, and the component list and back button (via
+	// `openComponent`). Every navigation has its own key, so following the same
+	// link twice works too.
+	const openComponentIdRef = useRef<string | null>(null);
+	openComponentIdRef.current =
+		activePage === "components" ? selectedComponentId : null;
+	const applyLocationSearch = useCallback((search: string) => {
+		const params = new URLSearchParams(search);
+		const componentId = params.get("component");
+		const page = getSystemEditorPage(params.get("tab"), componentId);
+		const opensOther =
+			componentId !== null &&
+			componentId !== componentDraftStore.get().componentId;
+		const backToList =
+			componentId === null &&
+			page === "components" &&
+			openComponentIdRef.current !== null;
+		if (opensOther || backToList) {
+			discardOpenComponentDraft();
+		}
+		setActivePage(page);
+		setSelectedComponentId(componentId);
 		setSelectedAssetId(null);
 		setSelectedIconId(null);
 		selectLintItem(null);
+		setPendingNode(readSystemComponentDeepLinkNode(params));
 	}, []);
+	const leaveDialog = useGuardedComponentLocation({
+		systemId: selectedSystem?.systemId ?? "",
+		projectScope,
+		onApply: applyLocationSearch,
+		getOpenComponentId: () => openComponentIdRef.current,
+	});
+	// The component list and the back button navigate (push) like a link, so
+	// they get the same unsaved-changes question.
+	const openComponent = useCallback(
+		(componentId: string | null) => {
+			if (componentId === openComponentIdRef.current) {
+				return;
+			}
+			navigate({
+				pathname: location.pathname,
+				search: buildSystemComponentSearch(componentId),
+			});
+		},
+		[navigate, location.pathname],
+	);
+
+	const pendingRecordQuery = useQuery({
+		...systemComponentQueryOptions(
+			selectedSystem?.systemId ?? "",
+			pendingNode?.componentId ?? "",
+			projectScope,
+		),
+		enabled: selectedSystem !== null && pendingNode !== null,
+	});
+	const pendingRecord = pendingRecordQuery.data?.record;
+	useEffect(() => {
+		if (!pendingNode) {
+			return;
+		}
+		if (pendingNode.componentId !== selectedComponentId) {
+			setPendingNode(null);
+			return;
+		}
+		if (draftComponentId !== pendingNode.componentId) {
+			// Not loaded yet; a component without a draft keeps waiting harmlessly.
+			return;
+		}
+		// A finding names a published version; the loaded draft shows the same
+		// template only while it is made over that version. Drafts from before
+		// `baseVersion` are over the component's current version.
+		const { baseVersion } = componentDraftStore.get();
+		if (
+			baseVersion === undefined &&
+			pendingNode.version !== null &&
+			!pendingRecord
+		) {
+			return;
+		}
+		setPendingNode(null);
+		const draftIsOver = baseVersion ?? pendingRecord?.published?.currentVersion;
+		if (pendingNode.version === null || pendingNode.version === draftIsOver) {
+			selectTemplateNode(pendingNode.path);
+		}
+	}, [pendingNode, pendingRecord, selectedComponentId, draftComponentId]);
+
+	// Tabs live in the URL (`tab=`), so Back from a component reached through a
+	// link returns to the tab it was followed from. A tab click replaces the
+	// current entry instead of adding one.
+	const handlePageChange = useCallback(
+		(nextPage: string) => {
+			navigate(
+				{ pathname: location.pathname, search: buildSystemTabSearch(nextPage) },
+				{ replace: true },
+			);
+		},
+		[navigate, location.pathname],
+	);
 
 	const isComponentContext =
 		activePage === "components" && selectedComponentId !== null;
@@ -314,6 +408,20 @@ export function SystemEditor() {
 	const isRailOpen = useEditorPanelOpen("system", "rail");
 	const isInspectorOpen = useEditorPanelOpen("system", "inspector");
 
+	// A delete finishes later than it starts, and the rail that started it may
+	// have been remounted: what is open when it completes decides.
+	const handleComponentDeleted = useCallback(
+		(componentId: string) => {
+			if (openComponentIdRef.current === componentId) {
+				// The draft belongs to a component that no longer exists: nothing to
+				// ask about.
+				discardOpenComponentDraft();
+				openComponent(null);
+			}
+		},
+		[openComponent],
+	);
+
 	const handleSystemEditorShortcut = useCallback(
 		(event: KeyboardEvent) => {
 			if (handleEditorChromeShortcut(event, "system")) {
@@ -327,7 +435,7 @@ export function SystemEditor() {
 				event.key === "["
 			) {
 				if (isComponentContext) {
-					setSelectedComponentId(null);
+					openComponent(null);
 				} else {
 					navigate("/");
 				}
@@ -384,6 +492,7 @@ export function SystemEditor() {
 			hasInspectorContext,
 			isComponentContext,
 			navigate,
+			openComponent,
 		],
 	);
 
@@ -426,6 +535,7 @@ export function SystemEditor() {
 	return (
 		<StagePreviewDarkModeProvider key={selectedComponentId ?? "none"}>
 			<div className="absolute inset-0 z-10 flex min-h-0 bg-slate-100 text-xs text-slate-950">
+				{leaveDialog}
 				<Tabs
 					value={activePage}
 					onValueChange={handlePageChange}
@@ -446,7 +556,8 @@ export function SystemEditor() {
 								systemId={systemId}
 								projectScope={projectScope}
 								selectedComponentId={selectedComponentId}
-								onSelectComponent={setSelectedComponentId}
+								onSelectComponent={openComponent}
+								onComponentDeleted={handleComponentDeleted}
 								headerActions={<SystemPanelToggle panel="rail" />}
 							/>
 						) : activePage === "icons" ? (
@@ -479,7 +590,7 @@ export function SystemEditor() {
 											systemId={systemId}
 											projectScope={projectScope}
 											componentId={selectedComponentId}
-											onSelectComponent={setSelectedComponentId}
+											onSelectComponent={openComponent}
 											actions={<SystemPanelToggle panel="rail" />}
 										/>
 									) : (
@@ -506,7 +617,7 @@ export function SystemEditor() {
 										systemId={systemId}
 										projectScope={projectScope}
 										selectedComponentId={selectedComponentId}
-										onSelectComponent={setSelectedComponentId}
+										onSelectComponent={openComponent}
 									/>
 								</TabsPanel>
 								<TabsPanel value="tokens" className="flex min-h-0 flex-1">
