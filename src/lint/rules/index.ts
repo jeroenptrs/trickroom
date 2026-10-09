@@ -36,7 +36,8 @@ export type {
 
 /**
  * Every shipped rule kind, in catalogue order (docs/lint.md). Code-side
- * kinds first, then design-side. WP3 and WP4 append theirs here.
+ * kinds first, then design-side. A new kind also appends its id to
+ * `LINT_RULE_KIND_LEDGER` (`ledger.ts`); ids are permanent.
  */
 export const LINT_RULE_KINDS: readonly LintRuleKind[] = [
 	variantsFileStaleRule,

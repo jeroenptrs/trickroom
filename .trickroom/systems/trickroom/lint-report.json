@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"generatedAt": "2026-10-07T03:58:17.930Z",
+	"generatedAt": "2026-10-09T14:50:32.766Z",
 	"system": {
 		"id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
 		"name": "Trickroom"
@@ -22,6 +22,11 @@
 			},
 			"rules": {
 				"code.component-styling-restricted": {
+					"errors": 0,
+					"warnings": 0,
+					"info": 0
+				},
+				"code.non-canonical-class": {
 					"errors": 0,
 					"warnings": 0,
 					"info": 0
@@ -72,7 +77,7 @@
 					"info": 0
 				}
 			},
-			"scanned": 484
+			"scanned": 501
 		},
 		"design": {
 			"findings": {
@@ -82,6 +87,11 @@
 			},
 			"rules": {
 				"design.design-only-class-target": {
+					"errors": 0,
+					"warnings": 0,
+					"info": 0
+				},
+				"design.non-canonical-class": {
 					"errors": 0,
 					"warnings": 0,
 					"info": 0
@@ -337,7 +347,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 175,
+				"line": 176,
 				"column": 114
 			}
 		},
@@ -349,7 +359,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 336,
+				"line": 339,
 				"column": 65
 			}
 		},
@@ -361,7 +371,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 341,
+				"line": 344,
 				"column": 19
 			}
 		},
@@ -373,7 +383,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 376,
+				"line": 379,
 				"column": 21
 			}
 		},
@@ -385,7 +395,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 415,
+				"line": 418,
 				"column": 66
 			}
 		},
@@ -397,7 +407,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 449,
+				"line": 452,
 				"column": 64
 			}
 		},
@@ -409,7 +419,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 460,
+				"line": 463,
 				"column": 33
 			}
 		},
@@ -421,7 +431,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 577,
+				"line": 580,
 				"column": 65
 			}
 		},
@@ -805,7 +815,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/classes/ClassCompositionPanel.tsx",
-				"line": 118,
+				"line": 146,
 				"column": 23
 			}
 		},
@@ -817,7 +827,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/classes/ClassCompositionPanel.tsx",
-				"line": 140,
+				"line": 164,
 				"column": 23
 			}
 		},
@@ -1429,7 +1439,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftStage.tsx",
-				"line": 200,
+				"line": 216,
 				"column": 85
 			}
 		},
@@ -2341,7 +2351,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorLintPanel.tsx",
-				"line": 352,
+				"line": 353,
 				"column": 35
 			}
 		},
@@ -2353,7 +2363,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorLintPanel.tsx",
-				"line": 383,
+				"line": 384,
 				"column": 56
 			}
 		},
@@ -2917,7 +2927,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 97,
+				"line": 111,
 				"column": 33
 			}
 		},
@@ -2929,7 +2939,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 102,
+				"line": 116,
 				"column": 33
 			}
 		},
@@ -2941,7 +2951,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 131,
+				"line": 145,
 				"column": 46
 			}
 		},
@@ -2953,7 +2963,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 212,
+				"line": 226,
 				"column": 91
 			}
 		},
@@ -2965,7 +2975,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 260,
+				"line": 274,
 				"column": 37
 			}
 		},
@@ -2977,7 +2987,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 270,
+				"line": 284,
 				"column": 60
 			}
 		},
@@ -2989,7 +2999,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 289,
+				"line": 303,
 				"column": 34
 			}
 		},
@@ -3145,31 +3155,31 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintCoverageView.tsx",
-				"line": 109,
-				"column": 37
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/lint/LintCoverageView.tsx",
-				"line": 118,
-				"column": 37
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/lint/LintCoverageView.tsx",
 				"line": 123,
+				"column": 37
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/lint/LintCoverageView.tsx",
+				"line": 132,
+				"column": 37
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/lint/LintCoverageView.tsx",
+				"line": 137,
 				"column": 37
 			}
 		},
@@ -3181,7 +3191,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintCoverageView.tsx",
-				"line": 161,
+				"line": 175,
 				"column": 55
 			}
 		},
@@ -3193,7 +3203,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintCoverageView.tsx",
-				"line": 176,
+				"line": 190,
 				"column": 92
 			}
 		},
@@ -3205,8 +3215,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintCoverageView.tsx",
-				"line": 210,
-				"column": 46
+				"line": 234,
+				"column": 47
 			}
 		},
 		{
@@ -3217,8 +3227,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintCoverageView.tsx",
-				"line": 219,
-				"column": 38
+				"line": 243,
+				"column": 39
 			}
 		},
 		{
@@ -3229,8 +3239,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintCoverageView.tsx",
-				"line": 235,
-				"column": 54
+				"line": 259,
+				"column": 55
 			}
 		},
 		{
@@ -7915,7 +7925,7 @@
 	"ratchet": {
 		"status": "pass",
 		"baseline": {
-			"generatedAt": "2026-10-06T20:48:08.434Z",
+			"generatedAt": "2026-10-07T03:58:17.930Z",
 			"numbers": {
 				"code.errors": 0,
 				"code.warnings": 299,
@@ -7927,6 +7937,7 @@
 				"design.errors": 0,
 				"design.warnings": 238,
 				"rule.code.component-styling-restricted": 0,
+				"rule.code.non-canonical-class": 0,
 				"rule.code.redundant-class": 0,
 				"rule.code.required-axis-missing": 0,
 				"rule.code.slot-not-called": 0,
@@ -7937,12 +7948,23 @@
 				"rule.code.variants-imported-outside-component": 0,
 				"rule.code.wrapper-missing-variants-call": 0,
 				"rule.design.design-only-class-target": 0,
+				"rule.design.non-canonical-class": 0,
 				"rule.design.unknown-class-token": 238,
 				"rule.design.unknown-variant-value": 0
 			}
 		},
 		"regressions": [],
 		"breaches": [],
+		"adopted": [
+			{
+				"metric": "rule.code.non-canonical-class",
+				"current": 0
+			},
+			{
+				"metric": "rule.design.non-canonical-class",
+				"current": 0
+			}
+		],
 		"numbers": {
 			"code.errors": 0,
 			"code.warnings": 299,
@@ -7954,6 +7976,7 @@
 			"design.errors": 0,
 			"design.warnings": 238,
 			"rule.code.component-styling-restricted": 0,
+			"rule.code.non-canonical-class": 0,
 			"rule.code.redundant-class": 0,
 			"rule.code.required-axis-missing": 0,
 			"rule.code.slot-not-called": 0,
@@ -7964,12 +7987,13 @@
 			"rule.code.variants-imported-outside-component": 0,
 			"rule.code.wrapper-missing-variants-call": 0,
 			"rule.design.design-only-class-target": 0,
+			"rule.design.non-canonical-class": 0,
 			"rule.design.unknown-class-token": 238,
 			"rule.design.unknown-variant-value": 0
 		}
 	},
 	"ratchetBaseline": {
-		"generatedAt": "2026-10-07T03:58:17.930Z",
+		"generatedAt": "2026-10-09T14:50:32.766Z",
 		"numbers": {
 			"code.errors": 0,
 			"code.warnings": 299,
@@ -7981,6 +8005,7 @@
 			"design.errors": 0,
 			"design.warnings": 238,
 			"rule.code.component-styling-restricted": 0,
+			"rule.code.non-canonical-class": 0,
 			"rule.code.redundant-class": 0,
 			"rule.code.required-axis-missing": 0,
 			"rule.code.slot-not-called": 0,
@@ -7991,8 +8016,26 @@
 			"rule.code.variants-imported-outside-component": 0,
 			"rule.code.wrapper-missing-variants-call": 0,
 			"rule.design.design-only-class-target": 0,
+			"rule.design.non-canonical-class": 0,
 			"rule.design.unknown-class-token": 238,
 			"rule.design.unknown-variant-value": 0
-		}
+		},
+		"kinds": [
+			"code.component-styling-restricted",
+			"code.non-canonical-class",
+			"code.redundant-class",
+			"code.required-axis-missing",
+			"code.slot-not-called",
+			"code.unknown-class-token",
+			"code.unknown-variant-value",
+			"code.variants-file-orphaned",
+			"code.variants-file-stale",
+			"code.variants-imported-outside-component",
+			"code.wrapper-missing-variants-call",
+			"design.design-only-class-target",
+			"design.non-canonical-class",
+			"design.unknown-class-token",
+			"design.unknown-variant-value"
+		]
 	}
 }

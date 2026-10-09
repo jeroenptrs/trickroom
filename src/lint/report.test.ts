@@ -110,11 +110,16 @@ const report = (): LintReport => ({
 			{ metric: "rule.code.b", kind: "max", limit: 0, current: 1 },
 			{ metric: "code.errors", kind: "max", limit: 0, current: 1 },
 		],
+		adopted: [
+			{ metric: "rule.code.b", current: 1 },
+			{ metric: "rule.code.a", current: 0 },
+		],
 		numbers: { "code.warnings": 0, "code.errors": 1 },
 	},
 	ratchetBaseline: {
 		generatedAt: "2026-01-01T00:00:00.000Z",
 		numbers: { "code.warnings": 0, "code.errors": 1 },
+		kinds: ["code.b", "code.a"],
 	},
 });
 
@@ -307,8 +312,19 @@ describe("lint report", () => {
 				{ metric: "code.errors", kind: "max", limit: 0, current: 1 },
 				{ metric: "rule.code.b", kind: "max", limit: 0, current: 1 },
 			],
+			adopted: [
+				{ metric: "rule.code.a", current: 0 },
+				{ metric: "rule.code.b", current: 1 },
+			],
 			numbers: { "code.errors": 1, "code.warnings": 0 },
 		});
+		expect(parsed.report?.ratchetBaseline.kinds).toEqual(["code.a", "code.b"]);
+		expect(
+			parseLintReport({
+				...JSON.parse(text),
+				ratchetBaseline: { generatedAt: "x", numbers: {}, kinds: [1] },
+			}).issue?.code,
+		).toBe("INVALID_REPORT");
 		expect(
 			parseLintReport({ ...JSON.parse(text), ratchet: { status: "pass" } })
 				.issue?.code,
@@ -324,6 +340,26 @@ describe("lint report", () => {
 		expect(
 			parseLintReport({ ...JSON.parse(text), findings: [{}] }).issue?.code,
 		).toBe("INVALID_REPORT");
+	});
+
+	it("reads a report written before kinds and adoptions were recorded", () => {
+		const { adopted: _adopted, ...ratchet } = report().ratchet;
+		const legacy = {
+			...JSON.parse(serializeLintReport(report())),
+			ratchet,
+			ratchetBaseline: {
+				generatedAt: "2026-01-01T00:00:00.000Z",
+				numbers: { "code.warnings": 0, "code.errors": 1 },
+			},
+		};
+		const parsed = parseLintReport(legacy);
+		expect(parsed.issue).toBeNull();
+		expect(parsed.report?.ratchet.adopted).toEqual([]);
+		expect(parsed.report?.ratchetBaseline).toEqual({
+			generatedAt: "2026-01-01T00:00:00.000Z",
+			numbers: { "code.errors": 1, "code.warnings": 0 },
+		});
+		expect(parsed.report?.ratchetBaseline).not.toHaveProperty("kinds");
 	});
 
 	it("reads, writes atomically and refuses folders outside .trickroom/systems", async () => {
