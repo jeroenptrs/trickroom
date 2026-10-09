@@ -1,6 +1,6 @@
 import { readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { TrickroomCodegenConfig } from "../types";
 import {
 	createTrickroomMcpProjectFixture,
@@ -8,9 +8,15 @@ import {
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
 	toolPayload,
+	warmTailwindCanonicalization,
 } from "./test-support";
 
 describe("lint tool", () => {
+	// A lint run canonicalizes the system's classes; Tailwind's first
+	// canonicalization of a system builds its tables (seconds), paid here
+	// rather than inside a test's timeout.
+	beforeAll(() => warmTailwindCanonicalization(), 30_000);
+
 	let fixture: TrickroomMcpProjectFixture | undefined;
 	let session: TrickroomMcpClientSession | undefined;
 

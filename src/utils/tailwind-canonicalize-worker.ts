@@ -2,6 +2,8 @@ import { parentPort } from "node:worker_threads";
 import {
 	type CanonicalizedClass,
 	canonicalizeAndVerifyTailwindCandidate,
+	type StylesheetFacts,
+	scanStylesheetFacts,
 } from "./tailwind-canonical-equivalence.ts";
 import { createCanonicalizeCache } from "./tailwind-canonicalize-cache.ts";
 import {
@@ -39,31 +41,42 @@ export type CanonicalizeResponse =
 	| { id: number; ok: true; results: CanonicalizedClass[] }
 	| { id: number; ok: false; message: string };
 
-const cache = createCanonicalizeCache<TailwindDesignSystem, CanonicalizedClass>(
-	{
-		warmSystems: 4,
-		paths: 32,
-		load: async (rootPath) => {
-			// Already resolved inside its project by the handler below.
-			const loaded = await loadTrackedTailwindDesignSystem({
-				projectRoot: rootPath,
-				cssPath: rootPath,
-			});
-			return {
-				system: loaded.designSystem,
-				cssSource: loaded.cssSource,
-				fileStamps: loaded.fileStamps,
-			};
-		},
-		isFresh: fileStampsAreFresh,
-		canonicalize: (system, candidate) =>
-			canonicalizeAndVerifyTailwindCandidate(
-				system,
-				candidate,
-				canonicalizeTailwindCandidate,
-			),
+/**
+ * A compiled system with what its stylesheets set outside `@theme`, which
+ * verification needs: both come from the same loaded text, so systems that
+ * share a warm entry (same text) share both.
+ */
+type VerifiableSystem = {
+	designSystem: TailwindDesignSystem;
+	stylesheet: StylesheetFacts;
+};
+
+const cache = createCanonicalizeCache<VerifiableSystem, CanonicalizedClass>({
+	warmSystems: 4,
+	paths: 32,
+	load: async (rootPath) => {
+		// Already resolved inside its project by the handler below.
+		const loaded = await loadTrackedTailwindDesignSystem({
+			projectRoot: rootPath,
+			cssPath: rootPath,
+		});
+		return {
+			system: {
+				designSystem: loaded.designSystem,
+				stylesheet: scanStylesheetFacts(loaded.cssSource),
+			},
+			cssSource: loaded.cssSource,
+			fileStamps: loaded.fileStamps,
+		};
 	},
-);
+	isFresh: fileStampsAreFresh,
+	canonicalize: (system, candidate) =>
+		canonicalizeAndVerifyTailwindCandidate(
+			system,
+			candidate,
+			canonicalizeTailwindCandidate,
+		),
+});
 
 parentPort?.on("message", (request: CanonicalizeRequest) => {
 	new Promise<string>((resolve) =>

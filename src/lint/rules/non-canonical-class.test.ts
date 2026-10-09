@@ -165,6 +165,65 @@ describe("canonicalizeTailwindCandidatesInWorker", () => {
 			},
 		});
 	});
+
+	it("rejects a form a literal makes invalid where the class's `calc()` rounds", async () => {
+		// `z-index: calc(1.5 * -1)` computes to -1; `z-index: -1.5` is invalid.
+		const [result] = (await inspector.canonicalize?.(["-z-[1.5]"])) ?? [];
+		expect(result).toEqual({
+			canonical: "z-[-1.5]",
+			verdict: {
+				status: "different",
+				reason:
+					'declares "z-index: -1.5" where the class declares "z-index: calc(1.5 * -1)"',
+			},
+		});
+	});
+
+	it("rejects a form that registers a variable the class leaves inheriting", async () => {
+		const [result] =
+			(await inspector.canonicalize?.(["[transform:var(--tw-rotate-x)]"])) ??
+			[];
+		expect(result).toEqual({
+			canonical: "transform-(--tw-rotate-x)",
+			verdict: {
+				status: "different",
+				reason:
+					"registers --tw-rotate-x (@property), which the class does not and the stylesheets do not already",
+			},
+		});
+	});
+
+	it("marks a token the stylesheets also set outside `@theme` as dependent on the theme", async () => {
+		// Imported, under a media query, and in a `.dark` rule.
+		await writeFile(
+			path.join(projectRoot, "src", "overrides.css"),
+			"@media (prefers-color-scheme: dark) {\n\t:root { --radius-sm: 0; }\n}\n",
+			"utf8",
+		);
+		await writeFile(
+			path.join(projectRoot, "src", "dark.css"),
+			'@import "tailwindcss";\n@import "./overrides.css";\n.dark { --color-white: #000; }\n',
+			"utf8",
+		);
+		const results = await canonicalizeTailwindCandidatesInWorker(
+			{ projectRoot, cssPath: "src/dark.css" },
+			["bg-[#FFF]", "rounded-[0.25rem]", "rounded-[2rem]"],
+		);
+		expect(results).toEqual([
+			{
+				canonical: "bg-white",
+				verdict: {
+					status: "theme-dependent",
+					themeVariables: ["--color-white"],
+				},
+			},
+			{
+				canonical: "rounded-sm",
+				verdict: { status: "theme-dependent", themeVariables: ["--radius-sm"] },
+			},
+			{ canonical: "rounded-4xl", verdict: { status: "equivalent" } },
+		]);
+	}, 30_000);
 });
 
 describe("code.non-canonical-class", () => {

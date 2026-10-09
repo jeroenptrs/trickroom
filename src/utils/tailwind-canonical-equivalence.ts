@@ -14,28 +14,30 @@ import type { TailwindDesignSystem } from "./tailwind-design-system-loader.ts";
  *   attribute quoting are normalised, the simple selectors of a compound are
  *   sorted (the type first, a pseudo-element and what follows it in place), a
  *   redundant `*` is dropped, the arguments of `:is()`, `:where()`, `:not()` and
- *   `:has()` are sorted, and a one-argument `:is(X)` is unwrapped where that
- *   keeps matching and specificity: a compound `X` anywhere
- *   (`:has(:is([data-x]))` is `:has([data-x])`), a complex `X` only in the
- *   first compound of a selector that is not relative (`:is(.x > *)` is
+ *   `:has()` are sorted, and a one-argument `:is(X)` without a pseudo-element
+ *   is unwrapped where that keeps matching and specificity: a compound `X`
+ *   anywhere (`:has(:is([data-x]))` is `:has([data-x])`), a complex `X` only in
+ *   the first compound of a selector that is not relative (`:is(.x > *)` is
  *   `.x > *`). Everything else must match exactly, so a `:where()` the class
  *   did not have is a difference.
  * - **At-rules and declarations**: in order, with `!important`; at-rule
- *   preludes by text. One exception: `@property` registrations of Tailwind's
- *   own `--tw-*` variables that only the canonical form emits are ignored
- *   (`transform-[…]` registers `--tw-rotate-x` and the like, which
- *   `[transform:…]` does not). A registration sets no style, and every
- *   utility that reads such a variable emits it too; one the canonical form
- *   lacks, or registers differently, is a difference.
- * - **Values**: whitespace, hex case and length, number spelling and `calc()`
- *   over plain numbers and one unit (`calc(1 * -1)` is `-1`). Then a theme
- *   variable outside a math function is replaced by its value: the canonical
- *   form names the token (`bg-white` for `bg-[#FFF]`, `rounded-sm` for
- *   `rounded-[0.25rem]`), which is the point of the suggestion. A theme
- *   variable inside `calc()`, `min()`, `max()` or `clamp()` is arithmetic on
- *   the theme (`w-154` is `calc(var(--spacing) * 154)`): equal to
- *   `w-[38.5rem]` only while `--spacing` is `0.25rem`, so the verdict is
- *   `theme-dependent` with the variables it depends on.
+ *   preludes by text. An `@property` rule only the canonical form emits is
+ *   a difference (it changes how the variable inherits and starts) unless the
+ *   stylesheets already register that name identically.
+ * - **Values**: compared as CSS tokens. Whitespace, hex colour case and
+ *   length, and number spelling are normalised (numbers exactly, as
+ *   fractions); strings and `url()` are kept as written. A top-level `calc()`
+ *   over numbers of one unit is replaced by its result only where the
+ *   property treats both alike (see `FoldPolicy`): `z-index: calc(1 * -1)` is
+ *   `-1`, `z-index: calc(1.5 * -1)` is not `-1.5`.
+ * - **Theme variables**: one outside a math function that the stylesheets
+ *   set nowhere but in `@theme` is replaced by its value, since naming the
+ *   token is the point of the suggestion (`bg-white` for `bg-[#FFF]`). An
+ *   equality that needs any other substitution, of a variable inside
+ *   `calc()`, `min()`, `max()` or `clamp()` (`w-154` is
+ *   `calc(var(--spacing) * 154)`) or of one the stylesheets also set in a
+ *   rule or at-rule (`.dark { --color-white: #000 }`), holds only under the
+ *   current theme: `theme-dependent`, with those variables.
  *
  * Whatever the normalisation cannot decide is `different`, never
  * `equivalent`. Only `.ts` imports, so the canonicalization worker can run
@@ -349,12 +351,27 @@ const serializeComplex = (complex: Complex): string => {
 	return out;
 };
 
-/** A single-argument `:is()` whose argument is one compound. */
-const unwrapCompoundIs = (simple: Simple): Simple[] | null => {
+/**
+ * The argument of a single-argument `:is()` that may be unwrapped: not
+ * relative, and without a pseudo-element or `&` (`:is(.a::before)` matches
+ * nothing, `.a::before` does), else null.
+ */
+const unwrappableIsArgument = (simple: Simple): Complex | null => {
 	if (simple.kind !== "pseudo-class" || simple.name !== "is") return null;
 	const [only, ...rest] = simple.args ?? [];
-	if (!only || rest.length > 0 || only.leading) return null;
-	return only.compounds.length === 1 ? only.compounds[0] : null;
+	if (!only || rest.length > 0 || only.leading !== null) return null;
+	const plain = only.compounds.every((compound) =>
+		compound.every(
+			(inner) => inner.kind !== "pseudo-element" && inner.kind !== "nesting",
+		),
+	);
+	return plain ? only : null;
+};
+
+/** A single-argument `:is()` whose argument is one compound. */
+const unwrapCompoundIs = (simple: Simple): Simple[] | null => {
+	const only = unwrappableIsArgument(simple);
+	return only?.compounds.length === 1 ? only.compounds[0] : null;
 };
 
 /** The type first, then the other simple selectors sorted, then a pseudo-element and what follows it as written. */
@@ -407,15 +424,12 @@ const normalizeSimpleArgs = (simple: Simple): Simple => {
 const expandLeadingIs = (complex: Complex): Complex => {
 	if (complex.leading !== null) return complex;
 	const [first, ...restCompounds] = complex.compounds;
-	const at = first.findIndex((simple) => {
-		if (simple.kind !== "pseudo-class" || simple.name !== "is") return false;
-		const args = simple.args ?? [];
-		return args.length === 1 && args[0].leading === null;
-	});
+	const at = first.findIndex(
+		(simple) => unwrappableIsArgument(simple) !== null,
+	);
 	if (at === -1) return complex;
-	const target = first[at];
-	if (target.kind !== "pseudo-class" || !target.args) return complex;
-	const inner = target.args[0];
+	const inner = unwrappableIsArgument(first[at]);
+	if (!inner) return complex;
 	const others = first.filter((_, index) => index !== at);
 	const innerLast = inner.compounds[inner.compounds.length - 1];
 	return expandLeadingIs({
@@ -638,107 +652,246 @@ const flatten = (nodes: CssNode[], self: string): Entry[] => {
 
 const MATH_FUNCTIONS = new Set(["calc", "min", "max", "clamp"]);
 
-/** Whitespace, hex colours and number spelling, outside strings. */
-const normalizeValueText = (value: string): string =>
-	value
-		.split(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/u)
-		.map((part, index) => {
-			if (index % 2 === 1) return part;
-			return collapse(part)
-				.replace(/\(\s+/gu, "(")
-				.replace(/\s+\)/gu, ")")
-				.replace(/\s*,\s*/gu, ", ")
-				.replace(/#([0-9a-f]{3,8})\b/giu, (_, hex: string) => {
-					const lower = hex.toLowerCase();
-					return `#${
-						lower.length === 3 || lower.length === 4
-							? [...lower].map((digit) => digit + digit).join("")
-							: lower
-					}`;
-				})
-				.replace(
-					/(?<![\w#.-])(-?)(\d*\.?\d+)(?![\d.])/gu,
-					(_, sign: string, number: string) =>
-						formatNumber(Number(`${sign}${number}`)),
-				);
-		})
-		.join("");
+/** An exact number: `0.5`, `.50` and `5e-1` are all 1/2, `0.0000001` is not 0. */
+type Rational = { n: bigint; d: bigint };
 
-const formatNumber = (value: number) => {
-	const rounded = Number(value.toFixed(6));
-	return Object.is(rounded, -0) ? "0" : String(rounded);
+type ValueToken =
+	| { type: "space" }
+	| { type: "comma" }
+	| { type: "delim"; char: string }
+	| { type: "ident"; value: string }
+	| { type: "hash"; value: string }
+	/** Strings and unquoted `url()` contents are kept exactly as written. */
+	| { type: "string"; raw: string }
+	| { type: "url"; raw: string }
+	| { type: "number"; value: Rational; unit: string }
+	| { type: "function"; name: string; args: ValueToken[] }
+	| { type: "block"; args: ValueToken[] };
+
+const abs = (value: bigint) => (value < 0n ? -value : value);
+
+const gcd = (a: bigint, b: bigint): bigint => {
+	let x = abs(a);
+	let y = abs(b);
+	while (y !== 0n) [x, y] = [y, x % y];
+	return x;
 };
 
-type Quantity = { value: number; unit: string };
-
-/** Evaluates `calc()` over numbers and one unit; anything else is left as written. */
-const evaluateCalc = (value: string): string => {
-	let out = "";
-	let index = 0;
-	while (index < value.length) {
-		const match = /\bcalc\(/iu.exec(value.slice(index));
-		if (!match) {
-			out += value.slice(index);
-			break;
-		}
-		const start = index + match.index;
-		const open = start + match[0].length - 1;
-		const close = findClosing(value, open);
-		const inner = evaluateCalc(value.slice(open + 1, close));
-		const result = evaluateExpression(inner);
-		out += value.slice(index, start);
-		out += result
-			? `${formatNumber(result.value)}${result.unit}`
-			: `calc(${inner})`;
-		index = close + 1;
-	}
-	return out;
+const rational = (n: bigint, d: bigint): Rational => {
+	if (d === 0n) throw new Error("Division by zero");
+	const sign = d < 0n ? -1n : 1n;
+	const divisor = gcd(n, d) || 1n;
+	return { n: (sign * n) / divisor, d: (sign * d) / divisor };
 };
 
-const evaluateExpression = (text: string): Quantity | null => {
-	const tokens: Array<Quantity | string> = [];
-	const pattern =
-		/\s*(?:([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)([a-z%]*)|([-+*/()]))/iuy;
+const NUMBER_PATTERN = /[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?/iuy;
+
+const parseRational = (text: string): Rational => {
+	const match = /^([+-]?)(\d*)(?:\.(\d+))?(?:e([+-]?\d+))?$/iu.exec(text);
+	if (!match) throw new Error(`Not a number: "${text}"`);
+	const fraction = match[3] ?? "";
+	const exponent = Number(match[4] ?? 0);
+	if (Math.abs(exponent) > 400)
+		throw new Error(`Exponent out of range: "${text}"`);
+	let n = BigInt(`${match[2] || "0"}${fraction}`);
+	let d = 10n ** BigInt(fraction.length);
+	if (match[1] === "-") n = -n;
+	if (exponent > 0) n *= 10n ** BigInt(exponent);
+	if (exponent < 0) d *= 10n ** BigInt(-exponent);
+	return rational(n, d);
+};
+
+const isIdentStart = (text: string, index: number) => {
+	const char = text[index];
+	if (char === undefined) return false;
+	if (char === "\\" || /[a-z_\u0080-￿]/iu.test(char)) return true;
+	if (char !== "-") return false;
+	const next = text[index + 1] ?? "";
+	return next === "-" || next === "\\" || /[a-z_\u0080-￿]/iu.test(next);
+};
+
+/** A declaration value as CSS tokens, functions and parentheses nested. */
+const tokenizeValue = (text: string): ValueToken[] => {
 	let index = 0;
-	while (index < text.length) {
-		pattern.lastIndex = index;
-		const match = pattern.exec(text);
-		if (!match) {
-			if (/^\s*$/u.test(text.slice(index))) break;
-			return null;
-		}
-		index = pattern.lastIndex;
-		if (match[3]) tokens.push(match[3]);
-		else {
-			// `a -1` is an operand after an operand: a sign glued to a number
-			// following another operand is an operator.
-			const previous = tokens[tokens.length - 1];
-			if (
-				previous !== undefined &&
-				(typeof previous !== "string" || previous === ")") &&
-				/^[+-]/u.test(match[1])
-			) {
-				tokens.push(match[1][0]);
-				tokens.push({
-					value: Number(match[1].slice(1)),
-					unit: match[2].toLowerCase(),
-				});
-			} else {
-				tokens.push({ value: Number(match[1]), unit: match[2].toLowerCase() });
+	const readList = (closing: boolean): ValueToken[] => {
+		const out: ValueToken[] = [];
+		while (index < text.length) {
+			const char = text[index];
+			if (char === ")") {
+				if (!closing) throw new Error(`Unbalanced ")" in "${text}"`);
+				index += 1;
+				return out;
 			}
+			if (/\s/u.test(char)) {
+				while (index < text.length && /\s/u.test(text[index])) index += 1;
+				out.push({ type: "space" });
+				continue;
+			}
+			if (char === '"' || char === "'") {
+				const end = findStringEnd(text, index);
+				out.push({ type: "string", raw: text.slice(index, end + 1) });
+				index = end + 1;
+				continue;
+			}
+			if (char === ",") {
+				out.push({ type: "comma" });
+				index += 1;
+				continue;
+			}
+			if (char === "(") {
+				index += 1;
+				out.push({ type: "block", args: readList(true) });
+				continue;
+			}
+			NUMBER_PATTERN.lastIndex = index;
+			const number = NUMBER_PATTERN.exec(text);
+			if (number) {
+				index = NUMBER_PATTERN.lastIndex;
+				let unit = "";
+				if (text[index] === "%") {
+					unit = "%";
+					index += 1;
+				} else if (isIdentStart(text, index)) {
+					const [name, next] = readIdent(text, index);
+					unit = name.toLowerCase();
+					index = next;
+				}
+				out.push({ type: "number", value: parseRational(number[0]), unit });
+				continue;
+			}
+			if (char === "#" && isIdentChar(text[index + 1] ?? "")) {
+				const [name, next] = readIdent(text, index + 1);
+				out.push({ type: "hash", value: normalizeHash(name) });
+				index = next;
+				continue;
+			}
+			if (isIdentStart(text, index)) {
+				const [name, next] = readIdent(text, index);
+				index = next;
+				if (text[index] !== "(") {
+					out.push({ type: "ident", value: name });
+					continue;
+				}
+				index += 1;
+				const lower = name.toLowerCase();
+				if (lower === "url") {
+					let start = index;
+					while (/\s/u.test(text[start] ?? "")) start += 1;
+					if (text[start] !== '"' && text[start] !== "'") {
+						let end = start;
+						while (end < text.length && text[end] !== ")") {
+							end += text[end] === "\\" ? 2 : 1;
+						}
+						if (end >= text.length) {
+							throw new Error(`Unterminated url( in "${text}"`);
+						}
+						out.push({ type: "url", raw: text.slice(start, end).trim() });
+						index = end + 1;
+						continue;
+					}
+				}
+				out.push({ type: "function", name: lower, args: readList(true) });
+				continue;
+			}
+			out.push({ type: "delim", char });
+			index += 1;
 		}
+		if (closing) throw new Error(`Unbalanced "(" in "${text}"`);
+		return out;
+	};
+	return trimSpaces(readList(false));
+};
+
+/** `#FFF` and `#ffffff` are one colour; any other hash is kept as written. */
+const normalizeHash = (name: string) => {
+	if (!/^[0-9a-f]+$/iu.test(name) || ![3, 4, 6, 8].includes(name.length)) {
+		return name;
 	}
+	const lower = name.toLowerCase();
+	return lower.length <= 4
+		? [...lower].map((digit) => digit + digit).join("")
+		: lower;
+};
+
+const trimSpaces = (tokens: ValueToken[]) => {
+	let start = 0;
+	let end = tokens.length;
+	while (start < end && tokens[start].type === "space") start += 1;
+	while (end > start && tokens[end - 1].type === "space") end -= 1;
+	return tokens.slice(start, end);
+};
+
+/** Whitespace next to these separates nothing. */
+const isSeparator = (token: ValueToken | undefined) =>
+	token === undefined ||
+	token.type === "space" ||
+	token.type === "comma" ||
+	(token.type === "delim" && (token.char === "/" || token.char === "*"));
+
+/** A comparable spelling of a token list; not CSS. */
+const serializeTokens = (tokens: ValueToken[]): string => {
+	const out: string[] = [];
+	tokens.forEach((token, index) => {
+		if (token.type === "space") {
+			if (!isSeparator(tokens[index - 1]) && !isSeparator(tokens[index + 1])) {
+				out.push(" ");
+			}
+			return;
+		}
+		out.push(serializeToken(token));
+	});
+	return out.join("");
+};
+
+const serializeToken = (token: ValueToken): string => {
+	switch (token.type) {
+		case "space":
+			return " ";
+		case "comma":
+			return ",";
+		case "delim":
+			return token.char;
+		case "ident":
+			return `i${JSON.stringify(token.value)}`;
+		case "hash":
+			return `#${JSON.stringify(token.value)}`;
+		case "string":
+			return `s${token.raw}`;
+		case "url":
+			return `u${JSON.stringify(token.raw)}`;
+		case "number":
+			return `n${token.value.n}/${token.value.d}${JSON.stringify(token.unit)}`;
+		case "function":
+			return `${token.name}(${serializeTokens(token.args)})`;
+		case "block":
+			return `(${serializeTokens(token.args)})`;
+	}
+};
+
+type Quantity = { value: Rational; unit: string };
+
+/** `calc()` over numbers of one unit, exactly; null for anything else. */
+const evaluateCalc = (args: ValueToken[]): Quantity | null => {
+	const tokens = args.filter((token) => token.type !== "space");
 	let position = 0;
-	const peek = () => tokens[position];
+	const operator = (chars: string) => {
+		const token = tokens[position];
+		return token?.type === "delim" && chars.includes(token.char)
+			? token.char
+			: null;
+	};
 	const parseSum = (): Quantity | null => {
 		let left = parseProduct();
-		while (left && (peek() === "+" || peek() === "-")) {
-			const op = tokens[position++];
+		for (let op = operator("+-"); left && op; op = operator("+-")) {
+			position += 1;
 			const right = parseProduct();
-			if (!right) return null;
-			if (left.unit !== right.unit) return null;
+			if (!right || left.unit !== right.unit) return null;
+			const sign = op === "+" ? 1n : -1n;
 			left = {
-				value: op === "+" ? left.value + right.value : left.value - right.value,
+				value: rational(
+					left.value.n * right.value.d + sign * right.value.n * left.value.d,
+					left.value.d * right.value.d,
+				),
 				unit: left.unit,
 			};
 		}
@@ -746,147 +899,347 @@ const evaluateExpression = (text: string): Quantity | null => {
 	};
 	const parseProduct = (): Quantity | null => {
 		let left = parseFactor();
-		while (left && (peek() === "*" || peek() === "/")) {
-			const op = tokens[position++];
+		for (let op = operator("*/"); left && op; op = operator("*/")) {
+			position += 1;
 			const right = parseFactor();
 			if (!right) return null;
 			if (op === "*") {
 				if (left.unit && right.unit) return null;
 				left = {
-					value: left.value * right.value,
+					value: rational(
+						left.value.n * right.value.n,
+						left.value.d * right.value.d,
+					),
 					unit: left.unit || right.unit,
 				};
 			} else {
-				if (right.unit || right.value === 0) return null;
-				left = { value: left.value / right.value, unit: left.unit };
+				if (right.unit || right.value.n === 0n) return null;
+				left = {
+					value: rational(
+						left.value.n * right.value.d,
+						left.value.d * right.value.n,
+					),
+					unit: left.unit,
+				};
 			}
 		}
 		return left;
 	};
 	const parseFactor = (): Quantity | null => {
-		const token = tokens[position++];
-		if (token === "(") {
-			const inner = parseSum();
-			if (tokens[position++] !== ")") return null;
-			return inner;
+		const token = tokens[position];
+		position += 1;
+		if (token?.type === "number")
+			return { value: token.value, unit: token.unit };
+		if (
+			token?.type === "block" ||
+			(token?.type === "function" && token.name === "calc")
+		) {
+			return evaluateCalc(token.args);
 		}
-		if (token === "-") {
-			const inner = parseFactor();
-			return inner ? { value: -inner.value, unit: inner.unit } : null;
-		}
-		if (token === undefined || typeof token === "string") return null;
-		return token;
+		return null;
 	};
 	const result = parseSum();
 	return result && position === tokens.length ? result : null;
 };
 
 /**
- * Replaces theme variables with their values: outside math functions only
- * (`"tokens"`), or everywhere (`"all"`). Records the names replaced.
+ * Where a `calc()` may be replaced by its result. Only where the two cannot
+ * differ: a literal can be invalid where the `calc()` is clamped or rounded
+ * (`z-index: calc(1.5 * -1)` is `-1`, `z-index: -1.5` is invalid, so
+ * `auto`; `width: calc(-1px)` is `0`, `width: -1px` invalid). So: integer
+ * properties when the result is an integer, lengths that may be negative,
+ * lengths that may not when the result is not negative, and nothing else
+ * (custom properties included: where they are used is not known here).
+ */
+type FoldPolicy =
+	| { kind: "none" }
+	| { kind: "integer" }
+	| { kind: "length"; nonNegative: boolean; unitless: boolean };
+
+const INTEGER_PROPERTIES = new Set(["z-index", "order"]);
+
+const SIGNED_LENGTH_PROPERTY =
+	/^(?:margin(?:-.+)?|inset(?:-.+)?|top|right|bottom|left|translate|letter-spacing|word-spacing|text-indent|scroll-margin(?:-.+)?|outline-offset|text-underline-offset)$/u;
+
+const NON_NEGATIVE_LENGTH_PROPERTY =
+	/^(?:(?:min-|max-)?(?:width|height|inline-size|block-size)|padding(?:-.+)?|gap|row-gap|column-gap|border-radius|border-(?:top|bottom|start|end)-(?:left|right|start|end)-radius|font-size|flex-basis|scroll-padding(?:-.+)?|outline-width|border-width|border-(?:top|right|bottom|left|inline|block|inline-start|inline-end|block-start|block-end)-width|border-spacing)$/u;
+
+const foldPolicy = (property: string): FoldPolicy => {
+	if (INTEGER_PROPERTIES.has(property)) return { kind: "integer" };
+	if (SIGNED_LENGTH_PROPERTY.test(property)) {
+		return { kind: "length", nonNegative: false, unitless: false };
+	}
+	if (NON_NEGATIVE_LENGTH_PROPERTY.test(property)) {
+		return { kind: "length", nonNegative: true, unitless: false };
+	}
+	if (property === "line-height") {
+		return { kind: "length", nonNegative: true, unitless: true };
+	}
+	return { kind: "none" };
+};
+
+const foldAccepts = (policy: FoldPolicy, { value, unit }: Quantity) => {
+	switch (policy.kind) {
+		case "none":
+			return false;
+		case "integer":
+			return unit === "" && value.d === 1n;
+		case "length":
+			return (
+				(unit !== "" || policy.unitless) &&
+				(!policy.nonNegative || value.n >= 0n)
+			);
+	}
+};
+
+/** Replaces each top-level `calc()` by its result where the policy allows. */
+const foldCalc = (tokens: ValueToken[], policy: FoldPolicy): ValueToken[] =>
+	tokens.map((token) => {
+		if (token.type !== "function" || token.name !== "calc") return token;
+		const result = evaluateCalc(token.args);
+		return result && foldAccepts(policy, result)
+			? { type: "number", value: result.value, unit: result.unit }
+			: token;
+	});
+
+/**
+ * How theme variables may be read: their `@theme` values, and which of them
+ * the stylesheets also set somewhere else (`.dark { --color-white: … }`).
+ */
+export type VerificationContext = {
+	theme: ThemeValues;
+	stylesheet: StylesheetFacts;
+};
+
+/**
+ * Replaces theme variables by their values. `"stable"` replaces only those
+ * whose value cannot vary: outside a math function, and set nowhere but in
+ * `@theme`. `"all"` replaces every one and records in `unstable` the names
+ * that were not stable.
  */
 const substituteTheme = (
-	value: string,
-	theme: ThemeValues,
-	mode: "tokens" | "all",
-	used: Set<string>,
-): string => {
-	let current = value;
-	for (let round = 0; round < 8; round += 1) {
-		const next = substituteOnce(current, theme, mode, used);
-		if (next === current) return current;
-		current = next;
-	}
-	return current;
-};
-
-const substituteOnce = (
-	value: string,
-	theme: ThemeValues,
-	mode: "tokens" | "all",
-	used: Set<string>,
-): string => {
-	let out = "";
-	// Function names of the open parentheses, innermost last.
-	const functions: string[] = [];
-	let index = 0;
-	while (index < value.length) {
-		const char = value[index];
-		if (char === '"' || char === "'") {
-			const end = findStringEnd(value, index);
-			out += value.slice(index, end + 1);
-			index = end + 1;
-			continue;
+	tokens: ValueToken[],
+	context: VerificationContext,
+	mode: "stable" | "all",
+	unstable: Set<string>,
+	insideMath = false,
+	depth = 0,
+): ValueToken[] =>
+	tokens.flatMap((token): ValueToken[] => {
+		if (token.type === "block") {
+			return [
+				{
+					...token,
+					args: substituteTheme(
+						token.args,
+						context,
+						mode,
+						unstable,
+						insideMath,
+						depth,
+					),
+				},
+			];
 		}
-		const call = /^([\w-]+)\(/u.exec(value.slice(index));
-		if (call && (index === 0 || !/[\w-]/u.test(value[index - 1]))) {
-			const name = call[1].toLowerCase();
-			if (name === "var") {
-				const close = findClosing(value, index + call[0].length - 1);
-				const inner = value.slice(index + call[0].length, close);
-				const comma = inner.indexOf(",");
-				const variable = (comma === -1 ? inner : inner.slice(0, comma)).trim();
-				const replacement = theme(variable);
-				const insideMath = functions.some((fn) => MATH_FUNCTIONS.has(fn));
-				if (replacement !== undefined && (mode === "all" || !insideMath)) {
-					used.add(variable);
-					out += replacement;
-					index = close + 1;
-					continue;
+		if (token.type !== "function") return [token];
+		if (token.name === "var") {
+			const [first] = trimSpaces(token.args);
+			const name = first?.type === "ident" ? first.value : null;
+			const value = name === null ? undefined : context.theme(name);
+			if (name !== null && value !== undefined) {
+				const stable =
+					!insideMath && !variesOutsideTheme(context.stylesheet, name);
+				if (stable || mode === "all") {
+					if (!stable) unstable.add(name);
+					if (depth > 8)
+						throw new Error(`Theme variables nest too deep at ${name}`);
+					return substituteTheme(
+						tokenizeValue(value),
+						context,
+						mode,
+						unstable,
+						insideMath,
+						depth + 1,
+					);
 				}
 			}
-			functions.push(name);
-			out += call[0];
-			index += call[0].length;
-			continue;
 		}
-		if (char === "(") functions.push("");
-		if (char === ")") functions.pop();
-		out += char;
-		index += 1;
-	}
-	return out;
-};
-
-const normalizeValue = (value: string) =>
-	normalizeValueText(evaluateCalc(normalizeValueText(value)));
+		return [
+			{
+				...token,
+				args: substituteTheme(
+					token.args,
+					context,
+					mode,
+					unstable,
+					insideMath || MATH_FUNCTIONS.has(token.name),
+					depth,
+				),
+			},
+		];
+	});
 
 type ValueComparison =
 	| { status: "equal" }
 	| { status: "theme"; variables: string[] }
 	| { status: "different" };
 
+/**
+ * Equal as written, then with the stable theme variables replaced, then with
+ * every theme variable replaced: equal only that way depends on the theme,
+ * through the variables that were not stable.
+ */
 const compareValues = (
+	property: string,
 	original: string,
 	canonical: string,
-	theme: ThemeValues,
+	context: VerificationContext,
 ): ValueComparison => {
-	if (normalizeValue(original) === normalizeValue(canonical)) {
-		return { status: "equal" };
-	}
-	const resolve = (value: string, mode: "tokens" | "all", used: Set<string>) =>
-		normalizeValue(
-			substituteTheme(normalizeValueText(value), theme, mode, used),
+	const policy = foldPolicy(property);
+	const before = tokenizeValue(original);
+	const after = tokenizeValue(canonical);
+	const render = (
+		tokens: ValueToken[],
+		mode: "stable" | "all" | null,
+		unstable: Set<string>,
+	) =>
+		serializeTokens(
+			foldCalc(
+				mode === null
+					? tokens
+					: substituteTheme(tokens, context, mode, unstable),
+				policy,
+			),
 		);
-	if (
-		resolve(original, "tokens", new Set()) ===
-		resolve(canonical, "tokens", new Set())
-	) {
+	const ignored = new Set<string>();
+	if (render(before, null, ignored) === render(after, null, ignored)) {
 		return { status: "equal" };
 	}
-	const usedByOriginal = new Set<string>();
-	const usedByCanonical = new Set<string>();
-	if (
-		resolve(original, "all", usedByOriginal) ===
-		resolve(canonical, "all", usedByCanonical)
-	) {
-		const variables = [
-			...[...usedByCanonical].filter((name) => !usedByOriginal.has(name)),
-			...[...usedByOriginal].filter((name) => !usedByCanonical.has(name)),
-		];
-		return { status: "theme", variables };
+	if (render(before, "stable", ignored) === render(after, "stable", ignored)) {
+		return { status: "equal" };
 	}
-	return { status: "different" };
+	const unstable = new Set<string>();
+	if (render(before, "all", unstable) !== render(after, "all", unstable)) {
+		return { status: "different" };
+	}
+	return unstable.size === 0
+		? { status: "equal" }
+		: { status: "theme", variables: [...unstable] };
+};
+
+// ---------------------------------------------------------------------------
+// Stylesheets the system loaded
+// ---------------------------------------------------------------------------
+
+/**
+ * What the system's stylesheets say beyond `@theme`, read from their text
+ * (every stylesheet the system loaded, imports included).
+ */
+export type StylesheetFacts = {
+	/**
+	 * Custom properties set outside `@theme`: in any rule, at-rule or
+	 * `@utility` (`.dark { --color-white: #000 }`). A theme variable set
+	 * there does not always have its `@theme` value.
+	 */
+	contextVariables: ReadonlySet<string>;
+	/**
+	 * `@property` registrations by name, their descriptors as compared;
+	 * null when a name is registered twice, differently.
+	 */
+	registrations: ReadonlyMap<string, string | null>;
+	/** False when the text could not be read: nothing above can then be relied on. */
+	complete: boolean;
+};
+
+export const EMPTY_STYLESHEET_FACTS: StylesheetFacts = {
+	contextVariables: new Set(),
+	registrations: new Map(),
+	complete: true,
+};
+
+const variesOutsideTheme = (stylesheet: StylesheetFacts, name: string) =>
+	!stylesheet.complete || stylesheet.contextVariables.has(name);
+
+/** `@property` descriptors in one comparable spelling, in any order. */
+const registrationBody = (
+	descriptors: ReadonlyArray<{ property: string; value: string }>,
+) =>
+	descriptors
+		.map(
+			({ property, value }) =>
+				`${property.toLowerCase()}:${serializeTokens(tokenizeValue(value))}`,
+		)
+		.sort(compareText)
+		.join(";");
+
+/** Scans stylesheet text for the facts above. */
+export const scanStylesheetFacts = (css: string): StylesheetFacts => {
+	const contextVariables = new Set<string>();
+	const registrations = new Map<string, string | null>();
+	type Frame = {
+		prelude: string;
+		descriptors: Array<{ property: string; value: string }>;
+	};
+	const stack: Frame[] = [];
+	let buffer = "";
+	const insideTheme = () =>
+		stack.some((frame) => /^@theme\b/iu.test(frame.prelude));
+	const statement = () => {
+		const text = buffer.trim();
+		buffer = "";
+		if (!text || stack.length === 0 || insideTheme()) return;
+		const colon = text.indexOf(":");
+		if (colon === -1) return;
+		const property = text.slice(0, colon).trim();
+		const value = text.slice(colon + 1).trim();
+		if (property.startsWith("--")) contextVariables.add(property);
+		stack[stack.length - 1].descriptors.push({ property, value });
+	};
+	try {
+		for (let index = 0; index < css.length; index += 1) {
+			const char = css[index];
+			if (char === "\\") {
+				buffer += css.slice(index, index + 2);
+				index += 1;
+			} else if (char === '"' || char === "'") {
+				const end = findStringEnd(css, index);
+				buffer += css.slice(index, end + 1);
+				index = end;
+			} else if (char === "/" && css[index + 1] === "*") {
+				const end = css.indexOf("*/", index + 2);
+				if (end === -1) throw new Error("Unterminated comment");
+				index = end + 1;
+			} else if (char === "(") {
+				const end = findClosing(css, index);
+				buffer += css.slice(index, end + 1);
+				index = end;
+			} else if (char === "{") {
+				stack.push({ prelude: collapse(buffer), descriptors: [] });
+				buffer = "";
+			} else if (char === "}") {
+				statement();
+				const frame = stack.pop();
+				if (!frame) throw new Error("Unbalanced }");
+				const property = /^@property\s+(--\S+)$/iu.exec(frame.prelude);
+				if (property && !insideTheme()) {
+					const body = registrationBody(frame.descriptors);
+					const known = registrations.get(property[1]);
+					registrations.set(
+						property[1],
+						known === undefined || known === body ? body : null,
+					);
+				}
+			} else if (char === ";") {
+				statement();
+			} else {
+				buffer += char;
+			}
+		}
+		if (stack.length > 0) throw new Error("Unbalanced {");
+	} catch {
+		return { contextVariables, registrations, complete: false };
+	}
+	return { contextVariables, registrations, complete: true };
 };
 
 // ---------------------------------------------------------------------------
@@ -899,6 +1252,45 @@ const formatSpecificity = (specificity: Specificity | null) =>
 const describeEntry = (entry: Entry) =>
 	`${entry.property}: ${entry.value}${entry.important ? " !important" : ""}`;
 
+/** The name an `@property` entry registers, if it is one. */
+const registeredName = (entry: Entry) => {
+	if (entry.context.length !== 1) return null;
+	return /^@property\s+(--\S+)$/iu.exec(entry.context[0])?.[1] ?? null;
+};
+
+/**
+ * Drops the canonical side's `@property` rules the class does not emit when
+ * the stylesheets already register the same name identically: then adding
+ * it changes nothing. Any other added registration changes how the variable
+ * inherits or starts, so it is a difference (the reason), as is one the
+ * class has and the form lacks (left for the comparison to find).
+ */
+const withoutRegisteredExtras = (
+	after: Entry[],
+	before: Entry[],
+	stylesheet: StylesheetFacts,
+): Entry[] | string => {
+	const emitted = new Set(before.map(registeredName));
+	const extras = new Map<string, Entry[]>();
+	for (const entry of after) {
+		const name = registeredName(entry);
+		if (name === null || emitted.has(name)) continue;
+		extras.set(name, [...(extras.get(name) ?? []), entry]);
+	}
+	for (const [name, entries] of extras) {
+		const registered = stylesheet.complete
+			? stylesheet.registrations.get(name)
+			: undefined;
+		if (registered == null || registered !== registrationBody(entries)) {
+			return `registers ${name} (@property), which the class does not and the stylesheets do not already`;
+		}
+	}
+	return after.filter((entry) => {
+		const name = registeredName(entry);
+		return name === null || !extras.has(name);
+	});
+};
+
 /**
  * Compares the compiled CSS of a class and of its canonical form (Tailwind's
  * `candidatesToCss` output for each, null when it compiles to nothing).
@@ -906,7 +1298,7 @@ const describeEntry = (entry: Entry) =>
 export const compareCompiledClasses = (
 	original: { candidate: string; css: string | null },
 	canonical: { candidate: string; css: string | null },
-	theme: ThemeValues,
+	context: VerificationContext,
 ): CanonicalVerdict => {
 	if (canonical.css === null || !canonical.css.trim()) {
 		return { status: "different", reason: "compiles to no CSS" };
@@ -917,13 +1309,11 @@ export const compareCompiledClasses = (
 			reason: "the class it replaces compiles to no CSS",
 		};
 	}
-	let before: Entry[];
-	let after: Entry[];
 	try {
-		before = flatten(parseCss(original.css), original.candidate);
-		after = withoutExtraRegistrations(
+		return compareEntries(
+			flatten(parseCss(original.css), original.candidate),
 			flatten(parseCss(canonical.css), canonical.candidate),
-			before,
+			context,
 		);
 	} catch (error) {
 		return {
@@ -931,6 +1321,15 @@ export const compareCompiledClasses = (
 			reason: `its CSS could not be compared (${error instanceof Error ? error.message : String(error)})`,
 		};
 	}
+};
+
+const compareEntries = (
+	before: Entry[],
+	compiled: Entry[],
+	context: VerificationContext,
+): CanonicalVerdict => {
+	const after = withoutRegisteredExtras(compiled, before, context.stylesheet);
+	if (typeof after === "string") return { status: "different", reason: after };
 	if (before.length !== after.length) {
 		return {
 			status: "different",
@@ -964,13 +1363,10 @@ export const compareCompiledClasses = (
 				reason: `applies under "${is.context.join(" ")}" where the class applies under "${was.context.join(" ")}"`,
 			};
 		}
-		if (was.property !== is.property || was.important !== is.important) {
-			return {
-				status: "different",
-				reason: `declares "${describeEntry(is)}" where the class declares "${describeEntry(was)}"`,
-			};
-		}
-		const values = compareValues(was.value, is.value, theme);
+		const values =
+			was.property === is.property && was.important === is.important
+				? compareValues(was.property, was.value, is.value, context)
+				: ({ status: "different" } as const);
 		if (values.status === "different") {
 			return {
 				status: "different",
@@ -988,21 +1384,6 @@ export const compareCompiledClasses = (
 		};
 	}
 	return { status: "equivalent" };
-};
-
-/** The `@property --tw-*` rule an entry belongs to, if any. */
-const tailwindRegistration = (entry: Entry) => {
-	const at = entry.context[0];
-	return entry.context.length === 1 && /^@property --tw-/u.test(at) ? at : null;
-};
-
-/** Drops the canonical side's `@property --tw-*` rules the class does not emit. */
-const withoutExtraRegistrations = (after: Entry[], before: Entry[]) => {
-	const registered = new Set(before.map(tailwindRegistration));
-	return after.filter((entry) => {
-		const registration = tailwindRegistration(entry);
-		return registration === null || registered.has(registration);
-	});
 };
 
 const themeLookups = new WeakMap<TailwindDesignSystem, ThemeValues>();
@@ -1030,16 +1411,18 @@ export const themeValuesOf = (
 /**
  * The class as Tailwind writes it (`canonicalizeCandidates`, see
  * `canonicalizeTailwindCandidate`) and, when that differs, whether both
- * compile to the same CSS on this system.
+ * compile to the same CSS on this system. `stylesheet` is
+ * `scanStylesheetFacts` over every stylesheet the system loaded.
  */
 export const canonicalizeAndVerifyTailwindCandidate = (
-	designSystem: TailwindDesignSystem,
+	system: { designSystem: TailwindDesignSystem; stylesheet: StylesheetFacts },
 	candidate: string,
 	canonicalize: (
 		designSystem: TailwindDesignSystem,
 		candidate: string,
 	) => string,
 ): CanonicalizedClass => {
+	const { designSystem } = system;
 	const canonical = canonicalize(designSystem, candidate);
 	if (canonical === candidate) return { canonical };
 	const compile = (value: string) => {
@@ -1054,7 +1437,7 @@ export const canonicalizeAndVerifyTailwindCandidate = (
 		verdict: compareCompiledClasses(
 			{ candidate, css: compile(candidate) },
 			{ candidate: canonical, css: compile(canonical) },
-			themeValuesOf(designSystem),
+			{ theme: themeValuesOf(designSystem), stylesheet: system.stylesheet },
 		),
 	};
 };
