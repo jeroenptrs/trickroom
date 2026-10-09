@@ -639,6 +639,8 @@ Outcome and the baseline:
 - `--check` never writes, whatever the outcome.
 - An unreadable committed report (invalid JSON, unsupported version, a folder or a permission problem in its place) is reported as `INVALID_BASELINE` and the run starts a new baseline.
 
+**When an upgrade widens a rule's scope.** A Trickroom release can make an existing kind check more than it did, so the same project gets more findings. For example, the design class kinds started checking component templates (see [Component classes](#component-classes)) and reported classes no rule had looked at. Unlike a new kind, a wider kind is not adopted: its id is in the baseline, so the run fails on the rise and writes nothing. The way to reset the bar is the first-run path: delete the committed `lint-report.json`, run `trickroom lint`, check that the new report says `"status": "pass"`, and commit it on its own with a message naming the upgrade and the counts it changed. Review the findings first: only a rise the upgrade explains should go into the new baseline. A future `--adopt`-style option could make this reset explicit, adopting the current numbers of named kinds without dropping the rest of the baseline.
+
 Concurrent runs. Reading the baseline, comparing and writing are one step per report, so two runs can never both compare against the same old baseline and leave the worse result behind:
 
 - **In one process** (the server, the MCP tool), runs that write queue up per report path: the second reads the baseline the first wrote. With a baseline of 10, a run with 5 and a run with 8 started together leave 5, whichever goes first (the run with 8 either fails against 5 or is replaced by it).
