@@ -852,6 +852,7 @@ async function runLintInner(
 			numbers,
 			baseline: previousBaseline,
 			thresholds: config.thresholds,
+			summary: draft.summary,
 		});
 		result.baseline = previous.status;
 		result.ratchet = ratchet;
@@ -873,6 +874,7 @@ async function runLintInner(
 				result: ratchet,
 				generatedAt,
 				previous: previousBaseline,
+				kinds: registry.kinds.map((kind) => kind.id),
 			}),
 		});
 		return ratchet;

@@ -33,6 +33,7 @@ import { designOnlyClassTargetRule } from "./rules/design/design-only-class-targ
 import { designUnknownClassTokenRule } from "./rules/design/unknown-class-token";
 import { designUnknownVariantValueRule } from "./rules/design/unknown-variant-value";
 import { createLintRuleRegistry } from "./rules/registry";
+import type { LintRuleKind } from "./rules/types";
 import {
 	createTwMergeConfigLoader,
 	type RunLintInput,
@@ -236,6 +237,13 @@ describe("runLint", () => {
 		]);
 		expect(report?.ratchetBaseline).toEqual({
 			generatedAt: "2026-03-01T10:00:00.000Z",
+			kinds: [
+				"code.variants-file-orphaned",
+				"code.variants-file-stale",
+				"design.design-only-class-target",
+				"design.unknown-class-token",
+				"design.unknown-variant-value",
+			],
 			numbers: expect.objectContaining({
 				"code.errors": 1,
 				"coverage.bound": 1,
@@ -306,10 +314,7 @@ describe("runLint", () => {
 		const stored = await readReport(project);
 		expect(stored?.ratchetBaseline.numbers["code.errors"]).toBe(0);
 		expect(stored?.ratchet).toEqual(sixth.ratchet);
-		expect(stored?.ratchet.baseline).toEqual({
-			generatedAt: "2026-03-01T10:00:00.000Z",
-			numbers: report?.ratchetBaseline.numbers,
-		});
+		expect(stored?.ratchet.baseline).toEqual(report?.ratchetBaseline);
 		expect(stored?.ratchet.baseline?.numbers["code.errors"]).toBe(1);
 		expect(stored?.ratchet.numbers["code.errors"]).toBe(0);
 	});
@@ -833,6 +838,226 @@ describe("runLint with codegen.twMerge", () => {
 		]);
 		// Stock tailwind-merge takes text-label-sm for a colour the base replaces.
 		expect(await lint(false)).toEqual([]);
+	});
+});
+
+describe("runLint adopting newly shipped kinds", () => {
+	const projects: CodegenTestProject[] = [];
+	afterEach(async () => {
+		await Promise.all(projects.splice(0).map((project) => project.cleanup()));
+	});
+
+	// A kind shipped after the baseline was written: `warnings` warnings
+	// and `errors` errors on src/app.tsx.
+	const fresh = { warnings: 2, errors: 1 };
+	const freshRule: LintRuleKind = {
+		id: "code.fresh",
+		side: "code",
+		defaultSeverity: "warning",
+		description: "A kind newer than the baseline.",
+		run: ({ rule }) =>
+			Array.from(
+				{ length: rule.severity === "error" ? fresh.errors : fresh.warnings },
+				(_, index) => ({
+					message: `fresh ${index}`,
+					location: { kind: "code" as const, file: "src/app.tsx", line: 1 },
+				}),
+			),
+	};
+	// Errors and warnings at once: two instances would need two ids, so the
+	// error half comes from a second kind.
+	const freshErrorRule: LintRuleKind = {
+		...freshRule,
+		id: "code.fresh-error",
+		defaultSeverity: "error",
+	};
+	const oldRegistry = createLintRuleRegistry([
+		variantsFileStaleRule,
+		variantsFileOrphanedRule,
+	]);
+	const newRegistry = createLintRuleRegistry([
+		variantsFileStaleRule,
+		variantsFileOrphanedRule,
+		freshRule,
+		freshErrorRule,
+	]);
+
+	const setup = async () => {
+		fresh.warnings = 2;
+		fresh.errors = 1;
+		const project = await createCodegenTestProject({
+			codegen: { version: 1, outDir: "src/ui" },
+			components: [publishedComponent("button", flatPayload("px-3"))],
+		});
+		projects.push(project);
+		await mkdir(project.path("src/ui"), { recursive: true });
+		await writeFile(
+			project.path("src/app.tsx"),
+			"export const App = () => <div />;\n",
+		);
+		await generate(project);
+		return project;
+	};
+	const generate = async (project: CodegenTestProject) => {
+		const read = await readProjectConfigReadOnly(project.root);
+		const config = resolveCodegenConfig(read.config);
+		if (config.status !== "configured") throw new Error("unconfigured");
+		await runCodegen({ projectRoot: project.root, config, mode: "write" });
+	};
+	const reportFile = (project: CodegenTestProject) =>
+		project.path(".trickroom/systems/core/lint-report.json");
+	const writeLintJson = (project: CodegenTestProject, rules: object) =>
+		writeFile(
+			project.path(".trickroom/systems/core/lint.json"),
+			`${JSON.stringify({ version: 1, rules })}\n`,
+		);
+
+	it("adopts a kind the baseline predates, compares the rest as before, and records it on the next write", async () => {
+		const project = await setup();
+		const first = await runLintWithEveryKind({
+			registry: oldRegistry,
+			projectRoot: project.root,
+		});
+		expect(first.written).toBe(true);
+		expect(first.report?.ratchetBaseline.kinds).toEqual([
+			"code.variants-file-orphaned",
+			"code.variants-file-stale",
+		]);
+
+		const checked = await runLintWithEveryKind({
+			registry: newRegistry,
+			projectRoot: project.root,
+			check: true,
+		});
+		expect(checked.status).toBe("pass");
+		expect(checked.ratchet?.regressions).toEqual([]);
+		expect(checked.ratchet?.adopted).toEqual([
+			{ metric: "rule.code.fresh", current: 2 },
+			{ metric: "rule.code.fresh-error", current: 1 },
+		]);
+		// The baseline compared against has the adopted counts folded in.
+		expect(checked.ratchet?.baseline?.numbers).toMatchObject({
+			"code.errors": 1,
+			"code.warnings": 2,
+			"rule.code.fresh": 2,
+			"rule.code.fresh-error": 1,
+		});
+		expect(checked.ratchet?.numbers).toMatchObject({
+			"code.errors": 1,
+			"code.warnings": 2,
+		});
+
+		// An old kind that got worse still fails, with the aggregate compared
+		// without the adopted counts.
+		await writeFile(
+			project.path("src/ui/button.variants.ts"),
+			`${await readFile(project.path("src/ui/button.variants.ts"), "utf8")}// edited\n`,
+		);
+		const worse = await runLintWithEveryKind({
+			registry: newRegistry,
+			projectRoot: project.root,
+		});
+		expect(worse.status).toBe("fail");
+		expect(worse.written).toBe(false);
+		expect(worse.ratchet?.regressions).toEqual([
+			{ metric: "code.errors", baseline: 1, current: 2 },
+			{ metric: "coverage.generated", baseline: 1, current: 0 },
+			{ metric: "rule.code.variants-file-stale", baseline: 0, current: 1 },
+		]);
+		expect(worse.ratchet?.adopted).toHaveLength(2);
+		await generate(project);
+
+		const written = await runLintWithEveryKind({
+			registry: newRegistry,
+			projectRoot: project.root,
+		});
+		expect(written).toMatchObject({ status: "pass", written: true });
+		expect(written.report?.ratchetBaseline).toMatchObject({
+			kinds: [
+				"code.fresh",
+				"code.fresh-error",
+				"code.variants-file-orphaned",
+				"code.variants-file-stale",
+			],
+			numbers: { "rule.code.fresh": 2, "code.warnings": 2 },
+		});
+
+		const again = await runLintWithEveryKind({
+			registry: newRegistry,
+			projectRoot: project.root,
+			check: true,
+		});
+		expect(again.status).toBe("pass");
+		expect(again.ratchet?.adopted).toEqual([]);
+		fresh.warnings = 3;
+		const freshWorse = await runLintWithEveryKind({
+			registry: newRegistry,
+			projectRoot: project.root,
+			check: true,
+		});
+		expect(freshWorse.ratchet?.regressions).toEqual([
+			{ metric: "code.warnings", baseline: 2, current: 3 },
+			{ metric: "rule.code.fresh", baseline: 2, current: 3 },
+		]);
+	});
+
+	it("compares a kind switched off and on again as usual", async () => {
+		const project = await setup();
+		await writeLintJson(project, { "code.fresh": { enabled: false } });
+		const off = await runLintWithEveryKind({
+			registry: newRegistry,
+			projectRoot: project.root,
+		});
+		expect(off.written).toBe(true);
+		expect(off.report?.ratchetBaseline.kinds).toContain("code.fresh");
+		expect(off.report?.ratchetBaseline.numbers).not.toHaveProperty(
+			"rule.code.fresh",
+		);
+
+		await writeLintJson(project, {});
+		const on = await runLintWithEveryKind({
+			registry: newRegistry,
+			projectRoot: project.root,
+			check: true,
+		});
+		expect(on.status).toBe("fail");
+		expect(on.ratchet?.adopted).toEqual([]);
+		expect(on.ratchet?.regressions).toEqual([
+			{ metric: "code.warnings", baseline: 0, current: 2 },
+			{ metric: "rule.code.fresh", baseline: 0, current: 2 },
+		]);
+	});
+
+	it("takes the kinds without a number in a baseline written before kinds were recorded as new", async () => {
+		const project = await setup();
+		await writeLintJson(project, { "code.fresh-error": { enabled: false } });
+		await runLintWithEveryKind({
+			registry: newRegistry,
+			projectRoot: project.root,
+		});
+		const stored = JSON.parse(await readFile(reportFile(project), "utf8"));
+		// The baseline as a Trickroom before this field wrote it, and without
+		// code.fresh, as if it shipped later.
+		delete stored.ratchetBaseline.kinds;
+		delete stored.ratchet.adopted;
+		delete stored.ratchetBaseline.numbers["rule.code.fresh"];
+		stored.ratchetBaseline.numbers["code.warnings"] = 0;
+		await writeFile(reportFile(project), JSON.stringify(stored));
+
+		await writeLintJson(project, {});
+		const upgraded = await runLintWithEveryKind({
+			registry: newRegistry,
+			projectRoot: project.root,
+			check: true,
+		});
+		expect(upgraded.baseline).toBe("present");
+		expect(upgraded.status).toBe("pass");
+		// Both have no number in the old baseline: code.fresh as a kind it
+		// predates, code.fresh-error as one it had switched off.
+		expect(upgraded.ratchet?.adopted).toEqual([
+			{ metric: "rule.code.fresh", current: 2 },
+			{ metric: "rule.code.fresh-error", current: 1 },
+		]);
 	});
 });
 

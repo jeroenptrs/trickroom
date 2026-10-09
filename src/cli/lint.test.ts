@@ -97,6 +97,49 @@ describe("trickroom lint", () => {
 		expect(checked.stdout).not.toContain("Report written");
 	});
 
+	it("lists the kinds it adopts into the baseline on --check and on a run", async () => {
+		const project = await setup();
+		await writeFile(
+			project.path("src/ui/badge.variants.ts"),
+			`${await readFile(project.path("src/ui/badge.variants.ts"), "utf8")}// edited\n`,
+		);
+		expect((await run([project.root])).code).toBe(0);
+		// The baseline as a Trickroom before code.variants-file-stale shipped
+		// would have written it.
+		const reportPath = project.path(".trickroom/systems/core/lint-report.json");
+		const stored = JSON.parse(await readFile(reportPath, "utf8"));
+		const baseline = stored.ratchetBaseline;
+		baseline.kinds = baseline.kinds.filter(
+			(kind: string) => kind !== "code.variants-file-stale",
+		);
+		delete baseline.numbers["rule.code.variants-file-stale"];
+		baseline.numbers["code.errors"] = 0;
+		await writeFile(reportPath, JSON.stringify(stored));
+
+		const checked = await run([project.root, "--check"]);
+		expect(checked.code).toBe(0);
+		expect(checked.stdout).toContain(
+			"adopted: rule.code.variants-file-stale 1 (new rule kind)",
+		);
+		expect(checked.stdout).not.toContain("worse:");
+		expect(checked.stdout).toContain(
+			"Nothing written (--check). 1 new rule kind adopted into the baseline once lint runs without --check.",
+		);
+
+		const written = await run([project.root]);
+		expect(written.code).toBe(0);
+		expect(written.stdout).toContain(
+			"adopted: rule.code.variants-file-stale 1 (new rule kind)",
+		);
+		expect(written.stdout).toContain(
+			"Report written to .trickroom/systems/core/lint-report.json. 1 new rule kind adopted into the baseline.",
+		);
+
+		const again = await run([project.root, "--check"]);
+		expect(again.code).toBe(0);
+		expect(again.stdout).not.toContain("adopted");
+	});
+
 	it("prints the run result JSON alone with --json", async () => {
 		const project = await setup();
 		const { code, stdout, stderr } = await run([

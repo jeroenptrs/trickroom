@@ -265,6 +265,21 @@ describe("System editor lint page", () => {
 		expect(html).toContain("its contract hash differs");
 	});
 
+	it("lists the kinds the run adopted into the baseline", () => {
+		const html = renderLintPage({
+			report: {
+				...codeOnlyLintReport,
+				ratchet: {
+					...codeOnlyLintReport.ratchet,
+					adopted: [{ metric: "rule.code.unknown-variant-value", current: 1 }],
+				},
+			},
+		});
+		expect(html).toContain("New rule kinds, adopted into the baseline");
+		expect(html).toContain("rule.code.unknown-variant-value: 1");
+		expect(renderLintPage()).not.toContain("adopted into the baseline");
+	});
+
 	it("shows the design side when the report fills it", () => {
 		const html = renderLintPage({ report: fullLintReport });
 		expect(html).not.toContain("Not available yet");

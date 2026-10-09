@@ -184,14 +184,16 @@ type LintReport = {
   ratchetBaseline: {
     generatedAt: string;                    // the passing run the numbers come from
     numbers: Record<string, number>;        // tracked numbers, see Ratchet
+    kinds?: string[];                       // every rule kind id the writing Trickroom shipped, enabled or not; absent in baselines from before it was recorded, see Ratchet
   };
 };
 
 type LintRatchetResult = {
   status: "pass" | "fail";
-  baseline: { generatedAt: string; numbers: Record<string, number> } | null; // what this run compared against
+  baseline: { generatedAt: string; numbers: Record<string, number>; kinds?: string[] } | null; // what this run compared against, adopted kinds folded in
   regressions: Array<{ metric: string; baseline: number; current: number }>;
   breaches: Array<{ metric: string; kind: "max" | "min"; limit: number; current: number }>;
+  adopted: Array<{ metric: string; current: number }>; // new rule kinds taken into the baseline, see Ratchet; read as [] from older reports
   numbers: Record<string, number>;          // this run's tracked numbers
 };
 
@@ -296,16 +298,20 @@ Example, cut from this repository's own report (no `codegen` block, so `generate
 		"baseline": null,
 		"regressions": [],
 		"breaches": [],
+		"adopted": [],
 		"numbers": { "code.errors": 0, "code.warnings": 299, "coverage.published": 16, "coverage.usedInDesigns": 5, "design.warnings": 238, "…": 0 }
 	},
 	"ratchetBaseline": {
 		"generatedAt": "2026-10-06T20:48:08.434Z",
-		"numbers": { "code.errors": 0, "code.warnings": 299, "coverage.published": 16, "coverage.usedInDesigns": 5, "design.warnings": 238, "…": 0 }
+		"numbers": { "code.errors": 0, "code.warnings": 299, "coverage.published": 16, "coverage.usedInDesigns": 5, "design.warnings": 238, "…": 0 },
+		"kinds": ["code.component-styling-restricted", "code.non-canonical-class", "…", "design.unknown-variant-value"]
 	}
 }
 ```
 
-Ordering, so the committed file diffs cleanly: findings by side, rule, location (file, line, column; design, board, element, path), severity, component, message; components by slug; files by file; designs by design then board (the `board: null` row first); regressions and breaches by metric; every map by key. `files` lists only files that have a role, a usage or a finding; `summary.code.scanned` counts the rest. `designs` lists every board of every linked design, clean or not, and one `board: null` row per design for what is on no board (always zero today: usages and design findings sit on a board), so a design without boards is still listed; `summary.design.scanned` counts the linked designs read. `writeLintReport` writes through a temp file and a rename, and only into a folder that resolves (symlinks followed) to a direct child of `.trickroom/systems`.
+Ordering, so the committed file diffs cleanly: findings by side, rule, location (file, line, column; design, board, element, path), severity, component, message; components by slug; files by file; designs by design then board (the `board: null` row first); regressions, breaches and adoptions by metric; baseline kinds by id; every map by key.
+
+`ratchetBaseline.kinds` and `ratchet.adopted` were added without a version bump: both are optional on read, so a report written before them still reads (no kinds, nothing adopted), and a Trickroom from before them reads a newer report and ignores both. A version bump would have made that older Trickroom take every newer report as unusable and start a new baseline. `files` lists only files that have a role, a usage or a finding; `summary.code.scanned` counts the rest. `designs` lists every board of every linked design, clean or not, and one `board: null` row per design for what is on no board (always zero today: usages and design findings sit on a board), so a design without boards is still listed; `summary.design.scanned` counts the linked designs read. `writeLintReport` writes through a temp file and a rename, and only into a folder that resolves (symlinks followed) to a direct child of `.trickroom/systems`.
 
 ## The system contract
 
@@ -574,7 +580,18 @@ Tracked numbers:
 | `rule.<kind id>`: errors plus warnings of that kind | lower is better |
 | `coverage.published`, `coverage.generated`, `coverage.bound`, `coverage.usedInApp`, `coverage.usedInDesigns`: components in that state | higher is better |
 
-`info` findings are not tracked. A number missing on either side counts as 0, so switching a kind off or a kind that has not shipped never fails a run; a null coverage state counts as 0. Thresholds are maxima for errors, warnings and per-kind counts, minima for coverage.
+`info` findings are not tracked. A number missing on either side counts as 0, so switching a kind off never fails a run; a null coverage state counts as 0. Thresholds are maxima for errors, warnings and per-kind counts, minima for coverage.
+
+### New rule kinds
+
+A Trickroom release that ships a new rule kind would fail every project's next run on that kind's existing findings, and since a failing run writes nothing, the project could not even record a new baseline. Instead, a kind the baseline **predates** is **adopted**: it is not compared, its count enters the next baseline as it is, and from then on it ratchets like any other kind.
+
+- **Predates.** Every baseline lists in `ratchetBaseline.kinds` all the rule kinds the Trickroom that wrote it shipped, enabled in `lint.json` or not. A kind that ran in this run and is not in that list is new. Whether the baseline has a number for it does not matter.
+- **Switched off and on again.** A kind switched off is still listed (it shipped), so switching it back on is compared as usual: its findings count against a missing number, 0, and fail the run. Switching a kind off, adding violations and switching it back on cannot launder them. Adoption is only for kinds the baseline could not have known.
+- **Baselines without `kinds`**, written before it was recorded: every run writes a `rule.<id>` number for each kind it ran, 0 included, so a kind without a number in such a baseline is taken as new. That also adopts a kind that was switched off when the old baseline was written and is on now, once: the next passing run writes `kinds` and the strict rule applies from there.
+- **Aggregates.** `code.errors`, `code.warnings`, `design.errors` and `design.warnings` are compared with the adopted kinds' errors and warnings left out, so the kinds the baseline knew still ratchet exactly as before. In `ratchet.baseline` the adopted kinds are folded in: their `rule.<id>` number is this run's and their counts are added to the aggregates, so the regressions, the CLI and the dashboard's deltas all compare against the same numbers. `ratchetBaseline` (the committed baseline) is never changed by a comparison.
+- **Thresholds** stay absolute. A `lint.json` maximum on `code.warnings` counts the new kind's warnings too, and a run that breaks it fails as before.
+- **Reported.** `ratchet.adopted` lists `{ metric: "rule.<id>", current }` for every adopted kind, 0 counts included, sorted by metric; empty on a first run and once the baseline lists the kind. `--check` passes when adoption is all that happened but writes nothing, so it adopts the same kinds again next time; a run without `--check` writes the baseline with them and with the current `kinds`. A failing run keeps the previous baseline, so the kinds are adopted on the next passing one.
 
 Two blocks of the report carry the ratchet, with different jobs:
 
@@ -584,7 +601,7 @@ Two blocks of the report carry the ratchet, with different jobs:
 Outcome and the baseline:
 
 - **First run** (no committed report): passes with `ratchet.baseline: null`, and its numbers become the baseline.
-- **Pass**: the report is written with `ratchetBaseline` set to this run's numbers.
+- **Pass**: the report is written with `ratchetBaseline` set to this run's numbers and the rule kinds this Trickroom ships.
 - **Fail**: `trickroom lint` and the `lint` tool write nothing, so the committed baseline stands. The dashboard's `POST` runs with `write: "always"`: the failing report is written (so the UI can show it) but its `ratchetBaseline` is carried over from the previous report. The next run still ratchets against the last passing numbers; a failing report never lowers the bar. The working tree then shows a modified `lint-report.json` with `status: "fail"` that should not be committed as-is.
 - `--check` never writes, whatever the outcome.
 - An unreadable committed report (invalid JSON, unsupported version, a folder or a permission problem in its place) is reported as `INVALID_BASELINE` and the run starts a new baseline.
@@ -598,7 +615,7 @@ Concurrent runs. Reading the baseline, comparing and writing are one step per re
 - **Fencing.** Right before renaming the report into place, the run reads the lock again: when the token is not its own or the lock is gone, it writes nothing and fails with `REPORT_LOCKED`. So a run whose lock was replaced writes nothing, even in the residual case: removing an abandoned reclaim lock is a check and an unlink, so two reclaimers can share the section only if one crashes inside it and two further reclaimers then remove its reclaim lock within the same few milliseconds; the one whose replace comes first then loses its lock, and its fencing check stops its write unless the second replace falls between that check and its report rename. Same-host pid liveness is assumed throughout.
 - **Files.** The report itself is written to a temp file and renamed, so a crash never leaves it half-written; at worst a `.tmp` file and the lock stay behind. The lock is created only in a system folder the report may be written to, the project file watcher ignores it, its temp siblings and the reclaim lock like the report's `.tmp` files, and none is a JSON file, so Biome skips them. Add `.trickroom/systems/*/lint-report.json.lock*` and `.trickroom/systems/*/lint-report.json.reclaim` to `.gitignore` if you do not want an abandoned one in `git status`. `--check` takes no lock.
 
-`LintRatchetResult`, returned by every entry point and stored as the report's `ratchet`: `{ status, baseline: { generatedAt, numbers } | null, regressions: [{ metric, baseline, current }], breaches: [{ metric, kind: "max" | "min", limit, current }], numbers }`.
+`LintRatchetResult`, returned by every entry point and stored as the report's `ratchet`: `{ status, baseline: { generatedAt, numbers, kinds? } | null, regressions: [{ metric, baseline, current }], breaches: [{ metric, kind: "max" | "min", limit, current }], adopted: [{ metric, current }], numbers }`.
 
 ## CLI
 
@@ -612,7 +629,7 @@ trickroom lint [project] [--check] [--json] [--system <id|name>]
 | `--json` | Print the `LintRunResult` alone on stdout: `status`, `mode`, `system`, `report`, `ratchet`, `baseline` (`absent`, `invalid`, `present`), `reportPath`, `written`, `diagnostics`. |
 | `--system` | Select a system by id, name or storage key. |
 
-Exit codes: 0 pass, 1 ratchet failure (including `BASELINE_MOVED`, see [Ratchet](#ratchet)), 2 error (a report lock held by another run for 5 seconds, `REPORT_LOCKED`; no project, invalid config or `lint.json` including invalid rule options and a `lint.json` that cannot be read, unknown or ambiguous system, a source folder or file that cannot be read (`SOURCES_UNREADABLE`), a designs folder that cannot be listed (`DESIGNS_UNREADABLE`), a crashed rule, a refused write, or anything the engine did not foresee, reported as `RUN_FAILED`). Warnings that do not stop a run: `COMPONENT_MANIFEST_DIAGNOSTIC`, `CODEGEN_OTHER_SYSTEM`, `INVALID_BASELINE`, `SOURCE_PARSE_ERROR`, `SOURCE_ROOT_MISSING`, `SOURCES_TRUNCATED`, `WRAPPER_MODULE_NOT_SCANNED`, `DESIGN_UNREADABLE`. An error never escapes `runLint` as an exception, so `--json` output stays valid. Human output lists each side's counts, then findings grouped by rule kind with their location, then every number that got worse and every threshold broken, then one closing line.
+Exit codes: 0 pass, 1 ratchet failure (including `BASELINE_MOVED`, see [Ratchet](#ratchet)), 2 error (a report lock held by another run for 5 seconds, `REPORT_LOCKED`; no project, invalid config or `lint.json` including invalid rule options and a `lint.json` that cannot be read, unknown or ambiguous system, a source folder or file that cannot be read (`SOURCES_UNREADABLE`), a designs folder that cannot be listed (`DESIGNS_UNREADABLE`), a crashed rule, a refused write, or anything the engine did not foresee, reported as `RUN_FAILED`). Warnings that do not stop a run: `COMPONENT_MANIFEST_DIAGNOSTIC`, `CODEGEN_OTHER_SYSTEM`, `INVALID_BASELINE`, `SOURCE_PARSE_ERROR`, `SOURCE_ROOT_MISSING`, `SOURCES_TRUNCATED`, `WRAPPER_MODULE_NOT_SCANNED`, `DESIGN_UNREADABLE`. An error never escapes `runLint` as an exception, so `--json` output stays valid. Human output lists each side's counts, then findings grouped by rule kind with their location, then every new rule kind adopted into the baseline (`adopted: rule.<id> <count> (new rule kind)`, see [New rule kinds](#new-rule-kinds)), every number that got worse and every threshold broken, then one closing line. A passing run that adopted kinds says how many in the closing line; with `--check`, that they are adopted once lint runs without it.
 
 There is no `--help`: an unknown option prints the usage line and exits 2, as `trickroom codegen` does. The unknown-command message of `trickroom` lists `lint`.
 
@@ -638,7 +655,7 @@ Browser side, `src/queries/system-lint.ts`: `systemLintQueryOptions(systemId, pr
 
 The lint page of the System editor (`?tab=lint`, `src/components/system-editor/SystemEditorLintPanel.tsx` and `lint/`) reads the stored report through `systemLintQueryOptions` and `lint.json` through the config query. It reshapes the report and never recomputes it. Folder totals are sums of `files[]`, deltas are `ratchet.numbers` minus `ratchet.baseline.numbers`, and coverage states are the report's booleans. Nothing re-runs a rule or re-derives a state. The views are tabs under the header and entries in the sidebar rail, where each shows what it holds: errors and warnings of both sides, components with a gap, files, designs, findings. The inspector (the right panel) shows the selected finding, file, folder, component or design.
 
-- **Adherence.** Per side, the error, warning and info counts from `summary`, each tracked number with its delta against the baseline the run compared with, a "Regressed" mark for `ratchet.regressions` and an "Over max"/"Under min" mark for `ratchet.breaches`. Limits come from the current `lint.json` thresholds. Below that, one row per rule kind in `summary[side].rules` with its counts, the `rule.<id>` delta and its per-kind maximum; a row opens the findings of that kind. The severity shown is the one the report counted (errors, else warnings, else info); a kind without findings shows the configured severity, muted. Catalogue kinds missing from the summary are listed as disabled. The design side reads "Not available yet" while `summary.design` is null.
+- **Adherence.** The ratchet outcome with each regression and breach, and the kinds in `ratchet.adopted` with their counts. Per side, the error, warning and info counts from `summary`, each tracked number with its delta against the baseline the run compared with (adopted kinds folded in, so they show no delta), a "Regressed" mark for `ratchet.regressions` and an "Over max"/"Under min" mark for `ratchet.breaches`. Limits come from the current `lint.json` thresholds. Below that, one row per rule kind in `summary[side].rules` with its counts, the `rule.<id>` delta and its per-kind maximum; a row opens the findings of that kind. The severity shown is the one the report counted (errors, else warnings, else info); a kind without findings shows the configured severity, muted. Catalogue kinds missing from the summary are listed as disabled. The design side reads "Not available yet" while `summary.design` is null.
 - **Coverage.** One row per `components[]` entry with a five-cell strip (published, generated, bound, used in app, used in designs): solid when met, an amber frame when it is a gap, dashed when the report has null. Gaps are listed as badges with what to do about them in the inspector, which also shows the usages in the app and in designs; null is never a gap. Filters: all, any gap, or the gap of one state, plus a search. Rows are virtualized like the findings list (`useVirtualRows` against the workspace scroller, each row measured since its gap badges may wrap), so a system with thousands of components renders a screenful. Above the table, the component count per state with the coverage delta and minimum.
 - **Code map.** A file tree built from `files[]`. Folders add up usages, findings and file counts, and a folder whose only child is a folder shares its row (`src/components/ui`). Each row has two square swatches, usage in cyan and findings (errors plus warnings) in red, on five discrete steps: zero, then the quartiles of the non-zero file values. Folders use their files' scale, so a busy folder reads as hot. Rows are virtualized with `@tanstack/react-virtual` against the workspace scroller. Filter by path or to files with findings, sort by name, usage or findings. A file shows its findings in the inspector; "Show in findings" opens the list filtered to that file or folder.
 - **Design map.** The same tree over `designs[]`: a design row adds up its board rows, and a row with `board: null` counts towards its design without being listed as a board. Design names come from the design summaries; boards show their id. Empty state while `designs` is null.

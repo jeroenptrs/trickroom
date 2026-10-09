@@ -222,6 +222,7 @@ export const codeOnlyLintReport: LintReport = {
 		},
 		regressions: [{ metric: "code.errors", baseline: 1, current: 2 }],
 		breaches: [{ metric: "coverage.bound", kind: "min", limit: 3, current: 2 }],
+		adopted: [],
 		numbers: {
 			"code.errors": 2,
 			"code.warnings": 1,

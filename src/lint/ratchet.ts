@@ -13,8 +13,15 @@ import type { LintRatchetBaseline, LintReport } from "./report";
  *   state (higher is better; a null state counts as 0)
  *
  * A number missing on one side of the comparison counts as 0, so a rule
- * kind switched off or not yet shipped never fails a run. Documented in
- * docs/lint.md.
+ * kind switched off never fails a run.
+ *
+ * A kind the baseline predates is adopted instead of compared: its
+ * `rule.<id>` count enters the baseline as is, and the side aggregates are
+ * compared with its counts left out. The baseline predates a kind when its
+ * `kinds` (every kind the Trickroom that wrote it shipped, enabled or not)
+ * does not list it; a baseline without `kinds` (written before they were
+ * recorded) predates the kinds it has no `rule.<id>` number for, since
+ * every run writes one for each kind it ran. Documented in docs/lint.md.
  */
 
 export type LintTrackedNumbers = Record<string, number>;
@@ -67,12 +74,25 @@ export type LintRatchetBreach = {
 	current: number;
 };
 
+/** A newly shipped kind whose count entered the baseline as is. */
+export type LintRatchetAdoption = {
+	/** `rule.<kind id>`. */
+	metric: string;
+	current: number;
+};
+
 export type LintRatchetResult = {
 	status: "pass" | "fail";
-	/** The baseline compared against, with its numbers; null on a first run. */
+	/**
+	 * The baseline compared against, with its numbers; null on a first run.
+	 * Adopted kinds are folded in: their `rule.<id>` number is this run's,
+	 * and their errors and warnings are added to the side aggregates.
+	 */
 	baseline: LintRatchetBaseline | null;
 	regressions: LintRatchetRegression[];
 	breaches: LintRatchetBreach[];
+	/** Kinds the baseline predates, not compared; empty on a first run. */
+	adopted: LintRatchetAdoption[];
 	/** This run's tracked numbers. */
 	numbers: LintTrackedNumbers;
 };
@@ -115,15 +135,59 @@ const thresholdLimits = (thresholds: LintThresholds): LintRatchetBreach[] => {
 	return limits;
 };
 
+/** Whether the baseline was written before the kind shipped. */
+const baselinePredatesKind = (baseline: LintRatchetBaseline, kind: string) =>
+	baseline.kinds
+		? !baseline.kinds.includes(kind)
+		: !Object.hasOwn(baseline.numbers, `rule.${kind}`);
+
+/**
+ * The baseline with the kinds it predates folded in: their `rule.<id>`
+ * number set to this run's and their counts added to the side aggregates,
+ * so they compare equal and every other kind ratchets as before.
+ */
+const adoptKinds = (
+	baseline: LintRatchetBaseline,
+	summary: LintReport["summary"],
+): { baseline: LintRatchetBaseline; adopted: LintRatchetAdoption[] } => {
+	const numbers = { ...baseline.numbers };
+	const adopted: LintRatchetAdoption[] = [];
+	for (const side of ["code", "design"] as const) {
+		for (const [kind, counts] of Object.entries(summary[side]?.rules ?? {})) {
+			if (!baselinePredatesKind(baseline, kind)) continue;
+			const current = counts.errors + counts.warnings;
+			adopted.push({ metric: `rule.${kind}`, current });
+			numbers[`rule.${kind}`] = current;
+			numbers[`${side}.errors`] =
+				(numbers[`${side}.errors`] ?? 0) + counts.errors;
+			numbers[`${side}.warnings`] =
+				(numbers[`${side}.warnings`] ?? 0) + counts.warnings;
+		}
+	}
+	adopted.sort((left, right) =>
+		left.metric < right.metric ? -1 : left.metric > right.metric ? 1 : 0,
+	);
+	return adopted.length === 0
+		? { baseline, adopted }
+		: { baseline: { ...baseline, numbers }, adopted };
+};
+
 export const compareLintRatchet = ({
 	numbers,
-	baseline,
+	baseline: stored,
 	thresholds,
+	summary,
 }: {
 	numbers: LintTrackedNumbers;
 	baseline: LintRatchetBaseline | null;
 	thresholds: LintThresholds;
+	/** This run's per-kind counts; without them no kind is adopted. */
+	summary?: LintReport["summary"];
 }): LintRatchetResult => {
+	const { baseline, adopted } =
+		stored && summary
+			? adoptKinds(stored, summary)
+			: { baseline: stored, adopted: [] };
 	const regressions: LintRatchetRegression[] = [];
 	if (baseline) {
 		const metrics = new Set([
@@ -154,10 +218,15 @@ export const compareLintRatchet = ({
 	return {
 		status: regressions.length === 0 && breaches.length === 0 ? "pass" : "fail",
 		baseline: baseline
-			? { generatedAt: baseline.generatedAt, numbers: { ...baseline.numbers } }
+			? {
+					generatedAt: baseline.generatedAt,
+					numbers: { ...baseline.numbers },
+					...(baseline.kinds ? { kinds: [...baseline.kinds] } : {}),
+				}
 			: null,
 		regressions,
 		breaches,
+		adopted,
 		numbers,
 	};
 };
@@ -167,11 +236,18 @@ export const nextRatchetBaseline = ({
 	result,
 	generatedAt,
 	previous,
+	kinds,
 }: {
 	result: LintRatchetResult;
 	generatedAt: string;
 	previous: LintRatchetBaseline | null;
+	/** Every kind id this Trickroom ships, enabled or not. */
+	kinds?: readonly string[];
 }): LintRatchetBaseline =>
 	result.status === "pass" || previous === null
-		? { generatedAt, numbers: result.numbers }
+		? {
+				generatedAt,
+				numbers: result.numbers,
+				...(kinds ? { kinds: [...kinds].sort() } : {}),
+			}
 		: previous;
