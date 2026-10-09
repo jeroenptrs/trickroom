@@ -1,9 +1,12 @@
 import { parentPort } from "node:worker_threads";
 import {
 	type CanonicalizedClass,
+	type ContextCheck,
+	type ContextVerdict,
 	canonicalizeAndVerifyTailwindCandidate,
 	type StylesheetFacts,
 	scanStylesheetFacts,
+	verifyCanonicalInContext,
 } from "./tailwind-canonical-equivalence.ts";
 import { createCanonicalizeCache } from "./tailwind-canonicalize-cache.ts";
 import {
@@ -30,15 +33,21 @@ import { canonicalizeTailwindCandidate } from "./tailwind-utility-inspector.ts";
  * else. The client is `tailwind-canonicalize-client.ts`.
  */
 
+/**
+ * Canonicalize classes (`candidates`), or check canonical forms among the
+ * classes next to them (`checks`, see `verifyCanonicalInContext`).
+ */
 export type CanonicalizeRequest = {
 	id: number;
 	projectRoot: string;
 	cssPath: string;
-	candidates: string[];
-};
+} & (
+	| { kind?: "canonicalize"; candidates: string[] }
+	| { kind: "context"; checks: ContextCheck[] }
+);
 
 export type CanonicalizeResponse =
-	| { id: number; ok: true; results: CanonicalizedClass[] }
+	| { id: number; ok: true; results: CanonicalizedClass[] | ContextVerdict[] }
 	| { id: number; ok: false; message: string };
 
 /**
@@ -51,7 +60,11 @@ type VerifiableSystem = {
 	stylesheet: StylesheetFacts;
 };
 
-const cache = createCanonicalizeCache<VerifiableSystem, CanonicalizedClass>({
+const cache = createCanonicalizeCache<
+	VerifiableSystem,
+	CanonicalizedClass,
+	ContextVerdict
+>({
 	warmSystems: 4,
 	paths: 32,
 	load: async (rootPath) => {
@@ -76,13 +89,20 @@ const cache = createCanonicalizeCache<VerifiableSystem, CanonicalizedClass>({
 			candidate,
 			canonicalizeTailwindCandidate,
 		),
+	contextual: (system, check) =>
+		verifyCanonicalInContext(system.designSystem, check),
 });
 
 parentPort?.on("message", (request: CanonicalizeRequest) => {
 	new Promise<string>((resolve) =>
 		resolve(resolveTailwindCssPath(request.projectRoot, request.cssPath)),
 	)
-		.then((rootPath) => cache.canonicalize(rootPath, request.candidates))
+		.then(
+			(rootPath): Promise<CanonicalizedClass[] | ContextVerdict[]> =>
+				request.kind === "context"
+					? cache.contextual(rootPath, request.checks)
+					: cache.canonicalize(rootPath, request.candidates),
+		)
 		.then(
 			(results) =>
 				parentPort?.postMessage({

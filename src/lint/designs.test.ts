@@ -153,6 +153,7 @@ describe("design index", () => {
 			className: "flex gap-2",
 			checkedClassName: "flex gap-2",
 			classSource: "layer",
+			render: { kind: "classes", className: "flex gap-2", known: true },
 			instance: null,
 		});
 		expect(design.boards[0].nodes[1].instance).toEqual({

@@ -9,7 +9,10 @@ import type { TrickroomDesign } from "../../types";
 import { createClassTokenInspector } from "../../utils/class-token-diagnostics";
 import { createEmptySystemComponentManifest } from "../../utils/system-components";
 import { selectorSpecificity } from "../../utils/tailwind-canonical-equivalence";
-import { canonicalizeTailwindCandidatesInWorker } from "../../utils/tailwind-canonicalize-client";
+import {
+	canonicalizeTailwindCandidatesInWorker,
+	verifyCanonicalClassesInContextInWorker,
+} from "../../utils/tailwind-canonicalize-client";
 import { loadTailwindDesignSystem } from "../../utils/tailwind-design-system";
 import { resolveLintConfig } from "../config";
 import { buildSystemContract } from "../contract";
@@ -56,6 +59,8 @@ beforeAll(async () => {
 		...createClassTokenInspector(designSystem),
 		canonicalize: (candidates) =>
 			canonicalizeTailwindCandidatesInWorker(system, candidates),
+		verifyInContext: (checks) =>
+			verifyCanonicalClassesInContextInWorker(system, checks),
 	};
 	// The first canonicalization builds Tailwind's lookup tables in the
 	// worker (seconds); pay it once here rather than in the first test.
@@ -249,6 +254,39 @@ describe("canonicalizeTailwindCandidatesInWorker", () => {
 			{ canonical: "rounded-4xl", verdict: { status: "equivalent" } },
 		]);
 	}, 30_000);
+
+	it("checks a canonical form among the classes next to it", async () => {
+		const check = (classes: string, candidate: string, canonical: string) =>
+			verifyCanonicalClassesInContextInWorker(
+				{ projectRoot, cssPath: "src/index.css" },
+				[{ classes: classes.split(" "), candidate, canonical }],
+			).then(([verdict]) => verdict);
+		// Tailwind emits `bg-white` after `bg-red-500` but `bg-[#FFF]` before
+		// it, and `mt-[0.25rem]` after `mt-2` but `mt-1` before it.
+		expect(
+			await check("bg-[#FFF] bg-red-500", "bg-[#FFF]", "bg-white"),
+		).toEqual({
+			status: "changed",
+			reason:
+				'next to "bg-red-500", "bg-red-500" wins over the class but not over "bg-white"',
+		});
+		expect(await check("mt-[0.25rem] mt-2", "mt-[0.25rem]", "mt-1")).toEqual({
+			status: "changed",
+			reason: 'next to "mt-2", the class wins over "mt-2" but "mt-1" does not',
+		});
+		// No competitor, or competitors whose order does not change.
+		expect(await check("bg-[#FFF] p-2 flex", "bg-[#FFF]", "bg-white")).toEqual({
+			status: "unchanged",
+			competitors: 0,
+		});
+		expect(
+			await check("w-[38.5rem] md:w-auto", "w-[38.5rem]", "w-154"),
+		).toEqual({ status: "unchanged", competitors: 1 });
+		// The canonical form already there: removing the class changes nothing.
+		expect(
+			await check("bg-[#FFF] bg-red-500 bg-white", "bg-[#FFF]", "bg-white"),
+		).toEqual({ status: "unchanged", competitors: 1 });
+	});
 });
 
 describe("code.non-canonical-class", () => {
@@ -287,12 +325,16 @@ describe("code.non-canonical-class", () => {
 		const findings = await fixture.run(nonCanonicalClassRule, { inspector });
 		expect(describeFindings(findings)).toEqual([
 			'src/app.tsx:5:23 Class "[scrollbar-width:thin]" is written "scrollbar-thin" in Tailwind\'s canonical form. Use "scrollbar-thin", or add "[scrollbar-width:thin]" to this rule\'s allow list if it is intended.',
-			'src/app.tsx:6:28 Class "bg-[#FFF]" is written "bg-white" in Tailwind\'s canonical form. Use "bg-white", or add "bg-[#FFF]" to this rule\'s allow list if it is intended.',
+			'src/app.tsx:6:28 Class "bg-[#FFF]" is written "bg-white" in Tailwind\'s canonical form. Not every class that renders with it is known here, so check that none of them competes with it before replacing it: Tailwind may order "bg-white" differently against them. Use "bg-white", or add "bg-[#FFF]" to this rule\'s allow list if it is intended.',
 			'src/app.tsx:8:17 Class "[&:has(.active)]:p-2" is written "has-[.active]:p-2" in Tailwind\'s canonical form. Use "has-[.active]:p-2", or add "[&:has(.active)]:p-2" to this rule\'s allow list if it is intended.',
 			'src/app.tsx:8:65 Class "bg-[#FFF]" is written "bg-white" in Tailwind\'s canonical form. Use "bg-white", or add "bg-[#FFF]" to this rule\'s allow list if it is intended.',
 			'src/app.tsx:8:75 Class "bg-[#FFF]" is written "bg-white" in Tailwind\'s canonical form. Use "bg-white", or add "bg-[#FFF]" to this rule\'s allow list if it is intended.',
-			'src/ui/button.tsx:3:139 Class "bg-[#FFF]" is written "bg-white" in Tailwind\'s canonical form. Use "bg-white", or add "bg-[#FFF]" to this rule\'s allow list if it is intended.',
+			'src/ui/button.tsx:3:139 Class "bg-[#FFF]" is written "bg-white" in Tailwind\'s canonical form. Not every class that renders with it is known here, so check that none of them competes with it before replacing it: Tailwind may order "bg-white" differently against them. Use "bg-white", or add "bg-[#FFF]" to this rule\'s allow list if it is intended.',
 		]);
+		// Next to non-literal parts (`cn(extra, …)`), the context is incomplete.
+		expect(
+			findings.map((finding) => finding.details?.contextDependent ?? false),
+		).toEqual([false, true, false, false, false, true]);
 		expect(findings.at(-1)?.component).toBe("button");
 		expect(findings[0].component).toBeUndefined();
 		expect(findings[0].details).toEqual({
@@ -371,6 +413,50 @@ describe("code.non-canonical-class", () => {
 		});
 	});
 
+	it("settles each finding among the classes that render with it", async () => {
+		const fixture = await fixtures.create({
+			components: [],
+			files: {
+				"src/app.tsx": [
+					'import { cn } from "./cn";',
+					"declare const extra: string;",
+					"declare const on: boolean;",
+					"declare const rest: Record<string, string>;",
+					"export const App = () => (",
+					"\t<div>",
+					// Competitors that win or lose differently: not reported.
+					'\t\t<p className="bg-[#FFF] bg-red-500" />',
+					'\t\t<p className={cn("mt-[0.25rem]", on && "mt-2")} />',
+					// No competitor: reported, the context is complete.
+					'\t\t<p className="bg-[#FFF] p-2" />',
+					// Incomplete contexts: reported, context-dependent.
+					'\t\t<p className={cn(extra, "bg-[#FFF] p-2")} />',
+					'\t\t<p className="bg-[#FFF]" {...rest} />',
+					'\t\t<Card className="bg-[#FFF]" />',
+					"\t</div>",
+					");",
+					"",
+				].join("\n"),
+				"src/cn.ts": "export const cn = (...v: unknown[]) => v.join(' ');\n",
+			},
+		});
+		const findings = await fixture.run(nonCanonicalClassRule, { inspector });
+		expect(
+			findings.map((finding) => [
+				finding.location?.kind === "code" ? finding.location.line : null,
+				finding.details?.contextDependent ?? false,
+			]),
+		).toEqual([
+			[9, false],
+			[10, true],
+			[11, true],
+			[12, true],
+		]);
+		expect(findings[1].message).toContain(
+			"Not every class that renders with it is known here, so check that none of them competes with it before replacing it",
+		);
+	});
+
 	it("honours allow globs, and notes when there is no compiled CSS", async () => {
 		const fixture = await fixtures.create({
 			components: [publishedComponent("button", buttonPayload())],
@@ -411,6 +497,28 @@ describe("design.non-canonical-class", () => {
 							"data-trickroom-component": "container",
 							className:
 								"[&:has(.active)]:p-2 bg-white [[data-panel-open]_&]:hidden max-lg:[&_[aria-label=DeltaBlue]]:!hidden max-w-[26rem]",
+						},
+						children: [],
+					},
+					// Equivalent alone, not next to these: Tailwind emits `bg-white`
+					// after `bg-red-500` and `mt-1` before `mt-2`.
+					{
+						id: "layer-red",
+						props: {
+							"data-trickroom-name": "Red",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "container",
+							className: "bg-[#FFF] bg-red-500",
+						},
+						children: [],
+					},
+					{
+						id: "layer-margin",
+						props: {
+							"data-trickroom-name": "Margin",
+							"data-trickroom-library": "trickroom",
+							"data-trickroom-component": "container",
+							className: "mt-[0.25rem] mt-2",
 						},
 						children: [],
 					},
@@ -499,6 +607,12 @@ describe("design.non-canonical-class", () => {
 			themeDependent: true,
 			themeVariables: ["--spacing"],
 		});
+		// Every layer's classes are known: verified in context, so no
+		// finding is context-dependent, and the board's `bg-[#FFF]` (next to
+		// `flex` and `scrollbar-*`, no competitor) is reported.
+		expect(
+			findings.map((finding) => finding.details?.contextDependent ?? false),
+		).toEqual([false, false, false, false]);
 		expect(findings[2].location).toEqual({
 			kind: "design",
 			design: "design-1",

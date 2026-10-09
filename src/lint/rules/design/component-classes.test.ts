@@ -258,9 +258,10 @@ describe("design class rules on components and instances", () => {
 			"badge@1 label compound 0: [&:has(.x)]:p-2",
 			// The instance's override.
 			`${elementOf(instances.overridden)}: [mask-type:alpha]`,
-			// An override equal to an Element base class, which the stored
-			// className leaves out.
-			`${elementOf(instances.separator)}: ${BASE_EQUAL_OVERRIDE}`,
+			// Not the separator's override (an Element base class, which the
+			// index still checks, see below): tv's merge removes the template's
+			// `data-[orientation=horizontal]:w-8` under it, but would keep it
+			// under the stand-in canonical `data-horizontal:w-full`.
 			// A version the manifest does not have: the stored className.
 			`${elementOf(instances.unresolved)}: bg-[#FFF]`,
 			`${elementOf(instances.unresolved)}: [scrollbar-width:thin]`,

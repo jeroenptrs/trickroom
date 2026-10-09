@@ -1,6 +1,10 @@
-import { resolveRegistryComponent } from "../libraries/registry";
+import {
+	getRenderedClassName,
+	resolveRegistryComponent,
+} from "../libraries/registry";
 import type { Node, RecipeTemplateNode, TrickroomDesign } from "../types";
 import { splitClassLayerTokens } from "../utils/class-layers";
+import { resolveComponentNodeClasses } from "../utils/class-merge";
 import {
 	getSystemComponentStructuralMetadata,
 	type SystemComponentInstanceOverrides,
@@ -50,6 +54,32 @@ export type LintDesignInstanceMarker = {
  */
 export type LintDesignClassSource = "layer" | "override" | "stored";
 
+/**
+ * What a node renders its className from, the way the canvas does
+ * (`getRenderedClassName`): the classes the class rules' cascade check
+ * sees next to a class (see `design.non-canonical-class`).
+ */
+export type LintNodeRender =
+	/**
+	 * Rendered as stored, with the registry Element's base classes: a layer,
+	 * or an instance node whose version cannot be resolved. `known` is false
+	 * for the latter and for an Element the registry does not have.
+	 */
+	| { kind: "classes"; className: string | null; known: boolean }
+	/**
+	 * An instance node whose version resolves: its component classes
+	 * (template, selected values, matching compounds) and override, merged
+	 * when the design's classes merge; `unmerged` is what renders when they
+	 * do not (the stored className).
+	 */
+	| {
+			kind: "component";
+			component: string;
+			override: string | undefined;
+			baseClassName: string | undefined;
+			unmerged: string | null;
+	  };
+
 export type LintDesignNode = {
 	/** Element id. */
 	element: string;
@@ -60,6 +90,7 @@ export type LintDesignNode = {
 	/** The classes the design class rules check, see `classSource`. */
 	checkedClassName: string | null;
 	classSource: LintDesignClassSource;
+	render: LintNodeRender;
 	instance: LintDesignInstanceMarker | null;
 };
 
@@ -113,6 +144,8 @@ export type LintComponentDefinition = {
 	 * order), then the compound variants in order.
 	 */
 	classes: LintComponentClassEntry[];
+	/** The registry Element's base classes per template path, where it has any. */
+	baseClassNames: Record<string, string>;
 };
 
 export type LintDesignIndex = {
@@ -183,7 +216,23 @@ type InstanceClassContext = {
  * a root elsewhere in the design that shares its instance id (a part moved
  * or copied out of its instance).
  */
-type AncestorRoots = ReadonlyMap<string, SystemComponentInstanceOverrides>;
+type AncestorRoots = ReadonlyMap<
+	string,
+	{
+		overrides: SystemComponentInstanceOverrides;
+		variantValues: Record<string, string>;
+	}
+>;
+
+const registryDefinition = (props: Node["props"]) => {
+	const library = props["data-trickroom-library"];
+	const component = props["data-trickroom-component"];
+	if (typeof library !== "string" || typeof component !== "string") {
+		return null;
+	}
+	const resolution = resolveRegistryComponent(library, component);
+	return resolution.status === "known" ? resolution.definition : null;
+};
 
 const publishedVersion = (
 	components: LintDesignComponents,
@@ -205,12 +254,27 @@ const publishedVersion = (
  * resolved, the stored className, as the canvas renders it then.
  */
 const checkedClasses = (
+	node: Node,
 	className: string | null,
 	instance: LintDesignInstanceMarker | null,
 	context: InstanceClassContext,
 	roots: AncestorRoots,
-): Pick<LintDesignNode, "checkedClassName" | "classSource"> => {
-	if (!instance) return { checkedClassName: className, classSource: "layer" };
+): Pick<LintDesignNode, "checkedClassName" | "classSource" | "render"> => {
+	const definition = registryDefinition(node.props);
+	const asStored = (known: boolean): LintNodeRender => ({
+		kind: "classes",
+		className: definition
+			? nonEmpty(getRenderedClassName(node.props, definition))
+			: className,
+		known: known && definition !== null,
+	});
+	if (!instance) {
+		return {
+			checkedClassName: className,
+			classSource: "layer",
+			render: asStored(true),
+		};
+	}
 	const version =
 		instance.systemId === context.systemId
 			? publishedVersion(
@@ -219,20 +283,40 @@ const checkedClasses = (
 					instance.version,
 				)
 			: undefined;
-	const overrides = roots.get(instance.instanceId);
-	if (!version || !overrides) {
-		return { checkedClassName: className, classSource: "stored" };
+	const root = roots.get(instance.instanceId);
+	if (!version || !root) {
+		return {
+			checkedClassName: className,
+			classSource: "stored",
+			render: asStored(false),
+		};
 	}
+	const resolved = resolveComponentNodeClasses({
+		version,
+		path: instance.templatePath,
+		variantValues: root.variantValues,
+		overrides: root.overrides,
+		baseClassName: definition?.baseClassName,
+	});
 	return {
 		checkedClassName: nonEmpty(
 			resolveSystemComponentOverrideValue(
 				version,
 				instance.templatePath,
 				"className",
-				overrides,
+				root.overrides,
 			),
 		),
 		classSource: "override",
+		render: definition
+			? {
+					kind: "component",
+					component: resolved.component,
+					override: resolved.override,
+					baseClassName: definition.baseClassName,
+					unmerged: nonEmpty(getRenderedClassName(node.props, definition)),
+				}
+			: { kind: "classes", className, known: false },
 	};
 };
 
@@ -247,13 +331,16 @@ const walkBoard = (
 		const metadata = getSystemComponentStructuralMetadata(node.props);
 		const instance = toMarker(metadata);
 		const roots = metadata?.isRoot
-			? new Map(ancestors).set(metadata.instanceId, metadata.overrides)
+			? new Map(ancestors).set(metadata.instanceId, {
+					overrides: metadata.overrides,
+					variantValues: metadata.variantValues,
+				})
 			: ancestors;
 		nodes.push({
 			element: node.id,
 			path: nodePath,
 			className,
-			...checkedClasses(className, instance, context, roots),
+			...checkedClasses(node, className, instance, context, roots),
 			instance,
 		});
 		if (Array.isArray(node.children)) {
@@ -295,6 +382,27 @@ const templateClassName = (template: RecipeTemplateNode) => {
 			.filter((token) => !base.has(token))
 			.join(" "),
 	);
+};
+
+/** The registry base classes of each template node that has them. */
+const templateBaseClassNames = (
+	version: PublishedSystemComponentVersion,
+): Record<string, string> => {
+	const bases: Record<string, string> = {};
+	const visit = (template: RecipeTemplateNode) => {
+		const resolution = resolveRegistryComponent(
+			template.library,
+			template.component,
+		);
+		const base =
+			resolution.status === "known"
+				? nonEmpty(resolution.definition.baseClassName)
+				: null;
+		if (base !== null) bases[template.path] = base;
+		for (const child of template.children ?? []) visit(child);
+	};
+	visit(version.root);
+	return bases;
 };
 
 /** Every class string a published version declares, see `LintComponentDefinition`. */
@@ -360,6 +468,7 @@ const buildComponentDefinitions = (
 				version: versionId,
 				current: versionId === published.currentVersion,
 				classes: componentClassEntries(version),
+				baseClassNames: templateBaseClassNames(version),
 			});
 		}
 	}

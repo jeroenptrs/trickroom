@@ -98,6 +98,12 @@ export type SourceClassString = {
 	 */
 	conditional: boolean;
 	position: SourcePosition;
+	/**
+	 * Where the `className` attribute or class call it was collected from
+	 * starts: the strings that share it are the parts of one class string
+	 * (the attribute's position for `jsx-attribute` strings).
+	 */
+	expression: SourcePosition;
 };
 
 export type SourceObjectMember =
@@ -683,7 +689,8 @@ const collectClassStrings = (
 	classCalls: ReadonlySet<string>,
 	position: (offset: number) => SourcePosition,
 	handledCalls: Set<AstNode>,
-): Array<Collected & { mixed: boolean }> => {
+	expression: SourcePosition,
+): Array<Collected & { mixed: boolean; expression: SourcePosition }> => {
 	const collector: Collector = {
 		out: [],
 		classCalls,
@@ -697,7 +704,11 @@ const collectClassStrings = (
 			? (visitClassCall(collector, unwrapped) ??
 				visitClassExpression(collector, unwrapped, "keys"))
 			: visitClassExpression(collector, unwrapped, "keys");
-	return collector.out.map((entry) => ({ ...entry, mixed: !complete }));
+	return collector.out.map((entry) => ({
+		...entry,
+		mixed: !complete,
+		expression,
+	}));
 };
 
 const callArgument = (node: AstNode): SourceCallArgument => {
@@ -1174,6 +1185,7 @@ export function parseSourceModule(
 							classCalls,
 							position,
 							handledCalls,
+							position(attribute.start),
 						)) {
 							module.classStrings.push({
 								...collected,
@@ -1335,6 +1347,7 @@ export function parseSourceModule(
 						classCalls,
 						position,
 						handledCalls,
+						position(node.start),
 					)) {
 						module.classStrings.push({
 							...collected,

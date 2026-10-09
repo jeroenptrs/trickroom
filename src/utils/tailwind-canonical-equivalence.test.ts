@@ -404,6 +404,63 @@ describe("theme variables the stylesheets set outside `@theme`", () => {
 	});
 });
 
+describe("round 3: theme variables registered with `@property`", () => {
+	const pair = (registrationCss: string) =>
+		compare(
+			rule(".a", "background-color: #FFF;"),
+			rule(".b", "background-color: var(--color-white);"),
+			{ stylesheet: scanStylesheetFacts(registrationCss) },
+		);
+
+	it("rejects one that does not inherit or starts from another value", () => {
+		// A child of `:root` does not see `--color-white` without inheritance.
+		expect(
+			pair(
+				registration(
+					"--color-white",
+					'syntax: "<color>"; inherits: false; initial-value: #000;',
+				),
+			),
+		).toMatchObject({ status: "different" });
+		expect(
+			pair(
+				registration(
+					"--color-white",
+					'syntax: "<color>"; inherits: false; initial-value: #fff;',
+				),
+			),
+		).toMatchObject({ status: "different" });
+		expect(
+			pair(
+				registration(
+					"--color-white",
+					'syntax: "<color>"; inherits: true; initial-value: #000;',
+				),
+			),
+		).toMatchObject({ status: "different" });
+		// Anywhere, under a condition too.
+		expect(
+			pair(
+				`@media (width < 0px) {\n${registration("--color-white", 'syntax: "*"; inherits: false;')}}\n`,
+			),
+		).toMatchObject({ status: "different" });
+	});
+
+	it("makes one that inherits with the theme value theme-dependent", () => {
+		expect(
+			pair(
+				registration(
+					"--color-white",
+					'syntax: "<color>"; inherits: true; initial-value: #FFF;',
+				),
+			),
+		).toEqual({
+			status: "theme-dependent",
+			themeVariables: ["--color-white"],
+		});
+	});
+});
+
 describe("scanStylesheetFacts", () => {
 	it("collects custom properties set outside `@theme`, in any rule or at-rule", () => {
 		const facts = scanStylesheetFacts(

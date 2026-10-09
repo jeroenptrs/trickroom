@@ -1,5 +1,9 @@
 import type { CodegenRunResult } from "../../codegen/run-codegen";
-import type { CanonicalizedClass } from "../../utils/tailwind-canonical-equivalence";
+import type {
+	CanonicalizedClass,
+	ContextCheck,
+	ContextVerdict,
+} from "../../utils/tailwind-canonical-equivalence";
 import type { TwMergeConfig } from "../../utils/tailwind-merge-config";
 import type { TailwindUtilityInspection } from "../../utils/tailwind-utility-inspector";
 import type {
@@ -99,6 +103,14 @@ export type LintTailwindInspector = {
 	canonicalize?: (
 		candidates: readonly string[],
 	) => Promise<CanonicalizedClass[]>;
+	/**
+	 * Each canonical form among the classes that may render next to it: the
+	 * class's competing declarations keep their order in the cascade
+	 * (`verifyCanonicalInContext`). In the worker too.
+	 */
+	verifyInContext?: (
+		checks: readonly ContextCheck[],
+	) => Promise<ContextVerdict[]>;
 };
 
 /** How tv() merges for the linted system (`LintRuleContext.tailwind.mergeConfig`). */

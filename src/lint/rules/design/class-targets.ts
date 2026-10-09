@@ -1,4 +1,4 @@
-import type { LintDesignIndex } from "../../designs";
+import type { LintDesignIndex, LintNodeRender } from "../../designs";
 import type { LintComponentLocation, LintLocation } from "../types";
 
 /**
@@ -25,7 +25,25 @@ export type LintClassTarget = {
 	component?: string;
 	/** Element id, for the classes of a design node. */
 	element?: string;
+	/** What renders next to these classes (see `LintClassTargetContext`). */
+	context: LintClassTargetContext;
 };
+
+/**
+ * The classes that may render next to a target's, for the cascade check of
+ * `design.non-canonical-class`: a design node's render (`LintNodeRender`),
+ * or, for a component definition, every class the component declares on
+ * that template path (template, every variant value, every compound), as
+ * if all could apply at once, with the registry base classes.
+ */
+export type LintClassTargetContext =
+	| { kind: "node"; render: LintNodeRender }
+	| {
+			kind: "definition";
+			/** The component's classes on the path, merged when the design's classes merge. */
+			component: string;
+			baseClassName: string | undefined;
+	  };
 
 /** The finding fields that locate a target. */
 export const targetLocationFields = (target: LintClassTarget) => ({
@@ -41,8 +59,20 @@ export const collectLintClassTargets = (
 ): LintClassTarget[] => {
 	const targets: LintClassTarget[] = [];
 	for (const definition of designs.components) {
+		const byPath = new Map<string, string[]>();
+		for (const entry of definition.classes) {
+			byPath.set(entry.path, [
+				...(byPath.get(entry.path) ?? []),
+				entry.className,
+			]);
+		}
 		for (const entry of definition.classes) {
 			targets.push({
+				context: {
+					kind: "definition",
+					component: (byPath.get(entry.path) ?? []).join(" "),
+					baseClassName: definition.baseClassNames[entry.path],
+				},
 				className: entry.className,
 				component: definition.slug,
 				location: null,
@@ -62,6 +92,7 @@ export const collectLintClassTargets = (
 			for (const node of board.nodes) {
 				if (node.checkedClassName === null) continue;
 				targets.push({
+					context: { kind: "node", render: node.render },
 					className: node.checkedClassName,
 					element: node.element,
 					location: {

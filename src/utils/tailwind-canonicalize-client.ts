@@ -1,7 +1,11 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
-import type { CanonicalizedClass } from "./tailwind-canonical-equivalence.ts";
+import type {
+	CanonicalizedClass,
+	ContextCheck,
+	ContextVerdict,
+} from "./tailwind-canonical-equivalence.ts";
 import type {
 	CanonicalizeRequest,
 	CanonicalizeResponse,
@@ -17,7 +21,7 @@ import type {
  */
 
 type Pending = {
-	resolve: (results: CanonicalizedClass[]) => void;
+	resolve: (results: CanonicalizedClass[] | ContextVerdict[]) => void;
 	reject: (error: Error) => void;
 };
 
@@ -82,30 +86,60 @@ export const createCanonicalizeClient = (workerFile: string) => {
 		return generation;
 	};
 
+	type System = { projectRoot: string; cssPath: string };
+	type Payload =
+		| { kind: "canonicalize"; candidates: string[] }
+		| { kind: "context"; checks: ContextCheck[] };
+
+	const send = (
+		system: System,
+		payload: Payload,
+	): Promise<CanonicalizedClass[] | ContextVerdict[]> => {
+		active ??= start();
+		const generation = active;
+		const id = nextId++;
+		return new Promise((resolve, reject) => {
+			generation.pending.set(id, { resolve, reject });
+			generation.worker.ref();
+			generation.worker.postMessage({
+				id,
+				projectRoot: system.projectRoot,
+				cssPath: system.cssPath,
+				...payload,
+			} satisfies CanonicalizeRequest);
+		});
+	};
+
 	return {
 		/**
 		 * Each candidate as the system's Tailwind writes it, in order (see
 		 * `canonicalizeTailwindCandidate`), with the verdict of compiling both
 		 * when it differs, computed in the worker.
 		 */
-		canonicalize: (
-			system: { projectRoot: string; cssPath: string },
+		canonicalize: async (
+			system: System,
 			candidates: readonly string[],
 		): Promise<CanonicalizedClass[]> => {
-			if (candidates.length === 0) return Promise.resolve([]);
-			active ??= start();
-			const generation = active;
-			const id = nextId++;
-			return new Promise<CanonicalizedClass[]>((resolve, reject) => {
-				generation.pending.set(id, { resolve, reject });
-				generation.worker.ref();
-				generation.worker.postMessage({
-					id,
-					projectRoot: system.projectRoot,
-					cssPath: system.cssPath,
-					candidates: [...candidates],
-				} satisfies CanonicalizeRequest);
-			});
+			if (candidates.length === 0) return [];
+			return (await send(system, {
+				kind: "canonicalize",
+				candidates: [...candidates],
+			})) as CanonicalizedClass[];
+		},
+		/** Each canonical form among the classes next to it (`verifyCanonicalInContext`), in the worker. */
+		verifyInContext: async (
+			system: System,
+			checks: readonly ContextCheck[],
+		): Promise<ContextVerdict[]> => {
+			if (checks.length === 0) return [];
+			return (await send(system, {
+				kind: "context",
+				checks: checks.map((check) => ({
+					classes: [...check.classes],
+					candidate: check.candidate,
+					canonical: check.canonical,
+				})),
+			})) as ContextVerdict[];
 		},
 	};
 };
@@ -123,4 +157,16 @@ export const canonicalizeTailwindCandidatesInWorker = (
 ): Promise<CanonicalizedClass[]> => {
 	client ??= createCanonicalizeClient(workerPath());
 	return client.canonicalize(system, candidates);
+};
+
+/**
+ * Each canonical form among the classes that may render next to it (see
+ * `verifyCanonicalInContext`), computed in this process's worker.
+ */
+export const verifyCanonicalClassesInContextInWorker = (
+	system: { projectRoot: string; cssPath: string },
+	checks: readonly ContextCheck[],
+): Promise<ContextVerdict[]> => {
+	client ??= createCanonicalizeClient(workerPath());
+	return client.verifyInContext(system, checks);
 };

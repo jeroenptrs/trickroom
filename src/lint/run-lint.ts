@@ -19,7 +19,10 @@ import {
 	readSystemComponentManifest,
 	SystemComponentManifestServiceError,
 } from "../utils/system-component-manifest-service";
-import { canonicalizeTailwindCandidatesInWorker } from "../utils/tailwind-canonicalize-client";
+import {
+	canonicalizeTailwindCandidatesInWorker,
+	verifyCanonicalClassesInContextInWorker,
+} from "../utils/tailwind-canonicalize-client";
 import {
 	loadCachedTailwindDesignSystem,
 	type TailwindDesignSystem,
@@ -193,6 +196,11 @@ export const createTailwindInspectorLoader = (
 							canonicalizeTailwindCandidatesInWorker(
 								{ projectRoot, cssPath },
 								candidates,
+							),
+						verifyInContext: (checks) =>
+							verifyCanonicalClassesInContextInWorker(
+								{ projectRoot, cssPath },
+								checks,
 							),
 					};
 					lintInspectors.set(designSystem, inspector);

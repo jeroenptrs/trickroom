@@ -633,7 +633,11 @@ const flatten = (nodes: CssNode[], self: string): Entry[] => {
 				continue;
 			}
 			const { prelude, children } = node.block;
-			if (prelude.startsWith("@")) {
+			const inKeyframes = context.some((outer) =>
+				/^@(?:-\w+-)?keyframes\b/iu.test(outer),
+			);
+			if (prelude.startsWith("@") || inKeyframes) {
+				// A keyframe (`0%`, `to`) is compared by its text, not as a selector.
 				walk(children, [...context, collapse(prelude)], specificity, selector);
 			} else {
 				const normalized = normalizeSelector(prelude, self);
@@ -1174,9 +1178,38 @@ const compareValues = (
 	if (render(before, "all", unstable) !== render(after, "all", unstable)) {
 		return { status: "different" };
 	}
+	// A registered variable that does not inherit, or starts from another
+	// value, is not its `@theme` value where the class applies.
+	for (const name of unstable) {
+		if (registrationOverridesTheme(context, name)) {
+			return { status: "different" };
+		}
+	}
 	return unstable.size === 0
 		? { status: "equal" }
 		: { status: "theme", variables: [...unstable] };
+};
+
+/**
+ * Whether an `@property` registration of a theme variable keeps it from
+ * its `@theme` value: `inherits: false` (an element does not see `:root`'s
+ * value), or an `initial-value` other than the theme value.
+ */
+const registrationOverridesTheme = (
+	context: VerificationContext,
+	name: string,
+) => {
+	const registrations = context.stylesheet.registeredVariables.get(name);
+	if (!registrations) return false;
+	const themeValue = context.theme(name);
+	const spelled = (value: string) => serializeTokens(tokenizeValue(value));
+	return registrations.some(
+		(descriptors) =>
+			descriptors.inherits?.trim().toLowerCase() !== "true" ||
+			(descriptors.initialValue !== null &&
+				(themeValue === undefined ||
+					spelled(descriptors.initialValue) !== spelled(themeValue))),
+	);
 };
 
 // ---------------------------------------------------------------------------
@@ -1203,6 +1236,15 @@ export type StylesheetFacts = {
 	 * registrations a conditional import brings in cannot be told apart.
 	 */
 	registrations: ReadonlyMap<string, string | null>;
+	/**
+	 * Every `@property` registration in the text, conditional or not, by
+	 * name: a registered theme variable may not have its `@theme` value
+	 * (`inherits: false`, another `initial-value`).
+	 */
+	registeredVariables: ReadonlyMap<
+		string,
+		ReadonlyArray<{ inherits: string | null; initialValue: string | null }>
+	>;
 	/** False when the text could not be read: nothing above can then be relied on. */
 	complete: boolean;
 };
@@ -1210,11 +1252,14 @@ export type StylesheetFacts = {
 export const EMPTY_STYLESHEET_FACTS: StylesheetFacts = {
 	contextVariables: new Set(),
 	registrations: new Map(),
+	registeredVariables: new Map(),
 	complete: true,
 };
 
 const variesOutsideTheme = (stylesheet: StylesheetFacts, name: string) =>
-	!stylesheet.complete || stylesheet.contextVariables.has(name);
+	!stylesheet.complete ||
+	stylesheet.contextVariables.has(name) ||
+	stylesheet.registeredVariables.has(name);
 
 /** `@property` descriptors in one comparable spelling, in any order. */
 const registrationBody = (
@@ -1232,6 +1277,10 @@ const registrationBody = (
 export const scanStylesheetFacts = (css: string): StylesheetFacts => {
 	const contextVariables = new Set<string>();
 	const registrations = new Map<string, string | null>();
+	const registeredVariables = new Map<
+		string,
+		Array<{ inherits: string | null; initialValue: string | null }>
+	>();
 	type Frame = {
 		prelude: string;
 		descriptors: Array<{ property: string; value: string }>;
@@ -1281,6 +1330,19 @@ export const scanStylesheetFacts = (css: string): StylesheetFacts => {
 				const frame = stack.pop();
 				if (!frame) throw new Error("Unbalanced }");
 				const property = /^@property\s+(--\S+)$/iu.exec(frame.prelude);
+				if (property) {
+					const descriptor = (key: string) =>
+						frame.descriptors.findLast(
+							(entry) => entry.property.toLowerCase() === key,
+						)?.value ?? null;
+					registeredVariables.set(property[1], [
+						...(registeredVariables.get(property[1]) ?? []),
+						{
+							inherits: descriptor("inherits"),
+							initialValue: descriptor("initial-value"),
+						},
+					]);
+				}
 				if (property && !insideTheme()) {
 					const unconditional = stack.every((outer) =>
 						/^@layer\b/iu.test(outer.prelude),
@@ -1302,11 +1364,17 @@ export const scanStylesheetFacts = (css: string): StylesheetFacts => {
 		}
 		if (stack.length > 0) throw new Error("Unbalanced {");
 	} catch {
-		return { contextVariables, registrations, complete: false };
+		return {
+			contextVariables,
+			registrations,
+			registeredVariables,
+			complete: false,
+		};
 	}
 	return {
 		contextVariables,
 		registrations: importsUnconditional ? registrations : new Map(),
+		registeredVariables,
 		complete: true,
 	};
 };
@@ -1525,4 +1593,236 @@ export const canonicalizeAndVerifyTailwindCandidate = (
 			{ theme: themeValuesOf(designSystem), stylesheet: system.stylesheet },
 		),
 	};
+};
+
+// ---------------------------------------------------------------------------
+// In context: the classes next to it
+// ---------------------------------------------------------------------------
+
+/**
+ * A class and its canonical form among the other classes that may render on
+ * the same element. Standalone equivalence does not cover the cascade:
+ * Tailwind emits `bg-white` after `bg-red-500` but `bg-[#FFF]` before it, so
+ * `bg-[#FFF] bg-red-500` is red and `bg-white bg-red-500` white.
+ */
+export type ContextCheck = {
+	/** The classes that may render on the element, the class included. */
+	classes: readonly string[];
+	candidate: string;
+	canonical: string;
+};
+
+export type ContextVerdict =
+	| { status: "unchanged"; competitors: number }
+	| { status: "changed"; reason: string };
+
+/**
+ * Properties that can override one another, by family: a shorthand and its
+ * longhands, logical and physical sides. Deliberately wide (`margin-top`
+ * and `margin-bottom` are one family): a family only selects which classes
+ * are compared, and comparing more classes never claims more.
+ */
+const PROPERTY_FAMILIES: ReadonlyArray<[RegExp, string]> = [
+	[/^(?:top|right|bottom|left|inset(?:-.+)?)$/u, "inset"],
+	[/^(?:min-|max-)?(?:width|height|inline-size|block-size)$/u, "size"],
+	[/^(?:grid-)?(?:gap|row-gap|column-gap)$/u, "gap"],
+	[/^(?:place|align|justify)-/u, "align"],
+	[/^(?:font|line-height)(?:-|$)/u, "font"],
+	[/^(?:white-space|text-wrap)(?:-|$)/u, "text"],
+	[/^columns?(?:-|$)/u, "column"],
+	[/^(?:transform|translate|rotate|scale)(?:-|$)/u, "transform"],
+];
+
+const propertyFamily = (property: string) => {
+	if (property.startsWith("--")) return property;
+	const name = property.toLowerCase().replace(/^-(?:webkit|moz|ms|o)-/u, "");
+	for (const [pattern, family] of PROPERTY_FAMILIES) {
+		if (pattern.test(name)) return family;
+	}
+	return name.split("-")[0];
+};
+
+/** One class's compiled declarations in style rules; null when it compiles to nothing. */
+type CompiledClass = Entry[] | null;
+
+const compiledClasses = new WeakMap<
+	TailwindDesignSystem,
+	Map<string, CompiledClass>
+>();
+
+/** Compiled once per system and class; throws when the CSS cannot be read. */
+const compileClass = (
+	designSystem: TailwindDesignSystem,
+	candidate: string,
+): CompiledClass => {
+	let cache = compiledClasses.get(designSystem);
+	if (!cache) {
+		cache = new Map();
+		compiledClasses.set(designSystem, cache);
+	}
+	if (cache.has(candidate)) return cache.get(candidate) ?? null;
+	let css: string | null = null;
+	try {
+		css = designSystem.candidatesToCss([candidate])[0] ?? null;
+	} catch {
+		css = null;
+	}
+	const entries =
+		css === null || !css.trim()
+			? null
+			: flatten(parseCss(css), candidate).filter(
+					(entry) => entry.selector !== null,
+				);
+	if (cache.size >= 20_000) cache.clear();
+	cache.set(candidate, entries);
+	return entries;
+};
+
+/**
+ * Whether two declarations set the same property to the same value, with
+ * the same `!important`: whichever wins, the result is the same, so their
+ * order does not matter (`data-[starting-style]:opacity-0` next to
+ * `data-[ending-style]:opacity-0`).
+ */
+const declaresTheSame = (a: Entry, b: Entry) => {
+	if (a.property !== b.property || a.important !== b.important) return false;
+	try {
+		return (
+			serializeTokens(tokenizeValue(a.value)) ===
+			serializeTokens(tokenizeValue(b.value))
+		);
+	} catch {
+		return false;
+	}
+};
+
+/** `a` before `b` in the cascade (`b` wins where both apply): -1, else 1. */
+const cascadeOrder = (
+	a: { entry: Entry; position: number },
+	b: { entry: Entry; position: number },
+) => {
+	const keyOf = ({ entry, position }: { entry: Entry; position: number }) => [
+		entry.important ? 1 : 0,
+		...(entry.specificity ?? [0, 0, 0]),
+		position,
+	];
+	const left = keyOf(a);
+	const right = keyOf(b);
+	for (let index = 0; index < left.length; index += 1) {
+		if (left[index] !== right[index])
+			return left[index] < right[index] ? -1 : 1;
+	}
+	return 0;
+};
+
+/**
+ * Who wins between the class (`self`) and each competitor declaration that
+ * may override it or be overridden by it, keyed by both declarations, with
+ * Tailwind's emitted order (`getClassOrder`) as the last tie-breaker.
+ */
+const precedence = (
+	designSystem: TailwindDesignSystem,
+	self: string,
+	competitors: readonly string[],
+): Map<string, number> => {
+	const ordered = designSystem
+		.getClassOrder([self, ...competitors])
+		.filter((entry): entry is [string, bigint] => entry[1] !== null)
+		.sort(([, left], [, right]) => (left < right ? -1 : left > right ? 1 : 0))
+		.map(([className]) => className);
+	const rank = new Map(ordered.map((className, index) => [className, index]));
+	const positioned = (className: string) =>
+		(compileClass(designSystem, className) ?? []).map((entry, index) => ({
+			entry,
+			position: (rank.get(className) ?? -1) * 100_000 + index,
+			index,
+		}));
+	const mine = positioned(self);
+	const relations = new Map<string, number>();
+	for (const competitor of competitors) {
+		for (const theirs of positioned(competitor)) {
+			for (const ours of mine) {
+				if (
+					propertyFamily(ours.entry.property) !==
+						propertyFamily(theirs.entry.property) ||
+					declaresTheSame(ours.entry, theirs.entry)
+				) {
+					continue;
+				}
+				relations.set(
+					`${ours.index}\u0000${competitor}\u0000${theirs.index}`,
+					cascadeOrder(ours, theirs),
+				);
+			}
+		}
+	}
+	return relations;
+};
+
+/**
+ * Whether replacing `candidate` by `canonical` among `classes` changes which
+ * declaration wins anywhere the class competes. Competitors are the other
+ * classes with a declaration in a family the class declares; none, and the
+ * standalone verdict stands. Otherwise every pair of competing declarations
+ * must keep its order (`!important`, then specificity, then emitted
+ * order), whatever the conditions they apply under: ordering conditions
+ * that never overlap is not worth the risk of missing one that does.
+ */
+export const verifyCanonicalInContext = (
+	designSystem: TailwindDesignSystem,
+	{ classes, candidate, canonical }: ContextCheck,
+): ContextVerdict => {
+	try {
+		const own = compileClass(designSystem, candidate);
+		const replacement = compileClass(designSystem, canonical);
+		if (!own || !replacement || own.length !== replacement.length) {
+			return {
+				status: "changed",
+				reason: "its declarations could not be matched with the replacement's",
+			};
+		}
+		const families = new Set(
+			own.map((entry) => propertyFamily(entry.property)),
+		);
+		const competitors = [...new Set(classes)].filter((className) => {
+			if (className === candidate || className === canonical) return false;
+			const compiled = compileClass(designSystem, className);
+			return compiled?.some((entry) =>
+				families.has(propertyFamily(entry.property)),
+			);
+		});
+		if (competitors.length === 0) {
+			return { status: "unchanged", competitors: 0 };
+		}
+		const before = precedence(designSystem, candidate, competitors);
+		const after = precedence(designSystem, canonical, competitors);
+		// With the canonical form already there, replacing the class removes
+		// it: that changes something only where the class beat a competitor
+		// the canonical form loses to (both declare the same values).
+		const alreadyThere = classes.includes(canonical);
+		for (const [key, order] of before) {
+			const changed = alreadyThere
+				? order > 0 && (after.get(key) ?? -1) < 0
+				: after.get(key) !== order;
+			if (changed) {
+				const competitor = key.split("\u0000")[1];
+				return {
+					status: "changed",
+					reason: `next to "${competitor}", ${order < 0 ? `"${competitor}" wins over the class but not over "${canonical}"` : `the class wins over "${competitor}" but "${canonical}" does not`}`,
+				};
+			}
+		}
+		if (after.size !== before.size && !alreadyThere) {
+			return {
+				status: "changed",
+				reason: "the replacement competes with other declarations",
+			};
+		}
+		return { status: "unchanged", competitors: competitors.length };
+	} catch (error) {
+		return {
+			status: "changed",
+			reason: `the classes could not be compared (${error instanceof Error ? error.message : String(error)})`,
+		};
+	}
 };
