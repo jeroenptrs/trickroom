@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TrickroomCodegenConfig, TrickroomConfig } from "../types";
 import { createClassMerge, mergeComponentClasses } from "./class-merge";
 import {
@@ -213,5 +213,35 @@ describe("resolveClassMergeSettings", () => {
 				systemId: null,
 			}),
 		).toEqual({ mode: "none" });
+	});
+
+	it("says why the component class data is missing when the manifest cannot be read", async () => {
+		const projectRoot = await createProject();
+		await writeFile(
+			path.join(
+				projectRoot,
+				".trickroom",
+				"systems",
+				"core",
+				"components.json",
+			),
+			"{ not json",
+		);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const merge = await resolveComponentClassMerge({
+				projectRoot,
+				config: config(),
+				systemId: CORE,
+			});
+			expect(merge.mode).toBe("stock");
+			expect(merge.components).toBeUndefined();
+			expect(merge.componentsError).toEqual(expect.any(String));
+			expect(warn).toHaveBeenCalledWith(
+				expect.stringContaining("component manifest could not be read"),
+			);
+		} finally {
+			warn.mockRestore();
+		}
 	});
 });

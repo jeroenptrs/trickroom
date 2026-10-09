@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useProjectScope } from "../components/contexts";
 import {
 	type ClassMergeState,
@@ -25,6 +25,16 @@ export function useClassMerge(
 		enabled,
 	});
 	const settled = query.isSuccess || query.isError;
+	const componentsError = query.data?.componentsError;
+	useEffect(() => {
+		// Classes merge, but instances cannot be resolved: they render their
+		// stored className. (`mode: "none"` is intentional and not reported.)
+		if (componentsError) {
+			console.warn(
+				`[Trickroom] Component instances render their stored classes: the component manifest could not be read: ${componentsError}`,
+			);
+		}
+	}, [componentsError]);
 
 	return useMemo(() => {
 		if (!enabled) return NOT_MERGED;

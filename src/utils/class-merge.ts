@@ -191,6 +191,12 @@ export type ComponentClassSource = {
  */
 export type ComponentClassMerge = ClassMergeSettings & {
 	components?: { systemId: string; table: ComponentClassTable };
+	/**
+	 * Why `components` is missing although classes merge: the component
+	 * manifest could not be read. Absent when nothing merges (`mode: "none"`),
+	 * which is intentional.
+	 */
+	componentsError?: string;
 };
 
 /** The source `getRenderableProps` resolves component classes with, or null. */

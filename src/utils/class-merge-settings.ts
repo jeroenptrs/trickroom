@@ -80,8 +80,8 @@ export const resolveClassMergeSettings = async ({
 /**
  * `resolveClassMergeSettings` plus, when classes merge, the class data of the
  * system's components under the resolved system id. A component manifest
- * that cannot be read leaves them out: instances then render their stored
- * className.
+ * that cannot be read leaves them out, with `componentsError`: instances
+ * then render their stored className.
  */
 export const resolveComponentClassMerge = async (options: {
 	projectRoot: string;
@@ -109,11 +109,12 @@ export const resolveComponentClassMerge = async (options: {
 			},
 		};
 	} catch (error) {
-		// Instances then render their stored className; say why.
+		// Not an intentional no-merge: classes merge, but instances render
+		// their stored className because the components cannot be read.
+		const message = error instanceof Error ? error.message : String(error);
 		console.warn(
-			`[Trickroom] component classes of system "${system.systemId}" not resolved, the component manifest could not be read:`,
-			error,
+			`[Trickroom] Classes of system "${system.systemId}" merge (mode "${settings.mode}"), but its component manifest could not be read, so instances render their stored className: ${message}`,
 		);
-		return settings;
+		return { ...settings, componentsError: message };
 	}
 };
