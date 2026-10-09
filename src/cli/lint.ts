@@ -4,22 +4,25 @@ import type { LintFinding, LintReport } from "../lint/report";
 import { type LintRunResult, runLint } from "../lint/run-lint";
 
 /**
- * `trickroom lint [project] [--check] [--json] [--system <id>]`: lints the
- * project's design system on both sides and ratchets the result against
- * the committed report. Without `--check` a passing run writes
- * `.trickroom/systems/<id>/lint-report.json`; with it nothing is written.
+ * `trickroom lint [project] [--check] [--json] [--system <id>]
+ * [--adopt <kind>]...`: lints the project's design system on both sides
+ * and ratchets the result against the committed report. Without `--check`
+ * a passing run writes `.trickroom/systems/<id>/lint-report.json`; with it
+ * nothing is written. `--adopt` accepts a rule kind's current count as its
+ * baseline, one kind per flag.
  * Exit codes: 0 pass, 1 ratchet failure, 2 error (no project, invalid
  * config or lint.json, unknown system, a rule that crashed).
  */
 
 const USAGE =
-	"Usage: trickroom lint [project] [--check] [--json] [--system <id|name>]";
+	"Usage: trickroom lint [project] [--check] [--json] [--system <id|name>] [--adopt <rule kind id>]...";
 
 export type LintCliOptions = {
 	projectRoot: string;
 	check: boolean;
 	json: boolean;
 	system: string | null;
+	adopt: string[];
 };
 
 export const parseLintArgs = (
@@ -31,6 +34,7 @@ export const parseLintArgs = (
 		check: false,
 		json: false,
 		system: null,
+		adopt: [],
 	};
 	for (let index = 0; index < args.length; index += 1) {
 		const arg = args[index];
@@ -54,6 +58,19 @@ export const parseLintArgs = (
 					throw new Error(`--system needs a system id or name. ${USAGE}`);
 				}
 				options.system = value;
+				break;
+			}
+			case "--adopt": {
+				const value = inline ?? args[++index];
+				if (!value || value.startsWith("--")) {
+					throw new Error(`--adopt needs a rule kind id. ${USAGE}`);
+				}
+				if (value === "all") {
+					throw new Error(
+						`--adopt all is not allowed: name each rule kind to adopt with its own --adopt. ${USAGE}`,
+					);
+				}
+				options.adopt.push(value);
 				break;
 			}
 			default:
@@ -130,7 +147,9 @@ const describeResult = (result: LintRunResult): string[] => {
 	const ratchet = result.ratchet;
 	for (const adoption of ratchet.adopted) {
 		lines.push(
-			`adopted: ${adoption.metric} ${adoption.current} (new rule kind)`,
+			adoption.reason === "explicit"
+				? `adopted: ${adoption.metric} ${adoption.baseline ?? 0} -> ${adoption.current} (--adopt)`
+				: `adopted: ${adoption.metric} ${adoption.current} (new rule kind)`,
 		);
 	}
 	for (const regression of ratchet.regressions) {
@@ -151,9 +170,17 @@ const describeResult = (result: LintRunResult): string[] => {
 			`Lint failed for ${where}: ${plural(ratchet.regressions.length, "number")} worse than the baseline${ratchet.baseline ? ` of ${ratchet.baseline.generatedAt}` : ""}, ${plural(ratchet.breaches.length, "threshold")} broken.${result.written ? ` Report written to ${result.reportPath}.` : ""}`,
 		);
 	} else {
+		const newKinds = ratchet.adopted.filter(
+			(entry) => entry.reason !== "explicit",
+		).length;
+		const explicit = ratchet.adopted.length - newKinds;
+		const adoptedParts = [
+			newKinds > 0 ? plural(newKinds, "new rule kind") : "",
+			explicit > 0 ? `${plural(explicit, "rule kind")} by --adopt` : "",
+		].filter(Boolean);
 		const adopted =
-			ratchet.adopted.length > 0
-				? ` ${plural(ratchet.adopted.length, "new rule kind")} adopted into the baseline${result.mode === "check" ? " once lint runs without --check" : ""}.`
+			adoptedParts.length > 0
+				? ` ${adoptedParts.join(" and ")} adopted into the baseline${result.mode === "check" ? " once lint runs without --check" : ""}.`
 				: "";
 		lines.push(
 			`Lint passed for ${where}${ratchet.baseline ? ` against the baseline of ${ratchet.baseline.generatedAt}` : " (no baseline yet)"}.${result.written ? ` Report written to ${result.reportPath}.` : result.mode === "check" ? " Nothing written (--check)." : ""}${adopted}`,
@@ -184,6 +211,7 @@ export const runLintCli = async (
 		projectRoot: options.projectRoot,
 		system: options.system,
 		check: options.check,
+		adopt: options.adopt,
 	});
 
 	if (options.json) {

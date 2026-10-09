@@ -112,8 +112,8 @@ const report = (): LintReport => ({
 			{ metric: "code.errors", kind: "max", limit: 0, current: 1 },
 		],
 		adopted: [
-			{ metric: "rule.code.b", current: 1 },
-			{ metric: "rule.code.a", current: 0 },
+			{ metric: "rule.code.b", current: 1, reason: "explicit", baseline: 0 },
+			{ metric: "rule.code.a", current: 0, reason: "new-kind" },
 		],
 		numbers: { "code.warnings": 0, "code.errors": 1 },
 	},
@@ -358,8 +358,8 @@ describe("lint report", () => {
 				{ metric: "rule.code.b", kind: "max", limit: 0, current: 1 },
 			],
 			adopted: [
-				{ metric: "rule.code.a", current: 0 },
-				{ metric: "rule.code.b", current: 1 },
+				{ metric: "rule.code.a", current: 0, reason: "new-kind" },
+				{ metric: "rule.code.b", current: 1, reason: "explicit", baseline: 0 },
 			],
 			numbers: { "code.errors": 1, "code.warnings": 0 },
 		});
@@ -373,6 +373,17 @@ describe("lint report", () => {
 		expect(
 			parseLintReport({ ...JSON.parse(text), ratchet: { status: "pass" } })
 				.issue?.code,
+		).toBe("INVALID_REPORT");
+		const withAdoption = (entry: Record<string, unknown>) =>
+			parseLintReport({
+				...JSON.parse(text),
+				ratchet: { ...JSON.parse(text).ratchet, adopted: [entry] },
+			}).issue?.code;
+		expect(
+			withAdoption({ metric: "rule.code.a", current: 0, reason: "all" }),
+		).toBe("INVALID_REPORT");
+		expect(
+			withAdoption({ metric: "rule.code.a", current: 0, baseline: "1" }),
 		).toBe("INVALID_REPORT");
 		expect(Object.keys(parsed.report?.ratchetBaseline.numbers ?? {})).toEqual([
 			"code.errors",
@@ -405,6 +416,16 @@ describe("lint report", () => {
 			numbers: { "code.errors": 1, "code.warnings": 0 },
 		});
 		expect(parsed.report?.ratchetBaseline).not.toHaveProperty("kinds");
+	});
+
+	it("reads adoptions written before they had a reason as new kinds", () => {
+		const legacy = JSON.parse(serializeLintReport(report()));
+		legacy.ratchet.adopted = [{ metric: "rule.code.a", current: 2 }];
+		const parsed = parseLintReport(legacy);
+		expect(parsed.issue).toBeNull();
+		expect(parsed.report?.ratchet.adopted).toEqual([
+			{ metric: "rule.code.a", current: 2, reason: "new-kind" },
+		]);
 	});
 
 	it("reads, writes atomically and refuses folders outside .trickroom/systems", async () => {
