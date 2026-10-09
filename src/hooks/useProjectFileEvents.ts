@@ -1,5 +1,6 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import { configFileProjectQueryKey } from "../queries/config-file";
 import {
 	type DesignFileSnapshot,
 	designFileQueryKey,
@@ -13,10 +14,16 @@ import {
 	parseEditorFocusEvent,
 } from "../queries/editor-channel";
 import type { ProjectQueryScope } from "../queries/project-scope";
+import { bumpTailwindSourceRevision } from "../queries/tailwind-sources";
 
 export type TrickroomFileEvent = {
-	/** What changed, relative to `.trickroom`; `designs/<id>` for designs. */
+	/**
+	 * What changed, relative to `.trickroom`; `designs/<id>` for designs. For
+	 * `tailwind-source` events, relative to the project root.
+	 */
 	file: string;
+	/** `tailwind-source`: a stylesheet a system's Tailwind CSS reads changed. */
+	kind?: "tailwind-source";
 	/** Opaque revision of the file or design, or null when it was deleted. */
 	revision: string | null;
 	operation: "changed" | "deleted";
@@ -65,6 +72,14 @@ const designUsageQueryPrefixes = new Set([
 	"trickroom-system-used-by",
 ]);
 
+// `codegen.twMerge` in the project config decides how classes merge, on
+// the canvas and in lint.
+const configQueryPrefixes = new Set([
+	"trickroom-tailwind-class-merge",
+	"trickroom-system-lint",
+	"trickroom-design-lint",
+]);
+
 const memoryQueryPrefixes = new Set([
 	"trickroom-memory",
 	"trickroom-memory-reference-targets",
@@ -109,6 +124,24 @@ export async function invalidateTrickroomFileEvent(
 		return;
 	}
 
+	if (event.kind === "tailwind-source") {
+		// The system's CSS changed: compiled styles, the class catalog and the
+		// derived merge config all read it.
+		bumpTailwindSourceRevision();
+		await invalidatePrefixes(queryClient, systemQueryPrefixes);
+		return;
+	}
+
+	if (event.file === "config.json") {
+		await Promise.all([
+			invalidatePrefixes(queryClient, configQueryPrefixes),
+			queryClient.invalidateQueries({
+				queryKey: configFileProjectQueryKey(projectScope),
+			}),
+		]);
+		return;
+	}
+
 	if (event.file.startsWith("designs/") && event.file.endsWith("memory.json")) {
 		await invalidatePrefixes(queryClient, memoryQueryPrefixes);
 		return;
@@ -125,7 +158,11 @@ const coalesceMaxWaitMs = 250;
 // Events that invalidate the same queries share a key: every file under
 // `systems/` refreshes the same query families.
 const getCoalesceKey = (event: TrickroomFileEvent) =>
-	event.file.startsWith("systems/") ? "systems/" : event.file;
+	event.kind === "tailwind-source"
+		? "tailwind-source"
+		: event.file.startsWith("systems/")
+			? "systems/"
+			: event.file;
 
 /**
  * Two events for the same design: the later one, naming every board either

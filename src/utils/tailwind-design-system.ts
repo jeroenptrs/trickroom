@@ -9,6 +9,7 @@ import {
 	DesignSystemStorageError,
 	listDesignSystems,
 } from "./design-system-store.ts";
+import { recordTailwindSourceFiles } from "./tailwind-source-files.ts";
 
 type PackageJson = {
 	style?: string;
@@ -322,6 +323,7 @@ async function loadTrackedTailwindDesignSystem({
 		);
 	});
 
+	recordTailwindSourceFiles(fileStamps.keys());
 	return {
 		designSystem,
 		rootPath,
@@ -499,6 +501,7 @@ async function getCompiledStylesheet(
 		fileMtimes,
 		compiled,
 	});
+	recordTailwindSourceFiles(fileMtimes.keys());
 	return compiled;
 }
 
@@ -642,9 +645,11 @@ export async function loadCanvasTailwindDesignSystem({
 		);
 	});
 
+	recordTailwindSourceFiles(fileMtimes.keys());
 	return { designSystem, fileMtimes };
 }
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting them is the point
 const unsafeCssThemeValuePattern = /[\x00-\x1f\x7f{};\r\n]/u;
 const SAFE_SPACING_THEME_FALLBACK = "0.25rem";
 

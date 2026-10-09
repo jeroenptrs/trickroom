@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Node, TrickroomDesign } from "../types";
+import { recordTailwindSourceFiles } from "../utils/tailwind-source-files";
 import { createDesignFileService } from "./design-file-service";
 import { calculateManifestRevision } from "./design-revision";
 import {
@@ -80,7 +81,8 @@ describe("project file events", () => {
 		expect(
 			isWatchedTrickroomFile("systems/core/lint-report.json.reclaim"),
 		).toBe(false);
-		expect(isWatchedTrickroomFile("config.json")).toBe(false);
+		expect(isWatchedTrickroomFile("config.json")).toBe(true);
+		expect(isWatchedTrickroomFile(".config.json.123.tmp")).toBe(false);
 
 		expect(classifyTrickroomFile("designs/home/design.json")).toEqual({
 			kind: "design",
@@ -386,6 +388,66 @@ describe("project file events", () => {
 			file: "designs/home/memory.json",
 			operation: "changed",
 		});
+		unsubscribe();
+	});
+
+	it("reports the project config as a file", async () => {
+		const root = await createProjectRoot();
+		const { received, unsubscribe } = await subscribe(root);
+
+		await writeFile(path.join(root, ".trickroom", "config.json"), "{}");
+
+		await vi.waitFor(() => expect(received).toHaveLength(1), {
+			timeout: 2_000,
+		});
+		expect(received[0]).toMatchObject({
+			file: "config.json",
+			operation: "changed",
+		});
+		unsubscribe();
+	});
+
+	it("reports edits to the system stylesheets the Tailwind caches read", async () => {
+		const root = await createProjectRoot();
+		await mkdir(path.join(root, "styles"), { recursive: true });
+		const theme = path.join(root, "styles", "theme.css");
+		const vendored = path.join(root, "node_modules", "pkg", "index.css");
+		await mkdir(path.dirname(vendored), { recursive: true });
+		await writeFile(theme, "@theme {}\n");
+		await writeFile(vendored, "\n");
+		// Read before the watcher starts, and after: both are watched.
+		recordTailwindSourceFiles([theme]);
+		const { received, unsubscribe } = await subscribe(root);
+		const imported = path.join(root, "styles", "utilities.css");
+		await writeFile(imported, "\n");
+		recordTailwindSourceFiles([imported, vendored]);
+		await new Promise((resolve) => setTimeout(resolve, 150));
+
+		await writeFile(theme, "@theme { --color-brand: red; }\n");
+		await writeFile(imported, "@utility card { padding: 1rem; }\n");
+		await writeFile(vendored, "/* not watched */\n");
+
+		await vi.waitFor(() => expect(received).toHaveLength(2), {
+			timeout: 2_000,
+		});
+		expect(
+			received.map(({ file, kind, operation }) => ({ file, kind, operation })),
+		).toEqual(
+			expect.arrayContaining([
+				{
+					file: "styles/theme.css",
+					kind: "tailwind-source",
+					operation: "changed",
+				},
+				{
+					file: "styles/utilities.css",
+					kind: "tailwind-source",
+					operation: "changed",
+				},
+			]),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(received).toHaveLength(2);
 		unsubscribe();
 	});
 });

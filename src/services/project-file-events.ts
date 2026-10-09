@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
+import {
+	getTailwindSourceFiles,
+	subscribeTailwindSourceFiles,
+} from "../utils/tailwind-source-files";
 import { createDesignFileService } from "./design-file-service";
 import { calculateManifestRevision } from "./design-revision";
 import { inspectDesignStorage } from "./design-storage";
@@ -9,9 +13,15 @@ import { inspectDesignStorage } from "./design-storage";
 export type TrickroomFileEvent = {
 	/**
 	 * What changed, relative to `.trickroom`. Design events name the design,
-	 * `designs/<id>`, whatever files of it changed.
+	 * `designs/<id>`, whatever files of it changed. For `tailwind-source`
+	 * events, relative to the project root.
 	 */
 	file: string;
+	/**
+	 * `tailwind-source`: a stylesheet a system's Tailwind CSS reads (its
+	 * entry or an imported file) changed, outside `.trickroom`.
+	 */
+	kind?: "tailwind-source";
 	/**
 	 * Opaque revision of the changed file or, for a design, the design's
 	 * revision; null when it was deleted.
@@ -70,13 +80,18 @@ type WatchedFile =
 /**
  * Classifies a path relative to `.trickroom`. Changes to any file of a
  * design (its manifest, board files and journal, or a legacy single file)
- * are design changes, batched per design; memory files and system files
- * (including `lint.json` and `lint-report.json`) are reported as files.
+ * are design changes, batched per design; memory files, system files
+ * (including `lint.json` and `lint-report.json`) and the project config are
+ * reported as files.
  * Temporary files, lock files and saved conflicts are ignored.
  */
 export const classifyTrickroomFile = (
 	relativeFile: string,
 ): WatchedFile | null => {
+	// The project config: `codegen.twMerge` decides how classes merge.
+	if (relativeFile === "config.json") {
+		return { kind: "file" };
+	}
 	if (relativeFile.startsWith("systems/")) {
 		// Atomic writes (components.json, lint-report.json) go through a
 		// `.tmp` sibling that is renamed into place; only the target matters.
@@ -166,6 +181,9 @@ export class ProjectFileEvents {
 	/** Designs whose last event reported them deleted, to drop repeats. */
 	private readonly deletedDesigns = new Set<string>();
 	private watcher: FSWatcher | null = null;
+	/** Watches the system stylesheets the Tailwind caches have read. */
+	private sourceWatcher: FSWatcher | null = null;
+	private unsubscribeSources: (() => void) | null = null;
 	private projectRoot: string | null = null;
 	private watcherGeneration = 0;
 	private readonly debounceMs: number;
@@ -249,6 +267,84 @@ export class ProjectFileEvents {
 		watcher.on("add", schedule);
 		watcher.on("change", schedule);
 		watcher.on("unlink", schedule);
+
+		this.watchTailwindSources(this.projectRoot);
+	}
+
+	/**
+	 * Reports edits to the stylesheets a system's Tailwind CSS reads (its entry
+	 * and the files it imports) that live in the project but outside
+	 * `.trickroom`, as `tailwind-source` events. Files join as the Tailwind
+	 * caches read them; packages under `node_modules` are left out.
+	 */
+	private watchTailwindSources(projectRoot: string) {
+		const sourceWatcher = chokidar.watch([], { ignoreInitial: true });
+		this.sourceWatcher = sourceWatcher;
+		const trickroomDir = path.join(projectRoot, ".trickroom") + path.sep;
+		const add = (files: readonly string[]) => {
+			const watched = files.filter((filePath) => {
+				const relative = path.relative(projectRoot, filePath);
+				return (
+					relative.length > 0 &&
+					!relative.startsWith("..") &&
+					!path.isAbsolute(relative) &&
+					!filePath.startsWith(trickroomDir) &&
+					!relative.split(path.sep).includes("node_modules")
+				);
+			});
+			if (watched.length > 0) sourceWatcher.add(watched);
+		};
+		add(getTailwindSourceFiles());
+		this.unsubscribeSources = subscribeTailwindSourceFiles(add);
+		const schedule = (filePath: string) =>
+			this.scheduleTailwindSource(projectRoot, filePath);
+		sourceWatcher.on("add", schedule);
+		sourceWatcher.on("change", schedule);
+		sourceWatcher.on("unlink", schedule);
+	}
+
+	private scheduleTailwindSource(projectRoot: string, filePath: string) {
+		const key = `tailwind-source:${filePath}`;
+		const previous = this.pending.get(key);
+		if (previous) {
+			clearTimeout(previous);
+		}
+		this.pending.set(
+			key,
+			setTimeout(() => {
+				this.pending.delete(key);
+				void this.emitTailwindSource(projectRoot, filePath);
+			}, this.debounceMs),
+		);
+	}
+
+	private async emitTailwindSource(projectRoot: string, filePath: string) {
+		if (this.projectRoot !== projectRoot) {
+			return;
+		}
+		const file = path.relative(projectRoot, filePath).split(path.sep).join("/");
+		let event: TrickroomFileEvent;
+		try {
+			event = {
+				file,
+				kind: "tailwind-source",
+				revision: toRevision(await readFile(filePath)),
+				operation: "changed",
+			};
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+				return;
+			}
+			event = {
+				file,
+				kind: "tailwind-source",
+				revision: null,
+				operation: "deleted",
+			};
+		}
+		for (const listener of this.listeners) {
+			listener(event);
+		}
 	}
 
 	private schedule(filePath: string) {
@@ -515,6 +611,13 @@ export class ProjectFileEvents {
 		this.watcher = null;
 		if (watcher) {
 			await watcher.close();
+		}
+		this.unsubscribeSources?.();
+		this.unsubscribeSources = null;
+		const sourceWatcher = this.sourceWatcher;
+		this.sourceWatcher = null;
+		if (sourceWatcher) {
+			await sourceWatcher.close();
 		}
 
 		for (const timer of this.pending.values()) {
