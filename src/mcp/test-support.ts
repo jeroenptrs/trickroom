@@ -14,6 +14,7 @@ import {
 } from "../project";
 import { createDesignFileService } from "../services/design-file-service";
 import type { TrickroomConfig, TrickroomDesign } from "../types";
+import { canonicalizeTailwindCandidatesInWorker } from "../utils/tailwind-canonicalize-client";
 import {
 	type StoreDomainTokensParams,
 	storeDomainTokens,
@@ -177,6 +178,34 @@ const defaultSystemCss = `@import "tailwindcss";
   --color-brand-500: #2563eb;
 }
 `;
+
+/**
+ * Pays the first canonicalization of each system CSS up front. Validation
+ * runs `design.non-canonical-class`, and Tailwind builds its lookup tables
+ * on the first canonicalization of a system: seconds, off the main thread
+ * but still awaited. The worker shares warm tables between systems that read
+ * the same stylesheets, so sessions created afterwards with these CSS texts
+ * start warm. Call from `beforeAll` with a hook timeout.
+ */
+export const warmTailwindCanonicalization = async (
+	extraCss: readonly string[] = [],
+) => {
+	// Inside the repo so `@import "tailwindcss"` resolves from node_modules.
+	const projectRoot = await mkdtemp(
+		path.join(process.cwd(), ".tmp-trickroom-mcp-warm-"),
+	);
+	try {
+		for (const [index, css] of [defaultSystemCss, ...extraCss].entries()) {
+			const cssPath = `warm-${index}.css`;
+			await writeFile(path.join(projectRoot, cssPath), css, "utf8");
+			await canonicalizeTailwindCandidatesInWorker({ projectRoot, cssPath }, [
+				"p-2",
+			]);
+		}
+	} finally {
+		await rm(projectRoot, { force: true, recursive: true });
+	}
+};
 
 const createDefaultTokenSnapshot = (
 	systemName: string,

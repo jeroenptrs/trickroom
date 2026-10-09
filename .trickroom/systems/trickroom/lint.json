@@ -1,5 +1,14 @@
 {
 	"version": 1,
+	"rules": {
+		"code.non-canonical-class": {
+			"options": {
+				"allow": [
+					"[[data-panel-open]_&]:*"
+				]
+			}
+		}
+	},
 	"source": {
 		"include": [
 			"src/**"

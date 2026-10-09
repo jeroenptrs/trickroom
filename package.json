@@ -10,7 +10,7 @@
 	},
 	"scripts": {
 		"dev": "pnpm generate:tailwind-tokens && vite",
-		"build": "pnpm build:web-runtime && pnpm build:server && pnpm build:mcp && pnpm build:migrate && pnpm build:feedback && pnpm build:codegen && pnpm build:lint",
+		"build": "pnpm build:web-runtime && pnpm build:server && pnpm build:mcp && pnpm build:migrate && pnpm build:feedback && pnpm build:codegen && pnpm build:lint && pnpm build:tailwind-worker",
 		"build:web-runtime": "pnpm generate:tailwind-tokens && tsc && vite build",
 		"build:server": "vite build --config vite.server.config.ts",
 		"build:mcp": "vite build --config vite.mcp.config.ts",
@@ -18,6 +18,7 @@
 		"build:feedback": "vite build --config vite.feedback.config.ts",
 		"build:codegen": "vite build --config vite.codegen.config.ts",
 		"build:lint": "vite build --config vite.lint.config.ts",
+		"build:tailwind-worker": "vite build --config vite.tailwind-worker.config.ts",
 		"preview": "vite preview",
 		"generate:tailwind-tokens": "node --experimental-strip-types scripts/generate-tailwind-tokens.ts",
 		"test": "vitest run",

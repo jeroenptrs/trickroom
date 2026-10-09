@@ -28,7 +28,12 @@ import { buildSourceIndex, type SourceIndex } from "../../source/index";
 import { parseSourceModule } from "../../source/parse";
 import { walkSourceFiles } from "../../source/walk";
 import { LINT_RULE_KINDS } from "../index";
-import type { LintRuleContext, LintRuleFinding, LintRuleKind } from "../types";
+import type {
+	LintRuleContext,
+	LintRuleFinding,
+	LintRuleKind,
+	LintTailwindInspector,
+} from "../types";
 
 /**
  * Fixture projects for the code-side rules: a temp project with one system
@@ -104,6 +109,8 @@ export type LintFixture = {
 		options?: {
 			options?: Record<string, unknown>;
 			inspect?: (candidate: string) => boolean;
+			/** A whole inspector (a real compiled build, say); wins over `inspect`. */
+			inspector?: LintTailwindInspector;
 			/** The derived tailwind-merge config; stock merging without one. */
 			mergeConfig?: TwMergeConfig;
 			tokens?: Partial<Record<TailwindTokenDomain, string[]>> | null;
@@ -210,7 +217,8 @@ export async function createLintFixture(options: {
 				designs: emptyLintDesignIndex(runContract.system.id),
 				tailwind: {
 					inspector: async () =>
-						inspect
+						runOptions.inspector ??
+						(inspect
 							? {
 									inspect: (candidate): TailwindUtilityInspection => ({
 										candidate,
@@ -219,7 +227,7 @@ export async function createLintFixture(options: {
 										css: inspect(candidate) ? "x" : null,
 									}),
 								}
-							: null,
+							: null),
 					mergeConfig: async () => runOptions.mergeConfig ?? null,
 				},
 			};

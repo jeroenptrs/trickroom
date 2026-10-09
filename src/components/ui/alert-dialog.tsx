@@ -8,9 +8,9 @@ import { Separator } from "./separator";
 const alertDialog = tv({
 	slots: {
 		backdrop:
-			"fixed inset-0 min-h-dvh bg-slate-950 opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70 supports-[-webkit-touch-callout:none]:absolute",
+			"fixed inset-0 min-h-dvh bg-slate-950 opacity-20 transition-all duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 dark:opacity-70 supports-[-webkit-touch-callout:none]:absolute",
 		popup:
-			"flex flex-col fixed top-1/2 left-1/2 -mt-8 w-96 w-full max-w-xs md:max-w-md -translate-x-1/2 -translate-y-1/2 rounded-none bg-white text-slate-900 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 shadow-xl shadow-slate-900/10 transition-all duration-150 data-[ending-style]:scale-90 data-[ending-style]:opacity-0 data-[starting-style]:scale-90 data-[starting-style]:opacity-0",
+			"flex flex-col fixed top-1/2 left-1/2 -mt-8 w-96 w-full max-w-xs md:max-w-md -translate-x-1/2 -translate-y-1/2 rounded-none bg-white text-slate-900 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 shadow-xl shadow-slate-900/10 transition-all duration-150 data-ending-style:scale-90 data-ending-style:opacity-0 data-starting-style:scale-90 data-starting-style:opacity-0",
 		title: "p-2",
 		description: "px-2 mb-4",
 	},
@@ -20,8 +20,7 @@ const { backdrop, popup, title, description } = alertDialog();
 
 const confirmationDialog = tv({
 	slots: {
-		popup:
-			"w-[calc(100vw-2rem)] max-w-[26rem] gap-0 overflow-hidden rounded-none",
+		popup: "w-[calc(100vw-2rem)] max-w-104 gap-0 overflow-hidden rounded-none",
 		header: "flex items-center justify-between px-4 py-3",
 		titleGroup: "flex min-w-0 items-center gap-2",
 		icon: "size-4 shrink-0 text-slate-500",

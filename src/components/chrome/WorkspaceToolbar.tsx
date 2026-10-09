@@ -120,7 +120,7 @@ function WorkspaceModeToggle() {
 
 	return (
 		<fieldset
-			className="flex gap-px border-0 p-0 [min-inline-size:0]"
+			className="flex gap-px border-0 p-0 min-inline-0"
 			aria-label="Stage mode"
 		>
 			{STAGE_MODE_OPTIONS.map(({ value, label, Icon, title }) => {
@@ -251,7 +251,7 @@ function ResponsiveDevicePresetMenu() {
 							return (
 								<Menu.Item
 									key={width}
-									className="flex cursor-default items-center gap-2 px-2 py-1 data-[highlighted]:bg-slate-200/60"
+									className="flex cursor-default items-center gap-2 px-2 py-1 data-highlighted:bg-slate-200/60"
 									onClick={() => controls.setResponsiveWidth(width)}
 								>
 									<Icon className="size-3.5 shrink-0 text-slate-400" />
@@ -299,7 +299,7 @@ function ResponsiveWidthControls() {
 
 	return (
 		<fieldset
-			className="flex min-w-0 items-center gap-2 border-0 p-0 [min-inline-size:0]"
+			className="flex min-w-0 items-center gap-2 border-0 p-0 min-inline-0"
 			aria-label="Viewport width"
 		>
 			<label className="flex h-7 shrink-0 items-center bg-white text-slate-600 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500">
@@ -352,7 +352,7 @@ function ResponsiveWidthControls() {
 			) : null}
 			<ResponsiveDevicePresetMenu />
 			<fieldset
-				className="flex min-w-0 items-center gap-px overflow-x-auto border-0 p-0 [min-inline-size:0]"
+				className="flex min-w-0 items-center gap-px overflow-x-auto border-0 p-0 min-inline-0"
 				aria-label="Breakpoints"
 			>
 				{breakpoints.map((breakpoint) => {
@@ -409,7 +409,7 @@ function ResponsiveZoomControls() {
 
 	return (
 		<fieldset
-			className="flex items-center gap-px border-0 p-0 [min-inline-size:0]"
+			className="flex items-center gap-px border-0 p-0 min-inline-0"
 			aria-label="Zoom"
 		>
 			<Button
@@ -558,7 +558,7 @@ function ExportControl() {
 						</div>
 						{mode === "responsive" ? (
 							<Menu.Item
-								className="flex cursor-default items-center gap-2 px-2 py-1 data-[highlighted]:bg-slate-200/60"
+								className="flex cursor-default items-center gap-2 px-2 py-1 data-highlighted:bg-slate-200/60"
 								onClick={() => runExport("active")}
 							>
 								Export this board
@@ -566,7 +566,7 @@ function ExportControl() {
 						) : (
 							<>
 								<Menu.Item
-									className="flex cursor-default items-center gap-2 px-2 py-1 data-[highlighted]:bg-slate-200/60"
+									className="flex cursor-default items-center gap-2 px-2 py-1 data-highlighted:bg-slate-200/60"
 									onClick={() => runExport("all")}
 								>
 									Export all boards
@@ -576,7 +576,7 @@ function ExportControl() {
 								</Menu.Item>
 								{selectedId ? (
 									<Menu.Item
-										className="flex cursor-default items-center gap-2 px-2 py-1 data-[highlighted]:bg-slate-200/60"
+										className="flex cursor-default items-center gap-2 px-2 py-1 data-highlighted:bg-slate-200/60"
 										onClick={() => runExport("selected")}
 									>
 										Export selected board

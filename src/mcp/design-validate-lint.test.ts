@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { flatPayload, publishedComponent } from "../codegen/test-support";
 import type { Node, TrickroomDesign } from "../types";
 import { serializeSystemComponentManifest } from "../utils/system-component-manifest-service";
@@ -14,6 +14,7 @@ import {
 	type TrickroomMcpProjectFixture,
 	toolPayload,
 	trickroomMcpTestDesignUuid,
+	warmTailwindCanonicalization,
 } from "./test-support";
 
 type Issue = McpDesignIssue & {
@@ -49,6 +50,9 @@ const layer = (
 const LINT_JSON_DIRECTORY = Symbol("lint.json is a directory");
 
 describe("design_validate with the system's design lint rules", () => {
+	// The system CSS these sessions use, canonicalized once up front.
+	beforeAll(() => warmTailwindCanonicalization(), 30_000);
+
 	let fixture: TrickroomMcpProjectFixture | undefined;
 	let session: TrickroomMcpClientSession | undefined;
 

@@ -5,9 +5,9 @@ import { tv } from "tailwind-variants";
 const sheet = tv({
 	slots: {
 		backdrop:
-			"fixed inset-0 z-40 bg-slate-950/20 transition-opacity duration-200 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0",
+			"fixed inset-0 z-40 bg-slate-950/20 transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
 		content:
-			"fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-slate-50 text-slate-950 inset-shadow-[1px_0_0_0] inset-shadow-slate-200 shadow-xl shadow-slate-900/10 transition-transform duration-200 data-[ending-style]:translate-x-full data-[starting-style]:translate-x-full",
+			"fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-slate-50 text-slate-950 inset-shadow-[1px_0_0_0] inset-shadow-slate-200 shadow-xl shadow-slate-900/10 transition-transform duration-200 data-ending-style:translate-x-full data-starting-style:translate-x-full",
 	},
 });
 

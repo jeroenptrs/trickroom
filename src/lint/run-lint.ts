@@ -19,7 +19,11 @@ import {
 	readSystemComponentManifest,
 	SystemComponentManifestServiceError,
 } from "../utils/system-component-manifest-service";
-import { loadCachedTailwindDesignSystem } from "../utils/tailwind-design-system";
+import { canonicalizeTailwindCandidatesInWorker } from "../utils/tailwind-canonicalize-client";
+import {
+	loadCachedTailwindDesignSystem,
+	type TailwindDesignSystem,
+} from "../utils/tailwind-design-system";
 import type { TwMergeConfig } from "../utils/tailwind-merge-config";
 import {
 	loadDerivedTwMerge,
@@ -162,6 +166,11 @@ const MAX_PARSE_ERROR_DIAGNOSTICS = 50;
  * system is cached across runs and validation calls until the CSS changes
  * (`loadCachedTailwindDesignSystem`).
  */
+const lintInspectors = new WeakMap<
+	TailwindDesignSystem,
+	LintTailwindInspector
+>();
+
 export const createTailwindInspectorLoader = (
 	projectRoot: string,
 	cssPath: string | null,
@@ -172,7 +181,24 @@ export const createTailwindInspectorLoader = (
 			return Promise.resolve(null);
 		}
 		pending ??= loadCachedTailwindDesignSystem({ projectRoot, cssPath })
-			.then(({ designSystem }) => createClassTokenInspector(designSystem))
+			.then(({ designSystem }) => {
+				// One inspector per compiled system, so a cached system keeps it.
+				let inspector = lintInspectors.get(designSystem);
+				if (!inspector) {
+					inspector = {
+						...createClassTokenInspector(designSystem),
+						// Off the main thread: the first canonicalization on a compiled
+						// system takes seconds (see tailwind-canonicalize-worker.ts).
+						canonicalize: (candidates) =>
+							canonicalizeTailwindCandidatesInWorker(
+								{ projectRoot, cssPath },
+								candidates,
+							),
+					};
+					lintInspectors.set(designSystem, inspector);
+				}
+				return inspector;
+			})
 			.catch(() => null);
 		return pending;
 	};
