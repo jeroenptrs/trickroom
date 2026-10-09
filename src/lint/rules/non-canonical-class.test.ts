@@ -8,6 +8,7 @@ import {
 import type { TrickroomDesign } from "../../types";
 import { createClassTokenInspector } from "../../utils/class-token-diagnostics";
 import { createEmptySystemComponentManifest } from "../../utils/system-components";
+import { selectorSpecificity } from "../../utils/tailwind-canonical-equivalence";
 import { canonicalizeTailwindCandidatesInWorker } from "../../utils/tailwind-canonicalize-client";
 import { loadTailwindDesignSystem } from "../../utils/tailwind-design-system";
 import { resolveLintConfig } from "../config";
@@ -61,22 +62,11 @@ beforeAll(async () => {
 	await inspector.canonicalize?.(["bg-white"]);
 }, 30_000);
 
-/** Specificity of a simple selector: ids, classes and attributes, elements. */
-const specificity = (selector: string): [number, number, number] => {
-	const counted = selector.replace(/:where\([^)]*\)/gu, "");
-	return [
-		(counted.match(/#[\w-]+/gu) ?? []).length,
-		(counted.match(/\.[\w\\:[\]&-]+|\[[^\]]+\]|:(?!where)[\w-]+/gu) ?? [])
-			.length,
-		(counted.match(/(^|[\s>+~])[a-z]+/gu) ?? []).length,
-	];
-};
-
 afterAll(() => rm(projectRoot, { force: true, recursive: true }));
 
 describe("canonicalizeTailwindCandidatesInWorker", () => {
 	it("writes each class the way Tailwind does, one class at a time", async () => {
-		const canonical = await inspector.canonicalize?.([
+		const results = await inspector.canonicalize?.([
 			"[scrollbar-width:thin]",
 			"bg-[#FFF]",
 			"[&:has(.active)]:p-2",
@@ -88,7 +78,7 @@ describe("canonicalizeTailwindCandidatesInWorker", () => {
 			"not-a-utility",
 			"w-[16px]",
 		]);
-		expect(canonical).toEqual([
+		expect(results?.map((result) => result.canonical)).toEqual([
 			"scrollbar-thin",
 			"bg-white",
 			"has-[.active]:p-2",
@@ -98,25 +88,82 @@ describe("canonicalizeTailwindCandidatesInWorker", () => {
 			"not-a-utility",
 			"w-[16px]",
 		]);
+		// Only a form that differs is verified.
+		expect(results?.slice(4).map((result) => result.verdict)).toEqual([
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		]);
 	});
 
-	it("may change specificity: an `in-*` form loses to a selector the original beat", async () => {
+	it("verifies forms whose selector text differs but matches the same elements as equivalent", async () => {
+		const results = await inspector.canonicalize?.([
+			// `.x:has(:is([data-invalid]))` and `.x:has([data-invalid])`
+			"has-[[data-invalid]]:p-2",
+			// `.x > *` and `:is(.x > *)`
+			"[&>*]:inline",
+			// `calc(1 * -1)` and `-1`
+			"-z-[1]",
+			// `#FFF` and `var(--color-white)`: the form names the token.
+			"bg-[#FFF]",
+			"rounded-[0.25rem]",
+			"!grid",
+		]);
+		expect(
+			results?.map(({ canonical, verdict }) => [canonical, verdict]),
+		).toEqual([
+			["has-data-invalid:p-2", { status: "equivalent" }],
+			["*:inline", { status: "equivalent" }],
+			["z-[-1]", { status: "equivalent" }],
+			["bg-white", { status: "equivalent" }],
+			["rounded-sm", { status: "equivalent" }],
+			["grid!", { status: "equivalent" }],
+		]);
+	});
+
+	it("marks a spacing multiple that replaces a length as dependent on the theme", async () => {
+		const [result] = (await inspector.canonicalize?.(["w-[38.5rem]"])) ?? [];
+		expect(result).toEqual({
+			canonical: "w-154",
+			verdict: { status: "theme-dependent", themeVariables: ["--spacing"] },
+		});
+	});
+
+	it("rejects an `in-*` form that lowers specificity", async () => {
 		const original = "[[data-panel-open]_&]:hidden";
-		const [canonical] = (await inspector.canonicalize?.([original])) ?? [];
-		expect(canonical).toBe("in-data-panel-open:hidden");
-		const selectorOf = (candidate: string) =>
-			(designSystem.candidatesToCss([candidate])[0] ?? "").split("{")[0].trim();
-		expect(selectorOf(original)).toBe(
-			"[data-panel-open] .\\[\\[data-panel-open\\]_\\&\\]\\:hidden",
-		);
-		expect(selectorOf(canonical)).toBe(
-			":where([data-panel-open]) .in-data-panel-open\\:hidden",
-		);
+		const [result] = (await inspector.canonicalize?.([original])) ?? [];
+		expect(result?.canonical).toBe("in-data-panel-open:hidden");
+		expect(result?.verdict).toEqual({
+			status: "different",
+			reason:
+				'applies under ":where([data-panel-open]) &" where the class applies under "[data-panel-open] &" (specificity 0,2,0 becomes 0,1,0)',
+		});
 		// A competing `.panel .icon { display: block }` ties with the original
 		// (later source order decides) but beats the canonical form outright.
-		const competing = specificity(".panel .icon");
-		expect(specificity(selectorOf(original))).toEqual(competing);
-		expect(specificity(selectorOf(canonical))).toEqual([0, 1, 0]);
+		const selectorOf = (candidate: string) =>
+			(designSystem.candidatesToCss([candidate])[0] ?? "").split("{")[0].trim();
+		expect(selectorSpecificity(selectorOf(original))).toEqual(
+			selectorSpecificity(".panel .icon"),
+		);
+		expect(
+			selectorSpecificity(selectorOf("in-data-panel-open:hidden")),
+		).toEqual([0, 1, 0]);
+	});
+
+	it("rejects a form that matches other elements (Tailwind's `aria-*` rewrite of an attribute selector)", async () => {
+		const [result] =
+			(await inspector.canonicalize?.([
+				"max-lg:[&_[aria-label=DeltaBlue]]:!hidden",
+			])) ?? [];
+		expect(result).toEqual({
+			canonical: "max-lg:**:aria-[aria-label=DeltaBlue]:hidden!",
+			verdict: {
+				status: "different",
+				reason:
+					'applies under "& [aria-aria-label="DeltaBlue"]" where the class applies under "& [aria-label="DeltaBlue"]"',
+			},
+		});
 	});
 });
 
@@ -217,6 +264,29 @@ describe("code.non-canonical-class", () => {
 		]);
 	});
 
+	it("drops forms that compile to other CSS, and says when a form follows the theme", async () => {
+		const fixture = await fixtures.create({
+			components: [],
+			files: {
+				"src/app.tsx":
+					'export const App = () => <div className="[[data-panel-open]_&]:hidden max-lg:[&_[aria-label=DeltaBlue]]:!hidden w-[38.5rem]" />;\n',
+			},
+		});
+		const findings = await fixture.run(nonCanonicalClassRule, { inspector });
+		expect(describeFindings(findings)).toEqual([
+			'src/app.tsx:1:113 Class "w-[38.5rem]" is written "w-154" in Tailwind\'s canonical form, which follows the theme: it compiles to the same CSS only while `--spacing` keeps its current value. Use "w-154" if the value should follow the theme, or add "w-[38.5rem]" to this rule\'s allow list if it is intended.',
+		]);
+		expect(findings[0].details).toEqual({
+			className:
+				"[[data-panel-open]_&]:hidden max-lg:[&_[aria-label=DeltaBlue]]:!hidden w-[38.5rem]",
+			classToken: "w-[38.5rem]",
+			canonical: "w-154",
+			suggestions: ["w-154"],
+			themeDependent: true,
+			themeVariables: ["--spacing"],
+		});
+	});
+
 	it("honours allow globs, and notes when there is no compiled CSS", async () => {
 		const fixture = await fixtures.create({
 			components: [publishedComponent("button", buttonPayload())],
@@ -255,7 +325,8 @@ describe("design.non-canonical-class", () => {
 							"data-trickroom-name": "Layer",
 							"data-trickroom-library": "trickroom",
 							"data-trickroom-component": "container",
-							className: "[&:has(.active)]:p-2 bg-white",
+							className:
+								"[&:has(.active)]:p-2 bg-white [[data-panel-open]_&]:hidden max-lg:[&_[aria-label=DeltaBlue]]:!hidden max-w-[26rem]",
 						},
 						children: [],
 					},
@@ -333,7 +404,17 @@ describe("design.non-canonical-class", () => {
 				'Class "[&:has(.active)]:p-2" is written "has-[.active]:p-2" in Tailwind\'s canonical form.',
 				["has-[.active]:p-2"],
 			],
+			// The `in-*` and `aria-*` forms compile to other CSS: not reported.
+			[
+				"boards[0].children[0].props.className",
+				'Class "max-w-[26rem]" is written "max-w-104" in Tailwind\'s canonical form, which follows the theme: it compiles to the same CSS only while `--spacing` keeps its current value.',
+				["max-w-104"],
+			],
 		]);
+		expect(findings[3].details).toMatchObject({
+			themeDependent: true,
+			themeVariables: ["--spacing"],
+		});
 		expect(findings[2].location).toEqual({
 			kind: "design",
 			design: "design-1",
@@ -349,6 +430,7 @@ describe("design.non-canonical-class", () => {
 		);
 		expect(allowed.map((finding) => finding.details?.classToken)).toEqual([
 			"[scrollbar-width:thin]",
+			"max-w-[26rem]",
 		]);
 		expect(await designNonCanonicalClassRule.run(contextFor(null))).toEqual([
 			expect.objectContaining({ severity: "info", location: null }),

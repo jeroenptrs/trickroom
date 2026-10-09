@@ -9,6 +9,12 @@ import type { LintRuleFinding, LintTailwindInspector } from "./types";
  * form the system's Tailwind writes it in (`canonicalizeCandidates`, through
  * `LintTailwindInspector.canonicalize`). Classes are judged one at a time,
  * so the verdict never depends on the classes around it.
+ *
+ * A canonical form is suggested only when compiling it gives the class's CSS
+ * (`tailwind-canonical-equivalence.ts`): always, or under the current theme
+ * (`themeVariables`, said in the message). A form that compiles to other CSS
+ * (another selector, specificity or declaration, or nothing) is not
+ * reported: the class as written is the correct one.
  */
 
 export const NON_CANONICAL_CLASS_OPTIONS: readonly LintRuleOptionSpec[] = [
@@ -29,6 +35,12 @@ export type NonCanonicalClass = {
 	canonical: string;
 	/** Which occurrence of `classToken` in the string, from 0. */
 	occurrence: number;
+	/**
+	 * The theme variables `canonical` equals the class through
+	 * (`calc(var(--spacing) * 154)` for `38.5rem`); empty when it compiles to
+	 * the same CSS whatever the theme.
+	 */
+	themeVariables: string[];
 };
 
 /**
@@ -55,38 +67,62 @@ export const createCanonicalClassChecker = async (
 	}
 	const distinct = [...tokens];
 	const written = await canonicalize(distinct);
-	const canonical = new Map(
-		distinct.map((token, index) => [token, written[index] ?? token]),
-	);
+	// Only forms verified to compile to the class's CSS are suggested.
+	const suggested = new Map<
+		string,
+		{ canonical: string; themeVariables: string[] }
+	>();
+	distinct.forEach((token, index) => {
+		const result = written[index];
+		if (!result || result.canonical === token) return;
+		const verdict = result.verdict;
+		if (verdict?.status === "equivalent") {
+			suggested.set(token, { canonical: result.canonical, themeVariables: [] });
+		} else if (verdict?.status === "theme-dependent") {
+			suggested.set(token, {
+				canonical: result.canonical,
+				themeVariables: verdict.themeVariables,
+			});
+		}
+	});
 	return (className) => {
 		const found: NonCanonicalClass[] = [];
 		const seen = new Map<string, number>();
 		for (const { raw } of parseClassName(className)) {
 			const occurrence = seen.get(raw) ?? 0;
 			seen.set(raw, occurrence + 1);
-			const form = canonical.get(raw) ?? raw;
-			if (form === raw) continue;
-			found.push({ classToken: raw, canonical: form, occurrence });
+			const form = suggested.get(raw);
+			if (!form) continue;
+			found.push({ classToken: raw, occurrence, ...form });
 		}
 		return found;
 	};
 };
 
+const themeVariableList = (themeVariables: readonly string[]) =>
+	themeVariables.map((name) => `\`${name}\``).join(", ");
+
 export const nonCanonicalClassMessage = ({
 	classToken,
 	canonical,
+	themeVariables,
 }: NonCanonicalClass) =>
-	`Class "${classToken}" is written "${canonical}" in Tailwind's canonical form.`;
+	themeVariables.length === 0
+		? `Class "${classToken}" is written "${canonical}" in Tailwind's canonical form.`
+		: `Class "${classToken}" is written "${canonical}" in Tailwind's canonical form, which follows the theme: it compiles to the same CSS only while ${themeVariableList(themeVariables)} ${themeVariables.length === 1 ? "keeps its current value" : "keep their current values"}.`;
 
 /** What `design_validate` returns with the finding: the replacement as a suggestion. */
 export const nonCanonicalClassDetails = (
 	className: string,
-	{ classToken, canonical }: NonCanonicalClass,
+	{ classToken, canonical, themeVariables }: NonCanonicalClass,
 ) => ({
 	className,
 	classToken,
 	canonical,
 	suggestions: [canonical],
+	...(themeVariables.length > 0
+		? { themeDependent: true, themeVariables }
+		: {}),
 });
 
 export const noCompiledCssNote: LintRuleFinding = {

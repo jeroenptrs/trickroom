@@ -1,4 +1,8 @@
 import { parentPort } from "node:worker_threads";
+import {
+	type CanonicalizedClass,
+	canonicalizeAndVerifyTailwindCandidate,
+} from "./tailwind-canonical-equivalence.ts";
 import { createCanonicalizeCache } from "./tailwind-canonicalize-cache.ts";
 import {
 	fileStampsAreFresh,
@@ -11,7 +15,9 @@ import { canonicalizeTailwindCandidate } from "./tailwind-utility-inspector.ts";
 /**
  * Canonicalizes classes off the main thread. The first canonicalization on a
  * compiled system builds Tailwind's lookup tables, seconds of synchronous
- * work, which would stall every request of the server. Compiled systems and
+ * work, which would stall every request of the server. A canonical form that
+ * differs from the class is verified here too, by compiling both
+ * (`tailwind-canonical-equivalence.ts`), and cached with it. Compiled systems and
  * their results live in a bounded cache (`tailwind-canonicalize-cache.ts`):
  * a few warm systems by stylesheet content, shared by every path that reads
  * the same text, and per path the stamps of the files it read, so a CSS
@@ -30,27 +36,34 @@ export type CanonicalizeRequest = {
 };
 
 export type CanonicalizeResponse =
-	| { id: number; ok: true; results: string[] }
+	| { id: number; ok: true; results: CanonicalizedClass[] }
 	| { id: number; ok: false; message: string };
 
-const cache = createCanonicalizeCache<TailwindDesignSystem>({
-	warmSystems: 4,
-	paths: 32,
-	load: async (rootPath) => {
-		// Already resolved inside its project by the handler below.
-		const loaded = await loadTrackedTailwindDesignSystem({
-			projectRoot: rootPath,
-			cssPath: rootPath,
-		});
-		return {
-			system: loaded.designSystem,
-			cssSource: loaded.cssSource,
-			fileStamps: loaded.fileStamps,
-		};
+const cache = createCanonicalizeCache<TailwindDesignSystem, CanonicalizedClass>(
+	{
+		warmSystems: 4,
+		paths: 32,
+		load: async (rootPath) => {
+			// Already resolved inside its project by the handler below.
+			const loaded = await loadTrackedTailwindDesignSystem({
+				projectRoot: rootPath,
+				cssPath: rootPath,
+			});
+			return {
+				system: loaded.designSystem,
+				cssSource: loaded.cssSource,
+				fileStamps: loaded.fileStamps,
+			};
+		},
+		isFresh: fileStampsAreFresh,
+		canonicalize: (system, candidate) =>
+			canonicalizeAndVerifyTailwindCandidate(
+				system,
+				candidate,
+				canonicalizeTailwindCandidate,
+			),
 	},
-	isFresh: fileStampsAreFresh,
-	canonicalize: canonicalizeTailwindCandidate,
-});
+);
 
 parentPort?.on("message", (request: CanonicalizeRequest) => {
 	new Promise<string>((resolve) =>

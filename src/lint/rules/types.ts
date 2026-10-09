@@ -1,4 +1,5 @@
 import type { CodegenRunResult } from "../../codegen/run-codegen";
+import type { CanonicalizedClass } from "../../utils/tailwind-canonical-equivalence";
 import type { TwMergeConfig } from "../../utils/tailwind-merge-config";
 import type { TailwindUtilityInspection } from "../../utils/tailwind-utility-inspector";
 import type {
@@ -90,10 +91,14 @@ export type LintTailwindInspector = {
 	 * Each class as the system's Tailwind writes it
 	 * (`designSystem.canonicalizeCandidates`), in order; a class that already
 	 * is canonical, or that Tailwind does not know, comes back unchanged.
-	 * Asynchronous: the server computes it in a worker
+	 * A form that differs carries the verdict of compiling both
+	 * (`src/utils/tailwind-canonical-equivalence.ts`). Asynchronous: the
+	 * server computes it in a worker
 	 * (`src/utils/tailwind-canonicalize-client.ts`).
 	 */
-	canonicalize?: (candidates: readonly string[]) => Promise<string[]>;
+	canonicalize?: (
+		candidates: readonly string[],
+	) => Promise<CanonicalizedClass[]>;
 };
 
 /** How tv() merges for the linted system (`LintRuleContext.tailwind.mergeConfig`). */

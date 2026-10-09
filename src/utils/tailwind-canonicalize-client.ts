@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
+import type { CanonicalizedClass } from "./tailwind-canonical-equivalence.ts";
 import type {
 	CanonicalizeRequest,
 	CanonicalizeResponse,
@@ -16,7 +17,7 @@ import type {
  */
 
 type Pending = {
-	resolve: (results: string[]) => void;
+	resolve: (results: CanonicalizedClass[]) => void;
 	reject: (error: Error) => void;
 };
 
@@ -84,17 +85,18 @@ export const createCanonicalizeClient = (workerFile: string) => {
 	return {
 		/**
 		 * Each candidate as the system's Tailwind writes it, in order (see
-		 * `canonicalizeTailwindCandidate`), computed in the worker.
+		 * `canonicalizeTailwindCandidate`), with the verdict of compiling both
+		 * when it differs, computed in the worker.
 		 */
 		canonicalize: (
 			system: { projectRoot: string; cssPath: string },
 			candidates: readonly string[],
-		): Promise<string[]> => {
+		): Promise<CanonicalizedClass[]> => {
 			if (candidates.length === 0) return Promise.resolve([]);
 			active ??= start();
 			const generation = active;
 			const id = nextId++;
-			return new Promise<string[]>((resolve, reject) => {
+			return new Promise<CanonicalizedClass[]>((resolve, reject) => {
 				generation.pending.set(id, { resolve, reject });
 				generation.worker.ref();
 				generation.worker.postMessage({
@@ -112,12 +114,13 @@ let client: ReturnType<typeof createCanonicalizeClient> | null = null;
 
 /**
  * Each candidate as the system's Tailwind writes it, in order (see
- * `canonicalizeTailwindCandidate`), computed in this process's worker.
+ * `canonicalizeTailwindCandidate`), with the verdict of compiling both when
+ * it differs, computed in this process's worker.
  */
 export const canonicalizeTailwindCandidatesInWorker = (
 	system: { projectRoot: string; cssPath: string },
 	candidates: readonly string[],
-): Promise<string[]> => {
+): Promise<CanonicalizedClass[]> => {
 	client ??= createCanonicalizeClient(workerPath());
 	return client.canonicalize(system, candidates);
 };

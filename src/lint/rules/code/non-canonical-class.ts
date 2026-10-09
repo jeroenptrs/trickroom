@@ -15,6 +15,8 @@ import { classTokenPosition, codeLocation, getCodeAnalysis } from "./analysis";
  * non-literal parts (`mixed`) is checked; template fragments
  * (`complete: false`) are not, since a class may continue across the
  * interpolation. Generated variants files are codegen's output and skipped.
+ * A canonical form is reported only when it compiles to the class's CSS
+ * (see `createCanonicalClassChecker`).
  */
 
 export const nonCanonicalClassRule: LintRuleKind = {
@@ -56,7 +58,7 @@ export const nonCanonicalClassRule: LintRuleKind = {
 						file,
 						classTokenPosition(entry, found.classToken, found.occurrence),
 					),
-					message: `${nonCanonicalClassMessage(found)} Use "${found.canonical}", or add "${found.classToken}" to this rule's allow list if it is intended.`,
+					message: `${nonCanonicalClassMessage(found)} Use "${found.canonical}"${found.themeVariables.length > 0 ? " if the value should follow the theme" : ""}, or add "${found.classToken}" to this rule's allow list if it is intended.`,
 					details: nonCanonicalClassDetails(entry.value, found),
 				});
 			}

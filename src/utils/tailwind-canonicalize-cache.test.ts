@@ -10,7 +10,10 @@ const harness = (options: { warmSystems?: number; paths?: number } = {}) => {
 	const content = new Map<string, string>();
 	const stamps = new Map<string, number>();
 	let loads = 0;
-	const cache = createCanonicalizeCache<{ id: number; content: string }>({
+	const cache = createCanonicalizeCache<
+		{ id: number; content: string },
+		string
+	>({
 		warmSystems: options.warmSystems ?? 4,
 		paths: options.paths ?? 32,
 		load: async (rootPath) => {

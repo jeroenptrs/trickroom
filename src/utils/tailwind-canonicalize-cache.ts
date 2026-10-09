@@ -25,15 +25,16 @@ export type LoadedForCanonicalization<System> = {
 	fileStamps: ReadonlyMap<string, string | null>;
 };
 
-export type CanonicalizeCacheOptions<System> = {
+export type CanonicalizeCacheOptions<System, Result> = {
 	warmSystems: number;
 	paths: number;
 	load: (rootPath: string) => Promise<LoadedForCanonicalization<System>>;
 	isFresh: (fileStamps: ReadonlyMap<string, string | null>) => Promise<boolean>;
-	canonicalize: (system: System, candidate: string) => string;
+	/** One candidate's result, computed once per warm system. */
+	canonicalize: (system: System, candidate: string) => Result;
 };
 
-type Warm<System> = { system: System; results: Map<string, string> };
+type Warm<System, Result> = { system: System; results: Map<string, Result> };
 
 type PathEntry = {
 	fileStamps: ReadonlyMap<string, string | null>;
@@ -54,22 +55,26 @@ const evictBeyond = (map: Map<string, unknown>, limit: number) => {
 	}
 };
 
-export const createCanonicalizeCache = <System>(
-	options: CanonicalizeCacheOptions<System>,
+export const createCanonicalizeCache = <System, Result>(
+	options: CanonicalizeCacheOptions<System, Result>,
 ) => {
-	const warmByContent = new Map<string, Warm<System>>();
+	const warmByContent = new Map<string, Warm<System, Result>>();
 	const paths = new Map<string, PathEntry>();
-	const loading = new Map<string, Promise<Warm<System>>>();
+	const loading = new Map<string, Promise<Warm<System, Result>>>();
 	let built = 0;
 
-	const remember = (rootPath: string, entry: PathEntry, warm: Warm<System>) => {
+	const remember = (
+		rootPath: string,
+		entry: PathEntry,
+		warm: Warm<System, Result>,
+	) => {
 		touch(paths, rootPath, entry);
 		evictBeyond(paths, options.paths);
 		touch(warmByContent, entry.contentKey, warm);
 		evictBeyond(warmByContent, options.warmSystems);
 	};
 
-	const loadWarm = async (rootPath: string): Promise<Warm<System>> => {
+	const loadWarm = async (rootPath: string): Promise<Warm<System, Result>> => {
 		const loaded = await options.load(rootPath);
 		const contentKey = createHash("sha256")
 			.update(loaded.cssSource)
@@ -83,7 +88,7 @@ export const createCanonicalizeCache = <System>(
 		return warm;
 	};
 
-	const warmFor = async (rootPath: string): Promise<Warm<System>> => {
+	const warmFor = async (rootPath: string): Promise<Warm<System, Result>> => {
 		const entry = paths.get(rootPath);
 		if (entry && (await options.isFresh(entry.fileStamps))) {
 			const warm = warmByContent.get(entry.contentKey);
@@ -105,7 +110,7 @@ export const createCanonicalizeCache = <System>(
 		canonicalize: async (
 			rootPath: string,
 			candidates: readonly string[],
-		): Promise<string[]> => {
+		): Promise<Result[]> => {
 			const { system, results } = await warmFor(rootPath);
 			return candidates.map((candidate) => {
 				let canonical = results.get(candidate);

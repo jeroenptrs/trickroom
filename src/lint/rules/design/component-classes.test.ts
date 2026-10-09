@@ -185,7 +185,10 @@ const inspector: LintTailwindInspector = {
 	inspect: (candidate) =>
 		({ supported: !candidate.includes("nope") }) as TailwindUtilityInspection,
 	canonicalize: async (candidates) =>
-		candidates.map((candidate) => CANONICAL[candidate] ?? candidate),
+		candidates.map((candidate) => ({
+			canonical: CANONICAL[candidate] ?? candidate,
+			verdict: { status: "equivalent" },
+		})),
 };
 
 const contract = buildSystemContract({
@@ -526,7 +529,10 @@ describe("component definitions in the design index", () => {
 							inspect: () => ({ supported: true }) as TailwindUtilityInspection,
 							// Both versions' paddings are "non-canonical" here.
 							canonicalize: async (candidates) =>
-								candidates.map((candidate) => `${candidate}-x`),
+								candidates.map((candidate) => ({
+									canonical: `${candidate}-x`,
+									verdict: { status: "equivalent" },
+								})),
 						}),
 						mergeConfig: async () => ({ status: "stock" }),
 					},
