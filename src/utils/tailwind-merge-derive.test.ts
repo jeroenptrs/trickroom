@@ -528,6 +528,19 @@ describe("deriveTwMergeConfig with modifiers and open values", () => {
 		expect(merge("badge-sm badge-lg")).toBe("badge-lg");
 	});
 
+	it("probes each validator family, so a stock numeric group cannot claim a utility's arbitrary values", async () => {
+		// [x] matches no numeric validator; line-clamp-[3] is claimed by the
+		// stock line-clamp group, so line-clamp-10 would remove its padding.
+		const error = await derive(
+			"@utility line-clamp-* { -webkit-line-clamp: --value([integer]); padding: 20px; }\n",
+		).catch((caught: unknown) => caught);
+		expect(error).toBeInstanceOf(TwMergeOpenFormsError);
+		expect((error as TwMergeOpenFormsError).code).toBe("TW_MERGE_OPEN_VALUE");
+		expect((error as TwMergeOpenFormsError).message).toContain(
+			'line-clamp-* takes values the config cannot list ([integer]), and a class group claims "line-clamp-[3]"',
+		);
+	});
+
 	it("lets a merge group hold a utility that uses --modifier, last member wins, and keeps classes outside it", async () => {
 		const css = `${BADGE_THEME}\n@utility badge-* { font-size: --value(--text-*); background-color: --modifier(--color-*, [color]); }\n@utility heading { font-size: 20px; background-color: white; }\n`;
 		const { config } = await deriveWithGroups(css, { badges: ["badge-*"] });

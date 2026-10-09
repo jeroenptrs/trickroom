@@ -99,6 +99,24 @@ export class TwMergeOpenFormsError extends Error {
 const isListedArgument = (argument: string) =>
 	/^--[\w-]+-\*(--[\w-]+)?$/u.test(argument) || /^(['"]).*\1$/u.test(argument);
 
+/**
+ * Values that exercise each family of tailwind-merge's validators, so a
+ * probe is claimed whenever some class group would claim a real class of
+ * the utility: any value (`[x]`), integers and numbers (`[3]`, `[1.5]`),
+ * lengths, percentages, colours and variables. A probe the utility cannot
+ * produce can only fail the run, never lose a style.
+ */
+const ARBITRARY_PROBES = [
+	"[x]",
+	"[3]",
+	"[1.5]",
+	"[14px]",
+	"[50%]",
+	"[#fff]",
+	"[var(--x)]",
+] as const;
+const BARE_PROBES = ["x", "3", "1.5", "50%", "1/2"] as const;
+
 /** A `mergeGroups` entry the design system cannot honour. */
 export class TwMergeGroupError extends Error {
 	readonly issues: readonly string[];
@@ -912,13 +930,17 @@ export const deriveTwMergeConfig = (
 			(utility) => utility.root === root && excluded.has(utility.candidate),
 		);
 		const openValues = values.filter((value) => !isListedArgument(value));
+		const valueProbes = [...ARBITRARY_PROBES, ...BARE_PROBES].map(
+			(value) => `${root}-${value}`,
+		);
 		const probes = [
 			...(modifier && (leftOut.length > 0 || !hasListedMember(root))
 				? [
-						`${root}-[x]`,
-						`${root}-[x]/[y]`,
-						`${root}-x/y`,
-						`${root}-x`,
+						...valueProbes.flatMap((probe) => [
+							probe,
+							`${probe}/[y]`,
+							`${probe}/y`,
+						]),
 						...leftOut.flatMap(({ candidate }) => [
 							candidate,
 							`${candidate}/[y]`,
@@ -927,10 +949,10 @@ export const deriveTwMergeConfig = (
 					]
 				: []),
 			...(openValues.some((value) => value.startsWith("["))
-				? [`${root}-[x]`]
+				? ARBITRARY_PROBES.map((value) => `${root}-${value}`)
 				: []),
 			...(openValues.some((value) => !value.startsWith("["))
-				? [`${root}-1`, `${root}-50%`]
+				? BARE_PROBES.map((value) => `${root}-${value}`)
 				: []),
 		];
 		const claimed = probes.find(isClaimed);
