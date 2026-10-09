@@ -1,12 +1,12 @@
 {
 	"version": 1,
-	"generatedAt": "2026-10-09T15:16:44.349Z",
+	"generatedAt": "2026-10-09T19:16:30.162Z",
 	"system": {
 		"id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
 		"name": "Trickroom"
 	},
 	"contract": {
-		"hash": "sha256:6b9e971d65b928c82ce30d9a5347ffd1cc683cb806796f8509576b4dbb699e74",
+		"hash": "sha256:a8f00c6c8961e6dd40df86438b7523c605e8c065b685f48f76094d7d08e11e13",
 		"components": 16
 	},
 	"config": {
@@ -77,12 +77,12 @@
 					"info": 0
 				}
 			},
-			"scanned": 504
+			"scanned": 505
 		},
 		"design": {
 			"findings": {
 				"errors": 0,
-				"warnings": 254,
+				"warnings": 244,
 				"info": 0
 			},
 			"rules": {
@@ -93,7 +93,7 @@
 				},
 				"design.non-canonical-class": {
 					"errors": 0,
-					"warnings": 10,
+					"warnings": 0,
 					"info": 0
 				},
 				"design.unknown-class-token": {
@@ -3705,136 +3705,6 @@
 			"side": "code",
 			"message": "Codegen is not configured for this project, so variants files were not checked. The class rules still ran; the rules on wrappers, usages and variants imports find components in the code through their generated variants files. Add a codegen block to .trickroom/config.json to enable them (see docs/codegen.md).",
 			"location": null
-		},
-		{
-			"rule": "design.non-canonical-class",
-			"severity": "warning",
-			"side": "design",
-			"message": "Class \"data-[ending-style]:opacity-0\" is written \"data-ending-style:opacity-0\" in Tailwind's canonical form.",
-			"component": "dialog",
-			"location": null,
-			"componentLocation": {
-				"componentId": "cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0",
-				"version": "3",
-				"path": "backdrop"
-			}
-		},
-		{
-			"rule": "design.non-canonical-class",
-			"severity": "warning",
-			"side": "design",
-			"message": "Class \"data-[starting-style]:opacity-0\" is written \"data-starting-style:opacity-0\" in Tailwind's canonical form.",
-			"component": "dialog",
-			"location": null,
-			"componentLocation": {
-				"componentId": "cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0",
-				"version": "3",
-				"path": "backdrop"
-			}
-		},
-		{
-			"rule": "design.non-canonical-class",
-			"severity": "warning",
-			"side": "design",
-			"message": "Class \"data-[ending-style]:opacity-0\" is written \"data-ending-style:opacity-0\" in Tailwind's canonical form.",
-			"component": "dialog",
-			"location": null,
-			"componentLocation": {
-				"componentId": "cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0",
-				"version": "3",
-				"path": "popup"
-			}
-		},
-		{
-			"rule": "design.non-canonical-class",
-			"severity": "warning",
-			"side": "design",
-			"message": "Class \"data-[ending-style]:scale-90\" is written \"data-ending-style:scale-90\" in Tailwind's canonical form.",
-			"component": "dialog",
-			"location": null,
-			"componentLocation": {
-				"componentId": "cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0",
-				"version": "3",
-				"path": "popup"
-			}
-		},
-		{
-			"rule": "design.non-canonical-class",
-			"severity": "warning",
-			"side": "design",
-			"message": "Class \"data-[starting-style]:opacity-0\" is written \"data-starting-style:opacity-0\" in Tailwind's canonical form.",
-			"component": "dialog",
-			"location": null,
-			"componentLocation": {
-				"componentId": "cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0",
-				"version": "3",
-				"path": "popup"
-			}
-		},
-		{
-			"rule": "design.non-canonical-class",
-			"severity": "warning",
-			"side": "design",
-			"message": "Class \"data-[starting-style]:scale-90\" is written \"data-starting-style:scale-90\" in Tailwind's canonical form.",
-			"component": "dialog",
-			"location": null,
-			"componentLocation": {
-				"componentId": "cmp_425b3fd9-7c50-475a-b9a4-2aaa7a401db0",
-				"version": "3",
-				"path": "popup"
-			}
-		},
-		{
-			"rule": "design.non-canonical-class",
-			"severity": "warning",
-			"side": "design",
-			"message": "Class \"data-[ending-style]:opacity-0\" is written \"data-ending-style:opacity-0\" in Tailwind's canonical form.",
-			"component": "popover",
-			"location": null,
-			"componentLocation": {
-				"componentId": "cmp_60d59882-154d-4544-b5ba-95b64e3bf741",
-				"version": "3",
-				"path": "popup"
-			}
-		},
-		{
-			"rule": "design.non-canonical-class",
-			"severity": "warning",
-			"side": "design",
-			"message": "Class \"data-[ending-style]:scale-95\" is written \"data-ending-style:scale-95\" in Tailwind's canonical form.",
-			"component": "popover",
-			"location": null,
-			"componentLocation": {
-				"componentId": "cmp_60d59882-154d-4544-b5ba-95b64e3bf741",
-				"version": "3",
-				"path": "popup"
-			}
-		},
-		{
-			"rule": "design.non-canonical-class",
-			"severity": "warning",
-			"side": "design",
-			"message": "Class \"data-[starting-style]:opacity-0\" is written \"data-starting-style:opacity-0\" in Tailwind's canonical form.",
-			"component": "popover",
-			"location": null,
-			"componentLocation": {
-				"componentId": "cmp_60d59882-154d-4544-b5ba-95b64e3bf741",
-				"version": "3",
-				"path": "popup"
-			}
-		},
-		{
-			"rule": "design.non-canonical-class",
-			"severity": "warning",
-			"side": "design",
-			"message": "Class \"data-[starting-style]:scale-95\" is written \"data-starting-style:scale-95\" in Tailwind's canonical form.",
-			"component": "popover",
-			"location": null,
-			"componentLocation": {
-				"componentId": "cmp_60d59882-154d-4544-b5ba-95b64e3bf741",
-				"version": "3",
-				"path": "popup"
-			}
 		},
 		{
 			"rule": "design.unknown-class-token",
@@ -8132,7 +8002,52 @@
 	],
 	"ratchet": {
 		"status": "pass",
-		"baseline": null,
+		"baseline": {
+			"generatedAt": "2026-10-09T15:16:44.349Z",
+			"numbers": {
+				"code.errors": 0,
+				"code.warnings": 299,
+				"coverage.bound": 0,
+				"coverage.generated": 0,
+				"coverage.published": 16,
+				"coverage.usedInApp": 0,
+				"coverage.usedInDesigns": 5,
+				"design.errors": 0,
+				"design.warnings": 254,
+				"rule.code.component-styling-restricted": 0,
+				"rule.code.non-canonical-class": 0,
+				"rule.code.redundant-class": 0,
+				"rule.code.required-axis-missing": 0,
+				"rule.code.slot-not-called": 0,
+				"rule.code.unknown-class-token": 299,
+				"rule.code.unknown-variant-value": 0,
+				"rule.code.variants-file-orphaned": 0,
+				"rule.code.variants-file-stale": 0,
+				"rule.code.variants-imported-outside-component": 0,
+				"rule.code.wrapper-missing-variants-call": 0,
+				"rule.design.design-only-class-target": 0,
+				"rule.design.non-canonical-class": 10,
+				"rule.design.unknown-class-token": 244,
+				"rule.design.unknown-variant-value": 0
+			},
+			"kinds": [
+				"code.component-styling-restricted",
+				"code.non-canonical-class",
+				"code.redundant-class",
+				"code.required-axis-missing",
+				"code.slot-not-called",
+				"code.unknown-class-token",
+				"code.unknown-variant-value",
+				"code.variants-file-orphaned",
+				"code.variants-file-stale",
+				"code.variants-imported-outside-component",
+				"code.wrapper-missing-variants-call",
+				"design.design-only-class-target",
+				"design.non-canonical-class",
+				"design.unknown-class-token",
+				"design.unknown-variant-value"
+			]
+		},
 		"regressions": [],
 		"breaches": [],
 		"adopted": [],
@@ -8145,7 +8060,7 @@
 			"coverage.usedInApp": 0,
 			"coverage.usedInDesigns": 5,
 			"design.errors": 0,
-			"design.warnings": 254,
+			"design.warnings": 244,
 			"rule.code.component-styling-restricted": 0,
 			"rule.code.non-canonical-class": 0,
 			"rule.code.redundant-class": 0,
@@ -8158,13 +8073,13 @@
 			"rule.code.variants-imported-outside-component": 0,
 			"rule.code.wrapper-missing-variants-call": 0,
 			"rule.design.design-only-class-target": 0,
-			"rule.design.non-canonical-class": 10,
+			"rule.design.non-canonical-class": 0,
 			"rule.design.unknown-class-token": 244,
 			"rule.design.unknown-variant-value": 0
 		}
 	},
 	"ratchetBaseline": {
-		"generatedAt": "2026-10-09T15:16:44.349Z",
+		"generatedAt": "2026-10-09T19:16:30.162Z",
 		"numbers": {
 			"code.errors": 0,
 			"code.warnings": 299,
@@ -8174,7 +8089,7 @@
 			"coverage.usedInApp": 0,
 			"coverage.usedInDesigns": 5,
 			"design.errors": 0,
-			"design.warnings": 254,
+			"design.warnings": 244,
 			"rule.code.component-styling-restricted": 0,
 			"rule.code.non-canonical-class": 0,
 			"rule.code.redundant-class": 0,
@@ -8187,7 +8102,7 @@
 			"rule.code.variants-imported-outside-component": 0,
 			"rule.code.wrapper-missing-variants-call": 0,
 			"rule.design.design-only-class-target": 0,
-			"rule.design.non-canonical-class": 10,
+			"rule.design.non-canonical-class": 0,
 			"rule.design.unknown-class-token": 244,
 			"rule.design.unknown-variant-value": 0
 		},
