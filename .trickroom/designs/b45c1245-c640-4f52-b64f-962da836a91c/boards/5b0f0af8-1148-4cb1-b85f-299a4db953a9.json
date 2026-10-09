@@ -280,7 +280,7 @@
 													"data-trickroom-library": "trickroom",
 													"data-trickroom-component": "container",
 													"data-trickroom-role": "branch",
-													"className": "size-8 shrink-0 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] bg-[length:10px_10px] inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
+													"className": "size-8 shrink-0 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] bg-size-[10px_10px] inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
 												},
 												"children": []
 											},
@@ -337,7 +337,7 @@
 													"data-trickroom-library": "trickroom",
 													"data-trickroom-component": "container",
 													"data-trickroom-role": "branch",
-													"className": "size-8 shrink-0 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] bg-[length:10px_10px] inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
+													"className": "size-8 shrink-0 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] bg-size-[10px_10px] inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
 												},
 												"children": []
 											},

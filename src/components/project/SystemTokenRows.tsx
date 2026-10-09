@@ -257,7 +257,7 @@ export function TokenDomainPills({
 	return (
 		<div
 			className={`flex min-w-0 flex-wrap justify-end gap-1.5 ${
-				isExpanded ? "max-w-full" : "max-w-[26rem]"
+				isExpanded ? "max-w-full" : "max-w-104"
 			}`}
 		>
 			{leadingControl}

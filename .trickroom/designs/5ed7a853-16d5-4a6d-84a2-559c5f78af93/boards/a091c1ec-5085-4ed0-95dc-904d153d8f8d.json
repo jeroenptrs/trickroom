@@ -18,7 +18,7 @@
 					"data-trickroom-library": "trickroom",
 					"data-trickroom-component": "container",
 					"data-trickroom-role": "branch",
-					"className": "flex w-full max-w-5xl flex-col bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200 md:min-h-[30rem] md:flex-row"
+					"className": "flex w-full max-w-5xl flex-col bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-200 md:min-h-120 md:flex-row"
 				},
 				"children": [
 					{

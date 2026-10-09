@@ -84,7 +84,7 @@ export function CreateSystemDialog({
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogPortal>
 				<DialogOverlay />
-				<DialogContent className="w-[calc(100vw-2rem)] max-w-[32.5rem] md:max-w-[32.5rem] overflow-hidden">
+				<DialogContent className="w-[calc(100vw-2rem)] max-w-130 md:max-w-130 overflow-hidden">
 					<div className="flex items-center justify-between px-4 py-3">
 						<div className="flex min-w-0 items-center gap-2">
 							<SwatchBook

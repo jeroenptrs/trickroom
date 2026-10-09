@@ -140,7 +140,7 @@ export function MCPSetupDialog({ open, onOpenChange }: MCPSetupDialogProps) {
 								className="ml-3 size-3.5 shrink-0 self-center text-slate-100"
 								aria-hidden="true"
 							/>
-							<code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap px-2 py-2.5 font-mono text-[11px] text-slate-100 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+							<code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap px-2 py-2.5 font-mono text-[11px] text-slate-100 scrollbar-none [&::-webkit-scrollbar]:hidden">
 								{selected.installCommand}
 							</code>
 							<Separator orientation="vertical" className="bg-slate-700" />

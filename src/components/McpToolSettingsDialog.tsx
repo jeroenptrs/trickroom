@@ -155,7 +155,7 @@ export function McpToolSettingsDialog({
 			<DialogPortal>
 				<DialogOverlay />
 				<DialogContent
-					className="!grid max-h-[min(100dvh-2rem,40rem)] min-h-0 w-[calc(100vw-2rem)] max-w-lg grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden md:max-w-lg"
+					className="grid! max-h-[min(100dvh-2rem,40rem)] min-h-0 w-[calc(100vw-2rem)] max-w-lg grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden md:max-w-lg"
 					initialFocus={false}
 				>
 					<div className="flex shrink-0 flex-row items-center justify-between border-b border-slate-200 px-4 py-3">
