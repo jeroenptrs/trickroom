@@ -28,6 +28,12 @@ export type CandidateAstNode = {
 	nodes?: CandidateAstNode[];
 };
 
+export type CustomUtilityArguments = {
+	values: string[];
+	modifiers: string[];
+	usesModifier: boolean;
+};
+
 export type CustomFunctionalUtility = {
 	/** The @utility root (e.g. "text-interaction" from "@utility text-interaction-*"). */
 	root: string;
@@ -79,11 +85,12 @@ export type TailwindIntrospection = {
 	 */
 	getCustomFunctionalUtilities(): readonly CustomFunctionalUtility[];
 	/**
-	 * The arguments of every `--modifier(…)` in the `@utility root-*`
-	 * blocks of `root` (`--color-*`, `[color]`, `integer`), one string per
-	 * argument, in source order. Empty when the utility takes no modifier.
+	 * The arguments of every `--value(…)` and `--modifier(…)` in the
+	 * `@utility root-*` blocks of `root` (`--color-*`, `[length]`,
+	 * `integer`), one string per argument, in source order, and whether the
+	 * utility uses `--modifier(…)` at all.
 	 */
-	getCustomUtilityModifierArguments(root: string): string[];
+	getCustomUtilityArguments(root: string): CustomUtilityArguments;
 };
 
 export function createTailwindIntrospection(
@@ -91,7 +98,7 @@ export function createTailwindIntrospection(
 	cssSource: string,
 ): TailwindIntrospection {
 	let cachedCustomUtilities: CustomFunctionalUtility[] | null = null;
-	let cachedModifierArguments: Map<string, string[]> | null = null;
+	let cachedArguments: Map<string, CustomUtilityArguments> | null = null;
 
 	return {
 		isKnownCandidate(candidate) {
@@ -131,9 +138,15 @@ export function createTailwindIntrospection(
 			cachedCustomUtilities ??= extractCustomFunctionalUtilities(cssSource);
 			return cachedCustomUtilities;
 		},
-		getCustomUtilityModifierArguments(root) {
-			cachedModifierArguments ??= extractModifierArguments(cssSource);
-			return cachedModifierArguments.get(root) ?? [];
+		getCustomUtilityArguments(root) {
+			cachedArguments ??= extractUtilityArguments(cssSource);
+			return (
+				cachedArguments.get(root) ?? {
+					values: [],
+					modifiers: [],
+					usesModifier: false,
+				}
+			);
 		},
 	};
 }
@@ -156,37 +169,51 @@ export function extractCustomFunctionalUtilities(
 	return utilities;
 }
 
+/** The arguments of each `name(…)` call in `body`, split on top-level commas. */
+function callArguments(body: string, name: string): string[] {
+	const list: string[] = [];
+	for (const match of body.matchAll(new RegExp(`${name}\\(`, "gu"))) {
+		let depth = 1;
+		let index = match.index + match[0].length;
+		let current = "";
+		while (index < body.length) {
+			const char = body[index];
+			if (char === "(") depth++;
+			else if (char === ")") depth--;
+			if (depth === 0) break;
+			if (char === "," && depth === 1) {
+				list.push(current.trim());
+				current = "";
+			} else {
+				current += char;
+			}
+			index++;
+		}
+		if (current.trim()) list.push(current.trim());
+	}
+	return list;
+}
+
 /**
- * Per functional `@utility` root, the arguments of its `--modifier(…)`
- * calls, split on top-level commas (`--modifier(--color-*, [color])` gives
+ * Per functional `@utility` root, the arguments of its `--value(…)` and
+ * `--modifier(…)` calls (`--modifier(--color-*, [color])` gives
  * `--color-*` and `[color]`).
  */
-function extractModifierArguments(cssSource: string): Map<string, string[]> {
-	const byRoot = new Map<string, string[]>();
+function extractUtilityArguments(
+	cssSource: string,
+): Map<string, CustomUtilityArguments> {
+	const byRoot = new Map<string, CustomUtilityArguments>();
 	for (const { root, body, functional } of parseAtUtilityBlocks(cssSource)) {
 		if (!functional) continue;
-		const list = byRoot.get(root) ?? [];
-		for (const match of body.matchAll(/--modifier\(/gu)) {
-			const start = match.index + match[0].length;
-			let depth = 1;
-			let index = start;
-			let current = "";
-			while (index < body.length && depth > 0) {
-				const char = body[index];
-				if (char === "(") depth++;
-				else if (char === ")") depth--;
-				if (depth === 0) break;
-				if (char === "," && depth === 1) {
-					list.push(current.trim());
-					current = "";
-				} else {
-					current += char;
-				}
-				index++;
-			}
-			if (current.trim()) list.push(current.trim());
-		}
-		byRoot.set(root, list);
+		const entry = byRoot.get(root) ?? {
+			values: [],
+			modifiers: [],
+			usesModifier: false,
+		};
+		entry.values.push(...callArguments(body, "--value"));
+		entry.modifiers.push(...callArguments(body, "--modifier"));
+		entry.usesModifier ||= /--modifier\(/u.test(body);
+		byRoot.set(root, entry);
 	}
 	return byRoot;
 }

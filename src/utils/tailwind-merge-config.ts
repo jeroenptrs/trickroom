@@ -18,9 +18,6 @@ import {
  *   merge like, or in a group of their own (`@utility text-label-*`).
  * - `conflictingClassGroups`: per own group, the groups whose every
  *   declaration it overrides, so a later member removes their classes.
- * - `postfixLookupClassGroups`: the groups of classes that have modifier
- *   forms (`badge-sm` for `badge-sm/blue`), so tailwind-merge looks the
- *   full form up in the group the config lists it in. Absent when none.
  *
  * Keys and values are sorted.
  */
@@ -30,7 +27,6 @@ export type TwMergeConfig = {
 		theme: Partial<Record<DefaultThemeGroupIds, string[]>>;
 		classGroups: Record<string, string[]>;
 		conflictingClassGroups: Record<string, string[]>;
-		postfixLookupClassGroups?: string[];
 	};
 };
 
