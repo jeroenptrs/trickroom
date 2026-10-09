@@ -15,6 +15,8 @@ import {
 	deriveTwMergeConfig,
 	loadDerivedTwMerge,
 	TW_MERGE_GROUP_PROBES,
+	TwMergeGroupError,
+	type TwMergeGroups,
 } from "./tailwind-merge-derive";
 
 const dirs: string[] = [];
@@ -324,6 +326,132 @@ describe("deriveTwMergeConfig", () => {
 			"text-label-sm",
 		);
 		expect(await loadDerivedTwMerge(options)).toBe(first);
+	});
+});
+
+const FAMILIES_CSS = [
+	"@theme {",
+	"\t--db-label-sm: 0.875rem;",
+	"\t--db-title-lg: 1.5rem;",
+	"\t--db-caption-sm: 0.75rem;",
+	"\t--color-royal-9: oklch(54% 0.22 263);",
+	"}",
+	"@utility text-label-* {",
+	"\t--label--size: --value(--db-label-*);",
+	"\tfont-size: var(--label--size);",
+	"\tline-height: 1.25;",
+	"\tfont-weight: 500;",
+	"\tletter-spacing: normal;",
+	"}",
+	"@utility text-title-* {",
+	"\t--title--size: --value(--db-title-*);",
+	"\tfont-size: var(--title--size);",
+	"\tline-height: 1.1;",
+	"\tfont-weight: 600;",
+	"\tletter-spacing: -0.02em;",
+	"}",
+	"@utility text-caption-* {",
+	"\t--caption--size: --value(--db-caption-*);",
+	"\tfont-size: var(--caption--size);",
+	"\tline-height: 1.2;",
+	"\tfont-weight: 400;",
+	"\tletter-spacing: normal;",
+	"}",
+	"",
+].join("\n");
+
+const deriveWithGroups = async (css: string, mergeGroups: TwMergeGroups) => {
+	const { designSystem, cssSource } = await loadTailwindDesignSystem(
+		await writeCss(css),
+	);
+	return deriveTwMergeConfig(
+		createTailwindIntrospection(designSystem, cssSource),
+		{ mergeGroups },
+	);
+};
+
+describe("deriveTwMergeConfig with merge groups", () => {
+	it("keeps families with their own private properties apart without a merge group", async () => {
+		const merge = createTwMerge((await derive(FAMILIES_CSS)).config);
+		expect(merge("text-label-sm text-title-lg")).toBe(
+			"text-label-sm text-title-lg",
+		);
+	});
+
+	it("puts a merge group's members in one class group, so the last one wins", async () => {
+		const { config } = await deriveWithGroups(FAMILIES_CSS, {
+			typography: ["text-title-*", "text-label-*"],
+		});
+		expect(config.extend.classGroups).toEqual({
+			"@utility text-caption-*": ["text-caption-sm"],
+			"mergeGroups.typography": ["text-label-sm", "text-title-lg"],
+		});
+		// The group overrides what every member sets, its private properties
+		// aside; caption sets --caption--size, which no member overrides.
+		expect(config.extend.conflictingClassGroups).toEqual({
+			"@utility text-caption-*": [
+				"font-size",
+				"font-weight",
+				"leading",
+				"mergeGroups.typography",
+				"tracking",
+			],
+			"mergeGroups.typography": [
+				"font-size",
+				"font-weight",
+				"leading",
+				"tracking",
+			],
+		});
+		const merge = createTwMerge(config);
+		expect(merge("text-label-sm text-title-lg")).toBe("text-title-lg");
+		expect(merge("text-title-lg text-label-sm")).toBe("text-label-sm");
+		expect(merge("text-label-sm text-royal-9")).toBe(
+			"text-label-sm text-royal-9",
+		);
+		expect(
+			merge("text-[13px] leading-6 font-bold tracking-wide text-title-lg"),
+		).toBe("text-title-lg");
+		expect(merge("text-title-lg text-[13px]")).toBe(
+			"text-title-lg text-[13px]",
+		);
+		// A non-member stays protected: a member never removes it.
+		expect(merge("text-caption-sm text-title-lg")).toBe(
+			"text-caption-sm text-title-lg",
+		);
+	});
+
+	it("rejects a pattern that matches no utility and a utility in two groups", async () => {
+		await expect(
+			deriveWithGroups(FAMILIES_CSS, {
+				typography: ["text-title-*", "text-headline-*"],
+			}),
+		).rejects.toThrow(
+			'codegen.twMerge.mergeGroups.typography: "text-headline-*" matches no custom utility of the design system.',
+		);
+		const error = await deriveWithGroups(FAMILIES_CSS, {
+			body: ["text-label-*"],
+			typography: ["text-*"],
+		}).catch((caught: unknown) => caught);
+		expect(error).toBeInstanceOf(TwMergeGroupError);
+		expect((error as TwMergeGroupError).issues).toEqual([
+			'"text-label-sm" is in mergeGroups "body" and "typography"; a utility may belong to at most one merge group.',
+		]);
+	});
+
+	it("caches per set of merge groups", async () => {
+		const options = await writeCss(FAMILIES_CSS);
+		const plain = await loadDerivedTwMerge(options);
+		const grouped = await loadDerivedTwMerge(options, {
+			typography: ["text-title-*", "text-label-*"],
+		});
+		expect(grouped).not.toBe(plain);
+		expect(
+			await loadDerivedTwMerge(options, {
+				typography: ["text-title-*", "text-label-*"],
+			}),
+		).toBe(grouped);
+		expect(await loadDerivedTwMerge(options)).toBe(plain);
 	});
 });
 

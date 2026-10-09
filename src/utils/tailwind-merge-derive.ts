@@ -3,6 +3,7 @@ import {
 	type DefaultThemeGroupIds,
 	getDefaultConfig,
 } from "tailwind-merge";
+import { stableStringify } from "./system-component-template-hash";
 import {
 	type LoadTailwindDesignSystemOptions,
 	loadCachedTailwindDesignSystem,
@@ -51,6 +52,30 @@ import type { TwMergeConfig } from "./tailwind-merge-config";
 export type DerivedTwMerge = {
 	config: TwMergeConfig;
 };
+
+/**
+ * `codegen.twMerge.mergeGroups`: per group key, the utility patterns the
+ * project declares interchangeable (`text-title-*`, a static class name).
+ * The project promises that the custom properties its members set, other
+ * than Tailwind's `--tw-*`, are plumbing only members read. Trickroom then
+ * puts the members in one class group, so the last class wins, and lets a
+ * later class drop those properties when it does not read them itself.
+ */
+export type TwMergeGroups = Readonly<Record<string, readonly string[]>>;
+
+/** The class group id of a merge group in the generated config. */
+export const mergeGroupId = (key: string) => `mergeGroups.${key}`;
+
+/** A `mergeGroups` entry the design system cannot honour. */
+export class TwMergeGroupError extends Error {
+	readonly issues: readonly string[];
+
+	constructor(issues: readonly string[]) {
+		super(issues.join(" "));
+		this.name = "TwMergeGroupError";
+		this.issues = issues;
+	}
+}
 
 type GroupProbe = {
 	group: DefaultClassGroupIds;
@@ -320,12 +345,15 @@ type Removal = {
 /**
  * Whether an earlier class may be removed in favour of a later one without
  * losing anything: the later class overrides every declaration, except
- * `--tw-*` variables that neither it nor any listed class reads.
+ * `--tw-*` variables that neither it nor any listed class reads, and the
+ * earlier class's private properties (a merge group's contract) that the
+ * later class does not read.
  */
 const mayRemove = (
 	earlier: readonly Declaration[],
 	later: readonly Declaration[],
 	removal: Removal,
+	earlierPrivate: ReadonlySet<string> = NONE,
 ) => {
 	const laterByTarget = new Map<string, Declaration[]>();
 	for (const entry of later) {
@@ -341,15 +369,25 @@ const mayRemove = (
 			) ||
 			(isTailwindVariable(entry.property) &&
 				!laterReads.has(entry.property) &&
-				!removal.isRead(entry.property)),
+				!removal.isRead(entry.property)) ||
+			(earlierPrivate.has(entry.property) && !laterReads.has(entry.property)),
 	);
 };
 
+const NONE: ReadonlySet<string> = new Set();
+
 /** Targets a later class must set to remove these declarations, whatever it reads. */
-const requiredTargets = (declarations: readonly Declaration[]) =>
+const requiredTargets = (
+	declarations: readonly Declaration[],
+	privateProperties: ReadonlySet<string> = NONE,
+) =>
 	new Set(
 		declarations
-			.filter((entry) => !isTailwindVariable(entry.property))
+			.filter(
+				(entry) =>
+					!isTailwindVariable(entry.property) &&
+					!privateProperties.has(entry.property),
+			)
 			.map(targetOf),
 	);
 
@@ -483,6 +521,8 @@ type ConflictTarget = {
 	members: ReadonlyArray<readonly Declaration[]>;
 	/** Targets every remover must set, over all members. */
 	required: ReadonlySet<string>;
+	/** Properties the members may lose to any remover that does not read them. */
+	private?: ReadonlySet<string>;
 };
 
 /**
@@ -492,7 +532,11 @@ type ConflictTarget = {
  * not against every group sharing a common one (`background-color`).
  */
 const conflictsOf = (
-	groups: ReadonlyArray<{ id: string; declarations: readonly Declaration[] }>,
+	groups: ReadonlyArray<{
+		id: string;
+		/** Each member's declarations: every one must remove a target. */
+		variants: ReadonlyArray<readonly Declaration[]>;
+	}>,
 	targets: readonly ConflictTarget[],
 	removal: Removal,
 ) => {
@@ -520,15 +564,23 @@ const conflictsOf = (
 	}
 	const conflicts: Record<string, string[]> = {};
 	for (const group of groups) {
-		const own = new Set(group.declarations.map(targetOf));
+		// The targets every variant sets: only those can satisfy a target.
+		const sets = group.variants.map(
+			(variant) => new Set(variant.map(targetOf)),
+		);
+		const own = new Set(
+			[...sets[0]].filter((key) => sets.every((set) => set.has(key))),
+		);
 		const removed: string[] = [];
 		for (const key of own) {
 			for (const target of byRarest.get(key) ?? []) {
 				if (
 					target.id !== group.id &&
 					[...target.required].every((required) => own.has(required)) &&
-					target.members.every((member) =>
-						mayRemove(member, group.declarations, removal),
+					group.variants.every((variant) =>
+						target.members.every((member) =>
+							mayRemove(member, variant, removal, target.private),
+						),
 					)
 				) {
 					removed.push(target.id);
@@ -540,8 +592,19 @@ const conflictsOf = (
 	return conflicts;
 };
 
+/** `*` matches any run of characters; the pattern matches the whole class. */
+const patternMatcher = (pattern: string) =>
+	new RegExp(
+		`^${pattern
+			.split("*")
+			.map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
+			.join(".*")}$`,
+		"u",
+	);
+
 export const deriveTwMergeConfig = (
 	introspection: TailwindIntrospection,
+	options: { mergeGroups?: TwMergeGroups } = {},
 ): DerivedTwMerge => {
 	const prefix = introspection.getPrefix();
 	const withPrefix = (candidate: string) =>
@@ -600,42 +663,102 @@ export const deriveTwMergeConfig = (
 		];
 	});
 
+	const roots = sortedUnique(
+		introspection.getCustomFunctionalUtilities().map((utility) => utility.root),
+	);
+	const utilities = roots.flatMap((root) =>
+		candidatesOf(introspection, root).flatMap((entry) => {
+			const declarations = compile(entry.candidate);
+			return declarations.length > 0 ? [{ ...entry, declarations }] : [];
+		}),
+	);
+
+	// The project's merge groups: validated against the utilities, then
+	// taken out of the derivation below.
+	const groupKeys = Object.keys(options.mergeGroups ?? {}).sort(
+		compareTwMergeValues,
+	);
+	const membership = new Map<string, string[]>();
+	const issues: string[] = [];
+	for (const key of groupKeys) {
+		for (const pattern of options.mergeGroups?.[key] ?? []) {
+			const matcher = patternMatcher(pattern);
+			const matches = utilities.filter((utility) =>
+				matcher.test(utility.candidate),
+			);
+			if (matches.length === 0) {
+				issues.push(
+					`codegen.twMerge.mergeGroups.${key}: "${pattern}" matches no custom utility of the design system.`,
+				);
+			}
+			for (const utility of matches) {
+				const keys = membership.get(utility.candidate) ?? [];
+				if (!keys.includes(key)) keys.push(key);
+				membership.set(utility.candidate, keys);
+			}
+		}
+	}
+	for (const [candidate, keys] of membership) {
+		if (keys.length > 1) {
+			issues.push(
+				`"${candidate}" is in mergeGroups ${keys.map((key) => `"${key}"`).join(" and ")}; a utility may belong to at most one merge group.`,
+			);
+		}
+	}
+	if (issues.length > 0) throw new TwMergeGroupError(issues);
+	const mergeGroups = groupKeys.map((key) => {
+		const members = utilities.filter(
+			(utility) => membership.get(utility.candidate)?.[0] === key,
+		);
+		const privateProperties = new Set(
+			members.flatMap((member) =>
+				member.declarations
+					.map((entry) => entry.property)
+					.filter(
+						(property) =>
+							property.startsWith("--") && !isTailwindVariable(property),
+					),
+			),
+		);
+		return {
+			id: mergeGroupId(key),
+			members: sortedUnique(members.map((member) => member.candidate)),
+			variants: members.map((member) => member.declarations),
+			privateProperties,
+		};
+	});
+
 	const joined = new Map<string, Set<string>>();
 	// Protected utilities by the declarations they make.
 	const shapes = new Map<
 		string,
 		{ members: Candidate[]; declarations: Declaration[] }
 	>();
-	const roots = sortedUnique(
-		introspection.getCustomFunctionalUtilities().map((utility) => utility.root),
-	);
-	for (const root of roots) {
-		for (const entry of candidatesOf(introspection, root)) {
-			const declarations = compile(entry.candidate);
-			if (declarations.length === 0) continue;
-			const own = new Set(declarations.map(targetOf));
-			const needs = requiredTargets(declarations);
-			const probe = probes.find(
-				(candidate) =>
-					[...candidate.required].every((key) => own.has(key)) &&
-					[...needs].every((key) => candidate.shared.has(key)) &&
-					candidate.members.every(
-						(member) =>
-							mayRemove(declarations, member, removal) &&
-							mayRemove(member, declarations, removal),
-					),
-			);
-			if (probe) {
-				const members = joined.get(probe.group) ?? new Set<string>();
-				members.add(entry.candidate);
-				joined.set(probe.group, members);
-				continue;
-			}
-			const shape = shapeOf(declarations);
-			const group = shapes.get(shape) ?? { members: [], declarations };
-			group.members.push(entry);
-			shapes.set(shape, group);
+	for (const entry of utilities) {
+		if (membership.has(entry.candidate)) continue;
+		const declarations = entry.declarations;
+		const own = new Set(declarations.map(targetOf));
+		const needs = requiredTargets(declarations);
+		const probe = probes.find(
+			(candidate) =>
+				[...candidate.required].every((key) => own.has(key)) &&
+				[...needs].every((key) => candidate.shared.has(key)) &&
+				candidate.members.every(
+					(member) =>
+						mayRemove(declarations, member, removal) &&
+						mayRemove(member, declarations, removal),
+				),
+		);
+		if (probe) {
+			const members = joined.get(probe.group) ?? new Set<string>();
+			members.add(entry.candidate);
+			joined.set(probe.group, members);
+			continue;
 		}
+		const shape = shapeOf(declarations);
+		const group = shapes.get(shape) ?? { members: [], declarations };
+		group.members.push(entry);
+		shapes.set(shape, group);
 	}
 
 	// Name each protected group after its first member's utility.
@@ -669,9 +792,16 @@ export const deriveTwMergeConfig = (
 	for (const [group, members] of joined)
 		classGroups[group] = sortedUnique(members);
 	for (const group of protectedGroups) classGroups[group.id] = group.members;
+	for (const group of mergeGroups) classGroups[group.id] = group.members;
 
 	const conflictingClassGroups = conflictsOf(
-		protectedGroups,
+		[
+			...protectedGroups.map((group) => ({
+				id: group.id,
+				variants: [group.declarations],
+			})),
+			...mergeGroups,
+		],
 		[
 			...probes.map((probe) => ({
 				id: probe.group,
@@ -682,6 +812,17 @@ export const deriveTwMergeConfig = (
 				id: group.id,
 				members: [group.declarations],
 				required: requiredTargets(group.declarations),
+			})),
+			// Removing a merge group means removing any member: cover their union.
+			...mergeGroups.map((group) => ({
+				id: group.id,
+				members: group.variants,
+				required: new Set(
+					group.variants.flatMap((variant) => [
+						...requiredTargets(variant, group.privateProperties),
+					]),
+				),
+				private: group.privateProperties,
 			})),
 		].filter((target) => target.required.size > 0),
 		removal,
@@ -705,24 +846,35 @@ export const deriveTwMergeConfig = (
 	};
 };
 
-const derivedByDesignSystem = new WeakMap<object, DerivedTwMerge>();
+const derivedByDesignSystem = new WeakMap<
+	object,
+	Map<string, DerivedTwMerge>
+>();
 
 /**
  * `deriveTwMergeConfig` for the system CSS, through the cached design
- * system: derived once per compiled design system and reused by codegen
- * and lint until the CSS changes. Throws when the CSS does not compile.
+ * system: derived once per compiled design system and merge groups, and
+ * reused by codegen and lint until the CSS changes. Throws when the CSS
+ * does not compile, and `TwMergeGroupError` for invalid merge groups.
  */
 export const loadDerivedTwMerge = async (
 	options: LoadTailwindDesignSystemOptions,
+	mergeGroups: TwMergeGroups = {},
 ): Promise<DerivedTwMerge> => {
 	const { designSystem, cssSource } =
 		await loadCachedTailwindDesignSystem(options);
-	let derived = derivedByDesignSystem.get(designSystem);
+	const byGroups =
+		derivedByDesignSystem.get(designSystem) ??
+		new Map<string, DerivedTwMerge>();
+	derivedByDesignSystem.set(designSystem, byGroups);
+	const key = stableStringify(mergeGroups);
+	let derived = byGroups.get(key);
 	if (!derived) {
 		derived = deriveTwMergeConfig(
 			createTailwindIntrospection(designSystem, cssSource),
+			{ mergeGroups },
 		);
-		derivedByDesignSystem.set(designSystem, derived);
+		byGroups.set(key, derived);
 	}
 	return derived;
 };
