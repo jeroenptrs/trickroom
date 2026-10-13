@@ -1,15 +1,12 @@
-/**
- * Reading stylesheet source text: comments, whitespace and a minimal parse
- * into at-rules, rules and declarations. String literals (and `url(…)`) are
- * respected throughout, so a brace, semicolon or comment marker inside a
- * string never counts. No imports, so the Tailwind loader (which the
- * canonicalization worker runs from source) can use it.
- */
+import postcss, { type ChildNode, type Root } from "postcss";
 
-export type CssNode =
-	| { type: "at-rule"; name: string; params: string; nodes?: CssNode[] }
-	| { type: "rule"; selector: string; nodes: CssNode[] }
-	| { type: "decl"; prop: string; value: string };
+/**
+ * Reading stylesheet source text. Parsing is postcss's; what is ours is the
+ * plain-text normalization the stylesheet fingerprint hashes (comments and
+ * whitespace outside strings, so a brace, semicolon or comment marker inside
+ * a string never counts) and reading the target out of an `@import`'s
+ * params, which postcss leaves as a raw string.
+ */
 
 /** Remove `/* … *\/` comments outside strings, leaving a space in their place. */
 export function stripCssComments(css: string): string {
@@ -99,130 +96,41 @@ export function normalizeCssSource(css: string): string {
 }
 
 /**
- * Parse stylesheet source into a tree of at-rules (`@theme inline { … }`,
- * `@import "x" layer(base);`), rules and declarations, comments removed.
- * Lenient: unbalanced input closes what is open at the end.
+ * Parse stylesheet source with postcss, or null when postcss rejects it
+ * (the fingerprint still covers the file; only the explanation skips it).
  */
-export function parseCss(css: string): CssNode[] {
-	const source = stripCssComments(css);
-	const root: CssNode[] = [];
-	const stack: CssNode[][] = [root];
-	let buffer = "";
-	let quote: string | null = null;
-	let parens = 0;
-
-	const current = () => stack[stack.length - 1] as CssNode[];
-	const flushStatement = () => {
-		const text = buffer.trim();
-		buffer = "";
-		if (!text) return;
-		if (text.startsWith("@")) {
-			const { name, params } = splitAtRule(text);
-			current().push({ type: "at-rule", name, params });
-			return;
-		}
-		const colon = text.indexOf(":");
-		if (colon > 0) {
-			current().push({
-				type: "decl",
-				prop: text.slice(0, colon).trim(),
-				value: text.slice(colon + 1).trim(),
-			});
-		}
-	};
-
-	for (let index = 0; index < source.length; index++) {
-		const char = source[index] as string;
-		if (quote) {
-			buffer += char;
-			if (char === "\\" && index + 1 < source.length) {
-				buffer += source[index + 1];
-				index++;
-				continue;
-			}
-			if (char === quote) quote = null;
-			continue;
-		}
-		if (char === '"' || char === "'") {
-			quote = char;
-			buffer += char;
-			continue;
-		}
-		if (char === "(") parens++;
-		if (char === ")") parens = Math.max(0, parens - 1);
-		if (parens > 0) {
-			buffer += char;
-			continue;
-		}
-		if (char === ";") {
-			flushStatement();
-			continue;
-		}
-		if (char === "{") {
-			const text = buffer.trim();
-			buffer = "";
-			const nodes: CssNode[] = [];
-			if (text.startsWith("@")) {
-				const { name, params } = splitAtRule(text);
-				current().push({ type: "at-rule", name, params, nodes });
-			} else {
-				current().push({ type: "rule", selector: text, nodes });
-			}
-			stack.push(nodes);
-			continue;
-		}
-		if (char === "}") {
-			flushStatement();
-			if (stack.length > 1) stack.pop();
-			continue;
-		}
-		buffer += char;
+export function parseStylesheet(css: string): Root | null {
+	try {
+		return postcss.parse(css);
+	} catch {
+		return null;
 	}
-	flushStatement();
-	return root;
 }
 
-function splitAtRule(text: string): { name: string; params: string } {
-	const match = /^@([\w-]+)\s*([\s\S]*)$/u.exec(text);
-	return {
-		name: (match?.[1] ?? "").toLowerCase(),
-		params: (match?.[2] ?? "").trim(),
-	};
-}
-
-/** The nodes back as normalized CSS text (`normalizeCssSource` of each part). */
-export function serializeCssNodes(nodes: readonly CssNode[]): string {
-	return nodes
-		.map((node) => {
-			if (node.type === "decl") {
-				return `${normalizeCssSource(node.prop)}:${normalizeCssSource(node.value)};`;
-			}
-			if (node.type === "rule") {
-				return `${normalizeCssSource(node.selector)}{${serializeCssNodes(node.nodes)}}`;
-			}
-			const head = `@${node.name}${node.params ? ` ${normalizeCssSource(node.params)}` : ""}`;
-			return node.nodes
-				? `${head}{${serializeCssNodes(node.nodes)}}`
-				: `${head};`;
-		})
-		.join("");
-}
-
-/** Every at-rule named `name`, at any depth, in source order. */
-export function findAtRules(
-	nodes: readonly CssNode[],
-	name: string,
-): Extract<CssNode, { type: "at-rule" }>[] {
-	const found: Extract<CssNode, { type: "at-rule" }>[] = [];
-	for (const node of nodes) {
-		if (node.type === "at-rule" && node.name === name) {
-			found.push(node);
-		}
-		if (node.type !== "decl" && node.nodes) {
-			found.push(...findAtRules(node.nodes, name));
-		}
+/**
+ * A node back as CSS text with comments left out and whitespace outside
+ * strings normalized (`normalizeCssSource` of each selector, at-rule
+ * params and declaration value): what it means, not how it is laid out.
+ */
+export function serializeNormalized(node: ChildNode | Root): string {
+	if (node.type === "comment") {
+		return "";
 	}
-	return found;
+	if (node.type === "decl") {
+		return `${node.prop}:${normalizeCssSource(node.value)}${node.important ? "!important" : ""};`;
+	}
+	const children =
+		"nodes" in node && node.nodes
+			? node.nodes.map((child) => serializeNormalized(child)).join("")
+			: null;
+	if (node.type === "root") {
+		return children ?? "";
+	}
+	if (node.type === "rule") {
+		return `${normalizeCssSource(node.selector)}{${children ?? ""}}`;
+	}
+	const head = `@${node.name}${node.params ? ` ${normalizeCssSource(node.params)}` : ""}`;
+	return children === null ? `${head};` : `${head}{${children}}`;
 }
 
 /** The stylesheet an `@import`/`@reference` names: `"x"`, `'x'` or `url(x)`. */

@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-	findAtRules,
 	normalizeCssSource,
-	parseCss,
+	parseStylesheet,
 	readImportTarget,
-	serializeCssNodes,
+	serializeNormalized,
 	stripCssComments,
 } from "./css-source";
 
@@ -41,37 +40,37 @@ describe("normalizeCssSource", () => {
 	});
 });
 
-describe("parseCss", () => {
-	it("parses at-rules, rules and declarations, without comments", () => {
-		const nodes = parseCss(
-			'@import "./a.css" layer(base);\n@theme inline {\n  /* --color-*: initial; */\n  --color-x: url("a;b");\n}\n.a { color: red }',
+describe("serializeNormalized", () => {
+	it("leaves comments and layout out, and keeps strings as written", () => {
+		const root = parseStylesheet(
+			'@utility quote {\n  /* note */\n  content:   "a  b" ;\n  &:hover { color : red !important }\n}',
 		);
+		const utilities: string[] = [];
+		root?.walkAtRules("utility", (utility) => {
+			utilities.push(serializeNormalized(utility));
+		});
 
-		expect(nodes).toEqual([
-			{ type: "at-rule", name: "import", params: '"./a.css" layer(base)' },
-			{
-				type: "at-rule",
-				name: "theme",
-				params: "inline",
-				nodes: [{ type: "decl", prop: "--color-x", value: 'url("a;b")' }],
-			},
-			{
-				type: "rule",
-				selector: ".a",
-				nodes: [{ type: "decl", prop: "color", value: "red" }],
-			},
+		expect(utilities).toEqual([
+			'@utility quote{content:"a  b";&:hover{color:red!important;}}',
 		]);
 	});
 
-	it("finds nested at-rules and serializes them normalized", () => {
-		const nodes = parseCss(
-			"@layer theme { @theme { --color-*: initial; } }\n@utility tone { color: red; }",
+	it("serializes statements and nested at-rules", () => {
+		expect(
+			serializeNormalized(
+				parseStylesheet(
+					'@import "./a.css"  layer( base );\n@layer theme { @theme inline { --color-x: url("a;b"); } }',
+				) as NonNullable<ReturnType<typeof parseStylesheet>>,
+			),
+		).toBe(
+			'@import "./a.css" layer(base);@layer theme{@theme inline{--color-x:url("a;b");}}',
 		);
+	});
 
-		expect(findAtRules(nodes, "theme")).toHaveLength(1);
-		expect(serializeCssNodes(findAtRules(nodes, "utility"))).toBe(
-			"@utility tone{color:red;}",
-		);
+	it("gives null for what postcss cannot parse", () => {
+		expect(parseStylesheet("a { color: red")).toBeNull();
+		expect(parseStylesheet("a { color: red; } }")).toBeNull();
+		expect(parseStylesheet("a { color: red; }")).not.toBeNull();
 	});
 });
 

@@ -2,10 +2,9 @@ import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import {
-	findAtRules,
 	normalizeCssSource,
-	parseCss,
-	serializeCssNodes,
+	parseStylesheet,
+	serializeNormalized,
 } from "./css-source";
 import type { TailwindDesignSystem } from "./tailwind-design-system";
 import type { LoadedStylesheet } from "./tailwind-design-system-loader";
@@ -22,8 +21,6 @@ import type {
 /** A stylesheet the project owns, with its real path relative to the project. */
 export type ProjectStylesheet = LoadedStylesheet & { relativePath: string };
 
-const TAILWIND_PACKAGE_SEGMENT = `${path.sep}node_modules${path.sep}tailwindcss${path.sep}`;
-
 function realPath(filePath: string): string {
 	try {
 		return realpathSync(filePath);
@@ -33,9 +30,10 @@ function realPath(filePath: string): string {
 }
 
 /**
- * Whether the project owns a stylesheet: its real path (symlinks resolved,
- * so a workspace package linked into `node_modules` counts as the project's)
- * is inside the project root and outside Tailwind's own package.
+ * Whether the project owns a stylesheet: its real path is inside the project
+ * root and not under any `node_modules` (Tailwind and every other
+ * third-party package). Symlinks are resolved first, so a workspace package
+ * linked into `node_modules` counts by its source folder.
  */
 export function createProjectStylesheetFilter(projectRoot: string) {
 	const root = realPath(projectRoot);
@@ -51,7 +49,7 @@ export function createProjectStylesheetFilter(projectRoot: string) {
 			relative.length > 0 &&
 			!relative.startsWith("..") &&
 			!path.isAbsolute(relative) &&
-			!real.includes(TAILWIND_PACKAGE_SEGMENT)
+			!relative.split(path.sep).includes("node_modules")
 				? relative.split(path.sep).join("/")
 				: null;
 		cache.set(filePath, owned);
@@ -155,12 +153,12 @@ export function extractAuthoredTheme({
 	}
 
 	for (const stylesheet of projectStylesheets) {
-		for (const theme of findAtRules(parseCss(stylesheet.content), "theme")) {
+		parseStylesheet(stylesheet.content)?.walkAtRules("theme", (theme) => {
 			for (const node of theme.nodes ?? []) {
 				if (
 					node.type === "decl" &&
 					node.prop.startsWith("--") &&
-					/^initial(?:\s*!important)?$/iu.test(node.value.trim())
+					node.value.trim().toLowerCase() === "initial"
 				) {
 					const { bucket } = bucketFor(
 						node.prop.endsWith("-*") ? node.prop.slice(0, -2) : node.prop,
@@ -168,7 +166,7 @@ export function extractAuthoredTheme({
 					bucket.resets.push(node.prop);
 				}
 			}
-		}
+		});
 	}
 
 	return { domains, other };
@@ -184,18 +182,13 @@ export function extractCustomUtilityDefinitions(
 ): Map<string, string> {
 	const blocksByRoot = new Map<string, string[]>();
 	for (const stylesheet of stylesheets) {
-		for (const utility of findAtRules(
-			parseCss(stylesheet.content),
-			"utility",
-		)) {
+		parseStylesheet(stylesheet.content)?.walkAtRules("utility", (utility) => {
 			const name = utility.params.trim();
 			const root = name.endsWith("-*") ? name.slice(0, -2) : name;
 			const blocks = blocksByRoot.get(root) ?? [];
-			blocks.push(
-				`@utility ${name}{${serializeCssNodes(utility.nodes ?? [])}}`,
-			);
+			blocks.push(serializeNormalized(utility));
 			blocksByRoot.set(root, blocks);
-		}
+		});
 	}
 	return new Map(
 		[...blocksByRoot].map(([root, blocks]) => [root, blocks.join("\n")]),

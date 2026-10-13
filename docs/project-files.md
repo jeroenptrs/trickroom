@@ -520,7 +520,7 @@ Snapshot shape:
 }
 ```
 
-`stylesheets` fingerprints the project's own stylesheets (inside the project root, outside Tailwind's package, symlinks resolved), in inlining order: each file's project-relative path and a SHA-256 of its text with comments and whitespace outside strings normalized away. `confirmed.stylesheets` is the fingerprint at the last confirmation, and gates reviews: see [Review And Overrides](tailwind-design-systems.md#review-and-overrides).
+`stylesheets` fingerprints the project's own stylesheets (real paths inside the project root and not under any `node_modules`, so a symlinked workspace package counts by its source folder and third-party packages do not), in inlining order: each file's project-relative path and a SHA-256 of its text with comments and whitespace outside strings normalized away. `confirmed.stylesheets` is the fingerprint at the last confirmation, and gates reviews: see [Review And Overrides](tailwind-design-systems.md#review-and-overrides).
 
 `authored` is what the project's stylesheets author, independent of Tailwind's defaults: per domain (only domains that define something) the theme values as written, their `@theme` options (`options`, only for tokens that have any) and the `initial` reset patterns, and under `other` the same for theme variables outside the fixed domains. Each `customUtilities` entry also records its `definition`, its `@utility` blocks in the order Tailwind sees them.
 

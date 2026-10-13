@@ -111,7 +111,7 @@ The diff categories apply per domain:
 
 A snapshot mixes two things: what the project defines, and Tailwind's reference values it is compared against. Only a change to the first needs review, and what decides that is the project's own stylesheets, not what Trickroom extracts from them.
 
-**The gate: the project's stylesheets.** A sync fingerprints every stylesheet the design system loads whose real path (symlinks resolved, so a workspace package linked into `node_modules` counts) is inside the project root and outside Tailwind's own package: in the order Tailwind inlines them (depth first along `@import`/`@reference`), each file's project-relative path and a hash of its text with comments and whitespace outside strings normalized away. The `@import` conditions are part of the importing file's text. Confirming a review records the fingerprint in `confirmed.stylesheets`. From then on:
+**The gate: the project's stylesheets.** A sync fingerprints every stylesheet the design system loads whose real path is inside the project root and not under any `node_modules`, so Tailwind and other third-party packages (installed fonts, for example) are left out. Symlinks are resolved first, so a workspace package linked into `node_modules` counts by its source folder. The files are listed in the order Tailwind inlines them (depth first along `@import`/`@reference`), each file's project-relative path and a hash of its text with comments and whitespace outside strings normalized away. The `@import` conditions are part of the importing file's text. Confirming a review records the fingerprint in `confirmed.stylesheets`. From then on:
 
 - Stylesheets unchanged since the confirmation: no review, whatever Tailwind's reference values did (`changes: "tailwind"` for an upgrade, `"none"` otherwise). A comment or whitespace edit leaves the fingerprint as it was.
 - Any other edit to any of them, or a file added, removed or imported in another order: review required (`changes: "project"`), until the stylesheets match the confirmation again (reverting clears it) or the user confirms.
@@ -121,7 +121,7 @@ A confirmed state without a fingerprint (confirmed before fingerprints were reco
 **The explanation: the authored delta.** The review lists what changed since the confirmation, as far as it can be modelled:
 
 - Theme entries whose source is a project stylesheet (so a project's own `@theme default` counts, Tailwind's does not), with their values as written and their `@theme` options (`inline`, `reference`, `default`, `static`): added, changed (confirmed value → incoming value, and options when they changed) and removed. Entries outside the fixed domains (`--app-color`) are listed with the custom properties.
-- The `initial` resets in the project stylesheets' `@theme` blocks, read from the parsed CSS (a commented-out reset is not one; a reset in a reset-only import is), as patterns.
+- The `initial` resets in the project stylesheets' `@theme` blocks, read from the CSS as postcss parses it (a commented-out reset is not one; a reset in a reset-only import is), as patterns.
 - Custom properties and custom utilities, a utility by its definition.
 - The changed stylesheets. When the fingerprint changed but no token-level change was found, the panel says so: "Theme stylesheets changed (files: …); no token-level change detected", and the user can still confirm.
 

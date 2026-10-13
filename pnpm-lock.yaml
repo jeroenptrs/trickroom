@@ -96,6 +96,9 @@ importers:
       playwright-core:
         specifier: ^1.62.1
         version: 1.62.1
+      postcss:
+        specifier: ^8.5.10
+        version: 8.5.10
       react:
         specifier: ^19.2.5
         version: 19.2.5

@@ -2339,6 +2339,50 @@ describe("tailwind sync gates reviews on the project's stylesheets", () => {
 		]);
 	});
 
+	it("counts a symlinked workspace package and leaves third-party packages out", async () => {
+		await writeProjectFile(
+			"packages/colors/package.json",
+			JSON.stringify({ name: "@acme/colors", style: "colors.css" }),
+		);
+		await writeProjectFile(
+			"packages/colors/colors.css",
+			"@theme { --color-acme-500: #ff0000; }\n",
+		);
+		await mkdir(path.join(tempProjectRoot, "node_modules", "@acme"), {
+			recursive: true,
+		});
+		await symlink(
+			path.join(tempProjectRoot, "packages", "colors"),
+			path.join(tempProjectRoot, "node_modules", "@acme", "colors"),
+		);
+		// A third-party package: installed, really under node_modules.
+		await writeProjectFile(
+			"node_modules/@vendor/fonts/package.json",
+			JSON.stringify({ name: "@vendor/fonts", style: "fonts.css" }),
+		);
+		await writeProjectFile(
+			"node_modules/@vendor/fonts/fonts.css",
+			"@font-face { font-family: Vendor; src: url(./vendor.woff2); }\n",
+		);
+		await writeProjectFile(
+			"src/core.css",
+			entryCss(["@vendor/fonts", "@acme/colors", "./theme.css"]),
+		);
+		const { sync, confirmed, read } = await setup();
+		await confirmed();
+
+		expect((await read())?.stylesheets?.files.map((file) => file.path)).toEqual(
+			["src/core.css", "packages/colors/colors.css", "src/theme.css"],
+		);
+
+		// Upgrading the third-party package asks nothing.
+		await writeProjectFile(
+			"node_modules/@vendor/fonts/fonts.css",
+			"@font-face { font-family: Vendor; src: url(./vendor-v2.woff2); }\n",
+		);
+		expect((await sync()).reviewRequired).toBe(false);
+	});
+
 	it("commenting out a reset removes it, and requires review", async () => {
 		await writeProjectFile(
 			"src/theme.css",

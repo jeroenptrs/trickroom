@@ -2,16 +2,17 @@ import { readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { __unstable__loadDesignSystem } from "tailwindcss";
-import { parseCss, readImportTarget } from "./css-source.ts";
+import { parseStylesheet, readImportTarget } from "./css-source.ts";
 import { defaultTailwindTokensByDomain } from "./default-tailwind-tokens.ts";
 import { recordTailwindSourceFiles } from "./tailwind-source-files.ts";
 
 /**
  * Loading a project's Tailwind design system: stylesheet resolution, the
  * compiled-system cache and the file stamps it is checked against. Only
- * Node built-ins, `tailwindcss` and explicit `.ts` imports, so the
- * canonicalization worker (`tailwind-canonicalize-worker.ts`) can run this
- * module from source under Node's type stripping as well as bundled.
+ * Node built-ins, packages (`tailwindcss`, `postcss`) and explicit `.ts`
+ * imports, so the canonicalization worker (`tailwind-canonicalize-worker.ts`)
+ * can run this module from source under Node's type stripping as well as
+ * bundled.
  */
 
 type PackageJson = {
@@ -146,9 +147,9 @@ function orderLoadedStylesheets(
 		ordered.push(stylesheet);
 		reached.add(stylesheet.path);
 		const nextAncestors = new Set(ancestors).add(stylesheet.path);
-		for (const node of parseCss(stylesheet.content)) {
+		for (const node of parseStylesheet(stylesheet.content)?.nodes ?? []) {
 			if (
-				node.type !== "at-rule" ||
+				node.type !== "atrule" ||
 				(node.name !== "import" && node.name !== "reference")
 			) {
 				continue;
