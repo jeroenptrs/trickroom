@@ -990,6 +990,10 @@ Package CSS imports:
 - Tailwind loading can resolve CSS package imports from the configured CSS file directory.
 - Package imports are read for token extraction only.
 
+Tailwind plugins and configs (`@plugin`, `@config`):
+
+- A system stylesheet's `@plugin` and `@config` modules are loaded and run, as Tailwind's own CLI and Vite plugin run them: resolved from the folder of the stylesheet that names them (the project's `node_modules` for packages), ESM, CommonJS or TypeScript. This is project code running in the Trickroom server, MCP server, lint and codegen processes, the same code `tailwindcss` runs when the project builds. Trickroom never writes these files, and MCP tools cannot write them. See [Tailwind Systems](tailwind-design-systems.md#plugins-and-configs).
+
 Application source files:
 
 - Trickroom does not rewrite your React components, routes, pages, or app CSS. The one exception is `trickroom codegen` (or `design_export` with `format: "variants"`), which writes generated variants files to the configured `outDir` and only replaces files that carry its header unless `--force` is passed. See [Component Codegen](codegen.md).

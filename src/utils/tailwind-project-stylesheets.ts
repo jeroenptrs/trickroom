@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
 	normalizeCssSource,
@@ -8,6 +8,7 @@ import {
 } from "./css-source";
 import type { TailwindDesignSystem } from "./tailwind-design-system";
 import type { LoadedStylesheet } from "./tailwind-design-system-loader";
+import type { LoadedTailwindModule } from "./tailwind-module-loader";
 import {
 	resolveTailwindTokenDomain,
 	type TailwindTokenDomain,
@@ -69,20 +70,70 @@ export function selectProjectStylesheets(
 	});
 }
 
+/** A `@plugin` or `@config` file the project owns. */
+export type ProjectModuleFile = {
+	path: string;
+	relativePath: string;
+	content: string;
+};
+
+/**
+ * The project's own `@plugin` and `@config` files: each module and the
+ * files it imports by relative path, owned as stylesheets are (inside the
+ * project, not under any `node_modules`), by path (Tailwind loads modules
+ * in parallel, so load order is no order), each once. A file that can no
+ * longer be read is left out.
+ */
+export function selectProjectModuleFiles(
+	projectRoot: string,
+	modules: readonly LoadedTailwindModule[],
+): ProjectModuleFile[] {
+	const projectPath = createProjectStylesheetFilter(projectRoot);
+	const seen = new Set<string>();
+	const files: ProjectModuleFile[] = [];
+	for (const module of modules) {
+		for (const filePath of module.files) {
+			const relativePath = projectPath(filePath);
+			if (relativePath === null || seen.has(relativePath)) continue;
+			seen.add(relativePath);
+			try {
+				files.push({
+					path: filePath,
+					relativePath,
+					content: readFileSync(filePath, "utf8"),
+				});
+			} catch {
+				// Removed since the load; the next sync sees it gone.
+			}
+		}
+	}
+	return files.sort((left, right) =>
+		left.relativePath.localeCompare(right.relativePath),
+	);
+}
+
 /**
  * Each project stylesheet's path and the hash of its text, comments and
- * whitespace outside strings normalized away, in inlining order.
+ * whitespace outside strings normalized away, in inlining order, then each
+ * project `@plugin`/`@config` file's path and the hash of its text as is.
  */
 export function fingerprintStylesheets(
 	stylesheets: readonly ProjectStylesheet[],
+	moduleFiles: readonly ProjectModuleFile[] = [],
 ): TailwindStylesheetFingerprint {
 	return {
-		files: stylesheets.map((stylesheet) => ({
-			path: stylesheet.relativePath,
-			hash: createHash("sha256")
-				.update(normalizeCssSource(stylesheet.content))
-				.digest("hex"),
-		})),
+		files: [
+			...stylesheets.map((stylesheet) => ({
+				path: stylesheet.relativePath,
+				hash: createHash("sha256")
+					.update(normalizeCssSource(stylesheet.content))
+					.digest("hex"),
+			})),
+			...moduleFiles.map((file) => ({
+				path: file.relativePath,
+				hash: createHash("sha256").update(file.content).digest("hex"),
+			})),
+		],
 	};
 }
 
@@ -94,6 +145,9 @@ const THEME_OPTION_NAMES = [
 	[1 << 3, "static"],
 ] as const;
 const THEME_OPTION_DEFAULT = 1 << 2;
+// How Tailwind adds the theme of a `@config` file or a plugin's config:
+// inline, reference and default, without a source.
+const THEME_OPTIONS_FROM_CONFIG = (1 << 0) | (1 << 1) | (1 << 2);
 
 function themeOptionNames(options: number): string[] {
 	return THEME_OPTION_NAMES.filter(([bit]) => (options & bit) !== 0).map(
@@ -114,9 +168,11 @@ function isTailwindStylesheet(filePath: string): boolean {
  * (so the project's files, its packages and anything it imports from
  * outside the project count, and a project's `@theme default` too), with
  * its value as written and its `@theme` options, and the `initial` resets
- * in those stylesheets' `@theme` blocks. Entries without a source fall back
- * to "not from `@theme default`". Variables outside the fixed domains go to
- * `other`. None of it depends on Tailwind's defaults.
+ * in those stylesheets' `@theme` blocks, and the token-domain values a
+ * `@config` file (or a plugin's config) adds to the theme. Other entries
+ * without a source fall back to "not from `@theme default`". Variables
+ * outside the fixed domains go to `other`. None of it depends on
+ * Tailwind's defaults.
  */
 export function extractAuthoredTheme({
 	designSystem,
@@ -152,14 +208,25 @@ export function extractAuthoredTheme({
 
 	for (const [propertyName, token] of designSystem.theme.entries()) {
 		const sourceFile = (token.src?.[0] as { file?: string } | undefined)?.file;
+		// A `@config` (or a plugin's config) theme value in a token domain
+		// is one the project defines, a third-party preset's included; the
+		// rest of what plugins add (typography's `--typography-*`) is not.
+		const fromConfig =
+			!sourceFile &&
+			token.options === THEME_OPTIONS_FROM_CONFIG &&
+			resolveTailwindTokenDomain(propertyName) !== null;
 		const authored = sourceFile
 			? !isTailwind(sourceFile)
-			: (token.options & THEME_OPTION_DEFAULT) === 0;
+			: fromConfig || (token.options & THEME_OPTION_DEFAULT) === 0;
 		if (!authored) {
 			continue;
 		}
 		const { bucket, name } = bucketFor(propertyName);
 		bucket.tokens[name] = token.value;
+		// Not written in a `@theme` block, so no `@theme` options to show.
+		if (fromConfig) {
+			continue;
+		}
 		const options = themeOptionNames(token.options);
 		if (options.length > 0) {
 			bucket.options ??= {};

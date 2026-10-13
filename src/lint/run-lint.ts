@@ -31,6 +31,10 @@ import {
 	loadDerivedTwMerge,
 	type TwMergeGroups,
 } from "../utils/tailwind-merge-derive";
+import {
+	findTailwindModuleError,
+	type TailwindModuleError,
+} from "../utils/tailwind-module-loader";
 import { readDomainTokensReadonly } from "../utils/tailwind-token-store";
 import {
 	LINT_CONFIG_FILE_NAME,
@@ -141,6 +145,7 @@ export type LintRunDiagnosticCode =
 	| "WRAPPER_MODULE_NOT_SCANNED"
 	| "DESIGN_UNREADABLE"
 	| "DESIGNS_UNREADABLE"
+	| "TAILWIND_UNAVAILABLE"
 	| "RUN_FAILED";
 
 export type LintRunDiagnostic = {
@@ -184,6 +189,8 @@ const lintInspectors = new WeakMap<
 export const createTailwindInspectorLoader = (
 	projectRoot: string,
 	cssPath: string | null,
+	/** Called once when the system CSS fails to compile. */
+	onError?: (error: unknown) => void,
 ): (() => Promise<LintTailwindInspector | null>) => {
 	let pending: Promise<LintTailwindInspector | null> | null = null;
 	return () => {
@@ -214,7 +221,10 @@ export const createTailwindInspectorLoader = (
 				}
 				return inspector;
 			})
-			.catch(() => null);
+			.catch((error: unknown) => {
+				onError?.(error);
+				return null;
+			});
 		return pending;
 	};
 };
@@ -816,6 +826,10 @@ async function runLintInner(
 
 	// Rules.
 	const cssPath = system.manifest.cssPath ?? tokens?.metadata.cssPath ?? null;
+	// A stylesheet that does not compile leaves the class checks without
+	// Tailwind. A missing or failing `@plugin`/`@config` module fails the
+	// run: its findings would be missing, not fixed.
+	let tailwindError: TailwindModuleError | null = null;
 	const rulesRun = await runLintRules({
 		registry,
 		config,
@@ -827,7 +841,13 @@ async function runLintInner(
 			sources,
 			designs,
 			tailwind: {
-				inspector: createTailwindInspectorLoader(projectRoot, cssPath),
+				inspector: createTailwindInspectorLoader(
+					projectRoot,
+					cssPath,
+					(error) => {
+						tailwindError = findTailwindModuleError(error);
+					},
+				),
 				// tv() merges with the derived config only when codegen writes it
 				// for this system (and the project wires it into createTV).
 				mergeConfig:
@@ -845,6 +865,13 @@ async function runLintInner(
 	});
 	for (const failure of rulesRun.failures) {
 		fail("RULE_FAILED", `Rule "${failure.rule}" failed: ${failure.message}`);
+	}
+	if (tailwindError !== null && cssPath) {
+		fail(
+			"TAILWIND_UNAVAILABLE",
+			`The system stylesheet ${cssPath} could not be compiled, so the class checks could not run: ${(tailwindError as TailwindModuleError).message}`,
+			cssPath,
+		);
 	}
 	const findings = rulesRun.findings.map(toReportFinding);
 	const enabledIds = rulesRun.enabled;

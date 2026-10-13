@@ -9,6 +9,7 @@ import {
 	createEmptySystemComponentManifest,
 	type SystemComponentManifest,
 } from "../utils/system-components";
+import { findTailwindModuleError } from "../utils/tailwind-module-loader";
 import {
 	readDomainTokensReadonly,
 	type TailwindTokenStorage,
@@ -51,7 +52,8 @@ export type DesignLintDiagnostic = {
 	code:
 		| "INVALID_LINT_CONFIG"
 		| "INVALID_COMPONENT_MANIFEST"
-		| "LINT_RULE_FAILED";
+		| "LINT_RULE_FAILED"
+		| "TAILWIND_UNAVAILABLE";
 	message: string;
 	/** Project-relative, `/` separators. */
 	path?: string;
@@ -143,7 +145,17 @@ export async function loadDesignLintSetup({
 		config,
 		tokens,
 		diagnostics,
-		inspector: createTailwindInspectorLoader(projectRoot, cssPath),
+		inspector: createTailwindInspectorLoader(projectRoot, cssPath, (error) => {
+			// A missing or failing `@plugin`/`@config` module, once per setup
+			// (the loader keeps the failed load).
+			const moduleError = findTailwindModuleError(error);
+			if (!moduleError) return;
+			diagnostics.push({
+				code: "TAILWIND_UNAVAILABLE",
+				message: `The system stylesheet ${cssPath} could not be compiled, so the class checks were skipped: ${moduleError.message}`,
+				...(cssPath ? { path: cssPath } : {}),
+			});
+		}),
 		// Design-side kinds do not merge; the codegen block is not read here.
 		mergeConfig: createTwMergeConfigLoader(projectRoot, null),
 	};

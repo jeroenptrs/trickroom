@@ -551,6 +551,39 @@ describe("runLint", () => {
 		]);
 	});
 
+	it("fails the run, writing nothing, when a @plugin of the system stylesheet is missing", async () => {
+		// Inside the repository, so `tailwindcss` resolves.
+		const project = await createCodegenTestProject({ parent: process.cwd() });
+		projects.push(project);
+		await writeFile(
+			project.path(".trickroom/systems/core/system.json"),
+			`${JSON.stringify({ version: 1, systemId: CODEGEN_TEST_SYSTEM_ID, systemName: "Core", cssPath: "src/app.css" }, null, "\t")}\n`,
+		);
+		await mkdir(project.path("src"), { recursive: true });
+		await writeFile(
+			project.path("src/app.css"),
+			'@import "tailwindcss";\n@plugin "./missing-plugin.js";\n',
+		);
+		await writeFile(
+			project.path("src/app.tsx"),
+			'export const App = () => <div className="p-2 prose" />;\n',
+		);
+
+		const result = await runLint({ projectRoot: project.root });
+
+		expect(result.status).toBe("error");
+		expect(result.written).toBe(false);
+		expect(result.diagnostics).toEqual([
+			{
+				code: "TAILWIND_UNAVAILABLE",
+				severity: "error",
+				message:
+					'The system stylesheet src/app.css could not be compiled, so the class checks could not run: @plugin "./missing-plugin.js": no module at src/missing-plugin.js',
+				path: "src/app.css",
+			},
+		]);
+	});
+
 	it("lints the designs linked to the system and fills the design side of the report", async () => {
 		const chip = publishedComponent("chip", {
 			...flatPayload("px-2"),

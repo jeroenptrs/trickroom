@@ -1,9 +1,14 @@
 import { readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { __unstable__loadDesignSystem } from "tailwindcss";
+import { __unstable__loadDesignSystem, type compile } from "tailwindcss";
 import { parseStylesheet, readImportTarget } from "./css-source.ts";
 import { defaultTailwindTokensByDomain } from "./default-tailwind-tokens.ts";
+import {
+	createTailwindModuleLoader,
+	type LoadedTailwindModule,
+	type TailwindModuleLoaderOptions,
+} from "./tailwind-module-loader.ts";
 import { recordTailwindSourceFiles } from "./tailwind-source-files.ts";
 
 /**
@@ -42,6 +47,11 @@ export type LoadedTailwindDesignSystem = {
 	 * and `@reference` statements. A file imported twice appears twice.
 	 */
 	stylesheets: LoadedStylesheet[];
+	/**
+	 * The `@plugin` and `@config` modules it loaded, by path (Tailwind loads
+	 * them in parallel, so load order is no order).
+	 */
+	modules: LoadedTailwindModule[];
 };
 
 export type LoadedStylesheet = { path: string; content: string };
@@ -51,6 +61,32 @@ export type LoadTailwindDesignSystemOptions = {
 	cssPath: string;
 };
 const require = createRequire(import.meta.url);
+
+/** The `loadModule` option Tailwind's `compile` takes. */
+export type TailwindLoadModule = NonNullable<
+	NonNullable<Parameters<typeof compile>[1]>["loadModule"]
+>;
+
+/**
+ * `createTailwindModuleLoader`, typed for Tailwind's options. Every file a
+ * module reads is recorded for the file watcher before it is read.
+ */
+export function createTrackedTailwindModuleLoader({
+	onFiles,
+	projectRoot,
+}: TailwindModuleLoaderOptions) {
+	const loader = createTailwindModuleLoader({
+		projectRoot,
+		onFiles: async (files) => {
+			recordTailwindSourceFiles(files);
+			await onFiles?.(files);
+		},
+	});
+	return {
+		loadModule: loader.loadModule as TailwindLoadModule,
+		modules: loader.modules,
+	};
+}
 
 export async function loadTailwindDesignSystem(
 	options: LoadTailwindDesignSystemOptions,
@@ -96,15 +132,36 @@ export async function loadTrackedTailwindDesignSystem({
 		return result;
 	};
 
-	const loadOptions = {
-		base: path.dirname(rootPath),
-		from: rootPath,
-		loadStylesheet: collectingLoadStylesheet,
+	const stampFiles = async (files: string[]) => {
+		for (const file of files) {
+			if (!fileStamps.has(file)) {
+				fileStamps.set(file, await statStamp(file));
+			}
+		}
 	};
-	const designSystem = await __unstable__loadDesignSystem(
-		css,
-		loadOptions,
-	).catch((error: unknown) => {
+	// One module loader per attempt, so a retry lists its own modules.
+	const load = async (source: string) => {
+		const moduleLoader = createTrackedTailwindModuleLoader({
+			projectRoot,
+			onFiles: stampFiles,
+		});
+		const designSystem = await __unstable__loadDesignSystem(source, {
+			base: path.dirname(rootPath),
+			from: rootPath,
+			loadStylesheet: collectingLoadStylesheet,
+			loadModule: moduleLoader.loadModule,
+		});
+		return {
+			designSystem,
+			modules: [...moduleLoader.modules].sort(
+				(left, right) =>
+					left.path.localeCompare(right.path) ||
+					left.directive.localeCompare(right.directive) ||
+					left.id.localeCompare(right.id),
+			),
+		};
+	};
+	const { designSystem, modules } = await load(css).catch((error: unknown) => {
 		if (!isMissingSpacingThemeVariableError(error)) {
 			throw error;
 		}
@@ -113,9 +170,8 @@ export async function loadTrackedTailwindDesignSystem({
 		// re-resolved imports are not double-counted in `cssSource`.
 		collectedSources.length = 1;
 		loadedStylesheets.clear();
-		return __unstable__loadDesignSystem(
+		return load(
 			`${css}\n@theme { --spacing: ${sanitizeSpacingThemeToken(defaultTailwindTokensByDomain.spacing.DEFAULT)}; }\n`,
-			loadOptions,
 		);
 	});
 
@@ -127,6 +183,7 @@ export async function loadTrackedTailwindDesignSystem({
 			{ path: rootPath, content: css },
 			loadedStylesheets,
 		),
+		modules,
 		fileStamps,
 	};
 }

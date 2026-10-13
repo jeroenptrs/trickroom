@@ -28,6 +28,7 @@
 		"vite.codegen.config.ts",
 		"vite.lint.config.ts",
 		"vite.server.config.ts",
-		"vite.tailwind-worker.config.ts"
+		"vite.tailwind-worker.config.ts",
+		"vite.tailwind-modules.config.ts"
 	]
 }

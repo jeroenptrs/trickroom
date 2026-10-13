@@ -9,6 +9,7 @@ import {
 	listDesignSystems,
 } from "./design-system-store.ts";
 import {
+	createTrackedTailwindModuleLoader,
 	isMissingSpacingThemeVariableError,
 	loadStylesheet,
 	loadTailwindDesignSystem,
@@ -264,7 +265,7 @@ type CompiledStylesheet = Awaited<ReturnType<typeof compile>>;
 // One entry per file.
 type CompiledCacheEntry = {
 	themeOverrides: string;
-	/** mtimeMs of the entry CSS plus every `@import`-ed file, keyed by abs path. */
+	/** mtimeMs of the entry CSS, every `@import`-ed file and every `@plugin`/`@config` file, keyed by abs path. */
 	fileMtimes: Map<string, number>;
 	compiled: CompiledStylesheet;
 };
@@ -280,6 +281,17 @@ async function statMtimeMs(filePath: string): Promise<number | null> {
 		return null;
 	}
 }
+
+/** Records the mtime of every file that exists, for `fileMtimes` caches. */
+const recordFileMtimes =
+	(fileMtimes: Map<string, number>) => async (files: readonly string[]) => {
+		for (const file of files) {
+			const mtime = await statMtimeMs(file);
+			if (mtime !== null) {
+				fileMtimes.set(file, mtime);
+			}
+		}
+	};
 
 async function compiledCacheEntryIsFresh(
 	entry: CompiledCacheEntry,
@@ -297,6 +309,7 @@ async function compiledCacheEntryIsFresh(
 }
 
 async function getCompiledStylesheet(
+	projectRoot: string,
 	rootPath: string,
 	themeOverrides: string,
 ): Promise<CompiledStylesheet> {
@@ -340,6 +353,11 @@ async function getCompiledStylesheet(
 		base: path.dirname(rootPath),
 		from: rootPath,
 		loadStylesheet: trackingLoadStylesheet,
+		// `@plugin` and `@config` modules, and the files they import, count too.
+		loadModule: createTrackedTailwindModuleLoader({
+			projectRoot,
+			onFiles: recordFileMtimes(fileMtimes),
+		}).loadModule,
 	};
 	const compiled = await compile(source, loadOptions).catch(
 		(error: unknown) => {
@@ -381,7 +399,11 @@ export async function compileTailwindCss({
 	themeOverrides?: string;
 }): Promise<string> {
 	const rootPath = resolveTailwindCssPath(projectRoot, cssPath);
-	const compiled = await getCompiledStylesheet(rootPath, themeOverrides);
+	const compiled = await getCompiledStylesheet(
+		projectRoot,
+		rootPath,
+		themeOverrides,
+	);
 	return compiled.build([...candidates]);
 }
 
@@ -434,7 +456,7 @@ export async function compileBaselineTailwindCss({
 
 export type CanvasTailwindDesignSystem = {
 	designSystem: TailwindDesignSystem;
-	/** mtimeMs of the entry CSS plus every `@import`-ed file, keyed by abs path. */
+	/** mtimeMs of the entry CSS, every `@import`-ed file and every `@plugin`/`@config` file, keyed by abs path. */
 	fileMtimes: Map<string, number>;
 };
 
@@ -466,6 +488,10 @@ export async function loadCanvasTailwindDesignSystem({
 			}
 			return result;
 		},
+		loadModule: createTrackedTailwindModuleLoader({
+			projectRoot,
+			onFiles: recordFileMtimes(fileMtimes),
+		}).loadModule,
 	};
 
 	if (cssPath !== null) {
