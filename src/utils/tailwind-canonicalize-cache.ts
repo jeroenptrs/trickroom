@@ -4,9 +4,10 @@ import { createHash } from "node:crypto";
  * The canonicalization worker's caches, kept apart from the worker so they
  * can be tested with stand-in systems (building real tables takes seconds).
  *
- * - **Warm systems**, by stylesheet content: a compiled system whose tables
- *   are built and the results computed on it. Systems whose stylesheets read
- *   the same text behave the same, so they share one. At most `warmSystems`,
+ * - **Warm systems**, by stylesheet content (and the modules it loaded): a
+ *   compiled system whose tables are built and the results computed on it.
+ *   Systems whose stylesheets read the same text (and load the same
+ *   modules) behave the same, so they share one. At most `warmSystems`,
  *   least recently used evicted; this is the only place a compiled system
  *   is kept, so it bounds what the worker holds.
  * - **Paths**: per entry stylesheet, the stamps of the files it read and the
@@ -22,6 +23,11 @@ export type LoadedForCanonicalization<System> = {
 	system: System;
 	/** Every stylesheet the system read, concatenated (`cssSource`). */
 	cssSource: string;
+	/**
+	 * What else the system was built from besides its stylesheets (its
+	 * `@plugin` and `@config` modules), as text; part of the content key.
+	 */
+	modulesKey?: string;
 	fileStamps: ReadonlyMap<string, string | null>;
 };
 
@@ -101,6 +107,8 @@ export const createCanonicalizeCache = <System, Result, Contextual = never>(
 		const loaded = await options.load(rootPath);
 		const contentKey = createHash("sha256")
 			.update(loaded.cssSource)
+			.update("\0")
+			.update(loaded.modulesKey ?? "")
 			.digest("hex");
 		let warm = warmByContent.get(contentKey);
 		if (!warm) {

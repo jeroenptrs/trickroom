@@ -38,9 +38,14 @@ import {
 import type { LoadedStylesheet } from "../utils/tailwind-design-system-loader";
 import { createTailwindIntrospection } from "../utils/tailwind-introspection";
 import {
+	findTailwindModuleError,
+	type LoadedTailwindModule,
+} from "../utils/tailwind-module-loader";
+import {
 	extractAuthoredTheme,
 	extractCustomUtilityDefinitions,
 	fingerprintStylesheets,
+	selectProjectModuleFiles,
 	selectProjectStylesheets,
 } from "../utils/tailwind-project-stylesheets";
 import { serializeTailwindThemeDomains } from "../utils/tailwind-theme-css";
@@ -218,6 +223,7 @@ const syncTailwindTokensForCssPath = async (
 		designSystem: loaded.designSystem,
 		cssSource: loaded.cssSource,
 		stylesheets: loaded.stylesheets,
+		modules: loaded.modules,
 	});
 };
 
@@ -226,16 +232,21 @@ const syncTailwindTokensForLoadedDesignSystem = ({
 	designSystem,
 	cssSource,
 	stylesheets,
+	modules,
 }: {
 	projectRoot: string;
 	designSystem: TailwindDesignSystem;
 	cssSource: string;
 	stylesheets: LoadedStylesheet[];
+	modules: LoadedTailwindModule[];
 }) => {
-	// The project's own stylesheets: their fingerprint gates reviews. What
-	// every stylesheet but Tailwind's defines (theme entries with their
-	// options, `initial` resets) gates them too, and explains them.
+	// The project's own stylesheets, and its own `@plugin`/`@config` files:
+	// their fingerprint gates reviews. What every stylesheet but Tailwind's
+	// defines (theme entries with their options, `initial` resets) gates
+	// them too, and explains them; a third-party plugin counts only through
+	// that.
 	const projectStylesheets = selectProjectStylesheets(projectRoot, stylesheets);
+	const projectModuleFiles = selectProjectModuleFiles(projectRoot, modules);
 	const authored = extractAuthoredTheme({ designSystem, stylesheets });
 	const tokensByDomain = extractTailwindTokens(designSystem);
 	const resetOverridesByDomain = Object.fromEntries(
@@ -275,7 +286,7 @@ const syncTailwindTokensForLoadedDesignSystem = ({
 		customProperties,
 		customUtilities,
 		authored,
-		stylesheets: fingerprintStylesheets(projectStylesheets),
+		stylesheets: fingerprintStylesheets(projectStylesheets, projectModuleFiles),
 	} satisfies TailwindSyncPreview;
 };
 
@@ -615,11 +626,33 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 		) {
 			return jsonError(error.message, 409);
 		}
+		const moduleErrorResponse = tailwindModuleErrorResponse(error);
+		if (moduleErrorResponse) {
+			return moduleErrorResponse;
+		}
 
 		console.error(error);
 		return jsonError("Failed to sync Tailwind tokens", 500);
 	}
 });
+
+/**
+ * A `@plugin` or `@config` module that is missing or fails: 422, naming the
+ * directive and the module. Null for any other error.
+ */
+const tailwindModuleErrorResponse = (error: unknown) => {
+	const moduleError = findTailwindModuleError(error);
+	if (!moduleError) return null;
+	return Response.json(
+		{
+			error: moduleError.message,
+			code: moduleError.code,
+			directive: moduleError.directive,
+			module: moduleError.module,
+		},
+		{ status: 422 },
+	);
+};
 
 const TAILWIND_RESOLUTION_ERROR_STATUS: Record<
 	TailwindSystemResolutionError["code"],
@@ -767,6 +800,10 @@ tailwindRoutes.post("/compile", async (c) => {
 				TAILWIND_RESOLUTION_ERROR_STATUS[error.code],
 			);
 		}
+		const moduleErrorResponse = tailwindModuleErrorResponse(error);
+		if (moduleErrorResponse) {
+			return moduleErrorResponse;
+		}
 		console.error(error);
 		return jsonError("Failed to compile Tailwind CSS", 500);
 	}
@@ -824,6 +861,10 @@ const classCatalogErrorResponse = (error: unknown, fallback: string) => {
 	}
 	if (asErrnoException(error).code === "ENOENT") {
 		return jsonError("Config or system CSS file not found", 404);
+	}
+	const moduleErrorResponse = tailwindModuleErrorResponse(error);
+	if (moduleErrorResponse) {
+		return moduleErrorResponse;
 	}
 	console.error(error);
 	return jsonError(fallback, 500);

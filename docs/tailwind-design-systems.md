@@ -25,6 +25,30 @@ Rules:
 
 The app can create an initial system during project creation. Legacy `systems` entries in config are migrated into system manifests on project open.
 
+## Plugins And Configs
+
+A system stylesheet can use `@plugin` (a v4 or v3-style plugin: `@tailwindcss/typography`, `@tailwindcss/forms`, a local `./plugin.js`) and `@config` (a v3-style config file). Every Tailwind entry point loads them: token sync, lint, codegen and the tailwind-merge derivation, the canonicalization worker, the canvas compile, the class catalog and class inspection, MCP diagnostics and the HTML export.
+
+How a module loads (`src/utils/tailwind-module-loader.ts`, the `loadModule` Tailwind's `compile` takes), the way `@tailwindcss/node` (Tailwind's CLI and Vite plugin) loads it:
+
+- Resolved from the folder of the stylesheet that names it with `enhanced-resolve`: import conditions first, then require, `NODE_PATH` included, so a package resolves from the project's own `node_modules`.
+- Evaluated with `jiti`, so ESM, CommonJS and TypeScript (enums included) all load. Every load evaluates the files as they are now: jiti's module cache is off, and the module's files are dropped from Node's require cache first. Top-level `await` in a plugin is not supported. Node keeps the target a symlink resolved to for the life of the process, so pointing a symlinked CommonJS file a plugin requires at another file needs a restart (editing the target does not).
+- A module outside `node_modules` is scanned for the files it imports by relative path, with the same scan as `@tailwindcss/node`, each import resolved as the runtime loads it (Node's `require` resolution and jiti's: a folder's `index.json`, a package's `main`, TypeScript's `./x.js` for `x.ts`; both files when the two differ), transitively. The module and those files count as dependencies: the server's Tailwind caches stamp them, and the file watcher reports edits to them like stylesheet edits (`tailwind-source` events), so the canvas, the class catalog and lint pick up an edited plugin on the next request. A package under `node_modules` counts by its entry file only.
+- `@tailwindcss/node` itself is not a dependency: importing it loads lightningcss, a native binding, and its native `import()` would run through Vite's module runner in the dev server and the tests. `jiti` and `enhanced-resolve` (the versions `@tailwindcss/node` 4.3.3 uses) are bundled into their own `dist/tailwind-module-runtime.js`, loaded on the first module.
+
+A module that cannot be resolved, fails to evaluate, or throws when Tailwind runs it (its handler, a `plugin.withOptions` factory, a config's `plugins`) fails the load with an error naming the directive and the module:
+
+```text
+@plugin "@tailwindcss/forms": cannot find module "@tailwindcss/forms" from src; is it installed in the project?
+@plugin "./brand.js" (src/brand.js) threw: …
+```
+
+The HTTP routes answer `422` with `{ error, code: "TAILWIND_MODULE_NOT_FOUND" | "TAILWIND_MODULE_FAILED", directive, module }` (sync, compile, class catalog, inspection and merge); lint fails the run with `TAILWIND_UNAVAILABLE` ([Design System Lint](lint.md)).
+
+Reviews: a module file inside the project and outside any `node_modules` is the project's own, like its stylesheets: it is part of the stylesheet fingerprint (by path, after the stylesheets, hashed as written), so editing it, or a file it imports, asks for review. A third-party package under `node_modules` is not: it asks for review only when it changes what the project defines. The token-domain values a `@config` file, a preset or a plugin's config adds to the theme (`theme.extend.colors.brand`) are tokens of the system and part of what it defines; the rest of what plugins add to the theme (typography's `--typography-*`) is not.
+
+The canvas: in the default compiled render mode the server compiles the system's stylesheet, so plugin utilities (`prose`) render as they do in the app. When that compile fails (a missing or failing module), the canvas falls back to the bundled `@tailwindcss/browser` runtime for the session, which compiles only the stored theme, not the stylesheet: no plugin output and no custom utilities. A notice names the directive and the module. The browser render mode (`VITE_TAILWIND_RENDER_MODE=browser`) never compiles the system's stylesheet, so it renders no plugin output either.
+
 ## Token Sync
 
 When config loads, the React app creates a Tailwind sync controller. It syncs each configured system by calling:
@@ -129,7 +153,7 @@ Syncs and confirmations of one system run one at a time, in arrival order, from 
 - Theme entries (as above): added, changed (confirmed value → incoming value, and `@theme` options (`inline`, `reference`, `default`, `static`) when they changed) and removed. A project's own `@theme default` counts; Tailwind's does not. Entries outside the fixed domains (`--app-color`) are listed with the custom properties.
 - The `initial` resets, read from the CSS as postcss parses it (a commented-out reset is not one; a reset in a reset-only import is), as patterns.
 - Custom properties and custom utilities, a utility by its definition.
-- The changed stylesheets. When the fingerprint changed but no token-level change was found, the panel says so: "Theme stylesheets changed (files: …); no token-level change detected", and the user can still confirm.
+- The changed stylesheets. When the fingerprint changed but no token-level change was found, the panel says so: "Theme files changed (files: …); no token-level change detected", and the user can still confirm.
 
 Not part of it, Tailwind's reference values: `tailwindBaselineVersion`, the `defaultValue` of overridden and removed entries, which defaults exist (a default added or removed beneath an unchanged `--color-*: initial`), whether an authored value happens to equal a default, the baseline tokens the theme leaves alone, and the completion values and inferred domains of custom utilities. Overrides are not part of it either: a sync keeps the stored overrides, and only confirming a review changes them.
 

@@ -79,6 +79,15 @@ const cache = createCanonicalizeCache<
 				stylesheet: scanStylesheetFacts(loaded.cssSource),
 			},
 			cssSource: loaded.cssSource,
+			// A module is known by its files' paths and stamps: the same
+			// stylesheets with an edited plugin build a different system.
+			modulesKey: JSON.stringify(
+				loaded.modules.map((module) => [
+					module.directive,
+					module.id,
+					module.files.map((file) => [file, loaded.fileStamps.get(file)]),
+				]),
+			),
 			fileStamps: loaded.fileStamps,
 		};
 	},

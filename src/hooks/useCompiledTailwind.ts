@@ -15,6 +15,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { shallow, useSelector } from "@tanstack/react-store";
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useProjectScope } from "../components/contexts";
 import {
 	getComposableClassName,
@@ -27,6 +28,7 @@ import {
 	storedTailwindTokensQueryOptions,
 } from "../queries/tailwind-sync-tokens";
 import { type DesignEntity, designStore } from "../stores/design-store";
+import { HttpError } from "../utils/readJsonOrThrow";
 import { isCompiledTailwindMode } from "../utils/tailwind-render-mode";
 import { serializeTailwindThemeDomains } from "../utils/tailwind-theme-css";
 
@@ -144,6 +146,25 @@ function injectBrowserRuntimeFallback(doc: Document) {
 	doc.head.appendChild(script);
 }
 
+/**
+ * The server answers 422 when the system's stylesheet names a `@plugin` or
+ * `@config` module that is missing or fails; the message names both. The
+ * browser runtime the canvas falls back to compiles the stored theme only,
+ * never the stylesheet, so say what the canvas renders without. One notice
+ * per message, however many stages hit it.
+ */
+function notifyUnloadableModule(error: unknown) {
+	if (!(error instanceof HttpError) || error.status !== 422) {
+		return;
+	}
+	toast.warning(error.message, {
+		id: `tailwind-module:${error.message}`,
+		description:
+			"The canvas shows the system's theme without its stylesheet, plugins or utilities. Fix it, then reload the design.",
+		duration: 15_000,
+	});
+}
+
 export function useCompiledTailwind(
 	iframeRef: RefObject<HTMLIFrameElement | null>,
 	didMount: boolean,
@@ -247,6 +268,7 @@ export function useCompiledTailwind(
 					error,
 				);
 				fellBackRef.current = true;
+				notifyUnloadableModule(error);
 				if (!cancelled) {
 					injectBrowserRuntimeFallback(doc);
 					// The runtime compiles a beat later, but reveal now so a failed

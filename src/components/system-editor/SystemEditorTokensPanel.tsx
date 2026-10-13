@@ -877,7 +877,7 @@ function ReviewBanner({
 					<p className="text-[11px] text-amber-800">
 						{reviewChanges && changeCount === 0 && counts.stylesheets > 0 ? (
 							<>
-								Theme stylesheets changed (files:{" "}
+								Theme files changed (files:{" "}
 								{listChangedStylesheets(reviewChanges)}); no token-level change
 								detected.
 							</>
@@ -888,7 +888,7 @@ function ReviewBanner({
 								{formatRelativeTime(reviewChanges.confirmedAt)} (Tailwind{" "}
 								{reviewChanges.confirmedTailwindBaselineVersion}).
 								{counts.stylesheets > 0
-									? ` Theme stylesheets changed: ${listChangedStylesheets(reviewChanges)}.`
+									? ` Theme files changed: ${listChangedStylesheets(reviewChanges)}.`
 									: null}
 							</>
 						) : (
@@ -2684,7 +2684,7 @@ export function SystemEditorTokensPanel({
 		? listChangedStylesheets(reviewChanges)
 		: "";
 	const noReviewTokenChangesMessage = changedStylesheets
-		? `No token-level change detected. Theme stylesheets changed: ${changedStylesheets}.`
+		? `No token-level change detected. Theme files changed: ${changedStylesheets}.`
 		: "No token changes since the last review.";
 	const tokenDiff: TokenDiff = {
 		added: reviewCounts.added,

@@ -19,7 +19,7 @@ These docs are organized as a user guide first and implementation notes second. 
 
 ## Quick Safety Summary
 
-Trickroom writes project metadata under `.trickroom`, recent-project state, settings and agent feedback on the MCP tools under `~/.trickroom`, and no application source files, except the variants files (and, when configured, the derived tailwind-merge config) `trickroom codegen` writes to the `outDir` you configure. `trickroom lint` reads application sources and writes only `lint-report.json` under the system folder. MCP writes are gated by project config, design-file allowlists, component allowlists, and content-hash revisions. A `deleteElement` operation removes a subtree and cannot be undone by Trickroom itself.
+Trickroom writes project metadata under `.trickroom`, recent-project state, settings and agent feedback on the MCP tools under `~/.trickroom`, and no application source files, except the variants files (and, when configured, the derived tailwind-merge config) `trickroom codegen` writes to the `outDir` you configure. `trickroom lint` reads application sources and writes only `lint-report.json` under the system folder. Loading a system's stylesheet runs the `@plugin` and `@config` modules it names, as Tailwind's own CLI does. MCP writes are gated by project config, design-file allowlists, component allowlists, and content-hash revisions. A `deleteElement` operation removes a subtree and cannot be undone by Trickroom itself.
 
 ## Source Pointers
 

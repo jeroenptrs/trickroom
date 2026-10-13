@@ -209,6 +209,7 @@ Both list the discovery records, delete records whose process is gone (`process.
 - `pnpm build:codegen`: build `dist/codegen.js`, run by `trickroom codegen`.
 - `pnpm build:lint`: build `dist/lint.js`, run by `trickroom lint`.
 - `pnpm build:tailwind-worker`: build `dist/tailwind-canonicalize-worker.js`, the worker thread that canonicalizes Tailwind classes for the lint rules off the main thread.
+- `pnpm build:tailwind-modules`: build `dist/tailwind-module-runtime.js`, what every bundle loads Tailwind `@plugin` and `@config` modules with.
 
 The custom Vite SPA server plugin serves Hono routes during development and falls through to Vite for browser routes. Production uses `TRICKROOM_HTTP_PORT` and `TRICKROOM_HTTP_HOST` at runtime.
 
