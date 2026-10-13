@@ -5,6 +5,7 @@ import {
 	Check,
 	Download,
 	EyeOff,
+	Info,
 	RefreshCw,
 	X,
 } from "lucide-react";
@@ -38,6 +39,12 @@ import {
 	type TailwindTokenDomainDiffs,
 	type TailwindTokenEntry,
 } from "../../utils/tailwind-token-domains";
+import {
+	getStoredBaselineDiffs,
+	getTokenReviewCounts,
+	type TailwindTokenReviewChanges,
+	type TokenReviewCounts,
+} from "../../utils/tailwind-token-review";
 import { useTailwindSyncController } from "../contexts";
 import { formatRelativeTime, pluralize } from "../project/project-view-utils";
 import { SystemDiffChips } from "../project/SystemDiffChips";
@@ -57,13 +64,20 @@ import {
 	type TokenRowValue,
 } from "../project/SystemTokenRows";
 import { Alert } from "../ui/alert";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
+import { Segmented, type SegmentedOption } from "../ui/segmented";
 import { Text } from "../ui/text";
 
 type StoredTokenDomains = StoredTailwindTokensResponse["domains"];
 type TokenOverridesByDomain = Partial<Record<TailwindTokenDomain, string[]>>;
 type TokenGroupMode = "domain" | "status";
+/**
+ * What a review lists: the project's changes since the last confirmed review,
+ * or the whole theme against Tailwind's defaults.
+ */
+type TokenReviewView = "changes" | "baseline";
 type TokenChangeTone = "added" | "overridden" | "removed";
 type SyncedTokenStatus = "default" | "added" | "overridden";
 
@@ -81,6 +95,8 @@ type TokenChangeRow = {
 	tone: TokenChangeTone;
 	previousValue?: string;
 	incomingValue?: string;
+	/** Label of the previous value; defaults to the Tailwind baseline. */
+	previousLabel?: string;
 	summary: string;
 };
 
@@ -483,6 +499,52 @@ function buildTokenChangeRows({
 	]);
 }
 
+/**
+ * Review rows for the project's changes since the last confirmed review:
+ * the confirmed value against the incoming one.
+ */
+function buildReviewChangeRows(
+	changes: TailwindTokenReviewChanges,
+): TokenChangeRow[] {
+	const rows = (
+		entries: TailwindTokenReviewChanges["tokens"]["added"],
+		tone: TokenChangeTone,
+		summary: string,
+	): TokenChangeRow[] =>
+		entries.map((entry) => ({
+			key: `review:${tone}:${entry.domain}:${entry.name}`,
+			domain: entry.domain,
+			name: entry.name,
+			value: entry.value ?? entry.previousValue ?? "",
+			tone,
+			previousValue: entry.previousValue,
+			incomingValue: entry.value,
+			previousLabel: "CONFIRMED",
+			summary: entry.options
+				? `${formatThemeOptions(entry.previousOptions)} → ${formatThemeOptions(entry.options)}`
+				: summary,
+		}));
+
+	return sortTokenRowsByDomainAndValue([
+		...rows(changes.tokens.changed, "overridden", "Changed since last review"),
+		...rows(changes.tokens.added, "added", "New since last review"),
+		...rows(changes.tokens.removed, "removed", "Removed since last review"),
+	]);
+}
+
+/** `@theme inline reference`, or `@theme` without options. */
+function formatThemeOptions(options: readonly string[] | undefined): string {
+	return ["@theme", ...(options ?? [])].join(" ");
+}
+
+/** The changed project stylesheets, comma separated. */
+function listChangedStylesheets(changes: TailwindTokenReviewChanges): string {
+	const files = changes.stylesheets;
+	return files
+		? [...files.changed, ...files.added, ...files.removed].join(", ")
+		: "";
+}
+
 function SectionHeader({
 	index,
 	title,
@@ -533,6 +595,7 @@ function TokenMasthead({
 	tokenCount,
 	domainCount,
 	diff,
+	diffOverriddenLabel,
 	isSyncing,
 	onSync,
 	syncDisabled,
@@ -547,6 +610,7 @@ function TokenMasthead({
 	tokenCount: number;
 	domainCount: number;
 	diff: TokenDiff;
+	diffOverriddenLabel?: string;
 	isSyncing: boolean;
 	onSync: () => void;
 	syncDisabled: boolean;
@@ -578,6 +642,7 @@ function TokenMasthead({
 						<SystemDiffChips
 							added={diff.added}
 							overridden={diff.overridden}
+							overriddenLabel={diffOverriddenLabel}
 							removed={diff.removed}
 						/>
 					</div>
@@ -754,8 +819,17 @@ function TokenToolbar({
 	);
 }
 
+const tokenReviewViewOptions = [
+	{ value: "changes", label: "Since last review" },
+	{ value: "baseline", label: "Theme vs Tailwind" },
+] as const satisfies readonly SegmentedOption<TokenReviewView>[];
+
 function ReviewBanner({
-	diff,
+	counts,
+	reviewChanges,
+	baselineVersion,
+	view,
+	onViewChange,
 	saveError,
 	isSaving,
 	confirmDisabled,
@@ -763,7 +837,12 @@ function ReviewBanner({
 	onConfirm,
 	onDiscard,
 }: {
-	diff: TokenDiff;
+	counts: TokenReviewCounts;
+	/** `null` before the first confirmed review: the full diff is shown. */
+	reviewChanges: TailwindTokenReviewChanges | null;
+	baselineVersion: string | null;
+	view: TokenReviewView;
+	onViewChange: (view: TokenReviewView) => void;
 	saveError: string | null;
 	isSaving: boolean;
 	confirmDisabled: boolean;
@@ -771,7 +850,10 @@ function ReviewBanner({
 	onConfirm: () => void;
 	onDiscard: () => void;
 }) {
-	const changeCount = diff.added + diff.overridden + diff.removed;
+	const tailwindLabel = baselineVersion
+		? `Tailwind ${baselineVersion}`
+		: "Tailwind";
+	const changeCount = counts.total;
 
 	return (
 		<Card
@@ -783,18 +865,53 @@ function ReviewBanner({
 				<div className="flex min-w-0 flex-col gap-1">
 					<div className="flex flex-wrap items-center gap-2">
 						<Text variant="subtitle" className="text-amber-950">
-							Review token changes
+							{reviewChanges ? "Review token changes" : "First token review"}
 						</Text>
 						<SystemDiffChips
-							added={diff.added}
-							overridden={diff.overridden}
-							removed={diff.removed}
+							added={counts.added}
+							overridden={counts.changed}
+							overriddenLabel={counts.sinceLastReview ? "changed" : undefined}
+							removed={counts.removed}
 						/>
 					</div>
 					<p className="text-[11px] text-amber-800">
-						{changeCount.toLocaleString()} {pluralize(changeCount, "change")}{" "}
-						pending confirmation.
+						{reviewChanges && changeCount === 0 && counts.stylesheets > 0 ? (
+							<>
+								Theme stylesheets changed (files:{" "}
+								{listChangedStylesheets(reviewChanges)}); no token-level change
+								detected.
+							</>
+						) : reviewChanges ? (
+							<>
+								{changeCount.toLocaleString()}{" "}
+								{pluralize(changeCount, "change")} since the review confirmed{" "}
+								{formatRelativeTime(reviewChanges.confirmedAt)} (Tailwind{" "}
+								{reviewChanges.confirmedTailwindBaselineVersion}).
+								{counts.stylesheets > 0
+									? ` Theme stylesheets changed: ${listChangedStylesheets(reviewChanges)}.`
+									: null}
+							</>
+						) : (
+							<>
+								Nothing confirmed yet: the full theme diff against{" "}
+								{tailwindLabel} defaults, {changeCount.toLocaleString()}{" "}
+								{pluralize(changeCount, "entry", "entries")}.
+							</>
+						)}
 					</p>
+					{reviewChanges ? (
+						<Segmented
+							ariaLabel="Review view"
+							className="self-start whitespace-nowrap"
+							options={tokenReviewViewOptions}
+							value={view}
+							onChange={(next) => {
+								if (next) {
+									onViewChange(next);
+								}
+							}}
+						/>
+					) : null}
 					{saveError ? (
 						<Alert variant="inline" className="text-[11px]">
 							{saveError}
@@ -1818,9 +1935,12 @@ function TokenChangeCard({ row }: { row: TokenChangeRow }) {
 			</div>
 			<div className="grid min-w-0 grid-cols-2">
 				<TokenValuePreview
-					label={row.tone === "added" ? "PREVIOUS" : "BASELINE"}
+					label={
+						row.previousLabel ??
+						(row.tone === "added" ? "PREVIOUS" : "BASELINE")
+					}
 					value={row.previousValue}
-					emptyLabel="not stored"
+					emptyLabel={row.previousLabel ? "not defined" : "not stored"}
 				/>
 				<div className="border-l border-slate-100">
 					<TokenValuePreview
@@ -1836,11 +1956,13 @@ function TokenChangeCard({ row }: { row: TokenChangeRow }) {
 
 function ChangeSection({
 	tone,
+	label,
 	rows,
 	collapsed,
 	onToggle,
 }: {
 	tone: TokenChangeTone;
+	label?: string;
 	rows: readonly TokenChangeRow[];
 	collapsed?: boolean;
 	onToggle?: () => void;
@@ -1863,7 +1985,7 @@ function ChangeSection({
 			>
 				<span className={`size-2 ${config.dotClassName}`} aria-hidden="true" />
 				<Text variant="subtitle" className="text-[11px] text-slate-700">
-					{config.label}
+					{label ?? config.label}
 				</Text>
 				<span className="font-mono text-[10px] text-slate-400">
 					{rows.length.toLocaleString()}
@@ -1882,11 +2004,13 @@ function ChangeSection({
 
 function StatusGroupedChanges({
 	rows,
+	overriddenLabel,
 	isRemovedCollapsed,
 	onToggleRemoved,
 	emptyMessage,
 }: {
 	rows: readonly TokenChangeRow[];
+	overriddenLabel?: string;
 	isRemovedCollapsed: boolean;
 	onToggleRemoved: () => void;
 	emptyMessage: string;
@@ -1899,6 +2023,7 @@ function StatusGroupedChanges({
 		<div className="flex flex-col gap-4 px-10 py-6">
 			<ChangeSection
 				tone="overridden"
+				label={overriddenLabel}
 				rows={rows.filter((row) => row.tone === "overridden")}
 			/>
 			<ChangeSection
@@ -2058,6 +2183,115 @@ function SyncedStatusTokenBrowser({
 	);
 }
 
+const customChangeBadgeTone = {
+	added: "success",
+	overridden: "warning",
+	removed: "danger",
+} as const satisfies Record<TokenChangeTone, string>;
+
+/**
+ * The `initial` resets, custom properties and `@utility` roots that changed
+ * since the last confirmed review. They are not tokens, so they are listed
+ * apart from the token rows.
+ */
+function CustomReviewChanges({
+	changes,
+}: {
+	changes: TailwindTokenReviewChanges;
+}) {
+	const rows: Array<{
+		key: string;
+		tone: TokenChangeTone;
+		name: string;
+		detail?: string;
+	}> = [
+		...changes.resets.added.map((entry) => ({
+			key: `reset:added:${entry.pattern}`,
+			tone: "removed" as const,
+			name: `${entry.pattern}: initial`,
+			detail: "Tailwind defaults removed",
+		})),
+		...changes.resets.removed.map((entry) => ({
+			key: `reset:removed:${entry.pattern}`,
+			tone: "added" as const,
+			name: `${entry.pattern}: initial`,
+			detail: "reset dropped, Tailwind defaults restored",
+		})),
+		...changes.customProperties.changed.map((entry) => ({
+			key: `property:changed:${entry.name}`,
+			tone: "overridden" as const,
+			name: entry.name,
+			detail: entry.options
+				? `${entry.previousValue} → ${entry.value} (${formatThemeOptions(entry.previousOptions)} → ${formatThemeOptions(entry.options)})`
+				: `${entry.previousValue} → ${entry.value}`,
+		})),
+		...changes.customProperties.added.map((entry) => ({
+			key: `property:added:${entry.name}`,
+			tone: "added" as const,
+			name: entry.name,
+			detail: entry.value,
+		})),
+		...changes.customProperties.removed.map((entry) => ({
+			key: `property:removed:${entry.name}`,
+			tone: "removed" as const,
+			name: entry.name,
+			detail: entry.previousValue,
+		})),
+		...changes.customUtilities.changed.map((root) => ({
+			key: `utility:changed:${root}`,
+			tone: "overridden" as const,
+			name: `@utility ${root}`,
+		})),
+		...changes.customUtilities.added.map((root) => ({
+			key: `utility:added:${root}`,
+			tone: "added" as const,
+			name: `@utility ${root}`,
+		})),
+		...changes.customUtilities.removed.map((root) => ({
+			key: `utility:removed:${root}`,
+			tone: "removed" as const,
+			name: `@utility ${root}`,
+		})),
+	];
+
+	if (rows.length === 0) {
+		return null;
+	}
+
+	return (
+		<section className="flex flex-col gap-2 border-t border-slate-200 px-10 py-6">
+			<Text variant="subtitle" className="text-slate-900">
+				Resets, custom properties and utilities
+			</Text>
+			<div className="flex flex-col gap-1">
+				{rows.map((row) => {
+					const config = tokenChangeToneConfig[row.tone];
+					return (
+						<div
+							key={row.key}
+							className="flex min-w-0 items-center gap-3 font-mono text-xs"
+						>
+							<Badge
+								tone={customChangeBadgeTone[row.tone]}
+								edge="stamped"
+								className="shrink-0"
+							>
+								{config.tag}
+							</Badge>
+							<span className="shrink-0 text-slate-900">{row.name}</span>
+							{row.detail ? (
+								<span className="min-w-0 truncate text-slate-500">
+									{row.detail}
+								</span>
+							) : null}
+						</div>
+					);
+				})}
+			</div>
+		</section>
+	);
+}
+
 /**
  * Read-only review of the custom `@utility` definitions and the CSS variables
  * they consume — the data that lives outside the fixed token domains
@@ -2211,9 +2445,17 @@ export function SystemEditorTokensPanel({
 	const target = syncController.targetsById[systemId];
 	const data = result.data;
 	const storedDomains = storedTokensQuery.data?.domains;
-	const reviewRequired = Boolean(
-		data?.reviewRequired || storedTokensQuery.data?.reviewRequired,
-	);
+	// The latest sync response wins over the stored snapshot, which the sync
+	// controller refreshes after each sync.
+	const reviewRequired =
+		data?.reviewRequired ?? storedTokensQuery.data?.reviewRequired ?? false;
+	// `null` before the first confirmed review: the review then falls back to
+	// the full theme diff against Tailwind.
+	const reviewChanges =
+		(data ? data.reviewChanges : storedTokensQuery.data?.reviewChanges) ?? null;
+	const [reviewView, setReviewView] = useState<TokenReviewView>("changes");
+	const showingReviewChanges =
+		reviewRequired && reviewChanges !== null && reviewView === "changes";
 	const [groupMode, setGroupMode] = useState<TokenGroupMode>(() =>
 		reviewRequired ? "status" : "domain",
 	);
@@ -2231,6 +2473,7 @@ export function SystemEditorTokensPanel({
 			return;
 		}
 		setGroupMode(reviewRequired ? "status" : "domain");
+		setReviewView("changes");
 		setTokenFilter("");
 		setActiveTokenDomains([]);
 		setHideDefaultTokens(false);
@@ -2400,7 +2643,7 @@ export function SystemEditorTokensPanel({
 			}),
 		[activeTokenDomains, availableTokenSections],
 	);
-	const changeRows = useMemo(
+	const baselineChangeRows = useMemo(
 		() =>
 			buildTokenChangeRows({
 				addedTokens,
@@ -2409,6 +2652,13 @@ export function SystemEditorTokensPanel({
 			}),
 		[addedTokens, overriddenTokens, removedTokens],
 	);
+	const reviewChangeRows = useMemo(
+		() => (reviewChanges ? buildReviewChangeRows(reviewChanges) : []),
+		[reviewChanges],
+	);
+	const changeRows = showingReviewChanges
+		? reviewChangeRows
+		: baselineChangeRows;
 	const filteredChangeRows = useMemo(
 		() =>
 			filterTokenRows(changeRows, {
@@ -2417,14 +2667,30 @@ export function SystemEditorTokensPanel({
 			}),
 		[activeTokenDomains, changeRows, tokenFilter],
 	);
-	const tokenDiff = useMemo<TokenDiff>(
-		() => ({
-			added: addedTokens.length,
-			overridden: overriddenTokens.length,
-			removed: removedTokens.length,
-		}),
-		[addedTokens.length, overriddenTokens.length, removedTokens.length],
+	// A review counts the changes since the last confirmed one; a first
+	// review, the full theme diff against Tailwind.
+	const reviewCounts = useMemo(
+		() =>
+			getTokenReviewCounts({
+				reviewChanges,
+				baselineDiffs:
+					data?.baselineDiffs ?? getStoredBaselineDiffs(storedDomains),
+			}),
+		[data?.baselineDiffs, reviewChanges, storedDomains],
 	);
+	// The stylesheets gate the review; when no token changed, say which
+	// stylesheets did, so the user still knows what they confirm.
+	const changedStylesheets = reviewChanges
+		? listChangedStylesheets(reviewChanges)
+		: "";
+	const noReviewTokenChangesMessage = changedStylesheets
+		? `No token-level change detected. Theme stylesheets changed: ${changedStylesheets}.`
+		: "No token changes since the last review.";
+	const tokenDiff: TokenDiff = {
+		added: reviewCounts.added,
+		overridden: reviewCounts.changed,
+		removed: reviewCounts.removed,
+	};
 	const totalTokenCount = syncedTokens.length;
 	const domainCount = allTokenSections.length;
 	const showingSyncedRows = !reviewRequired;
@@ -2614,14 +2880,32 @@ export function SystemEditorTokensPanel({
 				diff={
 					reviewRequired ? tokenDiff : { added: 0, overridden: 0, removed: 0 }
 				}
+				diffOverriddenLabel={reviewChanges ? "changed" : undefined}
 				isSyncing={isSyncing}
 				onSync={handleSync}
 				syncDisabled={isSyncing}
 				canExport={hasStoredSnapshot}
 			/>
+			{data?.changes === "tailwind" ? (
+				<div
+					role="status"
+					className="flex items-center gap-1.5 border-b border-slate-200 bg-cyan-50 px-10 py-2 text-xs text-cyan-900"
+				>
+					<Info
+						className="size-3.5 shrink-0 text-cyan-700"
+						aria-hidden="true"
+					/>
+					Tailwind defaults updated to {data.tailwindBaselineVersion}; your
+					tokens are unchanged.
+				</div>
+			) : null}
 			{reviewRequired ? (
 				<ReviewBanner
-					diff={tokenDiff}
+					counts={reviewCounts}
+					reviewChanges={reviewChanges}
+					baselineVersion={baselineVersion}
+					view={reviewView}
+					onViewChange={setReviewView}
 					saveError={saveError}
 					isSaving={saveMutation.isPending}
 					confirmDisabled={confirmReviewDisabled}
@@ -2685,24 +2969,32 @@ export function SystemEditorTokensPanel({
 					) : groupMode === "domain" ? (
 						<DomainGroupedChanges
 							rows={filteredChangeRows}
-							emptyMessage="No token changes match the current filters."
+							emptyMessage={
+								showingReviewChanges && reviewChangeRows.length === 0
+									? noReviewTokenChangesMessage
+									: "No token changes match the current filters."
+							}
 						/>
 					) : reviewRequired ? (
 						<StatusGroupedChanges
 							rows={filteredChangeRows}
+							overriddenLabel={showingReviewChanges ? "Changed" : undefined}
 							isRemovedCollapsed={isRemovedCollapsed}
 							onToggleRemoved={() =>
 								setIsRemovedCollapsed((collapsed) => !collapsed)
 							}
 							emptyMessage={
-								reviewRequired
-									? "No token changes match the current filters."
-									: "No token status records match the current filters."
+								showingReviewChanges && reviewChangeRows.length === 0
+									? noReviewTokenChangesMessage
+									: "No token changes match the current filters."
 							}
 						/>
 					) : (
 						<SyncedStatusTokenBrowser tokens={filteredSyncedTokens} />
 					)}
+					{showingReviewChanges && reviewChanges ? (
+						<CustomReviewChanges changes={reviewChanges} />
+					) : null}
 					<CustomUtilitiesSection
 						customProperties={storedTokensQuery.data?.customProperties}
 						customUtilities={storedTokensQuery.data?.customUtilities}

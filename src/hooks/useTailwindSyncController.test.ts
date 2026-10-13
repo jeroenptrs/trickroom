@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,7 +14,8 @@ import {
 	useTailwindSyncController,
 } from "./useTailwindSyncController";
 
-vi.mock("../queries/tailwind-sync-tokens", () => ({
+vi.mock("../queries/tailwind-sync-tokens", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../queries/tailwind-sync-tokens")>()),
 	syncTailwindTokens: vi.fn(),
 }));
 
@@ -151,6 +153,7 @@ async function mountController(
 	projectScope?: string,
 ) {
 	const snapshots: TailwindSyncController[] = [];
+	const queryClient = new QueryClient();
 	let currentController: TailwindSyncController | undefined;
 	let currentConfig = config;
 	let currentProjectScope = projectScope;
@@ -180,10 +183,14 @@ async function mountController(
 		currentProjectScope = nextProjectScope;
 		await act(async () => {
 			root.render(
-				React.createElement(TestComponent, {
-					config: currentConfig,
-					projectScope: currentProjectScope,
-				}),
+				React.createElement(
+					QueryClientProvider,
+					{ client: queryClient },
+					React.createElement(TestComponent, {
+						config: currentConfig,
+						projectScope: currentProjectScope,
+					}),
+				),
 			);
 		});
 	};
@@ -199,6 +206,7 @@ async function mountController(
 		},
 		rerender,
 		snapshots,
+		queryClient,
 	};
 }
 
@@ -540,6 +548,26 @@ describe("useTailwindSyncController", () => {
 
 		expect(mounted.controller.statusBySystem.Core).toBe("updated");
 		expect(mounted.controller.results.Core.status).toBe("updated");
+	});
+
+	it("refreshes the stored token snapshot of a system after syncing it", async () => {
+		syncTailwindTokensMock.mockResolvedValue(
+			syncResponse("Core", "src/core.css", { status: "updated" }),
+		);
+
+		const mounted = await mountController(
+			{ name: "Demo", systems: { Core: "src/core.css" } },
+			undefined,
+			"site-location",
+		);
+		const invalidate = vi.spyOn(mounted.queryClient, "invalidateQueries");
+		await act(async () => {
+			await mounted.controller.syncSystem("Core");
+		});
+
+		expect(invalidate).toHaveBeenCalledWith({
+			queryKey: ["trickroom-tailwind-tokens", "Core"],
+		});
 	});
 
 	it("threads reviewRequired through result.data without coupling it to the controller status", async () => {

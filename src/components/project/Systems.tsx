@@ -3,6 +3,7 @@ import { FilePlus2, Palette, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import type { TailwindSyncResult } from "../../hooks/useTailwindSyncController";
+import { getTokenReviewCounts } from "../../utils/tailwind-token-review";
 import { useTailwindSyncController } from "../contexts";
 import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
@@ -58,16 +59,35 @@ export function getSystemMetadata(
 	const prefix = cssBasename ? `${cssBasename} · ` : "";
 	const baselineDiff = system.data?.baselineDiff;
 
+	// A review counts what the tokens panel counts: the changes since the
+	// last confirmed review, or before the first one the theme's diff.
+	if (system.data?.reviewRequired) {
+		const counts = getTokenReviewCounts({
+			reviewChanges: system.data.reviewChanges,
+			baselineDiffs: system.data.baselineDiffs ?? { color: baselineDiff },
+		});
+		const stylesheets = `${counts.stylesheets} ${pluralize(counts.stylesheets, "stylesheet")} changed`;
+		if (
+			counts.sinceLastReview &&
+			counts.total === 0 &&
+			counts.stylesheets > 0
+		) {
+			return `${stylesheets} since last review`;
+		}
+		const label = `+${counts.added} ~${counts.changed} -${counts.removed}`;
+		if (!counts.sinceLastReview) {
+			return label;
+		}
+		return counts.stylesheets > 0
+			? `${label} · ${stylesheets} since last review`
+			: `${label} since last review`;
+	}
+
 	if (baselineDiff) {
 		const added = baselineDiff.added.length;
 		const removed = baselineDiff.removed.length;
-		const diffLabel = `+${added} / -${removed}`;
 
-		return system.data?.reviewRequired ? diffLabel : `${prefix}${diffLabel}`;
-	}
-
-	if (system.data?.reviewRequired) {
-		return "+0 / -0";
+		return `${prefix}+${added} / -${removed}`;
 	}
 
 	const tokenCount = system.data?.tokens?.length;

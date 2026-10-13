@@ -1,11 +1,15 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultTailwindColorTokens } from "./default-tailwind-tokens";
 import type { TailwindColorTokenBaselineDiff } from "./tailwind-color-tokens";
+import { areProjectTokenDefinitionsEquivalent } from "./tailwind-token-review";
 import {
 	areTokenStoragesEquivalent,
+	createConfirmedTokenState,
+	getProjectTokenDefinition,
 	normalizeCssPath,
 	normalizeTokenStorageForComparison,
 	readDomainTokens,
@@ -120,6 +124,7 @@ describe("tailwind-token-store", () => {
 
 			expect(read).toMatchObject({
 				version: 3,
+				confirmed: null,
 				customProperties: {},
 				customUtilities: [],
 				metadata: {
@@ -635,6 +640,420 @@ describe("tailwind-token-store", () => {
 		});
 	});
 
+	describe("confirmed state of v3 snapshots written before it", () => {
+		const writeV3Snapshot = async (reviewRequired: boolean) => {
+			const snapshotPath = resolveTokenSnapshotPath(testDir, "core");
+			await mkdir(path.dirname(snapshotPath), { recursive: true });
+			await writeFile(
+				snapshotPath,
+				JSON.stringify({
+					version: 3,
+					metadata: {
+						cssPath: "src/theme.css",
+						syncedAt: "2026-06-02T16:33:49.228Z",
+						tailwindBaselineVersion: "4.2.4",
+						reviewRequired,
+					},
+					customProperties: { "--db-interaction-sm": "0.875rem" },
+					customUtilities: [
+						{
+							root: "text-interaction",
+							kind: "functional",
+							consumedNamespaces: ["--db-interaction"],
+							completionValues: ["sm"],
+							domains: ["typography"],
+						},
+					],
+					domains: {
+						color: {
+							tokens: { "brand-500": "#123456" },
+							overrides: ["--color-*"],
+							baselineDiff: {
+								added: [
+									{ name: "brand-500", value: "#123456", domain: "color" },
+								],
+								overridden: [],
+								removed: [
+									{
+										name: "neutral-100",
+										defaultValue: "oklch(97% 0 0)",
+										domain: "color",
+									},
+								],
+							},
+						},
+					},
+				}),
+				"utf8",
+			);
+			return snapshotPath;
+		};
+
+		it("derives the confirmed state of a confirmed snapshot from its own definition", async () => {
+			const snapshotPath = await writeV3Snapshot(false);
+
+			const read = await readDomainTokens(testDir, "core");
+
+			expect(read?.version).toBe(3);
+			expect(read?.confirmed).toEqual({
+				confirmedAt: "2026-06-02T16:33:49.228Z",
+				tailwindBaselineVersion: "4.2.4",
+				domains: {
+					color: {
+						tokens: { "brand-500": "#123456" },
+						removed: ["neutral-100"],
+					},
+				},
+				customProperties: { "--db-interaction-sm": "0.875rem" },
+				customUtilities: [
+					{
+						root: "text-interaction",
+						kind: "functional",
+						consumedNamespaces: ["--db-interaction"],
+						completionValues: ["sm"],
+						domains: ["typography"],
+					},
+				],
+			});
+			const persisted = JSON.parse(await readFile(snapshotPath, "utf8"));
+			expect(persisted.version).toBe(3);
+			expect(persisted.confirmed).toEqual(read?.confirmed);
+		});
+
+		it("gives a snapshot pending review without a confirmed state none", async () => {
+			await writeV3Snapshot(true);
+
+			const read = await readDomainTokens(testDir, "core");
+
+			expect(read?.version).toBe(3);
+			expect(read?.metadata.reviewRequired).toBe(true);
+			expect(read?.confirmed).toBeNull();
+		});
+
+		it("stores an explicit confirmed state and reads it back normalized", async () => {
+			await storeDomainTokens({
+				projectRoot: testDir,
+				systemName: "core",
+				tokens: { "brand-500": "#654321" },
+				tailwindBaselineVersion: "4.3.3",
+				cssPath: "src/theme.css",
+				baselineDiff: {
+					added: [{ name: "brand-500", value: "#654321", domain: "color" }],
+					overridden: [],
+					removed: [],
+				},
+				reviewRequired: true,
+				confirmed: {
+					confirmedAt: "2026-06-02T16:33:49.228Z",
+					tailwindBaselineVersion: "4.2.4",
+					domains: {
+						color: { tokens: { "brand-500": "#123456" }, removed: [] },
+						spacing: { tokens: {}, removed: [] },
+					},
+					customProperties: {},
+					customUtilities: [],
+				},
+			});
+
+			const read = await readDomainTokens(testDir, "core");
+
+			expect(read?.confirmed).toEqual({
+				confirmedAt: "2026-06-02T16:33:49.228Z",
+				tailwindBaselineVersion: "4.2.4",
+				domains: {
+					color: { tokens: { "brand-500": "#123456" }, removed: [] },
+				},
+				customProperties: {},
+				customUtilities: [],
+			});
+		});
+
+		it("ignores a malformed confirmed state and derives it", async () => {
+			const snapshotPath = resolveTokenSnapshotPath(testDir, "core");
+			await mkdir(path.dirname(snapshotPath), { recursive: true });
+			await writeFile(
+				snapshotPath,
+				JSON.stringify({
+					version: 3,
+					metadata: {
+						cssPath: "src/theme.css",
+						syncedAt: "2026-06-02T16:33:49.228Z",
+						tailwindBaselineVersion: "4.3.3",
+						reviewRequired: false,
+					},
+					customProperties: {},
+					customUtilities: [],
+					domains: {
+						color: {
+							tokens: {},
+							overrides: [],
+							baselineDiff: { added: [], overridden: [], removed: [] },
+						},
+					},
+					confirmed: { confirmedAt: "2026-06-02T16:33:49.228Z" },
+				}),
+				"utf8",
+			);
+
+			const read = await readDomainTokens(testDir, "core");
+			expect(read?.confirmed).toMatchObject({
+				confirmedAt: "2026-06-02T16:33:49.228Z",
+				domains: {},
+			});
+		});
+
+		it("round-trips the authored theme and utility definitions", async () => {
+			await storeDomainTokens({
+				projectRoot: testDir,
+				systemName: "core",
+				tokens: {},
+				tailwindBaselineVersion: "4.3.3",
+				cssPath: "src/theme.css",
+				baselineDiff: { added: [], overridden: [], removed: [] },
+				reviewRequired: false,
+				customUtilities: [
+					{
+						root: "bg-app",
+						kind: "static",
+						consumedNamespaces: [],
+						completionValues: [],
+						domains: ["color"],
+						definition: "@utility bg-app { background-color: #123456; }",
+					},
+				],
+				authored: {
+					domains: {
+						color: {
+							tokens: { "brand-500": "#123456" },
+							resets: ["--color-*"],
+						},
+						spacing: { tokens: {}, resets: [] },
+					},
+				},
+			});
+
+			const read = await readDomainTokens(testDir, "core");
+
+			expect(read?.version).toBe(3);
+			expect(read?.authored).toEqual({
+				domains: {
+					color: { tokens: { "brand-500": "#123456" }, resets: ["--color-*"] },
+				},
+			});
+			expect(read?.customUtilities[0]?.definition).toBe(
+				"@utility bg-app { background-color: #123456; }",
+			);
+			expect(read?.confirmed?.authored).toEqual(read?.authored);
+			expect(read?.confirmed?.customUtilities[0]?.definition).toBe(
+				"@utility bg-app { background-color: #123456; }",
+			);
+		});
+
+		describe("project token definition", () => {
+			const createStorage = ({
+				tailwindBaselineVersion = "4.2.4",
+				neutralDefault = "oklch(97% 0 0)",
+				brandValue = "#123456",
+				removed = ["neutral-100"],
+				customProperties = {},
+			}: {
+				tailwindBaselineVersion?: string;
+				neutralDefault?: string;
+				brandValue?: string;
+				removed?: string[];
+				customProperties?: Record<string, string>;
+			} = {}): TailwindTokenStorage =>
+				({
+					version: 3,
+					metadata: {
+						cssPath: "src/theme.css",
+						syncedAt: "2026-06-02T16:33:49.228Z",
+						tailwindBaselineVersion,
+						reviewRequired: false,
+					},
+					domains: {
+						color: {
+							tokens: { "brand-500": brandValue },
+							overrides: [],
+							baselineDiff: {
+								added: [
+									{ name: "brand-500", value: brandValue, domain: "color" },
+								],
+								overridden: [],
+								removed: removed.map((name) => ({
+									name,
+									defaultValue: neutralDefault,
+									domain: "color",
+								})),
+							},
+						},
+					},
+					customProperties,
+					customUtilities: [],
+					confirmed: null,
+				}) as unknown as TailwindTokenStorage;
+
+			const equivalent = (
+				left: TailwindTokenStorage,
+				right: TailwindTokenStorage,
+			) =>
+				areProjectTokenDefinitionsEquivalent(
+					getProjectTokenDefinition(left),
+					getProjectTokenDefinition(right),
+				);
+
+			it("ignores the Tailwind baseline version and default values", () => {
+				expect(
+					equivalent(
+						createStorage(),
+						createStorage({
+							tailwindBaselineVersion: "4.3.3",
+							neutralDefault: "oklch(97% 0 none)",
+						}),
+					),
+				).toBe(true);
+			});
+
+			it("ignores whitespace and hex case in values", () => {
+				expect(
+					equivalent(
+						createStorage({ brandValue: "#ABCDEF" }),
+						createStorage({ brandValue: " #abcdef " }),
+					),
+				).toBe(true);
+			});
+
+			it("changes with a token value, the removed set or a custom property", () => {
+				const base = createStorage();
+				expect(equivalent(base, createStorage({ brandValue: "#654321" }))).toBe(
+					false,
+				);
+				expect(
+					equivalent(
+						base,
+						createStorage({ removed: ["neutral-100", "red-500"] }),
+					),
+				).toBe(false);
+				expect(
+					equivalent(
+						base,
+						createStorage({ customProperties: { "--db-x": "1rem" } }),
+					),
+				).toBe(false);
+			});
+
+			it("confirms the definition with the snapshot's baseline version", () => {
+				expect(
+					createConfirmedTokenState(
+						createStorage({ tailwindBaselineVersion: "4.3.3" }),
+						"2026-10-13T00:00:00.000Z",
+					),
+				).toEqual({
+					confirmedAt: "2026-10-13T00:00:00.000Z",
+					tailwindBaselineVersion: "4.3.3",
+					domains: {
+						color: {
+							tokens: { "brand-500": "#123456" },
+							removed: ["neutral-100"],
+						},
+					},
+					customProperties: {},
+					customUtilities: [],
+				});
+			});
+		});
+	});
+
+	describe("compatibility with an older Trickroom", () => {
+		// The store as released before `authored`, `confirmed` and utility
+		// definitions existed. Loaded from git next to this file, so its
+		// relative imports resolve.
+		const OLD_READER_COMMIT = "b8d6635";
+		const oldReaderSource = (() => {
+			try {
+				return execFileSync(
+					"git",
+					["show", `${OLD_READER_COMMIT}:src/utils/tailwind-token-store.ts`],
+					{
+						cwd: __dirname,
+						encoding: "utf8",
+						stdio: ["ignore", "pipe", "ignore"],
+					},
+				);
+			} catch {
+				return null;
+			}
+		})();
+
+		it.skipIf(oldReaderSource === null)(
+			"an older reader recognizes a new snapshot, and the new reader re-derives what it drops",
+			async () => {
+				const oldReaderPath = path.join(
+					__dirname,
+					`.tmp-old-tailwind-token-store-${process.pid}.ts`,
+				);
+				await writeFile(oldReaderPath, oldReaderSource ?? "", "utf8");
+				try {
+					await storeDomainTokens({
+						projectRoot: testDir,
+						systemName: "core",
+						tokens: { "brand-500": "#123456" },
+						tailwindBaselineVersion: "4.3.3",
+						cssPath: "src/theme.css",
+						baselineDiff: {
+							added: [{ name: "brand-500", value: "#123456", domain: "color" }],
+							overridden: [],
+							removed: [],
+						},
+						reviewRequired: false,
+						customUtilities: [
+							{
+								root: "bg-app",
+								kind: "static",
+								consumedNamespaces: [],
+								completionValues: [],
+								domains: ["color"],
+								definition: "@utility bg-app { background-color: #123456; }",
+							},
+						],
+						authored: {
+							domains: {
+								color: { tokens: { "brand-500": "#123456" }, resets: [] },
+							},
+						},
+					});
+					const oldReader = (await import(
+						/* @vite-ignore */ oldReaderPath
+					)) as typeof import("./tailwind-token-store");
+
+					const readByOld = await oldReader.readDomainTokens(testDir, "core");
+
+					// Recognized, not treated as missing (which would re-sync it
+					// from scratch and require a full review).
+					expect(readByOld?.version).toBe(3);
+					expect(readByOld?.domains.color.tokens).toEqual({
+						"brand-500": "#123456",
+					});
+					expect(readByOld?.metadata.reviewRequired).toBe(false);
+					// Its canonicalizer drops the fields it does not know.
+					const rewritten = JSON.parse(
+						await readFile(resolveTokenSnapshotPath(testDir, "core"), "utf8"),
+					);
+					expect(rewritten).not.toHaveProperty("confirmed");
+					expect(rewritten).not.toHaveProperty("authored");
+
+					const readByNew = await readDomainTokens(testDir, "core");
+					expect(readByNew?.confirmed).toMatchObject({
+						domains: { color: { tokens: { "brand-500": "#123456" } } },
+					});
+					expect(readByNew?.authored).toBeUndefined();
+				} finally {
+					await rm(oldReaderPath, { force: true });
+				}
+			},
+		);
+	});
+
 	describe("canonical comparison helpers", () => {
 		const createStorage = (
 			overrides: string[],
@@ -656,6 +1075,7 @@ describe("tailwind-token-store", () => {
 				},
 				customProperties: {},
 				customUtilities: [],
+				confirmed: null,
 			}) as TailwindTokenStorage;
 
 		it("ignores overrides, syncedAt, and reviewRequired", () => {

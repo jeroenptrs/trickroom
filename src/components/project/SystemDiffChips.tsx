@@ -10,14 +10,21 @@ export function SystemDiffChips({
 	added,
 	overridden,
 	removed,
+	overriddenLabel,
 }: {
 	added: number;
 	overridden: number;
 	removed: number;
+	/** "changed" when the counts are changes since the last review. */
+	overriddenLabel?: string;
 }) {
 	const counts = { added, overridden, removed };
 	const visibleChips = CHIPS.map((chip) => ({
 		...chip,
+		label:
+			chip.key === "overridden" && overriddenLabel
+				? overriddenLabel
+				: chip.label,
 		count: counts[chip.key],
 	})).filter((chip) => chip.count > 0);
 

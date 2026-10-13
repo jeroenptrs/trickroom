@@ -1,4 +1,12 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -624,6 +632,8 @@ describe("tailwind sync endpoint validation", () => {
 				overridden: [],
 				removed: [],
 			},
+			authored: initialStored?.authored,
+			stylesheets: initialStored?.stylesheets,
 			reviewRequired: false,
 			syncedAt: previousSyncedAt,
 		});
@@ -940,7 +950,7 @@ describe("tailwind GET /systems/:systemName/tokens", () => {
 		expect(json).not.toHaveProperty("overrides");
 	});
 
-	it("canonicalizes stale stored tokens before returning them", async () => {
+	it("returns stale stored tokens canonicalized, leaving the file to the next sync", async () => {
 		const { resolveTokenSnapshotPath } = await import(
 			"../utils/tailwind-token-store"
 		);
@@ -993,9 +1003,13 @@ describe("tailwind GET /systems/:systemName/tokens", () => {
 		expect(response.status).toBe(200);
 		const json = await response.json();
 		expect(json.domains.color.tokens).toEqual({ "brand-500": "#123456" });
+		// Reads do not write: only syncs and confirmations, one at a time.
 		expect(
 			JSON.parse(await readFile(snapshotPath, "utf8")).domains.color.tokens,
-		).toEqual({ "brand-500": "#123456" });
+		).toEqual({
+			"brand-500": "#123456",
+			"blue-500": defaultTailwindColorTokens["blue-500"],
+		});
 	});
 });
 
@@ -1450,5 +1464,1310 @@ describe("tailwind POST /systems/:systemName/tokens", () => {
 		});
 
 		expect(response.status).toBe(400);
+	});
+});
+
+describe("tailwind sync reviews only the project's own changes", () => {
+	let tempProjectRoot: string;
+	let previousProjectDirOverride: string | undefined;
+	let cssPath: string;
+
+	const themeCss = (extra: string[] = []) =>
+		[
+			'@import "tailwindcss";',
+			"@theme {",
+			"  --color-*: initial;",
+			"  --color-brand-500: #123456;",
+			"  --color-blue-500: #0011ff;",
+			...extra,
+			"}",
+			"",
+		].join("\n");
+
+	beforeEach(async () => {
+		tempProjectRoot = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-tailwind-review-test-"),
+		);
+		previousProjectDirOverride = process.env.TRICKROOM_PROJECT_DIR;
+		process.env.TRICKROOM_PROJECT_DIR = tempProjectRoot;
+		vi.resetModules();
+		await writeFile(
+			path.join(tempProjectRoot, "trickroom.config.json"),
+			JSON.stringify({
+				name: "Test Project",
+				systems: { Core: "src/core.css" },
+			}),
+			"utf8",
+		);
+		cssPath = path.join(tempProjectRoot, "src", "core.css");
+		await mkdir(path.dirname(cssPath), { recursive: true });
+		await writeFile(cssPath, themeCss(), "utf8");
+	});
+
+	afterEach(async () => {
+		if (previousProjectDirOverride === undefined) {
+			delete process.env.TRICKROOM_PROJECT_DIR;
+		} else {
+			process.env.TRICKROOM_PROJECT_DIR = previousProjectDirOverride;
+		}
+
+		await rm(tempProjectRoot, { force: true, recursive: true });
+	});
+
+	const setup = async () => {
+		const { default: app } = await import("../server");
+		const store = await import("../utils/tailwind-token-store");
+		const sync = async () => {
+			const response = await app.request(
+				"/api/trickroom/tailwind/sync-tokens",
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ systemName: "Core" }),
+				},
+			);
+			expect(response.status).toBe(200);
+			return response.json();
+		};
+		const confirm = async () => {
+			const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+			const response = await app.request(
+				"/api/trickroom/tailwind/systems/Core/tokens",
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						domains: { color: { overrides: stored?.domains.color.overrides } },
+					}),
+				},
+			);
+			expect(response.status).toBe(200);
+			return response.json();
+		};
+		const getStored = async () => {
+			const response = await app.request(
+				"/api/trickroom/tailwind/systems/Core/tokens",
+			);
+			expect(response.status).toBe(200);
+			return response.json();
+		};
+		/**
+		 * Rewrite the stored snapshot as an older Tailwind release would have
+		 * synced it: an older baseline version and other default values on the
+		 * removed and overridden entries. Optionally as a v3 file (no confirmed
+		 * state).
+		 */
+		const rewriteAsOlderTailwind = async ({
+			version = "4.2.4",
+			reviewRequired,
+			asV3 = false,
+			membership = false,
+		}: {
+			version?: string;
+			reviewRequired?: boolean;
+			/** As an older Trickroom wrote it: no confirmed or authored data. */
+			asV3?: boolean;
+			/**
+			 * Other default *names*: two defaults the theme's reset removes did
+			 * not exist yet, and one that no longer exists did.
+			 */
+			membership?: boolean;
+		}) => {
+			const snapshotPath = store.resolveTokenSnapshotPath(
+				tempProjectRoot,
+				"Core",
+			);
+			const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+			snapshot.metadata.tailwindBaselineVersion = version;
+			if (reviewRequired !== undefined) {
+				snapshot.metadata.reviewRequired = reviewRequired;
+			}
+			const color = snapshot.domains.color.baselineDiff;
+			for (const entry of [...color.removed, ...color.overridden].slice(
+				0,
+				14,
+			)) {
+				entry.defaultValue = `${entry.defaultValue} /* older */`;
+			}
+			if (membership) {
+				const dropped = { name: "retired-500", defaultValue: "#000" };
+				color.removed = [
+					...color.removed.slice(2),
+					{ ...dropped, domain: "color" },
+				];
+				if (snapshot.confirmed?.domains.color) {
+					snapshot.confirmed.domains.color.removed = [
+						...snapshot.confirmed.domains.color.removed.slice(2),
+						dropped.name,
+					];
+				}
+			}
+			if (asV3) {
+				delete snapshot.confirmed;
+				delete snapshot.authored;
+				delete snapshot.stylesheets;
+				for (const utility of snapshot.customUtilities) {
+					delete utility.definition;
+				}
+			}
+			await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8");
+		};
+
+		return { store, sync, confirm, getStored, rewriteAsOlderTailwind };
+	};
+
+	it("confirming a review records the confirmed project definition", async () => {
+		const { store, sync, confirm } = await setup();
+
+		const first = await sync();
+		expect(first.reviewRequired).toBe(true);
+		expect(first.changes).toBe("project");
+		expect(first.reviewChanges).toBeNull();
+
+		const confirmed = await confirm();
+		expect(confirmed.reviewRequired).toBe(false);
+		expect(confirmed.reviewChanges).toMatchObject({
+			tokens: { added: [], changed: [], removed: [] },
+		});
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(stored?.confirmed?.domains.color?.tokens).toEqual({
+			"blue-500": "#0011ff",
+			"brand-500": "#123456",
+		});
+	});
+
+	it("a Tailwind version-only change updates the snapshot without review", async () => {
+		const { store, sync, confirm } = await setup();
+		await sync();
+		await confirm();
+		const snapshotPath = store.resolveTokenSnapshotPath(
+			tempProjectRoot,
+			"Core",
+		);
+		const before = JSON.parse(await readFile(snapshotPath, "utf8"));
+		before.metadata.tailwindBaselineVersion = "4.2.4";
+		await writeFile(snapshotPath, JSON.stringify(before), "utf8");
+
+		const json = await sync();
+
+		expect(json.status).toBe("updated");
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+		expect(json.tailwindBaselineVersion).toBe(defaultTailwindTokensVersion);
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(stored?.metadata.tailwindBaselineVersion).toBe(
+			defaultTailwindTokensVersion,
+		);
+		expect(stored?.metadata.reviewRequired).toBe(false);
+	});
+
+	it("Tailwind default-value-only changes update the snapshot without review", async () => {
+		const { store, sync, confirm, rewriteAsOlderTailwind } = await setup();
+		await sync();
+		await confirm();
+		await rewriteAsOlderTailwind({ version: defaultTailwindTokensVersion });
+
+		const json = await sync();
+
+		expect(json.status).toBe("updated");
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(
+			stored?.domains.color.baselineDiff.removed.some((entry) =>
+				entry.defaultValue.includes("older"),
+			),
+		).toBe(false);
+	});
+
+	it("a Tailwind upgrade of a confirmed v3 snapshot needs no review", async () => {
+		const { store, sync, confirm, rewriteAsOlderTailwind } = await setup();
+		await sync();
+		await confirm();
+		await rewriteAsOlderTailwind({ reviewRequired: false, asV3: true });
+
+		const json = await sync();
+
+		expect(json.status).toBe("updated");
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(stored?.version).toBe(3);
+		expect(stored?.metadata.tailwindBaselineVersion).toBe(
+			defaultTailwindTokensVersion,
+		);
+		expect(stored?.confirmed?.tailwindBaselineVersion).toBe("4.2.4");
+	});
+
+	it("a Tailwind upgrade that adds and removes defaults beneath a reset needs no review", async () => {
+		const { store, sync, confirm, rewriteAsOlderTailwind } = await setup();
+		await sync();
+		await confirm();
+		await rewriteAsOlderTailwind({ membership: true });
+
+		const json = await sync();
+
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(
+			stored?.domains.color.baselineDiff.removed.some(
+				(entry) => entry.name === "retired-500",
+			),
+		).toBe(false);
+	});
+
+	it("an older Trickroom's snapshot with a default Tailwind since dropped needs no review", async () => {
+		const { sync, confirm, rewriteAsOlderTailwind, store } = await setup();
+		await sync();
+		await confirm();
+		// No authored theme to compare: the resolved tokens are compared, and
+		// a removed name that is no longer a default is not a project change.
+		await rewriteAsOlderTailwind({ asV3: true, reviewRequired: false });
+		const snapshotPath = store.resolveTokenSnapshotPath(
+			tempProjectRoot,
+			"Core",
+		);
+		const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+		snapshot.domains.color.baselineDiff.removed.push({
+			name: "retired-500",
+			defaultValue: "#000",
+			domain: "color",
+		});
+		await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8");
+
+		const json = await sync();
+
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+	});
+
+	it("an older Trickroom's first sync across an upgrade that adds defaults beneath a reset asks once (accepted limit)", async () => {
+		const { sync, confirm, rewriteAsOlderTailwind } = await setup();
+		await sync();
+		await confirm();
+		// No authored data or fingerprint to go by: the resolved tokens are
+		// compared, and the defaults that did not exist yet count as removed
+		// by the project.
+		await rewriteAsOlderTailwind({
+			asV3: true,
+			membership: true,
+			reviewRequired: false,
+		});
+
+		const first = await sync();
+		expect(first.reviewRequired).toBe(true);
+
+		// Confirmed once, the fingerprint gates: the next upgrade asks nothing.
+		await confirm();
+		await rewriteAsOlderTailwind({ membership: true });
+		const next = await sync();
+		expect(next.changes).toBe("tailwind");
+		expect(next.reviewRequired).toBe(false);
+	});
+
+	it("a real token change requires review and reports only the delta", async () => {
+		const { sync, confirm, getStored, rewriteAsOlderTailwind } = await setup();
+		await sync();
+		await confirm();
+		// A Tailwind upgrade and a project change in the same sync.
+		await rewriteAsOlderTailwind({});
+		await writeFile(
+			cssPath,
+			themeCss(["  --color-brand-100: #abcdef;"]).replace(
+				"--color-brand-500: #123456",
+				"--color-brand-500: #654321",
+			),
+			"utf8",
+		);
+
+		const json = await sync();
+
+		expect(json.status).toBe("updated");
+		expect(json.changes).toBe("project");
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.tokens).toEqual({
+			added: [{ domain: "color", name: "brand-100", value: "#abcdef" }],
+			changed: [
+				{
+					domain: "color",
+					name: "brand-500",
+					previousValue: "#123456",
+					value: "#654321",
+				},
+			],
+			removed: [],
+		});
+		// The full theme-vs-Tailwind diff is still there for the secondary view.
+		expect(json.baselineDiff.removed.length).toBeGreaterThan(200);
+
+		const stored = await getStored();
+		expect(stored.reviewRequired).toBe(true);
+		expect(stored.reviewChanges.tokens.added).toHaveLength(1);
+		expect(stored.reviewChanges.tokens.changed).toHaveLength(1);
+	});
+
+	it("a pending review stays pending through a Tailwind-only sync", async () => {
+		const { store, sync, confirm } = await setup();
+		await sync();
+		await confirm();
+		await writeFile(cssPath, themeCss(["  --color-brand-100: #abcdef;"]));
+		const pending = await sync();
+		expect(pending.reviewRequired).toBe(true);
+
+		const snapshotPath = store.resolveTokenSnapshotPath(
+			tempProjectRoot,
+			"Core",
+		);
+		const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+		snapshot.metadata.tailwindBaselineVersion = "4.2.4";
+		await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8");
+
+		const json = await sync();
+
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.tokens.added).toEqual([
+			{ domain: "color", name: "brand-100", value: "#abcdef" },
+		]);
+	});
+
+	it("a pending first review stays pending through a Tailwind-only sync", async () => {
+		const { store, sync, rewriteAsOlderTailwind } = await setup();
+		await sync();
+		await rewriteAsOlderTailwind({ reviewRequired: true, asV3: true });
+
+		const json = await sync();
+
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges).toBeNull();
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(stored?.confirmed).toBeNull();
+	});
+
+	it("reads an old tokens.json pending review without a confirmed state as a first review", async () => {
+		const { sync, getStored, rewriteAsOlderTailwind } = await setup();
+		await sync();
+		await rewriteAsOlderTailwind({ reviewRequired: true, asV3: true });
+
+		const stored = await getStored();
+
+		expect(stored.reviewRequired).toBe(true);
+		expect(stored.reviewChanges).toBeNull();
+		expect(stored.domains.color.baselineDiff.removed.length).toBeGreaterThan(
+			200,
+		);
+	});
+
+	it("reverting a project change clears the pending review", async () => {
+		const { sync, confirm } = await setup();
+		await sync();
+		await confirm();
+		await writeFile(cssPath, themeCss(["  --color-brand-100: #abcdef;"]));
+		expect((await sync()).reviewRequired).toBe(true);
+
+		await writeFile(cssPath, themeCss());
+		const json = await sync();
+
+		expect(json.changes).toBe("project");
+		expect(json.reviewRequired).toBe(false);
+	});
+});
+
+describe("tailwind sync compares what the CSS authors", () => {
+	let tempProjectRoot: string;
+	let previousProjectDirOverride: string | undefined;
+	let cssPath: string;
+
+	const blue500Default = defaultTailwindColorTokens["blue-500"];
+	const themeCss = ({
+		reset = true,
+		utilityColor = "#123456",
+		extra = [],
+	}: {
+		reset?: boolean;
+		utilityColor?: string;
+		extra?: string[];
+	} = {}) =>
+		[
+			'@import "tailwindcss";',
+			"@theme {",
+			...(reset ? ["  --color-*: initial;"] : []),
+			"  --color-brand-500: #123456;",
+			`  --color-blue-500: ${blue500Default};`,
+			...extra,
+			"}",
+			`@utility bg-app { background-color: ${utilityColor}; }`,
+			"",
+		].join("\n");
+
+	beforeEach(async () => {
+		tempProjectRoot = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-tailwind-authored-test-"),
+		);
+		previousProjectDirOverride = process.env.TRICKROOM_PROJECT_DIR;
+		process.env.TRICKROOM_PROJECT_DIR = tempProjectRoot;
+		vi.resetModules();
+		await writeFile(
+			path.join(tempProjectRoot, "trickroom.config.json"),
+			JSON.stringify({
+				name: "Test Project",
+				systems: { Core: "src/core.css" },
+			}),
+			"utf8",
+		);
+		cssPath = path.join(tempProjectRoot, "src", "core.css");
+		await mkdir(path.dirname(cssPath), { recursive: true });
+		await writeFile(cssPath, themeCss(), "utf8");
+	});
+
+	afterEach(async () => {
+		if (previousProjectDirOverride === undefined) {
+			delete process.env.TRICKROOM_PROJECT_DIR;
+		} else {
+			process.env.TRICKROOM_PROJECT_DIR = previousProjectDirOverride;
+		}
+		await rm(tempProjectRoot, { force: true, recursive: true });
+	});
+
+	const setup = async () => {
+		const { default: app } = await import("../server");
+		const store = await import("../utils/tailwind-token-store");
+		const snapshotPath = store.resolveTokenSnapshotPath(
+			tempProjectRoot,
+			"Core",
+		);
+		const sync = async () => {
+			const response = await app.request(
+				"/api/trickroom/tailwind/sync-tokens",
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ systemName: "Core" }),
+				},
+			);
+			expect(response.status).toBe(200);
+			return response.json();
+		};
+		const confirm = async () => {
+			const response = await app.request(
+				"/api/trickroom/tailwind/systems/Core/tokens",
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ domains: {} }),
+				},
+			);
+			expect(response.status).toBe(200);
+			return response.json();
+		};
+		// biome-ignore lint/suspicious/noExplicitAny: edits the raw snapshot JSON
+		const editSnapshot = async (edit: (snapshot: any) => void) => {
+			const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+			edit(snapshot);
+			await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8");
+		};
+		return { store, sync, confirm, editSnapshot };
+	};
+
+	it("records the authored theme, its resets and the utility definitions", async () => {
+		const { store, sync } = await setup();
+		await sync();
+
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+
+		expect(stored?.authored?.domains.color).toEqual({
+			tokens: { "blue-500": blue500Default, "brand-500": "#123456" },
+			resets: ["--color-*"],
+		});
+		expect(stored?.stylesheets?.files).toEqual([
+			{ path: "src/core.css", hash: expect.any(String) },
+		]);
+		// Equal to the default: not a resolved override, still authored.
+		expect(stored?.domains.color.tokens).toEqual({ "brand-500": "#123456" });
+		expect(stored?.customUtilities).toEqual([
+			expect.objectContaining({
+				root: "bg-app",
+				definition: "@utility bg-app{background-color:#123456;}",
+			}),
+		]);
+	});
+
+	it("a utility body change requires review", async () => {
+		const { sync, confirm } = await setup();
+		await sync();
+		await confirm();
+		await writeFile(cssPath, themeCss({ utilityColor: "#654321" }), "utf8");
+
+		const json = await sync();
+
+		expect(json.changes).toBe("project");
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.customUtilities).toEqual({
+			added: [],
+			changed: ["bg-app"],
+			removed: [],
+		});
+	});
+
+	it("an older snapshot without utility definitions needs no review, then records them", async () => {
+		const { store, sync, confirm, editSnapshot } = await setup();
+		await sync();
+		await confirm();
+		await editSnapshot((snapshot) => {
+			delete snapshot.confirmed;
+			delete snapshot.authored;
+			delete snapshot.stylesheets;
+			for (const utility of snapshot.customUtilities) {
+				delete utility.definition;
+			}
+		});
+
+		const first = await sync();
+		expect(first.changes).toBe("none");
+		expect(first.reviewRequired).toBe(false);
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(stored?.confirmed?.authored).toEqual(stored?.authored);
+		expect(stored?.confirmed?.customUtilities[0]?.definition).toBe(
+			"@utility bg-app{background-color:#123456;}",
+		);
+
+		await writeFile(cssPath, themeCss({ utilityColor: "#654321" }), "utf8");
+		expect((await sync()).reviewRequired).toBe(true);
+	});
+
+	it("an override that a new default caught up with is no review", async () => {
+		const { sync, confirm, editSnapshot } = await setup();
+		await sync();
+		// Confirmed under an older Tailwind where blue-500 had another default:
+		// then it resolved to an override, now it equals the default.
+		await editSnapshot((snapshot) => {
+			snapshot.metadata.tailwindBaselineVersion = "4.2.4";
+			snapshot.domains.color.tokens["blue-500"] = blue500Default;
+			snapshot.domains.color.baselineDiff.overridden.push({
+				name: "blue-500",
+				value: blue500Default,
+				defaultValue: "oklch(62% 0.2 260)",
+				domain: "color",
+			});
+		});
+		await confirm();
+
+		const json = await sync();
+
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+
+		// With another change pending, blue-500 is not listed.
+		await writeFile(
+			cssPath,
+			themeCss({ extra: ["  --color-brand-100: #abcdef;"] }),
+			"utf8",
+		);
+		const pending = await sync();
+		expect(pending.reviewRequired).toBe(true);
+		expect(pending.reviewChanges.tokens).toEqual({
+			added: [{ domain: "color", name: "brand-100", value: "#abcdef" }],
+			changed: [],
+			removed: [],
+		});
+	});
+
+	it("defaults added or removed beneath an unchanged reset are no review", async () => {
+		const { sync, confirm, editSnapshot } = await setup();
+		await sync();
+		await confirm();
+		await editSnapshot((snapshot) => {
+			snapshot.metadata.tailwindBaselineVersion = "4.2.4";
+			const removed = snapshot.domains.color.baselineDiff.removed;
+			// Two defaults did not exist yet, one that no longer exists did.
+			snapshot.domains.color.baselineDiff.removed = [
+				...removed.slice(2),
+				{ name: "retired-500", defaultValue: "#000", domain: "color" },
+			];
+			snapshot.confirmed.domains.color.removed = [
+				...snapshot.confirmed.domains.color.removed.slice(2),
+				"retired-500",
+			];
+		});
+
+		const json = await sync();
+
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+	});
+
+	it("removing a reset is a real change", async () => {
+		const { sync, confirm } = await setup();
+		await sync();
+		await confirm();
+		await writeFile(cssPath, themeCss({ reset: false }), "utf8");
+
+		const json = await sync();
+
+		expect(json.changes).toBe("project");
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.resets).toEqual({
+			added: [],
+			removed: [{ domain: "color", pattern: "--color-*" }],
+		});
+		expect(json.reviewChanges.tokens).toEqual({
+			added: [],
+			changed: [],
+			removed: [],
+		});
+	});
+
+	it("adding a reset is a real change", async () => {
+		await writeFile(cssPath, themeCss({ reset: false }), "utf8");
+		const { sync, confirm } = await setup();
+		await sync();
+		await confirm();
+		await writeFile(cssPath, themeCss(), "utf8");
+
+		const json = await sync();
+
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.resets).toEqual({
+			added: [{ domain: "color", pattern: "--color-*" }],
+			removed: [],
+		});
+	});
+});
+
+describe("tailwind sync gates reviews on the project's stylesheets", () => {
+	let tempProjectRoot: string;
+	let previousProjectDirOverride: string | undefined;
+
+	const writeProjectFile = async (relativePath: string, content: string) => {
+		const filePath = path.join(tempProjectRoot, relativePath);
+		await mkdir(path.dirname(filePath), { recursive: true });
+		await writeFile(filePath, content, "utf8");
+	};
+	const entryCss = (imports: string[], body: string[] = []) =>
+		[
+			'@import "tailwindcss";',
+			...imports.map((file) => `@import "${file}";`),
+			...body,
+			"",
+		].join("\n");
+
+	beforeEach(async () => {
+		tempProjectRoot = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-tailwind-gate-test-"),
+		);
+		previousProjectDirOverride = process.env.TRICKROOM_PROJECT_DIR;
+		process.env.TRICKROOM_PROJECT_DIR = tempProjectRoot;
+		vi.resetModules();
+		await writeProjectFile(
+			"trickroom.config.json",
+			JSON.stringify({
+				name: "Test Project",
+				systems: { Core: "src/core.css" },
+			}),
+		);
+		await writeProjectFile(
+			"src/theme.css",
+			"@theme {\n  --color-brand-500: #123456;\n}\n",
+		);
+		await writeProjectFile("src/core.css", entryCss(["./theme.css"]));
+	});
+
+	afterEach(async () => {
+		if (previousProjectDirOverride === undefined) {
+			delete process.env.TRICKROOM_PROJECT_DIR;
+		} else {
+			process.env.TRICKROOM_PROJECT_DIR = previousProjectDirOverride;
+		}
+		await rm(tempProjectRoot, { force: true, recursive: true });
+	});
+
+	const setup = async () => {
+		const { default: app } = await import("../server");
+		const store = await import("../utils/tailwind-token-store");
+		const sync = async () => {
+			const response = await app.request(
+				"/api/trickroom/tailwind/sync-tokens",
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ systemName: "Core" }),
+				},
+			);
+			expect(response.status).toBe(200);
+			return response.json();
+		};
+		const confirm = async () => {
+			const response = await app.request(
+				"/api/trickroom/tailwind/systems/Core/tokens",
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ domains: {} }),
+				},
+			);
+			expect(response.status).toBe(200);
+			return response.json();
+		};
+		const read = () => store.readDomainTokens(tempProjectRoot, "Core");
+		/** Sync and confirm: the starting point of every gate test. */
+		const confirmed = async () => {
+			await sync();
+			await confirm();
+			const stored = await read();
+			expect(stored?.confirmed?.stylesheets).toEqual(stored?.stylesheets);
+		};
+		return { store, sync, confirm, read, confirmed };
+	};
+
+	it("fingerprints the project's stylesheets in import order, not Tailwind's", async () => {
+		await writeProjectFile("src/reset.css", "@theme { --color-*: initial; }\n");
+		await writeProjectFile(
+			"src/core.css",
+			entryCss(["./reset.css", "./theme.css"]),
+		);
+		const { sync, read } = await setup();
+		await sync();
+
+		const stored = await read();
+
+		expect(stored?.stylesheets?.files.map((file) => file.path)).toEqual([
+			"src/core.css",
+			"src/reset.css",
+			"src/theme.css",
+		]);
+		// A reset-only import is read.
+		expect(stored?.authored?.domains.color?.resets).toEqual(["--color-*"]);
+	});
+
+	it("a Tailwind-only upgrade needs no review", async () => {
+		const { store, sync, confirmed } = await setup();
+		await confirmed();
+		const snapshotPath = store.resolveTokenSnapshotPath(
+			tempProjectRoot,
+			"Core",
+		);
+		const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+		snapshot.metadata.tailwindBaselineVersion = "4.2.4";
+		// Other default values, and a default that no longer exists: none of
+		// it gates.
+		for (const entry of snapshot.domains.color.baselineDiff.overridden) {
+			entry.defaultValue = `${entry.defaultValue} /* older */`;
+		}
+		snapshot.domains.color.baselineDiff.removed.push({
+			name: "retired-500",
+			defaultValue: "#000",
+			domain: "color",
+		});
+		await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8");
+
+		const json = await sync();
+
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+	});
+
+	it("a comment or whitespace edit needs no review", async () => {
+		const { sync, confirmed } = await setup();
+		await confirmed();
+		await writeProjectFile(
+			"src/theme.css",
+			"/* Brand */\n@theme{\n\n\t--color-brand-500:   #123456 ;\n}\n",
+		);
+
+		const json = await sync();
+
+		expect(json.reviewRequired).toBe(false);
+		expect(json.changes).toBe("none");
+	});
+
+	it("any content edit requires review and names the files, token-level change or not", async () => {
+		const { sync, confirmed } = await setup();
+		await confirmed();
+		await writeProjectFile(
+			"src/theme.css",
+			"@theme {\n  --color-brand-500: #123456;\n}\n.brand { color: red; }\n",
+		);
+
+		const json = await sync();
+
+		expect(json.changes).toBe("project");
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.stylesheets).toEqual({
+			added: [],
+			changed: ["src/theme.css"],
+			removed: [],
+		});
+		expect(json.reviewChanges.tokens).toEqual({
+			added: [],
+			changed: [],
+			removed: [],
+		});
+	});
+
+	it("a workspace package stylesheet edit requires review", async () => {
+		await writeProjectFile(
+			"packages/colors/package.json",
+			JSON.stringify({ name: "@acme/colors", style: "colors.css" }),
+		);
+		await writeProjectFile(
+			"packages/colors/colors.css",
+			"@theme { --color-acme-500: #ff0000; }\n",
+		);
+		await mkdir(path.join(tempProjectRoot, "node_modules", "@acme"), {
+			recursive: true,
+		});
+		await symlink(
+			path.join(tempProjectRoot, "packages", "colors"),
+			path.join(tempProjectRoot, "node_modules", "@acme", "colors"),
+		);
+		await writeProjectFile(
+			"src/core.css",
+			entryCss(["@acme/colors", "./theme.css"]),
+		);
+		const { sync, confirmed, read } = await setup();
+		await confirmed();
+		expect((await read())?.stylesheets?.files.map((file) => file.path)).toEqual(
+			["src/core.css", "packages/colors/colors.css", "src/theme.css"],
+		);
+		await writeProjectFile(
+			"packages/colors/colors.css",
+			"@theme { --color-acme-500: #00ff00; }\n",
+		);
+
+		const json = await sync();
+
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.stylesheets.changed).toEqual([
+			"packages/colors/colors.css",
+		]);
+		expect(json.reviewChanges.tokens.changed).toEqual([
+			expect.objectContaining({
+				name: "acme-500",
+				previousValue: "#ff0000",
+				value: "#00ff00",
+			}),
+		]);
+	});
+
+	it("counts a symlinked workspace package and leaves third-party packages out", async () => {
+		await writeProjectFile(
+			"packages/colors/package.json",
+			JSON.stringify({ name: "@acme/colors", style: "colors.css" }),
+		);
+		await writeProjectFile(
+			"packages/colors/colors.css",
+			"@theme { --color-acme-500: #ff0000; }\n",
+		);
+		await mkdir(path.join(tempProjectRoot, "node_modules", "@acme"), {
+			recursive: true,
+		});
+		await symlink(
+			path.join(tempProjectRoot, "packages", "colors"),
+			path.join(tempProjectRoot, "node_modules", "@acme", "colors"),
+		);
+		// A third-party package: installed, really under node_modules.
+		await writeProjectFile(
+			"node_modules/@vendor/fonts/package.json",
+			JSON.stringify({ name: "@vendor/fonts", style: "fonts.css" }),
+		);
+		await writeProjectFile(
+			"node_modules/@vendor/fonts/fonts.css",
+			"@font-face { font-family: Vendor; src: url(./vendor.woff2); }\n",
+		);
+		await writeProjectFile(
+			"src/core.css",
+			entryCss(["@vendor/fonts", "@acme/colors", "./theme.css"]),
+		);
+		const { sync, confirmed, read } = await setup();
+		await confirmed();
+
+		expect((await read())?.stylesheets?.files.map((file) => file.path)).toEqual(
+			["src/core.css", "packages/colors/colors.css", "src/theme.css"],
+		);
+
+		// Upgrading the third-party package asks nothing.
+		await writeProjectFile(
+			"node_modules/@vendor/fonts/fonts.css",
+			"@font-face { font-family: Vendor; src: url(./vendor-v2.woff2); }\n",
+		);
+		expect((await sync()).reviewRequired).toBe(false);
+	});
+
+	it("an import from outside the project changing a token value requires review", async () => {
+		const outsideRoot = await mkdtemp(
+			path.join(os.tmpdir(), "trickroom-outside-theme-"),
+		);
+		try {
+			const outsideCss = path.join(outsideRoot, "outside.css");
+			const linkedCss = path.join(outsideRoot, "linked.css");
+			await writeFile(outsideCss, "@theme { --color-ext-500: #111111; }\n");
+			await writeFile(linkedCss, "@theme { --color-link-500: #222222; }\n");
+			// One imported by its absolute path, one through a symlink in the
+			// project: neither is the project's, so neither is fingerprinted.
+			await symlink(linkedCss, path.join(tempProjectRoot, "src", "linked.css"));
+			await writeProjectFile(
+				"src/core.css",
+				entryCss([outsideCss, "./linked.css", "./theme.css"]),
+			);
+			const { sync, confirmed, read } = await setup();
+			await confirmed();
+			expect(
+				(await read())?.stylesheets?.files.map((file) => file.path),
+			).toEqual(["src/core.css", "src/theme.css"]);
+
+			await writeFile(outsideCss, "@theme { --color-ext-500: #333333; }\n");
+			const outside = await sync();
+			expect(outside.reviewRequired).toBe(true);
+			expect(outside.reviewChanges.stylesheets.changed).toEqual([]);
+			expect(outside.reviewChanges.tokens.changed).toEqual([
+				expect.objectContaining({
+					name: "ext-500",
+					previousValue: "#111111",
+					value: "#333333",
+				}),
+			]);
+
+			await writeFile(outsideCss, "@theme { --color-ext-500: #111111; }\n");
+			expect((await sync()).reviewRequired).toBe(false);
+			await writeFile(linkedCss, "@theme { --color-link-500: #444444; }\n");
+			const linked = await sync();
+			expect(linked.reviewRequired).toBe(true);
+			expect(linked.reviewChanges.tokens.changed).toEqual([
+				expect.objectContaining({ name: "link-500", value: "#444444" }),
+			]);
+		} finally {
+			await rm(outsideRoot, { force: true, recursive: true });
+		}
+	});
+
+	it("a comment is not whitespace: self-hover to descendant hover requires review", async () => {
+		const theme = "@theme {\n  --color-brand-500: #123456;\n}\n";
+		await writeProjectFile(
+			"src/theme.css",
+			`${theme}.btn {\n  &/**/:hover { color: red; }\n}\n`,
+		);
+		const { sync, confirmed } = await setup();
+		await confirmed();
+		await writeProjectFile(
+			"src/theme.css",
+			`${theme}.btn {\n  & :hover { color: red; }\n}\n`,
+		);
+
+		const json = await sync();
+
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.stylesheets.changed).toEqual(["src/theme.css"]);
+	});
+
+	it("a comment added between tokens that already touch needs no review", async () => {
+		const theme = "@theme {\n  --color-brand-500: #123456;\n}\n";
+		await writeProjectFile(
+			"src/theme.css",
+			`${theme}.btn {\n  &:hover { color: red; }\n}\n`,
+		);
+		const { sync, confirmed } = await setup();
+		await confirmed();
+		await writeProjectFile(
+			"src/theme.css",
+			`${theme}.btn {\n  &/* hover */:hover { color: red; }\n}\n`,
+		);
+
+		const json = await sync();
+
+		expect(json.reviewRequired).toBe(false);
+	});
+
+	it("a slower sync of older stylesheets does not clear the review a newer sync required", async () => {
+		let releaseHeldSync = () => {};
+		const heldSyncReleased = new Promise<void>((resolve) => {
+			releaseHeldSync = resolve;
+		});
+		let heldSyncLoaded = () => {};
+		const heldSyncHasLoaded = new Promise<void>((resolve) => {
+			heldSyncLoaded = resolve;
+		});
+		let loads = 0;
+		vi.doMock("../utils/tailwind-design-system", async (importOriginal) => {
+			const actual =
+				await importOriginal<
+					typeof import("../utils/tailwind-design-system")
+				>();
+			return {
+				...actual,
+				loadTailwindDesignSystem: async (
+					options: Parameters<typeof actual.loadTailwindDesignSystem>[0],
+				) => {
+					const loaded = await actual.loadTailwindDesignSystem(options);
+					loads++;
+					// The second load (the first sync after confirming) has read
+					// the old stylesheets; hold it until the newer sync is sent.
+					if (loads === 2) {
+						heldSyncLoaded();
+						await heldSyncReleased;
+					}
+					return loaded;
+				},
+			};
+		});
+		try {
+			const { sync, confirmed, read } = await setup();
+			await confirmed();
+
+			const older = sync();
+			await heldSyncHasLoaded;
+			await writeProjectFile(
+				"src/theme.css",
+				"@theme {\n  --color-brand-500: #654321;\n}\n",
+			);
+			const newer = sync();
+			// Let the newer sync run as far as it can before the older one ends.
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			releaseHeldSync();
+			const [olderJson, newerJson] = await Promise.all([older, newer]);
+
+			expect(olderJson.reviewRequired).toBe(false);
+			expect(newerJson.reviewRequired).toBe(true);
+			expect((await read())?.metadata.reviewRequired).toBe(true);
+		} finally {
+			vi.doUnmock("../utils/tailwind-design-system");
+		}
+	});
+
+	it("a slow read of a legacy snapshot does not undo a newer sync", async () => {
+		// Hold the next read of tokens.json once armed, after its content was
+		// read: a read that rewrote what it read would then land last.
+		let armed = false;
+		let releaseHeldRead = () => {};
+		const heldReadReleased = new Promise<void>((resolve) => {
+			releaseHeldRead = resolve;
+		});
+		let heldReadStarted = () => {};
+		const heldReadHasStarted = new Promise<void>((resolve) => {
+			heldReadStarted = resolve;
+		});
+		vi.doMock("node:fs/promises", async (importOriginal) => {
+			const actual = await importOriginal<typeof import("node:fs/promises")>();
+			return {
+				...actual,
+				readFile: (async (...args: Parameters<typeof actual.readFile>) => {
+					const contents = await actual.readFile(...args);
+					if (armed && String(args[0]).endsWith("tokens.json")) {
+						armed = false;
+						heldReadStarted();
+						await heldReadReleased;
+					}
+					return contents;
+				}) as typeof actual.readFile,
+			};
+		});
+		try {
+			const { default: app } = await import("../server");
+			const { store, sync, confirm, read } = await setup();
+			await sync();
+			await confirm();
+			// A legacy snapshot: no confirmed state or fingerprint, so a
+			// canonicalizing read would rewrite it.
+			const snapshotPath = store.resolveTokenSnapshotPath(
+				tempProjectRoot,
+				"Core",
+			);
+			const legacy = JSON.parse(await readFile(snapshotPath, "utf8"));
+			delete legacy.confirmed;
+			delete legacy.stylesheets;
+			await writeFile(snapshotPath, JSON.stringify(legacy), "utf8");
+
+			armed = true;
+			const slowRead = app.request(
+				"/api/trickroom/tailwind/systems/Core/tokens",
+			);
+			await heldReadHasStarted;
+			await writeProjectFile(
+				"src/theme.css",
+				"@theme {\n  --color-brand-500: #654321;\n}\n",
+			);
+			const newer = await sync();
+			expect(newer.reviewRequired).toBe(true);
+			releaseHeldRead();
+			const response = await slowRead;
+
+			expect(response.status).toBe(200);
+			expect((await read())?.metadata.reviewRequired).toBe(true);
+		} finally {
+			vi.doUnmock("node:fs/promises");
+		}
+	});
+
+	it("commenting out a reset removes it, and requires review", async () => {
+		await writeProjectFile(
+			"src/theme.css",
+			"@theme {\n  --color-*: initial;\n  --color-brand-500: #123456;\n}\n",
+		);
+		const { sync, confirmed, read } = await setup();
+		await confirmed();
+		await writeProjectFile(
+			"src/theme.css",
+			"@theme {\n  /* --color-*: initial; */\n  --color-brand-500: #123456;\n}\n",
+		);
+
+		const json = await sync();
+
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.resets).toEqual({
+			added: [],
+			removed: [{ domain: "color", pattern: "--color-*" }],
+		});
+		const stored = await read();
+		expect(stored?.authored?.domains.color?.resets ?? []).toEqual([]);
+		expect(stored?.domains.color.baselineDiff.removed).toEqual([]);
+	});
+
+	it("switching @theme to inline or reference requires review and shows the options", async () => {
+		const { sync, confirmed } = await setup();
+		await confirmed();
+		await writeProjectFile(
+			"src/theme.css",
+			"@theme inline {\n  --color-brand-500: #123456;\n}\n",
+		);
+
+		const inline = await sync();
+		expect(inline.reviewRequired).toBe(true);
+		expect(inline.reviewChanges.tokens.changed).toEqual([
+			{
+				domain: "color",
+				name: "brand-500",
+				previousValue: "#123456",
+				value: "#123456",
+				previousOptions: [],
+				options: ["inline"],
+			},
+		]);
+
+		await writeProjectFile(
+			"src/theme.css",
+			"@theme reference {\n  --color-brand-500: #123456;\n}\n",
+		);
+		const reference = await sync();
+		expect(reference.reviewChanges.tokens.changed[0].options).toEqual([
+			"reference",
+		]);
+	});
+
+	it("a change to a variable the theme references requires review and is listed", async () => {
+		await writeProjectFile(
+			"src/theme.css",
+			"@theme inline {\n  --app-color: #123456;\n  --color-brand: var(--app-color);\n}\n",
+		);
+		const { sync, confirmed } = await setup();
+		await confirmed();
+		await writeProjectFile(
+			"src/theme.css",
+			"@theme inline {\n  --app-color: #654321;\n  --color-brand: var(--app-color);\n}\n",
+		);
+
+		const json = await sync();
+
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.customProperties.changed).toEqual([
+			{ name: "--app-color", previousValue: "#123456", value: "#654321" },
+		]);
+	});
+
+	it("swapping the import order of duplicate utilities requires review", async () => {
+		await writeProjectFile("src/a.css", "@utility tone { color: red; }\n");
+		await writeProjectFile("src/b.css", "@utility tone { color: blue; }\n");
+		await writeProjectFile(
+			"src/core.css",
+			entryCss(["./theme.css", "./a.css", "./b.css"]),
+		);
+		const { sync, confirmed, read } = await setup();
+		await confirmed();
+		expect(
+			(await read())?.customUtilities.find((utility) => utility.root === "tone")
+				?.definition,
+		).toBe("@utility tone{color:red;}\n@utility tone{color:blue;}");
+		await writeProjectFile(
+			"src/core.css",
+			entryCss(["./theme.css", "./b.css", "./a.css"]),
+		);
+
+		const json = await sync();
+
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.customUtilities.changed).toEqual(["tone"]);
+		expect(json.reviewChanges.stylesheets.changed).toContain("src/core.css");
+	});
+
+	it("a project's @theme default is authored", async () => {
+		await writeProjectFile(
+			"src/theme.css",
+			"@theme default {\n  --color-brand-500: #123456;\n}\n",
+		);
+		const { sync, read } = await setup();
+		await sync();
+
+		const stored = await read();
+
+		expect(stored?.authored?.domains.color).toMatchObject({
+			tokens: { "brand-500": "#123456" },
+			options: { "brand-500": ["default"] },
+		});
+	});
+
+	it("keeps whitespace inside strings in utility definitions", async () => {
+		await writeProjectFile(
+			"src/theme.css",
+			'@theme {\n  --color-brand-500: #123456;\n}\n@utility quote {\n  content:   "a  b";\n}\n',
+		);
+		const { sync, confirmed, read } = await setup();
+		await confirmed();
+		expect(
+			(await read())?.customUtilities.find(
+				(utility) => utility.root === "quote",
+			)?.definition,
+		).toBe('@utility quote{content:"a  b";}');
+		await writeProjectFile(
+			"src/theme.css",
+			'@theme {\n  --color-brand-500: #123456;\n}\n@utility quote {\n  content: "a b";\n}\n',
+		);
+
+		const json = await sync();
+
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.customUtilities.changed).toEqual(["quote"]);
+	});
+
+	it("an older snapshot without a fingerprint keeps the previous rules until it is confirmed", async () => {
+		const { store, sync, confirm, read } = await setup();
+		await sync();
+		await confirm();
+		const snapshotPath = store.resolveTokenSnapshotPath(
+			tempProjectRoot,
+			"Core",
+		);
+		const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+		delete snapshot.stylesheets;
+		delete snapshot.confirmed.stylesheets;
+		await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8");
+
+		// A content edit the authored definition does not see: no review
+		// under the previous rules.
+		await writeProjectFile(
+			"src/theme.css",
+			"@theme {\n  --color-brand-500: #123456;\n}\n.brand { color: red; }\n",
+		);
+		const legacy = await sync();
+		expect(legacy.reviewRequired).toBe(false);
+		expect((await read())?.confirmed?.stylesheets).toBeUndefined();
+
+		// The next confirmation records the fingerprint; from then on it gates.
+		await confirm();
+		expect((await read())?.confirmed?.stylesheets).toBeDefined();
+		await writeProjectFile(
+			"src/theme.css",
+			"@theme {\n  --color-brand-500: #123456;\n}\n.brand { color: blue; }\n",
+		);
+		expect((await sync()).reviewRequired).toBe(true);
 	});
 });

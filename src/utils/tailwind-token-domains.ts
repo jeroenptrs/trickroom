@@ -115,6 +115,32 @@ export function extractTailwindTokens(
 	return domains;
 }
 
+/**
+ * The token domain and token name of a theme variable (`--color-red-500` →
+ * `color`, `red-500`), or null outside the fixed domains.
+ */
+export function resolveTailwindTokenDomain(propertyName: string): {
+	domain: TailwindTokenDomain;
+	name: string;
+} | null {
+	const match = resolveTailwindTokenDomainProperty(propertyName);
+	if (!match) {
+		return null;
+	}
+	return {
+		domain: match.domain,
+		name:
+			propertyName === match.namespace
+				? TAILWIND_DEFAULT_TOKEN_NAME
+				: propertyName.slice(match.namespace.length + 1),
+	};
+}
+
+/** Whether a custom property lives in one of the fixed token domains. */
+export function isTailwindTokenDomainProperty(propertyName: string): boolean {
+	return resolveTailwindTokenDomainProperty(propertyName) !== null;
+}
+
 function resolveTailwindTokenDomainProperty(propertyName: string): {
 	domain: TailwindTokenDomain;
 	namespace: string;
@@ -207,6 +233,15 @@ export function diffTailwindDomainTokensAgainstDefaults(
 		removed,
 		missingDefaultTokenNames: removed.map((token) => token.name),
 	};
+}
+
+/** Whether an `initial` reset (`--color-*`, `--color-red-500`) covers a token. */
+export function isTokenMatchedByResets(
+	resets: readonly string[],
+	domain: TailwindTokenDomain,
+	name: string,
+): boolean {
+	return resetOverridesMatchToken(new Set(resets), domain, name);
 }
 
 function resetOverridesMatchToken(

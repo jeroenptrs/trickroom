@@ -66,10 +66,12 @@ type TailwindSyncTokensResponse = {
   baselineDiff: TailwindColorTokenBaselineDiff;
   syncedAt: string;
   reviewRequired: boolean;
+  changes: "none" | "tailwind" | "project";
+  reviewChanges: TailwindTokenReviewChanges | null;
 };
 ```
 
-`updated` means canonical token data changed and was written. `ok` means the stored canonical data still matches the current CSS.
+`updated` means canonical token data changed and was written. `ok` means the stored canonical data still matches the current CSS. `changes` says what the sync changed: nothing, only Tailwind's reference values, or what the project defines (see [Review](#review-and-overrides)). `reviewChanges` lists the project's changes since the last confirmed review, `null` when nothing has been confirmed yet.
 
 ## What Gets Stored
 
@@ -79,13 +81,22 @@ Snapshots live at:
 .trickroom/systems/<safe-system-name>/tokens.json
 ```
 
-Token snapshots use storage version `2` with one record per Tailwind token domain (for example `color`, `spacing`, `radius`, `font`, `shadow`, `ease`, and the other namespaces defined in `tailwind-token-domains.ts`). The snapshot lives beside `system.json`, and system-owned files such as `assets.json` and `icons.json` use the same system folder.
+Token snapshots use storage version `3` with one record per Tailwind token domain (for example `color`, `spacing`, `radius`, `font`, `shadow`, `ease`, and the other namespaces defined in `tailwind-token-domains.ts`). The snapshot lives beside `system.json`, and system-owned files such as `assets.json` and `icons.json` use the same system folder.
 
 For each domain, Trickroom extracts the matching `@theme` namespace from the linked CSS, compares it to the generated default Tailwind baseline for that domain, and stores:
 
 - `tokens`: meaningful added or overridden entries for the domain.
 - `overrides`: confirmed reset patterns when defaults were removed.
 - `baselineDiff`: per-domain `added`, `overridden`, and `removed` diagnostics.
+
+Beside `domains`, at the top level:
+
+- `stylesheets`: the fingerprint of the project's own stylesheets (see below).
+- `authored`: what the stylesheets define, Tailwind's own left out (see below): per domain the theme values as written with their `@theme` options and the `initial` resets, and under `other` the theme variables outside the fixed domains.
+- `confirmed`: the project definition the user last confirmed in a review, with the fingerprint at that time, or `null`.
+- Each `customUtilities` entry has a `definition`: its `@utility` blocks in the order Tailwind sees them, normalized like the fingerprint (comments and insignificant whitespace out, strings as written).
+
+All four are optional, so an older Trickroom still reads the file (see [Files And Safety](project-files.md#design-system-storage)).
 
 Unchanged defaults are not persisted. The sync API still returns a color-focused `baselineDiff` field for presentation compatibility, but `tokens.json` stores all synced domains under `domains`.
 
@@ -98,6 +109,34 @@ The diff categories apply per domain:
 
 ## Review And Overrides
 
+A snapshot mixes two things: what the project defines, and Tailwind's reference values it is compared against. Only a change to the first needs review. Two checks decide it, and either one is enough: the project's own stylesheets, and what the stylesheets define.
+
+**The project's stylesheets.** A sync fingerprints every stylesheet the design system loads whose real path is inside the project root and not under any `node_modules`, so Tailwind and other third-party packages (installed fonts, for example) are left out. Symlinks are resolved first, so a workspace package linked into `node_modules` counts by its source folder. The files are listed in the order Tailwind inlines them: depth first along `@import`/`@reference` in source order, nested ones (inside `@layer`) included, never the order their loads complete in. Each is hashed after normalizing its text token by token (postcss's tokenizer): comments are dropped without leaving anything in their place (a comment is not whitespace: `&/**/:hover` is `&:hover`, not `& :hover`; where dropping one would join two words, a bare `/**/` stays), runs of whitespace become one space, whitespace next to `{`, `}` or `;` is dropped, and strings, unquoted `url(…)` and whitespace after a backslash escape stay as written. The `@import` conditions are part of the importing file's text. Confirming a review records the fingerprint in `confirmed.stylesheets`.
+
+**What the stylesheets define.** The theme entries every stylesheet but Tailwind's own defines (so the project's files, its packages, and anything imported from outside the project, by path or through a symlink), with their values as written and their `@theme` options, the `initial` resets in their `@theme` blocks, the custom properties and the custom utilities by definition. None of it depends on Tailwind's defaults.
+
+From the confirmation on:
+
+- Both unchanged: no review, whatever Tailwind's reference values did (`changes: "tailwind"` for an upgrade, `"none"` otherwise). Comment and whitespace edits to a project stylesheet usually change neither. The normalization only removes what it can tell is insignificant, so a few edits that cannot change the CSS still ask for review (a comment in `.a/**/.b` or `!/**/important`, spaces inside brackets such as `( min-width: 40rem )`).
+- Either changed: review required (`changes: "project"`), until both match the confirmation again (reverting clears it) or the user confirms. A project stylesheet edit that defines nothing still requires review; so does a token value changed in an import from outside the project, which the fingerprint does not cover.
+
+A confirmed state without a fingerprint (confirmed before fingerprints were recorded) is checked on what the stylesheets define alone until the next confirmation records one. A system without a confirmed state requires review on its first sync and on any change, and a pending review stays pending.
+
+Syncs and confirmations of one system run one at a time, in arrival order, from reading the stylesheets to writing the snapshot, so a slower sync of older stylesheets cannot overwrite a newer one (and clear the review it required).
+
+**The explanation: the delta.** The review lists what changed since the confirmation:
+
+- Theme entries (as above): added, changed (confirmed value → incoming value, and `@theme` options (`inline`, `reference`, `default`, `static`) when they changed) and removed. A project's own `@theme default` counts; Tailwind's does not. Entries outside the fixed domains (`--app-color`) are listed with the custom properties.
+- The `initial` resets, read from the CSS as postcss parses it (a commented-out reset is not one; a reset in a reset-only import is), as patterns.
+- Custom properties and custom utilities, a utility by its definition.
+- The changed stylesheets. When the fingerprint changed but no token-level change was found, the panel says so: "Theme stylesheets changed (files: …); no token-level change detected", and the user can still confirm.
+
+Not part of it, Tailwind's reference values: `tailwindBaselineVersion`, the `defaultValue` of overridden and removed entries, which defaults exist (a default added or removed beneath an unchanged `--color-*: initial`), whether an authored value happens to equal a default, the baseline tokens the theme leaves alone, and the completion values and inferred domains of custom utilities. Overrides are not part of it either: a sync keeps the stored overrides, and only confirming a review changes them.
+
+Snapshots synced before the authored theme and utility definitions were recorded compare the theme as resolved against the defaults (the added and overridden values and the removed default names; tokens equal to today's default and names Tailwind no longer has are left out) and utilities by what was recorded. A sync that finds the project unchanged that way records the authored data, in the snapshot and in its confirmed state. In that fallback a default Tailwind adds beneath a reset still counts as removed by the project, so a Tailwind upgrade in the first sync of an older snapshot can ask for one review; after that confirmation the authored data and the fingerprint decide.
+
+The banner, the tokens panel, the systems list and the system pane show the same counts (`getTokenReviewCounts`): a reset added counts as removed, one removed as added, and changed stylesheets are counted apart. The full theme-vs-Tailwind diff stays available as the secondary "Theme vs Tailwind" view. A snapshot pending review without a confirmed state shows the full diff, labelled as a first review. A sync that changed only Tailwind's reference values shows a note in the tokens panel ("Tailwind defaults updated to 4.3.3; your tokens are unchanged").
+
 If a system removes default Tailwind color tokens, the systems dialog can suggest reset patterns so the iframe theme matches the intended system more closely.
 
 Examples:
@@ -106,7 +145,7 @@ Examples:
 - A removed family: `--color-red-*`
 - Every default removed: `--color-*`
 
-Saving the review writes confirmed overrides and clears `reviewRequired`:
+Saving the review writes confirmed overrides, records the confirmed project definition and clears `reviewRequired`:
 
 ```text
 POST /api/trickroom/tailwind/systems/:systemName/tokens
