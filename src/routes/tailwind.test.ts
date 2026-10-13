@@ -950,7 +950,7 @@ describe("tailwind GET /systems/:systemName/tokens", () => {
 		expect(json).not.toHaveProperty("overrides");
 	});
 
-	it("canonicalizes stale stored tokens before returning them", async () => {
+	it("returns stale stored tokens canonicalized, leaving the file to the next sync", async () => {
 		const { resolveTokenSnapshotPath } = await import(
 			"../utils/tailwind-token-store"
 		);
@@ -1003,9 +1003,13 @@ describe("tailwind GET /systems/:systemName/tokens", () => {
 		expect(response.status).toBe(200);
 		const json = await response.json();
 		expect(json.domains.color.tokens).toEqual({ "brand-500": "#123456" });
+		// Reads do not write: only syncs and confirmations, one at a time.
 		expect(
 			JSON.parse(await readFile(snapshotPath, "utf8")).domains.color.tokens,
-		).toEqual({ "brand-500": "#123456" });
+		).toEqual({
+			"brand-500": "#123456",
+			"blue-500": defaultTailwindColorTokens["blue-500"],
+		});
 	});
 });
 
@@ -2528,6 +2532,70 @@ describe("tailwind sync gates reviews on the project's stylesheets", () => {
 			expect((await read())?.metadata.reviewRequired).toBe(true);
 		} finally {
 			vi.doUnmock("../utils/tailwind-design-system");
+		}
+	});
+
+	it("a slow read of a legacy snapshot does not undo a newer sync", async () => {
+		// Hold the next read of tokens.json once armed, after its content was
+		// read: a read that rewrote what it read would then land last.
+		let armed = false;
+		let releaseHeldRead = () => {};
+		const heldReadReleased = new Promise<void>((resolve) => {
+			releaseHeldRead = resolve;
+		});
+		let heldReadStarted = () => {};
+		const heldReadHasStarted = new Promise<void>((resolve) => {
+			heldReadStarted = resolve;
+		});
+		vi.doMock("node:fs/promises", async (importOriginal) => {
+			const actual = await importOriginal<typeof import("node:fs/promises")>();
+			return {
+				...actual,
+				readFile: (async (...args: Parameters<typeof actual.readFile>) => {
+					const contents = await actual.readFile(...args);
+					if (armed && String(args[0]).endsWith("tokens.json")) {
+						armed = false;
+						heldReadStarted();
+						await heldReadReleased;
+					}
+					return contents;
+				}) as typeof actual.readFile,
+			};
+		});
+		try {
+			const { default: app } = await import("../server");
+			const { store, sync, confirm, read } = await setup();
+			await sync();
+			await confirm();
+			// A legacy snapshot: no confirmed state or fingerprint, so a
+			// canonicalizing read would rewrite it.
+			const snapshotPath = store.resolveTokenSnapshotPath(
+				tempProjectRoot,
+				"Core",
+			);
+			const legacy = JSON.parse(await readFile(snapshotPath, "utf8"));
+			delete legacy.confirmed;
+			delete legacy.stylesheets;
+			await writeFile(snapshotPath, JSON.stringify(legacy), "utf8");
+
+			armed = true;
+			const slowRead = app.request(
+				"/api/trickroom/tailwind/systems/Core/tokens",
+			);
+			await heldReadHasStarted;
+			await writeProjectFile(
+				"src/theme.css",
+				"@theme {\n  --color-brand-500: #654321;\n}\n",
+			);
+			const newer = await sync();
+			expect(newer.reviewRequired).toBe(true);
+			releaseHeldRead();
+			const response = await slowRead;
+
+			expect(response.status).toBe(200);
+			expect((await read())?.metadata.reviewRequired).toBe(true);
+		} finally {
+			vi.doUnmock("node:fs/promises");
 		}
 	});
 

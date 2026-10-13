@@ -1002,7 +1002,11 @@ const readStoredTokensForSystem = async (
 ) => {
 	const system = await findDesignSystem(projectRoot, systemName);
 	const systemHandle = system?.manifest.systemId ?? systemName;
-	const stored = await readDomainTokens(projectRoot, systemHandle);
+	// Read-only: only syncs and confirmations write the snapshot, one at a
+	// time per system (`runExclusiveTokenWrite`). A read that rewrote a
+	// legacy snapshot could land after a newer sync and undo it; the next
+	// sync writes the canonical form instead.
+	const stored = await readDomainTokensReadonly(projectRoot, systemHandle);
 
 	return {
 		system,

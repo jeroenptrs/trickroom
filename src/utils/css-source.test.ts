@@ -37,6 +37,18 @@ describe("normalizeCssSource", () => {
 		);
 	});
 
+	it("keeps unquoted url() and escaped whitespace as written", () => {
+		expect(
+			normalizeCssSource("a { background: url(foo\\\tbar.svg) }"),
+		).not.toBe(normalizeCssSource("a { background: url(foo\\ bar.svg) }"));
+		expect(normalizeCssSource("a { background: url(foo\\  bar.svg) }")).toBe(
+			"a{background: url(foo\\  bar.svg)}",
+		);
+		expect(normalizeCssSource("@media (min-width:  40rem) {}")).toBe(
+			"@media (min-width: 40rem){}",
+		);
+	});
+
 	it("tells content edits apart", () => {
 		expect(normalizeCssSource("a { color: red; }")).not.toBe(
 			normalizeCssSource("a { color: blue; }"),

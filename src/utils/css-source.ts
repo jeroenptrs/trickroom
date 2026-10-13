@@ -24,7 +24,8 @@ const JOINABLE_TOKENS = new Set(["word", "at-word", "string", "brackets"]);
  *   bare `/**\/` kept in its place.
  * - runs of whitespace become one space, and whitespace next to `{`, `}`
  *   or `;` is dropped. Whitespace inside brackets without strings or
- *   comments is collapsed the same way.
+ *   comments is collapsed the same way, except in an unquoted `url(…)` and
+ *   after a backslash escape, which stay as written.
  * - strings, and everything else, stay as written.
  *
  * Text postcss cannot tokenize stays as it is.
@@ -74,12 +75,27 @@ export function normalizeCssSource(css: string): string {
 		pendingSpace = false;
 		droppedComment = false;
 		output.push(
-			type === "brackets"
+			type === "brackets" && !keepsBracketsVerbatim(previous, content)
 				? [type, content.replace(/\s+/gu, " ")]
 				: [type, content],
 		);
 	}
 	return output.map(([, content]) => content).join("");
+}
+
+/**
+ * Brackets whose whitespace means something: an unquoted `url(…)`, whose
+ * content is the address as written, and any with a backslash escape (an
+ * escaped tab is not an escaped space).
+ */
+function keepsBracketsVerbatim(
+	previous: Token | undefined,
+	content: string,
+): boolean {
+	return (
+		content.includes("\\") ||
+		(previous?.[0] === "word" && /url$/iu.test(previous[1]))
+	);
 }
 
 /**

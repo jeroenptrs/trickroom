@@ -541,7 +541,7 @@ Write behavior:
 - Sync creates `system.json` if the system folder does not have one yet.
 - Sync records `authored`, `stylesheets` and the utility definitions, and completes a `confirmed` state that lacks the authored data when the project is unchanged. The fingerprint is added to `confirmed` only by a confirmation.
 - The systems review dialog writes confirmed overrides, records `confirmed` and clears `reviewRequired`.
-- Reads canonicalize older valid `tokens.json` snapshots when needed.
+- Syncs and confirmations of one system run one at a time and write the canonical form. The token API reads (`GET /systems/:systemName/tokens`, `tokens.html`) and the design export read without writing, so a slow read cannot land after a newer sync; an older valid snapshot is canonicalized by its next sync.
 - There is no runtime read-through from the old `.trickroom/tailwind` location.
 
 Manual repo update for this storage move:

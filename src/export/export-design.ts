@@ -16,7 +16,7 @@ import {
 	TailwindSystemResolutionError,
 } from "../utils/tailwind-design-system";
 import { serializeTailwindThemeDomains } from "../utils/tailwind-theme-css";
-import { readDomainTokens } from "../utils/tailwind-token-store";
+import { readDomainTokensReadonly } from "../utils/tailwind-token-store";
 import { buildHtmlDocument } from "./build-html";
 import { makeHtmlFilename } from "./filenames";
 import { buildExportFontCss, inlineCssFontUrls } from "./fonts";
@@ -97,7 +97,7 @@ export async function exportDesignBoards({
 	}
 
 	const stored = resolved
-		? await readDomainTokens(projectRoot, resolved.systemId)
+		? await readDomainTokensReadonly(projectRoot, resolved.systemId)
 		: null;
 	const themeOverrides = stored
 		? serializeTailwindThemeDomains(stored.domains, stored.customProperties)
