@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { defaultTailwindColorTokens } from "./default-tailwind-tokens";
 import {
 	areProjectTokenDefinitionsEquivalent,
+	areStylesheetFingerprintsEqual,
 	backfillConfirmedTokenState,
 	computeTokenReviewChanges,
+	diffStylesheetFingerprints,
 	getTokenReviewCounts,
 	type TailwindTokenReviewChanges,
 } from "./tailwind-token-review";
@@ -386,6 +389,7 @@ describe("getTokenReviewCounts", () => {
 			added: [{ name: "--db-x", value: "1rem" }],
 		},
 		customUtilities: { ...empty, changed: ["bg-app"] },
+		stylesheets: null,
 	};
 
 	it("counts custom-only changes the same on every surface", () => {
@@ -396,6 +400,7 @@ describe("getTokenReviewCounts", () => {
 			changed: 1,
 			removed: 1,
 			total: 3,
+			stylesheets: 0,
 			sinceLastReview: true,
 		});
 	});
@@ -414,7 +419,86 @@ describe("getTokenReviewCounts", () => {
 			changed: 1,
 			removed: 3,
 			total: 6,
+			stylesheets: 0,
 			sinceLastReview: false,
 		});
+	});
+});
+
+describe("the resolved fallback", () => {
+	it("treats a token that now equals its default as converged, not changed", () => {
+		const blue500 = defaultTailwindColorTokens["blue-500"];
+		const confirmed = confirmedState({
+			domains: { color: { tokens: { "blue-500": blue500 }, removed: [] } },
+		});
+		const current = definition({ domains: {} });
+
+		expect(areProjectTokenDefinitionsEquivalent(confirmed, current)).toBe(true);
+		expect(
+			getTokenReviewCounts({
+				reviewChanges: computeTokenReviewChanges(confirmed, current),
+				baselineDiffs: undefined,
+			}).total,
+		).toBe(0);
+	});
+});
+
+describe("stylesheet fingerprints", () => {
+	const fingerprint = (...files: Array<[string, string]>) => ({
+		files: files.map(([path, hash]) => ({ path, hash })),
+	});
+
+	it("are equal only with the same files, contents and order", () => {
+		const base = fingerprint(["a.css", "1"], ["b.css", "2"]);
+		expect(areStylesheetFingerprintsEqual(base, base)).toBe(true);
+		expect(
+			areStylesheetFingerprintsEqual(
+				base,
+				fingerprint(["b.css", "2"], ["a.css", "1"]),
+			),
+		).toBe(false);
+	});
+
+	it("lists the files added, changed and removed", () => {
+		expect(
+			diffStylesheetFingerprints(
+				fingerprint(["core.css", "1"], ["a.css", "2"], ["gone.css", "3"]),
+				fingerprint(["core.css", "1"], ["a.css", "9"], ["new.css", "4"]),
+			),
+		).toEqual({
+			added: ["new.css"],
+			changed: ["a.css"],
+			removed: ["gone.css"],
+		});
+	});
+
+	it("names the moved files when only the order changed", () => {
+		expect(
+			diffStylesheetFingerprints(
+				fingerprint(["core.css", "1"], ["a.css", "2"], ["b.css", "3"]),
+				fingerprint(["core.css", "1"], ["b.css", "3"], ["a.css", "2"]),
+			).changed,
+		).toEqual(["b.css", "a.css"]);
+	});
+
+	it("are reported with the review changes when both sides have one", () => {
+		const changes = computeTokenReviewChanges(
+			confirmedState({ stylesheets: fingerprint(["core.css", "1"]) }),
+			definition({ stylesheets: fingerprint(["core.css", "2"]) }),
+		);
+		expect(changes.stylesheets).toEqual({
+			added: [],
+			changed: ["core.css"],
+			removed: [],
+		});
+		expect(
+			getTokenReviewCounts({
+				reviewChanges: changes,
+				baselineDiffs: undefined,
+			}),
+		).toMatchObject({ total: 0, stylesheets: 1 });
+		expect(
+			computeTokenReviewChanges(confirmedState(), definition()).stylesheets,
+		).toBeNull();
 	});
 });

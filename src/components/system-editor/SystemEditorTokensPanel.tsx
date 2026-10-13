@@ -520,7 +520,9 @@ function buildReviewChangeRows(
 			previousValue: entry.previousValue,
 			incomingValue: entry.value,
 			previousLabel: "CONFIRMED",
-			summary,
+			summary: entry.options
+				? `${formatThemeOptions(entry.previousOptions)} → ${formatThemeOptions(entry.options)}`
+				: summary,
 		}));
 
 	return sortTokenRowsByDomainAndValue([
@@ -528,6 +530,19 @@ function buildReviewChangeRows(
 		...rows(changes.tokens.added, "added", "New since last review"),
 		...rows(changes.tokens.removed, "removed", "Removed since last review"),
 	]);
+}
+
+/** `@theme inline reference`, or `@theme` without options. */
+function formatThemeOptions(options: readonly string[] | undefined): string {
+	return ["@theme", ...(options ?? [])].join(" ");
+}
+
+/** The changed project stylesheets, comma separated. */
+function listChangedStylesheets(changes: TailwindTokenReviewChanges): string {
+	const files = changes.stylesheets;
+	return files
+		? [...files.changed, ...files.added, ...files.removed].join(", ")
+		: "";
 }
 
 function SectionHeader({
@@ -860,12 +875,21 @@ function ReviewBanner({
 						/>
 					</div>
 					<p className="text-[11px] text-amber-800">
-						{reviewChanges ? (
+						{reviewChanges && changeCount === 0 && counts.stylesheets > 0 ? (
+							<>
+								Theme stylesheets changed (files:{" "}
+								{listChangedStylesheets(reviewChanges)}); no token-level change
+								detected.
+							</>
+						) : reviewChanges ? (
 							<>
 								{changeCount.toLocaleString()}{" "}
 								{pluralize(changeCount, "change")} since the review confirmed{" "}
 								{formatRelativeTime(reviewChanges.confirmedAt)} (Tailwind{" "}
 								{reviewChanges.confirmedTailwindBaselineVersion}).
+								{counts.stylesheets > 0
+									? ` Theme stylesheets changed: ${listChangedStylesheets(reviewChanges)}.`
+									: null}
 							</>
 						) : (
 							<>
@@ -2197,7 +2221,9 @@ function CustomReviewChanges({
 			key: `property:changed:${entry.name}`,
 			tone: "overridden" as const,
 			name: entry.name,
-			detail: `${entry.previousValue} → ${entry.value}`,
+			detail: entry.options
+				? `${entry.previousValue} → ${entry.value} (${formatThemeOptions(entry.previousOptions)} → ${formatThemeOptions(entry.options)})`
+				: `${entry.previousValue} → ${entry.value}`,
 		})),
 		...changes.customProperties.added.map((entry) => ({
 			key: `property:added:${entry.name}`,
@@ -2652,6 +2678,14 @@ export function SystemEditorTokensPanel({
 			}),
 		[data?.baselineDiffs, reviewChanges, storedDomains],
 	);
+	// The stylesheets gate the review; when no token changed, say which
+	// stylesheets did, so the user still knows what they confirm.
+	const changedStylesheets = reviewChanges
+		? listChangedStylesheets(reviewChanges)
+		: "";
+	const noReviewTokenChangesMessage = changedStylesheets
+		? `No token-level change detected. Theme stylesheets changed: ${changedStylesheets}.`
+		: "No token changes since the last review.";
 	const tokenDiff: TokenDiff = {
 		added: reviewCounts.added,
 		overridden: reviewCounts.changed,
@@ -2937,7 +2971,7 @@ export function SystemEditorTokensPanel({
 							rows={filteredChangeRows}
 							emptyMessage={
 								showingReviewChanges && reviewChangeRows.length === 0
-									? "No token changes since the last review."
+									? noReviewTokenChangesMessage
 									: "No token changes match the current filters."
 							}
 						/>
@@ -2951,7 +2985,7 @@ export function SystemEditorTokensPanel({
 							}
 							emptyMessage={
 								showingReviewChanges && reviewChangeRows.length === 0
-									? "No token changes since the last review."
+									? noReviewTokenChangesMessage
 									: "No token changes match the current filters."
 							}
 						/>

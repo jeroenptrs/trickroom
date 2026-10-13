@@ -66,8 +66,21 @@ export function getSystemMetadata(
 			reviewChanges: system.data.reviewChanges,
 			baselineDiffs: system.data.baselineDiffs ?? { color: baselineDiff },
 		});
+		const stylesheets = `${counts.stylesheets} ${pluralize(counts.stylesheets, "stylesheet")} changed`;
+		if (
+			counts.sinceLastReview &&
+			counts.total === 0 &&
+			counts.stylesheets > 0
+		) {
+			return `${stylesheets} since last review`;
+		}
 		const label = `+${counts.added} ~${counts.changed} -${counts.removed}`;
-		return counts.sinceLastReview ? `${label} since last review` : label;
+		if (!counts.sinceLastReview) {
+			return label;
+		}
+		return counts.stylesheets > 0
+			? `${label} · ${stylesheets} since last review`
+			: `${label} since last review`;
 	}
 
 	if (baselineDiff) {

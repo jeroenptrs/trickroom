@@ -84,23 +84,43 @@ export interface TailwindCustomUtilityStorage {
 	definition?: string;
 }
 
-/** What the project's CSS authors in one domain, as written. */
+/** What the project's stylesheets author in one domain, as written. */
 export interface TailwindAuthoredDomainDefinition {
-	/** Theme values not from Tailwind's default theme, equal to a default or not. */
+	/** Theme values from the project's stylesheets, equal to a default or not. */
 	tokens: Record<string, string>;
 	/** Authored `initial` resets, e.g. `--color-*` or `--color-red-500`. */
 	resets: string[];
+	/**
+	 * The `@theme` options of tokens that have any (`inline`, `reference`,
+	 * `default`, `static`). Absent when none have, and in snapshots synced
+	 * before options were recorded.
+	 */
+	options?: Record<string, string[]>;
 }
 
 /**
- * The theme the project's CSS authors, independent of Tailwind's defaults:
- * a Tailwind upgrade (new defaults, other default values, defaults removed)
- * does not change it. Lists only the domains the CSS defines something in.
+ * The theme the project's stylesheets author, independent of Tailwind's
+ * defaults: a Tailwind upgrade (new defaults, other default values,
+ * defaults removed) does not change it. `domains` lists only the domains the
+ * stylesheets define something in; `other` holds the theme variables outside
+ * the fixed domains (`--app-color`), keyed by their full name. `other` is
+ * absent in snapshots synced before it was recorded.
  */
 export interface TailwindAuthoredTokens {
 	domains: Partial<
 		Record<TailwindTokenDomain, TailwindAuthoredDomainDefinition>
 	>;
+	other?: TailwindAuthoredDomainDefinition;
+}
+
+/**
+ * The project's own stylesheets, in the order Tailwind inlines them: each
+ * file's project-relative path and a hash of its text with comments and
+ * whitespace outside strings normalized away (`normalizeCssSource`). Any
+ * other edit to any of them changes it.
+ */
+export interface TailwindStylesheetFingerprint {
+	files: Array<{ path: string; hash: string }>;
 }
 
 /**
@@ -135,6 +155,11 @@ export interface TailwindTokenStorageV3 {
 	 */
 	authored?: TailwindAuthoredTokens;
 	/**
+	 * The fingerprint of the project's stylesheets at this sync. Absent in
+	 * snapshots synced before it was recorded.
+	 */
+	stylesheets?: TailwindStylesheetFingerprint;
+	/**
 	 * The project definition at the last confirmed review, so a review shows
 	 * the changes since then. `null` when nothing has been confirmed yet.
 	 * Absent (an older writer, or an older Trickroom dropped it): a snapshot
@@ -167,6 +192,12 @@ export interface TailwindProjectTokenDefinition {
 		Record<TailwindTokenDomain, TailwindProjectDomainDefinition>
 	>;
 	authored?: TailwindAuthoredTokens;
+	/**
+	 * The project's stylesheets. On a confirmed state, what gates a review:
+	 * while the stylesheets are unchanged since the confirmation, nothing
+	 * needs review. Absent before it was recorded.
+	 */
+	stylesheets?: TailwindStylesheetFingerprint;
 	customProperties: Record<string, string>;
 	customUtilities: TailwindCustomUtilityStorage[];
 }
@@ -205,6 +236,7 @@ export type StoreDomainTokensParams = {
 	customProperties?: Record<string, string>;
 	customUtilities?: TailwindCustomUtilityStorage[];
 	authored?: TailwindAuthoredTokens;
+	stylesheets?: TailwindStylesheetFingerprint;
 	/**
 	 * The confirmed project definition. Omitted: a snapshot that needs no
 	 * review is its own confirmed state, one that does has none.
@@ -227,6 +259,7 @@ export type ComparableTailwindTokenStorage = {
 	customProperties: Record<string, string>;
 	customUtilities: TailwindCustomUtilityStorage[];
 	authored?: TailwindAuthoredTokens;
+	stylesheets?: TailwindStylesheetFingerprint;
 };
 
 export { systemNameToSafeKey } from "./design-system-store.ts";
@@ -363,6 +396,9 @@ export async function storeDomainTokens(
 		authored: params.authored
 			? normalizeAuthoredTokens(params.authored)
 			: undefined,
+		stylesheets: params.stylesheets
+			? normalizeStylesheetFingerprint(params.stylesheets)
+			: undefined,
 	};
 	const confirmed =
 		params.confirmed === undefined
@@ -465,6 +501,7 @@ export function normalizeTokenStorageForComparison(
 		customProperties: normalized.customProperties,
 		customUtilities: normalized.customUtilities,
 		authored: normalized.authored,
+		stylesheets: normalized.stylesheets,
 	};
 }
 
@@ -487,11 +524,16 @@ export function areTokenStoragesEquivalent(
 export function getProjectTokenDefinition(
 	storage: Pick<
 		TailwindTokenStorage,
-		"domains" | "customProperties" | "customUtilities" | "authored"
+		| "domains"
+		| "customProperties"
+		| "customUtilities"
+		| "authored"
+		| "stylesheets"
 	>,
 ): TailwindProjectTokenDefinition {
 	return normalizeProjectTokenDefinition({
 		authored: storage.authored,
+		stylesheets: storage.stylesheets,
 		domains: Object.fromEntries(
 			TAILWIND_TOKEN_DOMAINS.map((domain) => [
 				domain,
@@ -528,7 +570,12 @@ export function createConfirmedTokenState(
 function defaultConfirmedState(
 	storage: Pick<
 		TailwindTokenStorage,
-		"metadata" | "domains" | "customProperties" | "customUtilities" | "authored"
+		| "metadata"
+		| "domains"
+		| "customProperties"
+		| "customUtilities"
+		| "authored"
+		| "stylesheets"
 	>,
 ): TailwindConfirmedTokenState | null {
 	if (storage.metadata.reviewRequired) {
@@ -545,6 +592,7 @@ function defaultConfirmedState(
 function normalizeProjectTokenDefinition(definition: {
 	domains: Partial<Record<string, TailwindProjectDomainDefinition>>;
 	authored?: TailwindAuthoredTokens;
+	stylesheets?: TailwindStylesheetFingerprint;
 	customProperties: Record<string, string>;
 	customUtilities: readonly TailwindCustomUtilityStorage[];
 }): TailwindProjectTokenDefinition {
@@ -568,6 +616,9 @@ function normalizeProjectTokenDefinition(definition: {
 		...(definition.authored
 			? { authored: normalizeAuthoredTokens(definition.authored) }
 			: {}),
+		...(definition.stylesheets
+			? { stylesheets: normalizeStylesheetFingerprint(definition.stylesheets) }
+			: {}),
 		customProperties: normalizeCustomProperties(definition.customProperties),
 		customUtilities: normalizeCustomUtilities(definition.customUtilities),
 	};
@@ -580,18 +631,50 @@ export function normalizeAuthoredTokens(
 	const domains: TailwindAuthoredTokens["domains"] = {};
 	for (const domain of TAILWIND_TOKEN_DOMAINS) {
 		const storage = authored.domains[domain];
-		if (!storage) {
-			continue;
-		}
-		const tokens = normalizeStringRecord(storage.tokens);
-		const resets = [...new Set(storage.resets)].sort((left, right) =>
-			left.localeCompare(right),
-		);
-		if (Object.keys(tokens).length > 0 || resets.length > 0) {
-			domains[domain] = { tokens, resets };
+		const normalized = storage ? normalizeAuthoredDomain(storage) : null;
+		if (
+			normalized &&
+			(Object.keys(normalized.tokens).length > 0 ||
+				normalized.resets.length > 0)
+		) {
+			domains[domain] = normalized;
 		}
 	}
-	return { domains };
+	return {
+		domains,
+		...(authored.other
+			? { other: normalizeAuthoredDomain(authored.other) }
+			: {}),
+	};
+}
+
+function normalizeAuthoredDomain(
+	storage: TailwindAuthoredDomainDefinition,
+): TailwindAuthoredDomainDefinition {
+	const options = Object.fromEntries(
+		Object.entries(storage.options ?? {})
+			.filter(([name, values]) => values.length > 0 && name in storage.tokens)
+			.map(([name, values]) => [name, [...new Set(values)].sort()] as const)
+			.sort(([left], [right]) => left.localeCompare(right)),
+	);
+	return {
+		tokens: normalizeStringRecord(storage.tokens),
+		resets: [...new Set(storage.resets)].sort((left, right) =>
+			left.localeCompare(right),
+		),
+		...(Object.keys(options).length > 0 ? { options } : {}),
+	};
+}
+
+function normalizeStylesheetFingerprint(
+	fingerprint: TailwindStylesheetFingerprint,
+): TailwindStylesheetFingerprint {
+	return {
+		files: fingerprint.files.map((file) => ({
+			path: file.path,
+			hash: file.hash,
+		})),
+	};
 }
 
 function normalizeConfirmedState(
@@ -646,6 +729,9 @@ function normalizeTailwindTokenStorage(
 		}),
 		authored: storage.authored
 			? normalizeAuthoredTokens(storage.authored)
+			: undefined,
+		stylesheets: storage.stylesheets
+			? normalizeStylesheetFingerprint(storage.stylesheets)
 			: undefined,
 		confirmed: confirmed ? normalizeConfirmedState(confirmed) : null,
 	};
@@ -871,6 +957,8 @@ function isConfirmedTokenState(
 				isStringArray(storage.removed),
 		) &&
 		(value.authored === undefined || isAuthoredTokens(value.authored)) &&
+		(value.stylesheets === undefined ||
+			isStylesheetFingerprint(value.stylesheets)) &&
 		isStringRecord(value.customProperties) &&
 		Array.isArray(value.customUtilities) &&
 		value.customUtilities.every(isCustomUtilityStorage)
@@ -884,9 +972,36 @@ function isAuthoredTokens(value: unknown): value is TailwindAuthoredTokens {
 		Object.entries(value.domains).every(
 			([domain, storage]) =>
 				(TAILWIND_TOKEN_DOMAINS as string[]).includes(domain) &&
-				isRecord(storage) &&
-				isStringRecord(storage.tokens) &&
-				isStringArray(storage.resets),
+				isAuthoredDomain(storage),
+		) &&
+		(value.other === undefined || isAuthoredDomain(value.other))
+	);
+}
+
+function isAuthoredDomain(
+	value: unknown,
+): value is TailwindAuthoredDomainDefinition {
+	return (
+		isRecord(value) &&
+		isStringRecord(value.tokens) &&
+		isStringArray(value.resets) &&
+		(value.options === undefined ||
+			(isRecord(value.options) &&
+				Object.values(value.options).every(isStringArray)))
+	);
+}
+
+function isStylesheetFingerprint(
+	value: unknown,
+): value is TailwindStylesheetFingerprint {
+	return (
+		isRecord(value) &&
+		Array.isArray(value.files) &&
+		value.files.every(
+			(file) =>
+				isRecord(file) &&
+				typeof file.path === "string" &&
+				typeof file.hash === "string",
 		)
 	);
 }
@@ -928,11 +1043,14 @@ export function migrateTokenStorageToLatest(
 	data: unknown,
 ): TailwindTokenStorage | null {
 	if (isTailwindTokenStorageV3(data)) {
-		const { authored, confirmed, ...rest } = data;
+		const { authored, stylesheets, confirmed, ...rest } = data;
 		return {
 			...rest,
 			...(authored !== undefined && isAuthoredTokens(authored)
 				? { authored }
+				: {}),
+			...(stylesheets !== undefined && isStylesheetFingerprint(stylesheets)
+				? { stylesheets }
 				: {}),
 			...(confirmed === null ||
 			(confirmed !== undefined && isConfirmedTokenState(confirmed))

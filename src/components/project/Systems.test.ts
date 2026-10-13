@@ -86,10 +86,36 @@ describe("getSystemMetadata", () => {
 			},
 			customProperties: { added: [], changed: [], removed: [] },
 			customUtilities: { added: [], changed: ["bg-penn-app"], removed: [] },
+			stylesheets: null,
 		};
 
 		expect(getSystemMetadata(result, "src/index.css")).toBe(
 			"+0 ~1 -1 since last review",
+		);
+	});
+
+	it("names stylesheet changes without a token-level change", () => {
+		const result = syncResult({
+			reviewRequired: true,
+			added: 216,
+			removed: 288,
+		});
+		if (!result.data) {
+			throw new Error("expected sync data");
+		}
+		const empty = { added: [], changed: [], removed: [] };
+		result.data.reviewChanges = {
+			confirmedAt: "2026-06-02T16:33:49.228Z",
+			confirmedTailwindBaselineVersion: "4.3.3",
+			tokens: empty,
+			resets: { added: [], removed: [] },
+			customProperties: empty,
+			customUtilities: empty,
+			stylesheets: { ...empty, changed: ["src/theme.css"] },
+		};
+
+		expect(getSystemMetadata(result, "src/index.css")).toBe(
+			"1 stylesheet changed since last review",
 		);
 	});
 

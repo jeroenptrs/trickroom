@@ -498,7 +498,11 @@ Snapshot shape:
   "authored": {
     "domains": {
       "color": { "tokens": { "brand-500": "#2563eb" }, "resets": [] }
-    }
+    },
+    "other": { "tokens": {}, "resets": [] }
+  },
+  "stylesheets": {
+    "files": [{ "path": "src/index.css", "hash": "3b1f…" }]
   },
   "confirmed": {
     "confirmedAt": "2025-12-01T00:00:00.000Z",
@@ -506,31 +510,36 @@ Snapshot shape:
     "domains": {
       "color": { "tokens": {}, "removed": [] }
     },
-    "authored": { "domains": {} },
+    "authored": { "domains": {}, "other": { "tokens": {}, "resets": [] } },
+    "stylesheets": {
+      "files": [{ "path": "src/index.css", "hash": "9c04…" }]
+    },
     "customProperties": {},
     "customUtilities": []
   }
 }
 ```
 
-`authored` is the theme the CSS authors, independent of Tailwind's defaults: per domain (only domains that define something) the values as written and the `initial` reset patterns. Each `customUtilities` entry also records its `definition`, its `@utility` blocks as written.
+`stylesheets` fingerprints the project's own stylesheets (inside the project root, outside Tailwind's package, symlinks resolved), in inlining order: each file's project-relative path and a SHA-256 of its text with comments and whitespace outside strings normalized away. `confirmed.stylesheets` is the fingerprint at the last confirmation, and gates reviews: see [Review And Overrides](tailwind-design-systems.md#review-and-overrides).
+
+`authored` is what the project's stylesheets author, independent of Tailwind's defaults: per domain (only domains that define something) the theme values as written, their `@theme` options (`options`, only for tokens that have any) and the `initial` reset patterns, and under `other` the same for theme variables outside the fixed domains. Each `customUtilities` entry also records its `definition`, its `@utility` blocks in the order Tailwind sees them.
 
 `confirmed` is the project definition at the last confirmed review: the authored theme, the tokens as they resolved then (the fallback while one side has no `authored` yet), the custom properties and the custom utilities. A Tailwind upgrade does not change it. `null` when nothing has been confirmed. See [Review And Overrides](tailwind-design-systems.md#review-and-overrides).
 
-`authored`, `confirmed` and `definition` are optional additions to version 3, not a new version, so an older Trickroom still recognizes the snapshot instead of treating it as missing and re-syncing it into a full review. Its canonicalizer drops the fields it does not know when it rewrites the file. The current Trickroom then derives `confirmed` again and the next sync records `authored` and the definitions again (see below), so the review history since the last confirmation is lost, not the snapshot.
+`authored`, `stylesheets`, `confirmed` and `definition` are optional additions to version 3, not a new version, so an older Trickroom still recognizes the snapshot instead of treating it as missing and re-syncing it into a full review. Its canonicalizer drops the fields it does not know when it rewrites the file. The current Trickroom then derives `confirmed` again (without a fingerprint, so the previous rules apply until the next confirmation) and the next sync records `authored`, `stylesheets` and the definitions again (see below), so the review history since the last confirmation is lost, not the snapshot.
 
 Reads (rewritten on the next canonicalizing read):
 
 - v2 → v3 adds empty `customProperties` and `customUtilities`.
 - A missing `confirmed` is derived: a snapshot with `reviewRequired: false` was confirmed as it is, so its own definition becomes `confirmed` (with its `syncedAt` and `tailwindBaselineVersion`). One with `reviewRequired: true` gets `null`: its review shows the full diff against Tailwind, as a first review.
-- A malformed `authored` or `confirmed` is dropped and treated as missing.
+- A malformed `authored`, `stylesheets` or `confirmed` is dropped and treated as missing.
 
 Write behavior:
 
 - The app syncs tokens for systems when project metadata is loaded.
 - Sync writes or updates `tokens.json` when canonical token data changes. It sets `reviewRequired` only when what the project defines changed; a change to Tailwind's reference values alone keeps it as it was.
 - Sync creates `system.json` if the system folder does not have one yet.
-- Sync records `authored` and the utility definitions, and completes a `confirmed` state that lacks them when the project is unchanged.
+- Sync records `authored`, `stylesheets` and the utility definitions, and completes a `confirmed` state that lacks the authored data when the project is unchanged. The fingerprint is added to `confirmed` only by a confirmation.
 - The systems review dialog writes confirmed overrides, records `confirmed` and clears `reviewRequired`.
 - Reads canonicalize older valid `tokens.json` snapshots when needed.
 - There is no runtime read-through from the old `.trickroom/tailwind` location.

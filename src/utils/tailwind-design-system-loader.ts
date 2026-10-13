@@ -2,6 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { __unstable__loadDesignSystem } from "tailwindcss";
+import { parseCss, readImportTarget } from "./css-source.ts";
 import { defaultTailwindTokensByDomain } from "./default-tailwind-tokens.ts";
 import { recordTailwindSourceFiles } from "./tailwind-source-files.ts";
 
@@ -34,7 +35,15 @@ export type LoadedTailwindDesignSystem = {
 	 * included; they simply contain no project `@utility` definitions.
 	 */
 	cssSource: string;
+	/**
+	 * Every stylesheet the design system loaded, the entry first, in the
+	 * order Tailwind inlines them: depth first along each file's `@import`
+	 * and `@reference` statements. A file imported twice appears twice.
+	 */
+	stylesheets: LoadedStylesheet[];
 };
+
+export type LoadedStylesheet = { path: string; content: string };
 
 export type LoadTailwindDesignSystemOptions = {
 	projectRoot: string;
@@ -70,12 +79,19 @@ export async function loadTrackedTailwindDesignSystem({
 	// introspect `@utility` blocks that live in imported files, not only the
 	// entry CSS. Seeded with the entry CSS; `loadStylesheet` appends imports.
 	const collectedSources: string[] = [css];
+	// Which file each `@import` resolved to, by importing directory and id,
+	// so the stylesheets can be put in inlining order afterwards.
+	const loadedStylesheets = new Map<string, LoadedStylesheet>();
 	const collectingLoadStylesheet = async (id: string, base: string) => {
 		const result = await loadStylesheet(id, base);
 		if (!fileStamps.has(result.path)) {
 			fileStamps.set(result.path, await statStamp(result.path));
 		}
 		collectedSources.push(result.content);
+		loadedStylesheets.set(`${base}\0${id}`, {
+			path: result.path,
+			content: result.content,
+		});
 		return result;
 	};
 
@@ -95,6 +111,7 @@ export async function loadTrackedTailwindDesignSystem({
 		// Drop imports collected by the failed first attempt so the retry's
 		// re-resolved imports are not double-counted in `cssSource`.
 		collectedSources.length = 1;
+		loadedStylesheets.clear();
 		return __unstable__loadDesignSystem(
 			`${css}\n@theme { --spacing: ${sanitizeSpacingThemeToken(defaultTailwindTokensByDomain.spacing.DEFAULT)}; }\n`,
 			loadOptions,
@@ -105,8 +122,53 @@ export async function loadTrackedTailwindDesignSystem({
 		designSystem,
 		rootPath,
 		cssSource: collectedSources.join("\n"),
+		stylesheets: orderLoadedStylesheets(
+			{ path: rootPath, content: css },
+			loadedStylesheets,
+		),
 		fileStamps,
 	};
+}
+
+/**
+ * The loaded stylesheets in inlining order: depth first from the entry along
+ * each file's `@import`/`@reference` statements. Anything loaded that the
+ * walk does not reach is appended in load order, so nothing is left out.
+ */
+function orderLoadedStylesheets(
+	entry: LoadedStylesheet,
+	loaded: ReadonlyMap<string, LoadedStylesheet>,
+): LoadedStylesheet[] {
+	const ordered: LoadedStylesheet[] = [];
+	const reached = new Set<string>();
+	const visit = (stylesheet: LoadedStylesheet, ancestors: Set<string>) => {
+		if (ancestors.has(stylesheet.path)) return;
+		ordered.push(stylesheet);
+		reached.add(stylesheet.path);
+		const nextAncestors = new Set(ancestors).add(stylesheet.path);
+		for (const node of parseCss(stylesheet.content)) {
+			if (
+				node.type !== "at-rule" ||
+				(node.name !== "import" && node.name !== "reference")
+			) {
+				continue;
+			}
+			const id = readImportTarget(node.params);
+			const imported =
+				id === null
+					? undefined
+					: loaded.get(`${path.dirname(stylesheet.path)}\0${id}`);
+			if (imported) visit(imported, nextAncestors);
+		}
+	};
+	visit(entry, new Set());
+	for (const stylesheet of loaded.values()) {
+		if (!reached.has(stylesheet.path)) {
+			ordered.push(stylesheet);
+			reached.add(stylesheet.path);
+		}
+	}
+	return ordered;
 }
 
 /** `mtimeMs:size`, or null when the file cannot be stat'ed. */

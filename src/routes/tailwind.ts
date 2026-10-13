@@ -35,18 +35,20 @@ import {
 	type TailwindDesignSystem,
 	TailwindSystemResolutionError,
 } from "../utils/tailwind-design-system";
+import type { LoadedStylesheet } from "../utils/tailwind-design-system-loader";
+import { createTailwindIntrospection } from "../utils/tailwind-introspection";
 import {
-	createTailwindIntrospection,
+	extractAuthoredTheme,
 	extractCustomUtilityDefinitions,
-} from "../utils/tailwind-introspection";
+	fingerprintStylesheets,
+	selectProjectStylesheets,
+} from "../utils/tailwind-project-stylesheets";
 import { serializeTailwindThemeDomains } from "../utils/tailwind-theme-css";
 import {
 	diffTailwindTokensAgainstDefaults,
 	extractTailwindTokensForPresentation as extractAllTailwindTokensForPresentation,
-	extractAuthoredTailwindTokens,
 	extractCustomTailwindProperties,
 	extractTailwindCustomUtilities,
-	extractTailwindTokenResetOverrides,
 	extractTailwindTokens,
 	isValidTokenDomain,
 	TAILWIND_TOKEN_DOMAIN_NAMESPACES,
@@ -59,6 +61,7 @@ import {
 import { renderTailwindTokenHtml } from "../utils/tailwind-token-export";
 import {
 	areProjectTokenDefinitionsEquivalent,
+	areStylesheetFingerprintsEqual,
 	backfillConfirmedTokenState,
 	computeTokenReviewChanges,
 	type TailwindTokenReviewChanges,
@@ -75,6 +78,7 @@ import {
 	type TailwindAuthoredTokens,
 	type TailwindConfirmedTokenState,
 	type TailwindCustomUtilityStorage,
+	type TailwindStylesheetFingerprint,
 	type TailwindTokenStorage,
 } from "../utils/tailwind-token-store";
 
@@ -136,6 +140,7 @@ type TailwindSyncPreview = {
 	customProperties: Record<string, string>;
 	customUtilities: TailwindCustomUtilityStorage[];
 	authored: TailwindAuthoredTokens;
+	stylesheets: TailwindStylesheetFingerprint;
 };
 
 type TailwindSyncResponse = {
@@ -206,19 +211,41 @@ const syncTailwindTokensForCssPath = async (
 		projectRoot,
 		cssPath: targetCssPath,
 	});
-	return syncTailwindTokensForLoadedDesignSystem(
-		loaded.designSystem,
-		loaded.cssSource,
-	);
+	return syncTailwindTokensForLoadedDesignSystem({
+		projectRoot,
+		designSystem: loaded.designSystem,
+		cssSource: loaded.cssSource,
+		stylesheets: loaded.stylesheets,
+	});
 };
 
-const syncTailwindTokensForLoadedDesignSystem = (
-	designSystem: TailwindDesignSystem,
-	cssSource: string,
-) => {
+const syncTailwindTokensForLoadedDesignSystem = ({
+	projectRoot,
+	designSystem,
+	cssSource,
+	stylesheets,
+}: {
+	projectRoot: string;
+	designSystem: TailwindDesignSystem;
+	cssSource: string;
+	stylesheets: LoadedStylesheet[];
+}) => {
+	// The project's own stylesheets: their fingerprint gates reviews, and
+	// what they author (theme entries with their options, `initial` resets
+	// read from the parsed CSS) explains them.
+	const projectStylesheets = selectProjectStylesheets(projectRoot, stylesheets);
+	const authored = extractAuthoredTheme({
+		designSystem,
+		projectRoot,
+		projectStylesheets,
+	});
 	const tokensByDomain = extractTailwindTokens(designSystem);
-	const resetOverridesByDomain =
-		extractTailwindTokenResetOverrides(designSystem);
+	const resetOverridesByDomain = Object.fromEntries(
+		TAILWIND_TOKEN_DOMAINS.map((domain) => [
+			domain,
+			authored.domains[domain]?.resets ?? [],
+		]),
+	) as Record<TailwindTokenDomain, string[]>;
 	const baselineDiffs = diffTailwindTokensAgainstDefaults(
 		tokensByDomain,
 		defaultTailwindTokensByDomainForRoute,
@@ -231,7 +258,7 @@ const syncTailwindTokensForLoadedDesignSystem = (
 	// them so the editor recognises custom utilities like text-interaction-*.
 	const introspection = createTailwindIntrospection(designSystem, cssSource);
 	const customProperties = extractCustomTailwindProperties(introspection);
-	const utilityDefinitions = extractCustomUtilityDefinitions(cssSource);
+	const utilityDefinitions = extractCustomUtilityDefinitions(stylesheets);
 	const customUtilities: TailwindCustomUtilityStorage[] =
 		extractTailwindCustomUtilities(introspection).map((utility) => ({
 			root: utility.root,
@@ -242,21 +269,6 @@ const syncTailwindTokensForLoadedDesignSystem = (
 			definition: utilityDefinitions.get(utility.root),
 		}));
 
-	// What the CSS authors, independent of Tailwind's defaults: the theme as
-	// written and its `initial` resets. Reviews compare this.
-	const authoredTokens = extractAuthoredTailwindTokens(designSystem);
-	const authored: TailwindAuthoredTokens = {
-		domains: Object.fromEntries(
-			TAILWIND_TOKEN_DOMAINS.map((domain) => [
-				domain,
-				{
-					tokens: authoredTokens[domain],
-					resets: resetOverridesByDomain[domain] ?? [],
-				},
-			]),
-		),
-	};
-
 	return {
 		tokens: extractAllTailwindTokensForPresentation(baselineDiffs),
 		baselineDiff,
@@ -265,6 +277,7 @@ const syncTailwindTokensForLoadedDesignSystem = (
 		customProperties,
 		customUtilities,
 		authored,
+		stylesheets: fingerprintStylesheets(projectStylesheets),
 	} satisfies TailwindSyncPreview;
 };
 
@@ -311,6 +324,7 @@ const buildCanonicalSnapshot = ({
 	customProperties,
 	customUtilities,
 	authored,
+	stylesheets,
 	confirmed,
 }: {
 	projectRoot: string;
@@ -326,6 +340,7 @@ const buildCanonicalSnapshot = ({
 	customProperties: Record<string, string>;
 	customUtilities: TailwindCustomUtilityStorage[];
 	authored: TailwindAuthoredTokens;
+	stylesheets: TailwindStylesheetFingerprint;
 	confirmed: TailwindConfirmedTokenState | null;
 }): TailwindTokenStorage => ({
 	version: 3,
@@ -358,6 +373,7 @@ const buildCanonicalSnapshot = ({
 	customProperties,
 	customUtilities,
 	authored,
+	stylesheets,
 	confirmed,
 });
 
@@ -459,6 +475,7 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 			customProperties: preview.customProperties,
 			customUtilities: preview.customUtilities,
 			authored: preview.authored,
+			stylesheets: preview.stylesheets,
 			confirmed: stored?.confirmed ?? null,
 		});
 
@@ -477,26 +494,38 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 			);
 		}
 
-		// Only a change to what the project defines needs review. A sync that
-		// only moves Tailwind's reference values (a new baseline version, other
-		// default values, defaults added or removed) updates the snapshot and
-		// leaves the review state as it was. With a confirmed state, review is
-		// required exactly while the project differs from it. A confirmed
-		// state from before the authored theme was recorded is completed from
-		// an equivalent sync, so later reviews compare what the CSS authors.
+		// The gate is the project's own stylesheets: with a fingerprint
+		// confirmed, review is required exactly while they differ from it,
+		// whatever Tailwind's reference values did. Without one (a confirmed
+		// state from before fingerprints, or none), only a change to what the
+		// project defines needs review: a sync that only moves Tailwind's
+		// reference values keeps the review state as it was, and with a
+		// confirmed state review is required while the project differs from
+		// it. The next confirmation records the fingerprint. A confirmed state
+		// from before the authored theme was recorded is completed from an
+		// equivalent sync.
 		const nextDefinition = getProjectTokenDefinition(nextCanonicalSnapshot);
+		const stylesheetsChanged = stored?.stylesheets
+			? !areStylesheetFingerprintsEqual(stored.stylesheets, preview.stylesheets)
+			: null;
 		const projectChanged =
-			!stored ||
-			!areProjectTokenDefinitionsEquivalent(
-				getProjectTokenDefinition(stored),
-				nextDefinition,
-			);
+			stylesheetsChanged ??
+			(!stored ||
+				!areProjectTokenDefinitionsEquivalent(
+					getProjectTokenDefinition(stored),
+					nextDefinition,
+				));
 		const confirmed = stored?.confirmed
 			? backfillConfirmedTokenState(stored.confirmed, nextDefinition)
 			: null;
-		const reviewRequired = confirmed
-			? !areProjectTokenDefinitionsEquivalent(confirmed, nextDefinition)
-			: projectChanged || (stored?.metadata.reviewRequired ?? true);
+		const reviewRequired = confirmed?.stylesheets
+			? !areStylesheetFingerprintsEqual(
+					confirmed.stylesheets,
+					preview.stylesheets,
+				)
+			: confirmed
+				? !areProjectTokenDefinitionsEquivalent(confirmed, nextDefinition)
+				: projectChanged || (stored?.metadata.reviewRequired ?? true);
 		const changes: TailwindSyncChanges = projectChanged
 			? "project"
 			: haveTailwindReferenceValuesChanged(stored, nextCanonicalSnapshot)
@@ -518,6 +547,7 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 			customProperties: preview.customProperties,
 			customUtilities: preview.customUtilities,
 			authored: preview.authored,
+			stylesheets: preview.stylesheets,
 			confirmed,
 		});
 		const updated = await readDomainTokens(
@@ -1124,6 +1154,7 @@ tailwindRoutes.post("/systems/:systemName/tokens", async (c) => {
 			customProperties: stored.customProperties,
 			customUtilities: stored.customUtilities,
 			authored: stored.authored,
+			stylesheets: stored.stylesheets,
 			reviewRequired: false,
 			syncedAt: stored.metadata.syncedAt,
 			confirmed: createConfirmedTokenState(stored, new Date().toISOString()),

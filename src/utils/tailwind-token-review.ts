@@ -7,10 +7,12 @@ import {
 	type TailwindTokenDomain,
 } from "./tailwind-token-domains";
 import type {
+	TailwindAuthoredDomainDefinition,
 	TailwindAuthoredTokens,
 	TailwindConfirmedTokenState,
 	TailwindCustomUtilityStorage,
 	TailwindProjectTokenDefinition,
+	TailwindStylesheetFingerprint,
 } from "./tailwind-token-store";
 
 /**
@@ -24,12 +26,24 @@ export type TailwindTokenReviewEntry = {
 	name: string;
 	value?: string;
 	previousValue?: string;
+	/** `@theme` options (`inline`, `reference`, …) when they changed. */
+	options?: string[];
+	previousOptions?: string[];
 };
 
 export type TailwindCustomPropertyReviewEntry = {
 	name: string;
 	value?: string;
 	previousValue?: string;
+	options?: string[];
+	previousOptions?: string[];
+};
+
+/** Project stylesheets (project-relative paths) changed since the review. */
+export type TailwindStylesheetReviewChanges = {
+	added: string[];
+	changed: string[];
+	removed: string[];
 };
 
 /** An authored `initial` reset, e.g. `--color-*`, in its domain. */
@@ -66,6 +80,11 @@ export type TailwindTokenReviewChanges = {
 		changed: string[];
 		removed: string[];
 	};
+	/**
+	 * The project stylesheets that changed, what gates the review. `null`
+	 * when the confirmed state or the snapshot has no fingerprint.
+	 */
+	stylesheets: TailwindStylesheetReviewChanges | null;
 };
 
 /**
@@ -81,6 +100,8 @@ export type TokenReviewCounts = {
 	changed: number;
 	removed: number;
 	total: number;
+	/** Project stylesheets changed since the review, counted apart. */
+	stylesheets: number;
 	/** Whether the counts are changes since the last confirmed review. */
 	sinceLastReview: boolean;
 };
@@ -141,11 +162,17 @@ export function getTokenReviewCounts({
 			resets.added.length +
 			customProperties.removed.length +
 			customUtilities.removed.length;
+		const stylesheets = reviewChanges.stylesheets;
 		return {
 			added,
 			changed,
 			removed,
 			total: added + changed + removed,
+			stylesheets: stylesheets
+				? stylesheets.added.length +
+					stylesheets.changed.length +
+					stylesheets.removed.length
+				: 0,
 			sinceLastReview: true,
 		};
 	}
@@ -164,7 +191,65 @@ export function getTokenReviewCounts({
 		changed,
 		removed,
 		total: added + changed + removed,
+		stylesheets: 0,
 		sinceLastReview: false,
+	};
+}
+
+/** Same files with the same content, in the same order. */
+export function areStylesheetFingerprintsEqual(
+	left: TailwindStylesheetFingerprint,
+	right: TailwindStylesheetFingerprint,
+): boolean {
+	return (
+		left.files.length === right.files.length &&
+		left.files.every(
+			(file, index) =>
+				file.path === right.files[index]?.path &&
+				file.hash === right.files[index]?.hash,
+		)
+	);
+}
+
+/**
+ * The project stylesheets added, changed (other content, or imported in
+ * another order) and removed between two fingerprints.
+ */
+export function diffStylesheetFingerprints(
+	before: TailwindStylesheetFingerprint,
+	after: TailwindStylesheetFingerprint,
+): TailwindStylesheetReviewChanges {
+	const hashesOf = (fingerprint: TailwindStylesheetFingerprint) => {
+		const hashes = new Map<string, string[]>();
+		for (const file of fingerprint.files) {
+			hashes.set(file.path, [...(hashes.get(file.path) ?? []), file.hash]);
+		}
+		return hashes;
+	};
+	const previous = hashesOf(before);
+	const next = hashesOf(after);
+	const paths = sortedUnion(previous.keys(), next.keys());
+	const reordered =
+		!areStylesheetFingerprintsEqual(before, after) &&
+		paths.every(
+			(file) =>
+				JSON.stringify(previous.get(file)) === JSON.stringify(next.get(file)),
+		);
+	return {
+		added: paths.filter((file) => !previous.has(file)),
+		changed: reordered
+			? // Only the order differs: the importing files did.
+				after.files
+					.filter((file, index) => before.files[index]?.path !== file.path)
+					.map((file) => file.path)
+			: paths.filter(
+					(file) =>
+						previous.has(file) &&
+						next.has(file) &&
+						JSON.stringify(previous.get(file)) !==
+							JSON.stringify(next.get(file)),
+				),
+		removed: paths.filter((file) => !next.has(file)),
 	};
 }
 
@@ -191,10 +276,17 @@ export function areProjectTokenDefinitionsEquivalent(
 		return false;
 	}
 
-	if (
-		JSON.stringify(comparableCustomProperties(left.customProperties)) !==
-		JSON.stringify(comparableCustomProperties(right.customProperties))
-	) {
+	// Variables outside the domains: as authored when both sides record
+	// them, otherwise the custom properties utilities consume.
+	const leftOther = left.authored?.other;
+	const rightOther = right.authored?.other;
+	const otherEqual =
+		leftOther && rightOther
+			? JSON.stringify(comparableAuthoredDomain(leftOther)) ===
+				JSON.stringify(comparableAuthoredDomain(rightOther))
+			: JSON.stringify(comparableCustomProperties(left.customProperties)) ===
+				JSON.stringify(comparableCustomProperties(right.customProperties));
+	if (!otherEqual) {
 		return false;
 	}
 
@@ -266,19 +358,88 @@ export function computeTokenReviewChanges(
 			? diffAuthoredTokens(confirmed.authored, current.authored)
 			: null;
 
+	const confirmedOther = confirmed.authored?.other;
+	const currentOther = current.authored?.other;
+
 	return {
 		confirmedAt: confirmed.confirmedAt,
 		confirmedTailwindBaselineVersion: confirmed.tailwindBaselineVersion,
 		tokens: authored?.tokens ?? diffResolvedTokens(confirmed, current),
 		resets: authored?.resets ?? { added: [], removed: [] },
-		customProperties: diffCustomProperties(
-			comparableCustomProperties(confirmed.customProperties),
-			comparableCustomProperties(current.customProperties),
-		),
+		customProperties:
+			confirmedOther && currentOther
+				? diffAuthoredOther(confirmedOther, currentOther)
+				: diffCustomProperties(
+						comparableCustomProperties(confirmed.customProperties),
+						comparableCustomProperties(current.customProperties),
+					),
 		customUtilities: diffCustomUtilities(
 			confirmed.customUtilities,
 			current.customUtilities,
 		),
+		stylesheets:
+			confirmed.stylesheets && current.stylesheets
+				? diffStylesheetFingerprints(confirmed.stylesheets, current.stylesheets)
+				: null,
+	};
+}
+
+/** Theme variables outside the domains, by full name, with their options. */
+function diffAuthoredOther(
+	before: TailwindAuthoredDomainDefinition,
+	after: TailwindAuthoredDomainDefinition,
+): TailwindTokenReviewChanges["customProperties"] {
+	const changes: TailwindTokenReviewChanges["customProperties"] = {
+		added: [],
+		changed: [],
+		removed: [],
+	};
+	for (const name of sortedUnion(
+		Object.keys(before.tokens),
+		Object.keys(after.tokens),
+	)) {
+		const previousValue = before.tokens[name];
+		const value = after.tokens[name];
+		if (previousValue === undefined && value !== undefined) {
+			changes.added.push({ name, value });
+		} else if (value === undefined && previousValue !== undefined) {
+			changes.removed.push({ name, previousValue });
+		} else if (value !== undefined && previousValue !== undefined) {
+			const change = describeAuthoredChange(before, after, name);
+			if (change) {
+				changes.changed.push({ name, ...change });
+			}
+		}
+	}
+	return changes;
+}
+
+/**
+ * The value and options of a token both sides author, when the value or the
+ * `@theme` options differ; null when neither does.
+ */
+function describeAuthoredChange(
+	before: TailwindAuthoredDomainDefinition,
+	after: TailwindAuthoredDomainDefinition,
+	name: string,
+): Omit<TailwindCustomPropertyReviewEntry, "name"> | null {
+	const previousValue = before.tokens[name] as string;
+	const value = after.tokens[name] as string;
+	const previousOptions = before.options?.[name] ?? [];
+	const options = after.options?.[name] ?? [];
+	const valueChanged =
+		normalizeTailwindTokenValue(previousValue) !==
+		normalizeTailwindTokenValue(value);
+	const optionsChanged =
+		JSON.stringify([...previousOptions].sort()) !==
+		JSON.stringify([...options].sort());
+	if (!valueChanged && !optionsChanged) {
+		return null;
+	}
+	return {
+		previousValue,
+		value,
+		...(optionsChanged ? { previousOptions, options } : {}),
 	};
 }
 
@@ -311,11 +472,13 @@ function diffAuthoredTokens(
 			const previousValue = previousTokens[name];
 			const value = nextTokens[name];
 			if (previousValue !== undefined && value !== undefined) {
-				if (
-					normalizeTailwindTokenValue(previousValue) !==
-					normalizeTailwindTokenValue(value)
-				) {
-					tokens.changed.push({ domain, name, previousValue, value });
+				const change = describeAuthoredChange(
+					before.domains[domain] as TailwindAuthoredDomainDefinition,
+					after.domains[domain] as TailwindAuthoredDomainDefinition,
+					name,
+				);
+				if (change) {
+					tokens.changed.push({ domain, name, ...change });
 				}
 			} else if (value !== undefined) {
 				tokens.added.push({ domain, name, value });
@@ -445,24 +608,52 @@ function resolveDomainTokens(
 function comparableAuthored(authored: TailwindAuthoredTokens) {
 	return TAILWIND_TOKEN_DOMAINS.flatMap((domain) => {
 		const storage = authored.domains[domain];
-		const tokens = normalizedValues(storage?.tokens ?? {});
-		const resets = [...new Set(storage?.resets ?? [])].sort();
-		return Object.keys(tokens).length > 0 || resets.length > 0
-			? [[domain, tokens, resets]]
+		const comparable = storage ? comparableAuthoredDomain(storage) : null;
+		return comparable &&
+			(Object.keys(comparable.tokens).length > 0 ||
+				comparable.resets.length > 0)
+			? [[domain, comparable]]
 			: [];
 	});
 }
 
+/** Values normalized, resets and options sorted. */
+function comparableAuthoredDomain(storage: TailwindAuthoredDomainDefinition) {
+	return {
+		tokens: normalizedValues(storage.tokens),
+		resets: [...new Set(storage.resets)].sort(),
+		options: Object.fromEntries(
+			Object.entries(storage.options ?? {})
+				.filter(([, values]) => values.length > 0)
+				.map(([name, values]) => [name, [...values].sort()])
+				.sort(([left], [right]) =>
+					(left as string).localeCompare(right as string),
+				),
+		),
+	};
+}
+
 /**
- * Removed names compare only while they are Tailwind defaults: a default
- * Tailwind dropped is no longer removed by anything.
+ * Tokens equal to today's default are left out, as a sync today would
+ * leave them out: the default caught up with the theme. Removed names
+ * compare only while they are Tailwind defaults: a default Tailwind dropped
+ * is no longer removed by anything.
  */
 function comparableResolved(definition: TailwindProjectTokenDefinition) {
 	return TAILWIND_TOKEN_DOMAINS.flatMap((domain) => {
 		const storage = definition.domains[domain];
 		const defaults: Record<string, string> =
 			defaultTailwindTokensByDomain[domain] ?? {};
-		const tokens = normalizedValues(storage?.tokens ?? {});
+		const tokens = normalizedValues(
+			Object.fromEntries(
+				Object.entries(storage?.tokens ?? {}).filter(
+					([name, value]) =>
+						defaults[name] === undefined ||
+						normalizeTailwindTokenValue(defaults[name]) !==
+							normalizeTailwindTokenValue(value),
+				),
+			),
+		);
 		const removed = [...new Set(storage?.removed ?? [])]
 			.filter((name) => defaults[name] !== undefined)
 			.sort();
