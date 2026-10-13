@@ -74,10 +74,12 @@ import {
 	normalizeTokenStorageForComparison,
 	readDomainTokens,
 	readDomainTokensReadonly,
+	runExclusiveTokenWrite,
 	storeDomainTokens,
 	type TailwindAuthoredTokens,
 	type TailwindConfirmedTokenState,
 	type TailwindCustomUtilityStorage,
+	type TailwindProjectTokenDefinition,
 	type TailwindStylesheetFingerprint,
 	type TailwindTokenStorage,
 } from "../utils/tailwind-token-store";
@@ -230,15 +232,11 @@ const syncTailwindTokensForLoadedDesignSystem = ({
 	cssSource: string;
 	stylesheets: LoadedStylesheet[];
 }) => {
-	// The project's own stylesheets: their fingerprint gates reviews, and
-	// what they author (theme entries with their options, `initial` resets
-	// read from the parsed CSS) explains them.
+	// The project's own stylesheets: their fingerprint gates reviews. What
+	// every stylesheet but Tailwind's defines (theme entries with their
+	// options, `initial` resets) gates them too, and explains them.
 	const projectStylesheets = selectProjectStylesheets(projectRoot, stylesheets);
-	const authored = extractAuthoredTheme({
-		designSystem,
-		projectRoot,
-		projectStylesheets,
-	});
+	const authored = extractAuthoredTheme({ designSystem, stylesheets });
 	const tokensByDomain = extractTailwindTokens(designSystem);
 	const resetOverridesByDomain = Object.fromEntries(
 		TAILWIND_TOKEN_DOMAINS.map((domain) => [
@@ -447,125 +445,145 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 			config,
 			target,
 		);
-		const preview = await syncTailwindTokensForCssPath(
-			projectRoot,
-			resolvedTarget.cssPath,
-		);
-		const stored = await readDomainTokens(projectRoot, resolvedTarget.systemId);
-		const syncedTokens = buildSyncedColorTokens(preview.baselineDiff);
-		const syncedDomainTokens = buildSyncedDomainTokens(preview.baselineDiffs);
-		const overrides = stored?.domains.color.overrides ?? [];
-		const domainOverrides = Object.fromEntries(
-			TAILWIND_TOKEN_DOMAINS.map((domain) => [
-				domain,
-				stored?.domains[domain]?.overrides ?? [],
-			]),
-		) as Partial<Record<TailwindTokenDomain, string[]>>;
-		const nextCanonicalSnapshot = buildCanonicalSnapshot({
-			projectRoot,
-			cssPath: resolvedTarget.cssPath,
-			tokens: syncedTokens,
-			domains: syncedDomainTokens,
-			overrides,
-			domainOverrides,
-			baselineDiff: preview.baselineDiff,
-			baselineDiffs: preview.baselineDiffs,
-			syncedAt: stored?.metadata.syncedAt ?? new Date().toISOString(),
-			reviewRequired: stored ? stored.metadata.reviewRequired : true,
-			customProperties: preview.customProperties,
-			customUtilities: preview.customUtilities,
-			authored: preview.authored,
-			stylesheets: preview.stylesheets,
-			confirmed: stored?.confirmed ?? null,
-		});
-
-		if (
-			stored &&
-			areTokenStoragesEquivalent(stored, nextCanonicalSnapshot, projectRoot)
-		) {
-			return c.json(
-				buildTailwindSyncResponse({
-					status: "ok",
-					changes: "none",
-					preview,
-					storage: stored,
-					system: resolvedTarget,
-				}),
-			);
-		}
-
-		// The gate is the project's own stylesheets: with a fingerprint
-		// confirmed, review is required exactly while they differ from it,
-		// whatever Tailwind's reference values did. Without one (a confirmed
-		// state from before fingerprints, or none), only a change to what the
-		// project defines needs review: a sync that only moves Tailwind's
-		// reference values keeps the review state as it was, and with a
-		// confirmed state review is required while the project differs from
-		// it. The next confirmation records the fingerprint. A confirmed state
-		// from before the authored theme was recorded is completed from an
-		// equivalent sync.
-		const nextDefinition = getProjectTokenDefinition(nextCanonicalSnapshot);
-		const stylesheetsChanged = stored?.stylesheets
-			? !areStylesheetFingerprintsEqual(stored.stylesheets, preview.stylesheets)
-			: null;
-		const projectChanged =
-			stylesheetsChanged ??
-			(!stored ||
-				!areProjectTokenDefinitionsEquivalent(
-					getProjectTokenDefinition(stored),
-					nextDefinition,
-				));
-		const confirmed = stored?.confirmed
-			? backfillConfirmedTokenState(stored.confirmed, nextDefinition)
-			: null;
-		const reviewRequired = confirmed?.stylesheets
-			? !areStylesheetFingerprintsEqual(
-					confirmed.stylesheets,
-					preview.stylesheets,
-				)
-			: confirmed
-				? !areProjectTokenDefinitionsEquivalent(confirmed, nextDefinition)
-				: projectChanged || (stored?.metadata.reviewRequired ?? true);
-		const changes: TailwindSyncChanges = projectChanged
-			? "project"
-			: haveTailwindReferenceValuesChanged(stored, nextCanonicalSnapshot)
-				? "tailwind"
-				: "none";
-
-		await storeDomainTokens({
-			projectRoot,
-			systemName: resolvedTarget.systemId,
-			cssPath: resolvedTarget.cssPath,
-			tailwindBaselineVersion: defaultTailwindTokensVersion,
-			tokens: syncedTokens,
-			domains: syncedDomainTokens,
-			overrides,
-			domainOverrides,
-			baselineDiff: preview.baselineDiff,
-			domainBaselineDiffs: preview.baselineDiffs,
-			reviewRequired,
-			customProperties: preview.customProperties,
-			customUtilities: preview.customUtilities,
-			authored: preview.authored,
-			stylesheets: preview.stylesheets,
-			confirmed,
-		});
-		const updated = await readDomainTokens(
+		// One sync or confirmation of this system at a time, from reading the
+		// stylesheets to writing the snapshot.
+		return await runExclusiveTokenWrite(
 			projectRoot,
 			resolvedTarget.systemId,
-		);
-		if (!updated) {
-			return jsonError("Failed to persist synced Tailwind tokens", 500);
-		}
+			async () => {
+				const preview = await syncTailwindTokensForCssPath(
+					projectRoot,
+					resolvedTarget.cssPath,
+				);
+				const stored = await readDomainTokens(
+					projectRoot,
+					resolvedTarget.systemId,
+				);
+				const syncedTokens = buildSyncedColorTokens(preview.baselineDiff);
+				const syncedDomainTokens = buildSyncedDomainTokens(
+					preview.baselineDiffs,
+				);
+				const overrides = stored?.domains.color.overrides ?? [];
+				const domainOverrides = Object.fromEntries(
+					TAILWIND_TOKEN_DOMAINS.map((domain) => [
+						domain,
+						stored?.domains[domain]?.overrides ?? [],
+					]),
+				) as Partial<Record<TailwindTokenDomain, string[]>>;
+				const nextCanonicalSnapshot = buildCanonicalSnapshot({
+					projectRoot,
+					cssPath: resolvedTarget.cssPath,
+					tokens: syncedTokens,
+					domains: syncedDomainTokens,
+					overrides,
+					domainOverrides,
+					baselineDiff: preview.baselineDiff,
+					baselineDiffs: preview.baselineDiffs,
+					syncedAt: stored?.metadata.syncedAt ?? new Date().toISOString(),
+					reviewRequired: stored ? stored.metadata.reviewRequired : true,
+					customProperties: preview.customProperties,
+					customUtilities: preview.customUtilities,
+					authored: preview.authored,
+					stylesheets: preview.stylesheets,
+					confirmed: stored?.confirmed ?? null,
+				});
 
-		return c.json(
-			buildTailwindSyncResponse({
-				status: "updated",
-				changes,
-				preview,
-				storage: updated,
-				system: resolvedTarget,
-			}),
+				if (
+					stored &&
+					areTokenStoragesEquivalent(stored, nextCanonicalSnapshot, projectRoot)
+				) {
+					return c.json(
+						buildTailwindSyncResponse({
+							status: "ok",
+							changes: "none",
+							preview,
+							storage: stored,
+							system: resolvedTarget,
+						}),
+					);
+				}
+
+				// Review is required while, since the confirmation, either the
+				// project's own stylesheets changed (their fingerprint, when the
+				// confirmation recorded one) or what the stylesheets define changed
+				// (tokens, resets and their values, custom properties, utilities: from
+				// any stylesheet but Tailwind's, so an import from outside the project
+				// counts too). Tailwind's reference values (baseline version, default
+				// values, which defaults exist) are part of neither. Without a
+				// confirmed state, any change needs review and a pending one stays.
+				// A confirmed state from before the authored theme was recorded is
+				// completed from an equivalent sync.
+				const nextDefinition = getProjectTokenDefinition(nextCanonicalSnapshot);
+				const changedSince = (since: {
+					stylesheets?: TailwindStylesheetFingerprint;
+					definition: TailwindProjectTokenDefinition;
+				}) =>
+					(since.stylesheets !== undefined &&
+						!areStylesheetFingerprintsEqual(
+							since.stylesheets,
+							preview.stylesheets,
+						)) ||
+					!areProjectTokenDefinitionsEquivalent(
+						since.definition,
+						nextDefinition,
+					);
+				const projectChanged =
+					!stored ||
+					changedSince({
+						stylesheets: stored.stylesheets,
+						definition: getProjectTokenDefinition(stored),
+					});
+				const confirmed = stored?.confirmed
+					? backfillConfirmedTokenState(stored.confirmed, nextDefinition)
+					: null;
+				const reviewRequired = confirmed
+					? changedSince({
+							stylesheets: confirmed.stylesheets,
+							definition: confirmed,
+						})
+					: projectChanged || (stored?.metadata.reviewRequired ?? true);
+				const changes: TailwindSyncChanges = projectChanged
+					? "project"
+					: haveTailwindReferenceValuesChanged(stored, nextCanonicalSnapshot)
+						? "tailwind"
+						: "none";
+
+				await storeDomainTokens({
+					projectRoot,
+					systemName: resolvedTarget.systemId,
+					cssPath: resolvedTarget.cssPath,
+					tailwindBaselineVersion: defaultTailwindTokensVersion,
+					tokens: syncedTokens,
+					domains: syncedDomainTokens,
+					overrides,
+					domainOverrides,
+					baselineDiff: preview.baselineDiff,
+					domainBaselineDiffs: preview.baselineDiffs,
+					reviewRequired,
+					customProperties: preview.customProperties,
+					customUtilities: preview.customUtilities,
+					authored: preview.authored,
+					stylesheets: preview.stylesheets,
+					confirmed,
+				});
+				const updated = await readDomainTokens(
+					projectRoot,
+					resolvedTarget.systemId,
+				);
+				if (!updated) {
+					return jsonError("Failed to persist synced Tailwind tokens", 500);
+				}
+
+				return c.json(
+					buildTailwindSyncResponse({
+						status: "updated",
+						changes,
+						preview,
+						storage: updated,
+						system: resolvedTarget,
+					}),
+				);
+			},
 		);
 	} catch (error) {
 		if (error instanceof TailwindSystemResolutionError) {
@@ -1114,71 +1132,73 @@ tailwindRoutes.post("/systems/:systemName/tokens", async (c) => {
 	try {
 		const system = await findDesignSystem(projectRoot, systemName);
 		const systemHandle = system?.manifest.systemId ?? systemName;
-		const stored = await readDomainTokens(projectRoot, systemHandle);
+		return await runExclusiveTokenWrite(projectRoot, systemHandle, async () => {
+			const stored = await readDomainTokens(projectRoot, systemHandle);
 
-		if (!stored) {
-			return jsonError(`No tokens stored for system "${systemName}"`, 404);
-		}
+			if (!stored) {
+				return jsonError(`No tokens stored for system "${systemName}"`, 404);
+			}
 
-		const domainOverrides = Object.fromEntries(
-			TAILWIND_TOKEN_DOMAINS.map((domain) => [
-				domain,
-				requestedOverrides[domain] ?? stored.domains[domain].overrides,
-			]),
-		) as Partial<Record<TailwindTokenDomain, string[]>>;
-
-		// Update overrides only, preserve synced tokens
-		await storeDomainTokens({
-			projectRoot,
-			systemName: systemHandle,
-			tokens: stored.domains.color.tokens,
-			domains: Object.fromEntries(
+			const domainOverrides = Object.fromEntries(
 				TAILWIND_TOKEN_DOMAINS.map((domain) => [
 					domain,
-					stored.domains[domain].tokens,
+					requestedOverrides[domain] ?? stored.domains[domain].overrides,
 				]),
-			) as TailwindTokenDomains,
-			overrides: domainOverrides.color ?? [],
-			domainOverrides,
-			tailwindBaselineVersion: stored.metadata.tailwindBaselineVersion,
-			cssPath: stored.metadata.cssPath,
-			baselineDiff: stored.domains.color.baselineDiff,
-			domainBaselineDiffs: Object.fromEntries(
-				TAILWIND_TOKEN_DOMAINS.map((domain) => [
-					domain,
-					stored.domains[domain].baselineDiff,
-				]),
-			) as Partial<
-				Record<TailwindTokenDomain, TailwindMeaningfulTokenBaselineDiff>
-			>,
-			customProperties: stored.customProperties,
-			customUtilities: stored.customUtilities,
-			authored: stored.authored,
-			stylesheets: stored.stylesheets,
-			reviewRequired: false,
-			syncedAt: stored.metadata.syncedAt,
-			confirmed: createConfirmedTokenState(stored, new Date().toISOString()),
-		});
+			) as Partial<Record<TailwindTokenDomain, string[]>>;
 
-		// Read back to get normalized (sorted) overrides
-		const updated = await readDomainTokens(projectRoot, systemHandle);
+			// Update overrides only, preserve synced tokens
+			await storeDomainTokens({
+				projectRoot,
+				systemName: systemHandle,
+				tokens: stored.domains.color.tokens,
+				domains: Object.fromEntries(
+					TAILWIND_TOKEN_DOMAINS.map((domain) => [
+						domain,
+						stored.domains[domain].tokens,
+					]),
+				) as TailwindTokenDomains,
+				overrides: domainOverrides.color ?? [],
+				domainOverrides,
+				tailwindBaselineVersion: stored.metadata.tailwindBaselineVersion,
+				cssPath: stored.metadata.cssPath,
+				baselineDiff: stored.domains.color.baselineDiff,
+				domainBaselineDiffs: Object.fromEntries(
+					TAILWIND_TOKEN_DOMAINS.map((domain) => [
+						domain,
+						stored.domains[domain].baselineDiff,
+					]),
+				) as Partial<
+					Record<TailwindTokenDomain, TailwindMeaningfulTokenBaselineDiff>
+				>,
+				customProperties: stored.customProperties,
+				customUtilities: stored.customUtilities,
+				authored: stored.authored,
+				stylesheets: stored.stylesheets,
+				reviewRequired: false,
+				syncedAt: stored.metadata.syncedAt,
+				confirmed: createConfirmedTokenState(stored, new Date().toISOString()),
+			});
 
-		if (!updated) {
-			return jsonError("Failed to read updated tokens", 500);
-		}
+			// Read back to get normalized (sorted) overrides
+			const updated = await readDomainTokens(projectRoot, systemHandle);
 
-		return c.json({
-			ok: true,
-			systemId: system?.manifest.systemId ?? systemName,
-			systemName: system?.manifest.systemName ?? systemName,
-			cssPath: system?.manifest.cssPath ?? updated.metadata.cssPath,
-			syncedAt: updated.metadata.syncedAt,
-			tailwindBaselineVersion: updated.metadata.tailwindBaselineVersion,
-			reviewRequired: updated.metadata.reviewRequired,
-			reviewChanges: getTokenReviewChanges(updated),
-			domains: updated.domains,
-			customProperties: updated.customProperties,
-			customUtilities: updated.customUtilities,
+			if (!updated) {
+				return jsonError("Failed to read updated tokens", 500);
+			}
+
+			return c.json({
+				ok: true,
+				systemId: system?.manifest.systemId ?? systemName,
+				systemName: system?.manifest.systemName ?? systemName,
+				cssPath: system?.manifest.cssPath ?? updated.metadata.cssPath,
+				syncedAt: updated.metadata.syncedAt,
+				tailwindBaselineVersion: updated.metadata.tailwindBaselineVersion,
+				reviewRequired: updated.metadata.reviewRequired,
+				reviewChanges: getTokenReviewChanges(updated),
+				domains: updated.domains,
+				customProperties: updated.customProperties,
+				customUtilities: updated.customUtilities,
+			});
 		});
 	} catch (error) {
 		if (isInvalidSystemStorageError(error)) {

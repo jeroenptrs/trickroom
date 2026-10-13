@@ -1,98 +1,85 @@
-import postcss, { type ChildNode, type Root } from "postcss";
+import postcss, { type ChildNode, Input, type Root } from "postcss";
+import tokenizer, { type Token } from "postcss/lib/tokenize";
 
 /**
- * Reading stylesheet source text. Parsing is postcss's; what is ours is the
- * plain-text normalization the stylesheet fingerprint hashes (comments and
- * whitespace outside strings, so a brace, semicolon or comment marker inside
- * a string never counts) and reading the target out of an `@import`'s
+ * Reading stylesheet source text: postcss parses it, and its tokenizer
+ * drives the normalization below. What is ours is which tokens that
+ * normalization drops, and reading the target out of an `@import`'s
  * params, which postcss leaves as a raw string.
  */
 
-/** Remove `/* … *\/` comments outside strings, leaving a space in their place. */
-export function stripCssComments(css: string): string {
-	let result = "";
-	let index = 0;
-	let quote: string | null = null;
-	while (index < css.length) {
-		const char = css[index] as string;
-		if (quote) {
-			result += char;
-			if (char === "\\" && index + 1 < css.length) {
-				result += css[index + 1];
-				index += 2;
-				continue;
-			}
-			if (char === quote) quote = null;
-			index++;
-			continue;
-		}
-		if (char === '"' || char === "'") {
-			quote = char;
-			result += char;
-			index++;
-			continue;
-		}
-		if (char === "/" && css[index + 1] === "*") {
-			const end = css.indexOf("*/", index + 2);
-			index = end === -1 ? css.length : end + 2;
-			result += " ";
-			continue;
-		}
-		result += char;
-		index++;
-	}
-	return result;
-}
-
 // Whitespace next to these never changes what CSS means.
-const NO_SPACE_BEFORE = new Set(["{", "}", ";", ",", ")"]);
-const NO_SPACE_AFTER = new Set(["{", "}", ";", ",", "(", ":"]);
+const STRUCTURAL_TOKENS = new Set(["{", "}", ";"]);
+// Tokens that would read as one if nothing separated them.
+const JOINABLE_TOKENS = new Set(["word", "at-word", "string", "brackets"]);
 
 /**
- * Comments and whitespace outside strings normalized away: comments
- * removed, runs of whitespace collapsed to one space, and dropped next to
- * `{ } ; , )` and after `( :`. Nothing else changes, so two sources with the
- * same normalized text are the same CSS. Whitespace before `:` is kept
- * (`a :hover` is not `a:hover`).
+ * The stylesheet text with only what cannot change its meaning removed,
+ * token by token (postcss's tokenizer, so strings, `url(…)` and comments
+ * are recognized as CSS does):
+ *
+ * - comments are dropped without leaving anything in their place: in CSS a
+ *   comment is not whitespace (`&/**\/:hover` is `&:hover`, not
+ *   `& :hover`). Only where dropping it would join two words into one is a
+ *   bare `/**\/` kept in its place.
+ * - runs of whitespace become one space, and whitespace next to `{`, `}`
+ *   or `;` is dropped. Whitespace inside brackets without strings or
+ *   comments is collapsed the same way.
+ * - strings, and everything else, stay as written.
+ *
+ * Text postcss cannot tokenize stays as it is.
  */
 export function normalizeCssSource(css: string): string {
-	const source = stripCssComments(css);
-	let result = "";
+	let tokens: Token[];
+	try {
+		const stream = tokenizer(new Input(css));
+		tokens = [];
+		while (!stream.endOfFile()) {
+			tokens.push(stream.nextToken());
+		}
+	} catch {
+		return css;
+	}
+
+	const output: Token[] = [];
 	let pendingSpace = false;
-	let quote: string | null = null;
-	for (let index = 0; index < source.length; index++) {
-		const char = source[index] as string;
-		if (quote) {
-			result += char;
-			if (char === "\\" && index + 1 < source.length) {
-				result += source[index + 1];
-				index++;
-				continue;
-			}
-			if (char === quote) quote = null;
+	let droppedComment = false;
+	for (const token of tokens) {
+		const [type, content] = token;
+		if (type === "comment") {
+			droppedComment = true;
 			continue;
 		}
-		if (/\s/u.test(char)) {
+		if (type === "space") {
 			pendingSpace = true;
 			continue;
 		}
-		if (pendingSpace) {
-			const previous = result[result.length - 1];
+		const previous = output[output.length - 1];
+		if (previous) {
 			if (
-				result.length > 0 &&
-				!NO_SPACE_AFTER.has(previous as string) &&
-				!NO_SPACE_BEFORE.has(char)
+				pendingSpace &&
+				!STRUCTURAL_TOKENS.has(previous[0]) &&
+				!STRUCTURAL_TOKENS.has(type)
 			) {
-				result += " ";
+				output.push(["space", " "]);
+			} else if (
+				!pendingSpace &&
+				droppedComment &&
+				JOINABLE_TOKENS.has(previous[0]) &&
+				JOINABLE_TOKENS.has(type)
+			) {
+				output.push(["comment", "/**/"]);
 			}
-			pendingSpace = false;
 		}
-		if (char === '"' || char === "'") {
-			quote = char;
-		}
-		result += char;
+		pendingSpace = false;
+		droppedComment = false;
+		output.push(
+			type === "brackets"
+				? [type, content.replace(/\s+/gu, " ")]
+				: [type, content],
+		);
 	}
-	return result;
+	return output.map(([, content]) => content).join("");
 }
 
 /**

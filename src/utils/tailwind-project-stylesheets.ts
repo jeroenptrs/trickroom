@@ -101,24 +101,39 @@ function themeOptionNames(options: number): string[] {
 	);
 }
 
+const TAILWIND_PACKAGE_SEGMENT = `${path.sep}node_modules${path.sep}tailwindcss${path.sep}`;
+
+/** Whether a stylesheet is one of Tailwind's own (its real path). */
+function isTailwindStylesheet(filePath: string): boolean {
+	return realPath(filePath).includes(TAILWIND_PACKAGE_SEGMENT);
+}
+
 /**
- * The theme the project's stylesheets author: every theme entry whose
- * source is a project stylesheet (Tailwind's own `@theme default` is not;
- * a project's `@theme default` is), with its value as written and its
- * `@theme` options, and the `initial` resets in the project stylesheets'
- * `@theme` blocks. Entries without a source fall back to "not from
- * `@theme default`". Variables outside the fixed domains go to `other`.
+ * The theme the design system's stylesheets define, Tailwind's own left
+ * out: every theme entry whose source is not one of Tailwind's stylesheets
+ * (so the project's files, its packages and anything it imports from
+ * outside the project count, and a project's `@theme default` too), with
+ * its value as written and its `@theme` options, and the `initial` resets
+ * in those stylesheets' `@theme` blocks. Entries without a source fall back
+ * to "not from `@theme default`". Variables outside the fixed domains go to
+ * `other`. None of it depends on Tailwind's defaults.
  */
 export function extractAuthoredTheme({
 	designSystem,
-	projectRoot,
-	projectStylesheets,
+	stylesheets,
 }: {
 	designSystem: TailwindDesignSystem;
-	projectRoot: string;
-	projectStylesheets: readonly ProjectStylesheet[];
+	stylesheets: readonly LoadedStylesheet[];
 }): TailwindAuthoredTokens {
-	const projectPath = createProjectStylesheetFilter(projectRoot);
+	const tailwindStylesheet = new Map<string, boolean>();
+	const isTailwind = (filePath: string) => {
+		let result = tailwindStylesheet.get(filePath);
+		if (result === undefined) {
+			result = isTailwindStylesheet(filePath);
+			tailwindStylesheet.set(filePath, result);
+		}
+		return result;
+	};
 	const domains: Partial<
 		Record<TailwindTokenDomain, TailwindAuthoredDomainDefinition>
 	> = {};
@@ -138,7 +153,7 @@ export function extractAuthoredTheme({
 	for (const [propertyName, token] of designSystem.theme.entries()) {
 		const sourceFile = (token.src?.[0] as { file?: string } | undefined)?.file;
 		const authored = sourceFile
-			? projectPath(sourceFile) !== null
+			? !isTailwind(sourceFile)
 			: (token.options & THEME_OPTION_DEFAULT) === 0;
 		if (!authored) {
 			continue;
@@ -152,7 +167,10 @@ export function extractAuthoredTheme({
 		}
 	}
 
-	for (const stylesheet of projectStylesheets) {
+	for (const stylesheet of stylesheets) {
+		if (isTailwind(stylesheet.path)) {
+			continue;
+		}
 		parseStylesheet(stylesheet.content)?.walkAtRules("theme", (theme) => {
 			for (const node of theme.nodes ?? []) {
 				if (

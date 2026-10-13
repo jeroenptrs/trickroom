@@ -4,32 +4,36 @@ import {
 	parseStylesheet,
 	readImportTarget,
 	serializeNormalized,
-	stripCssComments,
 } from "./css-source";
 
-describe("stripCssComments", () => {
-	it("removes comments outside strings only", () => {
-		expect(stripCssComments('a { content: "/* kept */"; /* gone */ }')).toBe(
-			'a { content: "/* kept */";   }',
+describe("normalizeCssSource", () => {
+	it("drops comments without turning them into whitespace", () => {
+		// `&/**/:hover` is self-hover; `& :hover` is descendant hover.
+		expect(normalizeCssSource("&/**/:hover { color: red }")).not.toBe(
+			normalizeCssSource("& :hover { color: red }"),
+		);
+		expect(normalizeCssSource("&/**/:hover { color: red }")).toBe(
+			normalizeCssSource("&:hover { color: red }"),
 		);
 	});
-});
 
-describe("normalizeCssSource", () => {
-	it("normalizes comments and whitespace outside strings", () => {
+	it("keeps words a dropped comment separated apart", () => {
+		expect(normalizeCssSource("div/**/span {}")).not.toBe(
+			normalizeCssSource("divspan {}"),
+		);
+	});
+
+	it("collapses whitespace, and drops it next to braces and semicolons", () => {
 		expect(
 			normalizeCssSource(
 				"/* x */\n@theme{\n\n\t--color-a:   #123 ;\n}\n.a , .b { margin : 0 auto }",
 			),
-		).toBe("@theme{--color-a:#123;}.a,.b{margin :0 auto}");
+		).toBe("@theme{--color-a: #123;}.a , .b{margin : 0 auto}");
 	});
 
-	it("keeps whitespace inside strings and before colons", () => {
-		expect(normalizeCssSource('a { content: "a  b"; }')).toBe(
-			'a{content:"a  b";}',
-		);
-		expect(normalizeCssSource("a :hover {}")).not.toBe(
-			normalizeCssSource("a:hover {}"),
+	it("keeps strings verbatim, comment markers inside them included", () => {
+		expect(normalizeCssSource('a { content: "a  /* b */  c" }')).toBe(
+			'a{content: "a  /* b */  c"}',
 		);
 	});
 
@@ -63,7 +67,7 @@ describe("serializeNormalized", () => {
 				) as NonNullable<ReturnType<typeof parseStylesheet>>,
 			),
 		).toBe(
-			'@import "./a.css" layer(base);@layer theme{@theme inline{--color-x:url("a;b");}}',
+			'@import "./a.css" layer( base );@layer theme{@theme inline{--color-x:url("a;b");}}',
 		);
 	});
 

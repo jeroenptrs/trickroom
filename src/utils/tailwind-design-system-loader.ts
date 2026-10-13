@@ -133,8 +133,10 @@ export async function loadTrackedTailwindDesignSystem({
 
 /**
  * The loaded stylesheets in inlining order: depth first from the entry along
- * each file's `@import`/`@reference` statements. Anything loaded that the
- * walk does not reach is appended in load order, so nothing is left out.
+ * each file's `@import`/`@reference` statements in source order, nested ones
+ * (inside `@layer`, `@media`, …) included. Never the order loads completed
+ * in: anything loaded that the walk does not reach is appended sorted by
+ * path, so the order depends on the sources alone.
  */
 function orderLoadedStylesheets(
 	entry: LoadedStylesheet,
@@ -147,23 +149,27 @@ function orderLoadedStylesheets(
 		ordered.push(stylesheet);
 		reached.add(stylesheet.path);
 		const nextAncestors = new Set(ancestors).add(stylesheet.path);
-		for (const node of parseStylesheet(stylesheet.content)?.nodes ?? []) {
-			if (
-				node.type !== "atrule" ||
-				(node.name !== "import" && node.name !== "reference")
-			) {
-				continue;
+		const imports: LoadedStylesheet[] = [];
+		parseStylesheet(stylesheet.content)?.walkAtRules((node) => {
+			if (node.name !== "import" && node.name !== "reference") {
+				return;
 			}
 			const id = readImportTarget(node.params);
 			const imported =
 				id === null
 					? undefined
 					: loaded.get(`${path.dirname(stylesheet.path)}\0${id}`);
-			if (imported) visit(imported, nextAncestors);
+			if (imported) imports.push(imported);
+		});
+		for (const imported of imports) {
+			visit(imported, nextAncestors);
 		}
 	};
 	visit(entry, new Set());
-	for (const stylesheet of loaded.values()) {
+	const unreached = [...loaded.values()]
+		.filter((stylesheet) => !reached.has(stylesheet.path))
+		.sort((left, right) => left.path.localeCompare(right.path));
+	for (const stylesheet of unreached) {
 		if (!reached.has(stylesheet.path)) {
 			ordered.push(stylesheet);
 			reached.add(stylesheet.path);

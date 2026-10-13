@@ -264,6 +264,34 @@ export type ComparableTailwindTokenStorage = {
 
 export { systemNameToSafeKey } from "./design-system-store.ts";
 
+const tokenWriteQueues = new Map<string, Promise<unknown>>();
+
+/**
+ * Runs the syncs and review confirmations of one system one after another,
+ * in arrival order, so a sync that read the stylesheets earlier never writes
+ * over a later one (and clears a review it required). In-process: the HTTP
+ * server is the one writer of `tokens.json`.
+ */
+export async function runExclusiveTokenWrite<T>(
+	projectRoot: string,
+	systemId: string,
+	operation: () => Promise<T>,
+): Promise<T> {
+	const key = `${path.resolve(projectRoot)}\0${systemId}`;
+	const previous = tokenWriteQueues.get(key);
+	const queued = previous
+		? previous.catch(() => undefined).then(operation)
+		: operation();
+	tokenWriteQueues.set(key, queued);
+	const release = () => {
+		if (tokenWriteQueues.get(key) === queued) {
+			tokenWriteQueues.delete(key);
+		}
+	};
+	queued.then(release, release);
+	return queued;
+}
+
 /**
  * Resolve path to stored token snapshot.
  * @returns Full path to `.trickroom/systems/<safe-key>/tokens.json`

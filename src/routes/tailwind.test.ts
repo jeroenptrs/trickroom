@@ -6,6 +6,7 @@ import {
 	symlink,
 	writeFile,
 } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -2245,9 +2246,16 @@ describe("tailwind sync gates reviews on the project's stylesheets", () => {
 		);
 		const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
 		snapshot.metadata.tailwindBaselineVersion = "4.2.4";
-		// Other default names and values, and authored data an older
-		// extraction read differently: none of it gates.
-		snapshot.authored = { domains: {} };
+		// Other default values, and a default that no longer exists: none of
+		// it gates.
+		for (const entry of snapshot.domains.color.baselineDiff.overridden) {
+			entry.defaultValue = `${entry.defaultValue} /* older */`;
+		}
+		snapshot.domains.color.baselineDiff.removed.push({
+			name: "retired-500",
+			defaultValue: "#000",
+			domain: "color",
+		});
 		await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8");
 
 		const json = await sync();
@@ -2381,6 +2389,146 @@ describe("tailwind sync gates reviews on the project's stylesheets", () => {
 			"@font-face { font-family: Vendor; src: url(./vendor-v2.woff2); }\n",
 		);
 		expect((await sync()).reviewRequired).toBe(false);
+	});
+
+	it("an import from outside the project changing a token value requires review", async () => {
+		const outsideRoot = await mkdtemp(
+			path.join(os.tmpdir(), "trickroom-outside-theme-"),
+		);
+		try {
+			const outsideCss = path.join(outsideRoot, "outside.css");
+			const linkedCss = path.join(outsideRoot, "linked.css");
+			await writeFile(outsideCss, "@theme { --color-ext-500: #111111; }\n");
+			await writeFile(linkedCss, "@theme { --color-link-500: #222222; }\n");
+			// One imported by its absolute path, one through a symlink in the
+			// project: neither is the project's, so neither is fingerprinted.
+			await symlink(linkedCss, path.join(tempProjectRoot, "src", "linked.css"));
+			await writeProjectFile(
+				"src/core.css",
+				entryCss([outsideCss, "./linked.css", "./theme.css"]),
+			);
+			const { sync, confirmed, read } = await setup();
+			await confirmed();
+			expect(
+				(await read())?.stylesheets?.files.map((file) => file.path),
+			).toEqual(["src/core.css", "src/theme.css"]);
+
+			await writeFile(outsideCss, "@theme { --color-ext-500: #333333; }\n");
+			const outside = await sync();
+			expect(outside.reviewRequired).toBe(true);
+			expect(outside.reviewChanges.stylesheets.changed).toEqual([]);
+			expect(outside.reviewChanges.tokens.changed).toEqual([
+				expect.objectContaining({
+					name: "ext-500",
+					previousValue: "#111111",
+					value: "#333333",
+				}),
+			]);
+
+			await writeFile(outsideCss, "@theme { --color-ext-500: #111111; }\n");
+			expect((await sync()).reviewRequired).toBe(false);
+			await writeFile(linkedCss, "@theme { --color-link-500: #444444; }\n");
+			const linked = await sync();
+			expect(linked.reviewRequired).toBe(true);
+			expect(linked.reviewChanges.tokens.changed).toEqual([
+				expect.objectContaining({ name: "link-500", value: "#444444" }),
+			]);
+		} finally {
+			await rm(outsideRoot, { force: true, recursive: true });
+		}
+	});
+
+	it("a comment is not whitespace: self-hover to descendant hover requires review", async () => {
+		const theme = "@theme {\n  --color-brand-500: #123456;\n}\n";
+		await writeProjectFile(
+			"src/theme.css",
+			`${theme}.btn {\n  &/**/:hover { color: red; }\n}\n`,
+		);
+		const { sync, confirmed } = await setup();
+		await confirmed();
+		await writeProjectFile(
+			"src/theme.css",
+			`${theme}.btn {\n  & :hover { color: red; }\n}\n`,
+		);
+
+		const json = await sync();
+
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.stylesheets.changed).toEqual(["src/theme.css"]);
+	});
+
+	it("a comment added between tokens that already touch needs no review", async () => {
+		const theme = "@theme {\n  --color-brand-500: #123456;\n}\n";
+		await writeProjectFile(
+			"src/theme.css",
+			`${theme}.btn {\n  &:hover { color: red; }\n}\n`,
+		);
+		const { sync, confirmed } = await setup();
+		await confirmed();
+		await writeProjectFile(
+			"src/theme.css",
+			`${theme}.btn {\n  &/* hover */:hover { color: red; }\n}\n`,
+		);
+
+		const json = await sync();
+
+		expect(json.reviewRequired).toBe(false);
+	});
+
+	it("a slower sync of older stylesheets does not clear the review a newer sync required", async () => {
+		let releaseHeldSync = () => {};
+		const heldSyncReleased = new Promise<void>((resolve) => {
+			releaseHeldSync = resolve;
+		});
+		let heldSyncLoaded = () => {};
+		const heldSyncHasLoaded = new Promise<void>((resolve) => {
+			heldSyncLoaded = resolve;
+		});
+		let loads = 0;
+		vi.doMock("../utils/tailwind-design-system", async (importOriginal) => {
+			const actual =
+				await importOriginal<
+					typeof import("../utils/tailwind-design-system")
+				>();
+			return {
+				...actual,
+				loadTailwindDesignSystem: async (
+					options: Parameters<typeof actual.loadTailwindDesignSystem>[0],
+				) => {
+					const loaded = await actual.loadTailwindDesignSystem(options);
+					loads++;
+					// The second load (the first sync after confirming) has read
+					// the old stylesheets; hold it until the newer sync is sent.
+					if (loads === 2) {
+						heldSyncLoaded();
+						await heldSyncReleased;
+					}
+					return loaded;
+				},
+			};
+		});
+		try {
+			const { sync, confirmed, read } = await setup();
+			await confirmed();
+
+			const older = sync();
+			await heldSyncHasLoaded;
+			await writeProjectFile(
+				"src/theme.css",
+				"@theme {\n  --color-brand-500: #654321;\n}\n",
+			);
+			const newer = sync();
+			// Let the newer sync run as far as it can before the older one ends.
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			releaseHeldSync();
+			const [olderJson, newerJson] = await Promise.all([older, newer]);
+
+			expect(olderJson.reviewRequired).toBe(false);
+			expect(newerJson.reviewRequired).toBe(true);
+			expect((await read())?.metadata.reviewRequired).toBe(true);
+		} finally {
+			vi.doUnmock("../utils/tailwind-design-system");
+		}
 	});
 
 	it("commenting out a reset removes it, and requires review", async () => {
