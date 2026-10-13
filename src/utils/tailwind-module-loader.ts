@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -115,93 +115,33 @@ const DEPENDENCY_PATTERNS = [
 	// Not greedy, so two `require()`s on a line are two dependencies.
 	/require\(\s*['"`](.+?)['"`]\s*\)/gi,
 ];
-const JS_EXTENSIONS = [".js", ".cjs", ".mjs"];
-const JS_RESOLUTION_ORDER = [
-	"",
-	".js",
-	".cjs",
-	".mjs",
-	".ts",
-	".cts",
-	".mts",
-	".jsx",
-	".tsx",
-];
-const TS_RESOLUTION_ORDER = [
-	"",
-	".ts",
-	".cts",
-	".mts",
-	".tsx",
-	".js",
-	".cjs",
-	".mjs",
-	".jsx",
-];
-
-// Beyond `@tailwindcss/node`'s scan: `require("./colors")` of a JSON file,
-// and TypeScript's `./colors.js` for `colors.ts`.
-const JSON_EXTENSION = ".json";
-const TS_FOR_JS: Record<string, string[]> = {
-	".js": [".ts", ".tsx"],
-	".mjs": [".mts"],
-	".cjs": [".cts"],
-};
-
-const resolveWithExtensions = async (
-	file: string,
-	extensions: readonly string[],
-): Promise<string | null> => {
-	const extension = path.extname(file);
-	const typed = (TS_FOR_JS[extension] ?? []).map(
-		(replacement) => `${file.slice(0, -extension.length)}${replacement}`,
-	);
-	for (const candidate of [
-		...extensions.map((suffix) => `${file}${suffix}`),
-		`${file}${JSON_EXTENSION}`,
-		...typed,
-	]) {
-		if ((await stat(candidate).catch(() => null))?.isFile()) {
-			return candidate;
-		}
-	}
-	for (const extension of extensions) {
-		const candidate = `${file}/index${extension}`;
-		if ((await stat(candidate).catch(() => null))?.isFile()) {
-			return candidate;
-		}
-	}
-	return null;
-};
-
-/** The module and every file it imports by relative path, transitively. */
-const collectModuleFiles = async (entry: string): Promise<string[]> => {
+/**
+ * The module and every file it imports by relative path, transitively:
+ * `@tailwindcss/node`'s scan for the imports, each resolved the way the
+ * runtime loads it (`resolveImport`).
+ */
+const collectModuleFiles = async (
+	runtime: ModuleRuntime,
+	entry: string,
+): Promise<string[]> => {
 	const seen = new Set<string>([entry]);
 	const visit = async (file: string): Promise<void> => {
-		if (path.extname(file) === JSON_EXTENSION) return;
+		if (path.extname(file) === ".json") return;
 		const content = await readFile(file, "utf8").catch(() => null);
 		if (content === null) return;
-		const order = JS_EXTENSIONS.includes(path.extname(file))
-			? JS_RESOLUTION_ORDER
-			: TS_RESOLUTION_ORDER;
-		const pending: Promise<void>[] = [];
+		const imported: string[] = [];
 		for (const pattern of DEPENDENCY_PATTERNS) {
 			for (const match of content.matchAll(pattern)) {
 				const specifier = match[1];
 				if (!specifier?.startsWith(".")) continue;
-				pending.push(
-					resolveWithExtensions(
-						path.resolve(path.dirname(file), specifier),
-						order,
-					).then((resolved) => {
-						if (resolved === null || seen.has(resolved)) return;
-						seen.add(resolved);
-						return visit(resolved);
-					}),
-				);
+				for (const resolved of runtime.resolveImport(specifier, file)) {
+					if (seen.has(resolved)) continue;
+					seen.add(resolved);
+					imported.push(resolved);
+				}
 			}
 		}
-		await Promise.all(pending);
+		await Promise.all(imported.map(visit));
 	};
 	await visit(entry);
 	return [...seen];
@@ -230,8 +170,8 @@ const hasLockedProperties = (value: object) =>
  * same value, getters run with the object itself as `this`; plain objects,
  * arrays and functions only (a `Map` or `RegExp` passes as is). An object
  * with locked properties (frozen) is wrapped over an empty stand-in that
- * reads through to it, since a Proxy may not hand out other values for
- * locked properties of its own target; a locked array through a copy.
+ * reads through to it (an empty array for an array), since a Proxy may not
+ * hand out other values for locked properties of its own target.
  */
 const guardModule = (value: unknown, fail: (error: unknown) => never) => {
 	const wrapped = new WeakMap<object, unknown>();
@@ -277,16 +217,19 @@ const guardModule = (value: unknown, fail: (error: unknown) => never) => {
 		};
 		if (!hasLockedProperties(inner)) {
 			proxy = new Proxy(inner, { get });
-		} else if (isArray) {
-			proxy = new Proxy([...(inner as unknown[])], { get });
 		} else {
-			proxy = new Proxy(Object.create(prototype) as object, {
+			proxy = new Proxy(isArray ? [] : (Object.create(prototype) as object), {
 				get,
 				has: (_target, property) => Reflect.has(inner, property),
 				ownKeys: () => Reflect.ownKeys(inner),
 				getOwnPropertyDescriptor: (_target, property) => {
 					const descriptor = Reflect.getOwnPropertyDescriptor(inner, property);
-					return descriptor && { ...descriptor, configurable: true };
+					if (!descriptor) return undefined;
+					// The stand-in array's own `length` is not configurable but
+					// writable: report it as such, with the array's length.
+					return isArray && property === "length"
+						? { ...descriptor, writable: true, configurable: false }
+						: { ...descriptor, configurable: true };
 				},
 			});
 		}
@@ -353,7 +296,7 @@ export const createTailwindModuleLoader = ({
 
 		const files = isUnderNodeModules(resolved)
 			? [resolved]
-			: await collectModuleFiles(resolved);
+			: await collectModuleFiles(await getRuntime(), resolved);
 		await onFiles?.(files);
 		modules.push({ directive, id, path: resolved, files });
 

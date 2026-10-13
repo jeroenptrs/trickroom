@@ -313,9 +313,10 @@ describe("module edge cases", () => {
 		await write("src/app.css", entry('@plugin "./compact.cjs";'));
 		const options = { projectRoot, cssPath: "src/app.css" };
 		const first = await loadCachedTailwindDesignSystem(options);
+		// Node resolves a symlink to its target.
 		expect(
 			first.modules[0]?.files.map((file) => path.relative(projectRoot, file)),
-		).toEqual(["src/compact.cjs", "src/a.cjs", "src/link.cjs"]);
+		).toEqual(["src/compact.cjs", "src/a.cjs", "src/real/b.cjs"]);
 		const css = (loaded: typeof first) =>
 			loaded.designSystem.candidatesToCss(["compact"])[0] ?? "";
 		expect(css(first)).toContain("color: red");
@@ -421,6 +422,63 @@ describe("module dependencies and getters", () => {
 		const css = second.designSystem.candidatesToCss(["bg-brand", "typed"]);
 		expect(css[0]).toContain("#222222");
 		expect(css[1]).toContain("color: blue");
+	});
+
+	it("tracks the files imports load at runtime: a folder's index.json, a package main, both of a .ts/.json pair", async () => {
+		await write(
+			"src/config.cjs",
+			[
+				'const tokens = require("./tokens");',
+				'const extra = require("./extra");',
+				'const pair = require("./pair");',
+				"module.exports = { theme: { extend: { colors: { ...tokens, ...extra, ...pair } } } };",
+				"",
+			].join("\n"),
+		);
+		await write("src/tokens/index.json", '{ "one": "#111111" }\n');
+		await write("src/extra/package.json", '{ "main": "main.cjs" }\n');
+		await write("src/extra/main.cjs", 'module.exports = { two: "#222222" };\n');
+		await write("src/pair.json", '{ "three": "#333333" }\n');
+		await write("src/pair.ts", 'export const three = "#444444";\n');
+		await write("src/app.css", entry('@config "./config.cjs";'));
+		const options = { projectRoot, cssPath: "src/app.css" };
+		const first = await loadCachedTailwindDesignSystem(options);
+		expect(
+			first.modules[0]?.files
+				.map((file) => path.relative(projectRoot, file))
+				.sort(),
+		).toEqual([
+			"src/config.cjs",
+			"src/extra/main.cjs",
+			"src/pair.json",
+			"src/pair.ts",
+			"src/tokens/index.json",
+		]);
+		expect(first.designSystem.candidatesToCss(["bg-three"])[0]).toContain(
+			"#333333",
+		);
+
+		await rewrite("src/tokens/index.json", '{ "one": "#999999" }\n');
+		const second = await loadCachedTailwindDesignSystem(options);
+		expect(second.designSystem.candidatesToCss(["bg-one"])[0]).toContain(
+			"#999999",
+		);
+	});
+
+	it("does not iterate a frozen array Tailwind only indexes", async () => {
+		await write(
+			"src/fonts.cjs",
+			[
+				'const brand = ["Arial", "sans-serif"];',
+				'brand[Symbol.iterator] = () => { throw new Error("iterated"); };',
+				"module.exports = { theme: { extend: { fontFamily: Object.freeze({ brand: Object.freeze(brand) }) } } };",
+				"",
+			].join("\n"),
+		);
+		await write("src/app.css", entry('@config "./fonts.cjs";'));
+
+		const [css] = await cssFor("src/app.css", ["font-brand"]);
+		expect(css).toContain("font-family: Arial, sans-serif");
 	});
 
 	it("reads a frozen config lazily: unused getters do not run, non-enumerable keys still read", async () => {

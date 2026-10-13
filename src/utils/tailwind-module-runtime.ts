@@ -55,6 +55,27 @@ export const resolveModule = (id: string, base: string): Promise<string> => {
 	return run(esmResolver, id, base).catch(() => run(cjsResolver, id, base));
 };
 
+/**
+ * The files a relative import in `parent` loads: as Node's `require`
+ * resolves it (for a CommonJS parent Node loads itself) and as jiti does
+ * (for one it transpiles: TypeScript, `./x.js` for `x.ts`), both when they
+ * differ. Empty when neither resolves.
+ */
+export const resolveImport = (specifier: string, parent: string): string[] => {
+	const resolved = new Set<string>();
+	for (const resolve of [
+		createRequire(parent).resolve,
+		createJiti(parent, { moduleCache: false, fsCache: false }).resolve,
+	]) {
+		try {
+			resolved.add(resolve(specifier));
+		} catch {
+			// Not resolvable this way.
+		}
+	}
+	return [...resolved];
+};
+
 // Node's require cache, the one CommonJS modules are kept in.
 const requireCache = createRequire(import.meta.url).cache;
 
