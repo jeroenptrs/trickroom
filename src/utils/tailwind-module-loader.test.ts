@@ -378,6 +378,95 @@ describe("module edge cases", () => {
 	});
 });
 
+describe("module dependencies and getters", () => {
+	it("tracks a JSON require without extension and a TypeScript import of ./x.js", async () => {
+		await write(
+			"tailwind.config.cjs",
+			'module.exports = { theme: { extend: { colors: require("./colors") } } };\n',
+		);
+		await write("colors.json", '{ "brand": "#111111" }\n');
+		await write(
+			"src/typed.ts",
+			[
+				'import { color } from "./typed-color.js";',
+				'export default ({ addUtilities }: { addUtilities: (u: object) => void }) => addUtilities({ ".typed": { color } });',
+				"",
+			].join("\n"),
+		);
+		await write("src/typed-color.ts", 'export const color: string = "red";\n');
+		await write(
+			"src/app.css",
+			entry('@config "../tailwind.config.cjs";', '@plugin "./typed.ts";'),
+		);
+		const options = { projectRoot, cssPath: "src/app.css" };
+		const first = await loadCachedTailwindDesignSystem(options);
+		expect(
+			first.modules.flatMap((module) =>
+				module.files.map((file) => path.relative(projectRoot, file)),
+			),
+		).toEqual([
+			"src/typed.ts",
+			"src/typed-color.ts",
+			"tailwind.config.cjs",
+			"colors.json",
+		]);
+
+		await rewrite("colors.json", '{ "brand": "#222222" }\n');
+		await rewrite(
+			"src/typed-color.ts",
+			'export const color: string = "blue";\n',
+		);
+
+		const second = await loadCachedTailwindDesignSystem(options);
+		const css = second.designSystem.candidatesToCss(["bg-brand", "typed"]);
+		expect(css[0]).toContain("#222222");
+		expect(css[1]).toContain("color: blue");
+	});
+
+	it("reads a frozen config lazily: unused getters do not run, non-enumerable keys still read", async () => {
+		await write(
+			"src/frozen.cjs",
+			[
+				"const config = {",
+				'  get unused() { throw new Error("never read"); },',
+				"};",
+				'Object.defineProperty(config, "theme", { enumerable: false, value: { extend: { colors: { ice: "#e0f2fe" } } } });',
+				"module.exports = Object.freeze(config);",
+				"",
+			].join("\n"),
+		);
+		await write("src/app.css", entry('@config "./frozen.cjs";'));
+
+		const [css] = await cssFor("src/app.css", ["bg-ice"]);
+		expect(css).toContain("#e0f2fe");
+	});
+
+	it("runs getters on the object itself and names the module when one throws", async () => {
+		await write(
+			"src/self.cjs",
+			[
+				"const extend = {",
+				'  get colors() { return { brand: this === extend ? "#ff0000" : "#0000ff" }; },',
+				"};",
+				"module.exports = { theme: { extend } };",
+				"",
+			].join("\n"),
+		);
+		await write(
+			"src/throwing-getter.cjs",
+			'module.exports = { get theme() { throw new Error("getter boom"); } };\n',
+		);
+		await write("src/self.css", entry('@config "./self.cjs";'));
+		await write("src/throwing.css", entry('@config "./throwing-getter.cjs";'));
+
+		const [css] = await cssFor("src/self.css", ["bg-brand"]);
+		expect(css).toContain("#ff0000");
+		expect((await loadError("src/throwing.css")).message).toBe(
+			'@config "./throwing-getter.cjs" (src/throwing-getter.cjs) threw: getter boom',
+		);
+	});
+});
+
 describe("caches over plugin files", () => {
 	const writePlugin = () =>
 		Promise.all([

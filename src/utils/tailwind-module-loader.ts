@@ -139,12 +139,28 @@ const TS_RESOLUTION_ORDER = [
 	".jsx",
 ];
 
+// Beyond `@tailwindcss/node`'s scan: `require("./colors")` of a JSON file,
+// and TypeScript's `./colors.js` for `colors.ts`.
+const JSON_EXTENSION = ".json";
+const TS_FOR_JS: Record<string, string[]> = {
+	".js": [".ts", ".tsx"],
+	".mjs": [".mts"],
+	".cjs": [".cts"],
+};
+
 const resolveWithExtensions = async (
 	file: string,
 	extensions: readonly string[],
 ): Promise<string | null> => {
-	for (const extension of extensions) {
-		const candidate = `${file}${extension}`;
+	const extension = path.extname(file);
+	const typed = (TS_FOR_JS[extension] ?? []).map(
+		(replacement) => `${file.slice(0, -extension.length)}${replacement}`,
+	);
+	for (const candidate of [
+		...extensions.map((suffix) => `${file}${suffix}`),
+		`${file}${JSON_EXTENSION}`,
+		...typed,
+	]) {
 		if ((await stat(candidate).catch(() => null))?.isFile()) {
 			return candidate;
 		}
@@ -162,6 +178,7 @@ const resolveWithExtensions = async (
 const collectModuleFiles = async (entry: string): Promise<string[]> => {
 	const seen = new Set<string>([entry]);
 	const visit = async (file: string): Promise<void> => {
+		if (path.extname(file) === JSON_EXTENSION) return;
 		const content = await readFile(file, "utf8").catch(() => null);
 		if (content === null) return;
 		const order = JS_EXTENSIONS.includes(path.extname(file))
@@ -196,7 +213,7 @@ const isUnderNodeModules = (filePath: string) =>
 const describeError = (error: unknown) =>
 	error instanceof Error ? error.message : String(error);
 
-/** Whether a Proxy over `value` must not change what its properties read. */
+/** Whether a Proxy over `value` may not hand out other property values. */
 const hasLockedProperties = (value: object) =>
 	Object.values(Object.getOwnPropertyDescriptors(value)).some(
 		(descriptor) =>
@@ -205,17 +222,26 @@ const hasLockedProperties = (value: object) =>
 	);
 
 /**
- * Wraps a module's value so an error any of its functions throws when
- * Tailwind runs it names the directive and the module: plugin handlers,
- * `plugin.withOptions` factories, a config's `plugins` and `presets`, theme
- * callbacks (`colors: ({ theme }) => …`), nested plugin configs. Wrapped
- * lazily as Tailwind reads it, the same wrapper for the same value; plain
- * objects, arrays and functions only (a `Map` or `RegExp` passes as is). A
- * frozen object is wrapped through a copy, which a Proxy needs to hand out
- * wrapped properties.
+ * Wraps a module's value so an error any of its functions or getters throws
+ * when Tailwind runs it names the directive and the module: plugin
+ * handlers, `plugin.withOptions` factories, a config's `plugins` and
+ * `presets`, theme callbacks (`colors: ({ theme }) => …`), nested plugin
+ * configs. Wrapped lazily as Tailwind reads it, the same wrapper for the
+ * same value, getters run with the object itself as `this`; plain objects,
+ * arrays and functions only (a `Map` or `RegExp` passes as is). An object
+ * with locked properties (frozen) is wrapped over an empty stand-in that
+ * reads through to it, since a Proxy may not hand out other values for
+ * locked properties of its own target; a locked array through a copy.
  */
 const guardModule = (value: unknown, fail: (error: unknown) => never) => {
 	const wrapped = new WeakMap<object, unknown>();
+	const read = (source: object, property: string | symbol) => {
+		try {
+			return Reflect.get(source, property, source);
+		} catch (error) {
+			fail(error);
+		}
+	};
 	const guard = (inner: unknown): unknown => {
 		if (typeof inner === "function") {
 			let proxy = wrapped.get(inner);
@@ -244,20 +270,27 @@ const guardModule = (value: unknown, fail: (error: unknown) => never) => {
 			return inner;
 		}
 		let proxy = wrapped.get(inner);
-		if (!proxy) {
-			const target = !hasLockedProperties(inner)
-				? inner
-				: isArray
-					? [...(inner as unknown[])]
-					: Object.assign(Object.create(prototype), inner);
-			proxy = new Proxy(target, {
-				get(source, property, receiver) {
-					const read = Reflect.get(source, property, receiver);
-					return typeof property === "symbol" ? read : guard(read);
+		if (proxy) return proxy;
+		const get = (_target: object, property: string | symbol) => {
+			const result = read(inner, property);
+			return typeof property === "symbol" ? result : guard(result);
+		};
+		if (!hasLockedProperties(inner)) {
+			proxy = new Proxy(inner, { get });
+		} else if (isArray) {
+			proxy = new Proxy([...(inner as unknown[])], { get });
+		} else {
+			proxy = new Proxy(Object.create(prototype) as object, {
+				get,
+				has: (_target, property) => Reflect.has(inner, property),
+				ownKeys: () => Reflect.ownKeys(inner),
+				getOwnPropertyDescriptor: (_target, property) => {
+					const descriptor = Reflect.getOwnPropertyDescriptor(inner, property);
+					return descriptor && { ...descriptor, configurable: true };
 				},
 			});
-			wrapped.set(inner, proxy);
 		}
+		wrapped.set(inner, proxy);
 		return proxy;
 	};
 	return guard(value);
