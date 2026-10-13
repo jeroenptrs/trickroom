@@ -471,13 +471,15 @@ Snapshot shape:
 
 ```json
 {
-  "version": 2,
+  "version": 4,
   "metadata": {
     "cssPath": "src/index.css",
     "syncedAt": "2026-01-01T00:00:00.000Z",
     "tailwindBaselineVersion": "4.2.4",
     "reviewRequired": true
   },
+  "customProperties": {},
+  "customUtilities": [],
   "domains": {
     "color": {
       "tokens": {
@@ -492,16 +494,32 @@ Snapshot shape:
         "removed": []
       }
     }
+  },
+  "confirmed": {
+    "confirmedAt": "2025-12-01T00:00:00.000Z",
+    "tailwindBaselineVersion": "4.2.4",
+    "domains": {
+      "color": { "tokens": {}, "removed": [] }
+    },
+    "customProperties": {},
+    "customUtilities": []
   }
 }
 ```
 
+`confirmed` is the project definition at the last confirmed review: per domain (only domains that define something) the added and overridden token values and the removed default names, plus the custom properties and utilities. It has no Tailwind default values, so a Tailwind upgrade does not change it. `null` when nothing has been confirmed. See [Review And Overrides](tailwind-design-systems.md#review-and-overrides).
+
+Migrations on read (rewritten on the next canonicalizing read):
+
+- v2 → v3 adds empty `customProperties` and `customUtilities`.
+- v3 → v4 adds `confirmed`. A snapshot with `reviewRequired: false` was confirmed as it is, so its own project definition becomes `confirmed` (with its `syncedAt` and `tailwindBaselineVersion`). One with `reviewRequired: true` gets `null`: its review shows the full diff against Tailwind, as a first review.
+
 Write behavior:
 
 - The app syncs tokens for systems when project metadata is loaded.
-- Sync writes or updates `tokens.json` when canonical token data changes.
+- Sync writes or updates `tokens.json` when canonical token data changes. It sets `reviewRequired` only when what the project defines changed; a change to Tailwind's reference values alone keeps it as it was.
 - Sync creates `system.json` if the system folder does not have one yet.
-- The systems review dialog writes confirmed overrides and clears `reviewRequired`.
+- The systems review dialog writes confirmed overrides, records `confirmed` and clears `reviewRequired`.
 - Reads canonicalize older valid `tokens.json` snapshots when needed.
 - There is no runtime read-through from the old `.trickroom/tailwind` location.
 

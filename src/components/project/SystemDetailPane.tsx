@@ -899,11 +899,21 @@ export function SystemDetailPane({
 
 	const actionError = renameError ?? deleteError;
 	const isSyncing = result.status === "pending";
-	const rawTokenDiff: TokenDiff = {
-		added: addedTokens.length,
-		overridden: overriddenTokens.length,
-		removed: removedTokens.length,
-	};
+	// A review counts the changes since the last confirmed one; a first review
+	// (nothing confirmed yet), the full theme diff against Tailwind.
+	const reviewChanges =
+		data?.reviewChanges ?? storedTokensQuery.data?.reviewChanges ?? null;
+	const rawTokenDiff: TokenDiff = reviewChanges
+		? {
+				added: reviewChanges.tokens.added.length,
+				overridden: reviewChanges.tokens.changed.length,
+				removed: reviewChanges.tokens.removed.length,
+			}
+		: {
+				added: addedTokens.length,
+				overridden: overriddenTokens.length,
+				removed: removedTokens.length,
+			};
 	const tokenDiff: TokenDiff = reviewRequired
 		? rawTokenDiff
 		: { added: 0, overridden: 0, removed: 0 };
@@ -1001,6 +1011,7 @@ export function SystemDetailPane({
 						<SystemDiffChips
 							added={tokenDiff.added}
 							overridden={tokenDiff.overridden}
+							overriddenLabel={reviewChanges ? "changed" : undefined}
 							removed={tokenDiff.removed}
 						/>
 					</>

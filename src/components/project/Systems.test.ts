@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TailwindSyncResult } from "../../hooks/useTailwindSyncController";
+import type { TailwindTokenDomainDiffs } from "../../utils/tailwind-token-domains";
 import { getSystemMetadata } from "./Systems";
 
 function syncResult({
@@ -37,6 +38,9 @@ function syncResult({
 			},
 			syncedAt: "2026-05-23T12:00:00.000Z",
 			reviewRequired,
+			baselineDiffs: {} as TailwindTokenDomainDiffs,
+			changes: "none",
+			reviewChanges: null,
 		},
 	};
 }
@@ -58,6 +62,32 @@ describe("getSystemMetadata", () => {
 				"src/index.css",
 			),
 		).toBe("index.css · +3 / -2");
+	});
+
+	it("shows the changes since the last review while a system is in review", () => {
+		const result = syncResult({
+			reviewRequired: true,
+			added: 216,
+			removed: 288,
+		});
+		if (!result.data) {
+			throw new Error("expected sync data");
+		}
+		result.data.reviewChanges = {
+			confirmedAt: "2026-06-02T16:33:49.228Z",
+			confirmedTailwindBaselineVersion: "4.2.4",
+			tokens: {
+				added: [{ domain: "color", name: "brand-100", value: "#abcdef" }],
+				changed: [],
+				removed: [],
+			},
+			customProperties: { added: [], changed: [], removed: [] },
+			customUtilities: { added: [], changed: [], removed: [] },
+		};
+
+		expect(getSystemMetadata(result, "src/index.css")).toBe(
+			"+1 ~0 -0 since last review",
+		);
 	});
 
 	it("keeps the existing no-data fallback", () => {

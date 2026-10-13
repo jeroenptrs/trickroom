@@ -54,11 +54,19 @@ import {
 } from "../utils/tailwind-token-domains";
 import { renderTailwindTokenHtml } from "../utils/tailwind-token-export";
 import {
+	computeTokenReviewChanges,
+	type TailwindTokenReviewChanges,
+} from "../utils/tailwind-token-review";
+import {
+	areProjectTokenDefinitionsEquivalent,
 	areTokenStoragesEquivalent,
+	createConfirmedTokenState,
+	getProjectTokenDefinition,
 	normalizeCssPath,
 	readDomainTokens,
 	readDomainTokensReadonly,
 	storeDomainTokens,
+	type TailwindConfirmedTokenState,
 	type TailwindCustomUtilityStorage,
 	type TailwindTokenStorage,
 } from "../utils/tailwind-token-store";
@@ -133,7 +141,30 @@ type TailwindSyncResponse = {
 	baselineDiffs: TailwindTokenDomainDiffs;
 	syncedAt: string;
 	reviewRequired: boolean;
+	/**
+	 * What this sync changed: nothing, only Tailwind's reference values (the
+	 * baseline version, default values), or the project's own definition.
+	 */
+	changes: TailwindSyncChanges;
+	/** Changes since the last confirmed review; `null` before the first one. */
+	reviewChanges: TailwindTokenReviewChanges | null;
 };
+
+type TailwindSyncChanges = "none" | "tailwind" | "project";
+
+/**
+ * The project's changes since the user last confirmed a review, or `null`
+ * when nothing has been confirmed yet.
+ */
+const getTokenReviewChanges = (
+	storage: TailwindTokenStorage,
+): TailwindTokenReviewChanges | null =>
+	storage.confirmed
+		? computeTokenReviewChanges(
+				storage.confirmed,
+				getProjectTokenDefinition(storage),
+			)
+		: null;
 
 const syncTailwindTokensForCssPath = async (
 	projectRoot: string,
@@ -229,6 +260,7 @@ const buildCanonicalSnapshot = ({
 	reviewRequired,
 	customProperties,
 	customUtilities,
+	confirmed,
 }: {
 	projectRoot: string;
 	cssPath: string;
@@ -242,8 +274,9 @@ const buildCanonicalSnapshot = ({
 	reviewRequired: boolean;
 	customProperties: Record<string, string>;
 	customUtilities: TailwindCustomUtilityStorage[];
+	confirmed: TailwindConfirmedTokenState | null;
 }): TailwindTokenStorage => ({
-	version: 3,
+	version: 4,
 	metadata: {
 		cssPath: normalizeCssPath(cssPath, projectRoot),
 		syncedAt,
@@ -272,15 +305,18 @@ const buildCanonicalSnapshot = ({
 	) as TailwindTokenStorage["domains"],
 	customProperties,
 	customUtilities,
+	confirmed,
 });
 
 const buildTailwindSyncResponse = ({
 	status,
+	changes,
 	preview,
 	storage,
 	system,
 }: {
 	status: "ok" | "updated";
+	changes: TailwindSyncChanges;
 	preview: TailwindSyncPreview;
 	storage: TailwindTokenStorage;
 	system: { systemId: string; systemName: string; cssPath: string };
@@ -295,6 +331,8 @@ const buildTailwindSyncResponse = ({
 	baselineDiffs: preview.baselineDiffs,
 	syncedAt: storage.metadata.syncedAt,
 	reviewRequired: storage.metadata.reviewRequired,
+	changes,
+	reviewChanges: getTokenReviewChanges(storage),
 });
 
 // We expect these to be provided by the main app context or passed in.
@@ -367,6 +405,7 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 			reviewRequired: stored ? stored.metadata.reviewRequired : true,
 			customProperties: preview.customProperties,
 			customUtilities: preview.customUtilities,
+			confirmed: stored?.confirmed ?? null,
 		});
 
 		if (
@@ -376,12 +415,30 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 			return c.json(
 				buildTailwindSyncResponse({
 					status: "ok",
+					changes: "none",
 					preview,
 					storage: stored,
 					system: resolvedTarget,
 				}),
 			);
 		}
+
+		// Only a change to what the project defines needs review. A sync that
+		// only moves Tailwind's reference values (a new baseline version, new
+		// default values) updates the snapshot and leaves the review state as
+		// it was. With a confirmed state, review is required exactly while the
+		// project differs from it.
+		const nextDefinition = getProjectTokenDefinition(nextCanonicalSnapshot);
+		const projectChanged =
+			!stored ||
+			!areProjectTokenDefinitionsEquivalent(
+				getProjectTokenDefinition(stored),
+				nextDefinition,
+			);
+		const confirmed = stored?.confirmed ?? null;
+		const reviewRequired = confirmed
+			? !areProjectTokenDefinitionsEquivalent(confirmed, nextDefinition)
+			: projectChanged || (stored?.metadata.reviewRequired ?? true);
 
 		await storeDomainTokens({
 			projectRoot,
@@ -394,9 +451,10 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 			domainOverrides,
 			baselineDiff: preview.baselineDiff,
 			domainBaselineDiffs: preview.baselineDiffs,
-			reviewRequired: true,
+			reviewRequired,
 			customProperties: preview.customProperties,
 			customUtilities: preview.customUtilities,
+			confirmed,
 		});
 		const updated = await readDomainTokens(
 			projectRoot,
@@ -409,6 +467,7 @@ tailwindRoutes.post("/sync-tokens", async (c) => {
 		return c.json(
 			buildTailwindSyncResponse({
 				status: "updated",
+				changes: projectChanged ? "project" : "tailwind",
 				preview,
 				storage: updated,
 				system: resolvedTarget,
@@ -917,6 +976,7 @@ tailwindRoutes.get("/systems/:systemName/tokens", async (c) => {
 			syncedAt: stored.metadata.syncedAt,
 			tailwindBaselineVersion: stored.metadata.tailwindBaselineVersion,
 			reviewRequired: stored.metadata.reviewRequired,
+			reviewChanges: getTokenReviewChanges(stored),
 			domains: stored.domains,
 			customProperties: stored.customProperties,
 			customUtilities: stored.customUtilities,
@@ -1001,6 +1061,7 @@ tailwindRoutes.post("/systems/:systemName/tokens", async (c) => {
 			customUtilities: stored.customUtilities,
 			reviewRequired: false,
 			syncedAt: stored.metadata.syncedAt,
+			confirmed: createConfirmedTokenState(stored, new Date().toISOString()),
 		});
 
 		// Read back to get normalized (sorted) overrides
@@ -1018,6 +1079,7 @@ tailwindRoutes.post("/systems/:systemName/tokens", async (c) => {
 			syncedAt: updated.metadata.syncedAt,
 			tailwindBaselineVersion: updated.metadata.tailwindBaselineVersion,
 			reviewRequired: updated.metadata.reviewRequired,
+			reviewChanges: getTokenReviewChanges(updated),
 			domains: updated.domains,
 			customProperties: updated.customProperties,
 			customUtilities: updated.customUtilities,

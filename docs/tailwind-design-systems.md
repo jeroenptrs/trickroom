@@ -66,10 +66,12 @@ type TailwindSyncTokensResponse = {
   baselineDiff: TailwindColorTokenBaselineDiff;
   syncedAt: string;
   reviewRequired: boolean;
+  changes: "none" | "tailwind" | "project";
+  reviewChanges: TailwindTokenReviewChanges | null;
 };
 ```
 
-`updated` means canonical token data changed and was written. `ok` means the stored canonical data still matches the current CSS.
+`updated` means canonical token data changed and was written. `ok` means the stored canonical data still matches the current CSS. `changes` says what the sync changed: nothing, only Tailwind's reference values, or what the project defines (see [Review](#review-and-overrides)). `reviewChanges` lists the project's changes since the last confirmed review, `null` when nothing has been confirmed yet.
 
 ## What Gets Stored
 
@@ -79,13 +81,15 @@ Snapshots live at:
 .trickroom/systems/<safe-system-name>/tokens.json
 ```
 
-Token snapshots use storage version `2` with one record per Tailwind token domain (for example `color`, `spacing`, `radius`, `font`, `shadow`, `ease`, and the other namespaces defined in `tailwind-token-domains.ts`). The snapshot lives beside `system.json`, and system-owned files such as `assets.json` and `icons.json` use the same system folder.
+Token snapshots use storage version `4` with one record per Tailwind token domain (for example `color`, `spacing`, `radius`, `font`, `shadow`, `ease`, and the other namespaces defined in `tailwind-token-domains.ts`). The snapshot lives beside `system.json`, and system-owned files such as `assets.json` and `icons.json` use the same system folder.
 
 For each domain, Trickroom extracts the matching `@theme` namespace from the linked CSS, compares it to the generated default Tailwind baseline for that domain, and stores:
 
 - `tokens`: meaningful added or overridden entries for the domain.
 - `overrides`: confirmed reset patterns when defaults were removed.
 - `baselineDiff`: per-domain `added`, `overridden`, and `removed` diagnostics.
+
+- `confirmed` (top level): the project definition the user last confirmed in a review (see below), or `null`.
 
 Unchanged defaults are not persisted. The sync API still returns a color-focused `baselineDiff` field for presentation compatibility, but `tokens.json` stores all synced domains under `domains`.
 
@@ -98,6 +102,17 @@ The diff categories apply per domain:
 
 ## Review And Overrides
 
+A snapshot mixes two things: what the project defines, and Tailwind's reference values it is compared against. Only a change to the first needs review.
+
+- **The project definition**: per domain, the tokens the theme adds or overrides (name and value) and the default token names it removes, plus the custom properties and custom utilities. Values compare normalized (whitespace, hex case).
+- **Tailwind's reference values**: `tailwindBaselineVersion`, the `defaultValue` of overridden and removed entries, and the baseline tokens the theme leaves alone.
+
+A sync that changes only Tailwind's reference values (a Tailwind upgrade, even a patch) writes the snapshot with `changes: "tailwind"` and keeps `reviewRequired` as it was: a pending review stays pending. The tokens panel notes it ("Tailwind defaults updated to 4.3.3; your tokens are unchanged") and asks for nothing. A sync that changes the project definition writes it with `changes: "project"`, and requires review as long as the definition differs from the confirmed one: reverting the CSS clears the review again. A system without a confirmed state requires review on any project change, and on its first sync.
+
+Overrides are not part of the definition: a sync keeps the stored overrides, and only confirming a review changes them.
+
+Confirming a review stores the snapshot's project definition as `confirmed`, with `confirmedAt` and the Tailwind version of the snapshot. The review then shows the changes since that confirmation: tokens added, changed (confirmed value → incoming value) and removed, and custom properties and utilities added, changed and removed. The full theme-vs-Tailwind diff stays available as the secondary "Theme vs Tailwind" view. A snapshot pending review without a confirmed state (one written before the confirmed state existed, or a system's first sync) shows the full diff, labelled as a first review.
+
 If a system removes default Tailwind color tokens, the systems dialog can suggest reset patterns so the iframe theme matches the intended system more closely.
 
 Examples:
@@ -106,7 +121,7 @@ Examples:
 - A removed family: `--color-red-*`
 - Every default removed: `--color-*`
 
-Saving the review writes confirmed overrides and clears `reviewRequired`:
+Saving the review writes confirmed overrides, records the confirmed project definition and clears `reviewRequired`:
 
 ```text
 POST /api/trickroom/tailwind/systems/:systemName/tokens

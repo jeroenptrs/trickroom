@@ -206,7 +206,7 @@ const tokens = (): TailwindTokenStorage => {
 		},
 	};
 	return {
-		version: 3,
+		version: 4,
 		metadata: {
 			cssPath: "src/index.css",
 			syncedAt: "2026-01-01T00:00:00.000Z",
@@ -216,6 +216,7 @@ const tokens = (): TailwindTokenStorage => {
 		domains,
 		customProperties: {},
 		customUtilities: [],
+		confirmed: null,
 	} as unknown as TailwindTokenStorage;
 };
 

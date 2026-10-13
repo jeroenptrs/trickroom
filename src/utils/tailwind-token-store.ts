@@ -78,8 +78,9 @@ export interface TailwindCustomUtilityStorage {
 }
 
 /**
- * Current snapshot shape. Additive over v2: the fixed `domains` whitelist is
- * unchanged, and two dynamic sections carry everything that whitelist cannot.
+ * Legacy snapshot shape (before the confirmed state). Additive over v2: the
+ * fixed `domains` whitelist is unchanged, and two dynamic sections carry
+ * everything that whitelist cannot. Still read for migration; never written.
  */
 export interface TailwindTokenStorageV3 {
 	version: 3;
@@ -103,8 +104,61 @@ export interface TailwindTokenStorageV3 {
 	customUtilities: TailwindCustomUtilityStorage[];
 }
 
+/**
+ * What the project itself defines in one domain, independent of Tailwind's
+ * reference values: the tokens it adds or overrides (name to value) and the
+ * default token names it removes.
+ */
+export interface TailwindProjectDomainDefinition {
+	tokens: Record<string, string>;
+	removed: string[];
+}
+
+/**
+ * What the project defines, without Tailwind's reference values: no baseline
+ * version, no `defaultValue` entries, no baseline tokens the theme leaves
+ * alone. Overrides are not part of it: only confirming a review changes them.
+ * `domains` lists only the domains the project defines something in.
+ */
+export interface TailwindProjectTokenDefinition {
+	domains: Partial<
+		Record<TailwindTokenDomain, TailwindProjectDomainDefinition>
+	>;
+	customProperties: Record<string, string>;
+	customUtilities: TailwindCustomUtilityStorage[];
+}
+
+/** The project definition the user last confirmed in a token review. */
+export interface TailwindConfirmedTokenState
+	extends TailwindProjectTokenDefinition {
+	confirmedAt: string;
+	/** The Tailwind baseline the snapshot was synced against when confirmed. */
+	tailwindBaselineVersion: string;
+}
+
+/**
+ * Current snapshot shape. Adds `confirmed` over v3, the project definition at
+ * the last confirmed review, so a review shows the changes since then. `null`
+ * when nothing has been confirmed yet (a first review).
+ */
+export interface TailwindTokenStorageV4 {
+	version: 4;
+	metadata: {
+		cssPath: string;
+		syncedAt: string;
+		tailwindBaselineVersion: string;
+		reviewRequired: boolean;
+	};
+	domains: {
+		[domain in TailwindTokenDomain]: TailwindDomainStorage;
+	};
+	customProperties: Record<string, string>;
+	customUtilities: TailwindCustomUtilityStorage[];
+	confirmed: TailwindConfirmedTokenState | null;
+}
+
 /** The canonical persisted snapshot shape (always the latest version). */
-export type TailwindTokenStorage = TailwindTokenStorageV3;
+export type TailwindTokenStorage = TailwindTokenStorageV4;
 
 export type StoreDomainTokensParams = {
 	projectRoot: string;
@@ -128,10 +182,15 @@ export type StoreDomainTokensParams = {
 	syncedAt?: string;
 	customProperties?: Record<string, string>;
 	customUtilities?: TailwindCustomUtilityStorage[];
+	/**
+	 * The confirmed project definition. Omitted: a snapshot that needs no
+	 * review is its own confirmed state, one that does has none.
+	 */
+	confirmed?: TailwindConfirmedTokenState | null;
 };
 
 export type ComparableTailwindTokenStorage = {
-	version: 3;
+	version: 4;
 	metadata: {
 		cssPath: string;
 		tailwindBaselineVersion: string;
@@ -253,8 +312,8 @@ export async function storeDomainTokens(
 	// Key order here MUST match `normalizeTailwindTokenStorage` exactly: reads
 	// canonicalize-and-compare by `JSON.stringify`, so a different order would
 	// trigger a needless rewrite on every read.
-	const data: TailwindTokenStorage = {
-		version: 3,
+	const data: Omit<TailwindTokenStorage, "confirmed"> = {
+		version: 4,
 		metadata: {
 			cssPath: normalizeCssPath(params.cssPath, params.projectRoot),
 			syncedAt: params.syncedAt ?? new Date().toISOString(),
@@ -278,8 +337,15 @@ export async function storeDomainTokens(
 			},
 		}),
 	};
+	const confirmed =
+		params.confirmed === undefined
+			? defaultConfirmedState(data)
+			: params.confirmed;
 
-	await writeJsonFileAtomically(snapshotPath, data);
+	await writeJsonFileAtomically(snapshotPath, {
+		...data,
+		confirmed: confirmed ? normalizeConfirmedState(confirmed) : null,
+	} satisfies TailwindTokenStorage);
 }
 
 /**
@@ -355,7 +421,7 @@ export function normalizeTokenStorageForComparison(
 ): ComparableTailwindTokenStorage {
 	const normalized = normalizeTailwindTokenStorage(storage, projectRoot);
 	return {
-		version: 3,
+		version: 4,
 		metadata: {
 			cssPath: normalized.metadata.cssPath,
 			tailwindBaselineVersion: normalized.metadata.tailwindBaselineVersion,
@@ -385,12 +451,148 @@ export function areTokenStoragesEquivalent(
 	);
 }
 
+/**
+ * The project's own definition in a snapshot: its tokens, the defaults it
+ * removes and its custom properties and utilities. Tailwind's reference
+ * values are left out, so a Tailwind upgrade alone does not change it.
+ */
+export function getProjectTokenDefinition(
+	storage: Pick<
+		TailwindTokenStorage,
+		"domains" | "customProperties" | "customUtilities"
+	>,
+): TailwindProjectTokenDefinition {
+	return normalizeProjectTokenDefinition({
+		domains: Object.fromEntries(
+			TAILWIND_TOKEN_DOMAINS.map((domain) => [
+				domain,
+				{
+					tokens: storage.domains[domain]?.tokens ?? {},
+					removed: (storage.domains[domain]?.baselineDiff.removed ?? []).map(
+						(token) => token.name,
+					),
+				},
+			]),
+		),
+		customProperties: storage.customProperties,
+		customUtilities: storage.customUtilities,
+	});
+}
+
+/** The snapshot's project definition, as confirmed now. */
+export function createConfirmedTokenState(
+	storage: TailwindTokenStorage,
+	confirmedAt: string,
+): TailwindConfirmedTokenState {
+	return {
+		confirmedAt,
+		tailwindBaselineVersion: storage.metadata.tailwindBaselineVersion,
+		...getProjectTokenDefinition(storage),
+	};
+}
+
+/**
+ * Whether two project definitions are the same. Values compare normalized
+ * (whitespace, hex case), like the baseline diff.
+ */
+export function areProjectTokenDefinitionsEquivalent(
+	left: TailwindProjectTokenDefinition,
+	right: TailwindProjectTokenDefinition,
+): boolean {
+	return (
+		projectTokenDefinitionComparisonKey(left) ===
+		projectTokenDefinitionComparisonKey(right)
+	);
+}
+
+function projectTokenDefinitionComparisonKey(
+	definition: TailwindProjectTokenDefinition,
+): string {
+	const normalized = normalizeProjectTokenDefinition(definition);
+	const normalizeValues = (values: Record<string, string>) =>
+		Object.fromEntries(
+			Object.entries(values).map(([name, value]) => [
+				name,
+				normalizeTailwindTokenValue(value),
+			]),
+		);
+	return JSON.stringify({
+		domains: Object.fromEntries(
+			Object.entries(normalized.domains).map(([domain, storage]) => [
+				domain,
+				{ tokens: normalizeValues(storage.tokens), removed: storage.removed },
+			]),
+		),
+		customProperties: normalizeValues(normalized.customProperties),
+		customUtilities: normalized.customUtilities,
+	});
+}
+
+/**
+ * A snapshot that needs no review is its own confirmed state: every change a
+ * sync makes sets `reviewRequired`, so the stored definition is the one the
+ * user last confirmed. One that needs review has none to go by.
+ */
+function defaultConfirmedState(
+	storage: Pick<
+		TailwindTokenStorage,
+		"metadata" | "domains" | "customProperties" | "customUtilities"
+	>,
+): TailwindConfirmedTokenState | null {
+	if (storage.metadata.reviewRequired) {
+		return null;
+	}
+
+	return {
+		confirmedAt: storage.metadata.syncedAt,
+		tailwindBaselineVersion: storage.metadata.tailwindBaselineVersion,
+		...getProjectTokenDefinition(storage),
+	};
+}
+
+function normalizeProjectTokenDefinition(definition: {
+	domains: Partial<Record<string, TailwindProjectDomainDefinition>>;
+	customProperties: Record<string, string>;
+	customUtilities: readonly TailwindCustomUtilityStorage[];
+}): TailwindProjectTokenDefinition {
+	const domains: TailwindProjectTokenDefinition["domains"] = {};
+	for (const domain of TAILWIND_TOKEN_DOMAINS) {
+		const storage = definition.domains[domain];
+		if (!storage) {
+			continue;
+		}
+		const tokens = normalizeStringRecord(storage.tokens);
+		const removed = [...new Set(storage.removed)].sort((left, right) =>
+			left.localeCompare(right),
+		);
+		if (Object.keys(tokens).length > 0 || removed.length > 0) {
+			domains[domain] = { tokens, removed };
+		}
+	}
+
+	return {
+		domains,
+		customProperties: normalizeCustomProperties(definition.customProperties),
+		customUtilities: normalizeCustomUtilities(definition.customUtilities),
+	};
+}
+
+function normalizeConfirmedState(
+	confirmed: TailwindConfirmedTokenState,
+): TailwindConfirmedTokenState {
+	return {
+		confirmedAt: confirmed.confirmedAt,
+		tailwindBaselineVersion: confirmed.tailwindBaselineVersion,
+		...normalizeProjectTokenDefinition(confirmed),
+	};
+}
+
 function normalizeTailwindTokenStorage(
 	storage: TailwindTokenStorage,
 	projectRoot: string,
 ): TailwindTokenStorage {
 	return {
-		version: 3,
+		version: 4,
 		metadata: {
 			cssPath: normalizeCssPath(storage.metadata.cssPath, projectRoot),
 			syncedAt: storage.metadata.syncedAt,
@@ -421,6 +623,9 @@ function normalizeTailwindTokenStorage(
 				Record<TailwindTokenDomain, TailwindMeaningfulTokenBaselineDiff>
 			>,
 		}),
+		confirmed: storage.confirmed
+			? normalizeConfirmedState(storage.confirmed)
+			: null,
 	};
 }
 
@@ -625,6 +830,41 @@ function isTailwindTokenStorageV3(
 	);
 }
 
+function isTailwindTokenStorageV4(
+	data: unknown,
+): data is TailwindTokenStorageV4 {
+	return (
+		isRecord(data) &&
+		data.version === 4 &&
+		hasValidMetadataAndDomains(data) &&
+		isStringRecord(data.customProperties) &&
+		Array.isArray(data.customUtilities) &&
+		data.customUtilities.every(isCustomUtilityStorage) &&
+		(data.confirmed === null || isConfirmedTokenState(data.confirmed))
+	);
+}
+
+function isConfirmedTokenState(
+	value: unknown,
+): value is TailwindConfirmedTokenState {
+	return (
+		isRecord(value) &&
+		typeof value.confirmedAt === "string" &&
+		typeof value.tailwindBaselineVersion === "string" &&
+		isRecord(value.domains) &&
+		Object.entries(value.domains).every(
+			([domain, storage]) =>
+				(TAILWIND_TOKEN_DOMAINS as string[]).includes(domain) &&
+				isRecord(storage) &&
+				isStringRecord(storage.tokens) &&
+				isStringArray(storage.removed),
+		) &&
+		isStringRecord(value.customProperties) &&
+		Array.isArray(value.customUtilities) &&
+		value.customUtilities.every(isCustomUtilityStorage)
+	);
+}
+
 function isCustomUtilityStorage(
 	value: unknown,
 ): value is TailwindCustomUtilityStorage {
@@ -650,19 +890,32 @@ function isStringArray(value: unknown): value is string[] {
 
 /**
  * Read a snapshot of any supported version and upgrade it to the latest shape.
- * v2 → v3 adds empty `customProperties`/`customUtilities` sections. Returns
- * null for shapes we do not recognise (treated as "no stored tokens").
+ * v2 → v3 adds empty `customProperties`/`customUtilities` sections. v3 → v4
+ * adds `confirmed`: the snapshot's own project definition when it needs no
+ * review (it was confirmed as it is), `null` when it does (a first review
+ * then shows the full diff against Tailwind). Returns null for shapes we do
+ * not recognise (treated as "no stored tokens").
  */
-function migrateTokenStorageToLatest(
+export function migrateTokenStorageToLatest(
 	data: unknown,
 ): TailwindTokenStorage | null {
-	if (isTailwindTokenStorageV3(data)) {
+	if (isTailwindTokenStorageV4(data)) {
 		return data;
 	}
-	if (isTailwindTokenStorageV2(data)) {
-		return { ...data, version: 3, customProperties: {}, customUtilities: [] };
+	const v3 = isTailwindTokenStorageV3(data)
+		? data
+		: isTailwindTokenStorageV2(data)
+			? ({
+					...data,
+					version: 3,
+					customProperties: {},
+					customUtilities: [],
+				} satisfies TailwindTokenStorageV3)
+			: null;
+	if (!v3) {
+		return null;
 	}
-	return null;
+	return { ...v3, version: 4, confirmed: defaultConfirmedState(v3) };
 }
 
 function isMeaningfulBaselineDiff(

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { TailwindTokenDomainDiffs } from "../utils/tailwind-token-domains";
 import {
 	getSystemAttentionSummary,
 	getSystemAttentionToastIds,
@@ -44,6 +45,9 @@ describe("system attention toast helpers", () => {
 						},
 						syncedAt: "2026-05-21T00:00:00.000Z",
 						reviewRequired: false,
+						baselineDiffs: {} as TailwindTokenDomainDiffs,
+						changes: "none",
+						reviewChanges: null,
 					},
 				},
 				"warning-system": {
@@ -64,6 +68,9 @@ describe("system attention toast helpers", () => {
 						},
 						syncedAt: "2026-05-21T00:00:00.000Z",
 						reviewRequired: true,
+						baselineDiffs: {} as TailwindTokenDomainDiffs,
+						changes: "none",
+						reviewChanges: null,
 					},
 				},
 			},
@@ -112,6 +119,9 @@ describe("system attention toast helpers", () => {
 						},
 						syncedAt: "2026-05-21T00:00:00.000Z",
 						reviewRequired: true,
+						baselineDiffs: {} as TailwindTokenDomainDiffs,
+						changes: "none",
+						reviewChanges: null,
 					},
 				},
 			},

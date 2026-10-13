@@ -1452,3 +1452,320 @@ describe("tailwind POST /systems/:systemName/tokens", () => {
 		expect(response.status).toBe(400);
 	});
 });
+
+describe("tailwind sync reviews only the project's own changes", () => {
+	let tempProjectRoot: string;
+	let previousProjectDirOverride: string | undefined;
+	let cssPath: string;
+
+	const themeCss = (extra: string[] = []) =>
+		[
+			'@import "tailwindcss";',
+			"@theme {",
+			"  --color-*: initial;",
+			"  --color-brand-500: #123456;",
+			"  --color-blue-500: #0011ff;",
+			...extra,
+			"}",
+			"",
+		].join("\n");
+
+	beforeEach(async () => {
+		tempProjectRoot = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-tailwind-review-test-"),
+		);
+		previousProjectDirOverride = process.env.TRICKROOM_PROJECT_DIR;
+		process.env.TRICKROOM_PROJECT_DIR = tempProjectRoot;
+		vi.resetModules();
+		await writeFile(
+			path.join(tempProjectRoot, "trickroom.config.json"),
+			JSON.stringify({
+				name: "Test Project",
+				systems: { Core: "src/core.css" },
+			}),
+			"utf8",
+		);
+		cssPath = path.join(tempProjectRoot, "src", "core.css");
+		await mkdir(path.dirname(cssPath), { recursive: true });
+		await writeFile(cssPath, themeCss(), "utf8");
+	});
+
+	afterEach(async () => {
+		if (previousProjectDirOverride === undefined) {
+			delete process.env.TRICKROOM_PROJECT_DIR;
+		} else {
+			process.env.TRICKROOM_PROJECT_DIR = previousProjectDirOverride;
+		}
+
+		await rm(tempProjectRoot, { force: true, recursive: true });
+	});
+
+	const setup = async () => {
+		const { default: app } = await import("../server");
+		const store = await import("../utils/tailwind-token-store");
+		const sync = async () => {
+			const response = await app.request(
+				"/api/trickroom/tailwind/sync-tokens",
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ systemName: "Core" }),
+				},
+			);
+			expect(response.status).toBe(200);
+			return response.json();
+		};
+		const confirm = async () => {
+			const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+			const response = await app.request(
+				"/api/trickroom/tailwind/systems/Core/tokens",
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({
+						domains: { color: { overrides: stored?.domains.color.overrides } },
+					}),
+				},
+			);
+			expect(response.status).toBe(200);
+			return response.json();
+		};
+		const getStored = async () => {
+			const response = await app.request(
+				"/api/trickroom/tailwind/systems/Core/tokens",
+			);
+			expect(response.status).toBe(200);
+			return response.json();
+		};
+		/**
+		 * Rewrite the stored snapshot as an older Tailwind release would have
+		 * synced it: an older baseline version and other default values on the
+		 * removed and overridden entries. Optionally as a v3 file (no confirmed
+		 * state).
+		 */
+		const rewriteAsOlderTailwind = async ({
+			version = "4.2.4",
+			reviewRequired,
+			asV3 = false,
+		}: {
+			version?: string;
+			reviewRequired?: boolean;
+			asV3?: boolean;
+		}) => {
+			const snapshotPath = store.resolveTokenSnapshotPath(
+				tempProjectRoot,
+				"Core",
+			);
+			const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+			snapshot.metadata.tailwindBaselineVersion = version;
+			if (reviewRequired !== undefined) {
+				snapshot.metadata.reviewRequired = reviewRequired;
+			}
+			const color = snapshot.domains.color.baselineDiff;
+			for (const entry of [...color.removed, ...color.overridden].slice(
+				0,
+				14,
+			)) {
+				entry.defaultValue = `${entry.defaultValue} /* older */`;
+			}
+			if (asV3) {
+				snapshot.version = 3;
+				delete snapshot.confirmed;
+			}
+			await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8");
+		};
+
+		return { store, sync, confirm, getStored, rewriteAsOlderTailwind };
+	};
+
+	it("confirming a review records the confirmed project definition", async () => {
+		const { store, sync, confirm } = await setup();
+
+		const first = await sync();
+		expect(first.reviewRequired).toBe(true);
+		expect(first.changes).toBe("project");
+		expect(first.reviewChanges).toBeNull();
+
+		const confirmed = await confirm();
+		expect(confirmed.reviewRequired).toBe(false);
+		expect(confirmed.reviewChanges).toMatchObject({
+			tokens: { added: [], changed: [], removed: [] },
+		});
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(stored?.confirmed?.domains.color?.tokens).toEqual({
+			"blue-500": "#0011ff",
+			"brand-500": "#123456",
+		});
+	});
+
+	it("a Tailwind version-only change updates the snapshot without review", async () => {
+		const { store, sync, confirm } = await setup();
+		await sync();
+		await confirm();
+		const snapshotPath = store.resolveTokenSnapshotPath(
+			tempProjectRoot,
+			"Core",
+		);
+		const before = JSON.parse(await readFile(snapshotPath, "utf8"));
+		before.metadata.tailwindBaselineVersion = "4.2.4";
+		await writeFile(snapshotPath, JSON.stringify(before), "utf8");
+
+		const json = await sync();
+
+		expect(json.status).toBe("updated");
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+		expect(json.tailwindBaselineVersion).toBe(defaultTailwindTokensVersion);
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(stored?.metadata.tailwindBaselineVersion).toBe(
+			defaultTailwindTokensVersion,
+		);
+		expect(stored?.metadata.reviewRequired).toBe(false);
+	});
+
+	it("Tailwind default-value-only changes update the snapshot without review", async () => {
+		const { store, sync, confirm, rewriteAsOlderTailwind } = await setup();
+		await sync();
+		await confirm();
+		await rewriteAsOlderTailwind({ version: defaultTailwindTokensVersion });
+
+		const json = await sync();
+
+		expect(json.status).toBe("updated");
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(
+			stored?.domains.color.baselineDiff.removed.some((entry) =>
+				entry.defaultValue.includes("older"),
+			),
+		).toBe(false);
+	});
+
+	it("a Tailwind upgrade of a confirmed v3 snapshot needs no review", async () => {
+		const { store, sync, confirm, rewriteAsOlderTailwind } = await setup();
+		await sync();
+		await confirm();
+		await rewriteAsOlderTailwind({ reviewRequired: false, asV3: true });
+
+		const json = await sync();
+
+		expect(json.status).toBe("updated");
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(stored?.version).toBe(4);
+		expect(stored?.metadata.tailwindBaselineVersion).toBe(
+			defaultTailwindTokensVersion,
+		);
+		expect(stored?.confirmed?.tailwindBaselineVersion).toBe("4.2.4");
+	});
+
+	it("a real token change requires review and reports only the delta", async () => {
+		const { sync, confirm, getStored, rewriteAsOlderTailwind } = await setup();
+		await sync();
+		await confirm();
+		// A Tailwind upgrade and a project change in the same sync.
+		await rewriteAsOlderTailwind({});
+		await writeFile(
+			cssPath,
+			themeCss(["  --color-brand-100: #abcdef;"]).replace(
+				"--color-brand-500: #123456",
+				"--color-brand-500: #654321",
+			),
+			"utf8",
+		);
+
+		const json = await sync();
+
+		expect(json.status).toBe("updated");
+		expect(json.changes).toBe("project");
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.tokens).toEqual({
+			added: [{ domain: "color", name: "brand-100", value: "#abcdef" }],
+			changed: [
+				{
+					domain: "color",
+					name: "brand-500",
+					previousValue: "#123456",
+					value: "#654321",
+				},
+			],
+			removed: [],
+		});
+		// The full theme-vs-Tailwind diff is still there for the secondary view.
+		expect(json.baselineDiff.removed.length).toBeGreaterThan(200);
+
+		const stored = await getStored();
+		expect(stored.reviewRequired).toBe(true);
+		expect(stored.reviewChanges.tokens.added).toHaveLength(1);
+		expect(stored.reviewChanges.tokens.changed).toHaveLength(1);
+	});
+
+	it("a pending review stays pending through a Tailwind-only sync", async () => {
+		const { store, sync, confirm } = await setup();
+		await sync();
+		await confirm();
+		await writeFile(cssPath, themeCss(["  --color-brand-100: #abcdef;"]));
+		const pending = await sync();
+		expect(pending.reviewRequired).toBe(true);
+
+		const snapshotPath = store.resolveTokenSnapshotPath(
+			tempProjectRoot,
+			"Core",
+		);
+		const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+		snapshot.metadata.tailwindBaselineVersion = "4.2.4";
+		await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8");
+
+		const json = await sync();
+
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.tokens.added).toEqual([
+			{ domain: "color", name: "brand-100", value: "#abcdef" },
+		]);
+	});
+
+	it("a pending first review stays pending through a Tailwind-only sync", async () => {
+		const { store, sync, rewriteAsOlderTailwind } = await setup();
+		await sync();
+		await rewriteAsOlderTailwind({ reviewRequired: true, asV3: true });
+
+		const json = await sync();
+
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges).toBeNull();
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(stored?.confirmed).toBeNull();
+	});
+
+	it("reads an old tokens.json pending review without a confirmed state as a first review", async () => {
+		const { sync, getStored, rewriteAsOlderTailwind } = await setup();
+		await sync();
+		await rewriteAsOlderTailwind({ reviewRequired: true, asV3: true });
+
+		const stored = await getStored();
+
+		expect(stored.reviewRequired).toBe(true);
+		expect(stored.reviewChanges).toBeNull();
+		expect(stored.domains.color.baselineDiff.removed.length).toBeGreaterThan(
+			200,
+		);
+	});
+
+	it("reverting a project change clears the pending review", async () => {
+		const { sync, confirm } = await setup();
+		await sync();
+		await confirm();
+		await writeFile(cssPath, themeCss(["  --color-brand-100: #abcdef;"]));
+		expect((await sync()).reviewRequired).toBe(true);
+
+		await writeFile(cssPath, themeCss());
+		const json = await sync();
+
+		expect(json.changes).toBe("project");
+		expect(json.reviewRequired).toBe(false);
+	});
+});

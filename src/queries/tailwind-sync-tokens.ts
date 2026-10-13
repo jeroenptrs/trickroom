@@ -9,6 +9,7 @@ import type {
 	TailwindTokenDomain,
 	TailwindTokenDomainDiffs,
 } from "../utils/tailwind-token-domains";
+import type { TailwindTokenReviewChanges } from "../utils/tailwind-token-review";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 export type TailwindSyncTokensRequest =
@@ -39,6 +40,14 @@ export type TailwindSyncTokensResponse = {
 	baselineDiffs: TailwindTokenDomainDiffs;
 	syncedAt: string;
 	reviewRequired: boolean;
+	/**
+	 * What the sync changed: nothing, only Tailwind's reference values (the
+	 * baseline version, default values), or the project's own definition.
+	 * Only a project change requires review.
+	 */
+	changes: "none" | "tailwind" | "project";
+	/** Changes since the last confirmed review; `null` before the first one. */
+	reviewChanges: TailwindTokenReviewChanges | null;
 };
 
 export type StoredTailwindTokenDomain = {
@@ -70,6 +79,8 @@ export type StoredTailwindTokensResponse = {
 	syncedAt: string;
 	tailwindBaselineVersion: string;
 	reviewRequired: boolean;
+	/** Changes since the last confirmed review; `null` before the first one. */
+	reviewChanges: TailwindTokenReviewChanges | null;
 	domains: Record<TailwindTokenDomain, StoredTailwindTokenDomain>;
 	/** Custom CSS variables outside the fixed domain whitelist (v3+). */
 	customProperties?: Record<string, string>;

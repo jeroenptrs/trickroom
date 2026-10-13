@@ -57,6 +57,13 @@ export function getSystemMetadata(
 	const cssBasename = getCssBasename(system.data?.cssPath ?? cssPath);
 	const prefix = cssBasename ? `${cssBasename} · ` : "";
 	const baselineDiff = system.data?.baselineDiff;
+	const reviewChanges = system.data?.reviewChanges;
+
+	// A review lists the changes since the last confirmed one.
+	if (system.data?.reviewRequired && reviewChanges) {
+		const { added, changed, removed } = reviewChanges.tokens;
+		return `+${added.length} ~${changed.length} -${removed.length} since last review`;
+	}
 
 	if (baselineDiff) {
 		const added = baselineDiff.added.length;
