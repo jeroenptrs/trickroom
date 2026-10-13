@@ -1,7 +1,9 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectQueryScope } from "../queries/project-scope";
 import type { SystemSummary } from "../queries/systems";
 import {
+	storedTailwindTokensQueryKey,
 	syncTailwindTokens,
 	type TailwindSyncTokensResponse,
 } from "../queries/tailwind-sync-tokens";
@@ -114,6 +116,7 @@ export function useTailwindSyncController(
 		[systemsOrConfig],
 	);
 
+	const queryClient = useQueryClient();
 	const normalizedProjectScope =
 		typeof projectScope === "string" ? projectScope.trim() : "";
 	const [resultsState, setResultsState] = useState<{
@@ -188,6 +191,11 @@ export function useTailwindSyncController(
 						data,
 					},
 				}));
+				// The sync may have rewritten the snapshot (a review cleared or
+				// required): refresh every cached read of it, in any project scope.
+				void queryClient.invalidateQueries({
+					queryKey: storedTailwindTokensQueryKey(target.systemId),
+				});
 			} catch (error) {
 				const normalizedError =
 					error instanceof Error ? error : new Error("Failed to sync system");
@@ -200,7 +208,7 @@ export function useTailwindSyncController(
 				}));
 			}
 		},
-		[setScopedResults, systems],
+		[queryClient, setScopedResults, systems],
 	);
 	const syncAll = useCallback(async () => {
 		for (const { systemId } of systems) {

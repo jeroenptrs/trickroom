@@ -169,6 +169,31 @@ export function extractCustomFunctionalUtilities(
 	return utilities;
 }
 
+/**
+ * Each custom `@utility` root's definition as authored: its blocks (static
+ * and `-*` functional), comments stripped and whitespace collapsed, sorted so
+ * the order of imports does not matter. Read from the source, not from
+ * compiled CSS, so a Tailwind upgrade does not change it.
+ */
+export function extractCustomUtilityDefinitions(
+	cssSource: string,
+): Map<string, string> {
+	const blocksByRoot = new Map<string, string[]>();
+	for (const { root, body, functional } of parseAtUtilityBlocks(cssSource)) {
+		const blocks = blocksByRoot.get(root) ?? [];
+		blocks.push(
+			`@utility ${root}${functional ? "-*" : ""} { ${body.replace(/\s+/gu, " ").trim()} }`,
+		);
+		blocksByRoot.set(root, blocks);
+	}
+	return new Map(
+		[...blocksByRoot].map(([root, blocks]) => [
+			root,
+			[...blocks].sort((left, right) => left.localeCompare(right)).join("\n"),
+		]),
+	);
+}
+
 /** The arguments of each `name(…)` call in `body`, split on top-level commas. */
 function callArguments(body: string, name: string): string[] {
 	const list: string[] = [];

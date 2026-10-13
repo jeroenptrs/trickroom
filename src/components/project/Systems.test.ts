@@ -12,6 +12,21 @@ function syncResult({
 	added: number;
 	removed: number;
 }): TailwindSyncResult {
+	const baselineDiff = {
+		added: Array.from({ length: added }, (_, index) => ({
+			name: `brand-${index}`,
+			value: "#000",
+			domain: "color" as const,
+		})),
+		overridden: [],
+		unchanged: [],
+		removed: Array.from({ length: removed }, (_, index) => ({
+			name: `red-${index}`,
+			defaultValue: "#fff",
+			domain: "color" as const,
+		})),
+		missingDefaultTokenNames: [],
+	};
 	return {
 		status: reviewRequired ? "updated" : "success",
 		data: {
@@ -21,24 +36,12 @@ function syncResult({
 			cssPath: "src/index.css",
 			tailwindBaselineVersion: "4.2.4",
 			tokens: [],
-			baselineDiff: {
-				added: Array.from({ length: added }, (_, index) => ({
-					name: `brand-${index}`,
-					value: "#000",
-					domain: "color" as const,
-				})),
-				overridden: [],
-				unchanged: [],
-				removed: Array.from({ length: removed }, (_, index) => ({
-					name: `red-${index}`,
-					defaultValue: "#fff",
-					domain: "color" as const,
-				})),
-				missingDefaultTokenNames: [],
-			},
+			baselineDiff,
 			syncedAt: "2026-05-23T12:00:00.000Z",
 			reviewRequired,
-			baselineDiffs: {} as TailwindTokenDomainDiffs,
+			baselineDiffs: {
+				color: baselineDiff,
+			} as unknown as TailwindTokenDomainDiffs,
 			changes: "none",
 			reviewChanges: null,
 		},
@@ -52,7 +55,7 @@ describe("getSystemMetadata", () => {
 				syncResult({ reviewRequired: true, added: 12, removed: 4 }),
 				"src/index.css",
 			),
-		).toBe("+12 / -4");
+		).toBe("+12 ~0 -4");
 	});
 
 	it("shows the diff after a system is synced", () => {
@@ -64,7 +67,7 @@ describe("getSystemMetadata", () => {
 		).toBe("index.css · +3 / -2");
 	});
 
-	it("shows the changes since the last review while a system is in review", () => {
+	it("counts every change since the last review, custom-only ones included", () => {
 		const result = syncResult({
 			reviewRequired: true,
 			added: 216,
@@ -76,17 +79,17 @@ describe("getSystemMetadata", () => {
 		result.data.reviewChanges = {
 			confirmedAt: "2026-06-02T16:33:49.228Z",
 			confirmedTailwindBaselineVersion: "4.2.4",
-			tokens: {
-				added: [{ domain: "color", name: "brand-100", value: "#abcdef" }],
-				changed: [],
+			tokens: { added: [], changed: [], removed: [] },
+			resets: {
+				added: [{ domain: "color", pattern: "--color-*" }],
 				removed: [],
 			},
 			customProperties: { added: [], changed: [], removed: [] },
-			customUtilities: { added: [], changed: [], removed: [] },
+			customUtilities: { added: [], changed: ["bg-penn-app"], removed: [] },
 		};
 
 		expect(getSystemMetadata(result, "src/index.css")).toBe(
-			"+1 ~0 -0 since last review",
+			"+0 ~1 -1 since last review",
 		);
 	});
 

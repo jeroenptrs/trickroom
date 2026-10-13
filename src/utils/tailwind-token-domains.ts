@@ -115,6 +115,50 @@ export function extractTailwindTokens(
 	return domains;
 }
 
+/** Tailwind's `ThemeOptions.DEFAULT`: set on entries from `@theme default`. */
+const THEME_OPTION_DEFAULT = 1 << 2;
+
+/**
+ * The theme values the project's CSS authors, as written: every entry not
+ * from Tailwind's `@theme default` theme, whether or not it currently equals
+ * a default. Unlike `extractTailwindTokens` it does not depend on Tailwind's
+ * defaults, so a Tailwind upgrade does not change it.
+ */
+export function extractAuthoredTailwindTokens(
+	designSystem: TailwindDesignSystem,
+): TailwindTokenDomains {
+	const domains = emptyTailwindTokenDomains();
+
+	for (const [propertyName, token] of designSystem.theme.entries()) {
+		if ((token.options & THEME_OPTION_DEFAULT) !== 0) {
+			continue;
+		}
+		const match = resolveTailwindTokenDomainProperty(propertyName);
+		if (!match) {
+			continue;
+		}
+
+		const tokenName =
+			propertyName === match.namespace
+				? TAILWIND_DEFAULT_TOKEN_NAME
+				: propertyName.slice(match.namespace.length + 1);
+		domains[match.domain][tokenName] = token.value;
+	}
+
+	for (const domain of TAILWIND_TOKEN_DOMAINS) {
+		domains[domain] = createSortedTailwindTokenMap(
+			Object.entries(domains[domain]),
+		);
+	}
+
+	return domains;
+}
+
+/** Whether a custom property lives in one of the fixed token domains. */
+export function isTailwindTokenDomainProperty(propertyName: string): boolean {
+	return resolveTailwindTokenDomainProperty(propertyName) !== null;
+}
+
 function resolveTailwindTokenDomainProperty(propertyName: string): {
 	domain: TailwindTokenDomain;
 	namespace: string;
@@ -207,6 +251,15 @@ export function diffTailwindDomainTokensAgainstDefaults(
 		removed,
 		missingDefaultTokenNames: removed.map((token) => token.name),
 	};
+}
+
+/** Whether an `initial` reset (`--color-*`, `--color-red-500`) covers a token. */
+export function isTokenMatchedByResets(
+	resets: readonly string[],
+	domain: TailwindTokenDomain,
+	name: string,
+): boolean {
+	return resetOverridesMatchToken(new Set(resets), domain, name);
 }
 
 function resetOverridesMatchToken(

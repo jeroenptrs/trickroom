@@ -624,6 +624,7 @@ describe("tailwind sync endpoint validation", () => {
 				overridden: [],
 				removed: [],
 			},
+			authored: initialStored?.authored,
 			reviewRequired: false,
 			syncedAt: previousSyncedAt,
 		});
@@ -1547,10 +1548,17 @@ describe("tailwind sync reviews only the project's own changes", () => {
 			version = "4.2.4",
 			reviewRequired,
 			asV3 = false,
+			membership = false,
 		}: {
 			version?: string;
 			reviewRequired?: boolean;
+			/** As an older Trickroom wrote it: no confirmed or authored data. */
 			asV3?: boolean;
+			/**
+			 * Other default *names*: two defaults the theme's reset removes did
+			 * not exist yet, and one that no longer exists did.
+			 */
+			membership?: boolean;
 		}) => {
 			const snapshotPath = store.resolveTokenSnapshotPath(
 				tempProjectRoot,
@@ -1568,9 +1576,25 @@ describe("tailwind sync reviews only the project's own changes", () => {
 			)) {
 				entry.defaultValue = `${entry.defaultValue} /* older */`;
 			}
+			if (membership) {
+				const dropped = { name: "retired-500", defaultValue: "#000" };
+				color.removed = [
+					...color.removed.slice(2),
+					{ ...dropped, domain: "color" },
+				];
+				if (snapshot.confirmed?.domains.color) {
+					snapshot.confirmed.domains.color.removed = [
+						...snapshot.confirmed.domains.color.removed.slice(2),
+						dropped.name,
+					];
+				}
+			}
 			if (asV3) {
-				snapshot.version = 3;
 				delete snapshot.confirmed;
+				delete snapshot.authored;
+				for (const utility of snapshot.customUtilities) {
+					delete utility.definition;
+				}
 			}
 			await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8");
 		};
@@ -1654,11 +1678,54 @@ describe("tailwind sync reviews only the project's own changes", () => {
 		expect(json.changes).toBe("tailwind");
 		expect(json.reviewRequired).toBe(false);
 		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
-		expect(stored?.version).toBe(4);
+		expect(stored?.version).toBe(3);
 		expect(stored?.metadata.tailwindBaselineVersion).toBe(
 			defaultTailwindTokensVersion,
 		);
 		expect(stored?.confirmed?.tailwindBaselineVersion).toBe("4.2.4");
+	});
+
+	it("a Tailwind upgrade that adds and removes defaults beneath a reset needs no review", async () => {
+		const { store, sync, confirm, rewriteAsOlderTailwind } = await setup();
+		await sync();
+		await confirm();
+		await rewriteAsOlderTailwind({ membership: true });
+
+		const json = await sync();
+
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(
+			stored?.domains.color.baselineDiff.removed.some(
+				(entry) => entry.name === "retired-500",
+			),
+		).toBe(false);
+	});
+
+	it("an older Trickroom's snapshot with a default Tailwind since dropped needs no review", async () => {
+		const { sync, confirm, rewriteAsOlderTailwind, store } = await setup();
+		await sync();
+		await confirm();
+		// No authored theme to compare: the resolved tokens are compared, and
+		// a removed name that is no longer a default is not a project change.
+		await rewriteAsOlderTailwind({ asV3: true, reviewRequired: false });
+		const snapshotPath = store.resolveTokenSnapshotPath(
+			tempProjectRoot,
+			"Core",
+		);
+		const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+		snapshot.domains.color.baselineDiff.removed.push({
+			name: "retired-500",
+			defaultValue: "#000",
+			domain: "color",
+		});
+		await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8");
+
+		const json = await sync();
+
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
 	});
 
 	it("a real token change requires review and reports only the delta", async () => {
@@ -1767,5 +1834,262 @@ describe("tailwind sync reviews only the project's own changes", () => {
 
 		expect(json.changes).toBe("project");
 		expect(json.reviewRequired).toBe(false);
+	});
+});
+
+describe("tailwind sync compares what the CSS authors", () => {
+	let tempProjectRoot: string;
+	let previousProjectDirOverride: string | undefined;
+	let cssPath: string;
+
+	const blue500Default = defaultTailwindColorTokens["blue-500"];
+	const themeCss = ({
+		reset = true,
+		utilityColor = "#123456",
+		extra = [],
+	}: {
+		reset?: boolean;
+		utilityColor?: string;
+		extra?: string[];
+	} = {}) =>
+		[
+			'@import "tailwindcss";',
+			"@theme {",
+			...(reset ? ["  --color-*: initial;"] : []),
+			"  --color-brand-500: #123456;",
+			`  --color-blue-500: ${blue500Default};`,
+			...extra,
+			"}",
+			`@utility bg-app { background-color: ${utilityColor}; }`,
+			"",
+		].join("\n");
+
+	beforeEach(async () => {
+		tempProjectRoot = await mkdtemp(
+			path.join(process.cwd(), ".tmp-trickroom-tailwind-authored-test-"),
+		);
+		previousProjectDirOverride = process.env.TRICKROOM_PROJECT_DIR;
+		process.env.TRICKROOM_PROJECT_DIR = tempProjectRoot;
+		vi.resetModules();
+		await writeFile(
+			path.join(tempProjectRoot, "trickroom.config.json"),
+			JSON.stringify({
+				name: "Test Project",
+				systems: { Core: "src/core.css" },
+			}),
+			"utf8",
+		);
+		cssPath = path.join(tempProjectRoot, "src", "core.css");
+		await mkdir(path.dirname(cssPath), { recursive: true });
+		await writeFile(cssPath, themeCss(), "utf8");
+	});
+
+	afterEach(async () => {
+		if (previousProjectDirOverride === undefined) {
+			delete process.env.TRICKROOM_PROJECT_DIR;
+		} else {
+			process.env.TRICKROOM_PROJECT_DIR = previousProjectDirOverride;
+		}
+		await rm(tempProjectRoot, { force: true, recursive: true });
+	});
+
+	const setup = async () => {
+		const { default: app } = await import("../server");
+		const store = await import("../utils/tailwind-token-store");
+		const snapshotPath = store.resolveTokenSnapshotPath(
+			tempProjectRoot,
+			"Core",
+		);
+		const sync = async () => {
+			const response = await app.request(
+				"/api/trickroom/tailwind/sync-tokens",
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ systemName: "Core" }),
+				},
+			);
+			expect(response.status).toBe(200);
+			return response.json();
+		};
+		const confirm = async () => {
+			const response = await app.request(
+				"/api/trickroom/tailwind/systems/Core/tokens",
+				{
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ domains: {} }),
+				},
+			);
+			expect(response.status).toBe(200);
+			return response.json();
+		};
+		// biome-ignore lint/suspicious/noExplicitAny: edits the raw snapshot JSON
+		const editSnapshot = async (edit: (snapshot: any) => void) => {
+			const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+			edit(snapshot);
+			await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8");
+		};
+		return { store, sync, confirm, editSnapshot };
+	};
+
+	it("records the authored theme, its resets and the utility definitions", async () => {
+		const { store, sync } = await setup();
+		await sync();
+
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+
+		expect(stored?.authored?.domains.color).toEqual({
+			tokens: { "blue-500": blue500Default, "brand-500": "#123456" },
+			resets: ["--color-*"],
+		});
+		// Equal to the default: not a resolved override, still authored.
+		expect(stored?.domains.color.tokens).toEqual({ "brand-500": "#123456" });
+		expect(stored?.customUtilities).toEqual([
+			expect.objectContaining({
+				root: "bg-app",
+				definition: "@utility bg-app { background-color: #123456; }",
+			}),
+		]);
+	});
+
+	it("a utility body change requires review", async () => {
+		const { sync, confirm } = await setup();
+		await sync();
+		await confirm();
+		await writeFile(cssPath, themeCss({ utilityColor: "#654321" }), "utf8");
+
+		const json = await sync();
+
+		expect(json.changes).toBe("project");
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.customUtilities).toEqual({
+			added: [],
+			changed: ["bg-app"],
+			removed: [],
+		});
+	});
+
+	it("an older snapshot without utility definitions needs no review, then records them", async () => {
+		const { store, sync, confirm, editSnapshot } = await setup();
+		await sync();
+		await confirm();
+		await editSnapshot((snapshot) => {
+			delete snapshot.confirmed;
+			delete snapshot.authored;
+			for (const utility of snapshot.customUtilities) {
+				delete utility.definition;
+			}
+		});
+
+		const first = await sync();
+		expect(first.changes).toBe("none");
+		expect(first.reviewRequired).toBe(false);
+		const stored = await store.readDomainTokens(tempProjectRoot, "Core");
+		expect(stored?.confirmed?.authored).toEqual(stored?.authored);
+		expect(stored?.confirmed?.customUtilities[0]?.definition).toBe(
+			"@utility bg-app { background-color: #123456; }",
+		);
+
+		await writeFile(cssPath, themeCss({ utilityColor: "#654321" }), "utf8");
+		expect((await sync()).reviewRequired).toBe(true);
+	});
+
+	it("an override that a new default caught up with is no review", async () => {
+		const { sync, confirm, editSnapshot } = await setup();
+		await sync();
+		// Confirmed under an older Tailwind where blue-500 had another default:
+		// then it resolved to an override, now it equals the default.
+		await editSnapshot((snapshot) => {
+			snapshot.metadata.tailwindBaselineVersion = "4.2.4";
+			snapshot.domains.color.tokens["blue-500"] = blue500Default;
+			snapshot.domains.color.baselineDiff.overridden.push({
+				name: "blue-500",
+				value: blue500Default,
+				defaultValue: "oklch(62% 0.2 260)",
+				domain: "color",
+			});
+		});
+		await confirm();
+
+		const json = await sync();
+
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+
+		// With another change pending, blue-500 is not listed.
+		await writeFile(
+			cssPath,
+			themeCss({ extra: ["  --color-brand-100: #abcdef;"] }),
+			"utf8",
+		);
+		const pending = await sync();
+		expect(pending.reviewRequired).toBe(true);
+		expect(pending.reviewChanges.tokens).toEqual({
+			added: [{ domain: "color", name: "brand-100", value: "#abcdef" }],
+			changed: [],
+			removed: [],
+		});
+	});
+
+	it("defaults added or removed beneath an unchanged reset are no review", async () => {
+		const { sync, confirm, editSnapshot } = await setup();
+		await sync();
+		await confirm();
+		await editSnapshot((snapshot) => {
+			snapshot.metadata.tailwindBaselineVersion = "4.2.4";
+			const removed = snapshot.domains.color.baselineDiff.removed;
+			// Two defaults did not exist yet, one that no longer exists did.
+			snapshot.domains.color.baselineDiff.removed = [
+				...removed.slice(2),
+				{ name: "retired-500", defaultValue: "#000", domain: "color" },
+			];
+			snapshot.confirmed.domains.color.removed = [
+				...snapshot.confirmed.domains.color.removed.slice(2),
+				"retired-500",
+			];
+		});
+
+		const json = await sync();
+
+		expect(json.changes).toBe("tailwind");
+		expect(json.reviewRequired).toBe(false);
+	});
+
+	it("removing a reset is a real change", async () => {
+		const { sync, confirm } = await setup();
+		await sync();
+		await confirm();
+		await writeFile(cssPath, themeCss({ reset: false }), "utf8");
+
+		const json = await sync();
+
+		expect(json.changes).toBe("project");
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.resets).toEqual({
+			added: [],
+			removed: [{ domain: "color", pattern: "--color-*" }],
+		});
+		expect(json.reviewChanges.tokens).toEqual({
+			added: [],
+			changed: [],
+			removed: [],
+		});
+	});
+
+	it("adding a reset is a real change", async () => {
+		await writeFile(cssPath, themeCss({ reset: false }), "utf8");
+		const { sync, confirm } = await setup();
+		await sync();
+		await confirm();
+		await writeFile(cssPath, themeCss(), "utf8");
+
+		const json = await sync();
+
+		expect(json.reviewRequired).toBe(true);
+		expect(json.reviewChanges.resets).toEqual({
+			added: [{ domain: "color", pattern: "--color-*" }],
+			removed: [],
+		});
 	});
 });

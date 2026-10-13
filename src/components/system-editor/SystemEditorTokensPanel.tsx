@@ -40,8 +40,10 @@ import {
 	type TailwindTokenEntry,
 } from "../../utils/tailwind-token-domains";
 import {
-	countTokenReviewChanges,
+	getStoredBaselineDiffs,
+	getTokenReviewCounts,
 	type TailwindTokenReviewChanges,
+	type TokenReviewCounts,
 } from "../../utils/tailwind-token-review";
 import { useTailwindSyncController } from "../contexts";
 import { formatRelativeTime, pluralize } from "../project/project-view-utils";
@@ -808,7 +810,7 @@ const tokenReviewViewOptions = [
 ] as const satisfies readonly SegmentedOption<TokenReviewView>[];
 
 function ReviewBanner({
-	diff,
+	counts,
 	reviewChanges,
 	baselineVersion,
 	view,
@@ -820,7 +822,7 @@ function ReviewBanner({
 	onConfirm,
 	onDiscard,
 }: {
-	diff: TokenDiff;
+	counts: TokenReviewCounts;
 	/** `null` before the first confirmed review: the full diff is shown. */
 	reviewChanges: TailwindTokenReviewChanges | null;
 	baselineVersion: string | null;
@@ -836,9 +838,7 @@ function ReviewBanner({
 	const tailwindLabel = baselineVersion
 		? `Tailwind ${baselineVersion}`
 		: "Tailwind";
-	const changeCount = reviewChanges
-		? countTokenReviewChanges(reviewChanges)
-		: diff.added + diff.overridden + diff.removed;
+	const changeCount = counts.total;
 
 	return (
 		<Card
@@ -853,10 +853,10 @@ function ReviewBanner({
 							{reviewChanges ? "Review token changes" : "First token review"}
 						</Text>
 						<SystemDiffChips
-							added={diff.added}
-							overridden={diff.overridden}
-							overriddenLabel={reviewChanges ? "changed" : undefined}
-							removed={diff.removed}
+							added={counts.added}
+							overridden={counts.changed}
+							overriddenLabel={counts.sinceLastReview ? "changed" : undefined}
+							removed={counts.removed}
 						/>
 					</div>
 					<p className="text-[11px] text-amber-800">
@@ -2166,8 +2166,8 @@ const customChangeBadgeTone = {
 } as const satisfies Record<TokenChangeTone, string>;
 
 /**
- * The custom properties and `@utility` roots that changed since the last
- * confirmed review. They sit outside the token domains, so they are listed
+ * The `initial` resets, custom properties and `@utility` roots that changed
+ * since the last confirmed review. They are not tokens, so they are listed
  * apart from the token rows.
  */
 function CustomReviewChanges({
@@ -2181,6 +2181,18 @@ function CustomReviewChanges({
 		name: string;
 		detail?: string;
 	}> = [
+		...changes.resets.added.map((entry) => ({
+			key: `reset:added:${entry.pattern}`,
+			tone: "removed" as const,
+			name: `${entry.pattern}: initial`,
+			detail: "Tailwind defaults removed",
+		})),
+		...changes.resets.removed.map((entry) => ({
+			key: `reset:removed:${entry.pattern}`,
+			tone: "added" as const,
+			name: `${entry.pattern}: initial`,
+			detail: "reset dropped, Tailwind defaults restored",
+		})),
 		...changes.customProperties.changed.map((entry) => ({
 			key: `property:changed:${entry.name}`,
 			tone: "overridden" as const,
@@ -2223,7 +2235,7 @@ function CustomReviewChanges({
 	return (
 		<section className="flex flex-col gap-2 border-t border-slate-200 px-10 py-6">
 			<Text variant="subtitle" className="text-slate-900">
-				Custom properties and utilities
+				Resets, custom properties and utilities
 			</Text>
 			<div className="flex flex-col gap-1">
 				{rows.map((row) => {
@@ -2407,13 +2419,14 @@ export function SystemEditorTokensPanel({
 	const target = syncController.targetsById[systemId];
 	const data = result.data;
 	const storedDomains = storedTokensQuery.data?.domains;
-	const reviewRequired = Boolean(
-		data?.reviewRequired || storedTokensQuery.data?.reviewRequired,
-	);
+	// The latest sync response wins over the stored snapshot, which the sync
+	// controller refreshes after each sync.
+	const reviewRequired =
+		data?.reviewRequired ?? storedTokensQuery.data?.reviewRequired ?? false;
 	// `null` before the first confirmed review: the review then falls back to
 	// the full theme diff against Tailwind.
 	const reviewChanges =
-		data?.reviewChanges ?? storedTokensQuery.data?.reviewChanges ?? null;
+		(data ? data.reviewChanges : storedTokensQuery.data?.reviewChanges) ?? null;
 	const [reviewView, setReviewView] = useState<TokenReviewView>("changes");
 	const showingReviewChanges =
 		reviewRequired && reviewChanges !== null && reviewView === "changes";
@@ -2630,26 +2643,20 @@ export function SystemEditorTokensPanel({
 	);
 	// A review counts the changes since the last confirmed one; a first
 	// review, the full theme diff against Tailwind.
-	const tokenDiff = useMemo<TokenDiff>(
+	const reviewCounts = useMemo(
 		() =>
-			reviewChanges
-				? {
-						added: reviewChanges.tokens.added.length,
-						overridden: reviewChanges.tokens.changed.length,
-						removed: reviewChanges.tokens.removed.length,
-					}
-				: {
-						added: addedTokens.length,
-						overridden: overriddenTokens.length,
-						removed: removedTokens.length,
-					},
-		[
-			addedTokens.length,
-			overriddenTokens.length,
-			removedTokens.length,
-			reviewChanges,
-		],
+			getTokenReviewCounts({
+				reviewChanges,
+				baselineDiffs:
+					data?.baselineDiffs ?? getStoredBaselineDiffs(storedDomains),
+			}),
+		[data?.baselineDiffs, reviewChanges, storedDomains],
 	);
+	const tokenDiff: TokenDiff = {
+		added: reviewCounts.added,
+		overridden: reviewCounts.changed,
+		removed: reviewCounts.removed,
+	};
 	const totalTokenCount = syncedTokens.length;
 	const domainCount = allTokenSections.length;
 	const showingSyncedRows = !reviewRequired;
@@ -2860,7 +2867,7 @@ export function SystemEditorTokensPanel({
 			) : null}
 			{reviewRequired ? (
 				<ReviewBanner
-					diff={tokenDiff}
+					counts={reviewCounts}
 					reviewChanges={reviewChanges}
 					baselineVersion={baselineVersion}
 					view={reviewView}

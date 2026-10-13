@@ -1,11 +1,12 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultTailwindColorTokens } from "./default-tailwind-tokens";
 import type { TailwindColorTokenBaselineDiff } from "./tailwind-color-tokens";
+import { areProjectTokenDefinitionsEquivalent } from "./tailwind-token-review";
 import {
-	areProjectTokenDefinitionsEquivalent,
 	areTokenStoragesEquivalent,
 	createConfirmedTokenState,
 	getProjectTokenDefinition,
@@ -103,7 +104,7 @@ describe("tailwind-token-store", () => {
 	});
 
 	describe("storeDomainTokens and readDomainTokens", () => {
-		it("stores and retrieves the current v4 domain-nested model", async () => {
+		it("stores and retrieves the current v3 domain-nested model", async () => {
 			await storeDomainTokens({
 				projectRoot: testDir,
 				systemName: "core",
@@ -122,7 +123,7 @@ describe("tailwind-token-store", () => {
 			const read = await readDomainTokens(testDir, "core");
 
 			expect(read).toMatchObject({
-				version: 4,
+				version: 3,
 				confirmed: null,
 				customProperties: {},
 				customUtilities: [],
@@ -385,7 +386,7 @@ describe("tailwind-token-store", () => {
 
 			const read = await readDomainTokens(testDir, "core");
 
-			expect(read?.version).toBe(4);
+			expect(read?.version).toBe(3);
 			expect(read?.customProperties).toEqual({
 				"--db-interaction-lg": "1.25rem",
 				"--db-interaction-sm": "0.875rem",
@@ -445,7 +446,7 @@ describe("tailwind-token-store", () => {
 			expect(read?.customUtilities[0]?.domains).toEqual([]);
 		});
 
-		it("migrates a legacy v2 snapshot to v4 with empty custom sections", async () => {
+		it("migrates a legacy v2 snapshot to v3 with empty custom sections", async () => {
 			const snapshotPath = resolveTokenSnapshotPath(testDir, "core");
 			await mkdir(path.dirname(snapshotPath), { recursive: true });
 			await writeFile(
@@ -481,19 +482,19 @@ describe("tailwind-token-store", () => {
 
 			const read = await readDomainTokens(testDir, "core");
 
-			// Migrated in-memory to v4...
-			expect(read?.version).toBe(4);
+			// Migrated in-memory to v3...
+			expect(read?.version).toBe(3);
 			expect(read?.customProperties).toEqual({});
 			expect(read?.customUtilities).toEqual([]);
 			expect(read?.domains.color.tokens).toEqual({ "brand-500": "#123456" });
 
-			// ...and rewritten to disk as v4 (canonicalization upgrades the file).
+			// ...and rewritten to disk as v3 (canonicalization upgrades the file).
 			const persisted = JSON.parse(await readFile(snapshotPath, "utf8")) as {
 				version: number;
 				customProperties: Record<string, string>;
 				customUtilities: unknown[];
 			};
-			expect(persisted.version).toBe(4);
+			expect(persisted.version).toBe(3);
 			expect(persisted.customProperties).toEqual({});
 			expect(persisted.customUtilities).toEqual([]);
 		});
@@ -639,7 +640,7 @@ describe("tailwind-token-store", () => {
 		});
 	});
 
-	describe("confirmed state and the v3 → v4 migration", () => {
+	describe("confirmed state of v3 snapshots written before it", () => {
 		const writeV3Snapshot = async (reviewRequired: boolean) => {
 			const snapshotPath = resolveTokenSnapshotPath(testDir, "core");
 			await mkdir(path.dirname(snapshotPath), { recursive: true });
@@ -688,12 +689,12 @@ describe("tailwind-token-store", () => {
 			return snapshotPath;
 		};
 
-		it("migrates a confirmed v3 snapshot to v4 with its own definition as the confirmed state", async () => {
+		it("derives the confirmed state of a confirmed snapshot from its own definition", async () => {
 			const snapshotPath = await writeV3Snapshot(false);
 
 			const read = await readDomainTokens(testDir, "core");
 
-			expect(read?.version).toBe(4);
+			expect(read?.version).toBe(3);
 			expect(read?.confirmed).toEqual({
 				confirmedAt: "2026-06-02T16:33:49.228Z",
 				tailwindBaselineVersion: "4.2.4",
@@ -715,16 +716,16 @@ describe("tailwind-token-store", () => {
 				],
 			});
 			const persisted = JSON.parse(await readFile(snapshotPath, "utf8"));
-			expect(persisted.version).toBe(4);
+			expect(persisted.version).toBe(3);
 			expect(persisted.confirmed).toEqual(read?.confirmed);
 		});
 
-		it("migrates a v3 snapshot pending review to v4 without a confirmed state", async () => {
+		it("gives a snapshot pending review without a confirmed state none", async () => {
 			await writeV3Snapshot(true);
 
 			const read = await readDomainTokens(testDir, "core");
 
-			expect(read?.version).toBe(4);
+			expect(read?.version).toBe(3);
 			expect(read?.metadata.reviewRequired).toBe(true);
 			expect(read?.confirmed).toBeNull();
 		});
@@ -767,13 +768,13 @@ describe("tailwind-token-store", () => {
 			});
 		});
 
-		it("rejects a v4 snapshot with a malformed confirmed state", async () => {
+		it("ignores a malformed confirmed state and derives it", async () => {
 			const snapshotPath = resolveTokenSnapshotPath(testDir, "core");
 			await mkdir(path.dirname(snapshotPath), { recursive: true });
 			await writeFile(
 				snapshotPath,
 				JSON.stringify({
-					version: 4,
+					version: 3,
 					metadata: {
 						cssPath: "src/theme.css",
 						syncedAt: "2026-06-02T16:33:49.228Z",
@@ -794,7 +795,58 @@ describe("tailwind-token-store", () => {
 				"utf8",
 			);
 
-			await expect(readDomainTokens(testDir, "core")).resolves.toBeNull();
+			const read = await readDomainTokens(testDir, "core");
+			expect(read?.confirmed).toMatchObject({
+				confirmedAt: "2026-06-02T16:33:49.228Z",
+				domains: {},
+			});
+		});
+
+		it("round-trips the authored theme and utility definitions", async () => {
+			await storeDomainTokens({
+				projectRoot: testDir,
+				systemName: "core",
+				tokens: {},
+				tailwindBaselineVersion: "4.3.3",
+				cssPath: "src/theme.css",
+				baselineDiff: { added: [], overridden: [], removed: [] },
+				reviewRequired: false,
+				customUtilities: [
+					{
+						root: "bg-app",
+						kind: "static",
+						consumedNamespaces: [],
+						completionValues: [],
+						domains: ["color"],
+						definition: "@utility bg-app { background-color: #123456; }",
+					},
+				],
+				authored: {
+					domains: {
+						color: {
+							tokens: { "brand-500": "#123456" },
+							resets: ["--color-*"],
+						},
+						spacing: { tokens: {}, resets: [] },
+					},
+				},
+			});
+
+			const read = await readDomainTokens(testDir, "core");
+
+			expect(read?.version).toBe(3);
+			expect(read?.authored).toEqual({
+				domains: {
+					color: { tokens: { "brand-500": "#123456" }, resets: ["--color-*"] },
+				},
+			});
+			expect(read?.customUtilities[0]?.definition).toBe(
+				"@utility bg-app { background-color: #123456; }",
+			);
+			expect(read?.confirmed?.authored).toEqual(read?.authored);
+			expect(read?.confirmed?.customUtilities[0]?.definition).toBe(
+				"@utility bg-app { background-color: #123456; }",
+			);
 		});
 
 		describe("project token definition", () => {
@@ -812,7 +864,7 @@ describe("tailwind-token-store", () => {
 				customProperties?: Record<string, string>;
 			} = {}): TailwindTokenStorage =>
 				({
-					version: 4,
+					version: 3,
 					metadata: {
 						cssPath: "src/theme.css",
 						syncedAt: "2026-06-02T16:33:49.228Z",
@@ -912,13 +964,103 @@ describe("tailwind-token-store", () => {
 		});
 	});
 
+	describe("compatibility with an older Trickroom", () => {
+		// The store as released before `authored`, `confirmed` and utility
+		// definitions existed. Loaded from git next to this file, so its
+		// relative imports resolve.
+		const OLD_READER_COMMIT = "b8d6635";
+		const oldReaderSource = (() => {
+			try {
+				return execFileSync(
+					"git",
+					["show", `${OLD_READER_COMMIT}:src/utils/tailwind-token-store.ts`],
+					{
+						cwd: __dirname,
+						encoding: "utf8",
+						stdio: ["ignore", "pipe", "ignore"],
+					},
+				);
+			} catch {
+				return null;
+			}
+		})();
+
+		it.skipIf(oldReaderSource === null)(
+			"an older reader recognizes a new snapshot, and the new reader re-derives what it drops",
+			async () => {
+				const oldReaderPath = path.join(
+					__dirname,
+					`.tmp-old-tailwind-token-store-${process.pid}.ts`,
+				);
+				await writeFile(oldReaderPath, oldReaderSource ?? "", "utf8");
+				try {
+					await storeDomainTokens({
+						projectRoot: testDir,
+						systemName: "core",
+						tokens: { "brand-500": "#123456" },
+						tailwindBaselineVersion: "4.3.3",
+						cssPath: "src/theme.css",
+						baselineDiff: {
+							added: [{ name: "brand-500", value: "#123456", domain: "color" }],
+							overridden: [],
+							removed: [],
+						},
+						reviewRequired: false,
+						customUtilities: [
+							{
+								root: "bg-app",
+								kind: "static",
+								consumedNamespaces: [],
+								completionValues: [],
+								domains: ["color"],
+								definition: "@utility bg-app { background-color: #123456; }",
+							},
+						],
+						authored: {
+							domains: {
+								color: { tokens: { "brand-500": "#123456" }, resets: [] },
+							},
+						},
+					});
+					const oldReader = (await import(
+						/* @vite-ignore */ oldReaderPath
+					)) as typeof import("./tailwind-token-store");
+
+					const readByOld = await oldReader.readDomainTokens(testDir, "core");
+
+					// Recognized, not treated as missing (which would re-sync it
+					// from scratch and require a full review).
+					expect(readByOld?.version).toBe(3);
+					expect(readByOld?.domains.color.tokens).toEqual({
+						"brand-500": "#123456",
+					});
+					expect(readByOld?.metadata.reviewRequired).toBe(false);
+					// Its canonicalizer drops the fields it does not know.
+					const rewritten = JSON.parse(
+						await readFile(resolveTokenSnapshotPath(testDir, "core"), "utf8"),
+					);
+					expect(rewritten).not.toHaveProperty("confirmed");
+					expect(rewritten).not.toHaveProperty("authored");
+
+					const readByNew = await readDomainTokens(testDir, "core");
+					expect(readByNew?.confirmed).toMatchObject({
+						domains: { color: { tokens: { "brand-500": "#123456" } } },
+					});
+					expect(readByNew?.authored).toBeUndefined();
+				} finally {
+					await rm(oldReaderPath, { force: true });
+				}
+			},
+		);
+	});
+
 	describe("canonical comparison helpers", () => {
 		const createStorage = (
 			overrides: string[],
 			metadata: TailwindTokenStorage["metadata"],
 		): TailwindTokenStorage =>
 			({
-				version: 4,
+				version: 3,
 				metadata,
 				domains: {
 					color: {

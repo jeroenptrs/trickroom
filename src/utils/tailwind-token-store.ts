@@ -75,12 +75,39 @@ export interface TailwindCustomUtilityStorage {
 	 * Optional for forward/backward compat; defaults to `[]` when absent.
 	 */
 	domains: string[];
+	/**
+	 * The utility's `@utility` blocks as authored, normalized
+	 * (`extractCustomUtilityDefinitions`). Compared to tell whether the
+	 * project changed the utility. Absent in snapshots synced before it was
+	 * recorded.
+	 */
+	definition?: string;
+}
+
+/** What the project's CSS authors in one domain, as written. */
+export interface TailwindAuthoredDomainDefinition {
+	/** Theme values not from Tailwind's default theme, equal to a default or not. */
+	tokens: Record<string, string>;
+	/** Authored `initial` resets, e.g. `--color-*` or `--color-red-500`. */
+	resets: string[];
 }
 
 /**
- * Legacy snapshot shape (before the confirmed state). Additive over v2: the
- * fixed `domains` whitelist is unchanged, and two dynamic sections carry
- * everything that whitelist cannot. Still read for migration; never written.
+ * The theme the project's CSS authors, independent of Tailwind's defaults:
+ * a Tailwind upgrade (new defaults, other default values, defaults removed)
+ * does not change it. Lists only the domains the CSS defines something in.
+ */
+export interface TailwindAuthoredTokens {
+	domains: Partial<
+		Record<TailwindTokenDomain, TailwindAuthoredDomainDefinition>
+	>;
+}
+
+/**
+ * The current snapshot shape. Additive over v2: the fixed `domains`
+ * whitelist is unchanged, and two dynamic sections carry everything that
+ * whitelist cannot. `authored` and `confirmed` are optional so that an older
+ * Trickroom still reads the file (and drops them when it rewrites it).
  */
 export interface TailwindTokenStorageV3 {
 	version: 3;
@@ -102,12 +129,23 @@ export interface TailwindTokenStorageV3 {
 	customProperties: Record<string, string>;
 	/** Custom `@utility` roots discovered in the system CSS source. */
 	customUtilities: TailwindCustomUtilityStorage[];
+	/**
+	 * The theme the CSS authors. Absent in snapshots synced before it was
+	 * recorded; the next sync writes it.
+	 */
+	authored?: TailwindAuthoredTokens;
+	/**
+	 * The project definition at the last confirmed review, so a review shows
+	 * the changes since then. `null` when nothing has been confirmed yet.
+	 * Absent (an older writer, or an older Trickroom dropped it): a snapshot
+	 * that needs no review is its own confirmed state, one that does has none.
+	 */
+	confirmed?: TailwindConfirmedTokenState | null;
 }
 
 /**
- * What the project itself defines in one domain, independent of Tailwind's
- * reference values: the tokens it adds or overrides (name to value) and the
- * default token names it removes.
+ * The tokens one domain resolves to against Tailwind's defaults: the values
+ * that differ from a default or have none, and the default names removed.
  */
 export interface TailwindProjectDomainDefinition {
 	tokens: Record<string, string>;
@@ -115,15 +153,20 @@ export interface TailwindProjectDomainDefinition {
 }
 
 /**
- * What the project defines, without Tailwind's reference values: no baseline
- * version, no `defaultValue` entries, no baseline tokens the theme leaves
- * alone. Overrides are not part of it: only confirming a review changes them.
- * `domains` lists only the domains the project defines something in.
+ * What the project defines, without Tailwind's reference values (baseline
+ * version, `defaultValue` entries, the baseline tokens the theme leaves
+ * alone). Overrides are not part of it: only confirming a review changes them.
+ *
+ * `authored` is what reviews compare: the theme as written and its resets.
+ * `domains`, the tokens as resolved against the defaults of the time (only
+ * domains that define something), is the fallback while one side has no
+ * `authored` yet.
  */
 export interface TailwindProjectTokenDefinition {
 	domains: Partial<
 		Record<TailwindTokenDomain, TailwindProjectDomainDefinition>
 	>;
+	authored?: TailwindAuthoredTokens;
 	customProperties: Record<string, string>;
 	customUtilities: TailwindCustomUtilityStorage[];
 }
@@ -136,29 +179,8 @@ export interface TailwindConfirmedTokenState
 	tailwindBaselineVersion: string;
 }
 
-/**
- * Current snapshot shape. Adds `confirmed` over v3, the project definition at
- * the last confirmed review, so a review shows the changes since then. `null`
- * when nothing has been confirmed yet (a first review).
- */
-export interface TailwindTokenStorageV4 {
-	version: 4;
-	metadata: {
-		cssPath: string;
-		syncedAt: string;
-		tailwindBaselineVersion: string;
-		reviewRequired: boolean;
-	};
-	domains: {
-		[domain in TailwindTokenDomain]: TailwindDomainStorage;
-	};
-	customProperties: Record<string, string>;
-	customUtilities: TailwindCustomUtilityStorage[];
-	confirmed: TailwindConfirmedTokenState | null;
-}
-
 /** The canonical persisted snapshot shape (always the latest version). */
-export type TailwindTokenStorage = TailwindTokenStorageV4;
+export type TailwindTokenStorage = TailwindTokenStorageV3;
 
 export type StoreDomainTokensParams = {
 	projectRoot: string;
@@ -182,6 +204,7 @@ export type StoreDomainTokensParams = {
 	syncedAt?: string;
 	customProperties?: Record<string, string>;
 	customUtilities?: TailwindCustomUtilityStorage[];
+	authored?: TailwindAuthoredTokens;
 	/**
 	 * The confirmed project definition. Omitted: a snapshot that needs no
 	 * review is its own confirmed state, one that does has none.
@@ -190,7 +213,7 @@ export type StoreDomainTokensParams = {
 };
 
 export type ComparableTailwindTokenStorage = {
-	version: 4;
+	version: 3;
 	metadata: {
 		cssPath: string;
 		tailwindBaselineVersion: string;
@@ -203,6 +226,7 @@ export type ComparableTailwindTokenStorage = {
 	};
 	customProperties: Record<string, string>;
 	customUtilities: TailwindCustomUtilityStorage[];
+	authored?: TailwindAuthoredTokens;
 };
 
 export { systemNameToSafeKey } from "./design-system-store.ts";
@@ -313,7 +337,7 @@ export async function storeDomainTokens(
 	// canonicalize-and-compare by `JSON.stringify`, so a different order would
 	// trigger a needless rewrite on every read.
 	const data: Omit<TailwindTokenStorage, "confirmed"> = {
-		version: 4,
+		version: 3,
 		metadata: {
 			cssPath: normalizeCssPath(params.cssPath, params.projectRoot),
 			syncedAt: params.syncedAt ?? new Date().toISOString(),
@@ -336,6 +360,9 @@ export async function storeDomainTokens(
 				...(params.domainBaselineDiffs ?? {}),
 			},
 		}),
+		authored: params.authored
+			? normalizeAuthoredTokens(params.authored)
+			: undefined,
 	};
 	const confirmed =
 		params.confirmed === undefined
@@ -421,7 +448,7 @@ export function normalizeTokenStorageForComparison(
 ): ComparableTailwindTokenStorage {
 	const normalized = normalizeTailwindTokenStorage(storage, projectRoot);
 	return {
-		version: 4,
+		version: 3,
 		metadata: {
 			cssPath: normalized.metadata.cssPath,
 			tailwindBaselineVersion: normalized.metadata.tailwindBaselineVersion,
@@ -437,6 +464,7 @@ export function normalizeTokenStorageForComparison(
 		) as ComparableTailwindTokenStorage["domains"],
 		customProperties: normalized.customProperties,
 		customUtilities: normalized.customUtilities,
+		authored: normalized.authored,
 	};
 }
 
@@ -459,10 +487,11 @@ export function areTokenStoragesEquivalent(
 export function getProjectTokenDefinition(
 	storage: Pick<
 		TailwindTokenStorage,
-		"domains" | "customProperties" | "customUtilities"
+		"domains" | "customProperties" | "customUtilities" | "authored"
 	>,
 ): TailwindProjectTokenDefinition {
 	return normalizeProjectTokenDefinition({
+		authored: storage.authored,
 		domains: Object.fromEntries(
 			TAILWIND_TOKEN_DOMAINS.map((domain) => [
 				domain,
@@ -492,43 +521,6 @@ export function createConfirmedTokenState(
 }
 
 /**
- * Whether two project definitions are the same. Values compare normalized
- * (whitespace, hex case), like the baseline diff.
- */
-export function areProjectTokenDefinitionsEquivalent(
-	left: TailwindProjectTokenDefinition,
-	right: TailwindProjectTokenDefinition,
-): boolean {
-	return (
-		projectTokenDefinitionComparisonKey(left) ===
-		projectTokenDefinitionComparisonKey(right)
-	);
-}
-
-function projectTokenDefinitionComparisonKey(
-	definition: TailwindProjectTokenDefinition,
-): string {
-	const normalized = normalizeProjectTokenDefinition(definition);
-	const normalizeValues = (values: Record<string, string>) =>
-		Object.fromEntries(
-			Object.entries(values).map(([name, value]) => [
-				name,
-				normalizeTailwindTokenValue(value),
-			]),
-		);
-	return JSON.stringify({
-		domains: Object.fromEntries(
-			Object.entries(normalized.domains).map(([domain, storage]) => [
-				domain,
-				{ tokens: normalizeValues(storage.tokens), removed: storage.removed },
-			]),
-		),
-		customProperties: normalizeValues(normalized.customProperties),
-		customUtilities: normalized.customUtilities,
-	});
-}
-
-/**
  * A snapshot that needs no review is its own confirmed state: every change a
  * sync makes sets `reviewRequired`, so the stored definition is the one the
  * user last confirmed. One that needs review has none to go by.
@@ -536,7 +528,7 @@ function projectTokenDefinitionComparisonKey(
 function defaultConfirmedState(
 	storage: Pick<
 		TailwindTokenStorage,
-		"metadata" | "domains" | "customProperties" | "customUtilities"
+		"metadata" | "domains" | "customProperties" | "customUtilities" | "authored"
 	>,
 ): TailwindConfirmedTokenState | null {
 	if (storage.metadata.reviewRequired) {
@@ -552,6 +544,7 @@ function defaultConfirmedState(
 
 function normalizeProjectTokenDefinition(definition: {
 	domains: Partial<Record<string, TailwindProjectDomainDefinition>>;
+	authored?: TailwindAuthoredTokens;
 	customProperties: Record<string, string>;
 	customUtilities: readonly TailwindCustomUtilityStorage[];
 }): TailwindProjectTokenDefinition {
@@ -572,9 +565,33 @@ function normalizeProjectTokenDefinition(definition: {
 
 	return {
 		domains,
+		...(definition.authored
+			? { authored: normalizeAuthoredTokens(definition.authored) }
+			: {}),
 		customProperties: normalizeCustomProperties(definition.customProperties),
 		customUtilities: normalizeCustomUtilities(definition.customUtilities),
 	};
+}
+
+/** Sorted, with the domains that define nothing left out. */
+export function normalizeAuthoredTokens(
+	authored: TailwindAuthoredTokens,
+): TailwindAuthoredTokens {
+	const domains: TailwindAuthoredTokens["domains"] = {};
+	for (const domain of TAILWIND_TOKEN_DOMAINS) {
+		const storage = authored.domains[domain];
+		if (!storage) {
+			continue;
+		}
+		const tokens = normalizeStringRecord(storage.tokens);
+		const resets = [...new Set(storage.resets)].sort((left, right) =>
+			left.localeCompare(right),
+		);
+		if (Object.keys(tokens).length > 0 || resets.length > 0) {
+			domains[domain] = { tokens, resets };
+		}
+	}
+	return { domains };
 }
 
 function normalizeConfirmedState(
@@ -591,8 +608,12 @@ function normalizeTailwindTokenStorage(
 	storage: TailwindTokenStorage,
 	projectRoot: string,
 ): TailwindTokenStorage {
+	const confirmed =
+		storage.confirmed === undefined
+			? defaultConfirmedState(storage)
+			: storage.confirmed;
 	return {
-		version: 4,
+		version: 3,
 		metadata: {
 			cssPath: normalizeCssPath(storage.metadata.cssPath, projectRoot),
 			syncedAt: storage.metadata.syncedAt,
@@ -623,9 +644,10 @@ function normalizeTailwindTokenStorage(
 				Record<TailwindTokenDomain, TailwindMeaningfulTokenBaselineDiff>
 			>,
 		}),
-		confirmed: storage.confirmed
-			? normalizeConfirmedState(storage.confirmed)
-			: null,
+		authored: storage.authored
+			? normalizeAuthoredTokens(storage.authored)
+			: undefined,
+		confirmed: confirmed ? normalizeConfirmedState(confirmed) : null,
 	};
 }
 
@@ -762,6 +784,9 @@ function normalizeCustomUtilities(
 			domains: [...new Set(utility.domains ?? [])].sort((left, right) =>
 				left.localeCompare(right),
 			),
+			...(typeof utility.definition === "string"
+				? { definition: utility.definition }
+				: {}),
 		}))
 		.sort((left, right) => left.root.localeCompare(right.root));
 }
@@ -830,20 +855,6 @@ function isTailwindTokenStorageV3(
 	);
 }
 
-function isTailwindTokenStorageV4(
-	data: unknown,
-): data is TailwindTokenStorageV4 {
-	return (
-		isRecord(data) &&
-		data.version === 4 &&
-		hasValidMetadataAndDomains(data) &&
-		isStringRecord(data.customProperties) &&
-		Array.isArray(data.customUtilities) &&
-		data.customUtilities.every(isCustomUtilityStorage) &&
-		(data.confirmed === null || isConfirmedTokenState(data.confirmed))
-	);
-}
-
 function isConfirmedTokenState(
 	value: unknown,
 ): value is TailwindConfirmedTokenState {
@@ -859,9 +870,24 @@ function isConfirmedTokenState(
 				isStringRecord(storage.tokens) &&
 				isStringArray(storage.removed),
 		) &&
+		(value.authored === undefined || isAuthoredTokens(value.authored)) &&
 		isStringRecord(value.customProperties) &&
 		Array.isArray(value.customUtilities) &&
 		value.customUtilities.every(isCustomUtilityStorage)
+	);
+}
+
+function isAuthoredTokens(value: unknown): value is TailwindAuthoredTokens {
+	return (
+		isRecord(value) &&
+		isRecord(value.domains) &&
+		Object.entries(value.domains).every(
+			([domain, storage]) =>
+				(TAILWIND_TOKEN_DOMAINS as string[]).includes(domain) &&
+				isRecord(storage) &&
+				isStringRecord(storage.tokens) &&
+				isStringArray(storage.resets),
+		)
 	);
 }
 
@@ -880,7 +906,8 @@ function isCustomUtilityStorage(
 		isStringArray(value.completionValues) &&
 		// `domains` is backfilled by normalizeCustomUtilities, so accept it
 		// missing (legacy) or a string array.
-		(value.domains === undefined || isStringArray(value.domains))
+		(value.domains === undefined || isStringArray(value.domains)) &&
+		(value.definition === undefined || typeof value.definition === "string")
 	);
 }
 
@@ -890,32 +917,33 @@ function isStringArray(value: unknown): value is string[] {
 
 /**
  * Read a snapshot of any supported version and upgrade it to the latest shape.
- * v2 → v3 adds empty `customProperties`/`customUtilities` sections. v3 → v4
- * adds `confirmed`: the snapshot's own project definition when it needs no
- * review (it was confirmed as it is), `null` when it does (a first review
- * then shows the full diff against Tailwind). Returns null for shapes we do
- * not recognise (treated as "no stored tokens").
+ * v2 → v3 adds empty `customProperties`/`customUtilities` sections. The
+ * optional `authored` and `confirmed` sections are dropped when malformed;
+ * a missing `confirmed` is derived on normalization (`defaultConfirmedState`):
+ * the snapshot's own definition when it needs no review, `null` (a first
+ * review) when it does. Returns null for shapes we do not recognise (treated
+ * as "no stored tokens").
  */
 export function migrateTokenStorageToLatest(
 	data: unknown,
 ): TailwindTokenStorage | null {
-	if (isTailwindTokenStorageV4(data)) {
-		return data;
+	if (isTailwindTokenStorageV3(data)) {
+		const { authored, confirmed, ...rest } = data;
+		return {
+			...rest,
+			...(authored !== undefined && isAuthoredTokens(authored)
+				? { authored }
+				: {}),
+			...(confirmed === null ||
+			(confirmed !== undefined && isConfirmedTokenState(confirmed))
+				? { confirmed }
+				: {}),
+		};
 	}
-	const v3 = isTailwindTokenStorageV3(data)
-		? data
-		: isTailwindTokenStorageV2(data)
-			? ({
-					...data,
-					version: 3,
-					customProperties: {},
-					customUtilities: [],
-				} satisfies TailwindTokenStorageV3)
-			: null;
-	if (!v3) {
-		return null;
+	if (isTailwindTokenStorageV2(data)) {
+		return { ...data, version: 3, customProperties: {}, customUtilities: [] };
 	}
-	return { ...v3, version: 4, confirmed: defaultConfirmedState(v3) };
+	return null;
 }
 
 function isMeaningfulBaselineDiff(

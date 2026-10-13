@@ -30,11 +30,13 @@ import {
 	computeTokenDomainOverrides,
 	TAILWIND_TOKEN_DOMAINS,
 	type TailwindDefaultTokenEntry,
-	type TailwindOverriddenTokenEntry,
 	type TailwindTokenDomain,
 	type TailwindTokenDomainDiffs,
-	type TailwindTokenEntry,
 } from "../../utils/tailwind-token-domains";
+import {
+	getStoredBaselineDiffs,
+	getTokenReviewCounts,
+} from "../../utils/tailwind-token-review";
 import { useProjectScope, useTailwindSyncController } from "../contexts";
 import { Alert } from "../ui/alert";
 import { ConfirmationDialog } from "../ui/alert-dialog";
@@ -177,38 +179,6 @@ export function getNextColorOverrides({
 		suggestedOverrides: { color: [...suggestedOverrides] },
 		storedOverrides: { color: [...storedOverrides] },
 	}).color;
-}
-
-function collectSyncAddedTokens(
-	baselineDiffs: TailwindTokenDomainDiffs | undefined,
-): TailwindTokenEntry[] {
-	return TAILWIND_TOKEN_DOMAINS.flatMap(
-		(domain) => baselineDiffs?.[domain].added ?? [],
-	);
-}
-
-function collectStoredAddedTokens(
-	domains: StoredTokenDomains | undefined,
-): TailwindTokenEntry[] {
-	return TAILWIND_TOKEN_DOMAINS.flatMap(
-		(domain) => domains?.[domain].baselineDiff.added ?? [],
-	);
-}
-
-function collectSyncOverriddenTokens(
-	baselineDiffs: TailwindTokenDomainDiffs | undefined,
-): TailwindOverriddenTokenEntry[] {
-	return TAILWIND_TOKEN_DOMAINS.flatMap(
-		(domain) => baselineDiffs?.[domain].overridden ?? [],
-	);
-}
-
-function collectStoredOverriddenTokens(
-	domains: StoredTokenDomains | undefined,
-): TailwindOverriddenTokenEntry[] {
-	return TAILWIND_TOKEN_DOMAINS.flatMap(
-		(domain) => domains?.[domain].baselineDiff.overridden ?? [],
-	);
 }
 
 function collectSyncRemovedTokens(
@@ -730,23 +700,10 @@ export function SystemDetailPane({
 		() => getStoredTokenOverridesByDomain(storedDomains),
 		[storedDomains],
 	);
-	const reviewRequired = Boolean(
-		data?.reviewRequired || storedTokensQuery.data?.reviewRequired,
-	);
-	const addedTokens = useMemo(
-		() =>
-			data?.baselineDiffs
-				? collectSyncAddedTokens(data.baselineDiffs)
-				: collectStoredAddedTokens(storedDomains),
-		[data?.baselineDiffs, storedDomains],
-	);
-	const overriddenTokens = useMemo(
-		() =>
-			data?.baselineDiffs
-				? collectSyncOverriddenTokens(data.baselineDiffs)
-				: collectStoredOverriddenTokens(storedDomains),
-		[data?.baselineDiffs, storedDomains],
-	);
+	// The latest sync response wins over the stored snapshot, which the sync
+	// controller refreshes after each sync.
+	const reviewRequired =
+		data?.reviewRequired ?? storedTokensQuery.data?.reviewRequired ?? false;
 	const removedTokens = useMemo(
 		() =>
 			data?.baselineDiffs
@@ -901,19 +858,17 @@ export function SystemDetailPane({
 	const isSyncing = result.status === "pending";
 	// A review counts the changes since the last confirmed one; a first review
 	// (nothing confirmed yet), the full theme diff against Tailwind.
-	const reviewChanges =
-		data?.reviewChanges ?? storedTokensQuery.data?.reviewChanges ?? null;
-	const rawTokenDiff: TokenDiff = reviewChanges
-		? {
-				added: reviewChanges.tokens.added.length,
-				overridden: reviewChanges.tokens.changed.length,
-				removed: reviewChanges.tokens.removed.length,
-			}
-		: {
-				added: addedTokens.length,
-				overridden: overriddenTokens.length,
-				removed: removedTokens.length,
-			};
+	const reviewCounts = getTokenReviewCounts({
+		reviewChanges: data
+			? data.reviewChanges
+			: storedTokensQuery.data?.reviewChanges,
+		baselineDiffs: data?.baselineDiffs ?? getStoredBaselineDiffs(storedDomains),
+	});
+	const rawTokenDiff: TokenDiff = {
+		added: reviewCounts.added,
+		overridden: reviewCounts.changed,
+		removed: reviewCounts.removed,
+	};
 	const tokenDiff: TokenDiff = reviewRequired
 		? rawTokenDiff
 		: { added: 0, overridden: 0, removed: 0 };
@@ -1011,7 +966,9 @@ export function SystemDetailPane({
 						<SystemDiffChips
 							added={tokenDiff.added}
 							overridden={tokenDiff.overridden}
-							overriddenLabel={reviewChanges ? "changed" : undefined}
+							overriddenLabel={
+								reviewCounts.sinceLastReview ? "changed" : undefined
+							}
 							removed={tokenDiff.removed}
 						/>
 					</>

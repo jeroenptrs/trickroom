@@ -20,7 +20,7 @@ const manifestOf = (records: ReturnType<typeof publishedComponent>[]) => ({
 const tokens = (
 	overrides: Partial<TailwindTokenStorage> = {},
 ): TailwindTokenStorage => ({
-	version: 4,
+	version: 3,
 	metadata: {
 		cssPath: "src/index.css",
 		syncedAt: "2026-01-01T00:00:00.000Z",
@@ -59,7 +59,6 @@ const tokens = (
 	) as unknown as TailwindTokenStorage["domains"],
 	customProperties: {},
 	customUtilities: [],
-	confirmed: null,
 	...overrides,
 });
 
