@@ -112,7 +112,8 @@ const DEPENDENCY_PATTERNS = [
 	/import[\s\S]*?['"](.{3,}?)['"]/gi,
 	/import[\s\S]*from[\s\S]*?['"](.{3,}?)['"]/gi,
 	/export[\s\S]*from[\s\S]*?['"](.{3,}?)['"]/gi,
-	/require\(['"`](.+)['"`]\)/gi,
+	// Not greedy, so two `require()`s on a line are two dependencies.
+	/require\(\s*['"`](.+?)['"`]\s*\)/gi,
 ];
 const JS_EXTENSIONS = [".js", ".cjs", ".mjs"];
 const JS_RESOLUTION_ORDER = [
@@ -195,42 +196,71 @@ const isUnderNodeModules = (filePath: string) =>
 const describeError = (error: unknown) =>
 	error instanceof Error ? error.message : String(error);
 
+/** Whether a Proxy over `value` must not change what its properties read. */
+const hasLockedProperties = (value: object) =>
+	Object.values(Object.getOwnPropertyDescriptors(value)).some(
+		(descriptor) =>
+			!descriptor.configurable &&
+			("get" in descriptor || descriptor.writable === false),
+	);
+
 /**
- * Wraps a plugin (or a config's plugins) so an error it throws when
- * Tailwind runs it names the directive and the module. Tailwind reads
- * plugins as functions (`plugin.withOptions`, v3-style functions) or
- * `{ handler, config }`, and configs' `plugins` and `presets`.
+ * Wraps a module's value so an error any of its functions throws when
+ * Tailwind runs it names the directive and the module: plugin handlers,
+ * `plugin.withOptions` factories, a config's `plugins` and `presets`, theme
+ * callbacks (`colors: ({ theme }) => …`), nested plugin configs. Wrapped
+ * lazily as Tailwind reads it, the same wrapper for the same value; plain
+ * objects, arrays and functions only (a `Map` or `RegExp` passes as is). A
+ * frozen object is wrapped through a copy, which a Proxy needs to hand out
+ * wrapped properties.
  */
 const guardModule = (value: unknown, fail: (error: unknown) => never) => {
-	if (typeof value === "function") {
-		return new Proxy(value, {
-			apply(target, thisArg, args) {
-				let result: unknown;
-				try {
-					result = Reflect.apply(target, thisArg, args);
-				} catch (error) {
-					fail(error);
-				}
-				return guardModule(result, fail);
-			},
-		});
-	}
-	if (value !== null && typeof value === "object") {
-		return new Proxy(value, {
-			get(target, property, receiver) {
-				const inner = Reflect.get(target, property, receiver);
-				if (property === "handler") return guardModule(inner, fail);
-				if (
-					(property === "plugins" || property === "presets") &&
-					Array.isArray(inner)
-				) {
-					return inner.map((entry) => guardModule(entry, fail));
-				}
-				return inner;
-			},
-		});
-	}
-	return value;
+	const wrapped = new WeakMap<object, unknown>();
+	const guard = (inner: unknown): unknown => {
+		if (typeof inner === "function") {
+			let proxy = wrapped.get(inner);
+			if (!proxy) {
+				proxy = new Proxy(inner, {
+					apply(target, thisArg, args) {
+						let result: unknown;
+						try {
+							result = Reflect.apply(target, thisArg, args);
+						} catch (error) {
+							fail(error);
+						}
+						return guard(result);
+					},
+				});
+				wrapped.set(inner, proxy);
+			}
+			return proxy;
+		}
+		if (inner === null || typeof inner !== "object") {
+			return inner;
+		}
+		const isArray = Array.isArray(inner);
+		const prototype = Object.getPrototypeOf(inner);
+		if (!isArray && prototype !== Object.prototype && prototype !== null) {
+			return inner;
+		}
+		let proxy = wrapped.get(inner);
+		if (!proxy) {
+			const target = !hasLockedProperties(inner)
+				? inner
+				: isArray
+					? [...(inner as unknown[])]
+					: Object.assign(Object.create(prototype), inner);
+			proxy = new Proxy(target, {
+				get(source, property, receiver) {
+					const read = Reflect.get(source, property, receiver);
+					return typeof property === "symbol" ? read : guard(read);
+				},
+			});
+			wrapped.set(inner, proxy);
+		}
+		return proxy;
+	};
+	return guard(value);
 };
 
 export type TailwindModuleLoaderOptions = {

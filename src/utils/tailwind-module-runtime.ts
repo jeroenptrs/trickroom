@@ -55,31 +55,57 @@ export const resolveModule = (id: string, base: string): Promise<string> => {
 	return run(esmResolver, id, base).catch(() => run(cjsResolver, id, base));
 };
 
-// Without jiti's module cache, so jiti evaluates what it transpiles (ESM,
-// TypeScript) afresh on every load. Its `require` form, not `import`: the
-// latter hands ESM and `.cjs` files to Node's own `import()`, whose cache
-// keeps the files a module imports.
-const jiti = createJiti(import.meta.url, {
-	moduleCache: false,
-	fsCache: false,
-});
-
 // Node's require cache, the one CommonJS modules are kept in.
 const requireCache = createRequire(import.meta.url).cache;
 
+const realPath = (file: string) => {
+	try {
+		return fs.realpathSync(file);
+	} catch {
+		return file;
+	}
+};
+
 /**
- * Evaluates a module file (ESM, CommonJS or TypeScript) as it is now:
- * `files` (the module and the files it imports) are dropped from Node's
- * require cache first, which CommonJS files load through
- * (`@tailwindcss/node`'s `clearRequireCache`). Top-level `await` is not
- * supported.
+ * Evaluates a module file (ESM, CommonJS or TypeScript) as it is now.
+ *
+ * - jiti's `require` form, not `import`: the latter hands ESM and `.cjs`
+ *   files to Node's own `import()`, whose cache keeps the files a module
+ *   imports.
+ * - Without jiti's module cache, so what jiti transpiles (ESM, TypeScript)
+ *   evaluates afresh; and `files` (the module and the files it imports,
+ *   by path and by real path, which Node keys symlinked files by) are
+ *   dropped from Node's require cache first, which CommonJS files load
+ *   through (`@tailwindcss/node`'s `clearRequireCache`), along with the
+ *   references cached modules keep to them.
+ * - A jiti per load: the require it loads through records every module it
+ *   loads as a child, so one kept for the process would keep every
+ *   version ever loaded.
+ *
+ * Top-level `await` is not supported.
  */
 export const importModule = (
 	file: string,
 	files: readonly string[],
 ): unknown => {
+	const dropped = new Set<string>();
 	for (const cached of files) {
-		delete requireCache[cached];
+		dropped.add(cached);
+		dropped.add(realPath(cached));
 	}
+	for (const id of dropped) {
+		delete requireCache[id];
+	}
+	for (const cached of Object.values(requireCache)) {
+		if (cached?.children.some((child) => dropped.has(child.id))) {
+			cached.children = cached.children.filter(
+				(child) => !dropped.has(child.id),
+			);
+		}
+	}
+	const jiti = createJiti(import.meta.url, {
+		moduleCache: false,
+		fsCache: false,
+	});
 	return jiti(file);
 };

@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	rm,
+	symlink,
+	utimes,
+	writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createCanonicalizeCache } from "./tailwind-canonicalize-cache";
@@ -284,6 +291,90 @@ describe("@plugin and @config modules", () => {
 		expect((await loadError("src/top-level.css")).message).toBe(
 			'@plugin "./top-level.js" (src/top-level.js) failed to load: at import',
 		);
+	});
+});
+
+describe("module edge cases", () => {
+	it("tracks two require()s on one line, and a symlinked import, and reloads them", async () => {
+		await write(
+			"src/compact.cjs",
+			[
+				'const a = require("./a.cjs"), b = require("./link.cjs");',
+				'module.exports = ({ addUtilities }) => addUtilities({ ".compact": { color: a, "background-color": b } });',
+				"",
+			].join("\n"),
+		);
+		await write("src/a.cjs", 'module.exports = "red";\n');
+		await write("src/real/b.cjs", 'module.exports = "white";\n');
+		await symlink(
+			path.join(projectRoot, "src/real/b.cjs"),
+			path.join(projectRoot, "src/link.cjs"),
+		);
+		await write("src/app.css", entry('@plugin "./compact.cjs";'));
+		const options = { projectRoot, cssPath: "src/app.css" };
+		const first = await loadCachedTailwindDesignSystem(options);
+		expect(
+			first.modules[0]?.files.map((file) => path.relative(projectRoot, file)),
+		).toEqual(["src/compact.cjs", "src/a.cjs", "src/link.cjs"]);
+		const css = (loaded: typeof first) =>
+			loaded.designSystem.candidatesToCss(["compact"])[0] ?? "";
+		expect(css(first)).toContain("color: red");
+		expect(css(first)).toContain("background-color: white");
+
+		await rewrite("src/a.cjs", 'module.exports = "blue";\n');
+		await rewrite("src/real/b.cjs", 'module.exports = "black";\n');
+
+		const second = await loadCachedTailwindDesignSystem(options);
+		expect(css(second)).toContain("color: blue");
+		expect(css(second)).toContain("background-color: black");
+	});
+
+	it("names the directive and module when a theme callback or a nested plugin throws", async () => {
+		await write(
+			"src/theme-callback.cjs",
+			'module.exports = { theme: { extend: { colors: () => { throw new Error("theme boom"); } } } };\n',
+		);
+		await write(
+			"src/nested.cjs",
+			[
+				'const plugin = require("tailwindcss/plugin");',
+				'module.exports = plugin(() => {}, { plugins: [() => { throw new Error("nested boom"); }] });',
+				"",
+			].join("\n"),
+		);
+		await write("src/theme.css", entry('@config "./theme-callback.cjs";'));
+		await write("src/nested.css", entry('@plugin "./nested.cjs";'));
+
+		expect((await loadError("src/theme.css")).message).toBe(
+			'@config "./theme-callback.cjs" (src/theme-callback.cjs) threw: theme boom',
+		);
+		expect((await loadError("src/nested.css")).message).toBe(
+			'@plugin "./nested.cjs" (src/nested.cjs) threw: nested boom',
+		);
+	});
+
+	it("loads frozen plugins and configs", async () => {
+		await write(
+			"src/frozen-plugin.cjs",
+			'module.exports = Object.freeze({ handler: ({ addUtilities }) => addUtilities({ ".frozen": { color: "red" } }) });\n',
+		);
+		await write(
+			"src/frozen-config.cjs",
+			'module.exports = Object.freeze({ plugins: Object.freeze([({ addUtilities }) => addUtilities({ ".frozen-config": { color: "blue" } })]), theme: Object.freeze({ extend: Object.freeze({ colors: Object.freeze({ ice: "#e0f2fe" }) }) }) });\n',
+		);
+		await write(
+			"src/app.css",
+			entry('@plugin "./frozen-plugin.cjs";', '@config "./frozen-config.cjs";'),
+		);
+
+		const css = await cssFor("src/app.css", [
+			"frozen",
+			"frozen-config",
+			"bg-ice",
+		]);
+		expect(css[0]).toContain("color: red");
+		expect(css[1]).toContain("color: blue");
+		expect(css[2]).toContain("#e0f2fe");
 	});
 });
 
