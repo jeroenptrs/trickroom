@@ -157,6 +157,22 @@ These resolve what the proposal left open and apply to every WP.
   keep "Save as memory note". Design-list counts come from
   `GET /api/trickroom/annotations/counts`, cached per design and branch by
   folder signature.
+- Checkout scope in the editor (release review): the server watches the
+  git folder holding `HEAD` while an event stream is open and sends an
+  `annotation-scope` SSE event on a branch change; reads return `scope`;
+  every HTTP annotation write accepts `expectedScope` and refuses 409
+  `SCOPE_CHANGED` when the checkout changed, re-checked under the lock
+  immediately before the rename. The editor then starts a new container
+  generation and refetches; drafts survive.
+- Accepted residual window (orchestrator, release review): `git checkout`
+  is not coordinated with Trickroom, so a checkout at the instant a write is
+  being stored (including a design or component write inside a revert,
+  after its pre-write check) can let that one write land on the branch it
+  started on, as with any autosave racing a checkout. Documented in
+  `docs/architecture.md` and `docs/project-files.md`.
+- `annotation_list` is paginated with an opaque `cursor`; detached
+  derivation builds one design index per listing; parsed annotation files
+  are cached per process by file signature (listings only).
 
 ## Work packages
 
@@ -311,7 +327,7 @@ Status: merged (PR #31, 2026-10-14; five review rounds). Model: Opus 5.5. Depend
 
 ### WP6: dogfood, release and build
 
-Status: merged (PR #32, 2026-10-14; four review rounds). Release review, release PR and build: in progress. Model: Opus 5.5. Depends on WP3, WP4, WP5.
+Status: merged (PR #32, 2026-10-14; four review rounds). Release review: approved after four rounds; its fixes merged as PR #33. Release PR and build: see below. Model: Opus 5.5. Depends on WP3, WP4, WP5.
 
 - End to end on this repository's own `.trickroom` project in a scratch
   `TRICKROOM_HOME`: annotate layers in the editor, run a real agent session
@@ -417,3 +433,9 @@ UI with the repo's `playwright-core` headless Chromium:
     icons.
 - Process: the flaky watcher test above failed once more during WP6;
   worth fixing on `main` separately.
+- Release fixes: `annotation_watch` with `boardId` reads the folder twice
+  when there is new work (about 60 ms per poll at 10,000 files); the
+  first MCP call in a new process parses every annotation file (about 1 s
+  at 10,000; removing it needs a persisted index, a new file shape); the
+  `HEAD` watcher does not notice `git init` in a project without git (the
+  next list or write corrects the scope).
