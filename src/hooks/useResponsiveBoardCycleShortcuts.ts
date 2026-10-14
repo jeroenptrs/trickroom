@@ -48,7 +48,7 @@ export function useResponsiveBoardCycleShortcuts({
 	);
 
 	// Key presses in the stage iframe reach the editor window too: the stage
-	// forwards them (see forwardStageKeyDown), so one listener covers both.
+	// forwards them (see forwardStageKeyEvent), so one listener covers both.
 	useEffect(() => {
 		if (!enabled) {
 			return;

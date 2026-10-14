@@ -174,7 +174,9 @@ export function isSameStageLayerAncestry(
  * editor document, so the editor's shortcuts (Escape, Enter, arrows, Delete,
  * panel and save shortcuts) work after a click on the canvas. Space stays in
  * the stage for panning, Tab for focus order, and keys typed into an
- * editable element in a board stay there.
+ * editable element in a board stay there. Key releases are forwarded with
+ * the same filter, so the editor's held-key state (Alt and Shift pick where
+ * a new layer goes) never sees a press without its release.
  */
 export function shouldForwardStageKey(
 	event: Pick<KeyboardEvent, "key" | "target">,
@@ -185,12 +187,12 @@ export function shouldForwardStageKey(
 	return !isEditableShortcutTarget(event.target);
 }
 
-export function forwardStageKeyDown(event: KeyboardEvent, host: Document) {
+export function forwardStageKeyEvent(event: KeyboardEvent, host: Document) {
 	const HostKeyboardEvent = host.defaultView?.KeyboardEvent;
 	if (!HostKeyboardEvent || !shouldForwardStageKey(event)) {
 		return;
 	}
-	const forwarded = new HostKeyboardEvent("keydown", {
+	const forwarded = new HostKeyboardEvent(event.type, {
 		key: event.key,
 		code: event.code,
 		location: event.location,
@@ -257,6 +259,8 @@ export function attachStageInteraction({
 	onHoverChange,
 	host,
 }: StageInteractionOptions) {
+	// Forwarding into the stage's own document would come straight back here.
+	const forwardTo = host && host !== document ? host : null;
 	let spacePressed = false;
 	let hoverId: string | null = null;
 	// The press in progress is a selection press, so its up events and the
@@ -345,14 +349,18 @@ export function attachStageInteraction({
 			setHover(null);
 			return;
 		}
-		if (host) {
-			forwardStageKeyDown(event, host);
+		if (forwardTo) {
+			forwardStageKeyEvent(event, forwardTo);
 		}
 	};
 
 	const onKeyUp = (event: KeyboardEvent) => {
 		if (event.key === " ") {
 			spacePressed = false;
+			return;
+		}
+		if (forwardTo) {
+			forwardStageKeyEvent(event, forwardTo);
 		}
 	};
 

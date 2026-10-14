@@ -5,7 +5,7 @@ import {
 	resetComponentDraftStore,
 } from "../../stores/component-draft-store";
 import { designStore, hydrateDesign } from "../../stores/design-store";
-import type { TrickroomDesign } from "../../types";
+import type { Props, TrickroomDesign } from "../../types";
 import { getStageLayerAncestry } from "./stage-interaction";
 import {
 	componentDraftStageSelection,
@@ -14,7 +14,7 @@ import {
 	draftLayerTree,
 } from "./stage-selection-sources";
 
-const layer = (name: string, component = "container") => ({
+const layer = (name: string, component = "container"): Props => ({
 	"data-trickroom-name": name,
 	"data-trickroom-library": "trickroom",
 	"data-trickroom-component": component,
@@ -32,7 +32,7 @@ const design = {
 					id: "card",
 					props: layer("  "),
 					children: [
-						{ id: "label", props: layer("Label", "text"), text: "Hi" },
+						{ id: "label", props: layer("Label", "text"), children: "Hi" },
 					],
 				},
 			],

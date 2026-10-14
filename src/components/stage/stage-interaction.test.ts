@@ -4,7 +4,7 @@ import { STAGE_BOARD_PORTAL_ATTRIBUTE } from "../../libraries/stage-portal";
 import {
 	attachStageInteraction,
 	createStageNodeLookup,
-	forwardStageKeyDown,
+	forwardStageKeyEvent,
 	getStageDrillTarget,
 	getStageLayerAncestry,
 	hasOpenBoardOverlay,
@@ -267,7 +267,7 @@ describe("key forwarding", () => {
 			cancelable: true,
 		});
 		Object.defineProperty(enter, "target", { value: document.body });
-		forwardStageKeyDown(enter, host);
+		forwardStageKeyEvent(enter, host);
 		expect(seen[0]).toMatchObject({ key: "Enter", shiftKey: true });
 		expect(enter.defaultPrevented).toBe(true);
 
@@ -276,10 +276,20 @@ describe("key forwarding", () => {
 			cancelable: true,
 		});
 		Object.defineProperty(escapeKey, "target", { value: document.body });
-		forwardStageKeyDown(escapeKey, host);
+		forwardStageKeyEvent(escapeKey, host);
 		expect(seen).toHaveLength(2);
 		expect(escapeKey.defaultPrevented).toBe(false);
 		host.removeEventListener("keydown", onHostKeyDown);
+
+		// Releases follow presses, so held-key state on the host clears.
+		const released: string[] = [];
+		const onHostKeyUp = (event: KeyboardEvent) => released.push(event.key);
+		host.addEventListener("keyup", onHostKeyUp);
+		const shiftUp = new KeyboardEvent("keyup", { key: "Shift" });
+		Object.defineProperty(shiftUp, "target", { value: document.body });
+		forwardStageKeyEvent(shiftUp, host);
+		expect(released).toEqual(["Shift"]);
+		host.removeEventListener("keyup", onHostKeyUp);
 	});
 });
 
@@ -373,6 +383,24 @@ describe("attachStageInteraction", () => {
 		press("pin");
 		expect(pinClick).toHaveBeenCalledTimes(1);
 		expect(source.selected()).toBeNull();
+	});
+
+	it("does not forward keys into its own document", () => {
+		detach?.();
+		const seen = vi.fn();
+		document.addEventListener("keydown", seen);
+		detach = attachStageInteraction({
+			document,
+			window,
+			source,
+			host: document,
+			onHoverChange: () => {},
+		});
+		document.body.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+		);
+		expect(seen).toHaveBeenCalledTimes(1);
+		document.removeEventListener("keydown", seen);
 	});
 
 	it("reports hover, and none while a button is held", () => {
