@@ -124,7 +124,7 @@ Shared server:
 
 ## The Inspector
 
-The right-hand inspector shows the selected layer in one scrolling panel: its classes first, then its properties. The component editor's draft inspector uses the same layout.
+The right-hand inspector shows the selected layer in one scrolling panel: its classes first, then its properties. The component editor's draft inspector uses the same layout. In the design editor the inspector has two tabs: **Properties** (below) and **Annotations** (see [Annotations](#annotations)).
 
 Classes:
 
@@ -167,6 +167,7 @@ The short version:
 - MCP audit log, if enabled: `.trickroom/audit-log.jsonl`
 - Per-user recent project registry: `~/.trickroom/projects.json`
 - Agent feedback on the MCP tools, and the optional call log: `~/.trickroom/feedback/`
+- Annotations (per user, never committed): `~/.trickroom/annotations/`
 
 Trickroom reads configured CSS files and imports to understand Tailwind tokens. It does not edit those CSS files or your app source files.
 
@@ -219,6 +220,32 @@ When an agent (or another tab, or a git checkout) changes the design you have op
 
 - Changed boards get a **Changed** tag in the Layers panel, and changed layers a cyan square. In the responsive view, **N changed** next to the board navigation jumps to the next changed board. When a changed board is in view, its changed layers are outlined briefly. The markers clear a few seconds after you have seen the board, or as soon as you select or edit something in it.
 - If you and the agent changed the same board, the changes are merged layer by layer. You are only asked when both changed the same property or text of a layer (or moved things in ways that do not combine). The dialog lists each conflicting board; for each, **Take theirs** loads the version on disk and drops your edits to that board, **Keep mine** saves your version of that board over the one on disk. Other boards are not affected by either choice.
+
+## Annotations
+
+Annotations are remarks you leave on a layer, a board or the whole design for an agent to act on. The agent sees them in its normal tool results through MCP, changes the design, and its reply (with a record of what it changed) appears under your remark. The conversation with the agent stays in your harness (Claude Code, Codex, T3 Code); Trickroom keeps the remarks, the anchors, their state and what changed.
+
+Annotations are your own working state: they are stored per user in `~/.trickroom/annotations/` (see [Files And Safety](./project-files.md#annotations)), never in `.trickroom`, and never committed. A remark worth keeping graduates to a memory note.
+
+### The loop
+
+1. **Write.** Select a layer (on the canvas or in the Layers panel), open the inspector's **Annotations** tab and write in the composer. With a board selected the annotation is about the board; with nothing selected, about the design. `Cmd`/`Ctrl` + `K` → **New annotation** jumps to the composer.
+2. **Drafts stay in the browser.** What you type is a draft: the stage shows a dashed pin on its layer, and a reload of the tab keeps it. Nothing reaches disk, or an agent, until you send it. Write several, then send them together.
+3. **Send.** **Send** sends one; **Send all drafts** sends every draft on the board in view (or in the design with nothing selected); the command menu has **Send drafts** too. A sent annotation is **Open** and in front of a working agent within one tool call.
+4. **The agent picks it up.** When an agent session has seen it, the thread says "Seen by an agent N min ago" (an advisory acknowledgement; after 15 minutes without a tool call from that session it reads "session idle"). The agent then either changes the design and replies with a change record (**Addressed**), asks you a question (**Needs input**), or dismisses it with a reason.
+5. **Review.** Everything updates live, without reloading. A change record reads **Changed N layers**: click it to pan to the layers and flash them. **Revert** restores them as they were before that change, as long as nothing has edited those layers since; otherwise it refuses and names the layers. Revert is available while the annotation is live.
+6. **Answer or close.** A reply on an addressed, answered or closed annotation opens it again for the agent. **Resolve** closes it (and offers **Save as memory note**, which adds a design memory note with your remark, the final reply and a `{{layer:…}}` reference back to the layer). **Dismiss** closes it with a reason. **Reopen** opens a closed one again.
+
+An agent may also resolve an annotation when you ask it to in conversation. Those show **Resolved by agent** with a hollow check and an **Accept** control until you accept them; **Accept all agent-resolved** accepts every one on the board. **Resolve all addressed** resolves every addressed annotation on the board in one go. Each annotation keeps its own state: send five together and four may come back addressed while one is still open.
+
+### Where annotations show
+
+- **Stage pins.** A small square at the top-right corner of each annotated layer (top-left for a board), with a count when several share it. Open is cyan, addressed a hollow cyan square, needs input a slate square with a cyan border, resolved slate at 40%, resolved by an agent a hollow check, a draft dashed cyan. Clicking a pin selects the layer and opens its thread. Annotations on a layer that no longer exists (deleted, or not in this checkout) are **Detached**: they pin dashed slate to their board's corner, keep the name the layer had, and reattach when the layer comes back (undo, git checkout). **Re-anchor to …** moves one to the selected layer.
+- **Layers panel.** A marker with the count on each row with annotations; a board row counts everything on its board. Click it to open the thread. **Resolved** in the panel header shows resolved and dismissed annotations on the stage and in the panel too.
+- **Inspector.** The **Annotations** tab lists the selected layer's threads, then the board's, the other layers on that board and the design's, with a count on the tab. **Other branches** at the bottom lists annotations made on other branches or worktrees of this project (they are not work here); **Move here** moves one to the branch this checkout is on.
+- **Command menu.** **Next open annotation** walks through the live annotations in layer order.
+
+Annotations belong to the git branch they were made on, so an annotation made in a feature worktree does not show in the main checkout, and an agent working on main does not see it. A checkout with a detached HEAD, or a project without git, uses one shared bucket.
 
 ## Current Limits
 

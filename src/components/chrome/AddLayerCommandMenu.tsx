@@ -46,6 +46,25 @@ import {
 
 export type EditorCommandPage = "root" | "home" | "libraries";
 
+/** A command on the menu's root page, beside "Add layer…". */
+export type EditorRootCommand = {
+	value: string;
+	label: string;
+	keywords?: string[];
+	icon: ReactNode;
+	secondary?: string | null;
+	disabled?: boolean;
+	disabledReason?: string;
+	onSelect: () => void;
+	/** Where focus goes once the menu has closed (by default, back to where it was). */
+	focusAfterClose?: () => HTMLElement | null;
+};
+
+export type EditorRootCommandGroup = {
+	label: string;
+	commands: EditorRootCommand[];
+};
+
 const LIBRARY_IDS = availableRegistries.filter(
 	(library): library is RegistryId => library !== "trickroom",
 );
@@ -61,6 +80,8 @@ type AddLayerCommandMenuProps = {
 	/** Placement intent captured when the menu was opened (modifier-driven). */
 	intent: ShortcutPlacementIntent;
 	insertion: LayerInsertion;
+	/** More groups on the root page (annotations). */
+	rootGroups?: EditorRootCommandGroup[];
 };
 
 function ItemRow({
@@ -187,9 +208,13 @@ export function AddLayerCommandMenu({
 	onPageChange,
 	intent,
 	insertion,
+	rootGroups = [],
 }: AddLayerCommandMenuProps) {
 	const [keyboardSelectionActive, setKeyboardSelectionActive] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
+	// A root command that moves focus elsewhere (the annotation composer)
+	// says where; otherwise closing returns focus to where it was.
+	const focusAfterCloseRef = useRef<(() => HTMLElement | null) | null>(null);
 
 	const isAltPressed = useKeyHold("Alt");
 	const isShiftPressed = useKeyHold("Shift");
@@ -290,6 +315,11 @@ export function AddLayerCommandMenu({
 					data-shortcuts-disabled=""
 					aria-label={page === "root" ? "Command menu" : "Add layer"}
 					initialFocus={inputRef}
+					finalFocus={() => {
+						const focusAfterClose = focusAfterCloseRef.current;
+						focusAfterCloseRef.current = null;
+						return focusAfterClose?.() ?? true;
+					}}
 					onKeyDownCapture={handleMenuKeyDown}
 					className="fixed top-24 left-1/2 z-20 w-[640px] -translate-x-1/2 shadow-2xl outline-none transition-all duration-150 data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
 				>
@@ -341,7 +371,37 @@ export function AddLayerCommandMenu({
 										onSelect={() => onPageChange("home")}
 									/>
 								</CommandGroup>
-							) : page === "home" ? (
+							) : null}
+							{page === "root"
+								? rootGroups.map((group) => (
+										<CommandGroup key={group.label}>
+											<CommandGroupLabel>{group.label}</CommandGroupLabel>
+											{group.commands.map((command) => (
+												<ItemRow
+													key={command.value}
+													value={command.value}
+													// The menu filters on value and keywords, not the label.
+													keywords={[
+														command.label,
+														...(command.keywords ?? []),
+													]}
+													icon={command.icon}
+													label={command.label}
+													secondary={command.secondary}
+													disabled={command.disabled}
+													disabledReason={command.disabledReason}
+													onSelect={() => {
+														focusAfterCloseRef.current =
+															command.focusAfterClose ?? null;
+														close();
+														command.onSelect();
+													}}
+												/>
+											))}
+										</CommandGroup>
+									))
+								: null}
+							{page === "root" ? null : page === "home" ? (
 								<>
 									<CommandGroup>
 										<CommandGroupLabel>Insert</CommandGroupLabel>

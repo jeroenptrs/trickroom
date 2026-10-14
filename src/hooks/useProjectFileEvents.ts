@@ -1,5 +1,10 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import {
+	deliverAnnotationEvent,
+	parseAnnotationFileEvent,
+	requestAnnotationResync,
+} from "../queries/annotation-live-events";
 import { configFileProjectQueryKey } from "../queries/config-file";
 import {
 	type DesignFileSnapshot,
@@ -255,6 +260,8 @@ export function useProjectFileEvents(
 					queryKey: designSummariesProjectQueryKey(projectScope),
 				});
 				void invalidateSystemQueries();
+				// Annotation events sent while disconnected were missed.
+				requestAnnotationResync();
 			}
 			hasConnectedRef.current = true;
 			// A (re)connected stream is a new presence on the server; the tab
@@ -272,6 +279,16 @@ export function useProjectFileEvents(
 			coalescer.push(event);
 		};
 
+		// Annotations are per-user state outside `.trickroom`; their events go
+		// straight to the editor that has them loaded, which refetches the one
+		// annotation that changed.
+		const handleAnnotation = (message: MessageEvent<string>) => {
+			const event = parseAnnotationFileEvent(message.data);
+			if (event) {
+				deliverAnnotationEvent(event);
+			}
+		};
+
 		const handleFocus = (message: MessageEvent<string>) => {
 			const request = parseEditorFocusEvent(message.data);
 			if (request) {
@@ -282,7 +299,12 @@ export function useProjectFileEvents(
 		source.addEventListener("ready", handleReady);
 		source.addEventListener("change", handleChange as EventListener);
 		source.addEventListener("focus", handleFocus as EventListener);
+		source.addEventListener("annotation", handleAnnotation as EventListener);
 		return () => {
+			source.removeEventListener(
+				"annotation",
+				handleAnnotation as EventListener,
+			);
 			source.removeEventListener("ready", handleReady);
 			source.removeEventListener("change", handleChange as EventListener);
 			source.removeEventListener("focus", handleFocus as EventListener);
