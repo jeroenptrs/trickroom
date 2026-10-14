@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	realpath,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -473,6 +480,68 @@ describe("component annotation routes", () => {
 				by: { role: "human" },
 			});
 			expect(body.annotation.detached).toBe(false);
+		});
+
+		// Release review round 2: a revert queued behind a lock while another
+		// branch is checked out must not revert the draft for the old one.
+		it("refuses a revert that waited on the annotation's lock across a checkout", async () => {
+			const checkout = async (branch: string) => {
+				const gitDirectory = path.join(projectRoot, ".git");
+				await mkdir(gitDirectory, { recursive: true });
+				await writeFile(
+					path.join(gitDirectory, "HEAD.lock"),
+					`ref: refs/heads/${branch}\n`,
+				);
+				await rename(
+					path.join(gitDirectory, "HEAD.lock"),
+					path.join(gitDirectory, "HEAD"),
+				);
+			};
+			await checkout("a");
+			const annotation = await create();
+			const entryId = await writeAddressing(annotation.id);
+			const draftHash = hashSystemComponentTemplate(await draft());
+			const manifestRevision = (await manifest()).revision;
+
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			let entered!: () => void;
+			const held = new Promise<void>((resolve) => {
+				entered = resolve;
+			});
+			const holding = store.update(container, annotation.id, async () => {
+				entered();
+				await gate;
+				return { annotation: null, result: null };
+			});
+			await held;
+			const reverting = request("POST", `${base}/${annotation.id}/revert`, {
+				entryId,
+				expectedScope: {
+					branch: "a",
+					worktreePath: await realpath(projectRoot),
+				},
+			});
+			// Inside the manifest lock, waiting on the annotation's.
+			await new Promise((resolve) => setTimeout(resolve, 150));
+			await checkout("b");
+			release();
+			await holding;
+			const response = await reverting;
+
+			expect(response.status).toBe(409);
+			const body = await json<ErrorBody>(response);
+			expect(body.code).toBe("SCOPE_CHANGED");
+			expect(body.details?.scope).toMatchObject({ branch: "b" });
+			expect(hashSystemComponentTemplate(await draft())).toBe(draftHash);
+			expect((await manifest()).revision).toBe(manifestRevision);
+			const after = await stored(annotation.id);
+			expect(after.status).toBe("addressed");
+			expect(after.entries.some((entry) => entry.kind === "revert")).toBe(
+				false,
+			);
 		});
 
 		it("refuses a second revert with 400 NOT_REVERTIBLE", async () => {

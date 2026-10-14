@@ -65,7 +65,11 @@ import { SystemComponentOperationsError } from "../utils/system-component-operat
  * changed since (another branch checked out with the design open), the
  * write is refused with 409 `SCOPE_CHANGED` and `details.scope`, the
  * checkout now, so a stale tab never writes to another branch's
- * annotations. `GET` answers carry `scope` for the same comparison.
+ * annotations. The check runs when the request starts and again under the
+ * write's locks, right before it stores (and before a revert's design or
+ * component write), against a fresh read of `.git/HEAD`: a write queued
+ * behind a lock across a checkout is refused too. `GET` answers carry
+ * `scope` for the same comparison.
  *
  * Every write to existing annotations honours the revision the editor
  * read: `expectedRevision` on single-annotation routes (409 when stale),
@@ -98,16 +102,16 @@ const readBody = async (c: Context) => {
 const optionalString = (value: unknown) =>
 	typeof value === "string" && value.length > 0 ? value : undefined;
 
-/** The editor's `expectedScope` is not the checkout's scope any more. */
-class ScopeChangedError extends Error {
-	readonly scope: AnnotationScope;
-	constructor(scope: AnnotationScope) {
-		super(
-			`The checkout changed: annotations are now those of ${scope.branch === "*" ? "the unscoped bucket" : `branch ${scope.branch}`}. Nothing was written; list them again.`,
-		);
-		this.scope = scope;
-	}
-}
+/**
+ * The checkout is not the one the editor listed in, or not the one this
+ * request started in: nothing is written.
+ */
+const scopeChanged = (scope: AnnotationScope) =>
+	new AnnotationServiceError(
+		"SCOPE_CHANGED",
+		`The checkout changed: annotations are now those of ${scope.branch === "*" ? "the unscoped bucket" : `branch ${scope.branch}`}. Nothing was written; list them again.`,
+		{ scope },
+	);
 
 class RequestError extends Error {
 	readonly status: 400 | 404 | 409;
@@ -133,11 +137,6 @@ const respondWithError = (c: Context, error: unknown) => {
 	if (error instanceof RequestError) {
 		return errorJson(c, error.status, error.message, "INVALID_REQUEST");
 	}
-	if (error instanceof ScopeChangedError) {
-		return errorJson(c, 409, error.message, "SCOPE_CHANGED", {
-			scope: error.scope,
-		});
-	}
 	if (error instanceof AnnotationStoreError) {
 		const status =
 			error.code === "ANNOTATION_NOT_FOUND"
@@ -159,6 +158,7 @@ const respondWithError = (c: Context, error: unknown) => {
 				? 404
 				: error.code === "CHANGED_SINCE" ||
 						error.code === "WRONG_BRANCH" ||
+						error.code === "SCOPE_CHANGED" ||
 						error.code === "DESIGN_BUSY" ||
 						error.code === "COMPONENT_BUSY"
 					? 409
@@ -366,13 +366,31 @@ export const registerAnnotationRoutes = <E extends Env>(
 		if (!projectId) {
 			throw new RequestError("The project has no projectId.", 409);
 		}
+		let scope: ReturnType<typeof readCheckoutScope> | null = null;
+		/** The editor's `expectedScope`, once `assertScope` read it. */
+		let expected: AnnotationScope | null = null;
+		/**
+		 * Under the write's locks, right before it stores: the checkout read
+		 * again (never the request's cached scope), which must still be the
+		 * one the request started in and the one the editor expects. A write
+		 * that waited on a lock across a checkout is refused.
+		 */
+		const beforeWrite = async () => {
+			const current = await readCheckoutScope(projectRoot);
+			const started = scope ? await scope : null;
+			if (
+				(started && !isSameScope(started, current)) ||
+				(expected && !isSameScope(expected, current))
+			) {
+				throw scopeChanged(current);
+			}
+		};
 		const context: AnnotationServiceContext = {
-			store: new AnnotationStore({ projectId, trickroomHome }),
+			store: new AnnotationStore({ projectId, trickroomHome, beforeWrite }),
 		};
 		const designService = createDesignFileService(projectRoot, {
 			trickroomHome,
 		});
-		let scope: ReturnType<typeof readCheckoutScope> | null = null;
 		return {
 			context,
 			designService,
@@ -387,11 +405,11 @@ export const registerAnnotationRoutes = <E extends Env>(
 			 * scope now; writes use that same scope.
 			 */
 			assertScope: async (body: Record<string, unknown> | null) => {
-				const expected = expectedScopeOf(body);
+				expected = expectedScopeOf(body);
 				scope ??= readCheckoutScope(projectRoot);
 				const current = await scope;
 				if (expected && !isSameScope(expected, current)) {
-					throw new ScopeChangedError(current);
+					throw scopeChanged(current);
 				}
 			},
 			readDesign: async (container: AnnotationContainer | null) =>

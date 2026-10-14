@@ -1123,3 +1123,67 @@ describe("annotation file cache", () => {
 		expect(second.annotations).toHaveLength(2);
 	});
 });
+
+describe("beforeWrite", () => {
+	let home: string;
+
+	beforeEach(async () => {
+		home = await mkdtemp(path.join(os.tmpdir(), "trickroom-annotation-guard-"));
+	});
+
+	afterEach(async () => {
+		await rm(home, { recursive: true, force: true });
+	});
+
+	it("runs under the lock before every write, and a refusal writes nothing", async () => {
+		await new AnnotationStore({
+			projectId: "proj-1",
+			trickroomHome: home,
+		}).create(makeAnnotation());
+		let calls = 0;
+		let refuse = false;
+		const guarded = new AnnotationStore({
+			projectId: "proj-1",
+			trickroomHome: home,
+			beforeWrite: async () => {
+				calls += 1;
+				if (refuse) throw new Error("scope changed");
+			},
+		});
+		const reply = ({ annotation }: { annotation: Annotation }) => ({
+			annotation: appendEntry(annotation, `reply-${calls}`),
+			result: null,
+		});
+		await guarded.update(designContainer, "ann-1", reply);
+		// Nothing to write: not called.
+		await guarded.update(designContainer, "ann-1", () => ({
+			annotation: null,
+			result: null,
+		}));
+		expect(calls).toBe(1);
+
+		refuse = true;
+		await expect(
+			guarded.update(designContainer, "ann-1", reply),
+		).rejects.toThrow("scope changed");
+		await expect(
+			guarded.updateMany(designContainer, ["ann-1"], async (current) => ({
+				annotations: [...current.values()].map(
+					(stored) => reply(stored).annotation,
+				),
+				result: null,
+			})),
+		).rejects.toThrow("scope changed");
+		await expect(
+			guarded.create(makeAnnotation({ id: "ann-2" })),
+		).rejects.toThrow("scope changed");
+		await expect(guarded.remove(designContainer, "ann-1")).rejects.toThrow(
+			"scope changed",
+		);
+		await expect(guarded.guardWrite()).rejects.toThrow("scope changed");
+
+		const stored = await guarded.read(designContainer, "ann-1");
+		expect(stored?.annotation.entries).toHaveLength(2);
+		expect(await guarded.read(designContainer, "ann-2")).toBeNull();
+	});
+});

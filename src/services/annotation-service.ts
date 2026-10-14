@@ -94,6 +94,7 @@ export type AnnotationServiceErrorCode =
 	| "REVERT_NOT_RECORDED"
 	| "DESIGN_BUSY"
 	| "WRONG_BRANCH"
+	| "SCOPE_CHANGED"
 	| "COMPONENT_BUSY";
 
 export class AnnotationServiceError extends Error {
@@ -2096,6 +2097,8 @@ export const revertUnderLocks = async (
 			for (const annotationId of (await plan()).keys()) {
 				if (!planned.has(annotationId)) throw new SharedRevertSetChanged();
 			}
+			// The checkout may have changed while this waited on the locks.
+			await context.store.guardWrite();
 			const revisions = await input.write();
 			return {
 				annotations: recordRevertOnAll(

@@ -1287,6 +1287,165 @@ describe("annotation routes", () => {
 		});
 	});
 
+	// Release review round 2: a write that waits on a lock while another
+	// branch is checked out must not land on the previous branch.
+	describe("writes queued behind a lock across a checkout", () => {
+		const checkout = async (branch: string) => {
+			const gitDirectory = path.join(projectRoot, ".git");
+			await mkdir(gitDirectory, { recursive: true });
+			await writeFile(
+				path.join(gitDirectory, "HEAD.lock"),
+				`ref: refs/heads/${branch}\n`,
+			);
+			await rename(
+				path.join(gitDirectory, "HEAD.lock"),
+				path.join(gitDirectory, "HEAD"),
+			);
+		};
+		const scopeOf = async (branch: string) => ({
+			branch,
+			worktreePath: await realpath(projectRoot),
+		});
+		const designContainer = { kind: "design", designId: DESIGN_ID } as const;
+
+		/** Holds `acquire`'s lock until `release`; resolves once it is held. */
+		const hold = async (
+			acquire: (whileHeld: () => Promise<void>) => Promise<unknown>,
+		) => {
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			let entered!: () => void;
+			const held = new Promise<void>((resolve) => {
+				entered = resolve;
+			});
+			const done = acquire(async () => {
+				entered();
+				await gate;
+			});
+			await held;
+			return async () => {
+				release();
+				await done;
+			};
+		};
+		const holdAnnotation = (id: string) =>
+			hold((whileHeld) =>
+				store.update(designContainer, id, async () => {
+					await whileHeld();
+					return { annotation: null, result: null };
+				}),
+			);
+		/** Lets the request run until it waits on the held lock. */
+		const queued = () => new Promise((resolve) => setTimeout(resolve, 150));
+
+		const expectRefused = async (response: Response) => {
+			expect(response.status).toBe(409);
+			const body = await json<ErrorBody>(response);
+			expect(body.code).toBe("SCOPE_CHANGED");
+			expect(body.details?.scope).toEqual(await scopeOf("b"));
+		};
+
+		it("refuses a reply that waited on the annotation's lock", async () => {
+			await checkout("a");
+			const created = await create("On a");
+			const release = await holdAnnotation(created.id);
+			const replying = request("POST", `${base}/${created.id}/entries`, {
+				body: "Queued reply",
+				expectedRevision: created.revision,
+				expectedScope: await scopeOf("a"),
+			});
+			await queued();
+			await checkout("b");
+			await release();
+			await expectRefused(await replying);
+			expect((await readAnnotationFile(created.id)).entries).toHaveLength(1);
+		});
+
+		it("writes a queued reply when the checkout stayed", async () => {
+			await checkout("a");
+			const created = await create("On a");
+			const release = await holdAnnotation(created.id);
+			const replying = request("POST", `${base}/${created.id}/entries`, {
+				body: "Queued reply",
+				expectedScope: await scopeOf("a"),
+			});
+			await queued();
+			await release();
+			expect((await replying).status).toBe(200);
+			expect((await readAnnotationFile(created.id)).entries).toHaveLength(2);
+		});
+
+		it("refuses a queued transition, without an expectedScope too", async () => {
+			await checkout("a");
+			const created = await create("On a");
+			const release = await holdAnnotation(created.id);
+			// No expectedScope: the scope the request started in counts.
+			const resolving = request("POST", `${base}/${created.id}/transition`, {
+				to: "resolved",
+			});
+			await queued();
+			await checkout("b");
+			await release();
+			await expectRefused(await resolving);
+			expect((await readAnnotationFile(created.id)).status).toBe("open");
+		});
+
+		it("refuses a design revert that waited on the design lock, leaving the design as it was", async () => {
+			await checkout("a");
+			const created = await create("Make it bigger");
+			const recorder = createAddressesRecorder(
+				{ store },
+				{
+					designId: DESIGN_ID,
+					addresses: [{ annotationId: created.id, reply: "Bigger now" }],
+					by: { role: "agent", sessionId: "s1" },
+					operations: [
+						{ operation: "updateElementProps", summary: "className" },
+					],
+					summary: "Made it bigger",
+				},
+			);
+			const read = await designService.readDesignFile(DESIGN_ID);
+			await designService.updateDesignFile(DESIGN_ID, {
+				expectedRevision: read.revision,
+				mutate: async ({ design }) => {
+					const next = structuredClone(design);
+					const layer = (next.boards[0]?.children as Node[])[0] as Node;
+					layer.props.className = "p-8 text-2xl";
+					return { design: next };
+				},
+				afterWrite: recorder.afterWrite,
+			});
+			const result = recorder.results()[0];
+			if (result?.status !== "recorded") throw new Error("not recorded");
+			const revisionBefore = (await designService.readDesignFile(DESIGN_ID))
+				.revision;
+
+			const release = await hold((whileHeld) =>
+				designService.withDesignLock(DESIGN_ID, whileHeld),
+			);
+			const reverting = request("POST", `${base}/${created.id}/revert`, {
+				entryId: result.entryId,
+				expectedScope: await scopeOf("a"),
+			});
+			await queued();
+			await checkout("b");
+			await release();
+			await expectRefused(await reverting);
+			expect((await designService.readDesignFile(DESIGN_ID)).revision).toBe(
+				revisionBefore,
+			);
+			expect(await layerClassName()).toBe("p-8 text-2xl");
+			const stored = await readAnnotationFile(created.id);
+			expect(stored.status).toBe("addressed");
+			expect(stored.entries.some((entry) => entry.kind === "revert")).toBe(
+				false,
+			);
+		});
+	});
+
 	describe("without an active project", () => {
 		it("answers 409", async () => {
 			const bare = createTrickroomApp({ trickroomHome });
