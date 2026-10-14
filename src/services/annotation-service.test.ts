@@ -2216,3 +2216,23 @@ describe("WP3 branch checks", () => {
 		expect(written).toBe(true);
 	});
 });
+
+describe("acknowledge onlyIf", () => {
+	it("acknowledges only when the predicate holds on the stored annotation", async () => {
+		const annotation = await create();
+		const refused = await acknowledgeAnnotation(context, {
+			annotationId: annotation.id,
+			sessionId: "session-a",
+			onlyIf: (stored) => stored.target.kind === "board",
+		});
+		expect(refused.written).toBe(false);
+		expect(refused.annotation.status).toBe("open");
+		const accepted = await acknowledgeAnnotation(context, {
+			annotationId: annotation.id,
+			sessionId: "session-a",
+			onlyIf: (stored) => stored.status === "open",
+		});
+		expect(accepted.written).toBe(true);
+		expect(accepted.annotation.status).toBe("acknowledged");
+	});
+});

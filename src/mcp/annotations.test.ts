@@ -810,6 +810,54 @@ describe("MCP annotations", () => {
 			).toEqual([open1.id, resolved.id]);
 		});
 
+		it('returns open annotations with status: "open", and acknowledges exactly those', async () => {
+			const { call, annotate, stored } = await open();
+			const annotation = await annotate();
+			const { payload } = await call(TOOL.annotationList, {
+				designFileId: designId,
+				status: "open",
+			});
+			expect(
+				payload.annotations.map(
+					(entry: { annotationId: string; status: string }) => [
+						entry.annotationId,
+						entry.status,
+					],
+				),
+			).toEqual([[annotation.id, "acknowledged"]]);
+			expect(payload.total).toBe(1);
+			expect(payload.counts).toMatchObject({
+				agentWork: 1,
+				byStatus: { acknowledged: 1 },
+			});
+			const after = await stored(annotation.id);
+			expect(after.status).toBe("acknowledged");
+			expect(after.acknowledged?.sessionId).toEqual(expect.any(String));
+
+			// It is acknowledged now: an open filter no longer matches it, and
+			// nothing else is written.
+			const again = await call(TOOL.annotationList, {
+				designFileId: designId,
+				status: "open",
+			});
+			expect(again.payload.annotations).toEqual([]);
+			expect(again.payload.total).toBe(0);
+			expect((await stored(annotation.id)).acknowledged).toEqual(
+				after.acknowledged,
+			);
+		});
+
+		it("acknowledges nothing a status filter leaves out", async () => {
+			const { call, annotate, stored } = await open();
+			const annotation = await annotate();
+			const { payload } = await call(TOOL.annotationList, {
+				designFileId: designId,
+				status: "needs_input",
+			});
+			expect(payload.annotations).toEqual([]);
+			expect((await stored(annotation.id)).status).toBe("open");
+		});
+
 		it("reports a wrong design id when nothing is stored for it", async () => {
 			const { call } = await open();
 			const { isError, payload } = await call(TOOL.annotationList, {

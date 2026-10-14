@@ -6,6 +6,7 @@ import {
 	createAnnotation,
 	getAnnotation,
 	moveAnnotationToBranch,
+	reanchorAnnotation,
 } from "../services/annotation-service";
 import { AnnotationStore } from "../services/annotation-store";
 import type {
@@ -131,6 +132,16 @@ describe("MCP annotations: moved to another branch during a call", () => {
 				await moveToMain(annotationId);
 			};
 		};
+		/** The designer's re-anchor to the board, in the editor. */
+		const reanchorToBoard = async (annotationId: string) => {
+			const read = await fixture.designFileService.readDesignFile(designId);
+			await reanchorAnnotation(service, {
+				annotationId,
+				by: { role: "human" },
+				target: { kind: "board", designId, boardId: "board" },
+				design: { design: read.design, revision: read.revision },
+			});
+		};
 		const stored = (annotationId: string) =>
 			getAnnotation(service, { annotationId });
 		const revision = async () =>
@@ -140,6 +151,7 @@ describe("MCP annotations: moved to another branch during a call", () => {
 			annotate,
 			moveToMain,
 			moveOnFirstAcknowledge,
+			reanchorToBoard,
 			stored,
 			revision,
 		};
@@ -181,6 +193,27 @@ describe("MCP annotations: moved to another branch during a call", () => {
 		).toEqual([kept.id]);
 		expect(again.payload.total).toBe(1);
 		expect((await stored(moved.id)).status).toBe("open");
+	});
+
+	it("annotation_list: one re-anchored away from the requested element is neither returned nor acknowledged", async () => {
+		const { call, annotate, reanchorToBoard, stored } = await open();
+		const annotation = await annotate("Moves to the board");
+		hooks.beforeAcknowledge = async (id) => {
+			if (id !== annotation.id) return;
+			hooks.beforeAcknowledge = null;
+			await reanchorToBoard(annotation.id);
+		};
+		const { payload } = await call(TOOL.annotationList, {
+			designFileId: designId,
+			elementId: "title",
+			status: "open",
+		});
+		expect(payload.annotations).toEqual([]);
+		expect(payload.total).toBe(0);
+		const after = await stored(annotation.id);
+		expect(after.target.kind).toBe("board");
+		expect(after.status).toBe("open");
+		expect(after).not.toHaveProperty("acknowledged");
 	});
 
 	it("design_read surfacing: new, openIds, counts and more come from the same fresh set", async () => {

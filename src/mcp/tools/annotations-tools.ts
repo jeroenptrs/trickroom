@@ -11,6 +11,7 @@ import {
 import { AnnotationStoreError } from "../../services/annotation-store";
 import {
 	ANNOTATION_STATUSES,
+	type Annotation,
 	type AnnotationContainer,
 	type AnnotationStatus,
 	type AnnotationTarget,
@@ -357,20 +358,21 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 							? project.scope.branch
 							: branch;
 					const statuses = toStatuses(status);
-					const matches = (view: AnnotationView) =>
+					const matches = (view: Annotation) =>
 						(requestedBranch === "all" || view.branch === requestedBranch) &&
 						(statuses === undefined || statuses.includes(view.status)) &&
 						(elementId === undefined ||
 							(view.target.kind === "layer" &&
 								view.target.elementId === elementId));
-					const { bodies, fresh } = await annotations.showInFull(
+					const shown = await annotations.showInFull(
 						project,
 						sorted.slice(0, max),
 						matches,
 						{ branch: requestedBranch !== project.scope.branch },
 					);
 					// One set for the bodies, total, more and counts.
-					const eligible = annotations.refreshListed(sorted, fresh, matches);
+					const { bodies } = shown;
+					const eligible = annotations.refreshListed(sorted, shown, matches);
 					const counts = summarizeAnnotationCounts(
 						eligible.filter((view) => view.branch === project.scope.branch),
 						read.design,
@@ -831,15 +833,16 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 							.catch(() => design);
 						const found = await check();
 						if (found.unseen.length === 0) return null;
-						const { shown, fresh, bodies } = await annotations.showInFull(
+						const refreshed = await annotations.showInFull(
 							project,
 							found.unseen.slice(0, MAX_SURFACED_ANNOTATIONS),
 							keep,
 						);
+						const { shown, bodies } = refreshed;
 						if (shown.length === 0) return null;
 						const eligible = annotations.refreshListed(
 							found.live,
-							fresh,
+							refreshed,
 							(view) =>
 								view.branch === project.scope.branch &&
 								!CLOSED_ANNOTATION_STATUSES.has(view.status),

@@ -1070,7 +1070,9 @@ export const transitionAnnotation = async (
  * checked under the annotation's lock, so two sessions acknowledging at
  * once, or a move to another branch in between, cannot be overwritten. The
  * result is the annotation as it is now; `written` says whether this call
- * acknowledged it.
+ * acknowledged it. `onlyIf` is checked under the lock too, on the
+ * annotation as stored before this call: a caller acknowledges only what
+ * it is about to show.
  */
 export const acknowledgeAnnotation = async (
 	context: AnnotationServiceContext,
@@ -1078,6 +1080,7 @@ export const acknowledgeAnnotation = async (
 		sessionId: string;
 		branch?: string;
 		keepActive?: boolean;
+		onlyIf?: (annotation: Annotation) => boolean;
 	},
 ): Promise<AnnotationWriteResult> => {
 	const sessionId = requireText(input.sessionId, "sessionId");
@@ -1102,6 +1105,7 @@ export const acknowledgeAnnotation = async (
 			if (input.branch !== undefined && annotation.branch !== input.branch) {
 				return unchanged;
 			}
+			if (input.onlyIf && !input.onlyIf(annotation)) return unchanged;
 			if (annotation.status === "open") {
 				return {
 					annotation: {

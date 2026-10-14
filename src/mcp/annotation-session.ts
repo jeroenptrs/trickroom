@@ -18,6 +18,7 @@ import {
 } from "../services/annotation-store";
 import {
 	ANNOTATION_STATUSES,
+	type Annotation,
 	type AnnotationActor,
 	type AnnotationContainer,
 	type AnnotationEntry,
@@ -254,6 +255,29 @@ const boardNameOf = (
 		: (view.snapshot.ancestorNames?.[0] ?? boardId);
 };
 
+/** Annotations shown in a response, as they are now. */
+type Refreshed = {
+	/** Current state per annotation passed in; null when it no longer exists. */
+	fresh: ReadonlyMap<string, AnnotationView | null>;
+	/** Those this call moved from `open` to `acknowledged`. */
+	acknowledgedHere: ReadonlySet<string>;
+};
+
+/**
+ * What a response's filters compare: the annotation as it is now, except
+ * that this call's own acknowledgement leaves it `open` (it was open when
+ * the call listed it, and the call is delivering it). Only changes by
+ * other writers (moved, closed, removed, re-anchored) make it stop
+ * matching.
+ */
+const asListed = (
+	annotation: AnnotationView,
+	acknowledgedHere: ReadonlySet<string>,
+): AnnotationView =>
+	acknowledgedHere.has(annotation.id) && annotation.status === "acknowledged"
+		? { ...annotation, status: "open" }
+		: annotation;
+
 /** "board \"Checkout\"", "2 boards", or "the design". */
 const describeWhere = (
 	views: readonly AnnotationView[],
@@ -435,13 +459,11 @@ export const createMcpAnnotationSession = ({
 	const acknowledgeShown = async (
 		project: AnnotationProject,
 		views: readonly AnnotationView[],
-		keep: (view: AnnotationView) => boolean,
-	): Promise<{
-		shown: AnnotationView[];
-		fresh: Map<string, AnnotationView | null>;
-	}> => {
+		keep: (annotation: Annotation) => boolean,
+	): Promise<Refreshed & { shown: AnnotationView[] }> => {
 		const shown: AnnotationView[] = [];
 		const fresh = new Map<string, AnnotationView | null>();
+		const acknowledgedHere = new Set<string>();
 		for (const view of views) {
 			let current: AnnotationView | null = view;
 			const container = getAnnotationContainer(view.target);
@@ -451,15 +473,21 @@ export const createMcpAnnotationSession = ({
 			});
 			try {
 				if (view.branch === project.scope.branch && isAgentWork(view.status)) {
+					// Only what this call will show: `keep` on the annotation as
+					// stored, before this acknowledgement, under the lock.
 					const acknowledged = await acknowledgeAnnotation(project.service, {
 						annotationId: view.id,
 						container,
 						sessionId,
 						branch: project.scope.branch,
 						keepActive: true,
+						onlyIf: keep,
 					});
 					current = keepDetached(acknowledged.annotation);
-					if (acknowledged.written) startClock(project);
+					if (acknowledged.written) {
+						acknowledgedHere.add(view.id);
+						startClock(project);
+					}
 				} else {
 					const stored = await project.service.store.read(container, view.id);
 					current = stored
@@ -476,45 +504,48 @@ export const createMcpAnnotationSession = ({
 				// Otherwise advisory: shown as listed.
 			}
 			fresh.set(view.id, current);
-			if (!current || !keep(current)) continue;
+			if (!current || !keep(asListed(current, acknowledgedHere))) continue;
 			if (current.branch === project.scope.branch) markSeen(project, current);
 			shown.push(current);
 		}
-		return { shown, fresh };
+		return { shown, fresh, acknowledgedHere };
 	};
 
 	/** On the checkout's branch and agent work: what surfacing and watch show. */
 	const isCurrentWork =
-		(project: AnnotationProject) => (view: AnnotationView) =>
-			view.branch === project.scope.branch && isAgentWork(view.status);
+		(project: AnnotationProject) => (annotation: Annotation) =>
+			annotation.branch === project.scope.branch &&
+			isAgentWork(annotation.status);
 
 	/**
 	 * `listed` as it is now: refreshed ones replaced by their fresh state,
-	 * and dropped when they no longer exist or no longer match `matches`.
+	 * and dropped when they no longer exist or no longer match `matches`
+	 * (this call's own acknowledgement still matches `open`; see `asListed`).
 	 */
 	const refreshListed = (
 		listed: readonly AnnotationView[],
-		fresh: ReadonlyMap<string, AnnotationView | null>,
-		matches: (view: AnnotationView) => boolean,
+		{ fresh, acknowledgedHere }: Refreshed,
+		matches: (annotation: Annotation) => boolean,
 	) =>
 		listed.flatMap((view) => {
 			if (!fresh.has(view.id)) return [view];
 			const current = fresh.get(view.id);
-			return current && matches(current) ? [current] : [];
+			return current && matches(asListed(current, acknowledgedHere))
+				? [current]
+				: [];
 		});
 
 	/** Annotations in full (see `acknowledgeShown`), with the fresh state. */
 	const showInFull = async (
 		project: AnnotationProject,
 		views: readonly AnnotationView[],
-		keep: (view: AnnotationView) => boolean,
+		keep: (annotation: Annotation) => boolean,
 		options: { branch?: boolean } = {},
 	) => {
-		const { shown, fresh } = await acknowledgeShown(project, views, keep);
+		const refreshed = await acknowledgeShown(project, views, keep);
 		return {
-			shown,
-			fresh,
-			bodies: shown.map((view) =>
+			...refreshed,
+			bodies: refreshed.shown.map((view) =>
 				describeAnnotation(view, sessionId, { now: now(), ...options }),
 			),
 		};
@@ -588,11 +619,12 @@ export const createMcpAnnotationSession = ({
 		}
 
 		const unseen = takeUnseen(project, annotations, design);
-		const { shown, fresh } = await acknowledgeShown(
+		const refreshed = await acknowledgeShown(
 			project,
 			unseen.slice(0, MAX_SURFACED_ANNOTATIONS),
 			isCurrentWork(project),
 		);
+		const { shown } = refreshed;
 		const bodies = shown.map((view) =>
 			describeAnnotation(view, sessionId, { now: now() }),
 		);
@@ -601,7 +633,7 @@ export const createMcpAnnotationSession = ({
 		// removed ones out).
 		const eligible = refreshListed(
 			annotations,
-			fresh,
+			refreshed,
 			(view) => view.branch === project.scope.branch && isLive(view.status),
 		);
 		if (
