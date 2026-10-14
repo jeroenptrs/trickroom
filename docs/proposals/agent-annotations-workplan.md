@@ -127,6 +127,23 @@ These resolve what the proposal left open and apply to every WP.
   `src/services/annotation-model.ts` (browser-safe), re-exported by the
   service. The thread UI in `src/components/annotations/` is shared and
   container-agnostic for WP5.
+- Component anchors (WP5): template `path`s are stable ids (insert and
+  move do not change them), so component annotations follow their node
+  without re-keying; a vanished path detaches. Detached derives against
+  the draft template, else the published one; a pin to a variant axis or
+  value the schema no longer has also counts as detached. Component revert
+  restores the whole draft and only while the draft still has the hashes
+  the write left. Publishes are recorded without revert state.
+- Component write safety (WP5 review): `writeSystemComponentManifest`
+  takes a cross-process lock on the canonical manifest path, held from the
+  revision check through the annotation recording and the store (manifest
+  lock, then annotation lock).
+- Component allowlist (orchestrator, WP5 review): `allowedComponents`
+  governs what an agent's write touches, as in `design_apply` (inserted
+  nodes, the target of a change, move or removal, the new parent of a
+  move; compound precedence and slot hosts included), not what a designer
+  already authored. It was not enforced on component tools before this
+  feature; it is now.
 
 ## Work packages
 
@@ -262,7 +279,7 @@ Status: merged (PR #30, 2026-10-14; three review rounds; agent steps re-verified
 
 ### WP5: component editor anchors
 
-Status: in progress (branch `annotations/wp5-component-anchors`). Model: Opus 5.5. Depends on WP4.
+Status: merged (PR #31, 2026-10-14; five review rounds). Model: Opus 5.5. Depends on WP4.
 
 - `componentNode` targets: `systemId`, `componentId`, `nodePath`, optional
   `variants`. Snapshot carries the node name and the variant values in view.
@@ -281,7 +298,7 @@ Status: in progress (branch `annotations/wp5-component-anchors`). Model: Opus 5.
 
 ### WP6: dogfood, release and build
 
-Status: todo. Model: Opus 5.5. Depends on WP3, WP4, WP5.
+Status: in progress (branch `annotations/wp6-dogfood`). Model: Opus 5.5. Depends on WP3, WP4, WP5.
 
 - End to end on this repository's own `.trickroom` project in a scratch
   `TRICKROOM_HOME`: annotate layers in the editor, run a real agent session
@@ -370,3 +387,6 @@ UI with the repo's `playwright-core` headless Chromium:
 - WP4: collapsed rail rows do not sum their children's counts (only the
   board row does); pins on nested layers that share a corner overlap; the
   project screen's design list shows no annotation counts.
+- WP5: `annotation_watch` watches designs only, not components.
+- WP5: component writes with `addresses` that throw (rather than refuse)
+  are not audited.
