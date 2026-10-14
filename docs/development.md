@@ -175,6 +175,8 @@ node bin/trickroom.js mcp
 
 Projects opened through MCP must enable MCP in `.trickroom/config.json`.
 
+To try annotations end to end, give the dev server and the MCP server the same scratch `TRICKROOM_HOME`: they share the annotation store (and the editor channel's discovery record) through it, and your own `~/.trickroom` stays untouched. Point both at a copy of the project, so the agent's design writes do not dirty committed files. `design_screenshot` renders through the built browser app in `dist/client`; in a checkout without it (`pnpm build:web-runtime`), captures fail with `CAPTURE_TIMEOUT` after 30 seconds.
+
 ## Running Lint Locally
 
 ```sh
@@ -215,4 +217,4 @@ test-projects/             Local fixture projects
 
 ## Tests
 
-The Vitest suite covers project config and registry state, HTTP authentication and routes, design file safety and migrations, browser editor state, Tailwind extraction and storage, MCP governance and tools, and component behavior.
+The Vitest suite covers project config and registry state, HTTP authentication and routes, design file safety and migrations, browser editor state, Tailwind extraction and storage, MCP governance and tools, annotations (store, lifecycle, change records and revert, HTTP routes, MCP surfacing and the editor store), and component behavior. Vitest sets `TRICKROOM_HOME` to a temporary folder, so tests never write the annotation store in your home.
