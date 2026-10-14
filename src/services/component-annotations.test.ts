@@ -30,7 +30,7 @@ import {
 	transitionAnnotation,
 	validateAddresses,
 } from "./annotation-service";
-import { type AnnotationMutation, AnnotationStore } from "./annotation-store";
+import { AnnotationStore } from "./annotation-store";
 import type {
 	Annotation,
 	AnnotationActor,
@@ -869,35 +869,34 @@ describe("component annotations", () => {
 			expect(await reload(first.id)).toEqual(before);
 		});
 
-		it("plans the shared set inside the manifest lock, after an in-flight recording", async () => {
+		it("sees all of an addresses batch or none, from another checkout on the branch", async () => {
 			const first = await create();
 			const second = await create();
-			const [low, high] = [first.id, second.id].sort();
-			let reachedSecond = () => {};
+			let firstWritten = () => {};
 			const reached = new Promise<void>((resolve) => {
-				reachedSecond = resolve;
+				firstWritten = resolve;
 			});
 			let release = () => {};
 			const released = new Promise<void>((resolve) => {
 				release = resolve;
 			});
-			// The agent's draft write records one, then pauses before the other.
+			// The draft write in this checkout records the batch under all its
+			// locks and pauses after the first file, before the second.
 			class Pausing extends AnnotationStore {
-				override async update<Result>(
+				protected override async writeLocked(
 					target: AnnotationContainer,
-					annotationId: string,
-					mutate: AnnotationMutation<Result>,
-					options?: { expectedRevision?: string },
+					annotation: Annotation,
+					lock: Parameters<AnnotationStore["writeLocked"]>[2],
 				) {
-					if (annotationId === high) {
-						reachedSecond();
+					await super.writeLocked(target, annotation, lock);
+					if (annotation.id === first.id) {
+						firstWritten();
 						await released;
 					}
-					return super.update<Result>(target, annotationId, mutate, options);
 				}
 			}
 			const writing = addressing(
-				[low as string, high as string],
+				[first.id, second.id],
 				{ draft: { root: buttonRoot("px-8") } },
 				{
 					recordContext: {
@@ -910,11 +909,15 @@ describe("component annotations", () => {
 				},
 			);
 			await reached;
+			// A second checkout of the branch (a clone): its own manifest with
+			// the write, and its own manifest lock.
+			const otherRoot = path.join(root, "other-checkout");
+			await cp(projectRoot, otherRoot, { recursive: true });
 			const reverting = revertComponentChange(context, {
-				annotationId: low as string,
-				entryId: changeEntry(await reload(low as string)).id,
+				annotationId: first.id,
+				entryId: changeEntry(await reload(first.id)).id,
 				by: human,
-				projectRoot,
+				projectRoot: otherRoot,
 				container,
 				scope: main,
 			});
@@ -922,8 +925,10 @@ describe("component annotations", () => {
 			release();
 			await writing;
 			const result = await reverting;
-			expect(result.alsoReverted).toEqual([high]);
-			expect((await reload(high as string)).status).toBe("open");
+			expect(result.alsoReverted).toEqual([second.id]);
+			const sibling = await reload(second.id);
+			expect(sibling.status).toBe("open");
+			expect(sibling.entries.at(-1)).toMatchObject({ kind: "revert" });
 		});
 
 		it("restores the variant schema and slots as well", async () => {

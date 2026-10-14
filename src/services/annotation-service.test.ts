@@ -32,7 +32,6 @@ import {
 } from "./annotation-service";
 import {
 	type AnnotationManyMutation,
-	type AnnotationMutation,
 	AnnotationStore,
 } from "./annotation-store";
 import type {
@@ -1590,30 +1589,30 @@ describe("revert", () => {
 		expect(await revisionOf(title.id)).toBe(revision);
 	});
 
-	it("plans the shared set inside the design lock, after an in-flight recording", async () => {
+	it("sees all of an addresses batch or none, from another checkout on the branch", async () => {
 		const title = await create();
 		const card = await create({ target: layerTarget("card") });
-		let cardReached = () => {};
+		let titleWritten = () => {};
 		const reached = new Promise<void>((resolve) => {
-			cardReached = resolve;
+			titleWritten = resolve;
 		});
-		let releaseCard = () => {};
+		let release = () => {};
 		const released = new Promise<void>((resolve) => {
-			releaseCard = resolve;
+			release = resolve;
 		});
-		// The agent's write records the title, then pauses before the card.
+		// The agent's write in this checkout records the batch under all its
+		// locks and pauses after the title's file, before the card's.
 		class Pausing extends AnnotationStore {
-			override async update<Result>(
+			protected override async writeLocked(
 				container: AnnotationContainer,
-				annotationId: string,
-				mutate: AnnotationMutation<Result>,
-				options?: { expectedRevision?: string },
+				annotation: Annotation,
+				lock: Parameters<AnnotationStore["writeLocked"]>[2],
 			) {
-				if (annotationId === card.id) {
-					cardReached();
+				await super.writeLocked(container, annotation, lock);
+				if (annotation.id === title.id) {
+					titleWritten();
 					await released;
 				}
-				return super.update<Result>(container, annotationId, mutate, options);
 			}
 		}
 		const writing = writeAddressing(
@@ -1630,24 +1629,83 @@ describe("revert", () => {
 			},
 		);
 		await reached;
+		// A second checkout of the same branch (a clone): its own design file
+		// with the write, and its own design lock.
+		const otherRoot = path.join(root, "other-checkout");
+		await mkdir(path.join(otherRoot, ".trickroom", "designs"), {
+			recursive: true,
+		});
+		const otherDesigns = createDesignFileService(otherRoot, {
+			trickroomHome: path.join(root, "home"),
+		});
+		await otherDesigns.createDesignFile(designId, (await readDesign()).design);
 		const reverting = revertChange(context, {
 			annotationId: title.id,
 			entryId: await changeEntryId(title.id),
 			by: human,
-			designService: designs,
+			designService: otherDesigns,
 			scope: main,
 		});
-		// The revert waits for the design lock the recording holds.
+		// The revert waits for the title's lock, which the batch holds.
 		await new Promise((resolve) => setTimeout(resolve, 100));
-		releaseCard();
+		release();
 		await writing;
 		const result = await reverting;
 
 		expect(result.alsoReverted).toEqual([card.id]);
-		expect(findClass((await readDesign()).design, "title")).toBeUndefined();
+		expect(
+			findClass((await otherDesigns.readDesignFile(designId)).design, "title"),
+		).toBeUndefined();
 		const sibling = await getAnnotation(context, { annotationId: card.id });
 		expect(sibling.status).toBe("open");
 		expect(sibling.entries.at(-1)).toMatchObject({ kind: "revert" });
+	});
+
+	it("records a batch with per-annotation outcomes", async () => {
+		const title = await create();
+		const closed = await create({ target: layerTarget("card") });
+		const elsewhere = await create({
+			target: layerTarget("price"),
+			scope: feature,
+		});
+		await transitionAnnotation(context, {
+			annotationId: closed.id,
+			by: human,
+			to: "resolved",
+		});
+		const read = await designs.readDesignFile(designId);
+		const recorder = createAddressesRecorder(context, {
+			designId,
+			addresses: [title.id, closed.id, elsewhere.id, "gone"].map(
+				(annotationId) => ({ annotationId, reply: "Done" }),
+			),
+			by: agent,
+			operations: [],
+			summary: "Edited",
+			branch: "main",
+		});
+		await designs.updateDesignFile(designId, {
+			expectedRevision: read.revision,
+			mutate: async (current) => ({
+				design: setClass("title", "text-2xl")(current.design),
+			}),
+			afterWrite: recorder.afterWrite,
+		});
+		expect(
+			recorder
+				.results()
+				.map((result) => [
+					result.annotationId,
+					result.status,
+					result.status === "failed" ? result.code : result.annotation.status,
+				]),
+		).toEqual([
+			[title.id, "recorded", "addressed"],
+			// Closed meanwhile: recorded without revert state, status kept.
+			[closed.id, "recorded", "resolved"],
+			[elsewhere.id, "failed", "WRONG_BRANCH"],
+			["gone", "failed", "ANNOTATION_NOT_FOUND"],
+		]);
 	});
 
 	it("plans again when a sibling moves into this branch while locking", async () => {

@@ -625,12 +625,14 @@ export class AnnotationStore {
 	 * be taken fails with `ANNOTATION_LOCKED` naming the annotation, before
 	 * `mutate` runs; so does a missing annotation (`ANNOTATION_NOT_FOUND`).
 	 * `mutate` sees the current annotations by id and returns the ones to
-	 * write.
+	 * write. With `allowMissing`, a missing annotation is left out of the
+	 * map instead.
 	 */
 	async updateMany<Result>(
 		container: AnnotationContainer,
 		annotationIds: readonly string[],
 		mutate: AnnotationManyMutation<Result>,
+		{ allowMissing = false }: { allowMissing?: boolean } = {},
 	): Promise<{ stored: Map<string, StoredAnnotation>; result: Result }> {
 		const ids = [...new Set(annotationIds)].sort();
 		const locks = new Map<string, FileLockHandle>();
@@ -638,6 +640,7 @@ export class AnnotationStore {
 			const current = new Map<string, StoredAnnotation>();
 			for (const annotationId of ids) {
 				const stored = await this.read(container, annotationId);
+				if (!stored && allowMissing) continue;
 				if (!stored) {
 					throw new AnnotationStoreError(
 						"ANNOTATION_NOT_FOUND",
@@ -667,11 +670,7 @@ export class AnnotationStore {
 					...annotation,
 					version: ANNOTATION_FILE_VERSION,
 				};
-				await writeFileAtomic(
-					this.getAnnotationPath(container, annotation.id),
-					serializeAnnotation(next),
-					() => lock.assertHeld(),
-				);
+				await this.writeLocked(container, next, lock);
 				stored.set(annotation.id, {
 					annotation: next,
 					revision: calculateAnnotationRevision(next),
@@ -711,6 +710,22 @@ export class AnnotationStore {
 			}
 		};
 		return acquire(0);
+	}
+
+	/**
+	 * One file of an `updateMany` batch, written while every lock of the
+	 * batch is held. Tests override it to pause between two files.
+	 */
+	protected async writeLocked(
+		container: AnnotationContainer,
+		annotation: Annotation,
+		lock: FileLockHandle,
+	) {
+		await writeFileAtomic(
+			this.getAnnotationPath(container, annotation.id),
+			serializeAnnotation(annotation),
+			() => lock.assertHeld(),
+		);
 	}
 
 	/**

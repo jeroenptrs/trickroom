@@ -1614,12 +1614,36 @@ export type RecordChangeResult =
 	  }
 	| { annotationId: string; status: "failed"; code: string; message: string };
 
+const failedRecording = (
+	annotationId: string,
+	error: unknown,
+): RecordChangeResult => ({
+	annotationId,
+	status: "failed",
+	code:
+		error instanceof AnnotationStoreError ||
+		error instanceof AnnotationServiceError
+			? error.code
+			: "ANNOTATION_WRITE_FAILED",
+	message: error instanceof Error ? error.message : String(error),
+});
+
 /**
  * Appends a change entry to each addressed annotation and moves live ones
  * to `addressed`. A closed one (resolved or dismissed after the write was
  * validated) still gets the entry, without revert state, and keeps its
- * status. Each annotation is its own write; failures are reported per
- * annotation and never thrown, since the design write has happened.
+ * status.
+ *
+ * The batch is recorded atomically at the annotation level: it takes the
+ * locks of every addressed annotation at once (`updateMany`, in id order)
+ * and writes every entry before releasing them. A revert, which re-lists
+ * the write's annotations under their locks, so sees none of the batch or
+ * all of it, from whichever checkout it runs (container locks are per
+ * checkout; annotations are shared by project and branch). An annotation
+ * that cannot be recorded (gone, on another branch) is reported on its own
+ * and skipped; a lock that cannot be taken fails the whole batch. Failures
+ * are reported per annotation and never thrown, since the design write has
+ * happened.
  */
 export const recordChange = async (
 	context: AnnotationServiceContext,
@@ -1628,8 +1652,8 @@ export const recordChange = async (
 		change: AnnotationChangeRecord;
 		by: AnnotationActor;
 		/**
-		 * Record only on annotations on this branch, checked under each one's
-		 * lock; others fail with `WRONG_BRANCH`. Absent: not checked.
+		 * Record only on annotations on this branch, checked under the locks;
+		 * others fail with `WRONG_BRANCH`. Absent: not checked.
 		 */
 		branch?: string;
 	},
@@ -1637,73 +1661,97 @@ export const recordChange = async (
 	const { addresses, change, by, branch } = input;
 	assertActor(by);
 	const container = addressedContainer(input);
-	const results: RecordChangeResult[] = [];
-	for (const { annotationId, reply, knownEntryIds } of addresses) {
-		const entryId = randomUUID();
-		try {
-			const outcome = await context.store.update(
-				container,
-				annotationId,
-				({ annotation }) => {
-					assertBranch(annotation, branch);
-					const at = nowOf(context).toISOString();
-					const live = isLive(annotation.status);
-					const known = knownEntryIds ? new Set(knownEntryIds) : null;
-					const unseenRemarkIds = known
-						? annotation.entries
-								.filter(
-									(entry) =>
-										entry.kind === "remark" &&
-										entry.by.role === "human" &&
-										!known.has(entry.id),
-								)
-								.map((entry) => entry.id)
-						: [];
-					// Revert state only on live annotations: a closed one cannot
-					// be reverted from.
-					const next = withEntry(annotation, {
-						id: entryId,
-						kind: "change",
-						at,
-						by,
-						...(reply?.trim() ? { body: reply.trim() } : {}),
-						change: live ? change : withoutRevertState(change),
-					});
-					return {
+	const outcomes = new Map<string, RecordChangeResult>();
+	const recorded = new Map<
+		string,
+		{ entryId: string; unseenRemarkIds: string[] }
+	>();
+	try {
+		const { stored } = await context.store.updateMany(
+			container,
+			addresses.map((address) => address.annotationId),
+			async (current) => {
+				const at = nowOf(context).toISOString();
+				const annotations: Annotation[] = [];
+				for (const { annotationId, reply, knownEntryIds } of addresses) {
+					try {
+						const found = current.get(annotationId);
+						if (!found) {
+							throw new AnnotationStoreError(
+								"ANNOTATION_NOT_FOUND",
+								`Annotation ${annotationId} does not exist.`,
+								{ annotationId },
+							);
+						}
+						const { annotation } = found;
+						assertBranch(annotation, branch);
+						const live = isLive(annotation.status);
+						const known = knownEntryIds ? new Set(knownEntryIds) : null;
+						const unseenRemarkIds = known
+							? annotation.entries
+									.filter(
+										(entry) =>
+											entry.kind === "remark" &&
+											entry.by.role === "human" &&
+											!known.has(entry.id),
+									)
+									.map((entry) => entry.id)
+							: [];
+						const entryId = randomUUID();
+						// Revert state only on live annotations: a closed one cannot
+						// be reverted from.
+						const next = withEntry(annotation, {
+							id: entryId,
+							kind: "change",
+							at,
+							by,
+							...(reply?.trim() ? { body: reply.trim() } : {}),
+							change: live ? change : withoutRevertState(change),
+						});
 						// A remark the agent has not seen is still unanswered: the
 						// annotation stays agent work (as a designer reply on an
 						// addressed one reopens it).
-						annotation:
+						annotations.push(
 							live && unseenRemarkIds.length === 0
 								? withTransition(next, "addressed", by, at)
 								: next,
-						result: unseenRemarkIds,
-					};
-				},
-			);
-			results.push({
+						);
+						recorded.set(annotationId, { entryId, unseenRemarkIds });
+					} catch (error) {
+						outcomes.set(annotationId, failedRecording(annotationId, error));
+					}
+				}
+				return { annotations, result: undefined };
+			},
+			{ allowMissing: true },
+		);
+		for (const [annotationId, { entryId, unseenRemarkIds }] of recorded) {
+			const written = stored.get(annotationId);
+			if (!written) continue;
+			outcomes.set(annotationId, {
 				annotationId,
 				status: "recorded",
 				entryId,
-				annotation: await viewAnnotation(context, outcome.stored),
-				...(outcome.result.length > 0
-					? { unseenRemarkIds: outcome.result }
-					: {}),
-			});
-		} catch (error) {
-			results.push({
-				annotationId,
-				status: "failed",
-				code:
-					error instanceof AnnotationStoreError ||
-					error instanceof AnnotationServiceError
-						? error.code
-						: "ANNOTATION_WRITE_FAILED",
-				message: error instanceof Error ? error.message : String(error),
+				annotation: await viewAnnotation(context, written),
+				...(unseenRemarkIds.length > 0 ? { unseenRemarkIds } : {}),
 			});
 		}
+	} catch (error) {
+		// No lock, or the batch could not be written: nothing is recorded.
+		for (const { annotationId } of addresses) {
+			if (outcomes.get(annotationId)?.status !== "failed") {
+				outcomes.set(annotationId, failedRecording(annotationId, error));
+			}
+		}
 	}
-	return results;
+	return addresses.map(
+		({ annotationId }) =>
+			outcomes.get(annotationId) ??
+			failedRecording(
+				annotationId,
+				new Error(`Annotation ${annotationId} was not recorded.`),
+			),
+	);
 };
 
 /**
