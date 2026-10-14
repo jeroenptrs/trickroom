@@ -114,6 +114,19 @@ These resolve what the proposal left open and apply to every WP.
   (below the TS SDK's 60 s request timeout), max 5 min. The session clock
   file is written only once a session has acknowledged or written an
   annotation in the project, at most every 5 s.
+- Editor ordering (WP4 review): the browser never compares annotation
+  revisions for order (they are hashes). Every read and write takes a
+  sequence at request start; a response applies only if nothing newer
+  touched that annotation and the container generation is unchanged,
+  otherwise an ordered re-read. A list sets a floor for unlisted ids.
+- Editor presentation (WP4): pins and rail markers show the most urgent
+  state (needs input, addressed, detached, open, draft, agent-resolved,
+  closed); layer pins at the layer's top-right, board pins top-left,
+  design-level annotations have no pin. Drafts live in their own
+  `sessionStorage` store. Pure model functions live in
+  `src/services/annotation-model.ts` (browser-safe), re-exported by the
+  service. The thread UI in `src/components/annotations/` is shared and
+  container-agnostic for WP5.
 
 ## Work packages
 
@@ -214,7 +227,7 @@ Status: merged (PR #29, 2026-10-14; five review rounds). Model: Opus 5.5. Depend
 
 ### WP4: design editor UI
 
-Status: in progress (branch `annotations/wp4-editor-ui`). Model: Opus 5.5. Depends on WP1 and WP2. Parallel with WP3.
+Status: merged (PR #30, 2026-10-14; three review rounds; agent steps re-verified through the real stdio server after rebasing on WP3). Model: Opus 5.5. Depends on WP1 and WP2. Parallel with WP3.
 
 - Stage pins: one overlay square per annotation anchored to a visible
   layer, state-coloured, clickable (selects the layer and opens the
@@ -249,7 +262,7 @@ Status: in progress (branch `annotations/wp4-editor-ui`). Model: Opus 5.5. Depen
 
 ### WP5: component editor anchors
 
-Status: todo. Model: Opus 5.5. Depends on WP4.
+Status: in progress (branch `annotations/wp5-component-anchors`). Model: Opus 5.5. Depends on WP4.
 
 - `componentNode` targets: `systemId`, `componentId`, `nodePath`, optional
   `variants`. Snapshot carries the node name and the variant values in view.
@@ -351,3 +364,9 @@ UI with the repo's `playwright-core` headless Chromium:
 - WP3: `annotation_list({ status: "open" })` is a literal status filter, so
   a second call after acknowledgement returns nothing; agents should use
   the default `live` filter (the guide says so).
+- WP4: change-record name substitution does not handle escaped quotes
+  inside JSON string literals (a `\"<uuid>\"` can be shown as a layer
+  name); display only, stored data unchanged.
+- WP4: collapsed rail rows do not sum their children's counts (only the
+  board row does); pins on nested layers that share a corner overlap; the
+  project screen's design list shows no annotation counts.
