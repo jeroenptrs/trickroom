@@ -64,7 +64,8 @@ export type AnnotationServiceErrorCode =
 	| "NOT_REVERTIBLE"
 	| "CHANGED_SINCE"
 	| "REVERT_NOT_RECORDED"
-	| "DESIGN_BUSY";
+	| "DESIGN_BUSY"
+	| "WRONG_BRANCH";
 
 export class AnnotationServiceError extends Error {
 	readonly code: AnnotationServiceErrorCode;
@@ -844,6 +845,31 @@ type AnnotationRef = {
 	container?: AnnotationContainer;
 	/** Refuse the write unless the annotation is still at this revision. */
 	expectedRevision?: string;
+	/**
+	 * Refuse the write (`WRONG_BRANCH`) unless the annotation is on this
+	 * branch, checked under its lock: a caller acting for one checkout (an
+	 * MCP session) cannot write another branch's annotations. Absent: not
+	 * checked.
+	 */
+	branch?: string;
+};
+
+/** `WRONG_BRANCH`: the annotation is on another branch than the caller's checkout. */
+export const wrongBranchError = (annotation: Annotation, branch: string) =>
+	new AnnotationServiceError(
+		"WRONG_BRANCH",
+		`Annotation ${annotation.id} is on branch "${annotation.branch}", not this checkout's branch "${branch}". It is not this checkout's work: list other branches' annotations with branch: "all", and ask the designer to bring it here with "Move here" in the editor.`,
+		{
+			annotationId: annotation.id,
+			branch: annotation.branch,
+			currentBranch: branch,
+		},
+	);
+
+const assertBranch = (annotation: Annotation, branch: string | undefined) => {
+	if (branch !== undefined && annotation.branch !== branch) {
+		throw wrongBranchError(annotation, branch);
+	}
 };
 
 /** Read-modify-write of one annotation found by id. */
@@ -863,10 +889,13 @@ const updateAnnotation = async (
 	return context.store.update(
 		container,
 		ref.annotationId,
-		({ annotation }) => ({
-			annotation: mutate(annotation, nowOf(context).toISOString()),
-			result: undefined,
-		}),
+		({ annotation }) => {
+			assertBranch(annotation, ref.branch);
+			return {
+				annotation: mutate(annotation, nowOf(context).toISOString()),
+				result: undefined,
+			};
+		},
 		{ expectedRevision: ref.expectedRevision },
 	);
 };
@@ -1034,26 +1063,86 @@ export const transitionAnnotation = async (
  * `acknowledged`; an acknowledged one gets this session and time; every
  * other status is left alone (an addressed, needs-input or closed
  * annotation never goes back to acknowledged).
+ *
+ * With `branch`, an annotation on another branch is left alone. With
+ * `keepActive`, an acknowledgement by another session that is still active
+ * is left alone too (and one by this session is not re-stamped). Both are
+ * checked under the annotation's lock, so two sessions acknowledging at
+ * once, or a move to another branch in between, cannot be overwritten. The
+ * result is the annotation as it is now; `written` says whether this call
+ * acknowledged it (moved it from `open`, or took over an expired
+ * acknowledgement), and `previousStatus` what was stored before it. `onlyIf` is checked under the lock too, on the
+ * annotation as stored before this call: a caller acknowledges only what
+ * it is about to show.
  */
 export const acknowledgeAnnotation = async (
 	context: AnnotationServiceContext,
-	input: Omit<AnnotationRef, "expectedRevision"> & { sessionId: string },
-): Promise<AnnotationWriteResult> => {
+	input: Omit<AnnotationRef, "expectedRevision"> & {
+		sessionId: string;
+		branch?: string;
+		keepActive?: boolean;
+		onlyIf?: (annotation: Annotation) => boolean;
+	},
+): Promise<
+	AnnotationWriteResult & {
+		/** The status as stored before this call (under the lock). */
+		previousStatus: AnnotationStatus;
+	}
+> => {
 	const sessionId = requireText(input.sessionId, "sessionId");
 	const by: AnnotationActor = { role: "agent", sessionId };
-	const outcome = await updateAnnotation(context, input, (annotation, at) => {
-		if (annotation.status === "open") {
+	const container = await context.store.locate(
+		input.annotationId,
+		input.container,
+	);
+	if (!container) {
+		throw new AnnotationStoreError(
+			"ANNOTATION_NOT_FOUND",
+			`Annotation ${input.annotationId} does not exist.`,
+			{ annotationId: input.annotationId },
+		);
+	}
+	const outcome = await context.store.update(
+		container,
+		input.annotationId,
+		async ({ annotation }) => {
+			const at = nowOf(context).toISOString();
+			const unchanged = { annotation: null, result: annotation.status };
+			if (input.branch !== undefined && annotation.branch !== input.branch) {
+				return unchanged;
+			}
+			if (input.onlyIf && !input.onlyIf(annotation)) return unchanged;
+			if (annotation.status === "open") {
+				return {
+					annotation: {
+						...withTransition(annotation, "acknowledged", by, at),
+						acknowledged: { sessionId, at },
+					},
+					result: annotation.status,
+				};
+			}
+			if (annotation.status !== "acknowledged") return unchanged;
+			if (input.keepActive && annotation.acknowledged) {
+				if (annotation.acknowledged.sessionId === sessionId) return unchanged;
+				const current = deriveAcknowledgement(
+					annotation,
+					await context.store.readSessionLastCall(
+						annotation.acknowledged.sessionId,
+					),
+					nowOf(context),
+				);
+				if (current?.active) return unchanged;
+			}
 			return {
-				...withTransition(annotation, "acknowledged", by, at),
-				acknowledged: { sessionId, at },
+				annotation: { ...annotation, acknowledged: { sessionId, at } },
+				result: annotation.status,
 			};
-		}
-		if (annotation.status === "acknowledged") {
-			return { ...annotation, acknowledged: { sessionId, at } };
-		}
-		return null;
-	});
-	return finishWrite(context, outcome);
+		},
+	);
+	return {
+		...(await finishWrite(context, outcome)),
+		previousStatus: outcome.result,
+	};
 };
 
 /** Records an MCP session's tool call: the clock acknowledgement expiry reads. */
@@ -1176,6 +1265,11 @@ export const resolveAnnotations = async (
 
 export type ReanchorInput = AnnotationRef & {
 	by: AnnotationActor;
+	/**
+	 * A reply added in the same write, after the re-anchor entry (a human
+	 * remark or an agent reply); the status is unchanged either way.
+	 */
+	body?: string;
 	/** The new target, in the same design (or component). */
 	target: AnnotationTarget;
 	/** The design, for design targets: the new target must exist in it. */
@@ -1197,6 +1291,8 @@ export const reanchorAnnotation = async (
 	if (!isAnnotationTarget(input.target)) {
 		throw invalidInput("target is not a valid annotation target.");
 	}
+	const body =
+		input.body === undefined ? undefined : requireText(input.body, "body");
 	let target = input.target;
 	let described: Partial<AnnotationSnapshot> = {};
 	if (target.kind !== "componentNode") {
@@ -1220,7 +1316,7 @@ export const reanchorAnnotation = async (
 				"An annotation can only be re-anchored within its own design or component.",
 			);
 		}
-		const next = withEntry(annotation, {
+		const reanchored = withEntry(annotation, {
 			id: randomUUID(),
 			kind: "reanchor",
 			at,
@@ -1228,6 +1324,15 @@ export const reanchorAnnotation = async (
 			from: annotation.target,
 			to: target,
 		});
+		const next =
+			body === undefined
+				? reanchored
+				: withEntry(
+						reanchored,
+						by.role === "human"
+							? { id: randomUUID(), kind: "remark", at, by, body }
+							: { id: randomUUID(), kind: "reply", at, by, body },
+					);
 		const {
 			layerName: _layerName,
 			component: _component,
@@ -1342,12 +1447,28 @@ export const clearAnnotations = async (
 // ---------------------------------------------------------------------------
 
 /** One annotation a design write addresses, with the agent's reply. */
-export type AnnotationAddress = { annotationId: string; reply?: string };
+export type AnnotationAddress = {
+	annotationId: string;
+	reply?: string;
+	/**
+	 * The entries the agent had seen when it made the change. A designer
+	 * remark that is not among them (sent while the agent worked) is
+	 * unanswered: the change is recorded, but the annotation stays agent
+	 * work instead of becoming addressed. Absent: not checked.
+	 */
+	knownEntryIds?: readonly string[];
+};
 
 export type AddressProblem = {
 	annotationId: string;
-	code: "ANNOTATION_NOT_FOUND" | "WRONG_DESIGN" | "ANNOTATION_CLOSED";
+	code:
+		| "ANNOTATION_NOT_FOUND"
+		| "WRONG_DESIGN"
+		| "ANNOTATION_CLOSED"
+		| "WRONG_BRANCH";
 	message: string;
+	/** WRONG_BRANCH: the annotation's branch. */
+	branch?: string;
 };
 
 /**
@@ -1360,7 +1481,13 @@ export const validateAddresses = async (
 	{
 		designId,
 		addresses,
-	}: { designId: string; addresses: readonly AnnotationAddress[] },
+		branch,
+	}: {
+		designId: string;
+		addresses: readonly AnnotationAddress[];
+		/** Also refuse annotations on another branch (`WRONG_BRANCH`). */
+		branch?: string;
+	},
 ): Promise<AddressProblem[]> => {
 	const problems: AddressProblem[] = [];
 	const container: AnnotationContainer = { kind: "design", designId };
@@ -1387,6 +1514,15 @@ export const validateAddresses = async (
 			);
 			continue;
 		}
+		if (branch !== undefined && stored.annotation.branch !== branch) {
+			problems.push({
+				annotationId,
+				code: "WRONG_BRANCH",
+				message: wrongBranchError(stored.annotation, branch).message,
+				branch: stored.annotation.branch,
+			});
+			continue;
+		}
 		if (!isLive(stored.annotation.status)) {
 			problems.push({
 				annotationId,
@@ -1404,6 +1540,12 @@ export type RecordChangeResult =
 			status: "recorded";
 			entryId: string;
 			annotation: AnnotationView;
+			/**
+			 * Designer remarks the agent had not seen (see
+			 * `AnnotationAddress.knownEntryIds`): the annotation was left as
+			 * agent work. Absent when there are none.
+			 */
+			unseenRemarkIds?: string[];
 	  }
 	| { annotationId: string; status: "failed"; code: string; message: string };
 
@@ -1421,25 +1563,43 @@ export const recordChange = async (
 		addresses,
 		change,
 		by,
+		branch,
 	}: {
 		designId: string;
 		addresses: readonly AnnotationAddress[];
 		change: AnnotationChangeRecord;
 		by: AnnotationActor;
+		/**
+		 * Record only on annotations on this branch, checked under each one's
+		 * lock; others fail with `WRONG_BRANCH`. Absent: not checked.
+		 */
+		branch?: string;
 	},
 ): Promise<RecordChangeResult[]> => {
 	assertActor(by);
 	const container: AnnotationContainer = { kind: "design", designId };
 	const results: RecordChangeResult[] = [];
-	for (const { annotationId, reply } of addresses) {
+	for (const { annotationId, reply, knownEntryIds } of addresses) {
 		const entryId = randomUUID();
 		try {
 			const outcome = await context.store.update(
 				container,
 				annotationId,
 				({ annotation }) => {
+					assertBranch(annotation, branch);
 					const at = nowOf(context).toISOString();
 					const live = isLive(annotation.status);
+					const known = knownEntryIds ? new Set(knownEntryIds) : null;
+					const unseenRemarkIds = known
+						? annotation.entries
+								.filter(
+									(entry) =>
+										entry.kind === "remark" &&
+										entry.by.role === "human" &&
+										!known.has(entry.id),
+								)
+								.map((entry) => entry.id)
+						: [];
 					const { before, after, ...record } = change;
 					const next = withEntry(annotation, {
 						id: entryId,
@@ -1451,8 +1611,14 @@ export const recordChange = async (
 							live && before && after ? { ...record, before, after } : record,
 					});
 					return {
-						annotation: live ? withTransition(next, "addressed", by, at) : next,
-						result: undefined,
+						// A remark the agent has not seen is still unanswered: the
+						// annotation stays agent work (as a designer reply on an
+						// addressed one reopens it).
+						annotation:
+							live && unseenRemarkIds.length === 0
+								? withTransition(next, "addressed", by, at)
+								: next,
+						result: unseenRemarkIds,
 					};
 				},
 			);
@@ -1461,13 +1627,17 @@ export const recordChange = async (
 				status: "recorded",
 				entryId,
 				annotation: await viewAnnotation(context, outcome.stored),
+				...(outcome.result.length > 0
+					? { unseenRemarkIds: outcome.result }
+					: {}),
 			});
 		} catch (error) {
 			results.push({
 				annotationId,
 				status: "failed",
 				code:
-					error instanceof AnnotationStoreError
+					error instanceof AnnotationStoreError ||
+					error instanceof AnnotationServiceError
 						? error.code
 						: "ANNOTATION_WRITE_FAILED",
 				message: error instanceof Error ? error.message : String(error),
@@ -1494,12 +1664,15 @@ export const createAddressesRecorder = (
 		by,
 		operations,
 		summary,
+		branch,
 	}: {
 		designId: string;
 		addresses: readonly AnnotationAddress[];
 		by: AnnotationActor;
 		operations: { operation: string; summary: string }[];
 		summary: string;
+		/** See `recordChange`. */
+		branch?: string;
 	},
 ) => {
 	let results: RecordChangeResult[] = [];
@@ -1522,6 +1695,7 @@ export const createAddressesRecorder = (
 				addresses,
 				change,
 				by,
+				...(branch !== undefined ? { branch } : {}),
 			});
 		},
 		results: () => results,

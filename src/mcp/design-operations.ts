@@ -7,6 +7,7 @@ import {
 import { findRecipeControlTargetElement } from "../recipes/controls";
 import { getRecipeStructuralMetadata } from "../recipes/markers";
 import {
+	type AnnotationAnchorLookup,
 	applyAddElement,
 	applyAddRecipe,
 	applyAddSubtree,
@@ -21,6 +22,7 @@ import {
 	applyUpdateRecipeControl,
 	applyUpdateRecipeInstance,
 	applyUpdateSystemComponentInstance,
+	type DeletedAnnotationAnchors,
 	DesignTransformError,
 	normalizeDesignForMutation,
 	type ProposedSubtreeNode,
@@ -495,6 +497,8 @@ export type DryRunResult = {
 	recipeExpansions?: unknown[];
 	/** Generated ids keyed by addSubtree tempId, or by source id for copySubtree. */
 	idMap?: Record<string, string>;
+	/** deleteElement: live annotations anchored to the deleted elements. */
+	annotationWarnings?: DeletedAnnotationAnchors;
 	summary: Record<string, unknown>;
 };
 
@@ -502,6 +506,8 @@ export type DryRunOperationContext = {
 	designFileId: string;
 	projectRoot: string;
 	sourceDesigns: ReadonlyMap<string, TrickroomDesign>;
+	/** Live annotations by anchored element, for deleteElement warnings. */
+	annotationAnchors?: AnnotationAnchorLookup;
 };
 
 type ElementContext = {
@@ -1720,14 +1726,19 @@ export const applyDryRunOperation = async (
 			};
 		}
 		case "deleteElement": {
-			const result = applyDeleteElement(design, {
-				elementId: requireStringParameter(params, "elementId"),
-			});
+			const result = applyDeleteElement(
+				design,
+				{ elementId: requireStringParameter(params, "elementId") },
+				{ annotationAnchors: context?.annotationAnchors },
+			);
 			return {
 				operation,
 				design: result.design,
 				changedElementId: result.changedElementId,
 				deletedIds: result.deletedIds,
+				...(result.annotationWarnings
+					? { annotationWarnings: result.annotationWarnings }
+					: {}),
 				summary: {
 					elementId: params.elementId,
 					deletedCount: result.deletedIds.length,

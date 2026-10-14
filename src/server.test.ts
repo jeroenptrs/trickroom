@@ -782,7 +782,7 @@ describe("server design routes", () => {
 		const initial = (await initialResponse.json()) as {
 			toolGroups: Array<{ id: string; enabled: boolean }>;
 		};
-		expect(initial.toolGroups).toHaveLength(8);
+		expect(initial.toolGroups).toHaveLength(9);
 		expect(initial.toolGroups.every((group) => group.enabled)).toBe(true);
 
 		const updateResponse = await app.request("/api/trickroom/settings/mcp", {

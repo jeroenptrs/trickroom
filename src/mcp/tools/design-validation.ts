@@ -22,7 +22,7 @@ import {
 // valid, a per-code summary, error issues, grouped warnings, then
 // tool-specific fields. Dry-runs scope warnings to the elements they touch.
 export const registerDesignValidationTools = (ctx: McpToolContext) => {
-	const { server, withPolicyErrorHandling } = ctx;
+	const { server, annotations, withPolicyErrorHandling } = ctx;
 
 	server.registerTool(
 		TOOL.designValidate,
@@ -49,10 +49,14 @@ export const registerDesignValidationTools = (ctx: McpToolContext) => {
 		async ({ designFileId, operations, expectedRevision, response, project }) =>
 			withPolicyErrorHandling(project, async (context) => {
 				if (operations === undefined) {
-					return createJsonResult(
-						await validateDesignFilePayload(context, designFileId, {
-							detail: response,
-						}),
+					return annotations.withAnnotations(
+						createJsonResult(
+							await validateDesignFilePayload(context, designFileId, {
+								detail: response,
+							}),
+						),
+						context,
+						{ designId: designFileId },
 					);
 				}
 				if (expectedRevision === undefined) {
@@ -61,13 +65,22 @@ export const registerDesignValidationTools = (ctx: McpToolContext) => {
 						"expectedRevision is required with operations: pass the revision from your last read.",
 					);
 				}
-				return createJsonResult(
-					await validateOperationPlanPayload(context, {
-						designFileId,
-						expectedRevision,
-						operations,
-						detail: response,
-					}),
+				return annotations.withAnnotations(
+					createJsonResult(
+						await validateOperationPlanPayload(context, {
+							designFileId,
+							expectedRevision,
+							operations,
+							detail: response,
+							annotationAnchors: await annotations.getDeleteAnchors(
+								context,
+								designFileId,
+								operations,
+							),
+						}),
+					),
+					context,
+					{ designId: designFileId },
 				);
 			}),
 	);

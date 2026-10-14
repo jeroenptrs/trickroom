@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { getRecipeStructuralMetadata } from "../recipes/markers";
 import type { DesignFileRead } from "../services/design-file-service";
-import { DesignTransformError } from "../services/design-transform-service";
+import {
+	type AnnotationAnchorLookup,
+	type DeletedAnnotationAnchors,
+	DesignTransformError,
+} from "../services/design-transform-service";
 import { enrichElementLookupError } from "../services/element-lookup-hints";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
 import {
@@ -65,6 +69,8 @@ export type OperationPlanStepOutput = {
 	recipes?: OperationPlanStepRecipe[];
 	/** A copySubtree step asked for its id map in compact responses. */
 	includeIdMap?: true;
+	/** deleteElement: live annotations anchored to the deleted elements. */
+	annotationWarnings?: DeletedAnnotationAnchors;
 };
 
 export type OperationPlanStepRecipe = {
@@ -271,6 +277,11 @@ export type DesignOperationDependencies = {
 		elementIds: readonly string[],
 	) => Promise<void>;
 	assertCanUseSubtreeComponents: (subtree: DesignNode) => void;
+	/**
+	 * Live annotations of the design by anchored element: deleteElement
+	 * steps report the ones they detach.
+	 */
+	annotationAnchors?: AnnotationAnchorLookup;
 };
 
 export type OperationPlanDependencies = DesignOperationDependencies & {
@@ -412,6 +423,9 @@ export const executeDesignOperation = async (
 		designFileId: context.designFileId,
 		projectRoot: deps.projectRoot,
 		sourceDesigns,
+		...(deps.annotationAnchors
+			? { annotationAnchors: deps.annotationAnchors }
+			: {}),
 	});
 
 	if (SUBTREE_POLICY_OPERATIONS.has(operation) && result.changedElementId) {
@@ -561,6 +575,9 @@ const toStepOutput = (
 			: {}),
 		...(result.idMap && Object.keys(result.idMap).length > 0
 			? { idMap: result.idMap }
+			: {}),
+		...(result.annotationWarnings
+			? { annotationWarnings: result.annotationWarnings }
 			: {}),
 	};
 	const recipes = collectInsertedRecipes(

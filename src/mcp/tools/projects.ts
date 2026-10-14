@@ -43,15 +43,45 @@ const withProjectErrors = async (
 	}
 };
 
+/**
+ * Annotation counts over the project's designs on the checkout's branch:
+ * agent work (open, acknowledged) and what waits on the designer
+ * (needs_input, addressed). Left out when there are none.
+ */
+const createAnnotationCounter =
+	(annotations: McpToolContext["annotations"]) =>
+	async (context: TrickroomMcpServerContext) => {
+		const counts = await annotations
+			.countDesigns(context)
+			.catch(() => new Map());
+		if (counts.size === 0) return {};
+		let agentWork = 0;
+		let humanWork = 0;
+		for (const designCounts of counts.values()) {
+			agentWork += designCounts.agentWork;
+			humanWork += designCounts.humanWork;
+		}
+		return {
+			annotations: {
+				agentWork,
+				humanWork,
+				designs: counts.size,
+				next: `${TOOL.designList} shows them per design; ${TOOL.annotationList}({ designFileId }) lists one design's.`,
+			},
+		};
+	};
+
 export const registerProjectTools = (ctx: McpToolContext) => {
 	const {
 		server,
+		annotations,
 		trickroomHome,
 		projectResolver,
 		getSelectedContext,
 		registerProjectFromPath,
 		selectProject,
 	} = ctx;
+	const describeAnnotationCounts = createAnnotationCounter(annotations);
 
 	server.registerTool(
 		TOOL.projectList,
@@ -84,7 +114,10 @@ export const registerProjectTools = (ctx: McpToolContext) => {
 						? { project: getProjectDetails(described) }
 						: {}),
 					...(described
-						? await getProjectInfo(described)
+						? {
+								...(await getProjectInfo(described)),
+								...(await describeAnnotationCounts(described)),
+							}
 						: {
 								hint: `No project is selected for this session. Call ${TOOL.projectSelect} with a locationId below, or with the path of a project that is not listed.`,
 							}),

@@ -20,6 +20,7 @@ import { AssetManifestError } from "../../utils/asset-manifest-service";
 import { IconManifestError } from "../../utils/icon-manifest-service";
 import { MemoryManifestError } from "../../utils/memory-manifest-service";
 import { SystemComponentOperationsError } from "../../utils/system-component-operations";
+import { createMcpAnnotationSession } from "../annotation-session";
 import {
 	createCallLogWriter,
 	createToolCallHistory,
@@ -76,7 +77,14 @@ export const createMcpToolContext = (
 					getClientName: () => getClientInfo()?.name,
 				})
 			: null;
-	const callHistory = createToolCallHistory(callLog?.write);
+	const annotations = createMcpAnnotationSession({
+		sessionId,
+		defaultHome: feedbackHome,
+	});
+	const callHistory = createToolCallHistory((record) => {
+		callLog?.write(record);
+		annotations.noteCall();
+	});
 	installToolCallRecording(server, callHistory);
 	const editorChannel = options.editorChannel ?? {
 		getEditorContext,
@@ -254,6 +262,7 @@ export const createMcpToolContext = (
 		sessionId,
 		getClientInfo,
 		callHistory,
+		annotations,
 		flushCallLog: () => callLog?.flush() ?? Promise.resolve(),
 		screenshotCapture,
 		editorChannel,
