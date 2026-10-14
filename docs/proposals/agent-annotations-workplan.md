@@ -102,7 +102,7 @@ These resolve what the proposal left open and apply to every WP.
 
 ### WP1: stage selection parity
 
-Status: in progress (branch `annotations/wp1-stage-selection`). Model: Opus 5.5. Depends on nothing. Parallel with WP2.
+Status: merged (PR #28, 2026-10-14; three review rounds). Model: Opus 5.5. Depends on nothing. Parallel with WP2.
 
 - Shared stage interaction module used by `Artboards.tsx` (design editor)
   and `ComponentDraftStage.tsx` (component editor): hover outline with the
@@ -162,7 +162,7 @@ Status: merged (PR #27, 2026-10-14; two review rounds). Model: Opus 5.5. Depends
 
 ### WP3: MCP surface
 
-Status: todo. Model: Opus 5.5. Depends on WP2. Parallel with WP4.
+Status: in progress (branch `annotations/wp3-mcp-surface`). Model: Opus 5.5. Depends on WP2. Parallel with WP4.
 
 - `annotation_list`, `annotation_reply`, `annotation_watch` in a new
   `src/mcp/tools/annotations-tools.ts` (the existing `annotations.ts` holds
@@ -197,7 +197,7 @@ Status: todo. Model: Opus 5.5. Depends on WP2. Parallel with WP4.
 
 ### WP4: design editor UI
 
-Status: todo. Model: Opus 5.5. Depends on WP1 and WP2. Parallel with WP3.
+Status: in progress (branch `annotations/wp4-editor-ui`). Model: Opus 5.5. Depends on WP1 and WP2. Parallel with WP3.
 
 - Stage pins: one overlay square per annotation anchored to a visible
   layer, state-coloured, clickable (selects the layer and opens the
@@ -314,4 +314,16 @@ UI with the repo's `playwright-core` headless Chromium:
 
 ## Follow-ups
 
-None yet.
+- Flaky pre-existing test (on `main` before this feature):
+  `src/services/project-file-events.test.ts` "stops watching a missing
+  folder's ancestors once nothing waits on them" counted 19 events instead
+  of 20 once under full-suite load; passes alone. Its older siblings use
+  fixed sleeps; WP2 moved its own watcher tests to readiness promises.
+- WP2: annotation files of a deleted design stay in the store until
+  cleared; a design delete could offer to clear them.
+- WP2: locating an annotation without a container hint scans every
+  container folder; fine at current scale, the editor passes `?designId=`.
+- WP4 verification runs in parallel with WP3, so its "agent reply" step
+  uses a separate Node process calling the WP2 service with agent
+  attribution against the same `TRICKROOM_HOME` (what the MCP server
+  process does); the real stdio server is exercised in WP3 and WP6.
