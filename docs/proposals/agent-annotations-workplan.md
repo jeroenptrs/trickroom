@@ -97,6 +97,23 @@ These resolve what the proposal left open and apply to every WP.
   unrelated later edit on the same board neither blocks nor is undone by
   a revert. Revert runs inside the design lock through `aroundStore` and
   re-checks the annotation under its lock before writing.
+- MCP branch guard (orchestrator, WP3 review): `annotation_reply` and
+  `design_apply` `addresses` refuse an annotation outside the session's
+  branch scope with `WRONG_BRANCH`, checked at call start and again under
+  the annotation lock. The `"*"` bucket stays writable from a detached
+  checkout. Every MCP response derives bodies, ids, counts and `next` from
+  one fresh, eligible set.
+- MCP surfacing (WP3): the per-session "seen" cursor compares status,
+  entry ids and target, not the content revision; `new` holds only agent
+  work; a session acknowledges only bodies it returns. When the designer
+  adds a remark while an agent's `addresses` write is in flight, the change
+  is recorded but the annotation stays open work and the new remark is
+  surfaced in the same result. Agents re-anchor through
+  `annotation_reply({ reanchor })`. Bodies carry the snapshot (stage mode,
+  responsive width, design revision). `annotation_watch` defaults to 50 s
+  (below the TS SDK's 60 s request timeout), max 5 min. The session clock
+  file is written only once a session has acknowledged or written an
+  annotation in the project, at most every 5 s.
 
 ## Work packages
 
@@ -162,7 +179,7 @@ Status: merged (PR #27, 2026-10-14; two review rounds). Model: Opus 5.5. Depends
 
 ### WP3: MCP surface
 
-Status: in progress (branch `annotations/wp3-mcp-surface`). Model: Opus 5.5. Depends on WP2. Parallel with WP4.
+Status: merged (PR #29, 2026-10-14; five review rounds). Model: Opus 5.5. Depends on WP2. Parallel with WP4.
 
 - `annotation_list`, `annotation_reply`, `annotation_watch` in a new
   `src/mcp/tools/annotations-tools.ts` (the existing `annotations.ts` holds
@@ -327,3 +344,10 @@ UI with the repo's `playwright-core` headless Chromium:
   uses a separate Node process calling the WP2 service with agent
   attribution against the same `TRICKROOM_HOME` (what the MCP server
   process does); the real stdio server is exercised in WP3 and WP6.
+- WP3: `editor_context` `selectedLayer` counts cover the selected element
+  only, not its descendants.
+- WP3: the MCP server instructions are 27 characters under the 2048 limit;
+  the next addition needs a trim.
+- WP3: `annotation_list({ status: "open" })` is a literal status filter, so
+  a second call after acknowledgement returns nothing; agents should use
+  the default `live` filter (the guide says so).
