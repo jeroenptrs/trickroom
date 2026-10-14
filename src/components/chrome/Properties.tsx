@@ -20,6 +20,7 @@ import {
 import {
 	type DesignEntity,
 	designStore,
+	selectElement,
 	setSystemComponentOverrideAssetId,
 	setSystemComponentOverrideClassName,
 	setSystemComponentOverrideIconId,
@@ -55,6 +56,14 @@ import type {
 	SystemComponentOverrideCapability,
 } from "../../utils/system-components";
 import { useProjectScope } from "../contexts";
+import {
+	getStageLayerAncestry,
+	isSameStageLayerAncestry,
+} from "../stage/stage-interaction";
+import {
+	designLayerTree,
+	getDesignLayerName,
+} from "../stage/stage-selection-sources";
 import { Button } from "../ui/button";
 import { InputField } from "../ui/input";
 import { Kbd } from "../ui/kbd";
@@ -76,6 +85,7 @@ import {
 	useElementLintFindings,
 } from "./DesignLintFindings";
 import { DesignSystemPicker } from "./DesignSystemPicker";
+import { LayerBreadcrumb } from "./LayerBreadcrumb";
 
 type ComponentControlProps = {
 	elementId: string;
@@ -146,14 +156,6 @@ export function splitComponentControls(controls: ControlDefinition[]) {
 	return { contentControls, propertyControls };
 }
 
-function getElementTitle(element: DesignEntity) {
-	const name = element.props["data-trickroom-name"];
-	return (
-		(typeof name === "string" ? name.trim() : "") ||
-		element.props["data-trickroom-component"]
-	);
-}
-
 function getElementSubtitle(element: DesignEntity) {
 	return [
 		`${element.props["data-trickroom-library"]}/${element.props["data-trickroom-component"]}`,
@@ -183,7 +185,7 @@ function InspectorHeader({ element }: { element: DesignEntity }) {
 			<InspectorGlyph element={element} />
 			<div className="flex min-w-0 flex-1 flex-col">
 				<span className="truncate text-[13px] font-medium text-slate-950">
-					{getElementTitle(element)}
+					{getDesignLayerName(element)}
 				</span>
 				<span className="truncate text-[10px] text-slate-400">
 					{getElementSubtitle(element)}
@@ -191,6 +193,15 @@ function InspectorHeader({ element }: { element: DesignEntity }) {
 			</div>
 		</header>
 	);
+}
+
+function DesignLayerBreadcrumb() {
+	const crumbs = useSelector(
+		designStore,
+		(state) => getStageLayerAncestry(designLayerTree(state), state.selectedId),
+		{ compare: isSameStageLayerAncestry },
+	);
+	return <LayerBreadcrumb crumbs={crumbs} onSelect={selectElement} />;
 }
 
 function InspectorSection({
@@ -809,6 +820,7 @@ export function Properties({ designId }: { designId?: string } = {}) {
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<InspectorHeader element={selectedElement} />
+			<DesignLayerBreadcrumb />
 			<ScrollArea className="min-h-0 flex-1">
 				<div className="flex flex-col divide-y divide-slate-200">
 					{lintFindings.length > 0 ? (

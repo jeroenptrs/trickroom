@@ -59,8 +59,10 @@ import {
 	getKey,
 	getShortcutPlacementIntent,
 	hasCommandModifier,
+	isEnterActivatedTarget,
 	isPeriodKey,
 	isShortcutLetter,
+	LAYER_ROW_ATTRIBUTE,
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
 import { layerDropInsertionIndex } from "../../utils/reorder-insertion-index";
@@ -88,6 +90,7 @@ import {
 } from "./AddLayerCommandMenu";
 import { LayerContextMenu } from "./LayerContextMenu";
 import { type PlacementIntent, useLayerInsertion } from "./useLayerInsertion";
+import { useLayerSelectionReveal } from "./useLayerSelectionReveal";
 
 type LayerDragData = {
 	type: "trickroom-layer";
@@ -305,7 +308,7 @@ export function getBlockedDropInstructions(
 	return blockedInstructions;
 }
 
-const Layer = memo(function Layer({
+export const Layer = memo(function Layer({
 	id,
 	depth,
 	designId,
@@ -318,6 +321,10 @@ const Layer = memo(function Layer({
 }: LayerProps) {
 	const [isEditing, setIsEditing] = useState(false);
 	const [draftName, setDraftName] = useState("");
+	// Whether a rename is still open to commit. Ends synchronously on commit,
+	// cancel and deselection, so a blur that follows (the input unmounting,
+	// a stage press) cannot commit a draft twice or after Escape.
+	const renamingRef = useRef(false);
 	const [dragging, setDragging] = useState(false);
 	const [dropIntent, setDropIntent] = useState<LayerDropIntent["type"] | null>(
 		null,
@@ -351,10 +358,15 @@ const Layer = memo(function Layer({
 	const editLayer = useCallback(() => {
 		selectLayer();
 		setDraftName(layer.name);
+		renamingRef.current = true;
 		setIsEditing(true);
 	}, [layer.name, selectLayer]);
 
 	const commitLayerName = useCallback(() => {
+		if (!renamingRef.current) {
+			return;
+		}
+		renamingRef.current = false;
 		const nextName = draftName.trim() || "Layer";
 		setIsEditing(false);
 
@@ -364,6 +376,7 @@ const Layer = memo(function Layer({
 	}, [draftName, layer.id, layer.name]);
 
 	const cancelLayerName = useCallback(() => {
+		renamingRef.current = false;
 		setDraftName(layer.name);
 		setIsEditing(false);
 	}, [layer.name]);
@@ -382,6 +395,7 @@ const Layer = memo(function Layer({
 
 	useEffect(() => {
 		if (!layer.isSelected) {
+			renamingRef.current = false;
 			setIsEditing(false);
 		}
 	}, [layer.isSelected]);
@@ -574,6 +588,7 @@ const Layer = memo(function Layer({
 					{!isEditing ? (
 						<UnstyledButton
 							ref={labelRef}
+							{...{ [LAYER_ROW_ATTRIBUTE]: "" }}
 							className={`min-w-0 flex-1 text-start ${canDragLayer ? "active:cursor-grabbing" : ""}`}
 							onClick={selectLayer}
 							onDoubleClick={editLayer}
@@ -602,6 +617,9 @@ const Layer = memo(function Layer({
 							className={className}
 							onKeyDown={onInputKeyDown}
 							onChange={(event) => setDraftName(event.target.value)}
+							// A press on the stage iframe never reaches the outside-press
+							// listener above; it moves focus, so blur commits.
+							onBlur={commitLayerName}
 						/>
 					)}
 					{layer.parentId === null && boardChangedExternally ? (
@@ -829,6 +847,31 @@ export function Layers({
 		layerVirtualizer.scrollToIndex(index, { align: "center" });
 	}, [entitiesById, layerVirtualizer, openById, reveal, visibleLayerRows]);
 
+	// A layer selected elsewhere (the canvas, the inspector breadcrumb) opens
+	// its collapsed ancestors and scrolls into view.
+	const getLayerParentId = useCallback(
+		(id: string) => entitiesById[id]?.parentId ?? null,
+		[entitiesById],
+	);
+	const revealLayerRow = useCallback(
+		(id: string) => {
+			const index = visibleLayerRows.findIndex((row) => row.id === id);
+			if (index === -1) {
+				return false;
+			}
+			layerVirtualizer.scrollToIndex(index);
+			return true;
+		},
+		[layerVirtualizer, visibleLayerRows],
+	);
+	useLayerSelectionReveal({
+		selectedId: selectedElement?.id ?? null,
+		getParentId: getLayerParentId,
+		openMap: openById,
+		setOpenMap: setOpenById,
+		reveal: revealLayerRow,
+	});
+
 	const selectVisibleLayerAtIndex = useCallback(
 		(index: number) => {
 			const row = visibleLayerRows[index];
@@ -907,6 +950,30 @@ export function Layers({
 		return false;
 	}, [openById, selectedElement]);
 
+	// Enter drills into the first child, opening the row so it shows; the
+	// stage's double-click does the same.
+	const drillIntoSelectedLayer = useCallback(() => {
+		const childId = selectedElement?.childIds?.[0];
+		if (!selectedElement || !childId) {
+			return false;
+		}
+
+		if (openById[selectedElement.id] === false) {
+			setOpenById((current) => ({ ...current, [selectedElement.id]: true }));
+		}
+		selectElement(childId);
+		return true;
+	}, [openById, selectedElement]);
+
+	const selectParentLayer = useCallback(() => {
+		if (!selectedElement?.parentId) {
+			return false;
+		}
+
+		selectElement(selectedElement.parentId);
+		return true;
+	}, [selectedElement]);
+
 	const moveSelectedLayerBy = useCallback(
 		(direction: 1 | -1) => {
 			if (!selectedElement) {
@@ -954,7 +1021,13 @@ export function Layers({
 			const placementIntent = getShortcutPlacementIntent(event);
 			let handled = false;
 
-			if (event.key === "ArrowDown" || key === "j") {
+			if (event.key === "Enter") {
+				if (!event.altKey && !isEnterActivatedTarget(event.target)) {
+					handled = event.shiftKey
+						? selectParentLayer()
+						: drillIntoSelectedLayer();
+				}
+			} else if (event.key === "ArrowDown" || key === "j") {
 				handled = selectRelativeLayer(1);
 			} else if (event.key === "ArrowUp" || key === "k") {
 				handled = selectRelativeLayer(-1);
@@ -997,11 +1070,13 @@ export function Layers({
 		[
 			addBasicLayer,
 			collapseOrSelectParentLayer,
+			drillIntoSelectedLayer,
 			expandOrEnterSelectedLayer,
 			lastAddedRef,
 			moveSelectedLayerBy,
 			openAddLayerMenu,
 			repeatLast,
+			selectParentLayer,
 			selectRelativeLayer,
 			selectVisibleLayerAtIndex,
 			selectedElement,

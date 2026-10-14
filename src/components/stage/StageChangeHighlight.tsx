@@ -3,8 +3,10 @@ import { useFrame } from "react-frame-component";
 import { useExternalChangeFlash } from "../../stores/external-change-store";
 import {
 	placeStageOverlayBox,
+	STAGE_CHROME_ATTRIBUTE,
 	STAGE_HIGHLIGHT_CYAN,
-} from "./StageFocusHighlight";
+	stageOverlayOriginStyle,
+} from "./stage-overlay";
 
 const HIGHLIGHT_MS = 1_800;
 const FADE_MS = 300;
@@ -83,15 +85,8 @@ export function StageChangeHighlight() {
 			ref={originRef}
 			aria-hidden="true"
 			data-trickroom-change-highlight=""
-			style={{
-				position: "absolute",
-				left: 0,
-				top: 0,
-				width: 0,
-				height: 0,
-				pointerEvents: "none",
-				zIndex: 2147483646,
-			}}
+			{...{ [STAGE_CHROME_ATTRIBUTE]: "" }}
+			style={{ ...stageOverlayOriginStyle, zIndex: 2147483646 }}
 		/>
 	);
 }

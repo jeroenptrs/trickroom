@@ -50,11 +50,14 @@ import {
 	getKey,
 	getShortcutPlacementIntent,
 	hasCommandModifier,
+	isEnterActivatedTarget,
 	isPeriodKey,
 	isShortcutLetter,
+	LAYER_ROW_ATTRIBUTE,
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
 import { layerDropInsertionIndex } from "../../utils/reorder-insertion-index";
+import { useLayerSelectionReveal } from "../chrome/useLayerSelectionReveal";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -364,6 +367,10 @@ const DraftLayerRow = memo(function DraftLayerRow({
 }) {
 	const [isEditing, setIsEditing] = useState(false);
 	const [draftName, setDraftName] = useState("");
+	// Whether a rename is still open to commit. Ends synchronously on commit,
+	// cancel and deselection, so a blur that follows (the input unmounting,
+	// a stage press) cannot commit a draft twice or after Escape.
+	const renamingRef = useRef(false);
 	const [dragging, setDragging] = useState(false);
 	const [dropIntent, setDropIntent] = useState<
 		"before" | "after" | "inside" | null
@@ -384,10 +391,15 @@ const DraftLayerRow = memo(function DraftLayerRow({
 	const editLayer = useCallback(() => {
 		selectLayer();
 		setDraftName(layer.name);
+		renamingRef.current = true;
 		setIsEditing(true);
 	}, [layer.name, selectLayer]);
 
 	const commitLayerName = useCallback(() => {
+		if (!renamingRef.current) {
+			return;
+		}
+		renamingRef.current = false;
 		const nextName = draftName.trim() || "Layer";
 		setIsEditing(false);
 
@@ -397,6 +409,7 @@ const DraftLayerRow = memo(function DraftLayerRow({
 	}, [draftName, layer.name, path]);
 
 	const cancelLayerName = useCallback(() => {
+		renamingRef.current = false;
 		setDraftName(layer.name);
 		setIsEditing(false);
 	}, [layer.name]);
@@ -415,6 +428,7 @@ const DraftLayerRow = memo(function DraftLayerRow({
 
 	useEffect(() => {
 		if (!layer.isSelected) {
+			renamingRef.current = false;
 			setIsEditing(false);
 		}
 	}, [layer.isSelected]);
@@ -576,6 +590,7 @@ const DraftLayerRow = memo(function DraftLayerRow({
 					{!isEditing ? (
 						<UnstyledButton
 							ref={labelRef}
+							{...{ [LAYER_ROW_ATTRIBUTE]: "" }}
 							className={`min-w-0 flex-1 text-start ${canDragLayer ? "active:cursor-grabbing" : ""}`}
 							onClick={selectLayer}
 							onDoubleClick={editLayer}
@@ -655,6 +670,19 @@ export function ComponentDraftLayers({
 			}),
 		[entitiesByPath, openByPath, rootPath],
 	);
+
+	// A node selected elsewhere (the canvas, the inspector breadcrumb) opens
+	// its collapsed ancestors.
+	const getDraftParentPath = useCallback(
+		(path: string) => entitiesByPath[path]?.parentPath ?? null,
+		[entitiesByPath],
+	);
+	useLayerSelectionReveal({
+		selectedId: selectedPath,
+		getParentId: getDraftParentPath,
+		openMap: openByPath,
+		setOpenMap: setOpenByPath,
+	});
 
 	const toggleOpen = useCallback((path: string) => {
 		setOpenByPath((current) => ({
@@ -869,6 +897,34 @@ export function ComponentDraftLayers({
 		return false;
 	}, [entitiesByPath, openByPath, selectedPath]);
 
+	// Enter drills into the first child, opening the row so it shows; the
+	// stage's double-click does the same.
+	const drillIntoSelectedRow = useCallback(() => {
+		const selectedEntity = selectedPath ? entitiesByPath[selectedPath] : null;
+		const childPath = selectedEntity?.childPaths?.[0];
+		if (!selectedEntity || !childPath) {
+			return false;
+		}
+
+		if (openByPath[selectedEntity.path] === false) {
+			setOpenByPath((current) => ({ ...current, [selectedEntity.path]: true }));
+		}
+		selectTemplateNode(childPath);
+		return true;
+	}, [entitiesByPath, openByPath, selectedPath]);
+
+	const selectParentRow = useCallback(() => {
+		const parentPath = selectedPath
+			? entitiesByPath[selectedPath]?.parentPath
+			: null;
+		if (!parentPath) {
+			return false;
+		}
+
+		selectTemplateNode(parentPath);
+		return true;
+	}, [entitiesByPath, selectedPath]);
+
 	const moveSelectedRowBy = useCallback(
 		(direction: 1 | -1) => {
 			const selectedEntity = selectedPath ? entitiesByPath[selectedPath] : null;
@@ -919,7 +975,11 @@ export function ComponentDraftLayers({
 			const placementIntent = getShortcutPlacementIntent(event);
 			let handled = false;
 
-			if (event.key === "ArrowDown" || key === "j") {
+			if (event.key === "Enter") {
+				if (!event.altKey && !isEnterActivatedTarget(event.target)) {
+					handled = event.shiftKey ? selectParentRow() : drillIntoSelectedRow();
+				}
+			} else if (event.key === "ArrowDown" || key === "j") {
 				handled = selectRelativeRow(1);
 			} else if (event.key === "ArrowUp" || key === "k") {
 				handled = selectRelativeRow(-1);
@@ -970,11 +1030,13 @@ export function ComponentDraftLayers({
 		[
 			addDraftLayer,
 			collapseOrSelectParentRow,
+			drillIntoSelectedRow,
 			expandOrEnterSelectedRow,
 			lastAddedSelection,
 			moveSelectedRowBy,
 			repeatLastLayer,
 			resolveInsertionPlacement,
+			selectParentRow,
 			selectRelativeRow,
 			selectVisibleRowAtIndex,
 			selectedPath,
