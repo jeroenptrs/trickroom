@@ -2,7 +2,9 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import {
 	deliverAnnotationEvent,
+	deliverAnnotationScope,
 	parseAnnotationFileEvent,
+	parseAnnotationScope,
 	requestAnnotationResync,
 } from "../queries/annotation-live-events";
 import { annotationCountsQueryKey } from "../queries/annotations";
@@ -329,6 +331,22 @@ export function useProjectFileEvents(
 			}
 		};
 
+		// Another branch checked out: the counts are of the old one, and an
+		// editor with annotations open lists the new branch's.
+		const handleAnnotationScope = (message: MessageEvent<string>) => {
+			let scope: ReturnType<typeof parseAnnotationScope> = null;
+			try {
+				scope = parseAnnotationScope(JSON.parse(message.data));
+			} catch {
+				return;
+			}
+			if (!scope) return;
+			void queryClient.invalidateQueries({
+				queryKey: annotationCountsQueryKey(projectScope),
+			});
+			deliverAnnotationScope(scope);
+		};
+
 		const handleFocus = (message: MessageEvent<string>) => {
 			const request = parseEditorFocusEvent(message.data);
 			if (request) {
@@ -340,7 +358,15 @@ export function useProjectFileEvents(
 		source.addEventListener("change", handleChange as EventListener);
 		source.addEventListener("focus", handleFocus as EventListener);
 		source.addEventListener("annotation", handleAnnotation as EventListener);
+		source.addEventListener(
+			"annotation-scope",
+			handleAnnotationScope as EventListener,
+		);
 		return () => {
+			source.removeEventListener(
+				"annotation-scope",
+				handleAnnotationScope as EventListener,
+			);
 			source.removeEventListener(
 				"annotation",
 				handleAnnotation as EventListener,

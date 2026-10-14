@@ -202,6 +202,20 @@ describe("formatAcknowledgement", () => {
 		).toBe("Seen by an agent 5 min ago (session idle)");
 	});
 
+	it("goes idle on its own once the session has been quiet 15 minutes", () => {
+		const acknowledgement = {
+			at: ago(20 * 60_000),
+			active: true,
+			lastSeenAt: ago(14 * 60_000),
+		};
+		expect(formatAcknowledgement(acknowledgement, now)).toBe(
+			"Seen by an agent 20 min ago",
+		);
+		expect(formatAcknowledgement(acknowledgement, now + 2 * 60_000)).toBe(
+			"Seen by an agent 22 min ago (session idle)",
+		);
+	});
+
 	it("does not go negative for clock skew and tolerates bad dates", () => {
 		expect(
 			formatAcknowledgement(

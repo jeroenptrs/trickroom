@@ -3,8 +3,10 @@ import {
 	mkdtemp,
 	readdir,
 	readFile,
+	rename,
 	rm,
 	stat,
+	unlink,
 	writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -13,7 +15,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	AnnotationStore,
 	AnnotationStoreError,
+	annotationFileCacheLimits,
+	annotationFileReads,
 	classifyAnnotationFile,
+	getAnnotationFileCacheSize,
+	resetAnnotationFileCache,
 } from "./annotation-store";
 import type { Annotation, AnnotationContainer } from "./annotations.types";
 
@@ -973,5 +979,147 @@ describe("classifyAnnotationFile", () => {
 	it("ignores non-json files", () => {
 		expect(classifyAnnotationFile("designs/home/ann-1.txt")).toBeNull();
 		expect(classifyAnnotationFile("designs/home/.json")).toBeNull();
+	});
+});
+
+describe("annotation file cache", () => {
+	let home: string;
+	let store: AnnotationStore;
+	const limits = { ...annotationFileCacheLimits };
+
+	beforeEach(async () => {
+		home = await mkdtemp(path.join(os.tmpdir(), "trickroom-annotation-cache-"));
+		store = new AnnotationStore({ projectId: "proj-1", trickroomHome: home });
+		resetAnnotationFileCache();
+	});
+
+	afterEach(async () => {
+		Object.assign(annotationFileCacheLimits, limits);
+		resetAnnotationFileCache();
+		await rm(home, { recursive: true, force: true });
+	});
+
+	const seed = async (count: number) => {
+		for (let index = 0; index < count; index += 1) {
+			await store.create(
+				makeAnnotation({
+					id: `ann-${index}`,
+					status: index === 0 ? "open" : "resolved",
+				}),
+			);
+		}
+	};
+
+	const reads = () => ({ ...annotationFileReads });
+
+	it("reads an unchanged folder once, however many listings follow", async () => {
+		await seed(200);
+		const first = reads();
+		const listed = await store.list(designContainer);
+		expect(listed.annotations).toHaveLength(200);
+		expect(annotationFileReads.parsed - first.parsed).toBe(200);
+		// Another store of the same home (a new tool call) shares the cache.
+		const again = reads();
+		const other = new AnnotationStore({
+			projectId: "proj-1",
+			trickroomHome: home,
+		});
+		for (let call = 0; call < 5; call += 1) {
+			expect((await other.list(designContainer)).annotations).toHaveLength(200);
+		}
+		expect(annotationFileReads.parsed - again.parsed).toBe(0);
+		expect(annotationFileReads.cached - again.cached).toBe(1000);
+	});
+
+	it("reads a file again after any write: a store's, a rename, an in-place edit", async () => {
+		await seed(3);
+		await store.list(designContainer);
+		const before = reads();
+
+		await store.update(designContainer, "ann-0", ({ annotation }) => ({
+			annotation: appendEntry(annotation, "by-store"),
+			result: null,
+		}));
+		const afterUpdate = await store.list(designContainer);
+		expect(
+			afterUpdate.annotations
+				.find((entry) => entry.annotation.id === "ann-0")
+				?.annotation.entries.map((entry) => entry.id),
+		).toEqual(["entry-0", "by-store"]);
+		expect(annotationFileReads.parsed - before.parsed).toBe(1);
+
+		// Another process's write: a new file renamed into place.
+		const filePath = store.getAnnotationPath(designContainer, "ann-1");
+		const renamed = appendEntry(makeAnnotation({ id: "ann-1" }), "renamed");
+		await writeFile(`${filePath}.tmp`, JSON.stringify(renamed));
+		await rename(`${filePath}.tmp`, filePath);
+		// An edit in place: same inode, other size and times.
+		const inPlacePath = store.getAnnotationPath(designContainer, "ann-2");
+		await writeFile(
+			inPlacePath,
+			JSON.stringify(appendEntry(makeAnnotation({ id: "ann-2" }), "in-place")),
+		);
+		const listed = await store.list(designContainer);
+		const entriesOf = (id: string) =>
+			listed.annotations
+				.find((entry) => entry.annotation.id === id)
+				?.annotation.entries.map((entry) => entry.id);
+		expect(entriesOf("ann-1")).toEqual(["entry-0", "renamed"]);
+		expect(entriesOf("ann-2")).toEqual(["entry-0", "in-place"]);
+
+		await unlink(inPlacePath);
+		expect(
+			(await store.list(designContainer)).annotations.map(
+				(entry) => entry.annotation.id,
+			),
+		).toEqual(["ann-0", "ann-1"]);
+	});
+
+	it("shares frozen annotations, so a caller cannot change what the next one reads", async () => {
+		await seed(1);
+		const [listed] = (await store.list(designContainer)).annotations;
+		expect(Object.isFrozen(listed?.annotation.entries)).toBe(true);
+		expect(() => {
+			(listed?.annotation.entries as unknown[]).push("x");
+		}).toThrow(TypeError);
+		// Single reads (the write path) are fresh, mutable objects.
+		const read = await store.read(designContainer, "ann-0");
+		expect(Object.isFrozen(read?.annotation)).toBe(false);
+	});
+
+	it("stays within its bounds, least recently used out first", async () => {
+		annotationFileCacheLimits.maxFiles = 2;
+		await seed(3);
+		await store.list(designContainer);
+		expect(getAnnotationFileCacheSize().files).toBe(2);
+		const fileBytes = (
+			await stat(store.getAnnotationPath(designContainer, "ann-0"))
+		).size;
+		annotationFileCacheLimits.maxFiles = 50;
+		annotationFileCacheLimits.maxBytes = fileBytes * 2;
+		resetAnnotationFileCache();
+		await store.list(designContainer);
+		expect(getAnnotationFileCacheSize().bytes).toBeLessThanOrEqual(
+			fileBytes * 2,
+		);
+		// Still correct when nothing fits.
+		annotationFileCacheLimits.maxBytes = 1;
+		resetAnnotationFileCache();
+		expect((await store.list(designContainer)).annotations).toHaveLength(3);
+		expect(getAnnotationFileCacheSize().files).toBe(0);
+	});
+
+	it("does not cache a file it cannot read", async () => {
+		await seed(1);
+		const broken = store.getAnnotationPath(designContainer, "broken");
+		await writeFile(broken, "{ not json");
+		const first = await store.list(designContainer);
+		expect(first.problems.map((problem) => problem.annotationId)).toEqual([
+			"broken",
+		]);
+		await writeFile(broken, JSON.stringify(makeAnnotation({ id: "broken" })));
+		const second = await store.list(designContainer);
+		expect(second.problems).toEqual([]);
+		expect(second.annotations).toHaveLength(2);
 	});
 });

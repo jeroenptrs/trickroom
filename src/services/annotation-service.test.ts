@@ -380,12 +380,19 @@ describe("lifecycle", () => {
 		expect(expired.status).toBe("acknowledged");
 		expect(expired.acknowledgement?.active).toBe(false);
 
+		// The content did not change: only the derived expiry did.
+		expect(expired.acknowledgement?.lastSeenAt).toBe(
+			"2026-10-14T10:00:00.000Z",
+		);
+
 		// A later tool call from the session keeps it active.
 		await recordSessionCall(context, "session-a");
-		expect(
-			(await getAnnotation(context, { annotationId: annotation.id }))
-				.acknowledgement?.active,
-		).toBe(true);
+		const called = await getAnnotation(context, {
+			annotationId: annotation.id,
+		});
+		expect(called.acknowledgement?.active).toBe(true);
+		expect(called.acknowledgement?.lastSeenAt).toBe(clock.toISOString());
+		expect(called.revision).toBe(expired.revision);
 		tick(ACKNOWLEDGEMENT_TTL_MS + 1);
 		expect(
 			(await getAnnotation(context, { annotationId: annotation.id }))
@@ -2793,5 +2800,70 @@ describe("acknowledge previousStatus", () => {
 			previousStatus: "acknowledged",
 		});
 		expect(takeover.annotation.acknowledged?.sessionId).toBe("session-b");
+	});
+});
+
+describe("listing a large design", () => {
+	it("walks the design once for every annotation listed, not once each", async () => {
+		const design = checkout();
+		const layerIds = ["title", "price", "pay", "header", "card"];
+		await Promise.all(
+			Array.from({ length: 300 }, (_, index) =>
+				store.create({
+					version: 1,
+					id: `bulk-${index}`,
+					projectId: "project-1",
+					target: {
+						kind: "layer",
+						designId,
+						boardId: "board-1",
+						elementId:
+							index % 7 === 0
+								? `gone-${index}`
+								: (layerIds[index % 5] as string),
+					},
+					branch: "main",
+					worktreePath: "/repo",
+					snapshot: { branch: "main", worktreePath: "/repo" },
+					status: "open",
+					createdAt: "2026-10-14T10:00:00.000Z",
+					updatedAt: "2026-10-14T10:00:00.000Z",
+					entries: [],
+					transitions: [],
+				}),
+			),
+		);
+		let walks = 0;
+		const counted: TrickroomDesign = {
+			name: design.name,
+			get boards() {
+				walks += 1;
+				return design.boards;
+			},
+		};
+		const listed = await listAnnotations(context, {
+			container: { kind: "design", designId },
+			scope: main,
+			design: counted,
+		});
+		expect(listed.annotations).toHaveLength(300);
+		expect(listed.annotations.filter((view) => view.detached)).toHaveLength(43);
+		expect(walks).toBeLessThanOrEqual(2);
+
+		walks = 0;
+		const onBoard = await listAnnotations(context, {
+			container: { kind: "design", designId },
+			scope: main,
+			boardId: "board-2",
+			design: counted,
+		});
+		// "pay" is on board 2 whatever board the target recorded.
+		expect(onBoard.annotations).toHaveLength(
+			listed.annotations.filter(
+				(view) =>
+					view.target.kind === "layer" && view.target.elementId === "pay",
+			).length,
+		);
+		expect(walks).toBeLessThanOrEqual(2);
 	});
 });

@@ -1,4 +1,12 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	realpath,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -1164,6 +1172,121 @@ describe("annotation routes", () => {
 		});
 	});
 
+	describe("checkout scope", () => {
+		/** Checks out `branch` the way git does: `HEAD.lock`, renamed over `HEAD`. */
+		const checkout = async (branch: string) => {
+			const gitDirectory = path.join(projectRoot, ".git");
+			await mkdir(gitDirectory, { recursive: true });
+			await writeFile(
+				path.join(gitDirectory, "HEAD.lock"),
+				`ref: refs/heads/${branch}\n`,
+			);
+			await rename(
+				path.join(gitDirectory, "HEAD.lock"),
+				path.join(gitDirectory, "HEAD"),
+			);
+		};
+
+		const scopeOf = async (branch: string) => ({
+			branch,
+			worktreePath: await realpath(projectRoot),
+		});
+
+		it("answers reads with the checkout's scope", async () => {
+			await checkout("feature/a");
+			const created = await create();
+			expect((await list(`designId=${DESIGN_ID}`)).scope).toEqual(
+				await scopeOf("feature/a"),
+			);
+			const read = await json<{ scope: unknown; annotation: AnnotationView }>(
+				await request("GET", `${base}/${created.id}?designId=${DESIGN_ID}`),
+			);
+			expect(read.scope).toEqual(await scopeOf("feature/a"));
+			expect(read.annotation.id).toBe(created.id);
+		});
+
+		it("refuses every write from an editor that listed another checkout", async () => {
+			await checkout("feature/a");
+			const listedOn = await scopeOf("feature/a");
+			const routes: [string, Record<string, unknown>][] = [
+				["entries", { body: "More" }],
+				["transition", { to: "resolved" }],
+				[
+					"anchor",
+					{
+						target: { kind: "board", designId: DESIGN_ID, boardId: "board-1" },
+					},
+				],
+				["move", {}],
+				["revert", { entryId: "whatever" }],
+			];
+			const created = await create("On branch a");
+			await checkout("feature/b");
+			const refused = async (response: Response) => {
+				expect(response.status).toBe(409);
+				const body = await json<ErrorBody>(response);
+				expect(body.code).toBe("SCOPE_CHANGED");
+				expect(body.details?.scope).toEqual(await scopeOf("feature/b"));
+			};
+			for (const [route, body] of routes) {
+				await refused(
+					await request("POST", `${base}/${created.id}/${route}`, {
+						...body,
+						expectedScope: listedOn,
+					}),
+				);
+			}
+			await refused(
+				await request("POST", base, {
+					target: layerTarget,
+					body: "New",
+					expectedScope: listedOn,
+				}),
+			);
+			for (const route of ["resolve", "clear"]) {
+				await refused(
+					await request("POST", `${base}/${route}`, {
+						designId: DESIGN_ID,
+						expectedScope: listedOn,
+					}),
+				);
+			}
+			// Nothing was written: the annotation is as created, the only one.
+			const stored = await readAnnotationFile(created.id);
+			expect(stored.entries).toHaveLength(1);
+			expect(stored.status).toBe("open");
+			expect(
+				(await list(`designId=${DESIGN_ID}&branch=all`)).annotations,
+			).toHaveLength(1);
+		});
+
+		it("writes when the expected scope is the checkout's, and without one", async () => {
+			await checkout("feature/a");
+			const created = await create();
+			const replied = await request("POST", `${base}/${created.id}/entries`, {
+				body: "With scope",
+				expectedScope: await scopeOf("feature/a"),
+			});
+			expect(replied.status).toBe(200);
+			const unscoped = await request("POST", `${base}/${created.id}/entries`, {
+				body: "Without scope",
+			});
+			expect(unscoped.status).toBe(200);
+		});
+
+		it("rejects a malformed expectedScope with 400", async () => {
+			const created = await create();
+			for (const expectedScope of ["main", { branch: "main" }, 42]) {
+				const response = await request(
+					"POST",
+					`${base}/${created.id}/entries`,
+					{ body: "More", expectedScope },
+				);
+				expect(response.status).toBe(400);
+			}
+		});
+	});
+
 	describe("without an active project", () => {
 		it("answers 409", async () => {
 			const bare = createTrickroomApp({ trickroomHome });
@@ -1241,6 +1364,67 @@ describe("annotation routes", () => {
 					operation: "changed",
 				});
 				expect(data.revision).toBe(annotation.revision);
+			} finally {
+				controller.abort();
+				await reader.cancel().catch(() => undefined);
+				await pump;
+			}
+		}, 15_000);
+
+		it("sends an annotation-scope event when another branch is checked out", async () => {
+			const gitDirectory = path.join(projectRoot, ".git");
+			await mkdir(gitDirectory, { recursive: true });
+			await writeFile(path.join(gitDirectory, "HEAD"), "ref: refs/heads/a\n");
+			const controller = new AbortController();
+			const response = await app.request("/api/trickroom/events", {
+				signal: controller.signal,
+			});
+			const reader = response.body?.getReader();
+			if (!reader) throw new Error("event stream body is unavailable");
+			const decoder = new TextDecoder();
+			let received = "";
+			const pump = (async () => {
+				for (;;) {
+					const chunk = await reader.read().catch(() => null);
+					if (!chunk || chunk.done) return;
+					received += decoder.decode(chunk.value, { stream: true });
+				}
+			})();
+			const waitFor = async (predicate: () => boolean) => {
+				const deadline = Date.now() + 8_000;
+				while (!predicate() && Date.now() < deadline) {
+					await new Promise((resolve) => setTimeout(resolve, 20));
+				}
+			};
+			try {
+				await waitFor(() => received.includes("event: ready"));
+				expect(received).toContain("event: ready");
+				// An unrelated git file does not count; HEAD does, renamed into place.
+				await writeFile(path.join(gitDirectory, "index"), "x");
+				await writeFile(
+					path.join(gitDirectory, "HEAD.lock"),
+					"ref: refs/heads/b\n",
+				);
+				await rename(
+					path.join(gitDirectory, "HEAD.lock"),
+					path.join(gitDirectory, "HEAD"),
+				);
+				await waitFor(() => received.includes("event: annotation-scope"));
+				const frames = received
+					.split("\n\n")
+					.filter((frame) => frame.includes("event: annotation-scope"));
+				expect(frames).toHaveLength(1);
+				const data = JSON.parse(
+					(frames[0] as string)
+						.split("\n")
+						.find((line) => line.startsWith("data:"))
+						?.slice("data:".length)
+						.trim() ?? "null",
+				);
+				expect(data).toEqual({
+					branch: "b",
+					worktreePath: await realpath(projectRoot),
+				});
 			} finally {
 				controller.abort();
 				await reader.cancel().catch(() => undefined);

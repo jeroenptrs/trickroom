@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AnnotationStore } from "./annotation-store";
+import {
+	AnnotationStore,
+	annotationFileReads,
+	resetAnnotationFileCache,
+} from "./annotation-store";
 import type { Annotation, AnnotationContainer } from "./annotations.types";
 
 // The HTTP server and an MCP stdio process may reach the Trickroom home
@@ -147,6 +151,51 @@ describe.skipIf(process.platform === "win32")("aliased Trickroom homes", () => {
 		);
 		expect(await entryCount()).toBe(20);
 	});
+
+	it("lists what another process wrote after this one cached the file", async () => {
+		const hookPath = path.join(root, "hook.mjs");
+		const workerPath = path.join(root, "worker.mjs");
+		await writeFile(hookPath, resolveHook, "utf8");
+		await writeFile(workerPath, worker, "utf8");
+		resetAnnotationFileCache();
+		const reader = new AnnotationStore({
+			projectId: "proj-1",
+			trickroomHome: home,
+		});
+		const entriesListed = async () =>
+			(await reader.list(container)).annotations[0]?.annotation.entries.length;
+		expect(await entriesListed()).toBe(0);
+		expect(await entriesListed()).toBe(0);
+		expect(annotationFileReads).toMatchObject({ parsed: 1, cached: 1 });
+		await new Promise<void>((resolve, reject) => {
+			const child = spawn(
+				process.execPath,
+				[
+					"--no-warnings",
+					"--import",
+					pathToFileURL(hookPath).href,
+					workerPath,
+					pathToFileURL(storePath).href,
+					home,
+					"other",
+					"3",
+					String(Date.now()),
+				],
+				{ stdio: ["ignore", "pipe", "pipe"] },
+			);
+			let stderr = "";
+			child.stderr.on("data", (chunk) => {
+				stderr += chunk;
+			});
+			child.on("error", reject);
+			child.on("exit", (code) =>
+				code === 0 ? resolve() : reject(new Error(`exited ${code}: ${stderr}`)),
+			);
+		});
+		expect(await entriesListed()).toBe(3);
+		expect(annotationFileReads.parsed).toBe(2);
+		resetAnnotationFileCache();
+	}, 30_000);
 
 	it("serialises two processes, one through a symlink", async () => {
 		const hookPath = path.join(root, "hook.mjs");

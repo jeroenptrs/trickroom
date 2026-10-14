@@ -7,6 +7,7 @@ import {
 	createAnnotationRequest,
 	fetchAnnotation,
 	isAnnotationRevisionMismatch,
+	isAnnotationScopeChanged,
 	moveAnnotationRequest,
 	reanchorAnnotationRequest,
 	replyToAnnotationRequest,
@@ -38,8 +39,14 @@ import {
 // Annotation writes from the editor. Each sends the revision the editor
 // holds; when an agent changed the annotation meanwhile (409), the editor
 // refetches it and shows what is there now instead of retrying blindly.
+// Each also sends the checkout scope the editor listed in: after a
+// checkout of another branch the server refuses (409 `SCOPE_CHANGED`), the
+// editor lists the new branch's annotations, and the text stays a draft.
 
 type AnnotationRef = Pick<AnnotationView, "id" | "target" | "revision">;
+
+/** The checkout the editor's annotations were listed in. */
+const heldScope = () => editorAnnotationsStore.get().scope;
 
 const refresh = async (annotation: AnnotationRef) => {
 	const token = beginAnnotationRead();
@@ -75,6 +82,19 @@ export async function reportAnnotationWriteError(
 	annotation: AnnotationRef | null,
 	nameOf?: LayerNamer,
 ) {
+	if (isAnnotationScopeChanged(error)) {
+		// The request layer already handed the new scope to the editor,
+		// which lists that branch's annotations.
+		const scope = (error as AnnotationRequestError).details?.scope as
+			| { branch?: unknown }
+			| undefined;
+		const branch = typeof scope?.branch === "string" ? scope.branch : null;
+		toast.warning("The checkout changed: nothing was saved", {
+			id: "annotation-scope-changed",
+			description: `${branch && branch !== "*" ? `Branch ${branch} is checked out now` : "Another checkout is active now"}; its annotations are shown instead. Unsent text is kept.`,
+		});
+		return;
+	}
 	if (isAnnotationRevisionMismatch(error) && annotation) {
 		await refresh(annotation);
 		toast.warning("This annotation changed meanwhile", {
@@ -144,11 +164,14 @@ export async function sendAnnotationDraft(
 	const sent = captureSentDraft(draft.body);
 	const token = beginAnnotationWrite();
 	try {
-		const result = await createAnnotationRequest({
-			target: draft.target,
-			body: draft.body.trim(),
-			...(snapshot ? { snapshot } : {}),
-		});
+		const result = await createAnnotationRequest(
+			{
+				target: draft.target,
+				body: draft.body.trim(),
+				...(snapshot ? { snapshot } : {}),
+			},
+			heldScope(),
+		);
 		await applyWriteAnswer(token, result.annotation);
 		clearSentAnnotationDraft(draft.key, sent);
 		return result.annotation;
@@ -210,7 +233,7 @@ export async function replyToAnnotation(
 ) {
 	const sent = captureSentDraft(body);
 	const result = await write(annotation, () =>
-		replyToAnnotationRequest(annotation, body.trim()),
+		replyToAnnotationRequest(annotation, body.trim(), heldScope()),
 	);
 	if (result) clearSentReplyDraft(annotation.id, sent);
 	return result;
@@ -221,20 +244,25 @@ export const resolveAnnotation = (
 	summary?: string,
 ) =>
 	write(annotation, () =>
-		transitionAnnotationRequest(annotation, {
-			to: "resolved",
-			...(summary ? { summary } : {}),
-		}),
+		transitionAnnotationRequest(
+			annotation,
+			{ to: "resolved", ...(summary ? { summary } : {}) },
+			heldScope(),
+		),
 	);
 
 export const dismissAnnotation = (annotation: AnnotationRef, reason: string) =>
 	write(annotation, () =>
-		transitionAnnotationRequest(annotation, { to: "dismissed", reason }),
+		transitionAnnotationRequest(
+			annotation,
+			{ to: "dismissed", reason },
+			heldScope(),
+		),
 	);
 
 export const reopenAnnotation = (annotation: AnnotationRef) =>
 	write(annotation, () =>
-		transitionAnnotationRequest(annotation, { to: "open" }),
+		transitionAnnotationRequest(annotation, { to: "open" }, heldScope()),
 	);
 
 export const reanchorAnnotation = (
@@ -243,11 +271,11 @@ export const reanchorAnnotation = (
 	snapshot?: AnnotationSnapshotHint,
 ) =>
 	write(annotation, () =>
-		reanchorAnnotationRequest(annotation, target, snapshot),
+		reanchorAnnotationRequest(annotation, target, snapshot, heldScope()),
 	);
 
 export const moveAnnotationHere = (annotation: AnnotationRef) =>
-	write(annotation, () => moveAnnotationRequest(annotation));
+	write(annotation, () => moveAnnotationRequest(annotation, heldScope()));
 
 /**
  * Reverts a change record. The design itself changes on disk and reaches
@@ -260,7 +288,7 @@ export const revertAnnotationChange = (
 ) =>
 	write(
 		annotation,
-		() => revertAnnotationChangeRequest(annotation, entryId),
+		() => revertAnnotationChangeRequest(annotation, entryId, heldScope()),
 		nameOf,
 	);
 
@@ -280,6 +308,7 @@ export async function resolveAnnotations(
 		const { resolved, skipped } = await resolveAnnotationsRequest(
 			container,
 			annotations,
+			heldScope(),
 		);
 		await Promise.all(
 			resolved.map((annotation) => applyWriteAnswer(token, annotation)),

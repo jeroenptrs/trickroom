@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { type FSWatcher, watch } from "node:fs";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -29,11 +30,11 @@ import type { TrickroomDesign } from "../../types";
 import {
 	ADDRESSING_ADVICE,
 	type AnnotationProject,
+	boardIdOf,
 	compactCounts,
 	describeAnnotation,
 	MAX_SURFACED_ANNOTATIONS,
 	plural,
-	sortForSurfacing,
 } from "../annotation-session";
 import {
 	assertCanReadDesignFile,
@@ -161,19 +162,85 @@ const describeHiddenAnnotations = async (
 const isAgentWork = (status: AnnotationStatus) =>
 	status === "open" || status === "acknowledged";
 
-/** Agent work first, then what waits on the designer, then closed; by board, oldest first. */
-const sortForList = (
-	views: AnnotationView[],
-	design: TrickroomDesign | null,
-) => {
-	const group = (view: AnnotationView) =>
+/**
+ * Where an annotation sits in a list: [group, board rank, createdAt, id].
+ * Group 0 is agent work, 1 what waits on the designer, 2 closed. Board rank
+ * follows the design's board order: design-level annotations rank -1, boards
+ * the design does not have rank after all of its boards (the rule of
+ * `sortForSurfacing`). The sort and the pagination cursor both use this key.
+ */
+type ListKey = readonly [number, number, string, string];
+
+const listKeyOf = (
+	view: AnnotationView,
+	boardOrder: ReadonlyMap<string, number>,
+): ListKey => {
+	const boardId = boardIdOf(view.target);
+	return [
 		isAgentWork(view.status)
 			? 0
 			: CLOSED_ANNOTATION_STATUSES.has(view.status)
 				? 2
-				: 1;
-	const sorted = sortForSurfacing(views, design);
-	return sorted.sort((a, b) => group(a) - group(b));
+				: 1,
+		boardId === null ? -1 : (boardOrder.get(boardId) ?? boardOrder.size),
+		view.createdAt,
+		view.id,
+	];
+};
+
+const compareListKeys = (a: ListKey, b: ListKey) =>
+	a[0] - b[0] ||
+	a[1] - b[1] ||
+	a[2].localeCompare(b[2]) ||
+	a[3].localeCompare(b[3]);
+
+const createBoardOrder = (design: TrickroomDesign | null) =>
+	new Map((design?.boards ?? []).map((board, index) => [board.id, index]));
+
+const isListKey = (value: unknown): value is ListKey =>
+	Array.isArray(value) &&
+	value.length === 4 &&
+	typeof value[0] === "number" &&
+	typeof value[1] === "number" &&
+	typeof value[2] === "string" &&
+	typeof value[3] === "string";
+
+/** annotation_list cursor: opaque to the agent, tied to the filters it came from. */
+const CURSOR_VERSION = 1;
+
+const fingerprintListFilters = (filters: unknown) =>
+	createHash("sha256")
+		.update(JSON.stringify(filters))
+		.digest("hex")
+		.slice(0, 16);
+
+const encodeListCursor = (fingerprint: string, key: ListKey) =>
+	Buffer.from(
+		JSON.stringify({ v: CURSOR_VERSION, f: fingerprint, k: key }),
+	).toString("base64url");
+
+/** The cursor's position key, or null when it is not a cursor of this call's filters. */
+const decodeListCursor = (
+	cursor: string,
+	fingerprint: string,
+): ListKey | null => {
+	try {
+		const parsed: unknown = JSON.parse(
+			Buffer.from(cursor, "base64url").toString("utf8"),
+		);
+		if (
+			typeof parsed !== "object" ||
+			parsed === null ||
+			(parsed as { v?: unknown }).v !== CURSOR_VERSION ||
+			(parsed as { f?: unknown }).f !== fingerprint
+		) {
+			return null;
+		}
+		const key = (parsed as { k?: unknown }).k;
+		return isListKey(key) ? key : null;
+	} catch {
+		return null;
+	}
 };
 
 /** Service and store errors are answers: codes the agent can act on. */
@@ -309,7 +376,7 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 		TOOL.annotationList,
 		{
 			title: "List Annotations",
-			description: `Annotations are remarks a designer anchors to a design, a board or a layer in the Trickroom editor, for an agent to act on. Lists a design's annotations (or a system component's, with systemId and componentId: target nodePath is the template path, variants the configuration a pinned one is about) with ids, target (boardId, elementId), the names they were made on, status and every entry, so each follow-up call has what it needs. Defaults: live ones (open and acknowledged are your work; needs_input and addressed wait on the designer) on the current git branch; branch "all" or a name shows other checkouts'. Filter with boardId, elementId and status. Address an annotation with ${TOOL.designApply} (components: ${TOOL.componentDraftUpdate}) addresses: [{ annotationId, reply }] in the write that makes the change; reply, ask, resolve or dismiss without a write with ${TOOL.annotationReply}. Seeing an open annotation in full acknowledges it for this session. Results of ${TOOL.designRead}, ${TOOL.designApply}, ${TOOL.designValidate}, ${TOOL.designScreenshot} and ${TOOL.editorContext} already show new ones.`,
+			description: `Annotations are remarks a designer anchors to a design, a board or a layer in the Trickroom editor, for an agent to act on. Lists a design's annotations (or a system component's, with systemId and componentId: target nodePath is the template path, variants the configuration a pinned one is about) with ids, target (boardId, elementId), the names they were made on, status and every entry, so each follow-up call has what it needs. Defaults: live ones (open and acknowledged are your work; needs_input and addressed wait on the designer) on the current git branch; branch "all" or a name shows other checkouts'. Filter with boardId, elementId and status. Past limit, pass the nextCursor of the previous call with the same filters as cursor; an annotation whose status changes between pages may appear again on a later page (it moved to a later group) or not be returned again (it moved to an earlier group). Address an annotation with ${TOOL.designApply} (components: ${TOOL.componentDraftUpdate}) addresses: [{ annotationId, reply }] in the write that makes the change; reply, ask, resolve or dismiss without a write with ${TOOL.annotationReply}. Seeing an open annotation in full acknowledges it for this session. Results of ${TOOL.designRead}, ${TOOL.designApply}, ${TOOL.designValidate}, ${TOOL.designScreenshot} and ${TOOL.editorContext} already show new ones.`,
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema
 					.optional()
@@ -352,6 +419,13 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 					.max(MAX_LIST_LIMIT)
 					.optional()
 					.describe(`At most this many (default ${DEFAULT_LIST_LIMIT}).`),
+				cursor: z
+					.string()
+					.min(1)
+					.optional()
+					.describe(
+						"The nextCursor of a previous call with the same filters: the page after it.",
+					),
 			}),
 			annotations: readOnlyClosedWorldAnnotations,
 			_meta: {
@@ -369,6 +443,7 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 			status,
 			branch,
 			limit,
+			cursor,
 			project: projectRef,
 		}) =>
 			withPolicyErrorHandling(projectRef, async (context) => {
@@ -415,6 +490,31 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 								container.componentId,
 							).catch(() => null)
 						: null;
+				const requestedBranch =
+					branch === undefined || branch === "current"
+						? project.scope.branch
+						: branch;
+				const statuses = toStatuses(status);
+				const fingerprint = fingerprintListFilters({
+					container:
+						container.kind === "design"
+							? [container.designId]
+							: [container.systemId, container.componentId],
+					requestedBranch,
+					status: statuses ? [...statuses].sort() : "all",
+					boardId,
+					elementId,
+					nodePath,
+				});
+				const after =
+					cursor === undefined ? null : decodeListCursor(cursor, fingerprint);
+				if (cursor !== undefined && !after) {
+					return createToolErrorResult(
+						context,
+						"INVALID_CURSOR",
+						`cursor is not a nextCursor of this ${TOOL.annotationList} call's filters (or not a cursor at all). Call ${TOOL.annotationList} again without cursor to start over, with the same filters as the call that returned it.`,
+					);
+				}
 				try {
 					const listed = await listAnnotations(project.service, {
 						container,
@@ -435,16 +535,22 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 						// Nothing stored and no such design: most likely a wrong id.
 						throw read.error;
 					}
-					const sorted = sortForList([...listed.annotations], read.design);
+					const boardOrder = createBoardOrder(read.design);
+					const keyed = new Map(
+						listed.annotations.map((view) => [
+							view.id,
+							listKeyOf(view, boardOrder),
+						]),
+					);
+					const keyOf = (view: AnnotationView) =>
+						keyed.get(view.id) ?? listKeyOf(view, boardOrder);
+					const sorted = [...listed.annotations].sort((a, b) =>
+						compareListKeys(keyOf(a), keyOf(b)),
+					);
 					const max = limit ?? DEFAULT_LIST_LIMIT;
 					// The request's filters, applied again to the fresh state of
 					// what is shown: another writer may have moved it to another
 					// branch, closed it or removed it since it was listed.
-					const requestedBranch =
-						branch === undefined || branch === "current"
-							? project.scope.branch
-							: branch;
-					const statuses = toStatuses(status);
 					const matches = (view: Annotation) =>
 						(requestedBranch === "all" || view.branch === requestedBranch) &&
 						(statuses === undefined || statuses.includes(view.status)) &&
@@ -454,12 +560,17 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 						(nodePath === undefined ||
 							(view.target.kind === "componentNode" &&
 								view.target.nodePath === nodePath));
-					const shown = await annotations.showInFull(
-						project,
-						sorted.slice(0, max),
-						matches,
-						{ branch: requestedBranch !== project.scope.branch },
-					);
+					// The page: the first `max` strictly after the cursor's position.
+					const page = (
+						after
+							? sorted.filter((view) => compareListKeys(keyOf(view), after) > 0)
+							: sorted
+					).slice(0, max);
+					const lastOfPage = page.at(-1);
+					const nextKey = lastOfPage ? keyOf(lastOfPage) : null;
+					const shown = await annotations.showInFull(project, page, matches, {
+						branch: requestedBranch !== project.scope.branch,
+					});
 					// One set for the bodies, total, more and counts.
 					const { bodies } = shown;
 					const eligible = annotations.refreshListed(sorted, shown, matches);
@@ -468,6 +579,17 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 						read.design,
 						component?.template,
 					);
+					// What follows the page, as the annotations are now; the next
+					// cursor is the page's last as listed, so ones the refresh
+					// dropped are not retried.
+					const more = nextKey
+						? eligible.filter(
+								(view) =>
+									compareListKeys(listKeyOf(view, boardOrder), nextKey) > 0,
+							).length
+						: 0;
+					const nextCursor =
+						more > 0 && nextKey ? encodeListCursor(fingerprint, nextKey) : null;
 					const hidden =
 						eligible.length === 0
 							? await describeHiddenAnnotations(project, container, {
@@ -496,10 +618,32 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 						branch: project.scope.branch,
 						annotations: bodies,
 						total: eligible.length,
-						...(eligible.length > bodies.length
+						...(nextCursor
 							? {
-									more: eligible.length - bodies.length,
-									next: `Narrow with boardId, elementId or status, or raise limit (at most ${MAX_LIST_LIMIT}).`,
+									more,
+									nextCursor,
+									next: `${TOOL.annotationList}({ ${[
+										container.kind === "design"
+											? `designFileId: ${JSON.stringify(container.designId)}`
+											: `systemId: ${JSON.stringify(systemHandle)}, componentId: ${JSON.stringify(container.componentId)}`,
+										...(boardId !== undefined
+											? [`boardId: ${JSON.stringify(boardId)}`]
+											: []),
+										...(elementId !== undefined
+											? [`elementId: ${JSON.stringify(elementId)}`]
+											: []),
+										...(nodePath !== undefined
+											? [`nodePath: ${JSON.stringify(nodePath)}`]
+											: []),
+										...(status !== undefined
+											? [`status: ${JSON.stringify(status)}`]
+											: []),
+										...(branch !== undefined
+											? [`branch: ${JSON.stringify(branch)}`]
+											: []),
+										...(limit !== undefined ? [`limit: ${limit}`] : []),
+										`cursor: ${JSON.stringify(nextCursor)}`,
+									].join(", ")} })`,
 								}
 							: {}),
 						counts: compactCounts(counts.total),

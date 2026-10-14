@@ -4,13 +4,16 @@ import { useProjectScope } from "../components/contexts";
 import {
 	subscribeAnnotationEvents,
 	subscribeAnnotationResync,
+	subscribeAnnotationScope,
 } from "../queries/annotation-live-events";
 import {
+	annotationCountsQueryKey,
 	annotationListQueryKey,
 	containerKey,
 	fetchAnnotation,
 	fetchAnnotationList,
 } from "../queries/annotations";
+import { acknowledgementExpiresAt } from "../services/annotation-model";
 import type {
 	AnnotationContainer,
 	AnnotationFileEvent,
@@ -18,6 +21,7 @@ import type {
 import {
 	applyAnnotationRead,
 	beginAnnotationRead,
+	changeAnnotationScope,
 	confirmAnnotationRevision,
 	editorAnnotationsStore,
 	hydrateAnnotations,
@@ -32,6 +36,25 @@ const isSameContainer = (a: AnnotationContainer, b: AnnotationContainer) =>
 /** Reads again at most this often when a read lost to a newer change. */
 const MAX_STALE_REREADS = 3;
 
+/** An acknowledgement is read again this long after it would go idle. */
+const ACKNOWLEDGEMENT_RECHECK_DELAY_MS = 1_000;
+
+/** The earliest moment an active acknowledgement held would go idle, with whose. */
+const nextAcknowledgementExpiry = () => {
+	let at = Number.POSITIVE_INFINITY;
+	let ids: string[] = [];
+	for (const annotation of Object.values(editorAnnotationsStore.get().byId)) {
+		const expires = annotation.acknowledgement
+			? acknowledgementExpiresAt(annotation.acknowledgement)
+			: null;
+		if (expires === null || expires > at) continue;
+		if (expires < at) ids = [];
+		at = expires;
+		ids.push(annotation.id);
+	}
+	return ids.length > 0 ? { at, ids } : null;
+};
+
 /**
  * Keeps the editor's annotations of `container` (a design, or a component
  * in the component editor) in step with the store on disk:
@@ -41,7 +64,14 @@ const MAX_STALE_REREADS = 3;
  * - on an `annotation` event for that container, reads that one annotation
  *   unless the editor already holds the event's revision (typically its own
  *   write echoing back), or drops it when deleted;
- * - lists again after the event stream reconnects.
+ * - lists again after the event stream reconnects;
+ * - when the server reports another checkout scope than the one listed
+ *   (an `annotation-scope` event after a `git checkout`, the scope of a
+ *   read, a `SCOPE_CHANGED` refusal), drops what it holds and lists the
+ *   new branch's annotations, and the design-list counts refetch;
+ * - reads an acknowledged annotation again when its acknowledgement would
+ *   go idle (the editor counts it down from `lastSeenAt`), in case the
+ *   agent session has called since.
  *
  * Responses arrive in any order: each read takes a sequence when it starts
  * and the store applies it only when nothing newer (a later read, the
@@ -91,16 +121,36 @@ export function useAnnotationLiveSync(container: AnnotationContainer | null) {
 	useEffect(() => {
 		if (!stableContainer) return;
 		if (listQuery.data) {
-			hydrateAnnotations(
+			const applied = hydrateAnnotations(
 				stableContainer,
 				listQuery.data.data.scope,
 				listQuery.data.data.annotations,
 				listQuery.data.token,
 			);
+			if (applied === "scope-changed") {
+				// The list itself said the checkout changed: the other lists
+				// of the old scope are stale too.
+				void queryClient.invalidateQueries({
+					queryKey: annotationListQueryKey(
+						stableContainer,
+						"all",
+						projectScope,
+					),
+				});
+				void queryClient.invalidateQueries({
+					queryKey: annotationCountsQueryKey(projectScope),
+				});
+			}
 		} else if (listQuery.isError) {
 			setAnnotationsError(stableContainer);
 		}
-	}, [listQuery.data, listQuery.isError, stableContainer]);
+	}, [
+		listQuery.data,
+		listQuery.isError,
+		projectScope,
+		queryClient,
+		stableContainer,
+	]);
 
 	useEffect(() => {
 		if (!stableContainer) return;
@@ -151,20 +201,62 @@ export function useAnnotationLiveSync(container: AnnotationContainer | null) {
 			void read(event.annotationId);
 		};
 
-		const unsubscribeEvents = subscribeAnnotationEvents(onEvent);
-		const unsubscribeResync = subscribeAnnotationResync(() => {
-			void queryClient.invalidateQueries({
+		const listAgain = () =>
+			queryClient.invalidateQueries({
 				queryKey: annotationListQueryKey(
 					stableContainer,
 					"current",
 					projectScope,
 				),
 			});
+
+		const unsubscribeEvents = subscribeAnnotationEvents(onEvent);
+		const unsubscribeResync = subscribeAnnotationResync(() => {
+			void listAgain();
 		});
+		const unsubscribeScope = subscribeAnnotationScope((scope) => {
+			// Another branch's annotations are held: start over on this one.
+			// Drafts stay; they are keyed by target, not branch.
+			if (!changeAnnotationScope(scope)) return;
+			void listAgain();
+			void queryClient.invalidateQueries({
+				queryKey: annotationListQueryKey(stableContainer, "all", projectScope),
+			});
+			void queryClient.invalidateQueries({
+				queryKey: annotationCountsQueryKey(projectScope),
+			});
+		});
+
+		// Acknowledgements go idle on the editor's clock; at that moment the
+		// session may have called since, which only a read tells.
+		let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+		let expiryAt = Number.POSITIVE_INFINITY;
+		const scheduleExpiry = () => {
+			const next = nextAcknowledgementExpiry();
+			if (next?.at === expiryAt) return;
+			if (expiryTimer !== null) clearTimeout(expiryTimer);
+			expiryTimer = null;
+			expiryAt = next?.at ?? Number.POSITIVE_INFINITY;
+			if (!next) return;
+			expiryTimer = setTimeout(
+				() => {
+					expiryTimer = null;
+					expiryAt = Number.POSITIVE_INFINITY;
+					for (const id of next.ids) void read(id);
+				},
+				Math.max(0, next.at - Date.now()) + ACKNOWLEDGEMENT_RECHECK_DELAY_MS,
+			);
+		};
+		scheduleExpiry();
+		const expirySubscription = editorAnnotationsStore.subscribe(scheduleExpiry);
+
 		return () => {
 			abort.abort();
 			unsubscribeEvents();
 			unsubscribeResync();
+			unsubscribeScope();
+			expirySubscription.unsubscribe();
+			if (expiryTimer !== null) clearTimeout(expiryTimer);
 		};
 	}, [projectScope, queryClient, stableContainer]);
 

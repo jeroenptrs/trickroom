@@ -1,4 +1,7 @@
-import { isLiveAnnotationStatus } from "../services/annotation-model";
+import {
+	isAcknowledgementActive,
+	isLiveAnnotationStatus,
+} from "../services/annotation-model";
 import type {
 	AnnotationActor,
 	AnnotationStatus,
@@ -135,9 +138,12 @@ export const isSameAnnotationMarker = (
 	b: AnnotationMarker | null | undefined,
 ) => a === b || (!!a && !!b && a.count === b.count && a.state === b.state);
 
-/** "Seen by an agent 3 min ago", for an acknowledged annotation. */
+/**
+ * "Seen by an agent 3 min ago", for an acknowledged annotation; "(session
+ * idle)" once the session has been quiet for 15 minutes, counted at `now`.
+ */
 export const formatAcknowledgement = (
-	acknowledgement: { at: string; active: boolean },
+	acknowledgement: { at: string; active: boolean; lastSeenAt?: string },
 	now: number,
 ) => {
 	const at = new Date(acknowledgement.at).getTime();
@@ -152,7 +158,7 @@ export const formatAcknowledgement = (
 				: minutes < 60
 					? ` ${minutes} min ago`
 					: ` ${Math.floor(minutes / 60)} h ago`;
-	return `Seen by an agent${ago}${acknowledgement.active ? "" : " (session idle)"}`;
+	return `Seen by an agent${ago}${isAcknowledgementActive(acknowledgement, now) ? "" : " (session idle)"}`;
 };
 
 /** Who wrote an entry, as the thread shows it. */

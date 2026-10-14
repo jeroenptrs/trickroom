@@ -9,8 +9,10 @@ import {
 } from "../components/annotations/annotation-actions";
 import {
 	deliverAnnotationEvent,
+	deliverAnnotationScope,
 	requestAnnotationResync,
 } from "../queries/annotation-live-events";
+import { ACKNOWLEDGEMENT_TTL_MS } from "../services/annotation-model";
 import type {
 	AnnotationContainer,
 	AnnotationScope,
@@ -555,5 +557,115 @@ describe("useAnnotationLiveSync and the editor's writes", () => {
 		read.resolve(json({ annotation: view("a9", "r1") }));
 		await flush();
 		expect(state().byId.a9).toBeUndefined();
+	});
+});
+
+// Release review: a checkout of another branch with the design open.
+describe("useAnnotationLiveSync and checkout scope changes", () => {
+	const feature: AnnotationScope = { branch: "feature", worktreePath: "/work" };
+
+	/** The server after `git checkout feature`: its list, reads and writes. */
+	const checkOutFeature = (onFeature: AnnotationView[]) => {
+		served = Object.fromEntries(onFeature.map((entry) => [entry.id, entry]));
+		fetchMock.mockImplementation(async (url, init?: RequestInit) => {
+			const path = String(url);
+			if (init?.method === "POST") {
+				return new Response(
+					JSON.stringify({
+						error: "The checkout changed",
+						code: "SCOPE_CHANGED",
+						details: { scope: feature },
+					}),
+					{ status: 409, headers: { "content-type": "application/json" } },
+				);
+			}
+			if (isList(path)) {
+				return json({ scope: feature, annotations: onFeature, problems: [] });
+			}
+			const id = path.slice("/api/trickroom/annotations/".length).split("?")[0];
+			const found = id ? served[id] : undefined;
+			return found
+				? json({ scope: feature, annotation: found })
+				: new Response("{}", { status: 404 });
+		});
+	};
+
+	it("lists the new branch's annotations when the server reports the checkout", async () => {
+		await mount();
+		expect(Object.keys(state().byId)).toEqual(["a1"]);
+		checkOutFeature([view("b1", "r1", { branch: "feature" })]);
+		await act(async () => deliverAnnotationScope(feature));
+		await flush();
+		expect(listCalls()).toHaveLength(2);
+		expect(state().scope).toEqual(feature);
+		expect(Object.keys(state().byId)).toEqual(["b1"]);
+		// The new branch's annotations arrive live; the old branch's do not.
+		served.b2 = view("b2", "r1", { branch: "feature" });
+		await changed("b2", "r1");
+		await flush();
+		expect(Object.keys(state().byId).sort()).toEqual(["b1", "b2"]);
+	});
+
+	it("does nothing for the scope it already holds", async () => {
+		await mount();
+		await act(async () => deliverAnnotationScope({ ...scope }));
+		await flush();
+		expect(listCalls()).toHaveLength(1);
+		expect(Object.keys(state().byId)).toEqual(["a1"]);
+	});
+
+	it("lists again when a single read reports another checkout", async () => {
+		await mount();
+		checkOutFeature([view("a1", "r2", { branch: "feature" })]);
+		await changed("a1", "r2");
+		await flush();
+		expect(listCalls()).toHaveLength(2);
+		expect(state().scope).toEqual(feature);
+		expect(state().byId.a1?.branch).toBe("feature");
+	});
+
+	it("refuses a stale tab's write and shows the new branch instead", async () => {
+		await mount();
+		checkOutFeature([view("b1", "r1", { branch: "feature" })]);
+		const result = await act(async () =>
+			replyToAnnotation(view("a1"), "a reply meant for main"),
+		);
+		await flush();
+		expect(result).toBeNull();
+		const calls = fetchMock.mock.calls as unknown as [string, RequestInit?][];
+		const [, init] = calls.find(
+			([, request]) => request?.method === "POST",
+		) as [string, RequestInit];
+		expect(JSON.parse(String(init.body))).toMatchObject({
+			body: "a reply meant for main",
+			expectedScope: scope,
+		});
+		expect(state().scope).toEqual(feature);
+		expect(Object.keys(state().byId)).toEqual(["b1"]);
+	});
+
+	it("reads an acknowledgement again when it would go idle", async () => {
+		const at = new Date(Date.now() - ACKNOWLEDGEMENT_TTL_MS).toISOString();
+		// Goes idle on the editor's clock 30 ms from now.
+		const lastSeenAt = new Date(
+			Date.now() - ACKNOWLEDGEMENT_TTL_MS + 30,
+		).toISOString();
+		const acknowledged = (active: boolean) =>
+			view("a1", "r1", {
+				status: "acknowledged",
+				acknowledged: { sessionId: "s1", at },
+				acknowledgement: { sessionId: "s1", at, active, lastSeenAt },
+			});
+		served = { a1: acknowledged(true) };
+		await mount();
+		expect(state().byId.a1?.acknowledgement?.active).toBe(true);
+		served = { a1: acknowledged(false) };
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 1_200));
+		});
+		await flush();
+		expect(singleCalls()).toEqual(["/api/trickroom/annotations/a1?designId=D"]);
+		expect(state().byId.a1?.acknowledgement?.active).toBe(false);
+		expect(state().byId.a1?.revision).toBe("r1");
 	});
 });

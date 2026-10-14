@@ -1,9 +1,21 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	realpath,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readCheckoutScope, UNSCOPED_BRANCH } from "./checkout-scope";
+import type { AnnotationScope } from "./annotations.types";
+import {
+	CheckoutScopeEvents,
+	readCheckoutScope,
+	UNSCOPED_BRANCH,
+} from "./checkout-scope";
 
 const sha = "0123456789abcdef0123456789abcdef01234567";
 
@@ -141,5 +153,99 @@ describe("readCheckoutScope", () => {
 			branch: "*",
 			worktreePath: await realpath(root),
 		});
+	});
+});
+
+describe("CheckoutScopeEvents", () => {
+	let base: string;
+	let events: CheckoutScopeEvents;
+	let unsubscribe: (() => void) | null;
+
+	beforeEach(async () => {
+		base = await realpath(
+			await mkdtemp(path.join(os.tmpdir(), "trickroom-scope-events-")),
+		);
+		events = new CheckoutScopeEvents(10);
+		unsubscribe = null;
+	});
+
+	afterEach(async () => {
+		unsubscribe?.();
+		await rm(base, { recursive: true, force: true });
+	});
+
+	/** As git writes HEAD: a lock file renamed into place. */
+	const writeHead = async (gitDirectory: string, contents: string) => {
+		await mkdir(gitDirectory, { recursive: true });
+		await writeFile(path.join(gitDirectory, "HEAD.lock"), contents);
+		await rename(
+			path.join(gitDirectory, "HEAD.lock"),
+			path.join(gitDirectory, "HEAD"),
+		);
+	};
+
+	const listen = async (projectRoot: string) => {
+		const heard: AnnotationScope[] = [];
+		events.setProjectRoot(projectRoot);
+		unsubscribe = events.subscribe((scope) => heard.push(scope));
+		await events.whenWatched();
+		return heard;
+	};
+
+	const waitFor = async (predicate: () => boolean) => {
+		const deadline = Date.now() + 3_000;
+		while (!predicate() && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+	};
+
+	const settle = () => new Promise((resolve) => setTimeout(resolve, 150));
+
+	it("reports a checkout of another branch, once", async () => {
+		const root = path.join(base, "repo");
+		await writeHead(path.join(root, ".git"), "ref: refs/heads/a\n");
+		const heard = await listen(root);
+		await writeHead(path.join(root, ".git"), "ref: refs/heads/b\n");
+		await waitFor(() => heard.length > 0);
+		await settle();
+		expect(heard).toEqual([{ branch: "b", worktreePath: root }]);
+	});
+
+	it("stays quiet for other git files and for HEAD rewritten unchanged", async () => {
+		const root = path.join(base, "repo");
+		await writeHead(path.join(root, ".git"), "ref: refs/heads/a\n");
+		const heard = await listen(root);
+		await writeFile(path.join(root, ".git", "index"), "x");
+		await writeHead(path.join(root, ".git"), "ref: refs/heads/a\n");
+		await settle();
+		expect(heard).toEqual([]);
+	});
+
+	it("follows a linked worktree's own HEAD, and a detached one", async () => {
+		const gitDirectory = path.join(base, "main", ".git", "worktrees", "wt");
+		await writeHead(gitDirectory, "ref: refs/heads/a\n");
+		const worktree = path.join(base, "wt");
+		await mkdir(worktree, { recursive: true });
+		await writeFile(
+			path.join(worktree, ".git"),
+			"gitdir: ../main/.git/worktrees/wt\n",
+		);
+		const heard = await listen(worktree);
+		await writeHead(gitDirectory, `${sha}\n`);
+		await waitFor(() => heard.length > 0);
+		expect(heard).toEqual([
+			{ branch: UNSCOPED_BRANCH, worktreePath: worktree },
+		]);
+	});
+
+	it("stops watching once nobody listens", async () => {
+		const root = path.join(base, "repo");
+		await writeHead(path.join(root, ".git"), "ref: refs/heads/a\n");
+		const heard = await listen(root);
+		unsubscribe?.();
+		unsubscribe = null;
+		await writeHead(path.join(root, ".git"), "ref: refs/heads/b\n");
+		await settle();
+		expect(heard).toEqual([]);
 	});
 });

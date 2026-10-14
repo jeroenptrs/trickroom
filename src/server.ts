@@ -61,6 +61,7 @@ import {
 	isTrickroomDesign,
 	jsonError,
 } from "./server-utils";
+import { CheckoutScopeEvents } from "./services/checkout-scope";
 import { DESIGN_FILE_VERSION } from "./services/design-file-schema";
 import {
 	createDesignFileService,
@@ -608,6 +609,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 	let activeProject: TrickroomActiveProject | null = null;
 	let initialProjectPromise: Promise<void> | null = null;
 	const projectFileEvents = new ProjectFileEvents(undefined, { trickroomHome });
+	const checkoutScopeEvents = new CheckoutScopeEvents();
 	const editorSessions = createEditorSessions();
 	const activeProjectListeners = new Set<
 		(project: TrickroomSessionProject | null) => void
@@ -616,6 +618,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		activeProject = project;
 		projectFileEvents.setProjectRoot(project?.projectRoot ?? null);
 		projectFileEvents.setAnnotationProject(project?.config.projectId ?? null);
+		checkoutScopeEvents.setProjectRoot(project?.projectRoot ?? null);
 		const sessionProject = project ? toSessionProject(project) : null;
 		for (const listener of activeProjectListeners) {
 			listener(sessionProject);
@@ -747,6 +750,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		}
 		projectFileEvents.setProjectRoot(project.projectRoot);
 		projectFileEvents.setAnnotationProject(project.config.projectId ?? null);
+		checkoutScopeEvents.setProjectRoot(project.projectRoot);
 		const clientId = c.req.query("clientId");
 
 		return streamSSE(c, async (stream) => {
@@ -770,6 +774,11 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 					enqueue("annotation", JSON.stringify(event));
 				},
 			);
+			// A checkout of another branch changes which annotations are the
+			// editor's: it lists them again (`annotation-scope`).
+			const unsubscribeScope = checkoutScopeEvents.subscribe((scope) => {
+				enqueue("annotation-scope", JSON.stringify(scope));
+			});
 			// Tabs identify themselves so the editor channel knows which are
 			// connected; the stream is the tab's presence.
 			const disconnectEditor = isEditorClientId(clientId)
@@ -780,7 +789,10 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			// "ready" once annotation writes are reported (bounded, so a slow
 			// watcher never holds the stream back).
 			await Promise.race([
-				projectFileEvents.whenAnnotationsWatched(),
+				Promise.all([
+					projectFileEvents.whenAnnotationsWatched(),
+					checkoutScopeEvents.whenWatched(),
+				]),
 				new Promise((resolve) => setTimeout(resolve, 2_000)),
 			]);
 			enqueue("ready", JSON.stringify({ locationId: project.locationId }));
@@ -789,6 +801,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			clearInterval(heartbeat);
 			unsubscribe();
 			unsubscribeAnnotations();
+			unsubscribeScope();
 			disconnectEditor?.();
 		});
 	});
