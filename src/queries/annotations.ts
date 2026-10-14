@@ -5,13 +5,20 @@ import type {
 	AnnotationTarget,
 	AnnotationView,
 } from "../services/annotations.types";
+import {
+	deliverAnnotationScope,
+	parseAnnotationScope,
+} from "./annotation-live-events";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 // The editor's client for `/api/trickroom/annotations` (src/routes/annotations.ts).
 // Every write is recorded as the human by the server; nothing here can
 // change that. Writes to an existing annotation always send the revision
 // the editor holds, so an agent's concurrent transition is never silently
-// overwritten: a 409 means "refetch and show what is there now".
+// overwritten: a 409 means "refetch and show what is there now". Every
+// write also sends the checkout scope the editor listed in
+// (`expectedScope`), so a tab left on another branch's annotations after a
+// checkout is refused (`SCOPE_CHANGED`) instead of writing to them.
 
 const baseUrl = "/api/trickroom/annotations";
 
@@ -35,6 +42,10 @@ export class AnnotationRequestError extends Error {
 	}
 }
 
+/** The checkout changed since the editor listed (`expectedScope`). */
+export const isAnnotationScopeChanged = (error: unknown) =>
+	error instanceof AnnotationRequestError && error.code === "SCOPE_CHANGED";
+
 /** The annotation changed since the editor read it (`expectedRevision`). */
 export const isAnnotationRevisionMismatch = (error: unknown) =>
 	error instanceof AnnotationRequestError &&
@@ -47,6 +58,12 @@ const readAnnotationJson = async <T>(response: Response): Promise<T> => {
 			code?: string;
 			details?: Record<string, unknown>;
 		} | null;
+		const scope =
+			body?.code === "SCOPE_CHANGED"
+				? parseAnnotationScope(body.details?.scope)
+				: null;
+		// The editor lists the new checkout's annotations.
+		if (scope) deliverAnnotationScope(scope);
 		throw new AnnotationRequestError(
 			body?.error ?? `Request failed with status ${response.status}`,
 			response.status,
@@ -57,12 +74,16 @@ const readAnnotationJson = async <T>(response: Response): Promise<T> => {
 	return (await response.json()) as T;
 };
 
-const post = async <T>(path: string, body: unknown): Promise<T> =>
+const post = async <T>(
+	path: string,
+	body: Record<string, unknown>,
+	expectedScope: AnnotationScope | null | undefined,
+): Promise<T> =>
 	readAnnotationJson<T>(
 		await fetch(path, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify(body),
+			body: JSON.stringify(expectedScope ? { ...body, expectedScope } : body),
 		}),
 	);
 
@@ -183,19 +204,30 @@ export const annotationCountsQueryOptions = (
 		refetchOnWindowFocus: false,
 	});
 
+/**
+ * One annotation. The checkout scope its answer reports goes to
+ * `subscribeAnnotationScope` first, so an editor holding another scope's
+ * annotations lists again (and this read, of the old generation, no
+ * longer applies).
+ */
 export const fetchAnnotation = async (
 	annotationId: string,
 	container: AnnotationContainer,
 	signal?: AbortSignal,
-) =>
-	(
-		await readAnnotationJson<{ annotation: AnnotationView }>(
-			await fetch(
-				annotationUrl(annotationId, container),
-				signal ? { signal } : {},
-			),
-		)
-	).annotation;
+) => {
+	const answer = await readAnnotationJson<{
+		annotation: AnnotationView;
+		scope?: unknown;
+	}>(
+		await fetch(
+			annotationUrl(annotationId, container),
+			signal ? { signal } : {},
+		),
+	);
+	const scope = parseAnnotationScope(answer.scope);
+	if (scope) deliverAnnotationScope(scope);
+	return answer.annotation;
+};
 
 export type AnnotationSnapshotHint = {
 	stageMode?: string;
@@ -204,15 +236,22 @@ export type AnnotationSnapshotHint = {
 	variants?: Record<string, string>;
 };
 
-export const createAnnotationRequest = (input: {
-	target: AnnotationTarget;
-	body: string;
-	snapshot?: AnnotationSnapshotHint;
-}) => post<AnnotationWriteResponse>(baseUrl, input);
+/** The checkout the editor's annotations were listed in; null before a list. */
+type ExpectedScope = AnnotationScope | null;
+
+export const createAnnotationRequest = (
+	input: {
+		target: AnnotationTarget;
+		body: string;
+		snapshot?: AnnotationSnapshotHint;
+	},
+	expectedScope: ExpectedScope = null,
+) => post<AnnotationWriteResponse>(baseUrl, input, expectedScope);
 
 export const replyToAnnotationRequest = (
 	annotation: Pick<AnnotationView, "id" | "target" | "revision">,
 	body: string,
+	expectedScope: ExpectedScope = null,
 ) =>
 	post<AnnotationWriteResponse>(
 		annotationUrl(
@@ -221,6 +260,7 @@ export const replyToAnnotationRequest = (
 			"entries",
 		),
 		{ body, expectedRevision: annotation.revision },
+		expectedScope,
 	);
 
 export const transitionAnnotationRequest = (
@@ -229,6 +269,7 @@ export const transitionAnnotationRequest = (
 		| { to: "resolved"; summary?: string }
 		| { to: "dismissed"; reason: string }
 		| { to: "open" },
+	expectedScope: ExpectedScope = null,
 ) =>
 	post<AnnotationWriteResponse>(
 		annotationUrl(
@@ -237,12 +278,14 @@ export const transitionAnnotationRequest = (
 			"transition",
 		),
 		{ ...input, expectedRevision: annotation.revision },
+		expectedScope,
 	);
 
 export const reanchorAnnotationRequest = (
 	annotation: Pick<AnnotationView, "id" | "target" | "revision">,
 	target: AnnotationTarget,
 	snapshot?: AnnotationSnapshotHint,
+	expectedScope: ExpectedScope = null,
 ) =>
 	post<AnnotationWriteResponse>(
 		annotationUrl(
@@ -255,10 +298,12 @@ export const reanchorAnnotationRequest = (
 			...(snapshot ? { snapshot } : {}),
 			expectedRevision: annotation.revision,
 		},
+		expectedScope,
 	);
 
 export const moveAnnotationRequest = (
 	annotation: Pick<AnnotationView, "id" | "target" | "revision">,
+	expectedScope: ExpectedScope = null,
 ) =>
 	post<AnnotationWriteResponse>(
 		annotationUrl(
@@ -267,6 +312,7 @@ export const moveAnnotationRequest = (
 			"move",
 		),
 		{ expectedRevision: annotation.revision },
+		expectedScope,
 	);
 
 export type AnnotationRevertResponse = {
@@ -279,6 +325,7 @@ export type AnnotationRevertResponse = {
 export const revertAnnotationChangeRequest = (
 	annotation: Pick<AnnotationView, "id" | "target" | "revision">,
 	entryId: string,
+	expectedScope: ExpectedScope = null,
 ) =>
 	post<AnnotationRevertResponse>(
 		annotationUrl(
@@ -287,6 +334,7 @@ export const revertAnnotationChangeRequest = (
 			"revert",
 		),
 		{ entryId, expectedRevision: annotation.revision },
+		expectedScope,
 	);
 
 /**
@@ -297,6 +345,7 @@ export const revertAnnotationChangeRequest = (
 export const resolveAnnotationsRequest = (
 	container: AnnotationContainer,
 	annotations: readonly Pick<AnnotationView, "id" | "revision">[],
+	expectedScope: ExpectedScope = null,
 ) =>
 	post<{ resolved: AnnotationView[]; skipped: AnnotationBulkSkip[] }>(
 		`${baseUrl}/resolve`,
@@ -307,4 +356,5 @@ export const resolveAnnotationsRequest = (
 				annotations.map((annotation) => [annotation.id, annotation.revision]),
 			),
 		},
+		expectedScope,
 	);

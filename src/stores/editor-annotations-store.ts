@@ -3,6 +3,7 @@ import {
 	type AnnotationTargetLocator,
 	currentBoardOfWith,
 	deriveDetachedWith,
+	latestAcknowledgement,
 } from "../services/annotation-model";
 import type {
 	AnnotationContainer,
@@ -129,6 +130,30 @@ const sameContainer = (
 				a.systemId === b.systemId &&
 				a.componentId === b.componentId));
 
+const sameScope = (a: AnnotationScope, b: AnnotationScope) =>
+	a.branch === b.branch && a.worktreePath === b.worktreePath;
+
+/**
+ * `held` with what `incoming`, a read of the same content revision, knows
+ * newer about state derived on read rather than stored (the
+ * acknowledgement's expiry, from the agent session's clock): that changes
+ * without the revision, so it never waits on the revision order. `held`
+ * itself when nothing differs.
+ */
+const withLatestPresentation = (
+	held: AnnotationView,
+	incoming: AnnotationView,
+): AnnotationView => {
+	if (!held.acknowledgement || !incoming.acknowledgement) return held;
+	const acknowledgement = latestAcknowledgement(
+		held.acknowledgement,
+		incoming.acknowledgement,
+	);
+	return acknowledgement === held.acknowledgement
+		? held
+		: { ...held, acknowledgement };
+};
+
 const containerOfTarget = (
 	target: AnnotationView["target"],
 ): AnnotationContainer =>
@@ -220,19 +245,26 @@ export function openAnnotationContainer(container: AnnotationContainer | null) {
 /**
  * Applies a full list read. Annotations set since the read started (by an
  * event's read, or the editor's own write) keep what they have, and so do
- * ones added since; the rest take the list's version or leave.
+ * ones added since; the rest take the list's version or leave. A list of
+ * another scope than the one held (the checkout changed) replaces
+ * everything, as `changeAnnotationScope` does, and says `"scope-changed"`.
  */
 export function hydrateAnnotations(
 	container: AnnotationContainer,
 	scope: AnnotationScope,
 	annotations: readonly AnnotationView[],
 	token: AnnotationReadToken = beginAnnotationRead(),
-) {
-	if (token.generation !== generation) return;
+): "applied" | "scope-changed" | "ignored" {
+	if (token.generation !== generation) return "ignored";
 	// A list older than one already applied says nothing new.
-	if (lastList && token.sequence < lastList.sequence) return;
-	if (!sameContainer(editorAnnotationsStore.get().container, container)) {
-		return;
+	if (lastList && token.sequence < lastList.sequence) return "ignored";
+	const held = editorAnnotationsStore.get();
+	if (!sameContainer(held.container, container)) return "ignored";
+	if (held.scope && !sameScope(held.scope, scope)) {
+		// The checkout changed since the editor last listed: what it holds
+		// is another branch's. This list is the first of the new scope.
+		startScope(scope);
+		token = beginAnnotationRead();
 	}
 	const listed = new Map(
 		annotations
@@ -251,20 +283,70 @@ export function hydrateAnnotations(
 		}
 		for (const [id, annotation] of listed) {
 			const previous = state.byId[id];
+			const sameRevision = previous?.revision === annotation.revision;
 			if (!isCurrent(token, id)) {
-				if (previous) byId[id] = previous;
+				if (previous) {
+					byId[id] = sameRevision
+						? withLatestPresentation(previous, annotation)
+						: previous;
+				}
 				continue;
 			}
 			settle(id, token.sequence);
 			// Keep the object of an unchanged annotation, so its views do not
 			// re-render.
 			byId[id] =
-				previous?.revision === annotation.revision ? previous : annotation;
+				previous && sameRevision
+					? withLatestPresentation(previous, annotation)
+					: annotation;
 		}
 		return { ...state, scope, status: "ready", byId };
 	});
 	lastList = { sequence: token.sequence, ids: new Set(listed.keys()) };
+	return held.scope && !sameScope(held.scope, scope)
+		? "scope-changed"
+		: "applied";
 }
+
+/**
+ * Starts a new generation for another checkout scope of the same
+ * container: requests in flight belong to the old scope and are void, and
+ * nothing of it is shown.
+ */
+const startScope = (scope: AnnotationScope | null) => {
+	generation += 1;
+	settledAt = new Map();
+	lastList = null;
+	editorAnnotationsStore.setState((state) => ({
+		...state,
+		scope,
+		status: state.container ? "loading" : "idle",
+		byId: createIdRecord(),
+		activeAnnotationId: null,
+		markers: emptyMarkers(),
+	}));
+};
+
+/**
+ * The server reported the checkout scope `scope` (another branch checked
+ * out with the container open, an `annotation-scope` event or a
+ * `SCOPE_CHANGED` refusal). When it is not the one held, the annotations
+ * held are another branch's: they are dropped, and true says to list
+ * again. Drafts are not touched: they are keyed by target, not branch.
+ */
+export function changeAnnotationScope(scope: AnnotationScope): boolean {
+	const state = editorAnnotationsStore.get();
+	if (!state.container) return false;
+	if (state.scope && sameScope(state.scope, scope)) return false;
+	startScope(scope);
+	return true;
+}
+
+/** Whether `scope` is the checkout the editor's annotations are of (true before a list). */
+export const isHeldAnnotationScope = (scope: AnnotationScope) => {
+	const held = editorAnnotationsStore.get().scope;
+	return !held || sameScope(held, scope);
+};
 
 export function setAnnotationsError(container: AnnotationContainer) {
 	editorAnnotationsStore.setState((state) =>
@@ -285,7 +367,12 @@ const putAnnotation = (
 			? { ...state, byId: withoutId(state.byId, annotation.id) }
 			: state;
 	}
-	if (previous?.revision === annotation.revision) return state;
+	if (previous?.revision === annotation.revision) {
+		const next = withLatestPresentation(previous, annotation);
+		return next === previous
+			? state
+			: { ...state, byId: withId(state.byId, annotation.id, next) };
+	}
 	return { ...state, byId: withId(state.byId, annotation.id, annotation) };
 };
 
@@ -344,9 +431,14 @@ export function applyAnnotationRead(
 		return "ignored";
 	}
 	if (!isCurrent(token, annotation.id)) {
-		return state.byId[annotation.id]?.revision === annotation.revision
-			? "ignored"
-			: "stale";
+		if (state.byId[annotation.id]?.revision !== annotation.revision) {
+			return "stale";
+		}
+		// The same content: only what is derived on read may be newer.
+		editorAnnotationsStore.setState((current) =>
+			putAnnotation(current, annotation),
+		);
+		return "ignored";
 	}
 	settle(annotation.id, token.sequence);
 	editorAnnotationsStore.setState((current) =>

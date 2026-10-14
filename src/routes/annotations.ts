@@ -24,11 +24,16 @@ import {
 	ANNOTATION_STATUSES,
 	type AnnotationActor,
 	type AnnotationContainer,
+	type AnnotationScope,
 	type AnnotationSnapshot,
 	type AnnotationStatus,
 	type AnnotationTarget,
 } from "../services/annotations.types";
-import { readCheckoutScope } from "../services/checkout-scope";
+import {
+	isSameScope,
+	readCheckoutScope,
+	readCheckoutScopeSync,
+} from "../services/checkout-scope";
 import {
 	type ComponentAnchorRead,
 	readComponentAnchor,
@@ -58,6 +63,17 @@ import { SystemComponentOperationsError } from "../utils/system-component-operat
  * - `POST   /annotations/:id/revert` `{ entryId, expectedRevision? }`
  * - `POST   /annotations/resolve` bulk `{ designId | systemId+componentId, annotationIds? | boardId?, statuses?, expectedRevisions? }`
  * - `POST   /annotations/clear` `{ designId | systemId+componentId, boardId?, branch?, expectedRevisions? }`
+ *
+ * Every write takes an optional `expectedScope: { branch, worktreePath }`,
+ * the checkout the editor listed its annotations in. When the checkout has
+ * changed since (another branch checked out with the design open), the
+ * write is refused with 409 `SCOPE_CHANGED` and `details.scope`, the
+ * checkout now, so a stale tab never writes to another branch's
+ * annotations. The check runs when the request starts and again under the
+ * write's locks, right before it stores (and before a revert's design or
+ * component write), against a fresh read of `.git/HEAD`: a write queued
+ * behind a lock across a checkout is refused too. `GET` answers carry
+ * `scope` for the same comparison.
  *
  * Every write to existing annotations honours the revision the editor
  * read: `expectedRevision` on single-annotation routes (409 when stale),
@@ -89,6 +105,17 @@ const readBody = async (c: Context) => {
 
 const optionalString = (value: unknown) =>
 	typeof value === "string" && value.length > 0 ? value : undefined;
+
+/**
+ * The checkout is not the one the editor listed in, or not the one this
+ * request started in: nothing is written.
+ */
+const scopeChanged = (scope: AnnotationScope) =>
+	new AnnotationServiceError(
+		"SCOPE_CHANGED",
+		`The checkout changed: annotations are now those of ${scope.branch === "*" ? "the unscoped bucket" : `branch ${scope.branch}`}. Nothing was written; list them again.`,
+		{ scope },
+	);
 
 class RequestError extends Error {
 	readonly status: 400 | 404 | 409;
@@ -135,6 +162,7 @@ const respondWithError = (c: Context, error: unknown) => {
 				? 404
 				: error.code === "CHANGED_SINCE" ||
 						error.code === "WRONG_BRANCH" ||
+						error.code === "SCOPE_CHANGED" ||
 						error.code === "DESIGN_BUSY" ||
 						error.code === "COMPONENT_BUSY"
 					? 409
@@ -226,6 +254,27 @@ const expectedRevisionOf = (body: Record<string, unknown> | null) => {
 		throw new RequestError("expectedRevision must be a revision string.");
 	}
 	return { expectedRevision: value };
+};
+
+/**
+ * The optional `expectedScope` every write accepts: the checkout the editor
+ * believes it is in. Absent is fine; a malformed one is a 400.
+ */
+const expectedScopeOf = (
+	body: Record<string, unknown> | null,
+): AnnotationScope | null => {
+	const value = body?.expectedScope;
+	if (value === undefined || value === null) return null;
+	if (
+		!isRecord(value) ||
+		typeof value.branch !== "string" ||
+		typeof value.worktreePath !== "string"
+	) {
+		throw new RequestError(
+			"expectedScope must be { branch, worktreePath } from a list.",
+		);
+	}
+	return { branch: value.branch, worktreePath: value.worktreePath };
 };
 
 /** Bulk writes: `expectedRevisions`, an object of annotation id to revision. */
@@ -321,13 +370,33 @@ export const registerAnnotationRoutes = <E extends Env>(
 		if (!projectId) {
 			throw new RequestError("The project has no projectId.", 409);
 		}
+		let scope: ReturnType<typeof readCheckoutScope> | null = null;
+		/** The scope the request started in, once `assertScope` read it. */
+		let started: AnnotationScope | null = null;
+		/** The editor's `expectedScope`, once `assertScope` read it. */
+		let expected: AnnotationScope | null = null;
+		/**
+		 * Under the write's locks, right before it stores (immediately before
+		 * the rename of one annotation's file): the checkout read again,
+		 * synchronously and never from the request's cached scope, which
+		 * must still be the one the request started in and the one the
+		 * editor expects. A write that waited across a checkout is refused.
+		 */
+		const beforeWrite = () => {
+			const current = readCheckoutScopeSync(projectRoot);
+			if (
+				(started && !isSameScope(started, current)) ||
+				(expected && !isSameScope(expected, current))
+			) {
+				throw scopeChanged(current);
+			}
+		};
 		const context: AnnotationServiceContext = {
-			store: new AnnotationStore({ projectId, trickroomHome }),
+			store: new AnnotationStore({ projectId, trickroomHome, beforeWrite }),
 		};
 		const designService = createDesignFileService(projectRoot, {
 			trickroomHome,
 		});
-		let scope: ReturnType<typeof readCheckoutScope> | null = null;
 		return {
 			context,
 			designService,
@@ -336,6 +405,19 @@ export const registerAnnotationRoutes = <E extends Env>(
 			scope: () => {
 				scope ??= readCheckoutScope(projectRoot);
 				return scope;
+			},
+			/**
+			 * Refuses a write whose `expectedScope` is not the checkout's
+			 * scope now; writes use that same scope.
+			 */
+			assertScope: async (body: Record<string, unknown> | null) => {
+				expected = expectedScopeOf(body);
+				scope ??= readCheckoutScope(projectRoot);
+				const current = await scope;
+				started = current;
+				if (expected && !isSameScope(expected, current)) {
+					throw scopeChanged(current);
+				}
 			},
 			readDesign: async (container: AnnotationContainer | null) =>
 				container?.kind === "design"
@@ -454,6 +536,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 		"/api/trickroom/annotations",
 		handle(async (c, request) => {
 			const body = await readBody(c);
+			await request.assertScope(body);
 			if (!body) throw new RequestError("Expected a JSON object.");
 			const parsed = parseTarget(body.target);
 			if (typeof body.body !== "string") {
@@ -483,6 +566,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 		"/api/trickroom/annotations/resolve",
 		handle(async (c, request) => {
 			const body = await readBody(c);
+			await request.assertScope(body);
 			if (!body) throw new RequestError("Expected a JSON object.");
 			const container = requireContainer(body);
 			const annotationIds = body.annotationIds;
@@ -518,6 +602,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 		"/api/trickroom/annotations/clear",
 		handle(async (c, request) => {
 			const body = await readBody(c);
+			await request.assertScope(body);
 			if (!body) throw new RequestError("Expected a JSON object.");
 			const container = requireContainer(body);
 			const read = await request.readDesign(container).catch(() => null);
@@ -554,6 +639,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 			const read = await request.readDesign(container).catch(() => null);
 			const component = await request.readComponent(container);
 			return c.json({
+				scope: await request.scope(),
 				annotation: await getAnnotation(request.context, {
 					annotationId,
 					container,
@@ -568,6 +654,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 		"/api/trickroom/annotations/:annotationId/entries",
 		handle(async (c, request) => {
 			const body = await readBody(c);
+			await request.assertScope(body);
 			if (!body || typeof body.body !== "string") {
 				throw new RequestError("body must be the reply's text.");
 			}
@@ -586,6 +673,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 		"/api/trickroom/annotations/:annotationId/transition",
 		handle(async (c, request) => {
 			const body = await readBody(c);
+			await request.assertScope(body);
 			const to = body?.to;
 			if (to !== "resolved" && to !== "dismissed" && to !== "open") {
 				throw new RequestError("to must be resolved, dismissed or open.");
@@ -607,6 +695,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 		"/api/trickroom/annotations/:annotationId/anchor",
 		handle(async (c, request) => {
 			const body = await readBody(c);
+			await request.assertScope(body);
 			if (!body) throw new RequestError("Expected a JSON object.");
 			const { target, component } = await request.resolveComponentTarget(
 				parseTarget(body.target),
@@ -634,6 +723,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 		"/api/trickroom/annotations/:annotationId/move",
 		handle(async (c, request) => {
 			const body = (await readBody(c)) ?? {};
+			await request.assertScope(body);
 			const result = await moveAnnotationToBranch(request.context, {
 				annotationId: c.req.param("annotationId") as string,
 				...containerHint(c),
@@ -649,6 +739,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 		"/api/trickroom/annotations/:annotationId/revert",
 		handle(async (c, request) => {
 			const body = await readBody(c);
+			await request.assertScope(body);
 			const entryId = optionalString(body?.entryId);
 			if (!entryId) throw new RequestError("entryId must name a change entry.");
 			const annotationId = c.req.param("annotationId") as string;

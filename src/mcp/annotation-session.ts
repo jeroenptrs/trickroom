@@ -604,28 +604,37 @@ export const createMcpAnnotationSession = ({
 			design,
 		);
 
+	/** A container's files, as `listLive` takes them back: listed once per block. */
+	type StoredListing = Awaited<
+		ReturnType<AnnotationProject["service"]["store"]["list"]>
+	>;
+
 	const listLive = (
 		project: AnnotationProject,
 		designId: string,
 		design: TrickroomDesign | null | undefined,
+		stored?: StoredListing,
 	) =>
 		listAnnotations(project.service, {
 			container: { kind: "design", designId },
 			scope: project.scope,
 			statuses: LIVE_STATUSES,
 			...(design ? { design } : {}),
+			...(stored ? { stored } : {}),
 		});
 
 	const listLiveComponent = (
 		project: AnnotationProject,
 		container: AnnotationContainer & { kind: "component" },
 		template: ComponentAnchorTemplate | null | undefined,
+		stored?: StoredListing,
 	) =>
 		listAnnotations(project.service, {
 			container,
 			scope: project.scope,
 			statuses: LIVE_STATUSES,
 			...(template ? { component: template } : {}),
+			...(stored ? { stored } : {}),
 		});
 
 	/**
@@ -645,7 +654,13 @@ export const createMcpAnnotationSession = ({
 			componentId: options.componentId,
 		};
 		let { template, name } = options;
-		let { annotations } = await listLiveComponent(project, container, template);
+		const stored = await project.service.store.list(container);
+		let { annotations } = await listLiveComponent(
+			project,
+			container,
+			template,
+			stored,
+		);
 		if (annotations.length === 0) return null;
 		if (template === undefined) {
 			const anchor = await readComponentAnchor(
@@ -660,6 +675,7 @@ export const createMcpAnnotationSession = ({
 					project,
 					container,
 					template,
+					stored,
 				));
 			}
 		}
@@ -722,7 +738,12 @@ export const createMcpAnnotationSession = ({
 		const project = await openProject(context);
 		if (!project) return null;
 		let design = options.design;
-		let { annotations } = await listLive(project, designId, design);
+		// The folder is listed once; a design read below only views it again.
+		const stored = await project.service.store.list({
+			kind: "design",
+			designId,
+		});
+		let { annotations } = await listLive(project, designId, design, stored);
 		if (annotations.length === 0) return null;
 		if (design === undefined) {
 			// Only now, when there is something to show: detached targets,
@@ -730,7 +751,9 @@ export const createMcpAnnotationSession = ({
 			design = await readDesignFileForTool(context, designId)
 				.then((read) => read.design)
 				.catch(() => null);
-			if (design) ({ annotations } = await listLive(project, designId, design));
+			if (design) {
+				({ annotations } = await listLive(project, designId, design, stored));
+			}
 		}
 		if (
 			!options.includeCounts &&

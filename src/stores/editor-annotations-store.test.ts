@@ -10,7 +10,10 @@ import type {
 import { componentDraftTargetLocator } from "../utils/component-annotation-targets";
 import {
 	applyAnnotationRead,
+	applyAnnotationWrite,
 	beginAnnotationRead,
+	beginAnnotationWrite,
+	changeAnnotationScope,
 	deriveAnnotationRowMarkers,
 	editorAnnotationsStore,
 	getAnnotationStateWith,
@@ -682,5 +685,156 @@ describe("ordering and containers", () => {
 		hydrateAnnotations(container, scope, [view({ id: "x" })], token);
 		expect(applyAnnotationRead(token, view({ id: "y" }))).toBe("ignored");
 		expect(state().byId).toEqual({});
+	});
+});
+
+describe("checkout scope changes", () => {
+	const other: AnnotationScope = { branch: "feature", worktreePath: "/work" };
+
+	it("drops another branch's annotations and voids requests in flight", () => {
+		const onMain = view();
+		ready([onMain]);
+		openAnnotationThread(onMain.id);
+		const read = beginAnnotationRead();
+		const write = beginAnnotationWrite();
+
+		expect(changeAnnotationScope(other)).toBe(true);
+		expect(state()).toMatchObject({
+			scope: other,
+			status: "loading",
+			activeAnnotationId: null,
+		});
+		expect(Object.keys(state().byId)).toEqual([]);
+		// Answers of the old scope no longer apply.
+		expect(applyAnnotationRead(read, onMain)).toBe("ignored");
+		expect(applyAnnotationWrite(write, { ...onMain, revision: "r2" })).toBe(
+			"ignored",
+		);
+		expect(state().byId[onMain.id]).toBeUndefined();
+	});
+
+	it("keeps everything for the scope already held", () => {
+		const onMain = view();
+		ready([onMain]);
+		expect(changeAnnotationScope({ ...scope })).toBe(false);
+		expect(state().byId[onMain.id]).toBe(onMain);
+	});
+
+	it("does nothing without a container", () => {
+		expect(changeAnnotationScope(other)).toBe(false);
+		expect(state().scope).toBeNull();
+	});
+
+	it("takes the new branch's annotations once it holds its scope", () => {
+		ready([view()]);
+		changeAnnotationScope(other);
+		const onFeature = view({ branch: "feature" });
+		upsertAnnotation(onFeature);
+		expect(state().byId[onFeature.id]).toBe(onFeature);
+		upsertAnnotation(view({ branch: "main" }));
+		expect(Object.keys(state().byId)).toEqual([onFeature.id]);
+	});
+
+	it("replaces everything when a list reports another scope", () => {
+		const onMain = view();
+		ready([onMain]);
+		// A read started before the list: of the old scope.
+		const read = beginAnnotationRead();
+		const onFeature = view({ branch: "feature" });
+		expect(hydrateAnnotations(container, other, [onFeature])).toBe(
+			"scope-changed",
+		);
+		expect(state().scope).toEqual(other);
+		expect(state().status).toBe("ready");
+		expect(Object.keys(state().byId)).toEqual([onFeature.id]);
+		expect(applyAnnotationRead(read, { ...onMain, revision: "r9" })).toBe(
+			"ignored",
+		);
+		expect(hydrateAnnotations(container, other, [onFeature])).toBe("applied");
+	});
+
+	it("applies a list of the new scope that started after the change", () => {
+		ready([view()]);
+		changeAnnotationScope(other);
+		const token = beginAnnotationRead();
+		const onFeature = view({ branch: "feature" });
+		expect(hydrateAnnotations(container, other, [onFeature], token)).toBe(
+			"applied",
+		);
+		expect(Object.keys(state().byId)).toEqual([onFeature.id]);
+	});
+
+	it("ignores a list that started before the change", () => {
+		ready([view()]);
+		const token = beginAnnotationRead();
+		changeAnnotationScope(other);
+		expect(hydrateAnnotations(container, scope, [view()], token)).toBe(
+			"ignored",
+		);
+		expect(state().status).toBe("loading");
+	});
+});
+
+describe("acknowledgements derived on read", () => {
+	const acknowledged = (lastSeenAt: string, active: boolean) =>
+		view({
+			id: "ack",
+			status: "acknowledged",
+			acknowledged: { sessionId: "s1", at: "2026-10-14T10:00:00.000Z" },
+			acknowledgement: {
+				sessionId: "s1",
+				at: "2026-10-14T10:00:00.000Z",
+				active,
+				lastSeenAt,
+			},
+		});
+
+	it("takes an idle acknowledgement of the same revision from a later list", () => {
+		ready([acknowledged("2026-10-14T10:00:00.000Z", true)]);
+		hydrateAnnotations(container, scope, [
+			acknowledged("2026-10-14T10:00:00.000Z", false),
+		]);
+		expect(state().byId.ack?.acknowledgement?.active).toBe(false);
+	});
+
+	it("keeps what knows more, whatever order the answers arrive in", () => {
+		ready([acknowledged("2026-10-14T10:00:00.000Z", true)]);
+		const older = beginAnnotationRead();
+		const newer = beginAnnotationRead();
+		// The newer read: the session called again at 10:20.
+		expect(
+			applyAnnotationRead(
+				newer,
+				acknowledged("2026-10-14T10:20:00.000Z", true),
+			),
+		).toBe("applied");
+		// The older read answers last, from before that call: idle by then.
+		applyAnnotationRead(older, acknowledged("2026-10-14T10:00:00.000Z", false));
+		expect(state().byId.ack?.acknowledgement).toMatchObject({
+			active: true,
+			lastSeenAt: "2026-10-14T10:20:00.000Z",
+		});
+	});
+
+	it("updates a stale read's acknowledgement when the content is the same", () => {
+		ready([acknowledged("2026-10-14T10:00:00.000Z", true)]);
+		const stale = beginAnnotationRead();
+		upsertAnnotation(acknowledged("2026-10-14T10:00:00.000Z", true));
+		expect(
+			applyAnnotationRead(
+				stale,
+				acknowledged("2026-10-14T10:30:00.000Z", true),
+			),
+		).toBe("ignored");
+		expect(state().byId.ack?.acknowledgement?.lastSeenAt).toBe(
+			"2026-10-14T10:30:00.000Z",
+		);
+	});
+
+	it("keeps the object when nothing derived changed", () => {
+		const held = acknowledged("2026-10-14T10:00:00.000Z", true);
+		ready([held]);
+		upsertAnnotation(acknowledged("2026-10-14T10:00:00.000Z", true));
+		expect(state().byId.ack).toBe(held);
 	});
 });

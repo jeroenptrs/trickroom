@@ -5,11 +5,14 @@ import { isDeepStrictEqual } from "node:util";
 import type { Node, RecipeTemplateNode, TrickroomDesign } from "../types";
 import { isAnnotationTarget } from "./annotation-file-schema";
 import {
+	ACKNOWLEDGEMENT_TTL_MS,
 	type AnnotationCountSummary,
+	type AnnotationTargetLocator,
 	type ComponentAnchorTemplate,
-	currentBoardOf,
-	deriveComponentDetached,
-	deriveDetached,
+	componentTargetLocator,
+	currentBoardOfWith,
+	deriveDetachedWith,
+	designTargetLocator,
 	findAnnotationsSharingChange,
 	findComponentNode,
 	findDesignLayer,
@@ -71,6 +74,7 @@ import type { AnnotationAnchorLookup } from "./design-transform-service";
 // The pure definitions live in `annotation-model.ts` so the editor can use
 // them too; they are re-exported here for the server and MCP.
 export {
+	ACKNOWLEDGEMENT_TTL_MS,
 	AGENT_WORK_STATUSES,
 	type AnnotationCountSummary,
 	type AnnotationCounts,
@@ -79,9 +83,6 @@ export {
 	HUMAN_WORK_STATUSES,
 	summarizeAnnotationCounts,
 } from "./annotation-model";
-
-/** An acknowledgement stays active this long after the session's last tool call. */
-export const ACKNOWLEDGEMENT_TTL_MS = 15 * 60 * 1000;
 
 export type AnnotationServiceErrorCode =
 	| "INVALID_INPUT"
@@ -93,6 +94,7 @@ export type AnnotationServiceErrorCode =
 	| "REVERT_NOT_RECORDED"
 	| "DESIGN_BUSY"
 	| "WRONG_BRANCH"
+	| "SCOPE_CHANGED"
 	| "COMPONENT_BUSY";
 
 export class AnnotationServiceError extends Error {
@@ -277,8 +279,9 @@ const applyDismiss = (
 /**
  * The acknowledgement with its expiry: active while the session's last
  * tool call (or the acknowledgement itself, when later or the session is
- * unknown) is within `ACKNOWLEDGEMENT_TTL_MS`. Derived on read, nothing on
- * disk changes when it expires.
+ * unknown), `lastSeenAt`, is within `ACKNOWLEDGEMENT_TTL_MS`. Derived on
+ * read, nothing on disk changes when it expires; the editor counts down
+ * from `lastSeenAt` itself (`isAcknowledgementActive`).
  */
 export const deriveAcknowledgement = (
 	annotation: Annotation,
@@ -296,6 +299,7 @@ export const deriveAcknowledgement = (
 	return {
 		...annotation.acknowledged,
 		active: now.getTime() - lastSeen <= ACKNOWLEDGEMENT_TTL_MS,
+		lastSeenAt: new Date(lastSeen).toISOString(),
 	};
 };
 
@@ -485,17 +489,40 @@ const createSessionClock = (store: AnnotationStore) => {
 	};
 };
 
+/**
+ * Where targets are, for `detached`: the design's locator indexes its
+ * layers once, so a listing derives every annotation against one walk of
+ * the design, not one each.
+ */
+type ViewLocators = {
+	design: AnnotationTargetLocator | null;
+	component: AnnotationTargetLocator | null;
+};
+
+const viewLocators = ({ design, component }: ViewOptions): ViewLocators => ({
+	design: design ? designTargetLocator(design) : null,
+	component: component ? componentTargetLocator(component) : null,
+});
+
+const deriveViewDetached = (
+	target: AnnotationTarget,
+	{ design, component }: ViewLocators,
+) =>
+	design
+		? deriveDetachedWith(target, design)
+		: component && target.kind === "componentNode"
+			? deriveDetachedWith(target, component)
+			: undefined;
+
 const toView = async (
 	stored: StoredAnnotation,
 	{
 		now,
-		design,
-		component,
+		locators,
 		sessionClock,
 	}: {
 		now: Date;
-		design?: TrickroomDesign | null;
-		component?: ComponentAnchorTemplate | null;
+		locators: ViewLocators;
 		sessionClock: (sessionId: string) => Promise<Date | null>;
 	},
 ): Promise<AnnotationView> => {
@@ -509,11 +536,7 @@ const toView = async (
 					now,
 				)
 			: undefined;
-	const detached = design
-		? deriveDetached(annotation.target, design)
-		: component
-			? deriveComponentDetached(annotation.target, component)
-			: undefined;
+	const detached = deriveViewDetached(annotation.target, locators);
 	return {
 		...annotation,
 		revision,
@@ -530,8 +553,7 @@ export const viewAnnotation = (
 ) =>
 	toView(stored, {
 		now: nowOf(context),
-		design: options.design,
-		component: options.component,
+		locators: viewLocators(options),
 		sessionClock: createSessionClock(context.store),
 	});
 
@@ -588,22 +610,31 @@ export type ListAnnotationsInput = {
 	component?: ComponentAnchorTemplate | null;
 	/** Component node annotations on this template path. */
 	nodePath?: string;
+	/**
+	 * The container's files as `store.list` returned them earlier in the
+	 * same call, so a second view of them (with a design read since) does
+	 * not list the folder again.
+	 */
+	stored?: Awaited<ReturnType<AnnotationStore["list"]>>;
 };
 
 export const listAnnotations = async (
 	context: AnnotationServiceContext,
 	input: ListAnnotationsInput,
 ) => {
-	const { annotations, problems } = await context.store.list(input.container);
+	const { annotations, problems } =
+		input.stored ?? (await context.store.list(input.container));
 	const statuses = input.statuses ? new Set(input.statuses) : null;
 	const now = nowOf(context);
 	const sessionClock = createSessionClock(context.store);
+	// One index of the design for every annotation listed.
+	const locators = viewLocators(input);
 	const selected = annotations.filter(({ annotation }) => {
 		if (!matchesBranch(annotation, input.scope, input.branch)) return false;
 		if (statuses && !statuses.has(annotation.status)) return false;
 		if (
 			input.boardId !== undefined &&
-			currentBoardOf(annotation.target, input.design) !== input.boardId
+			currentBoardOfWith(annotation.target, locators.design) !== input.boardId
 		) {
 			return false;
 		}
@@ -629,14 +660,7 @@ export const listAnnotations = async (
 	});
 	return {
 		annotations: await Promise.all(
-			selected.map((stored) =>
-				toView(stored, {
-					now,
-					design: input.design,
-					component: input.component,
-					sessionClock,
-				}),
-			),
+			selected.map((stored) => toView(stored, { now, locators, sessionClock })),
 		),
 		problems,
 	};
@@ -2073,6 +2097,8 @@ export const revertUnderLocks = async (
 			for (const annotationId of (await plan()).keys()) {
 				if (!planned.has(annotationId)) throw new SharedRevertSetChanged();
 			}
+			// The checkout may have changed while this waited on the locks.
+			context.store.guardWrite();
 			const revisions = await input.write();
 			return {
 				annotations: recordRevertOnAll(

@@ -16,6 +16,67 @@ import {
  * inspector) uses the same definitions as the server and MCP.
  */
 
+/** An acknowledgement stays active this long after the session's last tool call. */
+export const ACKNOWLEDGEMENT_TTL_MS = 15 * 60 * 1000;
+
+type AcknowledgementView = {
+	sessionId: string;
+	at: string;
+	active: boolean;
+	/** Older servers left it out. */
+	lastSeenAt?: string;
+};
+
+/**
+ * Whether an acknowledgement is still active at `now`: the server's answer,
+ * counted down from `lastSeenAt` without asking again. One the server
+ * reported idle stays idle until a newer `lastSeenAt` arrives.
+ */
+export const isAcknowledgementActive = (
+	acknowledgement: Pick<AcknowledgementView, "active" | "lastSeenAt">,
+	now: number,
+) => {
+	if (!acknowledgement.active) return false;
+	const lastSeen = acknowledgement.lastSeenAt
+		? new Date(acknowledgement.lastSeenAt).getTime()
+		: Number.NaN;
+	return Number.isNaN(lastSeen) || now - lastSeen <= ACKNOWLEDGEMENT_TTL_MS;
+};
+
+/** When an active acknowledgement goes idle, or null when it is not counting down. */
+export const acknowledgementExpiresAt = (
+	acknowledgement: Pick<AcknowledgementView, "active" | "lastSeenAt">,
+) => {
+	if (!acknowledgement.active || !acknowledgement.lastSeenAt) return null;
+	const lastSeen = new Date(acknowledgement.lastSeenAt).getTime();
+	return Number.isNaN(lastSeen) ? null : lastSeen + ACKNOWLEDGEMENT_TTL_MS;
+};
+
+/**
+ * Of two reads of the same acknowledgement, the one that knows more,
+ * whatever order they arrived in: the later `lastSeenAt` (the session
+ * called since), and on a tie the idle one (read later, past the expiry).
+ * Another acknowledgement altogether takes `incoming`.
+ */
+export const latestAcknowledgement = <
+	Acknowledgement extends AcknowledgementView,
+>(
+	held: Acknowledgement,
+	incoming: Acknowledgement,
+): Acknowledgement => {
+	if (held.sessionId !== incoming.sessionId || held.at !== incoming.at) {
+		return incoming;
+	}
+	const heldSeen = held.lastSeenAt ? Date.parse(held.lastSeenAt) : 0;
+	const incomingSeen = incoming.lastSeenAt
+		? Date.parse(incoming.lastSeenAt)
+		: 0;
+	if (incomingSeen !== heldSeen) {
+		return incomingSeen > heldSeen ? incoming : held;
+	}
+	return held.active && !incoming.active ? incoming : held;
+};
+
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 

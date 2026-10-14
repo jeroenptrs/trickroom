@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Dirent } from "node:fs";
+import { type BigIntStats, type Dirent, statSync } from "node:fs";
 import {
 	chmod,
 	mkdir,
@@ -8,6 +8,7 @@ import {
 	readFile,
 	realpath,
 	rename,
+	stat,
 	unlink,
 } from "node:fs/promises";
 import path from "node:path";
@@ -202,6 +203,16 @@ export type AnnotationStoreOptions = {
 	/** Defaults to `TRICKROOM_HOME` or `~/.trickroom`. */
 	trickroomHome?: string;
 	lock?: Partial<DesignFileLockOptions>;
+	/**
+	 * Runs under the lock right before a write stores: for one annotation,
+	 * immediately before the rename (or unlink), with nothing awaited in
+	 * between; for `updateMany`, once before its mutation; and before a
+	 * container write a revert makes under annotation locks (`guardWrite`).
+	 * Throwing refuses the write with nothing stored. The HTTP routes
+	 * re-read the checkout's scope here, so a write that waited while
+	 * another branch was checked out is refused. Synchronous on purpose.
+	 */
+	beforeWrite?: () => void;
 };
 
 /**
@@ -248,6 +259,187 @@ const parseStored = (
 	};
 };
 
+// ---------------------------------------------------------------------------
+// Parsed files, shared by every store in the process. A listing reads every
+// file of a folder, closed history included, on every MCP tool call that
+// surfaces annotations; most of them have not changed since the last call.
+// Each entry carries the signature of the file it was parsed from (inode,
+// size, change and modification time, taken from the open handle it was
+// read through), and serves a read only while the path still has that
+// signature. Every write renames a new file into place (a new inode), in
+// this process or another, so a written file is always read again.
+// ---------------------------------------------------------------------------
+
+/** What the cache may hold: file bytes parsed, and files (tests lower them). */
+export const annotationFileCacheLimits = {
+	maxBytes: 32 * 1024 * 1024,
+	maxFiles: 50_000,
+};
+
+type CachedAnnotationFile = {
+	signature: string;
+	bytes: number;
+	stored: StoredAnnotation;
+};
+
+/** By file path; insertion order is use order (least recent first). */
+const parsedFiles = new Map<string, CachedAnnotationFile>();
+let parsedBytes = 0;
+
+/** How listings were served: files read and parsed, and files served from the cache. */
+export const annotationFileReads = { parsed: 0, cached: 0 };
+
+/** How many parsed files the cache holds, and their bytes. */
+export const getAnnotationFileCacheSize = () => ({
+	files: parsedFiles.size,
+	bytes: parsedBytes,
+});
+
+/** Tests: forget every parsed file and the counts. */
+export const resetAnnotationFileCache = () => {
+	parsedFiles.clear();
+	parsedBytes = 0;
+	annotationFileReads.parsed = 0;
+	annotationFileReads.cached = 0;
+};
+
+const fileSignature = (info: BigIntStats) =>
+	`${info.dev}:${info.ino}:${info.size}:${info.ctimeNs}:${info.mtimeNs}`;
+
+const forgetParsed = (filePath: string) => {
+	const held = parsedFiles.get(filePath);
+	if (!held) return;
+	parsedFiles.delete(filePath);
+	parsedBytes -= held.bytes;
+};
+
+/**
+ * Cached entries are shared by every reader: frozen, so a caller that
+ * changes one fails loudly instead of changing what the next one reads.
+ */
+const deepFreeze = <Value>(value: Value): Value => {
+	if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
+		Object.freeze(value);
+		for (const child of Object.values(value)) deepFreeze(child);
+	}
+	return value;
+};
+
+const rememberParsed = (
+	filePath: string,
+	signature: string,
+	bytes: number,
+	stored: StoredAnnotation,
+) => {
+	forgetParsed(filePath);
+	const { maxBytes, maxFiles } = annotationFileCacheLimits;
+	if (bytes > maxBytes) return;
+	parsedFiles.set(filePath, { signature, bytes, stored: deepFreeze(stored) });
+	parsedBytes += bytes;
+	for (const [oldest, held] of parsedFiles) {
+		if (parsedBytes <= maxBytes && parsedFiles.size <= maxFiles) {
+			break;
+		}
+		parsedFiles.delete(oldest);
+		parsedBytes -= held.bytes;
+	}
+};
+
+const isMissing = (error: unknown) =>
+	(error as NodeJS.ErrnoException)?.code === "ENOENT";
+
+/** Files stat'ed between two yields to the event loop. */
+const STAT_CHUNK = 256;
+
+/**
+ * The current stats of cached files, `null` for a missing one. Synchronous
+ * stats are several times cheaper than promised ones over thousands of
+ * files; taken in chunks, with a yield between them, they never hold the
+ * event loop for long. A file whose stat fails otherwise is left out (it is
+ * read through the usual path).
+ */
+const statCachedFiles = async (filePaths: readonly string[]) => {
+	const stats = new Map<string, BigIntStats | null>();
+	for (let index = 0; index < filePaths.length; index += 1) {
+		if (index > 0 && index % STAT_CHUNK === 0) {
+			await new Promise((resolve) => setImmediate(resolve));
+		}
+		const filePath = filePaths[index] as string;
+		try {
+			stats.set(filePath, statSync(filePath, { bigint: true }));
+		} catch (error) {
+			if (isMissing(error)) stats.set(filePath, null);
+		}
+	}
+	return stats;
+};
+
+/** The cached parse of a file whose stat is `info`, while it is that file. */
+const takeCachedFile = (filePath: string, info: BigIntStats) => {
+	const held = parsedFiles.get(filePath);
+	if (!held || fileSignature(info) !== held.signature) return null;
+	// Most recently used last.
+	parsedFiles.delete(filePath);
+	parsedFiles.set(filePath, held);
+	annotationFileReads.cached += 1;
+	return held.stored;
+};
+
+/**
+ * One annotation file for a listing: from the cache while the file is the
+ * one parsed, else read and parsed (and remembered). Null when missing.
+ * `current` is the file's stat when the caller took it already.
+ */
+const readParsedFile = async (
+	filePath: string,
+	annotationId: string,
+	current?: BigIntStats | null,
+): Promise<StoredAnnotation | null> => {
+	const held = parsedFiles.get(filePath);
+	if (held) {
+		const info =
+			current !== undefined
+				? current
+				: await stat(filePath, { bigint: true }).catch((error) => {
+						if (isMissing(error)) return null;
+						throw error;
+					});
+		if (!info) {
+			forgetParsed(filePath);
+			return null;
+		}
+		const cached = takeCachedFile(filePath, info);
+		if (cached) return cached;
+	}
+	let handle: Awaited<ReturnType<typeof open>>;
+	try {
+		handle = await open(filePath, "r");
+	} catch (error) {
+		if (isMissing(error)) {
+			forgetParsed(filePath);
+			return null;
+		}
+		throw error;
+	}
+	try {
+		// The signature of exactly what is read: the same open file.
+		const info = await handle.stat({ bigint: true });
+		const contents = await handle.readFile("utf8");
+		annotationFileReads.parsed += 1;
+		let stored: StoredAnnotation;
+		try {
+			stored = parseStored(contents, annotationId);
+		} catch (error) {
+			forgetParsed(filePath);
+			throw error;
+		}
+		rememberParsed(filePath, fileSignature(info), Number(info.size), stored);
+		return stored;
+	} finally {
+		await handle.close();
+	}
+};
+
 /**
  * `realpath` of the nearest existing ancestor, with the rest of the path
  * appended: the same answer for every alias of a path, whether or not the
@@ -290,6 +482,8 @@ const writeFileAtomic = async (
 	filePath: string,
 	contents: string,
 	fence: () => Promise<void>,
+	/** Last, synchronously before the rename: throwing stores nothing. */
+	check?: () => void,
 ) => {
 	const tempPath = path.join(
 		path.dirname(filePath),
@@ -305,6 +499,7 @@ const writeFileAtomic = async (
 		// The umask may have narrowed the mode; never widened it.
 		await chmod(tempPath, fileMode);
 		await fence();
+		check?.();
 		await rename(tempPath, filePath);
 	} catch (error) {
 		await unlink(tempPath).catch(() => undefined);
@@ -323,6 +518,7 @@ export class AnnotationStore {
 	/** `<home>/annotations/<projectId>`. */
 	readonly projectDirectory: string;
 	private readonly lockOptions: DesignFileLockOptions;
+	private readonly beforeWrite: (() => void) | undefined;
 
 	constructor(options: AnnotationStoreOptions) {
 		this.trickroomHome = options.trickroomHome ?? resolveTrickroomHome();
@@ -331,6 +527,7 @@ export class AnnotationStore {
 			this.projectId,
 			this.trickroomHome,
 		);
+		this.beforeWrite = options.beforeWrite;
 		this.lockOptions = {
 			label: "annotation",
 			...options.lock,
@@ -338,6 +535,34 @@ export class AnnotationStore {
 				options.lock?.lockDirectory ??
 				getAnnotationLockDirectory(this.trickroomHome),
 		};
+	}
+
+	/**
+	 * The `beforeWrite` check, for writes made under this store's locks to
+	 * something else (a revert's design or component write). Call it with
+	 * the locks held, right before the write.
+	 */
+	guardWrite() {
+		this.beforeWrite?.();
+	}
+
+	/**
+	 * Called once a single annotation's temporary file is written, before
+	 * the lock check and `beforeWrite`. Tests override it to pause there.
+	 */
+	protected async afterTemporaryWrite(_filePath: string): Promise<void> {}
+
+	/** The fence and check of one annotation's atomic write. */
+	private storeOne(filePath: string, contents: string, lock: FileLockHandle) {
+		return writeFileAtomic(
+			filePath,
+			contents,
+			async () => {
+				await this.afterTemporaryWrite(filePath);
+				await lock.assertHeld();
+			},
+			() => this.guardWrite(),
+		);
 	}
 
 	getContainerDirectory(container: AnnotationContainer) {
@@ -409,29 +634,54 @@ export class AnnotationStore {
 	/**
 	 * Every readable annotation of a container, oldest first. Files that
 	 * cannot be read (invalid, or from a newer Trickroom) are reported in
-	 * `problems` and left alone.
+	 * `problems` and left alone. Files unchanged since an earlier listing in
+	 * this process are not read again (see `readParsedFile`); what it
+	 * returns is shared and frozen.
 	 */
 	async list(container: AnnotationContainer): Promise<{
 		annotations: StoredAnnotation[];
 		problems: AnnotationReadProblem[];
 	}> {
 		const directory = this.getContainerDirectory(container);
-		const entries = await readDirectoryEntries(directory);
+		const files = (await readDirectoryEntries(directory)).flatMap((entry) => {
+			if (
+				!entry.isFile() ||
+				entry.name.startsWith(".") ||
+				!entry.name.endsWith(jsonExtension)
+			) {
+				return [];
+			}
+			const annotationId = entry.name.slice(0, -jsonExtension.length);
+			return isSafeAnnotationPathSegment(annotationId)
+				? [{ annotationId, filePath: path.join(directory, entry.name) }]
+				: [];
+		});
+		// The files parsed before: whether they are still the same.
+		const current = await statCachedFiles(
+			files
+				.map(({ filePath }) => filePath)
+				.filter((filePath) => parsedFiles.has(filePath)),
+		);
 		const annotations: StoredAnnotation[] = [];
 		const problems: AnnotationReadProblem[] = [];
+		// Unchanged files straight from the cache; the rest are read.
+		const toRead = files.filter(({ filePath }) => {
+			const info = current.get(filePath);
+			const cached = info ? takeCachedFile(filePath, info) : null;
+			if (cached) annotations.push(cached);
+			return !cached && info !== null;
+		});
+		for (const { filePath } of files) {
+			if (current.get(filePath) === null) forgetParsed(filePath);
+		}
 		await Promise.all(
-			entries.map(async (entry) => {
-				if (
-					!entry.isFile() ||
-					entry.name.startsWith(".") ||
-					!entry.name.endsWith(jsonExtension)
-				) {
-					return;
-				}
-				const annotationId = entry.name.slice(0, -jsonExtension.length);
-				if (!isSafeAnnotationPathSegment(annotationId)) return;
+			toRead.map(async ({ annotationId, filePath }) => {
 				try {
-					const stored = await this.read(container, annotationId);
+					const stored = await readParsedFile(
+						filePath,
+						annotationId,
+						current.get(filePath),
+					);
 					if (stored) annotations.push(stored);
 				} catch (error) {
 					if (
@@ -543,9 +793,7 @@ export class AnnotationStore {
 					`Annotation ${annotation.id} already exists.`,
 				);
 			}
-			await writeFileAtomic(filePath, serializeAnnotation(stored), () =>
-				lock.assertHeld(),
-			);
+			await this.storeOne(filePath, serializeAnnotation(stored), lock);
 			return {
 				annotation: stored,
 				revision: calculateAnnotationRevision(stored),
@@ -603,9 +851,7 @@ export class AnnotationStore {
 					"An update cannot move an annotation to another design or component.",
 				);
 			}
-			await writeFileAtomic(filePath, serializeAnnotation(next), () =>
-				lock.assertHeld(),
-			);
+			await this.storeOne(filePath, serializeAnnotation(next), lock);
 			return {
 				stored: {
 					annotation: next,
@@ -650,6 +896,11 @@ export class AnnotationStore {
 				}
 				current.set(annotationId, stored);
 			}
+			// Before `mutate`, with every lock held, not per file: a batch is
+			// all or nothing, and a revert's mutation writes its container
+			// (checking again right before that), so nothing may refuse
+			// between that write and recording it.
+			this.guardWrite();
 			const { annotations, result } = await mutate(current);
 			const stored = new Map<string, StoredAnnotation>();
 			for (const annotation of annotations) {
@@ -742,6 +993,7 @@ export class AnnotationStore {
 			const current = await this.read(container, annotationId);
 			if (!current || !shouldDelete(current)) return false;
 			await lock.assertHeld();
+			this.guardWrite();
 			await unlink(filePath).catch((error: NodeJS.ErrnoException) => {
 				if (error.code !== "ENOENT") throw error;
 			});

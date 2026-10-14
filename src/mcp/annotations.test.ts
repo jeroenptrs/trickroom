@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
 	mkdir,
 	mkdtemp,
@@ -33,6 +34,7 @@ import {
 import {
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
+	type ToolPayload,
 	type TrickroomMcpClientSession,
 	type TrickroomMcpProjectFixture,
 	toolPayload,
@@ -970,6 +972,180 @@ describe("MCP annotations", () => {
 			});
 			expect(isError).toBe(true);
 			expect(payload.code).toBe("INVALID_OPERATION_PARAMETERS");
+		});
+	});
+
+	describe("annotation_list pagination", () => {
+		const TOTAL = 205;
+
+		/** TOTAL design-level needs_input annotations; every third createdAt repeats. */
+		const seed = async () => {
+			const opened = await open();
+			const base = await opened.annotate(
+				{ kind: "design", designId },
+				"Design-level remark",
+			);
+			const start = Date.parse("2026-10-14T09:00:00.000Z");
+			const ids: string[] = [];
+			const clones = Array.from({ length: TOTAL }, (_, index) => {
+				const id = randomUUID();
+				ids.push(id);
+				const at = new Date(start + Math.floor(index / 3) * 1000).toISOString();
+				return {
+					...base,
+					id,
+					status: "needs_input" as const,
+					createdAt: at,
+					updatedAt: at,
+					entries: base.entries.map((entry) => ({
+						...entry,
+						id: randomUUID(),
+					})),
+					transitions: [
+						...base.transitions.map((transition) => ({ ...transition, at })),
+						{
+							from: "open" as const,
+							to: "needs_input" as const,
+							at,
+							by: { role: "human" as const },
+						},
+					],
+				};
+			});
+			await Promise.all(
+				clones.map((clone) => opened.service.store.create(clone)),
+			);
+			return { ...opened, base, clones };
+		};
+
+		const bodyIds = (payload: ToolPayload) =>
+			(payload.annotations as Array<{ annotationId: string }>).map(
+				(entry) => entry.annotationId,
+			);
+
+		it("lists the last annotations past limit 200 with the cursor", async () => {
+			const { call, clones } = await seed();
+			const first = await call(TOOL.annotationList, {
+				designFileId: designId,
+				status: "needs_input",
+				limit: 200,
+			});
+			expect(first.isError).toBe(false);
+			expect(first.payload.annotations).toHaveLength(200);
+			expect(first.payload.total).toBe(TOTAL);
+			expect(first.payload.more).toBe(5);
+			expect(typeof first.payload.nextCursor).toBe("string");
+			expect(first.payload.next).toContain("cursor:");
+			expect(first.payload.next).toBe(
+				`${TOOL.annotationList}({ designFileId: "${designId}", status: "needs_input", limit: 200, cursor: "${first.payload.nextCursor}" })`,
+			);
+
+			const second = await call(TOOL.annotationList, {
+				designFileId: designId,
+				status: "needs_input",
+				limit: 200,
+				cursor: first.payload.nextCursor,
+			});
+			expect(second.isError).toBe(false);
+			expect(second.payload.annotations).toHaveLength(5);
+			expect(second.payload.total).toBe(TOTAL);
+			expect(second.payload).not.toHaveProperty("more");
+			expect(second.payload).not.toHaveProperty("nextCursor");
+			expect(second.payload).not.toHaveProperty("next");
+
+			const ids = [...bodyIds(first.payload), ...bodyIds(second.payload)];
+			expect(new Set(ids).size).toBe(TOTAL);
+			expect(new Set(ids)).toEqual(new Set(clones.map((clone) => clone.id)));
+		});
+
+		it("walks 205 annotations in pages of the default limit", async () => {
+			const { call, clones } = await seed();
+			const sizes: number[] = [];
+			const ids: string[] = [];
+			let cursor: string | undefined;
+			do {
+				const page = await call(TOOL.annotationList, {
+					designFileId: designId,
+					status: "needs_input",
+					...(cursor ? { cursor } : {}),
+				});
+				expect(page.isError).toBe(false);
+				sizes.push(page.payload.annotations.length);
+				ids.push(...bodyIds(page.payload));
+				cursor = page.payload.nextCursor;
+				expect(page.payload.total).toBe(TOTAL);
+			} while (cursor);
+			expect(sizes).toEqual([50, 50, 50, 50, 5]);
+			expect(new Set(ids).size).toBe(TOTAL);
+			expect(new Set(ids)).toEqual(new Set(clones.map((clone) => clone.id)));
+
+			// Pages follow the order of one big list: createdAt, then id.
+			const expected = [...clones]
+				.sort(
+					(a, b) =>
+						a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+				)
+				.map((clone) => clone.id);
+			expect(ids).toEqual(expected);
+			const whole = await call(TOOL.annotationList, {
+				designFileId: designId,
+				status: "needs_input",
+				limit: 200,
+			});
+			expect(bodyIds(whole.payload)).toEqual(expected.slice(0, 200));
+		});
+
+		it("refuses a cursor of other filters or a garbage cursor", async () => {
+			const { call } = await seed();
+			const first = await call(TOOL.annotationList, {
+				designFileId: designId,
+				status: "needs_input",
+				limit: 10,
+			});
+			const cursor = first.payload.nextCursor as string;
+			expect(cursor).toBeTruthy();
+
+			for (const other of [
+				{ status: "open" },
+				{ status: "needs_input", boardId: "board" },
+				{ status: "needs_input", branch: "all" },
+				{ status: "needs_input", elementId: "title" },
+			]) {
+				const refused = await call(TOOL.annotationList, {
+					designFileId: designId,
+					...other,
+					cursor,
+				});
+				expect(refused.isError).toBe(true);
+				expect(refused.payload.code).toBe("INVALID_CURSOR");
+				expect(refused.payload.message).toContain("without cursor");
+			}
+
+			// limit is not a filter: the same cursor works with another page size.
+			const resized = await call(TOOL.annotationList, {
+				designFileId: designId,
+				status: "needs_input",
+				limit: 200,
+				cursor,
+			});
+			expect(resized.isError).toBe(false);
+			expect(resized.payload.annotations).toHaveLength(195);
+
+			for (const garbage of [
+				"not-a-cursor",
+				Buffer.from("{}").toString("base64url"),
+				Buffer.from(
+					JSON.stringify({ v: 2, f: "x", k: [0, -1, "a", "b"] }),
+				).toString("base64url"),
+			]) {
+				const refused = await call(TOOL.annotationList, {
+					designFileId: designId,
+					status: "needs_input",
+					cursor: garbage,
+				});
+				expect(refused.isError).toBe(true);
+				expect(refused.payload.code).toBe("INVALID_CURSOR");
+			}
 		});
 	});
 

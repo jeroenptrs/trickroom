@@ -250,9 +250,17 @@ export type AnnotationView = Annotation & {
 	/**
 	 * The acknowledgement with its expiry: active while the acknowledging
 	 * session has made a tool call within the last 15 minutes. Set while the
-	 * status is `acknowledged`.
+	 * status is `acknowledged`. `lastSeenAt` is the later of `at` and the
+	 * session's last tool call: `active` holds until 15 minutes after it.
+	 * Derived from session state, not content: the revision does not
+	 * change when it does.
 	 */
-	acknowledgement?: { sessionId: string; at: string; active: boolean };
+	acknowledgement?: {
+		sessionId: string;
+		at: string;
+		active: boolean;
+		lastSeenAt: string;
+	};
 	/**
 	 * The target no longer exists in the design read alongside. Absent when
 	 * no design was checked.

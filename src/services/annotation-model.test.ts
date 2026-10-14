@@ -3,7 +3,9 @@ import type { DesignEntity } from "../stores/design-store";
 import type { Node, TrickroomDesign } from "../types";
 import { designStoreTargetLocator } from "../utils/design-annotation-targets";
 import {
+	ACKNOWLEDGEMENT_TTL_MS,
 	type AnnotationTargetLocator,
+	acknowledgementExpiresAt,
 	currentBoardOf,
 	currentBoardOfWith,
 	deriveDetached,
@@ -13,8 +15,10 @@ import {
 	findAnnotationsSharingChange,
 	findDesignLayer,
 	getAnnotationMemoryReference,
+	isAcknowledgementActive,
 	isAnnotationTarget,
 	isLiveAnnotationStatus,
+	latestAcknowledgement,
 	summarizeAnnotationCounts,
 	summarizeAnnotationCountsWith,
 } from "./annotation-model";
@@ -487,5 +491,56 @@ describe("findAnnotationsSharingChange", () => {
 			{ id: "b", entries: [changeEntry("b1", undefined)] },
 		];
 		expect(shared(annotations, undefined)).toEqual([]);
+	});
+});
+
+describe("acknowledgement expiry on the editor's clock", () => {
+	const seen = Date.parse("2026-10-14T10:00:00.000Z");
+	const ack = (active: boolean, lastSeenAt?: string) => ({
+		sessionId: "s1",
+		at: "2026-10-14T09:00:00.000Z",
+		active,
+		...(lastSeenAt !== undefined ? { lastSeenAt } : {}),
+	});
+	const lastSeenAt = new Date(seen).toISOString();
+
+	it("counts down from lastSeenAt", () => {
+		expect(isAcknowledgementActive(ack(true, lastSeenAt), seen)).toBe(true);
+		expect(
+			isAcknowledgementActive(
+				ack(true, lastSeenAt),
+				seen + ACKNOWLEDGEMENT_TTL_MS,
+			),
+		).toBe(true);
+		expect(
+			isAcknowledgementActive(
+				ack(true, lastSeenAt),
+				seen + ACKNOWLEDGEMENT_TTL_MS + 1,
+			),
+		).toBe(false);
+		expect(acknowledgementExpiresAt(ack(true, lastSeenAt))).toBe(
+			seen + ACKNOWLEDGEMENT_TTL_MS,
+		);
+	});
+
+	it("keeps an idle one idle, and trusts the server without lastSeenAt", () => {
+		expect(isAcknowledgementActive(ack(false, lastSeenAt), seen)).toBe(false);
+		expect(acknowledgementExpiresAt(ack(false, lastSeenAt))).toBeNull();
+		expect(isAcknowledgementActive(ack(true), seen + 10 * 60 * 60_000)).toBe(
+			true,
+		);
+		expect(acknowledgementExpiresAt(ack(true))).toBeNull();
+	});
+
+	it("keeps the read that knows more, in either order", () => {
+		const earlier = ack(true, lastSeenAt);
+		const later = ack(true, new Date(seen + 60_000).toISOString());
+		expect(latestAcknowledgement(earlier, later)).toBe(later);
+		expect(latestAcknowledgement(later, earlier)).toBe(later);
+		const idle = ack(false, lastSeenAt);
+		expect(latestAcknowledgement(earlier, idle)).toBe(idle);
+		expect(latestAcknowledgement(idle, earlier)).toBe(idle);
+		const another = { ...ack(true, lastSeenAt), sessionId: "s2" };
+		expect(latestAcknowledgement(later, another)).toBe(another);
 	});
 });

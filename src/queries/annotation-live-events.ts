@@ -1,16 +1,33 @@
 import type {
 	AnnotationContainer,
 	AnnotationFileEvent,
+	AnnotationScope,
 } from "../services/annotations.types";
 
 // Routes `annotation` events from `/api/trickroom/events` to the editor
 // that has the annotations of that design (or component) loaded, and asks
-// it to compare with the store again after the stream reconnects.
+// it to compare with the store again after the stream reconnects. The
+// checkout's scope travels the same way: `annotation-scope` events (another
+// branch checked out), the `scope` of read answers and `SCOPE_CHANGED`
+// refusals all reach `subscribeAnnotationScope`.
 
 type Listener<T> = (value: T) => void;
 
 const eventListeners = new Set<Listener<AnnotationFileEvent>>();
 const resyncListeners = new Set<Listener<void>>();
+const scopeListeners = new Set<Listener<AnnotationScope>>();
+
+/** A well-formed `{ branch, worktreePath }`, or null. */
+export const parseAnnotationScope = (
+	value: unknown,
+): AnnotationScope | null => {
+	if (typeof value !== "object" || value === null) return null;
+	const scope = value as Record<string, unknown>;
+	return typeof scope.branch === "string" &&
+		typeof scope.worktreePath === "string"
+		? { branch: scope.branch, worktreePath: scope.worktreePath }
+		: null;
+};
 
 const isContainer = (value: unknown): value is AnnotationContainer => {
 	if (typeof value !== "object" || value === null) return false;
@@ -73,4 +90,18 @@ export const subscribeAnnotationResync = (listener: Listener<void>) => {
 
 export const requestAnnotationResync = () => {
 	for (const listener of resyncListeners) listener();
+};
+
+/** Registers for the checkout scope the server reports (it may be the one held). */
+export const subscribeAnnotationScope = (
+	listener: Listener<AnnotationScope>,
+) => {
+	scopeListeners.add(listener);
+	return () => {
+		scopeListeners.delete(listener);
+	};
+};
+
+export const deliverAnnotationScope = (scope: AnnotationScope) => {
+	for (const listener of scopeListeners) listener(scope);
 };
