@@ -9,6 +9,7 @@ import {
 	acknowledgeAnnotation,
 	buildAnnotationAnchorIndex,
 	clearAnnotations,
+	countAnnotations,
 	createAddressesRecorder,
 	createAnnotation,
 	deriveDetached,
@@ -23,13 +24,19 @@ import {
 	replyToAnnotation,
 	resolveAnnotations,
 	revertChange,
+	summarizeAnnotationCounts,
 	transitionAnnotation,
 	validateAddresses,
 } from "./annotation-service";
-import { AnnotationStore } from "./annotation-store";
+import {
+	type AnnotationMutation,
+	AnnotationStore,
+	type StoredAnnotation,
+} from "./annotation-store";
 import type {
 	AnnotationActor,
 	AnnotationChangeRecord,
+	AnnotationContainer,
 	AnnotationScope,
 	AnnotationTarget,
 } from "./annotations.types";
@@ -1460,5 +1467,461 @@ describe("attribution", () => {
 		});
 		expect(replied.entries.at(-1)?.by).toEqual(otherAgent);
 		expect(replied.acknowledged?.sessionId).toBe("session-b");
+	});
+});
+
+describe("revert races", () => {
+	const changeEntryId = async (annotationId: string) => {
+		const annotation = await getAnnotation(context, { annotationId });
+		const entry = annotation.entries.find(
+			(candidate) => candidate.kind === "change",
+		);
+		if (!entry) throw new Error("expected a change entry");
+		return entry.id;
+	};
+
+	/**
+	 * A design service whose read (the revert's last step before writing)
+	 * lets `race` run first: another writer acting between the revert's
+	 * checks and its design write.
+	 */
+	const racingDesigns = (race: () => Promise<unknown>) => {
+		const service = createDesignFileService(path.join(root, "project"), {
+			trickroomHome: path.join(root, "home"),
+		});
+		const read = service.readDesignFile.bind(service);
+		let raced = false;
+		service.readDesignFile = async (id: string) => {
+			const result = await read(id);
+			if (!raced) {
+				raced = true;
+				await race();
+			}
+			return result;
+		};
+		return service;
+	};
+
+	it.each([
+		[
+			"resolved",
+			(id: string) =>
+				transitionAnnotation(context, {
+					annotationId: id,
+					by: human,
+					to: "resolved",
+				}),
+			"NOT_REVERTIBLE",
+		],
+		[
+			"dismissed",
+			(id: string) =>
+				transitionAnnotation(context, {
+					annotationId: id,
+					by: agent,
+					to: "dismissed",
+					reason: "No",
+				}),
+			"NOT_REVERTIBLE",
+		],
+		[
+			"cleared",
+			async (id: string) => {
+				await transitionAnnotation(context, {
+					annotationId: id,
+					by: human,
+					to: "resolved",
+				});
+				await clearAnnotations(context, {
+					container: { kind: "design", designId },
+					scope: main,
+				});
+			},
+			"ANNOTATION_NOT_FOUND",
+		],
+	] as const)("refuses before touching the design when the annotation is %s meanwhile", async (_label, race, code) => {
+		const annotation = await create();
+		await writeAddressing([annotation.id], setClass("title", "text-2xl"));
+		const entryId = await changeEntryId(annotation.id);
+		const before = await readDesign();
+
+		await expect(
+			revertChange(context, {
+				annotationId: annotation.id,
+				entryId,
+				by: human,
+				designService: racingDesigns(() => race(annotation.id)),
+			}),
+		).rejects.toMatchObject({ code });
+
+		const after = await readDesign();
+		expect(after.revision).toBe(before.revision);
+		expect(findClass(after.design, "title")).toBe("text-2xl");
+	});
+
+	it("refuses a stale expectedRevision before touching the design", async () => {
+		const annotation = await create();
+		await writeAddressing([annotation.id], setClass("title", "text-2xl"));
+		const entryId = await changeEntryId(annotation.id);
+		const seen = await getAnnotation(context, { annotationId: annotation.id });
+		const before = await readDesign();
+
+		// Changed between the editor's read and its revert, before the lock.
+		await expect(
+			revertChange(context, {
+				annotationId: annotation.id,
+				entryId,
+				by: human,
+				designService: racingDesigns(() =>
+					replyToAnnotation(context, {
+						annotationId: annotation.id,
+						by: agent,
+						body: "One more note",
+					}),
+				),
+				expectedRevision: seen.revision,
+			}),
+		).rejects.toMatchObject({ code: "ANNOTATION_REVISION_MISMATCH" });
+		expect((await readDesign()).revision).toBe(before.revision);
+
+		// Stale from the start.
+		await expect(
+			revertChange(context, {
+				annotationId: annotation.id,
+				entryId,
+				by: human,
+				designService: designs,
+				expectedRevision: seen.revision,
+			}),
+		).rejects.toMatchObject({ code: "ANNOTATION_REVISION_MISMATCH" });
+
+		const current = await getAnnotation(context, {
+			annotationId: annotation.id,
+		});
+		const result = await revertChange(context, {
+			annotationId: annotation.id,
+			entryId,
+			by: human,
+			designService: designs,
+			expectedRevision: current.revision,
+		});
+		expect(result.annotation.entries.at(-1)?.kind).toBe("revert");
+	});
+
+	it("holds the annotation lock through both writes: a resolve waits for the revert", async () => {
+		const annotation = await create();
+		await writeAddressing([annotation.id], setClass("title", "text-2xl"));
+		const entryId = await changeEntryId(annotation.id);
+		const order: string[] = [];
+		const service = createDesignFileService(path.join(root, "project"), {
+			trickroomHome: path.join(root, "home"),
+		});
+		const update = service.updateDesignFile.bind(service);
+		let resolving: Promise<unknown> | null = null;
+		service.updateDesignFile = ((id, options) =>
+			update(id, {
+				...options,
+				aroundStore: async (storeDesign) =>
+					options.aroundStore?.(async () => {
+						// Annotation lock held: a resolve now has to wait.
+						resolving = transitionAnnotation(context, {
+							annotationId: annotation.id,
+							by: human,
+							to: "resolved",
+						}).then(() => order.push("resolved"));
+						const written = await storeDesign();
+						order.push("design written");
+						return written;
+					}),
+			})) as typeof service.updateDesignFile;
+
+		await revertChange(context, {
+			annotationId: annotation.id,
+			entryId,
+			by: human,
+			designService: service,
+		});
+		order.push("revert returned");
+		await resolving;
+		expect(order).toEqual(["design written", "revert returned", "resolved"]);
+		const final = await getAnnotation(context, { annotationId: annotation.id });
+		expect(final.status).toBe("resolved");
+		expect(final.entries.map((entry) => entry.kind)).toEqual([
+			"remark",
+			"change",
+			"revert",
+		]);
+	});
+
+	it("reports a design reverted without its annotation record", async () => {
+		const annotation = await create();
+		await writeAddressing([annotation.id], setClass("title", "text-2xl"));
+		const entryId = await changeEntryId(annotation.id);
+
+		class FailingStore extends AnnotationStore {
+			override update<Result>(
+				container: AnnotationContainer,
+				annotationId: string,
+				mutate: AnnotationMutation<Result>,
+				options?: { expectedRevision?: string },
+			) {
+				return super.update<Result>(
+					container,
+					annotationId,
+					async (current: StoredAnnotation) => {
+						await mutate(current);
+						throw new Error("disk full");
+					},
+					options,
+				);
+			}
+		}
+		const failing = new FailingStore({
+			projectId: "project-1",
+			trickroomHome: path.join(root, "home"),
+		});
+		const error = await revertChange(
+			{ store: failing, now: () => clock },
+			{
+				annotationId: annotation.id,
+				entryId,
+				by: human,
+				designService: designs,
+			},
+		).catch((caught: unknown) => caught);
+		const design = await readDesign();
+		expect(error).toMatchObject({
+			code: "REVERT_NOT_RECORDED",
+			details: { revision: design.revision, annotationId: annotation.id },
+		});
+		expect(findClass(design.design, "title")).toBeUndefined();
+	});
+});
+
+describe("repeated resolves through the reply API", () => {
+	it("an agent resolving a resolved annotation changes nothing, even after the human accepted", async () => {
+		const annotation = await create();
+		await replyToAnnotation(context, {
+			annotationId: annotation.id,
+			by: agent,
+			resolve: { summary: "Done" },
+		});
+		tick();
+		const { annotation: accepted } = await replyToAnnotation(context, {
+			annotationId: annotation.id,
+			by: human,
+			resolve: {},
+		});
+		expect(accepted.resolvedBy).toEqual(human);
+		expect(accepted.transitions.at(-1)).toMatchObject({
+			from: "resolved",
+			to: "resolved",
+			by: human,
+		});
+
+		tick();
+		const retry = await replyToAnnotation(context, {
+			annotationId: annotation.id,
+			by: agent,
+			resolve: { summary: "Done again" },
+		});
+		expect(retry.written).toBe(false);
+		expect(retry.annotation.resolvedBy).toEqual(human);
+		expect(retry.annotation.revision).toBe(accepted.revision);
+	});
+
+	it("an agent resolving a human-resolved annotation changes nothing", async () => {
+		const annotation = await create();
+		await transitionAnnotation(context, {
+			annotationId: annotation.id,
+			by: human,
+			to: "resolved",
+		});
+		const retry = await replyToAnnotation(context, {
+			annotationId: annotation.id,
+			by: agent,
+			resolve: {},
+		});
+		expect(retry.written).toBe(false);
+		expect(retry.annotation.resolvedBy).toEqual(human);
+	});
+
+	it("keeps the text of a repeated resolve or dismiss, without a transition", async () => {
+		const resolved = await create();
+		await transitionAnnotation(context, {
+			annotationId: resolved.id,
+			by: human,
+			to: "resolved",
+		});
+		const { annotation: withReply, written } = await replyToAnnotation(
+			context,
+			{
+				annotationId: resolved.id,
+				by: agent,
+				body: "Thanks",
+				resolve: {},
+			},
+		);
+		expect(written).toBe(true);
+		expect(withReply.entries.at(-1)).toMatchObject({ kind: "reply" });
+		expect(withReply.resolvedBy).toEqual(human);
+		expect(withReply.transitions.at(-1)?.by).toEqual(human);
+
+		const dismissed = await create();
+		await transitionAnnotation(context, {
+			annotationId: dismissed.id,
+			by: human,
+			to: "dismissed",
+			reason: "No",
+		});
+		const repeat = await replyToAnnotation(context, {
+			annotationId: dismissed.id,
+			by: agent,
+			dismiss: { reason: "Agreed" },
+		});
+		expect(repeat.written).toBe(false);
+	});
+
+	it("bulk resolve follows the same rule and honours expected revisions", async () => {
+		const agentResolved = await create();
+		const humanResolved = await create();
+		const stale = await create();
+		await transitionAnnotation(context, {
+			annotationId: agentResolved.id,
+			by: agent,
+			to: "resolved",
+		});
+		await transitionAnnotation(context, {
+			annotationId: humanResolved.id,
+			by: human,
+			to: "resolved",
+		});
+		const { resolved, skipped } = await resolveAnnotations(context, {
+			container: { kind: "design", designId },
+			by: agent,
+			annotationIds: [agentResolved.id, humanResolved.id, stale.id],
+			expectedRevisions: { [stale.id]: "sha256:old" },
+		});
+		expect(resolved).toEqual([]);
+		expect(
+			skipped.map(({ annotationId, code }) => ({ annotationId, code })),
+		).toEqual([
+			{ annotationId: agentResolved.id, code: "ALREADY_RESOLVED" },
+			{ annotationId: humanResolved.id, code: "ALREADY_RESOLVED" },
+			{ annotationId: stale.id, code: "ANNOTATION_REVISION_MISMATCH" },
+		]);
+	});
+});
+
+describe("clear with revisions", () => {
+	it("skips an annotation changed since it was read", async () => {
+		const annotation = await create();
+		const { annotation: resolved } = await transitionAnnotation(context, {
+			annotationId: annotation.id,
+			by: human,
+			to: "resolved",
+		});
+		await replyToAnnotation(context, {
+			annotationId: annotation.id,
+			by: agent,
+			body: "One last thing to note",
+		});
+		const result = await clearAnnotations(context, {
+			container: { kind: "design", designId },
+			scope: main,
+			expectedRevisions: { [annotation.id]: resolved.revision },
+		});
+		expect(result.cleared).toEqual([]);
+		expect(result.skipped).toEqual([
+			expect.objectContaining({
+				annotationId: annotation.id,
+				code: "ANNOTATION_REVISION_MISMATCH",
+			}),
+		]);
+	});
+});
+
+describe("counts", () => {
+	it("counts work by owner, status, board and layer on the current branch", async () => {
+		const open = await create();
+		const acknowledged = await create({ target: layerTarget("price") });
+		const question = await create({ target: layerTarget("price") });
+		const addressed = await create({ target: layerTarget("pay", "board-2") });
+		const resolved = await create();
+		await create({ target: { kind: "design", designId } });
+		await create({ target: { kind: "board", designId, boardId: "board-2" } });
+		await create({ scope: feature });
+		await acknowledgeAnnotation(context, {
+			annotationId: acknowledged.id,
+			sessionId: "session-a",
+		});
+		await replyToAnnotation(context, {
+			annotationId: question.id,
+			by: agent,
+			question: "?",
+		});
+		await writeAddressing([addressed.id], setClass("pay", "w-full"));
+		await transitionAnnotation(context, {
+			annotationId: resolved.id,
+			by: human,
+			to: "resolved",
+		});
+		void open;
+
+		const counts = await countAnnotations(context, {
+			container: { kind: "design", designId },
+			scope: main,
+			design: (await readDesign()).design,
+		});
+		expect(counts.total).toMatchObject({
+			live: 6,
+			agentWork: 4,
+			humanWork: 2,
+			detached: 0,
+			byStatus: {
+				open: 3,
+				acknowledged: 1,
+				needs_input: 1,
+				addressed: 1,
+				resolved: 1,
+				dismissed: 0,
+			},
+		});
+		expect(counts.design).toMatchObject({ live: 1, agentWork: 1 });
+		expect(counts.boards["board-1"]).toMatchObject({
+			live: 3,
+			agentWork: 2,
+			humanWork: 1,
+		});
+		expect(counts.boards["board-2"]).toMatchObject({
+			live: 2,
+			agentWork: 1,
+			humanWork: 1,
+		});
+		expect(counts.layers.title).toMatchObject({
+			live: 1,
+			byStatus: expect.objectContaining({ resolved: 1 }),
+		});
+		expect(counts.layers.price).toMatchObject({
+			live: 2,
+			agentWork: 1,
+			humanWork: 1,
+		});
+
+		const all = await countAnnotations(context, {
+			container: { kind: "design", designId },
+			scope: main,
+			branch: "all",
+		});
+		expect(all.total.live).toBe(7);
+	});
+
+	it("counts detached live annotations against a design", async () => {
+		const annotation = await create({ target: layerTarget("price") });
+		const design = structuredClone((await readDesign()).design);
+		((design.boards[0]?.children as Node[])[1] as Node).children = [];
+		const summary = summarizeAnnotationCounts([annotation], design);
+		expect(summary.total.detached).toBe(1);
+		expect(summary.boards["board-1"]?.detached).toBe(1);
 	});
 });

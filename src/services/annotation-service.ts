@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { Node, TrickroomDesign } from "../types";
 import { isAnnotationTarget } from "./annotation-file-schema";
 import {
@@ -10,6 +11,7 @@ import {
 } from "./annotation-store";
 import {
 	ANNOTATION_FILE_VERSION,
+	ANNOTATION_STATUSES,
 	type Annotation,
 	type AnnotationActor,
 	type AnnotationChangeRecord,
@@ -61,6 +63,7 @@ export type AnnotationServiceErrorCode =
 	| "INVALID_TRANSITION"
 	| "NOT_REVERTIBLE"
 	| "CHANGED_SINCE"
+	| "REVERT_NOT_RECORDED"
 	| "DESIGN_BUSY";
 
 export class AnnotationServiceError extends Error {
@@ -168,6 +171,60 @@ export const getResolvedBy = (
 	}
 	return undefined;
 };
+
+/**
+ * Resolving, with the one rule for repeats every resolve path follows: a
+ * live or dismissed annotation becomes resolved; a resolved one changes
+ * only when the human resolves what an agent resolved (a resolved →
+ * resolved transition recording the acceptance). Any other repeat, an
+ * agent resolving again in particular, is null: nothing to write.
+ */
+const applyResolve = (
+	annotation: Annotation,
+	by: AnnotationActor,
+	at: string,
+	summary?: string,
+): Annotation | null => {
+	if (
+		annotation.status === "resolved" &&
+		!(by.role === "human" && getResolvedBy(annotation)?.role === "agent")
+	) {
+		return null;
+	}
+	const next =
+		summary === undefined
+			? annotation
+			: withEntry(annotation, {
+					id: randomUUID(),
+					kind: "resolution",
+					at,
+					by,
+					summary,
+				});
+	return withTransition(next, "resolved", by, at);
+};
+
+/** Dismissing; dismissing a dismissed annotation again is null. */
+const applyDismiss = (
+	annotation: Annotation,
+	by: AnnotationActor,
+	at: string,
+	reason: string,
+): Annotation | null =>
+	annotation.status === "dismissed"
+		? null
+		: withTransition(
+				withEntry(annotation, {
+					id: randomUUID(),
+					kind: "dismissal",
+					at,
+					by,
+					reason,
+				}),
+				"dismissed",
+				by,
+				at,
+			);
 
 /**
  * The acknowledgement with its expiry: active while the session's last
@@ -532,6 +589,133 @@ export const listAnnotations = async (
 	};
 };
 
+/**
+ * What counts as work, for every surface (MCP results and counts, the
+ * editor's rail markers and badges), so they agree:
+ *
+ * - agent work: `open` and `acknowledged`. Sent and not yet answered;
+ *   acknowledged is advisory and stays work for every session.
+ * - human work: `needs_input` (a question to answer) and `addressed` (a
+ *   change to review). Waiting on the designer, not on an agent.
+ * - live: both, i.e. everything but `resolved` and `dismissed`.
+ */
+export const AGENT_WORK_STATUSES: readonly AnnotationStatus[] = [
+	"open",
+	"acknowledged",
+];
+export const HUMAN_WORK_STATUSES: readonly AnnotationStatus[] = [
+	"needs_input",
+	"addressed",
+];
+
+export type AnnotationCounts = {
+	/** Everything but resolved and dismissed. */
+	live: number;
+	/** `open` + `acknowledged`. */
+	agentWork: number;
+	/** `needs_input` + `addressed`. */
+	humanWork: number;
+	byStatus: Record<AnnotationStatus, number>;
+	/** Live annotations whose target is gone (counted only with a design). */
+	detached: number;
+};
+
+export type AnnotationCountSummary = {
+	/** Every annotation counted. */
+	total: AnnotationCounts;
+	/** Design-level annotations only. */
+	design: AnnotationCounts;
+	/**
+	 * Per board: board annotations plus layer annotations on it (a layer
+	 * that moved boards counts where it is now), as the rail counts up.
+	 */
+	boards: Record<string, AnnotationCounts>;
+	/** Per layer: annotations anchored to that element. */
+	layers: Record<string, AnnotationCounts>;
+};
+
+const emptyCounts = (): AnnotationCounts => ({
+	live: 0,
+	agentWork: 0,
+	humanWork: 0,
+	byStatus: Object.fromEntries(
+		ANNOTATION_STATUSES.map((status) => [status, 0]),
+	) as Record<AnnotationStatus, number>,
+	detached: 0,
+});
+
+const addToCounts = (
+	counts: AnnotationCounts,
+	status: AnnotationStatus,
+	detached: boolean,
+) => {
+	counts.byStatus[status] += 1;
+	if (!isLive(status)) return;
+	counts.live += 1;
+	if (AGENT_WORK_STATUSES.includes(status)) counts.agentWork += 1;
+	if (HUMAN_WORK_STATUSES.includes(status)) counts.humanWork += 1;
+	if (detached) counts.detached += 1;
+};
+
+/**
+ * Counts already-listed annotations by status, work owner, board and
+ * layer. With `design`, layers follow moves and detached ones are counted.
+ */
+export const summarizeAnnotationCounts = (
+	annotations: readonly Annotation[],
+	design?: TrickroomDesign | null,
+): AnnotationCountSummary => {
+	const summary: AnnotationCountSummary = {
+		total: emptyCounts(),
+		design: emptyCounts(),
+		boards: {},
+		layers: {},
+	};
+	for (const annotation of annotations) {
+		const { target, status } = annotation;
+		const detached = design ? deriveDetached(target, design) === true : false;
+		addToCounts(summary.total, status, detached);
+		if (target.kind === "design") {
+			addToCounts(summary.design, status, detached);
+			continue;
+		}
+		const boardId = currentBoardOf(target, design);
+		if (boardId) {
+			summary.boards[boardId] ??= emptyCounts();
+			addToCounts(summary.boards[boardId], status, detached);
+		}
+		if (target.kind === "layer") {
+			summary.layers[target.elementId] ??= emptyCounts();
+			addToCounts(summary.layers[target.elementId], status, detached);
+		}
+	}
+	return summary;
+};
+
+/**
+ * Counts of a design's (or component's) annotations on the checkout's
+ * branch (or `branch`), the one definition of open work WP3 and WP4 use.
+ */
+export const countAnnotations = async (
+	context: AnnotationServiceContext,
+	input: {
+		container: AnnotationContainer;
+		scope: AnnotationScope;
+		branch?: AnnotationBranchFilter;
+		design?: TrickroomDesign | null;
+	},
+): Promise<AnnotationCountSummary> => {
+	const { annotations } = await context.store.list(input.container);
+	return summarizeAnnotationCounts(
+		annotations
+			.map(({ annotation }) => annotation)
+			.filter((annotation) =>
+				matchesBranch(annotation, input.scope, input.branch),
+			),
+		input.design,
+	);
+};
+
 /** Live annotations of a design on the checkout's branch, by anchored element. */
 export const getAnnotationAnchorIndex = async (
 	context: AnnotationServiceContext,
@@ -752,25 +936,13 @@ export const replyToAnnotation = async (
 			});
 			return withTransition(next, "needs_input", by, at);
 		}
+		// A repeated dismiss or resolve keeps only the text, if any.
+		const unchanged = next === annotation ? null : next;
 		if (reason !== undefined) {
-			next = withEntry(next, {
-				id: randomUUID(),
-				kind: "dismissal",
-				at,
-				by,
-				reason,
-			});
-			return withTransition(next, "dismissed", by, at);
+			return applyDismiss(next, by, at, reason) ?? unchanged;
 		}
 		if (input.resolve) {
-			next = withEntry(next, {
-				id: randomUUID(),
-				kind: "resolution",
-				at,
-				by,
-				...(summary !== undefined ? { summary } : {}),
-			});
-			return withTransition(next, "resolved", by, at);
+			return applyResolve(next, by, at, summary) ?? unchanged;
 		}
 		if (by.role === "human") {
 			// The designer answering, or adding to, work the agent considered
@@ -817,53 +989,15 @@ export const transitionAnnotation = async (
 				input.summary === undefined
 					? undefined
 					: requireText(input.summary, "summary");
-			const outcome = await updateAnnotation(
-				context,
-				input,
-				(annotation, at) => {
-					if (annotation.status === "resolved") {
-						const accepting =
-							by.role === "human" &&
-							getResolvedBy(annotation)?.role === "agent";
-						return accepting
-							? withTransition(annotation, "resolved", by, at)
-							: null;
-					}
-					const next =
-						summary === undefined
-							? annotation
-							: withEntry(annotation, {
-									id: randomUUID(),
-									kind: "resolution",
-									at,
-									by,
-									summary,
-								});
-					return withTransition(next, "resolved", by, at);
-				},
+			const outcome = await updateAnnotation(context, input, (annotation, at) =>
+				applyResolve(annotation, by, at, summary),
 			);
 			return finishWrite(context, outcome);
 		}
 		case "dismissed": {
 			const reason = requireText(input.reason, "reason");
-			const outcome = await updateAnnotation(
-				context,
-				input,
-				(annotation, at) =>
-					annotation.status === "dismissed"
-						? null
-						: withTransition(
-								withEntry(annotation, {
-									id: randomUUID(),
-									kind: "dismissal",
-									at,
-									by,
-									reason,
-								}),
-								"dismissed",
-								by,
-								at,
-							),
+			const outcome = await updateAnnotation(context, input, (annotation, at) =>
+				applyDismiss(annotation, by, at, reason),
 			);
 			return finishWrite(context, outcome);
 		}
@@ -933,6 +1067,16 @@ export type BulkResolveInput = {
 	statuses?: readonly AnnotationStatus[];
 	boardId?: string;
 	design?: TrickroomDesign | null;
+	/** Per annotation: skip it unless it is still at this revision. */
+	expectedRevisions?: Readonly<Record<string, string>>;
+};
+
+/** An annotation a bulk write left alone, and why. */
+export type BulkSkip = {
+	annotationId: string;
+	/** `STATUS_CHANGED`, `ALREADY_RESOLVED`, or an `AnnotationStoreError` code. */
+	code: string;
+	reason: string;
 };
 
 /**
@@ -965,45 +1109,54 @@ export const resolveAnnotations = async (
 	}
 
 	const resolved: AnnotationView[] = [];
-	const skipped: { annotationId: string; reason: string }[] = [];
+	const skipped: BulkSkip[] = [];
 	for (const annotationId of ids) {
 		try {
 			const outcome = await context.store.update(
 				input.container,
 				annotationId,
-				({ annotation }) => {
-					const at = nowOf(context).toISOString();
+				({
+					annotation,
+				}): {
+					annotation: Annotation | null;
+					result: BulkSkip | null;
+				} => {
 					if (statuses && !statuses.has(annotation.status)) {
 						return {
 							annotation: null,
-							result: `status is ${annotation.status}`,
+							result: {
+								annotationId,
+								code: "STATUS_CHANGED",
+								reason: `status is ${annotation.status}`,
+							},
 						};
 					}
-					if (annotation.status === "resolved") {
-						const accepting =
-							by.role === "human" &&
-							getResolvedBy(annotation)?.role === "agent";
-						return accepting
-							? {
-									annotation: withTransition(annotation, "resolved", by, at),
-									result: null,
-								}
-							: { annotation: null, result: "already resolved" };
-					}
-					return {
-						annotation: withTransition(annotation, "resolved", by, at),
-						result: null,
-					};
+					const next = applyResolve(
+						annotation,
+						by,
+						nowOf(context).toISOString(),
+					);
+					return next
+						? { annotation: next, result: null }
+						: {
+								annotation: null,
+								result: {
+									annotationId,
+									code: "ALREADY_RESOLVED",
+									reason: "already resolved",
+								},
+							};
 				},
+				{ expectedRevision: input.expectedRevisions?.[annotationId] },
 			);
 			if (outcome.result) {
-				skipped.push({ annotationId, reason: outcome.result });
+				skipped.push(outcome.result);
 			} else {
 				resolved.push(await viewAnnotation(context, outcome.stored));
 			}
 		} catch (error) {
 			if (error instanceof AnnotationStoreError) {
-				skipped.push({ annotationId, reason: error.message });
+				skipped.push({ annotationId, code: error.code, reason: error.message });
 				continue;
 			}
 			throw error;
@@ -1117,7 +1270,9 @@ export const moveAnnotationToBranch = async (
 /**
  * Deletes the resolved and dismissed annotations of a container on the
  * checkout's branch (optionally one board's). Each is re-checked under its
- * lock, so one reopened meanwhile stays.
+ * lock and deleted only while closed and unchanged since it was listed (or
+ * since `expectedRevisions[id]`, when the caller passes what it saw), so
+ * one reopened or replied to meanwhile stays, reported in `skipped`.
  */
 export const clearAnnotations = async (
 	context: AnnotationServiceContext,
@@ -1127,6 +1282,7 @@ export const clearAnnotations = async (
 		branch?: AnnotationBranchFilter;
 		boardId?: string;
 		design?: TrickroomDesign | null;
+		expectedRevisions?: Readonly<Record<string, string>>;
 	},
 ) => {
 	const listed = await listAnnotations(context, {
@@ -1138,15 +1294,38 @@ export const clearAnnotations = async (
 		design: input.design,
 	});
 	const cleared: string[] = [];
+	const skipped: BulkSkip[] = [];
 	for (const annotation of listed.annotations) {
+		const expected =
+			input.expectedRevisions?.[annotation.id] ?? annotation.revision;
+		let reason: BulkSkip | null = null;
 		const removed = await context.store.remove(
 			input.container,
 			annotation.id,
-			({ annotation: current }) => !isLive(current.status),
+			(current) => {
+				if (isLive(current.annotation.status)) {
+					reason = {
+						annotationId: annotation.id,
+						code: "STATUS_CHANGED",
+						reason: `status is ${current.annotation.status}`,
+					};
+					return false;
+				}
+				if (current.revision !== expected) {
+					reason = {
+						annotationId: annotation.id,
+						code: "ANNOTATION_REVISION_MISMATCH",
+						reason: "changed since it was read",
+					};
+					return false;
+				}
+				return true;
+			},
 		);
 		if (removed) cleared.push(annotation.id);
+		else if (reason) skipped.push(reason);
 	}
-	return { cleared };
+	return { cleared, skipped };
 };
 
 // ---------------------------------------------------------------------------
@@ -1345,10 +1524,17 @@ const maxRevertAttempts = 3;
 /**
  * Undoes a change record: restores the touched layers' before state while
  * every one of them still has the state the change left it in, else fails
- * with `CHANGED_SINCE` listing the layers that moved on. The design write is
- * revision-checked per board; the revert entry is recorded under the design
- * lock right after it. The change loses its revert state, and an addressed
- * annotation is open again.
+ * with `CHANGED_SINCE` listing the layers that moved on.
+ *
+ * The design write is revision-checked per board. Under the design lock,
+ * and before the design changes, it takes the annotation's lock and checks
+ * that the change is still revertible (not reverted, resolved, dismissed or
+ * cleared meanwhile, and the annotation still at `expectedRevision` when
+ * given); it holds that lock through the design write and the annotation
+ * write. The change loses its revert state, a `revert` entry is added and
+ * an addressed annotation is open again. When the design was written but
+ * the annotation could not be, it fails with `REVERT_NOT_RECORDED` naming
+ * the design revision.
  */
 export const revertChange = async (
 	context: AnnotationServiceContext,
@@ -1358,6 +1544,8 @@ export const revertChange = async (
 		by: AnnotationActor;
 		designService: DesignFileService;
 		container?: AnnotationContainer;
+		/** Refuse unless the annotation is still at this revision. */
+		expectedRevision?: string;
 	},
 ) => {
 	assertActor(input.by);
@@ -1394,6 +1582,16 @@ export const revertChange = async (
 		}
 		return { entry, before, after };
 	};
+	if (
+		input.expectedRevision !== undefined &&
+		input.expectedRevision !== stored.revision
+	) {
+		throw new AnnotationStoreError(
+			"ANNOTATION_REVISION_MISMATCH",
+			`Annotation ${input.annotationId} changed since revision ${input.expectedRevision}.`,
+			{ annotationId: input.annotationId, currentRevision: stored.revision },
+		);
+	}
 	const { before, after } = findChange(stored.annotation);
 
 	for (let attempt = 0; attempt < maxRevertAttempts; attempt += 1) {
@@ -1418,21 +1616,36 @@ export const revertChange = async (
 			}
 			throw error;
 		}
-		let recorded: AnnotationView | null = null;
+		let recorded: StoredAnnotation | null = null;
+		let designRevision: string | null = null;
 		const revertEntryId = randomUUID();
-		const outcome = await input.designService.updateDesignFile(
-			container.designId,
-			{
+		let outcome: Awaited<ReturnType<DesignFileService["updateDesignFile"]>>;
+		try {
+			outcome = await input.designService.updateDesignFile(container.designId, {
 				expectedRevision: read.revision,
 				read: async () => read,
 				mutate: async () => ({ design: restored }),
-				afterWrite: async ({ write }) => {
+				// Design lock held; the plan passed its revision check.
+				aroundStore: async (storeDesign) => {
 					const result = await context.store.update(
 						container,
 						input.annotationId,
-						({ annotation }) => {
+						async ({ annotation }) => {
+							// Annotation lock held: refuse before the design changes
+							// when the change stopped being revertible meanwhile.
+							const locked = findChange(annotation);
+							if (
+								!isDeepStrictEqual(locked.before, before) ||
+								!isDeepStrictEqual(locked.after, after)
+							) {
+								throw new AnnotationServiceError(
+									"NOT_REVERTIBLE",
+									"The change record changed while reverting; try again.",
+								);
+							}
+							const { write } = await storeDesign();
+							designRevision = write.revision;
 							const at = nowOf(context).toISOString();
-							findChange(annotation);
 							let next: Annotation = {
 								...annotation,
 								entries: annotation.entries.map((entry) => {
@@ -1461,17 +1674,27 @@ export const revertChange = async (
 							}
 							return { annotation: next, result: undefined };
 						},
+						{ expectedRevision: input.expectedRevision },
 					);
-					recorded = await viewAnnotation(context, result.stored, {
-						design: write.design,
-					});
+					recorded = result.stored;
 				},
-			},
-		);
+			});
+		} catch (error) {
+			if (designRevision !== null) {
+				throw new AnnotationServiceError(
+					"REVERT_NOT_RECORDED",
+					`The design was reverted (revision ${designRevision}), but annotation ${input.annotationId} could not record it: ${error instanceof Error ? error.message : String(error)}`,
+					{ revision: designRevision, annotationId: input.annotationId },
+				);
+			}
+			throw error;
+		}
 		if (outcome.status === "revision-mismatch") continue;
-		if (outcome.status !== "written") break;
+		if (outcome.status !== "written" || !recorded) break;
 		return {
-			annotation: recorded as AnnotationView | null,
+			annotation: await viewAnnotation(context, recorded, {
+				design: outcome.write.design,
+			}),
 			revision: outcome.write.revision,
 			restoredLayerIds: Object.keys(before.layers),
 		};

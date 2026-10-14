@@ -95,9 +95,110 @@ export const isAnnotationTarget = (
 	}
 };
 
+const isStringArray = (value: unknown): value is string[] =>
+	Array.isArray(value) && value.every((entry) => typeof entry === "string");
+
+const isOptionalString = (value: unknown) =>
+	value === undefined || typeof value === "string";
+
+const isScope = (value: unknown) =>
+	isRecord(value) &&
+	isNonEmptyString(value.branch) &&
+	typeof value.worktreePath === "string";
+
+const isLayerState = (value: unknown) =>
+	value === null ||
+	(isRecord(value) &&
+		(value.parentId === null || typeof value.parentId === "string") &&
+		isRecord(value.props) &&
+		(typeof value.children === "string" || isStringArray(value.children)));
+
 /**
- * Structural check of the current shape: the fields every reader relies on.
- * Entries are checked for an id, a kind, a time and an actor.
+ * A change record's revert state: `layers` of layer states (`before`) or
+ * of hashes (`after`), optional board order and settings.
+ */
+const isChangeState = (value: unknown, isLayer: (layer: unknown) => boolean) =>
+	value === undefined ||
+	(isRecord(value) &&
+		isRecord(value.layers) &&
+		Object.values(value.layers).every(isLayer) &&
+		(value.boardOrder === undefined || isStringArray(value.boardOrder)) &&
+		(value.settings === undefined || isRecord(value.settings)));
+
+const isChangeRecord = (value: unknown) =>
+	isRecord(value) &&
+	typeof value.revisionBefore === "string" &&
+	typeof value.revisionAfter === "string" &&
+	isStringArray(value.boards) &&
+	isStringArray(value.layerIds) &&
+	Array.isArray(value.operations) &&
+	value.operations.every(
+		(operation) =>
+			isRecord(operation) &&
+			typeof operation.operation === "string" &&
+			typeof operation.summary === "string",
+	) &&
+	typeof value.summary === "string" &&
+	isChangeState(value.before, isLayerState) &&
+	isChangeState(
+		value.after,
+		(hash) => hash === null || typeof hash === "string",
+	) &&
+	// Revert needs both or neither.
+	(value.before === undefined) === (value.after === undefined);
+
+/** Why an entry is not one of the entry kinds with its payload, or null. */
+const describeEntryProblem = (entry: unknown): string | null => {
+	if (
+		!isRecord(entry) ||
+		!isNonEmptyString(entry.id) ||
+		!isNonEmptyString(entry.at) ||
+		!isAnnotationActor(entry.by)
+	) {
+		return "every entry needs an id, a time and a valid by.";
+	}
+	const valid = (() => {
+		switch (entry.kind) {
+			case "remark":
+			case "reply":
+			case "question":
+				return typeof entry.body === "string";
+			case "dismissal":
+				return typeof entry.reason === "string";
+			case "resolution":
+				return isOptionalString(entry.summary);
+			case "change":
+				return (
+					isOptionalString(entry.body) &&
+					isOptionalString(entry.revertedBy) &&
+					isChangeRecord(entry.change)
+				);
+			case "revert":
+				return (
+					isNonEmptyString(entry.entryId) &&
+					typeof entry.revisionBefore === "string" &&
+					typeof entry.revisionAfter === "string"
+				);
+			case "reanchor":
+				return isAnnotationTarget(entry.from) && isAnnotationTarget(entry.to);
+			case "move":
+				return isScope(entry.from) && isScope(entry.to);
+			default:
+				return null;
+		}
+	})();
+	if (valid === null) {
+		return `entry ${entry.id} has an unknown kind ${JSON.stringify(entry.kind)}.`;
+	}
+	return valid
+		? null
+		: `entry ${entry.id} (${String(entry.kind)}) is missing or has an invalid payload.`;
+};
+
+/**
+ * Structural check of the current shape: every field readers rely on,
+ * including each entry's payload for its kind, so a file that passes can
+ * be listed, resolved and reverted without surprises.
  */
 const validateAnnotation = (value: AnnotationFileValue): string | null => {
 	if (!isNonEmptyString(value.id)) return "id must be a non-empty string.";
@@ -111,7 +212,9 @@ const validateAnnotation = (value: AnnotationFileValue): string | null => {
 	if (typeof value.worktreePath !== "string") {
 		return "worktreePath must be a string.";
 	}
-	if (!isRecord(value.snapshot)) return "snapshot must be an object.";
+	if (!isRecord(value.snapshot) || !isScope(value.snapshot)) {
+		return "snapshot must be an object with the branch and worktree path.";
+	}
 	if (
 		!(ANNOTATION_STATUSES as readonly unknown[]).includes(value.status as never)
 	) {
@@ -133,18 +236,10 @@ const validateAnnotation = (value: AnnotationFileValue): string | null => {
 	) {
 		return "createdAt and updatedAt must be ISO times.";
 	}
-	if (
-		!Array.isArray(value.entries) ||
-		!value.entries.every(
-			(entry) =>
-				isRecord(entry) &&
-				isNonEmptyString(entry.id) &&
-				isNonEmptyString(entry.kind) &&
-				isNonEmptyString(entry.at) &&
-				isAnnotationActor(entry.by),
-		)
-	) {
-		return "entries must be a list of entries with id, kind, at and by.";
+	if (!Array.isArray(value.entries)) return "entries must be a list.";
+	for (const entry of value.entries) {
+		const problem = describeEntryProblem(entry);
+		if (problem) return problem;
 	}
 	if (
 		!Array.isArray(value.transitions) ||

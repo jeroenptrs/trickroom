@@ -977,6 +977,40 @@ describe("annotation routes", () => {
 			expect((await get(created.id)).annotation.status).toBe("addressed");
 		});
 
+		it("honours expectedRevision: 409 when stale, design untouched", async () => {
+			const created = await create("Make it bigger");
+			const entryId = await writeAddressing(created.id);
+			const seen = (await get(created.id)).annotation;
+			// An agent replies after the editor read it.
+			await editAnnotationFile(created.id, (annotation) => {
+				annotation.entries.push({
+					id: "late-reply",
+					kind: "reply",
+					at: new Date().toISOString(),
+					by: agent,
+					body: "Also changed the weight",
+				});
+			});
+
+			const stale = await request("POST", `${base}/${created.id}/revert`, {
+				entryId,
+				expectedRevision: seen.revision,
+			});
+			expect(stale.status).toBe(409);
+			expect((await json<ErrorBody>(stale)).code).toBe(
+				"ANNOTATION_REVISION_MISMATCH",
+			);
+			expect(await layerClassName()).toBe("p-8 text-2xl");
+
+			const current = (await get(created.id)).annotation;
+			const fresh = await request("POST", `${base}/${created.id}/revert`, {
+				entryId,
+				expectedRevision: current.revision,
+			});
+			expect(fresh.status).toBe(200);
+			expect(await layerClassName()).toBe("p-4");
+		});
+
 		it("rejects a missing or unknown entry id", async () => {
 			const created = await create("Make it bigger");
 
@@ -988,6 +1022,119 @@ describe("annotation routes", () => {
 			});
 			expect(unknown.status).toBe(400);
 			expect((await json<ErrorBody>(unknown)).code).toBe("NOT_REVERTIBLE");
+		});
+	});
+
+	describe("expected revisions on every write route", () => {
+		it("refuses a stale expectedRevision on each single-annotation write", async () => {
+			const routes: [string, Record<string, unknown>][] = [
+				["entries", { body: "More" }],
+				["transition", { to: "resolved" }],
+				[
+					"anchor",
+					{
+						target: { kind: "board", designId: DESIGN_ID, boardId: "board-1" },
+					},
+				],
+				["move", {}],
+				["revert", { entryId: "whatever" }],
+			];
+			for (const [route, body] of routes) {
+				const created = await create(`For ${route}`);
+				const stale = created.revision;
+				await request("POST", `${base}/${created.id}/entries`, {
+					body: "A newer remark",
+				});
+				const response = await request(
+					"POST",
+					`${base}/${created.id}/${route}`,
+					{
+						...body,
+						expectedRevision: stale,
+					},
+				);
+				expect([route, response.status]).toEqual([route, 409]);
+				expect((await json<ErrorBody>(response)).code).toBe(
+					"ANNOTATION_REVISION_MISMATCH",
+				);
+			}
+		});
+
+		it("rejects a malformed expectedRevision with 400 instead of ignoring it", async () => {
+			const created = await create();
+			for (const expectedRevision of [42, "", { revision: "x" }]) {
+				const response = await request(
+					"POST",
+					`${base}/${created.id}/transition`,
+					{
+						to: "resolved",
+						expectedRevision,
+					},
+				);
+				expect(response.status).toBe(400);
+			}
+			expect((await get(created.id)).annotation.status).toBe("open");
+			const bulk = await request("POST", `${base}/resolve`, {
+				designId: DESIGN_ID,
+				expectedRevisions: { [created.id]: 1 },
+			});
+			expect(bulk.status).toBe(400);
+		});
+
+		it("skips stale annotations in bulk resolve and clear", async () => {
+			const first = await create("One");
+			const second = await create("Two");
+			const firstSeen = first.revision;
+			await request("POST", `${base}/${first.id}/entries`, { body: "Newer" });
+
+			const resolved = await request("POST", `${base}/resolve`, {
+				designId: DESIGN_ID,
+				annotationIds: [first.id, second.id],
+				expectedRevisions: {
+					[first.id]: firstSeen,
+					[second.id]: second.revision,
+				},
+			});
+			const resolvedBody = await json<{
+				resolved: AnnotationView[];
+				skipped: { annotationId: string; code: string }[];
+			}>(resolved);
+			expect(resolvedBody.resolved.map((entry) => entry.id)).toEqual([
+				second.id,
+			]);
+			expect(resolvedBody.skipped).toEqual([
+				expect.objectContaining({
+					annotationId: first.id,
+					code: "ANNOTATION_REVISION_MISMATCH",
+				}),
+			]);
+
+			const seen = (await get(second.id)).annotation.revision;
+			await editAnnotationFile(second.id, (annotation) => {
+				annotation.entries.push({
+					id: "late",
+					kind: "reply",
+					at: new Date().toISOString(),
+					by: { role: "agent", sessionId: "s1" },
+					body: "Late",
+				});
+			});
+			const cleared = await request("POST", `${base}/clear`, {
+				designId: DESIGN_ID,
+				expectedRevisions: { [second.id]: seen },
+			});
+			const clearedBody = await json<{
+				cleared: string[];
+				skipped: { annotationId: string; code: string }[];
+			}>(cleared);
+			expect(clearedBody.cleared).toEqual([]);
+			expect(clearedBody.skipped).toEqual([
+				expect.objectContaining({
+					annotationId: second.id,
+					code: "ANNOTATION_REVISION_MISMATCH",
+				}),
+			]);
+			expect((await request("GET", `${base}/${second.id}`)).status).toBe(200);
 		});
 	});
 
@@ -1029,8 +1176,15 @@ describe("annotation routes", () => {
 			})();
 
 			try {
-				// Let the stream open and the annotation watcher become ready.
-				await new Promise((resolve) => setTimeout(resolve, 300));
+				// The stream says ready once annotation writes are reported.
+				const readyDeadline = Date.now() + 8_000;
+				while (
+					!received.includes("event: ready") &&
+					Date.now() < readyDeadline
+				) {
+					await new Promise((resolve) => setTimeout(resolve, 10));
+				}
+				expect(received).toContain("event: ready");
 				const annotation = await create("Streamed");
 
 				const frame = () =>

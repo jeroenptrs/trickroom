@@ -302,6 +302,130 @@ describe("invalid annotation files", () => {
 	});
 });
 
+describe("entry payloads", () => {
+	const at = "2026-10-01T10:00:00.000Z";
+	const agent = { role: "agent", sessionId: "s-1" } as const;
+	const changeRecord = {
+		revisionBefore: "r1",
+		revisionAfter: "r2",
+		boards: ["b1"],
+		layerIds: ["e1"],
+		operations: [{ operation: "updateElementProps", summary: "x" }],
+		summary: "Edited",
+		before: {
+			layers: {
+				e1: {
+					parentId: "b1",
+					props: { "data-trickroom-name": "E1" },
+					children: [],
+				},
+				added: null,
+			},
+			boardOrder: ["b1"],
+			settings: { name: "Home" },
+		},
+		after: { layers: { e1: "sha256:a", added: "sha256:b" } },
+	};
+	const withEntry = (entry: Record<string, unknown>) => ({
+		...asValue(makeAnnotation()),
+		entries: [{ id: "entry-x", at, by: agent, ...entry }],
+	});
+
+	it("accepts every entry kind with its payload", () => {
+		const target = { kind: "design", designId: "home" };
+		const scope = { branch: "main", worktreePath: "/w" };
+		for (const entry of [
+			{ kind: "remark", body: "x", by: human },
+			{ kind: "reply", body: "x" },
+			{ kind: "question", body: "x" },
+			{ kind: "dismissal", reason: "x" },
+			{ kind: "resolution" },
+			{ kind: "resolution", summary: "x" },
+			{ kind: "change", change: changeRecord },
+			{ kind: "change", body: "x", change: changeRecord, revertedBy: "e" },
+			{
+				kind: "change",
+				change: { ...changeRecord, before: undefined, after: undefined },
+			},
+			{ kind: "revert", entryId: "e", revisionBefore: "a", revisionAfter: "b" },
+			{ kind: "reanchor", from: target, to: target },
+			{ kind: "move", from: scope, to: scope },
+		]) {
+			expect(migrateAnnotationFileValue(withEntry(entry)).ok).toBe(true);
+		}
+	});
+
+	it("refuses a change entry without its record, then nothing reads it", () => {
+		expectInvalid(withEntry({ kind: "change" }));
+		expectInvalid(withEntry({ kind: "change", change: "x" }));
+	});
+
+	it("refuses change records with malformed fields or revert state", () => {
+		const broken: Record<string, unknown>[] = [
+			{ ...changeRecord, revisionAfter: 2 },
+			{ ...changeRecord, boards: "b1" },
+			{ ...changeRecord, layerIds: [1] },
+			{ ...changeRecord, operations: [{ operation: "x" }] },
+			{ ...changeRecord, summary: undefined },
+			{ ...changeRecord, before: { layers: [] } },
+			{ ...changeRecord, before: { layers: { e1: { props: {} } } } },
+			{
+				...changeRecord,
+				before: {
+					layers: { e1: { parentId: 1, props: {}, children: [] } },
+				},
+			},
+			{
+				...changeRecord,
+				before: {
+					layers: { e1: { parentId: null, props: {}, children: [1] } },
+				},
+			},
+			{ ...changeRecord, before: { ...changeRecord.before, boardOrder: "b1" } },
+			{ ...changeRecord, before: { ...changeRecord.before, settings: [] } },
+			{ ...changeRecord, after: { layers: { e1: 1 } } },
+			{ ...changeRecord, after: undefined },
+			{ ...changeRecord, before: undefined },
+		];
+		for (const change of broken) {
+			expectInvalid(withEntry({ kind: "change", change }));
+		}
+	});
+
+	it("refuses other entries missing their payload", () => {
+		for (const entry of [
+			{ kind: "remark" },
+			{ kind: "reply", body: 1 },
+			{ kind: "question" },
+			{ kind: "dismissal" },
+			{ kind: "resolution", summary: 1 },
+			{ kind: "change", change: changeRecord, revertedBy: 1 },
+			{ kind: "revert", revisionBefore: "a", revisionAfter: "b" },
+			{ kind: "revert", entryId: "e", revisionBefore: "a" },
+			{
+				kind: "reanchor",
+				from: { kind: "design" },
+				to: { kind: "design", designId: "d" },
+			},
+			{
+				kind: "move",
+				from: { branch: "", worktreePath: "/w" },
+				to: { branch: "m", worktreePath: "/w" },
+			},
+			{ kind: "unknown", body: "x" },
+		]) {
+			expectInvalid(withEntry(entry));
+		}
+	});
+
+	it("refuses a snapshot without its branch and worktree path", () => {
+		expectInvalid({
+			...asValue(makeAnnotation()),
+			snapshot: { layerName: "x" },
+		});
+	});
+});
+
 describe("calculateAnnotationRevision", () => {
 	it("is independent of key order", () => {
 		const annotation = makeAnnotation();

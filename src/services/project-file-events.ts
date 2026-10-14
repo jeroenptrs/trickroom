@@ -183,6 +183,8 @@ export class ProjectFileEvents {
 	private annotationProjectId: string | null = null;
 	private annotationWatcher: FSWatcher | null = null;
 	private annotationWatcherGeneration = 0;
+	private annotationWatchReady: Promise<void> = Promise.resolve();
+	private settleAnnotationWatchReady: (() => void) | null = null;
 	private readonly pendingAnnotations = new Map<
 		string,
 		ReturnType<typeof setTimeout>
@@ -254,14 +256,23 @@ export class ProjectFileEvents {
 		}
 		this.annotationProjectId = projectId;
 		if (this.annotationListeners.size > 0) {
-			void this.restartAnnotationWatcher();
+			this.annotationWatchReady = this.restartAnnotationWatcher();
 		}
+	}
+
+	/**
+	 * Resolves once the annotation watcher started by the last
+	 * `subscribeAnnotations` or `setAnnotationProject` is watching (or did
+	 * not start), so a write after it is reported.
+	 */
+	whenAnnotationsWatched(): Promise<void> {
+		return this.annotationWatchReady;
 	}
 
 	subscribeAnnotations(listener: AnnotationFileEventListener) {
 		this.annotationListeners.add(listener);
 		if (this.annotationListeners.size === 1) {
-			void this.restartAnnotationWatcher();
+			this.annotationWatchReady = this.restartAnnotationWatcher();
 		}
 		return () => {
 			this.annotationListeners.delete(listener);
@@ -275,6 +286,9 @@ export class ProjectFileEvents {
 	private async closeAnnotationWatcher() {
 		const watcher = this.annotationWatcher;
 		this.annotationWatcher = null;
+		// Whoever waits for a watcher that is going away stops waiting.
+		this.settleAnnotationWatchReady?.();
+		this.settleAnnotationWatchReady = null;
 		for (const timer of this.pendingAnnotations.values()) {
 			clearTimeout(timer);
 		}
@@ -314,8 +328,12 @@ export class ProjectFileEvents {
 		const watcher = chokidar.watch(root, { ignoreInitial: true });
 		this.annotationWatcher = watcher;
 		let ready = false;
-		watcher.on("ready", () => {
-			ready = true;
+		const watching = new Promise<void>((resolve) => {
+			this.settleAnnotationWatchReady = resolve;
+			watcher.on("ready", () => {
+				ready = true;
+				resolve();
+			});
 		});
 		const schedule = (filePath: string) => {
 			if (!ready) return;
@@ -335,6 +353,7 @@ export class ProjectFileEvents {
 		watcher.on("add", schedule);
 		watcher.on("change", schedule);
 		watcher.on("unlink", schedule);
+		await watching;
 	}
 
 	private async emitAnnotation(

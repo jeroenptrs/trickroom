@@ -650,8 +650,7 @@ describe("annotation events", () => {
 			projectId: "proj",
 			trickroomHome: home,
 		});
-		// The watcher starts asynchronously; give it time to become ready.
-		await new Promise((resolve) => setTimeout(resolve, 200));
+		await events.whenAnnotationsWatched();
 		return { home, events, received, unsubscribe, store };
 	};
 
@@ -806,7 +805,7 @@ describe("annotation events", () => {
 		});
 
 		events.setAnnotationProject("proj-2");
-		await new Promise((resolve) => setTimeout(resolve, 300));
+		await events.whenAnnotationsWatched();
 		await mine.create(createAnnotationFixture("ann-7"));
 		await other.create({
 			...createAnnotationFixture("ann-8"),
@@ -817,7 +816,7 @@ describe("annotation events", () => {
 		expect(received.map((event) => event.annotationId)).toEqual(["ann-8"]);
 
 		events.setAnnotationProject(null);
-		await new Promise((resolve) => setTimeout(resolve, 300));
+		await events.whenAnnotationsWatched();
 		await other.remove(designContainer, "ann-8");
 		await new Promise((resolve) => setTimeout(resolve, 300));
 		expect(received.map((event) => event.annotationId)).toEqual(["ann-8"]);

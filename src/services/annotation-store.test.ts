@@ -599,6 +599,43 @@ describe("annotation store", () => {
 			);
 		});
 
+		it("lists a change entry without its record as a problem and refuses to update it", async () => {
+			await store.create(makeAnnotation({ id: "good" }));
+			const folder = store.getContainerDirectory(designContainer);
+			const malformed = {
+				...makeAnnotation({ id: "no-change" }),
+				entries: [
+					{
+						id: "entry-c",
+						kind: "change",
+						at: "2026-10-01T10:00:00.000Z",
+						by: { role: "agent", sessionId: "s-1" },
+					},
+				],
+			};
+			const file = path.join(folder, "no-change.json");
+			await writeFile(file, JSON.stringify(malformed));
+			const { annotations, problems } = await store.list(designContainer);
+			expect(annotations.map((stored) => stored.annotation.id)).toEqual([
+				"good",
+			]);
+			expect(problems).toEqual([
+				expect.objectContaining({
+					annotationId: "no-change",
+					code: "INVALID_ANNOTATION_FILE",
+				}),
+			]);
+			const bytes = await readFile(file, "utf8");
+			await expectStoreError(
+				store.update(designContainer, "no-change", ({ annotation }) => ({
+					annotation,
+					result: null,
+				})),
+				"INVALID_ANNOTATION_FILE",
+			);
+			expect(await readFile(file, "utf8")).toBe(bytes);
+		});
+
 		it("ignores temporary files, dot files, other extensions and folders", async () => {
 			await store.create(makeAnnotation({ id: "good" }));
 			const folder = store.getContainerDirectory(designContainer);

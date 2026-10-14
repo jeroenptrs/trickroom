@@ -218,7 +218,28 @@ export type DesignWriteOptions = {
 	 * it (see `createAddressesRecorder` in `annotation-service.ts`).
 	 */
 	afterWrite?: (context: DesignAfterWriteContext) => Promise<void>;
+	/**
+	 * Wraps the store itself, under the design lock, once the write has been
+	 * planned and passed its revision check. It must call `store` at most
+	 * once: that writes the design and returns the write. Throwing before
+	 * calling it refuses the write (nothing is stored, the error
+	 * propagates); throwing after it propagates too, with the design
+	 * written. For a write that has to hold another lock across the design
+	 * write and a follow-up write, and check that other file before the
+	 * design changes (annotation revert).
+	 */
+	aroundStore?: (
+		store: () => Promise<DesignAfterWriteContext>,
+	) => Promise<void>;
 };
+
+/** Thrown by `writeDesignFile` when `aroundStore` returned without storing. */
+export class DesignWriteNotStoredError extends Error {
+	constructor(designId: string) {
+		super(`The write to design ${designId} was not stored.`);
+		this.name = "DesignWriteNotStoredError";
+	}
+}
 
 type StoredDesignWrite = {
 	design: TrickroomDesign;
@@ -276,6 +297,8 @@ export type DesignFileUpdate<
 	afterWrite?: (
 		context: DesignAfterWriteContext & { result: Result },
 	) => Promise<void>;
+	/** See `DesignWriteOptions.aroundStore`. */
+	aroundStore?: DesignWriteOptions["aroundStore"];
 };
 
 export type DesignFileUpdateOutcome<Result, Skip> =
@@ -1401,7 +1424,7 @@ export class DesignFileService {
 		designId: string,
 		design: unknown,
 		revisionCheck: RevisionCheck = {},
-		{ afterWrite }: DesignWriteOptions = {},
+		{ afterWrite, aroundStore }: DesignWriteOptions = {},
 	): Promise<DesignFileWrite> {
 		const paths = this.getDesignPaths(designId);
 		const incoming = withoutStorageVersion(prepareDesignForStorage(design));
@@ -1465,29 +1488,51 @@ export class DesignFileService {
 					? this.now().toISOString()
 					: current?.design?.updatedAt,
 			);
-			const operations = await this.storeDesign(
-				paths,
-				current,
-				next,
-				plan,
-				current?.serialized,
-			);
-			const stored: StoredDesignWrite = {
-				design: next,
-				plan,
-				operations,
-				parts: null,
+			let stored: StoredDesignWrite | null = null;
+			const store = async (): Promise<DesignAfterWriteContext> => {
+				if (stored) {
+					throw new Error(`Design ${designId} was already stored.`);
+				}
+				const operations = await this.storeDesign(
+					paths,
+					current,
+					next,
+					plan,
+					current?.serialized,
+				);
+				const parts =
+					afterWrite || aroundStore
+						? (plan?.revisions ?? getDesignRevisionParts(next))
+						: null;
+				stored = { design: next, plan, operations, parts };
+				return {
+					before: current?.design ?? null,
+					write: describeWrite(
+						stored,
+						parts ?? plan?.revisions ?? getDesignRevisionParts(next),
+					),
+				};
 			};
-			if (afterWrite) {
+			let context: DesignAfterWriteContext | null = null;
+			if (aroundStore) {
+				await aroundStore(async () => {
+					context = await store();
+					return context;
+				});
+			} else if (afterWrite) {
+				context = await store();
+			} else {
+				await store();
+			}
+			if (!stored) {
+				throw new DesignWriteNotStoredError(designId);
+			}
+			if (afterWrite && context) {
 				// Still under the design lock, after the write landed: work
 				// that must follow this write and precede the next one. Its
 				// failure does not undo the write.
-				stored.parts = plan?.revisions ?? getDesignRevisionParts(next);
 				try {
-					await afterWrite({
-						before: current?.design ?? null,
-						write: describeWrite(stored, stored.parts),
-					});
+					await afterWrite(context);
 				} catch (error) {
 					console.error(
 						`After-write step for design ${designId} failed`,
@@ -1495,7 +1540,7 @@ export class DesignFileService {
 					);
 				}
 			}
-			return stored;
+			return stored as StoredDesignWrite;
 		});
 		this.deleteCachedSummary(paths);
 		const parts =
@@ -1736,7 +1781,7 @@ export class DesignFileService {
 			? await update.prepare(result.design)
 			: result.design;
 		try {
-			const { afterWrite } = update;
+			const { afterWrite, aroundStore } = update;
 			const write = await this.writeDesignFile(
 				designId,
 				design,
@@ -1744,9 +1789,12 @@ export class DesignFileService {
 					expectedRevision: update.expectedRevision,
 					baseRevision: read.revision,
 				},
-				afterWrite
-					? { afterWrite: (context) => afterWrite({ ...context, result }) }
-					: {},
+				{
+					...(afterWrite
+						? { afterWrite: (context) => afterWrite({ ...context, result }) }
+						: {}),
+					...(aroundStore ? { aroundStore } : {}),
+				},
 			);
 			return { status: "written", read, result, write };
 		} catch (error) {

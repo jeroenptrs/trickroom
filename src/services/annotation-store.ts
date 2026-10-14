@@ -6,6 +6,7 @@ import {
 	open,
 	readdir,
 	readFile,
+	realpath,
 	rename,
 	unlink,
 } from "node:fs/promises";
@@ -247,6 +248,27 @@ const parseStored = (
 	};
 };
 
+/**
+ * `realpath` of the nearest existing ancestor, with the rest of the path
+ * appended: the same answer for every alias of a path, whether or not the
+ * path exists yet.
+ */
+export const canonicalizePath = async (filePath: string): Promise<string> => {
+	const absolute = path.resolve(filePath);
+	const tail: string[] = [];
+	let current = absolute;
+	for (;;) {
+		try {
+			return path.join(await realpath(current), ...tail.reverse());
+		} catch {
+			const parent = path.dirname(current);
+			if (parent === current) return absolute;
+			tail.push(path.basename(current));
+			current = parent;
+		}
+	}
+};
+
 const readDirectoryEntries = async (directory: string): Promise<Dirent[]> => {
 	try {
 		return await readdir(directory, { withFileTypes: true });
@@ -335,12 +357,26 @@ export class AnnotationStore {
 		);
 	}
 
+	/**
+	 * Locks one annotation file. The lock's identity is canonical: the file
+	 * path and the lock folder go through `realpath` (of their nearest
+	 * existing ancestor), so processes that reach the Trickroom home through
+	 * different paths (a symlink, a relative `TRICKROOM_HOME`) take the same
+	 * lockfile, and in-process callers share one queue.
+	 */
 	private async withLock<T>(
 		filePath: string,
 		operation: (lock: FileLockHandle) => Promise<T>,
 	): Promise<T> {
+		const [lockTarget, lockDirectory] = await Promise.all([
+			canonicalizePath(filePath),
+			canonicalizePath(this.lockOptions.lockDirectory),
+		]);
 		try {
-			return await withDesignFileLock(filePath, operation, this.lockOptions);
+			return await withDesignFileLock(lockTarget, operation, {
+				...this.lockOptions,
+				lockDirectory,
+			});
 		} catch (error) {
 			if (error instanceof DesignFileLockTimeoutError) {
 				throw new AnnotationStoreError("ANNOTATION_LOCKED", error.message);

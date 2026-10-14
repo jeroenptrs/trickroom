@@ -777,6 +777,12 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				: undefined;
 			const heartbeat = setInterval(() => enqueue("heartbeat", "{}"), 15_000);
 			stream.onAbort(() => resolveClosed?.());
+			// "ready" once annotation writes are reported (bounded, so a slow
+			// watcher never holds the stream back).
+			await Promise.race([
+				projectFileEvents.whenAnnotationsWatched(),
+				new Promise((resolve) => setTimeout(resolve, 2_000)),
+			]);
 			enqueue("ready", JSON.stringify({ locationId: project.locationId }));
 
 			await closed;

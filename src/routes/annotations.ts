@@ -46,9 +46,15 @@ import type { TrickroomConfig } from "../types";
  * - `POST   /annotations/:id/transition` `{ to: "resolved" | "dismissed" | "open", summary?, reason?, expectedRevision? }`
  * - `POST   /annotations/:id/anchor` re-anchor `{ target, snapshot?, expectedRevision? }`
  * - `POST   /annotations/:id/move` to the current branch `{ expectedRevision? }`
- * - `POST   /annotations/:id/revert` `{ entryId }`
- * - `POST   /annotations/resolve` bulk `{ designId | systemId+componentId, annotationIds? | boardId?, statuses? }`
- * - `POST   /annotations/clear` `{ designId | systemId+componentId, boardId?, branch? }`
+ * - `POST   /annotations/:id/revert` `{ entryId, expectedRevision? }`
+ * - `POST   /annotations/resolve` bulk `{ designId | systemId+componentId, annotationIds? | boardId?, statuses?, expectedRevisions? }`
+ * - `POST   /annotations/clear` `{ designId | systemId+componentId, boardId?, branch?, expectedRevisions? }`
+ *
+ * Every write to existing annotations honours the revision the editor
+ * read: `expectedRevision` on single-annotation routes (409 when stale),
+ * `expectedRevisions: { [annotationId]: revision }` on bulk routes (stale
+ * ones are reported in `skipped`). Clear also skips anything changed since
+ * it listed it.
  *
  * `:id` routes take an optional `?designId=` (or `systemId` and
  * `componentId`) hint so the annotation is not looked up in every folder.
@@ -112,7 +118,9 @@ const respondWithError = (c: Context, error: unknown) => {
 				? 404
 				: error.code === "CHANGED_SINCE" || error.code === "DESIGN_BUSY"
 					? 409
-					: 400;
+					: error.code === "REVERT_NOT_RECORDED"
+						? 500
+						: 400;
 		return errorJson(c, status, error.message, error.code, error.details);
 	}
 	if (error instanceof DesignFileServiceError) {
@@ -171,6 +179,36 @@ const requireContainer = (source: Record<string, unknown>) => {
 		throw new RequestError("Pass designId, or systemId and componentId.");
 	}
 	return container;
+};
+
+/**
+ * The optional `expectedRevision` every single-annotation write accepts:
+ * absent is fine, anything but a non-empty string is a 400.
+ */
+const expectedRevisionOf = (body: Record<string, unknown> | null) => {
+	const value = body?.expectedRevision;
+	if (value === undefined || value === null) return {};
+	if (typeof value !== "string" || value.length === 0) {
+		throw new RequestError("expectedRevision must be a revision string.");
+	}
+	return { expectedRevision: value };
+};
+
+/** Bulk writes: `expectedRevisions`, an object of annotation id to revision. */
+const expectedRevisionsOf = (body: Record<string, unknown>) => {
+	const value = body.expectedRevisions;
+	if (value === undefined || value === null) return {};
+	if (
+		!isRecord(value) ||
+		!Object.values(value).every(
+			(revision) => typeof revision === "string" && revision.length > 0,
+		)
+	) {
+		throw new RequestError(
+			"expectedRevisions must map annotation ids to revision strings.",
+		);
+	}
+	return { expectedRevisions: value as Record<string, string> };
 };
 
 /**
@@ -362,6 +400,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 					? { boardId: body.boardId as string }
 					: {}),
 				design: read?.design ?? null,
+				...expectedRevisionsOf(body),
 			});
 			return c.json(result);
 		}),
@@ -383,6 +422,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 					? { boardId: body.boardId as string }
 					: {}),
 				design: read?.design ?? null,
+				...expectedRevisionsOf(body),
 			});
 			return c.json(result);
 		}),
@@ -426,9 +466,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 				...containerHint(c),
 				by: human,
 				body: body.body,
-				...(optionalString(body.expectedRevision)
-					? { expectedRevision: body.expectedRevision as string }
-					: {}),
+				...expectedRevisionOf(body),
 			});
 			return c.json(result);
 		}),
@@ -449,9 +487,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 				to,
 				...(typeof body?.reason === "string" ? { reason: body.reason } : {}),
 				...(typeof body?.summary === "string" ? { summary: body.summary } : {}),
-				...(optionalString(body?.expectedRevision)
-					? { expectedRevision: body?.expectedRevision as string }
-					: {}),
+				...expectedRevisionOf(body),
 			});
 			return c.json(result);
 		}),
@@ -475,9 +511,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 				...(body.snapshot !== undefined
 					? { snapshot: parseSnapshot(body.snapshot) }
 					: {}),
-				...(optionalString(body.expectedRevision)
-					? { expectedRevision: body.expectedRevision as string }
-					: {}),
+				...expectedRevisionOf(body),
 			});
 			return c.json(result);
 		}),
@@ -492,9 +526,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 				...containerHint(c),
 				by: human,
 				scope: await request.scope(),
-				...(optionalString(body.expectedRevision)
-					? { expectedRevision: body.expectedRevision as string }
-					: {}),
+				...expectedRevisionOf(body),
 			});
 			return c.json(result);
 		}),
@@ -512,6 +544,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 				entryId,
 				by: human,
 				designService: request.designService,
+				...expectedRevisionOf(body),
 			});
 			return c.json(result);
 		}),
