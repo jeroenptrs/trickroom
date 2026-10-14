@@ -13,6 +13,7 @@ import {
 	acknowledgeAnnotation,
 	createAnnotation,
 	getAnnotation,
+	moveAnnotationToBranch,
 	recordSessionCall,
 	replyToAnnotation,
 	transitionAnnotation,
@@ -24,7 +25,10 @@ import type {
 } from "../services/annotations.types";
 import type { EditorClientContext } from "../services/editor-channel.types";
 import type { TrickroomConfig, TrickroomDesign } from "../types";
-import { MAX_SURFACED_ANNOTATIONS } from "./annotation-session";
+import {
+	createMcpAnnotationSession,
+	MAX_SURFACED_ANNOTATIONS,
+} from "./annotation-session";
 import {
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
@@ -166,6 +170,7 @@ describe("MCP annotations", () => {
 			target: AnnotationTarget = layer,
 			body = "Make the title larger",
 			annotationScope: AnnotationScope = scope,
+			snapshot?: { stageMode?: string; responsiveWidth?: number },
 		) => {
 			const id = target.kind === "componentNode" ? designId : target.designId;
 			const read = await readDesign(id);
@@ -176,8 +181,19 @@ describe("MCP annotations", () => {
 					by: { role: "human" },
 					scope: annotationScope,
 					design: { design: read.design, revision: read.revision },
+					...(snapshot ? { snapshot } : {}),
 				})
 			).annotation;
+		};
+		/** Another agent session on the same project and home. */
+		const openOtherSession = async () => {
+			const other = await createTrickroomMcpTestClient({
+				...(await fixture.readMcpContext()),
+				trickroomHome: home,
+			});
+			cleanups.push(() => other.close());
+			return async (name: string, args: Record<string, unknown> = {}) =>
+				toolPayload(await other.client.callTool({ name, arguments: args }));
 		};
 		const stored = (annotationId: string) =>
 			getAnnotation(service, { annotationId });
@@ -185,6 +201,7 @@ describe("MCP annotations", () => {
 			home,
 			fixture,
 			session,
+			openOtherSession,
 			projectId,
 			service,
 			scope,
@@ -221,8 +238,12 @@ describe("MCP annotations", () => {
 				annotationId: annotation.id,
 				status: "acknowledged",
 				target: { kind: "layer", boardId: "board", elementId: "title" },
-				name: "Title",
-				path: ["Board"],
+				snapshot: {
+					name: "Title",
+					path: ["Board"],
+					component: "trickroom/text",
+					designRevision: expect.any(String),
+				},
 				acknowledged: { by: "this session", active: true },
 				entries: [
 					{ kind: "remark", by: "human", text: "Make the title larger" },
@@ -470,6 +491,211 @@ describe("MCP annotations", () => {
 				(content[1]?.text ?? "").slice("annotations: ".length),
 			);
 			expect(block.new[0].annotationId).toBe(annotation.id);
+		});
+	});
+
+	describe("review round 1 regressions", () => {
+		it("keeps a designer remark sent while the agent worked as open work", async () => {
+			const { call, annotate, service, stored } = await open();
+			const annotation = await annotate();
+			const { revision } = (
+				await call(TOOL.designRead, { designFileId: designId })
+			).payload.designFile;
+			// The designer adds to it after the agent read it, before its write.
+			const added = await replyToAnnotation(service, {
+				annotationId: annotation.id,
+				by: { role: "human" },
+				body: "Also make it red",
+			});
+			const remarkId = added.annotation.entries.at(-1)?.id;
+
+			const { isError, payload } = await call(TOOL.designApply, {
+				designFileId: designId,
+				expectedRevision: revision,
+				operations: [
+					{
+						operation: "updateElementProps",
+						parameters: { elementId: "title", className: "text-2xl" },
+					},
+				],
+				addresses: [{ annotationId: annotation.id, reply: "Larger now." }],
+			});
+			expect(isError).toBe(false);
+			expect(payload.addressed).toEqual([
+				expect.objectContaining({
+					annotationId: annotation.id,
+					status: "acknowledged",
+					unseenRemarkIds: [remarkId],
+				}),
+			]);
+			// The new remark is news in the same result.
+			expect(payload.annotations.new).toHaveLength(1);
+			expect(
+				payload.annotations.new[0].entries.map(
+					(entry: { kind: string; text?: string }) => entry.text ?? entry.kind,
+				),
+			).toEqual(["Make the title larger", "Also make it red", "Larger now."]);
+
+			const after = await stored(annotation.id);
+			expect(after.status).toBe("acknowledged");
+			expect(after.entries.map((entry) => entry.kind)).toEqual([
+				"remark",
+				"remark",
+				"change",
+			]);
+			// Shown once; the next read lists it as open work by id.
+			const next = (await call(TOOL.designRead, { designFileId: designId }))
+				.payload.annotations;
+			expect(next.new).toEqual([]);
+			expect(next.openIds).toEqual([annotation.id]);
+		});
+
+		it("addresses normally when the agent saw every remark", async () => {
+			const { call, annotate, readDesign, service, stored } = await open();
+			const annotation = await annotate();
+			await call(TOOL.designRead, { designFileId: designId });
+			await replyToAnnotation(service, {
+				annotationId: annotation.id,
+				by: { role: "human" },
+				body: "Also make it red",
+			});
+			// Seen in full again before the write.
+			await call(TOOL.annotationList, { designFileId: designId });
+			const { payload } = await call(TOOL.designApply, {
+				designFileId: designId,
+				expectedRevision: (await readDesign()).revision,
+				operations: [
+					{
+						operation: "updateElementProps",
+						parameters: { elementId: "title", className: "text-red-500" },
+					},
+				],
+				addresses: [{ annotationId: annotation.id, reply: "Red and larger." }],
+			});
+			expect(payload.addressed[0]).not.toHaveProperty("unseenRemarkIds");
+			expect((await stored(annotation.id)).status).toBe("addressed");
+		});
+
+		it("leaves another session's active acknowledgement in place", async () => {
+			const { call, annotate, openOtherSession, stored } = await open();
+			const annotation = await annotate();
+			await call(TOOL.designRead, { designFileId: designId });
+			const first = (await stored(annotation.id)).acknowledged;
+			const other = await openOtherSession();
+			const seenByOther = await other(TOOL.designRead, {
+				designFileId: designId,
+			});
+			expect(seenByOther.annotations.new[0].acknowledged).toMatchObject({
+				by: "another session",
+				active: true,
+			});
+			expect((await stored(annotation.id)).acknowledged).toEqual(first);
+		});
+
+		it("does not surface or acknowledge an annotation moved to another branch meanwhile", async () => {
+			const { annotate, service, stored, fixture, home } = await open();
+			const annotation = await annotate();
+			const session = createMcpAnnotationSession({
+				sessionId: "racing-session",
+				defaultHome: home,
+			});
+			const context = {
+				...(await fixture.readMcpContext()),
+				trickroomHome: home,
+			};
+			const project = await session.openProject(context);
+			if (!project) throw new Error("no project");
+			const { annotations: listed } = await session.listLive(
+				project,
+				designId,
+				null,
+			);
+			expect(listed.map((view) => view.id)).toEqual([annotation.id]);
+			// The designer moves it to main between the listing and the
+			// acknowledgement.
+			await moveAnnotationToBranch(service, {
+				annotationId: annotation.id,
+				by: { role: "human" },
+				scope: { branch: "main", worktreePath: "/main" },
+			});
+			const shown = await session.acknowledgeShown(project, listed, {
+				work: true,
+			});
+			expect(shown).toEqual([]);
+			const after = await stored(annotation.id);
+			expect(after.status).toBe("open");
+			expect(after.branch).toBe("main");
+		});
+
+		it("shows the stage mode, responsive width and design revision it was made on", async () => {
+			const { call, annotate, readDesign } = await open();
+			const { revision } = await readDesign();
+			await annotate(layer, "This wraps badly", undefined, {
+				stageMode: "responsive",
+				responsiveWidth: 375,
+			});
+			const { annotations } = (
+				await call(TOOL.designRead, { designFileId: designId })
+			).payload;
+			expect(annotations.new[0].snapshot).toEqual({
+				name: "Title",
+				path: ["Board"],
+				component: "trickroom/text",
+				designRevision: revision,
+				stageMode: "responsive",
+				responsiveWidth: 375,
+			});
+		});
+
+		it("watches the board an annotated layer moved to", async () => {
+			const { call, annotate, readDesign, fixture } = await open();
+			const annotation = await annotate();
+			// Another writer adds a board and moves the layer onto it.
+			const { design } = await readDesign();
+			const moved = structuredClone(design);
+			const [first] = moved.boards;
+			const title = Array.isArray(first?.children)
+				? first.children.splice(0, 1)
+				: [];
+			moved.boards.push({
+				id: "board-2",
+				props: {
+					"data-trickroom-name": "Second",
+					"data-trickroom-library": "trickroom",
+					"data-trickroom-component": "container",
+				},
+				children: title,
+			});
+			await fixture.designFileService.writeDesignFile(designId, moved);
+
+			const onOld = await call(TOOL.annotationWatch, {
+				designFileId: designId,
+				boardId: "board",
+				timeoutMs: 1000,
+			});
+			expect(onOld.payload.status).toBe("timeout");
+			const onNew = await call(TOOL.annotationWatch, {
+				designFileId: designId,
+				boardId: "board-2",
+				timeoutMs: 5000,
+			});
+			expect(onNew.payload.status).toBe("success");
+			expect(onNew.payload.annotations[0].annotationId).toBe(annotation.id);
+		});
+
+		it("writes nothing when part of a re-anchor call is invalid", async () => {
+			const { call, annotate, stored } = await open();
+			const annotation = await annotate(board, "Whole board");
+			const { isError, payload } = await call(TOOL.annotationReply, {
+				annotationId: annotation.id,
+				reanchor: { elementId: "title" },
+				body: " ",
+			});
+			expect(isError).toBe(true);
+			expect(payload.code).toBe("INVALID_INPUT");
+			const after = await stored(annotation.id);
+			expect(after.target).toEqual(annotation.target);
+			expect(after.entries).toHaveLength(1);
 		});
 	});
 

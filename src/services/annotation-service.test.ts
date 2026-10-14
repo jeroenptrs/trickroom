@@ -2023,3 +2023,127 @@ describe("ids that name Object.prototype members", () => {
 		expect(cleared.sort()).toEqual(["constructor", "toString"]);
 	});
 });
+
+describe("WP3 options", () => {
+	const changeRecord: AnnotationChangeRecord = {
+		revisionBefore: "r-before",
+		revisionAfter: "r-after",
+		boards: ["board-1"],
+		layerIds: ["title"],
+		operations: [{ operation: "updateElementProps", summary: "Edited" }],
+		summary: "Edited the design",
+	};
+
+	it("records a change without addressing when a designer remark is not among the known entries", async () => {
+		const annotation = await create();
+		const known = annotation.entries.map((entry) => entry.id);
+		const { annotation: replied } = await replyToAnnotation(context, {
+			annotationId: annotation.id,
+			by: human,
+			body: "Also make it red",
+		});
+		const remarkId = replied.entries.at(-1)?.id;
+		const [result] = await recordChange(context, {
+			designId,
+			addresses: [
+				{ annotationId: annotation.id, reply: "Larger", knownEntryIds: known },
+			],
+			change: changeRecord,
+			by: agent,
+		});
+		expect(result).toMatchObject({
+			status: "recorded",
+			unseenRemarkIds: [remarkId],
+		});
+		const after = await getAnnotation(context, { annotationId: annotation.id });
+		expect(after.status).toBe("open");
+		expect(after.entries.map((entry) => entry.kind)).toEqual([
+			"remark",
+			"remark",
+			"change",
+		]);
+
+		// With every remark known, or without knownEntryIds, it is addressed.
+		const [again] = await recordChange(context, {
+			designId,
+			addresses: [
+				{
+					annotationId: annotation.id,
+					knownEntryIds: after.entries.map((entry) => entry.id),
+				},
+			],
+			change: changeRecord,
+			by: agent,
+		});
+		expect(again).not.toHaveProperty("unseenRemarkIds");
+		expect(
+			(await getAnnotation(context, { annotationId: annotation.id })).status,
+		).toBe("addressed");
+	});
+
+	it("acknowledges only on the given branch, and keeps another session's active acknowledgement", async () => {
+		const annotation = await create();
+		const elsewhere = await acknowledgeAnnotation(context, {
+			annotationId: annotation.id,
+			sessionId: "session-a",
+			branch: "feature",
+		});
+		expect(elsewhere.written).toBe(false);
+		expect(elsewhere.annotation.status).toBe("open");
+
+		await acknowledgeAnnotation(context, {
+			annotationId: annotation.id,
+			sessionId: "session-a",
+			branch: "main",
+			keepActive: true,
+		});
+		await recordSessionCall(context, "session-a");
+		const kept = await acknowledgeAnnotation(context, {
+			annotationId: annotation.id,
+			sessionId: "session-b",
+			keepActive: true,
+		});
+		expect(kept.written).toBe(false);
+		expect(kept.annotation.acknowledged?.sessionId).toBe("session-a");
+
+		// Once session-a has gone quiet, session-b takes it over.
+		tick(ACKNOWLEDGEMENT_TTL_MS + 1000);
+		const taken = await acknowledgeAnnotation(context, {
+			annotationId: annotation.id,
+			sessionId: "session-b",
+			keepActive: true,
+		});
+		expect(taken.written).toBe(true);
+		expect(taken.annotation.acknowledged?.sessionId).toBe("session-b");
+	});
+
+	it("re-anchors and adds a reply in one write, or writes nothing for a blank body", async () => {
+		const annotation = await create();
+		await expect(
+			reanchorAnnotation(context, {
+				annotationId: annotation.id,
+				by: agent,
+				target: { kind: "board", designId, boardId: "board-1" },
+				design: await readDesign(),
+				body: "  ",
+			}),
+		).rejects.toMatchObject({ code: "INVALID_INPUT" });
+		expect(
+			(await getAnnotation(context, { annotationId: annotation.id })).target,
+		).toEqual(annotation.target);
+
+		const { annotation: moved } = await reanchorAnnotation(context, {
+			annotationId: annotation.id,
+			by: agent,
+			target: { kind: "board", designId, boardId: "board-1" },
+			design: await readDesign(),
+			body: "Moved to the board.",
+		});
+		expect(moved.status).toBe("open");
+		expect(moved.entries.map((entry) => entry.kind)).toEqual([
+			"remark",
+			"reanchor",
+			"reply",
+		]);
+	});
+});

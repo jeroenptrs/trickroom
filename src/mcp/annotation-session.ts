@@ -10,7 +10,11 @@ import {
 	recordSessionCall,
 	summarizeAnnotationCounts,
 } from "../services/annotation-service";
-import { AnnotationStore } from "../services/annotation-store";
+import {
+	AnnotationStore,
+	AnnotationStoreError,
+	getAnnotationContainer,
+} from "../services/annotation-store";
 import {
 	ANNOTATION_STATUSES,
 	type AnnotationActor,
@@ -25,7 +29,10 @@ import {
 import { readCheckoutScope } from "../services/checkout-scope";
 import type { TrickroomDesign } from "../types";
 import { getMcpPolicy } from "./governance";
-import { readDesignFileForTool } from "./payloads/design-tree";
+import {
+	findElementContext,
+	readDesignFileForTool,
+} from "./payloads/design-tree";
 import type { TrickroomMcpServerContext } from "./server-types";
 import { TOOL } from "./tool-names";
 
@@ -123,28 +130,50 @@ const describeEntry = (entry: AnnotationEntry, sessionId: string) => {
 };
 
 /**
+ * What the designer was looking at when the annotation was made (or last
+ * re-anchored): the target's name, ancestor names and component, the design
+ * revision, the stage mode and responsive width, and the branch when the
+ * annotation has moved since.
+ */
+const describeSnapshot = (view: AnnotationView) => {
+	const { snapshot } = view;
+	const described = {
+		...(snapshot.layerName ? { name: snapshot.layerName } : {}),
+		...(snapshot.ancestorNames && snapshot.ancestorNames.length > 0
+			? { path: snapshot.ancestorNames }
+			: {}),
+		...(snapshot.component ? { component: snapshot.component } : {}),
+		...(snapshot.designRevision
+			? { designRevision: snapshot.designRevision }
+			: {}),
+		...(snapshot.stageMode ? { stageMode: snapshot.stageMode } : {}),
+		...(snapshot.responsiveWidth !== undefined
+			? { responsiveWidth: snapshot.responsiveWidth }
+			: {}),
+		...(snapshot.branch !== view.branch ? { branch: snapshot.branch } : {}),
+	};
+	return Object.keys(described).length > 0 ? described : undefined;
+};
+
+/**
  * An annotation as tool results show it: ids and anchor (so every follow-up
- * call has what it needs), the names it had when it was made, its status,
- * who acknowledged it, and its entries without change records' revert
- * state.
+ * call has what it needs), what the designer was looking at (`snapshot`),
+ * its status, who acknowledged it, and its entries without change records'
+ * revert state.
  */
 export const describeAnnotation = (
 	view: AnnotationView,
 	sessionId: string,
 	options: { now?: Date; branch?: boolean } = {},
 ) => {
-	const { snapshot } = view;
+	const snapshot = describeSnapshot(view);
 	const acknowledgement = view.acknowledgement;
 	const now = options.now ?? new Date();
 	return {
 		annotationId: view.id,
 		status: view.status,
 		target: describeTarget(view.target),
-		...(snapshot.layerName ? { name: snapshot.layerName } : {}),
-		...(snapshot.ancestorNames && snapshot.ancestorNames.length > 0
-			? { path: snapshot.ancestorNames }
-			: {}),
-		...(snapshot.component ? { component: snapshot.component } : {}),
+		...(snapshot ? { snapshot } : {}),
 		...(view.detached ? { detached: true } : {}),
 		...(acknowledgement
 			? {
@@ -177,10 +206,13 @@ export type DescribedAnnotation = ReturnType<typeof describeAnnotation>;
  * session acknowledging does not resurface it), entries and target. A new
  * entry, a reopen or a re-anchor is a change; an acknowledgement is not.
  */
-const surfaceKey = (annotation: AnnotationView) =>
+const surfaceKey = (
+	annotation: AnnotationView,
+	entryIds: readonly string[] = annotation.entries.map((entry) => entry.id),
+) =>
 	JSON.stringify([
 		annotation.status === "acknowledged" ? "open" : annotation.status,
-		annotation.entries.map((entry) => entry.id),
+		entryIds,
 		annotation.target,
 	]);
 
@@ -204,7 +236,11 @@ const boardNameOf = (
 	view: AnnotationView,
 	design: TrickroomDesign | null | undefined,
 ) => {
-	const boardId = boardIdOf(view.target);
+	// A layer that moved boards is where it is now.
+	const boardId =
+		(design && view.target.kind === "layer"
+			? findElementContext(design, view.target.elementId)?.board.id
+			: undefined) ?? boardIdOf(view.target);
 	if (!boardId) return null;
 	const board = design?.boards.find((entry) => entry.id === boardId);
 	const name = board?.props["data-trickroom-name"];
@@ -284,7 +320,7 @@ export const createMcpAnnotationSession = ({
 }) => {
 	const by: AnnotationActor = { role: "agent", sessionId };
 	/** `<projectId>\0<annotationId>` → the surface key this session saw. */
-	const seen = new Map<string, string>();
+	const seen = new Map<string, { key: string; entryIds: readonly string[] }>();
 	/**
 	 * Projects in which this session acknowledged or wrote an annotation:
 	 * only there does its last-call time matter (acknowledgement expiry), so
@@ -353,54 +389,83 @@ export const createMcpAnnotationSession = ({
 		}
 	};
 
-	/** Records what this session has now seen of an annotation (its own writes included). */
-	const markSeen = (project: AnnotationProject, view: AnnotationView) => {
-		seen.set(seenKey(project.projectId, view.id), surfaceKey(view));
+	/**
+	 * Records what this session has now seen of an annotation (its own
+	 * writes included). `entryIds` limits it to those entries: a remark the
+	 * session has not been shown stays news.
+	 */
+	const markSeen = (
+		project: AnnotationProject,
+		view: AnnotationView,
+		entryIds?: readonly string[],
+	) => {
+		seen.set(seenKey(project.projectId, view.id), {
+			key: surfaceKey(view, entryIds),
+			entryIds: entryIds ?? view.entries.map((entry) => entry.id),
+		});
 	};
 
 	const isUnseen = (project: AnnotationProject, view: AnnotationView) =>
-		seen.get(seenKey(project.projectId, view.id)) !== surfaceKey(view);
+		seen.get(seenKey(project.projectId, view.id))?.key !== surfaceKey(view);
+
+	/** The entries of an annotation this session has seen, or undefined when it never saw it in full. */
+	const seenEntryIds = (project: AnnotationProject, annotationId: string) =>
+		seen.get(seenKey(project.projectId, annotationId))?.entryIds;
 
 	/**
-	 * Open, or acknowledged by a session that has gone quiet: this session
-	 * takes it. An active acknowledgement by another session is left alone
-	 * (it is advisory; the body says who has it).
-	 */
-	const shouldAcknowledge = (view: AnnotationView) =>
-		view.status === "open" ||
-		(view.status === "acknowledged" &&
-			view.acknowledgement?.sessionId !== sessionId &&
-			view.acknowledgement?.active === false);
-
-	/**
-	 * Acknowledges the open ones among annotations about to be shown in full
-	 * for this session, and moves the cursor past them. Acknowledging is
-	 * advisory, so a failure leaves the annotation as read. Returns the
-	 * annotations as they are now.
+	 * Acknowledges annotations about to be shown in full for this session
+	 * and moves the cursor past them. The service decides under the
+	 * annotation's lock: only on the checkout's branch, `open`, or
+	 * acknowledged by a session that has gone quiet (an active
+	 * acknowledgement by another session is left alone; the body says who
+	 * has it). Returns the annotations as they are now. With `work`, only
+	 * what is still agent work on the checkout's branch is returned (another
+	 * writer may have moved, answered or removed it since it was listed).
+	 * Acknowledging is advisory: when it fails, the annotation is shown as
+	 * read.
 	 */
 	const acknowledgeShown = async (
 		project: AnnotationProject,
 		views: readonly AnnotationView[],
+		options: { work?: boolean } = {},
 	): Promise<AnnotationView[]> => {
 		const shown: AnnotationView[] = [];
 		for (const view of views) {
 			let current = view;
-			if (view.branch === project.scope.branch && shouldAcknowledge(view)) {
+			const onBranch = view.branch === project.scope.branch;
+			if (onBranch && (options.work || isAgentWork(view.status))) {
 				try {
 					const acknowledged = await acknowledgeAnnotation(project.service, {
 						annotationId: view.id,
+						container: getAnnotationContainer(view.target),
 						sessionId,
+						branch: project.scope.branch,
+						keepActive: true,
 					});
 					current = {
 						...acknowledged.annotation,
 						...(view.detached !== undefined ? { detached: view.detached } : {}),
 					};
-					startClock(project);
-				} catch {
+					if (acknowledged.written) startClock(project);
+				} catch (error) {
+					if (
+						options.work &&
+						error instanceof AnnotationStoreError &&
+						error.code === "ANNOTATION_NOT_FOUND"
+					) {
+						continue;
+					}
 					// Advisory: the agent still gets the body.
 				}
 			}
-			if (view.branch === project.scope.branch) markSeen(project, current);
+			if (
+				options.work &&
+				(current.branch !== project.scope.branch ||
+					!isAgentWork(current.status))
+			) {
+				continue;
+			}
+			if (current.branch === project.scope.branch) markSeen(project, current);
 			shown.push(current);
 		}
 		return shown;
@@ -410,10 +475,10 @@ export const createMcpAnnotationSession = ({
 	const showInFull = async (
 		project: AnnotationProject,
 		views: readonly AnnotationView[],
-		options: { branch?: boolean } = {},
+		options: { branch?: boolean; work?: boolean } = {},
 	): Promise<DescribedAnnotation[]> =>
-		(await acknowledgeShown(project, views)).map((view) =>
-			describeAnnotation(view, sessionId, { now: now(), ...options }),
+		(await acknowledgeShown(project, views, { work: options.work })).map(
+			(view) => describeAnnotation(view, sessionId, { now: now(), ...options }),
 		);
 
 	/** Agent work on the checkout's branch that this session has not seen as it is now. */
@@ -487,6 +552,7 @@ export const createMcpAnnotationSession = ({
 		const shown = await acknowledgeShown(
 			project,
 			unseen.slice(0, MAX_SURFACED_ANNOTATIONS),
+			{ work: true },
 		);
 		const bodies = shown.map((view) =>
 			describeAnnotation(view, sessionId, { now: now() }),
@@ -545,6 +611,7 @@ export const createMcpAnnotationSession = ({
 		openProject,
 		noteCall,
 		markSeen,
+		seenEntryIds,
 		startClock,
 		acknowledgeShown,
 		showInFull,

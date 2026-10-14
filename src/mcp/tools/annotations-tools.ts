@@ -21,7 +21,6 @@ import { createElementNotFoundError } from "../../services/element-lookup-hints"
 import type { TrickroomDesign } from "../../types";
 import {
 	type AnnotationProject,
-	boardIdOf,
 	compactCounts,
 	MAX_SURFACED_ANNOTATIONS,
 	sortForSurfacing,
@@ -485,6 +484,23 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 						"Pass a body, a question, dismiss, resolve or reanchor.",
 					);
 				}
+				// Every text is checked before anything is written, so a call
+				// either does all it asks or nothing.
+				const blank = (
+					[
+						["body", body],
+						["question", question],
+						["dismiss.reason", dismiss?.reason],
+						["resolve.summary", resolve?.summary],
+					] as const
+				).find(([, value]) => value !== undefined && value.trim().length === 0);
+				if (blank) {
+					return createToolErrorResult(
+						context,
+						"INVALID_INPUT",
+						`${blank[0]} must not be blank. Nothing was written.`,
+					);
+				}
 				const action = question
 					? "question"
 					: dismiss
@@ -608,26 +624,25 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 					}
 					let result: CallToolResult;
 					try {
-						let outcome = reanchorTo
+						// One write either way: a re-anchor carries its reply.
+						const outcome = reanchorTo
 							? await reanchorAnnotation(project.service, {
 									annotationId,
 									container,
 									by: project.by,
 									target: reanchorTo.target,
 									design: reanchorTo.design,
+									...(body !== undefined ? { body } : {}),
 								})
-							: null;
-						if (body !== undefined || !outcome) {
-							outcome = await replyToAnnotation(project.service, {
-								annotationId,
-								container,
-								by: project.by,
-								...(body !== undefined ? { body } : {}),
-								...(question !== undefined ? { question } : {}),
-								...(dismiss !== undefined ? { dismiss } : {}),
-								...(resolve !== undefined ? { resolve } : {}),
-							});
-						}
+							: await replyToAnnotation(project.service, {
+									annotationId,
+									container,
+									by: project.by,
+									...(body !== undefined ? { body } : {}),
+									...(question !== undefined ? { question } : {}),
+									...(dismiss !== undefined ? { dismiss } : {}),
+									...(resolve !== undefined ? { resolve } : {}),
+								});
 						const view = reanchorTo
 							? { ...outcome.annotation, detached: false }
 							: outcome.annotation;
@@ -721,20 +736,41 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 					const deadline = startedAt + timeout;
 					let lastProgressAt = startedAt;
 
+					// With boardId, the board an annotation is on now (a layer that
+					// moved boards counts where it is), from WP2's derivation over a
+					// fresh read of the design: only read when there is unseen work.
 					const check = async () => {
-						const { annotations: live } = await annotations.listLive(
+						let { annotations: live } = await annotations.listLive(
 							project,
 							designFileId,
 							design,
 						);
-						const unseen = annotations.takeUnseen(project, live, design);
-						return {
-							live,
-							unseen:
-								boardId === undefined
-									? unseen
-									: unseen.filter((view) => boardIdOf(view.target) === boardId),
-						};
+						let unseen = annotations.takeUnseen(project, live, design);
+						if (boardId !== undefined && unseen.length > 0) {
+							design = await readDesignFileForTool(context, designFileId)
+								.then((read) => read.design)
+								.catch(() => design);
+							({ annotations: live } = await annotations.listLive(
+								project,
+								designFileId,
+								design,
+							));
+							const onBoard = new Set(
+								(
+									await listAnnotations(project.service, {
+										container: { kind: "design", designId: designFileId },
+										scope: project.scope,
+										statuses: LIVE_STATUSES,
+										boardId,
+										design,
+									})
+								).annotations.map((view) => view.id),
+							);
+							unseen = annotations
+								.takeUnseen(project, live, design)
+								.filter((view) => onBoard.has(view.id));
+						}
+						return { live, unseen };
 					};
 					const reportProgress = async () => {
 						if (progressToken === undefined) return;
@@ -817,7 +853,9 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 						project: getProjectReference(context),
 						designFileId,
 						waitedMs,
-						annotations: await annotations.showInFull(project, shown),
+						annotations: await annotations.showInFull(project, shown, {
+							work: true,
+						}),
 						...(more > 0 ? { more } : {}),
 						counts,
 						next: `Address each with your next ${TOOL.designApply}({ designFileId: "${designFileId}", expectedRevision, operations, addresses: [{ annotationId: "${firstId}", reply: "<what you changed>" }] }), or ask with ${TOOL.annotationReply}({ annotationId: "${firstId}", question: "<your question>" }).${more > 0 ? ` ${more} more: ${TOOL.annotationList}({ designFileId: "${designFileId}" }).` : ""} Then ${keepWaiting} again.`,

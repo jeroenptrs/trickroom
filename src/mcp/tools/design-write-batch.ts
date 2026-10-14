@@ -295,6 +295,13 @@ const describeRecorded = (result: RecordChangeResult) =>
 				annotationId: result.annotationId,
 				status: result.annotation.status,
 				entryId: result.entryId,
+				...(result.unseenRemarkIds
+					? {
+							unseenRemarkIds: result.unseenRemarkIds,
+							message:
+								"The designer added to this annotation while you worked. Your change is recorded, but the annotation stays open work: their new remark is in annotations.new.",
+						}
+					: {}),
 			}
 		: {
 				annotationId: result.annotationId,
@@ -381,6 +388,10 @@ export const registerDesignApplyTool = (ctx: McpToolContext) => {
 					async () => {
 						assertCanWriteDesignFile(policy, designFileId);
 						let recorded: RecordChangeResult[] | null = null;
+						let knownEntryIds = new Map<
+							string,
+							readonly string[] | undefined
+						>();
 						let afterWrite:
 							| Parameters<typeof applyDesignOperationsPayload>[1]["afterWrite"]
 							| undefined;
@@ -418,12 +429,26 @@ export const registerDesignApplyTool = (ctx: McpToolContext) => {
 									{ valid: false, designFileId, addressProblems: problems },
 								);
 							}
+							// What this session has seen of each: a designer remark that
+							// arrives while it works is not answered by this write.
+							knownEntryIds = new Map(
+								addresses.map(({ annotationId }) => [
+									annotationId,
+									annotations.seenEntryIds(annotationProject, annotationId),
+								]),
+							);
+							const known = knownEntryIds;
 							afterWrite = async ({ before, write, steps }) => {
 								const recorder = createAddressesRecorder(
 									annotationProject.service,
 									{
 										designId: designFileId,
-										addresses,
+										addresses: addresses.map((address) => {
+											const entryIds = known.get(address.annotationId);
+											return entryIds
+												? { ...address, knownEntryIds: entryIds }
+												: address;
+										}),
 										by: annotationProject.by,
 										operations: steps.map(summarizeStep),
 										summary: summarizeSteps(steps),
@@ -449,8 +474,19 @@ export const registerDesignApplyTool = (ctx: McpToolContext) => {
 						if (addresses && annotationProject && !result.isError) {
 							const outcomes: RecordChangeResult[] = recorded ?? [];
 							for (const outcome of outcomes) {
-								if (outcome.status === "recorded") {
-									annotations.markSeen(annotationProject, outcome.annotation);
+								if (outcome.status !== "recorded") continue;
+								// Seen: what it had seen, and its own change entry. Not a
+								// remark that landed meanwhile.
+								const entryIds = knownEntryIds.get(outcome.annotationId);
+								if (entryIds) {
+									annotations.markSeen(annotationProject, outcome.annotation, [
+										...entryIds.filter((id) =>
+											outcome.annotation.entries.some(
+												(entry) => entry.id === id,
+											),
+										),
+										outcome.entryId,
+									]);
 								}
 							}
 							if (outcomes.length > 0)
