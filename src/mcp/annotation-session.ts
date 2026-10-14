@@ -259,24 +259,29 @@ const boardNameOf = (
 type Refreshed = {
 	/** Current state per annotation passed in; null when it no longer exists. */
 	fresh: ReadonlyMap<string, AnnotationView | null>;
-	/** Those this call moved from `open` to `acknowledged`. */
-	acknowledgedHere: ReadonlySet<string>;
+	/**
+	 * Those this call acknowledged (from `open`, or by taking over an expired
+	 * acknowledgement), with the status stored before its write.
+	 */
+	acknowledgedHere: ReadonlyMap<string, AnnotationStatus>;
 };
 
 /**
  * What a response's filters compare: the annotation as it is now, except
- * that this call's own acknowledgement leaves it `open` (it was open when
- * the call listed it, and the call is delivering it). Only changes by
- * other writers (moved, closed, removed, re-anchored) make it stop
- * matching.
+ * that this call's own acknowledgement is undone in the status: it keeps
+ * the status stored before the write (`open`, or `acknowledged` for a
+ * takeover of an expired acknowledgement). Only changes by other writers
+ * (moved, closed, removed, re-anchored) make it stop matching.
  */
 const asListed = (
 	annotation: AnnotationView,
-	acknowledgedHere: ReadonlySet<string>,
-): AnnotationView =>
-	acknowledgedHere.has(annotation.id) && annotation.status === "acknowledged"
-		? { ...annotation, status: "open" }
+	acknowledgedHere: ReadonlyMap<string, AnnotationStatus>,
+): AnnotationView => {
+	const before = acknowledgedHere.get(annotation.id);
+	return before !== undefined && annotation.status === "acknowledged"
+		? { ...annotation, status: before }
 		: annotation;
+};
 
 /** "board \"Checkout\"", "2 boards", or "the design". */
 const describeWhere = (
@@ -463,7 +468,7 @@ export const createMcpAnnotationSession = ({
 	): Promise<Refreshed & { shown: AnnotationView[] }> => {
 		const shown: AnnotationView[] = [];
 		const fresh = new Map<string, AnnotationView | null>();
-		const acknowledgedHere = new Set<string>();
+		const acknowledgedHere = new Map<string, AnnotationStatus>();
 		for (const view of views) {
 			let current: AnnotationView | null = view;
 			const container = getAnnotationContainer(view.target);
@@ -485,7 +490,7 @@ export const createMcpAnnotationSession = ({
 					});
 					current = keepDetached(acknowledged.annotation);
 					if (acknowledged.written) {
-						acknowledgedHere.add(view.id);
+						acknowledgedHere.set(view.id, acknowledged.previousStatus);
 						startClock(project);
 					}
 				} else {

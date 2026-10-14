@@ -2236,3 +2236,25 @@ describe("acknowledge onlyIf", () => {
 		expect(accepted.annotation.status).toBe("acknowledged");
 	});
 });
+
+describe("acknowledge previousStatus", () => {
+	it("reports the status stored before the call", async () => {
+		const annotation = await create();
+		const first = await acknowledgeAnnotation(context, {
+			annotationId: annotation.id,
+			sessionId: "session-a",
+		});
+		expect(first).toMatchObject({ written: true, previousStatus: "open" });
+		tick(ACKNOWLEDGEMENT_TTL_MS + 1000);
+		const takeover = await acknowledgeAnnotation(context, {
+			annotationId: annotation.id,
+			sessionId: "session-b",
+			keepActive: true,
+		});
+		expect(takeover).toMatchObject({
+			written: true,
+			previousStatus: "acknowledged",
+		});
+		expect(takeover.annotation.acknowledged?.sessionId).toBe("session-b");
+	});
+});

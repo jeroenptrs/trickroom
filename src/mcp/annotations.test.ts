@@ -847,6 +847,46 @@ describe("MCP annotations", () => {
 			);
 		});
 
+		for (const status of ["acknowledged", undefined] as const) {
+			it(`takes over an expired acknowledgement and returns it (status: ${status ?? "live"})`, async () => {
+				const { call, annotate, service, stored } = await open();
+				const annotation = await annotate();
+				// Another session acknowledged it 20 minutes ago and went quiet.
+				const earlier = {
+					...service,
+					now: () => new Date(Date.now() - 20 * 60_000),
+				};
+				await acknowledgeAnnotation(earlier, {
+					annotationId: annotation.id,
+					sessionId: "quiet-session",
+				});
+				await recordSessionCall(earlier, "quiet-session");
+
+				const { payload } = await call(TOOL.annotationList, {
+					designFileId: designId,
+					...(status ? { status } : {}),
+				});
+				expect(payload.annotations).toEqual([
+					expect.objectContaining({
+						annotationId: annotation.id,
+						status: "acknowledged",
+						acknowledged: expect.objectContaining({
+							by: "this session",
+							active: true,
+						}),
+					}),
+				]);
+				expect(payload.total).toBe(1);
+				expect(payload.counts).toMatchObject({
+					agentWork: 1,
+					byStatus: { acknowledged: 1 },
+				});
+				const after = await stored(annotation.id);
+				expect(after.acknowledged?.sessionId).not.toBe("quiet-session");
+				expect(after.acknowledgement?.active).toBe(true);
+			});
+		}
+
 		it("acknowledges nothing a status filter leaves out", async () => {
 			const { call, annotate, stored } = await open();
 			const annotation = await annotate();

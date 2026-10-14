@@ -1070,7 +1070,8 @@ export const transitionAnnotation = async (
  * checked under the annotation's lock, so two sessions acknowledging at
  * once, or a move to another branch in between, cannot be overwritten. The
  * result is the annotation as it is now; `written` says whether this call
- * acknowledged it. `onlyIf` is checked under the lock too, on the
+ * acknowledged it (moved it from `open`, or took over an expired
+ * acknowledgement), and `previousStatus` what was stored before it. `onlyIf` is checked under the lock too, on the
  * annotation as stored before this call: a caller acknowledges only what
  * it is about to show.
  */
@@ -1082,7 +1083,12 @@ export const acknowledgeAnnotation = async (
 		keepActive?: boolean;
 		onlyIf?: (annotation: Annotation) => boolean;
 	},
-): Promise<AnnotationWriteResult> => {
+): Promise<
+	AnnotationWriteResult & {
+		/** The status as stored before this call (under the lock). */
+		previousStatus: AnnotationStatus;
+	}
+> => {
 	const sessionId = requireText(input.sessionId, "sessionId");
 	const by: AnnotationActor = { role: "agent", sessionId };
 	const container = await context.store.locate(
@@ -1101,7 +1107,7 @@ export const acknowledgeAnnotation = async (
 		input.annotationId,
 		async ({ annotation }) => {
 			const at = nowOf(context).toISOString();
-			const unchanged = { annotation: null, result: undefined };
+			const unchanged = { annotation: null, result: annotation.status };
 			if (input.branch !== undefined && annotation.branch !== input.branch) {
 				return unchanged;
 			}
@@ -1112,7 +1118,7 @@ export const acknowledgeAnnotation = async (
 						...withTransition(annotation, "acknowledged", by, at),
 						acknowledged: { sessionId, at },
 					},
-					result: undefined,
+					result: annotation.status,
 				};
 			}
 			if (annotation.status !== "acknowledged") return unchanged;
@@ -1129,11 +1135,14 @@ export const acknowledgeAnnotation = async (
 			}
 			return {
 				annotation: { ...annotation, acknowledged: { sessionId, at } },
-				result: undefined,
+				result: annotation.status,
 			};
 		},
 	);
-	return finishWrite(context, outcome);
+	return {
+		...(await finishWrite(context, outcome)),
+		previousStatus: outcome.result,
+	};
 };
 
 /** Records an MCP session's tool call: the clock acknowledgement expiry reads. */
