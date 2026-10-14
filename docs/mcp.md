@@ -1,6 +1,6 @@
 # Agents And MCP
 
-Trickroom includes a stdio MCP server so agents can read and change design files through structured tools instead of raw file edits. Coding agents are its main users, so there are only 23 tools in a few families, one write tool for design content, a guide the agent reads once per session, and a way for agents to report friction with the tools themselves (`feedback_submit`).
+Trickroom includes a stdio MCP server so agents can read and change design files through structured tools instead of raw file edits. Coding agents are its main users, so there are only 26 tools in a few families, one write tool for design content, a guide the agent reads once per session, the designer's [annotations](#annotations) delivered with the results agents already read, and a way for agents to report friction with the tools themselves (`feedback_submit`).
 
 ## Start MCP
 
@@ -21,7 +21,7 @@ The project must enable MCP:
 }
 ```
 
-The server sends instructions at initialize: what Trickroom is, the tool families, the session-start recipe and the edit loop (under 2,048 characters, the limit clients keep).
+The server sends instructions at initialize: what Trickroom is, the tool families, the session-start recipe, the edit loop and one line on annotations (under 2,048 characters, the limit clients keep).
 
 ## Session Flow
 
@@ -29,7 +29,8 @@ The server sends instructions at initialize: what Trickroom is, the tool familie
 2. `memory_read({ designFileId })` indexes the notes on the project, the design's linked design system and the design; read the relevant ones with `noteIds`.
 3. `guide({ designFileId })` returns the core: model, rules, workflow, an example batch, and this design's revision, boards and design system. Fetch topics when the task needs them.
 4. Loop: `design_read` the area you change, `design_apply` one batch with `expectedRevision` (checked per board: see [Revisions](#revisions)), fix the warnings it returns, `design_screenshot` the changed boards at several viewports in one call, `design_validate` before handing off, and `editor_focus` to show the human what changed. When the human says "this", call `editor_context`.
-5. When the change touches a design system or the code that uses it, `lint({ check: true })` before handing off: `fail` names every number that got worse than the committed baseline. Run `lint` without `check` only when asked to record a new baseline.
+5. When a result carries `annotations` (remarks the designer anchored to the design for you), make the change and pass `addresses: [{ annotationId, reply }]` to the `design_apply` that makes it, or ask with `annotation_reply`. See [Annotations](#annotations).
+6. When the change touches a design system or the code that uses it, `lint({ check: true })` before handing off: `fail` names every number that got worse than the committed baseline. Run `lint` without `check` only when asked to record a new baseline.
 
 ## Tools
 
@@ -42,7 +43,7 @@ R = read-only, W = writes. Reads and writes are separate tools because client pe
 | `guide` | R | The authoring guide: a core, or topics. Replaces the authoring contracts and the registry tools. | `topic`, `designFileId`, `systemName`, `library`, `name` |
 | `design_list` | R | Design files with revision, boards (with their revisions), layer count, memory note count and storage warnings, and the linked design systems. | |
 | `design_read` | R | A design or one board (bounded tree; a board read reads only that board's file), one element's subtree, or a flat outline. | `designFileId`, `boardId` \| `elementId`, `view`, `depth`, `maxNodes`, `allowLarge`, `detail` |
-| `design_apply` | W | The one write tool for design content: ordered operations, validated together, one write. | `designFileId`, `expectedRevision`, `operations`, `response` |
+| `design_apply` | W | The one write tool for design content: ordered operations, validated together, one write; `addresses` marks the annotations it answers. | `designFileId`, `expectedRevision`, `operations`, `addresses`, `response` |
 | `design_validate` | R | Validate a whole design, or dry-run operations against a revision. | `designFileId`, `operations`, `expectedRevision`, `response` |
 | `lint` | W | Lint a design system against its code and designs, ratchet against the committed report, and write the report. | `check`, `system`, `response` |
 | `design_create` | W | Create a design, empty or from a copy of an existing element. | `name`, `systemName`, `designFileId`, `from` |
@@ -50,6 +51,9 @@ R = read-only, W = writes. Reads and writes are separate tools because client pe
 | `design_export` | W | Write boards to disk as HTML or PNG, or write or check the project's component variants files. | `format`, `designFileId`, `destinationDir`, `boardIds`; variants: `check`, `source` |
 | `editor_context` | R | What the human has open and selected in the Trickroom editor. | |
 | `editor_focus` | W | Point the human's editor at a design, board or layer. | `designFileId`, `boardId`, `elementId` |
+| `annotation_list` | R | A design's annotations (or a system component's) with ids, anchors, status and entries; current branch and live ones by default. | `designFileId` \| `systemId` + `componentId`, `boardId`, `elementId`, `status`, `branch`, `limit` |
+| `annotation_reply` | W | Reply to an annotation without a design write: a reply, a question, a dismissal or (when asked) a resolution. | `annotationId`, `body`, `question`, `dismiss`, `resolve`, `designFileId` |
+| `annotation_watch` | R | Wait for new annotations on a design and return them in full. | `designFileId`, `boardId`, `timeoutMs` |
 | `memory_read` | R | Memory note index, note bodies, or reference targets. | `scope` \| `designFileId`, `noteIds`, `referenceType` |
 | `memory_write` | W | Add, update or delete one memory note. | `action`, `scope`, `noteId`, `expectedRevision`, `edits` |
 | `system_read` | R | Tokens, assets, icons and resource usage of a design system. | `view`, `systemName` \| `designFileId`, `id`, `domain`, `query`, `limit`, `offset` |
@@ -68,24 +72,26 @@ Every project-scoped tool (all but `feedback_submit`) also takes an optional `pr
 
 | Tool | readOnlyHint | destructiveHint | idempotentHint | openWorldHint |
 | --- | --- | --- | --- | --- |
-| reads (`project_list`, `guide`, `design_list`, `design_read`, `design_validate`, `editor_context`, `memory_read`, `system_read`, `component_read`) | true | | | false |
+| reads (`project_list`, `guide`, `design_list`, `design_read`, `design_validate`, `editor_context`, `annotation_list`, `annotation_watch`, `memory_read`, `system_read`, `component_read`) | true | | | false |
 | `design_screenshot` | true | | | true (renders may load remote fonts) |
 | `project_select`, `editor_focus`, `lint` | false | false | true | false |
 | `design_apply`, `memory_write`, `system_update`, `component_delete` | false | true | false | false |
-| `design_create`, `component_draft_create`, `component_draft_update`, `component_publish`, `component_migrate`, `feedback_submit` | false | false | false | false |
+| `design_create`, `annotation_reply`, `component_draft_create`, `component_draft_update`, `component_publish`, `component_migrate`, `feedback_submit` | false | false | false | false |
 | `design_export` | false | true (overwrites files of the same name; variants replace only files with a Trickroom header) | false | true (HTML loads React and Base UI from esm.sh) |
 
 `_meta` hints for clients that defer tool schemas:
 
-- `anthropic/alwaysLoad`: `project_list`, `guide`, `design_read`, `design_apply` (about 10k characters together).
+- `anthropic/alwaysLoad`: `project_list`, `guide`, `design_read`, `design_apply` (about 11k characters together).
 - `anthropic/searchHint`: keywords on tools whose names miss what an agent searches for (for example "screenshot image png render" on `design_screenshot`, "selection selected layer" on `editor_context`, "feedback report bug issue" on `feedback_submit`).
 - `anthropic/maxResultSizeChars`: `guide` (60,000; topics are requested on purpose) and `design_read` (150,000; reads past the default bounds need `allowLarge`).
 
-Descriptions stay under 2,048 characters (the longest, `component_draft_create`, is 1,100); a test checks every tool. `tools/list` is about 58,300 characters (the always-loaded four, about 10,300; `feedback_submit`, about 1,850).
+Descriptions stay under 2,048 characters (the longest, `lint`, is about 1,550); a test checks every tool. `tools/list` is about 70,400 characters (the always-loaded four, about 11,100; the three annotation tools, about 6,300; `feedback_submit`, about 1,850).
+
+`annotation_list` and `annotation_watch` are reads although showing an open annotation in full acknowledges it: acknowledgement is advisory, per-user state outside the project (see [Annotations](#annotations)).
 
 ### Tool Groups
 
-The app's MCP settings switch tools on and off by group. The eight group ids are persisted in user settings and unchanged:
+The app's MCP settings switch tools on and off by group. The group ids are persisted in user settings; `annotations` is the ninth, and settings saved before it existed have it on:
 
 | Group | Tools |
 | --- | --- |
@@ -97,6 +103,7 @@ The app's MCP settings switch tools on and off by group. The eight group ids are
 | `designSystems` | `system_read`, `system_update` |
 | `systemComponents` | `component_read`, `component_draft_create`, `component_draft_update`, `component_publish`, `component_delete`, `component_migrate` |
 | `memory` | `memory_read`, `memory_write` |
+| `annotations` | `annotation_list`, `annotation_reply`, `annotation_watch` |
 
 `feedback_submit` is in `projects`, the group a session cannot work without (it holds `project_list` and `project_select`), so feedback stays available whenever Trickroom tools are. Switching `projects` off hides it too.
 
@@ -196,7 +203,8 @@ Defaults: `read-write`, every design file, every component, no audit log.
 - Reads enforce `allowedDesignFileIds`. The guide's registry and recipes topics list only allowed components.
 - Writes enforce `mode`, `allowedDesignFileIds` and `allowedComponents` (every component a step inserts, moves, copies or expands). `design_create` needs a `designFileId` from the allowlist when one is configured.
 - `design_screenshot` works in read-only mode; `design_export` does not.
-- With `auditLog`, design writes, creates, migrations, memory writes, screenshots and exports append to `.trickroom/audit-log.jsonl` (see [Audit Logging](#audit-logging)).
+- Annotation reads (`annotation_list`, `annotation_watch` and the `annotations` block in results) work in read-only mode and only for designs the allowlist lets the session read. Annotation writes (`annotation_reply`, and `design_apply` with `addresses`) need read-write mode and the design in `allowedDesignFileIds`, like any design write. Acknowledging an annotation by reading it is not a write in this sense: it changes only per-user state outside the project, so it happens in read-only mode too.
+- With `auditLog`, design writes (with the annotations they address), creates, migrations, memory writes, annotation replies, screenshots and exports append to `.trickroom/audit-log.jsonl` (see [Audit Logging](#audit-logging)).
 
 ## What MCP Cannot Do
 
@@ -248,6 +256,9 @@ Bounded reads take elements breadth first, so a node budget never spends itself 
 - Only the boards the plan touched are diagnosed: the boards whose content changed and the boards holding elements it touched without changing them. Issues on other boards are what they were before the batch; `design_validate` checks the whole design.
 - `warningCount` counts warnings on the elements the plan touched plus file-level warnings. `warnings` lists only likely typos (`UNKNOWN_TAILWIND_UTILITY`, `UNKNOWN_*_TOKEN`) and `MISSING_RENDERER` on touched elements, grouped by code and offending class. Fix them: the first are almost always class typos, and a missing renderer means screenshots show a placeholder.
 - `response: "full"` returns every warning on touched elements ungrouped, `tokenDiagnostics`, and `steps` (each step's summary, ids and recipe expansions) instead of `created`.
+- `ANNOTATION_TARGET_DELETED` warnings: one per `deleteElement` step that removes elements live annotations on the current branch are anchored to (the element or a descendant), with `elementIds` (the deleted element), `annotationIds` and a message naming them. The annotations stay and show as detached; address them in the same batch or tell the designer.
+- `addressed` (with `addresses`): one entry per addressed annotation, `{ annotationId, status, entryId }`, or `{ annotationId, status: "failed", code, message }` when the design was written but recording the change on that annotation failed (the write stands).
+- `annotations`: the [annotations block](#surfacing-in-results) for this design, when it has open work.
 
 A failing step stops the plan and nothing is written. A step that fails while a board changed since `expectedRevision` (for example an element another writer removed) reports `REVISION_MISMATCH` naming those boards instead of the lookup error; a batch that changes a board another writer changed is refused the same way before it is diagnosed. The result has `isError: true`, `status: "INVALID_OPERATION"`, `failedStepIndex`, `failedOperation`, `code`, `message` and the error's hints; `INVALID_OPERATION_PARAMETERS` adds the operation's `expectedParameters` signature and any `unknownParameters`. A plan whose result would have new error issues is refused with `code: "PLAN_LEAVES_ERRORS"` and those `issues`.
 
@@ -274,6 +285,8 @@ All validation results share one shape:
 - Without `operations`: the whole file, including payload integrity (a design with an unsupported version reports `UNSUPPORTED_DESIGN_VERSION`), duplicate ids, registry and design-system references, asset and icon ids, recipe instances, and class tokens.
 - With `operations` and `expectedRevision`: a dry run of the same steps `design_apply` takes, with the same executor. It adds `operationCount`, `predicted` (what each step would do: insertions report where and `nodeCount`, without generated ids) and `deletedCount`, and scopes warnings to the touched elements. A failing step reports `status: "INVALID_OPERATION"`, `failedStepIndex` and `failedOperation` as a normal result. Only the boards the steps touch are diagnosed. The revision check is the write's: a dry-run based on an older revision passes when the boards it changes did not change since; otherwise it reports `status: "REVISION_MISMATCH"` with `currentRevision`, `staleBoards` and `next`, like the write.
 
+A dry run that deletes annotated elements reports the same `ANNOTATION_TARGET_DELETED` warnings as the write, counted in `summary`. Both modes append the [annotations block](#surfacing-in-results) when the design has open work.
+
 Both modes run the linked system's design-side lint rules ([Design System Lint](lint.md#design-validation)) with its `lint.json`, so a kind it disables is skipped, its severity applies and its options (such as an allow-list of classes) are honoured. A lint finding is an issue whose `code` is the rule kind id:
 
 - `design.unknown-class-token` (warning by default): the class and token checks. The specific check is in `check`: `UNKNOWN_TAILWIND_UTILITY` (Tailwind cannot emit the class; checked when the system CSS loads), `UNKNOWN_COLOR_TOKEN`, `UNKNOWN_SPACING_TOKEN`, `UNKNOWN_FONT_TOKEN`, `UNKNOWN_TEXT_TOKEN`, `UNKNOWN_RADIUS_TOKEN`, `UNKNOWN_SHADOW_TOKEN`, `UNKNOWN_TAILWIND_TOKEN`, and `OUT_OF_SYSTEM_*` for arbitrary values that bypass the system. With `className`, `classToken`, `token`, `domain` and, for likely typos, `suggestions` with the nearest valid class, keeping variants, `!` and `/opacity` (`md:itmes-center` → `md:items-center`).
@@ -292,6 +305,8 @@ Tool errors are JSON with `isError: true`:
 - `REVISION_MISMATCH`: `designFileId`, `currentRevision`, `expectedRevision`, `staleBoards` (id and name of each board your call changes that changed since your revision, or, when a step failed on a stale view, every board that changed; `deleted: true` when another writer removed it), `manifest: true` / `order: true` when your call changes the design's name or settings or reorders boards and those changed too, a `message`, and `next`: the reads that recover (one `design_read` with `boardId` per stale board, or the whole design when the manifest or order is stale). See [Revisions](#revisions).
 - `SOURCE_REVISION_MISMATCH` (a `copySubtree` step from another design): `currentSourceRevision`, `sourceExpectedRevision`, `staleSourceBoard` (the board copied from) and `next` (a `design_read` of that board).
 - `POLICY_DENIED`: `code` (`MCP_READ_ONLY`, `MCP_DESIGN_FILE_NOT_ALLOWED`, `MCP_COMPONENT_NOT_ALLOWED`) and the `governance` summary.
+- `design_apply` with `addresses` that name an annotation that does not exist (`ANNOTATION_NOT_FOUND`), is on another design (`WRONG_DESIGN`) or is resolved or dismissed (`ANNOTATION_CLOSED`): `INVALID_OPERATION` with the first problem's `code`, `addressProblems` (`annotationId`, `code`, `message` for each) and nothing written. Naming one annotation twice is `INVALID_OPERATION_PARAMETERS`.
+- Annotation tools: `ANNOTATION_NOT_FOUND`, `INVALID_INPUT` (an empty reply, or more than one of `question`, `dismiss` and `resolve`), `ANNOTATION_LOCKED` (another writer held the annotation too long), `PROJECT_ID_REQUIRED` (the project config has no `projectId`).
 - `INVALID_OPERATION`: `code`, `message` and hints next to them:
   - `DESIGN_NOT_FOUND`: `availableDesigns` (id, name) in small projects, otherwise the closest ids in `suggestions`.
   - `BOARD_NOT_FOUND` and `NO_MATCHING_BOARDS`: `availableBoards` (id, name) and `availableBoardIds`. A nested element passed as a board says to use `elementId`.
@@ -308,13 +323,13 @@ Statuses of `editor_context` and `editor_focus` other than `ok` are not errors (
 
 ## Projects
 
-`project_list` returns `selected` (the session's project, or `null` with a hint to call `project_select`), its `governance` mode, `defaultSystemId`, `configuredSystems` (id, name, CSS entry), a project `memory` summary with a hint when notes exist, and `projects`: every registered location with `projectId`, `locationId`, `projectRoot`, `name`, `lastOpenedAt`, and `selected` / `appActive` flags. `appActive` is the project the browser app last opened; it does not move MCP sessions. Pass `project: { locationId }` to describe another registered project without selecting it.
+`project_list` returns `selected` (the session's project, or `null` with a hint to call `project_select`), its `governance` mode, `defaultSystemId`, `configuredSystems` (id, name, CSS entry), a project `memory` summary with a hint when notes exist, `annotations` (`agentWork`, `humanWork` and the number of `designs` with live annotations on the current branch, and `next`) when there are any, and `projects`: every registered location with `projectId`, `locationId`, `projectRoot`, `name`, `lastOpenedAt`, and `selected` / `appActive` flags. `appActive` is the project the browser app last opened; it does not move MCP sessions. Pass `project: { locationId }` to describe another registered project without selecting it.
 
 `project_select` takes a `locationId` (preferred) or `projectId` from `project_list`, or the `path` of a local project root, which it registers first. Passing both or neither is an `INVALID_OPERATION_PARAMETERS` error; a folder without MCP enabled returns `MCP_DISABLED`. It returns the project with the same information as `project_list` and sends `resources/list_changed`.
 
 ## Designs
 
-`design_list` lists design files: `id`, `name`, `revision`, `systemId` (left out when it is the project's `defaultSystemId`), `layersCount`, `modifiedAt` (when the design last changed: its recorded `updatedAt`, or the newest file time for designs that have none), `boards` (id, name, revision), `memoryNotes` when the design has notes, a `diagnostic` for unreadable files and `warnings` for storage problems that do not stop a design from opening (`LEGACY_DESIGN_FILE_PRESENT`: an older single-file copy sits next to the design's folder; see [Files And Safety](./project-files.md#design-file-versions)). It reads the design file service's summaries, which are cached on the fingerprint of each design's files, so a repeat listing only stats files that did not change. `systems` describes each linked design system: `name`, `cssPath`, `tokens` (`syncedAt`, `reviewRequired` when set) or `null` when no snapshot is stored, and `memoryNotes`. A top-level `memoryNotes` counts the project's own notes.
+`design_list` lists design files: `id`, `name`, `revision`, `systemId` (left out when it is the project's `defaultSystemId`), `layersCount`, `modifiedAt` (when the design last changed: its recorded `updatedAt`, or the newest file time for designs that have none), `boards` (id, name, revision), `memoryNotes` when the design has notes, `annotations` (`agentWork`, `humanWork`) when the design has live annotations on the current branch, a `diagnostic` for unreadable files and `warnings` for storage problems that do not stop a design from opening (`LEGACY_DESIGN_FILE_PRESENT`: an older single-file copy sits next to the design's folder; see [Files And Safety](./project-files.md#design-file-versions)). It reads the design file service's summaries, which are cached on the fingerprint of each design's files, so a repeat listing only stats files that did not change. `systems` describes each linked design system: `name`, `cssPath`, `tokens` (`syncedAt`, `reviewRequired` when set) or `null` when no snapshot is stored, and `memoryNotes`. A top-level `memoryNotes` counts the project's own notes.
 
 `design_read`:
 
@@ -421,6 +436,7 @@ Recovery: call the reads in `next` (a `design_read` with `boardId` for each stal
 | `overlays` | Boards with an open dialog, sheet, popover or select. |
 | `validation` | Warnings, dry-runs and error hints. |
 | `memory` | Reading and writing memory notes, and the `{{type:id}}` references they embed (boards and layers included). |
+| `annotations` | Acting on the designer's annotations: statuses, the loop (find, address with `addresses`, ask, reply, resolve only when asked, watch), branches, delete warnings. |
 | `examples` | Worked calls: new screen, dialog-open board, component instance, icons. |
 | `component-authoring` | Creating, changing, publishing or extracting (from a design layer) system components: model, rules, workflow; `systemName` adds the system's component counts. |
 | `component-template`, `component-slots`, `component-variants`, `component-overrides`, `component-examples` | The parts of a component draft; `component-examples` also extracts a layer and replaces it with an instance. |
@@ -467,7 +483,7 @@ It needs read-write mode in every case, like `design_export`: the codegen check 
 
 The editor tools talk to the browser tab where the human has the project open, through the running Trickroom server. They never fail because no browser is open.
 
-`editor_context` returns what the human sees: `design` (`id`, `name`, `revision`, `updatedAt`), `board` (id, name), `selected` (the selected layer as a compact node with `parentId`, `boardId`, `index`, `siblingCount`, so "this layer" is actionable in one call), `stageMode` (`canvas` or `responsive`, with `responsiveWidth`), `visible`, `ageMs` (how old the tab's report is) and `otherTabs`. A selection or board the design no longer has comes back as `{ id, missing: true }`.
+`editor_context` returns what the human sees: `design` (`id`, `name`, `revision`, `updatedAt`), `board` (id, name), `selected` (the selected layer as a compact node with `parentId`, `boardId`, `index`, `siblingCount`, so "this layer" is actionable in one call), `stageMode` (`canvas` or `responsive`, with `responsiveWidth`), `visible`, `ageMs` (how old the tab's report is) and `otherTabs`. A selection or board the design no longer has comes back as `{ id, missing: true }`. When the open design has live annotations on the current branch, `annotations` carries the [block](#surfacing-in-results) (even without open work, for the counts) plus `selectedLayer`: the selected layer's `elementId`, counts and `annotationIds`.
 
 `editor_focus` points the editor at a design, a board, or a layer (selected and scrolled into view; its board is inferred). Unknown elements and boards fail before reaching the browser. On success `outcome` says whether the tab revealed it in the open design, navigated to another design, or queued it until the hidden tab is shown.
 
@@ -482,6 +498,65 @@ When the editor cannot answer, both return a normal result with `status` and a o
 | `blocked_dirty` | (`editor_focus`) The open design has unsaved changes, so the view was not moved. |
 
 Use `editor_focus` after a write the human should look at, and `editor_context` when the human says "this" or "the selected layer".
+
+## Annotations
+
+Annotations are remarks a designer anchors to a design, a board or a layer in the editor and sends to agents (from WP5 also to system component nodes). Each is a thread: the designer's remark, then entries (agent replies, questions, change records, the designer's answers). They are per-user working state under `<TRICKROOM_HOME>/annotations/`, never committed; see [Project Files](./project-files.md#annotations). They are scoped to the git branch checked out where the designer made them: results and counts show the current branch's only.
+
+Statuses: `open` (sent) and `acknowledged` (an agent session has seen it in full) are agent work; `needs_input` (an agent asked a question) and `addressed` (an agent changed the design for it) wait on the designer; `resolved` and `dismissed` are closed. A designer's reply on an addressed, needs-input or closed annotation reopens it.
+
+Every write through MCP is recorded as `{ role: "agent", sessionId }` with the session's id; the editor writes as the human. No tool input can change that.
+
+### Surfacing In Results
+
+Results of `design_read`, `design_apply`, `design_validate`, `design_screenshot` (with `designFileId`) and `editor_context` carry an `annotations` block for the design they touched, when it has agent work on the current branch. Error results never do. Screenshots add it as a text block `annotations: {…}` after their summary.
+
+```json
+{
+  "annotations": {
+    "new": [
+      {
+        "annotationId": "6b1f…",
+        "status": "acknowledged",
+        "target": { "kind": "layer", "boardId": "…", "elementId": "…" },
+        "name": "Title",
+        "path": ["Checkout", "Header"],
+        "acknowledged": { "by": "this session", "minutesAgo": 0, "active": true },
+        "entries": [{ "kind": "remark", "by": "human", "at": "…", "text": "Make the title larger" }],
+        "updatedAt": "…"
+      }
+    ],
+    "openIds": ["6b1f…"],
+    "counts": { "agentWork": 1, "humanWork": 0, "byStatus": { "acknowledged": 1 } },
+    "next": "1 new annotation on board \"Checkout\". Address each with your next design_apply({ designFileId: \"…\", expectedRevision, operations, addresses: [{ annotationId: \"6b1f…\", reply: \"<what you changed>\" }] }), or ask the designer with annotation_reply({ annotationId: \"6b1f…\", question: \"<your question>\" })."
+  }
+}
+```
+
+- `new`: agent work this session has not seen as it is now, in full, at most 10, design-level first, then by board order, oldest first. `more` counts the rest, and `next` names `annotation_list` for them.
+- Per-session cursor, in memory: an annotation is shown in full again only when its status, entries or target change (the designer replies, reopens or re-anchors it), not when another session acknowledges it. The session's own replies and addressed writes are not news to it.
+- `openIds` (at most 50) and `counts` (`agentWork`, `humanWork`, non-zero `byStatus`, `detached`) cover every live annotation of the design on the current branch, with the one definition of open work the editor uses.
+- Bodies: `target` without the design id, `name` and `path` (the target's and its ancestors' names when the remark was made), `component`, `detached: true` when the element no longer exists, `acknowledged` (`by` this or another session, `minutesAgo`, `active`), and `entries` with `kind`, `by` (`human`, `agent` or `this session`), `at` and `text`; change entries carry `change` (`summary`, `revisionAfter`, `layerIds`, `reverted`) without the revert state.
+- Appearing in `new` (or in `annotation_list`, `annotation_watch` and `annotation_reply` results) acknowledges an `open` annotation for this session: `open` becomes `acknowledged` with `{ sessionId, at }`. An acknowledgement by another session stays while that session is active (a tool call within 15 minutes) and is taken over once it has gone quiet. Nothing else moves back to `acknowledged`.
+- A design with only annotations that wait on the designer gets no block, except in `editor_context`.
+
+The session's last tool call is written to `<TRICKROOM_HOME>/annotations/<projectId>/sessions/<sessionId>.json` (at most every 5 seconds, from its first acknowledgement or annotation write in that project on): acknowledgement expiry reads it.
+
+### Addressing: `design_apply` `addresses`
+
+`addresses: [{ annotationId, reply }]` (at most 20) on the `design_apply` that makes the change. Before the write, every annotation must exist, be on this design and be live; otherwise nothing is written (see [Errors](#errors)). The design write comes first; then, under the same design lock, each annotation gets a `change` entry (your `reply`, the revisions before and after, the boards and layers touched, a summary per operation, and the revert state the editor's "Revert this change" uses) and becomes `addressed`. A write refused for any reason (`REVISION_MISMATCH`, a failing step, `PLAN_LEAVES_ERRORS`) records nothing, so a reply never describes a write that did not happen. If recording fails on an annotation after the write, `addressed` says so for that annotation; the write stands.
+
+### `annotation_list`
+
+`designFileId` (or `systemId` and `componentId` for a system component's), filtered by `boardId` (board and layer annotations on that board; a moved layer counts where it is now), `elementId`, `status` (`"live"`, the default: open, acknowledged, needs_input and addressed; `"all"`; one status or a list) and `branch` (`"current"`, the default; `"all"`; or a branch name, which adds `branch` to each body). Agent work first, then what waits on the designer, then closed ones; at most `limit` (default 50, at most 200), with `more` and a `next` hint beyond it. Returns `branch` (the checkout's), `annotations`, `total`, `counts` for the current branch and `problems` for files that could not be read. Annotations of a deleted design are still listed; an id with neither a design nor annotations is `DESIGN_NOT_FOUND`.
+
+### `annotation_reply`
+
+`annotationId` with `body` (a reply), `question` (sets `needs_input`; the designer's answer reopens it), `dismiss: { reason }` or `resolve: { summary? }`; at most one of the last three, and `body` may go with any. An agent's plain reply on an open annotation acknowledges it. Agents resolve only when the designer asks them to; the editor shows agent-resolved annotations for the designer to accept. Returns the annotation as it is now and `written` (false when the call changed nothing, such as resolving a resolved annotation). `designFileId` is an optional hint that saves a lookup.
+
+### `annotation_watch`
+
+Blocks until the design has agent work this session has not seen, then returns it in full (acknowledged, at most 10, with `more`, `counts` and `next`). Unseen work already there returns at once; otherwise, after the first arrival it waits 1.5 s more so remarks sent together come back together. `timeoutMs` defaults to 50,000 (under the 60-second request timeout many clients use) and is at most 300,000; on timeout `status` is `"timeout"` with `counts` and `next`, the call that keeps waiting. `boardId` narrows it to one board. It watches the design's annotation folder and checks the store at least every second, so it works in the stdio process with no Trickroom server running. A cancelled request stops waiting and releases the watcher; clients that send a `progressToken` get a progress notification every 10 seconds.
 
 ## Memory
 
@@ -657,18 +732,19 @@ design_apply said the design does not exist but design_list showed none either; 
 
 ## Audit Logging
 
-With `mcp.auditLog: true`, MCP appends JSON Lines to `.trickroom/audit-log.jsonl` for `design_apply`, `design_create`, `component_migrate`, the design write of `component_draft_create` with `from.replace`, `memory_write`, `design_screenshot` and PNG exports. Each entry has the tool name (`toolName`), the operation (for `design_apply` the operation name or `"batch"`, with `operationCount` and `operations` in `details`; `create` / `extract` (also `component_draft_create`'s replacing write); `instance` / `bulk`; `add` / `update` / `delete`; `capture` / `png`), project root, design id, expected and resulting revision, status, success, and error code and message when it failed. Entries written before this release carry the old tool names. PNG bytes are never logged.
+With `mcp.auditLog: true`, MCP appends JSON Lines to `.trickroom/audit-log.jsonl` for `design_apply` (with the ids of the annotations it addresses in `details.addresses`), `design_create`, `component_migrate`, the design write of `component_draft_create` with `from.replace`, `memory_write`, `annotation_reply` (operation `reply`, `question`, `dismiss` or `resolve`, the annotation's design and `details.annotationId`), `design_screenshot` and PNG exports. Each entry has the tool name (`toolName`), the operation (for `design_apply` the operation name or `"batch"`, with `operationCount` and `operations` in `details`; `create` / `extract` (also `component_draft_create`'s replacing write); `instance` / `bulk`; `add` / `update` / `delete`; `capture` / `png`), project root, design id, expected and resulting revision, status, success, and error code and message when it failed. Entries written before this release carry the old tool names. PNG bytes are never logged.
 
 ## Source Layout
 
 `src/mcp/server.ts` is the composition root: it creates the `McpServer`, builds the shared tool context, and calls each family's register function in `TOOL_NAMES` order, which is the order of `tools/list`.
 
 - `src/mcp/tool-names.ts`: every tool name as a constant (`TOOL`), in list order. Strings that name a tool are built from these constants; a test scans descriptions, schemas, instructions, prompts, the guide and the string literals of `src/mcp` for retired or unknown tool names.
-- `src/mcp/tool-groups.ts`: the eight persisted tool groups.
-- `src/mcp/tools/`: tool registrations by family: `projects.ts`, `guide.ts`, `design-read.ts` (`design_list`, `design_read`, `design_export`), `design-write-batch.ts` (`design_apply`, `design_create`), `design-validation.ts`, `lint.ts` (`lint`, over `src/lint/run-lint.ts`), `screenshots.ts`, `editor.ts`, `memory.ts`, `design-systems.ts` (`system_read`, `system_update`), `system-components.ts`, `feedback.ts`.
-- `src/mcp/tools/context.ts`: per-session state (selected project, project resolver, screenshot capture, editor channel, session id and call history) and the `withProjectContext` / `withPolicyErrorHandling` wrappers.
+- `src/mcp/tool-groups.ts`: the nine persisted tool groups.
+- `src/mcp/tools/`: tool registrations by family: `projects.ts`, `guide.ts`, `design-read.ts` (`design_list`, `design_read`, `design_export`), `design-write-batch.ts` (`design_apply`, `design_create`), `design-validation.ts`, `lint.ts` (`lint`, over `src/lint/run-lint.ts`), `screenshots.ts`, `editor.ts`, `annotations-tools.ts` (`annotation_list`, `annotation_reply`, `annotation_watch`), `memory.ts`, `design-systems.ts` (`system_read`, `system_update`), `system-components.ts`, `feedback.ts`.
+- `src/mcp/annotation-session.ts`: annotations as a session sees them: the per-session cursor, acknowledgement, the body shape, the `annotations` block appended to results (`withAnnotations`), counts for `design_list` and `project_list`, and the anchor index for delete warnings. Over `src/services/annotation-service.ts`.
+- `src/mcp/tools/context.ts`: per-session state (selected project, project resolver, screenshot capture, editor channel, session id, call history and the annotation session) and the `withProjectContext` / `withPolicyErrorHandling` wrappers.
 - `src/mcp/call-history.ts`: records every `tools/call` (outcome, duration, sizes) in the session's ring buffer and the optional call log, and adds `feedbackHint` to a tool's second consecutive failure. `src/mcp/tools/feedback.ts` registers `feedback_submit`; `src/app-state/feedback.ts` holds the entry format and the JSON Lines storage, shared with `src/cli/feedback.ts` (`trickroom feedback`).
-- `src/mcp/tools/results.ts` (including the `REVISION_MISMATCH` result with stale boards and recovery reads), `schemas.ts`, `operation-schemas.ts`, `annotations.ts` (annotation presets and the `_meta` keys), `mutation-support.ts` (the read, revision check and write shared by every design write, and auditing), `input-validation.ts` (one line per invalid argument).
+- `src/mcp/tools/results.ts` (including the `REVISION_MISMATCH` result with stale boards and recovery reads), `schemas.ts`, `operation-schemas.ts`, `annotations.ts` (tool annotation presets and the `_meta` keys; not the designer's annotations), `mutation-support.ts` (the read, revision check and write shared by every design write, and auditing), `input-validation.ts` (one line per invalid argument).
 - `src/mcp/design-operations.ts` and `src/mcp/operation-plan.ts`: the operation catalogue (`DESIGN_OPERATION_PARAMETERS`), parameter validation and the executor behind `design_apply` and `design_validate`.
 - `src/mcp/payloads/`: payload builders the tools call (reads, validation and apply, guide, systems, system components, projects). `design-revisions.ts` holds the board-level revision helpers (which boards changed since a revision, whether one board is current, which boards a plan touched); `component-extraction.ts` the extract-to-component flow.
 - `src/mcp/guide/`: the guide's core and topics.

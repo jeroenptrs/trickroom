@@ -9,6 +9,7 @@ export const MCP_TOOL_GROUP_IDS = [
 	"designSystems",
 	"systemComponents",
 	"memory",
+	"annotations",
 ] as const;
 
 export type McpToolGroupId = (typeof MCP_TOOL_GROUP_IDS)[number];
@@ -94,6 +95,13 @@ export const MCP_TOOL_GROUPS = [
 		description:
 			"Read and write durable steering notes scoped to a system, design, or the project.",
 		tools: [TOOL.memoryRead, TOOL.memoryWrite],
+	},
+	{
+		id: "annotations",
+		label: "Annotations",
+		description:
+			"Read the remarks designers anchor to designs, boards and layers, reply to them, and wait for new ones.",
+		tools: [TOOL.annotationList, TOOL.annotationReply, TOOL.annotationWatch],
 	},
 ] as const satisfies readonly McpToolGroupDefinition[];
 

@@ -1,12 +1,16 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { readTrickroomDesignValue } from "../../server-utils";
+import type { DesignAfterWriteContext } from "../../services/design-file-service";
 import {
 	createDesignFileService,
 	type DesignFileRead,
 } from "../../services/design-file-service";
 import { planDesignWrite } from "../../services/design-merge";
 import { decodeDesignRevision } from "../../services/design-revision";
-import type { DesignTransformError } from "../../services/design-transform-service";
+import type {
+	AnnotationAnchorLookup,
+	DesignTransformError,
+} from "../../services/design-transform-service";
 import type { TrickroomDesign } from "../../types";
 import { findDesignSystem } from "../../utils/design-system-store";
 import type { DesignOperationName } from "../design-operations";
@@ -368,6 +372,7 @@ const validateOperations = async (
 			parameters?: Record<string, unknown>;
 		}>;
 		detail?: MutationResponseDetail;
+		annotationAnchors?: AnnotationAnchorLookup;
 	},
 	describe: (
 		execution: Extract<OperationPlanExecution, { status: "success" }>,
@@ -376,7 +381,10 @@ const validateOperations = async (
 	assertCanReadDesignFile(getMcpPolicy(context.config), input.designFileId);
 	const read = await readDesignFileForTool(context, input.designFileId);
 	const execution = await executeOperationPlan(
-		createDesignOperationDependencies(context),
+		withAnnotationAnchors(
+			createDesignOperationDependencies(context),
+			input.annotationAnchors,
+		),
 		input,
 		read.design,
 	);
@@ -416,7 +424,16 @@ const validateOperations = async (
 	return createValidationResult(context, {
 		designFileId: input.designFileId,
 		revision: read.revision,
-		issues: scoped.issues,
+		issues: [
+			...scoped.issues,
+			...describeAnnotationWarnings(execution.steps).map(
+				({ elementIds, annotationIds: _annotationIds, ...warning }) => ({
+					severity: "warning" as const,
+					...warning,
+					elementId: elementIds[0],
+				}),
+			),
+		],
 		detail: input.detail,
 		extra: {
 			...describe(execution),
@@ -432,7 +449,10 @@ export const validateOperationPlanPayload = async (
 	input: Pick<
 		OperationPlanInput,
 		"designFileId" | "expectedRevision" | "operations"
-	> & { detail?: MutationResponseDetail },
+	> & {
+		detail?: MutationResponseDetail;
+		annotationAnchors?: AnnotationAnchorLookup;
+	},
 ) =>
 	validateOperations(context, input, (execution) => ({
 		operationCount: input.operations.length,
@@ -443,6 +463,37 @@ export const validateOperationPlanPayload = async (
 			? { deletedCount: execution.deletedIds.length }
 			: {}),
 	}));
+
+const withAnnotationAnchors = <Deps extends object>(
+	deps: Deps,
+	annotationAnchors: AnnotationAnchorLookup | undefined,
+): Deps & { annotationAnchors?: AnnotationAnchorLookup } =>
+	annotationAnchors ? { ...deps, annotationAnchors } : deps;
+
+/**
+ * One warning per deleteElement step that removes elements live annotations
+ * are anchored to (the element or a descendant): those annotations become
+ * detached. Named by id so the agent can address them in the same batch or
+ * tell the designer.
+ */
+export const describeAnnotationWarnings = (
+	steps: readonly OperationPlanStepOutput[],
+) =>
+	steps.flatMap((step) => {
+		const warning = step.annotationWarnings;
+		if (!warning || warning.annotations.length === 0) return [];
+		const annotationIds = [
+			...new Set(warning.annotations.map((entry) => entry.annotationId)),
+		];
+		return [
+			{
+				code: "ANNOTATION_TARGET_DELETED",
+				message: `Step ${step.stepIndex} deletes element ${warning.elementId}, which has ${annotationIds.length === 1 ? "an open annotation" : `${annotationIds.length} open annotations`} on it or its descendants (${annotationIds.join(", ")}). ${annotationIds.length === 1 ? "It stays with its snapshot and shows" : "They stay with their snapshots and show"} as detached until the element returns. Address ${annotationIds.length === 1 ? "it" : "them"} in this batch with addresses, or tell the designer.`,
+				elementIds: [warning.elementId],
+				annotationIds,
+			},
+		];
+	});
 
 /** An error result that keeps the payload's own status (a failed plan). */
 const createErrorResult = (
@@ -509,9 +560,23 @@ export const applyDesignOperationsPayload = async (
 	> & {
 		/** Called after a write that renamed the design. */
 		onRename?: () => Promise<void>;
+		/** Live annotations by anchored element, for delete warnings. */
+		annotationAnchors?: AnnotationAnchorLookup;
+		/**
+		 * Runs under the design lock once the write is stored, never for a
+		 * refused one: records the annotations the write addresses.
+		 */
+		afterWrite?: (
+			context: DesignAfterWriteContext & {
+				steps: OperationPlanStepOutput[];
+			},
+		) => Promise<void>;
 	},
 ): Promise<CallToolResult> => {
-	const { designFileId, expectedRevision, operations, response } = input;
+	const { designFileId, expectedRevision, operations, response, afterWrite } =
+		input;
+	// The steps of the plan being written, for the after-write step.
+	let plannedSteps: OperationPlanStepOutput[] = [];
 	const base = {
 		project: getProjectReference(context),
 		designFileId,
@@ -523,7 +588,10 @@ export const applyDesignOperationsPayload = async (
 		{
 			mutate: async (read) => {
 				const execution = await executeOperationPlan(
-					createDesignOperationDependencies(context),
+					withAnnotationAnchors(
+						createDesignOperationDependencies(context),
+						input.annotationAnchors,
+					),
 					{ designFileId, operations },
 					read.design,
 				);
@@ -595,8 +663,35 @@ export const applyDesignOperationsPayload = async (
 						}),
 					);
 				}
-				return { design: execution.design, execution, diagnostics };
+				plannedSteps = execution.steps;
+				const annotationWarnings = describeAnnotationWarnings(execution.steps);
+				return {
+					design: execution.design,
+					execution,
+					diagnostics:
+						annotationWarnings.length > 0
+							? {
+									...diagnostics,
+									warningCount:
+										diagnostics.warningCount + annotationWarnings.length,
+									warnings: [
+										...(diagnostics.warnings ?? []),
+										...annotationWarnings,
+									],
+								}
+							: diagnostics,
+				};
 			},
+			...(afterWrite
+				? {
+						afterWrite: (context: DesignAfterWriteContext) =>
+							afterWrite({
+								before: context.before,
+								write: context.write,
+								steps: plannedSteps,
+							}),
+					}
+				: {}),
 			respond: async ({ execution, diagnostics }, write) => {
 				if (
 					input.onRename &&

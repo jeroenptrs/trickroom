@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+	createAddressesRecorder,
+	type RecordChangeResult,
+	validateAddresses,
+} from "../../services/annotation-service";
+import {
 	applyExtractSubtree,
 	DesignTransformError,
 	normalizeDesignForMutation,
@@ -9,12 +14,14 @@ import { createElementNotFoundError } from "../../services/element-lookup-hints"
 import type { TrickroomDesign } from "../../types";
 import { findDesignSystem } from "../../utils/design-system-store";
 import { applyProjectDefaultSystemToDesign } from "../../utils/project-default-system";
+import { appendToResult } from "../annotation-session";
 import {
 	assertCanReadDesignFile,
 	assertCanWriteDesignFile,
 	getMcpPolicy,
 	McpPolicyError,
 } from "../governance";
+import type { OperationPlanStepOutput } from "../operation-plan";
 import { assertConfiguredSystem } from "../payloads/design-system";
 import {
 	createBlankDesign,
@@ -43,7 +50,7 @@ import {
 	withMutationErrorHandling,
 } from "./mutation-support";
 import { createOperationPlanStepsInputSchema } from "./operation-schemas";
-import { createJsonResult } from "./results";
+import { createJsonResult, createToolErrorResult } from "./results";
 import {
 	designFileIdSchema,
 	expectedRevisionSchema,
@@ -255,20 +262,80 @@ export const registerDesignCreateTool = (ctx: McpToolContext) => {
 	);
 };
 
+/** Annotations one design_apply can address. */
+const MAX_ADDRESSES = 20;
+
+/** One line per step for a change record: the operation and what it changed. */
+const summarizeStep = (step: OperationPlanStepOutput) => {
+	const target = step.rootElementId ?? step.changedElementId;
+	const name =
+		step.operation === "renameDesignFile" &&
+		typeof step.summary.name === "string"
+			? ` "${step.summary.name}"`
+			: "";
+	const deleted =
+		step.deletedIds && step.deletedIds.length > 1
+			? ` (${step.deletedIds.length} elements)`
+			: "";
+	return {
+		operation: step.operation,
+		summary: `${step.operation}${target ? ` ${target}` : ""}${name}${deleted}`,
+	};
+};
+
+const summarizeSteps = (steps: readonly OperationPlanStepOutput[]) => {
+	const names = [...new Set(steps.map((step) => step.operation))];
+	return `${steps.length === 1 ? "1 operation" : `${steps.length} operations`}: ${names.join(", ")}`;
+};
+
+/** What the result says per addressed annotation. */
+const describeRecorded = (result: RecordChangeResult) =>
+	result.status === "recorded"
+		? {
+				annotationId: result.annotationId,
+				status: result.annotation.status,
+				entryId: result.entryId,
+			}
+		: {
+				annotationId: result.annotationId,
+				status: "failed" as const,
+				code: result.code,
+				message: result.message,
+			};
+
 export const registerDesignApplyTool = (ctx: McpToolContext) => {
-	const { server, notifyResourceListChanged, withProjectContext } = ctx;
+	const { server, annotations, notifyResourceListChanged, withProjectContext } =
+		ctx;
 
 	server.registerTool(
 		TOOL.designApply,
 		{
 			title: "Apply Design Operations",
-			description: `Write to a design: an ordered list of operations, validated together and committed atomically against expectedRevision, checked per board: boards you do not change may have changed since. One write, or none when a step fails or the plan adds error issues; errors the design already had do not block it (preExistingErrorCount). A single edit is a list of one. Returns newRevision for your next write, \`created\` ids per inserting step (root id, addSubtree tempId map, recipe slot ids), deletedCount, error issues, warningCount and grouped likely-typo warnings on touched elements; response "full" adds every warning and each step's summary. A failing step returns failedStepIndex, its error with hints and expectedParameters. REVISION_MISMATCH names the stale boards (staleBoards) and the reads to retry from (next). Later steps reference elements created by earlier ones with $step:N, $step:N:tempId:<tempId> and $step:N:slot:<slot>. Parameters and examples: ${TOOL.guide}({ topic: "operations" }). Dry-run with ${TOOL.designValidate}. After a write the human should see, ${TOOL.editorFocus} points their editor at it.`,
+			description: `Write to a design: an ordered list of operations, validated together and committed atomically against expectedRevision, checked per board: boards you do not change may have changed since. One write, or none when a step fails or the plan adds error issues; errors the design already had do not block it (preExistingErrorCount). A single edit is a list of one. Returns newRevision for your next write, \`created\` ids per inserting step (root id, addSubtree tempId map, recipe slot ids), deletedCount, error issues, warningCount and grouped likely-typo warnings on touched elements; response "full" adds every warning and each step's summary. A failing step returns failedStepIndex, its error with hints and expectedParameters. REVISION_MISMATCH names the stale boards (staleBoards) and the reads to retry from (next). Later steps reference elements created by earlier ones with $step:N, $step:N:tempId:<tempId> and $step:N:slot:<slot>. addresses: [{ annotationId, reply }] marks the designer's annotations this write answers as addressed, with your reply and a change record they can revert; unknown, other-design or resolved ones refuse the write, and nothing is recorded unless it lands (\`addressed\`). Parameters and examples: ${TOOL.guide}({ topic: "operations" }). Dry-run with ${TOOL.designValidate}. After a write the human should see, ${TOOL.editorFocus} points their editor at it.`,
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
 				expectedRevision: expectedRevisionSchema,
 				operations: createOperationPlanStepsInputSchema(
 					"Ordered operations to commit.",
 				),
+				addresses: z
+					.array(
+						z
+							.object({
+								annotationId: z.string().min(1).describe("Annotation id."),
+								reply: z
+									.string()
+									.min(1)
+									.describe("What you changed, for the designer."),
+							})
+							.strict(),
+					)
+					.min(1)
+					.max(MAX_ADDRESSES)
+					.optional()
+					.describe(
+						"Annotations on this design that this write answers, each with your reply.",
+					),
 				response: mutationResponseInputSchema,
 			}),
 			annotations: {
@@ -279,10 +346,17 @@ export const registerDesignApplyTool = (ctx: McpToolContext) => {
 			_meta: {
 				[ALWAYS_LOAD_META_KEY]: true,
 				[SEARCH_HINT_META_KEY]:
-					"edit write insert add update move delete copy rename element recipe component batch",
+					"edit write insert add update move delete copy rename element recipe component batch annotation addresses",
 			},
 		},
-		async ({ designFileId, expectedRevision, operations, response, project }) =>
+		async ({
+			designFileId,
+			expectedRevision,
+			operations,
+			addresses,
+			response,
+			project,
+		}) =>
 			withProjectContext(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				return withMutationErrorHandling(
@@ -297,16 +371,107 @@ export const registerDesignApplyTool = (ctx: McpToolContext) => {
 						details: {
 							operationCount: operations.length,
 							operations: operations.map((step) => step.operation),
+							...(addresses
+								? {
+										addresses: addresses.map((address) => address.annotationId),
+									}
+								: {}),
 						},
 					},
 					async () => {
 						assertCanWriteDesignFile(policy, designFileId);
-						return applyDesignOperationsPayload(context, {
+						let recorded: RecordChangeResult[] | null = null;
+						let afterWrite:
+							| Parameters<typeof applyDesignOperationsPayload>[1]["afterWrite"]
+							| undefined;
+						const annotationProject = addresses
+							? await annotations.openProject(context)
+							: null;
+						if (addresses) {
+							const ids = addresses.map((address) => address.annotationId);
+							const duplicate = ids.find(
+								(id, index) => ids.indexOf(id) !== index,
+							);
+							if (duplicate !== undefined) {
+								return createToolErrorResult(
+									context,
+									"INVALID_OPERATION_PARAMETERS",
+									`addresses names annotation ${duplicate} twice; pass each annotation once with one reply.`,
+								);
+							}
+							if (!annotationProject) {
+								return createToolErrorResult(
+									context,
+									"PROJECT_ID_REQUIRED",
+									"This project has no projectId in .trickroom/config.json, so it has no annotations to address.",
+								);
+							}
+							const problems = await validateAddresses(
+								annotationProject.service,
+								{ designId: designFileId, addresses },
+							);
+							if (problems.length > 0) {
+								return createToolErrorResult(
+									context,
+									problems[0]?.code ?? "ANNOTATION_NOT_FOUND",
+									`${problems.map((problem) => problem.message).join(" ")} Nothing was written. ${TOOL.annotationList}({ designFileId: "${designFileId}" }) lists the live annotations of this design.`,
+									{ valid: false, designFileId, addressProblems: problems },
+								);
+							}
+							afterWrite = async ({ before, write, steps }) => {
+								const recorder = createAddressesRecorder(
+									annotationProject.service,
+									{
+										designId: designFileId,
+										addresses,
+										by: annotationProject.by,
+										operations: steps.map(summarizeStep),
+										summary: summarizeSteps(steps),
+									},
+								);
+								await recorder.afterWrite({ before, write });
+								recorded = recorder.results();
+							};
+						}
+						let result = await applyDesignOperationsPayload(context, {
 							designFileId,
 							expectedRevision,
 							operations,
 							response,
 							onRename: notifyResourceListChanged,
+							annotationAnchors: await annotations.getDeleteAnchors(
+								context,
+								designFileId,
+								operations,
+							),
+							...(afterWrite ? { afterWrite } : {}),
+						});
+						if (addresses && annotationProject && !result.isError) {
+							const outcomes: RecordChangeResult[] = recorded ?? [];
+							for (const outcome of outcomes) {
+								if (outcome.status === "recorded") {
+									annotations.markSeen(annotationProject, outcome.annotation);
+								}
+							}
+							if (outcomes.length > 0)
+								annotations.startClock(annotationProject);
+							result = appendToResult(
+								result,
+								"addressed",
+								outcomes.length > 0
+									? outcomes.map(describeRecorded)
+									: // The write landed but the recording step did not run to the end.
+										addresses.map(({ annotationId }) => ({
+											annotationId,
+											status: "failed",
+											code: "ANNOTATION_WRITE_FAILED",
+											message:
+												"The design was written, but the change could not be recorded on this annotation.",
+										})),
+							);
+						}
+						return annotations.withAnnotations(result, context, {
+							designId: designFileId,
 						});
 					},
 				);
