@@ -2,6 +2,8 @@ import type { Node, RecipeTemplateNode, TrickroomDesign } from "../types";
 import {
 	ANNOTATION_STATUSES,
 	type Annotation,
+	type AnnotationChangeRecord,
+	type AnnotationEntry,
 	type AnnotationStatus,
 	type AnnotationTarget,
 	CLOSED_ANNOTATION_STATUSES,
@@ -149,6 +151,11 @@ export type AnnotationTargetLocator = {
 	 * detached node annotation still counts in the component's total.
 	 */
 	componentRootId?: () => string | null;
+	/**
+	 * A layer's parent now (null for a board or a missing layer). With it,
+	 * the rail sums a collapsed row's descendants into its marker.
+	 */
+	parentOfLayer?: (elementId: string) => string | null;
 };
 
 type DesignLayerLocation = {
@@ -450,6 +457,44 @@ export const normalizePinnedVariants = (
 		.sort(([a], [b]) => a.localeCompare(b));
 	// fromEntries defines own properties: `__proto__` is just a key.
 	return entries.length > 0 ? Object.fromEntries(entries) : null;
+};
+
+/**
+ * Whether two change records come from one write: a write that addresses
+ * several annotations records the same change (same revisions before and
+ * after) on each of them.
+ */
+export const isSameChangeWrite = (
+	a: Pick<AnnotationChangeRecord, "revisionBefore" | "revisionAfter">,
+	b: Pick<AnnotationChangeRecord, "revisionBefore" | "revisionAfter">,
+) =>
+	a.revisionBefore === b.revisionBefore && a.revisionAfter === b.revisionAfter;
+
+/**
+ * The other annotations of a container that the write behind `change`
+ * addressed too, with their change entry of it (not reverted). Reverting
+ * the change from any of them undoes that whole write, so it is undone for
+ * all of them.
+ */
+export const findAnnotationsSharingChange = <
+	A extends { id: string; entries: readonly AnnotationEntry[] },
+>(
+	annotations: Iterable<A>,
+	annotationId: string,
+	change: Pick<AnnotationChangeRecord, "revisionBefore" | "revisionAfter">,
+): { annotation: A; entryId: string }[] => {
+	const shared: { annotation: A; entryId: string }[] = [];
+	for (const annotation of annotations) {
+		if (annotation.id === annotationId) continue;
+		const entry = annotation.entries.find(
+			(candidate) =>
+				candidate.kind === "change" &&
+				!candidate.revertedBy &&
+				isSameChangeWrite(candidate.change, change),
+		);
+		if (entry) shared.push({ annotation, entryId: entry.id });
+	}
+	return shared;
 };
 
 /**

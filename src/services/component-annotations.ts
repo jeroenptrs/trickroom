@@ -28,6 +28,7 @@ import {
 	AnnotationServiceError,
 	type RecordChangeResult,
 	recordChange,
+	recordSharedRevert,
 	viewAnnotation,
 	withEntry,
 	withoutRevertState,
@@ -396,7 +397,12 @@ export const revertComponentChange = async (
 					: "This change cannot be reverted: it was a publish, its annotation was resolved or dismissed, or it did not change the draft.",
 			);
 		}
-		return { draftBefore, draftAfter, layerIds: entry.change.layerIds };
+		return {
+			draftBefore,
+			draftAfter,
+			layerIds: entry.change.layerIds,
+			change: entry.change,
+		};
 	};
 	const stored = await context.store.read(container, input.annotationId);
 	if (!stored) {
@@ -416,7 +422,10 @@ export const revertComponentChange = async (
 			{ annotationId: input.annotationId, currentRevision: stored.revision },
 		);
 	}
-	const { draftBefore, draftAfter, layerIds } = findChange(stored.annotation);
+	const { draftBefore, draftAfter, layerIds, change } = findChange(
+		stored.annotation,
+	);
+	let alsoReverted: string[] = [];
 	const changedSince = (revision: string) =>
 		new AnnotationServiceError(
 			"CHANGED_SINCE",
@@ -504,12 +513,21 @@ export const revertComponentChange = async (
 										next.status === "addressed"
 											? withTransition(next, "open", by, at)
 											: next,
-									result: undefined,
+									result: { at, revision: written.revision },
 								};
 							},
 							{ expectedRevision: input.expectedRevision },
 						);
 						recorded = result.stored;
+						alsoReverted = await recordSharedRevert(context, {
+							container,
+							annotationId: input.annotationId,
+							change,
+							by,
+							at: result.result.at,
+							revisionBefore: current.revision,
+							revisionAfter: result.result.revision,
+						});
 					},
 				},
 			);
@@ -548,6 +566,8 @@ export const revertComponentChange = async (
 			}),
 			revision: manifestRevision as string,
 			restoredLayerIds: layerIds,
+			/** The other annotations the reverted write addressed, now reverted too. */
+			alsoReverted,
 		};
 	}
 	throw new AnnotationServiceError(

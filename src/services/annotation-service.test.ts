@@ -853,6 +853,44 @@ describe("branch scope", () => {
 		});
 		expect(written).toBe(false);
 	});
+
+	it("drops an acknowledgement when the annotation moves to another branch", async () => {
+		const annotation = await create({ scope: feature });
+		await acknowledgeAnnotation(context, {
+			annotationId: annotation.id,
+			sessionId: "feature-session",
+			branch: "feature",
+		});
+		tick();
+		const { annotation: moved } = await moveAnnotationToBranch(context, {
+			annotationId: annotation.id,
+			by: human,
+			scope: main,
+		});
+		expect(moved.status).toBe("open");
+		expect(moved.acknowledged).toBeUndefined();
+		expect(moved.transitions.at(-1)).toMatchObject({
+			from: "acknowledged",
+			to: "open",
+			by: human,
+		});
+
+		// Another worktree of the same branch keeps it: its sessions can
+		// still write it.
+		const sameBranch = await create({ scope: main });
+		await acknowledgeAnnotation(context, {
+			annotationId: sameBranch.id,
+			sessionId: "main-session",
+			branch: "main",
+		});
+		const { annotation: kept } = await moveAnnotationToBranch(context, {
+			annotationId: sameBranch.id,
+			by: human,
+			scope: { branch: "main", worktreePath: "/repo-other" },
+		});
+		expect(kept.status).toBe("acknowledged");
+		expect(kept.acknowledged).toMatchObject({ sessionId: "main-session" });
+	});
 });
 
 describe("filters, detached and re-anchoring", () => {
@@ -1318,6 +1356,58 @@ describe("revert", () => {
 				designService: designs,
 			}),
 		).rejects.toMatchObject({ code: "NOT_REVERTIBLE" });
+	});
+
+	it("reverts a write that addressed several annotations on all of them", async () => {
+		const title = await create();
+		const card = await create({ target: layerTarget("card") });
+		const closed = await create({ target: layerTarget("price") });
+		await writeAddressing(
+			[title.id, card.id, closed.id],
+			setClass("title", "text-2xl"),
+		);
+		await transitionAnnotation(context, {
+			annotationId: closed.id,
+			by: human,
+			to: "resolved",
+		});
+
+		tick();
+		const result = await revertChange(context, {
+			annotationId: title.id,
+			entryId: await changeEntryId(title.id),
+			by: human,
+			designService: designs,
+		});
+		expect(findClass((await readDesign()).design, "title")).toBeUndefined();
+		// Only live annotations hold revert state; the resolved one is left alone.
+		expect(result.alsoReverted).toEqual([card.id]);
+
+		const sibling = await getAnnotation(context, { annotationId: card.id });
+		expect(sibling.status).toBe("open");
+		const change = sibling.entries.find(
+			(candidate) => candidate.kind === "change",
+		);
+		const revert = sibling.entries.at(-1);
+		expect(revert).toMatchObject({
+			kind: "revert",
+			entryId: change?.id,
+			by: human,
+			revisionAfter: result.revision,
+		});
+		expect(change).toMatchObject({ revertedBy: revert?.id });
+		expect(change?.kind === "change" && change.change.before).toBeFalsy();
+		await expect(
+			revertChange(context, {
+				annotationId: card.id,
+				entryId: change?.id ?? "",
+				by: human,
+				designService: designs,
+			}),
+		).rejects.toMatchObject({ code: "NOT_REVERTIBLE" });
+		expect(
+			(await getAnnotation(context, { annotationId: closed.id })).status,
+		).toBe("resolved");
 	});
 
 	it("refuses with CHANGED_SINCE when a touched layer moved on", async () => {

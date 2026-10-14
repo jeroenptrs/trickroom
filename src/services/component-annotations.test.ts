@@ -722,6 +722,39 @@ describe("component annotations", () => {
 			});
 		});
 
+		it("reverts a write that addressed several annotations on all of them", async () => {
+			const first = await create();
+			const second = await create();
+			tick();
+			const beforeHash = hashSystemComponentTemplate(await draftOf());
+			await addressing([first.id, second.id], {
+				draft: { root: buttonRoot("px-8") },
+			});
+			tick();
+
+			const result = await revert(
+				first.id,
+				changeEntry(await reload(first.id)).id,
+			);
+
+			expect(hashSystemComponentTemplate(await draftOf())).toBe(beforeHash);
+			expect(result.alsoReverted).toEqual([second.id]);
+			const sibling = await reload(second.id);
+			expect(sibling.status).toBe("open");
+			const revertEntry = sibling.entries.at(-1);
+			expect(revertEntry).toMatchObject({
+				kind: "revert",
+				by: human,
+				revisionAfter: result.revision,
+			});
+			const change = changeEntry(sibling);
+			expect(change.revertedBy).toBe(revertEntry?.id);
+			expect(change.change.draftBefore).toBeUndefined();
+			await expect(revert(second.id, change.id)).rejects.toMatchObject({
+				code: "NOT_REVERTIBLE",
+			});
+		});
+
 		it("restores the variant schema and slots as well", async () => {
 			const annotation = await create();
 			const original = await draftOf();

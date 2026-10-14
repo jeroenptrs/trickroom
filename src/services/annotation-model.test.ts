@@ -10,6 +10,7 @@ import {
 	deriveDetachedWith,
 	designTargetLocator,
 	emptyAnnotationCounts,
+	findAnnotationsSharingChange,
 	findDesignLayer,
 	getAnnotationMemoryReference,
 	isAnnotationTarget,
@@ -17,7 +18,11 @@ import {
 	summarizeAnnotationCounts,
 	summarizeAnnotationCountsWith,
 } from "./annotation-model";
-import type { AnnotationStatus, AnnotationTarget } from "./annotations.types";
+import type {
+	AnnotationEntry,
+	AnnotationStatus,
+	AnnotationTarget,
+} from "./annotations.types";
 
 const node = (id: string, children: Node[] | string = []): Node => ({
 	id,
@@ -430,5 +435,44 @@ describe("getAnnotationMemoryReference", () => {
 				nodePath: "0",
 			}),
 		).toBe("{{component:button}}");
+	});
+});
+
+describe("findAnnotationsSharingChange", () => {
+	const human = { role: "human" } as const;
+	const change = (revisionBefore: string, revisionAfter: string) => ({
+		revisionBefore,
+		revisionAfter,
+		boards: [],
+		layerIds: [],
+		operations: [],
+		summary: "",
+	});
+	const changeEntry = (
+		id: string,
+		revisions: [string, string],
+		revertedBy?: string,
+	): AnnotationEntry => ({
+		id,
+		kind: "change",
+		at: "2026-10-14T10:00:00.000Z",
+		by: human,
+		change: change(...revisions),
+		...(revertedBy ? { revertedBy } : {}),
+	});
+
+	it("finds the other annotations one write addressed, not reverted ones", () => {
+		const annotations = [
+			{ id: "a", entries: [changeEntry("a1", ["r1", "r2"])] },
+			{ id: "b", entries: [changeEntry("b1", ["r1", "r2"])] },
+			{ id: "c", entries: [changeEntry("c1", ["r1", "r2"], "c2")] },
+			{ id: "d", entries: [changeEntry("d1", ["r2", "r3"])] },
+			{ id: "e", entries: [changeEntry("e1", ["r0", "r2"])] },
+		];
+		expect(
+			findAnnotationsSharingChange(annotations, "a", change("r1", "r2")).map(
+				({ annotation, entryId }) => [annotation.id, entryId],
+			),
+		).toEqual([["b", "b1"]]);
 	});
 });

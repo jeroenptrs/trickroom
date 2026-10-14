@@ -8,6 +8,7 @@ import {
 	currentBoardOf,
 	deriveComponentDetached,
 	deriveDetached,
+	findAnnotationsSharingChange,
 	findComponentNode,
 	findDesignLayer,
 	hasPinnedVariants,
@@ -65,7 +66,7 @@ import type { AnnotationAnchorLookup } from "./design-transform-service";
  * annotation, never per batch, and each one is recorded with who and when.
  */
 
-// The pure definitions live in `annotation-counts.ts` so the editor can use
+// The pure definitions live in `annotation-model.ts` so the editor can use
 // them too; they are re-exported here for the server and MCP.
 export {
 	AGENT_WORK_STATUSES,
@@ -663,6 +664,33 @@ export const countAnnotations = async (
 		input.design,
 		input.component,
 	);
+};
+
+/**
+ * Agent and designer work per design on the checkout's branch, for the
+ * project screen's design list. Designs without live annotations are left
+ * out.
+ */
+export const countDesignAnnotations = async (
+	context: AnnotationServiceContext,
+	{ scope }: { scope: AnnotationScope },
+): Promise<Map<string, { agentWork: number; humanWork: number }>> => {
+	const result = new Map<string, { agentWork: number; humanWork: number }>();
+	const containers = (await context.store.listContainers()).filter(
+		(container) => container.kind === "design",
+	);
+	await Promise.all(
+		containers.map(async (container) => {
+			const { total } = await countAnnotations(context, { container, scope });
+			if (total.live > 0 && container.kind === "design") {
+				result.set(container.designId, {
+					agentWork: total.agentWork,
+					humanWork: total.humanWork,
+				});
+			}
+		}),
+	);
+	return result;
 };
 
 /** Live annotations of a design on the checkout's branch, by anchored element. */
@@ -1319,7 +1347,12 @@ export const reanchorAnnotation = async (
 	});
 };
 
-/** Moves an annotation to the checkout's branch (after a merge, say). */
+/**
+ * Moves an annotation to the checkout's branch (after a merge, say). An
+ * acknowledgement does not move with it: the session that gave it works on
+ * the other branch and can no longer write the annotation, so it is open
+ * work again for the agents on this one.
+ */
 export const moveAnnotationToBranch = async (
 	context: AnnotationServiceContext,
 	input: AnnotationRef & { by: AnnotationActor; scope: AnnotationScope },
@@ -1330,25 +1363,31 @@ export const moveAnnotationToBranch = async (
 		branch,
 		worktreePath: input.scope.worktreePath,
 	};
-	const outcome = await updateAnnotation(context, input, (annotation, at) =>
-		annotation.branch === to.branch &&
-		annotation.worktreePath === to.worktreePath
-			? null
-			: {
-					...withEntry(annotation, {
-						id: randomUUID(),
-						kind: "move",
-						at,
-						by: input.by,
-						from: {
-							branch: annotation.branch,
-							worktreePath: annotation.worktreePath,
-						},
-						to,
-					}),
-					...to,
+	const outcome = await updateAnnotation(context, input, (annotation, at) => {
+		if (
+			annotation.branch === to.branch &&
+			annotation.worktreePath === to.worktreePath
+		) {
+			return null;
+		}
+		const moved: Annotation = {
+			...withEntry(annotation, {
+				id: randomUUID(),
+				kind: "move",
+				at,
+				by: input.by,
+				from: {
+					branch: annotation.branch,
+					worktreePath: annotation.worktreePath,
 				},
-	);
+				to,
+			}),
+			...to,
+		};
+		return annotation.branch !== to.branch && moved.status === "acknowledged"
+			? withTransition(moved, "open", input.by, at)
+			: moved;
+	});
 	return finishWrite(context, outcome);
 };
 
@@ -1684,6 +1723,111 @@ export const createAddressesRecorder = (
 const maxRevertAttempts = 3;
 
 /**
+ * Records a revert on the other annotations the reverted write addressed
+ * (`findAnnotationsSharingChange`): the write is undone for all of them, so
+ * each change entry of it loses its revert state, gets a `revert` entry, and
+ * an addressed annotation is open again. Runs under the design (or component
+ * manifest) lock once the revert is stored, each annotation under its own
+ * lock. Best effort: one that cannot be written is left as it was, its
+ * revert then refused as changed since. Returns the ids it recorded on.
+ */
+export const recordSharedRevert = async (
+	context: AnnotationServiceContext,
+	{
+		container,
+		annotationId,
+		change,
+		by,
+		at,
+		revisionBefore,
+		revisionAfter,
+	}: {
+		container: AnnotationContainer;
+		/** The annotation the designer reverted from (already recorded). */
+		annotationId: string;
+		change: AnnotationChangeRecord;
+		by: AnnotationActor;
+		at: string;
+		/** Revisions of the revert write. */
+		revisionBefore: string;
+		revisionAfter: string;
+	},
+): Promise<string[]> => {
+	let shared: { annotation: Annotation }[];
+	try {
+		const { annotations } = await context.store.list(container);
+		shared = findAnnotationsSharingChange(
+			annotations.map((stored) => stored.annotation),
+			annotationId,
+			change,
+		);
+	} catch {
+		return [];
+	}
+	const recorded: string[] = [];
+	for (const { annotation: sibling } of shared) {
+		try {
+			const result = await context.store.update(
+				container,
+				sibling.id,
+				async ({ annotation }) => {
+					const [match] = findAnnotationsSharingChange(
+						[annotation],
+						annotationId,
+						change,
+					);
+					const entry = annotation.entries.find(
+						(candidate) => candidate.id === match?.entryId,
+					);
+					if (
+						!match ||
+						entry?.kind !== "change" ||
+						!hasRevertState(entry.change)
+					) {
+						return { annotation: null, result: undefined };
+					}
+					const revertEntryId = randomUUID();
+					const next = withEntry(
+						{
+							...annotation,
+							entries: annotation.entries.map((candidate) =>
+								candidate.id === entry.id && candidate.kind === "change"
+									? {
+											...candidate,
+											change: withoutRevertState(candidate.change),
+											revertedBy: revertEntryId,
+										}
+									: candidate,
+							),
+						},
+						{
+							id: revertEntryId,
+							kind: "revert",
+							at,
+							by,
+							entryId: entry.id,
+							revisionBefore,
+							revisionAfter,
+						},
+					);
+					return {
+						annotation:
+							next.status === "addressed"
+								? withTransition(next, "open", by, at)
+								: next,
+						result: undefined,
+					};
+				},
+			);
+			if (result.written) recorded.push(sibling.id);
+		} catch {
+			// Left as it was: its own revert is refused as changed since.
+		}
+	}
+	return recorded;
+};
+
+/**
  * Undoes a change record: restores the touched layers' before state while
  * every one of them still has the state the change left it in, else fails
  * with `CHANGED_SINCE` listing the layers that moved on.
@@ -1754,7 +1898,8 @@ export const revertChange = async (
 			{ annotationId: input.annotationId, currentRevision: stored.revision },
 		);
 	}
-	const { before, after } = findChange(stored.annotation);
+	const { entry, before, after } = findChange(stored.annotation);
+	let alsoReverted: string[] = [];
 
 	for (let attempt = 0; attempt < maxRevertAttempts; attempt += 1) {
 		const read = await input.designService.readDesignFile(container.designId);
@@ -1834,11 +1979,23 @@ export const revertChange = async (
 							if (next.status === "addressed") {
 								next = withTransition(next, "open", by, at);
 							}
-							return { annotation: next, result: undefined };
+							return {
+								annotation: next,
+								result: { at, revision: write.revision },
+							};
 						},
 						{ expectedRevision: input.expectedRevision },
 					);
 					recorded = result.stored;
+					alsoReverted = await recordSharedRevert(context, {
+						container,
+						annotationId: input.annotationId,
+						change: entry.change,
+						by,
+						at: result.result.at,
+						revisionBefore: read.revision,
+						revisionAfter: result.result.revision,
+					});
 				},
 			});
 		} catch (error) {
@@ -1859,6 +2016,8 @@ export const revertChange = async (
 			}),
 			revision: outcome.write.revision,
 			restoredLayerIds: Object.keys(before.layers),
+			/** The other annotations the reverted write addressed, now reverted too. */
+			alsoReverted,
 		};
 	}
 	throw new AnnotationServiceError(
