@@ -158,6 +158,31 @@ export const annotationListQueryOptions = (
 		refetchOnWindowFocus: false,
 	});
 
+/** Agent and designer work per design on the checkout's branch. */
+export type AnnotationDesignCounts = Record<
+	string,
+	{ agentWork: number; humanWork: number }
+>;
+
+export const annotationCountsQueryKey = (projectScope?: ProjectQueryScope) =>
+	withProjectQueryScope(["trickroom-annotation-counts"], projectScope);
+
+export const annotationCountsQueryOptions = (
+	projectScope?: ProjectQueryScope,
+) =>
+	queryOptions({
+		queryKey: annotationCountsQueryKey(projectScope),
+		queryFn: async ({ signal }) =>
+			(
+				await readAnnotationJson<{ designs: AnnotationDesignCounts }>(
+					await fetch(`${baseUrl}/counts`, { signal }),
+				)
+			).designs,
+		retry: false,
+		// `annotation` events invalidate it (useProjectFileEvents).
+		refetchOnWindowFocus: false,
+	});
+
 export const fetchAnnotation = async (
 	annotationId: string,
 	container: AnnotationContainer,

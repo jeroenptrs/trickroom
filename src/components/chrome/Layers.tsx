@@ -350,8 +350,8 @@ export const Layer = memo(function Layer({
 	const entity = useElement(id);
 	const boardChangedExternally = useBoardChangedExternally(id);
 	const changedExternally = useLayerChangedExternally(id);
-	const annotationMarker = useAnnotationRowMarker(id);
 	const hasChildren = layer.childIds.length > 0;
+	const annotationMarker = useAnnotationRowMarker(id, hasChildren && !open);
 	const isRecipeOwned = isRecipeOwnedStructuralNode(entity);
 	const isComponentOwned = isSystemComponentOwnedStructuralNode(entity);
 	const recipeMetadata = getElementRecipeMetadata(entity);
@@ -659,7 +659,7 @@ export const Layer = memo(function Layer({
 							className="ml-1 flex shrink-0 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
 							data-annotation-marker={annotationMarker.state}
 							aria-label={`${annotationMarker.count} ${annotationMarker.count === 1 ? "annotation" : "annotations"} (${ANNOTATION_STATE_LABELS[annotationMarker.state].toLowerCase()}): show`}
-							title={`${annotationMarker.count} ${annotationMarker.count === 1 ? "annotation" : "annotations"}${layer.parentId === null ? " on this board" : ""}: ${ANNOTATION_STATE_LABELS[annotationMarker.state].toLowerCase()}`}
+							title={`${annotationMarker.count} ${annotationMarker.count === 1 ? "annotation" : "annotations"}${layer.parentId === null ? " on this board" : hasChildren && !open ? " on this layer and inside it" : ""}: ${ANNOTATION_STATE_LABELS[annotationMarker.state].toLowerCase()}`}
 							onClick={() => showDesignAnnotationsFor(layer.id)}
 						>
 							<AnnotationMarker

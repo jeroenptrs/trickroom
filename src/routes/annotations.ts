@@ -4,6 +4,7 @@ import {
 	type AnnotationServiceContext,
 	AnnotationServiceError,
 	clearAnnotations,
+	countDesignAnnotations,
 	createAnnotation,
 	getAnnotation,
 	listAnnotations,
@@ -47,6 +48,7 @@ import { SystemComponentOperationsError } from "../utils/system-component-operat
  * write through MCP). Thin over `annotation-service.ts`. Routes:
  *
  * - `GET    /annotations?designId=|systemId=&componentId=` list (`boardId`, `elementId`, `status`, `branch`)
+ * - `GET    /annotations/counts` agent and designer work per design (the project screen)
  * - `POST   /annotations` create `{ target, body, snapshot? }`
  * - `GET    /annotations/:id` one annotation
  * - `POST   /annotations/:id/entries` reply `{ body, expectedRevision? }`
@@ -430,6 +432,19 @@ export const registerAnnotationRoutes = <E extends Env>(
 					: {}),
 				annotations: result.annotations,
 				problems: result.problems,
+			});
+		}),
+	);
+
+	// Before `/annotations/:annotationId`, which would take "counts" as an id.
+	app.get(
+		"/api/trickroom/annotations/counts",
+		handle(async (c, request) => {
+			const scope = await request.scope();
+			const counts = await countDesignAnnotations(request.context, { scope });
+			return c.json({
+				scope,
+				designs: Object.fromEntries(counts),
 			});
 		}),
 	);

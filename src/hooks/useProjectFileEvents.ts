@@ -5,6 +5,7 @@ import {
 	parseAnnotationFileEvent,
 	requestAnnotationResync,
 } from "../queries/annotation-live-events";
+import { annotationCountsQueryKey } from "../queries/annotations";
 import { configFileProjectQueryKey } from "../queries/config-file";
 import {
 	type DesignFileSnapshot,
@@ -259,6 +260,9 @@ export function useProjectFileEvents(
 				void queryClient.invalidateQueries({
 					queryKey: designSummariesProjectQueryKey(projectScope),
 				});
+				void queryClient.invalidateQueries({
+					queryKey: annotationCountsQueryKey(projectScope),
+				});
 				void invalidateSystemQueries();
 				// Annotation events sent while disconnected were missed.
 				requestAnnotationResync();
@@ -286,6 +290,10 @@ export function useProjectFileEvents(
 			const event = parseAnnotationFileEvent(message.data);
 			if (event) {
 				deliverAnnotationEvent(event);
+				// The project screen's per-design counts.
+				void queryClient.invalidateQueries({
+					queryKey: annotationCountsQueryKey(projectScope),
+				});
 			}
 		};
 

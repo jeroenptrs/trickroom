@@ -356,6 +356,32 @@ describe("annotation routes", () => {
 			expect(body.problems).toEqual([]);
 		});
 
+		it("counts agent and designer work per design", async () => {
+			const empty = await json<{ designs: Record<string, unknown> }>(
+				await request("GET", `${base}/counts`),
+			);
+			expect(empty.designs).toEqual({});
+
+			await create("One");
+			const addressed = await create("Two");
+			await markAddressed(addressed.id);
+			const closed = await create("Three");
+			await request("POST", `${base}/${closed.id}/transition`, {
+				to: "resolved",
+			});
+
+			const response = await request("GET", `${base}/counts`);
+			expect(response.status).toBe(200);
+			const body = await json<{
+				scope: { branch: string };
+				designs: Record<string, { agentWork: number; humanWork: number }>;
+			}>(response);
+			expect(body.scope.branch).toBe("*");
+			expect(body.designs).toEqual({
+				[DESIGN_ID]: { agentWork: 1, humanWork: 1 },
+			});
+		});
+
 		it("filters by status, board and element", async () => {
 			const onLayer = await create("On layer");
 			const onBoard = await create("On board", {
