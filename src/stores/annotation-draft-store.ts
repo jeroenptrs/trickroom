@@ -24,6 +24,11 @@ export type AnnotationDraftState = {
 	drafts: Record<string, AnnotationDraft>;
 	/** Replies, by annotation id. */
 	replies: Record<string, string>;
+	/**
+	 * This tab's storage holds drafts in a newer format than this version
+	 * reads. They are left untouched, and drafting is off in this tab.
+	 */
+	unsupported?: { version: number };
 };
 
 const STORAGE_PREFIX = "trickroom:annotation-drafts:";
@@ -32,10 +37,13 @@ const STORAGE_VERSION = 1;
 export const annotationDraftStorageKey = (projectScope: string) =>
 	`${STORAGE_PREFIX}${projectScope}`;
 
+// Keyed by target keys and annotation ids: no prototype to collide with.
+const idRecord = <Value>() => Object.create(null) as Record<string, Value>;
+
 const emptyState = (projectScope: string | null): AnnotationDraftState => ({
 	projectScope,
-	drafts: {},
-	replies: {},
+	drafts: idRecord(),
+	replies: idRecord(),
 });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -59,6 +67,17 @@ export function readStoredAnnotationDrafts(
 			annotationDraftStorageKey(projectScope),
 		);
 		const parsed: unknown = raw ? JSON.parse(raw) : null;
+		if (
+			isRecord(parsed) &&
+			typeof parsed.version === "number" &&
+			parsed.version > STORAGE_VERSION
+		) {
+			// Written by a newer Trickroom: never overwrite or remove it.
+			console.warn(
+				`[Trickroom] Annotation drafts in this tab are stored in format version ${parsed.version}; this version reads ${STORAGE_VERSION}. Drafting is off in this tab so they are not lost.`,
+			);
+			return { ...state, unsupported: { version: parsed.version } };
+		}
 		if (!isRecord(parsed) || parsed.version !== STORAGE_VERSION) {
 			return state;
 		}
@@ -95,7 +114,7 @@ export function readStoredAnnotationDrafts(
 }
 
 function persist(state: AnnotationDraftState) {
-	if (!state.projectScope) {
+	if (!state.projectScope || state.unsupported) {
 		return;
 	}
 	try {
@@ -131,6 +150,65 @@ export const annotationDraftStore = createStore<AnnotationDraftState>(
 
 annotationDraftStore.subscribe((state) => persist(state));
 
+const copyRecord = <Value>(record: Record<string, Value>) =>
+	Object.assign(idRecord<Value>(), record);
+
+/** Who a draft belongs to when it is sent: its project and its text. */
+export type SentDraft = { projectScope: string | null; body: string };
+
+/** The draft as Send submits it, to clear exactly that version afterwards. */
+export function captureSentDraft(body: string): SentDraft {
+	return { projectScope: annotationDraftStore.get().projectScope, body };
+}
+
+/**
+ * Clears what was sent once the write succeeded, and nothing typed since:
+ * only while the draft still holds the submitted text, in the project it
+ * was written in (that project's stored copy, when the tab moved on).
+ */
+function clearSent(
+	sent: SentDraft,
+	update: (state: AnnotationDraftState) => AnnotationDraftState,
+) {
+	if (!sent.projectScope) return;
+	if (annotationDraftStore.get().projectScope === sent.projectScope) {
+		annotationDraftStore.setState(update);
+		return;
+	}
+	const stored = readStoredAnnotationDrafts(sent.projectScope);
+	const next = update(stored);
+	if (next !== stored) persist(next);
+}
+
+export function clearSentAnnotationDraft(key: string, sent: SentDraft) {
+	clearSent(sent, (state) => {
+		if (state.unsupported || state.drafts[key]?.body !== sent.body) {
+			return state;
+		}
+		const drafts = copyRecord(state.drafts);
+		delete drafts[key];
+		return { ...state, drafts };
+	});
+}
+
+export function clearSentReplyDraft(annotationId: string, sent: SentDraft) {
+	clearSent(sent, (state) => {
+		if (state.unsupported || state.replies[annotationId] !== sent.body) {
+			return state;
+		}
+		const replies = copyRecord(state.replies);
+		delete replies[annotationId];
+		return { ...state, replies };
+	});
+}
+
+/** Drafting is off in this tab (its stored drafts are a newer format). */
+export function useAnnotationDraftsUnsupported() {
+	return useSelector(annotationDraftStore, (state) =>
+		Boolean(state.unsupported),
+	);
+}
+
 /** Switches to a project's drafts (what this tab kept for it). */
 export function loadAnnotationDrafts(projectScope: string | null) {
 	if (annotationDraftStore.get().projectScope === projectScope) {
@@ -145,7 +223,8 @@ export function loadAnnotationDrafts(projectScope: string | null) {
 export function setAnnotationDraft(target: AnnotationTarget, body: string) {
 	const key = annotationTargetKey(target);
 	annotationDraftStore.setState((state) => {
-		const drafts = { ...state.drafts };
+		if (state.unsupported) return state;
+		const drafts = copyRecord(state.drafts);
 		if (body.trim() === "") {
 			if (!drafts[key]) return state;
 			delete drafts[key];
@@ -159,7 +238,7 @@ export function setAnnotationDraft(target: AnnotationTarget, body: string) {
 export function discardAnnotationDrafts(keys: readonly string[]) {
 	annotationDraftStore.setState((state) => {
 		if (!keys.some((key) => state.drafts[key])) return state;
-		const drafts = { ...state.drafts };
+		const drafts = copyRecord(state.drafts);
 		for (const key of keys) delete drafts[key];
 		return { ...state, drafts };
 	});
@@ -167,7 +246,8 @@ export function discardAnnotationDrafts(keys: readonly string[]) {
 
 export function setReplyDraft(annotationId: string, body: string) {
 	annotationDraftStore.setState((state) => {
-		const replies = { ...state.replies };
+		if (state.unsupported) return state;
+		const replies = copyRecord(state.replies);
 		if (body.trim() === "") {
 			if (!(annotationId in replies)) return state;
 			delete replies[annotationId];

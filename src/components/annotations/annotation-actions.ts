@@ -20,10 +20,16 @@ import type {
 } from "../../services/annotations.types";
 import {
 	type AnnotationDraft,
-	discardAnnotationDrafts,
-	setReplyDraft,
+	annotationDraftStore,
+	captureSentDraft,
+	clearSentAnnotationDraft,
+	clearSentReplyDraft,
 } from "../../stores/annotation-draft-store";
-import { upsertAnnotation } from "../../stores/editor-annotations-store";
+import {
+	applyAnnotationRead,
+	beginAnnotationRead,
+	upsertAnnotation,
+} from "../../stores/editor-annotations-store";
 
 // Annotation writes from the editor. Each sends the revision the editor
 // holds; when an agent changed the annotation meanwhile (409), the editor
@@ -32,8 +38,10 @@ import { upsertAnnotation } from "../../stores/editor-annotations-store";
 type AnnotationRef = Pick<AnnotationView, "id" | "target" | "revision">;
 
 const refresh = async (annotation: AnnotationRef) => {
+	const token = beginAnnotationRead();
 	try {
-		upsertAnnotation(
+		applyAnnotationRead(
+			token,
 			await fetchAnnotation(
 				annotation.id,
 				annotationContainerOf(annotation.target),
@@ -111,6 +119,9 @@ export async function sendAnnotationDraft(
 	draft: Pick<AnnotationDraft, "key" | "target" | "body">,
 	snapshot?: AnnotationSnapshotHint,
 ) {
+	// The composer stays editable while this is in flight: clear only the
+	// text that was sent, in the project it was written in.
+	const sent = captureSentDraft(draft.body);
 	try {
 		const result = await createAnnotationRequest({
 			target: draft.target,
@@ -118,7 +129,7 @@ export async function sendAnnotationDraft(
 			...(snapshot ? { snapshot } : {}),
 		});
 		upsertAnnotation(result.annotation);
-		discardAnnotationDrafts([draft.key]);
+		clearSentAnnotationDraft(draft.key, sent);
 		return result.annotation;
 	} catch (error) {
 		await reportAnnotationWriteError(error, null);
@@ -132,7 +143,11 @@ export async function sendAnnotationDrafts(
 	snapshot?: AnnotationSnapshotHint,
 ) {
 	let sent = 0;
-	for (const draft of drafts) {
+	for (const listed of drafts) {
+		// Each one as it is when its turn comes: it may have been edited or
+		// discarded while earlier ones were sending.
+		const draft = annotationDraftStore.get().drafts[listed.key];
+		if (!draft) continue;
 		if (await sendAnnotationDraft(draft, snapshot)) sent += 1;
 	}
 	if (sent > 0) {
@@ -147,10 +162,11 @@ export async function replyToAnnotation(
 	annotation: AnnotationRef,
 	body: string,
 ) {
+	const sent = captureSentDraft(body);
 	const result = await write(annotation, () =>
 		replyToAnnotationRequest(annotation, body.trim()),
 	);
-	if (result) setReplyDraft(annotation.id, "");
+	if (result) clearSentReplyDraft(annotation.id, sent);
 	return result;
 }
 

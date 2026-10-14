@@ -5,6 +5,7 @@ import {
 	discardAnnotationDrafts,
 	setAnnotationDraft,
 	useAnnotationDraft,
+	useAnnotationDraftsUnsupported,
 } from "../../stores/annotation-draft-store";
 import { annotationTargetKey } from "../../utils/annotation-presentation";
 import { Button } from "../ui/button";
@@ -31,6 +32,7 @@ export function AnnotationComposer({
 }) {
 	const key = annotationTargetKey(target);
 	const draft = useAnnotationDraft(key);
+	const unsupported = useAnnotationDraftsUnsupported();
 	const [sending, setSending] = useState(false);
 	const fieldRef = useRef<HTMLDivElement>(null);
 	const body = draft?.body ?? "";
@@ -63,7 +65,12 @@ export function AnnotationComposer({
 		>
 			<TextareaField
 				label={`New annotation on ${targetLabel}`}
-				description="A draft stays in this tab until you send it."
+				description={
+					unsupported
+						? "Drafting is off in this tab: it holds drafts from a newer version of Trickroom. Open the design in a new tab to write annotations."
+						: "A draft stays in this tab until you send it."
+				}
+				disabled={unsupported}
 				className="min-h-16"
 				value={body}
 				placeholder="What should change?"

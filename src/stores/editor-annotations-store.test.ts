@@ -8,6 +8,8 @@ import type {
 	AnnotationView,
 } from "../services/annotations.types";
 import {
+	applyAnnotationRead,
+	beginAnnotationRead,
 	deriveAnnotationRowMarkers,
 	editorAnnotationsStore,
 	getAnnotationStateWith,
@@ -447,5 +449,112 @@ describe("refreshAnnotationMarkers", () => {
 		}));
 		refreshAnnotationMarkers(locator);
 		expect(state().markers.layers.l1).toEqual({ count: 1, state: "resolved" });
+	});
+});
+
+// Review round 1: ids are any safe path segment, prototype names included.
+describe("ids named like Object.prototype members", () => {
+	const protoLocator: AnnotationTargetLocator = {
+		boardOfLayer: () => "constructor",
+		hasBoard: (id) => id === "constructor" || id === "__proto__",
+	};
+
+	it("counts a layer called constructor or __proto__", () => {
+		const markers = deriveAnnotationRowMarkers(
+			[
+				view({ target: layerTarget("constructor", "constructor") }),
+				view({ target: layerTarget("__proto__", "constructor") }),
+				view({ target: layerTarget("toString", "constructor") }),
+			],
+			protoLocator,
+			false,
+		);
+		expect(markers.layers.constructor).toEqual({ count: 1, state: "open" });
+		expect(Object.hasOwn(markers.layers, "__proto__")).toBe(true);
+		expect(markers.layers.toString).toEqual({ count: 1, state: "open" });
+		expect(markers.boards.constructor).toEqual({ count: 3, state: "open" });
+	});
+
+	it("counts a board called __proto__", () => {
+		const markers = deriveAnnotationRowMarkers(
+			[view({ target: boardTarget("__proto__") })],
+			protoLocator,
+			false,
+		);
+		expect(Object.hasOwn(markers.boards, "__proto__")).toBe(true);
+		expect(markers.boards.__proto__).toEqual({ count: 1, state: "open" });
+	});
+
+	it("reads no marker for an unmarked prototype name", () => {
+		ready([]);
+		refreshAnnotationMarkers(locator);
+		expect(state().markers.layers.constructor).toBeUndefined();
+		expect(state().markers.boards.hasOwnProperty).toBeUndefined();
+		expect(state().byId.constructor).toBeUndefined();
+	});
+});
+
+// Review round 1: answers arrive in any order, and per container.
+describe("ordering and containers", () => {
+	it("drops a read that started before the editor's own write", () => {
+		const a = view({ id: "x", revision: "r1" });
+		ready([a]);
+		const token = beginAnnotationRead();
+		upsertAnnotation({ ...a, revision: "r3", status: "resolved" });
+		expect(applyAnnotationRead(token, { ...a, revision: "r2" })).toBe("stale");
+		expect(state().byId.x?.revision).toBe("r3");
+	});
+
+	it("ignores a stale read that carries what is already shown", () => {
+		const a = view({ id: "x", revision: "r1" });
+		ready([a]);
+		const token = beginAnnotationRead();
+		upsertAnnotation({ ...a, revision: "r3" });
+		expect(applyAnnotationRead(token, { ...a, revision: "r3" })).toBe(
+			"ignored",
+		);
+	});
+
+	it("does not resurrect a deleted annotation from an older read", () => {
+		const a = view({ id: "x" });
+		ready([a]);
+		const token = beginAnnotationRead();
+		removeAnnotation("x");
+		applyAnnotationRead(token, a);
+		expect(state().byId.x).toBeUndefined();
+	});
+
+	it("keeps what changed after a list started, and drops what it no longer lists", () => {
+		const a = view({ id: "x", revision: "r1" });
+		const b = view({ id: "y", revision: "r1" });
+		ready([a, b]);
+		const token = beginAnnotationRead();
+		upsertAnnotation({ ...a, revision: "r2" });
+		hydrateAnnotations(container, scope, [{ ...a, revision: "r1" }], token);
+		expect(state().byId.x?.revision).toBe("r2");
+		expect(state().byId.y).toBeUndefined();
+	});
+
+	it("ignores reads and writes of another container", () => {
+		ready([]);
+		const token = beginAnnotationRead();
+		const elsewhere = view({
+			id: "z",
+			target: { kind: "design", designId: "other" },
+		});
+		expect(applyAnnotationRead(token, elsewhere)).toBe("ignored");
+		upsertAnnotation(elsewhere);
+		hydrateAnnotations(container, scope, [elsewhere], beginAnnotationRead());
+		expect(state().byId.z).toBeUndefined();
+	});
+
+	it("voids reads started before the container changed", () => {
+		ready([]);
+		const token = beginAnnotationRead();
+		openAnnotationContainer({ kind: "design", designId: "d2" });
+		openAnnotationContainer(container);
+		hydrateAnnotations(container, scope, [view({ id: "x" })], token);
+		expect(applyAnnotationRead(token, view({ id: "y" }))).toBe("ignored");
+		expect(state().byId).toEqual({});
 	});
 });

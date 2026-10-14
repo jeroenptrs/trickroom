@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import type { AnnotationView } from "../../services/annotations.types";
 import {
 	setReplyDraft,
+	useAnnotationDraftsUnsupported,
 	useReplyDraft,
 } from "../../stores/annotation-draft-store";
 import {
@@ -63,6 +64,7 @@ const actionButton = "px-2 py-1 text-xs";
 
 function ReplyComposer({ annotation }: { annotation: AnnotationView }) {
 	const draft = useReplyDraft(annotation.id);
+	const unsupported = useAnnotationDraftsUnsupported();
 	const [sending, setSending] = useState(false);
 	const closed =
 		annotation.status === "resolved" || annotation.status === "dismissed";
@@ -90,8 +92,13 @@ function ReplyComposer({ annotation }: { annotation: AnnotationView }) {
 			<TextareaField
 				label="Reply"
 				description={
-					reopens ? "Replying opens it again for the agent." : undefined
+					unsupported
+						? "Drafting is off in this tab: it holds drafts from a newer version of Trickroom."
+						: reopens
+							? "Replying opens it again for the agent."
+							: undefined
 				}
+				disabled={unsupported}
 				className="min-h-12"
 				value={draft}
 				placeholder="Reply…"

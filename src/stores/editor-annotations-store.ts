@@ -63,13 +63,42 @@ const readShowResolved = () => {
 	}
 };
 
-const emptyMarkers = (): AnnotationRowMarkers => ({ layers: {}, boards: {} });
+/**
+ * A record keyed by ids (layer, board and annotation ids may be any safe
+ * path segment, `constructor` and `__proto__` included): no prototype to
+ * read through or write into.
+ */
+export const createIdRecord = <Value>(
+	entries?: Iterable<readonly [string, Value]>,
+): Record<string, Value> => {
+	const record = Object.create(null) as Record<string, Value>;
+	for (const [id, value] of entries ?? []) record[id] = value;
+	return record;
+};
+
+const withoutId = <Value>(record: Record<string, Value>, id: string) =>
+	createIdRecord(Object.entries(record).filter(([key]) => key !== id));
+
+const withId = <Value>(
+	record: Record<string, Value>,
+	id: string,
+	value: Value,
+) => {
+	const next = createIdRecord(Object.entries(record));
+	next[id] = value;
+	return next;
+};
+
+const emptyMarkers = (): AnnotationRowMarkers => ({
+	layers: createIdRecord(),
+	boards: createIdRecord(),
+});
 
 const initialState = (): EditorAnnotationsState => ({
 	container: null,
 	scope: null,
 	status: "idle",
-	byId: {},
+	byId: createIdRecord(),
 	showResolved: readShowResolved(),
 	inspectorTab: "properties",
 	activeAnnotationId: null,
@@ -94,37 +123,110 @@ const sameContainer = (
 				a.systemId === b.systemId &&
 				a.componentId === b.componentId));
 
-/** Starts over for another design or component (or none). */
-export function openAnnotationContainer(container: AnnotationContainer | null) {
-	editorAnnotationsStore.setState((state) =>
-		sameContainer(state.container, container)
-			? state
-			: {
-					...state,
-					container,
-					scope: null,
-					status: container ? "loading" : "idle",
-					byId: {},
-					activeAnnotationId: null,
-					markers: emptyMarkers(),
-				},
-	);
+const containerOfTarget = (
+	target: AnnotationView["target"],
+): AnnotationContainer =>
+	target.kind === "componentNode"
+		? {
+				kind: "component",
+				systemId: target.systemId,
+				componentId: target.componentId,
+			}
+		: { kind: "design", designId: target.designId };
+
+// ---------------------------------------------------------------------------
+// Ordering. Annotations change from three directions at once: list reads,
+// single reads after an `annotation` event, and the editor's own writes.
+// Responses can arrive in any order, and revisions are content hashes with
+// no order of their own. So every read takes a sequence number when it
+// starts, and every annotation remembers the sequence of whatever last set
+// it (a read, a write, a delete, or an event confirming what the editor
+// holds). A response older than that is not applied. Opening another
+// container starts a new generation, and nothing from an older one applies.
+// ---------------------------------------------------------------------------
+
+let clock = 0;
+let generation = 0;
+/** Per annotation: the sequence of whatever last set (or removed) it. */
+let settledAt = new Map<string, number>();
+
+/** A read in flight: its container's generation and when it started. */
+export type AnnotationReadToken = { generation: number; sequence: number };
+
+/** Call when a list or single read starts; pass the token to apply it. */
+export function beginAnnotationRead(): AnnotationReadToken {
+	clock += 1;
+	return { generation, sequence: clock };
 }
 
-/** Replaces the annotations with a full list read. */
+const settle = (annotationId: string, sequence = ++clock) => {
+	settledAt.set(annotationId, sequence);
+};
+
+const isCurrent = (token: AnnotationReadToken, annotationId: string) =>
+	token.generation === generation &&
+	token.sequence > (settledAt.get(annotationId) ?? 0);
+
+const belongsHere = (
+	state: EditorAnnotationsState,
+	annotation: AnnotationView,
+) =>
+	state.container !== null &&
+	sameContainer(state.container, containerOfTarget(annotation.target));
+
+/** Starts over for another design or component (or none). */
+export function openAnnotationContainer(container: AnnotationContainer | null) {
+	if (sameContainer(editorAnnotationsStore.get().container, container)) return;
+	// Reads still in flight for the previous container are void.
+	generation += 1;
+	settledAt = new Map();
+	editorAnnotationsStore.setState((state) => ({
+		...state,
+		container,
+		scope: null,
+		status: container ? "loading" : "idle",
+		byId: createIdRecord(),
+		activeAnnotationId: null,
+		markers: emptyMarkers(),
+	}));
+}
+
+/**
+ * Applies a full list read. Annotations set since the read started (by an
+ * event's read, or the editor's own write) keep what they have, and so do
+ * ones added since; the rest take the list's version or leave.
+ */
 export function hydrateAnnotations(
 	container: AnnotationContainer,
 	scope: AnnotationScope,
 	annotations: readonly AnnotationView[],
+	token: AnnotationReadToken = beginAnnotationRead(),
 ) {
+	if (token.generation !== generation) return;
 	editorAnnotationsStore.setState((state) => {
 		if (!sameContainer(state.container, container)) return state;
-		const byId: Record<string, AnnotationView> = {};
-		for (const annotation of annotations) {
-			// Keep the object a single-annotation refetch already put here, so
-			// views of unchanged annotations do not re-render.
-			const previous = state.byId[annotation.id];
-			byId[annotation.id] =
+		const listed = new Map(
+			annotations
+				.filter((annotation) =>
+					sameContainer(container, containerOfTarget(annotation.target)),
+				)
+				.map((annotation) => [annotation.id, annotation]),
+		);
+		const byId = createIdRecord<AnnotationView>();
+		for (const [id, held] of Object.entries(state.byId)) {
+			// Held but not listed: removed, unless set after the list started.
+			if (!listed.has(id) && !isCurrent(token, id)) byId[id] = held;
+		}
+		for (const [id, annotation] of listed) {
+			const previous = state.byId[id];
+			if (!isCurrent(token, id)) {
+				if (previous) byId[id] = previous;
+				continue;
+			}
+			settle(id, token.sequence);
+			// Keep the object of an unchanged annotation, so its views do not
+			// re-render.
+			byId[id] =
 				previous?.revision === annotation.revision ? previous : annotation;
 		}
 		return { ...state, scope, status: "ready", byId };
@@ -139,32 +241,76 @@ export function setAnnotationsError(container: AnnotationContainer) {
 	);
 }
 
+const putAnnotation = (
+	state: EditorAnnotationsState,
+	annotation: AnnotationView,
+): EditorAnnotationsState => {
+	const previous = state.byId[annotation.id];
+	const onBranch = !state.scope || annotation.branch === state.scope.branch;
+	if (!onBranch) {
+		return previous
+			? { ...state, byId: withoutId(state.byId, annotation.id) }
+			: state;
+	}
+	if (previous?.revision === annotation.revision) return state;
+	return { ...state, byId: withId(state.byId, annotation.id, annotation) };
+};
+
 /**
- * Puts an annotation read or written through the API in place. One that
- * moved to another branch leaves the list (it shows under other branches).
+ * Puts an annotation the editor itself just wrote in place: the write's
+ * answer is the newest state, so reads started before it no longer apply.
+ * One that moved to another branch leaves the list (it shows under other
+ * branches). An annotation of another container is ignored.
  */
 export function upsertAnnotation(annotation: AnnotationView) {
-	editorAnnotationsStore.setState((state) => {
-		const previous = state.byId[annotation.id];
-		const onBranch = !state.scope || annotation.branch === state.scope.branch;
-		if (!onBranch) {
-			if (!previous) return state;
-			const byId = { ...state.byId };
-			delete byId[annotation.id];
-			return { ...state, byId };
-		}
-		if (previous?.revision === annotation.revision) return state;
-		return { ...state, byId: { ...state.byId, [annotation.id]: annotation } };
-	});
+	if (!belongsHere(editorAnnotationsStore.get(), annotation)) return;
+	settle(annotation.id);
+	editorAnnotationsStore.setState((state) =>
+		belongsHere(state, annotation) ? putAnnotation(state, annotation) : state,
+	);
+}
+
+/**
+ * Applies a single read started with `token`. Returns `"applied"`, or
+ * `"stale"` when something newer set the annotation since the read started
+ * (or the container changed); a stale answer whose revision differs from
+ * what the editor holds may be newer still, and is worth reading again.
+ */
+export function applyAnnotationRead(
+	token: AnnotationReadToken,
+	annotation: AnnotationView,
+): "applied" | "stale" | "ignored" {
+	const state = editorAnnotationsStore.get();
+	if (token.generation !== generation || !belongsHere(state, annotation)) {
+		return "ignored";
+	}
+	if (!isCurrent(token, annotation.id)) {
+		return state.byId[annotation.id]?.revision === annotation.revision
+			? "ignored"
+			: "stale";
+	}
+	settle(annotation.id, token.sequence);
+	editorAnnotationsStore.setState((current) =>
+		putAnnotation(current, annotation),
+	);
+	return "applied";
+}
+
+/**
+ * An event said the annotation is at the revision the editor already
+ * holds: reads started before it are older than what is shown.
+ */
+export function confirmAnnotationRevision(annotationId: string) {
+	settle(annotationId);
 }
 
 export function removeAnnotation(annotationId: string) {
-	editorAnnotationsStore.setState((state) => {
-		if (!state.byId[annotationId]) return state;
-		const byId = { ...state.byId };
-		delete byId[annotationId];
-		return { ...state, byId };
-	});
+	settle(annotationId);
+	editorAnnotationsStore.setState((state) =>
+		state.byId[annotationId]
+			? { ...state, byId: withoutId(state.byId, annotationId) }
+			: state,
+	);
 }
 
 export function setShowResolvedAnnotations(showResolved: boolean) {
@@ -206,6 +352,8 @@ export function requestAnnotationComposer() {
 
 /** Test and reset helper. */
 export function resetEditorAnnotations() {
+	generation += 1;
+	settledAt = new Map();
 	editorAnnotationsStore.setState(() => initialState());
 }
 
@@ -232,8 +380,18 @@ export function deriveAnnotationRowMarkers(
 	showResolved: boolean,
 	previous: AnnotationRowMarkers = emptyMarkers(),
 ): AnnotationRowMarkers {
-	const layerStates: Record<string, AnnotationPresentationState[]> = {};
-	const boardStates: Record<string, AnnotationPresentationState[]> = {};
+	// Maps: ids may be `constructor` or `__proto__`.
+	const layerStates = new Map<string, AnnotationPresentationState[]>();
+	const boardStates = new Map<string, AnnotationPresentationState[]>();
+	const push = (
+		states: Map<string, AnnotationPresentationState[]>,
+		id: string,
+		state: AnnotationPresentationState,
+	) => {
+		const list = states.get(id);
+		if (list) list.push(state);
+		else states.set(id, [state]);
+	};
 	for (const annotation of annotations) {
 		if (!isAnnotationShown(annotation, showResolved)) continue;
 		const { target } = annotation;
@@ -241,25 +399,24 @@ export function deriveAnnotationRowMarkers(
 		const state = getAnnotationStateWith(annotation, locator);
 		const boardId = currentBoardOfWith(target, locator);
 		if (boardId && locator.hasBoard(boardId)) {
-			boardStates[boardId] ??= [];
-			boardStates[boardId].push(state);
+			push(boardStates, boardId, state);
 		}
 		if (target.kind === "layer") {
-			layerStates[target.elementId] ??= [];
-			layerStates[target.elementId].push(state);
+			push(layerStates, target.elementId, state);
 		}
 	}
 	const reuse = (
-		states: Record<string, AnnotationPresentationState[]>,
+		states: Map<string, AnnotationPresentationState[]>,
 		before: Record<string, AnnotationMarker>,
 	) => {
-		const next: Record<string, AnnotationMarker> = {};
-		let changed = Object.keys(before).length !== Object.keys(states).length;
-		for (const [id, list] of Object.entries(states)) {
+		const next = createIdRecord<AnnotationMarker>();
+		let changed = Object.keys(before).length !== states.size;
+		for (const [id, list] of states) {
 			const marker = groupAnnotationMarker(list);
 			if (!marker) continue;
-			if (isSameAnnotationMarker(before[id], marker)) {
-				next[id] = before[id] as AnnotationMarker;
+			const held = Object.hasOwn(before, id) ? before[id] : undefined;
+			if (held && isSameAnnotationMarker(held, marker)) {
+				next[id] = held;
 			} else {
 				next[id] = marker;
 				changed = true;

@@ -135,11 +135,12 @@ export const annotationListQueryKey = (
 export const fetchAnnotationList = async (
 	container: AnnotationContainer,
 	branch: AnnotationBranchFilter = "current",
+	signal?: AbortSignal,
 ) => {
 	const params = new URLSearchParams(annotationContainerParams(container));
 	if (branch !== "current") params.set("branch", branch);
 	return readAnnotationJson<AnnotationListResponse>(
-		await fetch(`${baseUrl}?${params.toString()}`),
+		await fetch(`${baseUrl}?${params.toString()}`, signal ? { signal } : {}),
 	);
 };
 
@@ -150,7 +151,7 @@ export const annotationListQueryOptions = (
 ) =>
 	queryOptions({
 		queryKey: annotationListQueryKey(container, branch, projectScope),
-		queryFn: () => fetchAnnotationList(container, branch),
+		queryFn: ({ signal }) => fetchAnnotationList(container, branch, signal),
 		retry: false,
 		// Live updates arrive as `annotation` events; a refetch on focus would
 		// only repeat them.
@@ -160,10 +161,14 @@ export const annotationListQueryOptions = (
 export const fetchAnnotation = async (
 	annotationId: string,
 	container: AnnotationContainer,
+	signal?: AbortSignal,
 ) =>
 	(
 		await readAnnotationJson<{ annotation: AnnotationView }>(
-			await fetch(annotationUrl(annotationId, container)),
+			await fetch(
+				annotationUrl(annotationId, container),
+				signal ? { signal } : {},
+			),
 		)
 	).annotation;
 

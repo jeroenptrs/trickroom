@@ -15,6 +15,7 @@ import type {
 import {
 	editorAnnotationsStore,
 	resetEditorAnnotations,
+	upsertAnnotation,
 } from "../stores/editor-annotations-store";
 import { useAnnotationLiveSync } from "./useAnnotationLiveSync";
 
@@ -293,5 +294,158 @@ describe("useAnnotationLiveSync", () => {
 		await flush();
 		expect(singleCalls()).toEqual([]);
 		root = createRoot(host);
+	});
+});
+
+const deferred = <T,>() => {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((settle) => {
+		resolve = settle;
+	});
+	return { promise, resolve };
+};
+
+const isList = (url: string) => url.startsWith("/api/trickroom/annotations?");
+
+/** The default server, except that the requests `hold` matches wait. */
+const serveHolding = (hold: (url: string) => Promise<Response> | null) => {
+	const serve = fetchMock.getMockImplementation();
+	fetchMock.mockImplementation(async (url) => {
+		const held = hold(String(url));
+		return held ?? (serve as (url: string) => Promise<Response>)(url);
+	});
+};
+
+const changed = (annotationId: string, revision: string | null) =>
+	act(async () => {
+		deliverAnnotationEvent({
+			annotationId,
+			container,
+			operation: "changed",
+			revision,
+		});
+	});
+
+// Review round 1: responses arrive in any order.
+describe("useAnnotationLiveSync ordering", () => {
+	it("keeps a live update over an older list answer", async () => {
+		const list = deferred<Response>();
+		serveHolding((url) => (isList(url) ? list.promise : null));
+		await mount();
+		// The list is out holding r1; an agent moves a1 to r2 meanwhile.
+		served.a1 = view("a1", "r2", { status: "needs_input" });
+		await changed("a1", "r2");
+		await flush();
+		expect(state().byId.a1?.revision).toBe("r2");
+		list.resolve(
+			json({ scope, annotations: [view("a1", "r1")], problems: [] }),
+		);
+		await flush();
+		expect(state().byId.a1?.revision).toBe("r2");
+		expect(state().byId.a1?.status).toBe("needs_input");
+		expect(state().status).toBe("ready");
+	});
+
+	it("keeps an annotation added after the list started", async () => {
+		const list = deferred<Response>();
+		serveHolding((url) => (isList(url) ? list.promise : null));
+		await mount();
+		served.a2 = view("a2", "r1");
+		await changed("a2", "r1");
+		await flush();
+		list.resolve(
+			json({ scope, annotations: [view("a1", "r1")], problems: [] }),
+		);
+		await flush();
+		expect(Object.keys(state().byId).sort()).toEqual(["a1", "a2"]);
+	});
+
+	it("does not let a pending read undo the editor's own later write", async () => {
+		await mount();
+		const read = deferred<Response>();
+		let holdNext = true;
+		serveHolding((url) => {
+			if (isList(url) || !holdNext) return null;
+			holdNext = false;
+			return read.promise;
+		});
+		// An agent's r2 is being read when the human resolves it (r3).
+		await changed("a1", "r2");
+		const resolved = view("a1", "r3", {
+			status: "resolved",
+			resolvedBy: { role: "human" },
+		});
+		served.a1 = resolved;
+		upsertAnnotation(resolved);
+		// The write's own event echoes back and is skipped.
+		await changed("a1", "r3");
+		expect(singleCalls()).toHaveLength(1);
+		read.resolve(
+			json({ annotation: view("a1", "r2", { status: "needs_input" }) }),
+		);
+		await flush();
+		// The stale r2 answer is not shown; reading again finds r3.
+		expect(state().byId.a1?.revision).toBe("r3");
+		expect(state().byId.a1?.status).toBe("resolved");
+	});
+
+	it("reads again when a stale answer may be newer than what is shown", async () => {
+		await mount();
+		const read = deferred<Response>();
+		let holdNext = true;
+		serveHolding((url) => {
+			if (isList(url) || !holdNext) return null;
+			holdNext = false;
+			return read.promise;
+		});
+		await changed("a1", "r2");
+		// The human's write lands (r3), then an agent writes r4 before the
+		// pending read answers with r4.
+		upsertAnnotation(view("a1", "r3", { status: "resolved" }));
+		served.a1 = view("a1", "r4", { status: "open" });
+		read.resolve(json({ annotation: served.a1 }));
+		await flush();
+		expect(singleCalls()).toHaveLength(2);
+		expect(state().byId.a1?.revision).toBe("r4");
+	});
+
+	it("lets the newest of two overlapping reads win", async () => {
+		await mount();
+		const first = deferred<Response>();
+		let holdNext = true;
+		serveHolding((url) => {
+			if (isList(url) || !holdNext) return null;
+			holdNext = false;
+			return first.promise;
+		});
+		await changed("a1", "r2");
+		served.a1 = view("a1", "r3");
+		await changed("a1", "r3");
+		await flush();
+		expect(state().byId.a1?.revision).toBe("r3");
+		first.resolve(json({ annotation: view("a1", "r2") }));
+		await flush();
+		expect(state().byId.a1?.revision).toBe("r3");
+	});
+
+	it("never applies a read from the previous design to the next one", async () => {
+		await mount();
+		const read = deferred<Response>();
+		serveHolding((url) => (isList(url) ? null : read.promise));
+		await changed("a1", "r2");
+		await flush();
+		const next: AnnotationContainer = { kind: "design", designId: "E" };
+		served = {};
+		await mount(next);
+		expect(state().container).toEqual(next);
+		read.resolve(json({ annotation: view("a1", "r2") }));
+		await flush();
+		expect(state().container).toEqual(next);
+		expect(state().byId).toEqual({});
+		// The pending read was aborted on cleanup.
+		const [, init] = fetchMock.mock.calls.find(([url]) =>
+			String(url).startsWith("/api/trickroom/annotations/a1"),
+		) as unknown as [string, RequestInit];
+		expect(init.signal?.aborted).toBe(true);
 	});
 });

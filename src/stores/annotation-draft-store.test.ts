@@ -241,9 +241,9 @@ describe("reading stored drafts", () => {
 		});
 	});
 
-	it("ignores a wrong version", async () => {
+	it("ignores an unknown older version", async () => {
 		seed({
-			version: 2,
+			version: 0,
 			drafts: [{ target: layerTarget, body: "x", updatedAt: 1 }],
 			replies: { a: "b" },
 		});
@@ -251,6 +251,37 @@ describe("reading stored drafts", () => {
 		store.loadAnnotationDrafts("project-a");
 		expect(store.getAnnotationDrafts()).toEqual([]);
 		expect(store.annotationDraftStore.get().replies).toEqual({});
+	});
+
+	// Review round 1: a newer format must survive this version.
+	it("keeps a newer version's payload and turns drafting off", async () => {
+		const payload = JSON.stringify({
+			version: 2,
+			drafts: [{ target: layerTarget, body: "future unsent text" }],
+			replies: { a: "future reply" },
+		});
+		storage.set(KEY, payload);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const store = await loadModule();
+		store.loadAnnotationDrafts("project-a");
+		expect(store.annotationDraftStore.get().unsupported).toEqual({
+			version: 2,
+		});
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining("version 2"));
+		// Writes are refused, so nothing persists over (or removes) it.
+		store.setAnnotationDraft(boardTarget, "typed here");
+		store.setReplyDraft("a", "typed reply");
+		store.clearSentAnnotationDraft("board:d1/b1", {
+			projectScope: "project-a",
+			body: "typed here",
+		});
+		expect(store.getAnnotationDrafts()).toEqual([]);
+		expect(storage.get(KEY)).toBe(payload);
+		// Switching away and back leaves it too.
+		store.loadAnnotationDrafts("project-b");
+		store.loadAnnotationDrafts("project-a");
+		expect(storage.get(KEY)).toBe(payload);
+		warn.mockRestore();
 	});
 
 	it("ignores non-object payloads", async () => {
@@ -306,5 +337,72 @@ describe("when storage throws", () => {
 		expect(store.annotationDraftStore.get().replies).toEqual({
 			"ann-1": "text",
 		});
+	});
+});
+
+// Review round 1: Send and Reply clear only what they sent.
+describe("clearing sent drafts", () => {
+	it("clears a draft that still holds the sent text", async () => {
+		const store = await loadModule();
+		store.loadAnnotationDrafts("project-a");
+		store.setAnnotationDraft(layerTarget, "first text");
+		const sent = store.captureSentDraft("first text");
+		store.clearSentAnnotationDraft("layer:d1/l1", sent);
+		expect(store.getAnnotationDrafts()).toEqual([]);
+		expect(storage.has(KEY)).toBe(false);
+	});
+
+	it("keeps text typed while the send was in flight", async () => {
+		const store = await loadModule();
+		store.loadAnnotationDrafts("project-a");
+		store.setAnnotationDraft(layerTarget, "first text");
+		const sent = store.captureSentDraft("first text");
+		store.setAnnotationDraft(layerTarget, "new unsent text");
+		store.clearSentAnnotationDraft("layer:d1/l1", sent);
+		expect(store.getAnnotationDrafts().map((draft) => draft.body)).toEqual([
+			"new unsent text",
+		]);
+	});
+
+	it("keeps a reply typed while the reply was in flight", async () => {
+		const store = await loadModule();
+		store.loadAnnotationDrafts("project-a");
+		store.setReplyDraft("a1", "first reply");
+		const sent = store.captureSentDraft("first reply");
+		store.setReplyDraft("a1", "new unsent reply");
+		store.clearSentReplyDraft("a1", sent);
+		expect(store.annotationDraftStore.get().replies.a1).toBe(
+			"new unsent reply",
+		);
+		store.clearSentReplyDraft("a1", store.captureSentDraft("new unsent reply"));
+		expect(store.annotationDraftStore.get().replies.a1).toBeUndefined();
+	});
+
+	it("clears in the project it was sent from, not the one now open", async () => {
+		const store = await loadModule();
+		store.loadAnnotationDrafts("project-a");
+		store.setAnnotationDraft(layerTarget, "sent from a");
+		const sent = store.captureSentDraft("sent from a");
+		store.loadAnnotationDrafts("project-b");
+		store.setAnnotationDraft(layerTarget, "sent from a");
+		store.clearSentAnnotationDraft("layer:d1/l1", sent);
+		// Project b's draft with the same target and text stays.
+		expect(store.getAnnotationDrafts().map((draft) => draft.body)).toEqual([
+			"sent from a",
+		]);
+		// Project a's stored copy is gone.
+		expect(storage.has(KEY)).toBe(false);
+	});
+
+	it("keys replies without a prototype", async () => {
+		const store = await loadModule();
+		store.loadAnnotationDrafts("project-a");
+		expect(
+			store.annotationDraftStore.get().replies.constructor,
+		).toBeUndefined();
+		store.setReplyDraft("constructor", "a reply");
+		expect(store.annotationDraftStore.get().replies.constructor).toBe(
+			"a reply",
+		);
 	});
 });
