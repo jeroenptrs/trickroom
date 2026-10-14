@@ -32,6 +32,14 @@ import {
 	updateSystemComponent,
 } from "../../utils/system-component-operations";
 import type { SystemComponentRecord } from "../../utils/system-components";
+
+/** The current published version of a component, if any. */
+const currentPublishedVersion = (record: SystemComponentRecord | undefined) =>
+	record?.published &&
+	Object.hasOwn(record.published.versions, record.published.currentVersion)
+		? record.published.versions[record.published.currentVersion]
+		: undefined;
+
 import { assertCanUseSystemComponentInstanceSubtree } from "../design-operations";
 import {
 	assertCanReadDesignFile,
@@ -40,6 +48,7 @@ import {
 	getMcpPolicy,
 } from "../governance";
 import { extractComponentDraftPayload } from "../payloads/component-extraction";
+import { assertTemplateChangesAllowed } from "../payloads/component-template-policy";
 import { resolveToolSystem } from "../payloads/design-system";
 import {
 	describeNode,
@@ -47,10 +56,7 @@ import {
 	getRecipeAttachmentSummaries,
 } from "../payloads/design-tree";
 import { getProjectReference } from "../payloads/project";
-import {
-	assertCanUseTemplateComponents,
-	getSubtreeElementIds,
-} from "../payloads/references";
+import { getSubtreeElementIds } from "../payloads/references";
 import {
 	bulkMigrateSystemComponentUsagesPayload,
 	describeSystemComponentPayload,
@@ -487,11 +493,12 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 						parsedDraft.error,
 					);
 				}
-				// The template the draft gets, against allowedComponents.
-				assertCanUseTemplateComponents(
-					getMcpPolicy(context.config),
-					parsedDraft?.data.root ?? defaultRootTemplate(),
-				);
+				// A new component: everything its template holds is added.
+				assertTemplateChangesAllowed(getMcpPolicy(context.config), undefined, {
+					root: parsedDraft?.data.root ?? defaultRootTemplate(),
+					slots: parsedDraft?.data.slots,
+					variants: parsedDraft?.data.variants,
+				});
 				const result = await createSystemComponentDraft(
 					context.projectRoot,
 					system.manifest.systemId,
@@ -604,18 +611,31 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 						parsedDraftPatch.error,
 					);
 				}
-				// Checked before anything (addresses included) is looked at.
-				if (parsedDraftPatch.data.root) {
-					assertCanUseTemplateComponents(
-						getMcpPolicy(context.config),
-						parsedDraftPatch.data.root,
-					);
-				}
 				const before = await readSystemComponentManifest(
 					context.projectRoot,
 					system.manifest.systemId,
 				);
 				const beforeRecord = before.manifest.components[componentId];
+				// What this update touches, against allowedComponents, before
+				// anything else (addresses included). It starts from the draft
+				// (or the published template); a manifest changed since this
+				// read fails the write with STALE_WRITE.
+				const base =
+					beforeRecord?.draft ?? currentPublishedVersion(beforeRecord);
+				if (base) {
+					const patch = parsedDraftPatch.data;
+					assertTemplateChangesAllowed(getMcpPolicy(context.config), base, {
+						root: patch.root ?? base.root,
+						slots:
+							patch.slots === undefined
+								? base.slots
+								: (patch.slots ?? undefined),
+						variants:
+							patch.variants === undefined
+								? base.variants
+								: (patch.variants ?? undefined),
+					});
+				}
 				const metadataProblems = systemComponentMetadataProblems(
 					metadata,
 					beforeRecord,
@@ -702,16 +722,22 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 				const policy = getMcpPolicy(context.config);
 				assertCanWriteProject(policy);
 				const system = await resolveToolSystem(context, { systemName });
-				// What the publish puts in a version, against allowedComponents.
-				// A draft changed since this read changes the revision, and the
-				// publish then refuses with STALE_WRITE.
-				const draftRoot = (
+				// What the publish changes in the published template, against
+				// allowedComponents. A draft changed since this read changes the
+				// revision, and the publish then refuses with STALE_WRITE.
+				const record = (
 					await readSystemComponentManifest(
 						context.projectRoot,
 						system.manifest.systemId,
 					)
-				).manifest.components[componentId]?.draft?.root;
-				if (draftRoot) assertCanUseTemplateComponents(policy, draftRoot);
+				).manifest.components[componentId];
+				if (record?.draft) {
+					assertTemplateChangesAllowed(
+						policy,
+						currentPublishedVersion(record),
+						record.draft,
+					);
+				}
 				return writeComponentWithAddresses(
 					context,
 					{
