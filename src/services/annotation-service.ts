@@ -94,6 +94,13 @@ const nowOf = (context: AnnotationServiceContext) =>
 const isLive = (status: AnnotationStatus) =>
 	!CLOSED_ANNOTATION_STATUSES.has(status);
 
+/** `record[key]` only when it is the record's own entry, never inherited. */
+const ownValue = <Value>(
+	record: Readonly<Record<string, Value>> | undefined,
+	key: string,
+): Value | undefined =>
+	record && Object.hasOwn(record, key) ? record[key] : undefined;
+
 const invalidInput = (message: string, details?: Record<string, unknown>) =>
 	new AnnotationServiceError("INVALID_INPUT", message, details);
 
@@ -665,11 +672,13 @@ export const summarizeAnnotationCounts = (
 	annotations: readonly Annotation[],
 	design?: TrickroomDesign | null,
 ): AnnotationCountSummary => {
+	// Keyed by element ids, which may be any safe path segment
+	// (`constructor`, `__proto__`): no prototype to collide with.
 	const summary: AnnotationCountSummary = {
 		total: emptyCounts(),
 		design: emptyCounts(),
-		boards: {},
-		layers: {},
+		boards: Object.create(null) as Record<string, AnnotationCounts>,
+		layers: Object.create(null) as Record<string, AnnotationCounts>,
 	};
 	for (const annotation of annotations) {
 		const { target, status } = annotation;
@@ -1147,7 +1156,7 @@ export const resolveAnnotations = async (
 								},
 							};
 				},
-				{ expectedRevision: input.expectedRevisions?.[annotationId] },
+				{ expectedRevision: ownValue(input.expectedRevisions, annotationId) },
 			);
 			if (outcome.result) {
 				skipped.push(outcome.result);
@@ -1297,7 +1306,7 @@ export const clearAnnotations = async (
 	const skipped: BulkSkip[] = [];
 	for (const annotation of listed.annotations) {
 		const expected =
-			input.expectedRevisions?.[annotation.id] ?? annotation.revision;
+			ownValue(input.expectedRevisions, annotation.id) ?? annotation.revision;
 		let reason: BulkSkip | null = null;
 		const removed = await context.store.remove(
 			input.container,

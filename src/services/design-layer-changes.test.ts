@@ -254,3 +254,29 @@ describe("findChangedSince", () => {
 		]);
 	});
 });
+
+describe("ids that name Object.prototype members", () => {
+	it("captures, checks and restores layers `__proto__` and `constructor`", () => {
+		const before = design([
+			layer("constructor", [layer("__proto__", "Hi"), layer("toString")]),
+		]);
+		const after = design([
+			layer("constructor", [layer("__proto__", "Bye"), layer("valueOf")]),
+		]);
+		const capture = roundTrip(before, after, {
+			boards: ["constructor"],
+			// The removed `toString` reveals its parent.
+			layerIds: ["__proto__", "constructor", "valueOf"],
+			touched: ["__proto__", "constructor", "toString", "valueOf"],
+		});
+		expect(Object.hasOwn(capture.before.layers, "__proto__")).toBe(true);
+		// Survives the JSON round trip of an annotation file.
+		const stored = JSON.parse(JSON.stringify(capture)) as typeof capture;
+		expect(findChangedSince(after, stored.after)).toEqual([]);
+		expect(restoreDesignChange(after, stored.before)).toEqual(before);
+		const later = design([
+			layer("constructor", [layer("__proto__", "Later"), layer("valueOf")]),
+		]);
+		expect(findChangedSince(later, stored.after)).toEqual(["__proto__"]);
+	});
+});

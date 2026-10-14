@@ -1925,3 +1925,101 @@ describe("counts", () => {
 		expect(summary.boards["board-1"]?.detached).toBe(1);
 	});
 });
+
+describe("ids that name Object.prototype members", () => {
+	const prototypeDesign = (): TrickroomDesign => ({
+		name: "Prototype ids",
+		boards: [
+			node("constructor", "Board", [
+				node("__proto__", "Proto layer", "Text"),
+				node("toString", "Other layer"),
+			]),
+		],
+	});
+
+	it("counts a board `constructor` and a layer `__proto__`", async () => {
+		await designs.createDesignFile("design-proto", prototypeDesign());
+		const read = await designs.readDesignFile("design-proto");
+		const design = { design: read.design, revision: read.revision };
+		const make = (target: AnnotationTarget) =>
+			createAnnotation(context, {
+				target,
+				body: "x",
+				by: human,
+				scope: main,
+				design,
+			});
+		await make({
+			kind: "board",
+			designId: "design-proto",
+			boardId: "constructor",
+		});
+		await make({
+			kind: "layer",
+			designId: "design-proto",
+			boardId: "constructor",
+			elementId: "__proto__",
+		});
+		await make({
+			kind: "layer",
+			designId: "design-proto",
+			boardId: "constructor",
+			elementId: "toString",
+		});
+
+		const counts = await countAnnotations(context, {
+			container: { kind: "design", designId: "design-proto" },
+			scope: main,
+			design: read.design,
+		});
+		expect(counts.boards.constructor).toMatchObject({ live: 3, agentWork: 3 });
+		expect(Object.keys(counts.boards)).toEqual(["constructor"]);
+		expect(counts.layers.__proto__).toMatchObject({ live: 1 });
+		expect(counts.layers.toString).toMatchObject({ live: 1 });
+		expect(Object.keys(counts.layers).sort()).toEqual([
+			"__proto__",
+			"toString",
+		]);
+
+		// Without the design, too (boards come from the targets).
+		const bare = await countAnnotations(context, {
+			container: { kind: "design", designId: "design-proto" },
+			scope: main,
+		});
+		const boardId: string = "constructor";
+		expect(bare.boards[boardId]?.live).toBe(3);
+	});
+
+	it("does not take an inherited member for an expected revision", async () => {
+		const created = await create();
+		for (const id of ["constructor", "toString"]) {
+			await store.create({
+				...(await getAnnotation(context, { annotationId: created.id })),
+				id,
+			} as never);
+		}
+		const container = { kind: "design", designId } as const;
+		const { resolved, skipped } = await resolveAnnotations(context, {
+			container,
+			by: human,
+			annotationIds: ["constructor"],
+			expectedRevisions: {},
+		});
+		expect(skipped).toEqual([]);
+		expect(resolved.map((annotation) => annotation.id)).toEqual([
+			"constructor",
+		]);
+
+		await transitionAnnotation(context, {
+			annotationId: "toString",
+			by: human,
+			to: "resolved",
+		});
+		const { cleared } = await clearAnnotations(context, {
+			container,
+			scope: main,
+			expectedRevisions: {},
+		});
+		expect(cleared.sort()).toEqual(["constructor", "toString"]);
+	});
+});
