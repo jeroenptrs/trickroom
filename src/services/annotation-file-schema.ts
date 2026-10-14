@@ -116,6 +116,7 @@ const annotationDraftStateSchema = z
 
 const isChangeRecord = (value: unknown) =>
 	isRecord(value) &&
+	(value.writeId === undefined || isNonEmptyString(value.writeId)) &&
 	typeof value.revisionBefore === "string" &&
 	typeof value.revisionAfter === "string" &&
 	isStringArray(value.boards) &&

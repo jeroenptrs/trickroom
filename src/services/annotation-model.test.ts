@@ -440,9 +440,11 @@ describe("getAnnotationMemoryReference", () => {
 
 describe("findAnnotationsSharingChange", () => {
 	const human = { role: "human" } as const;
-	const change = (revisionBefore: string, revisionAfter: string) => ({
-		revisionBefore,
-		revisionAfter,
+	const change = (writeId: string | undefined) => ({
+		...(writeId ? { writeId } : {}),
+		// Identical edits: equal revisions do not make one write.
+		revisionBefore: "r1",
+		revisionAfter: "r2",
 		boards: [],
 		layerIds: [],
 		operations: [],
@@ -450,29 +452,40 @@ describe("findAnnotationsSharingChange", () => {
 	});
 	const changeEntry = (
 		id: string,
-		revisions: [string, string],
+		writeId: string | undefined,
 		revertedBy?: string,
 	): AnnotationEntry => ({
 		id,
 		kind: "change",
 		at: "2026-10-14T10:00:00.000Z",
 		by: human,
-		change: change(...revisions),
+		change: change(writeId),
 		...(revertedBy ? { revertedBy } : {}),
 	});
+	const shared = (
+		annotations: { id: string; entries: AnnotationEntry[] }[],
+		writeId: string | undefined,
+	) =>
+		findAnnotationsSharingChange(annotations, "a", change(writeId)).map(
+			({ annotation, entryId }) => [annotation.id, entryId],
+		);
 
-	it("finds the other annotations one write addressed, not reverted ones", () => {
+	it("finds the other annotations of the same write, not reverted ones", () => {
 		const annotations = [
-			{ id: "a", entries: [changeEntry("a1", ["r1", "r2"])] },
-			{ id: "b", entries: [changeEntry("b1", ["r1", "r2"])] },
-			{ id: "c", entries: [changeEntry("c1", ["r1", "r2"], "c2")] },
-			{ id: "d", entries: [changeEntry("d1", ["r2", "r3"])] },
-			{ id: "e", entries: [changeEntry("e1", ["r0", "r2"])] },
+			{ id: "a", entries: [changeEntry("a1", "w1")] },
+			{ id: "b", entries: [changeEntry("b1", "w1")] },
+			{ id: "c", entries: [changeEntry("c1", "w1", "c2")] },
+			{ id: "d", entries: [changeEntry("d1", "w2")] },
+			{ id: "e", entries: [changeEntry("e1", undefined)] },
 		];
-		expect(
-			findAnnotationsSharingChange(annotations, "a", change("r1", "r2")).map(
-				({ annotation, entryId }) => [annotation.id, entryId],
-			),
-		).toEqual([["b", "b1"]]);
+		expect(shared(annotations, "w1")).toEqual([["b", "b1"]]);
+	});
+
+	it("never shares a record without a write id, even with equal revisions", () => {
+		const annotations = [
+			{ id: "a", entries: [changeEntry("a1", undefined)] },
+			{ id: "b", entries: [changeEntry("b1", undefined)] },
+		];
+		expect(shared(annotations, undefined)).toEqual([]);
 	});
 });

@@ -21,6 +21,7 @@ import {
 } from "../queries/editor-channel";
 import type { ProjectQueryScope } from "../queries/project-scope";
 import { bumpTailwindSourceRevision } from "../queries/tailwind-sources";
+import type { AnnotationFileEvent } from "../services/annotations.types";
 
 export type TrickroomFileEvent = {
 	/**
@@ -237,6 +238,34 @@ export function createFileEventCoalescer(
 	};
 }
 
+/** How long annotation events gather before the design-list counts refetch. */
+export const ANNOTATION_COUNTS_REFRESH_MS = 500;
+
+/**
+ * Refreshes the project screen's per-design counts after annotation events:
+ * design events only (it counts designs), once for a burst (an agent
+ * addressing several, a bulk resolve).
+ */
+export const createAnnotationCountsRefresher = (
+	refresh: () => unknown,
+	waitMs = ANNOTATION_COUNTS_REFRESH_MS,
+) => {
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	return {
+		push: (event: AnnotationFileEvent) => {
+			if (event.container.kind !== "design" || timer !== null) return;
+			timer = setTimeout(() => {
+				timer = null;
+				void refresh();
+			}, waitMs);
+		},
+		dispose: () => {
+			if (timer !== null) clearTimeout(timer);
+			timer = null;
+		},
+	};
+};
+
 export function useProjectFileEvents(
 	projectScope: ProjectQueryScope,
 	enabled: boolean,
@@ -286,14 +315,17 @@ export function useProjectFileEvents(
 		// Annotations are per-user state outside `.trickroom`; their events go
 		// straight to the editor that has them loaded, which refetches the one
 		// annotation that changed.
+		const counts = createAnnotationCountsRefresher(() =>
+			queryClient.invalidateQueries({
+				queryKey: annotationCountsQueryKey(projectScope),
+			}),
+		);
+
 		const handleAnnotation = (message: MessageEvent<string>) => {
 			const event = parseAnnotationFileEvent(message.data);
 			if (event) {
 				deliverAnnotationEvent(event);
-				// The project screen's per-design counts.
-				void queryClient.invalidateQueries({
-					queryKey: annotationCountsQueryKey(projectScope),
-				});
+				counts.push(event);
 			}
 		};
 
@@ -318,6 +350,7 @@ export function useProjectFileEvents(
 			source.removeEventListener("focus", handleFocus as EventListener);
 			source.close();
 			coalescer.dispose();
+			counts.dispose();
 		};
 	}, [enabled, projectScope, queryClient]);
 }

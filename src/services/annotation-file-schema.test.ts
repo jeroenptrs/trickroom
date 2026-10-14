@@ -343,6 +343,8 @@ describe("entry payloads", () => {
 			{ kind: "resolution", summary: "x" },
 			{ kind: "change", change: changeRecord },
 			{ kind: "change", body: "x", change: changeRecord, revertedBy: "e" },
+			// A write id (optional within version 1; files without one read).
+			{ kind: "change", change: { ...changeRecord, writeId: "w1" } },
 			{
 				kind: "change",
 				change: { ...changeRecord, before: undefined, after: undefined },
@@ -363,6 +365,8 @@ describe("entry payloads", () => {
 	it("refuses change records with malformed fields or revert state", () => {
 		const broken: Record<string, unknown>[] = [
 			{ ...changeRecord, revisionAfter: 2 },
+			{ ...changeRecord, writeId: 7 },
+			{ ...changeRecord, writeId: "" },
 			{ ...changeRecord, boards: "b1" },
 			{ ...changeRecord, layerIds: [1] },
 			{ ...changeRecord, operations: [{ operation: "x" }] },

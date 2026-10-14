@@ -1,11 +1,13 @@
 import { QueryClient } from "@tanstack/react-query";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	designFileQueryKey,
 	designSummariesProjectQueryKey,
 } from "../queries/design-file";
 import { subscribeDesignEvents } from "../queries/design-live-events";
+import type { AnnotationFileEvent } from "../services/annotations.types";
 import {
+	createAnnotationCountsRefresher,
 	createFileEventCoalescer,
 	invalidateTrickroomFileEvent,
 	type TrickroomFileEvent,
@@ -294,5 +296,43 @@ describe("file event coalescing", () => {
 		vi.runAllTimers();
 
 		expect(flushed).toEqual([]);
+	});
+});
+
+describe("annotation counts refresh", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	const event = (
+		container: AnnotationFileEvent["container"],
+	): AnnotationFileEvent => ({
+		annotationId: "a1",
+		container,
+		operation: "changed",
+		revision: "r1",
+	});
+
+	it("refreshes once for a burst of design events, and not for components", () => {
+		const refresh = vi.fn();
+		const counts = createAnnotationCountsRefresher(refresh, 500);
+		counts.push(event({ kind: "component", systemId: "s", componentId: "c" }));
+		vi.advanceTimersByTime(1000);
+		expect(refresh).not.toHaveBeenCalled();
+
+		counts.push(event({ kind: "design", designId: "d1" }));
+		counts.push(event({ kind: "design", designId: "d2" }));
+		vi.advanceTimersByTime(499);
+		expect(refresh).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(1);
+		expect(refresh).toHaveBeenCalledTimes(1);
+
+		counts.push(event({ kind: "design", designId: "d1" }));
+		counts.dispose();
+		vi.advanceTimersByTime(1000);
+		expect(refresh).toHaveBeenCalledTimes(1);
 	});
 });

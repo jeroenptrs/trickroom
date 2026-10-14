@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { holdForeignAnnotationLock } from "../test-utils/foreign-annotation-lock";
 import type { RecipeTemplateNode } from "../types";
 import { createDesignSystemStorage } from "../utils/design-system-store";
 import {
@@ -24,6 +25,7 @@ import {
 	type AnnotationServiceContext,
 	createAnnotation,
 	listAnnotations,
+	moveAnnotationToBranch,
 	replyToAnnotation,
 	transitionAnnotation,
 	validateAddresses,
@@ -753,6 +755,82 @@ describe("component annotations", () => {
 			await expect(revert(second.id, change.id)).rejects.toMatchObject({
 				code: "NOT_REVERTIBLE",
 			});
+		});
+
+		it("refuses before the draft changes when a sibling's lock is held", async () => {
+			const first = await create();
+			const second = await create();
+			await addressing([first.id, second.id], {
+				draft: { root: buttonRoot("px-8") },
+			});
+			const revision = (await manifest()).revision;
+			const secondBefore = await reload(second.id);
+			const lockFile = await holdForeignAnnotationLock(
+				path.join(root, "home"),
+				store.getAnnotationPath(container, second.id),
+			);
+			const impatient = new AnnotationStore({
+				projectId: "project-1",
+				trickroomHome: path.join(root, "home"),
+				lock: { acquireTimeoutMs: 200, retryDelayMs: 20 },
+			});
+			try {
+				await expect(
+					revertComponentChange(
+						{ store: impatient, now: () => clock },
+						{
+							annotationId: first.id,
+							entryId: changeEntry(await reload(first.id)).id,
+							by: human,
+							projectRoot,
+							container,
+						},
+					),
+				).rejects.toMatchObject({
+					code: "ANNOTATION_LOCKED",
+					details: { annotationId: second.id },
+				});
+			} finally {
+				await rm(lockFile, { force: true });
+			}
+			expect((await manifest()).revision).toBe(revision);
+			expect((await reload(first.id)).status).toBe("addressed");
+			expect(await reload(second.id)).toEqual(secondBefore);
+		});
+
+		it("leaves a sibling on another branch alone", async () => {
+			const first = await create();
+			const second = await create();
+			await addressing([first.id, second.id], {
+				draft: { root: buttonRoot("px-8") },
+			});
+			await moveAnnotationToBranch(context, {
+				annotationId: second.id,
+				by: human,
+				scope: feature,
+			});
+			const secondBefore = await reload(second.id);
+
+			const result = await revertComponentChange(context, {
+				annotationId: first.id,
+				entryId: changeEntry(await reload(first.id)).id,
+				by: human,
+				projectRoot,
+				container,
+				scope: main,
+			});
+			expect(result.alsoReverted).toEqual([]);
+			expect(await reload(second.id)).toEqual(secondBefore);
+			await expect(
+				revertComponentChange(context, {
+					annotationId: second.id,
+					entryId: changeEntry(secondBefore).id,
+					by: human,
+					projectRoot,
+					container,
+					scope: feature,
+				}),
+			).rejects.toMatchObject({ code: "CHANGED_SINCE" });
 		});
 
 		it("restores the variant schema and slots as well", async () => {

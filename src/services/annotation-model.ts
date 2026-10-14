@@ -461,27 +461,26 @@ export const normalizePinnedVariants = (
 
 /**
  * Whether two change records come from one write: a write that addresses
- * several annotations records the same change (same revisions before and
- * after) on each of them.
+ * several annotations stores the same `writeId` on each record. Records
+ * without one (written before it existed) match nothing, not even each
+ * other: equal revisions can come from two separate, identical edits.
  */
 export const isSameChangeWrite = (
-	a: Pick<AnnotationChangeRecord, "revisionBefore" | "revisionAfter">,
-	b: Pick<AnnotationChangeRecord, "revisionBefore" | "revisionAfter">,
-) =>
-	a.revisionBefore === b.revisionBefore && a.revisionAfter === b.revisionAfter;
+	a: Pick<AnnotationChangeRecord, "writeId">,
+	b: Pick<AnnotationChangeRecord, "writeId">,
+) => a.writeId !== undefined && a.writeId === b.writeId;
 
 /**
  * The other annotations of a container that the write behind `change`
  * addressed too, with their change entry of it (not reverted). Reverting
- * the change from any of them undoes that whole write, so it is undone for
- * all of them.
+ * the change from any of them undoes that whole write.
  */
 export const findAnnotationsSharingChange = <
 	A extends { id: string; entries: readonly AnnotationEntry[] },
 >(
 	annotations: Iterable<A>,
 	annotationId: string,
-	change: Pick<AnnotationChangeRecord, "revisionBefore" | "revisionAfter">,
+	change: Pick<AnnotationChangeRecord, "writeId">,
 ): { annotation: A; entryId: string }[] => {
 	const shared: { annotation: A; entryId: string }[] = [];
 	for (const annotation of annotations) {

@@ -663,6 +663,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 						by: human,
 						projectRoot: request.projectRoot,
 						container,
+						scope: await request.scope(),
 						...expectedRevisionOf(body),
 					}),
 				);
@@ -673,6 +674,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 				entryId,
 				by: human,
 				designService: request.designService,
+				scope: await request.scope(),
 				...expectedRevisionOf(body),
 			});
 			return c.json(result);
