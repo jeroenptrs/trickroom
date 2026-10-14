@@ -277,7 +277,7 @@ describe("component annotations", () => {
 				designRevision: anchor.revision,
 			});
 			const icon = await create({ target: nodeTarget("icon") });
-			expect(icon.snapshot.layerName).toBe("trickroom/icon");
+			expect(icon.snapshot.layerName).toBe("icon");
 			const rootAnnotation = await create({ target: nodeTarget("root") });
 			expect(rootAnnotation.snapshot.ancestorNames).toEqual([]);
 		});

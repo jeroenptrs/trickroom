@@ -368,8 +368,9 @@ export type AnnotationComponentRead = {
 	revision: string;
 };
 
+/** A node's name as the component editor's rail shows it. */
 const templateNodeName = (node: RecipeTemplateNode) =>
-	node.name ?? `${node.library}/${node.component}`;
+	node.name?.trim() || node.component;
 
 /**
  * Checks a component node target against the component's template (the

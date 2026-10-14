@@ -1010,7 +1010,7 @@ describe("MCP annotations on system components", () => {
 				variants: { tone: "brand" },
 			});
 			expect(payload.reanchored.snapshot).toMatchObject({
-				name: "trickroom/text",
+				name: "text",
 				component: "trickroom/text",
 			});
 			expect(payload.annotation.target).toMatchObject({

@@ -288,7 +288,7 @@ describe("component annotation routes", () => {
 				},
 			});
 			const annotation = await create(nodeTarget("badge"));
-			expect(annotation.snapshot.layerName).toBe("trickroom/container");
+			expect(annotation.snapshot.layerName).toBe("container");
 		});
 	});
 
@@ -368,7 +368,7 @@ describe("component annotation routes", () => {
 				variants: { size: "lg" },
 			});
 			expect(body.annotation.snapshot).toMatchObject({
-				layerName: "trickroom/icon",
+				layerName: "icon",
 				ancestorNames: ["Button"],
 				variants: { size: "lg" },
 			});

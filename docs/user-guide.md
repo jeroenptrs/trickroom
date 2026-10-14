@@ -124,7 +124,7 @@ Shared server:
 
 ## The Inspector
 
-The right-hand inspector shows the selected layer in one scrolling panel: its classes first, then its properties. The component editor's draft inspector uses the same layout. In the design editor the inspector has two tabs: **Properties** (below) and **Annotations** (see [Annotations](#annotations)).
+The right-hand inspector shows the selected layer in one scrolling panel: its classes first, then its properties. The component editor's draft inspector uses the same layout. In both editors the inspector has two tabs: **Properties** (below) and **Annotations** (see [Annotations](#annotations) and [Annotating components](#annotating-components)).
 
 Classes:
 
@@ -246,6 +246,17 @@ An agent may also resolve an annotation when you ask it to in conversation. Thos
 - **Command menu.** **Next open annotation** walks through the live annotations in layer order.
 
 Annotations belong to the git branch they were made on, so an annotation made in a feature worktree does not show in the main checkout, and an agent working on main does not see it. A checkout with a detached HEAD, or a project without git, uses one shared bucket.
+
+### Annotating components
+
+The component editor has the same **Annotations** tab on its draft inspector, with the same threads, states, replies, Resolve, Dismiss, Revert and Other branches. Select a layer of the draft (on the stage or in the layer tree) and write in the composer; the annotation is about that layer of the component.
+
+- **Pin to current configuration.** By default a remark applies to every variant configuration. Pick variant values under **Style target** in the Properties tab (for example Variant: Filled), then press **Pin to current configuration** in the composer: the remark is about those values only. **Unpin** makes it general again. The button is off while no variant value is selected.
+- **The configuration chip.** A pinned thread shows its values as a square chip (`variant: filled`): cyan while that configuration is in view, slate otherwise. Clicking it switches the configuration in view to those values.
+- **Stage pins.** Pins sit on the draft stage as in the design editor. A pinned annotation's pin shows only while the configuration in view has its values on every pinned axis; unpinned ones always show. Annotations whose layer is gone from the draft (or pinned to a value the variant schema no longer has) are **Detached** and pin to the root's corner; **Re-anchor to …** moves one to the selected layer and keeps its pin.
+- **Layer tree.** Rows with annotations show the same marker, the root row counting the whole component (pinned ones included, whatever is in view).
+- **Agent changes.** An agent addresses component annotations in the draft write that makes the change (`component_draft_update`) or a publish. The change record lists the layers it changed; clicking one selects it. **Revert** restores the draft's template and variants as they were before that change, as long as nothing has changed the draft since; a publish cannot be reverted. Save the draft you are editing before reverting: the editor reloads the draft from disk.
+- **Memory.** **Save as memory note** on a resolved component annotation adds a note to the design system's memory with a `{{component:…}}` reference.
 
 ## Current Limits
 
