@@ -1,12 +1,18 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import {
 	getTailwindSourceFiles,
 	subscribeTailwindSourceFiles,
 } from "../utils/tailwind-source-files";
+import {
+	AnnotationStore,
+	AnnotationStoreError,
+	classifyAnnotationFile,
+} from "./annotation-store";
+import type { AnnotationFileEvent } from "./annotations.types";
 import { createDesignFileService } from "./design-file-service";
 import { calculateManifestRevision } from "./design-revision";
 import { inspectDesignStorage } from "./design-storage";
@@ -49,6 +55,8 @@ export type TrickroomFileEvent = {
 };
 
 export type TrickroomFileEventListener = (event: TrickroomFileEvent) => void;
+
+export type AnnotationFileEventListener = (event: AnnotationFileEvent) => void;
 
 const DEFAULT_DEBOUNCE_MS = 75;
 /**
@@ -170,6 +178,17 @@ type PendingDesign = {
 
 export class ProjectFileEvents {
 	private readonly listeners = new Set<TrickroomFileEventListener>();
+	private readonly annotationListeners = new Set<AnnotationFileEventListener>();
+	/** The project whose annotation folder (outside `.trickroom`) is watched. */
+	private annotationProjectId: string | null = null;
+	private annotationWatcher: FSWatcher | null = null;
+	private annotationWatcherGeneration = 0;
+	private annotationWatchReady: Promise<void> = Promise.resolve();
+	private settleAnnotationWatchReady: (() => void) | null = null;
+	private readonly pendingAnnotations = new Map<
+		string,
+		ReturnType<typeof setTimeout>
+	>();
 	private readonly pending = new Map<string, ReturnType<typeof setTimeout>>();
 	private readonly pendingDesigns = new Map<string, PendingDesign>();
 	/** Each design's event in progress, so its events go out in order. */
@@ -223,6 +242,149 @@ export class ProjectFileEvents {
 		this.deletedDesigns.clear();
 		if (this.listeners.size > 0) {
 			void this.restartWatcher();
+		}
+	}
+
+	/**
+	 * Watches the project's annotation folder,
+	 * `<TRICKROOM_HOME>/annotations/<projectId>`, the second root: changes
+	 * to annotation files go to `subscribeAnnotations` listeners.
+	 */
+	setAnnotationProject(projectId: string | null) {
+		if (this.annotationProjectId === projectId) {
+			return;
+		}
+		this.annotationProjectId = projectId;
+		if (this.annotationListeners.size > 0) {
+			this.annotationWatchReady = this.restartAnnotationWatcher();
+		}
+	}
+
+	/**
+	 * Resolves once the annotation watcher started by the last
+	 * `subscribeAnnotations` or `setAnnotationProject` is watching (or did
+	 * not start), so a write after it is reported.
+	 */
+	whenAnnotationsWatched(): Promise<void> {
+		return this.annotationWatchReady;
+	}
+
+	subscribeAnnotations(listener: AnnotationFileEventListener) {
+		this.annotationListeners.add(listener);
+		if (this.annotationListeners.size === 1) {
+			this.annotationWatchReady = this.restartAnnotationWatcher();
+		}
+		return () => {
+			this.annotationListeners.delete(listener);
+			if (this.annotationListeners.size === 0) {
+				this.annotationWatcherGeneration += 1;
+				void this.closeAnnotationWatcher();
+			}
+		};
+	}
+
+	private async closeAnnotationWatcher() {
+		const watcher = this.annotationWatcher;
+		this.annotationWatcher = null;
+		// Whoever waits for a watcher that is going away stops waiting.
+		this.settleAnnotationWatchReady?.();
+		this.settleAnnotationWatchReady = null;
+		for (const timer of this.pendingAnnotations.values()) {
+			clearTimeout(timer);
+		}
+		this.pendingAnnotations.clear();
+		if (watcher) {
+			await watcher.close();
+		}
+	}
+
+	private async restartAnnotationWatcher() {
+		const generation = ++this.annotationWatcherGeneration;
+		await this.closeAnnotationWatcher();
+		const projectId = this.annotationProjectId;
+		if (
+			generation !== this.annotationWatcherGeneration ||
+			!projectId ||
+			this.annotationListeners.size === 0
+		) {
+			return;
+		}
+		let store: AnnotationStore;
+		try {
+			store = new AnnotationStore({
+				projectId,
+				...(this.trickroomHome ? { trickroomHome: this.trickroomHome } : {}),
+			});
+		} catch {
+			return;
+		}
+		// The folder may not exist before the first annotation; create it so
+		// the watcher sees the first one arrive.
+		const root = store.projectDirectory;
+		await mkdir(root, { recursive: true, mode: 0o700 }).catch(() => undefined);
+		if (generation !== this.annotationWatcherGeneration) {
+			return;
+		}
+		const watcher = chokidar.watch(root, { ignoreInitial: true });
+		this.annotationWatcher = watcher;
+		let ready = false;
+		const watching = new Promise<void>((resolve) => {
+			this.settleAnnotationWatchReady = resolve;
+			watcher.on("ready", () => {
+				ready = true;
+				resolve();
+			});
+		});
+		const schedule = (filePath: string) => {
+			if (!ready) return;
+			const relative = path.relative(root, filePath);
+			const classified = classifyAnnotationFile(relative);
+			if (!classified) return;
+			const previous = this.pendingAnnotations.get(relative);
+			if (previous) clearTimeout(previous);
+			this.pendingAnnotations.set(
+				relative,
+				setTimeout(() => {
+					this.pendingAnnotations.delete(relative);
+					void this.emitAnnotation(store, generation, classified);
+				}, this.debounceMs),
+			);
+		};
+		watcher.on("add", schedule);
+		watcher.on("change", schedule);
+		watcher.on("unlink", schedule);
+		await watching;
+	}
+
+	private async emitAnnotation(
+		store: AnnotationStore,
+		generation: number,
+		{
+			container,
+			annotationId,
+		}: NonNullable<ReturnType<typeof classifyAnnotationFile>>,
+	) {
+		let event: AnnotationFileEvent;
+		try {
+			const stored = await store.read(container, annotationId);
+			event = stored
+				? {
+						annotationId,
+						container,
+						operation: "changed",
+						revision: stored.revision,
+					}
+				: { annotationId, container, operation: "deleted", revision: null };
+		} catch (error) {
+			if (!(error instanceof AnnotationStoreError)) return;
+			// Unreadable (invalid, or from a newer Trickroom): still changed.
+			event = { annotationId, container, operation: "changed", revision: null };
+		}
+		if (generation !== this.annotationWatcherGeneration) {
+			return;
+		}
+		for (const listener of this.annotationListeners) {
+			listener(event);
 		}
 	}
 

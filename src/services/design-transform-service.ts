@@ -432,6 +432,27 @@ export type MutationResult = {
 
 export type DeleteMutationResult = MutationResult & {
 	deletedIds: string[];
+	/**
+	 * The live annotations anchored to the deleted element or a descendant,
+	 * when the caller passed `annotationAnchors` and there are any.
+	 */
+	annotationWarnings?: DeletedAnnotationAnchors;
+};
+
+/**
+ * Live annotations by the element (layer or board) id they are anchored
+ * to; built by `buildAnnotationAnchorIndex` in `annotation-service.ts`.
+ */
+export type AnnotationAnchorLookup = ReadonlyMap<string, readonly string[]>;
+
+/** A deleted element and the annotations its deletion detaches. */
+export type DeletedAnnotationAnchors = {
+	elementId: string;
+	annotations: { annotationId: string; anchorId: string }[];
+};
+
+export type DeleteElementOptions = {
+	annotationAnchors?: AnnotationAnchorLookup;
 };
 
 export type AddElementParams = {
@@ -2812,6 +2833,7 @@ export const applyMoveElement = (
 export const applyDeleteElement = (
 	design: TrickroomDesign,
 	params: DeleteElementParams,
+	options: DeleteElementOptions = {},
 ): DeleteMutationResult => {
 	const flat = normalizeDesignForMutation(design);
 	const { entitiesById } = flat;
@@ -2855,10 +2877,29 @@ export const applyDeleteElement = (
 		entitiesById: nextEntitiesById,
 	};
 
+	const annotations = options.annotationAnchors
+		? [...deletedIds].flatMap((anchorId) =>
+				(options.annotationAnchors?.get(anchorId) ?? []).map(
+					(annotationId) => ({
+						annotationId,
+						anchorId,
+					}),
+				),
+			)
+		: [];
+
 	return {
 		design: serializeFlatDesign(nextFlat),
 		changedElementId: params.elementId,
 		deletedIds: [...deletedIds],
+		...(annotations.length > 0
+			? {
+					annotationWarnings: {
+						elementId: params.elementId,
+						annotations,
+					},
+				}
+			: {}),
 	};
 };
 
