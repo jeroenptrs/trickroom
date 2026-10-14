@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Node, TrickroomDesign } from "../types";
 import { loadDerivedTwMerge } from "../utils/tailwind-merge-derive";
 import { recordTailwindSourceFiles } from "../utils/tailwind-source-files";
+import { AnnotationStore } from "./annotation-store";
+import type { Annotation, AnnotationFileEvent } from "./annotations.types";
 import { createDesignFileService } from "./design-file-service";
 import { calculateManifestRevision } from "./design-revision";
 import {
@@ -602,6 +604,223 @@ describe("project file events", () => {
 				).toBe(20),
 			{ timeout: 3_000 },
 		);
+		unsubscribe();
+	});
+});
+
+describe("annotation events", () => {
+	const designContainer = { kind: "design", designId: "design-1" } as const;
+
+	const createAnnotationFixture = (id: string): Annotation => {
+		const at = "2026-10-14T10:00:00.000Z";
+		return {
+			version: 1,
+			id,
+			projectId: "proj",
+			target: { kind: "design", designId: designContainer.designId },
+			branch: "*",
+			worktreePath: "/project",
+			snapshot: { branch: "*", worktreePath: "/project" },
+			status: "open",
+			createdAt: at,
+			updatedAt: at,
+			entries: [
+				{
+					id: `${id}-entry`,
+					kind: "remark",
+					at,
+					by: { role: "human" },
+					body: "Hi",
+				},
+			],
+			transitions: [{ from: null, to: "open", at, by: { role: "human" } }],
+		};
+	};
+
+	const setup = async () => {
+		const home = await mkdtemp(path.join(os.tmpdir(), "trickroom-ann-events-"));
+		tempRoots.push(home);
+		const events = new ProjectFileEvents(20, { trickroomHome: home });
+		const received: AnnotationFileEvent[] = [];
+		events.setAnnotationProject("proj");
+		const unsubscribe = events.subscribeAnnotations((event) => {
+			received.push(event);
+		});
+		const store = new AnnotationStore({
+			projectId: "proj",
+			trickroomHome: home,
+		});
+		// The watcher starts asynchronously; give it time to become ready.
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		return { home, events, received, unsubscribe, store };
+	};
+
+	const waitFor = (
+		received: AnnotationFileEvent[],
+		predicate: (event: AnnotationFileEvent) => boolean,
+	) =>
+		vi.waitFor(
+			() => {
+				const found = received.find(predicate);
+				expect(found).toBeDefined();
+				return found as AnnotationFileEvent;
+			},
+			{ timeout: 5_000, interval: 25 },
+		);
+
+	it("emits changed with the stored revision on create and on update", async () => {
+		const { received, unsubscribe, store } = await setup();
+		const annotation = createAnnotationFixture("ann-1");
+
+		const created = await store.create(annotation);
+		const createdEvent = await waitFor(
+			received,
+			(event) => event.annotationId === "ann-1",
+		);
+		expect(createdEvent).toEqual({
+			operation: "changed",
+			annotationId: "ann-1",
+			container: designContainer,
+			revision: created.revision,
+		});
+
+		const updated = await store.update(
+			designContainer,
+			"ann-1",
+			({ annotation: current }) => ({
+				annotation: {
+					...current,
+					status: "resolved",
+					updatedAt: "2026-10-14T11:00:00.000Z",
+				},
+				result: undefined,
+			}),
+		);
+		expect(updated.stored.revision).not.toBe(created.revision);
+		await waitFor(
+			received,
+			(event) => event.revision === updated.stored.revision,
+		);
+		expect(received.at(-1)).toEqual({
+			operation: "changed",
+			annotationId: "ann-1",
+			container: designContainer,
+			revision: updated.stored.revision,
+		});
+		unsubscribe();
+	});
+
+	it("emits deleted with a null revision on remove", async () => {
+		const { received, unsubscribe, store } = await setup();
+		await store.create(createAnnotationFixture("ann-2"));
+		await waitFor(received, (event) => event.operation === "changed");
+
+		await store.remove(designContainer, "ann-2");
+
+		const deleted = await waitFor(
+			received,
+			(event) => event.operation === "deleted",
+		);
+		expect(deleted).toEqual({
+			operation: "deleted",
+			annotationId: "ann-2",
+			container: designContainer,
+			revision: null,
+		});
+		unsubscribe();
+	});
+
+	it("reports component annotations with their component container", async () => {
+		const { received, unsubscribe, store } = await setup();
+		const annotation = createAnnotationFixture("ann-3");
+		const created = await store.create({
+			...annotation,
+			target: {
+				kind: "componentNode",
+				systemId: "sys",
+				componentId: "button",
+				nodePath: "root",
+			},
+		});
+
+		const event = await waitFor(
+			received,
+			(candidate) => candidate.annotationId === "ann-3",
+		);
+		expect(event).toEqual({
+			operation: "changed",
+			annotationId: "ann-3",
+			container: { kind: "component", systemId: "sys", componentId: "button" },
+			revision: created.revision,
+		});
+		unsubscribe();
+	});
+
+	it("ignores session files, temp files and locks", async () => {
+		const { home, received, unsubscribe, store } = await setup();
+
+		await store.writeSession("session-1", new Date());
+		const folder = store.getContainerDirectory(designContainer);
+		await mkdir(folder, { recursive: true });
+		await writeFile(path.join(folder, ".ann-4.json.1234.abc.tmp"), "{}");
+		await writeFile(path.join(folder, ".ann-4.json"), "{}");
+		await writeFile(path.join(folder, "ann-4.json.lock"), "");
+		await writeFile(path.join(folder, "notes.txt"), "text");
+		await writeFile(path.join(home, "annotations", "proj", "stray.json"), "{}");
+
+		// A real annotation afterwards proves the watcher was live and
+		// handed out events in order: nothing else may have come before it.
+		await store.create(createAnnotationFixture("ann-4"));
+		await waitFor(received, (event) => event.annotationId === "ann-4");
+		await new Promise((resolve) => setTimeout(resolve, 200));
+
+		expect([...new Set(received.map((event) => event.annotationId))]).toEqual([
+			"ann-4",
+		]);
+		unsubscribe();
+	});
+
+	it("emits nothing after unsubscribe", async () => {
+		const { received, unsubscribe, store } = await setup();
+		await store.create(createAnnotationFixture("ann-5"));
+		await waitFor(received, (event) => event.annotationId === "ann-5");
+
+		unsubscribe();
+		const count = received.length;
+		await store.create(createAnnotationFixture("ann-6"));
+		await store.remove(designContainer, "ann-5");
+		await new Promise((resolve) => setTimeout(resolve, 400));
+
+		expect(received).toHaveLength(count);
+	});
+
+	it("follows the annotation project and stops for none", async () => {
+		const { home, events, received, unsubscribe } = await setup();
+		const other = new AnnotationStore({
+			projectId: "proj-2",
+			trickroomHome: home,
+		});
+		const mine = new AnnotationStore({
+			projectId: "proj",
+			trickroomHome: home,
+		});
+
+		events.setAnnotationProject("proj-2");
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		await mine.create(createAnnotationFixture("ann-7"));
+		await other.create({
+			...createAnnotationFixture("ann-8"),
+			projectId: "proj-2",
+		});
+		await waitFor(received, (event) => event.annotationId === "ann-8");
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(received.map((event) => event.annotationId)).toEqual(["ann-8"]);
+
+		events.setAnnotationProject(null);
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		await other.remove(designContainer, "ann-8");
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(received.map((event) => event.annotationId)).toEqual(["ann-8"]);
 		unsubscribe();
 	});
 });
