@@ -16,6 +16,8 @@ import { useHotkey, useKeyHold } from "@tanstack/react-hotkeys";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	ChevronRight,
+	Eye,
+	EyeOff,
 	Frame,
 	PanelTopOpen,
 	Plus,
@@ -51,10 +53,19 @@ import {
 	useSelectedElement,
 } from "../../stores/design-store";
 import {
+	setShowResolvedAnnotations,
+	useAnnotationRowMarker,
+	useShowResolvedAnnotations,
+} from "../../stores/editor-annotations-store";
+import {
 	useBoardChangedExternally,
 	useLayerChangedExternally,
 } from "../../stores/external-change-store";
 import { useStageReveal } from "../../stores/stage-view-store";
+import {
+	ANNOTATION_MARKER_LOOK,
+	ANNOTATION_STATE_LABELS,
+} from "../../utils/annotation-presentation";
 import {
 	getKey,
 	getShortcutPlacementIntent,
@@ -71,6 +82,9 @@ import {
 	isSystemComponentRoot,
 	isSystemComponentSlotHost,
 } from "../../utils/system-component-ownership";
+import { showDesignAnnotationsFor } from "../annotations/design-annotation-navigation";
+import { useDesignAnnotationCommands } from "../annotations/useDesignAnnotationCommands";
+import { AnnotationMarker } from "../ui/annotation-marker";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import {
@@ -336,6 +350,7 @@ export const Layer = memo(function Layer({
 	const entity = useElement(id);
 	const boardChangedExternally = useBoardChangedExternally(id);
 	const changedExternally = useLayerChangedExternally(id);
+	const annotationMarker = useAnnotationRowMarker(id);
 	const hasChildren = layer.childIds.length > 0;
 	const isRecipeOwned = isRecipeOwnedStructuralNode(entity);
 	const isComponentOwned = isSystemComponentOwnedStructuralNode(entity);
@@ -639,11 +654,45 @@ export const Layer = memo(function Layer({
 							data-changed-externally="layer"
 						/>
 					) : null}
+					{annotationMarker ? (
+						<UnstyledButton
+							className="ml-1 flex shrink-0 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
+							data-annotation-marker={annotationMarker.state}
+							aria-label={`${annotationMarker.count} ${annotationMarker.count === 1 ? "annotation" : "annotations"} (${ANNOTATION_STATE_LABELS[annotationMarker.state].toLowerCase()}): show`}
+							title={`${annotationMarker.count} ${annotationMarker.count === 1 ? "annotation" : "annotations"}${layer.parentId === null ? " on this board" : ""}: ${ANNOTATION_STATE_LABELS[annotationMarker.state].toLowerCase()}`}
+							onClick={() => showDesignAnnotationsFor(layer.id)}
+						>
+							<AnnotationMarker
+								look={ANNOTATION_MARKER_LOOK[annotationMarker.state]}
+								count={annotationMarker.count}
+							/>
+						</UnstyledButton>
+					) : null}
 				</div>
 			</LayerContextMenu>
 		</div>
 	);
 });
+
+/** Shows resolved and dismissed annotations on the rail and the stage. */
+function ShowResolvedToggle() {
+	const showResolved = useShowResolvedAnnotations();
+	const Icon = showResolved ? Eye : EyeOff;
+	return (
+		<Button
+			variant="ghost"
+			aria-pressed={showResolved}
+			className="mt-2 flex items-center gap-1 px-1.5 py-0.5 text-xs"
+			title={
+				showResolved ? "Hide resolved annotations" : "Show resolved annotations"
+			}
+			onClick={() => setShowResolvedAnnotations(!showResolved)}
+		>
+			<Icon aria-hidden="true" className="size-3.5" />
+			Resolved
+		</Button>
+	);
+}
 
 export function Layers({
 	designId,
@@ -664,6 +713,11 @@ export function Layers({
 	const [menuIntent, setMenuIntent] = useState<PlacementIntent>("after");
 	const [editRequestId, setEditRequestId] = useState<string | null>(null);
 	const insertion = useLayerInsertion();
+	const annotationCommands = useDesignAnnotationCommands(designId);
+	const rootCommandGroups = useMemo(
+		() => [annotationCommands],
+		[annotationCommands],
+	);
 	const {
 		addBasicLayer,
 		canInsert,
@@ -1153,15 +1207,19 @@ export function Layers({
 				onPageChange={setMenuPage}
 				intent={menuIntent}
 				insertion={insertion}
+				rootGroups={rootCommandGroups}
 			/>
 			<Separator />
-			<Text
-				variant="label"
-				render={<div />}
-				className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400"
-			>
-				Layers
-			</Text>
+			<div className="flex items-center justify-between pr-2">
+				<Text
+					variant="label"
+					render={<div />}
+					className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400"
+				>
+					Layers
+				</Text>
+				<ShowResolvedToggle />
+			</div>
 			<ScrollArea viewportRef={scrollViewportRef} className="min-h-0 flex-1">
 				<div
 					className="relative w-full"

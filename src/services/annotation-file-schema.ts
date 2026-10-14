@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
+import { isAnnotationTarget } from "./annotation-model";
 import {
 	ANNOTATION_FILE_VERSION,
 	ANNOTATION_STATUSES,
 	type Annotation,
 	type AnnotationActor,
-	type AnnotationTarget,
 } from "./annotations.types";
 import { stableStringify } from "./design-revision";
+
+export { isAnnotationTarget };
 
 /**
  * Versioning for annotation files, in the shape of `designFileMigrations`.
@@ -61,39 +63,6 @@ export const isAnnotationActor = (value: unknown): value is AnnotationActor =>
 	isRecord(value) &&
 	(value.role === "human" ||
 		(value.role === "agent" && isNonEmptyString(value.sessionId)));
-
-export const isAnnotationTarget = (
-	value: unknown,
-): value is AnnotationTarget => {
-	if (!isRecord(value)) return false;
-	switch (value.kind) {
-		case "design":
-			return isNonEmptyString(value.designId);
-		case "board":
-			return (
-				isNonEmptyString(value.designId) && isNonEmptyString(value.boardId)
-			);
-		case "layer":
-			return (
-				isNonEmptyString(value.designId) &&
-				isNonEmptyString(value.boardId) &&
-				isNonEmptyString(value.elementId)
-			);
-		case "componentNode":
-			return (
-				isNonEmptyString(value.systemId) &&
-				isNonEmptyString(value.componentId) &&
-				typeof value.nodePath === "string" &&
-				(value.variants === undefined ||
-					(isRecord(value.variants) &&
-						Object.values(value.variants).every(
-							(entry) => typeof entry === "string",
-						)))
-			);
-		default:
-			return false;
-	}
-};
 
 const isStringArray = (value: unknown): value is string[] =>
 	Array.isArray(value) && value.every((entry) => typeof entry === "string");

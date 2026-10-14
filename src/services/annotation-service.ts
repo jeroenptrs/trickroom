@@ -3,6 +3,14 @@ import { isDeepStrictEqual } from "node:util";
 import type { Node, TrickroomDesign } from "../types";
 import { isAnnotationTarget } from "./annotation-file-schema";
 import {
+	type AnnotationCountSummary,
+	currentBoardOf,
+	deriveDetached,
+	findDesignLayer,
+	isLiveAnnotationStatus,
+	summarizeAnnotationCounts,
+} from "./annotation-model";
+import {
 	type AnnotationStore,
 	AnnotationStoreError,
 	getAnnotationContainer,
@@ -11,7 +19,6 @@ import {
 } from "./annotation-store";
 import {
 	ANNOTATION_FILE_VERSION,
-	ANNOTATION_STATUSES,
 	type Annotation,
 	type AnnotationActor,
 	type AnnotationChangeRecord,
@@ -53,6 +60,18 @@ import type { AnnotationAnchorLookup } from "./design-transform-service";
  * annotation, never per batch, and each one is recorded with who and when.
  */
 
+// The pure definitions live in `annotation-counts.ts` so the editor can use
+// them too; they are re-exported here for the server and MCP.
+export {
+	AGENT_WORK_STATUSES,
+	type AnnotationCountSummary,
+	type AnnotationCounts,
+	deriveDetached,
+	getAnnotationMemoryReference,
+	HUMAN_WORK_STATUSES,
+	summarizeAnnotationCounts,
+} from "./annotation-model";
+
 /** An acknowledgement stays active this long after the session's last tool call. */
 export const ACKNOWLEDGEMENT_TTL_MS = 15 * 60 * 1000;
 
@@ -92,8 +111,7 @@ export type AnnotationServiceContext = {
 const nowOf = (context: AnnotationServiceContext) =>
 	context.now?.() ?? new Date();
 
-const isLive = (status: AnnotationStatus) =>
-	!CLOSED_ANNOTATION_STATUSES.has(status);
+const isLive = isLiveAnnotationStatus;
 
 /** `record[key]` only when it is the record's own entry, never inherited. */
 const ownValue = <Value>(
@@ -259,73 +277,11 @@ export const deriveAcknowledgement = (
 	};
 };
 
-type DesignLayerLocation = {
-	node: Node;
-	boardId: string;
-	/** Ancestors, board first, nearest parent last. */
-	ancestors: Node[];
-};
-
-const findDesignLayer = (
-	design: TrickroomDesign,
-	elementId: string,
-): DesignLayerLocation | null => {
-	const visit = (node: Node, ancestors: Node[]): DesignLayerLocation | null => {
-		if (node.id === elementId) {
-			return { node, boardId: ancestors[0]?.id ?? node.id, ancestors };
-		}
-		if (typeof node.children === "string") return null;
-		for (const child of node.children) {
-			const found = visit(child, [...ancestors, node]);
-			if (found) return found;
-		}
-		return null;
-	};
-	for (const board of design.boards) {
-		const found = visit(board, []);
-		if (found) return found;
-	}
-	return null;
-};
-
 const nodeName = (node: Node) => node.props["data-trickroom-name"];
 const nodeComponent = (node: Node) => {
 	const library = node.props["data-trickroom-library"];
 	const component = node.props["data-trickroom-component"];
 	return library && component ? `${library}/${component}` : undefined;
-};
-
-/**
- * Whether the target no longer exists in `design`: a layer whose id is
- * gone, a board that is no longer a board. Design targets never detach
- * while the design exists. Component node targets are not derived here
- * (undefined).
- */
-export const deriveDetached = (
-	target: AnnotationTarget,
-	design: TrickroomDesign,
-): boolean | undefined => {
-	switch (target.kind) {
-		case "design":
-			return false;
-		case "board":
-			return !design.boards.some((board) => board.id === target.boardId);
-		case "layer":
-			return findDesignLayer(design, target.elementId) === null;
-		case "componentNode":
-			return undefined;
-	}
-};
-
-/** The board a design target is on now: a layer moved to another board follows it. */
-const currentBoardOf = (
-	target: AnnotationTarget,
-	design: TrickroomDesign | null | undefined,
-): string | null => {
-	if (target.kind === "board") return target.boardId;
-	if (target.kind !== "layer") return null;
-	const found = design ? findDesignLayer(design, target.elementId) : null;
-	return found?.boardId ?? target.boardId;
 };
 
 /**
@@ -412,24 +368,6 @@ export const buildAnnotationAnchorIndex = (
 		index.set(anchor, ids);
 	}
 	return index;
-};
-
-/**
- * The memory reference a resolved annotation graduates with:
- * `{{layer:<designId>/<elementId>}}`, `{{board:…}}`, `{{design:…}}` or
- * `{{component:<componentId>}}`.
- */
-export const getAnnotationMemoryReference = (target: AnnotationTarget) => {
-	switch (target.kind) {
-		case "design":
-			return `{{design:${target.designId}}}`;
-		case "board":
-			return `{{board:${target.designId}/${target.boardId}}}`;
-		case "layer":
-			return `{{layer:${target.designId}/${target.elementId}}}`;
-		case "componentNode":
-			return `{{component:${target.componentId}}}`;
-	}
 };
 
 const matchesBranch = (
@@ -595,111 +533,6 @@ export const listAnnotations = async (
 		),
 		problems,
 	};
-};
-
-/**
- * What counts as work, for every surface (MCP results and counts, the
- * editor's rail markers and badges), so they agree:
- *
- * - agent work: `open` and `acknowledged`. Sent and not yet answered;
- *   acknowledged is advisory and stays work for every session.
- * - human work: `needs_input` (a question to answer) and `addressed` (a
- *   change to review). Waiting on the designer, not on an agent.
- * - live: both, i.e. everything but `resolved` and `dismissed`.
- */
-export const AGENT_WORK_STATUSES: readonly AnnotationStatus[] = [
-	"open",
-	"acknowledged",
-];
-export const HUMAN_WORK_STATUSES: readonly AnnotationStatus[] = [
-	"needs_input",
-	"addressed",
-];
-
-export type AnnotationCounts = {
-	/** Everything but resolved and dismissed. */
-	live: number;
-	/** `open` + `acknowledged`. */
-	agentWork: number;
-	/** `needs_input` + `addressed`. */
-	humanWork: number;
-	byStatus: Record<AnnotationStatus, number>;
-	/** Live annotations whose target is gone (counted only with a design). */
-	detached: number;
-};
-
-export type AnnotationCountSummary = {
-	/** Every annotation counted. */
-	total: AnnotationCounts;
-	/** Design-level annotations only. */
-	design: AnnotationCounts;
-	/**
-	 * Per board: board annotations plus layer annotations on it (a layer
-	 * that moved boards counts where it is now), as the rail counts up.
-	 */
-	boards: Record<string, AnnotationCounts>;
-	/** Per layer: annotations anchored to that element. */
-	layers: Record<string, AnnotationCounts>;
-};
-
-const emptyCounts = (): AnnotationCounts => ({
-	live: 0,
-	agentWork: 0,
-	humanWork: 0,
-	byStatus: Object.fromEntries(
-		ANNOTATION_STATUSES.map((status) => [status, 0]),
-	) as Record<AnnotationStatus, number>,
-	detached: 0,
-});
-
-const addToCounts = (
-	counts: AnnotationCounts,
-	status: AnnotationStatus,
-	detached: boolean,
-) => {
-	counts.byStatus[status] += 1;
-	if (!isLive(status)) return;
-	counts.live += 1;
-	if (AGENT_WORK_STATUSES.includes(status)) counts.agentWork += 1;
-	if (HUMAN_WORK_STATUSES.includes(status)) counts.humanWork += 1;
-	if (detached) counts.detached += 1;
-};
-
-/**
- * Counts already-listed annotations by status, work owner, board and
- * layer. With `design`, layers follow moves and detached ones are counted.
- */
-export const summarizeAnnotationCounts = (
-	annotations: readonly Annotation[],
-	design?: TrickroomDesign | null,
-): AnnotationCountSummary => {
-	// Keyed by element ids, which may be any safe path segment
-	// (`constructor`, `__proto__`): no prototype to collide with.
-	const summary: AnnotationCountSummary = {
-		total: emptyCounts(),
-		design: emptyCounts(),
-		boards: Object.create(null) as Record<string, AnnotationCounts>,
-		layers: Object.create(null) as Record<string, AnnotationCounts>,
-	};
-	for (const annotation of annotations) {
-		const { target, status } = annotation;
-		const detached = design ? deriveDetached(target, design) === true : false;
-		addToCounts(summary.total, status, detached);
-		if (target.kind === "design") {
-			addToCounts(summary.design, status, detached);
-			continue;
-		}
-		const boardId = currentBoardOf(target, design);
-		if (boardId) {
-			summary.boards[boardId] ??= emptyCounts();
-			addToCounts(summary.boards[boardId], status, detached);
-		}
-		if (target.kind === "layer") {
-			summary.layers[target.elementId] ??= emptyCounts();
-			addToCounts(summary.layers[target.elementId], status, detached);
-		}
-	}
-	return summary;
 };
 
 /**

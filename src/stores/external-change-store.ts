@@ -116,6 +116,20 @@ export function showExternalChanges(boardIds: readonly string[], now: number) {
 	});
 }
 
+/**
+ * Outlines `layerIds` on the stage now, the same flash external changes
+ * get: an annotation's change record shows what it changed this way.
+ */
+export function flashStageLayers(layerIds: readonly string[]) {
+	const outlined = getOutlinedLayerIds(layerIds);
+	if (outlined.length === 0) return;
+	flashId += 1;
+	externalChangeStore.setState((state) => ({
+		...state,
+		flash: { id: flashId, layerIds: outlined },
+	}));
+}
+
 export function useBoardChangedExternally(boardId: string) {
 	return useSelector(externalChangeStore, (state) =>
 		Boolean(state.boards[boardId]),

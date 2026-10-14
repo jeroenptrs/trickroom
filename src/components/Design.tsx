@@ -14,6 +14,7 @@ import Frame from "react-frame-component";
 import { useParams } from "react-router";
 import { useClassMerge } from "../hooks/useClassMerge";
 import { useCompiledTailwind } from "../hooks/useCompiledTailwind";
+import { useDesignAnnotations } from "../hooks/useDesignAnnotations";
 import { useDesignDeepLink } from "../hooks/useDesignDeepLink";
 import { useDesignLiveSync } from "../hooks/useDesignLiveSync";
 import { useExternalChangeMarkers } from "../hooks/useExternalChangeMarkers";
@@ -61,6 +62,7 @@ import {
 	writeResponsiveStageSessionWidth,
 } from "../utils/responsive-stage-session";
 import { resolveStageDoc } from "../utils/tailwind-render-mode";
+import { designAnnotationPinSource } from "./annotations/design-annotation-pins";
 import { DesignConflictDialog } from "./chrome/DesignConflictDialog";
 import { EditorShell } from "./chrome/EditorShell";
 import { IFrameViewContext, useProjectScope } from "./contexts";
@@ -79,6 +81,7 @@ import {
 import { Artboards } from "./stage/Artboards";
 import { Canvas } from "./stage/Canvas";
 import { ClassMergeContext } from "./stage/class-merge-context";
+import { StageAnnotationPins } from "./stage/StageAnnotationPins";
 import { StageChangeHighlight } from "./stage/StageChangeHighlight";
 import { StageFocusHighlight } from "./stage/StageFocusHighlight";
 import { StageSelectionLayer } from "./stage/StageSelectionLayer";
@@ -114,6 +117,7 @@ export const StageFrame = memo(function StageFrame({
 			<Canvas />
 			<StageSelectionLayer source={designStageSelection} />
 			<StageChangeHighlight />
+			<StageAnnotationPins source={designAnnotationPinSource} />
 			<StageFocusHighlight />
 		</Frame>
 	);
@@ -289,6 +293,7 @@ export function Design() {
 		enabled: liveDesignId !== null && liveDesignId === designId,
 	});
 	useExternalChangeMarkers({ designId, iframeRef, didMount });
+	useDesignAnnotations(liveDesignId === designId ? designId : null);
 
 	useEffect(() => {
 		setActiveBoardId((currentBoardId) =>
