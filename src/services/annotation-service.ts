@@ -2098,7 +2098,7 @@ export const revertUnderLocks = async (
 				if (!planned.has(annotationId)) throw new SharedRevertSetChanged();
 			}
 			// The checkout may have changed while this waited on the locks.
-			await context.store.guardWrite();
+			context.store.guardWrite();
 			const revisions = await input.write();
 			return {
 				annotations: recordRevertOnAll(

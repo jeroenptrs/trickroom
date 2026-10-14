@@ -1,4 +1,10 @@
-import { type FSWatcher, watch } from "node:fs";
+import {
+	type FSWatcher,
+	readFileSync,
+	realpathSync,
+	statSync,
+	watch,
+} from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { AnnotationScope } from "./annotations.types";
@@ -87,6 +93,62 @@ export const readCheckoutScope = async (
 		? line.slice(branchRefPrefix.length).trim()
 		: "";
 	return { branch: branch || UNSCOPED_BRANCH, worktreePath };
+};
+
+/**
+ * `readCheckoutScope` without awaiting: for the check annotation writes
+ * make under their lock right before the rename that stores them, with
+ * nothing in between. A few stats and two small reads.
+ */
+export const readCheckoutScopeSync = (projectRoot: string): AnnotationScope => {
+	const canonicalSync = (filePath: string) => {
+		try {
+			return realpathSync(filePath);
+		} catch {
+			return path.resolve(filePath);
+		}
+	};
+	const readSync = (filePath: string) => {
+		try {
+			return readFileSync(filePath, "utf8");
+		} catch {
+			return null;
+		}
+	};
+	let directory = path.resolve(projectRoot);
+	for (;;) {
+		const dotGit = path.join(directory, ".git");
+		const entry = statSync(dotGit, { throwIfNoEntry: false });
+		if (entry) {
+			let gitDirectory: string | null = dotGit;
+			if (!entry.isDirectory()) {
+				const contents = readSync(dotGit);
+				const match = contents ? /^gitdir:\s*(.+?)\s*$/mu.exec(contents) : null;
+				gitDirectory = match?.[1]
+					? path.resolve(path.dirname(dotGit), match[1])
+					: null;
+			}
+			const head = gitDirectory
+				? readSync(path.join(gitDirectory, "HEAD"))
+				: null;
+			const line = head?.trim() ?? "";
+			const branch = line.startsWith(branchRefPrefix)
+				? line.slice(branchRefPrefix.length).trim()
+				: "";
+			return {
+				branch: branch || UNSCOPED_BRANCH,
+				worktreePath: canonicalSync(directory),
+			};
+		}
+		const parent = path.dirname(directory);
+		if (parent === directory) {
+			return {
+				branch: UNSCOPED_BRANCH,
+				worktreePath: canonicalSync(projectRoot),
+			};
+		}
+		directory = parent;
+	}
 };
 
 /** Repeated `HEAD` events within this window are read once. */

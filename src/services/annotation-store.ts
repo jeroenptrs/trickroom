@@ -204,13 +204,15 @@ export type AnnotationStoreOptions = {
 	trickroomHome?: string;
 	lock?: Partial<DesignFileLockOptions>;
 	/**
-	 * Runs under the lock right before every write (and a container write
-	 * a revert makes under annotation locks, `guardWrite`); throwing refuses
-	 * it with nothing written. The HTTP routes re-read the checkout's scope
-	 * here, so a write that waited on a lock while another branch was
-	 * checked out is refused.
+	 * Runs under the lock right before a write stores: for one annotation,
+	 * immediately before the rename (or unlink), with nothing awaited in
+	 * between; for `updateMany`, once before its mutation; and before a
+	 * container write a revert makes under annotation locks (`guardWrite`).
+	 * Throwing refuses the write with nothing stored. The HTTP routes
+	 * re-read the checkout's scope here, so a write that waited while
+	 * another branch was checked out is refused. Synchronous on purpose.
 	 */
-	beforeWrite?: () => Promise<void>;
+	beforeWrite?: () => void;
 };
 
 /**
@@ -480,6 +482,8 @@ const writeFileAtomic = async (
 	filePath: string,
 	contents: string,
 	fence: () => Promise<void>,
+	/** Last, synchronously before the rename: throwing stores nothing. */
+	check?: () => void,
 ) => {
 	const tempPath = path.join(
 		path.dirname(filePath),
@@ -495,6 +499,7 @@ const writeFileAtomic = async (
 		// The umask may have narrowed the mode; never widened it.
 		await chmod(tempPath, fileMode);
 		await fence();
+		check?.();
 		await rename(tempPath, filePath);
 	} catch (error) {
 		await unlink(tempPath).catch(() => undefined);
@@ -513,7 +518,7 @@ export class AnnotationStore {
 	/** `<home>/annotations/<projectId>`. */
 	readonly projectDirectory: string;
 	private readonly lockOptions: DesignFileLockOptions;
-	private readonly beforeWrite: (() => Promise<void>) | undefined;
+	private readonly beforeWrite: (() => void) | undefined;
 
 	constructor(options: AnnotationStoreOptions) {
 		this.trickroomHome = options.trickroomHome ?? resolveTrickroomHome();
@@ -537,8 +542,27 @@ export class AnnotationStore {
 	 * something else (a revert's design or component write). Call it with
 	 * the locks held, right before the write.
 	 */
-	async guardWrite() {
-		await this.beforeWrite?.();
+	guardWrite() {
+		this.beforeWrite?.();
+	}
+
+	/**
+	 * Called once a single annotation's temporary file is written, before
+	 * the lock check and `beforeWrite`. Tests override it to pause there.
+	 */
+	protected async afterTemporaryWrite(_filePath: string): Promise<void> {}
+
+	/** The fence and check of one annotation's atomic write. */
+	private storeOne(filePath: string, contents: string, lock: FileLockHandle) {
+		return writeFileAtomic(
+			filePath,
+			contents,
+			async () => {
+				await this.afterTemporaryWrite(filePath);
+				await lock.assertHeld();
+			},
+			() => this.guardWrite(),
+		);
 	}
 
 	getContainerDirectory(container: AnnotationContainer) {
@@ -769,10 +793,7 @@ export class AnnotationStore {
 					`Annotation ${annotation.id} already exists.`,
 				);
 			}
-			await this.guardWrite();
-			await writeFileAtomic(filePath, serializeAnnotation(stored), () =>
-				lock.assertHeld(),
-			);
+			await this.storeOne(filePath, serializeAnnotation(stored), lock);
 			return {
 				annotation: stored,
 				revision: calculateAnnotationRevision(stored),
@@ -830,10 +851,7 @@ export class AnnotationStore {
 					"An update cannot move an annotation to another design or component.",
 				);
 			}
-			await this.guardWrite();
-			await writeFileAtomic(filePath, serializeAnnotation(next), () =>
-				lock.assertHeld(),
-			);
+			await this.storeOne(filePath, serializeAnnotation(next), lock);
 			return {
 				stored: {
 					annotation: next,
@@ -878,10 +896,11 @@ export class AnnotationStore {
 				}
 				current.set(annotationId, stored);
 			}
-			// Before `mutate`, with every lock held: a revert's mutation
-			// writes its container and checks again right before that, and
-			// nothing may refuse between that write and recording it.
-			await this.guardWrite();
+			// Before `mutate`, with every lock held, not per file: a batch is
+			// all or nothing, and a revert's mutation writes its container
+			// (checking again right before that), so nothing may refuse
+			// between that write and recording it.
+			this.guardWrite();
 			const { annotations, result } = await mutate(current);
 			const stored = new Map<string, StoredAnnotation>();
 			for (const annotation of annotations) {
@@ -973,8 +992,8 @@ export class AnnotationStore {
 		return this.withLock(filePath, async (lock) => {
 			const current = await this.read(container, annotationId);
 			if (!current || !shouldDelete(current)) return false;
-			await this.guardWrite();
 			await lock.assertHeld();
+			this.guardWrite();
 			await unlink(filePath).catch((error: NodeJS.ErrnoException) => {
 				if (error.code !== "ENOENT") throw error;
 			});

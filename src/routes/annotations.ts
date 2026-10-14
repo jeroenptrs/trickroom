@@ -29,7 +29,11 @@ import {
 	type AnnotationStatus,
 	type AnnotationTarget,
 } from "../services/annotations.types";
-import { isSameScope, readCheckoutScope } from "../services/checkout-scope";
+import {
+	isSameScope,
+	readCheckoutScope,
+	readCheckoutScopeSync,
+} from "../services/checkout-scope";
 import {
 	type ComponentAnchorRead,
 	readComponentAnchor,
@@ -367,17 +371,19 @@ export const registerAnnotationRoutes = <E extends Env>(
 			throw new RequestError("The project has no projectId.", 409);
 		}
 		let scope: ReturnType<typeof readCheckoutScope> | null = null;
+		/** The scope the request started in, once `assertScope` read it. */
+		let started: AnnotationScope | null = null;
 		/** The editor's `expectedScope`, once `assertScope` read it. */
 		let expected: AnnotationScope | null = null;
 		/**
-		 * Under the write's locks, right before it stores: the checkout read
-		 * again (never the request's cached scope), which must still be the
-		 * one the request started in and the one the editor expects. A write
-		 * that waited on a lock across a checkout is refused.
+		 * Under the write's locks, right before it stores (immediately before
+		 * the rename of one annotation's file): the checkout read again,
+		 * synchronously and never from the request's cached scope, which
+		 * must still be the one the request started in and the one the
+		 * editor expects. A write that waited across a checkout is refused.
 		 */
-		const beforeWrite = async () => {
-			const current = await readCheckoutScope(projectRoot);
-			const started = scope ? await scope : null;
+		const beforeWrite = () => {
+			const current = readCheckoutScopeSync(projectRoot);
 			if (
 				(started && !isSameScope(started, current)) ||
 				(expected && !isSameScope(expected, current))
@@ -408,6 +414,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 				expected = expectedScopeOf(body);
 				scope ??= readCheckoutScope(projectRoot);
 				const current = await scope;
+				started = current;
 				if (expected && !isSameScope(expected, current)) {
 					throw scopeChanged(current);
 				}

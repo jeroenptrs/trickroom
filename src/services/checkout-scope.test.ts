@@ -14,6 +14,7 @@ import type { AnnotationScope } from "./annotations.types";
 import {
 	CheckoutScopeEvents,
 	readCheckoutScope,
+	readCheckoutScopeSync,
 	UNSCOPED_BRANCH,
 } from "./checkout-scope";
 
@@ -247,5 +248,41 @@ describe("CheckoutScopeEvents", () => {
 		await writeHead(path.join(root, ".git"), "ref: refs/heads/b\n");
 		await settle();
 		expect(heard).toEqual([]);
+	});
+});
+
+describe("readCheckoutScopeSync", () => {
+	let base: string;
+
+	beforeEach(async () => {
+		base = await realpath(
+			await mkdtemp(path.join(os.tmpdir(), "trickroom-scope-sync-")),
+		);
+	});
+
+	afterEach(async () => {
+		await rm(base, { recursive: true, force: true });
+	});
+
+	it("answers as readCheckoutScope: a branch, a worktree, a detached HEAD", async () => {
+		const main = path.join(base, "main");
+		await mkdir(path.join(main, ".git"), { recursive: true });
+		await writeFile(path.join(main, ".git", "HEAD"), "ref: refs/heads/x\n");
+		const gitDirectory = path.join(main, ".git", "worktrees", "wt");
+		await mkdir(gitDirectory, { recursive: true });
+		await writeFile(path.join(gitDirectory, "HEAD"), `${sha}\n`);
+		const worktree = path.join(base, "wt");
+		await mkdir(path.join(worktree, "nested"), { recursive: true });
+		await writeFile(
+			path.join(worktree, ".git"),
+			"gitdir: ../main/.git/worktrees/wt\n",
+		);
+		for (const root of [main, worktree, path.join(worktree, "nested")]) {
+			expect(readCheckoutScopeSync(root)).toEqual(
+				await readCheckoutScope(root),
+			);
+		}
+		expect(readCheckoutScopeSync(main).branch).toBe("x");
+		expect(readCheckoutScopeSync(worktree).branch).toBe(UNSCOPED_BRANCH);
 	});
 });

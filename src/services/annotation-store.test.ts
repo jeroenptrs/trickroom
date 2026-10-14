@@ -1145,7 +1145,7 @@ describe("beforeWrite", () => {
 		const guarded = new AnnotationStore({
 			projectId: "proj-1",
 			trickroomHome: home,
-			beforeWrite: async () => {
+			beforeWrite: () => {
 				calls += 1;
 				if (refuse) throw new Error("scope changed");
 			},
@@ -1180,10 +1180,109 @@ describe("beforeWrite", () => {
 		await expect(guarded.remove(designContainer, "ann-1")).rejects.toThrow(
 			"scope changed",
 		);
-		await expect(guarded.guardWrite()).rejects.toThrow("scope changed");
+		expect(() => guarded.guardWrite()).toThrow("scope changed");
 
 		const stored = await guarded.read(designContainer, "ann-1");
 		expect(stored?.annotation.entries).toHaveLength(2);
 		expect(await guarded.read(designContainer, "ann-2")).toBeNull();
+	});
+});
+
+describe("beforeWrite at the rename", () => {
+	let home: string;
+
+	beforeEach(async () => {
+		home = await mkdtemp(
+			path.join(os.tmpdir(), "trickroom-annotation-rename-"),
+		);
+	});
+
+	afterEach(async () => {
+		await rm(home, { recursive: true, force: true });
+	});
+
+	/** A store that pauses once a temporary file is written, until resumed. */
+	class PausingStore extends AnnotationStore {
+		paused: Promise<void> = Promise.resolve();
+		resume: () => void = () => undefined;
+		private reached: () => void = () => undefined;
+		readonly whenPaused = new Promise<void>((resolve) => {
+			this.reached = resolve;
+		});
+
+		pauseNext() {
+			this.paused = new Promise<void>((resolve) => {
+				this.resume = resolve;
+			});
+		}
+
+		protected override async afterTemporaryWrite() {
+			this.reached();
+			await this.paused;
+		}
+	}
+
+	it("refuses a write whose scope changed while its temporary file was written", async () => {
+		await new AnnotationStore({
+			projectId: "proj-1",
+			trickroomHome: home,
+		}).create(makeAnnotation());
+		const filePath = new AnnotationStore({
+			projectId: "proj-1",
+			trickroomHome: home,
+		}).getAnnotationPath(designContainer, "ann-1");
+		const before = await readFile(filePath, "utf8");
+		// The checkout, as the routes' guard sees it.
+		let branch = "main";
+		const store = new PausingStore({
+			projectId: "proj-1",
+			trickroomHome: home,
+			beforeWrite: () => {
+				if (branch !== "main") {
+					throw new AnnotationStoreError("INVALID_ID", "SCOPE_CHANGED");
+				}
+			},
+		});
+		store.pauseNext();
+		const replying = store.update(
+			designContainer,
+			"ann-1",
+			({ annotation }) => ({
+				annotation: appendEntry(annotation, "late-reply"),
+				result: null,
+			}),
+		);
+		await store.whenPaused;
+		// The temporary file is written; the target is not replaced yet.
+		expect(
+			(await readdir(path.dirname(filePath))).filter((name) =>
+				name.endsWith(".tmp"),
+			),
+		).toHaveLength(1);
+		branch = "feature";
+		store.resume();
+
+		await expect(replying).rejects.toThrow("SCOPE_CHANGED");
+		expect(await readFile(filePath, "utf8")).toBe(before);
+		expect(
+			(await readdir(path.dirname(filePath))).filter((name) =>
+				name.endsWith(".tmp"),
+			),
+		).toEqual([]);
+
+		// The same write with the checkout unchanged stores.
+		branch = "main";
+		store.pauseNext();
+		const again = store.update(designContainer, "ann-1", ({ annotation }) => ({
+			annotation: appendEntry(annotation, "late-reply"),
+			result: null,
+		}));
+		store.resume();
+		await again;
+		expect(
+			(await store.read(designContainer, "ann-1"))?.annotation.entries.map(
+				(entry) => entry.id,
+			),
+		).toEqual(["entry-0", "late-reply"]);
 	});
 });
