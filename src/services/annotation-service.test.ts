@@ -2147,3 +2147,72 @@ describe("WP3 options", () => {
 		]);
 	});
 });
+
+describe("WP3 branch checks", () => {
+	it("refuses addresses, change records and replies for another branch when asked", async () => {
+		const annotation = await create({ scope: main });
+		const problems = await validateAddresses(context, {
+			designId,
+			addresses: [{ annotationId: annotation.id }],
+			branch: "feature",
+		});
+		expect(problems).toEqual([
+			expect.objectContaining({
+				annotationId: annotation.id,
+				code: "WRONG_BRANCH",
+				branch: "main",
+			}),
+		]);
+		expect(
+			await validateAddresses(context, {
+				designId,
+				addresses: [{ annotationId: annotation.id }],
+				branch: "main",
+			}),
+		).toEqual([]);
+
+		const [recorded] = await recordChange(context, {
+			designId,
+			addresses: [{ annotationId: annotation.id }],
+			change: {
+				revisionBefore: "a",
+				revisionAfter: "b",
+				boards: [],
+				layerIds: [],
+				operations: [],
+				summary: "Edited",
+			},
+			by: agent,
+			branch: "feature",
+		});
+		expect(recorded).toMatchObject({ status: "failed", code: "WRONG_BRANCH" });
+
+		await expect(
+			replyToAnnotation(context, {
+				annotationId: annotation.id,
+				by: agent,
+				body: "On it",
+				branch: "feature",
+			}),
+		).rejects.toMatchObject({ code: "WRONG_BRANCH" });
+		await expect(
+			reanchorAnnotation(context, {
+				annotationId: annotation.id,
+				by: agent,
+				target: { kind: "board", designId, boardId: "board-1" },
+				design: await readDesign(),
+				branch: "feature",
+			}),
+		).rejects.toMatchObject({ code: "WRONG_BRANCH" });
+		const after = await getAnnotation(context, { annotationId: annotation.id });
+		expect(after.entries).toHaveLength(1);
+
+		// Without branch, nothing changes for existing callers.
+		const { written } = await replyToAnnotation(context, {
+			annotationId: annotation.id,
+			by: human,
+			body: "Still here",
+		});
+		expect(written).toBe(true);
+	});
+});

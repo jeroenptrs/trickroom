@@ -419,13 +419,17 @@ export const registerDesignApplyTool = (ctx: McpToolContext) => {
 							}
 							const problems = await validateAddresses(
 								annotationProject.service,
-								{ designId: designFileId, addresses },
+								{
+									designId: designFileId,
+									addresses,
+									branch: annotationProject.scope.branch,
+								},
 							);
 							if (problems.length > 0) {
 								return createToolErrorResult(
 									context,
 									problems[0]?.code ?? "ANNOTATION_NOT_FOUND",
-									`${problems.map((problem) => problem.message).join(" ")} Nothing was written. ${TOOL.annotationList}({ designFileId: "${designFileId}" }) lists the live annotations of this design.`,
+									`${problems.map((problem) => problem.message).join(" ")} Nothing was written. ${TOOL.annotationList}({ designFileId: "${designFileId}" }) lists this checkout's live annotations of this design${problems.some((problem) => problem.code === "WRONG_BRANCH") ? `; ${TOOL.annotationList}({ designFileId: "${designFileId}", branch: "all" }) every branch's` : ""}.`,
 									{ valid: false, designFileId, addressProblems: problems },
 								);
 							}
@@ -452,6 +456,10 @@ export const registerDesignApplyTool = (ctx: McpToolContext) => {
 										by: annotationProject.by,
 										operations: steps.map(summarizeStep),
 										summary: summarizeSteps(steps),
+										// Checked again under each annotation's lock: one the
+										// designer moved to another branch during the write is
+										// not recorded (WRONG_BRANCH in addressed).
+										branch: annotationProject.scope.branch,
 									},
 								);
 								await recorder.afterWrite({ before, write });

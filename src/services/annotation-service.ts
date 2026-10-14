@@ -64,7 +64,8 @@ export type AnnotationServiceErrorCode =
 	| "NOT_REVERTIBLE"
 	| "CHANGED_SINCE"
 	| "REVERT_NOT_RECORDED"
-	| "DESIGN_BUSY";
+	| "DESIGN_BUSY"
+	| "WRONG_BRANCH";
 
 export class AnnotationServiceError extends Error {
 	readonly code: AnnotationServiceErrorCode;
@@ -844,6 +845,31 @@ type AnnotationRef = {
 	container?: AnnotationContainer;
 	/** Refuse the write unless the annotation is still at this revision. */
 	expectedRevision?: string;
+	/**
+	 * Refuse the write (`WRONG_BRANCH`) unless the annotation is on this
+	 * branch, checked under its lock: a caller acting for one checkout (an
+	 * MCP session) cannot write another branch's annotations. Absent: not
+	 * checked.
+	 */
+	branch?: string;
+};
+
+/** `WRONG_BRANCH`: the annotation is on another branch than the caller's checkout. */
+export const wrongBranchError = (annotation: Annotation, branch: string) =>
+	new AnnotationServiceError(
+		"WRONG_BRANCH",
+		`Annotation ${annotation.id} is on branch "${annotation.branch}", not this checkout's branch "${branch}". It is not this checkout's work: list other branches' annotations with branch: "all", and ask the designer to bring it here with "Move here" in the editor.`,
+		{
+			annotationId: annotation.id,
+			branch: annotation.branch,
+			currentBranch: branch,
+		},
+	);
+
+const assertBranch = (annotation: Annotation, branch: string | undefined) => {
+	if (branch !== undefined && annotation.branch !== branch) {
+		throw wrongBranchError(annotation, branch);
+	}
 };
 
 /** Read-modify-write of one annotation found by id. */
@@ -863,10 +889,13 @@ const updateAnnotation = async (
 	return context.store.update(
 		container,
 		ref.annotationId,
-		({ annotation }) => ({
-			annotation: mutate(annotation, nowOf(context).toISOString()),
-			result: undefined,
-		}),
+		({ annotation }) => {
+			assertBranch(annotation, ref.branch);
+			return {
+				annotation: mutate(annotation, nowOf(context).toISOString()),
+				result: undefined,
+			};
+		},
 		{ expectedRevision: ref.expectedRevision },
 	);
 };
@@ -1419,8 +1448,14 @@ export type AnnotationAddress = {
 
 export type AddressProblem = {
 	annotationId: string;
-	code: "ANNOTATION_NOT_FOUND" | "WRONG_DESIGN" | "ANNOTATION_CLOSED";
+	code:
+		| "ANNOTATION_NOT_FOUND"
+		| "WRONG_DESIGN"
+		| "ANNOTATION_CLOSED"
+		| "WRONG_BRANCH";
 	message: string;
+	/** WRONG_BRANCH: the annotation's branch. */
+	branch?: string;
 };
 
 /**
@@ -1433,7 +1468,13 @@ export const validateAddresses = async (
 	{
 		designId,
 		addresses,
-	}: { designId: string; addresses: readonly AnnotationAddress[] },
+		branch,
+	}: {
+		designId: string;
+		addresses: readonly AnnotationAddress[];
+		/** Also refuse annotations on another branch (`WRONG_BRANCH`). */
+		branch?: string;
+	},
 ): Promise<AddressProblem[]> => {
 	const problems: AddressProblem[] = [];
 	const container: AnnotationContainer = { kind: "design", designId };
@@ -1458,6 +1499,15 @@ export const validateAddresses = async (
 							message: `Annotation ${annotationId} does not exist.`,
 						},
 			);
+			continue;
+		}
+		if (branch !== undefined && stored.annotation.branch !== branch) {
+			problems.push({
+				annotationId,
+				code: "WRONG_BRANCH",
+				message: wrongBranchError(stored.annotation, branch).message,
+				branch: stored.annotation.branch,
+			});
 			continue;
 		}
 		if (!isLive(stored.annotation.status)) {
@@ -1500,11 +1550,17 @@ export const recordChange = async (
 		addresses,
 		change,
 		by,
+		branch,
 	}: {
 		designId: string;
 		addresses: readonly AnnotationAddress[];
 		change: AnnotationChangeRecord;
 		by: AnnotationActor;
+		/**
+		 * Record only on annotations on this branch, checked under each one's
+		 * lock; others fail with `WRONG_BRANCH`. Absent: not checked.
+		 */
+		branch?: string;
 	},
 ): Promise<RecordChangeResult[]> => {
 	assertActor(by);
@@ -1517,6 +1573,7 @@ export const recordChange = async (
 				container,
 				annotationId,
 				({ annotation }) => {
+					assertBranch(annotation, branch);
 					const at = nowOf(context).toISOString();
 					const live = isLive(annotation.status);
 					const known = knownEntryIds ? new Set(knownEntryIds) : null;
@@ -1566,7 +1623,8 @@ export const recordChange = async (
 				annotationId,
 				status: "failed",
 				code:
-					error instanceof AnnotationStoreError
+					error instanceof AnnotationStoreError ||
+					error instanceof AnnotationServiceError
 						? error.code
 						: "ANNOTATION_WRITE_FAILED",
 				message: error instanceof Error ? error.message : String(error),
@@ -1593,12 +1651,15 @@ export const createAddressesRecorder = (
 		by,
 		operations,
 		summary,
+		branch,
 	}: {
 		designId: string;
 		addresses: readonly AnnotationAddress[];
 		by: AnnotationActor;
 		operations: { operation: string; summary: string }[];
 		summary: string;
+		/** See `recordChange`. */
+		branch?: string;
 	},
 ) => {
 	let results: RecordChangeResult[] = [];
@@ -1621,6 +1682,7 @@ export const createAddressesRecorder = (
 				addresses,
 				change,
 				by,
+				...(branch !== undefined ? { branch } : {}),
 			});
 		},
 		results: () => results,

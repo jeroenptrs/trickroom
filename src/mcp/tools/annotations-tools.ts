@@ -22,6 +22,7 @@ import type { TrickroomDesign } from "../../types";
 import {
 	type AnnotationProject,
 	compactCounts,
+	describeAnnotation,
 	MAX_SURFACED_ANNOTATIONS,
 	sortForSurfacing,
 } from "../annotation-session";
@@ -348,14 +349,30 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 					}
 					const sorted = sortForList([...listed.annotations], read.design);
 					const max = limit ?? DEFAULT_LIST_LIMIT;
-					const shown = sorted.slice(0, max);
-					const bodies = await annotations.showInFull(project, shown, {
-						branch: branch !== undefined && branch !== "current",
-					});
+					// The request's filters, applied again to the fresh state of
+					// what is shown: another writer may have moved it to another
+					// branch, closed it or removed it since it was listed.
+					const requestedBranch =
+						branch === undefined || branch === "current"
+							? project.scope.branch
+							: branch;
+					const statuses = toStatuses(status);
+					const matches = (view: AnnotationView) =>
+						(requestedBranch === "all" || view.branch === requestedBranch) &&
+						(statuses === undefined || statuses.includes(view.status)) &&
+						(elementId === undefined ||
+							(view.target.kind === "layer" &&
+								view.target.elementId === elementId));
+					const { bodies, fresh } = await annotations.showInFull(
+						project,
+						sorted.slice(0, max),
+						matches,
+						{ branch: requestedBranch !== project.scope.branch },
+					);
+					// One set for the bodies, total, more and counts.
+					const eligible = annotations.refreshListed(sorted, fresh, matches);
 					const counts = summarizeAnnotationCounts(
-						listed.annotations.filter(
-							(view) => view.branch === project.scope.branch,
-						),
+						eligible.filter((view) => view.branch === project.scope.branch),
 						read.design,
 					);
 					return createJsonResult({
@@ -371,10 +388,10 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 								}),
 						branch: project.scope.branch,
 						annotations: bodies,
-						total: sorted.length,
-						...(sorted.length > shown.length
+						total: eligible.length,
+						...(eligible.length > bodies.length
 							? {
-									more: sorted.length - shown.length,
+									more: eligible.length - bodies.length,
 									next: `Narrow with boardId, elementId or status, or raise limit (at most ${MAX_LIST_LIMIT}).`,
 								}
 							: {}),
@@ -632,12 +649,14 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 									by: project.by,
 									target: reanchorTo.target,
 									design: reanchorTo.design,
+									branch: project.scope.branch,
 									...(body !== undefined ? { body } : {}),
 								})
 							: await replyToAnnotation(project.service, {
 									annotationId,
 									container,
 									by: project.by,
+									branch: project.scope.branch,
 									...(body !== undefined ? { body } : {}),
 									...(question !== undefined ? { question } : {}),
 									...(dismiss !== undefined ? { dismiss } : {}),
@@ -648,10 +667,17 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 							: outcome.annotation;
 						annotations.markSeen(project, view);
 						annotations.startClock(project);
+						const shownView = (
+							await annotations.showInFull(project, [view], () => true)
+						).bodies[0];
 						result = createJsonResult({
 							status: "success",
 							project: getProjectReference(context),
-							annotation: (await annotations.showInFull(project, [view]))[0],
+							annotation:
+								shownView ??
+								describeAnnotation(view, annotations.sessionId, {
+									now: new Date(),
+								}),
 							...(reanchorTo
 								? {
 										reanchored: {
@@ -790,8 +816,49 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 							.catch(() => undefined);
 					};
 
-					let found = await check();
-					if (found.unseen.length === 0) {
+					const keepWaiting = `${TOOL.annotationWatch}({ designFileId: "${designFileId}"${boardId ? `, boardId: "${boardId}"` : ""} })`;
+					const keep = annotations.isCurrentWork(project);
+					/**
+					 * Unseen work, as it is now: acknowledged and shown, with the
+					 * live annotations refreshed against it. Null when nothing that
+					 * was unseen is still this branch's work (moved, answered or
+					 * removed meanwhile): keep waiting.
+					 */
+					const take = async () => {
+						// Re-read: layers may have moved, the batch may have grown.
+						design = await readDesignFileForTool(context, designFileId)
+							.then((read) => read.design)
+							.catch(() => design);
+						const found = await check();
+						if (found.unseen.length === 0) return null;
+						const { shown, fresh, bodies } = await annotations.showInFull(
+							project,
+							found.unseen.slice(0, MAX_SURFACED_ANNOTATIONS),
+							keep,
+						);
+						if (shown.length === 0) return null;
+						const eligible = annotations.refreshListed(
+							found.live,
+							fresh,
+							(view) =>
+								view.branch === project.scope.branch &&
+								!CLOSED_ANNOTATION_STATUSES.has(view.status),
+						);
+						const eligibleIds = new Set(eligible.map((view) => view.id));
+						const shownIds = new Set(shown.map((view) => view.id));
+						return {
+							shown,
+							bodies,
+							eligible,
+							more: found.unseen.filter(
+								(view) => eligibleIds.has(view.id) && !shownIds.has(view.id),
+							).length,
+						};
+					};
+
+					let taken: Awaited<ReturnType<typeof take>> = null;
+					if ((await check()).unseen.length > 0) taken = await take();
+					if (!taken) {
 						const changes = createChangeWaiter(directory);
 						try {
 							while (!signal?.aborted && Date.now() < deadline) {
@@ -800,14 +867,15 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 									signal,
 								);
 								if (signal?.aborted) break;
-								found = await check();
-								if (found.unseen.length > 0) {
+								if ((await check()).unseen.length > 0) {
 									// The designer may be sending several: collect the batch.
 									await sleep(
 										Math.min(WATCH_BATCH_WINDOW_MS, deadline - Date.now()),
 										signal,
 									);
-									break;
+									if (signal?.aborted) break;
+									taken = await take();
+									if (taken) break;
 								}
 								await reportProgress();
 							}
@@ -824,40 +892,31 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 							waitedMs,
 						});
 					}
-					if (found.unseen.length > 0) {
-						// Re-read: the batch may have grown, layers may have moved.
-						design = await readDesignFileForTool(context, designFileId)
-							.then((read) => read.design)
-							.catch(() => design);
-						found = await check();
-					}
-					const counts = compactCounts(
-						summarizeAnnotationCounts(found.live, design).total,
-					);
-					const keepWaiting = `${TOOL.annotationWatch}({ designFileId: "${designFileId}"${boardId ? `, boardId: "${boardId}"` : ""} })`;
-					if (found.unseen.length === 0) {
+					if (!taken) {
+						const { live } = await check();
 						return createJsonResult({
 							status: "timeout",
 							project: getProjectReference(context),
 							designFileId,
 							waitedMs,
-							counts,
+							counts: compactCounts(
+								summarizeAnnotationCounts(live, design).total,
+							),
 							next: `No new annotations in ${Math.round(waitedMs / 1000)} s. Keep waiting with ${keepWaiting}.`,
 						});
 					}
-					const shown = found.unseen.slice(0, MAX_SURFACED_ANNOTATIONS);
-					const more = found.unseen.length - shown.length;
-					const firstId = shown[0]?.id ?? "<annotationId>";
+					const { more } = taken;
+					const firstId = taken.shown[0]?.id ?? "<annotationId>";
 					return createJsonResult({
 						status: "success",
 						project: getProjectReference(context),
 						designFileId,
 						waitedMs,
-						annotations: await annotations.showInFull(project, shown, {
-							work: true,
-						}),
+						annotations: taken.bodies,
 						...(more > 0 ? { more } : {}),
-						counts,
+						counts: compactCounts(
+							summarizeAnnotationCounts(taken.eligible, design).total,
+						),
 						next: `Address each with your next ${TOOL.designApply}({ designFileId: "${designFileId}", expectedRevision, operations, addresses: [{ annotationId: "${firstId}", reply: "<what you changed>" }] }), or ask with ${TOOL.annotationReply}({ annotationId: "${firstId}", question: "<your question>" }).${more > 0 ? ` ${more} more: ${TOOL.annotationList}({ designFileId: "${designFileId}" }).` : ""} Then ${keepWaiting} again.`,
 					});
 				}),

@@ -618,10 +618,13 @@ describe("MCP annotations", () => {
 				by: { role: "human" },
 				scope: { branch: "main", worktreePath: "/main" },
 			});
-			const shown = await session.acknowledgeShown(project, listed, {
-				work: true,
-			});
+			const { shown, fresh } = await session.acknowledgeShown(
+				project,
+				listed,
+				session.isCurrentWork(project),
+			);
 			expect(shown).toEqual([]);
+			expect(fresh.get(annotation.id)?.branch).toBe("main");
 			const after = await stored(annotation.id);
 			expect(after.status).toBe("open");
 			expect(after.branch).toBe("main");
@@ -681,6 +684,66 @@ describe("MCP annotations", () => {
 			});
 			expect(onNew.payload.status).toBe("success");
 			expect(onNew.payload.annotations[0].annotationId).toBe(annotation.id);
+		});
+
+		it("refuses writes to another branch's annotations", async () => {
+			const { call, annotate, readDesign, stored } = await open();
+			const onMain = await annotate(layer, "On main", {
+				branch: "main",
+				worktreePath: "/main",
+			});
+			for (const args of [
+				{ body: "On it" },
+				{ resolve: {} },
+				{ reanchor: { boardId: "board" } },
+			]) {
+				const reply = await call(TOOL.annotationReply, {
+					annotationId: onMain.id,
+					...args,
+				});
+				expect(reply.isError).toBe(true);
+				expect(reply.payload).toMatchObject({
+					code: "WRONG_BRANCH",
+					branch: "main",
+					currentBranch: branch,
+				});
+			}
+			const { revision } = await readDesign();
+			const write = await call(TOOL.designApply, {
+				designFileId: designId,
+				expectedRevision: revision,
+				operations: [
+					{
+						operation: "updateElementProps",
+						parameters: { elementId: "title", className: "text-2xl" },
+					},
+				],
+				addresses: [{ annotationId: onMain.id, reply: "Done" }],
+			});
+			expect(write.isError).toBe(true);
+			expect(write.payload.code).toBe("WRONG_BRANCH");
+			expect((await readDesign()).revision).toBe(revision);
+			const after = await stored(onMain.id);
+			expect(after.entries).toHaveLength(1);
+			expect(after.target).toEqual(onMain.target);
+		});
+
+		it("keeps the unscoped bucket writable from a detached checkout", async () => {
+			const { call, annotate, fixture, stored } = await open();
+			await writeFile(
+				path.join(fixture.projectRoot, ".git", "HEAD"),
+				"0123456789abcdef0123456789abcdef01234567\n",
+			);
+			const unscoped = await annotate(layer, "Detached remark", {
+				branch: "*",
+				worktreePath: fixture.projectRoot,
+			});
+			const reply = await call(TOOL.annotationReply, {
+				annotationId: unscoped.id,
+				question: "Which title?",
+			});
+			expect(reply.isError).toBe(false);
+			expect((await stored(unscoped.id)).status).toBe("needs_input");
 		});
 
 		it("writes nothing when part of a re-anchor call is invalid", async () => {

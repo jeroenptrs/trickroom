@@ -389,7 +389,7 @@ const buildAnnotationsTopic = () => ({
 		`Re-anchor: copySubtree, detachSystemComponent and component extraction mint new ids and never move annotations, so an annotation on the replaced element shows detached. When you replaced it, ${TOOL.annotationReply}({ annotationId, reanchor: { elementId } }) (or { boardId }) moves it to the new element in the same design; the result has the new target and snapshot, and the status stays. \`next\` lists detached annotations by id.`,
 		`Keep working on the designer's remarks while nothing else is called: ${TOOL.annotationWatch}({ designFileId }) waits for new ones and returns them in full.`,
 	],
-	branches: `Annotations belong to the git branch checked out where the designer made them. Results and counts show the current branch only; branch: "all" in ${TOOL.annotationList} shows other checkouts'. Do not act on another branch's annotations unless asked.`,
+	branches: `Annotations belong to the git branch checked out where the designer made them. Results and counts show the current branch only; branch: "all" in ${TOOL.annotationList} shows other checkouts'. Replies and addresses refuse another branch's annotations (WRONG_BRANCH); the designer brings one here with "Move here" in the editor.`,
 	deletes: `A deleteElement step that removes an annotated element (or its ancestor) returns an ANNOTATION_TARGET_DELETED warning naming the annotations; they stay, shown as detached. Address them in the same batch, re-anchor them to the element that replaces it (${TOOL.annotationReply} reanchor), or tell the designer.`,
 	notFeedback: `${TOOL.feedbackSubmit} is for problems with Trickroom's tools, not for annotations.`,
 });

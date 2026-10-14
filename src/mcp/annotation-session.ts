@@ -9,6 +9,7 @@ import {
 	listAnnotations,
 	recordSessionCall,
 	summarizeAnnotationCounts,
+	viewAnnotation,
 } from "../services/annotation-service";
 import {
 	AnnotationStore,
@@ -61,6 +62,9 @@ const SESSION_CALL_INTERVAL_MS = 5_000;
 const LIVE_STATUSES = ANNOTATION_STATUSES.filter(
 	(status) => !CLOSED_ANNOTATION_STATUSES.has(status),
 );
+
+const isLive = (status: AnnotationStatus) =>
+	!CLOSED_ANNOTATION_STATUSES.has(status);
 
 const isAgentWork = (status: AnnotationStatus) =>
 	AGENT_WORK_STATUSES.includes(status);
@@ -413,73 +417,108 @@ export const createMcpAnnotationSession = ({
 		seen.get(seenKey(project.projectId, annotationId))?.entryIds;
 
 	/**
-	 * Acknowledges annotations about to be shown in full for this session
-	 * and moves the cursor past them. The service decides under the
-	 * annotation's lock: only on the checkout's branch, `open`, or
-	 * acknowledged by a session that has gone quiet (an active
-	 * acknowledgement by another session is left alone; the body says who
-	 * has it). Returns the annotations as they are now. With `work`, only
-	 * what is still agent work on the checkout's branch is returned (another
-	 * writer may have moved, answered or removed it since it was listed).
-	 * Acknowledging is advisory: when it fails, the annotation is shown as
-	 * read.
+	 * Annotations about to be shown in full, as they are now: agent work on
+	 * the checkout's branch is acknowledged for this session, the rest is
+	 * read again. The service decides under the annotation's lock: only on
+	 * the checkout's branch, `open`, or acknowledged by a session that has
+	 * gone quiet (an active acknowledgement by another session is left alone;
+	 * the body says who has it). Another writer may have moved, answered,
+	 * cleared or removed an annotation since it was listed, so `keep` decides
+	 * on the fresh state what is shown; only that moves the cursor.
+	 *
+	 * Returns what is shown, and `fresh`: the current state of every
+	 * annotation passed in (null when it no longer exists), so a result can
+	 * derive its ids, counts and follow-ups from the same state as its
+	 * bodies (`refreshListed`). Acknowledging is advisory: when it fails for
+	 * another reason, the annotation is shown as listed.
 	 */
 	const acknowledgeShown = async (
 		project: AnnotationProject,
 		views: readonly AnnotationView[],
-		options: { work?: boolean } = {},
-	): Promise<AnnotationView[]> => {
+		keep: (view: AnnotationView) => boolean,
+	): Promise<{
+		shown: AnnotationView[];
+		fresh: Map<string, AnnotationView | null>;
+	}> => {
 		const shown: AnnotationView[] = [];
+		const fresh = new Map<string, AnnotationView | null>();
 		for (const view of views) {
-			let current = view;
-			const onBranch = view.branch === project.scope.branch;
-			if (onBranch && (options.work || isAgentWork(view.status))) {
-				try {
+			let current: AnnotationView | null = view;
+			const container = getAnnotationContainer(view.target);
+			const keepDetached = (next: AnnotationView): AnnotationView => ({
+				...next,
+				...(view.detached !== undefined ? { detached: view.detached } : {}),
+			});
+			try {
+				if (view.branch === project.scope.branch && isAgentWork(view.status)) {
 					const acknowledged = await acknowledgeAnnotation(project.service, {
 						annotationId: view.id,
-						container: getAnnotationContainer(view.target),
+						container,
 						sessionId,
 						branch: project.scope.branch,
 						keepActive: true,
 					});
-					current = {
-						...acknowledged.annotation,
-						...(view.detached !== undefined ? { detached: view.detached } : {}),
-					};
+					current = keepDetached(acknowledged.annotation);
 					if (acknowledged.written) startClock(project);
-				} catch (error) {
-					if (
-						options.work &&
-						error instanceof AnnotationStoreError &&
-						error.code === "ANNOTATION_NOT_FOUND"
-					) {
-						continue;
-					}
-					// Advisory: the agent still gets the body.
+				} else {
+					const stored = await project.service.store.read(container, view.id);
+					current = stored
+						? keepDetached(await viewAnnotation(project.service, stored))
+						: null;
 				}
+			} catch (error) {
+				if (
+					error instanceof AnnotationStoreError &&
+					error.code === "ANNOTATION_NOT_FOUND"
+				) {
+					current = null;
+				}
+				// Otherwise advisory: shown as listed.
 			}
-			if (
-				options.work &&
-				(current.branch !== project.scope.branch ||
-					!isAgentWork(current.status))
-			) {
-				continue;
-			}
+			fresh.set(view.id, current);
+			if (!current || !keep(current)) continue;
 			if (current.branch === project.scope.branch) markSeen(project, current);
 			shown.push(current);
 		}
-		return shown;
+		return { shown, fresh };
 	};
 
-	/** Annotations in full, acknowledged for this session (see `acknowledgeShown`). */
+	/** On the checkout's branch and agent work: what surfacing and watch show. */
+	const isCurrentWork =
+		(project: AnnotationProject) => (view: AnnotationView) =>
+			view.branch === project.scope.branch && isAgentWork(view.status);
+
+	/**
+	 * `listed` as it is now: refreshed ones replaced by their fresh state,
+	 * and dropped when they no longer exist or no longer match `matches`.
+	 */
+	const refreshListed = (
+		listed: readonly AnnotationView[],
+		fresh: ReadonlyMap<string, AnnotationView | null>,
+		matches: (view: AnnotationView) => boolean,
+	) =>
+		listed.flatMap((view) => {
+			if (!fresh.has(view.id)) return [view];
+			const current = fresh.get(view.id);
+			return current && matches(current) ? [current] : [];
+		});
+
+	/** Annotations in full (see `acknowledgeShown`), with the fresh state. */
 	const showInFull = async (
 		project: AnnotationProject,
 		views: readonly AnnotationView[],
-		options: { branch?: boolean; work?: boolean } = {},
-	): Promise<DescribedAnnotation[]> =>
-		(await acknowledgeShown(project, views, { work: options.work })).map(
-			(view) => describeAnnotation(view, sessionId, { now: now(), ...options }),
-		);
+		keep: (view: AnnotationView) => boolean,
+		options: { branch?: boolean } = {},
+	) => {
+		const { shown, fresh } = await acknowledgeShown(project, views, keep);
+		return {
+			shown,
+			fresh,
+			bodies: shown.map((view) =>
+				describeAnnotation(view, sessionId, { now: now(), ...options }),
+			),
+		};
+	};
 
 	/** Agent work on the checkout's branch that this session has not seen as it is now. */
 	const takeUnseen = (
@@ -549,22 +588,33 @@ export const createMcpAnnotationSession = ({
 		}
 
 		const unseen = takeUnseen(project, annotations, design);
-		const shown = await acknowledgeShown(
+		const { shown, fresh } = await acknowledgeShown(
 			project,
 			unseen.slice(0, MAX_SURFACED_ANNOTATIONS),
-			{ work: true },
+			isCurrentWork(project),
 		);
 		const bodies = shown.map((view) =>
 			describeAnnotation(view, sessionId, { now: now() }),
 		);
-		const more = unseen.length - shown.length;
-		// Counted as they are now, acknowledgements included.
-		const current = new Map(shown.map((view) => [view.id, view]));
-		const counts = summarizeAnnotationCounts(
-			annotations.map((view) => current.get(view.id) ?? view),
-			design,
+		// One set for everything below: the live annotations of this branch
+		// as they are now (acknowledgements included; moved, closed or
+		// removed ones out).
+		const eligible = refreshListed(
+			annotations,
+			fresh,
+			(view) => view.branch === project.scope.branch && isLive(view.status),
 		);
-		const openIds = annotations
+		if (
+			!options.includeCounts &&
+			!eligible.some((view) => isAgentWork(view.status))
+		) {
+			return null;
+		}
+		if (eligible.length === 0) return null;
+		// Shown ones are seen now; what is left unseen is `more`.
+		const more = takeUnseen(project, eligible, design).length;
+		const counts = summarizeAnnotationCounts(eligible, design);
+		const openIds = eligible
 			.filter((view) => isAgentWork(view.status))
 			.map((view) => view.id);
 		const selected = options.selectedElementId
@@ -582,7 +632,7 @@ export const createMcpAnnotationSession = ({
 							...(selected
 								? compactCounts(selected)
 								: { agentWork: 0, humanWork: 0, byStatus: {} }),
-							annotationIds: annotations
+							annotationIds: eligible
 								.filter(
 									(view) =>
 										view.target.kind === "layer" &&
@@ -594,11 +644,8 @@ export const createMcpAnnotationSession = ({
 				: {}),
 			next: describeNext(designId, shown, more, openIds.length, design, [
 				...new Set(
-					annotations
-						.filter(
-							(view) =>
-								view.branch === project.scope.branch && view.detached === true,
-						)
+					eligible
+						.filter((view) => view.detached === true)
 						.map((view) => view.id),
 				),
 			]),
@@ -614,6 +661,8 @@ export const createMcpAnnotationSession = ({
 		seenEntryIds,
 		startClock,
 		acknowledgeShown,
+		isCurrentWork,
+		refreshListed,
 		showInFull,
 		takeUnseen,
 		listLive,
