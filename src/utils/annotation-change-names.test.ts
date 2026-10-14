@@ -116,3 +116,83 @@ describe("nameLayersInText", () => {
 		).toBe("Tightened the tracking.");
 	});
 });
+
+// Review round 2: ids that are plain words, and CSS literals.
+describe("nameLayersInText with word ids", () => {
+	const wordAnnotation: Pick<AnnotationView, "target" | "snapshot"> = {
+		target: {
+			kind: "layer",
+			designId: DESIGN,
+			boardId: BOARD,
+			elementId: "text",
+		},
+		snapshot: { branch: "main", worktreePath: "/w" },
+	};
+	const names: Record<string, string> = {
+		text: "Headline",
+		flex: "Row",
+		[TITLE]: "Title",
+	};
+	const byName = (id: string) => names[id] ?? null;
+	const change = { layerIds: ["text", "flex", TITLE], boards: [BOARD] };
+
+	it("names whole ids and leaves class literals alone", () => {
+		expect(
+			nameLayersInText(
+				'Set text className to "text-3xl flex"',
+				change,
+				wordAnnotation,
+				byName,
+			),
+		).toBe('Set Headline className to "text-3xl flex"');
+		expect(
+			nameLayersInText(
+				"className of flex: flex-col; moved text-xs under flex",
+				change,
+				wordAnnotation,
+				byName,
+			),
+		).toBe("className of Row: flex-col; moved text-xs under Row");
+	});
+
+	it("names UUIDs outside quotes only", () => {
+		expect(
+			nameLayersInText(
+				`Set ${TITLE} text to '${TITLE}'`,
+				change,
+				wordAnnotation,
+				byName,
+			),
+		).toBe(`Set Title Headline to '${TITLE}'`);
+	});
+
+	it("treats an apostrophe as part of the word", () => {
+		expect(
+			nameLayersInText(
+				`Don't touch ${TITLE}, it's fine`,
+				change,
+				wordAnnotation,
+				byName,
+				"uuids",
+			),
+		).toBe("Don't touch Title, it's fine");
+	});
+
+	it("rewrites only UUIDs in prose", () => {
+		expect(
+			nameLayersInText(
+				`Made the text bigger in ${TITLE} with flex`,
+				change,
+				wordAnnotation,
+				byName,
+				"uuids",
+			),
+		).toBe("Made the text bigger in Title with flex");
+	});
+
+	it("matches ids case-sensitively", () => {
+		expect(
+			nameLayersInText("Text and text", change, wordAnnotation, byName),
+		).toBe("Text and Headline");
+	});
+});

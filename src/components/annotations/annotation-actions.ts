@@ -3,6 +3,7 @@ import {
 	AnnotationRequestError,
 	type AnnotationSnapshotHint,
 	annotationContainerOf,
+	containerKey,
 	createAnnotationRequest,
 	fetchAnnotation,
 	isAnnotationRevisionMismatch,
@@ -26,9 +27,12 @@ import {
 	clearSentReplyDraft,
 } from "../../stores/annotation-draft-store";
 import {
+	type AnnotationReadToken,
 	applyAnnotationRead,
+	applyAnnotationWrite,
 	beginAnnotationRead,
-	upsertAnnotation,
+	beginAnnotationWrite,
+	editorAnnotationsStore,
 } from "../../stores/editor-annotations-store";
 
 // Annotation writes from the editor. Each sends the revision the editor
@@ -96,14 +100,30 @@ export async function reportAnnotationWriteError(
 	});
 }
 
+/**
+ * Shows a write's answer if nothing newer set the annotation while it was
+ * out; otherwise reads it again through the ordered read path.
+ */
+const applyWriteAnswer = async (
+	token: AnnotationReadToken,
+	annotation: AnnotationView,
+) => {
+	if (applyAnnotationWrite(token, annotation) === "stale") {
+		await refresh(annotation);
+	}
+};
+
 async function write<T extends { annotation: AnnotationView }>(
 	annotation: AnnotationRef,
 	run: () => Promise<T>,
 	nameOf?: LayerNamer,
 ): Promise<T | null> {
+	// The write's place in the order is when it started, not when it
+	// answered: an agent's change that arrived meanwhile is newer.
+	const token = beginAnnotationWrite();
 	try {
 		const result = await run();
-		upsertAnnotation(result.annotation);
+		await applyWriteAnswer(token, result.annotation);
 		return result;
 	} catch (error) {
 		await reportAnnotationWriteError(error, annotation, nameOf);
@@ -122,13 +142,14 @@ export async function sendAnnotationDraft(
 	// The composer stays editable while this is in flight: clear only the
 	// text that was sent, in the project it was written in.
 	const sent = captureSentDraft(draft.body);
+	const token = beginAnnotationWrite();
 	try {
 		const result = await createAnnotationRequest({
 			target: draft.target,
 			body: draft.body.trim(),
 			...(snapshot ? { snapshot } : {}),
 		});
-		upsertAnnotation(result.annotation);
+		await applyWriteAnswer(token, result.annotation);
 		clearSentAnnotationDraft(draft.key, sent);
 		return result.annotation;
 	} catch (error) {
@@ -137,13 +158,38 @@ export async function sendAnnotationDraft(
 	}
 }
 
-/** Sends drafts one by one; returns how many were sent. */
+/**
+ * Sends drafts one by one; returns how many were sent. The batch belongs to
+ * the project and the design (or component) open when it started: if
+ * either changes meanwhile, it stops, so another project's drafts with the
+ * same target are never sent.
+ */
 export async function sendAnnotationDrafts(
 	drafts: readonly Pick<AnnotationDraft, "key" | "target" | "body">[],
 	snapshot?: AnnotationSnapshotHint,
 ) {
+	const project = annotationDraftStore.get().projectScope;
+	const opened = editorAnnotationsStore.get().container;
+	const openedKey = opened ? containerKey(opened) : null;
+	const stillHere = () => {
+		const current = editorAnnotationsStore.get().container;
+		return (
+			annotationDraftStore.get().projectScope === project &&
+			(current ? containerKey(current) : null) === openedKey
+		);
+	};
 	let sent = 0;
 	for (const listed of drafts) {
+		if (!stillHere()) {
+			toast.warning(
+				`Sending stopped after ${sent} of ${drafts.length}: you left the design`,
+				{
+					id: "annotation-drafts-stopped",
+					description: "The drafts not sent yet are kept in that design.",
+				},
+			);
+			return sent;
+		}
 		// Each one as it is when its turn comes: it may have been edited or
 		// discarded while earlier ones were sending.
 		const draft = annotationDraftStore.get().drafts[listed.key];
@@ -229,12 +275,15 @@ export async function resolveAnnotations(
 	verb: "Resolved" | "Accepted",
 ) {
 	if (annotations.length === 0) return;
+	const token = beginAnnotationWrite();
 	try {
 		const { resolved, skipped } = await resolveAnnotationsRequest(
 			container,
 			annotations,
 		);
-		for (const annotation of resolved) upsertAnnotation(annotation);
+		await Promise.all(
+			resolved.map((annotation) => applyWriteAnswer(token, annotation)),
+		);
 		const byId = new Map(annotations.map((entry) => [entry.id, entry]));
 		await Promise.all(
 			skipped.map((skip) => {

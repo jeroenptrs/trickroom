@@ -162,3 +162,60 @@ describe("Send and Reply clear only what they sent", () => {
 		expect(Object.keys(drafts())).toEqual([]);
 	});
 });
+
+// Review round 2: a batch belongs to the project and design it started in.
+describe("Send all drafts stays in its project and design", () => {
+	const layer = {
+		kind: "layer" as const,
+		designId: "D",
+		boardId: "B",
+		elementId: "L",
+	};
+
+	const holdFirst = () => {
+		const first = deferred<Response>();
+		const bodies: string[] = [];
+		let call = 0;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_url: string, init: RequestInit) => {
+				bodies.push(JSON.parse(String(init.body)).body);
+				call += 1;
+				return call === 1
+					? first.promise
+					: json({ annotation: view(`a${call + 1}`), written: true });
+			}),
+		);
+		return { first, bodies };
+	};
+
+	it("stops when the project changes and never sends the other project's draft", async () => {
+		setAnnotationDraft(target, "A design draft");
+		setAnnotationDraft(layer, "A layer draft");
+		const listed = Object.values(drafts());
+		const { first, bodies } = holdFirst();
+		const sending = sendAnnotationDrafts(listed);
+		loadAnnotationDrafts("project-b");
+		setAnnotationDraft(layer, "B unsent layer draft");
+		first.resolve(json({ annotation: view("a2"), written: true }));
+		expect(await sending).toBe(1);
+		expect(bodies).toEqual(["A design draft"]);
+		expect(drafts()["layer:D/L"]?.body).toBe("B unsent layer draft");
+		// Project a keeps its unsent layer draft.
+		loadAnnotationDrafts("project-a");
+		expect(drafts()["layer:D/L"]?.body).toBe("A layer draft");
+	});
+
+	it("stops when the design changes", async () => {
+		setAnnotationDraft(target, "design remark");
+		setAnnotationDraft(layer, "layer remark");
+		const listed = Object.values(drafts());
+		const { first, bodies } = holdFirst();
+		const sending = sendAnnotationDrafts(listed);
+		openAnnotationContainer({ kind: "design", designId: "E" });
+		first.resolve(json({ annotation: view("a2"), written: true }));
+		expect(await sending).toBe(1);
+		expect(bodies).toEqual(["design remark"]);
+		expect(drafts()["layer:D/L"]?.body).toBe("layer remark");
+	});
+});

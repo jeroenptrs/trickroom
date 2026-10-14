@@ -149,8 +149,17 @@ let clock = 0;
 let generation = 0;
 /** Per annotation: the sequence of whatever last set (or removed) it. */
 let settledAt = new Map<string, number>();
+/**
+ * The newest list applied: what it held and when it started. An id it did
+ * not list counts as removed at that sequence, so an older read cannot
+ * bring it back.
+ */
+let lastList: { sequence: number; ids: ReadonlySet<string> } | null = null;
 
-/** A read in flight: its container's generation and when it started. */
+/**
+ * A request in flight (a list, a single read, or one of the editor's own
+ * writes): its container's generation and when it started.
+ */
 export type AnnotationReadToken = { generation: number; sequence: number };
 
 /** Call when a list or single read starts; pass the token to apply it. */
@@ -159,13 +168,23 @@ export function beginAnnotationRead(): AnnotationReadToken {
 	return { generation, sequence: clock };
 }
 
+/** Call when one of the editor's writes starts; pass the token to apply its answer. */
+export const beginAnnotationWrite = beginAnnotationRead;
+
 const settle = (annotationId: string, sequence = ++clock) => {
 	settledAt.set(annotationId, sequence);
 };
 
+/** The sequence a request must be newer than to set this annotation. */
+const settledSequence = (annotationId: string) =>
+	Math.max(
+		settledAt.get(annotationId) ?? 0,
+		lastList && !lastList.ids.has(annotationId) ? lastList.sequence : 0,
+	);
+
 const isCurrent = (token: AnnotationReadToken, annotationId: string) =>
 	token.generation === generation &&
-	token.sequence > (settledAt.get(annotationId) ?? 0);
+	token.sequence > settledSequence(annotationId);
 
 const belongsHere = (
 	state: EditorAnnotationsState,
@@ -177,9 +196,10 @@ const belongsHere = (
 /** Starts over for another design or component (or none). */
 export function openAnnotationContainer(container: AnnotationContainer | null) {
 	if (sameContainer(editorAnnotationsStore.get().container, container)) return;
-	// Reads still in flight for the previous container are void.
+	// Requests still in flight for the previous container are void.
 	generation += 1;
 	settledAt = new Map();
+	lastList = null;
 	editorAnnotationsStore.setState((state) => ({
 		...state,
 		container,
@@ -203,19 +223,25 @@ export function hydrateAnnotations(
 	token: AnnotationReadToken = beginAnnotationRead(),
 ) {
 	if (token.generation !== generation) return;
+	// A list older than one already applied says nothing new.
+	if (lastList && token.sequence < lastList.sequence) return;
+	if (!sameContainer(editorAnnotationsStore.get().container, container)) {
+		return;
+	}
+	const listed = new Map(
+		annotations
+			.filter((annotation) =>
+				sameContainer(container, containerOfTarget(annotation.target)),
+			)
+			.map((annotation) => [annotation.id, annotation]),
+	);
 	editorAnnotationsStore.setState((state) => {
-		if (!sameContainer(state.container, container)) return state;
-		const listed = new Map(
-			annotations
-				.filter((annotation) =>
-					sameContainer(container, containerOfTarget(annotation.target)),
-				)
-				.map((annotation) => [annotation.id, annotation]),
-		);
 		const byId = createIdRecord<AnnotationView>();
 		for (const [id, held] of Object.entries(state.byId)) {
 			// Held but not listed: removed, unless set after the list started.
-			if (!listed.has(id) && !isCurrent(token, id)) byId[id] = held;
+			if (listed.has(id)) continue;
+			if (isCurrent(token, id)) settle(id, token.sequence);
+			else byId[id] = held;
 		}
 		for (const [id, annotation] of listed) {
 			const previous = state.byId[id];
@@ -231,6 +257,7 @@ export function hydrateAnnotations(
 		}
 		return { ...state, scope, status: "ready", byId };
 	});
+	lastList = { sequence: token.sequence, ids: new Set(listed.keys()) };
 }
 
 export function setAnnotationsError(container: AnnotationContainer) {
@@ -257,8 +284,9 @@ const putAnnotation = (
 };
 
 /**
- * Puts an annotation the editor itself just wrote in place: the write's
- * answer is the newest state, so reads started before it no longer apply.
+ * Puts an annotation in place unconditionally, as the newest state: reads
+ * started before it no longer apply. The editor's writes go through
+ * `applyAnnotationWrite`, which also checks the order.
  * One that moved to another branch leaves the list (it shows under other
  * branches). An annotation of another container is ignored.
  */
@@ -268,6 +296,31 @@ export function upsertAnnotation(annotation: AnnotationView) {
 	editorAnnotationsStore.setState((state) =>
 		belongsHere(state, annotation) ? putAnnotation(state, annotation) : state,
 	);
+}
+
+/**
+ * Applies the answer of one of the editor's own writes, started with
+ * `token`. It applies only if nothing (an event, a read, another write, a
+ * delete) set that annotation since the write started, in the same
+ * container visit; then it is the newest state, and reads started before
+ * now no longer apply. Returns `"stale"` when something newer got there
+ * first: the caller reads the annotation again through the ordered path.
+ * Revisions are content hashes, so they are never compared for order.
+ */
+export function applyAnnotationWrite(
+	token: AnnotationReadToken,
+	annotation: AnnotationView,
+): "applied" | "stale" | "ignored" {
+	const state = editorAnnotationsStore.get();
+	if (token.generation !== generation || !belongsHere(state, annotation)) {
+		return "ignored";
+	}
+	if (!isCurrent(token, annotation.id)) return "stale";
+	settle(annotation.id);
+	editorAnnotationsStore.setState((current) =>
+		putAnnotation(current, annotation),
+	);
+	return "applied";
 }
 
 /**
@@ -354,6 +407,7 @@ export function requestAnnotationComposer() {
 export function resetEditorAnnotations() {
 	generation += 1;
 	settledAt = new Map();
+	lastList = null;
 	editorAnnotationsStore.setState(() => initialState());
 }
 

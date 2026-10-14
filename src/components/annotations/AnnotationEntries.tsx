@@ -73,7 +73,17 @@ function ChangeRecord({
 	const hasDetails = Boolean(summary) || change.operations.length > 0;
 	return (
 		<div className="flex flex-col gap-1">
-			{entry.body ? <EntryText>{named(entry.body)}</EntryText> : null}
+			{entry.body ? (
+				<EntryText>
+					{nameLayersInText(
+						entry.body,
+						change,
+						annotation,
+						nameOfLayer,
+						"uuids",
+					)}
+				</EntryText>
+			) : null}
 			<div className="flex flex-col bg-slate-100">
 				<div className="flex items-center gap-1">
 					<button

@@ -25,11 +25,18 @@ export type ChangeLayerName = {
 
 export const shortLayerId = (id: string) => `#${id.slice(0, 8)}`;
 
-/** Ids an agent may have written: UUIDs and the record's own layer ids. */
-const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+/** A UUID, the shape of every id Trickroom mints. */
+const UUID =
+	"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 
 const escapeRegExp = (text: string) =>
 	text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Quoted runs (class strings, text content): never rewritten. A single
+ * quote inside a word ("don't") is an apostrophe, not a quote.
+ */
+const QUOTED = /"[^"]*"|`[^`]*`|(?<![\w])'[^']*'(?![\w])/g;
 
 /** What the annotation itself knows about a layer id. */
 const recordedName = (
@@ -73,25 +80,47 @@ export function describeChangeLayers(
 }
 
 /**
- * Free text from a change record (its summary, an operation's summary) with
- * every layer id in it replaced by that layer's name: the record's own
- * layer and board ids, and any other UUID.
+ * Free text from a change record with the layer ids in it replaced by the
+ * layers' names. Only whole tokens are replaced (an id `text` leaves
+ * `text-3xl` alone), and never inside quotes, where class strings and text
+ * content live.
+ *
+ * - `"ids"` (operation lines and the record's summary, which name layers
+ *   by id): the record's own layer and board ids, and any UUID.
+ * - `"uuids"` (an agent's prose reply): only UUIDs, so a layer whose id is
+ *   a plain word does not rewrite that word in a sentence.
  */
 export function nameLayersInText(
 	text: string,
 	change: Pick<AnnotationChangeRecord, "layerIds" | "boards">,
 	annotation: Pick<AnnotationView, "target" | "snapshot">,
 	lookup?: LayerNameLookup,
+	mode: "ids" | "uuids" = "ids",
 ) {
-	const known = [...new Set([...change.layerIds, ...change.boards])].filter(
-		(id) => id.length > 0,
+	const known =
+		mode === "ids"
+			? [...new Set([...change.layerIds, ...change.boards])]
+					.filter((id) => id.length > 0)
+					// Longest first, so an id that prefixes another does not win.
+					.sort((a, b) => b.length - a.length)
+					.map(escapeRegExp)
+			: [];
+	const token = new RegExp(
+		`(?<![\\w-])(?:${[UUID, ...known].join("|")})(?![\\w-])`,
+		// Ids are case-sensitive.
+		"g",
 	);
-	const pattern = new RegExp(
-		[UUID.source, ...known.map(escapeRegExp)].join("|"),
-		"gi",
-	);
-	return text.replace(
-		pattern,
-		(id) => resolveChangeLayerName(id, annotation, lookup).name,
-	);
+	const name = (unquoted: string) =>
+		unquoted.replace(
+			token,
+			(id) => resolveChangeLayerName(id, annotation, lookup).name,
+		);
+	let result = "";
+	let last = 0;
+	for (const quoted of text.matchAll(QUOTED)) {
+		const at = quoted.index ?? 0;
+		result += name(text.slice(last, at)) + quoted[0];
+		last = at + quoted[0].length;
+	}
+	return result + name(text.slice(last));
 }

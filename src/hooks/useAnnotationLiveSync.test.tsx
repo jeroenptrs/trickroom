@@ -4,6 +4,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	replyToAnnotation,
+	resolveAnnotation,
+} from "../components/annotations/annotation-actions";
+import {
 	deliverAnnotationEvent,
 	requestAnnotationResync,
 } from "../queries/annotation-live-events";
@@ -447,5 +451,109 @@ describe("useAnnotationLiveSync ordering", () => {
 			String(url).startsWith("/api/trickroom/annotations/a1"),
 		) as unknown as [string, RequestInit];
 		expect(init.signal?.aborted).toBe(true);
+	});
+});
+
+// Review round 2: the editor's own writes are ordered like reads, and a
+// list's removals hold against older reads.
+describe("useAnnotationLiveSync and the editor's writes", () => {
+	const holdWrites = () => {
+		const pending = deferred<Response>();
+		const serve = fetchMock.getMockImplementation() as (
+			url: string,
+		) => Promise<Response>;
+		fetchMock.mockImplementation(async (url, init?: RequestInit) =>
+			init?.method === "POST" ? pending.promise : serve(url),
+		);
+		return pending;
+	};
+
+	it("does not let a late write answer undo a newer agent change", async () => {
+		await mount();
+		const pending = holdWrites();
+		// The server committed the reply (r2) but its answer is slow; an
+		// agent then asks a question (r3), which arrives live.
+		const replying = replyToAnnotation(view("a1"), "human reply");
+		served.a1 = view("a1", "r3", { status: "needs_input" });
+		await changed("a1", "r3");
+		await flush();
+		expect(state().byId.a1?.revision).toBe("r3");
+		pending.resolve(json({ annotation: view("a1", "r2"), written: true }));
+		await replying;
+		await flush();
+		// The answer is older than r3: read again, and r3 stays.
+		expect(state().byId.a1?.revision).toBe("r3");
+		expect(state().byId.a1?.status).toBe("needs_input");
+	});
+
+	it("shows a write's answer when nothing changed meanwhile", async () => {
+		await mount();
+		const pending = holdWrites();
+		const resolving = resolveAnnotation(view("a1"));
+		pending.resolve(
+			json({
+				annotation: view("a1", "r2", { status: "resolved" }),
+				written: true,
+			}),
+		);
+		await resolving;
+		await flush();
+		expect(state().byId.a1?.status).toBe("resolved");
+		// No read again: only the write itself went out.
+		expect(singleCalls()).toEqual([
+			"/api/trickroom/annotations/a1/transition?designId=D",
+		]);
+	});
+
+	it("never applies a write from an earlier visit to the reopened design", async () => {
+		await mount();
+		const pending = holdWrites();
+		const replying = replyToAnnotation(view("a1"), "human reply");
+		await mount({ kind: "design", designId: "E" });
+		served.a1 = view("a1", "r3", { status: "needs_input" });
+		await mount(container);
+		expect(state().byId.a1?.revision).toBe("r3");
+		pending.resolve(json({ annotation: view("a1", "r2"), written: true }));
+		await replying;
+		await flush();
+		expect(state().byId.a1?.revision).toBe("r3");
+	});
+
+	it("does not let an older read bring back what a newer list removed", async () => {
+		await mount();
+		const read = deferred<Response>();
+		let holdNext = true;
+		serveHolding((url) => {
+			if (isList(url) || !holdNext) return null;
+			holdNext = false;
+			return read.promise;
+		});
+		await changed("a1", "r2");
+		await flush();
+		// Deleted while the stream was down; the reconnect's list says so.
+		served = {};
+		await act(async () => requestAnnotationResync());
+		await flush();
+		expect(state().byId).toEqual({});
+		read.resolve(json({ annotation: view("a1", "r2") }));
+		await flush();
+		expect(state().byId).toEqual({});
+	});
+
+	it("does not let an older read add what a newer list never had", async () => {
+		await mount();
+		const read = deferred<Response>();
+		let holdNext = true;
+		serveHolding((url) => {
+			if (isList(url) || !holdNext) return null;
+			holdNext = false;
+			return read.promise;
+		});
+		await changed("a9", "r1");
+		await act(async () => requestAnnotationResync());
+		await flush();
+		read.resolve(json({ annotation: view("a9", "r1") }));
+		await flush();
+		expect(state().byId.a9).toBeUndefined();
 	});
 });
