@@ -72,12 +72,24 @@ These resolve what the proposal left open and apply to every WP.
   same WP (`docs/project-files.md`, `docs/mcp.md`, `docs/user-guide.md`,
   `docs/design-model.md` as applicable). Persisted shapes get tests for
   version 1 reads, idempotent migration and newer-version refusal.
+- Acknowledged (orchestrator, 2026-10-14): a stored status plus an
+  `acknowledged: { sessionId, at }` field. MCP moves `open` to
+  `acknowledged` only; it never moves `addressed`, `needs_input`,
+  `resolved` or `dismissed` back. Expiry is derived on read and changes
+  nothing on disk. For surfacing and counts, `acknowledged` is open work.
+- Annotation revisions (orchestrator, 2026-10-14): every annotation has a
+  content revision returned from reads, and HTTP writes accept an optional
+  expected revision, so a stale editor cannot silently overwrite an agent's
+  concurrent transition.
+- Canvas clicks on interactive elements inside a board (inputs, buttons,
+  links, Base UI triggers) select and do not navigate, submit or open; WP1
+  records how.
 
 ## Work packages
 
 ### WP1: stage selection parity
 
-Status: todo. Model: Opus 5.5. Depends on nothing. Parallel with WP2.
+Status: in progress (branch `annotations/wp1-stage-selection`). Model: Opus 5.5. Depends on nothing. Parallel with WP2.
 
 - Shared stage interaction module used by `Artboards.tsx` (design editor)
   and `ComponentDraftStage.tsx` (component editor): hover outline with the
@@ -99,7 +111,7 @@ Status: todo. Model: Opus 5.5. Depends on nothing. Parallel with WP2.
 
 ### WP2: annotation store, service and HTTP API
 
-Status: todo. Model: Opus 5.5. Depends on nothing. Parallel with WP1.
+Status: in progress (branch `annotations/wp2-store-service`). Model: Opus 5.5. Depends on nothing. Parallel with WP1.
 
 - Types in `src/types.ts` or a new `src/services/annotations.types.ts`:
   `Annotation`, `AnnotationTarget`, `AnnotationEntry` (human remark, agent
