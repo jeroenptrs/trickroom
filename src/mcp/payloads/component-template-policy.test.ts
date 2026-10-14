@@ -136,4 +136,166 @@ describe("assertTemplateChangesAllowed", () => {
 			check(parts(root, [node("x", "text")]), parts(root, [node("x", "text")])),
 		).not.toThrow();
 	});
+
+	describe("moves within a parent (review round 3)", () => {
+		const row = (...children: RecipeTemplateNode[]) =>
+			parts(node("root", "container", children));
+
+		it("refuses swapping two disallowed siblings", () => {
+			expect(
+				check(
+					row(node("t1", "text"), node("t2", "text")),
+					row(node("t2", "text"), node("t1", "text")),
+				),
+			).toThrow(/moves node "t2"/);
+		});
+
+		it("allows moving an allowed sibling past a disallowed one", () => {
+			expect(
+				check(
+					row(node("a", "container"), node("label", "text")),
+					row(node("label", "text"), node("a", "container")),
+				),
+			).not.toThrow();
+		});
+
+		it("does not count a shift from inserting or removing an allowed sibling", () => {
+			const before = row(node("label", "text"), node("t2", "text"));
+			const inserted = row(
+				node("new", "container"),
+				node("label", "text"),
+				node("t2", "text"),
+			);
+			expect(check(before, inserted)).not.toThrow();
+			expect(check(inserted, before)).not.toThrow();
+		});
+
+		it("refuses reordering allowed children inside a disallowed parent", () => {
+			const host = (...children: RecipeTemplateNode[]) =>
+				parts(node("root", "container", [node("list", "text", children)]));
+			expect(
+				check(
+					host(node("a", "container"), node("b", "container")),
+					host(node("b", "container"), node("a", "container")),
+				),
+			).toThrow(/reorders the children of node "list"/);
+		});
+	});
+
+	describe("slot placement (review round 3)", () => {
+		const withSlot = (
+			hostPath: string,
+			children: RecipeTemplateNode[],
+			insertIndex?: number,
+		): ComponentTemplateParts => ({
+			root: node("root", "container", [node("inner", "container")]),
+			slots: {
+				content: {
+					name: "content",
+					hostPath,
+					...(insertIndex !== undefined ? { insertIndex } : {}),
+					defaultChildren: children,
+				},
+			},
+		});
+
+		it("refuses moving a slot's disallowed default child with its host", () => {
+			expect(
+				check(
+					withSlot("root", [node("x", "text")]),
+					withSlot("inner", [node("x", "text")]),
+				),
+			).toThrow(/moves node "x" in slot "content"/);
+			expect(
+				check(
+					withSlot("root", [node("x", "text")], 0),
+					withSlot("root", [node("x", "text")], 1),
+				),
+			).toThrow(/moves node "x"/);
+		});
+
+		it("allows moving a slot of allowed default children to an allowed host", () => {
+			expect(
+				check(
+					withSlot("root", [node("x", "container")]),
+					withSlot("inner", [node("x", "container")]),
+				),
+			).not.toThrow();
+		});
+	});
+
+	describe("compound conditions (review round 3)", () => {
+		const withCompound = (
+			compounds: { when: Record<string, string | string[]>; label: string }[],
+		): ComponentTemplateParts => ({
+			root: node("root", "container", [node("label", "text")]),
+			variants: {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: { plain: {}, brand: {} },
+					},
+					size: { label: "Size", values: { sm: {}, lg: {} } },
+				},
+				compoundVariants: compounds.map(({ when, label }) => ({
+					when,
+					classesByPath: { label },
+				})),
+			},
+		});
+
+		it("refuses moving a disallowed node's compound class to another condition", () => {
+			expect(
+				check(
+					withCompound([{ when: { tone: "plain" }, label: "font-bold" }]),
+					withCompound([{ when: { tone: "brand" }, label: "font-bold" }]),
+				),
+			).toThrow(/changes node "label"/);
+		});
+
+		it("allows reordering compounds and their condition values", () => {
+			expect(
+				check(
+					withCompound([
+						{ when: { tone: ["plain", "brand"], size: "sm" }, label: "a" },
+						{ when: { tone: "brand" }, label: "b" },
+					]),
+					withCompound([
+						{ when: { tone: "brand" }, label: "b" },
+						{ when: { size: "sm", tone: ["brand", "plain"] }, label: "a" },
+					]),
+				),
+			).not.toThrow();
+		});
+	});
+
+	describe("canonical comparison (review round 3)", () => {
+		it("ignores key order and what the manifest normalises", () => {
+			const stored = parts(
+				node("root", "container", [
+					{
+						path: "label",
+						library: "trickroom",
+						component: "text",
+						name: "Label",
+						text: "Hi",
+						props: { as: "span" },
+					},
+				]),
+			);
+			const sent = parts(
+				node("root", "container", [
+					{
+						props: { as: "span" },
+						text: "Hi",
+						name: " Label ",
+						component: "text",
+						library: "trickroom",
+						path: "label",
+					},
+				]),
+			);
+			expect(check(stored, sent)).not.toThrow();
+		});
+	});
 });

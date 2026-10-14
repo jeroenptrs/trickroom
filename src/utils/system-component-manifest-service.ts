@@ -1102,6 +1102,40 @@ function normalizePublishedVersion(
 	return publishedVersion;
 }
 
+/**
+ * A template's root, slots and variant schema as the manifest stores them
+ * (the same normalisers a write runs), for comparing what a write changes.
+ * A part that does not normalise is returned as given.
+ */
+export function normalizeSystemComponentTemplateParts<
+	Parts extends Pick<
+		SystemComponentDraftPayload,
+		"root" | "slots" | "variants"
+	>,
+>(
+	parts: Parts,
+): Pick<SystemComponentDraftPayload, "root" | "slots" | "variants"> {
+	const diagnostics: SystemComponentManifestDiagnostic[] = [];
+	const root =
+		normalizeRecipeTemplateNode(parts.root, "", diagnostics, "root") ??
+		parts.root;
+	const slots =
+		parts.slots === undefined
+			? undefined
+			: (normalizeSlotDefinitions(parts.slots, "", diagnostics, "") ??
+				parts.slots);
+	const variants =
+		parts.variants === undefined
+			? undefined
+			: (normalizeVariantSchema(parts.variants, "", diagnostics, "") ??
+				parts.variants);
+	return {
+		root,
+		...(slots ? { slots } : {}),
+		...(variants ? { variants } : {}),
+	};
+}
+
 function normalizeRecipeTemplateNode(
 	value: unknown,
 	componentId: string,

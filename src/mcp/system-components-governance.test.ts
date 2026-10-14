@@ -382,4 +382,116 @@ describe("allowedComponents on component writes", () => {
 			});
 		});
 	}
+
+	describe("review round 3: canonical comparison, moves and compound conditions", () => {
+		/** A designer's label with props and text, which the manifest reorders on write. */
+		const labelled = (rootClass = "p-2"): RecipeTemplateNode =>
+			node("root", "container", {
+				className: rootClass,
+				children: [
+					node("label", "text", {
+						name: "Label",
+						text: "Hi",
+						props: { as: "span" },
+					}),
+				],
+			});
+
+		for (const withAddresses of [false, true]) {
+			it(`round-trips the persisted template through component_read and edits only an allowed node, ${withAddresses ? "with" : "without"} addresses`, async () => {
+				const { call, update, componentId, changeEntries } = await open({
+					draft: { root: labelled() },
+				});
+				const read = await call(TOOL.componentRead, {
+					systemName,
+					componentId,
+					source: "draft",
+					include: ["template"],
+				});
+				const root = read.payload.root as RecipeTemplateNode;
+				const result = await update(
+					{ root: { ...root, className: "p-6" } },
+					withAddresses,
+				);
+				expect(result.isError).toBe(false);
+				expect(await changeEntries()).toHaveLength(withAddresses ? 1 : 0);
+			});
+		}
+
+		it("refuses swapping two disallowed siblings", async () => {
+			const pair = (first: string, second: string) =>
+				node("root", "container", {
+					children: [
+						node(first, "text", { text: first }),
+						node(second, "text", { text: second }),
+					],
+				});
+			const { update, manifest } = await open({
+				draft: { root: pair("t1", "t2") },
+			});
+			const before = (await manifest()).revision;
+			const result = await update({ root: pair("t2", "t1") }, true);
+			expect(result.payload).toMatchObject(denied);
+			expect((await manifest()).revision).toBe(before);
+		});
+
+		it("refuses moving a slot's disallowed default child to another host", async () => {
+			const root = node("root", "container", {
+				children: [node("inner", "container")],
+			});
+			const slot = (hostPath: string) => ({
+				content: {
+					name: "content",
+					hostPath,
+					defaultChildren: [node("x", "text", { text: "Hi" })],
+				},
+			});
+			const { update, manifest } = await open({
+				draft: { root, slots: slot("root") },
+			});
+			const before = (await manifest()).revision;
+			const result = await update({ slots: slot("inner") }, true);
+			expect(result.payload).toMatchObject(denied);
+			expect((await manifest()).revision).toBe(before);
+		});
+
+		const compoundOn = (tone: string) => ({
+			axes: {
+				tone: {
+					label: "Tone",
+					defaultValue: "plain",
+					values: {
+						plain: { classesByPath: {} },
+						brand: { classesByPath: {} },
+					},
+				},
+			},
+			compoundVariants: [
+				{ when: { tone }, classesByPath: { label: "font-bold" } },
+			],
+		});
+
+		it("refuses moving a disallowed node's compound class to another condition, on update", async () => {
+			const { update, manifest } = await open({
+				draft: { root: card(), variants: compoundOn("plain") },
+			});
+			const before = (await manifest()).revision;
+			const result = await update({ variants: compoundOn("brand") }, true);
+			expect(result.payload).toMatchObject(denied);
+			expect((await manifest()).revision).toBe(before);
+		});
+
+		it("refuses publishing a compound condition change on a disallowed node", async () => {
+			const { publish, manifest, componentId } = await open({
+				published: { root: card(), variants: compoundOn("plain") },
+				draft: { root: card(), variants: compoundOn("brand") },
+			});
+			const result = await publish(true);
+			expect(result.payload).toMatchObject(denied);
+			expect(
+				(await manifest()).manifest.components[componentId]?.published
+					?.currentVersion,
+			).toBe("1");
+		});
+	});
 });
