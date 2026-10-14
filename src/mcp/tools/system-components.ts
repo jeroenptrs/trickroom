@@ -1,4 +1,7 @@
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import type { RecordChangeResult } from "../../services/annotation-service";
+import { createComponentAddressesRecorder } from "../../services/component-annotations";
 import {
 	applyMigrateSystemComponentInstance,
 	DesignTransformError,
@@ -23,9 +26,11 @@ import {
 	SYSTEM_COMPONENT_GROUP_MAX_LENGTH,
 	SYSTEM_COMPONENT_NAME_MAX_LENGTH,
 	type SystemComponentMetadataProblem,
+	type SystemComponentMutationOptions,
 	systemComponentMetadataProblems,
 	updateSystemComponent,
 } from "../../utils/system-component-operations";
+import type { SystemComponentRecord } from "../../utils/system-components";
 import { assertCanUseSystemComponentInstanceSubtree } from "../design-operations";
 import {
 	assertCanReadDesignFile,
@@ -53,6 +58,12 @@ import {
 import type { TrickroomMcpServerContext } from "../server-types";
 import { TOOL } from "../tool-names";
 import {
+	addressesInputSchema,
+	finishAddresses,
+	isPreparedAddresses,
+	prepareAddresses,
+} from "./annotation-addresses";
+import {
 	destructiveMutationAnnotations,
 	mutationAnnotations,
 	readOnlyClosedWorldAnnotations,
@@ -61,6 +72,7 @@ import {
 import type { McpToolContext } from "./context";
 import { systemNameInputSchema } from "./design-systems";
 import {
+	auditToolResult,
 	getMutationDiagnostics,
 	mutateDesignFile,
 	skipDesignWrite,
@@ -126,8 +138,114 @@ const describeMigratedElement = (
 		: {};
 };
 
+/** The `addresses` input of component_draft_update and component_publish. */
+const componentAddressesSchema = addressesInputSchema(
+	"Annotations on this component that this write answers, each with your reply: they become addressed with a change record (unknown, other-component, closed or other-branch ones refuse the write; nothing is recorded unless it lands).",
+);
+
 export const registerSystemComponentTools = (ctx: McpToolContext) => {
-	const { server, withPolicyErrorHandling, withProjectContext } = ctx;
+	const { server, annotations, withPolicyErrorHandling, withProjectContext } =
+		ctx;
+
+	/**
+	 * A component write with `addresses`: checked before it (an error result
+	 * means nothing may be written), recorded inside the manifest's write
+	 * queue once it lands, then reported as `addressed`. Without addresses,
+	 * only the result's annotations block is added.
+	 */
+	const writeComponentWithAddresses = async (
+		context: TrickroomMcpServerContext,
+		{
+			systemId,
+			componentId,
+			addresses,
+			toolName,
+			expectedRevision,
+			operation,
+			summary,
+			revertible,
+		}: {
+			systemId: string;
+			componentId: string;
+			addresses: readonly { annotationId: string; reply: string }[] | undefined;
+			toolName: string;
+			expectedRevision: string;
+			operation: string;
+			/** The change record's summary, from the component as written. */
+			summary: (after: SystemComponentRecord | undefined) => string;
+			revertible: boolean;
+		},
+		write: (
+			aroundWrite: SystemComponentMutationOptions["aroundWrite"],
+		) => Promise<CallToolResult>,
+	): Promise<CallToolResult> => {
+		const container = {
+			kind: "component" as const,
+			systemId,
+			componentId,
+		};
+		const audit = (result: CallToolResult) =>
+			addresses
+				? auditToolResult(
+						context,
+						{
+							toolName,
+							operation,
+							projectId: context.config.projectId ?? null,
+							designFileId: null,
+							expectedRevision,
+							details: {
+								systemId,
+								componentId,
+								addresses: addresses.map((address) => address.annotationId),
+							},
+						},
+						result,
+					).then(() => result)
+				: Promise.resolve(result);
+		const prepared = addresses
+			? await prepareAddresses(annotations, context, container, addresses)
+			: null;
+		if (prepared && !isPreparedAddresses(prepared)) return audit(prepared);
+		let recorded: RecordChangeResult[] | null = null;
+		let recorder: ReturnType<typeof createComponentAddressesRecorder> | null =
+			null;
+		if (prepared) {
+			recorder = createComponentAddressesRecorder(prepared.project.service, {
+				container,
+				addresses: prepared.addresses,
+				by: prepared.project.by,
+				operation,
+				summary,
+				revertible,
+				// Checked again under each annotation's lock.
+				branch: prepared.project.scope.branch,
+			});
+		}
+		let result = await write(
+			recorder
+				? async (storeManifest, current) => {
+						await recorder.aroundWrite(storeManifest, current);
+						recorded = recorder.results();
+					}
+				: undefined,
+		);
+		if (prepared && !result.isError) {
+			result = finishAddresses(
+				annotations,
+				prepared,
+				recorded,
+				result,
+				"component",
+			);
+		}
+		return audit(
+			await annotations.withComponentAnnotations(result, context, {
+				systemId,
+				componentId,
+			}),
+		);
+	};
 
 	server.registerTool(
 		TOOL.componentRead,
@@ -212,21 +330,42 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 							'view "describe" needs componentId.',
 						);
 					}
-					return createJsonResult(
-						await describeSystemComponentPayload(
-							context,
-							systemId,
-							componentId,
-							{ source, include, versions },
+					return annotations.withComponentAnnotations(
+						createJsonResult(
+							await describeSystemComponentPayload(
+								context,
+								systemId,
+								componentId,
+								{ source, include, versions },
+							),
 						),
+						context,
+						{ systemId, componentId },
 					);
 				}
-				return createJsonResult(
-					await listSystemComponentsPayload(context, systemId, {
-						query,
-						group,
+				const index = await listSystemComponentsPayload(context, systemId, {
+					query,
+					group,
+				});
+				// Live annotations per component, on this checkout's branch.
+				const counts = await annotations
+					.countComponents(context, systemId)
+					.catch(() => new Map());
+				return createJsonResult({
+					...index,
+					components: index.components.map((row) => {
+						const live = counts.get(row.componentId);
+						return live
+							? {
+									...row,
+									annotations: {
+										agentWork: live.agentWork,
+										humanWork: live.humanWork,
+									},
+								}
+							: row;
 					}),
-				);
+				});
 			}),
 	);
 
@@ -372,7 +511,7 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 		TOOL.componentDraftUpdate,
 		{
 			title: "Update System Component",
-			description: `Replace parts of a component's draft: root (template), slots, variants and/or overrideTargets; parts you omit stay. Also renames or regroups a component: name, group (slash-separated folders like "organisms/sidebar") and description, each optional and usable alone; null clears group or description. These are labels, outside the template and its hashes: they take effect at once, with no publish and no new version, and a call with only them leaves the draft as it is (or absent). slug and componentId never change. expectedRevision is the manifest revision; expectedDraftTemplateHash and expectedDraftVariantSchemaHash (from ${TOOL.componentRead} describe) guard against concurrent draft edits. Returns the new revision and what changed. Read the draft first with ${TOOL.componentRead}({ componentId, source: "draft", include: ["template", "classes"] }).`,
+			description: `Replace parts of a component's draft: root (template), slots, variants and/or overrideTargets; parts you omit stay. Also renames or regroups a component: name, group (slash-separated folders like "organisms/sidebar") and description, each optional and usable alone; null clears group or description. These are labels, outside the template and its hashes: they take effect at once, with no publish and no new version, and a call with only them leaves the draft as it is (or absent). slug and componentId never change. expectedRevision is the manifest revision; expectedDraftTemplateHash and expectedDraftVariantSchemaHash (from ${TOOL.componentRead} describe) guard against concurrent draft edits. Returns the new revision and what changed. Read the draft first with ${TOOL.componentRead}({ componentId, source: "draft", include: ["template", "classes"] }). addresses: [{ annotationId, reply }] marks the designer's annotations on this component that the write answers as addressed, with your reply and a change record they can revert (\`addressed\`).`,
 			inputSchema: withProjectScopedInput({
 				systemName: systemNameInputSchema,
 				componentId: componentIdSchema,
@@ -403,6 +542,7 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 				slots: mcpSystemComponentSlotsInputSchema,
 				variants: mcpSystemComponentVariantSchemaInputSchema,
 				overrideTargets: mcpSystemComponentOverrideTargetsInputSchema,
+				addresses: componentAddressesSchema,
 			}),
 			annotations: { ...mutationAnnotations, idempotentHint: false },
 			_meta: {
@@ -423,6 +563,7 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 			slots,
 			variants,
 			overrideTargets,
+			addresses,
 			project,
 		}) =>
 			withPolicyErrorHandling(project, async (context) => {
@@ -466,40 +607,60 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 				if (metadataProblems.length > 0) {
 					return createMetadataErrorResult(context, metadataProblems);
 				}
-				const result = await updateSystemComponent(
-					context.projectRoot,
-					system.manifest.systemId,
-					componentId,
+				const replaced = [
+					...Object.keys(parsedDraftPatch.data),
+					...Object.keys(metadata),
+				];
+				return writeComponentWithAddresses(
+					context,
 					{
-						metadata,
-						...(updatesDraft ? { draft: parsedDraftPatch.data } : {}),
-					},
-					{
-						expectedRevision,
-						expectedDraftTemplateHash,
-						expectedDraftVariantSchemaHash,
-					},
-				);
-				const afterRecord = result.manifest.components[componentId];
-				return createJsonResult(
-					await systemComponentMutationPayload(
-						context,
-						system.manifest.systemId,
+						systemId: system.manifest.systemId,
 						componentId,
-						{
-							kind: "updated",
-							...(updatesDraft ? { before: beforeRecord?.draft } : {}),
-							replaced: Object.keys(parsedDraftPatch.data),
-							...(beforeRecord && afterRecord
-								? {
-										metadata: diffSystemComponentMetadata(
-											beforeRecord,
-											afterRecord,
-										),
-									}
-								: {}),
-						},
-					),
+						addresses,
+						toolName: TOOL.componentDraftUpdate,
+						expectedRevision,
+						operation: TOOL.componentDraftUpdate,
+						summary: () => `Updated ${replaced.join(", ")}`,
+						revertible: true,
+					},
+					async (aroundWrite) => {
+						const result = await updateSystemComponent(
+							context.projectRoot,
+							system.manifest.systemId,
+							componentId,
+							{
+								metadata,
+								...(updatesDraft ? { draft: parsedDraftPatch.data } : {}),
+							},
+							{
+								expectedRevision,
+								expectedDraftTemplateHash,
+								expectedDraftVariantSchemaHash,
+								...(aroundWrite ? { aroundWrite } : {}),
+							},
+						);
+						const afterRecord = result.manifest.components[componentId];
+						return createJsonResult(
+							await systemComponentMutationPayload(
+								context,
+								system.manifest.systemId,
+								componentId,
+								{
+									kind: "updated",
+									...(updatesDraft ? { before: beforeRecord?.draft } : {}),
+									replaced: Object.keys(parsedDraftPatch.data),
+									...(beforeRecord && afterRecord
+										? {
+												metadata: diffSystemComponentMetadata(
+													beforeRecord,
+													afterRecord,
+												),
+											}
+										: {}),
+								},
+							),
+						);
+					},
 				);
 			}),
 	);
@@ -508,48 +669,66 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 		TOOL.componentPublish,
 		{
 			title: "Publish System Component",
-			description: `Publish a component's draft as its new current version. Instances already placed keep their version and show as stale until migrated (${TOOL.componentMigrate}). expectedRevision is the manifest revision. Returns the published version, the new revision and what changed since the previous version.`,
+			description: `Publish a component's draft as its new current version. Instances already placed keep their version and show as stale until migrated (${TOOL.componentMigrate}). expectedRevision is the manifest revision. Returns the published version, the new revision and what changed since the previous version. addresses: [{ annotationId, reply }] marks annotations this publish answers as addressed (no revert: a published version stays).`,
 			inputSchema: withProjectScopedInput({
 				systemName: systemNameInputSchema,
 				componentId: componentIdSchema,
 				expectedRevision: expectedRevisionSchema,
+				addresses: componentAddressesSchema,
 			}),
 			annotations: { ...mutationAnnotations, idempotentHint: false },
 			_meta: {
 				[SEARCH_HINT_META_KEY]: "release new version system component draft",
 			},
 		},
-		async ({ systemName, componentId, expectedRevision, project }) =>
+		async ({ systemName, componentId, expectedRevision, addresses, project }) =>
 			withPolicyErrorHandling(project, async (context) => {
 				assertCanWriteProject(getMcpPolicy(context.config));
 				const system = await resolveToolSystem(context, { systemName });
-				const result = await publishSystemComponentDraft(
-					context.projectRoot,
-					system.manifest.systemId,
-					componentId,
-					{ expectedRevision },
-				);
-				const publishedVersion =
-					result.manifest.components[componentId]?.published?.versions[
-						result.publishedVersion
-					];
-				return createJsonResult({
-					...(await systemComponentMutationPayload(
-						context,
-						system.manifest.systemId,
+				return writeComponentWithAddresses(
+					context,
+					{
+						systemId: system.manifest.systemId,
 						componentId,
-						{
-							kind: "published",
-							previousVersion: publishedVersion?.previousVersion,
-						},
-					)),
-					publishedVersion: result.publishedVersion,
-					...(context.config.codegen
-						? {
-								codegenHint: `This project generates tailwind-variants files from its components: ${TOOL.designExport}({ format: "variants" }) regenerates them, with check: true it only reports which are out of date.`,
-							}
-						: {}),
-				});
+						addresses,
+						toolName: TOOL.componentPublish,
+						expectedRevision,
+						operation: TOOL.componentPublish,
+						summary: (after) =>
+							`Published version ${after?.published?.currentVersion ?? "?"}`,
+						revertible: false,
+					},
+					async (aroundWrite) => {
+						const result = await publishSystemComponentDraft(
+							context.projectRoot,
+							system.manifest.systemId,
+							componentId,
+							{ expectedRevision, ...(aroundWrite ? { aroundWrite } : {}) },
+						);
+
+						const publishedVersion =
+							result.manifest.components[componentId]?.published?.versions[
+								result.publishedVersion
+							];
+						return createJsonResult({
+							...(await systemComponentMutationPayload(
+								context,
+								system.manifest.systemId,
+								componentId,
+								{
+									kind: "published",
+									previousVersion: publishedVersion?.previousVersion,
+								},
+							)),
+							publishedVersion: result.publishedVersion,
+							...(context.config.codegen
+								? {
+										codegenHint: `This project generates tailwind-variants files from its components: ${TOOL.designExport}({ format: "variants" }) regenerates them, with check: true it only reports which are out of date.`,
+									}
+								: {}),
+						});
+					},
+				);
 			}),
 	);
 

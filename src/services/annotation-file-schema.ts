@@ -114,7 +114,14 @@ const isChangeRecord = (value: unknown) =>
 		(hash) => hash === null || typeof hash === "string",
 	) &&
 	// Revert needs both or neither.
-	(value.before === undefined) === (value.after === undefined);
+	(value.before === undefined) === (value.after === undefined) &&
+	(value.draftBefore === undefined ||
+		(isRecord(value.draftBefore) && isRecord(value.draftBefore.root))) &&
+	(value.draftAfter === undefined ||
+		(isRecord(value.draftAfter) &&
+			typeof value.draftAfter.templateHash === "string" &&
+			typeof value.draftAfter.variantSchemaHash === "string")) &&
+	(value.draftBefore === undefined) === (value.draftAfter === undefined);
 
 /** Why an entry is not one of the entry kinds with its payload, or null. */
 const describeEntryProblem = (entry: unknown): string | null => {
@@ -183,6 +190,17 @@ const validateAnnotation = (value: AnnotationFileValue): string | null => {
 	}
 	if (!isRecord(value.snapshot) || !isScope(value.snapshot)) {
 		return "snapshot must be an object with the branch and worktree path.";
+	}
+	if (
+		value.snapshot.variants !== undefined &&
+		!(
+			isRecord(value.snapshot.variants) &&
+			Object.values(value.snapshot.variants).every(
+				(entry) => typeof entry === "string",
+			)
+		)
+	) {
+		return "snapshot.variants must map variant axes to values.";
 	}
 	if (
 		!(ANNOTATION_STATUSES as readonly unknown[]).includes(value.status as never)

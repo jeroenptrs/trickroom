@@ -1,4 +1,5 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { ComponentAnchorTemplate } from "../services/annotation-model";
 import {
 	AGENT_WORK_STATUSES,
 	type AnnotationCounts,
@@ -29,6 +30,7 @@ import {
 	CLOSED_ANNOTATION_STATUSES,
 } from "../services/annotations.types";
 import { readCheckoutScope } from "../services/checkout-scope";
+import { readComponentAnchor } from "../services/component-annotations";
 import type { TrickroomDesign } from "../types";
 import { getMcpPolicy } from "./governance";
 import {
@@ -40,10 +42,12 @@ import { TOOL } from "./tool-names";
 
 /**
  * Annotations as MCP sessions see them: the remarks a designer anchors to a
- * design, board or layer, delivered between tool calls (the only boundary an
- * MCP server has). Results of design_read, design_apply, design_validate,
- * design_screenshot and editor_context carry an `annotations` block for the
- * design they touched; the annotation tools list, reply and wait.
+ * design, board or layer, or to a system component's node, delivered
+ * between tool calls (the only boundary an MCP server has). Results of
+ * design_read, design_apply, design_validate, design_screenshot and
+ * editor_context carry an `annotations` block for the design they touched;
+ * component_read (describe), component_draft_update and component_publish
+ * one for the component; the annotation tools list, reply and wait.
  *
  * Per session, in memory: a cursor of what this session has seen (per
  * annotation, a key of its status and entries), so full bodies are shown
@@ -341,6 +345,21 @@ export type AnnotationsBlockOptions = {
 	includeCounts?: boolean;
 };
 
+/** The `annotations` block of a result about one system component. */
+export type ComponentAnnotationsBlockOptions = {
+	/** The manifest's system id (annotation folders use it). */
+	systemId: string;
+	componentId: string;
+	/**
+	 * The template annotations anchor to (draft, else published): detached
+	 * node paths. Read when left out and the component has annotations;
+	 * null skips it.
+	 */
+	template?: ComponentAnchorTemplate | null;
+	/** The component's name, for `next`. */
+	name?: string;
+};
+
 export const createMcpAnnotationSession = ({
 	sessionId,
 	defaultHome,
@@ -584,6 +603,90 @@ export const createMcpAnnotationSession = ({
 			...(design ? { design } : {}),
 		});
 
+	const listLiveComponent = (
+		project: AnnotationProject,
+		container: AnnotationContainer & { kind: "component" },
+		template: ComponentAnchorTemplate | null | undefined,
+	) =>
+		listAnnotations(project.service, {
+			container,
+			scope: project.scope,
+			statuses: LIVE_STATUSES,
+			...(template ? { component: template } : {}),
+		});
+
+	/**
+	 * The `annotations` block for a result about one system component: the
+	 * same rules as a design's (`buildBlock`). Bodies of pinned annotations
+	 * carry `target.variants`: the configuration to render.
+	 */
+	const buildComponentBlock = async (
+		context: TrickroomMcpServerContext,
+		options: ComponentAnnotationsBlockOptions,
+	) => {
+		const project = await openProject(context);
+		if (!project) return null;
+		const container = {
+			kind: "component" as const,
+			systemId: options.systemId,
+			componentId: options.componentId,
+		};
+		let { template, name } = options;
+		let { annotations } = await listLiveComponent(project, container, template);
+		if (annotations.length === 0) return null;
+		if (template === undefined) {
+			const anchor = await readComponentAnchor(
+				context.projectRoot,
+				options.systemId,
+				options.componentId,
+			).catch(() => null);
+			template = anchor?.template ?? null;
+			name ??= anchor?.name;
+			if (template) {
+				({ annotations } = await listLiveComponent(
+					project,
+					container,
+					template,
+				));
+			}
+		}
+		if (!annotations.some((view) => isAgentWork(view.status))) return null;
+		const unseen = takeUnseen(project, annotations, null);
+		const refreshed = await acknowledgeShown(
+			project,
+			unseen.slice(0, MAX_SURFACED_ANNOTATIONS),
+			isCurrentWork(project),
+		);
+		const { shown } = refreshed;
+		const bodies = shown.map((view) =>
+			describeAnnotation(view, sessionId, { now: now() }),
+		);
+		const eligible = refreshListed(
+			annotations,
+			refreshed,
+			(view) => view.branch === project.scope.branch && isLive(view.status),
+		);
+		if (!eligible.some((view) => isAgentWork(view.status))) return null;
+		const more = takeUnseen(project, eligible, null).length;
+		const counts = summarizeAnnotationCounts(eligible, null, template);
+		const openIds = eligible
+			.filter((view) => isAgentWork(view.status))
+			.map((view) => view.id);
+		return {
+			new: bodies,
+			...(more > 0 ? { more } : {}),
+			openIds: openIds.slice(0, MAX_OPEN_IDS),
+			counts: compactCounts(counts.total),
+			next: describeComponentNext(options, name, shown, more, openIds.length, [
+				...new Set(
+					eligible
+						.filter((view) => view.detached === true)
+						.map((view) => view.id),
+				),
+			]),
+		};
+	};
+
 	/**
 	 * The `annotations` block for a result about one design: new or changed
 	 * agent work in full (at most `MAX_SURFACED_ANNOTATIONS`, acknowledged),
@@ -725,6 +828,54 @@ export const createMcpAnnotationSession = ({
 		},
 
 		/**
+		 * The same for a result about one system component (component_read
+		 * describe, component_draft_update, component_publish).
+		 */
+		withComponentAnnotations: async (
+			result: CallToolResult,
+			context: TrickroomMcpServerContext,
+			options: ComponentAnnotationsBlockOptions,
+		): Promise<CallToolResult> => {
+			if (result.isError) return result;
+			try {
+				const block = await buildComponentBlock(context, options);
+				return block ? appendToResult(result, "annotations", block) : result;
+			} catch {
+				return result;
+			}
+		},
+
+		/**
+		 * Counts per component of a system on the checkout's branch, for
+		 * component_read's index. Components without live annotations are
+		 * left out.
+		 */
+		countComponents: async (
+			context: TrickroomMcpServerContext,
+			systemId: string,
+		): Promise<Map<string, AnnotationCounts>> => {
+			const result = new Map<string, AnnotationCounts>();
+			const project = await openProject(context);
+			if (!project) return result;
+			const containers = (await project.service.store.listContainers()).filter(
+				(container): container is AnnotationContainer & { kind: "component" } =>
+					container.kind === "component" && container.systemId === systemId,
+			);
+			await Promise.all(
+				containers.map(async (container) => {
+					const counts = await countAnnotations(project.service, {
+						container,
+						scope: project.scope,
+					});
+					if (counts.total.live > 0) {
+						result.set(container.componentId, counts.total);
+					}
+				}),
+			);
+			return result;
+		},
+
+		/**
 		 * Counts per design on the checkout's branch (agent and human work),
 		 * for design_list and project_list. Designs without live annotations
 		 * are left out.
@@ -826,6 +977,49 @@ const describeNext = (
 	return [
 		`${plural(shown.length, "new annotation")} on ${describeWhere(shown, design)}.`,
 		`Address each with your next ${TOOL.designApply}({ designFileId: "${designId}", expectedRevision, operations, addresses: [{ annotationId: "${id}", reply: "<what you changed>" }] }),`,
+		`or ask the designer with ${TOOL.annotationReply}({ annotationId: "${id}", question: "<your question>" }).`,
+		...(more > 0 ? [`${more} more: ${list}.`] : []),
+		...detached,
+	].join(" ");
+};
+
+/** The follow-up call of a component's block: address in the next draft write, or ask. */
+const describeComponentNext = (
+	component: { systemId: string; componentId: string },
+	name: string | undefined,
+	shown: readonly AnnotationView[],
+	more: number,
+	openCount: number,
+	detachedIds: readonly string[] = [],
+) => {
+	const ids = `systemName: "${component.systemId}", componentId: "${component.componentId}"`;
+	const list = `${TOOL.annotationList}({ systemId: "${component.systemId}", componentId: "${component.componentId}" })`;
+	const detached =
+		detachedIds.length > 0
+			? [
+					`Detached (their node path or pinned variant value no longer exists): ${detachedIds.slice(0, MAX_SURFACED_ANNOTATIONS).join(", ")}${detachedIds.length > MAX_SURFACED_ANNOTATIONS ? ` and ${detachedIds.length - MAX_SURFACED_ANNOTATIONS} more` : ""}. When a node replaced theirs, re-anchor with ${TOOL.annotationReply}({ annotationId: "${detachedIds[0]}", reanchor: { nodePath: "<template path>" } }); otherwise ask the designer.`,
+				]
+			: [];
+	if (shown.length === 0) {
+		return [
+			openCount > 0
+				? `${plural(openCount, "open annotation")} on this component, already shown to you (openIds). ${list} shows them in full.`
+				: `No annotations wait on you here; the counts wait on the designer. ${list} shows them.`,
+			...detached,
+		].join(" ");
+	}
+	const id = shown[0]?.id ?? "<annotationId>";
+	const pinned = shown.some(
+		(view) => view.target.kind === "componentNode" && view.target.variants,
+	);
+	return [
+		`${plural(shown.length, "new annotation")} on component ${name ? `"${name}"` : component.componentId} (target.nodePath is the template path).`,
+		...(pinned
+			? [
+					"Pinned ones (target.variants) are about that variant configuration only.",
+				]
+			: []),
+		`Address each with your next ${TOOL.componentDraftUpdate}({ ${ids}, expectedRevision, root, addresses: [{ annotationId: "${id}", reply: "<what you changed>" }] }),`,
 		`or ask the designer with ${TOOL.annotationReply}({ annotationId: "${id}", question: "<your question>" }).`,
 		...(more > 0 ? [`${more} more: ${list}.`] : []),
 		...detached,

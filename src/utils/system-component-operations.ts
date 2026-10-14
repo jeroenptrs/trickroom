@@ -5,6 +5,7 @@ import {
 	type SystemComponentManifestRead,
 	type SystemComponentManifestRevision,
 	SystemComponentManifestServiceError,
+	type WriteSystemComponentManifestOptions,
 	writeSystemComponentManifest,
 } from "./system-component-manifest-service.ts";
 import {
@@ -30,6 +31,8 @@ export type SystemComponentMutationOptions = {
 	expectedDraftTemplateHash?: string;
 	expectedDraftVariantSchemaHash?: string;
 	now?: string;
+	/** See `WriteSystemComponentManifestOptions.aroundWrite`. */
+	aroundWrite?: WriteSystemComponentManifestOptions["aroundWrite"];
 };
 
 export type SystemComponentMutationResult = SystemComponentManifestRead & {
@@ -205,6 +208,7 @@ const commitManifestMutation = async (
 				expectedRevision: options.expectedRevision,
 				now,
 				componentsMerge: "replace",
+				...(options.aroundWrite ? { aroundWrite: options.aroundWrite } : {}),
 			},
 		);
 		return { ...written, componentId };

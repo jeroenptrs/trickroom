@@ -96,6 +96,17 @@ export type WriteSystemComponentManifestOptions = {
 	now?: string;
 	/** When "replace", incoming.components fully replaces the stored map (used for deletions). */
 	componentsMerge?: "merge" | "replace";
+	/**
+	 * Runs around the write, inside the manifest's write queue and after
+	 * the revision check: it must call `write` once, and may do work under
+	 * the same exclusion before and after it (annotation change records and
+	 * reverts). `current` is the manifest as stored before the write. An
+	 * error it throws before `write` leaves the manifest unwritten.
+	 */
+	aroundWrite?: (
+		write: () => Promise<SystemComponentManifestRead>,
+		current: SystemComponentManifestRead,
+	) => Promise<void>;
 };
 
 export class SystemComponentManifestServiceError extends Error {
@@ -250,6 +261,44 @@ async function writeSystemComponentManifestExclusive(
 		);
 	}
 
+	if (options.aroundWrite) {
+		let written: SystemComponentManifestRead | null = null;
+		const { aroundWrite, ...rest } = options;
+		await aroundWrite(async () => {
+			if (written) throw new Error("The manifest was already written.");
+			written = await storeSystemComponentManifest(
+				projectRoot,
+				systemHandle,
+				manifestPath,
+				manifest,
+				current,
+				rest,
+			);
+			return written;
+		}, current);
+		if (!written) {
+			throw new Error("aroundWrite returned without writing the manifest.");
+		}
+		return written;
+	}
+	return storeSystemComponentManifest(
+		projectRoot,
+		systemHandle,
+		manifestPath,
+		manifest,
+		current,
+		options,
+	);
+}
+
+async function storeSystemComponentManifest(
+	projectRoot: string,
+	systemHandle: string,
+	manifestPath: string,
+	manifest: SystemComponentManifest,
+	current: SystemComponentManifestRead,
+	options: WriteSystemComponentManifestOptions,
+): Promise<SystemComponentManifestRead> {
 	const now = options.now ?? new Date().toISOString();
 	const merged = mergeSystemComponentManifests(
 		current.manifest,

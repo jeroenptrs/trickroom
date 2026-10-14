@@ -1,4 +1,5 @@
 import type { Props } from "../types";
+import type { SystemComponentDraftPayload } from "../utils/system-components";
 
 /**
  * Annotations: remarks a designer anchors to a design, board, layer or
@@ -76,6 +77,11 @@ export type AnnotationSnapshot = AnnotationScope & {
 	stageMode?: string;
 	/** Width of the responsive view, in CSS pixels. */
 	responsiveWidth?: number;
+	/**
+	 * Component nodes: the variant values in view when the remark was made
+	 * (whether or not the annotation is pinned to them).
+	 */
+	variants?: Record<string, string>;
 };
 
 /**
@@ -128,7 +134,24 @@ export type AnnotationChangeRecord = {
 	 * with `before`.
 	 */
 	after?: AnnotationChangeState<string>;
+	/**
+	 * Component draft writes: the draft's template parts and variant schema
+	 * as they were before the write, what revert restores. Dropped like
+	 * `before`.
+	 */
+	draftBefore?: AnnotationDraftState;
+	/**
+	 * The draft's hashes right after the write: revert requires the draft to
+	 * still have them (nothing changed it since). Dropped with `draftBefore`.
+	 */
+	draftAfter?: { templateHash: string; variantSchemaHash: string };
 };
+
+/** The restorable parts of a component draft. */
+export type AnnotationDraftState = Pick<
+	SystemComponentDraftPayload,
+	"root" | "slots" | "variants" | "overrideTargets"
+>;
 
 type EntryBase = {
 	id: string;

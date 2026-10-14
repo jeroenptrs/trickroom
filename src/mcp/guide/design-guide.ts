@@ -369,7 +369,7 @@ const buildMemoryTopic = async (input: DesignGuideInput) => ({
 });
 
 const buildAnnotationsTopic = () => ({
-	what: "Annotations are remarks a designer anchors to a design, a board or a layer in the Trickroom editor and sends to you. Each is a thread: the designer's remark, then entries (your replies, questions, change records, their answers). They are per-user working state outside the project, never committed; decisions worth keeping become memory notes.",
+	what: "Annotations are remarks a designer anchors to a design, a board or a layer (or a system component's template node) in the Trickroom editor and sends to you. Each is a thread: the designer's remark, then entries (your replies, questions, change records, their answers). They are per-user working state outside the project, never committed; decisions worth keeping become memory notes.",
 	statuses: {
 		open: "Sent by the designer, not yet seen by an agent. Your work.",
 		acknowledged:
@@ -388,6 +388,11 @@ const buildAnnotationsTopic = () => ({
 		`Resolve only when the designer asks you to (resolve: { summary }); otherwise they resolve after reviewing your change.`,
 		`Re-anchor: copySubtree, detachSystemComponent and component extraction mint new ids and never move annotations, so an annotation on the replaced element shows detached. When you replaced it, ${TOOL.annotationReply}({ annotationId, reanchor: { elementId } }) (or { boardId }) moves it to the new element in the same design; the result has the new target and snapshot, and the status stays. \`next\` lists detached annotations by id.`,
 		`Keep working on the designer's remarks while nothing else is called: ${TOOL.annotationWatch}({ designFileId }) waits for new ones and returns them in full.`,
+	],
+	components: [
+		`On a system component: target is { kind: "componentNode", systemId, componentId, nodePath } where nodePath is the template node's path (stable: inserts and moves keep it). Results of ${TOOL.componentRead} (describe), ${TOOL.componentDraftUpdate} and ${TOOL.componentPublish} carry the same \`annotations\` block; the ${TOOL.componentRead} index counts them per component; ${TOOL.annotationList}({ systemId, componentId }) lists them.`,
+		"target.variants pins a remark to a variant configuration (e.g. { tone: \"danger\", size: \"sm\" }): it is about that configuration only, so change the classes of those values (or a compound) rather than the base. Without variants it applies to every configuration. snapshot.variants is what was in view when it was written.",
+		`Address in the draft write that makes the change: ${TOOL.componentDraftUpdate}({ componentId, expectedRevision, root, addresses: [{ annotationId, reply }] }), or with ${TOOL.componentPublish} addresses. Draft changes can be reverted by the designer while the draft is unchanged since; a publish cannot. Detached: the node path (or a pinned value) no longer exists in the draft (or the published template without a draft); re-anchor with ${TOOL.annotationReply}({ annotationId, reanchor: { nodePath } }).`,
 	],
 	branches: `Annotations belong to the git branch checked out where the designer made them. Results and counts show the current branch only; branch: "all" in ${TOOL.annotationList} shows other checkouts'. Replies and addresses refuse another branch's annotations (WRONG_BRANCH); the designer brings one here with "Move here" in the editor.`,
 	deletes: `A deleteElement step that removes an annotated element (or its ancestor) returns an ANNOTATION_TARGET_DELETED warning naming the annotations; they stay, shown as detached. Address them in the same batch, re-anchor them to the element that replaces it (${TOOL.annotationReply} reanchor), or tell the designer.`,
