@@ -84,6 +84,19 @@ These resolve what the proposal left open and apply to every WP.
 - Canvas clicks on interactive elements inside a board (inputs, buttons,
   links, Base UI triggers) select and do not navigate, submit or open; WP1
   records how.
+- A press on a board's own background selects the board (a board is a
+  layer, and board-level annotations need it); a press on canvas space
+  outside every board clears (orchestrator, WP1 review).
+- Open work (WP2): `open` and `acknowledged` are agent work; `needs_input`
+  and `addressed` wait on the designer. `countAnnotations` /
+  `summarizeAnnotationCounts` are the one definition; MCP surfacing, list
+  counts, `editor_context` and the rail markers all use them.
+- Change-record revert state (WP2): `before` holds the own state (parent,
+  props, text or child ids) of each layer the write changed, plus board
+  order and settings when changed; `after` holds hashes of the same. An
+  unrelated later edit on the same board neither blocks nor is undone by
+  a revert. Revert runs inside the design lock through `aroundStore` and
+  re-checks the annotation under its lock before writing.
 
 ## Work packages
 
@@ -111,7 +124,7 @@ Status: in progress (branch `annotations/wp1-stage-selection`). Model: Opus 5.5.
 
 ### WP2: annotation store, service and HTTP API
 
-Status: in progress (branch `annotations/wp2-store-service`). Model: Opus 5.5. Depends on nothing. Parallel with WP1.
+Status: merged (PR #27, 2026-10-14; two review rounds). Model: Opus 5.5. Depends on nothing. Parallel with WP1.
 
 - Types in `src/types.ts` or a new `src/services/annotations.types.ts`:
   `Annotation`, `AnnotationTarget`, `AnnotationEntry` (human remark, agent
