@@ -455,7 +455,12 @@ export function deriveAnnotationRowMarkers(
 			// component.
 			if (!locator.hasComponentNode) continue;
 			const state = getAnnotationStateWith(annotation, locator);
-			const rootId = locator.boardOfLayer(target.nodePath);
+			// A detached one (its path gone) still counts on the root, as a
+			// detached layer annotation counts on its board.
+			const rootId =
+				locator.boardOfLayer(target.nodePath) ??
+				locator.componentRootId?.() ??
+				null;
 			if (rootId !== null) push(boardStates, rootId, state);
 			push(layerStates, target.nodePath, state);
 			continue;

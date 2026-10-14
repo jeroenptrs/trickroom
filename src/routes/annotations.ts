@@ -155,7 +155,9 @@ const respondWithError = (c: Context, error: unknown) => {
 				? 404
 				: error.code === "STALE_WRITE" || error.code === "DRAFT_HASH_MISMATCH"
 					? 409
-					: 400,
+					: error.code === "MANIFEST_LOCKED"
+						? 423
+						: 400,
 			error.message,
 			error.code,
 		);

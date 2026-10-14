@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
+import { resolveTrickroomHome } from "../app-state/home.ts";
 import { writeJsonFileAtomically } from "../server-file-utils.ts";
+import {
+	DesignFileLockTimeoutError,
+	type FileLockHandle,
+	withDesignFileLock,
+} from "../services/design-file-lock.ts";
 import type { RecipeTemplateNode } from "../types";
 import {
 	type DesignSystemReadOptions,
@@ -97,7 +103,7 @@ export type WriteSystemComponentManifestOptions = {
 	/** When "replace", incoming.components fully replaces the stored map (used for deletions). */
 	componentsMerge?: "merge" | "replace";
 	/**
-	 * Runs around the write, inside the manifest's write queue and after
+	 * Runs around the write, inside the manifest's write lock and after
 	 * the revision check: it must call `write` once, and may do work under
 	 * the same exclusion before and after it (annotation change records and
 	 * reverts). `current` is the manifest as stored before the write. An
@@ -114,7 +120,8 @@ export class SystemComponentManifestServiceError extends Error {
 		| "MALFORMED_MANIFEST"
 		| "INVALID_MANIFEST"
 		| "STALE_WRITE"
-		| "SYSTEM_NOT_FOUND";
+		| "SYSTEM_NOT_FOUND"
+		| "MANIFEST_LOCKED";
 
 	readonly diagnostics: SystemComponentManifestDiagnostic[];
 
@@ -223,6 +230,37 @@ async function runExclusiveManifestWrite<T>(
 	return queuedWrite;
 }
 
+/** Lockfiles of component manifest writes: `<TRICKROOM_HOME>/locks/systems`. */
+export const getComponentManifestLockDirectory = (
+	trickroomHome = resolveTrickroomHome(),
+) => path.join(trickroomHome, "locks", "systems");
+
+/**
+ * The manifest path every process derives the same lock from: its folder
+ * resolved through `realpath`, so a project reached through a symlink
+ * shares the lock.
+ */
+const canonicalManifestPath = async (manifestPath: string) => {
+	try {
+		return path.join(
+			await realpath(path.dirname(manifestPath)),
+			path.basename(manifestPath),
+		);
+	} catch {
+		return manifestPath;
+	}
+};
+
+/**
+ * The one writer of `components.json`, used by every component write
+ * (create, draft and metadata updates, publish, discard, delete, and the
+ * annotation change records and reverts that run through `aroundWrite`).
+ * It holds the manifest's in-process queue and its cross-process lock (the
+ * design-file lock mechanism, keyed by the canonical manifest path) from the
+ * revision check through `aroundWrite` and the atomic store, so the HTTP
+ * server and MCP stdio processes cannot write between another writer's
+ * check and its store.
+ */
 export async function writeSystemComponentManifest(
 	projectRoot: string,
 	systemHandle: string,
@@ -235,15 +273,34 @@ export async function writeSystemComponentManifest(
 		SYSTEM_COMPONENT_MANIFEST_FILE_NAME,
 	);
 
-	return runExclusiveManifestWrite(manifestPath, () =>
-		writeSystemComponentManifestExclusive(
-			projectRoot,
-			systemHandle,
-			manifestPath,
-			manifest,
-			options,
-		),
-	);
+	return runExclusiveManifestWrite(manifestPath, async () => {
+		try {
+			return await withDesignFileLock(
+				await canonicalManifestPath(manifestPath),
+				(lock) =>
+					writeSystemComponentManifestExclusive(
+						projectRoot,
+						systemHandle,
+						manifestPath,
+						manifest,
+						options,
+						lock,
+					),
+				{
+					lockDirectory: getComponentManifestLockDirectory(),
+					label: "component manifest",
+				},
+			);
+		} catch (error) {
+			if (error instanceof DesignFileLockTimeoutError) {
+				throw new SystemComponentManifestServiceError(
+					"MANIFEST_LOCKED",
+					`${error.message}. Another component write is in progress; try again.`,
+				);
+			}
+			throw error;
+		}
+	});
 }
 
 async function writeSystemComponentManifestExclusive(
@@ -252,6 +309,7 @@ async function writeSystemComponentManifestExclusive(
 	manifestPath: string,
 	manifest: SystemComponentManifest,
 	options: WriteSystemComponentManifestOptions,
+	lock: FileLockHandle,
 ): Promise<SystemComponentManifestRead> {
 	const current = await readSystemComponentManifest(projectRoot, systemHandle);
 	if (current.revision !== options.expectedRevision) {
@@ -273,6 +331,7 @@ async function writeSystemComponentManifestExclusive(
 				manifest,
 				current,
 				rest,
+				lock,
 			);
 			return written;
 		}, current);
@@ -288,6 +347,7 @@ async function writeSystemComponentManifestExclusive(
 		manifest,
 		current,
 		options,
+		lock,
 	);
 }
 
@@ -298,6 +358,7 @@ async function storeSystemComponentManifest(
 	manifest: SystemComponentManifest,
 	current: SystemComponentManifestRead,
 	options: WriteSystemComponentManifestOptions,
+	lock: FileLockHandle,
 ): Promise<SystemComponentManifestRead> {
 	const now = options.now ?? new Date().toISOString();
 	const merged = mergeSystemComponentManifests(
@@ -314,6 +375,8 @@ async function storeSystemComponentManifest(
 
 	await ensureDesignSystemManifest(projectRoot, systemHandle);
 	await mkdir(path.dirname(manifestPath), { recursive: true });
+	// Fencing: still ours right before the write becomes visible.
+	await lock.assertHeld();
 	await writeJsonFileAtomically(manifestPath, normalized);
 
 	return {

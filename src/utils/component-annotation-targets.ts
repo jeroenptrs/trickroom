@@ -33,6 +33,7 @@ export function componentDraftTargetLocator(
 		hasBoard: (id) => id === state.rootPath && state.rootPath !== null,
 		hasComponentNode: (path, variants) =>
 			hasPath(state, path) && hasPinnedVariants(variants, state.variants),
+		componentRootId: () => state.rootPath,
 	};
 }
 

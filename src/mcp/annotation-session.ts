@@ -141,8 +141,9 @@ const describeEntry = (entry: AnnotationEntry, sessionId: string) => {
 /**
  * What the designer was looking at when the annotation was made (or last
  * re-anchored): the target's name, ancestor names and component, the design
- * revision, the stage mode and responsive width, and the branch when the
- * annotation has moved since.
+ * (or component) revision, the stage mode and responsive width, the variant
+ * values in view for a component node, and the branch when the annotation
+ * has moved since.
  */
 const describeSnapshot = (view: AnnotationView) => {
 	const { snapshot } = view;
@@ -158,6 +159,11 @@ const describeSnapshot = (view: AnnotationView) => {
 		...(snapshot.stageMode ? { stageMode: snapshot.stageMode } : {}),
 		...(snapshot.responsiveWidth !== undefined
 			? { responsiveWidth: snapshot.responsiveWidth }
+			: {}),
+		// Component nodes: the variant configuration in view when the remark
+		// was made (pinned or not; a pin is `target.variants`).
+		...(snapshot.variants && Object.keys(snapshot.variants).length > 0
+			? { variants: snapshot.variants }
 			: {}),
 		...(snapshot.branch !== view.branch ? { branch: snapshot.branch } : {}),
 	};

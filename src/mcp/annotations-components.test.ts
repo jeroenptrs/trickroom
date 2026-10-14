@@ -130,6 +130,8 @@ describe("MCP annotations on system components", () => {
 			body = "Make this bolder",
 			variants?: Record<string, string>,
 			annotationScope: AnnotationScope = scope,
+			/** The variant values in view when the remark was made. */
+			inView?: Record<string, string>,
 		) => {
 			const anchor = await readComponentAnchor(
 				fixture.projectRoot,
@@ -150,6 +152,7 @@ describe("MCP annotations on system components", () => {
 					body,
 					by: { role: "human" },
 					scope: annotationScope,
+					...(inView ? { snapshot: { variants: inView } } : {}),
 					component: { template: anchor.template, revision: anchor.revision },
 				})
 			).annotation;
@@ -263,6 +266,30 @@ describe("MCP annotations on system components", () => {
 			expect(second.annotations.next).toContain(
 				`${TOOL.annotationList}({ systemId: "${systemId}", componentId: "${componentId}" })`,
 			);
+		});
+
+		it("shows the configuration in view on an unpinned remark (snapshot.variants)", async () => {
+			const { call, createComponent, annotate } = await open();
+			const componentId = await createComponent("button");
+			const remark = await annotate(
+				componentId,
+				"label",
+				"Too light here",
+				undefined,
+				undefined,
+				{ tone: "brand" },
+			);
+			const read = await call(TOOL.componentRead, { systemName, componentId });
+			const block = read.payload.annotations as {
+				new: Array<{
+					annotationId: string;
+					target: Record<string, unknown>;
+					snapshot: Record<string, unknown>;
+				}>;
+			};
+			const body = block.new.find((entry) => entry.annotationId === remark.id);
+			expect(body?.target.variants).toBeUndefined();
+			expect(body?.snapshot.variants).toEqual({ tone: "brand" });
 		});
 
 		it("adds no block when the component has no annotations", async () => {
@@ -802,6 +829,31 @@ describe("MCP annotations on system components", () => {
 				expect(payload.counts).toMatchObject({ agentWork: 2 });
 				expect(payload.counts).not.toHaveProperty("detached");
 			}
+		});
+
+		it("shows snapshot.variants in listed bodies", async () => {
+			const { call, createComponent, annotate, systemId } = await open();
+			const componentId = await createComponent("button");
+			const remark = await annotate(
+				componentId,
+				"label",
+				"Too light here",
+				undefined,
+				undefined,
+				{ tone: "neutral" },
+			);
+			const listed = await call(TOOL.annotationList, {
+				systemId,
+				componentId,
+			});
+			const bodies = listed.payload.annotations as Array<{
+				annotationId: string;
+				snapshot: Record<string, unknown>;
+			}>;
+			expect(
+				bodies.find((entry) => entry.annotationId === remark.id)?.snapshot
+					.variants,
+			).toEqual({ tone: "neutral" });
 		});
 
 		it("filters by nodePath", async () => {

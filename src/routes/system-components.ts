@@ -79,6 +79,8 @@ const createComponentErrorResponse = (error: unknown) => {
 			case "DRAFT_ALREADY_EXISTS":
 			case "DRAFT_HASH_MISMATCH":
 				return jsonError(error.message, 409);
+			case "MANIFEST_LOCKED":
+				return jsonError(error.message, 423);
 			case "VALIDATION_FAILED":
 			case "INVALID_SLUG":
 			case "NO_DRAFT":

@@ -371,6 +371,39 @@ describe("deriveAnnotationRowMarkers", () => {
 		expect(markers).toEqual({ layers: {}, boards: {} });
 	});
 
+	it("counts a deleted node's annotation on the component root", () => {
+		const componentLocator = componentDraftTargetLocator({
+			rootPath: "root",
+			entitiesByPath: {
+				root: {
+					path: "root",
+					library: "trickroom",
+					component: "container",
+					parentPath: null,
+					role: "branch",
+					childPaths: [],
+				},
+			},
+			variants: null,
+		});
+		const markers = deriveAnnotationRowMarkers(
+			[
+				view({
+					target: {
+						kind: "componentNode",
+						systemId: "s",
+						componentId: "c",
+						nodePath: "deleted",
+					},
+				}),
+			],
+			componentLocator,
+			false,
+		);
+		expect(markers.boards.root).toEqual({ count: 1, state: "detached" });
+		expect(markers.layers.deleted).toEqual({ count: 1, state: "detached" });
+	});
+
 	it("counts component nodes against a component locator, the root row counting all", () => {
 		const node = (nodePath: string, variants?: Record<string, string>) =>
 			view({
@@ -418,8 +451,9 @@ describe("deriveAnnotationRowMarkers", () => {
 		expect(markers.layers.label).toEqual({ count: 3, state: "detached" });
 		expect(markers.layers.root).toEqual({ count: 1, state: "open" });
 		expect(markers.layers.gone).toEqual({ count: 1, state: "detached" });
-		// The root row counts every node still in the template.
-		expect(markers.boards.root).toEqual({ count: 4, state: "detached" });
+		// The root row counts everything in the component, detached ones
+		// (their path gone) included.
+		expect(markers.boards.root).toEqual({ count: 5, state: "detached" });
 	});
 
 	it("shows closed annotations only with showResolved", () => {

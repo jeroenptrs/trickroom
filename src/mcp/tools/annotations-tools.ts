@@ -794,6 +794,9 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 												...(view.snapshot.designRevision
 													? { designRevision: view.snapshot.designRevision }
 													: {}),
+												...(view.snapshot.variants
+													? { variants: view.snapshot.variants }
+													: {}),
 											},
 										},
 									}

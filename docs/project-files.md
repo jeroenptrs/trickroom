@@ -24,6 +24,7 @@ You can override the per-user app-state location with `TRICKROOM_HOME`. It holds
   settings.json                 app settings: MCP tool groups, mcp.callLog, server and screenshot options
   locks/designs/<hash>.lock     design write locks (see Concurrency And Revision Safety)
   locks/annotations/<hash>.lock annotation write locks (see Annotations)
+  locks/systems/<hash>.lock     component manifest write locks (see System Component Manifest)
   locks/<hash>.lock             project registry write lock (see Per-User Project Registry)
   runtime/servers/<pid>.json    discovery records of running Trickroom servers
   feedback/                     created on first use, 0700
@@ -749,6 +750,7 @@ sha256:<hex digest>
 
 - Reads return `revision` with the manifest.
 - Writes require `expectedRevision` from the prior read. Stale revisions return `STALE_WRITE` and do not modify the file.
+- Every write (create, draft and metadata updates, publish, discard, delete, and annotation change records and reverts) holds the manifest's write lock from the revision check until the file is stored: an in-process queue and a cross-process lockfile in `<TRICKROOM_HOME>/locks/systems/` (the design-file lock mechanism, keyed by the manifest's canonical path), so the app server and MCP processes cannot write between another writer's check and its store. An annotation write inside a component write takes the annotation's lock after the manifest's, never the other way round. A lock held too long fails the write with `MANIFEST_LOCKED`.
 - Writes are atomic: Trickroom writes a temporary JSON file and renames it into place.
 - Published versions also store deterministic `templateHash` and `variantSchemaHash` values so attached instances can detect template/schema drift. Usage scans compare the attached version and stored hashes with the current published component.
 

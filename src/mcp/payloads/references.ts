@@ -7,7 +7,11 @@ import {
 	SYSTEM_PROP_KEYS,
 } from "../../libraries/registry";
 import { DesignTransformError } from "../../services/design-transform-service";
-import type { Node as DesignNode, TrickroomDesign } from "../../types";
+import type {
+	Node as DesignNode,
+	RecipeTemplateNode,
+	TrickroomDesign,
+} from "../../types";
 import {
 	normalizeAssetId,
 	readAsset,
@@ -189,6 +193,22 @@ export const assertCanUseSubtreeComponents = (
 			element.props["data-trickroom-component"],
 		);
 	});
+};
+
+/**
+ * Every node of a component template against `allowedComponents`: what a
+ * component write puts in a draft (or a publish in a version) is what
+ * designs will place, so it takes the same allowlist as a design write.
+ */
+export const assertCanUseTemplateComponents = (
+	policy: McpPolicy,
+	root: RecipeTemplateNode,
+) => {
+	const visit = (node: RecipeTemplateNode) => {
+		assertCanUseComponent(policy, node.library, node.component);
+		for (const child of node.children ?? []) visit(child);
+	};
+	visit(root);
 };
 
 export const assertResourceReferencesExist = async (

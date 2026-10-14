@@ -60,8 +60,9 @@ import type {
  *   variant schema are restored as they were. A publish is recorded
  *   without revert state (a published version is never rewritten).
  *
- * Component writes are serialised per manifest (`aroundWrite` runs inside
- * that queue); the annotation is written under its own lock inside it, so
+ * Component writes hold the manifest's write lock (in-process queue and
+ * cross-process lockfile) from the revision check through `aroundWrite` and
+ * the store; the annotation is written under its own lock inside it, so
  * recording and reverting take the locks in the same order.
  */
 
@@ -272,7 +273,7 @@ export const captureComponentChange = (
 /**
  * The write hook for a component write that addresses annotations
  * (`component_draft_update` or `component_publish` with `addresses`): pass
- * `aroundWrite` in the mutation options. Inside the manifest's write queue,
+ * `aroundWrite` in the mutation options. Under the manifest's write lock,
  * once the manifest is stored, it captures what the write changed against
  * the manifest before it and records it on every addressed annotation (each
  * under its lock). A write that is refused never runs it, so nothing is
@@ -350,7 +351,7 @@ const maxRevertAttempts = 3;
  * parts and variant schema as they were before the write, while the draft
  * still has the hashes the write left it with (nothing changed it since),
  * else fails with `CHANGED_SINCE`. The draft write is revision- and
- * hash-checked; inside the manifest's write queue it takes the
+ * hash-checked; under the manifest's write lock it takes the
  * annotation's lock, checks the change is still revertible (and the
  * annotation still at `expectedRevision`), writes the manifest and then the
  * annotation: the change loses its revert state, a `revert` entry is added

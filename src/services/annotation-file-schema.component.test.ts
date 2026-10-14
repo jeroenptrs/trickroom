@@ -194,6 +194,73 @@ describe("component change records", () => {
 		).toBe(false);
 	});
 
+	it("refuses a draftBefore the component schemas reject, part by part", () => {
+		const root = draftBefore().root;
+		const malformed: Record<string, unknown>[] = [
+			// The reviewer's payload: every part wrong at once.
+			{ root: {}, variants: 42, slots: ["bad"], overrideTargets: "bad" },
+			{ root: {} },
+			{ root: { path: "root", library: "trickroom" } },
+			{ root: { ...root, children: [{ path: "x" }] } },
+			{ root, variants: 42 },
+			{ root, variants: { axes: { size: { values: "lg" } } } },
+			{ root, slots: ["bad"] },
+			{ root, slots: { body: { hostPath: 3 } } },
+			{ root, overrideTargets: "bad" },
+			{ root, overrideTargets: { label: { path: 3 } } },
+			{ root, unknownPart: true },
+		];
+		for (const payload of malformed) {
+			const result = migrateAnnotationFileValue(
+				withChange({
+					...baseChange(),
+					draftBefore: payload,
+					draftAfter: draftAfter(),
+				}),
+			);
+			expect(result.ok, JSON.stringify(payload)).toBe(false);
+		}
+	});
+
+	it("reads a complete draftBefore with slots, variants and override targets", () => {
+		const result = migrateAnnotationFileValue(
+			withChange({
+				...baseChange(),
+				draftBefore: {
+					root: {
+						path: "root",
+						library: "trickroom",
+						component: "container",
+						children: [
+							{ path: "label", library: "trickroom", component: "text" },
+						],
+					},
+					variants: {
+						axes: {
+							size: {
+								label: "Size",
+								values: { lg: { classesByPath: { label: "text-lg" } } },
+							},
+						},
+					},
+				},
+				draftAfter: draftAfter(),
+			}),
+		);
+		expect(result.ok).toBe(true);
+	});
+
+	it("refuses empty draftAfter hashes", () => {
+		const result = migrateAnnotationFileValue(
+			withChange({
+				...baseChange(),
+				draftBefore: draftBefore(),
+				draftAfter: { templateHash: "", variantSchemaHash: "v" },
+			}),
+		);
+		expect(result.ok).toBe(false);
+	});
+
 	it("still reads a change record without any revert state", () => {
 		expect(migrateAnnotationFileValue(withChange(baseChange())).ok).toBe(true);
 	});

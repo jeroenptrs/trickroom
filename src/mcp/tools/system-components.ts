@@ -20,6 +20,7 @@ import { readSystemComponentManifest } from "../../utils/system-component-manife
 import {
 	createMetadataToValidate,
 	createSystemComponentDraft,
+	defaultRootTemplate,
 	deleteSystemComponent,
 	publishSystemComponentDraft,
 	SYSTEM_COMPONENT_DESCRIPTION_MAX_LENGTH,
@@ -46,7 +47,10 @@ import {
 	getRecipeAttachmentSummaries,
 } from "../payloads/design-tree";
 import { getProjectReference } from "../payloads/project";
-import { getSubtreeElementIds } from "../payloads/references";
+import {
+	assertCanUseTemplateComponents,
+	getSubtreeElementIds,
+} from "../payloads/references";
 import {
 	bulkMigrateSystemComponentUsagesPayload,
 	describeSystemComponentPayload,
@@ -483,6 +487,11 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 						parsedDraft.error,
 					);
 				}
+				// The template the draft gets, against allowedComponents.
+				assertCanUseTemplateComponents(
+					getMcpPolicy(context.config),
+					parsedDraft?.data.root ?? defaultRootTemplate(),
+				);
 				const result = await createSystemComponentDraft(
 					context.projectRoot,
 					system.manifest.systemId,
@@ -595,6 +604,13 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 						parsedDraftPatch.error,
 					);
 				}
+				// Checked before anything (addresses included) is looked at.
+				if (parsedDraftPatch.data.root) {
+					assertCanUseTemplateComponents(
+						getMcpPolicy(context.config),
+						parsedDraftPatch.data.root,
+					);
+				}
 				const before = await readSystemComponentManifest(
 					context.projectRoot,
 					system.manifest.systemId,
@@ -683,8 +699,19 @@ export const registerSystemComponentTools = (ctx: McpToolContext) => {
 		},
 		async ({ systemName, componentId, expectedRevision, addresses, project }) =>
 			withPolicyErrorHandling(project, async (context) => {
-				assertCanWriteProject(getMcpPolicy(context.config));
+				const policy = getMcpPolicy(context.config);
+				assertCanWriteProject(policy);
 				const system = await resolveToolSystem(context, { systemName });
+				// What the publish puts in a version, against allowedComponents.
+				// A draft changed since this read changes the revision, and the
+				// publish then refuses with STALE_WRITE.
+				const draftRoot = (
+					await readSystemComponentManifest(
+						context.projectRoot,
+						system.manifest.systemId,
+					)
+				).manifest.components[componentId]?.draft?.root;
+				if (draftRoot) assertCanUseTemplateComponents(policy, draftRoot);
 				return writeComponentWithAddresses(
 					context,
 					{

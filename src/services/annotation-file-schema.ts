@@ -1,4 +1,11 @@
 import { createHash } from "node:crypto";
+import { z } from "zod";
+import {
+	recipeTemplateNodeSchema,
+	systemComponentOverrideTargetsSchema,
+	systemComponentSlotsSchema,
+	systemComponentVariantSchema,
+} from "../utils/system-component-draft-schemas";
 import { isAnnotationTarget } from "./annotation-model";
 import {
 	ANNOTATION_FILE_VERSION,
@@ -94,6 +101,19 @@ const isChangeState = (value: unknown, isLayer: (layer: unknown) => boolean) =>
 		(value.boardOrder === undefined || isStringArray(value.boardOrder)) &&
 		(value.settings === undefined || isRecord(value.settings)));
 
+/**
+ * A component draft's restorable parts (`draftBefore`), checked with the
+ * schemas component writes use: revert writes them back into the draft.
+ */
+const annotationDraftStateSchema = z
+	.object({
+		root: recipeTemplateNodeSchema,
+		slots: systemComponentSlotsSchema.optional(),
+		variants: systemComponentVariantSchema.optional(),
+		overrideTargets: systemComponentOverrideTargetsSchema.optional(),
+	})
+	.strict();
+
 const isChangeRecord = (value: unknown) =>
 	isRecord(value) &&
 	typeof value.revisionBefore === "string" &&
@@ -116,11 +136,11 @@ const isChangeRecord = (value: unknown) =>
 	// Revert needs both or neither.
 	(value.before === undefined) === (value.after === undefined) &&
 	(value.draftBefore === undefined ||
-		(isRecord(value.draftBefore) && isRecord(value.draftBefore.root))) &&
+		annotationDraftStateSchema.safeParse(value.draftBefore).success) &&
 	(value.draftAfter === undefined ||
 		(isRecord(value.draftAfter) &&
-			typeof value.draftAfter.templateHash === "string" &&
-			typeof value.draftAfter.variantSchemaHash === "string")) &&
+			isNonEmptyString(value.draftAfter.templateHash) &&
+			isNonEmptyString(value.draftAfter.variantSchemaHash))) &&
 	(value.draftBefore === undefined) === (value.draftAfter === undefined);
 
 /** Why an entry is not one of the entry kinds with its payload, or null. */

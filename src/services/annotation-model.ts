@@ -144,6 +144,11 @@ export type AnnotationTargetLocator = {
 		nodePath: string,
 		variants: Readonly<Record<string, string>> | undefined,
 	) => boolean;
+	/**
+	 * Component editor: the template's root path (it plays the board), so a
+	 * detached node annotation still counts in the component's total.
+	 */
+	componentRootId?: () => string | null;
 };
 
 type DesignLayerLocation = {
