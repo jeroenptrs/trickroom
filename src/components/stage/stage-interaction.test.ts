@@ -64,10 +64,10 @@ function createSource(): StageSelectionSource & {
 // component may render inner markup without one.
 function renderStage() {
 	document.body.innerHTML = `
-		<div id="trickroom-viewport">
+		<div id="trickroom-viewport" tabindex="0">
 			<div class="frame-content">
-				<main>
-					<section data-trickroom-node-id="board" data-trickroom-root-id="board">
+				<main id="canvas">
+					<section data-trickroom-node-id="board" data-trickroom-root-id="board" id="board">
 						<div data-trickroom-board-portal="">
 							<div data-trickroom-node-id="popup"><span id="popup-text">Hello</span></div>
 						</div>
@@ -346,10 +346,88 @@ describe("attachStageInteraction", () => {
 		expect(click.defaultPrevented).toBe(true);
 	});
 
-	it("clears the selection on empty space", () => {
+	it("selects a board on its own background and clears on canvas space outside every board", () => {
+		source.select("card");
+		press("board");
+		expect(source.selected()).toBe("board");
+		press("canvas");
+		expect(source.selected()).toBeNull();
 		source.select("card");
 		press("trickroom-viewport");
 		expect(source.selected()).toBeNull();
+	});
+
+	it("moves focus to the stage, blurring the editor control first", () => {
+		detach?.();
+		detach = attachStageInteraction({
+			document,
+			window,
+			source,
+			host: document,
+			onHoverChange: () => {},
+		});
+		source.select("cta");
+		const field = document.createElement("input");
+		document.body.append(field);
+		field.focus();
+		const selectedAtBlur: Array<string | null> = [];
+		field.addEventListener("blur", () =>
+			selectedAtBlur.push(source.selected()),
+		);
+
+		press("title-inner");
+		// The pending edit commits against the layer it was made on.
+		expect(selectedAtBlur).toEqual(["cta"]);
+		expect(source.selected()).toBe("title");
+		expect(document.activeElement?.id).toBe("trickroom-viewport");
+		field.remove();
+	});
+
+	it("selects on right-click and keeps the context menu from the board", () => {
+		const boardMenu = vi.fn();
+		document.getElementById("cta")?.addEventListener("contextmenu", boardMenu);
+		const menu = new MouseEvent("contextmenu", {
+			bubbles: true,
+			cancelable: true,
+			button: 2,
+		});
+		document.getElementById("cta")?.dispatchEvent(menu);
+		expect(source.selected()).toBe("cta");
+		expect(menu.defaultPrevented).toBe(true);
+		expect(boardMenu).not.toHaveBeenCalled();
+
+		const pinMenu = vi.fn();
+		document.getElementById("pin")?.addEventListener("contextmenu", pinMenu);
+		document
+			.getElementById("pin")
+			?.dispatchEvent(
+				new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+			);
+		expect(pinMenu).toHaveBeenCalledTimes(1);
+		expect(source.selected()).toBe("cta");
+	});
+
+	it("does not drill on a double-click made while Space is held", () => {
+		source.select("board");
+		window.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+		press("no-id-inner");
+		press("no-id-inner");
+		document
+			.getElementById("no-id-inner")
+			?.dispatchEvent(
+				new MouseEvent("dblclick", { bubbles: true, cancelable: true }),
+			);
+		expect(source.selected()).toBe("board");
+		window.dispatchEvent(new KeyboardEvent("keyup", { key: " " }));
+
+		// A middle-button double press does not drill either.
+		press("no-id-inner", { button: 1 });
+		document
+			.getElementById("no-id-inner")
+			?.dispatchEvent(
+				new MouseEvent("dblclick", { bubbles: true, cancelable: true }),
+			);
+		expect(source.selected()).toBe("board");
 	});
 
 	it("drills into the first child on double-click", () => {
@@ -418,6 +496,9 @@ describe("attachStageInteraction", () => {
 		move("other-inner", 1);
 		move("other-inner");
 		expect(hovers).toEqual(["title", null, "other"]);
+		// Any press ends the hover, a middle-button pan included.
+		press("other-inner", { button: 1 });
+		expect(hovers).toEqual(["title", null, "other", null]);
 	});
 });
 

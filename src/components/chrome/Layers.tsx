@@ -90,6 +90,7 @@ import {
 } from "./AddLayerCommandMenu";
 import { LayerContextMenu } from "./LayerContextMenu";
 import { type PlacementIntent, useLayerInsertion } from "./useLayerInsertion";
+import { useLayerSelectionReveal } from "./useLayerSelectionReveal";
 
 type LayerDragData = {
 	type: "trickroom-layer";
@@ -833,39 +834,29 @@ export function Layers({
 	}, [entitiesById, layerVirtualizer, openById, reveal, visibleLayerRows]);
 
 	// A layer selected elsewhere (the canvas, the inspector breadcrumb) opens
-	// its collapsed ancestors and scrolls into view, once per selection, so
-	// collapsing an ancestor afterwards sticks.
-	const selectedId = selectedElement?.id ?? null;
-	const revealedSelectionRef = useRef<string | null>(null);
-	useEffect(() => {
-		if (!selectedId || revealedSelectionRef.current === selectedId) {
-			return;
-		}
-		const collapsedAncestors: string[] = [];
-		let parentId = entitiesById[selectedId]?.parentId ?? null;
-		while (parentId) {
-			if (openById[parentId] === false) {
-				collapsedAncestors.push(parentId);
+	// its collapsed ancestors and scrolls into view.
+	const getLayerParentId = useCallback(
+		(id: string) => entitiesById[id]?.parentId ?? null,
+		[entitiesById],
+	);
+	const revealLayerRow = useCallback(
+		(id: string) => {
+			const index = visibleLayerRows.findIndex((row) => row.id === id);
+			if (index === -1) {
+				return false;
 			}
-			parentId = entitiesById[parentId]?.parentId ?? null;
-		}
-		if (collapsedAncestors.length > 0) {
-			setOpenById((current) => {
-				const next = { ...current };
-				for (const id of collapsedAncestors) {
-					next[id] = true;
-				}
-				return next;
-			});
-			return;
-		}
-		const index = visibleLayerRows.findIndex((row) => row.id === selectedId);
-		if (index === -1) {
-			return;
-		}
-		revealedSelectionRef.current = selectedId;
-		layerVirtualizer.scrollToIndex(index);
-	}, [entitiesById, layerVirtualizer, openById, selectedId, visibleLayerRows]);
+			layerVirtualizer.scrollToIndex(index);
+			return true;
+		},
+		[layerVirtualizer, visibleLayerRows],
+	);
+	useLayerSelectionReveal({
+		selectedId: selectedElement?.id ?? null,
+		getParentId: getLayerParentId,
+		openMap: openById,
+		setOpenMap: setOpenById,
+		reveal: revealLayerRow,
+	});
 
 	const selectVisibleLayerAtIndex = useCallback(
 		(index: number) => {

@@ -1,47 +1,18 @@
 import { useEffect, useRef } from "react";
 import { useFrame } from "react-frame-component";
-import { isStageStylesReady } from "../../hooks/useStageNavigation";
+import type { StageSelectionSource } from "./stage-interaction";
 import {
-	attachStageInteraction,
-	createStageNodeLookup,
-	type StageSelectionSource,
-} from "./stage-interaction";
-import {
-	applyStageOverlayBox,
-	applyStageOverlayLabelScale,
-	isSameStageOverlayGeometry,
-	measureStageOverlayBox,
 	STAGE_CHROME_ATTRIBUTE,
 	STAGE_HIGHLIGHT_CYAN,
-	type StageOverlayGeometry,
 	stageOverlayLabelStyle,
 	stageOverlayOriginStyle,
 } from "./stage-overlay";
-
-type OverlayBox = {
-	box: HTMLElement;
-	label: HTMLElement;
-	border: number;
-	id: string | null;
-	geometry: StageOverlayGeometry | null;
-};
-
-function hideBox(overlay: OverlayBox) {
-	if (overlay.id === null && overlay.geometry === null) {
-		return;
-	}
-	overlay.box.style.display = "none";
-	overlay.id = null;
-	overlay.geometry = null;
-}
+import { startStageSelectionOverlay } from "./stage-selection-overlay";
 
 /**
  * The stage's selection and hover outlines, and the pointer and keyboard
- * wiring behind them (see `attachStageInteraction`). Render it once inside
- * the stage frame. The selection outline follows its layer every animation
- * frame while something is selected or hovered, as the change highlight
- * does, and idles otherwise; geometry is read in the frame, never in render,
- * and styles are only written when it moved.
+ * wiring behind them (`startStageSelectionOverlay`). Render it once inside
+ * the stage frame.
  */
 export function StageSelectionLayer({
 	source,
@@ -73,83 +44,15 @@ export function StageSelectionLayer({
 			return;
 		}
 
-		const lookup = createStageNodeLookup(frameDocument);
-		const selection: OverlayBox = {
-			box: selectionBox,
-			label: selectionLabel,
-			border: 2,
-			id: null,
-			geometry: null,
-		};
-		const hover: OverlayBox = {
-			box: hoverBox,
-			label: hoverLabel,
-			border: 1,
-			id: null,
-			geometry: null,
-		};
-		let hoverId: string | null = null;
-		let frame = 0;
-
-		const paint = (overlay: OverlayBox, id: string | null) => {
-			const element = id && source.has(id) ? lookup(id) : null;
-			if (!id || !element || !isStageStylesReady(frameDocument)) {
-				hideBox(overlay);
-				return;
-			}
-			const name = source.getName(id);
-			if (overlay.label.textContent !== name) {
-				overlay.label.textContent = name;
-			}
-			const geometry = measureStageOverlayBox(origin, element);
-			if (
-				overlay.id === id &&
-				isSameStageOverlayGeometry(overlay.geometry, geometry)
-			) {
-				return;
-			}
-			overlay.id = id;
-			overlay.geometry = geometry;
-			applyStageOverlayBox(overlay.box, geometry, overlay.border);
-			applyStageOverlayLabelScale(overlay.label, geometry.scale);
-		};
-
-		const step = () => {
-			frame = 0;
-			const selectedId = source.getSelectedId();
-			paint(selection, selectedId);
-			paint(hover, hoverId === selectedId ? null : hoverId);
-			if (selectedId || hoverId) {
-				frame = frameWindow.requestAnimationFrame(step);
-			}
-		};
-
-		const schedule = () => {
-			if (!frame) {
-				frame = frameWindow.requestAnimationFrame(step);
-			}
-		};
-
-		const detach = attachStageInteraction({
+		return startStageSelectionOverlay({
 			document: frameDocument,
 			window: frameWindow,
+			origin,
+			selection: { box: selectionBox, label: selectionLabel },
+			hover: { box: hoverBox, label: hoverLabel },
 			source,
 			host: frameWindow.frameElement?.ownerDocument ?? null,
-			onHoverChange: (id) => {
-				hoverId = id;
-				schedule();
-			},
 		});
-		const unsubscribe = source.subscribe(schedule);
-		schedule();
-
-		return () => {
-			detach();
-			unsubscribe();
-			frameWindow.cancelAnimationFrame(frame);
-			hideBox(selection);
-			hideBox(hover);
-		};
 	}, [frameDocument, frameWindow, source]);
 
 	return (

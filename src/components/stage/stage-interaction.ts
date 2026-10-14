@@ -96,6 +96,12 @@ export function hasOpenBoardOverlay(board: Element) {
 	return false;
 }
 
+/** Whether hover outlines are off over `element`: its board shows an overlay. */
+export function isStageHoverBlockedAt(element: Element) {
+	const board = findStageBoardElement(element);
+	return board !== null && hasOpenBoardOverlay(board);
+}
+
 /**
  * Hover outlines stay off while a button is held (a pan, or a press that
  * will select), while Space is held for panning, and while an overlay is
@@ -123,11 +129,7 @@ export function resolveStageHoverId(
 		return null;
 	}
 	const target = resolveStagePointerTarget(path, tree);
-	if (target.kind !== "layer") {
-		return null;
-	}
-	const board = findStageBoardElement(target.element);
-	if (board && hasOpenBoardOverlay(board)) {
+	if (target.kind !== "layer" || isStageHoverBlockedAt(target.element)) {
 		return null;
 	}
 	return target.id;
@@ -232,13 +234,21 @@ export type StageInteractionOptions = {
 	source: StageSelectionSource;
 	/** Called with the hovered layer, or null, whenever it changes. */
 	onHoverChange: (id: string | null) => void;
-	/** Where stage key presses are forwarded; the editor document. */
+	/**
+	 * The editor document: stage key presses are forwarded to it, and a
+	 * selection press blurs whatever had focus in it.
+	 */
 	host?: Document | null;
 };
 
+/** The focusable stage element of the iframe shell. */
+const STAGE_VIEWPORT_ID = "trickroom-viewport";
+
 /**
- * Wires the stage document: hover, click to select, click on empty space to
- * clear, double-click to drill, and key forwarding. One set of delegated
+ * Wires the stage document: hover, click to select, double-click to drill,
+ * and key forwarding. A press on a board's own background selects the board
+ * (a board is a layer); a press on canvas space outside every board, or on
+ * a draft board's empty area, clears the selection. One set of delegated
  * listeners on the stage window, none per layer.
  *
  * Board content is inert to the pointer: a press on a layer selects it and
@@ -248,7 +258,13 @@ export type StageInteractionOptions = {
  * and double-click in the capture phase on the window, before React (which
  * listens on the stage's mount node) or Base UI (document listeners) see
  * them. Middle-button and Space presses go through untouched so the canvas
- * can pan. Overlays open through their recipe controls, not by clicking.
+ * can pan. A right-click selects like a press and opens no context menu.
+ * Overlays open through their recipe controls, not by clicking.
+ *
+ * A selection press moves keyboard focus to the stage, first blurring the
+ * editor control that had it, so a pending edit there commits to the layer
+ * it belongs to before the selection changes, and Delete, Enter and Space
+ * then act on the stage.
  *
  * Returns the cleanup.
  */
@@ -266,6 +282,9 @@ export function attachStageInteraction({
 	// The press in progress is a selection press, so its up events and the
 	// click it produces are the stage's, not the board's.
 	let selecting = false;
+	// The last press selected (rather than panned), so a double-click that
+	// ends it may drill. Unlike `selecting`, the click does not clear it.
+	let lastPressSelected = false;
 
 	const setHover = (id: string | null) => {
 		if (hoverId === id) {
@@ -280,8 +299,33 @@ export function attachStageInteraction({
 		event.stopPropagation();
 	};
 
+	const focusStage = () => {
+		const active = host?.activeElement;
+		if (
+			active &&
+			active !== window.frameElement &&
+			active !== host?.body &&
+			typeof (active as HTMLElement).blur === "function"
+		) {
+			(active as HTMLElement).blur();
+		}
+		const viewport =
+			document.getElementById(STAGE_VIEWPORT_ID) ?? document.body;
+		if (document.activeElement !== viewport) {
+			viewport.focus({ preventScroll: true });
+		}
+	};
+
+	const selectAt = (target: StagePointerTarget) => {
+		focusStage();
+		source.select(target.kind === "layer" ? target.id : null);
+	};
+
 	const onPointerDown = (event: PointerEvent) => {
 		selecting = false;
+		lastPressSelected = false;
+		// Any press, a pan included, ends the hover until the pointer moves.
+		setHover(null);
 		if (event.button !== 0 || spacePressed) {
 			return;
 		}
@@ -290,9 +334,18 @@ export function attachStageInteraction({
 			return;
 		}
 		selecting = true;
+		lastPressSelected = true;
 		swallow(event);
-		setHover(null);
-		source.select(target.kind === "layer" ? target.id : null);
+		selectAt(target);
+	};
+
+	const onContextMenu = (event: MouseEvent) => {
+		const target = resolveStagePointerTarget(event.composedPath(), source);
+		if (target.kind === "chrome" || isScrollbarPress(event)) {
+			return;
+		}
+		swallow(event);
+		selectAt(target);
 	};
 
 	// Mouse down and up, pointer up: the rest of a selection press. The
@@ -318,7 +371,14 @@ export function attachStageInteraction({
 			return;
 		}
 		swallow(event);
-		if (target.kind !== "layer" || event.button !== 0) {
+		// Only a double-click made of selection presses drills; a double
+		// press while panning (Space held) selects nothing.
+		if (
+			target.kind !== "layer" ||
+			event.button !== 0 ||
+			spacePressed ||
+			!lastPressSelected
+		) {
 			return;
 		}
 		const childId = getStageDrillTarget(source, source.getSelectedId());
@@ -367,6 +427,7 @@ export function attachStageInteraction({
 	const onBlur = () => {
 		spacePressed = false;
 		selecting = false;
+		lastPressSelected = false;
 	};
 
 	const capture = { capture: true };
@@ -378,6 +439,7 @@ export function attachStageInteraction({
 	window.addEventListener("click", onClick, capture);
 	window.addEventListener("auxclick", onClick, capture);
 	window.addEventListener("dblclick", onDoubleClick, capture);
+	window.addEventListener("contextmenu", onContextMenu, capture);
 	document.addEventListener("pointermove", onPointerMove, passiveCapture);
 	document.addEventListener("pointerout", onPointerOut, passiveCapture);
 	window.addEventListener("keydown", onKeyDown);
@@ -392,6 +454,7 @@ export function attachStageInteraction({
 		window.removeEventListener("click", onClick, capture);
 		window.removeEventListener("auxclick", onClick, capture);
 		window.removeEventListener("dblclick", onDoubleClick, capture);
+		window.removeEventListener("contextmenu", onContextMenu, capture);
 		document.removeEventListener("pointermove", onPointerMove, passiveCapture);
 		document.removeEventListener("pointerout", onPointerOut, passiveCapture);
 		window.removeEventListener("keydown", onKeyDown);

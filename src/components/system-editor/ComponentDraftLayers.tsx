@@ -57,6 +57,7 @@ import {
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
 import { layerDropInsertionIndex } from "../../utils/reorder-insertion-index";
+import { useLayerSelectionReveal } from "../chrome/useLayerSelectionReveal";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -660,32 +661,17 @@ export function ComponentDraftLayers({
 	);
 
 	// A node selected elsewhere (the canvas, the inspector breadcrumb) opens
-	// its collapsed ancestors, once per selection, so collapsing an ancestor
-	// afterwards sticks.
-	const revealedSelectionRef = useRef<string | null>(null);
-	useEffect(() => {
-		if (!selectedPath || revealedSelectionRef.current === selectedPath) {
-			return;
-		}
-		revealedSelectionRef.current = selectedPath;
-		const collapsedAncestors: string[] = [];
-		let parentPath = entitiesByPath[selectedPath]?.parentPath ?? null;
-		while (parentPath) {
-			if (openByPath[parentPath] === false) {
-				collapsedAncestors.push(parentPath);
-			}
-			parentPath = entitiesByPath[parentPath]?.parentPath ?? null;
-		}
-		if (collapsedAncestors.length > 0) {
-			setOpenByPath((current) => {
-				const next = { ...current };
-				for (const path of collapsedAncestors) {
-					next[path] = true;
-				}
-				return next;
-			});
-		}
-	}, [entitiesByPath, openByPath, selectedPath]);
+	// its collapsed ancestors.
+	const getDraftParentPath = useCallback(
+		(path: string) => entitiesByPath[path]?.parentPath ?? null,
+		[entitiesByPath],
+	);
+	useLayerSelectionReveal({
+		selectedId: selectedPath,
+		getParentId: getDraftParentPath,
+		openMap: openByPath,
+		setOpenMap: setOpenByPath,
+	});
 
 	const toggleOpen = useCallback((path: string) => {
 		setOpenByPath((current) => ({
