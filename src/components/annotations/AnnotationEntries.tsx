@@ -4,6 +4,11 @@ import type {
 	AnnotationView,
 } from "../../services/annotations.types";
 import {
+	describeChangeLayers,
+	type LayerNameLookup,
+	nameLayersInText,
+} from "../../utils/annotation-change-names";
+import {
 	describeAnnotationActor,
 	describeChangeCount,
 } from "../../utils/annotation-presentation";
@@ -20,17 +25,24 @@ const formatTime = (at: string) => {
 };
 
 export type AnnotationChangeActions = {
-	/** Reveals and flashes the layers a change record touched. */
-	onReveal?: (entry: Extract<AnnotationEntry, { kind: "change" }>) => void;
+	/** Reveals and flashes layers (all of a change's, or one of them). */
+	onRevealLayers?: (layerIds: readonly string[]) => void;
 	/** Restores the change's before state; absent where revert is not offered. */
 	onRevert?: (entry: Extract<AnnotationEntry, { kind: "change" }>) => void;
 	/** The entry whose revert is in flight. */
 	revertingEntryId?: string | null;
+	/** A layer's current name in the open design, or null when it is gone. */
+	nameOfLayer?: LayerNameLookup;
 };
 
 function EntryText({ children }: { children: string }) {
-	return <p className="whitespace-pre-wrap wrap-break-word text-xs">{children}</p>;
+	return (
+		<p className="whitespace-pre-wrap wrap-break-word text-xs">{children}</p>
+	);
 }
+
+const focusRing =
+	"focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500";
 
 function ChangeRecord({
 	entry,
@@ -42,6 +54,7 @@ function ChangeRecord({
 	actions: AnnotationChangeActions;
 }) {
 	const { change } = entry;
+	const { onRevealLayers, nameOfLayer } = actions;
 	// Revert state is kept while the annotation is live and the change has
 	// not been reverted (WP2 drops it on resolve, dismiss and revert).
 	const revertible =
@@ -49,36 +62,101 @@ function ChangeRecord({
 		!entry.revertedBy &&
 		annotation.status !== "resolved" &&
 		annotation.status !== "dismissed";
+	const layers = describeChangeLayers(change, annotation, nameOfLayer);
+	const present = layers
+		.filter((layer) => layer.present)
+		.map((layer) => layer.id);
+	const named = (text: string) =>
+		nameLayersInText(text, change, annotation, nameOfLayer);
+	const summary =
+		change.summary && change.summary !== entry.body ? change.summary : "";
+	const hasDetails = Boolean(summary) || change.operations.length > 0;
 	return (
 		<div className="flex flex-col gap-1">
-			{entry.body ? <EntryText>{entry.body}</EntryText> : null}
-			<div className="flex items-center gap-1 bg-slate-100">
-				<button
-					type="button"
-					data-annotation-change={entry.id}
-					className="min-w-0 flex-1 px-2 py-1 text-left font-mono text-xs text-cyan-700 hover:bg-cyan-50 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
-					title={change.summary || "Show the changed layers"}
-					onClick={() => actions.onReveal?.(entry)}
-					disabled={!actions.onReveal}
-				>
-					{describeChangeCount(change.layerIds.length)}
-					{entry.revertedBy ? " · reverted" : ""}
-				</button>
-				{revertible && actions.onRevert ? (
-					<Button
-						variant="ghost"
-						className="px-2 py-1 text-xs"
-						title="Restore the layers as they were before this change"
-						disabled={actions.revertingEntryId === entry.id}
-						onClick={() => actions.onRevert?.(entry)}
+			{entry.body ? <EntryText>{named(entry.body)}</EntryText> : null}
+			<div className="flex flex-col bg-slate-100">
+				<div className="flex items-center gap-1">
+					<button
+						type="button"
+						data-annotation-change={entry.id}
+						className={`min-w-0 flex-1 px-2 py-1 text-left font-mono text-xs text-cyan-700 hover:bg-cyan-50 disabled:text-slate-500 disabled:hover:bg-transparent ${focusRing}`}
+						title="Show the changed layers"
+						onClick={() => onRevealLayers?.(present)}
+						disabled={!onRevealLayers || present.length === 0}
 					>
-						<Undo2 aria-hidden="true" className="size-3.5" />
-						Revert
-					</Button>
+						{describeChangeCount(layers.length)}
+						{entry.revertedBy ? " · reverted" : ""}
+					</button>
+					{revertible && actions.onRevert ? (
+						<Button
+							variant="ghost"
+							className="flex shrink-0 items-center gap-1 px-2 py-1 text-xs"
+							title="Restore the layers as they were before this change"
+							disabled={actions.revertingEntryId === entry.id}
+							onClick={() => actions.onRevert?.(entry)}
+						>
+							<Undo2 aria-hidden="true" className="size-3.5" />
+							Revert
+						</Button>
+					) : null}
+				</div>
+				{layers.length > 0 ? (
+					<ul
+						className="flex flex-wrap gap-x-2 gap-y-0.5 px-2 pb-1.5"
+						aria-label="Changed layers"
+					>
+						{layers.map((layer) => (
+							<li key={layer.id} className="flex min-w-0">
+								{layer.present && onRevealLayers ? (
+									<button
+										type="button"
+										data-annotation-change-layer={layer.id}
+										className={`truncate text-xs font-semibold text-slate-950 underline decoration-slate-300 underline-offset-2 hover:text-cyan-700 hover:decoration-cyan-400 ${focusRing}`}
+										title={`Show ${layer.name}`}
+										onClick={() => onRevealLayers([layer.id])}
+									>
+										{layer.name}
+									</button>
+								) : (
+									<span
+										className="truncate text-xs text-slate-500"
+										title={
+											layer.present
+												? layer.name
+												: `${layer.name} is no longer in the design`
+										}
+									>
+										{layer.name}
+									</span>
+								)}
+							</li>
+						))}
+					</ul>
 				) : null}
 			</div>
-			{change.summary && change.summary !== entry.body ? (
-				<p className="text-xs text-slate-500">{change.summary}</p>
+			{hasDetails ? (
+				<details className="text-xs text-slate-500">
+					<summary className={`cursor-pointer select-none ${focusRing}`}>
+						Details
+					</summary>
+					<div className="flex flex-col gap-1 pt-1">
+						{summary ? <p title={summary}>{named(summary)}</p> : null}
+						{change.operations.length > 0 ? (
+							<ol className="flex flex-col gap-0.5 font-mono">
+								{change.operations.map((operation, index) => (
+									<li
+										// Operations have no id; their order is the record's.
+										// biome-ignore lint/suspicious/noArrayIndexKey: stable, never reordered.
+										key={index}
+										title={operation.summary}
+									>
+										{operation.operation}: {named(operation.summary)}
+									</li>
+								))}
+							</ol>
+						) : null}
+					</div>
+				</details>
 			) : null}
 		</div>
 	);

@@ -1,14 +1,15 @@
 import { ChevronRight } from "lucide-react";
 import { type KeyboardEvent, memo, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import type {
-	AnnotationEntry,
-	AnnotationView,
-} from "../../services/annotations.types";
+import type { AnnotationView } from "../../services/annotations.types";
 import {
 	setReplyDraft,
 	useReplyDraft,
 } from "../../stores/annotation-draft-store";
+import {
+	type LayerNameLookup,
+	resolveChangeLayerName,
+} from "../../utils/annotation-change-names";
 import {
 	ANNOTATION_MARKER_LOOK,
 	ANNOTATION_STATE_LABELS,
@@ -21,15 +22,12 @@ import { Input, TextareaField } from "../ui/input";
 import { AnnotationEntries } from "./AnnotationEntries";
 import {
 	dismissAnnotation,
-	type LayerNamer,
 	moveAnnotationHere,
 	reopenAnnotation,
 	replyToAnnotation,
 	resolveAnnotation,
 	revertAnnotationChange,
 } from "./annotation-actions";
-
-type ChangeEntry = Extract<AnnotationEntry, { kind: "change" }>;
 
 export type AnnotationThreadProps = {
 	annotation: AnnotationView;
@@ -43,10 +41,13 @@ export type AnnotationThreadProps = {
 	/** Scroll into view (a pin or the command menu opened it). */
 	focused?: boolean;
 	now: number;
-	/** Reveals and flashes a change record's layers. */
-	onRevealChange?: (entry: ChangeEntry) => void;
-	/** Names layer ids in a refused revert. */
-	describeLayer?: LayerNamer;
+	/** Reveals and flashes layers of a change record. */
+	onRevealLayers?: (layerIds: readonly string[]) => void;
+	/**
+	 * A layer's current name in the open design (null when it is gone):
+	 * change records and a refused revert name layers with it.
+	 */
+	nameOfLayer?: LayerNameLookup;
 	/** "Re-anchor to <label>": the current selection, when it is another target. */
 	reanchor?: { label: string; run: () => Promise<unknown> } | null;
 	/**
@@ -178,8 +179,8 @@ export const AnnotationThread = memo(function AnnotationThread({
 	onExpandedChange,
 	focused = false,
 	now,
-	onRevealChange,
-	describeLayer,
+	onRevealLayers,
+	nameOfLayer,
 	reanchor,
 	onSaveMemory,
 	otherBranch = false,
@@ -282,7 +283,8 @@ export const AnnotationThread = memo(function AnnotationThread({
 					<AnnotationEntries
 						annotation={annotation}
 						actions={{
-							onReveal: onRevealChange,
+							onRevealLayers,
+							nameOfLayer,
 							onRevert: otherBranch
 								? undefined
 								: (entry) => {
@@ -290,7 +292,9 @@ export const AnnotationThread = memo(function AnnotationThread({
 										void revertAnnotationChange(
 											annotation,
 											entry.id,
-											describeLayer,
+											(id) =>
+												resolveChangeLayerName(id, annotation, nameOfLayer)
+													.name,
 										).finally(() => setRevertingEntryId(null));
 									},
 							revertingEntryId,

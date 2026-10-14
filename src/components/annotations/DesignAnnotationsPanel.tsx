@@ -231,13 +231,16 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 			),
 		[designName, entitiesById],
 	);
-	const describeLayer = useCallback(
-		(layerId: string) =>
-			getDesignTargetName(
-				{ kind: "layer", designId, boardId: "", elementId: layerId },
-				entitiesById,
-				layerId,
-			),
+	const nameOfLayer = useCallback(
+		(layerId: string) => {
+			const entity = entitiesById[layerId];
+			return entity
+				? getDesignTargetName(
+						{ kind: "layer", designId, boardId: "", elementId: layerId },
+						entitiesById,
+					)
+				: null;
+		},
 		[designId, entitiesById],
 	);
 	const targetName = getDesignTargetName(
@@ -374,8 +377,8 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 				onExpandedChange={(open) => setThreadExpanded(annotation.id, open)}
 				focused={annotation.id === activeAnnotationId}
 				now={now}
-				onRevealChange={(entry) => revealDesignLayers(entry.change.layerIds)}
-				describeLayer={describeLayer}
+				onRevealLayers={revealDesignLayers}
+				nameOfLayer={nameOfLayer}
 				reanchor={
 					reanchorTarget
 						? {
