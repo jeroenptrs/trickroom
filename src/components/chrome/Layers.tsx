@@ -59,8 +59,10 @@ import {
 	getKey,
 	getShortcutPlacementIntent,
 	hasCommandModifier,
+	isEnterActivatedTarget,
 	isPeriodKey,
 	isShortcutLetter,
+	LAYER_ROW_ATTRIBUTE,
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
 import { layerDropInsertionIndex } from "../../utils/reorder-insertion-index";
@@ -574,6 +576,7 @@ const Layer = memo(function Layer({
 					{!isEditing ? (
 						<UnstyledButton
 							ref={labelRef}
+							{...{ [LAYER_ROW_ATTRIBUTE]: "" }}
 							className={`min-w-0 flex-1 text-start ${canDragLayer ? "active:cursor-grabbing" : ""}`}
 							onClick={selectLayer}
 							onDoubleClick={editLayer}
@@ -829,6 +832,41 @@ export function Layers({
 		layerVirtualizer.scrollToIndex(index, { align: "center" });
 	}, [entitiesById, layerVirtualizer, openById, reveal, visibleLayerRows]);
 
+	// A layer selected elsewhere (the canvas, the inspector breadcrumb) opens
+	// its collapsed ancestors and scrolls into view, once per selection, so
+	// collapsing an ancestor afterwards sticks.
+	const selectedId = selectedElement?.id ?? null;
+	const revealedSelectionRef = useRef<string | null>(null);
+	useEffect(() => {
+		if (!selectedId || revealedSelectionRef.current === selectedId) {
+			return;
+		}
+		const collapsedAncestors: string[] = [];
+		let parentId = entitiesById[selectedId]?.parentId ?? null;
+		while (parentId) {
+			if (openById[parentId] === false) {
+				collapsedAncestors.push(parentId);
+			}
+			parentId = entitiesById[parentId]?.parentId ?? null;
+		}
+		if (collapsedAncestors.length > 0) {
+			setOpenById((current) => {
+				const next = { ...current };
+				for (const id of collapsedAncestors) {
+					next[id] = true;
+				}
+				return next;
+			});
+			return;
+		}
+		const index = visibleLayerRows.findIndex((row) => row.id === selectedId);
+		if (index === -1) {
+			return;
+		}
+		revealedSelectionRef.current = selectedId;
+		layerVirtualizer.scrollToIndex(index);
+	}, [entitiesById, layerVirtualizer, openById, selectedId, visibleLayerRows]);
+
 	const selectVisibleLayerAtIndex = useCallback(
 		(index: number) => {
 			const row = visibleLayerRows[index];
@@ -907,6 +945,30 @@ export function Layers({
 		return false;
 	}, [openById, selectedElement]);
 
+	// Enter drills into the first child, opening the row so it shows; the
+	// stage's double-click does the same.
+	const drillIntoSelectedLayer = useCallback(() => {
+		const childId = selectedElement?.childIds?.[0];
+		if (!selectedElement || !childId) {
+			return false;
+		}
+
+		if (openById[selectedElement.id] === false) {
+			setOpenById((current) => ({ ...current, [selectedElement.id]: true }));
+		}
+		selectElement(childId);
+		return true;
+	}, [openById, selectedElement]);
+
+	const selectParentLayer = useCallback(() => {
+		if (!selectedElement?.parentId) {
+			return false;
+		}
+
+		selectElement(selectedElement.parentId);
+		return true;
+	}, [selectedElement]);
+
 	const moveSelectedLayerBy = useCallback(
 		(direction: 1 | -1) => {
 			if (!selectedElement) {
@@ -954,7 +1016,13 @@ export function Layers({
 			const placementIntent = getShortcutPlacementIntent(event);
 			let handled = false;
 
-			if (event.key === "ArrowDown" || key === "j") {
+			if (event.key === "Enter") {
+				if (!event.altKey && !isEnterActivatedTarget(event.target)) {
+					handled = event.shiftKey
+						? selectParentLayer()
+						: drillIntoSelectedLayer();
+				}
+			} else if (event.key === "ArrowDown" || key === "j") {
 				handled = selectRelativeLayer(1);
 			} else if (event.key === "ArrowUp" || key === "k") {
 				handled = selectRelativeLayer(-1);
@@ -997,11 +1065,13 @@ export function Layers({
 		[
 			addBasicLayer,
 			collapseOrSelectParentLayer,
+			drillIntoSelectedLayer,
 			expandOrEnterSelectedLayer,
 			lastAddedRef,
 			moveSelectedLayerBy,
 			openAddLayerMenu,
 			repeatLast,
+			selectParentLayer,
 			selectRelativeLayer,
 			selectVisibleLayerAtIndex,
 			selectedElement,

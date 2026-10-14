@@ -39,6 +39,45 @@ export function isEditableShortcutTarget(target: EventTarget | null) {
 	return role ? editableRoles.has(role) : false;
 }
 
+const activatableTags = new Set(["A", "BUTTON", "SELECT", "SUMMARY"]);
+const activatableRoles = new Set([
+	"button",
+	"checkbox",
+	"link",
+	"menuitem",
+	"menuitemcheckbox",
+	"menuitemradio",
+	"option",
+	"radio",
+	"switch",
+	"tab",
+]);
+
+/** Marks layer rows: Enter on a focused row is a layer shortcut, not a press. */
+export const LAYER_ROW_ATTRIBUTE = "data-layer-row";
+
+/**
+ * Whether Enter on `target` activates it (a focused button, link or menu
+ * item), so an Enter shortcut should leave it alone. Layer rows are buttons
+ * too, but there Enter belongs to the layer shortcuts.
+ */
+export function isEnterActivatedTarget(target: EventTarget | null) {
+	const ElementCtor = getElementConstructor(target);
+	if (!ElementCtor || !(target instanceof ElementCtor)) {
+		return false;
+	}
+
+	const element = target as Element;
+	if (element.closest(`[${LAYER_ROW_ATTRIBUTE}]`)) {
+		return false;
+	}
+	if (activatableTags.has(element.tagName)) {
+		return true;
+	}
+	const role = element.getAttribute("role");
+	return role ? activatableRoles.has(role) : false;
+}
+
 export function hasOpenShortcutBlockingSurface() {
 	return Boolean(
 		document.querySelector('[role="dialog"], [data-shortcuts-disabled]'),

@@ -81,6 +81,8 @@ import { Canvas } from "./stage/Canvas";
 import { ClassMergeContext } from "./stage/class-merge-context";
 import { StageChangeHighlight } from "./stage/StageChangeHighlight";
 import { StageFocusHighlight } from "./stage/StageFocusHighlight";
+import { StageSelectionLayer } from "./stage/StageSelectionLayer";
+import { designStageSelection } from "./stage/stage-selection-sources";
 
 const stageDoc = resolveStageDoc(stageDocRaw);
 
@@ -110,6 +112,7 @@ export const StageFrame = memo(function StageFrame({
 			</main>
 
 			<Canvas />
+			<StageSelectionLayer source={designStageSelection} />
 			<StageChangeHighlight />
 			<StageFocusHighlight />
 		</Frame>
@@ -190,8 +193,6 @@ export function Design() {
 		mode: stageMode,
 		rootIds,
 		setActiveBoardId,
-		iframeRef,
-		didMount,
 	});
 	const handleStageMount = useCallback(() => setDidMount(true), []);
 	const designQuery = useQuery({

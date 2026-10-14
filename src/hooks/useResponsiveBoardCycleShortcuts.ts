@@ -1,6 +1,5 @@
 import {
 	type Dispatch,
-	type RefObject,
 	type SetStateAction,
 	useCallback,
 	useEffect,
@@ -16,16 +15,12 @@ type ResponsiveBoardCycleShortcutOptions = {
 	mode: ResponsiveStageMode;
 	rootIds: readonly string[];
 	setActiveBoardId: Dispatch<SetStateAction<string | null>>;
-	iframeRef: RefObject<HTMLIFrameElement | null>;
-	didMount: boolean;
 };
 
 export function useResponsiveBoardCycleShortcuts({
 	mode,
 	rootIds,
 	setActiveBoardId,
-	iframeRef,
-	didMount,
 }: ResponsiveBoardCycleShortcutOptions) {
 	const enabled = mode === "responsive";
 
@@ -52,25 +47,14 @@ export function useResponsiveBoardCycleShortcuts({
 		[enabled, rootIds, setActiveBoardId],
 	);
 
+	// Key presses in the stage iframe reach the editor window too: the stage
+	// forwards them (see forwardStageKeyDown), so one listener covers both.
 	useEffect(() => {
-		if (!enabled || !didMount) {
+		if (!enabled) {
 			return;
 		}
 
-		const targets: Window[] = [window];
-		const iframeWindow = iframeRef.current?.contentWindow;
-		if (iframeWindow) {
-			targets.push(iframeWindow);
-		}
-
-		for (const target of targets) {
-			target.addEventListener("keydown", onKeyDown);
-		}
-
-		return () => {
-			for (const target of targets) {
-				target.removeEventListener("keydown", onKeyDown);
-			}
-		};
-	}, [didMount, enabled, iframeRef, onKeyDown]);
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [enabled, onKeyDown]);
 }

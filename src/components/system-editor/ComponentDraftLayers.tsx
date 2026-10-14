@@ -50,8 +50,10 @@ import {
 	getKey,
 	getShortcutPlacementIntent,
 	hasCommandModifier,
+	isEnterActivatedTarget,
 	isPeriodKey,
 	isShortcutLetter,
+	LAYER_ROW_ATTRIBUTE,
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
 import { layerDropInsertionIndex } from "../../utils/reorder-insertion-index";
@@ -576,6 +578,7 @@ const DraftLayerRow = memo(function DraftLayerRow({
 					{!isEditing ? (
 						<UnstyledButton
 							ref={labelRef}
+							{...{ [LAYER_ROW_ATTRIBUTE]: "" }}
 							className={`min-w-0 flex-1 text-start ${canDragLayer ? "active:cursor-grabbing" : ""}`}
 							onClick={selectLayer}
 							onDoubleClick={editLayer}
@@ -655,6 +658,34 @@ export function ComponentDraftLayers({
 			}),
 		[entitiesByPath, openByPath, rootPath],
 	);
+
+	// A node selected elsewhere (the canvas, the inspector breadcrumb) opens
+	// its collapsed ancestors, once per selection, so collapsing an ancestor
+	// afterwards sticks.
+	const revealedSelectionRef = useRef<string | null>(null);
+	useEffect(() => {
+		if (!selectedPath || revealedSelectionRef.current === selectedPath) {
+			return;
+		}
+		revealedSelectionRef.current = selectedPath;
+		const collapsedAncestors: string[] = [];
+		let parentPath = entitiesByPath[selectedPath]?.parentPath ?? null;
+		while (parentPath) {
+			if (openByPath[parentPath] === false) {
+				collapsedAncestors.push(parentPath);
+			}
+			parentPath = entitiesByPath[parentPath]?.parentPath ?? null;
+		}
+		if (collapsedAncestors.length > 0) {
+			setOpenByPath((current) => {
+				const next = { ...current };
+				for (const path of collapsedAncestors) {
+					next[path] = true;
+				}
+				return next;
+			});
+		}
+	}, [entitiesByPath, openByPath, selectedPath]);
 
 	const toggleOpen = useCallback((path: string) => {
 		setOpenByPath((current) => ({
@@ -869,6 +900,34 @@ export function ComponentDraftLayers({
 		return false;
 	}, [entitiesByPath, openByPath, selectedPath]);
 
+	// Enter drills into the first child, opening the row so it shows; the
+	// stage's double-click does the same.
+	const drillIntoSelectedRow = useCallback(() => {
+		const selectedEntity = selectedPath ? entitiesByPath[selectedPath] : null;
+		const childPath = selectedEntity?.childPaths?.[0];
+		if (!selectedEntity || !childPath) {
+			return false;
+		}
+
+		if (openByPath[selectedEntity.path] === false) {
+			setOpenByPath((current) => ({ ...current, [selectedEntity.path]: true }));
+		}
+		selectTemplateNode(childPath);
+		return true;
+	}, [entitiesByPath, openByPath, selectedPath]);
+
+	const selectParentRow = useCallback(() => {
+		const parentPath = selectedPath
+			? entitiesByPath[selectedPath]?.parentPath
+			: null;
+		if (!parentPath) {
+			return false;
+		}
+
+		selectTemplateNode(parentPath);
+		return true;
+	}, [entitiesByPath, selectedPath]);
+
 	const moveSelectedRowBy = useCallback(
 		(direction: 1 | -1) => {
 			const selectedEntity = selectedPath ? entitiesByPath[selectedPath] : null;
@@ -919,7 +978,11 @@ export function ComponentDraftLayers({
 			const placementIntent = getShortcutPlacementIntent(event);
 			let handled = false;
 
-			if (event.key === "ArrowDown" || key === "j") {
+			if (event.key === "Enter") {
+				if (!event.altKey && !isEnterActivatedTarget(event.target)) {
+					handled = event.shiftKey ? selectParentRow() : drillIntoSelectedRow();
+				}
+			} else if (event.key === "ArrowDown" || key === "j") {
 				handled = selectRelativeRow(1);
 			} else if (event.key === "ArrowUp" || key === "k") {
 				handled = selectRelativeRow(-1);
@@ -970,11 +1033,13 @@ export function ComponentDraftLayers({
 		[
 			addDraftLayer,
 			collapseOrSelectParentRow,
+			drillIntoSelectedRow,
 			expandOrEnterSelectedRow,
 			lastAddedSelection,
 			moveSelectedRowBy,
 			repeatLastLayer,
 			resolveInsertionPlacement,
+			selectParentRow,
 			selectRelativeRow,
 			selectVisibleRowAtIndex,
 			selectedPath,
