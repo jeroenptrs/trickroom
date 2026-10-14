@@ -67,7 +67,6 @@ describe("ComponentDraftStage", () => {
 			entity,
 			path: "root",
 			previewClassName: "template-separator brand-separator",
-			selectedPath: null,
 			definition: renderResolution.definition,
 		});
 
@@ -86,7 +85,7 @@ describe("ComponentDraftStage", () => {
 		expect(props).not.toHaveProperty(MATERIALIZED_BASE_CLASS_PROP);
 	});
 
-	it("merges the draft's classes like tv(), but not the registry base or the selection outline", () => {
+	it("merges the draft's classes like tv(), but not the registry base", () => {
 		const renderResolution = resolveRenderableRegistryComponent(
 			"base-ui",
 			"separator",
@@ -108,14 +107,42 @@ describe("ComponentDraftStage", () => {
 			entity,
 			path: "root",
 			previewClassName: "my-2 outline-none my-4",
-			selectedPath: "root",
 			definition: renderResolution.definition,
 			classMerge: createClassMerge({ mode: "stock" }),
 		});
 
-		expect(props.className).toBe(
-			`${separatorBaseClassName} outline-none my-4 outline outline-2 outline-offset-2 outline-cyan-500`,
+		expect(props.className).toBe(`${separatorBaseClassName} outline-none my-4`);
+	});
+
+	it("marks draft nodes with their path for the stage and keeps the class string clean", () => {
+		const renderResolution = resolveRenderableRegistryComponent(
+			"trickroom",
+			"container",
 		);
+		if (renderResolution.status !== "known") {
+			throw new Error("container renderer missing");
+		}
+		const entity = {
+			path: "root.0",
+			library: "trickroom",
+			component: "container",
+			parentPath: "root",
+			role: "branch",
+			className: "flex gap-2",
+		} satisfies ComponentDraftEntity;
+
+		const props = getComponentDraftPreviewRenderableProps({
+			entity,
+			path: "root.0",
+			previewClassName: "flex gap-2",
+			definition: renderResolution.definition,
+		});
+
+		expect(props.className).toBe("flex gap-2");
+		expect(props).toMatchObject({
+			"data-trickroom-node-id": "root.0",
+			"data-component-draft-path": "root.0",
+		});
 	});
 
 	it("keeps trickroom icon draft previews unstyled unless authored", () => {
@@ -146,7 +173,6 @@ describe("ComponentDraftStage", () => {
 			entity,
 			path: "icon",
 			previewClassName: "",
-			selectedPath: null,
 			definition: renderResolution.definition,
 		});
 
@@ -230,7 +256,6 @@ describe("ComponentDraftStage", () => {
 			entity,
 			path: "root",
 			previewClassName,
-			selectedPath: null,
 			definition: renderResolution.definition,
 		});
 

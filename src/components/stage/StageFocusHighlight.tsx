@@ -6,43 +6,18 @@ import {
 } from "../../hooks/useStageNavigation";
 import { designStore } from "../../stores/design-store";
 import { useStageReveal } from "../../stores/stage-view-store";
+import {
+	applyStageOverlayLabelScale,
+	placeStageOverlayBox,
+	STAGE_CHROME_ATTRIBUTE,
+	STAGE_HIGHLIGHT_CYAN,
+	stageOverlayLabelStyle,
+	stageOverlayOriginStyle,
+} from "./stage-overlay";
 
 const HIGHLIGHT_MS = 1_800;
 const FADE_MS = 300;
 const WAIT_TIMEOUT_MS = 10_000;
-
-// The stage iframe does not load the app's stylesheet, so the highlight is
-// styled inline: square, cyan on slate, like the editor chrome.
-export const STAGE_HIGHLIGHT_CYAN = "#22d3ee";
-export const STAGE_HIGHLIGHT_SLATE = "#020617";
-
-/**
- * Places an outline `box` over `element`, both inside the stage document,
- * relative to the zero-size `origin` the box is positioned from. The canvas
- * scales the world with a transform; the outline undoes it so it keeps a
- * constant on-screen size. Returns that scale.
- */
-export function placeStageOverlayBox(
-	origin: HTMLElement,
-	box: HTMLElement,
-	element: HTMLElement,
-) {
-	box.style.display = "block";
-	const world = origin.parentElement;
-	const scale =
-		world && world.offsetWidth > 0
-			? world.getBoundingClientRect().width / world.offsetWidth
-			: 1;
-	const originRect = origin.getBoundingClientRect();
-	const rect = element.getBoundingClientRect();
-	box.style.left = `${(rect.left - originRect.left) / scale}px`;
-	box.style.top = `${(rect.top - originRect.top) / scale}px`;
-	box.style.width = `${rect.width / scale}px`;
-	box.style.height = `${rect.height / scale}px`;
-	box.style.borderWidth = `${2 / scale}px`;
-	box.style.boxShadow = `0 0 0 ${1 / scale}px ${STAGE_HIGHLIGHT_SLATE}`;
-	return scale;
-}
 
 /**
  * Briefly outlines the element a deep link or agent focus request pointed at,
@@ -82,8 +57,7 @@ export function StageFocusHighlight() {
 
 		const place = (element: HTMLElement, elapsed: number) => {
 			const scale = placeStageOverlayBox(origin, box, element);
-			label.style.fontSize = `${10 / scale}px`;
-			label.style.padding = `${2 / scale}px ${4 / scale}px`;
+			applyStageOverlayLabelScale(label, scale);
 			box.style.opacity = String(
 				Math.min(1, elapsed / FADE_MS, (HIGHLIGHT_MS - elapsed) / FADE_MS),
 			);
@@ -132,15 +106,8 @@ export function StageFocusHighlight() {
 			ref={originRef}
 			aria-hidden="true"
 			data-trickroom-focus-highlight=""
-			style={{
-				position: "absolute",
-				left: 0,
-				top: 0,
-				width: 0,
-				height: 0,
-				pointerEvents: "none",
-				zIndex: 2147483647,
-			}}
+			{...{ [STAGE_CHROME_ATTRIBUTE]: "" }}
+			style={{ ...stageOverlayOriginStyle, zIndex: 2147483647 }}
 		>
 			<div
 				ref={boxRef}
@@ -153,22 +120,7 @@ export function StageFocusHighlight() {
 					backgroundColor: "rgb(34 211 238 / 0.08)",
 				}}
 			>
-				<span
-					ref={labelRef}
-					style={{
-						position: "absolute",
-						left: 0,
-						bottom: "100%",
-						backgroundColor: STAGE_HIGHLIGHT_SLATE,
-						color: STAGE_HIGHLIGHT_CYAN,
-						fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
-						fontWeight: 500,
-						letterSpacing: "0.05em",
-						lineHeight: 1.4,
-						textTransform: "uppercase",
-						whiteSpace: "nowrap",
-					}}
-				/>
+				<span ref={labelRef} style={stageOverlayLabelStyle} />
 			</div>
 		</div>
 	);

@@ -1,6 +1,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
 	createDesignFileService,
+	type DesignAfterWriteContext,
 	type DesignFileRead,
 	type DesignFileService,
 	DesignFileServiceError,
@@ -255,6 +256,15 @@ export const mutateDesignFile = async <
 			write: DesignFileWriteResult,
 			loaded: Loaded,
 		) => Promise<CallToolResult>;
+		/**
+		 * Runs under the design lock once the write is stored, and never for
+		 * a write that was skipped or refused (a failing step, a revision
+		 * mismatch): `design_apply` records the annotations it addresses.
+		 * Its failure is logged and does not undo the write.
+		 */
+		afterWrite?: (
+			context: DesignAfterWriteContext & { result: Result },
+		) => Promise<void>;
 	},
 ): Promise<CallToolResult> => {
 	let loaded = undefined as Loaded;
@@ -298,6 +308,7 @@ export const mutateDesignFile = async <
 		},
 		prepare: (design) =>
 			canonicalizeDesignSystemReferenceForStorage(context, design),
+		...(steps.afterWrite ? { afterWrite: steps.afterWrite } : {}),
 	});
 
 	if (outcome.status === "revision-mismatch") {

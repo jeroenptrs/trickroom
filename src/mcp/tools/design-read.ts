@@ -1,3 +1,4 @@
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { resolveCodegenConfig } from "../../codegen/config";
 import {
@@ -56,7 +57,7 @@ import {
 const elementIdSchema = z.string().min(1);
 
 export const registerDesignReadTools = (ctx: McpToolContext) => {
-	const { server, withPolicyErrorHandling } = ctx;
+	const { server, annotations, withPolicyErrorHandling } = ctx;
 
 	server.registerTool(
 		TOOL.designList,
@@ -67,9 +68,34 @@ export const registerDesignReadTools = (ctx: McpToolContext) => {
 			annotations: readOnlyClosedWorldAnnotations,
 		},
 		async ({ project }) =>
-			withPolicyErrorHandling(project, async (context) =>
-				createJsonResult(await listDesignFilesToolPayload(context)),
-			),
+			withPolicyErrorHandling(project, async (context) => {
+				const payload = await listDesignFilesToolPayload(context);
+				const counts = await annotations
+					.countDesigns(
+						context,
+						payload.designFiles.map((designFile) => designFile.id),
+					)
+					.catch(() => new Map());
+				return createJsonResult(
+					counts.size > 0
+						? {
+								...payload,
+								designFiles: payload.designFiles.map((designFile) => {
+									const designCounts = counts.get(designFile.id);
+									return designCounts
+										? {
+												...designFile,
+												annotations: {
+													agentWork: designCounts.agentWork,
+													humanWork: designCounts.humanWork,
+												},
+											}
+										: designFile;
+								}),
+							}
+						: payload,
+				);
+			}),
 	);
 
 	server.registerTool(
@@ -153,22 +179,30 @@ export const registerDesignReadTools = (ctx: McpToolContext) => {
 					);
 				}
 				const bounds = { depth, maxNodes, allowLarge };
+				const surface = (result: CallToolResult) =>
+					annotations.withAnnotations(result, context, {
+						designId: designFileId,
+					});
 				if (view === "outline") {
-					return createJsonResult(
-						await readDesignGraphPayload(context, designFileId, {
-							...bounds,
-							boardId,
-							rootElementId: elementId,
-							includeProps: detail === "full",
-						}),
+					return surface(
+						createJsonResult(
+							await readDesignGraphPayload(context, designFileId, {
+								...bounds,
+								boardId,
+								rootElementId: elementId,
+								includeProps: detail === "full",
+							}),
+						),
 					);
 				}
 				if (elementId !== undefined) {
-					return createJsonResult(
-						await readSubtreePayload(context, designFileId, elementId, {
-							...bounds,
-							detail,
-						}),
+					return surface(
+						createJsonResult(
+							await readSubtreePayload(context, designFileId, elementId, {
+								...bounds,
+								detail,
+							}),
+						),
 					);
 				}
 				const payload = await readDesignFilePayload(context, designFileId, {
@@ -181,14 +215,16 @@ export const registerDesignReadTools = (ctx: McpToolContext) => {
 					designId: designFileId,
 				});
 				const memorySummary = summarizeMemoryManifest(designMemory.manifest);
-				return createJsonResult(
-					memorySummary.noteCount > 0
-						? {
-								...payload,
-								memory: memorySummary,
-								memoryHint: `This design has memory notes on its intent and rationale. Call ${TOOL.memoryRead}({ designFileId }) before editing or explaining it.`,
-							}
-						: payload,
+				return surface(
+					createJsonResult(
+						memorySummary.noteCount > 0
+							? {
+									...payload,
+									memory: memorySummary,
+									memoryHint: `This design has memory notes on its intent and rationale. Call ${TOOL.memoryRead}({ designFileId }) before editing or explaining it.`,
+								}
+							: payload,
+					),
 				);
 			}),
 	);

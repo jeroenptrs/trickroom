@@ -2,7 +2,6 @@ import { useHotkey } from "@tanstack/react-hotkeys";
 import { useQuery } from "@tanstack/react-query";
 import {
 	createElement,
-	type MouseEvent,
 	memo,
 	type ReactNode,
 	type RefObject,
@@ -15,6 +14,7 @@ import {
 import Frame from "react-frame-component";
 import { useClassMerge } from "../../hooks/useClassMerge";
 import { useCompiledTailwind } from "../../hooks/useCompiledTailwind";
+import { useComponentAnnotations } from "../../hooks/useComponentAnnotations";
 import { useInjectSystemAssets } from "../../hooks/useInjectSystemAssets";
 import { useInjectSystemFonts } from "../../hooks/useInjectSystemFonts";
 import { useInjectSystemTheme } from "../../hooks/useInjectSystemTheme";
@@ -50,12 +50,17 @@ import {
 import { useEditorPanelOpen } from "../../stores/editor-chrome-store";
 import type { ClassMerge } from "../../utils/class-merge";
 import { resolveStageDoc } from "../../utils/tailwind-render-mode";
+import { componentAnnotationPinSource } from "../annotations/component-annotation-pins";
 import { Canvas } from "../stage/Canvas";
 import {
 	ClassMergeContext,
 	useClassMergeContext,
 } from "../stage/class-merge-context";
 import { MissingRenderer } from "../stage/MissingRenderer";
+import { StageAnnotationPins } from "../stage/StageAnnotationPins";
+import { StageSelectionLayer } from "../stage/StageSelectionLayer";
+import { STAGE_NODE_ID_ATTRIBUTE } from "../stage/stage-interaction";
+import { componentDraftStageSelection } from "../stage/stage-selection-sources";
 import { Alert } from "../ui/alert";
 import { Card } from "../ui/card";
 
@@ -75,35 +80,31 @@ type ComponentStageFrameProps = {
 	onMount: () => void;
 };
 
+/**
+ * Stage props for a draft node. The selection is an overlay in the stage
+ * document (StageSelectionLayer), so the class string is the draft's own.
+ */
 export function getComponentDraftPreviewRenderableProps({
 	entity,
 	path,
 	previewClassName,
-	selectedPath,
 	definition,
 	classMerge = null,
 }: {
 	entity: ComponentDraftEntity;
 	path: string;
 	previewClassName: string;
-	selectedPath: string | null;
 	definition: RenderableRegistryComponentDefinition;
 	/** Merges the template, variant and compound classes like `tv()` does. */
 	classMerge?: ClassMerge | null;
 }) {
-	return getRenderableProps(
+	const props = getRenderableProps(
 		{
 			...(entity.props ?? {}),
-			className: [
+			className:
 				classMerge && previewClassName
 					? classMerge(previewClassName)
 					: previewClassName,
-				selectedPath === path
-					? "outline outline-2 outline-offset-2 outline-cyan-500"
-					: null,
-			]
-				.filter(Boolean)
-				.join(" "),
 			"data-trickroom-name": entity.name ?? definition.label,
 			"data-trickroom-library": entity.library,
 			"data-trickroom-component": entity.component,
@@ -111,12 +112,14 @@ export function getComponentDraftPreviewRenderableProps({
 		},
 		definition,
 	);
+	props[STAGE_NODE_ID_ATTRIBUTE] = path;
+	props["data-component-draft-path"] = path;
+	return props;
 }
 
 export function SerializedDraftNode({ path }: { path: string }): ReactNode {
 	const entity = useComponentDraftEntity(path);
 	const childPaths = useComponentDraftChildPaths(path);
-	const selectedPath = useComponentDraftSelectedPath();
 	const previewClassName = useComponentDraftPreviewClassName(path);
 	const classMerge = useClassMergeContext().merge;
 
@@ -129,18 +132,13 @@ export function SerializedDraftNode({ path }: { path: string }): ReactNode {
 		entity.component,
 	);
 
-	const handleClick = (event: MouseEvent) => {
-		event.stopPropagation();
-		selectTemplateNode(path);
-	};
-
 	if (resolution.status !== "known") {
 		return (
 			<MissingRenderer
 				library={resolution.library}
 				component={resolution.component}
+				data-trickroom-node-id={path}
 				data-component-draft-path={path}
-				onClick={handleClick}
 			>
 				{entity.role === "text"
 					? entity.text
@@ -155,30 +153,21 @@ export function SerializedDraftNode({ path }: { path: string }): ReactNode {
 		entity,
 		path,
 		previewClassName,
-		selectedPath,
 		definition: resolution.definition,
 		classMerge,
 	});
 
 	if (entity.role === "text") {
-		return createElement(
-			resolution.definition.component,
-			{ ...props, onClick: handleClick, "data-component-draft-path": path },
-			entity.text,
-		);
+		return createElement(resolution.definition.component, props, entity.text);
 	}
 
 	if (entity.role === "leaf") {
-		return createElement(resolution.definition.component, {
-			...props,
-			onClick: handleClick,
-			"data-component-draft-path": path,
-		});
+		return createElement(resolution.definition.component, props);
 	}
 
 	return createElement(
 		resolution.definition.component,
-		{ ...props, onClick: handleClick, "data-component-draft-path": path },
+		props,
 		childPaths.map((childPath) => (
 			<SerializedDraftNode key={childPath} path={childPath} />
 		)),
@@ -205,13 +194,12 @@ function ComponentDraftBoard({
 	// draft unmerged first.
 	const classMergeReady = useClassMergeContext().ready;
 
+	// Clicks are the stage's (StageSelectionLayer): a draft node selects it,
+	// empty board space clears the selection.
 	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: clicking empty board space clears the draft node selection.
-		// biome-ignore lint/a11y/useKeyWithClickEvents: node selection is keyboard-accessible through layer rows and Escape clears selection.
 		<section
 			className={`m-10 flex min-h-[360px] w-[720px] shrink-0 flex-col border border-slate-300 bg-white shadow-sm ${getStagePreviewContainerClassName(previewDarkMode)}`}
 			data-component-board="single"
-			onClick={() => selectTemplateNode(null)}
 		>
 			<header className="flex h-9 shrink-0 items-center border-b border-slate-200 px-3 text-[11px] font-medium text-slate-500">
 				{componentName}
@@ -255,6 +243,8 @@ const ComponentStageFrame = memo(function ComponentStageFrame({
 				</DesignSystemRenderContext.Provider>
 			</main>
 			<Canvas />
+			<StageSelectionLayer source={componentDraftStageSelection} />
+			<StageAnnotationPins source={componentAnnotationPinSource} />
 		</Frame>
 	);
 });
@@ -274,6 +264,13 @@ export function ComponentDraftStage({
 	});
 
 	const handleStageMount = useCallback(() => setDidMount(true), []);
+	// The component's annotations, once its draft is the one open.
+	useComponentAnnotations(
+		systemId,
+		componentId !== null && draftComponentId === componentId
+			? componentId
+			: null,
+	);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: componentId and systemId are triggers; the frame is keyed by them, so a new one mounts and reports didMount again.
 	useEffect(() => {

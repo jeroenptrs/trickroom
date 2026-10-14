@@ -70,7 +70,7 @@ const describeEditorView = async (
 		ageMs: tab.ageMs,
 	};
 	if (tab.designFileId === null) {
-		return { design: null, ...view };
+		return { payload: { design: null, ...view }, read: null };
 	}
 	const policy = getMcpPolicy(context.config);
 	if (
@@ -78,8 +78,8 @@ const describeEditorView = async (
 		!policy.allowedDesignFileIds.has(tab.designFileId)
 	) {
 		return {
-			design: { id: tab.designFileId, readable: false },
-			...view,
+			payload: { design: { id: tab.designFileId, readable: false }, ...view },
+			read: null,
 		};
 	}
 	try {
@@ -90,7 +90,7 @@ const describeEditorView = async (
 		const selected = tab.selectedId
 			? findElementContext(read.design, tab.selectedId)
 			: null;
-		return {
+		const payload = {
 			design: getDesignHeader(tab.designFileId, read),
 			board: board
 				? { id: board.id, name: getNodeName(board) ?? null }
@@ -111,19 +111,36 @@ const describeEditorView = async (
 					: null,
 			...view,
 		};
+		return {
+			payload,
+			read: {
+				designId: tab.designFileId,
+				design: read.design,
+				selectedElementId: selected ? selected.element.id : null,
+			},
+		};
 	} catch {
 		// Unsaved or deleted designs: report what the tab says.
 		return {
-			design: { id: tab.designFileId, missing: true },
-			board: tab.activeBoardId ? { id: tab.activeBoardId } : null,
-			selected: tab.selectedId ? { id: tab.selectedId } : null,
-			...view,
+			payload: {
+				design: { id: tab.designFileId, missing: true },
+				board: tab.activeBoardId ? { id: tab.activeBoardId } : null,
+				selected: tab.selectedId ? { id: tab.selectedId } : null,
+				...view,
+			},
+			read: null,
 		};
 	}
 };
 
 export const registerEditorTools = (ctx: McpToolContext) => {
-	const { server, trickroomHome, editorChannel, withPolicyErrorHandling } = ctx;
+	const {
+		server,
+		annotations,
+		trickroomHome,
+		editorChannel,
+		withPolicyErrorHandling,
+	} = ctx;
 	const channelOptions = trickroomHome ? { home: trickroomHome } : {};
 
 	server.registerTool(
@@ -157,14 +174,25 @@ export const registerEditorTools = (ctx: McpToolContext) => {
 							: {},
 					);
 				}
-				return createJsonResult({
+				const view = await describeEditorView(context, result.focused);
+				const payload = createJsonResult({
 					status: "ok",
 					project: getProjectReference(context),
-					...(await describeEditorView(context, result.focused)),
+					...view.payload,
 					...(result.clients.length > 1
 						? { otherTabs: result.clients.length - 1 }
 						: {}),
 				});
+				// Counts for the open design and the selected layer, and new
+				// annotations in full.
+				return view.read
+					? annotations.withAnnotations(payload, context, {
+							designId: view.read.designId,
+							design: view.read.design,
+							selectedElementId: view.read.selectedElementId,
+							includeCounts: true,
+						})
+					: payload;
 			}),
 	);
 

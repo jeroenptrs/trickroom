@@ -202,6 +202,53 @@ export type DesignFileWrite = {
 	deletedBoardIds: string[];
 };
 
+/** What an after-write step sees: the stored design before, and the write. */
+export type DesignAfterWriteContext = {
+	/** The design as stored before this write; null for a new design. */
+	before: TrickroomDesign | null;
+	write: DesignFileWrite;
+};
+
+export type DesignWriteOptions = {
+	/**
+	 * Runs under the design lock right after the write is stored, before the
+	 * lock is released, and never when the write fails (a revision mismatch,
+	 * a validation error). An error it throws is logged and does not fail
+	 * the write, which has already happened. Annotation change records use
+	 * it (see `createAddressesRecorder` in `annotation-service.ts`).
+	 */
+	afterWrite?: (context: DesignAfterWriteContext) => Promise<void>;
+	/**
+	 * Wraps the store itself, under the design lock, once the write has been
+	 * planned and passed its revision check. It must call `store` at most
+	 * once: that writes the design and returns the write. Throwing before
+	 * calling it refuses the write (nothing is stored, the error
+	 * propagates); throwing after it propagates too, with the design
+	 * written. For a write that has to hold another lock across the design
+	 * write and a follow-up write, and check that other file before the
+	 * design changes (annotation revert).
+	 */
+	aroundStore?: (
+		store: () => Promise<DesignAfterWriteContext>,
+	) => Promise<void>;
+};
+
+/** Thrown by `writeDesignFile` when `aroundStore` returned without storing. */
+export class DesignWriteNotStoredError extends Error {
+	constructor(designId: string) {
+		super(`The write to design ${designId} was not stored.`);
+		this.name = "DesignWriteNotStoredError";
+	}
+}
+
+type StoredDesignWrite = {
+	design: TrickroomDesign;
+	plan: DesignWritePlan | null;
+	operations: DesignFileOperations;
+	/** Revision parts, when already computed under the lock. */
+	parts: DesignRevisionParts | null;
+};
+
 export type RevisionCheck = {
 	/**
 	 * The revision the caller read. Boards (and the manifest) the caller
@@ -243,6 +290,15 @@ export type DesignFileUpdate<
 	prepare?: (design: TrickroomDesign) => Promise<TrickroomDesign>;
 	/** Reads the design; defaults to `readDesignFile`. */
 	read?: () => Promise<DesignFileRead>;
+	/**
+	 * Runs under the design lock once the write is stored, never when it is
+	 * skipped or refused (see `DesignWriteOptions.afterWrite`).
+	 */
+	afterWrite?: (
+		context: DesignAfterWriteContext & { result: Result },
+	) => Promise<void>;
+	/** See `DesignWriteOptions.aroundStore`. */
+	aroundStore?: DesignWriteOptions["aroundStore"];
 };
 
 export type DesignFileUpdateOutcome<Result, Skip> =
@@ -1368,9 +1424,28 @@ export class DesignFileService {
 		designId: string,
 		design: unknown,
 		revisionCheck: RevisionCheck = {},
+		{ afterWrite, aroundStore }: DesignWriteOptions = {},
 	): Promise<DesignFileWrite> {
 		const paths = this.getDesignPaths(designId);
 		const incoming = withoutStorageVersion(prepareDesignForStorage(design));
+
+		const describeWrite = (
+			written: Pick<StoredDesignWrite, "design" | "plan">,
+			parts: DesignRevisionParts,
+		): DesignFileWrite => {
+			return {
+				...this.describeLocation(paths, "folder"),
+				uuid: designId,
+				design: written.design,
+				revision: encodeDesignRevision(parts),
+				boards: parts.boards,
+				merged: written.plan?.merged ?? false,
+				changedBoardIds:
+					written.plan?.changedBoardIds ??
+					written.design.boards.map((board) => board.id),
+				deletedBoardIds: written.plan?.deletedBoardIds ?? [],
+			};
+		};
 
 		const written = await this.withDesignLock(designId, async () => {
 			const current = await this.readForWrite(paths, incoming);
@@ -1413,31 +1488,67 @@ export class DesignFileService {
 					? this.now().toISOString()
 					: current?.design?.updatedAt,
 			);
-			const operations = await this.storeDesign(
-				paths,
-				current,
-				next,
-				plan,
-				current?.serialized,
-			);
-			return { design: next, plan, operations };
+			let stored: StoredDesignWrite | null = null;
+			const store = async (): Promise<DesignAfterWriteContext> => {
+				if (stored) {
+					throw new Error(`Design ${designId} was already stored.`);
+				}
+				const operations = await this.storeDesign(
+					paths,
+					current,
+					next,
+					plan,
+					current?.serialized,
+				);
+				const parts =
+					afterWrite || aroundStore
+						? (plan?.revisions ?? getDesignRevisionParts(next))
+						: null;
+				stored = { design: next, plan, operations, parts };
+				return {
+					before: current?.design ?? null,
+					write: describeWrite(
+						stored,
+						parts ?? plan?.revisions ?? getDesignRevisionParts(next),
+					),
+				};
+			};
+			let context: DesignAfterWriteContext | null = null;
+			if (aroundStore) {
+				await aroundStore(async () => {
+					context = await store();
+					return context;
+				});
+			} else if (afterWrite) {
+				context = await store();
+			} else {
+				await store();
+			}
+			if (!stored) {
+				throw new DesignWriteNotStoredError(designId);
+			}
+			if (afterWrite && context) {
+				// Still under the design lock, after the write landed: work
+				// that must follow this write and precede the next one. Its
+				// failure does not undo the write.
+				try {
+					await afterWrite(context);
+				} catch (error) {
+					console.error(
+						`After-write step for design ${designId} failed`,
+						error,
+					);
+				}
+			}
+			return stored as StoredDesignWrite;
 		});
 		this.deleteCachedSummary(paths);
 		const parts =
-			written.plan?.revisions ?? getDesignRevisionParts(written.design);
+			written.parts ??
+			written.plan?.revisions ??
+			getDesignRevisionParts(written.design);
 		this.rememberStoredBoards(paths, written.operations, parts);
-		return {
-			...this.describeLocation(paths, "folder"),
-			uuid: designId,
-			design: written.design,
-			revision: encodeDesignRevision(parts),
-			boards: parts.boards,
-			merged: written.plan?.merged ?? false,
-			changedBoardIds:
-				written.plan?.changedBoardIds ??
-				written.design.boards.map((board) => board.id),
-			deletedBoardIds: written.plan?.deletedBoardIds ?? [],
-		};
+		return describeWrite(written, parts);
 	}
 
 	/**
@@ -1670,10 +1781,21 @@ export class DesignFileService {
 			? await update.prepare(result.design)
 			: result.design;
 		try {
-			const write = await this.writeDesignFile(designId, design, {
-				expectedRevision: update.expectedRevision,
-				baseRevision: read.revision,
-			});
+			const { afterWrite, aroundStore } = update;
+			const write = await this.writeDesignFile(
+				designId,
+				design,
+				{
+					expectedRevision: update.expectedRevision,
+					baseRevision: read.revision,
+				},
+				{
+					...(afterWrite
+						? { afterWrite: (context) => afterWrite({ ...context, result }) }
+						: {}),
+					...(aroundStore ? { aroundStore } : {}),
+				},
+			);
 			return { status: "written", read, result, write };
 		} catch (error) {
 			if (

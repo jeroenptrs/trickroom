@@ -17,9 +17,11 @@ import {
 	getElementRecipeMetadata,
 	isRecipeRoot,
 } from "../../recipes/ownership";
+import { isLiveAnnotationStatus } from "../../services/annotation-model";
 import {
 	type DesignEntity,
 	designStore,
+	selectElement,
 	setSystemComponentOverrideAssetId,
 	setSystemComponentOverrideClassName,
 	setSystemComponentOverrideIconId,
@@ -32,6 +34,12 @@ import {
 	useDesignSystemId,
 	useSelectedElement,
 } from "../../stores/design-store";
+import {
+	editorAnnotationsStore,
+	type InspectorTab,
+	setInspectorTab,
+	useInspectorTab,
+} from "../../stores/editor-annotations-store";
 import type {
 	ControlDefinition,
 	JsonPrimitive,
@@ -54,12 +62,22 @@ import type {
 	PublishedSystemComponentVersion,
 	SystemComponentOverrideCapability,
 } from "../../utils/system-components";
+import { DesignAnnotationsPanel } from "../annotations/DesignAnnotationsPanel";
 import { useProjectScope } from "../contexts";
+import {
+	getStageLayerAncestry,
+	isSameStageLayerAncestry,
+} from "../stage/stage-interaction";
+import {
+	designLayerTree,
+	getDesignLayerName,
+} from "../stage/stage-selection-sources";
 import { Button } from "../ui/button";
 import { InputField } from "../ui/input";
 import { Kbd } from "../ui/kbd";
 import { ScrollArea } from "../ui/scroll-area";
 import { Switch } from "../ui/switch";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "../ui/tabs";
 import { Text } from "../ui/text";
 import {
 	AttachedComponentProperties,
@@ -76,6 +94,7 @@ import {
 	useElementLintFindings,
 } from "./DesignLintFindings";
 import { DesignSystemPicker } from "./DesignSystemPicker";
+import { LayerBreadcrumb } from "./LayerBreadcrumb";
 
 type ComponentControlProps = {
 	elementId: string;
@@ -146,14 +165,6 @@ export function splitComponentControls(controls: ControlDefinition[]) {
 	return { contentControls, propertyControls };
 }
 
-function getElementTitle(element: DesignEntity) {
-	const name = element.props["data-trickroom-name"];
-	return (
-		(typeof name === "string" ? name.trim() : "") ||
-		element.props["data-trickroom-component"]
-	);
-}
-
 function getElementSubtitle(element: DesignEntity) {
 	return [
 		`${element.props["data-trickroom-library"]}/${element.props["data-trickroom-component"]}`,
@@ -183,13 +194,86 @@ function InspectorHeader({ element }: { element: DesignEntity }) {
 			<InspectorGlyph element={element} />
 			<div className="flex min-w-0 flex-1 flex-col">
 				<span className="truncate text-[13px] font-medium text-slate-950">
-					{getElementTitle(element)}
+					{getDesignLayerName(element)}
 				</span>
 				<span className="truncate text-[10px] text-slate-400">
 					{getElementSubtitle(element)}
 				</span>
 			</div>
 		</header>
+	);
+}
+
+function DesignLayerBreadcrumb() {
+	const crumbs = useSelector(
+		designStore,
+		(state) => getStageLayerAncestry(designLayerTree(state), state.selectedId),
+		{ compare: isSameStageLayerAncestry },
+	);
+	return <LayerBreadcrumb crumbs={crumbs} onSelect={selectElement} />;
+}
+
+/**
+ * Annotations on the selection as the rail counts them (a board counts its
+ * layers'), or every live one in the design with nothing selected.
+ */
+function useSelectionAnnotationCount() {
+	const selection = useSelector(designStore, (state) => {
+		const id = state.selectedId;
+		if (!id) return null;
+		return state.entitiesById[id]?.parentId === null ? `board:${id}` : id;
+	});
+	return useSelector(editorAnnotationsStore, (state) => {
+		if (selection === null) {
+			return Object.values(state.byId).filter((annotation) =>
+				isLiveAnnotationStatus(annotation.status),
+			).length;
+		}
+		return selection.startsWith("board:")
+			? (state.markers.boards[selection.slice(6)]?.count ?? 0)
+			: (state.markers.layers[selection]?.count ?? 0);
+	});
+}
+
+/**
+ * The inspector's two tabs: the layer's (or design's) properties, and its
+ * annotations. Pins, rail markers and the command menu switch to the
+ * Annotations tab through `editorAnnotationsStore`.
+ */
+function InspectorTabs({
+	designId,
+	children,
+}: {
+	designId?: string;
+	children: ReactNode;
+}) {
+	const tab = useInspectorTab();
+	const count = useSelectionAnnotationCount();
+	if (!designId) {
+		return children;
+	}
+	return (
+		<Tabs
+			value={tab}
+			onValueChange={(value) => setInspectorTab(value as InspectorTab)}
+			className="min-h-0 flex-1 gap-0"
+		>
+			<TabsList className="shrink-0 px-2">
+				<TabsTab value="properties">Properties</TabsTab>
+				<TabsTab value="annotations" className="flex items-center gap-1.5">
+					Annotations
+					{count > 0 ? (
+						<span className="font-mono text-xs text-slate-500">{count}</span>
+					) : null}
+				</TabsTab>
+			</TabsList>
+			<TabsPanel value="properties" className="flex min-h-0 flex-1 flex-col">
+				{children}
+			</TabsPanel>
+			<TabsPanel value="annotations" className="flex min-h-0 flex-1 flex-col">
+				<DesignAnnotationsPanel designId={designId} />
+			</TabsPanel>
+		</Tabs>
 	);
 }
 
@@ -703,14 +787,16 @@ export function Properties({ designId }: { designId?: string } = {}) {
 						Design
 					</Text>
 				</header>
-				<ScrollArea className="min-h-0 flex-1">
-					<div className="flex flex-col gap-4 p-3">
-						<StagePreviewDarkModeToggle />
-						<DesignSystemPicker />
-						{designId ? <DesignLintSummary designId={designId} /> : null}
-						<EmptyStateKbdMap />
-					</div>
-				</ScrollArea>
+				<InspectorTabs designId={designId}>
+					<ScrollArea className="min-h-0 flex-1">
+						<div className="flex flex-col gap-4 p-3">
+							<StagePreviewDarkModeToggle />
+							<DesignSystemPicker />
+							{designId ? <DesignLintSummary designId={designId} /> : null}
+							<EmptyStateKbdMap />
+						</div>
+					</ScrollArea>
+				</InspectorTabs>
 			</div>
 		);
 	}
@@ -809,231 +895,234 @@ export function Properties({ designId }: { designId?: string } = {}) {
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<InspectorHeader element={selectedElement} />
-			<ScrollArea className="min-h-0 flex-1">
-				<div className="flex flex-col divide-y divide-slate-200">
-					{lintFindings.length > 0 ? (
-						<InspectorSection title="Lint">
-							<DesignLintFindingList findings={lintFindings} />
+			<DesignLayerBreadcrumb />
+			<InspectorTabs designId={designId}>
+				<ScrollArea className="min-h-0 flex-1">
+					<div className="flex flex-col divide-y divide-slate-200">
+						{lintFindings.length > 0 ? (
+							<InspectorSection title="Lint">
+								<DesignLintFindingList findings={lintFindings} />
+							</InspectorSection>
+						) : null}
+						<InspectorSection
+							title={classOverride ? "Instance classes" : "Classes"}
+						>
+							{canEditClassName ? (
+								<ClassCompositionPanel
+									// Keyed per layer so an open draft never carries across selections.
+									key={selectedElement.id}
+									className={className}
+									layers={classInventoryLayers}
+									systemId={systemId}
+									label={classOverride ? "Instance" : "Classes"}
+									onChangeClassName={onChangeClassName}
+								/>
+							) : (
+								<p className="text-xs text-slate-500">
+									Class editing is locked for component-owned layers. This layer
+									has no published className override.
+								</p>
+							)}
 						</InspectorSection>
-					) : null}
-					<InspectorSection
-						title={classOverride ? "Instance classes" : "Classes"}
-					>
-						{canEditClassName ? (
-							<ClassCompositionPanel
-								// Keyed per layer so an open draft never carries across selections.
-								key={selectedElement.id}
-								className={className}
-								layers={classInventoryLayers}
-								systemId={systemId}
-								label={classOverride ? "Instance" : "Classes"}
-								onChangeClassName={onChangeClassName}
-							/>
-						) : (
-							<p className="text-xs text-slate-500">
-								Class editing is locked for component-owned layers. This layer
-								has no published className override.
-							</p>
-						)}
-					</InspectorSection>
-					{hasAttachedComponentContext ? (
-						<AttachedComponentProperties inspection={attachedInspection} />
-					) : null}
-					{hasContentControls ? (
-						<InspectorSection title="Content">
-							{(canFreelyEdit && selectedElement.role === "text") ||
-							textOverride ? (
-								<InputField
-									type="text"
-									label="Content"
-									value={
-										textOverride ? textOverride.value : selectedElement.text
-									}
-									onChange={(event) => {
-										const next = event.currentTarget.value;
-										if (textOverride) {
-											setSystemComponentOverrideText(
-												textOverride.rootElementId,
-												textOverride.version,
-												textOverride.targetId,
-												next,
-											);
-											return;
+						{hasAttachedComponentContext ? (
+							<AttachedComponentProperties inspection={attachedInspection} />
+						) : null}
+						{hasContentControls ? (
+							<InspectorSection title="Content">
+								{(canFreelyEdit && selectedElement.role === "text") ||
+								textOverride ? (
+									<InputField
+										type="text"
+										label="Content"
+										value={
+											textOverride ? textOverride.value : selectedElement.text
 										}
-										updateElementText(selectedElement.id, next);
-									}}
-								/>
-							) : null}
-							{(canFreelyEdit && assetControl) || assetOverride ? (
-								<AssetPicker
-									elementId={selectedElement.id}
-									label={assetControl?.label ?? "Asset"}
-									value={
-										assetOverride
-											? assetOverride.value
-											: typeof selectedElement.props[assetIdProp] === "string"
-												? selectedElement.props[assetIdProp]
-												: ""
-									}
-									onChange={
-										assetOverride
-											? (assetId) =>
-													setSystemComponentOverrideAssetId(
-														assetOverride.rootElementId,
-														assetOverride.version,
-														assetOverride.targetId,
-														assetId,
-													)
-											: undefined
-									}
-								/>
-							) : null}
-							{(canFreelyEdit && iconControl) || iconOverride ? (
-								<IconPicker
-									elementId={selectedElement.id}
-									label={iconControl?.label ?? "Icon"}
-									value={
-										iconOverride
-											? iconOverride.value
-											: typeof selectedElement.props[iconIdProp] === "string"
-												? selectedElement.props[iconIdProp]
-												: ""
-									}
-									onChange={
-										iconOverride
-											? (iconId) =>
-													setSystemComponentOverrideIconId(
-														iconOverride.rootElementId,
-														iconOverride.version,
-														iconOverride.targetId,
-														iconId,
-													)
-											: undefined
-									}
-								/>
-							) : null}
-							{visibleContentControls.map((control) => {
-								const binding = propOverrideBindings[control.prop];
-								return (
-									<div key={control.prop} className="flex flex-col gap-1">
-										<ComponentControl
-											elementId={selectedElement.id}
-											control={control}
-											value={
-												binding?.isOverridden
-													? binding.value
-													: selectedElement.props[control.prop]
+										onChange={(event) => {
+											const next = event.currentTarget.value;
+											if (textOverride) {
+												setSystemComponentOverrideText(
+													textOverride.rootElementId,
+													textOverride.version,
+													textOverride.targetId,
+													next,
+												);
+												return;
 											}
-											onChange={
-												binding
-													? (value) =>
-															setSystemComponentOverrideProp(
-																binding.rootElementId,
-																binding.version,
-																binding.targetId,
-																binding.prop,
-																value,
-															)
-													: undefined
-											}
-										/>
-										{binding?.isOverridden ? (
-											<button
-												type="button"
-												className="self-end text-[11px] text-slate-500 hover:text-slate-900"
-												onClick={() =>
-													setSystemComponentOverrideProp(
-														binding.rootElementId,
-														binding.version,
-														binding.targetId,
-														binding.prop,
-														undefined,
-													)
-												}
-											>
-												Reset
-											</button>
-										) : null}
-									</div>
-								);
-							})}
-						</InspectorSection>
-					) : null}
-					{visiblePropertyControls.length > 0 ? (
-						<InspectorSection title="Component">
-							{visiblePropertyControls.map((control) => {
-								const binding = propOverrideBindings[control.prop];
-								return (
-									<div key={control.prop} className="flex flex-col gap-1">
-										<ComponentControl
-											elementId={selectedElement.id}
-											control={control}
-											value={
-												binding?.isOverridden
-													? binding.value
-													: selectedElement.props[control.prop]
-											}
-											onChange={
-												binding
-													? (value) =>
-															setSystemComponentOverrideProp(
-																binding.rootElementId,
-																binding.version,
-																binding.targetId,
-																binding.prop,
-																value,
-															)
-													: undefined
-											}
-										/>
-										{binding?.isOverridden ? (
-											<button
-												type="button"
-												className="self-end text-[11px] text-slate-500 hover:text-slate-900"
-												onClick={() =>
-													setSystemComponentOverrideProp(
-														binding.rootElementId,
-														binding.version,
-														binding.targetId,
-														binding.prop,
-														undefined,
-													)
-												}
-											>
-												Reset
-											</button>
-										) : null}
-									</div>
-								);
-							})}
-						</InspectorSection>
-					) : null}
-					{canFreelyEdit && recipeControlTargets.length > 0 ? (
-						<InspectorSection title="Recipe">
-							{recipeControlTargets.map(({ control, elementId, value }) => (
-								<ComponentControl
-									key={`${control.path}:${control.prop}`}
-									elementId={elementId}
-									control={control}
-									value={value}
-									onChange={(nextValue) => {
-										const instanceId =
-											selectedElement.props["data-trickroom-recipe-instance"];
-										if (typeof instanceId === "string") {
-											updateRecipeControl(
-												instanceId,
-												control.path,
-												control.prop,
-												nextValue,
-											);
+											updateElementText(selectedElement.id, next);
+										}}
+									/>
+								) : null}
+								{(canFreelyEdit && assetControl) || assetOverride ? (
+									<AssetPicker
+										elementId={selectedElement.id}
+										label={assetControl?.label ?? "Asset"}
+										value={
+											assetOverride
+												? assetOverride.value
+												: typeof selectedElement.props[assetIdProp] === "string"
+													? selectedElement.props[assetIdProp]
+													: ""
 										}
-									}}
-								/>
-							))}
-						</InspectorSection>
-					) : null}
-				</div>
-			</ScrollArea>
+										onChange={
+											assetOverride
+												? (assetId) =>
+														setSystemComponentOverrideAssetId(
+															assetOverride.rootElementId,
+															assetOverride.version,
+															assetOverride.targetId,
+															assetId,
+														)
+												: undefined
+										}
+									/>
+								) : null}
+								{(canFreelyEdit && iconControl) || iconOverride ? (
+									<IconPicker
+										elementId={selectedElement.id}
+										label={iconControl?.label ?? "Icon"}
+										value={
+											iconOverride
+												? iconOverride.value
+												: typeof selectedElement.props[iconIdProp] === "string"
+													? selectedElement.props[iconIdProp]
+													: ""
+										}
+										onChange={
+											iconOverride
+												? (iconId) =>
+														setSystemComponentOverrideIconId(
+															iconOverride.rootElementId,
+															iconOverride.version,
+															iconOverride.targetId,
+															iconId,
+														)
+												: undefined
+										}
+									/>
+								) : null}
+								{visibleContentControls.map((control) => {
+									const binding = propOverrideBindings[control.prop];
+									return (
+										<div key={control.prop} className="flex flex-col gap-1">
+											<ComponentControl
+												elementId={selectedElement.id}
+												control={control}
+												value={
+													binding?.isOverridden
+														? binding.value
+														: selectedElement.props[control.prop]
+												}
+												onChange={
+													binding
+														? (value) =>
+																setSystemComponentOverrideProp(
+																	binding.rootElementId,
+																	binding.version,
+																	binding.targetId,
+																	binding.prop,
+																	value,
+																)
+														: undefined
+												}
+											/>
+											{binding?.isOverridden ? (
+												<button
+													type="button"
+													className="self-end text-[11px] text-slate-500 hover:text-slate-900"
+													onClick={() =>
+														setSystemComponentOverrideProp(
+															binding.rootElementId,
+															binding.version,
+															binding.targetId,
+															binding.prop,
+															undefined,
+														)
+													}
+												>
+													Reset
+												</button>
+											) : null}
+										</div>
+									);
+								})}
+							</InspectorSection>
+						) : null}
+						{visiblePropertyControls.length > 0 ? (
+							<InspectorSection title="Component">
+								{visiblePropertyControls.map((control) => {
+									const binding = propOverrideBindings[control.prop];
+									return (
+										<div key={control.prop} className="flex flex-col gap-1">
+											<ComponentControl
+												elementId={selectedElement.id}
+												control={control}
+												value={
+													binding?.isOverridden
+														? binding.value
+														: selectedElement.props[control.prop]
+												}
+												onChange={
+													binding
+														? (value) =>
+																setSystemComponentOverrideProp(
+																	binding.rootElementId,
+																	binding.version,
+																	binding.targetId,
+																	binding.prop,
+																	value,
+																)
+														: undefined
+												}
+											/>
+											{binding?.isOverridden ? (
+												<button
+													type="button"
+													className="self-end text-[11px] text-slate-500 hover:text-slate-900"
+													onClick={() =>
+														setSystemComponentOverrideProp(
+															binding.rootElementId,
+															binding.version,
+															binding.targetId,
+															binding.prop,
+															undefined,
+														)
+													}
+												>
+													Reset
+												</button>
+											) : null}
+										</div>
+									);
+								})}
+							</InspectorSection>
+						) : null}
+						{canFreelyEdit && recipeControlTargets.length > 0 ? (
+							<InspectorSection title="Recipe">
+								{recipeControlTargets.map(({ control, elementId, value }) => (
+									<ComponentControl
+										key={`${control.path}:${control.prop}`}
+										elementId={elementId}
+										control={control}
+										value={value}
+										onChange={(nextValue) => {
+											const instanceId =
+												selectedElement.props["data-trickroom-recipe-instance"];
+											if (typeof instanceId === "string") {
+												updateRecipeControl(
+													instanceId,
+													control.path,
+													control.prop,
+													nextValue,
+												);
+											}
+										}}
+									/>
+								))}
+							</InspectorSection>
+						) : null}
+					</div>
+				</ScrollArea>
+			</InspectorTabs>
 		</div>
 	);
 }

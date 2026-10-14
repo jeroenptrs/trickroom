@@ -28,6 +28,7 @@ export const DESIGN_GUIDE_TOPIC_NAMES = [
 	"overlays",
 	"validation",
 	"memory",
+	"annotations",
 	"examples",
 ] as const;
 
@@ -58,7 +59,8 @@ const CORE_WORKFLOW = [
 	`Read: the design block below has the revision and boards; ${TOOL.designRead} with view "outline" gives structure and ids, with elementId the detail. If memoryNotes counts are non-zero, ${TOOL.memoryRead}({ designFileId }) and read the notes that bear on your task. When the human points at "this", ${TOOL.editorContext} says what they have open and selected.`,
 	`Write in batches: ${TOOL.designApply} runs ordered steps atomically and returns one newRevision. Steps reference elements created by earlier steps with $step:N:tempId:<tempId> or $step:N:slot:<slot>. Prefer a system component (it carries the system's styling), then a recipe, then hand-built elements.`,
 	`Check: fix warnings the write returns. ${TOOL.designScreenshot} the changed boards with viewport: ["mobile", "tablet", "desktop"] in one call and look at the images (scale: 1 for fine detail). Then ${TOOL.designValidate}, and ${TOOL.editorFocus} to show the human what changed.`,
-	`Report tool trouble: when a Trickroom tool blocked or misled you, returned something unusable, or lacked a capability you needed, call ${TOOL.feedbackSubmit} with a one-line summary (your recent calls are attached). Not for design content questions.`,
+	`Annotations: remarks the designer anchors to a design, board or layer for you. Results show new ones in \`annotations\` (once in full, then as ids and counts); address each in the ${TOOL.designApply} that makes the change with addresses: [{ annotationId, reply }], ask with ${TOOL.annotationReply} question, and resolve only when asked. Topic "annotations" has the loop.`,
+	`Report tool trouble: when a Trickroom tool blocked or misled you, returned something unusable, or lacked a capability you needed, call ${TOOL.feedbackSubmit} with a one-line summary (your recent calls are attached). Not for design content questions or annotations.`,
 ];
 
 const CORE_EXAMPLE = {
@@ -366,6 +368,37 @@ const buildMemoryTopic = async (input: DesignGuideInput) => ({
 	noteCounts: await input.readMemoryCounts(),
 });
 
+const buildAnnotationsTopic = () => ({
+	what: "Annotations are remarks a designer anchors to a design, a board or a layer (or a system component's template node) in the Trickroom editor and sends to you. Each is a thread: the designer's remark, then entries (your replies, questions, change records, their answers). They are per-user working state outside the project, never committed; decisions worth keeping become memory notes.",
+	statuses: {
+		open: "Sent by the designer, not yet seen by an agent. Your work.",
+		acknowledged:
+			"An agent session has seen it in full (possibly being worked on). Still your work; acknowledged by another session is advisory, never a lock.",
+		needs_input: "You asked a question; waits on the designer.",
+		addressed: "You changed the design for it; waits on the designer's review.",
+		resolved: "Done.",
+		dismissed: "Not doing it, with a reason.",
+	},
+	loop: [
+		`Find them: results of ${TOOL.designRead}, ${TOOL.designApply}, ${TOOL.designValidate}, ${TOOL.designScreenshot} and ${TOOL.editorContext} carry an \`annotations\` block when the design has open work: \`new\` holds annotations you have not seen as they are now, in full (at most 10), then \`openIds\`, \`counts\` and \`next\`, the exact follow-up call. Seen ones come back only as ids, until the designer adds to them. ${TOOL.annotationList}({ designFileId }) lists them all; ${TOOL.projectList} and ${TOOL.designList} count them.`,
+		"Read the target: elementId (a layer) or boardId. snapshot is what the designer was looking at: the names it had (name, path), the design revision, and stageMode with responsiveWidth (a remark made at 375 px is about that width: screenshot it there). detached: the element no longer exists; re-anchor if you replaced it, otherwise ask.",
+		`Address: make the change with ${TOOL.designApply} and pass addresses: [{ annotationId, reply }] in that same call. reply says what you changed. The write and the record go together: the annotation becomes addressed with a change record the designer can reveal and revert, and nothing is recorded when the write is refused. Unknown, other-design or resolved annotations refuse the write before anything happens. If the designer added a remark you had not seen, the change is recorded but the annotation stays your work and the remark comes back in annotations.new. One write that addresses several annotations is one change: reverting it from any of them undoes it for all, so make unrelated remarks separate writes.`,
+		`Ask: when a remark is ambiguous, ${TOOL.annotationReply}({ annotationId, question }) sets needs_input; the designer's answer reopens it and it shows up again in full.`,
+		`Reply without a change: ${TOOL.annotationReply}({ annotationId, body }). Dismiss with a reason when you will not do it: dismiss: { reason }.`,
+		`Resolve only when the designer asks you to (resolve: { summary }); otherwise they resolve after reviewing your change.`,
+		`Re-anchor: copySubtree, detachSystemComponent and component extraction mint new ids and never move annotations, so an annotation on the replaced element shows detached. When you replaced it, ${TOOL.annotationReply}({ annotationId, reanchor: { elementId } }) (or { boardId }) moves it to the new element in the same design; the result has the new target and snapshot, and the status stays. \`next\` lists detached annotations by id.`,
+		`Keep working on the designer's remarks while nothing else is called: ${TOOL.annotationWatch}({ designFileId }) waits for new ones and returns them in full.`,
+	],
+	components: [
+		`On a system component: target is { kind: "componentNode", systemId, componentId, nodePath } where nodePath is the template node's path (stable: inserts and moves keep it). Results of ${TOOL.componentRead} (describe), ${TOOL.componentDraftUpdate} and ${TOOL.componentPublish} carry the same \`annotations\` block; the ${TOOL.componentRead} index counts them per component; ${TOOL.annotationList}({ systemId, componentId }) lists them.`,
+		'target.variants pins a remark to a variant configuration (e.g. { tone: "danger", size: "sm" }): it is about that configuration only, so change the classes of those values (or a compound) rather than the base. Without variants it applies to every configuration. snapshot.variants is what was in view when it was written.',
+		`Address in the draft write that makes the change: ${TOOL.componentDraftUpdate}({ componentId, expectedRevision, root, addresses: [{ annotationId, reply }] }), or with ${TOOL.componentPublish} addresses. Draft changes can be reverted by the designer while the draft is unchanged since; a publish cannot. Detached: the node path (or a pinned value) no longer exists in the draft (or the published template without a draft); re-anchor with ${TOOL.annotationReply}({ annotationId, reanchor: { nodePath } }).`,
+	],
+	branches: `Annotations belong to the git branch checked out where the designer made them. Results and counts show the current branch only; branch: "all" in ${TOOL.annotationList} shows other checkouts'. Replies and addresses refuse another branch's annotations (WRONG_BRANCH); the designer brings one here with "Move here" in the editor.`,
+	deletes: `A deleteElement step that removes an annotated element (or its ancestor) returns an ANNOTATION_TARGET_DELETED warning naming the annotations; they stay, shown as detached. Address them in the same batch, re-anchor them to the element that replaces it (${TOOL.annotationReply} reanchor), or tell the designer.`,
+	notFeedback: `${TOOL.feedbackSubmit} is for problems with Trickroom's tools, not for annotations.`,
+});
+
 const buildExamplesTopic = () => [
 	{
 		task: "New design with one responsive screen",
@@ -617,6 +650,11 @@ export const DESIGN_GUIDE_TOPICS: readonly GuideTopic<
 		name: "memory",
 		when: "Reading and writing memory notes.",
 		build: buildMemoryTopic,
+	},
+	{
+		name: "annotations",
+		when: "Acting on the designer's annotations: finding, addressing, asking, resolving.",
+		build: buildAnnotationsTopic,
 	},
 	{
 		name: "examples",

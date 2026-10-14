@@ -16,6 +16,8 @@ import { useHotkey, useKeyHold } from "@tanstack/react-hotkeys";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	ChevronRight,
+	Eye,
+	EyeOff,
 	Frame,
 	PanelTopOpen,
 	Plus,
@@ -51,16 +53,27 @@ import {
 	useSelectedElement,
 } from "../../stores/design-store";
 import {
+	setShowResolvedAnnotations,
+	useAnnotationRowMarker,
+	useShowResolvedAnnotations,
+} from "../../stores/editor-annotations-store";
+import {
 	useBoardChangedExternally,
 	useLayerChangedExternally,
 } from "../../stores/external-change-store";
 import { useStageReveal } from "../../stores/stage-view-store";
 import {
+	ANNOTATION_MARKER_LOOK,
+	ANNOTATION_STATE_LABELS,
+} from "../../utils/annotation-presentation";
+import {
 	getKey,
 	getShortcutPlacementIntent,
 	hasCommandModifier,
+	isEnterActivatedTarget,
 	isPeriodKey,
 	isShortcutLetter,
+	LAYER_ROW_ATTRIBUTE,
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
 import { layerDropInsertionIndex } from "../../utils/reorder-insertion-index";
@@ -69,6 +82,9 @@ import {
 	isSystemComponentRoot,
 	isSystemComponentSlotHost,
 } from "../../utils/system-component-ownership";
+import { showDesignAnnotationsFor } from "../annotations/design-annotation-navigation";
+import { useDesignAnnotationCommands } from "../annotations/useDesignAnnotationCommands";
+import { AnnotationMarker } from "../ui/annotation-marker";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import {
@@ -88,6 +104,7 @@ import {
 } from "./AddLayerCommandMenu";
 import { LayerContextMenu } from "./LayerContextMenu";
 import { type PlacementIntent, useLayerInsertion } from "./useLayerInsertion";
+import { useLayerSelectionReveal } from "./useLayerSelectionReveal";
 
 type LayerDragData = {
 	type: "trickroom-layer";
@@ -305,7 +322,7 @@ export function getBlockedDropInstructions(
 	return blockedInstructions;
 }
 
-const Layer = memo(function Layer({
+export const Layer = memo(function Layer({
 	id,
 	depth,
 	designId,
@@ -318,6 +335,10 @@ const Layer = memo(function Layer({
 }: LayerProps) {
 	const [isEditing, setIsEditing] = useState(false);
 	const [draftName, setDraftName] = useState("");
+	// Whether a rename is still open to commit. Ends synchronously on commit,
+	// cancel and deselection, so a blur that follows (the input unmounting,
+	// a stage press) cannot commit a draft twice or after Escape.
+	const renamingRef = useRef(false);
 	const [dragging, setDragging] = useState(false);
 	const [dropIntent, setDropIntent] = useState<LayerDropIntent["type"] | null>(
 		null,
@@ -330,6 +351,7 @@ const Layer = memo(function Layer({
 	const boardChangedExternally = useBoardChangedExternally(id);
 	const changedExternally = useLayerChangedExternally(id);
 	const hasChildren = layer.childIds.length > 0;
+	const annotationMarker = useAnnotationRowMarker(id, hasChildren && !open);
 	const isRecipeOwned = isRecipeOwnedStructuralNode(entity);
 	const isComponentOwned = isSystemComponentOwnedStructuralNode(entity);
 	const recipeMetadata = getElementRecipeMetadata(entity);
@@ -351,10 +373,15 @@ const Layer = memo(function Layer({
 	const editLayer = useCallback(() => {
 		selectLayer();
 		setDraftName(layer.name);
+		renamingRef.current = true;
 		setIsEditing(true);
 	}, [layer.name, selectLayer]);
 
 	const commitLayerName = useCallback(() => {
+		if (!renamingRef.current) {
+			return;
+		}
+		renamingRef.current = false;
 		const nextName = draftName.trim() || "Layer";
 		setIsEditing(false);
 
@@ -364,6 +391,7 @@ const Layer = memo(function Layer({
 	}, [draftName, layer.id, layer.name]);
 
 	const cancelLayerName = useCallback(() => {
+		renamingRef.current = false;
 		setDraftName(layer.name);
 		setIsEditing(false);
 	}, [layer.name]);
@@ -382,6 +410,7 @@ const Layer = memo(function Layer({
 
 	useEffect(() => {
 		if (!layer.isSelected) {
+			renamingRef.current = false;
 			setIsEditing(false);
 		}
 	}, [layer.isSelected]);
@@ -574,6 +603,7 @@ const Layer = memo(function Layer({
 					{!isEditing ? (
 						<UnstyledButton
 							ref={labelRef}
+							{...{ [LAYER_ROW_ATTRIBUTE]: "" }}
 							className={`min-w-0 flex-1 text-start ${canDragLayer ? "active:cursor-grabbing" : ""}`}
 							onClick={selectLayer}
 							onDoubleClick={editLayer}
@@ -602,6 +632,9 @@ const Layer = memo(function Layer({
 							className={className}
 							onKeyDown={onInputKeyDown}
 							onChange={(event) => setDraftName(event.target.value)}
+							// A press on the stage iframe never reaches the outside-press
+							// listener above; it moves focus, so blur commits.
+							onBlur={commitLayerName}
 						/>
 					)}
 					{layer.parentId === null && boardChangedExternally ? (
@@ -621,11 +654,45 @@ const Layer = memo(function Layer({
 							data-changed-externally="layer"
 						/>
 					) : null}
+					{annotationMarker ? (
+						<UnstyledButton
+							className="ml-1 flex shrink-0 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
+							data-annotation-marker={annotationMarker.state}
+							aria-label={`${annotationMarker.count} ${annotationMarker.count === 1 ? "annotation" : "annotations"} (${ANNOTATION_STATE_LABELS[annotationMarker.state].toLowerCase()}): show`}
+							title={`${annotationMarker.count} ${annotationMarker.count === 1 ? "annotation" : "annotations"}${layer.parentId === null ? " on this board" : hasChildren && !open ? " on this layer and inside it" : ""}: ${ANNOTATION_STATE_LABELS[annotationMarker.state].toLowerCase()}`}
+							onClick={() => showDesignAnnotationsFor(layer.id)}
+						>
+							<AnnotationMarker
+								look={ANNOTATION_MARKER_LOOK[annotationMarker.state]}
+								count={annotationMarker.count}
+							/>
+						</UnstyledButton>
+					) : null}
 				</div>
 			</LayerContextMenu>
 		</div>
 	);
 });
+
+/** Shows resolved and dismissed annotations on the rail and the stage. */
+function ShowResolvedToggle() {
+	const showResolved = useShowResolvedAnnotations();
+	const Icon = showResolved ? Eye : EyeOff;
+	return (
+		<Button
+			variant="ghost"
+			aria-pressed={showResolved}
+			className="mt-2 flex items-center gap-1 px-1.5 py-0.5 text-xs"
+			title={
+				showResolved ? "Hide resolved annotations" : "Show resolved annotations"
+			}
+			onClick={() => setShowResolvedAnnotations(!showResolved)}
+		>
+			<Icon aria-hidden="true" className="size-3.5" />
+			Resolved
+		</Button>
+	);
+}
 
 export function Layers({
 	designId,
@@ -646,6 +713,11 @@ export function Layers({
 	const [menuIntent, setMenuIntent] = useState<PlacementIntent>("after");
 	const [editRequestId, setEditRequestId] = useState<string | null>(null);
 	const insertion = useLayerInsertion();
+	const annotationCommands = useDesignAnnotationCommands(designId);
+	const rootCommandGroups = useMemo(
+		() => [annotationCommands],
+		[annotationCommands],
+	);
 	const {
 		addBasicLayer,
 		canInsert,
@@ -829,6 +901,31 @@ export function Layers({
 		layerVirtualizer.scrollToIndex(index, { align: "center" });
 	}, [entitiesById, layerVirtualizer, openById, reveal, visibleLayerRows]);
 
+	// A layer selected elsewhere (the canvas, the inspector breadcrumb) opens
+	// its collapsed ancestors and scrolls into view.
+	const getLayerParentId = useCallback(
+		(id: string) => entitiesById[id]?.parentId ?? null,
+		[entitiesById],
+	);
+	const revealLayerRow = useCallback(
+		(id: string) => {
+			const index = visibleLayerRows.findIndex((row) => row.id === id);
+			if (index === -1) {
+				return false;
+			}
+			layerVirtualizer.scrollToIndex(index);
+			return true;
+		},
+		[layerVirtualizer, visibleLayerRows],
+	);
+	useLayerSelectionReveal({
+		selectedId: selectedElement?.id ?? null,
+		getParentId: getLayerParentId,
+		openMap: openById,
+		setOpenMap: setOpenById,
+		reveal: revealLayerRow,
+	});
+
 	const selectVisibleLayerAtIndex = useCallback(
 		(index: number) => {
 			const row = visibleLayerRows[index];
@@ -907,6 +1004,30 @@ export function Layers({
 		return false;
 	}, [openById, selectedElement]);
 
+	// Enter drills into the first child, opening the row so it shows; the
+	// stage's double-click does the same.
+	const drillIntoSelectedLayer = useCallback(() => {
+		const childId = selectedElement?.childIds?.[0];
+		if (!selectedElement || !childId) {
+			return false;
+		}
+
+		if (openById[selectedElement.id] === false) {
+			setOpenById((current) => ({ ...current, [selectedElement.id]: true }));
+		}
+		selectElement(childId);
+		return true;
+	}, [openById, selectedElement]);
+
+	const selectParentLayer = useCallback(() => {
+		if (!selectedElement?.parentId) {
+			return false;
+		}
+
+		selectElement(selectedElement.parentId);
+		return true;
+	}, [selectedElement]);
+
 	const moveSelectedLayerBy = useCallback(
 		(direction: 1 | -1) => {
 			if (!selectedElement) {
@@ -954,7 +1075,13 @@ export function Layers({
 			const placementIntent = getShortcutPlacementIntent(event);
 			let handled = false;
 
-			if (event.key === "ArrowDown" || key === "j") {
+			if (event.key === "Enter") {
+				if (!event.altKey && !isEnterActivatedTarget(event.target)) {
+					handled = event.shiftKey
+						? selectParentLayer()
+						: drillIntoSelectedLayer();
+				}
+			} else if (event.key === "ArrowDown" || key === "j") {
 				handled = selectRelativeLayer(1);
 			} else if (event.key === "ArrowUp" || key === "k") {
 				handled = selectRelativeLayer(-1);
@@ -997,11 +1124,13 @@ export function Layers({
 		[
 			addBasicLayer,
 			collapseOrSelectParentLayer,
+			drillIntoSelectedLayer,
 			expandOrEnterSelectedLayer,
 			lastAddedRef,
 			moveSelectedLayerBy,
 			openAddLayerMenu,
 			repeatLast,
+			selectParentLayer,
 			selectRelativeLayer,
 			selectVisibleLayerAtIndex,
 			selectedElement,
@@ -1078,15 +1207,19 @@ export function Layers({
 				onPageChange={setMenuPage}
 				intent={menuIntent}
 				insertion={insertion}
+				rootGroups={rootCommandGroups}
 			/>
 			<Separator />
-			<Text
-				variant="label"
-				render={<div />}
-				className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400"
-			>
-				Layers
-			</Text>
+			<div className="flex items-center justify-between pr-2">
+				<Text
+					variant="label"
+					render={<div />}
+					className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400"
+				>
+					Layers
+				</Text>
+				<ShowResolvedToggle />
+			</div>
 			<ScrollArea viewportRef={scrollViewportRef} className="min-h-0 flex-1">
 				<div
 					className="relative w-full"

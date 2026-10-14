@@ -5,6 +5,7 @@ import {
 	type SystemComponentManifestRead,
 	type SystemComponentManifestRevision,
 	SystemComponentManifestServiceError,
+	type WriteSystemComponentManifestOptions,
 	writeSystemComponentManifest,
 } from "./system-component-manifest-service.ts";
 import {
@@ -30,6 +31,8 @@ export type SystemComponentMutationOptions = {
 	expectedDraftTemplateHash?: string;
 	expectedDraftVariantSchemaHash?: string;
 	now?: string;
+	/** See `WriteSystemComponentManifestOptions.aroundWrite`. */
+	aroundWrite?: WriteSystemComponentManifestOptions["aroundWrite"];
 };
 
 export type SystemComponentMutationResult = SystemComponentManifestRead & {
@@ -68,7 +71,8 @@ export class SystemComponentOperationsError extends Error {
 		| "VALIDATION_FAILED"
 		| "DRAFT_HASH_MISMATCH"
 		| "STALE_WRITE"
-		| "SYSTEM_NOT_FOUND";
+		| "SYSTEM_NOT_FOUND"
+		| "MANIFEST_LOCKED";
 
 	constructor(code: SystemComponentOperationsError["code"], message: string) {
 		super(message);
@@ -77,7 +81,8 @@ export class SystemComponentOperationsError extends Error {
 	}
 }
 
-const defaultRootTemplate = (): RecipeTemplateNode => ({
+/** The root a draft gets when it is created without one. */
+export const defaultRootTemplate = (): RecipeTemplateNode => ({
 	path: "root",
 	library: "trickroom",
 	component: "container",
@@ -205,12 +210,17 @@ const commitManifestMutation = async (
 				expectedRevision: options.expectedRevision,
 				now,
 				componentsMerge: "replace",
+				...(options.aroundWrite ? { aroundWrite: options.aroundWrite } : {}),
 			},
 		);
 		return { ...written, componentId };
 	} catch (error) {
 		if (error instanceof SystemComponentManifestServiceError) {
-			if (error.code === "STALE_WRITE" || error.code === "SYSTEM_NOT_FOUND") {
+			if (
+				error.code === "STALE_WRITE" ||
+				error.code === "SYSTEM_NOT_FOUND" ||
+				error.code === "MANIFEST_LOCKED"
+			) {
 				throw new SystemComponentOperationsError(error.code, error.message);
 			}
 		}

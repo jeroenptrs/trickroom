@@ -75,7 +75,9 @@ Design editor:
 - Link or unlink a design system when no element is selected.
 - Add container layers.
 - Add text layers.
-- Select layers from the layer tree.
+- Select layers from the layer tree or on the canvas. Hovering the canvas outlines the layer under the pointer with its name; clicking selects it (the deepest layer under the pointer). Clicking a board's own background or padding selects the board; clicking canvas space outside every board clears the selection. Right-click selects the same way. The selected layer keeps a cyan outline that follows pan and zoom. Clicking board content only selects: links, buttons, inputs, overlay triggers and context menus do not react, and overlays open through their properties instead. A click on the canvas moves keyboard focus to the stage (a field you were editing in the properties panel commits first), so the layer shortcuts and Space panning act on the canvas. Hover outlines pause while you drag or hold Space, and in a board with an open overlay.
+- Double-click a layer on the canvas, or press `Enter`, to select its first child; `Shift` + `Enter` selects its parent. `Escape` clears the selection. These and the other layer shortcuts (arrows, `Delete`) also work right after clicking the canvas.
+- The properties panel shows the selected layer's ancestors under its header; click one to select it.
 - Double-click a layer name to rename it.
 - Drag layers to reorder or reparent them.
 - Right-click a layer and delete it.
@@ -95,6 +97,7 @@ System editor:
 - Add an icon folder by its project-relative path, for example `src/icons`. Trickroom indexes the SVGs inside it.
 - Register an image asset by its project-relative path, for example `public/images/hero.png`. The file stays where it is. The browser has no file picker or upload, so the image has to be in the project already.
 - The left sidebar starts collapsed. It holds the section tabs and the component and icon lists, so expand it to switch sections or pick a component: use the button in the header that floats over the top-left of the workspace, or `Alt` + `[`. That floating header also shows the back button and the system name and sync state (in the component editor: back to components, the component name and its draft or published state). Collapse the sidebar again with the panel button at the right end of its header (in the component editor, at the right end of the component header), or the same shortcut. The sidebar keeps working while collapsed: draft sync and the layer shortcuts stay active, and the open component tab is kept.
+- In the component editor, the draft stage selects like the design canvas: hover outline, click to select, click the board's empty area (it is not a layer) or the space around it to clear, double-click or `Enter` for the first child, `Shift` + `Enter` for the parent, `Escape` to clear, and the ancestor path under the inspector header.
 - The inspector starts collapsed too. With something selected, a strip on the right edge holds the button to expand it; `Alt` + `]` does the same. Collapse it again with the panel button in its header or the same shortcut. Collapsing keeps the selection; the X next to the strip clears the selection instead. With nothing selected the right side stays empty.
 - `Alt` + `1` and `Alt` + `3` expand a collapsed panel before focusing it. The browser remembers your choice across page reloads, separately from the design editor.
 - The Lint tab shows how the system is used in your app and in Designs, from the committed `lint-report.json`. "Run lint" runs the same check as `trickroom lint` and writes the report. Adherence lists errors and warnings per rule against the last passing run, with anything that got worse marked. Coverage shows, per component, which of published, generated, bound, used in app and used in designs it is missing. The code map is a file tree coloured by usage and by findings; select a file to see its findings. The design map does the same per Design and board. Findings lists everything the report holds, filterable by side, severity, rule, component, file and design; a design finding opens the design editor at its layer. A "Stale" badge means the system changed since the report was written. The Rules view edits the system's `lint.json`: turn rules on or off, change severities and options, and set thresholds. Nothing is written until you press "Save lint.json". A run that fails writes its report too, so you can inspect it; do not commit that file, its baseline is the previous one. See [Design System Lint](lint.md#dashboard).
@@ -121,7 +124,7 @@ Shared server:
 
 ## The Inspector
 
-The right-hand inspector shows the selected layer in one scrolling panel: its classes first, then its properties. The component editor's draft inspector uses the same layout.
+The right-hand inspector shows the selected layer in one scrolling panel: its classes first, then its properties. The component editor's draft inspector uses the same layout. In both editors the inspector has two tabs: **Properties** (below) and **Annotations** (see [Annotations](#annotations) and [Annotating components](#annotating-components)).
 
 Classes:
 
@@ -164,6 +167,7 @@ The short version:
 - MCP audit log, if enabled: `.trickroom/audit-log.jsonl`
 - Per-user recent project registry: `~/.trickroom/projects.json`
 - Agent feedback on the MCP tools, and the optional call log: `~/.trickroom/feedback/`
+- Annotations (per user, never committed): `~/.trickroom/annotations/`
 
 Trickroom reads configured CSS files and imports to understand Tailwind tokens. It does not edit those CSS files or your app source files.
 
@@ -216,6 +220,46 @@ When an agent (or another tab, or a git checkout) changes the design you have op
 
 - Changed boards get a **Changed** tag in the Layers panel, and changed layers a cyan square. In the responsive view, **N changed** next to the board navigation jumps to the next changed board. When a changed board is in view, its changed layers are outlined briefly. The markers clear a few seconds after you have seen the board, or as soon as you select or edit something in it.
 - If you and the agent changed the same board, the changes are merged layer by layer. You are only asked when both changed the same property or text of a layer (or moved things in ways that do not combine). The dialog lists each conflicting board; for each, **Take theirs** loads the version on disk and drops your edits to that board, **Keep mine** saves your version of that board over the one on disk. Other boards are not affected by either choice.
+
+## Annotations
+
+Annotations are remarks you leave on a layer, a board or the whole design for an agent to act on. The agent sees them in its normal tool results through MCP, changes the design, and its reply (with a record of what it changed) appears under your remark. The conversation with the agent stays in your harness (Claude Code, Codex, T3 Code); Trickroom keeps the remarks, the anchors, their state and what changed.
+
+Annotations are your own working state: they are stored per user in `~/.trickroom/annotations/` (see [Files And Safety](./project-files.md#annotations)), never in `.trickroom`, and never committed. A remark worth keeping graduates to a memory note.
+
+### The loop
+
+1. **Write.** Select a layer (on the canvas or in the Layers panel), open the inspector's **Annotations** tab and write in the composer. With a board selected the annotation is about the board; with nothing selected, about the design. `Cmd`/`Ctrl` + `K` → **New annotation** jumps to the composer.
+2. **Drafts stay in the browser.** What you type is a draft: the stage shows a dashed pin on its layer, and a reload of the tab keeps it. Nothing reaches disk, or an agent, until you send it. Write several, then send them together.
+3. **Send.** **Send** sends one; **Send all drafts** sends every draft on the board in view (or in the design with nothing selected); the command menu has **Send drafts** too. A sent annotation is **Open** and in front of a working agent within one tool call.
+4. **The agent picks it up.** When an agent session has seen it, the thread says "Seen by an agent N min ago" (an advisory acknowledgement; after 15 minutes without a tool call from that session it reads "session idle", without a reload). The agent then either changes the design and replies with a change record (**Addressed**), asks you a question (**Needs input**), or dismisses it with a reason.
+5. **Review.** Everything updates live, without reloading. A change record reads **Changed N layers**: click it to pan to the layers and flash them. **Revert** restores them as they were before that change, as long as nothing has edited those layers since; otherwise it refuses and names the layers. Revert is available while the annotation is live. An agent can address several annotations in one change; the record then says **Same change as …**, and Revert undoes that change for all of them on this branch, opening each again. If one of them is busy (an agent is writing it), Revert refuses and changes nothing; try again.
+6. **Answer or close.** A reply on an addressed, answered or closed annotation opens it again for the agent. **Resolve** closes it (and offers **Save as memory note**, which adds a design memory note with your remark, the final reply and a `{{layer:…}}` reference back to the layer, or `{{board:…}}` for a board). A resolved annotation keeps **Save as memory note**, also after **Resolve all addressed**: show it with **Resolved** in the Layers panel header. **Dismiss** closes it with a reason. **Reopen** opens a closed one again.
+
+An agent may also resolve an annotation when you ask it to in conversation. Those show **Resolved by agent** with a hollow check and an **Accept** control until you accept them; **Accept all agent-resolved** accepts every one on the board. **Resolve all addressed** resolves every addressed annotation on the board in one go. Each annotation keeps its own state: send five together and four may come back addressed while one is still open.
+
+### Where annotations show
+
+- **Stage pins.** A small square at the top-right corner of each annotated layer (top-left for a board), with a count when several share it. Open is cyan, addressed a hollow cyan square, needs input a slate square with a cyan border, resolved slate at 40%, resolved by an agent a hollow check, a draft dashed cyan. Clicking a pin selects the layer and opens its thread. Annotations on a layer that no longer exists (deleted, or not in this checkout) are **Detached**: they pin dashed slate to their board's corner, keep the name the layer had, and reattach when the layer comes back (undo, git checkout). **Re-anchor to …** moves one to the selected layer.
+- **Layers panel.** A marker with the count on each row with annotations; a board row counts everything on its board, and a collapsed row everything inside it. Click it to open the thread. **Resolved** in the panel header shows resolved and dismissed annotations on the stage and in the panel too.
+- **Inspector.** The **Annotations** tab lists the selected layer's threads, then the board's, the other layers on that board and the design's, with a count on the tab. **Other branches** at the bottom lists annotations made on other branches or worktrees of this project (they are not work here); **Move here** moves one to the branch this checkout is on.
+- **Command menu.** **Next open annotation** walks through the live annotations in layer order.
+- **Project screen.** Each design in the list shows a square with its number of live annotations on this branch: hollow when some wait on you (an agent asked or changed something), filled when all are with agents.
+
+Annotations belong to the git branch they were made on, so an annotation made in a feature worktree does not show in the main checkout, and an agent working on main does not see it. **Move here** brings one over; an agent session on the other branch that had seen it can no longer write it, so it is open again for agents on this branch. A checkout with a detached HEAD, or a project without git, uses one shared bucket.
+
+Checking out another branch with a design open switches its annotations to that branch's within a moment: the inspector, pins, markers and the project screen's counts follow, and your drafts stay. If a write was already on its way from the old branch's view (a reply, a resolve), it is not saved: Trickroom says the checkout changed, shows the new branch's annotations, and keeps your unsent text.
+
+### Annotating components
+
+The component editor has the same **Annotations** tab on its draft inspector, with the same threads, states, replies, Resolve, Dismiss, Revert and Other branches. Select a layer of the draft (on the stage or in the layer tree) and write in the composer; the annotation is about that layer of the component.
+
+- **Pin to current configuration.** By default a remark applies to every variant configuration. Pick variant values under **Style target** in the Properties tab (for example Variant: Filled), then press **Pin to current configuration** in the composer: the remark is about those values only. **Unpin** makes it general again. The button is off while no variant value is selected.
+- **The configuration chip.** A pinned thread shows its values as a square chip (`variant: filled`): cyan while that configuration is in view, slate otherwise. Clicking it switches the configuration in view to those values.
+- **Stage pins.** Pins sit on the draft stage as in the design editor. A pinned annotation's pin shows only while the configuration in view has its values on every pinned axis; unpinned ones always show. Annotations whose layer is gone from the draft (or pinned to a value the variant schema no longer has) are **Detached** and pin to the root's corner; **Re-anchor to …** moves one to the selected layer and keeps its pin.
+- **Layer tree.** Rows with annotations show the same marker, the root row counting the whole component (pinned ones included, whatever is in view).
+- **Agent changes.** An agent addresses component annotations in the draft write that makes the change (`component_draft_update`) or a publish. The change record lists the layers it changed; clicking one selects it. **Revert** restores the draft's template and variants as they were before that change, as long as nothing has changed the draft since (for every annotation that draft write addressed); a publish cannot be reverted. Save the draft you are editing before reverting: the editor reloads the draft from disk.
+- **Memory.** **Save as memory note** on a resolved component annotation adds a note to the design system's memory with a `{{component:…}}` reference.
 
 ## Current Limits
 

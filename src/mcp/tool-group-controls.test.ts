@@ -72,6 +72,7 @@ describe("MCP tool group controls", () => {
 						designSystems: true,
 						systemComponents: true,
 						memory: true,
+						annotations: true,
 					},
 				},
 			},

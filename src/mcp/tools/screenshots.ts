@@ -125,7 +125,7 @@ function describeImage(image: ScreenshotImage, viewportLabel: string) {
 }
 
 export const registerScreenshotTools = (ctx: McpToolContext) => {
-	const { server, screenshotCapture, withProjectContext } = ctx;
+	const { server, annotations, screenshotCapture, withProjectContext } = ctx;
 
 	const screenshotCommonInput = {
 		viewport: z
@@ -654,8 +654,8 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 			},
 		},
 		async ({ project, boardId, elementId, ...input }) =>
-			withProjectContext(project, (context) =>
-				runCapture(
+			withProjectContext(project, async (context) => {
+				const result = await runCapture(
 					context,
 					TOOL.designScreenshot,
 					{
@@ -670,8 +670,13 @@ export const registerScreenshotTools = (ctx: McpToolContext) => {
 							: {}),
 					},
 					{ kind: "inline" },
-				),
-			),
+				);
+				return input.designFileId && !input.component
+					? annotations.withAnnotations(result, context, {
+							designId: input.designFileId,
+						})
+					: result;
+			}),
 	);
 
 	return {

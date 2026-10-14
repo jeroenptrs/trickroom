@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useSelector } from "@tanstack/react-store";
 import { Plus, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -37,6 +38,12 @@ import {
 	useLoadedDraftVariantSchemaHash,
 } from "../../stores/component-editor-session-store";
 import {
+	editorAnnotationsStore,
+	type InspectorTab,
+	setInspectorTab,
+	useInspectorTab,
+} from "../../stores/editor-annotations-store";
+import {
 	buildComponentGroupTree,
 	collectGroupFolderPaths,
 } from "../../utils/component-groups";
@@ -46,6 +53,7 @@ import {
 	isSystemComponentSlug,
 	type SystemComponentVariantSchema,
 } from "../../utils/system-components";
+import { ComponentAnnotationsPanel } from "../annotations/ComponentAnnotationsPanel";
 import { Alert } from "../ui/alert";
 import {
 	AutocompleteEmpty,
@@ -60,6 +68,7 @@ import {
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "../ui/tabs";
 import { AuthoredCompoundsList } from "./AuthoredCompoundsList";
 import { ComponentDraftProperties } from "./ComponentDraftProperties";
 import type { ComponentPublicationState } from "./component-catalog";
@@ -1687,6 +1696,67 @@ function IconInspector({
 	);
 }
 
+/**
+ * The selected node's live annotations as its rail row counts them (the
+ * root's counts the whole component).
+ */
+function useSelectedNodeAnnotationCount(path: string | null) {
+	return useSelector(editorAnnotationsStore, (state) =>
+		path === null
+			? 0
+			: (state.markers.boards[path]?.count ??
+				state.markers.layers[path]?.count ??
+				0),
+	);
+}
+
+/**
+ * The component draft inspector's two tabs: the selected node's properties
+ * and the component's annotations (the design editor's thread UI). Stage
+ * pins and rail markers switch to the Annotations tab through
+ * `editorAnnotationsStore`.
+ */
+function ComponentInspectorTabs({
+	systemId,
+	componentId,
+	selectedPath,
+	children,
+}: {
+	systemId: string;
+	componentId: string;
+	selectedPath: string | null;
+	children: ReactNode;
+}) {
+	const tab = useInspectorTab();
+	const count = useSelectedNodeAnnotationCount(selectedPath);
+	return (
+		<Tabs
+			value={tab}
+			onValueChange={(value) => setInspectorTab(value as InspectorTab)}
+			className="min-h-0 flex-1 gap-0"
+		>
+			<TabsList className="shrink-0 px-2">
+				<TabsTab value="properties">Properties</TabsTab>
+				<TabsTab value="annotations" className="flex items-center gap-1.5">
+					Annotations
+					{count > 0 ? (
+						<span className="font-mono text-xs text-slate-500">{count}</span>
+					) : null}
+				</TabsTab>
+			</TabsList>
+			<TabsPanel value="properties" className="flex min-h-0 flex-1 flex-col">
+				{children}
+			</TabsPanel>
+			<TabsPanel value="annotations" className="flex min-h-0 flex-1 flex-col">
+				<ComponentAnnotationsPanel
+					systemId={systemId}
+					componentId={componentId}
+				/>
+			</TabsPanel>
+		</Tabs>
+	);
+}
+
 export function SystemEditorInspector({
 	page,
 	systemId,
@@ -1714,10 +1784,16 @@ export function SystemEditorInspector({
 
 	if (page === "components" && selectedTemplateMatchesComponent) {
 		body = (
-			<ComponentDraftProperties
+			<ComponentInspectorTabs
 				systemId={systemId}
-				projectScope={projectScope}
-			/>
+				componentId={selectedComponentId}
+				selectedPath={selectedTemplatePath}
+			>
+				<ComponentDraftProperties
+					systemId={systemId}
+					projectScope={projectScope}
+				/>
+			</ComponentInspectorTabs>
 		);
 	} else if (page === "assets" && selectedAssetId) {
 		body = (
@@ -1769,7 +1845,7 @@ export function SystemEditorInspector({
 			className="flex min-h-0 w-[336px] shrink-0 flex-col border-l border-slate-200 bg-white text-xs focus-visible:outline-none"
 		>
 			<header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-slate-200 px-4 text-xs font-medium">
-				<span>{isNodeInspector ? "Properties" : "Inspector"}</span>
+				<span>Inspector</span>
 				<div className="flex shrink-0 items-center gap-1">
 					<SystemPanelToggle panel="inspector" />
 					<Button

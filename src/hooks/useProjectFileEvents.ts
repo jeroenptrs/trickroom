@@ -1,5 +1,13 @@
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import {
+	deliverAnnotationEvent,
+	deliverAnnotationScope,
+	parseAnnotationFileEvent,
+	parseAnnotationScope,
+	requestAnnotationResync,
+} from "../queries/annotation-live-events";
+import { annotationCountsQueryKey } from "../queries/annotations";
 import { configFileProjectQueryKey } from "../queries/config-file";
 import {
 	type DesignFileSnapshot,
@@ -15,6 +23,7 @@ import {
 } from "../queries/editor-channel";
 import type { ProjectQueryScope } from "../queries/project-scope";
 import { bumpTailwindSourceRevision } from "../queries/tailwind-sources";
+import type { AnnotationFileEvent } from "../services/annotations.types";
 
 export type TrickroomFileEvent = {
 	/**
@@ -231,6 +240,34 @@ export function createFileEventCoalescer(
 	};
 }
 
+/** How long annotation events gather before the design-list counts refetch. */
+export const ANNOTATION_COUNTS_REFRESH_MS = 500;
+
+/**
+ * Refreshes the project screen's per-design counts after annotation events:
+ * design events only (it counts designs), once for a burst (an agent
+ * addressing several, a bulk resolve).
+ */
+export const createAnnotationCountsRefresher = (
+	refresh: () => unknown,
+	waitMs = ANNOTATION_COUNTS_REFRESH_MS,
+) => {
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	return {
+		push: (event: AnnotationFileEvent) => {
+			if (event.container.kind !== "design" || timer !== null) return;
+			timer = setTimeout(() => {
+				timer = null;
+				void refresh();
+			}, waitMs);
+		},
+		dispose: () => {
+			if (timer !== null) clearTimeout(timer);
+			timer = null;
+		},
+	};
+};
+
 export function useProjectFileEvents(
 	projectScope: ProjectQueryScope,
 	enabled: boolean,
@@ -254,7 +291,12 @@ export function useProjectFileEvents(
 				void queryClient.invalidateQueries({
 					queryKey: designSummariesProjectQueryKey(projectScope),
 				});
+				void queryClient.invalidateQueries({
+					queryKey: annotationCountsQueryKey(projectScope),
+				});
 				void invalidateSystemQueries();
+				// Annotation events sent while disconnected were missed.
+				requestAnnotationResync();
 			}
 			hasConnectedRef.current = true;
 			// A (re)connected stream is a new presence on the server; the tab
@@ -272,6 +314,39 @@ export function useProjectFileEvents(
 			coalescer.push(event);
 		};
 
+		// Annotations are per-user state outside `.trickroom`; their events go
+		// straight to the editor that has them loaded, which refetches the one
+		// annotation that changed.
+		const counts = createAnnotationCountsRefresher(() =>
+			queryClient.invalidateQueries({
+				queryKey: annotationCountsQueryKey(projectScope),
+			}),
+		);
+
+		const handleAnnotation = (message: MessageEvent<string>) => {
+			const event = parseAnnotationFileEvent(message.data);
+			if (event) {
+				deliverAnnotationEvent(event);
+				counts.push(event);
+			}
+		};
+
+		// Another branch checked out: the counts are of the old one, and an
+		// editor with annotations open lists the new branch's.
+		const handleAnnotationScope = (message: MessageEvent<string>) => {
+			let scope: ReturnType<typeof parseAnnotationScope> = null;
+			try {
+				scope = parseAnnotationScope(JSON.parse(message.data));
+			} catch {
+				return;
+			}
+			if (!scope) return;
+			void queryClient.invalidateQueries({
+				queryKey: annotationCountsQueryKey(projectScope),
+			});
+			deliverAnnotationScope(scope);
+		};
+
 		const handleFocus = (message: MessageEvent<string>) => {
 			const request = parseEditorFocusEvent(message.data);
 			if (request) {
@@ -282,12 +357,26 @@ export function useProjectFileEvents(
 		source.addEventListener("ready", handleReady);
 		source.addEventListener("change", handleChange as EventListener);
 		source.addEventListener("focus", handleFocus as EventListener);
+		source.addEventListener("annotation", handleAnnotation as EventListener);
+		source.addEventListener(
+			"annotation-scope",
+			handleAnnotationScope as EventListener,
+		);
 		return () => {
+			source.removeEventListener(
+				"annotation-scope",
+				handleAnnotationScope as EventListener,
+			);
+			source.removeEventListener(
+				"annotation",
+				handleAnnotation as EventListener,
+			);
 			source.removeEventListener("ready", handleReady);
 			source.removeEventListener("change", handleChange as EventListener);
 			source.removeEventListener("focus", handleFocus as EventListener);
 			source.close();
 			coalescer.dispose();
+			counts.dispose();
 		};
 	}, [enabled, projectScope, queryClient]);
 }

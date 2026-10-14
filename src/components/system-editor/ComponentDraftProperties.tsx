@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useSelector } from "@tanstack/react-store";
 import { Plus, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import {
@@ -14,9 +15,11 @@ import type {
 } from "../../stores/component-draft-store";
 import {
 	addTemplateNodeOverrideTarget,
+	componentDraftStore,
 	markTemplateNodeAsSlotHost,
 	removeTemplateNodeOverrideTarget,
 	removeTemplateNodeSlotHost,
+	selectTemplateNode,
 	setComponentDraftStyleTarget,
 	setDraftClassNameForStyleTab,
 	setTemplateNodeDesignOnly,
@@ -40,10 +43,16 @@ import {
 	normalizeOverrideTargetCapabilities,
 } from "../../utils/system-component-override-targets";
 import { ClassCompositionPanel } from "../chrome/classes/ClassCompositionPanel";
+import { LayerBreadcrumb } from "../chrome/LayerBreadcrumb";
 import {
 	getPropertiesControlSurface,
 	splitComponentControls,
 } from "../chrome/Properties";
+import {
+	getStageLayerAncestry,
+	isSameStageLayerAncestry,
+} from "../stage/stage-interaction";
+import { draftLayerTree } from "../stage/stage-selection-sources";
 import { InputField } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Switch } from "../ui/switch";
@@ -529,6 +538,15 @@ function DraftInspectorHeader({
 	);
 }
 
+function DraftLayerBreadcrumb() {
+	const crumbs = useSelector(
+		componentDraftStore,
+		(state) => getStageLayerAncestry(draftLayerTree(state), state.selectedPath),
+		{ compare: isSameStageLayerAncestry },
+	);
+	return <LayerBreadcrumb crumbs={crumbs} onSelect={selectTemplateNode} />;
+}
+
 function DesignOnlySection({ path }: { path: string }) {
 	const state = useComponentDraftDesignOnlyState(path);
 	const ancestor = useComponentDraftEntity(state.inheritedFromPath ?? "");
@@ -808,6 +826,7 @@ export function ComponentDraftProperties({
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<DraftInspectorHeader title={title} subtitle={subtitle} />
+			<DraftLayerBreadcrumb />
 			<ScrollArea className="min-h-0 flex-1">
 				<div className="flex flex-col divide-y divide-slate-200">
 					<section className="flex flex-col">

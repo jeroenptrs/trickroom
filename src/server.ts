@@ -39,6 +39,7 @@ import {
 	recipeLoadRepairHeaderName,
 	repairInvalidKnownRecipeInstances,
 } from "./recipes/repair";
+import { registerAnnotationRoutes } from "./routes/annotations";
 import { createEditorChannelRoutes } from "./routes/editor-channel";
 import { exportRoutes } from "./routes/export";
 import { registerProjectAndDesignMemoryRoutes } from "./routes/memory";
@@ -60,6 +61,7 @@ import {
 	isTrickroomDesign,
 	jsonError,
 } from "./server-utils";
+import { CheckoutScopeEvents } from "./services/checkout-scope";
 import { DESIGN_FILE_VERSION } from "./services/design-file-schema";
 import {
 	createDesignFileService,
@@ -607,6 +609,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 	let activeProject: TrickroomActiveProject | null = null;
 	let initialProjectPromise: Promise<void> | null = null;
 	const projectFileEvents = new ProjectFileEvents(undefined, { trickroomHome });
+	const checkoutScopeEvents = new CheckoutScopeEvents();
 	const editorSessions = createEditorSessions();
 	const activeProjectListeners = new Set<
 		(project: TrickroomSessionProject | null) => void
@@ -614,6 +617,8 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 	const setActiveProject = (project: TrickroomActiveProject | null) => {
 		activeProject = project;
 		projectFileEvents.setProjectRoot(project?.projectRoot ?? null);
+		projectFileEvents.setAnnotationProject(project?.config.projectId ?? null);
+		checkoutScopeEvents.setProjectRoot(project?.projectRoot ?? null);
 		const sessionProject = project ? toSessionProject(project) : null;
 		for (const listener of activeProjectListeners) {
 			listener(sessionProject);
@@ -744,6 +749,8 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return createNoProjectResponse();
 		}
 		projectFileEvents.setProjectRoot(project.projectRoot);
+		projectFileEvents.setAnnotationProject(project.config.projectId ?? null);
+		checkoutScopeEvents.setProjectRoot(project.projectRoot);
 		const clientId = c.req.query("clientId");
 
 		return streamSSE(c, async (stream) => {
@@ -760,6 +767,18 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			const unsubscribe = projectFileEvents.subscribe((event) => {
 				enqueue("change", JSON.stringify(event));
 			});
+			// Annotation files live outside the project (per-user store):
+			// agents write them through MCP, the editor refetches the one named.
+			const unsubscribeAnnotations = projectFileEvents.subscribeAnnotations(
+				(event) => {
+					enqueue("annotation", JSON.stringify(event));
+				},
+			);
+			// A checkout of another branch changes which annotations are the
+			// editor's: it lists them again (`annotation-scope`).
+			const unsubscribeScope = checkoutScopeEvents.subscribe((scope) => {
+				enqueue("annotation-scope", JSON.stringify(scope));
+			});
 			// Tabs identify themselves so the editor channel knows which are
 			// connected; the stream is the tab's presence.
 			const disconnectEditor = isEditorClientId(clientId)
@@ -767,11 +786,22 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				: undefined;
 			const heartbeat = setInterval(() => enqueue("heartbeat", "{}"), 15_000);
 			stream.onAbort(() => resolveClosed?.());
+			// "ready" once annotation writes are reported (bounded, so a slow
+			// watcher never holds the stream back).
+			await Promise.race([
+				Promise.all([
+					projectFileEvents.whenAnnotationsWatched(),
+					checkoutScopeEvents.whenWatched(),
+				]),
+				new Promise((resolve) => setTimeout(resolve, 2_000)),
+			]);
 			enqueue("ready", JSON.stringify({ locationId: project.locationId }));
 
 			await closed;
 			clearInterval(heartbeat);
 			unsubscribe();
+			unsubscribeAnnotations();
+			unsubscribeScope();
 			disconnectEditor?.();
 		});
 	});
@@ -1049,6 +1079,12 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 	// Project- and design-scoped memory reuse the same project middleware to
 	// attach projectRoot + config before reading/writing memory manifests.
 	registerProjectAndDesignMemoryRoutes(app, attachProjectToSystemsRequest);
+
+	// Annotations: per-user store under the Trickroom home, written here as
+	// the human.
+	registerAnnotationRoutes(app, attachProjectToSystemsRequest, {
+		trickroomHome,
+	});
 
 	// Export reuses the systems middleware: it needs projectRoot + config to
 	// resolve the system, read its tokens/icons/assets from disk, and compile.

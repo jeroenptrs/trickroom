@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+	createAddressesRecorder,
+	type RecordChangeResult,
+} from "../../services/annotation-service";
+import {
 	applyExtractSubtree,
 	DesignTransformError,
 	normalizeDesignForMutation,
@@ -15,6 +19,7 @@ import {
 	getMcpPolicy,
 	McpPolicyError,
 } from "../governance";
+import type { OperationPlanStepOutput } from "../operation-plan";
 import { assertConfiguredSystem } from "../payloads/design-system";
 import {
 	createBlankDesign,
@@ -31,6 +36,12 @@ import {
 	assertResourceReferencesExist,
 } from "../payloads/references";
 import { TOOL } from "../tool-names";
+import {
+	addressesInputSchema,
+	finishAddresses,
+	isPreparedAddresses,
+	prepareAddresses,
+} from "./annotation-addresses";
 import {
 	ALWAYS_LOAD_META_KEY,
 	mutationAnnotations,
@@ -255,19 +266,46 @@ export const registerDesignCreateTool = (ctx: McpToolContext) => {
 	);
 };
 
+/** One line per step for a change record: the operation and what it changed. */
+const summarizeStep = (step: OperationPlanStepOutput) => {
+	const target = step.rootElementId ?? step.changedElementId;
+	const name =
+		step.operation === "renameDesignFile" &&
+		typeof step.summary.name === "string"
+			? ` "${step.summary.name}"`
+			: "";
+	const deleted =
+		step.deletedIds && step.deletedIds.length > 1
+			? ` (${step.deletedIds.length} elements)`
+			: "";
+	return {
+		operation: step.operation,
+		summary: `${step.operation}${target ? ` ${target}` : ""}${name}${deleted}`,
+	};
+};
+
+const summarizeSteps = (steps: readonly OperationPlanStepOutput[]) => {
+	const names = [...new Set(steps.map((step) => step.operation))];
+	return `${steps.length === 1 ? "1 operation" : `${steps.length} operations`}: ${names.join(", ")}`;
+};
+
 export const registerDesignApplyTool = (ctx: McpToolContext) => {
-	const { server, notifyResourceListChanged, withProjectContext } = ctx;
+	const { server, annotations, notifyResourceListChanged, withProjectContext } =
+		ctx;
 
 	server.registerTool(
 		TOOL.designApply,
 		{
 			title: "Apply Design Operations",
-			description: `Write to a design: an ordered list of operations, validated together and committed atomically against expectedRevision, checked per board: boards you do not change may have changed since. One write, or none when a step fails or the plan adds error issues; errors the design already had do not block it (preExistingErrorCount). A single edit is a list of one. Returns newRevision for your next write, \`created\` ids per inserting step (root id, addSubtree tempId map, recipe slot ids), deletedCount, error issues, warningCount and grouped likely-typo warnings on touched elements; response "full" adds every warning and each step's summary. A failing step returns failedStepIndex, its error with hints and expectedParameters. REVISION_MISMATCH names the stale boards (staleBoards) and the reads to retry from (next). Later steps reference elements created by earlier ones with $step:N, $step:N:tempId:<tempId> and $step:N:slot:<slot>. Parameters and examples: ${TOOL.guide}({ topic: "operations" }). Dry-run with ${TOOL.designValidate}. After a write the human should see, ${TOOL.editorFocus} points their editor at it.`,
+			description: `Write to a design: an ordered list of operations, validated together and committed atomically against expectedRevision, checked per board: boards you do not change may have changed since. One write, or none when a step fails or the plan adds error issues; errors the design already had do not block it (preExistingErrorCount). A single edit is a list of one. Returns newRevision for your next write, \`created\` ids per inserting step (root id, addSubtree tempId map, recipe slot ids), deletedCount, error issues, warningCount and grouped likely-typo warnings on touched elements; response "full" adds every warning and each step's summary. A failing step returns failedStepIndex, its error with hints and expectedParameters. REVISION_MISMATCH names the stale boards (staleBoards) and the reads to retry from (next). Later steps reference elements created by earlier ones with $step:N, $step:N:tempId:<tempId> and $step:N:slot:<slot>. addresses: [{ annotationId, reply }] marks the designer's annotations this write answers as addressed, with your reply and a change record they can revert; unknown, other-design or resolved ones refuse the write, and nothing is recorded unless it lands (\`addressed\`). Parameters and examples: ${TOOL.guide}({ topic: "operations" }). Dry-run with ${TOOL.designValidate}. After a write the human should see, ${TOOL.editorFocus} points their editor at it.`,
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema,
 				expectedRevision: expectedRevisionSchema,
 				operations: createOperationPlanStepsInputSchema(
 					"Ordered operations to commit.",
+				),
+				addresses: addressesInputSchema(
+					"Annotations on this design that this write makes the change for, each with your reply; give unrelated annotations separate writes, because the designer's revert undoes a whole write.",
 				),
 				response: mutationResponseInputSchema,
 			}),
@@ -279,10 +317,17 @@ export const registerDesignApplyTool = (ctx: McpToolContext) => {
 			_meta: {
 				[ALWAYS_LOAD_META_KEY]: true,
 				[SEARCH_HINT_META_KEY]:
-					"edit write insert add update move delete copy rename element recipe component batch",
+					"edit write insert add update move delete copy rename element recipe component batch annotation addresses",
 			},
 		},
-		async ({ designFileId, expectedRevision, operations, response, project }) =>
+		async ({
+			designFileId,
+			expectedRevision,
+			operations,
+			addresses,
+			response,
+			project,
+		}) =>
 			withProjectContext(project, async (context) => {
 				const policy = getMcpPolicy(context.config);
 				return withMutationErrorHandling(
@@ -297,16 +342,72 @@ export const registerDesignApplyTool = (ctx: McpToolContext) => {
 						details: {
 							operationCount: operations.length,
 							operations: operations.map((step) => step.operation),
+							...(addresses
+								? {
+										addresses: addresses.map((address) => address.annotationId),
+									}
+								: {}),
 						},
 					},
 					async () => {
 						assertCanWriteDesignFile(policy, designFileId);
-						return applyDesignOperationsPayload(context, {
+						let recorded: RecordChangeResult[] | null = null;
+						let afterWrite:
+							| Parameters<typeof applyDesignOperationsPayload>[1]["afterWrite"]
+							| undefined;
+						const prepared = addresses
+							? await prepareAddresses(
+									annotations,
+									context,
+									{ kind: "design", designId: designFileId },
+									addresses,
+								)
+							: null;
+						if (prepared && !isPreparedAddresses(prepared)) return prepared;
+						if (prepared) {
+							afterWrite = async ({ before, write, steps }) => {
+								const recorder = createAddressesRecorder(
+									prepared.project.service,
+									{
+										designId: designFileId,
+										addresses: prepared.addresses,
+										by: prepared.project.by,
+										operations: steps.map(summarizeStep),
+										summary: summarizeSteps(steps),
+										// Checked again under each annotation's lock: one the
+										// designer moved to another branch during the write is
+										// not recorded (WRONG_BRANCH in addressed).
+										branch: prepared.project.scope.branch,
+									},
+								);
+								await recorder.afterWrite({ before, write });
+								recorded = recorder.results();
+							};
+						}
+						let result = await applyDesignOperationsPayload(context, {
 							designFileId,
 							expectedRevision,
 							operations,
 							response,
 							onRename: notifyResourceListChanged,
+							annotationAnchors: await annotations.getDeleteAnchors(
+								context,
+								designFileId,
+								operations,
+							),
+							...(afterWrite ? { afterWrite } : {}),
+						});
+						if (prepared && !result.isError) {
+							result = finishAddresses(
+								annotations,
+								prepared,
+								recorded,
+								result,
+								"design",
+							);
+						}
+						return annotations.withAnnotations(result, context, {
+							designId: designFileId,
 						});
 					},
 				);

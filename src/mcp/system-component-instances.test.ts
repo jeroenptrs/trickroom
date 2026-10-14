@@ -2,6 +2,8 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Node } from "../types";
+import { findDesignSystem } from "../utils/design-system-store";
+import { readSystemComponentManifest } from "../utils/system-component-manifest-service";
 import {
 	getSystemComponentMarkerProps,
 	getSystemComponentStructuralMetadata,
@@ -10,6 +12,10 @@ import {
 	systemComponentInstanceProp,
 	systemComponentRootProp,
 } from "../utils/system-component-markers";
+import {
+	createSystemComponentDraft,
+	publishSystemComponentDraft,
+} from "../utils/system-component-operations";
 import {
 	applyOperation,
 	createTrickroomMcpProjectFixture,
@@ -47,6 +53,42 @@ describe("trickroom MCP system component instance tools", () => {
 	let systemId: string;
 	let componentId: string;
 
+	/** The badge's draft: a container with a label, one variant axis. */
+	const badgeDraft = () => ({
+		root: {
+			path: "root",
+			library: "trickroom",
+			component: "container",
+			className: "card",
+			children: [
+				{
+					path: "label",
+					library: "trickroom",
+					component: "text",
+					text: "Badge",
+					className: "label",
+				},
+			],
+		},
+		variants: {
+			axes: {
+				tone: {
+					label: "Tone",
+					defaultValue: "neutral",
+					values: {
+						brand: {
+							classesByPath: { root: "brand", label: "label-brand" },
+						},
+						neutral: { classesByPath: { root: "neutral" } },
+					},
+				},
+			},
+		},
+		overrideTargets: {
+			rootTarget: { targetId: "rootTarget", label: "Root", path: "root" },
+		},
+	});
+
 	const publishBadgeComponent = async (
 		targetSession: TrickroomMcpClientSession = session,
 	) => {
@@ -74,38 +116,7 @@ describe("trickroom MCP system component instance tools", () => {
 				systemName: "Core",
 				componentId,
 				expectedRevision: toolPayload(created)?.revision,
-				root: {
-					path: "root",
-					library: "trickroom",
-					component: "container",
-					className: "card",
-					children: [
-						{
-							path: "label",
-							library: "trickroom",
-							component: "text",
-							text: "Badge",
-							className: "label",
-						},
-					],
-				},
-				variants: {
-					axes: {
-						tone: {
-							label: "Tone",
-							defaultValue: "neutral",
-							values: {
-								brand: {
-									classesByPath: { root: "brand", label: "label-brand" },
-								},
-								neutral: { classesByPath: { root: "neutral" } },
-							},
-						},
-					},
-				},
-				overrideTargets: {
-					rootTarget: { targetId: "rootTarget", label: "Root", path: "root" },
-				},
+				...badgeDraft(),
 			},
 		});
 
@@ -116,6 +127,28 @@ describe("trickroom MCP system component instance tools", () => {
 				componentId,
 				expectedRevision: toolPayload(updated)?.revision,
 			},
+		});
+	};
+
+	/**
+	 * The badge authored and published as the designer does (the
+	 * operations the app uses), for projects whose MCP allowlist would not
+	 * let an agent author it: component writes take allowedComponents too.
+	 */
+	const publishBadgeComponentAsDesigner = async (projectRoot: string) => {
+		const system = await findDesignSystem(projectRoot, "Core");
+		if (!system) throw new Error("Core system missing");
+		systemId = system.manifest.systemId;
+		const manifest = await readSystemComponentManifest(projectRoot, systemId);
+		const created = await createSystemComponentDraft(
+			projectRoot,
+			systemId,
+			{ slug: "badge", name: "Badge", draft: badgeDraft() },
+			{ expectedRevision: manifest.revision },
+		);
+		componentId = created.componentId;
+		await publishSystemComponentDraft(projectRoot, systemId, componentId, {
+			expectedRevision: created.revision,
 		});
 	};
 
@@ -930,7 +963,7 @@ describe("trickroom MCP system component instance tools", () => {
 			await restrictedFixture.readMcpContext(),
 		);
 		try {
-			await publishBadgeComponent(restrictedSession);
+			await publishBadgeComponentAsDesigner(restrictedFixture.projectRoot);
 			const revision = await getDesignRevision(restrictedSession);
 			const result = await applyOperation(
 				restrictedSession.client,
@@ -1122,7 +1155,7 @@ describe("trickroom MCP system component instance tools", () => {
 			await restrictedFixture.readMcpContext(),
 		);
 		try {
-			await publishBadgeComponent(restrictedSession);
+			await publishBadgeComponentAsDesigner(restrictedFixture.projectRoot);
 			const revision = await getDesignRevision(restrictedSession);
 			const result = await restrictedSession.client.callTool({
 				name: "design_validate",
@@ -1218,7 +1251,7 @@ describe("trickroom MCP system component instance tools", () => {
 			await restrictedFixture.readMcpContext(),
 		);
 		try {
-			await publishBadgeComponent(restrictedSession);
+			await publishBadgeComponentAsDesigner(restrictedFixture.projectRoot);
 			const revision = await getDesignRevision(restrictedSession);
 			const result = await restrictedSession.client.callTool({
 				name: "design_validate",
@@ -1355,7 +1388,7 @@ describe("trickroom MCP system component instance tools", () => {
 			await restrictedFixture.readMcpContext(),
 		);
 		try {
-			await publishBadgeComponent(restrictedSession);
+			await publishBadgeComponentAsDesigner(restrictedFixture.projectRoot);
 			const revision = await getDesignRevision(restrictedSession);
 			const result = await restrictedSession.client.callTool({
 				name: "design_apply",

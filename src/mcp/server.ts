@@ -13,6 +13,7 @@ import {
 	installMcpToolGroupControls,
 	type McpToolControl,
 } from "./tool-group-controls";
+import { registerAnnotationTools } from "./tools/annotations-tools";
 import { createMcpToolContext } from "./tools/context";
 import {
 	registerDesignExportTools,
@@ -95,7 +96,7 @@ export const createTrickroomMcpServer = (
 
 	// tools/list reports tools in registration order, which is TOOL_NAMES
 	// order (src/mcp/tool-names.ts): projects, guide, designs (with lint),
-	// editor, memory, design systems, components, feedback.
+	// editor, annotations, memory, design systems, components, feedback.
 	registerProjectTools(ctx);
 	registerGuideTools(ctx);
 	registerDesignReadTools(ctx);
@@ -105,6 +106,7 @@ export const createTrickroomMcpServer = (
 	registerDesignCreateTool(ctx);
 	registerDesignExportTools(ctx, registerScreenshotTools(ctx));
 	registerEditorTools(ctx);
+	registerAnnotationTools(ctx);
 	registerMemoryTools(ctx);
 	registerDesignSystemTools(ctx);
 	registerSystemComponentTools(ctx);
