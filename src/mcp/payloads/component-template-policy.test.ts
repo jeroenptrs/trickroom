@@ -214,6 +214,28 @@ describe("assertTemplateChangesAllowed", () => {
 			).toThrow(/moves node "x"/);
 		});
 
+		it("refuses reordering allowed slot defaults inside a disallowed host", () => {
+			const hosted = (
+				first: string,
+				second: string,
+			): ComponentTemplateParts => ({
+				root: node("root", "container", [node("host", "text")]),
+				slots: {
+					content: {
+						name: "content",
+						hostPath: "host",
+						defaultChildren: [
+							node(first, "container"),
+							node(second, "container"),
+						],
+					},
+				},
+			});
+			expect(check(hosted("a", "b"), hosted("b", "a"))).toThrow(
+				/reorders the children of node "host"/,
+			);
+		});
+
 		it("allows moving a slot of allowed default children to an allowed host", () => {
 			expect(
 				check(
@@ -226,7 +248,11 @@ describe("assertTemplateChangesAllowed", () => {
 
 	describe("compound conditions (review round 3)", () => {
 		const withCompound = (
-			compounds: { when: Record<string, string | string[]>; label: string }[],
+			compounds: {
+				when: Record<string, string | string[]>;
+				label?: string;
+				root?: string;
+			}[],
 		): ComponentTemplateParts => ({
 			root: node("root", "container", [node("label", "text")]),
 			variants: {
@@ -237,9 +263,12 @@ describe("assertTemplateChangesAllowed", () => {
 					},
 					size: { label: "Size", values: { sm: {}, lg: {} } },
 				},
-				compoundVariants: compounds.map(({ when, label }) => ({
+				compoundVariants: compounds.map(({ when, label, root }) => ({
 					when,
-					classesByPath: { label },
+					classesByPath: {
+						...(label !== undefined ? { label } : {}),
+						...(root !== undefined ? { root } : {}),
+					},
 				})),
 			},
 		});
@@ -253,19 +282,42 @@ describe("assertTemplateChangesAllowed", () => {
 			).toThrow(/changes node "label"/);
 		});
 
-		it("allows reordering compounds and their condition values", () => {
+		it("allows reordering condition values and axes within a compound", () => {
 			expect(
 				check(
 					withCompound([
 						{ when: { tone: ["plain", "brand"], size: "sm" }, label: "a" },
-						{ when: { tone: "brand" }, label: "b" },
 					]),
 					withCompound([
-						{ when: { tone: "brand" }, label: "b" },
 						{ when: { size: "sm", tone: ["brand", "plain"] }, label: "a" },
 					]),
 				),
 			).not.toThrow();
+		});
+
+		it("allows reordering compounds that do not target a disallowed node", () => {
+			expect(
+				check(
+					withCompound([
+						{ when: { tone: "brand" }, root: "font-bold" },
+						{ when: { size: "sm" }, root: "font-light" },
+						{ when: { tone: "plain" }, label: "italic" },
+					]),
+					withCompound([
+						{ when: { size: "sm" }, root: "font-light" },
+						{ when: { tone: "plain" }, label: "italic" },
+						{ when: { tone: "brand" }, root: "font-bold" },
+					]),
+				),
+			).not.toThrow();
+		});
+
+		it("refuses reversing overlapping compounds on a disallowed node (precedence flips its class)", () => {
+			const bold = { when: { tone: "brand" }, label: "font-bold" };
+			const light = { when: { size: "sm" }, label: "font-light" };
+			expect(
+				check(withCompound([bold, light]), withCompound([light, bold])),
+			).toThrow(/changes node "label"/);
 		});
 	});
 

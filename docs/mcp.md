@@ -204,12 +204,12 @@ Defaults: `read-write`, every design file, every component, no audit log.
 - Writes enforce `mode`, `allowedDesignFileIds` and `allowedComponents` (every component a step inserts, moves, copies or expands).
 - `allowedComponents` governs what a write touches, not what a designer already authored. `design_apply` checks the elements a step inserts, updates, moves or deletes and a move's new parent, never the rest of the design. Component writes follow the same rule. Each write is compared node by node, across the template and every slot's default children, with the template it starts from. Both sides are compared in the form the manifest stores them (its own normalisers, then key-sorted), so key order and normalised whitespace never count as a change. The write is refused with `MCP_COMPONENT_NOT_ALLOWED` when it does any of the following:
   - adds or removes a node of a disallowed component;
-  - changes such a node: its own fields, its component, or its variant and compound classes, each with the condition it applies under (moving a compound class to another `when` changes the node);
+  - changes such a node: its own fields, its component, or its variant and compound classes, each with the condition it applies under (moving a compound class to another `when` changes the node, and so does reordering the compounds that target it, since later ones win);
   - moves such a node, or moves any node into or within a parent of a disallowed component.
 
   Moves are judged as `moveElement` would make them, using allowed nodes where it can:
   - A node that changes parent moves.
-  - Under one parent, a disallowed node moves only when the order of the disallowed nodes among themselves changes. Any other new order is reachable by moving allowed nodes, and an allowed sibling inserted or removed before it moves nothing.
+  - Under one parent (for a slot's default children, the slot's host), a disallowed node moves only when the order of the disallowed nodes among themselves changes. Any other new order is reachable by moving allowed nodes, and an allowed sibling inserted or removed before it moves nothing.
   - A slot's default children sit at the slot's `hostPath` and `insertIndex`; changing either moves them.
   - `component_draft_create` starts from nothing, so every node counts as added.
   - `component_draft_update` starts from the draft (or the published template when there is none).

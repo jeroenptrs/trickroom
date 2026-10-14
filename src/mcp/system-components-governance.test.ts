@@ -494,4 +494,85 @@ describe("allowedComponents on component writes", () => {
 			).toBe("1");
 		});
 	});
+
+	describe("review round 4: compound precedence and slot hosts", () => {
+		const conflicting = (order: "bold-first" | "light-first") => {
+			const bold = {
+				when: { tone: "brand" },
+				classesByPath: { label: "font-bold" },
+			};
+			const light = {
+				when: { size: "sm" },
+				classesByPath: { label: "font-light" },
+			};
+			return {
+				axes: {
+					tone: {
+						label: "Tone",
+						values: {
+							plain: { classesByPath: {} },
+							brand: { classesByPath: {} },
+						},
+					},
+					size: {
+						label: "Size",
+						values: { sm: { classesByPath: {} }, lg: { classesByPath: {} } },
+					},
+				},
+				compoundVariants:
+					order === "bold-first" ? [bold, light] : [light, bold],
+			};
+		};
+
+		it("refuses reversing overlapping compounds on a disallowed node, on update", async () => {
+			const { update, manifest, changeEntries } = await open({
+				draft: { root: card(), variants: conflicting("bold-first") },
+			});
+			const before = (await manifest()).revision;
+			const result = await update(
+				{ variants: conflicting("light-first") },
+				true,
+			);
+			expect(result.payload).toMatchObject(denied);
+			expect((await manifest()).revision).toBe(before);
+			expect(await changeEntries()).toEqual([]);
+		});
+
+		it("refuses publishing reversed overlapping compounds on a disallowed node", async () => {
+			const { publish, manifest, componentId, changeEntries } = await open({
+				published: { root: card(), variants: conflicting("bold-first") },
+				draft: { root: card(), variants: conflicting("light-first") },
+			});
+			const result = await publish(true);
+			expect(result.payload).toMatchObject(denied);
+			expect(
+				(await manifest()).manifest.components[componentId]?.published
+					?.currentVersion,
+			).toBe("1");
+			expect(await changeEntries()).toEqual([]);
+		});
+
+		it("refuses swapping allowed slot defaults inside a disallowed host", async () => {
+			const root = node("root", "container", {
+				children: [node("host", "text", { text: "Host" })],
+			});
+			const slot = (first: string, second: string) => ({
+				content: {
+					name: "content",
+					hostPath: "host",
+					defaultChildren: [
+						node(first, "container"),
+						node(second, "container"),
+					],
+				},
+			});
+			const { update, manifest } = await open({
+				draft: { root, slots: slot("a", "b") },
+			});
+			const before = (await manifest()).revision;
+			const result = await update({ slots: slot("b", "a") }, true);
+			expect(result.payload).toMatchObject(denied);
+			expect((await manifest()).revision).toBe(before);
+		});
+	});
 });

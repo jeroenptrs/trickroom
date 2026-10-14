@@ -23,7 +23,8 @@ import {
  * - adds or removes a node of a disallowed component;
  * - changes a node of a disallowed component, or a node's component from or
  *   to one: its own fields, or its variant and compound classes (each with
- *   the condition it applies under);
+ *   the condition it applies under; the compounds that target it in order,
+ *   since later ones win);
  * - moves a node of a disallowed component, or moves any node into or
  *   within a parent of a disallowed component. Moves are what `moveElement`
  *   would have to do to turn the old template into the new one using
@@ -76,29 +77,42 @@ const canonicalWhen = (when: Record<string, string | string[]>) =>
 		]),
 	);
 
-/** Per template path, every class string set on it with its condition. */
+/**
+ * Per template path, its class signature: the axis-value classes set on it
+ * (one value per axis applies, so as a sorted set) and, in order, the
+ * compounds that target it with their canonical condition. Compound order
+ * is precedence (later ones win where they overlap), so reordering the
+ * compounds that target a node changes it; reordering others does not.
+ */
 const classesByPathOf = (variants: ComponentTemplateParts["variants"]) => {
-	const classes = new Map<string, string[]>();
+	const axes = new Map<string, string[]>();
+	const compounds = new Map<string, string[]>();
 	const add = (
+		into: Map<string, string[]>,
 		byPath: Record<string, string> | undefined,
 		condition: Record<string, unknown>,
 	) => {
 		for (const [path, className] of Object.entries(byPath ?? {})) {
-			const list = classes.get(path) ?? [];
+			const list = into.get(path) ?? [];
 			list.push(stableStringify({ ...condition, className }));
-			classes.set(path, list);
+			into.set(path, list);
 		}
 	};
 	for (const [axis, entry] of Object.entries(variants?.axes ?? {})) {
 		for (const [value, variant] of Object.entries(entry.values)) {
-			add(variant.classesByPath, { axis, value });
+			add(axes, variant.classesByPath, { axis, value });
 		}
 	}
-	// By condition, not by position: reordering compounds changes nothing.
 	for (const compound of variants?.compoundVariants ?? []) {
-		add(compound.classesByPath, { when: canonicalWhen(compound.when) });
+		add(compounds, compound.classesByPath, {
+			when: canonicalWhen(compound.when),
+		});
 	}
-	return classes;
+	return (path: string) =>
+		stableStringify({
+			axes: [...(axes.get(path) ?? [])].sort(),
+			compounds: compounds.get(path) ?? [],
+		});
 };
 
 const ROOT_TREE = "root\0";
@@ -125,7 +139,7 @@ const indexTemplate = (raw: ComponentTemplateParts | undefined) => {
 			library: node.library,
 			component: node.component,
 			own: stableStringify(own),
-			classes: stableStringify([...(classes.get(node.path) ?? [])].sort()),
+			classes: classes(node.path),
 			parentKey,
 			where,
 			path: node.path,
@@ -178,6 +192,10 @@ export const assertTemplateChangesAllowed = (
 		isComponentAllowed(policy, node.library, node.component);
 	const previous = indexTemplate(before);
 	const next = indexTemplate(after);
+	/** The node a parent key names: a node, or a slot's host node. */
+	const parentNode = (index: TemplateIndex, parentKey: string) =>
+		index.nodes.get(parentKey) ??
+		index.nodes.get(index.slots.get(parentKey)?.hostKey ?? "");
 
 	// Added, changed, and moved to another parent.
 	for (const [key, node] of next.nodes) {
@@ -191,7 +209,7 @@ export const assertTemplateChangesAllowed = (
 		if (changed && !allowed(node)) refuse(node, "changes");
 		if (old.parentKey !== node.parentKey) {
 			if (!allowed(node)) refuse(node, "moves");
-			const parent = next.nodes.get(node.parentKey);
+			const parent = parentNode(next, node.parentKey);
 			if (parent && !allowed(parent)) refuse(parent, "moves a node into");
 		}
 	}
@@ -212,8 +230,15 @@ export const assertTemplateChangesAllowed = (
 		);
 		const keptAfter = childrenAfter.filter((key) => stays(key, next, previous));
 		if (stableStringify(keptBefore) === stableStringify(keptAfter)) continue;
-		const parent = next.nodes.get(parentKey);
-		if (parent && !allowed(parent)) refuse(parent, "reorders the children of");
+		// Under a slot, its host (before and after) is the parent.
+		for (const parent of [
+			parentNode(previous, parentKey),
+			parentNode(next, parentKey),
+		]) {
+			if (parent && !allowed(parent)) {
+				refuse(parent, "reorders the children of");
+			}
+		}
 		const disallowed = (keys: string[], index: TemplateIndex) =>
 			keys.filter((key) => {
 				const entry = index.nodes.get(key);
