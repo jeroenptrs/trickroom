@@ -1,5 +1,6 @@
 import { Undo2 } from "lucide-react";
 import type {
+	AnnotationChangeRecord,
 	AnnotationEntry,
 	AnnotationView,
 } from "../../services/annotations.types";
@@ -33,6 +34,11 @@ export type AnnotationChangeActions = {
 	revertingEntryId?: string | null;
 	/** A layer's current name in the open design, or null when it is gone. */
 	nameOfLayer?: LayerNameLookup;
+	/**
+	 * The names of the other annotations the same write addressed: a revert
+	 * undoes that write for all of them.
+	 */
+	sharedWith?: (change: AnnotationChangeRecord) => readonly string[];
 };
 
 function EntryText({ children }: { children: string }) {
@@ -71,6 +77,7 @@ function ChangeRecord({
 	const summary =
 		change.summary && change.summary !== entry.body ? change.summary : "";
 	const hasDetails = Boolean(summary) || change.operations.length > 0;
+	const shared = entry.revertedBy ? [] : (actions.sharedWith?.(change) ?? []);
 	return (
 		<div className="flex flex-col gap-1">
 			{entry.body ? (
@@ -101,7 +108,11 @@ function ChangeRecord({
 						<Button
 							variant="ghost"
 							className="flex shrink-0 items-center gap-1 px-2 py-1 text-xs"
-							title="Restore the layers as they were before this change"
+							title={
+								shared.length > 0
+									? `Restore the layers as they were before this change, which also addressed ${shared.join(", ")}`
+									: "Restore the layers as they were before this change"
+							}
 							disabled={actions.revertingEntryId === entry.id}
 							onClick={() => actions.onRevert?.(entry)}
 						>
@@ -142,6 +153,14 @@ function ChangeRecord({
 							</li>
 						))}
 					</ul>
+				) : null}
+				{shared.length > 0 ? (
+					<p
+						className="px-2 pb-1.5 text-xs text-slate-600"
+						data-annotation-change-shared=""
+					>
+						Same change as {shared.join(", ")}: Revert undoes it there too.
+					</p>
 				) : null}
 			</div>
 			{hasDetails ? (

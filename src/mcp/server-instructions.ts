@@ -19,7 +19,7 @@ Session start: ${TOOL.projectList} (or ${TOOL.projectSelect}), then ${TOOL.memor
 
 Loop: ${TOOL.designRead} the area you change (view "outline" for ids, elementId for detail); ${TOOL.designApply} one batch with expectedRevision from your last read or write; fix the warnings it returns; ${TOOL.designScreenshot} the changed boards at several viewports in one call and look; ${TOOL.designValidate} before handing off; ${TOOL.editorFocus} to show the human what changed. When the human says "this", call ${TOOL.editorContext}. On REVISION_MISMATCH, re-read only the boards it names and retry.
 
-Annotations are remarks a designer anchors to a layer or component node for you. When a result carries \`annotations\`, make the change and pass addresses: [{ annotationId, reply }] to that write, or ask with ${TOOL.annotationReply}; resolve only when asked.
+Annotations are the designer's remarks for you. When a result has \`annotations\`, pass addresses: [{ annotationId, reply }] to the write that makes the change (unrelated ones in separate writes), or ask with ${TOOL.annotationReply}; resolve only when asked.
 
 A board is one responsive screen or state, reviewed at several widths: never one board per breakpoint.
 

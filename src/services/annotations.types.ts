@@ -111,6 +111,13 @@ export type AnnotationChangeState<Layer> = {
 };
 
 export type AnnotationChangeRecord = {
+	/**
+	 * Minted once per design or component write and stored on every change
+	 * record that write leaves, so a revert from one annotation finds the
+	 * others the same write addressed. Records written before it existed
+	 * have none and are never treated as shared.
+	 */
+	writeId?: string;
 	revisionBefore: string;
 	revisionAfter: string;
 	/** Boards the write touched. */

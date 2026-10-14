@@ -166,6 +166,18 @@ describe("nameLayersInText with word ids", () => {
 		).toBe(`Set Title Headline to '${TITLE}'`);
 	});
 
+	it("keeps a JSON string literal with escaped quotes whole", () => {
+		const literal = `"Say \\"${TITLE}\\" once"`;
+		expect(
+			nameLayersInText(
+				`Set ${TITLE} text to ${literal}`,
+				change,
+				wordAnnotation,
+				byName,
+			),
+		).toBe(`Set Title Headline to ${literal}`);
+	});
+
 	it("treats an apostrophe as part of the word", () => {
 		expect(
 			nameLayersInText(

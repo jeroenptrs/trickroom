@@ -150,7 +150,7 @@ const describeMigratedElement = (
 
 /** The `addresses` input of component_draft_update and component_publish. */
 const componentAddressesSchema = addressesInputSchema(
-	"Annotations on this component that this write answers, each with your reply: they become addressed with a change record (unknown, other-component, closed or other-branch ones refuse the write; nothing is recorded unless it lands).",
+	"Annotations on this component that this write makes the change for, each with your reply: they become addressed with a change record (unknown, other-component, closed or other-branch ones refuse the write; nothing is recorded unless it lands). Give unrelated annotations separate writes, because the designer's revert undoes a whole write.",
 );
 
 export const registerSystemComponentTools = (ctx: McpToolContext) => {

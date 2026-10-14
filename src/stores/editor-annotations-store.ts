@@ -31,6 +31,11 @@ export type AnnotationRowMarkers = {
 	layers: Record<string, AnnotationMarker>;
 	/** Per board row: board annotations plus those on its layers. */
 	boards: Record<string, AnnotationMarker>;
+	/**
+	 * Per layer row with annotated descendants: its own and theirs, what the
+	 * row shows while it is collapsed. Needs the locator's `parentOfLayer`.
+	 */
+	subtrees: Record<string, AnnotationMarker>;
 };
 
 export type EditorAnnotationsState = {
@@ -92,6 +97,7 @@ const withId = <Value>(
 const emptyMarkers = (): AnnotationRowMarkers => ({
 	layers: createIdRecord(),
 	boards: createIdRecord(),
+	subtrees: createIdRecord(),
 });
 
 const initialState = (): EditorAnnotationsState => ({
@@ -425,8 +431,9 @@ export function getAnnotationStateWith(
 /**
  * The rail markers of `annotations`: each layer row counts its own, each
  * board row everything on the board (its own and its layers', following
- * layers that moved). Entries equal to `previous` keep their object, so a
- * row whose marker did not change does not re-render.
+ * layers that moved), and each layer with annotated descendants its
+ * subtree, for when it is collapsed. Entries equal to `previous` keep their
+ * object, so a row whose marker did not change does not re-render.
  */
 export function deriveAnnotationRowMarkers(
 	annotations: readonly AnnotationView[],
@@ -437,6 +444,7 @@ export function deriveAnnotationRowMarkers(
 	// Maps: ids may be `constructor` or `__proto__`.
 	const layerStates = new Map<string, AnnotationPresentationState[]>();
 	const boardStates = new Map<string, AnnotationPresentationState[]>();
+	const subtreeStates = new Map<string, AnnotationPresentationState[]>();
 	const push = (
 		states: Map<string, AnnotationPresentationState[]>,
 		id: string,
@@ -473,6 +481,15 @@ export function deriveAnnotationRowMarkers(
 		}
 		if (target.kind === "layer") {
 			push(layerStates, target.elementId, state);
+			// The layer and its ancestors below the board (the board row
+			// counts everything already). Bounded against a broken tree.
+			let id: string | null = target.elementId;
+			for (let depth = 0; id !== null && depth < 1000; depth += 1) {
+				const parent: string | null = locator.parentOfLayer?.(id) ?? null;
+				if (parent === null) break;
+				push(subtreeStates, id, state);
+				id = parent;
+			}
 		}
 	}
 	const reuse = (
@@ -496,9 +513,12 @@ export function deriveAnnotationRowMarkers(
 	};
 	const layers = reuse(layerStates, previous.layers);
 	const boards = reuse(boardStates, previous.boards);
-	return layers === previous.layers && boards === previous.boards
+	const subtrees = reuse(subtreeStates, previous.subtrees);
+	return layers === previous.layers &&
+		boards === previous.boards &&
+		subtrees === previous.subtrees
 		? previous
-		: { layers, boards };
+		: { layers, boards, subtrees };
 }
 
 /** Recomputes the rail markers against the editor's current tree. */
@@ -516,13 +536,18 @@ export function refreshAnnotationMarkers(locator: AnnotationTargetLocator) {
 
 /**
  * A rail row's marker: a board row's counts everything on the board, a
- * layer row's its own. Selected by id, so an annotation event re-renders
- * only the rows whose marker changed.
+ * layer row's its own, and a collapsed layer row's its own and its hidden
+ * descendants'. Selected by id, so an annotation event re-renders only the
+ * rows whose marker changed.
  */
-export function useAnnotationRowMarker(id: string) {
+export function useAnnotationRowMarker(id: string, collapsed = false) {
 	return useSelector(
 		editorAnnotationsStore,
-		(state) => state.markers.boards[id] ?? state.markers.layers[id] ?? null,
+		(state) =>
+			state.markers.boards[id] ??
+			(collapsed ? state.markers.subtrees[id] : undefined) ??
+			state.markers.layers[id] ??
+			null,
 	);
 }
 

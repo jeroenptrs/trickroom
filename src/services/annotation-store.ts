@@ -312,6 +312,11 @@ const writeFileAtomic = async (
 	}
 };
 
+/** `updateMany`'s mutation: the current annotations by id in, the ones to write out. */
+export type AnnotationManyMutation<Result> = (
+	current: ReadonlyMap<string, StoredAnnotation>,
+) => Promise<{ annotations: readonly Annotation[]; result: Result }>;
+
 export class AnnotationStore {
 	readonly projectId: string;
 	readonly trickroomHome: string;
@@ -611,6 +616,116 @@ export class AnnotationStore {
 				result,
 			};
 		});
+	}
+
+	/**
+	 * Read-modify-write of several annotations of one container under all of
+	 * their locks. The locks are taken in id order, so two such writers
+	 * cannot deadlock, and held until every write is done. A lock that cannot
+	 * be taken fails with `ANNOTATION_LOCKED` naming the annotation, before
+	 * `mutate` runs; so does a missing annotation (`ANNOTATION_NOT_FOUND`).
+	 * `mutate` sees the current annotations by id and returns the ones to
+	 * write. With `allowMissing`, a missing annotation is left out of the
+	 * map instead.
+	 */
+	async updateMany<Result>(
+		container: AnnotationContainer,
+		annotationIds: readonly string[],
+		mutate: AnnotationManyMutation<Result>,
+		{ allowMissing = false }: { allowMissing?: boolean } = {},
+	): Promise<{ stored: Map<string, StoredAnnotation>; result: Result }> {
+		const ids = [...new Set(annotationIds)].sort();
+		const locks = new Map<string, FileLockHandle>();
+		const run = async () => {
+			const current = new Map<string, StoredAnnotation>();
+			for (const annotationId of ids) {
+				const stored = await this.read(container, annotationId);
+				if (!stored && allowMissing) continue;
+				if (!stored) {
+					throw new AnnotationStoreError(
+						"ANNOTATION_NOT_FOUND",
+						`Annotation ${annotationId} does not exist.`,
+						{ annotationId },
+					);
+				}
+				current.set(annotationId, stored);
+			}
+			const { annotations, result } = await mutate(current);
+			const stored = new Map<string, StoredAnnotation>();
+			for (const annotation of annotations) {
+				const lock = locks.get(annotation.id);
+				if (
+					!lock ||
+					!isSameAnnotationContainer(
+						getAnnotationContainer(annotation.target),
+						container,
+					)
+				) {
+					throw new AnnotationStoreError(
+						"INVALID_ID",
+						"An update can write only the annotations it locked, in their own container.",
+					);
+				}
+				const next: Annotation = {
+					...annotation,
+					version: ANNOTATION_FILE_VERSION,
+				};
+				await this.writeLocked(container, next, lock);
+				stored.set(annotation.id, {
+					annotation: next,
+					revision: calculateAnnotationRevision(next),
+					migrated: false,
+				});
+			}
+			return { stored, result };
+		};
+		const acquire = async (
+			index: number,
+		): Promise<{ stored: Map<string, StoredAnnotation>; result: Result }> => {
+			const annotationId = ids[index];
+			if (annotationId === undefined) return run();
+			try {
+				return await this.withLock(
+					this.getAnnotationPath(container, annotationId),
+					async (lock) => {
+						locks.set(annotationId, lock);
+						return acquire(index + 1);
+					},
+				);
+			} catch (error) {
+				// Name the annotation whose lock could not be taken (once: an
+				// inner failure passes through the outer locks).
+				if (
+					error instanceof AnnotationStoreError &&
+					error.code === "ANNOTATION_LOCKED" &&
+					error.details?.annotationId === undefined
+				) {
+					throw new AnnotationStoreError(
+						"ANNOTATION_LOCKED",
+						`Annotation ${annotationId} is locked by another writer; try again.`,
+						{ annotationId },
+					);
+				}
+				throw error;
+			}
+		};
+		return acquire(0);
+	}
+
+	/**
+	 * One file of an `updateMany` batch, written while every lock of the
+	 * batch is held. Tests override it to pause between two files.
+	 */
+	protected async writeLocked(
+		container: AnnotationContainer,
+		annotation: Annotation,
+		lock: FileLockHandle,
+	) {
+		await writeFileAtomic(
+			this.getAnnotationPath(container, annotation.id),
+			serializeAnnotation(annotation),
+			() => lock.assertHeld(),
+		);
 	}
 
 	/**

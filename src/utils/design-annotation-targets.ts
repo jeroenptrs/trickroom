@@ -15,6 +15,7 @@ export function designStoreTargetLocator(
 		boardOfLayer: (elementId) =>
 			entitiesById[elementId] ? getBoardIdOf(entitiesById, elementId) : null,
 		hasBoard: (boardId) => entitiesById[boardId]?.parentId === null,
+		parentOfLayer: (elementId) => entitiesById[elementId]?.parentId ?? null,
 	};
 }
 

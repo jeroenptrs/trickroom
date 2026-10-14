@@ -8,7 +8,10 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
-import type { AnnotationView } from "../../services/annotations.types";
+import type {
+	AnnotationChangeRecord,
+	AnnotationView,
+} from "../../services/annotations.types";
 import {
 	setReplyDraft,
 	useAnnotationDraftsUnsupported,
@@ -56,6 +59,11 @@ export type AnnotationThreadProps = {
 	 * change records and a refused revert name layers with it.
 	 */
 	nameOfLayer?: LayerNameLookup;
+	/**
+	 * The names of the other annotations a change record's write addressed
+	 * too (a revert undoes it for them as well).
+	 */
+	sharedChangeNames?: (change: AnnotationChangeRecord) => readonly string[];
 	/** "Re-anchor to <label>": the current selection, when it is another target. */
 	reanchor?: { label: string; run: () => Promise<unknown> } | null;
 	/**
@@ -200,6 +208,7 @@ export const AnnotationThread = memo(function AnnotationThread({
 	now,
 	onRevealLayers,
 	nameOfLayer,
+	sharedChangeNames,
 	reanchor,
 	onSaveMemory,
 	otherBranch = false,
@@ -209,6 +218,7 @@ export const AnnotationThread = memo(function AnnotationThread({
 	const [dismissing, setDismissing] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [revertingEntryId, setRevertingEntryId] = useState<string | null>(null);
+	const [savedMemory, setSavedMemory] = useState(false);
 
 	useEffect(() => {
 		if (focused) {
@@ -321,6 +331,7 @@ export const AnnotationThread = memo(function AnnotationThread({
 										).finally(() => setRevertingEntryId(null));
 									},
 							revertingEntryId,
+							sharedWith: sharedChangeNames,
 						}}
 					/>
 					{otherBranch ? (
@@ -390,14 +401,39 @@ export const AnnotationThread = memo(function AnnotationThread({
 									) : null}
 								</>
 							) : (
-								<Button
-									variant="ghost"
-									className={actionButton}
-									disabled={busy}
-									onClick={() => void run(() => reopenAnnotation(annotation))}
-								>
-									Reopen
-								</Button>
+								<>
+									<Button
+										variant="ghost"
+										className={actionButton}
+										disabled={busy}
+										onClick={() => void run(() => reopenAnnotation(annotation))}
+									>
+										Reopen
+									</Button>
+									{/* The toast after resolving is easy to miss, and bulk
+									    resolves have none: a resolved thread keeps the offer. */}
+									{annotation.status === "resolved" &&
+									!agentResolved &&
+									onSaveMemory ? (
+										<Button
+											variant="ghost"
+											className={actionButton}
+											disabled={busy || savedMemory}
+											title="Add a memory note with the remark, the final reply and a reference to its target"
+											onClick={() =>
+												void run(async () => {
+													if (await onSaveMemory(annotation)) {
+														setSavedMemory(true);
+													}
+												})
+											}
+										>
+											{savedMemory
+												? "Saved as memory note"
+												: "Save as memory note"}
+										</Button>
+									) : null}
+								</>
 							)}
 						</div>
 					)}

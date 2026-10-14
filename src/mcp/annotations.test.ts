@@ -26,6 +26,7 @@ import type {
 import type { EditorClientContext } from "../services/editor-channel.types";
 import type { TrickroomConfig, TrickroomDesign } from "../types";
 import {
+	ADDRESSING_ADVICE,
 	createMcpAnnotationSession,
 	MAX_SURFACED_ANNOTATIONS,
 } from "./annotation-session";
@@ -260,6 +261,14 @@ describe("MCP annotations", () => {
 			);
 			expect(first.next).toContain(`annotationId: "${annotation.id}"`);
 			expect(first.next).toContain('board "Board"');
+			// What the agent needs without the guide: one write per change,
+			// questions for ambiguity, resolve only on request.
+			expect(first.next).toContain(
+				`Address each in the ${TOOL.designApply} that makes its change`,
+			);
+			expect(first.next).toContain(ADDRESSING_ADVICE);
+			expect(first.next).toContain(`ask with ${TOOL.annotationReply}`);
+			expect(first.next).toContain("Resolve only when the designer asks.");
 
 			const acknowledged = await stored(annotation.id);
 			expect(acknowledged.status).toBe("acknowledged");
@@ -763,6 +772,53 @@ describe("MCP annotations", () => {
 	});
 
 	describe("annotation_list", () => {
+		it("says what its filters left out when nothing matches", async () => {
+			const { call, annotate, service } = await open();
+			const closed = await annotate(layer, "Done");
+			await transitionAnnotation(service, {
+				annotationId: closed.id,
+				by: { role: "human" },
+				to: "resolved",
+			});
+			await annotate(layer, "Elsewhere", {
+				branch: "other",
+				worktreePath: "/elsewhere",
+			});
+
+			const { payload } = await call(TOOL.annotationList, {
+				designFileId: designId,
+			});
+			expect(payload.annotations).toEqual([]);
+			expect(payload.next).toBe(
+				'No annotations match. This design has 1 closed annotation (resolved or dismissed), which status: "all" lists. This design has 1 live annotation on other git branches, which branch: "all" lists. Only the designer can move one to this branch.',
+			);
+
+			// Filters that already show them leave nothing to hint at.
+			const all = await call(TOOL.annotationList, {
+				designFileId: designId,
+				status: "all",
+				branch: "all",
+			});
+			expect(all.payload.annotations).toHaveLength(2);
+			expect(all.payload).not.toHaveProperty("next");
+			const allStatuses = await call(TOOL.annotationList, {
+				designFileId: designId,
+				status: "all",
+				elementId: "nothing-here",
+			});
+			expect(allStatuses.payload.next).not.toContain("closed");
+			expect(allStatuses.payload.next).toContain("other git branches");
+		});
+
+		it("adds no hint when nothing is left out", async () => {
+			const { call } = await open();
+			const { payload } = await call(TOOL.annotationList, {
+				designFileId: designId,
+			});
+			expect(payload.annotations).toEqual([]);
+			expect(payload).not.toHaveProperty("next");
+		});
+
 		it("lists live annotations with ids and anchors, agent work first", async () => {
 			const { call, annotate, service } = await open();
 			const asked = await annotate(board, "Spacing?");
@@ -1438,6 +1494,8 @@ describe("MCP annotations", () => {
 					.sort(),
 			).toEqual([first.id, second.id].sort());
 			expect(payload.next).toContain(TOOL.designApply);
+			expect(payload.next).toContain(ADDRESSING_ADVICE);
+			expect(payload.next).toContain("Resolve only when the designer asks.");
 			expect((await stored(first.id)).status).toBe("acknowledged");
 		});
 

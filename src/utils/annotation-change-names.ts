@@ -33,10 +33,13 @@ const escapeRegExp = (text: string) =>
 	text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
- * Quoted runs (class strings, text content): never rewritten. A single
- * quote inside a word ("don't") is an apostrophe, not a quote.
+ * Quoted runs (class strings, text content): never rewritten. A
+ * backslash-escaped quote (`"say \"hi\""`, as in a JSON string literal)
+ * does not end its run. A single quote inside a word ("don't") is an
+ * apostrophe, not a quote.
  */
-const QUOTED = /"[^"]*"|`[^`]*`|(?<![\w])'[^']*'(?![\w])/g;
+const QUOTED =
+	/"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`|(?<![\w])'(?:[^'\\]|\\.)*'(?![\w])/g;
 
 /** What the annotation itself knows about a layer id. */
 const recordedName = (

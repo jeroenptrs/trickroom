@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { holdForeignAnnotationLock } from "../test-utils/foreign-annotation-lock";
 import type { RecipeTemplateNode } from "../types";
 import { createDesignSystemStorage } from "../utils/design-system-store";
 import {
@@ -24,6 +25,7 @@ import {
 	type AnnotationServiceContext,
 	createAnnotation,
 	listAnnotations,
+	moveAnnotationToBranch,
 	replyToAnnotation,
 	transitionAnnotation,
 	validateAddresses,
@@ -207,15 +209,18 @@ describe("component annotations", () => {
 			expectedRevision,
 			knownEntryIds,
 			publish = false,
+			recordContext = context,
 		}: {
 			revertible?: boolean;
 			expectedRevision?: string;
 			knownEntryIds?: string[];
 			publish?: boolean;
+			/** Records the change with another store (to pause it, say). */
+			recordContext?: AnnotationServiceContext;
 		} = {},
 	) => {
 		const read = await manifest();
-		const recorder = createComponentAddressesRecorder(context, {
+		const recorder = createComponentAddressesRecorder(recordContext, {
 			container,
 			addresses: annotationIds.map((annotationId) => ({
 				annotationId,
@@ -720,6 +725,210 @@ describe("component annotations", () => {
 				from: "addressed",
 				to: "open",
 			});
+		});
+
+		it("reverts a write that addressed several annotations on all of them", async () => {
+			const first = await create();
+			const second = await create();
+			tick();
+			const beforeHash = hashSystemComponentTemplate(await draftOf());
+			await addressing([first.id, second.id], {
+				draft: { root: buttonRoot("px-8") },
+			});
+			tick();
+
+			const result = await revert(
+				first.id,
+				changeEntry(await reload(first.id)).id,
+			);
+
+			expect(hashSystemComponentTemplate(await draftOf())).toBe(beforeHash);
+			expect(result.alsoReverted).toEqual([second.id]);
+			const sibling = await reload(second.id);
+			expect(sibling.status).toBe("open");
+			const revertEntry = sibling.entries.at(-1);
+			expect(revertEntry).toMatchObject({
+				kind: "revert",
+				by: human,
+				revisionAfter: result.revision,
+			});
+			const change = changeEntry(sibling);
+			expect(change.revertedBy).toBe(revertEntry?.id);
+			expect(change.change.draftBefore).toBeUndefined();
+			await expect(revert(second.id, change.id)).rejects.toMatchObject({
+				code: "NOT_REVERTIBLE",
+			});
+		});
+
+		it("refuses before the draft changes when a sibling's lock is held", async () => {
+			const first = await create();
+			const second = await create();
+			await addressing([first.id, second.id], {
+				draft: { root: buttonRoot("px-8") },
+			});
+			const revision = (await manifest()).revision;
+			const secondBefore = await reload(second.id);
+			const lockFile = await holdForeignAnnotationLock(
+				path.join(root, "home"),
+				store.getAnnotationPath(container, second.id),
+			);
+			const impatient = new AnnotationStore({
+				projectId: "project-1",
+				trickroomHome: path.join(root, "home"),
+				lock: { acquireTimeoutMs: 200, retryDelayMs: 20 },
+			});
+			try {
+				await expect(
+					revertComponentChange(
+						{ store: impatient, now: () => clock },
+						{
+							annotationId: first.id,
+							entryId: changeEntry(await reload(first.id)).id,
+							by: human,
+							projectRoot,
+							container,
+						},
+					),
+				).rejects.toMatchObject({
+					code: "ANNOTATION_LOCKED",
+					details: { annotationId: second.id },
+				});
+			} finally {
+				await rm(lockFile, { force: true });
+			}
+			expect((await manifest()).revision).toBe(revision);
+			expect((await reload(first.id)).status).toBe("addressed");
+			expect(await reload(second.id)).toEqual(secondBefore);
+		});
+
+		it("leaves a sibling on another branch alone, to its own checkout's draft", async () => {
+			const first = await create();
+			const second = await create();
+			await addressing([first.id, second.id], {
+				draft: { root: buttonRoot("px-8") },
+			});
+			// The feature worktree has its own copy of the project, with the write.
+			const featureRoot = path.join(root, "feature-project");
+			await cp(projectRoot, featureRoot, { recursive: true });
+			await moveAnnotationToBranch(context, {
+				annotationId: second.id,
+				by: human,
+				scope: feature,
+			});
+			const secondBefore = await reload(second.id);
+
+			const result = await revertComponentChange(context, {
+				annotationId: first.id,
+				entryId: changeEntry(await reload(first.id)).id,
+				by: human,
+				projectRoot,
+				container,
+				scope: main,
+			});
+			expect(result.alsoReverted).toEqual([]);
+			expect(await reload(second.id)).toEqual(secondBefore);
+
+			// That checkout's draft still has the write: the revert works there.
+			const onFeature = await revertComponentChange(context, {
+				annotationId: second.id,
+				entryId: changeEntry(secondBefore).id,
+				by: human,
+				projectRoot: featureRoot,
+				container,
+				scope: feature,
+			});
+			expect(onFeature.annotation.status).toBe("open");
+		});
+
+		it("refuses to revert another branch's annotation, with nothing written", async () => {
+			const first = await create();
+			await addressing([first.id], { draft: { root: buttonRoot("px-8") } });
+			await moveAnnotationToBranch(context, {
+				annotationId: first.id,
+				by: human,
+				scope: feature,
+			});
+			const revision = (await manifest()).revision;
+			const before = await reload(first.id);
+			const stored = await store.read(container, first.id);
+			await expect(
+				revertComponentChange(context, {
+					annotationId: first.id,
+					entryId: changeEntry(before).id,
+					by: human,
+					projectRoot,
+					container,
+					scope: main,
+					...(stored ? { expectedRevision: stored.revision } : {}),
+				}),
+			).rejects.toMatchObject({
+				code: "WRONG_BRANCH",
+				details: { annotationId: first.id, branch: "feature" },
+			});
+			expect((await manifest()).revision).toBe(revision);
+			expect(await reload(first.id)).toEqual(before);
+		});
+
+		it("sees all of an addresses batch or none, from another checkout on the branch", async () => {
+			const first = await create();
+			const second = await create();
+			let firstWritten = () => {};
+			const reached = new Promise<void>((resolve) => {
+				firstWritten = resolve;
+			});
+			let release = () => {};
+			const released = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			// The draft write in this checkout records the batch under all its
+			// locks and pauses after the first file, before the second.
+			class Pausing extends AnnotationStore {
+				protected override async writeLocked(
+					target: AnnotationContainer,
+					annotation: Annotation,
+					lock: Parameters<AnnotationStore["writeLocked"]>[2],
+				) {
+					await super.writeLocked(target, annotation, lock);
+					if (annotation.id === first.id) {
+						firstWritten();
+						await released;
+					}
+				}
+			}
+			const writing = addressing(
+				[first.id, second.id],
+				{ draft: { root: buttonRoot("px-8") } },
+				{
+					recordContext: {
+						store: new Pausing({
+							projectId: "project-1",
+							trickroomHome: path.join(root, "home"),
+						}),
+						now: () => clock,
+					},
+				},
+			);
+			await reached;
+			// A second checkout of the branch (a clone): its own manifest with
+			// the write, and its own manifest lock.
+			const otherRoot = path.join(root, "other-checkout");
+			await cp(projectRoot, otherRoot, { recursive: true });
+			const reverting = revertComponentChange(context, {
+				annotationId: first.id,
+				entryId: changeEntry(await reload(first.id)).id,
+				by: human,
+				projectRoot: otherRoot,
+				container,
+				scope: main,
+			});
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			release();
+			await writing;
+			const result = await reverting;
+			expect(result.alsoReverted).toEqual([second.id]);
+			const sibling = await reload(second.id);
+			expect(sibling.status).toBe("open");
+			expect(sibling.entries.at(-1)).toMatchObject({ kind: "revert" });
 		});
 
 		it("restores the variant schema and slots as well", async () => {

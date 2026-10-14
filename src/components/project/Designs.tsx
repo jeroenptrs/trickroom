@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FilePlus2, Image, Search } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
+import { annotationCountsQueryOptions } from "../../queries/annotations";
 import {
 	createDesignFile,
 	designFileQueryOptions,
@@ -16,6 +17,7 @@ import {
 } from "../../utils/design-activity";
 import { useProjectScope } from "../contexts";
 import { Alert } from "../ui/alert";
+import { AnnotationMarker } from "../ui/annotation-marker";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
@@ -44,6 +46,9 @@ export function Designs({
 	const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const projectScope = useProjectScope();
 	const designsQuery = useQuery(designSummariesQueryOptions(projectScope));
+	const annotationCounts = useQuery(
+		annotationCountsQueryOptions(projectScope),
+	).data;
 	const designsErrorMessage = (designsQuery.error as Error | null)?.message;
 	const designs = useMemo(
 		() => sortDesignsByRecentActivity(designsQuery.data ?? [], projectScope),
@@ -287,6 +292,14 @@ export function Designs({
 												</Text>
 											)}
 										</div>
+										<DesignAnnotationCount
+											counts={
+												annotationCounts &&
+												Object.hasOwn(annotationCounts, design.uuid)
+													? annotationCounts[design.uuid]
+													: undefined
+											}
+										/>
 									</Button>
 								);
 							})
@@ -295,5 +308,31 @@ export function Designs({
 				) : null}
 			</ScrollArea>
 		</section>
+	);
+}
+
+/**
+ * Live annotations on a design (on this checkout's branch): one square,
+ * hollow while some wait on you (an agent asked or changed something),
+ * filled while all are agent work, with the count.
+ */
+function DesignAnnotationCount({
+	counts,
+}: {
+	counts: { agentWork: number; humanWork: number } | undefined;
+}) {
+	if (!counts) return null;
+	const total = counts.agentWork + counts.humanWork;
+	if (total === 0) return null;
+	const label = `${total} ${pluralize(total, "annotation")}: ${counts.humanWork} waiting on you, ${counts.agentWork} for agents`;
+	return (
+		<AnnotationMarker
+			look={counts.humanWork > 0 ? "hollow" : "filled"}
+			count={total}
+			role="img"
+			aria-label={label}
+			title={label}
+			data-design-annotations={total}
+		/>
 	);
 }

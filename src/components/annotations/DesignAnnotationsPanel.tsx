@@ -8,6 +8,7 @@ import { createMemoryNote, invalidateMemory } from "../../queries/memory";
 import {
 	type AnnotationTargetLocator,
 	currentBoardOfWith,
+	findAnnotationsSharingChange,
 } from "../../services/annotation-model";
 import type {
 	AnnotationTarget,
@@ -295,6 +296,13 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 				now={now}
 				onRevealLayers={revealDesignLayers}
 				nameOfLayer={nameOfLayer}
+				sharedChangeNames={(change) =>
+					findAnnotationsSharingChange(
+						Object.values(byId),
+						annotation.id,
+						change,
+					).map((shared) => nameOf(shared.annotation))
+				}
 				reanchor={
 					reanchorTarget
 						? {

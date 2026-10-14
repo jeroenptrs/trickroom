@@ -323,6 +323,45 @@ describe("deriveAnnotationRowMarkers", () => {
 		});
 	});
 
+	it("sums a layer's descendants for its collapsed row", () => {
+		// b1 > g1 > g2 > l1; b1 > l2
+		const parents: Record<string, string> = {
+			g1: "b1",
+			g2: "g1",
+			l1: "g2",
+			l2: "b1",
+		};
+		const nested: AnnotationTargetLocator = {
+			...locator,
+			boardOfLayer: (id) => (parents[id] ? "b1" : null),
+			parentOfLayer: (id) => (id === "b1" ? null : (parents[id] ?? null)),
+		};
+		const markers = deriveAnnotationRowMarkers(
+			[
+				view({ target: layerTarget("l1"), status: "open" }),
+				view({ target: layerTarget("g1"), status: "needs_input" }),
+				view({ target: layerTarget("l2"), status: "addressed" }),
+			],
+			nested,
+			false,
+		);
+		expect(markers.subtrees).toEqual({
+			l1: { count: 1, state: "open" },
+			g2: { count: 1, state: "open" },
+			g1: { count: 2, state: "needs_input" },
+			l2: { count: 1, state: "addressed" },
+		});
+		expect(markers.layers.g1).toEqual({ count: 1, state: "needs_input" });
+		// Without parents (the component rail), nothing is summed.
+		expect(
+			deriveAnnotationRowMarkers(
+				[view({ target: layerTarget("l1") })],
+				locator,
+				false,
+			).subtrees,
+		).toEqual({});
+	});
+
 	it("puts a moved layer on its current board", () => {
 		const markers = deriveAnnotationRowMarkers(
 			[view({ target: layerTarget("l3", "b1") })],
@@ -368,7 +407,7 @@ describe("deriveAnnotationRowMarkers", () => {
 			locator,
 			true,
 		);
-		expect(markers).toEqual({ layers: {}, boards: {} });
+		expect(markers).toEqual({ layers: {}, boards: {}, subtrees: {} });
 	});
 
 	it("counts a deleted node's annotation on the component root", () => {
@@ -464,6 +503,7 @@ describe("deriveAnnotationRowMarkers", () => {
 		expect(deriveAnnotationRowMarkers(closed, locator, false)).toEqual({
 			layers: {},
 			boards: {},
+			subtrees: {},
 		});
 		const shown = deriveAnnotationRowMarkers(closed, locator, true);
 		expect(shown.layers.l1).toEqual({ count: 1, state: "resolved" });

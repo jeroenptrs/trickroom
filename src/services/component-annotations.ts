@@ -26,12 +26,12 @@ import {
 	type AnnotationComponentRead,
 	type AnnotationServiceContext,
 	AnnotationServiceError,
+	assertRevertBranch,
 	type RecordChangeResult,
 	recordChange,
+	revertUnderLocks,
+	SharedRevertSetChanged,
 	viewAnnotation,
-	withEntry,
-	withoutRevertState,
-	withTransition,
 } from "./annotation-service";
 import {
 	AnnotationStoreError,
@@ -43,6 +43,7 @@ import type {
 	AnnotationChangeRecord,
 	AnnotationContainer,
 	AnnotationDraftState,
+	AnnotationScope,
 } from "./annotations.types";
 
 /**
@@ -317,6 +318,8 @@ export const createComponentAddressesRecorder = (
 			);
 			const text = summary(after);
 			const change: AnnotationChangeRecord = {
+				// One id for this write, on every record it leaves.
+				writeId: randomUUID(),
 				revisionBefore: current.revision,
 				revisionAfter: written.revision,
 				boards: [],
@@ -351,12 +354,15 @@ const maxRevertAttempts = 3;
  * parts and variant schema as they were before the write, while the draft
  * still has the hashes the write left it with (nothing changed it since),
  * else fails with `CHANGED_SINCE`. The draft write is revision- and
- * hash-checked; under the manifest's write lock it takes the
- * annotation's lock, checks the change is still revertible (and the
- * annotation still at `expectedRevision`), writes the manifest and then the
- * annotation: the change loses its revert state, a `revert` entry is added
- * and an addressed annotation is open again. When the manifest was written
- * but the annotation could not be, it fails with `REVERT_NOT_RECORDED`.
+ * hash-checked; under the manifest's write lock it takes the locks of the
+ * annotation and of every annotation on this branch the same write
+ * addressed (in id order), checks each is still revertible (and the
+ * annotation still at `expectedRevision`), and refuses with nothing written
+ * when a lock or a check fails. Then it writes the manifest and the
+ * annotations: each change loses its revert state, a `revert` entry is
+ * added and an addressed annotation is open again. When the manifest was
+ * written but the annotations could not be, it fails with
+ * `REVERT_NOT_RECORDED`.
  */
 export const revertComponentChange = async (
 	context: AnnotationServiceContext,
@@ -368,6 +374,11 @@ export const revertComponentChange = async (
 		container: AnnotationContainer & { kind: "component" };
 		expectedRevision?: string;
 		now?: () => Date;
+		/**
+		 * The reverting checkout: only annotations on its branch are reverted
+		 * along (defaults to the reverted annotation's branch).
+		 */
+		scope?: AnnotationScope;
 	},
 ) => {
 	const { by, container } = input;
@@ -396,7 +407,12 @@ export const revertComponentChange = async (
 					: "This change cannot be reverted: it was a publish, its annotation was resolved or dismissed, or it did not change the draft.",
 			);
 		}
-		return { draftBefore, draftAfter, layerIds: entry.change.layerIds };
+		return {
+			draftBefore,
+			draftAfter,
+			layerIds: entry.change.layerIds,
+			change: entry.change,
+		};
 	};
 	const stored = await context.store.read(container, input.annotationId);
 	if (!stored) {
@@ -416,7 +432,12 @@ export const revertComponentChange = async (
 			{ annotationId: input.annotationId, currentRevision: stored.revision },
 		);
 	}
-	const { draftBefore, draftAfter, layerIds } = findChange(stored.annotation);
+	const { draftBefore, draftAfter, layerIds, change } = findChange(
+		stored.annotation,
+	);
+	const branch = input.scope?.branch ?? stored.annotation.branch;
+	// Checked again under the lock (revertUnderLocks).
+	assertRevertBranch(stored.annotation, input.annotationId, branch);
 	const changedSince = (revision: string) =>
 		new AnnotationServiceError(
 			"CHANGED_SINCE",
@@ -437,8 +458,8 @@ export const revertComponentChange = async (
 			throw changedSince(read.revision);
 		}
 		let recorded: StoredAnnotation | null = null;
+		let alsoReverted: string[] = [];
 		let manifestRevision: string | null = null;
-		const revertEntryId = randomUUID();
 		try {
 			await updateSystemComponent(
 				input.projectRoot,
@@ -456,64 +477,53 @@ export const revertComponentChange = async (
 					expectedRevision: read.revision,
 					expectedDraftTemplateHash: draftAfter.templateHash,
 					expectedDraftVariantSchemaHash: draftAfter.variantSchemaHash,
+					// Manifest lock held: the annotations a draft write addressed
+					// are all recorded (that recording holds this lock too).
 					aroundWrite: async (write, current) => {
-						const result = await context.store.update(
+						const locked = await revertUnderLocks(context, {
 							container,
-							input.annotationId,
-							async ({ annotation }) => {
-								// Annotation lock held: refuse before the draft changes
-								// when the change stopped being revertible meanwhile.
-								const locked = findChange(annotation);
+							annotationId: input.annotationId,
+							entryId: input.entryId,
+							change,
+							branch,
+							...(input.expectedRevision !== undefined
+								? { expectedRevision: input.expectedRevision }
+								: {}),
+							by,
+							...(input.now ? { now: input.now } : {}),
+							checkSource: (annotation) => {
+								const now = findChange(annotation);
 								if (
-									!isDeepStrictEqual(locked.draftBefore, draftBefore) ||
-									!isDeepStrictEqual(locked.draftAfter, draftAfter)
+									!isDeepStrictEqual(now.draftBefore, draftBefore) ||
+									!isDeepStrictEqual(now.draftAfter, draftAfter)
 								) {
 									throw new AnnotationServiceError(
 										"NOT_REVERTIBLE",
 										"The change record changed while reverting; try again.",
 									);
 								}
+							},
+							write: async () => {
 								const written = await write();
 								manifestRevision = written.revision;
-								const at = (input.now?.() ?? new Date()).toISOString();
-								const next = withEntry(
-									{
-										...annotation,
-										entries: annotation.entries.map((entry) =>
-											entry.id === input.entryId && entry.kind === "change"
-												? {
-														...entry,
-														change: withoutRevertState(entry.change),
-														revertedBy: revertEntryId,
-													}
-												: entry,
-										),
-									},
-									{
-										id: revertEntryId,
-										kind: "revert",
-										at,
-										by,
-										entryId: input.entryId,
-										revisionBefore: current.revision,
-										revisionAfter: written.revision,
-									},
-								);
 								return {
-									annotation:
-										next.status === "addressed"
-											? withTransition(next, "open", by, at)
-											: next,
-									result: undefined,
+									revisionBefore: current.revision,
+									revisionAfter: written.revision,
 								};
 							},
-							{ expectedRevision: input.expectedRevision },
-						);
-						recorded = result.stored;
+						});
+						recorded = locked.source;
+						alsoReverted = locked.alsoReverted;
 					},
 				},
 			);
 		} catch (error) {
+			if (
+				error instanceof SharedRevertSetChanged &&
+				manifestRevision === null
+			) {
+				continue;
+			}
 			if (manifestRevision !== null) {
 				throw new AnnotationServiceError(
 					"REVERT_NOT_RECORDED",
@@ -548,6 +558,8 @@ export const revertComponentChange = async (
 			}),
 			revision: manifestRevision as string,
 			restoredLayerIds: layerIds,
+			/** The other annotations the reverted write addressed, reverted too. */
+			alsoReverted,
 		};
 	}
 	throw new AnnotationServiceError(

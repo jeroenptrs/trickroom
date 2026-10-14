@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useNow } from "../../hooks/useNow";
 import type { AnnotationSnapshotHint } from "../../queries/annotations";
 import { createMemoryNote, invalidateMemory } from "../../queries/memory";
+import { findAnnotationsSharingChange } from "../../services/annotation-model";
 import type { AnnotationView } from "../../services/annotations.types";
 import {
 	type AnnotationDraft,
@@ -298,6 +299,13 @@ export function ComponentAnnotationsPanel({
 				now={now}
 				onRevealLayers={revealComponentNodes}
 				nameOfLayer={nameOfLayer}
+				sharedChangeNames={(change) =>
+					findAnnotationsSharingChange(
+						Object.values(byId),
+						annotation.id,
+						change,
+					).map((shared) => nameOf(shared.annotation))
+				}
 				headerExtra={pinned ? renderPin(pinned) : null}
 				reanchor={
 					reanchorTo

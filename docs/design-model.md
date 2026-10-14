@@ -113,13 +113,31 @@ Note bodies may embed inline reference tokens so notes can point at related enti
 
 ```text
 {{design:<uuid>}}
+{{board:<designId>/<boardId>}}
+{{layer:<designId>/<elementId>}}
 {{component:<componentId>}}
 {{token:<domain>/<name>}}
 {{asset:<assetId>}}
 {{icon:<iconId>}}
 ```
 
+`{{board:…}}` and `{{layer:…}}` point into a design: they resolve while the design has that board or element (in any scope, since the design id is in the token), and their deep link opens the design with that board or layer selected. They are what an annotation saved as a memory note refers back with (see [Annotations](#annotations)).
+
 Tokens are stored verbatim. On write, Trickroom returns non-blocking `referenceWarnings` for tokens that do not resolve in the current scope. On read, REST (`?resolveReferences=true`) and MCP (`resolveReferences: true`) attach per-note `references` with `valid`, `broken`, or `unresolvable_scope` status and, for valid targets, a `deepLink` in-app route. The project overview memory drawer renders resolved tokens as chips (valid chips navigate via `deepLink`) and offers `{{` intellisense backed by the reference-targets endpoint, which MCP exposes as `memory_read({ scope, referenceType })`.
+
+## Annotations
+
+An annotation is a remark a designer anchors to part of a design (or of a system component) for an agent to act on, and the thread that follows it. Annotations are working state, not design data: they live per user under `~/.trickroom/annotations/` (`TRICKROOM_HOME`), never in `.trickroom`, and are never committed. What should outlast a thread is saved as a memory note.
+
+- **Target**: what the annotation is about. `design`, `board` (`boardId`), `layer` (`boardId`, `elementId`) or `componentNode` (`systemId`, `componentId`, `nodePath`, optionally pinned to `variants`, the variant values it is about). Targets are ids, never pixels. A snapshot taken with it keeps what the designer was looking at: the target's name and its ancestors' names, the component, the design revision, the stage mode and responsive width.
+- **Entries**: the thread, in order. The designer's remarks, an agent's replies and questions, change records, reverts, dismissals, resolutions, re-anchors and branch moves. Each records who wrote it: `{ role: "human" }` from the editor, `{ role: "agent", sessionId }` from MCP. Nothing a client sends can change that.
+- **Change record**: an entry an agent's design (or component draft) write leaves on each annotation it addressed. It lists the boards and layers the write touched and keeps their state from before the write, so the designer can revert it while those layers are unchanged since. One write that addresses several annotations is one change: reverting it from any of them reverts it for all of them on that branch.
+- **Lifecycle**: `open` (sent), `acknowledged` (an agent session has seen it), `addressed` (an agent changed the design for it), `needs_input` (an agent asked a question), `resolved` and `dismissed` (closed). `open` and `acknowledged` are work for agents; `addressed` and `needs_input` wait on the designer, whose reply opens it again. Agents resolve only when asked; the editor shows those as resolved by an agent until the designer accepts them.
+- **Detached**: derived, never stored. An annotation whose layer (or component node) no longer exists keeps its snapshot, shows as detached, and attaches again when the id returns (undo, a git checkout). Steps that mint new ids never move annotations; the designer or agent re-anchors one explicitly.
+- **Branch scope**: an annotation belongs to the git branch (and worktree) checked out where it was made, read from `.git/HEAD`. Editor views, tool results and counts show the current branch's only; other branches' annotations are listed on request and never surfaced as work. A detached HEAD or a project without git uses one unscoped bucket. "Move here" moves one to the current branch.
+- **Drafts**: what the designer types stays in the browser (`sessionStorage`) until Send, so an agent never sees a half-written remark.
+
+The store layout, file format and locking are in [Files And Safety](project-files.md#annotations), the editor side in [the user guide](user-guide.md#annotations), the agent side in [Agents And MCP](mcp.md#annotations), and the data flow in [Architecture](architecture.md#annotations).
 
 ## Registry
 
