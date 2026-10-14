@@ -27,10 +27,12 @@ import {
 import { createElementNotFoundError } from "../../services/element-lookup-hints";
 import type { TrickroomDesign } from "../../types";
 import {
+	ADDRESSING_ADVICE,
 	type AnnotationProject,
 	compactCounts,
 	describeAnnotation,
 	MAX_SURFACED_ANNOTATIONS,
+	plural,
 	sortForSurfacing,
 } from "../annotation-session";
 import {
@@ -99,6 +101,61 @@ const toStatuses = (
 	if (status === undefined || status === "live") return LIVE_STATUSES;
 	if (status === "all") return undefined;
 	return typeof status === "string" ? [status] : status;
+};
+
+/**
+ * For an annotation_list that returned nothing: what its status and branch
+ * filters left out of the container, which the agent cannot see, with the
+ * filter that lists it. Null when they left out nothing.
+ */
+const describeHiddenAnnotations = async (
+	project: AnnotationProject,
+	container: AnnotationContainer,
+	{
+		branch,
+		statuses,
+	}: { branch: string; statuses: readonly AnnotationStatus[] | undefined },
+) => {
+	let stored: Annotation[];
+	try {
+		stored = (await project.service.store.list(container)).annotations.map(
+			({ annotation }) => annotation,
+		);
+	} catch {
+		return null;
+	}
+	const closed =
+		statuses === undefined
+			? 0
+			: stored.filter(
+					(annotation) =>
+						(branch === "all" || annotation.branch === branch) &&
+						CLOSED_ANNOTATION_STATUSES.has(annotation.status) &&
+						!statuses.includes(annotation.status),
+				).length;
+	const elsewhere =
+		branch === "all"
+			? 0
+			: stored.filter(
+					(annotation) =>
+						annotation.branch !== branch &&
+						!CLOSED_ANNOTATION_STATUSES.has(annotation.status),
+				).length;
+	if (closed === 0 && elsewhere === 0) return null;
+	const where = container.kind === "design" ? "This design" : "This component";
+	return [
+		"No annotations match.",
+		...(closed > 0
+			? [
+					`${where} has ${plural(closed, "closed annotation")} (resolved or dismissed), which status: "all" lists.`,
+				]
+			: []),
+		...(elsewhere > 0
+			? [
+					`${where} has ${plural(elsewhere, "live annotation")} on other git branches, which branch: "all" lists. Only the designer can move one to this branch.`,
+				]
+			: []),
+	].join(" ");
 };
 
 const isAgentWork = (status: AnnotationStatus) =>
@@ -411,6 +468,13 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 						read.design,
 						component?.template,
 					);
+					const hidden =
+						eligible.length === 0
+							? await describeHiddenAnnotations(project, container, {
+									branch: requestedBranch,
+									statuses,
+								})
+							: null;
 					return createJsonResult({
 						status: "success",
 						project: getProjectReference(context),
@@ -439,6 +503,7 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 								}
 							: {}),
 						counts: compactCounts(counts.total),
+						...(hidden ? { next: hidden } : {}),
 						...(listed.problems.length > 0
 							? { problems: listed.problems }
 							: {}),
@@ -1020,7 +1085,7 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 						counts: compactCounts(
 							summarizeAnnotationCounts(taken.eligible, design).total,
 						),
-						next: `Address each with your next ${TOOL.designApply}({ designFileId: "${designFileId}", expectedRevision, operations, addresses: [{ annotationId: "${firstId}", reply: "<what you changed>" }] }), or ask with ${TOOL.annotationReply}({ annotationId: "${firstId}", question: "<your question>" }).${more > 0 ? ` ${more} more: ${TOOL.annotationList}({ designFileId: "${designFileId}" }).` : ""} Then ${keepWaiting} again.`,
+						next: `Address each in the ${TOOL.designApply} that makes its change: ${TOOL.designApply}({ designFileId: "${designFileId}", expectedRevision, operations, addresses: [{ annotationId: "${firstId}", reply: "<what you changed>" }] }). ${ADDRESSING_ADVICE} If a remark is ambiguous, ask with ${TOOL.annotationReply}({ annotationId: "${firstId}", question: "<your question>" }). Resolve only when the designer asks.${more > 0 ? ` ${more} more: ${TOOL.annotationList}({ designFileId: "${designFileId}" }).` : ""} Then ${keepWaiting} again.`,
 					});
 				}),
 			),

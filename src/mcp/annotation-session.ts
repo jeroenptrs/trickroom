@@ -58,6 +58,13 @@ import { TOOL } from "./tool-names";
 /** Full bodies per result; the rest are counted and named in `next`. */
 export const MAX_SURFACED_ANNOTATIONS = 10;
 
+/**
+ * Why unrelated annotations go in separate writes: the designer's revert
+ * undoes a whole write, for every annotation it addressed.
+ */
+export const ADDRESSING_ADVICE =
+	"Give unrelated annotations separate writes, because a revert undoes a whole write.";
+
 /** Ids listed in `openIds`; `counts` has the total. */
 const MAX_OPEN_IDS = 50;
 
@@ -241,7 +248,7 @@ export const compactCounts = (counts: AnnotationCounts) => ({
 	...(counts.detached > 0 ? { detached: counts.detached } : {}),
 });
 
-const plural = (count: number, word: string) =>
+export const plural = (count: number, word: string) =>
 	`${count} ${word}${count === 1 ? "" : "s"}`;
 
 export const boardIdOf = (target: AnnotationTarget) =>
@@ -982,8 +989,9 @@ const describeNext = (
 	const id = shown[0]?.id ?? "<annotationId>";
 	return [
 		`${plural(shown.length, "new annotation")} on ${describeWhere(shown, design)}.`,
-		`Address each with your next ${TOOL.designApply}({ designFileId: "${designId}", expectedRevision, operations, addresses: [{ annotationId: "${id}", reply: "<what you changed>" }] }),`,
-		`or ask the designer with ${TOOL.annotationReply}({ annotationId: "${id}", question: "<your question>" }).`,
+		`Address each in the ${TOOL.designApply} that makes its change: ${TOOL.designApply}({ designFileId: "${designId}", expectedRevision, operations, addresses: [{ annotationId: "${id}", reply: "<what you changed>" }] }).`,
+		ADDRESSING_ADVICE,
+		`If a remark is ambiguous, ask with ${TOOL.annotationReply}({ annotationId: "${id}", question: "<your question>" }). Resolve only when the designer asks.`,
 		...(more > 0 ? [`${more} more: ${list}.`] : []),
 		...detached,
 	].join(" ");
@@ -1025,8 +1033,9 @@ const describeComponentNext = (
 					"Pinned ones (target.variants) are about that variant configuration only.",
 				]
 			: []),
-		`Address each with your next ${TOOL.componentDraftUpdate}({ ${ids}, expectedRevision, root, addresses: [{ annotationId: "${id}", reply: "<what you changed>" }] }),`,
-		`or ask the designer with ${TOOL.annotationReply}({ annotationId: "${id}", question: "<your question>" }).`,
+		`Address each in the ${TOOL.componentDraftUpdate} that makes its change: ${TOOL.componentDraftUpdate}({ ${ids}, expectedRevision, root, addresses: [{ annotationId: "${id}", reply: "<what you changed>" }] }).`,
+		ADDRESSING_ADVICE,
+		`If a remark is ambiguous, ask with ${TOOL.annotationReply}({ annotationId: "${id}", question: "<your question>" }). Resolve only when the designer asks.`,
 		...(more > 0 ? [`${more} more: ${list}.`] : []),
 		...detached,
 	].join(" ");

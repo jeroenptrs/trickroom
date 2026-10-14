@@ -305,7 +305,7 @@ export const registerDesignApplyTool = (ctx: McpToolContext) => {
 					"Ordered operations to commit.",
 				),
 				addresses: addressesInputSchema(
-					"Annotations on this design that this write answers, each with your reply.",
+					"Annotations on this design that this write makes the change for, each with your reply; give unrelated annotations separate writes, because the designer's revert undoes a whole write.",
 				),
 				response: mutationResponseInputSchema,
 			}),

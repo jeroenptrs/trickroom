@@ -18,6 +18,7 @@ import {
 	resolveAnnotationSystemId,
 } from "../services/component-annotations";
 import { discardSystemComponentDraft } from "../utils/system-component-operations";
+import { ADDRESSING_ADVICE } from "./annotation-session";
 import {
 	createTrickroomMcpProjectFixture,
 	createTrickroomMcpTestClient,
@@ -248,6 +249,10 @@ describe("MCP annotations on system components", () => {
 			);
 			expect(first.annotations.next).toContain("target.nodePath");
 			expect(first.annotations.next).toContain("target.variants");
+			expect(first.annotations.next).toContain(ADDRESSING_ADVICE);
+			expect(first.annotations.next).toContain(
+				"Resolve only when the designer asks.",
+			);
 
 			// Acknowledged on disk, by this session.
 			const onDisk = await stored(plain.id);
