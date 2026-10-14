@@ -526,7 +526,16 @@ export const createMcpAnnotationSession = ({
 						},
 					}
 				: {}),
-			next: describeNext(designId, shown, more, openIds.length, design),
+			next: describeNext(designId, shown, more, openIds.length, design, [
+				...new Set(
+					annotations
+						.filter(
+							(view) =>
+								view.branch === project.scope.branch && view.detached === true,
+						)
+						.map((view) => view.id),
+				),
+			]),
 		};
 	};
 
@@ -641,12 +650,24 @@ const describeNext = (
 	more: number,
 	openCount: number,
 	design: TrickroomDesign | null | undefined,
+	detachedIds: readonly string[] = [],
 ) => {
 	const list = `${TOOL.annotationList}({ designFileId: "${designId}" })`;
+	// Live annotations whose element is gone: re-anchor them (after a copy
+	// or detach replaced the element) or ask the designer.
+	const detached =
+		detachedIds.length > 0
+			? [
+					`Detached (their element no longer exists): ${detachedIds.slice(0, MAX_SURFACED_ANNOTATIONS).join(", ")}${detachedIds.length > MAX_SURFACED_ANNOTATIONS ? ` and ${detachedIds.length - MAX_SURFACED_ANNOTATIONS} more` : ""}. When an element replaced theirs, re-anchor with ${TOOL.annotationReply}({ annotationId: "${detachedIds[0]}", reanchor: { elementId: "<new element id>" } }); otherwise ask the designer.`,
+				]
+			: [];
 	if (shown.length === 0) {
-		return openCount > 0
-			? `${plural(openCount, "open annotation")} on this design, already shown to you (openIds). ${list} shows them in full.`
-			: `No annotations wait on you here; the counts wait on the designer. ${list} shows them.`;
+		return [
+			openCount > 0
+				? `${plural(openCount, "open annotation")} on this design, already shown to you (openIds). ${list} shows them in full.`
+				: `No annotations wait on you here; the counts wait on the designer. ${list} shows them.`,
+			...detached,
+		].join(" ");
 	}
 	const id = shown[0]?.id ?? "<annotationId>";
 	return [
@@ -654,6 +675,7 @@ const describeNext = (
 		`Address each with your next ${TOOL.designApply}({ designFileId: "${designId}", expectedRevision, operations, addresses: [{ annotationId: "${id}", reply: "<what you changed>" }] }),`,
 		`or ask the designer with ${TOOL.annotationReply}({ annotationId: "${id}", question: "<your question>" }).`,
 		...(more > 0 ? [`${more} more: ${list}.`] : []),
+		...detached,
 	].join(" ");
 };
 

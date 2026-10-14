@@ -386,11 +386,11 @@ const buildAnnotationsTopic = () => ({
 		`Ask: when a remark is ambiguous, ${TOOL.annotationReply}({ annotationId, question }) sets needs_input; the designer's answer reopens it and it shows up again in full.`,
 		`Reply without a change: ${TOOL.annotationReply}({ annotationId, body }). Dismiss with a reason when you will not do it: dismiss: { reason }.`,
 		`Resolve only when the designer asks you to (resolve: { summary }); otherwise they resolve after reviewing your change.`,
+		`Re-anchor: copySubtree, detachSystemComponent and component extraction mint new ids and never move annotations, so an annotation on the replaced element shows detached. When you replaced it, ${TOOL.annotationReply}({ annotationId, reanchor: { elementId } }) (or { boardId }) moves it to the new element in the same design; the result has the new target and snapshot, and the status stays. \`next\` lists detached annotations by id.`,
 		`Keep working on the designer's remarks while nothing else is called: ${TOOL.annotationWatch}({ designFileId }) waits for new ones and returns them in full.`,
 	],
 	branches: `Annotations belong to the git branch checked out where the designer made them. Results and counts show the current branch only; branch: "all" in ${TOOL.annotationList} shows other checkouts'. Do not act on another branch's annotations unless asked.`,
-	deletes:
-		"A deleteElement step that removes an annotated element (or its ancestor) returns an ANNOTATION_TARGET_DELETED warning naming the annotations; they stay, shown as detached. Address them in the same batch or tell the designer.",
+	deletes: `A deleteElement step that removes an annotated element (or its ancestor) returns an ANNOTATION_TARGET_DELETED warning naming the annotations; they stay, shown as detached. Address them in the same batch, re-anchor them to the element that replaces it (${TOOL.annotationReply} reanchor), or tell the designer.`,
 	notFeedback: `${TOOL.feedbackSubmit} is for problems with Trickroom's tools, not for annotations.`,
 });
 

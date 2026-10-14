@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
 	AnnotationServiceError,
 	listAnnotations,
+	reanchorAnnotation,
 	replyToAnnotation,
 	summarizeAnnotationCounts,
 } from "../../services/annotation-service";
@@ -12,9 +13,11 @@ import {
 	ANNOTATION_STATUSES,
 	type AnnotationContainer,
 	type AnnotationStatus,
+	type AnnotationTarget,
 	type AnnotationView,
 	CLOSED_ANNOTATION_STATUSES,
 } from "../../services/annotations.types";
+import { createElementNotFoundError } from "../../services/element-lookup-hints";
 import type { TrickroomDesign } from "../../types";
 import {
 	type AnnotationProject,
@@ -29,7 +32,11 @@ import {
 	assertCanWriteProject,
 	getMcpPolicy,
 } from "../governance";
-import { readDesignFileForTool } from "../payloads/design-tree";
+import {
+	findElementContext,
+	getNodeName,
+	readDesignFileForTool,
+} from "../payloads/design-tree";
 import { getProjectReference } from "../payloads/project";
 import type { TrickroomMcpServerContext } from "../server-types";
 import { TOOL } from "../tool-names";
@@ -389,7 +396,7 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 		TOOL.annotationReply,
 		{
 			title: "Reply To Annotation",
-			description: `Answer a designer's annotation without a design write. body: a reply; question: ask the designer (status needs_input until they answer); dismiss: { reason } when you will not do it; resolve: { summary? } only when the designer asked you to resolve it. At most one of question, dismiss and resolve; body may go with any. For a change you make, do not reply here: pass addresses: [{ annotationId, reply }] to the ${TOOL.designApply} that makes it, which records the change and marks it addressed. Recorded as this agent session; needs read-write mode.`,
+			description: `Answer a designer's annotation without a design write. body: a reply; question: ask the designer (status needs_input until they answer); dismiss: { reason } when you will not do it; resolve: { summary? } only when the designer asked you to resolve it; reanchor: { elementId } or { boardId } moves it to another layer or board of the same design, for example after copySubtree or detachSystemComponent replaced the element it was on (status unchanged; returns the new target and snapshot). At most one of question, dismiss, resolve and reanchor; body may go with any. For a change you make, do not reply here: pass addresses: [{ annotationId, reply }] to the ${TOOL.designApply} that makes it, which records the change and marks it addressed. Recorded as this agent session; needs read-write mode.`,
 			inputSchema: withProjectScopedInput({
 				annotationId: z
 					.string()
@@ -413,6 +420,29 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 					.strict()
 					.optional()
 					.describe("Done. Only when the designer asked you to resolve it."),
+				reanchor: z
+					.union([
+						z
+							.object({
+								elementId: z
+									.string()
+									.min(1)
+									.describe("Layer (or board) in the same design."),
+							})
+							.strict(),
+						z
+							.object({
+								boardId: z
+									.string()
+									.min(1)
+									.describe("Board in the same design."),
+							})
+							.strict(),
+					])
+					.optional()
+					.describe(
+						"Move the annotation to another layer or board of its design, e.g. the element that replaced the one it was on.",
+					),
 				designFileId: designFileIdSchema
 					.optional()
 					.describe("The annotation's design, to find it faster."),
@@ -429,6 +459,7 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 			question,
 			dismiss,
 			resolve,
+			reanchor,
 			designFileId,
 			project: projectRef,
 		}) =>
@@ -437,13 +468,32 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 				assertCanWriteProject(policy);
 				const project = await openProject(context);
 				if (isResult(project)) return project;
+				const actions = [question, dismiss, resolve, reanchor].filter(
+					(value) => value !== undefined,
+				);
+				if (actions.length > 1) {
+					return createToolErrorResult(
+						context,
+						"INVALID_INPUT",
+						"Pass at most one of question, dismiss, resolve and reanchor; body may go with any.",
+					);
+				}
+				if (body === undefined && actions.length === 0) {
+					return createToolErrorResult(
+						context,
+						"INVALID_INPUT",
+						"Pass a body, a question, dismiss, resolve or reanchor.",
+					);
+				}
 				const action = question
 					? "question"
 					: dismiss
 						? "dismiss"
 						: resolve
 							? "resolve"
-							: "reply";
+							: reanchor
+								? "reanchor"
+								: "reply";
 				try {
 					const container = await project.service.store.locate(
 						annotationId,
@@ -471,6 +521,7 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 						expectedRevision: null,
 						details: {
 							annotationId,
+							...(reanchor ? { reanchor } : {}),
 							...(container.kind === "component"
 								? {
 										systemId: container.systemId,
@@ -479,25 +530,134 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 								: {}),
 						},
 					};
+					// The new target, resolved against the annotation's own design:
+					// re-anchoring never leaves it.
+					let reanchorTo: {
+						target: AnnotationTarget;
+						design: { design: TrickroomDesign; revision: string };
+					} | null = null;
+					if (reanchor) {
+						if (container.kind !== "design") {
+							return createToolErrorResult(
+								context,
+								"INVALID_INPUT",
+								"Component annotations are re-anchored in the editor.",
+								{ annotationId },
+							);
+						}
+						const read = await readDesignFileForTool(
+							context,
+							container.designId,
+						);
+						const design = { design: read.design, revision: read.revision };
+						const boardId =
+							"boardId" in reanchor
+								? reanchor.boardId
+								: read.design.boards.some(
+											(entry) => entry.id === reanchor.elementId,
+										)
+									? reanchor.elementId
+									: null;
+						if (boardId !== null) {
+							if (!read.design.boards.some((entry) => entry.id === boardId)) {
+								return createToolErrorResult(
+									context,
+									"BOARD_NOT_FOUND",
+									`Board "${boardId}" is not in design "${read.design.name}", the annotation's design; re-anchoring stays within it.`,
+									{
+										designFileId: container.designId,
+										availableBoards: read.design.boards.map((entry) => ({
+											id: entry.id,
+											name: getNodeName(entry) ?? null,
+										})),
+									},
+								);
+							}
+							reanchorTo = {
+								target: {
+									kind: "board",
+									designId: container.designId,
+									boardId,
+								},
+								design,
+							};
+						} else if ("elementId" in reanchor) {
+							const found = findElementContext(read.design, reanchor.elementId);
+							if (!found) {
+								const notFound = createElementNotFoundError(
+									read.design,
+									reanchor.elementId,
+								);
+								return createToolErrorResult(
+									context,
+									notFound.code,
+									`Element "${reanchor.elementId}" is not in design "${read.design.name}", the annotation's design; re-anchoring stays within it.`,
+									{ designFileId: container.designId, ...notFound.details },
+								);
+							}
+							reanchorTo = {
+								target: {
+									kind: "layer",
+									designId: container.designId,
+									boardId: found.board.id,
+									elementId: reanchor.elementId,
+								},
+								design,
+							};
+						}
+					}
 					let result: CallToolResult;
 					try {
-						const outcome = await replyToAnnotation(project.service, {
-							annotationId,
-							container,
-							by: project.by,
-							...(body !== undefined ? { body } : {}),
-							...(question !== undefined ? { question } : {}),
-							...(dismiss !== undefined ? { dismiss } : {}),
-							...(resolve !== undefined ? { resolve } : {}),
-						});
-						annotations.markSeen(project, outcome.annotation);
+						let outcome = reanchorTo
+							? await reanchorAnnotation(project.service, {
+									annotationId,
+									container,
+									by: project.by,
+									target: reanchorTo.target,
+									design: reanchorTo.design,
+								})
+							: null;
+						if (body !== undefined || !outcome) {
+							outcome = await replyToAnnotation(project.service, {
+								annotationId,
+								container,
+								by: project.by,
+								...(body !== undefined ? { body } : {}),
+								...(question !== undefined ? { question } : {}),
+								...(dismiss !== undefined ? { dismiss } : {}),
+								...(resolve !== undefined ? { resolve } : {}),
+							});
+						}
+						const view = reanchorTo
+							? { ...outcome.annotation, detached: false }
+							: outcome.annotation;
+						annotations.markSeen(project, view);
 						annotations.startClock(project);
 						result = createJsonResult({
 							status: "success",
 							project: getProjectReference(context),
-							annotation: (
-								await annotations.showInFull(project, [outcome.annotation])
-							)[0],
+							annotation: (await annotations.showInFull(project, [view]))[0],
+							...(reanchorTo
+								? {
+										reanchored: {
+											target: view.target,
+											snapshot: {
+												...(view.snapshot.layerName
+													? { name: view.snapshot.layerName }
+													: {}),
+												...(view.snapshot.ancestorNames
+													? { path: view.snapshot.ancestorNames }
+													: {}),
+												...(view.snapshot.component
+													? { component: view.snapshot.component }
+													: {}),
+												...(view.snapshot.designRevision
+													? { designRevision: view.snapshot.designRevision }
+													: {}),
+											},
+										},
+									}
+								: {}),
 							written: outcome.written,
 						});
 					} catch (error) {

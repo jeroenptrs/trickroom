@@ -32,6 +32,7 @@ import {
 	type OperationPlanStepOutput,
 } from "../operation-plan";
 import type { TrickroomMcpServerContext } from "../server-types";
+import { TOOL } from "../tool-names";
 import {
 	createDesignOperationDependencies,
 	createStaleViewMismatchResult,
@@ -488,7 +489,7 @@ export const describeAnnotationWarnings = (
 		return [
 			{
 				code: "ANNOTATION_TARGET_DELETED",
-				message: `Step ${step.stepIndex} deletes element ${warning.elementId}, which has ${annotationIds.length === 1 ? "an open annotation" : `${annotationIds.length} open annotations`} on it or its descendants (${annotationIds.join(", ")}). ${annotationIds.length === 1 ? "It stays with its snapshot and shows" : "They stay with their snapshots and show"} as detached until the element returns. Address ${annotationIds.length === 1 ? "it" : "them"} in this batch with addresses, or tell the designer.`,
+				message: `Step ${step.stepIndex} deletes element ${warning.elementId}, which has ${annotationIds.length === 1 ? "an open annotation" : `${annotationIds.length} open annotations`} on it or its descendants (${annotationIds.join(", ")}). ${annotationIds.length === 1 ? "It stays with its snapshot and shows" : "They stay with their snapshots and show"} as detached until the element returns. Address ${annotationIds.length === 1 ? "it" : "them"} in this batch with addresses, re-anchor with ${TOOL.annotationReply} reanchor when another element replaces it, or tell the designer.`,
 				elementIds: [warning.elementId],
 				annotationIds,
 			},

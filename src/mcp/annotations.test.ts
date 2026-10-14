@@ -587,6 +587,147 @@ describe("MCP annotations", () => {
 			expect(read.payload).not.toHaveProperty("annotations");
 		});
 
+		it("re-anchors to another layer or board of the same design", async () => {
+			const { call, annotate, stored, readDesign, fixture } = await open({
+				config: { mcp: { enabled: true, auditLog: true } },
+			});
+			const annotation = await annotate(board, "Whole board");
+			// A copy replaced the annotated content: anchor to the new layer.
+			const { revision } = await readDesign();
+			const copied = await call(TOOL.designApply, {
+				designFileId: designId,
+				expectedRevision: revision,
+				operations: [
+					{
+						operation: "copySubtree",
+						parameters: {
+							sourceElementId: "title",
+							parentId: "board",
+							index: 1,
+						},
+					},
+				],
+			});
+			const copyId = copied.payload.created[0].id as string;
+
+			const moved = await call(TOOL.annotationReply, {
+				annotationId: annotation.id,
+				reanchor: { elementId: copyId },
+				body: "Moved to the copy.",
+			});
+			expect(moved.isError).toBe(false);
+			expect(moved.payload.reanchored).toEqual({
+				target: {
+					kind: "layer",
+					designId,
+					boardId: "board",
+					elementId: copyId,
+				},
+				snapshot: {
+					name: "Title Copy",
+					path: ["Board"],
+					component: "trickroom/text",
+					designRevision: copied.payload.newRevision,
+				},
+			});
+			expect(moved.payload.annotation).toMatchObject({
+				status: "acknowledged",
+				target: { kind: "layer", elementId: copyId },
+			});
+			const after = await stored(annotation.id);
+			expect(after.target).toMatchObject({ kind: "layer", elementId: copyId });
+			expect(after.entries.map((entry) => entry.kind)).toEqual([
+				"remark",
+				"reanchor",
+				"reply",
+			]);
+			expect(after.entries[1]?.by).toEqual({
+				role: "agent",
+				sessionId: expect.any(String),
+			});
+
+			const back = await call(TOOL.annotationReply, {
+				annotationId: annotation.id,
+				reanchor: { boardId: "board" },
+			});
+			expect(back.payload.reanchored.target).toEqual({
+				kind: "board",
+				designId,
+				boardId: "board",
+			});
+
+			const audit = (
+				await readFile(
+					path.join(fixture.projectRoot, ".trickroom", "audit-log.jsonl"),
+					"utf8",
+				)
+			)
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+			expect(audit.at(-1)).toMatchObject({
+				toolName: TOOL.annotationReply,
+				operation: "reanchor",
+				success: true,
+				details: {
+					annotationId: annotation.id,
+					reanchor: { boardId: "board" },
+				},
+			});
+		});
+
+		it("refuses re-anchoring outside the annotation's design", async () => {
+			const { call, annotate, stored } = await open();
+			const annotation = await annotate();
+			const otherDesignBoard = await call(TOOL.annotationReply, {
+				annotationId: annotation.id,
+				reanchor: { boardId: "other-board" },
+			});
+			expect(otherDesignBoard.isError).toBe(true);
+			expect(otherDesignBoard.payload.code).toBe("BOARD_NOT_FOUND");
+			expect(otherDesignBoard.payload.message).toContain(
+				"re-anchoring stays within it",
+			);
+
+			const unknown = await call(TOOL.annotationReply, {
+				annotationId: annotation.id,
+				reanchor: { elementId: "missing-element" },
+			});
+			expect(unknown.isError).toBe(true);
+			expect(unknown.payload.code).toBe("ELEMENT_NOT_FOUND");
+
+			const both = await call(TOOL.annotationReply, {
+				annotationId: annotation.id,
+				reanchor: { boardId: "board" },
+				resolve: {},
+			});
+			expect(both.payload.code).toBe("INVALID_INPUT");
+			const after = await stored(annotation.id);
+			expect(after.target).toMatchObject({ kind: "layer", elementId: "title" });
+			expect(after.entries).toHaveLength(1);
+		});
+
+		it("names detached annotations in next with the re-anchor call", async () => {
+			const { call, annotate, readDesign } = await open();
+			const annotation = await annotate();
+			await call(TOOL.designApply, {
+				designFileId: designId,
+				expectedRevision: (await readDesign()).revision,
+				operations: [
+					{ operation: "deleteElement", parameters: { elementId: "title" } },
+				],
+			});
+			const { annotations } = (
+				await call(TOOL.designRead, { designFileId: designId })
+			).payload;
+			expect(annotations.next).toContain(
+				`Detached (their element no longer exists): ${annotation.id}`,
+			);
+			expect(annotations.next).toContain(
+				`${TOOL.annotationReply}({ annotationId: "${annotation.id}", reanchor: { elementId: "<new element id>" } })`,
+			);
+		});
+
 		it("refuses unknown annotations and invalid combinations", async () => {
 			const { call, annotate } = await open();
 			const missing = await call(TOOL.annotationReply, {
@@ -607,19 +748,25 @@ describe("MCP annotations", () => {
 		});
 
 		it("needs read-write mode; reads work in read-only mode", async () => {
-			const { call, annotate } = await open({
+			const { call, annotate, stored } = await open({
 				config: { mcp: { enabled: true, mode: "read-only" } },
 			});
 			const annotation = await annotate();
-			const reply = await call(TOOL.annotationReply, {
-				annotationId: annotation.id,
-				body: "On it",
-			});
-			expect(reply.isError).toBe(true);
-			expect(reply.payload).toMatchObject({
-				status: "POLICY_DENIED",
-				code: "MCP_READ_ONLY",
-			});
+			for (const args of [
+				{ body: "On it" },
+				{ reanchor: { boardId: "board" } },
+			]) {
+				const reply = await call(TOOL.annotationReply, {
+					annotationId: annotation.id,
+					...args,
+				});
+				expect(reply.isError).toBe(true);
+				expect(reply.payload).toMatchObject({
+					status: "POLICY_DENIED",
+					code: "MCP_READ_ONLY",
+				});
+			}
+			expect((await stored(annotation.id)).target.kind).toBe("layer");
 			const list = await call(TOOL.annotationList, { designFileId: designId });
 			expect(list.isError).toBe(false);
 			expect(list.payload.annotations).toHaveLength(1);
