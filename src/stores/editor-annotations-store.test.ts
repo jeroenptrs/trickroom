@@ -7,6 +7,7 @@ import type {
 	AnnotationTarget,
 	AnnotationView,
 } from "../services/annotations.types";
+import { componentDraftTargetLocator } from "../utils/component-annotation-targets";
 import {
 	applyAnnotationRead,
 	beginAnnotationRead,
@@ -368,6 +369,57 @@ describe("deriveAnnotationRowMarkers", () => {
 			true,
 		);
 		expect(markers).toEqual({ layers: {}, boards: {} });
+	});
+
+	it("counts component nodes against a component locator, the root row counting all", () => {
+		const node = (nodePath: string, variants?: Record<string, string>) =>
+			view({
+				target: {
+					kind: "componentNode",
+					systemId: "s",
+					componentId: "c",
+					nodePath,
+					...(variants ? { variants } : {}),
+				},
+			});
+		const componentLocator = componentDraftTargetLocator({
+			rootPath: "root",
+			entitiesByPath: {
+				root: {
+					path: "root",
+					library: "trickroom",
+					component: "container",
+					parentPath: null,
+					role: "branch",
+					childPaths: ["label"],
+				},
+				label: {
+					path: "label",
+					library: "trickroom",
+					component: "text",
+					parentPath: "root",
+					role: "text",
+					text: "Hi",
+				},
+			},
+			variants: { axes: { tone: { label: "Tone", values: { brand: {} } } } },
+		});
+		const markers = deriveAnnotationRowMarkers(
+			[
+				node("label"),
+				node("label", { tone: "brand" }),
+				node("root"),
+				node("gone"),
+				node("label", { tone: "removed" }),
+			],
+			componentLocator,
+			false,
+		);
+		expect(markers.layers.label).toEqual({ count: 3, state: "detached" });
+		expect(markers.layers.root).toEqual({ count: 1, state: "open" });
+		expect(markers.layers.gone).toEqual({ count: 1, state: "detached" });
+		// The root row counts every node still in the template.
+		expect(markers.boards.root).toEqual({ count: 4, state: "detached" });
 	});
 
 	it("shows closed annotations only with showResolved", () => {

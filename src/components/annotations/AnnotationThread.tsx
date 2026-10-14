@@ -1,5 +1,12 @@
 import { ChevronRight } from "lucide-react";
-import { type KeyboardEvent, memo, useEffect, useRef, useState } from "react";
+import {
+	type KeyboardEvent,
+	memo,
+	type ReactNode,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import type { AnnotationView } from "../../services/annotations.types";
 import {
@@ -58,6 +65,11 @@ export type AnnotationThreadProps = {
 	onSaveMemory?: (annotation: AnnotationView) => Promise<unknown>;
 	/** On another branch: only "Move here". */
 	otherBranch?: boolean;
+	/**
+	 * Shown under the header, open or not: the component editor's chip of
+	 * the variant configuration a pinned annotation is about.
+	 */
+	headerExtra?: ReactNode;
 };
 
 const actionButton = "px-2 py-1 text-xs";
@@ -191,6 +203,7 @@ export const AnnotationThread = memo(function AnnotationThread({
 	reanchor,
 	onSaveMemory,
 	otherBranch = false,
+	headerExtra,
 }: AnnotationThreadProps) {
 	const rootRef = useRef<HTMLElement>(null);
 	const [dismissing, setDismissing] = useState(false);
@@ -272,6 +285,9 @@ export const AnnotationThread = memo(function AnnotationThread({
 					) : null}
 				</span>
 			</button>
+			{headerExtra ? (
+				<div className="flex flex-wrap gap-1 px-3 pb-2 pl-8">{headerExtra}</div>
+			) : null}
 			{expanded ? (
 				<div className="flex flex-col gap-3 px-3 pb-3 pl-8">
 					{annotation.acknowledgement ? (

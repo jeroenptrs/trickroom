@@ -14,6 +14,7 @@ import {
 import Frame from "react-frame-component";
 import { useClassMerge } from "../../hooks/useClassMerge";
 import { useCompiledTailwind } from "../../hooks/useCompiledTailwind";
+import { useComponentAnnotations } from "../../hooks/useComponentAnnotations";
 import { useInjectSystemAssets } from "../../hooks/useInjectSystemAssets";
 import { useInjectSystemFonts } from "../../hooks/useInjectSystemFonts";
 import { useInjectSystemTheme } from "../../hooks/useInjectSystemTheme";
@@ -49,12 +50,14 @@ import {
 import { useEditorPanelOpen } from "../../stores/editor-chrome-store";
 import type { ClassMerge } from "../../utils/class-merge";
 import { resolveStageDoc } from "../../utils/tailwind-render-mode";
+import { componentAnnotationPinSource } from "../annotations/component-annotation-pins";
 import { Canvas } from "../stage/Canvas";
 import {
 	ClassMergeContext,
 	useClassMergeContext,
 } from "../stage/class-merge-context";
 import { MissingRenderer } from "../stage/MissingRenderer";
+import { StageAnnotationPins } from "../stage/StageAnnotationPins";
 import { StageSelectionLayer } from "../stage/StageSelectionLayer";
 import { STAGE_NODE_ID_ATTRIBUTE } from "../stage/stage-interaction";
 import { componentDraftStageSelection } from "../stage/stage-selection-sources";
@@ -241,6 +244,7 @@ const ComponentStageFrame = memo(function ComponentStageFrame({
 			</main>
 			<Canvas />
 			<StageSelectionLayer source={componentDraftStageSelection} />
+			<StageAnnotationPins source={componentAnnotationPinSource} />
 		</Frame>
 	);
 });
@@ -260,6 +264,13 @@ export function ComponentDraftStage({
 	});
 
 	const handleStageMount = useCallback(() => setDidMount(true), []);
+	// The component's annotations, once its draft is the one open.
+	useComponentAnnotations(
+		systemId,
+		componentId !== null && draftComponentId === componentId
+			? componentId
+			: null,
+	);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: componentId and systemId are triggers; the frame is keyed by them, so a new one mounts and reports didMount again.
 	useEffect(() => {

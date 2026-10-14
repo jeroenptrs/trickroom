@@ -175,6 +175,8 @@ export const fetchAnnotation = async (
 export type AnnotationSnapshotHint = {
 	stageMode?: string;
 	responsiveWidth?: number;
+	/** Component nodes: the variant values in view. */
+	variants?: Record<string, string>;
 };
 
 export const createAnnotationRequest = (input: {

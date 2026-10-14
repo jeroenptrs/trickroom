@@ -4,7 +4,10 @@ import {
 	type AnnotationTargetLocator,
 	deriveDetachedWith,
 } from "../../services/annotation-model";
-import type { AnnotationView } from "../../services/annotations.types";
+import type {
+	AnnotationTarget,
+	AnnotationView,
+} from "../../services/annotations.types";
 import type { AnnotationDraft } from "../../stores/annotation-draft-store";
 import {
 	ANNOTATION_MARKER_LOOK,
@@ -86,18 +89,38 @@ const remarkOf = (annotation: AnnotationView) => {
  *
  * Closed annotations pin only while `showResolved`. Design-level
  * annotations have nothing to pin to.
+ *
+ * On the component draft stage, component nodes pin like layers (a node
+ * path is the element id there) and the root node plays the board: pass
+ * `componentRootId`; detached ones pin to the root's top-left corner.
  */
 export function buildStageAnnotationPins({
 	annotations,
 	drafts,
 	showResolved,
 	locator,
+	componentRootId = null,
 }: {
 	annotations: readonly AnnotationView[];
 	drafts: readonly AnnotationDraft[];
 	showResolved: boolean;
 	locator: AnnotationTargetLocator;
+	/** The component draft's root path, on the component draft stage. */
+	componentRootId?: string | null;
 }): StageAnnotationPin[] {
+	// What a pin hangs on: component nodes as layers of the root.
+	const pinTargetOf = (target: AnnotationTarget) =>
+		target.kind === "componentNode"
+			? componentRootId === null
+				? null
+				: ({
+						kind: "layer",
+						boardId: componentRootId,
+						elementId: target.nodePath,
+					} as const)
+			: target.kind === "layer" || target.kind === "board"
+				? target
+				: null;
 	const groups = new Map<string, PinGroup>();
 	const add = (
 		group: Omit<PinGroup, "entries">,
@@ -114,9 +137,9 @@ export function buildStageAnnotationPins({
 
 	for (const annotation of annotations) {
 		if (!isAnnotationShown(annotation, showResolved)) continue;
-		const { target } = annotation;
-		if (target.kind !== "layer" && target.kind !== "board") continue;
-		const detached = deriveDetachedWith(target, locator) === true;
+		const target = pinTargetOf(annotation.target);
+		if (!target) continue;
+		const detached = deriveDetachedWith(annotation.target, locator) === true;
 		const entry = {
 			state: getAnnotationPresentationState(annotation, detached),
 			id: annotation.id,
@@ -156,7 +179,8 @@ export function buildStageAnnotationPins({
 	}
 
 	for (const draft of drafts) {
-		const { target } = draft;
+		const target = pinTargetOf(draft.target);
+		if (!target) continue;
 		if (target.kind === "layer") {
 			if (locator.boardOfLayer(target.elementId) === null) continue;
 			add(

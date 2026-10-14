@@ -46,6 +46,11 @@ import {
 	useComponentDraftRootPath,
 	useComponentDraftSelectedPath,
 } from "../../stores/component-draft-store";
+import { useAnnotationRowMarker } from "../../stores/editor-annotations-store";
+import {
+	ANNOTATION_MARKER_LOOK,
+	ANNOTATION_STATE_LABELS,
+} from "../../utils/annotation-presentation";
 import {
 	getKey,
 	getShortcutPlacementIntent,
@@ -57,7 +62,9 @@ import {
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
 import { layerDropInsertionIndex } from "../../utils/reorder-insertion-index";
+import { openComponentAnnotations } from "../annotations/component-annotation-pins";
 import { useLayerSelectionReveal } from "../chrome/useLayerSelectionReveal";
+import { AnnotationMarker } from "../ui/annotation-marker";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -379,6 +386,7 @@ const DraftLayerRow = memo(function DraftLayerRow({
 	const labelRef = useRef<HTMLButtonElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const layer = useComponentDraftLayerSummary(path);
+	const annotationMarker = useAnnotationRowMarker(path);
 	const hasChildren = layer.childPaths.length > 0;
 	const isRoot = path === rootPath;
 	const canDragLayer = !isRoot;
@@ -628,6 +636,20 @@ const DraftLayerRow = memo(function DraftLayerRow({
 						>
 							Design only
 						</Badge>
+					) : null}
+					{annotationMarker ? (
+						<UnstyledButton
+							className="ml-1 flex shrink-0 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
+							data-annotation-marker={annotationMarker.state}
+							aria-label={`${annotationMarker.count} ${annotationMarker.count === 1 ? "annotation" : "annotations"} (${ANNOTATION_STATE_LABELS[annotationMarker.state].toLowerCase()}): show`}
+							title={`${annotationMarker.count} ${annotationMarker.count === 1 ? "annotation" : "annotations"}${isRoot ? " in this component" : ""}: ${ANNOTATION_STATE_LABELS[annotationMarker.state].toLowerCase()}`}
+							onClick={() => openComponentAnnotations(path, null)}
+						>
+							<AnnotationMarker
+								look={ANNOTATION_MARKER_LOOK[annotationMarker.state]}
+								count={annotationMarker.count}
+							/>
+						</UnstyledButton>
 					) : null}
 				</div>
 			</DraftLayerContextMenu>

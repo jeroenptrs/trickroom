@@ -49,7 +49,9 @@ const recordedName = (
 			? target.elementId
 			: target.kind === "board"
 				? target.boardId
-				: null;
+				: target.kind === "componentNode"
+					? target.nodePath
+					: null;
 	return own === id ? snapshot.layerName?.trim() || null : null;
 };
 

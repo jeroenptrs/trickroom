@@ -18,8 +18,8 @@ import {
 	isSameAnnotationMarker,
 } from "../utils/annotation-presentation";
 
-// The annotations of what the editor has open (a design; a component in
-// WP5), on the checkout's branch, as the server last reported them, plus
+// The annotations of what the editor has open (a design, or a component
+// in the component editor), on the checkout's branch, as the server last reported them, plus
 // the editor's view of them: which thread is open, whether closed ones
 // show, which inspector tab is up. Per-user working state, never design
 // data: nothing here reaches the design file.
@@ -449,6 +449,17 @@ export function deriveAnnotationRowMarkers(
 	for (const annotation of annotations) {
 		if (!isAnnotationShown(annotation, showResolved)) continue;
 		const { target } = annotation;
+		if (target.kind === "componentNode") {
+			// The component rail (a component locator only): each node row
+			// its own, the root row (the locator's board) everything in the
+			// component.
+			if (!locator.hasComponentNode) continue;
+			const state = getAnnotationStateWith(annotation, locator);
+			const rootId = locator.boardOfLayer(target.nodePath);
+			if (rootId !== null) push(boardStates, rootId, state);
+			push(layerStates, target.nodePath, state);
+			continue;
+		}
 		if (target.kind !== "layer" && target.kind !== "board") continue;
 		const state = getAnnotationStateWith(annotation, locator);
 		const boardId = currentBoardOfWith(target, locator);

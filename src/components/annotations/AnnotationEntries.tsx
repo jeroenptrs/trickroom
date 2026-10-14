@@ -58,7 +58,7 @@ function ChangeRecord({
 	// Revert state is kept while the annotation is live and the change has
 	// not been reverted (WP2 drops it on resolve, dismiss and revert).
 	const revertible =
-		Boolean(change.before) &&
+		Boolean(change.before || change.draftBefore) &&
 		!entry.revertedBy &&
 		annotation.status !== "resolved" &&
 		annotation.status !== "dismissed";

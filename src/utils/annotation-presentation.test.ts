@@ -240,25 +240,23 @@ describe("annotationTargetKey", () => {
 		).toBe("layer:d/e");
 	});
 
-	it("keys a component node with variants sorted by axis", () => {
+	it("keys a component node by its path, pinned or not (one draft per node)", () => {
 		const base = {
 			kind: "componentNode",
 			systemId: "s",
 			componentId: "c",
-			nodePath: "0.1",
+			nodePath: "label",
 		} as const;
-		expect(annotationTargetKey(base)).toBe("node:s/c/0.1");
-		expect(annotationTargetKey({ ...base, variants: {} })).toBe("node:s/c/0.1");
-		const a = annotationTargetKey({
-			...base,
-			variants: { size: "lg", tone: "primary" },
-		});
-		const b = annotationTargetKey({
-			...base,
-			variants: { tone: "primary", size: "lg" },
-		});
-		expect(a).toBe("node:s/c/0.1?size=lg&tone=primary");
-		expect(b).toBe(a);
+		expect(annotationTargetKey(base)).toBe("node:s/c/label");
+		expect(annotationTargetKey({ ...base, variants: {} })).toBe(
+			"node:s/c/label",
+		);
+		expect(
+			annotationTargetKey({
+				...base,
+				variants: { size: "lg", tone: "primary" },
+			}),
+		).toBe("node:s/c/label");
 	});
 });
 

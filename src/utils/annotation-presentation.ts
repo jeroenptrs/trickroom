@@ -159,7 +159,12 @@ export const formatAcknowledgement = (
 export const describeAnnotationActor = (by: AnnotationActor) =>
 	by.role === "human" ? "You" : `Agent ${by.sessionId.slice(0, 8)}`;
 
-/** A target as one stable string: drafts and pins are keyed by it. */
+/**
+ * A target as one stable string: drafts and pins are keyed by it. A
+ * component node's key leaves out the variant values it is pinned to: one
+ * draft per node, whose target carries the pin (toggling it keeps the
+ * text).
+ */
 export const annotationTargetKey = (target: AnnotationTarget) => {
 	switch (target.kind) {
 		case "design":
@@ -168,15 +173,8 @@ export const annotationTargetKey = (target: AnnotationTarget) => {
 			return `board:${target.designId}/${target.boardId}`;
 		case "layer":
 			return `layer:${target.designId}/${target.elementId}`;
-		case "componentNode": {
-			const variants = target.variants
-				? Object.keys(target.variants)
-						.sort()
-						.map((axis) => `${axis}=${target.variants?.[axis]}`)
-						.join("&")
-				: "";
-			return `node:${target.systemId}/${target.componentId}/${target.nodePath}${variants ? `?${variants}` : ""}`;
-		}
+		case "componentNode":
+			return `node:${target.systemId}/${target.componentId}/${target.nodePath}`;
 	}
 };
 
@@ -192,3 +190,12 @@ export const annotationAnchorId = (target: AnnotationTarget) =>
 
 export const describeChangeCount = (layerCount: number) =>
 	`Changed ${layerCount} ${layerCount === 1 ? "layer" : "layers"}`;
+
+/** `size: lg · tone: danger`: a pinned variant configuration, by axis. */
+export const describeVariantPin = (
+	variants: Readonly<Record<string, string>>,
+) =>
+	Object.keys(variants)
+		.sort()
+		.map((axis) => `${axis}: ${variants[axis]}`)
+		.join(" · ");
