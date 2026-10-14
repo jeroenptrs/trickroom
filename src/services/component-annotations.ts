@@ -26,11 +26,11 @@ import {
 	type AnnotationComponentRead,
 	type AnnotationServiceContext,
 	AnnotationServiceError,
-	assertSharedRevertTargets,
-	planSharedRevert,
+	assertRevertBranch,
 	type RecordChangeResult,
 	recordChange,
-	recordRevertOnAll,
+	revertUnderLocks,
+	SharedRevertSetChanged,
 	viewAnnotation,
 } from "./annotation-service";
 import {
@@ -436,6 +436,8 @@ export const revertComponentChange = async (
 		stored.annotation,
 	);
 	const branch = input.scope?.branch ?? stored.annotation.branch;
+	// Checked again under the lock (revertUnderLocks).
+	assertRevertBranch(stored.annotation, input.annotationId, branch);
 	const changedSince = (revision: string) =>
 		new AnnotationServiceError(
 			"CHANGED_SINCE",
@@ -455,13 +457,8 @@ export const revertComponentChange = async (
 		if (!draft || !isDeepStrictEqual(draftHashes(draft), draftAfter)) {
 			throw changedSince(read.revision);
 		}
-		const planned = await planSharedRevert(context, {
-			container,
-			annotationId: input.annotationId,
-			change,
-			branch,
-		});
 		let recorded: StoredAnnotation | null = null;
+		let alsoReverted: string[] = [];
 		let manifestRevision: string | null = null;
 		try {
 			await updateSystemComponent(
@@ -480,35 +477,22 @@ export const revertComponentChange = async (
 					expectedRevision: read.revision,
 					expectedDraftTemplateHash: draftAfter.templateHash,
 					expectedDraftVariantSchemaHash: draftAfter.variantSchemaHash,
-					// Manifest lock held. Every annotation the revert records on is
-					// locked (in id order) and checked before the draft changes,
-					// and stays locked until all are written: all or nothing.
+					// Manifest lock held: the annotations a draft write addressed
+					// are all recorded (that recording holds this lock too).
 					aroundWrite: async (write, current) => {
-						const { stored: annotations } = await context.store.updateMany(
+						const locked = await revertUnderLocks(context, {
 							container,
-							[input.annotationId, ...planned.keys()],
-							async (locked) => {
-								const source = locked.get(input.annotationId);
-								if (!source) {
-									throw new AnnotationStoreError(
-										"ANNOTATION_NOT_FOUND",
-										`Annotation ${input.annotationId} does not exist.`,
-									);
-								}
-								if (
-									input.expectedRevision !== undefined &&
-									input.expectedRevision !== source.revision
-								) {
-									throw new AnnotationStoreError(
-										"ANNOTATION_REVISION_MISMATCH",
-										`Annotation ${input.annotationId} changed since revision ${input.expectedRevision}.`,
-										{
-											annotationId: input.annotationId,
-											currentRevision: source.revision,
-										},
-									);
-								}
-								const now = findChange(source.annotation);
+							annotationId: input.annotationId,
+							entryId: input.entryId,
+							change,
+							branch,
+							...(input.expectedRevision !== undefined
+								? { expectedRevision: input.expectedRevision }
+								: {}),
+							by,
+							...(input.now ? { now: input.now } : {}),
+							checkSource: (annotation) => {
+								const now = findChange(annotation);
 								if (
 									!isDeepStrictEqual(now.draftBefore, draftBefore) ||
 									!isDeepStrictEqual(now.draftAfter, draftAfter)
@@ -518,37 +502,28 @@ export const revertComponentChange = async (
 										"The change record changed while reverting; try again.",
 									);
 								}
-								assertSharedRevertTargets(locked, planned, {
-									annotationId: input.annotationId,
-									change,
-									branch,
-								});
+							},
+							write: async () => {
 								const written = await write();
 								manifestRevision = written.revision;
 								return {
-									annotations: recordRevertOnAll(
-										locked,
-										{
-											annotationId: input.annotationId,
-											entryId: input.entryId,
-										},
-										planned,
-										{
-											at: (input.now?.() ?? new Date()).toISOString(),
-											by,
-											revisionBefore: current.revision,
-											revisionAfter: written.revision,
-										},
-									),
-									result: undefined,
+									revisionBefore: current.revision,
+									revisionAfter: written.revision,
 								};
 							},
-						);
-						recorded = annotations.get(input.annotationId) ?? null;
+						});
+						recorded = locked.source;
+						alsoReverted = locked.alsoReverted;
 					},
 				},
 			);
 		} catch (error) {
+			if (
+				error instanceof SharedRevertSetChanged &&
+				manifestRevision === null
+			) {
+				continue;
+			}
 			if (manifestRevision !== null) {
 				throw new AnnotationServiceError(
 					"REVERT_NOT_RECORDED",
@@ -584,7 +559,7 @@ export const revertComponentChange = async (
 			revision: manifestRevision as string,
 			restoredLayerIds: layerIds,
 			/** The other annotations the reverted write addressed, reverted too. */
-			alsoReverted: [...planned.keys()],
+			alsoReverted,
 		};
 	}
 	throw new AnnotationServiceError(

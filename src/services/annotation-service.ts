@@ -1924,6 +1924,133 @@ export const recordRevertOnAll = (
 		},
 	);
 
+/** A revert from another branch's checkout is refused, as MCP writes are. */
+export const assertRevertBranch = (
+	annotation: Annotation,
+	annotationId: string,
+	branch: string,
+) => {
+	if (annotation.branch !== branch) {
+		throw new AnnotationServiceError(
+			"WRONG_BRANCH",
+			`Annotation ${annotationId} is on branch ${annotation.branch}, not ${branch}; move it here before reverting its change.`,
+			{ annotationId, branch: annotation.branch },
+		);
+	}
+};
+
+/**
+ * A target of a shared revert appeared after the revert planned its set
+ * (moved into this branch meanwhile): nothing was written, plan again.
+ */
+export class SharedRevertSetChanged extends Error {
+	constructor() {
+		super("The annotations sharing this change changed while reverting.");
+		this.name = "SharedRevertSetChanged";
+	}
+}
+
+/**
+ * The locked part of a revert, run while the container (design or component
+ * manifest) lock is held. An `addresses` recording holds that same lock, so
+ * the set of annotations the write addressed is complete here: it plans
+ * the shared targets, takes their locks and the source's in id order, and
+ * checks before anything is written:
+ *
+ * - the source exists, is still at `expectedRevision` (when given), is on
+ *   the reverting checkout's `branch` (`WRONG_BRANCH` otherwise) and still
+ *   has the change as read (`checkSource`);
+ * - every planned target still is one, and none appeared since planning
+ *   (`SharedRevertSetChanged`: plan again).
+ *
+ * Then `write` changes the container and the revert is recorded on all,
+ * every lock held until the last annotation is written.
+ */
+export const revertUnderLocks = async (
+	context: AnnotationServiceContext,
+	input: {
+		container: AnnotationContainer;
+		annotationId: string;
+		entryId: string;
+		change: AnnotationChangeRecord;
+		branch: string;
+		expectedRevision?: string;
+		by: AnnotationActor;
+		/** Throws when the source's change is no longer the one read. */
+		checkSource: (annotation: Annotation) => void;
+		/** Writes the container; returns the revisions around the write. */
+		write: () => Promise<{ revisionBefore: string; revisionAfter: string }>;
+		/** The revert's time; defaults to the context's clock. */
+		now?: () => Date;
+	},
+): Promise<{ source: StoredAnnotation; alsoReverted: string[] }> => {
+	const plan = () =>
+		planSharedRevert(context, {
+			container: input.container,
+			annotationId: input.annotationId,
+			change: input.change,
+			branch: input.branch,
+		});
+	const planned = await plan();
+	const { stored } = await context.store.updateMany(
+		input.container,
+		[input.annotationId, ...planned.keys()],
+		async (current) => {
+			const source = current.get(input.annotationId);
+			if (!source) {
+				throw new AnnotationStoreError(
+					"ANNOTATION_NOT_FOUND",
+					`Annotation ${input.annotationId} does not exist.`,
+					{ annotationId: input.annotationId },
+				);
+			}
+			if (
+				input.expectedRevision !== undefined &&
+				input.expectedRevision !== source.revision
+			) {
+				throw new AnnotationStoreError(
+					"ANNOTATION_REVISION_MISMATCH",
+					`Annotation ${input.annotationId} changed since revision ${input.expectedRevision}.`,
+					{
+						annotationId: input.annotationId,
+						currentRevision: source.revision,
+					},
+				);
+			}
+			assertRevertBranch(source.annotation, input.annotationId, input.branch);
+			input.checkSource(source.annotation);
+			assertSharedRevertTargets(current, planned, input);
+			// Nothing can join the set now but a move into this branch since
+			// planning; such an annotation is not locked: plan again.
+			for (const annotationId of (await plan()).keys()) {
+				if (!planned.has(annotationId)) throw new SharedRevertSetChanged();
+			}
+			const revisions = await input.write();
+			return {
+				annotations: recordRevertOnAll(
+					current,
+					{ annotationId: input.annotationId, entryId: input.entryId },
+					planned,
+					{
+						at: (input.now?.() ?? nowOf(context)).toISOString(),
+						by: input.by,
+						...revisions,
+					},
+				),
+				result: undefined,
+			};
+		},
+	);
+	const source = stored.get(input.annotationId);
+	if (!source) {
+		throw new AnnotationStoreError(
+			"ANNOTATION_NOT_FOUND",
+			`Annotation ${input.annotationId} was not recorded.`,
+		);
+	}
+	return { source, alsoReverted: [...planned.keys()] };
+};
+
 /**
  * Undoes a change record: restores the touched layers' before state while
  * every one of them still has the state the change left it in, else fails
@@ -2007,6 +2134,8 @@ export const revertChange = async (
 	}
 	const { entry, before, after } = findChange(stored.annotation);
 	const branch = input.scope?.branch ?? stored.annotation.branch;
+	// Checked again under the lock (revertUnderLocks).
+	assertRevertBranch(stored.annotation, input.annotationId, branch);
 
 	for (let attempt = 0; attempt < maxRevertAttempts; attempt += 1) {
 		const read = await input.designService.readDesignFile(container.designId);
@@ -2030,13 +2159,8 @@ export const revertChange = async (
 			}
 			throw error;
 		}
-		const planned = await planSharedRevert(context, {
-			container,
-			annotationId: input.annotationId,
-			change: entry.change,
-			branch,
-		});
 		let recorded: StoredAnnotation | null = null;
+		let alsoReverted: string[] = [];
 		let designRevision: string | null = null;
 		let outcome: Awaited<ReturnType<DesignFileService["updateDesignFile"]>>;
 		try {
@@ -2044,72 +2168,47 @@ export const revertChange = async (
 				expectedRevision: read.revision,
 				read: async () => read,
 				mutate: async () => ({ design: restored }),
-				// Design lock held; the plan passed its revision check. Every
-				// annotation the revert records on is locked (in id order) and
-				// checked before the design changes, and stays locked until all
-				// are written: all or nothing.
+				// Design lock held; the plan passed its revision check.
 				aroundStore: async (storeDesign) => {
-					const { stored: written } = await context.store.updateMany(
+					const locked = await revertUnderLocks(context, {
 						container,
-						[input.annotationId, ...planned.keys()],
-						async (current) => {
-							const source = current.get(input.annotationId);
-							if (!source) {
-								throw new AnnotationStoreError(
-									"ANNOTATION_NOT_FOUND",
-									`Annotation ${input.annotationId} does not exist.`,
-								);
-							}
+						annotationId: input.annotationId,
+						entryId: input.entryId,
+						change: entry.change,
+						branch,
+						...(input.expectedRevision !== undefined
+							? { expectedRevision: input.expectedRevision }
+							: {}),
+						by,
+						checkSource: (annotation) => {
+							const now = findChange(annotation);
 							if (
-								input.expectedRevision !== undefined &&
-								input.expectedRevision !== source.revision
-							) {
-								throw new AnnotationStoreError(
-									"ANNOTATION_REVISION_MISMATCH",
-									`Annotation ${input.annotationId} changed since revision ${input.expectedRevision}.`,
-									{
-										annotationId: input.annotationId,
-										currentRevision: source.revision,
-									},
-								);
-							}
-							const locked = findChange(source.annotation);
-							if (
-								!isDeepStrictEqual(locked.before, before) ||
-								!isDeepStrictEqual(locked.after, after)
+								!isDeepStrictEqual(now.before, before) ||
+								!isDeepStrictEqual(now.after, after)
 							) {
 								throw new AnnotationServiceError(
 									"NOT_REVERTIBLE",
 									"The change record changed while reverting; try again.",
 								);
 							}
-							assertSharedRevertTargets(current, planned, {
-								annotationId: input.annotationId,
-								change: entry.change,
-								branch,
-							});
+						},
+						write: async () => {
 							const { write } = await storeDesign();
 							designRevision = write.revision;
 							return {
-								annotations: recordRevertOnAll(
-									current,
-									{ annotationId: input.annotationId, entryId: input.entryId },
-									planned,
-									{
-										at: nowOf(context).toISOString(),
-										by,
-										revisionBefore: read.revision,
-										revisionAfter: write.revision,
-									},
-								),
-								result: undefined,
+								revisionBefore: read.revision,
+								revisionAfter: write.revision,
 							};
 						},
-					);
-					recorded = written.get(input.annotationId) ?? null;
+					});
+					recorded = locked.source;
+					alsoReverted = locked.alsoReverted;
 				},
 			});
 		} catch (error) {
+			if (error instanceof SharedRevertSetChanged && designRevision === null) {
+				continue;
+			}
 			if (designRevision !== null) {
 				throw new AnnotationServiceError(
 					"REVERT_NOT_RECORDED",
@@ -2128,7 +2227,7 @@ export const revertChange = async (
 			revision: outcome.write.revision,
 			restoredLayerIds: Object.keys(before.layers),
 			/** The other annotations the reverted write addressed, reverted too. */
-			alsoReverted: [...planned.keys()],
+			alsoReverted,
 		};
 	}
 	throw new AnnotationServiceError(

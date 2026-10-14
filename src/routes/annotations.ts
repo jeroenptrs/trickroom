@@ -134,6 +134,7 @@ const respondWithError = (c: Context, error: unknown) => {
 			error.code === "TARGET_NOT_FOUND"
 				? 404
 				: error.code === "CHANGED_SINCE" ||
+						error.code === "WRONG_BRANCH" ||
 						error.code === "DESIGN_BUSY" ||
 						error.code === "COMPONENT_BUSY"
 					? 409

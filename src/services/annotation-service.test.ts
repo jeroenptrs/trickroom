@@ -32,6 +32,7 @@ import {
 } from "./annotation-service";
 import {
 	type AnnotationManyMutation,
+	type AnnotationMutation,
 	AnnotationStore,
 } from "./annotation-store";
 import type {
@@ -157,10 +158,16 @@ const writeAddressing = async (
 	{
 		by = agent,
 		expectedRevision,
-	}: { by?: AnnotationActor; expectedRevision?: string } = {},
+		recordContext = context,
+	}: {
+		by?: AnnotationActor;
+		expectedRevision?: string;
+		/** Records the change with another store (to pause it, say). */
+		recordContext?: AnnotationServiceContext;
+	} = {},
 ) => {
 	const read = await designs.readDesignFile(designId);
-	const recorder = createAddressesRecorder(context, {
+	const recorder = createAddressesRecorder(recordContext, {
 		designId,
 		addresses: annotationIds.map((annotationId) => ({
 			annotationId,
@@ -1502,10 +1509,22 @@ describe("revert", () => {
 		).toBe("addressed");
 	});
 
-	it("leaves a sibling on another branch alone; its own revert then refuses", async () => {
+	it("leaves a sibling on another branch alone, to its own checkout's content", async () => {
 		const title = await create();
 		const card = await create({ target: layerTarget("card") });
 		await writeAddressing([title.id, card.id], setClass("title", "text-2xl"));
+		// The feature worktree has its own copy of the design, with the write.
+		const featureDesigns = createDesignFileService(
+			path.join(root, "feature-project"),
+			{ trickroomHome: path.join(root, "home") },
+		);
+		await mkdir(path.join(root, "feature-project", ".trickroom", "designs"), {
+			recursive: true,
+		});
+		await featureDesigns.createDesignFile(
+			designId,
+			(await readDesign()).design,
+		);
 		await moveAnnotationToBranch(context, {
 			annotationId: card.id,
 			by: human,
@@ -1523,18 +1542,160 @@ describe("revert", () => {
 		expect(result.alsoReverted).toEqual([]);
 		expect(findClass((await readDesign()).design, "title")).toBeUndefined();
 		expect(await revisionOf(card.id)).toBe(cardRevision);
-		const onFeature = await getAnnotation(context, { annotationId: card.id });
-		expect(onFeature.status).toBe("addressed");
+		expect(
+			(await getAnnotation(context, { annotationId: card.id })).status,
+		).toBe("addressed");
 
+		// The feature checkout still has the write: its own revert works there.
+		const onFeature = await revertChange(context, {
+			annotationId: card.id,
+			entryId: await changeEntryId(card.id),
+			by: human,
+			designService: featureDesigns,
+			scope: feature,
+		});
+		expect(onFeature.annotation.status).toBe("open");
+		expect(
+			findClass(
+				(await featureDesigns.readDesignFile(designId)).design,
+				"title",
+			),
+		).toBeUndefined();
+	});
+
+	it("refuses to revert another branch's annotation, with nothing written", async () => {
+		const title = await create();
+		await writeAddressing([title.id], setClass("title", "text-2xl"));
+		await moveAnnotationToBranch(context, {
+			annotationId: title.id,
+			by: human,
+			scope: feature,
+		});
+		const designBefore = (await readDesign()).revision;
+		const revision = await revisionOf(title.id);
 		await expect(
 			revertChange(context, {
-				annotationId: card.id,
-				entryId: await changeEntryId(card.id),
+				annotationId: title.id,
+				entryId: await changeEntryId(title.id),
 				by: human,
 				designService: designs,
-				scope: feature,
+				scope: main,
+				...(revision ? { expectedRevision: revision } : {}),
 			}),
-		).rejects.toMatchObject({ code: "CHANGED_SINCE" });
+		).rejects.toMatchObject({
+			code: "WRONG_BRANCH",
+			details: { annotationId: title.id, branch: "feature" },
+		});
+		expect((await readDesign()).revision).toBe(designBefore);
+		expect(await revisionOf(title.id)).toBe(revision);
+	});
+
+	it("plans the shared set inside the design lock, after an in-flight recording", async () => {
+		const title = await create();
+		const card = await create({ target: layerTarget("card") });
+		let cardReached = () => {};
+		const reached = new Promise<void>((resolve) => {
+			cardReached = resolve;
+		});
+		let releaseCard = () => {};
+		const released = new Promise<void>((resolve) => {
+			releaseCard = resolve;
+		});
+		// The agent's write records the title, then pauses before the card.
+		class Pausing extends AnnotationStore {
+			override async update<Result>(
+				container: AnnotationContainer,
+				annotationId: string,
+				mutate: AnnotationMutation<Result>,
+				options?: { expectedRevision?: string },
+			) {
+				if (annotationId === card.id) {
+					cardReached();
+					await released;
+				}
+				return super.update<Result>(container, annotationId, mutate, options);
+			}
+		}
+		const writing = writeAddressing(
+			[title.id, card.id],
+			setClass("title", "text-2xl"),
+			{
+				recordContext: {
+					store: new Pausing({
+						projectId: "project-1",
+						trickroomHome: path.join(root, "home"),
+					}),
+					now: () => clock,
+				},
+			},
+		);
+		await reached;
+		const reverting = revertChange(context, {
+			annotationId: title.id,
+			entryId: await changeEntryId(title.id),
+			by: human,
+			designService: designs,
+			scope: main,
+		});
+		// The revert waits for the design lock the recording holds.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		releaseCard();
+		await writing;
+		const result = await reverting;
+
+		expect(result.alsoReverted).toEqual([card.id]);
+		expect(findClass((await readDesign()).design, "title")).toBeUndefined();
+		const sibling = await getAnnotation(context, { annotationId: card.id });
+		expect(sibling.status).toBe("open");
+		expect(sibling.entries.at(-1)).toMatchObject({ kind: "revert" });
+	});
+
+	it("plans again when a sibling moves into this branch while locking", async () => {
+		const title = await create();
+		const card = await create({
+			target: layerTarget("card"),
+			scope: feature,
+		});
+		await writeAddressing([title.id, card.id], setClass("title", "text-2xl"));
+		let moved = false;
+		// The designer moves the card here between planning and the locks.
+		class Moving extends AnnotationStore {
+			override async updateMany<Result>(
+				container: AnnotationContainer,
+				annotationIds: readonly string[],
+				mutate: AnnotationManyMutation<Result>,
+			) {
+				if (!moved) {
+					moved = true;
+					await moveAnnotationToBranch(context, {
+						annotationId: card.id,
+						by: human,
+						scope: main,
+					});
+				}
+				return super.updateMany<Result>(container, annotationIds, mutate);
+			}
+		}
+		const result = await revertChange(
+			{
+				store: new Moving({
+					projectId: "project-1",
+					trickroomHome: path.join(root, "home"),
+				}),
+				now: () => clock,
+			},
+			{
+				annotationId: title.id,
+				entryId: await changeEntryId(title.id),
+				by: human,
+				designService: designs,
+				scope: main,
+			},
+		);
+		expect(result.alsoReverted).toEqual([card.id]);
+		expect(
+			(await getAnnotation(context, { annotationId: card.id })).status,
+		).toBe("open");
 	});
 
 	it("does not treat two identical writes as one", async () => {

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -30,7 +30,7 @@ import {
 	transitionAnnotation,
 	validateAddresses,
 } from "./annotation-service";
-import { AnnotationStore } from "./annotation-store";
+import { type AnnotationMutation, AnnotationStore } from "./annotation-store";
 import type {
 	Annotation,
 	AnnotationActor,
@@ -209,15 +209,18 @@ describe("component annotations", () => {
 			expectedRevision,
 			knownEntryIds,
 			publish = false,
+			recordContext = context,
 		}: {
 			revertible?: boolean;
 			expectedRevision?: string;
 			knownEntryIds?: string[];
 			publish?: boolean;
+			/** Records the change with another store (to pause it, say). */
+			recordContext?: AnnotationServiceContext;
 		} = {},
 	) => {
 		const read = await manifest();
-		const recorder = createComponentAddressesRecorder(context, {
+		const recorder = createComponentAddressesRecorder(recordContext, {
 			container,
 			addresses: annotationIds.map((annotationId) => ({
 				annotationId,
@@ -798,12 +801,15 @@ describe("component annotations", () => {
 			expect(await reload(second.id)).toEqual(secondBefore);
 		});
 
-		it("leaves a sibling on another branch alone", async () => {
+		it("leaves a sibling on another branch alone, to its own checkout's draft", async () => {
 			const first = await create();
 			const second = await create();
 			await addressing([first.id, second.id], {
 				draft: { root: buttonRoot("px-8") },
 			});
+			// The feature worktree has its own copy of the project, with the write.
+			const featureRoot = path.join(root, "feature-project");
+			await cp(projectRoot, featureRoot, { recursive: true });
 			await moveAnnotationToBranch(context, {
 				annotationId: second.id,
 				by: human,
@@ -821,16 +827,103 @@ describe("component annotations", () => {
 			});
 			expect(result.alsoReverted).toEqual([]);
 			expect(await reload(second.id)).toEqual(secondBefore);
+
+			// That checkout's draft still has the write: the revert works there.
+			const onFeature = await revertComponentChange(context, {
+				annotationId: second.id,
+				entryId: changeEntry(secondBefore).id,
+				by: human,
+				projectRoot: featureRoot,
+				container,
+				scope: feature,
+			});
+			expect(onFeature.annotation.status).toBe("open");
+		});
+
+		it("refuses to revert another branch's annotation, with nothing written", async () => {
+			const first = await create();
+			await addressing([first.id], { draft: { root: buttonRoot("px-8") } });
+			await moveAnnotationToBranch(context, {
+				annotationId: first.id,
+				by: human,
+				scope: feature,
+			});
+			const revision = (await manifest()).revision;
+			const before = await reload(first.id);
+			const stored = await store.read(container, first.id);
 			await expect(
 				revertComponentChange(context, {
-					annotationId: second.id,
-					entryId: changeEntry(secondBefore).id,
+					annotationId: first.id,
+					entryId: changeEntry(before).id,
 					by: human,
 					projectRoot,
 					container,
-					scope: feature,
+					scope: main,
+					...(stored ? { expectedRevision: stored.revision } : {}),
 				}),
-			).rejects.toMatchObject({ code: "CHANGED_SINCE" });
+			).rejects.toMatchObject({
+				code: "WRONG_BRANCH",
+				details: { annotationId: first.id, branch: "feature" },
+			});
+			expect((await manifest()).revision).toBe(revision);
+			expect(await reload(first.id)).toEqual(before);
+		});
+
+		it("plans the shared set inside the manifest lock, after an in-flight recording", async () => {
+			const first = await create();
+			const second = await create();
+			const [low, high] = [first.id, second.id].sort();
+			let reachedSecond = () => {};
+			const reached = new Promise<void>((resolve) => {
+				reachedSecond = resolve;
+			});
+			let release = () => {};
+			const released = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			// The agent's draft write records one, then pauses before the other.
+			class Pausing extends AnnotationStore {
+				override async update<Result>(
+					target: AnnotationContainer,
+					annotationId: string,
+					mutate: AnnotationMutation<Result>,
+					options?: { expectedRevision?: string },
+				) {
+					if (annotationId === high) {
+						reachedSecond();
+						await released;
+					}
+					return super.update<Result>(target, annotationId, mutate, options);
+				}
+			}
+			const writing = addressing(
+				[low as string, high as string],
+				{ draft: { root: buttonRoot("px-8") } },
+				{
+					recordContext: {
+						store: new Pausing({
+							projectId: "project-1",
+							trickroomHome: path.join(root, "home"),
+						}),
+						now: () => clock,
+					},
+				},
+			);
+			await reached;
+			const reverting = revertComponentChange(context, {
+				annotationId: low as string,
+				entryId: changeEntry(await reload(low as string)).id,
+				by: human,
+				projectRoot,
+				container,
+				scope: main,
+			});
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			release();
+			await writing;
+			const result = await reverting;
+			expect(result.alsoReverted).toEqual([high]);
+			expect((await reload(high as string)).status).toBe("open");
 		});
 
 		it("restores the variant schema and slots as well", async () => {
