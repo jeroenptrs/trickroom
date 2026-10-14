@@ -380,7 +380,11 @@ export function AddLayerCommandMenu({
 												<ItemRow
 													key={command.value}
 													value={command.value}
-													keywords={command.keywords}
+													// The menu filters on value and keywords, not the label.
+													keywords={[
+														command.label,
+														...(command.keywords ?? []),
+													]}
 													icon={command.icon}
 													label={command.label}
 													secondary={command.secondary}

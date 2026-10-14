@@ -29,7 +29,7 @@ export type AnnotationChangeActions = {
 };
 
 function EntryText({ children }: { children: string }) {
-	return <p className="whitespace-pre-wrap break-words text-xs">{children}</p>;
+	return <p className="whitespace-pre-wrap wrap-break-word text-xs">{children}</p>;
 }
 
 function ChangeRecord({

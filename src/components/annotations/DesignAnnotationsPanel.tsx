@@ -91,7 +91,7 @@ function Section({
 				className="flex items-center gap-2 px-3 pt-3 pb-1"
 			>
 				{title}
-				{count !== undefined ? <span>{count}</span> : null}
+				{count ? <span>{count}</span> : null}
 			</Text>
 			<div className="flex flex-col divide-y divide-slate-100">{children}</div>
 		</section>
@@ -482,7 +482,7 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 						)}
 					</Section>
 				) : null}
-				{boardId ? (
+				{onBoard.length > 0 ? (
 					<Section title="This board" count={onBoard.length}>
 						{onBoard.map(renderThread)}
 					</Section>
@@ -499,9 +499,11 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 						{elsewhereOnBoard.map(renderThread)}
 					</Section>
 				) : null}
-				<Section title="This design" count={onDesign.length}>
-					{onDesign.map(renderThread)}
-				</Section>
+				{onDesign.length > 0 ? (
+					<Section title="This design" count={onDesign.length}>
+						{onDesign.map(renderThread)}
+					</Section>
+				) : null}
 				{onBoards.length > 0 ? (
 					<Section title="On boards" count={onBoards.length}>
 						{onBoards.map(renderThread)}
