@@ -367,6 +367,10 @@ const DraftLayerRow = memo(function DraftLayerRow({
 }) {
 	const [isEditing, setIsEditing] = useState(false);
 	const [draftName, setDraftName] = useState("");
+	// Whether a rename is still open to commit. Ends synchronously on commit,
+	// cancel and deselection, so a blur that follows (the input unmounting,
+	// a stage press) cannot commit a draft twice or after Escape.
+	const renamingRef = useRef(false);
 	const [dragging, setDragging] = useState(false);
 	const [dropIntent, setDropIntent] = useState<
 		"before" | "after" | "inside" | null
@@ -387,10 +391,15 @@ const DraftLayerRow = memo(function DraftLayerRow({
 	const editLayer = useCallback(() => {
 		selectLayer();
 		setDraftName(layer.name);
+		renamingRef.current = true;
 		setIsEditing(true);
 	}, [layer.name, selectLayer]);
 
 	const commitLayerName = useCallback(() => {
+		if (!renamingRef.current) {
+			return;
+		}
+		renamingRef.current = false;
 		const nextName = draftName.trim() || "Layer";
 		setIsEditing(false);
 
@@ -400,6 +409,7 @@ const DraftLayerRow = memo(function DraftLayerRow({
 	}, [draftName, layer.name, path]);
 
 	const cancelLayerName = useCallback(() => {
+		renamingRef.current = false;
 		setDraftName(layer.name);
 		setIsEditing(false);
 	}, [layer.name]);
@@ -418,6 +428,7 @@ const DraftLayerRow = memo(function DraftLayerRow({
 
 	useEffect(() => {
 		if (!layer.isSelected) {
+			renamingRef.current = false;
 			setIsEditing(false);
 		}
 	}, [layer.isSelected]);

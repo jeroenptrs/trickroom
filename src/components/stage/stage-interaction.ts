@@ -80,26 +80,79 @@ export function findStageBoardElement(element: Element) {
 }
 
 /**
- * Whether an overlay (dialog, popover, menu) is open in `board`. Boards
- * portal their overlays into a host that is a direct child of the board and
- * only holds children while something is open.
+ * The portal host of `board`: a direct child that only holds children while
+ * an overlay (dialog, popover, menu) is open in the board.
  */
-export function hasOpenBoardOverlay(board: Element) {
-	for (const child of Array.from(board.children)) {
-		if (
-			child.hasAttribute(STAGE_BOARD_PORTAL_ATTRIBUTE) &&
-			child.childElementCount > 0
-		) {
-			return true;
+export function findBoardPortalHost(board: Element) {
+	const { children } = board;
+	for (let index = 0; index < children.length; index += 1) {
+		const child = children[index] as Element;
+		if (child.hasAttribute(STAGE_BOARD_PORTAL_ATTRIBUTE)) {
+			return child;
 		}
 	}
-	return false;
+	return null;
 }
 
-/** Whether hover outlines are off over `element`: its board shows an overlay. */
-export function isStageHoverBlockedAt(element: Element) {
-	const board = findStageBoardElement(element);
-	return board !== null && hasOpenBoardOverlay(board);
+/** Whether an overlay is open in `board`. Scans the board's children. */
+export function hasOpenBoardOverlay(board: Element) {
+	return (findBoardPortalHost(board)?.childElementCount ?? 0) > 0;
+}
+
+export type StageOverlayProbe = {
+	/** Whether hover outlines are off over `element`: its board shows an overlay. */
+	isHoverBlockedAt: (element: Element) => boolean;
+	dispose: () => void;
+};
+
+/**
+ * Answers "is an overlay open in this element's board" in time bounded by
+ * the element's depth, not the board's size, so the hover check can run
+ * every frame on a board with tens of thousands of children. Each board's
+ * portal host is found once and cached; one MutationObserver watching only
+ * the boards' own child lists (the host mounts and unmounts there) drops the
+ * cached entry when it changes. Whether the host holds an overlay is its
+ * child count, read live.
+ */
+export function createStageOverlayProbe(): StageOverlayProbe {
+	const hosts = new WeakMap<Element, Element | null>();
+	let observer: MutationObserver | null = null;
+	const observed = new WeakSet<Element>();
+
+	const hostOf = (board: Element) => {
+		if (hosts.has(board)) {
+			return hosts.get(board) ?? null;
+		}
+		const host = findBoardPortalHost(board);
+		const MutationObserverCtor =
+			board.ownerDocument.defaultView?.MutationObserver;
+		if (!MutationObserverCtor) {
+			return host;
+		}
+		observer ??= new MutationObserverCtor((records) => {
+			for (const record of records) {
+				hosts.delete(record.target as Element);
+			}
+		});
+		if (!observed.has(board)) {
+			observed.add(board);
+			observer.observe(board, { childList: true });
+		}
+		hosts.set(board, host);
+		return host;
+	};
+
+	return {
+		isHoverBlockedAt: (element) => {
+			const board = findStageBoardElement(element);
+			const host = board ? hostOf(board) : null;
+			return host !== null && host.childElementCount > 0;
+		},
+		dispose: () => {
+			observer?.disconnect();
+			observer = null;
+		},
+	};
 }
 
 /**
@@ -124,12 +177,16 @@ export function resolveStageHoverId(
 	path: readonly EventTarget[],
 	tree: Pick<StageLayerTree, "has">,
 	state: { buttons: number; spacePressed: boolean },
+	isHoverBlockedAt: (element: Element) => boolean = (element) => {
+		const board = findStageBoardElement(element);
+		return board !== null && hasOpenBoardOverlay(board);
+	},
 ) {
 	if (shouldSuppressStageHover({ ...state, overlayOpen: false })) {
 		return null;
 	}
 	const target = resolveStagePointerTarget(path, tree);
-	if (target.kind !== "layer" || isStageHoverBlockedAt(target.element)) {
+	if (target.kind !== "layer" || isHoverBlockedAt(target.element)) {
 		return null;
 	}
 	return target.id;
@@ -239,6 +296,8 @@ export type StageInteractionOptions = {
 	 * selection press blurs whatever had focus in it.
 	 */
 	host?: Document | null;
+	/** Shared with the painter; one of its own otherwise. */
+	overlayProbe?: StageOverlayProbe;
 };
 
 /** The focusable stage element of the iframe shell. */
@@ -258,7 +317,9 @@ const STAGE_VIEWPORT_ID = "trickroom-viewport";
  * and double-click in the capture phase on the window, before React (which
  * listens on the stage's mount node) or Base UI (document listeners) see
  * them. Middle-button and Space presses go through untouched so the canvas
- * can pan. A right-click selects like a press and opens no context menu.
+ * can pan. A right-button press is taken the same way: it selects, its
+ * down and up events never reach the board, and the context menu it ends
+ * with is swallowed.
  * Overlays open through their recipe controls, not by clicking.
  *
  * A selection press moves keyboard focus to the stage, first blurring the
@@ -274,7 +335,9 @@ export function attachStageInteraction({
 	source,
 	onHoverChange,
 	host,
+	overlayProbe,
 }: StageInteractionOptions) {
+	const probe = overlayProbe ?? createStageOverlayProbe();
 	// Forwarding into the stage's own document would come straight back here.
 	const forwardTo = host && host !== document ? host : null;
 	let spacePressed = false;
@@ -326,7 +389,10 @@ export function attachStageInteraction({
 		lastPressSelected = false;
 		// Any press, a pan included, ends the hover until the pointer moves.
 		setHover(null);
-		if (event.button !== 0 || spacePressed) {
+		// The primary and the right button select; a middle-button press and
+		// a primary press with Space held pan.
+		const panPress = event.button === 1 || (event.button === 0 && spacePressed);
+		if (panPress || event.button > 2) {
 			return;
 		}
 		const target = resolveStagePointerTarget(event.composedPath(), source);
@@ -334,7 +400,7 @@ export function attachStageInteraction({
 			return;
 		}
 		selecting = true;
-		lastPressSelected = true;
+		lastPressSelected = event.button === 0;
 		swallow(event);
 		selectAt(target);
 	};
@@ -389,10 +455,12 @@ export function attachStageInteraction({
 
 	const onPointerMove = (event: PointerEvent) => {
 		setHover(
-			resolveStageHoverId(event.composedPath(), source, {
-				buttons: event.buttons,
-				spacePressed,
-			}),
+			resolveStageHoverId(
+				event.composedPath(),
+				source,
+				{ buttons: event.buttons, spacePressed },
+				probe.isHoverBlockedAt,
+			),
 		);
 	};
 
@@ -460,6 +528,9 @@ export function attachStageInteraction({
 		window.removeEventListener("keydown", onKeyDown);
 		window.removeEventListener("keyup", onKeyUp);
 		window.removeEventListener("blur", onBlur);
+		if (!overlayProbe) {
+			probe.dispose();
+		}
 		setHover(null);
 	};
 }

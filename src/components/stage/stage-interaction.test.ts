@@ -4,6 +4,7 @@ import { STAGE_BOARD_PORTAL_ATTRIBUTE } from "../../libraries/stage-portal";
 import {
 	attachStageInteraction,
 	createStageNodeLookup,
+	createStageOverlayProbe,
 	forwardStageKeyEvent,
 	getStageDrillTarget,
 	getStageLayerAncestry,
@@ -75,6 +76,7 @@ function renderStage() {
 							<h2 data-trickroom-node-id="title"><em id="title-inner">Title</em></h2>
 							<a data-trickroom-node-id="cta" href="https://example.com" id="cta">Go</a>
 							<div id="no-id"><span id="no-id-inner">plain</span></div>
+							<input id="board-input" />
 							<button type="submit" id="unknown" data-trickroom-node-id="stale">x</button>
 						</div>
 						<div data-trickroom-node-id="missing" data-trickroom-missing-renderer="lib/thing" role="note">
@@ -383,19 +385,62 @@ describe("attachStageInteraction", () => {
 		field.remove();
 	});
 
-	it("selects on right-click and keeps the context menu from the board", () => {
-		const boardMenu = vi.fn();
-		document.getElementById("cta")?.addEventListener("contextmenu", boardMenu);
-		const menu = new MouseEvent("contextmenu", {
-			bubbles: true,
-			cancelable: true,
-			button: 2,
-		});
-		document.getElementById("cta")?.dispatchEvent(menu);
-		expect(source.selected()).toBe("cta");
-		expect(menu.defaultPrevented).toBe(true);
-		expect(boardMenu).not.toHaveBeenCalled();
+	it("takes the whole right-button press and its context menu from the board", () => {
+		const input = document.getElementById("board-input") as HTMLInputElement;
+		const seenByBoard = vi.fn();
+		const types = [
+			"pointerdown",
+			"mousedown",
+			"pointerup",
+			"mouseup",
+			"auxclick",
+			"contextmenu",
+		] as const;
+		for (const type of types) input.addEventListener(type, seenByBoard);
+		input.addEventListener("focus", seenByBoard);
 
+		// Chromium's order for a right-click.
+		const events = [
+			new PointerEvent("pointerdown", {
+				bubbles: true,
+				cancelable: true,
+				button: 2,
+				buttons: 2,
+			}),
+			new MouseEvent("mousedown", {
+				bubbles: true,
+				cancelable: true,
+				button: 2,
+				buttons: 2,
+			}),
+			new MouseEvent("contextmenu", {
+				bubbles: true,
+				cancelable: true,
+				button: 2,
+			}),
+			new PointerEvent("pointerup", {
+				bubbles: true,
+				cancelable: true,
+				button: 2,
+			}),
+			new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 2 }),
+			new MouseEvent("auxclick", {
+				bubbles: true,
+				cancelable: true,
+				button: 2,
+			}),
+		];
+		for (const event of events) input.dispatchEvent(event);
+
+		expect(seenByBoard).not.toHaveBeenCalled();
+		expect(events.every((event) => event.defaultPrevented)).toBe(true);
+		expect(source.selected()).toBe("card");
+		expect(document.activeElement).not.toBe(input);
+		expect(document.activeElement?.id).toBe("trickroom-viewport");
+	});
+
+	it("lets right-clicks on stage chrome through", () => {
+		source.select("cta");
 		const pinMenu = vi.fn();
 		document.getElementById("pin")?.addEventListener("contextmenu", pinMenu);
 		document
@@ -528,5 +573,60 @@ describe("createStageNodeLookup", () => {
 		expect(lookup("ghost")).toBeNull();
 		expect(spy).toHaveBeenCalledTimes(3);
 		spy.mockRestore();
+	});
+});
+
+describe("createStageOverlayProbe", () => {
+	const flushMutations = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+	function renderLargeBoard(children: number) {
+		const board = document.createElement("section");
+		board.setAttribute("data-trickroom-root-id", "board");
+		const host = document.createElement("div");
+		host.setAttribute(STAGE_BOARD_PORTAL_ATTRIBUTE, "");
+		board.append(host);
+		for (let index = 0; index < children; index += 1) {
+			board.append(document.createElement("div"));
+		}
+		const leaf = board.lastElementChild as Element;
+		document.body.replaceChildren(board);
+		return { board, host, leaf };
+	}
+
+	it("does not rescan a board's children on every check", () => {
+		const { host, leaf } = renderLargeBoard(10_000);
+		const probe = createStageOverlayProbe();
+		expect(probe.isHoverBlockedAt(leaf)).toBe(false);
+
+		const hasAttribute = vi.spyOn(Element.prototype, "hasAttribute");
+		for (let frame = 0; frame < 100; frame += 1) {
+			probe.isHoverBlockedAt(leaf);
+		}
+		expect(hasAttribute).not.toHaveBeenCalled();
+
+		// An overlay opening in the cached host is read live.
+		host.append(document.createElement("div"));
+		expect(probe.isHoverBlockedAt(leaf)).toBe(true);
+		hasAttribute.mockRestore();
+		probe.dispose();
+	});
+
+	it("finds the host again when the board's children change", async () => {
+		const { board, host, leaf } = renderLargeBoard(3);
+		const probe = createStageOverlayProbe();
+		host.append(document.createElement("div"));
+		expect(probe.isHoverBlockedAt(leaf)).toBe(true);
+
+		host.remove();
+		await flushMutations();
+		expect(probe.isHoverBlockedAt(leaf)).toBe(false);
+
+		const remounted = document.createElement("div");
+		remounted.setAttribute(STAGE_BOARD_PORTAL_ATTRIBUTE, "");
+		remounted.append(document.createElement("div"));
+		board.prepend(remounted);
+		await flushMutations();
+		expect(probe.isHoverBlockedAt(leaf)).toBe(true);
+		probe.dispose();
 	});
 });

@@ -2,7 +2,7 @@ import { isStageStylesReady } from "../../hooks/useStageNavigation";
 import {
 	attachStageInteraction,
 	createStageNodeLookup,
-	isStageHoverBlockedAt,
+	createStageOverlayProbe,
 	type StageSelectionSource,
 } from "./stage-interaction";
 import {
@@ -60,6 +60,7 @@ export function startStageSelectionOverlay({
 	host?: Document | null;
 }) {
 	const lookup = createStageNodeLookup(document);
+	const overlayProbe = createStageOverlayProbe();
 	const selectionOutline: PaintedOutline = {
 		...selection,
 		border: 2,
@@ -114,7 +115,7 @@ export function startStageSelectionOverlay({
 		paint(
 			hoverOutline,
 			hoverId === selectedId ? null : hoverId,
-			isStageHoverBlockedAt,
+			overlayProbe.isHoverBlockedAt,
 		);
 		if (selectedId || hoverId) {
 			frame = window.requestAnimationFrame(step);
@@ -132,6 +133,7 @@ export function startStageSelectionOverlay({
 		window,
 		source,
 		host,
+		overlayProbe,
 		onHoverChange: (id) => {
 			hoverId = id;
 			schedule();
@@ -144,6 +146,7 @@ export function startStageSelectionOverlay({
 		detach();
 		unsubscribe();
 		window.cancelAnimationFrame(frame);
+		overlayProbe.dispose();
 		hideOutline(selectionOutline);
 		hideOutline(hoverOutline);
 	};

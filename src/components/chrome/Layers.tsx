@@ -308,7 +308,7 @@ export function getBlockedDropInstructions(
 	return blockedInstructions;
 }
 
-const Layer = memo(function Layer({
+export const Layer = memo(function Layer({
 	id,
 	depth,
 	designId,
@@ -321,6 +321,10 @@ const Layer = memo(function Layer({
 }: LayerProps) {
 	const [isEditing, setIsEditing] = useState(false);
 	const [draftName, setDraftName] = useState("");
+	// Whether a rename is still open to commit. Ends synchronously on commit,
+	// cancel and deselection, so a blur that follows (the input unmounting,
+	// a stage press) cannot commit a draft twice or after Escape.
+	const renamingRef = useRef(false);
 	const [dragging, setDragging] = useState(false);
 	const [dropIntent, setDropIntent] = useState<LayerDropIntent["type"] | null>(
 		null,
@@ -354,10 +358,15 @@ const Layer = memo(function Layer({
 	const editLayer = useCallback(() => {
 		selectLayer();
 		setDraftName(layer.name);
+		renamingRef.current = true;
 		setIsEditing(true);
 	}, [layer.name, selectLayer]);
 
 	const commitLayerName = useCallback(() => {
+		if (!renamingRef.current) {
+			return;
+		}
+		renamingRef.current = false;
 		const nextName = draftName.trim() || "Layer";
 		setIsEditing(false);
 
@@ -367,6 +376,7 @@ const Layer = memo(function Layer({
 	}, [draftName, layer.id, layer.name]);
 
 	const cancelLayerName = useCallback(() => {
+		renamingRef.current = false;
 		setDraftName(layer.name);
 		setIsEditing(false);
 	}, [layer.name]);
@@ -385,6 +395,7 @@ const Layer = memo(function Layer({
 
 	useEffect(() => {
 		if (!layer.isSelected) {
+			renamingRef.current = false;
 			setIsEditing(false);
 		}
 	}, [layer.isSelected]);
@@ -606,6 +617,9 @@ const Layer = memo(function Layer({
 							className={className}
 							onKeyDown={onInputKeyDown}
 							onChange={(event) => setDraftName(event.target.value)}
+							// A press on the stage iframe never reaches the outside-press
+							// listener above; it moves focus, so blur commits.
+							onBlur={commitLayerName}
 						/>
 					)}
 					{layer.parentId === null && boardChangedExternally ? (
