@@ -2,6 +2,7 @@ import { type FSWatcher, watch } from "node:fs";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
+	type AnnotationComponentRead,
 	AnnotationServiceError,
 	listAnnotations,
 	reanchorAnnotation,
@@ -18,6 +19,11 @@ import {
 	type AnnotationView,
 	CLOSED_ANNOTATION_STATUSES,
 } from "../../services/annotations.types";
+import {
+	type ComponentAnchorRead,
+	readComponentAnchor,
+	resolveAnnotationSystemId,
+} from "../../services/component-annotations";
 import { createElementNotFoundError } from "../../services/element-lookup-hints";
 import type { TrickroomDesign } from "../../types";
 import {
@@ -246,7 +252,7 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 		TOOL.annotationList,
 		{
 			title: "List Annotations",
-			description: `Annotations are remarks a designer anchors to a design, a board or a layer in the Trickroom editor, for an agent to act on. Lists a design's annotations (or a system component's, with systemId and componentId) with ids, target (boardId, elementId), the names they were made on, status and every entry, so each follow-up call has what it needs. Defaults: live ones (open and acknowledged are your work; needs_input and addressed wait on the designer) on the current git branch; branch "all" or a name shows other checkouts'. Filter with boardId, elementId and status. Address an annotation with ${TOOL.designApply} addresses: [{ annotationId, reply }] in the write that makes the change; reply, ask, resolve or dismiss without a write with ${TOOL.annotationReply}. Seeing an open annotation in full acknowledges it for this session. Results of ${TOOL.designRead}, ${TOOL.designApply}, ${TOOL.designValidate}, ${TOOL.designScreenshot} and ${TOOL.editorContext} already show new ones.`,
+			description: `Annotations are remarks a designer anchors to a design, a board or a layer in the Trickroom editor, for an agent to act on. Lists a design's annotations (or a system component's, with systemId and componentId: target nodePath is the template path, variants the configuration a pinned one is about) with ids, target (boardId, elementId), the names they were made on, status and every entry, so each follow-up call has what it needs. Defaults: live ones (open and acknowledged are your work; needs_input and addressed wait on the designer) on the current git branch; branch "all" or a name shows other checkouts'. Filter with boardId, elementId and status. Address an annotation with ${TOOL.designApply} (components: ${TOOL.componentDraftUpdate}) addresses: [{ annotationId, reply }] in the write that makes the change; reply, ask, resolve or dismiss without a write with ${TOOL.annotationReply}. Seeing an open annotation in full acknowledges it for this session. Results of ${TOOL.designRead}, ${TOOL.designApply}, ${TOOL.designValidate}, ${TOOL.designScreenshot} and ${TOOL.editorContext} already show new ones.`,
 			inputSchema: withProjectScopedInput({
 				designFileId: designFileIdSchema
 					.optional()
@@ -269,6 +275,11 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 				elementId: elementIdSchema
 					.optional()
 					.describe("Annotations on this layer."),
+				nodePath: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Component annotations on this template node path."),
 				status: statusFilterSchema,
 				branch: z
 					.string()
@@ -293,16 +304,24 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 		},
 		async ({
 			designFileId,
-			systemId,
+			systemId: systemHandle,
 			componentId,
 			boardId,
 			elementId,
+			nodePath,
 			status,
 			branch,
 			limit,
 			project: projectRef,
 		}) =>
 			withPolicyErrorHandling(projectRef, async (context) => {
+				// A system named by name lists the folder of its id.
+				const systemId = systemHandle
+					? ((await resolveAnnotationSystemId(
+							context.projectRoot,
+							systemHandle,
+						).catch(() => null)) ?? systemHandle)
+					: undefined;
 				const container: AnnotationContainer | null = designFileId
 					? { kind: "design", designId: designFileId }
 					: systemId && componentId
@@ -330,6 +349,15 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 					container.kind === "design"
 						? await readDesignIfPresent(context, container.designId)
 						: { design: null };
+				// A component's template (draft, else published): detached paths.
+				const component =
+					container.kind === "component"
+						? await readComponentAnchor(
+								context.projectRoot,
+								container.systemId,
+								container.componentId,
+							).catch(() => null)
+						: null;
 				try {
 					const listed = await listAnnotations(project.service, {
 						container,
@@ -338,7 +366,9 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 						statuses: toStatuses(status),
 						...(boardId !== undefined ? { boardId } : {}),
 						...(elementId !== undefined ? { elementId } : {}),
+						...(nodePath !== undefined ? { nodePath } : {}),
 						...(read.design ? { design: read.design } : {}),
+						...(component ? { component: component.template } : {}),
 					});
 					if (
 						container.kind === "design" &&
@@ -363,7 +393,10 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 						(statuses === undefined || statuses.includes(view.status)) &&
 						(elementId === undefined ||
 							(view.target.kind === "layer" &&
-								view.target.elementId === elementId));
+								view.target.elementId === elementId)) &&
+						(nodePath === undefined ||
+							(view.target.kind === "componentNode" &&
+								view.target.nodePath === nodePath));
 					const shown = await annotations.showInFull(
 						project,
 						sorted.slice(0, max),
@@ -376,6 +409,7 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 					const counts = summarizeAnnotationCounts(
 						eligible.filter((view) => view.branch === project.scope.branch),
 						read.design,
+						component?.template,
 					);
 					return createJsonResult({
 						status: "success",
@@ -386,6 +420,13 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 									component: {
 										systemId: container.systemId,
 										componentId: container.componentId,
+										...(component
+											? {
+													name: component.name,
+													revision: component.revision,
+													anchoredTo: component.source,
+												}
+											: {}),
 									},
 								}),
 						branch: project.scope.branch,
@@ -414,7 +455,7 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 		TOOL.annotationReply,
 		{
 			title: "Reply To Annotation",
-			description: `Answer a designer's annotation without a design write. body: a reply; question: ask the designer (status needs_input until they answer); dismiss: { reason } when you will not do it; resolve: { summary? } only when the designer asked you to resolve it; reanchor: { elementId } or { boardId } moves it to another layer or board of the same design, for example after copySubtree or detachSystemComponent replaced the element it was on (status unchanged; returns the new target and snapshot). At most one of question, dismiss, resolve and reanchor; body may go with any. For a change you make, do not reply here: pass addresses: [{ annotationId, reply }] to the ${TOOL.designApply} that makes it, which records the change and marks it addressed. Recorded as this agent session; needs read-write mode.`,
+			description: `Answer a designer's annotation without a design write. body: a reply; question: ask the designer (status needs_input until they answer); dismiss: { reason } when you will not do it; resolve: { summary? } only when the designer asked you to resolve it; reanchor: { elementId } or { boardId } moves it to another layer or board of the same design, for example after copySubtree or detachSystemComponent replaced the element it was on, and { nodePath } to another node of the same system component (a pin to a variant configuration stays; status unchanged; returns the new target and snapshot). At most one of question, dismiss, resolve and reanchor; body may go with any. For a change you make, do not reply here: pass addresses: [{ annotationId, reply }] to the ${TOOL.designApply} (components: ${TOOL.componentDraftUpdate} or ${TOOL.componentPublish}) that makes it, which records the change and marks it addressed. Recorded as this agent session; needs read-write mode.`,
 			inputSchema: withProjectScopedInput({
 				annotationId: z
 					.string()
@@ -456,10 +497,18 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 									.describe("Board in the same design."),
 							})
 							.strict(),
+						z
+							.object({
+								nodePath: z
+									.string()
+									.min(1)
+									.describe("Template node path in the same component."),
+							})
+							.strict(),
 					])
 					.optional()
 					.describe(
-						"Move the annotation to another layer or board of its design, e.g. the element that replaced the one it was on.",
+						"Move the annotation to another layer or board of its design (or node of its component), e.g. the element that replaced the one it was on.",
 					),
 				designFileId: designFileIdSchema
 					.optional()
@@ -569,14 +618,59 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 					// re-anchoring never leaves it.
 					let reanchorTo: {
 						target: AnnotationTarget;
-						design: { design: TrickroomDesign; revision: string };
+						design?: { design: TrickroomDesign; revision: string };
+						component?: AnnotationComponentRead;
 					} | null = null;
-					if (reanchor) {
+					if (reanchor && "nodePath" in reanchor) {
+						if (container.kind !== "component") {
+							return createToolErrorResult(
+								context,
+								"INVALID_INPUT",
+								"nodePath re-anchors a component annotation; this one is on a design: pass elementId or boardId.",
+								{ annotationId },
+							);
+						}
+						const anchor: ComponentAnchorRead | null =
+							await readComponentAnchor(
+								context.projectRoot,
+								container.systemId,
+								container.componentId,
+							);
+						if (!anchor) {
+							return createToolErrorResult(
+								context,
+								"COMPONENT_NOT_FOUND",
+								`Component ${container.componentId} no longer exists in design system ${container.systemId}; its annotations cannot be re-anchored.`,
+								{ annotationId },
+							);
+						}
+						const current = await project.service.store.read(
+							container,
+							annotationId,
+						);
+						const pinned =
+							current?.annotation.target.kind === "componentNode"
+								? current.annotation.target.variants
+								: undefined;
+						reanchorTo = {
+							target: {
+								kind: "componentNode",
+								systemId: container.systemId,
+								componentId: container.componentId,
+								nodePath: reanchor.nodePath,
+								...(pinned ? { variants: pinned } : {}),
+							},
+							component: {
+								template: anchor.template,
+								revision: anchor.revision,
+							},
+						};
+					} else if (reanchor) {
 						if (container.kind !== "design") {
 							return createToolErrorResult(
 								context,
 								"INVALID_INPUT",
-								"Component annotations are re-anchored in the editor.",
+								"A component annotation re-anchors to a node: pass reanchor: { nodePath }.",
 								{ annotationId },
 							);
 						}
@@ -650,7 +744,10 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 									container,
 									by: project.by,
 									target: reanchorTo.target,
-									design: reanchorTo.design,
+									...(reanchorTo.design ? { design: reanchorTo.design } : {}),
+									...(reanchorTo.component
+										? { component: reanchorTo.component }
+										: {}),
 									branch: project.scope.branch,
 									...(body !== undefined ? { body } : {}),
 								})
@@ -696,6 +793,9 @@ export const registerAnnotationTools = (ctx: McpToolContext) => {
 													: {}),
 												...(view.snapshot.designRevision
 													? { designRevision: view.snapshot.designRevision }
+													: {}),
+												...(view.snapshot.variants
+													? { variants: view.snapshot.variants }
 													: {}),
 											},
 										},

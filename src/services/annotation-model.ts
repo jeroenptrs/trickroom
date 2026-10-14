@@ -1,4 +1,4 @@
-import type { Node, TrickroomDesign } from "../types";
+import type { Node, RecipeTemplateNode, TrickroomDesign } from "../types";
 import {
 	ANNOTATION_STATUSES,
 	type Annotation,
@@ -135,6 +135,20 @@ export type AnnotationTargetLocator = {
 	/** The board a layer is on now; null when the layer is gone. */
 	boardOfLayer: (elementId: string) => string | null;
 	hasBoard: (boardId: string) => boolean;
+	/**
+	 * Component editor: whether a component node target still exists (its
+	 * template path, and the variant values it is pinned to). Absent for a
+	 * design: component node targets are then not derived.
+	 */
+	hasComponentNode?: (
+		nodePath: string,
+		variants: Readonly<Record<string, string>> | undefined,
+	) => boolean;
+	/**
+	 * Component editor: the template's root path (it plays the board), so a
+	 * detached node annotation still counts in the component's total.
+	 */
+	componentRootId?: () => string | null;
 };
 
 type DesignLayerLocation = {
@@ -206,7 +220,9 @@ export const deriveDetachedWith = (
 		case "layer":
 			return locator.boardOfLayer(target.elementId) === null;
 		case "componentNode":
-			return undefined;
+			return locator.hasComponentNode
+				? !locator.hasComponentNode(target.nodePath, target.variants)
+				: undefined;
 	}
 };
 
@@ -277,9 +293,16 @@ export const summarizeAnnotationCountsWith = (
 			summary.boards[boardId] ??= emptyAnnotationCounts();
 			addToCounts(summary.boards[boardId], status, detached);
 		}
-		if (target.kind === "layer") {
-			summary.layers[target.elementId] ??= emptyAnnotationCounts();
-			addToCounts(summary.layers[target.elementId], status, detached);
+		// Component nodes count per template path, as layers do per id.
+		const layerId =
+			target.kind === "layer"
+				? target.elementId
+				: target.kind === "componentNode"
+					? target.nodePath
+					: null;
+		if (layerId !== null) {
+			summary.layers[layerId] ??= emptyAnnotationCounts();
+			addToCounts(summary.layers[layerId], status, detached);
 		}
 	}
 	return summary;
@@ -287,16 +310,147 @@ export const summarizeAnnotationCountsWith = (
 
 /**
  * Counts already-listed annotations by status, work owner, board and
- * layer. With `design`, layers follow moves and detached ones are counted.
+ * layer (component nodes by template path). With `design` (or a
+ * component's template), layers follow moves and detached ones are
+ * counted.
  */
 export const summarizeAnnotationCounts = (
 	annotations: readonly Pick<Annotation, "target" | "status">[],
 	design?: TrickroomDesign | null,
+	component?: ComponentAnchorTemplate | null,
 ): AnnotationCountSummary =>
 	summarizeAnnotationCountsWith(
 		annotations,
-		design ? designTargetLocator(design) : null,
+		design
+			? designTargetLocator(design)
+			: component
+				? componentTargetLocator(component)
+				: null,
 	);
+
+// ---------------------------------------------------------------------------
+// Component nodes
+// ---------------------------------------------------------------------------
+
+/**
+ * What component node annotations anchor to: the component's template (the
+ * draft's, or the published version's when there is no draft) and its
+ * variant schema. Template paths are stable identifiers (unique, never
+ * renumbered: inserting or moving a node keeps every path), so an
+ * annotation follows its node as a layer annotation follows its element id.
+ */
+export type ComponentAnchorTemplate = {
+	root: RecipeTemplateNode;
+	variants?: {
+		axes: Record<string, { values: Record<string, unknown> }>;
+	} | null;
+};
+
+type ComponentNodeLocation = {
+	node: RecipeTemplateNode;
+	/** Ancestors, root first, nearest parent last. */
+	ancestors: RecipeTemplateNode[];
+};
+
+export const findComponentNode = (
+	root: RecipeTemplateNode,
+	nodePath: string,
+): ComponentNodeLocation | null => {
+	const visit = (
+		node: RecipeTemplateNode,
+		ancestors: RecipeTemplateNode[],
+	): ComponentNodeLocation | null => {
+		if (node.path === nodePath) return { node, ancestors };
+		for (const child of node.children ?? []) {
+			const found = visit(child, [...ancestors, node]);
+			if (found) return found;
+		}
+		return null;
+	};
+	return visit(root, []);
+};
+
+/** Every template path of a component, root included. */
+export const collectComponentNodePaths = (root: RecipeTemplateNode) => {
+	const paths = new Set<string>();
+	const visit = (node: RecipeTemplateNode) => {
+		paths.add(node.path);
+		for (const child of node.children ?? []) visit(child);
+	};
+	visit(root);
+	return paths;
+};
+
+/**
+ * Whether every pinned axis and value is still in the variant schema. A
+ * pin to a value that no longer exists can never be in view again, so its
+ * annotation counts as detached (re-anchor or unpin it).
+ */
+export const hasPinnedVariants = (
+	variants: Readonly<Record<string, string>> | undefined,
+	schema: ComponentAnchorTemplate["variants"],
+) =>
+	!variants ||
+	Object.entries(variants).every(([axis, value]) => {
+		const axes = schema?.axes;
+		const entry = axes && Object.hasOwn(axes, axis) ? axes[axis] : undefined;
+		return !!entry && Object.hasOwn(entry.values, value);
+	});
+
+/** A locator over a component's template: only component nodes resolve. */
+export const componentTargetLocator = (
+	template: ComponentAnchorTemplate,
+): AnnotationTargetLocator => {
+	let paths: Set<string> | null = null;
+	return {
+		boardOfLayer: () => null,
+		hasBoard: () => false,
+		hasComponentNode: (nodePath, variants) => {
+			paths ??= collectComponentNodePaths(template.root);
+			return (
+				paths.has(nodePath) && hasPinnedVariants(variants, template.variants)
+			);
+		},
+	};
+};
+
+/** Whether a component node target is gone from the template (see `componentTargetLocator`). */
+export const deriveComponentDetached = (
+	target: AnnotationTarget,
+	template: ComponentAnchorTemplate,
+): boolean | undefined =>
+	target.kind === "componentNode"
+		? deriveDetachedWith(target, componentTargetLocator(template))
+		: undefined;
+
+/**
+ * Whether the configuration in view shows a pinned annotation: every pinned
+ * axis has the pinned value in view. An unpinned annotation (no variants)
+ * shows in every configuration.
+ */
+export const matchesVariantConfiguration = (
+	pinned: Readonly<Record<string, string>> | undefined,
+	inView: Readonly<Record<string, string | undefined>>,
+) =>
+	!pinned ||
+	Object.entries(pinned).every(
+		([axis, value]) => Object.hasOwn(inView, axis) && inView[axis] === value,
+	);
+
+/**
+ * The variant values of a pin, without empty ones; null when nothing is
+ * left (an empty pin is no pin).
+ */
+export const normalizePinnedVariants = (
+	variants: Readonly<Record<string, string>> | undefined | null,
+): Record<string, string> | null => {
+	if (!variants) return null;
+	const entries = Object.entries(variants)
+		.filter(([axis, value]) => axis.length > 0 && value.length > 0)
+		.sort(([a], [b]) => a.localeCompare(b));
+	// fromEntries defines own properties: `__proto__` is just a key.
+	return entries.length > 0 ? Object.fromEntries(entries) : null;
+};
 
 /**
  * The memory reference a resolved annotation graduates with:

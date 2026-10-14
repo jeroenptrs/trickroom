@@ -24,6 +24,7 @@ You can override the per-user app-state location with `TRICKROOM_HOME`. It holds
   settings.json                 app settings: MCP tool groups, mcp.callLog, server and screenshot options
   locks/designs/<hash>.lock     design write locks (see Concurrency And Revision Safety)
   locks/annotations/<hash>.lock annotation write locks (see Annotations)
+  locks/systems/<hash>.lock     component manifest write locks (see System Component Manifest)
   locks/<hash>.lock             project registry write lock (see Per-User Project Registry)
   runtime/servers/<pid>.json    discovery records of running Trickroom servers
   feedback/                     created on first use, 0700
@@ -749,6 +750,7 @@ sha256:<hex digest>
 
 - Reads return `revision` with the manifest.
 - Writes require `expectedRevision` from the prior read. Stale revisions return `STALE_WRITE` and do not modify the file.
+- Every write (create, draft and metadata updates, publish, discard, delete, and annotation change records and reverts) holds the manifest's write lock from the revision check until the file is stored: an in-process queue and a cross-process lockfile in `<TRICKROOM_HOME>/locks/systems/` (the design-file lock mechanism, keyed by the manifest's canonical path), so the app server and MCP processes cannot write between another writer's check and its store. An annotation write inside a component write takes the annotation's lock after the manifest's, never the other way round. A lock held too long fails the write with `MANIFEST_LOCKED`.
 - Writes are atomic: Trickroom writes a temporary JSON file and renames it into place.
 - Published versions also store deterministic `templateHash` and `variantSchemaHash` values so attached instances can detect template/schema drift. Usage scans compare the attached version and stored hashes with the current published component.
 
@@ -929,7 +931,7 @@ Write behavior:
 
 ## Annotations
 
-Annotations are remarks a designer anchors to a design, a board, a layer or (later) a component node, with the agent replies and change records under them. They are per-user working state, not design data: they live in the Trickroom home, never in `.trickroom`, and are never committed. A remark that should outlive its annotation is saved as a memory note (with a `{{layer:<designId>/<elementId>}}` reference), which is committed.
+Annotations are remarks a designer anchors to a design, a board, a layer or a system component's template node, with the agent replies and change records under them. They are per-user working state, not design data: they live in the Trickroom home, never in `.trickroom`, and are never committed. A remark that should outlive its annotation is saved as a memory note (with a `{{layer:<designId>/<elementId>}}` reference), which is committed.
 
 Paths:
 
@@ -985,12 +987,12 @@ Format (version 1):
 }
 ```
 
-- `target.kind` is `design`, `board`, `layer` or `componentNode` (`systemId`, `componentId`, `nodePath`, optional `variants`).
+- `target.kind` is `design`, `board`, `layer` or `componentNode` (`systemId`, the design system's manifest id; `componentId`; `nodePath`, the template node's stable `path`; optional `variants`, the variant values the remark is pinned to, absent for every configuration). A component node's snapshot holds the node's names, the component manifest revision as `designRevision`, and `variants`: the values in view when it was made.
 - `branch` and `worktreePath` scope the annotation to a checkout: the branch is read from `.git/HEAD` (following a worktree's `gitdir:` file) without running git; a detached HEAD or no git is the unscoped bucket `"*"`. Moving an annotation to another branch changes these fields, not its path. The snapshot keeps the branch it was made on.
 - `status` is one of `open`, `acknowledged`, `addressed`, `needs_input`, `resolved`, `dismissed`. `open` and `acknowledged` are work for agents; `needs_input` (a question) and `addressed` (a change to review) wait on the designer; resolved and dismissed are closed. Every count of open work uses this split (`countAnnotations` in `src/services/annotation-service.ts`). `acknowledged` (`{ sessionId, at }`) is advisory: it is active while that session has made an MCP tool call within 15 minutes (`sessions/<sessionId>.json` holds `{ "version": 1, "sessionId", "lastCallAt" }`; an MCP session writes it on its tool calls, at most every 5 seconds, once it has acknowledged or written an annotation in the project), worked out on read; expiry writes nothing. MCP acknowledges an `open` annotation when it first shows it in full to a session (see [Agents And MCP](./mcp.md#annotations)).
 - Entry kinds: `remark` (human text), `reply` (agent text), `question`, `dismissal` (`reason`), `resolution` (optional `summary`), `change`, `revert` (`entryId`, revisions), `reanchor` (`from`, `to` targets), `move` (`from`, `to` scopes).
-- A change record's `before` holds each touched layer's own state (parent, props, and text or child ids; `null` for a layer the write added), plus board order and design settings when the write changed them; `after` holds hashes of the same after the write. Revert restores `before` only while every touched layer still matches `after`. Both are dropped when the annotation is resolved or dismissed, and when the change is reverted, to bound the file.
-- Whether the target still exists (`detached`) is derived on read against the design, never stored.
+- A change record's `before` holds each touched layer's own state (parent, props, and text or child ids; `null` for a layer the write added), plus board order and design settings when the write changed them; `after` holds hashes of the same after the write. Revert restores `before` only while every touched layer still matches `after`. Both are dropped when the annotation is resolved or dismissed, and when the change is reverted, to bound the file. A component draft write's change record holds `draftBefore` (the draft's `root`, `slots`, `variants` and `overrideTargets` before the write) and `draftAfter` (`templateHash` and `variantSchemaHash` of the draft after it) instead, dropped the same way; revert restores `draftBefore` only while the draft still has those hashes. Its `layerIds` are template paths and `boards` is empty; a publish's record has no revert state. These optional fields were added within version 1: files without them read as before.
+- Whether the target still exists (`detached`) is derived on read against the design, never stored. For a component node it is derived against the component's draft template (its published template when there is no draft): the path is gone, or a pinned axis or value is no longer in the variant schema. Template paths never change when nodes are inserted or moved, so nothing is re-keyed on component writes.
 - Reads return a content `revision` (`sha256:` of the annotation); writes may pass it back as `expectedRevision` and are refused when it changed.
 
 Versions: files carry `version` and run through `annotationFileMigrations` (`src/services/annotation-file-schema.ts`, the same `{ from, to, migrate }` shape as design files) on read; the next write stores the current shape. Files from a newer Trickroom are listed as problems and never rewritten.

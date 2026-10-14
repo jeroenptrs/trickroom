@@ -1,12 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
-import {
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useMemo,
-	useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useNow } from "../../hooks/useNow";
 import type { AnnotationSnapshotHint } from "../../queries/annotations";
@@ -21,7 +15,6 @@ import type {
 } from "../../services/annotations.types";
 import {
 	type AnnotationDraft,
-	discardAnnotationDrafts,
 	useAnnotationDrafts,
 } from "../../stores/annotation-draft-store";
 import {
@@ -46,18 +39,15 @@ import {
 	getSelectionAnnotationTarget,
 } from "../../utils/design-annotation-targets";
 import { useProjectScope } from "../contexts";
-import { AnnotationMarker } from "../ui/annotation-marker";
-import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
-import { Text } from "../ui/text";
 import { AnnotationComposer } from "./AnnotationComposer";
-import { AnnotationThread } from "./AnnotationThread";
 import {
-	reanchorAnnotation,
-	resolveAnnotations,
-	sendAnnotationDraft,
-	sendAnnotationDrafts,
-} from "./annotation-actions";
+	AnnotationBulkActions,
+	AnnotationDraftRow,
+	AnnotationSection,
+} from "./AnnotationPanelParts";
+import { AnnotationThread } from "./AnnotationThread";
+import { reanchorAnnotation } from "./annotation-actions";
 import { revealDesignLayers } from "./design-annotation-navigation";
 import { OtherBranchesSection } from "./OtherBranchesSection";
 
@@ -72,79 +62,6 @@ export function getDesignSnapshotHint(): AnnotationSnapshotHint {
 	return stageMode === "responsive"
 		? { stageMode, responsiveWidth }
 		: { stageMode };
-}
-
-function Section({
-	title,
-	count,
-	children,
-}: {
-	title: string;
-	count?: number;
-	children: ReactNode;
-}) {
-	return (
-		<section className="flex flex-col">
-			<Text
-				variant="section-header"
-				render={<div />}
-				className="flex items-center gap-2 px-3 pt-3 pb-1"
-			>
-				{title}
-				{count ? <span>{count}</span> : null}
-			</Text>
-			<div className="flex flex-col divide-y divide-slate-100">{children}</div>
-		</section>
-	);
-}
-
-function DraftRow({
-	draft,
-	name,
-	onSelect,
-}: {
-	draft: AnnotationDraft;
-	name: string;
-	onSelect: () => void;
-}) {
-	const [sending, setSending] = useState(false);
-	return (
-		<div className="flex items-start gap-2 px-3 py-2" data-annotation-draft="">
-			<AnnotationMarker look="draft" size="dot" className="mt-1" />
-			<button
-				type="button"
-				className="flex min-w-0 flex-1 flex-col text-left focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
-				onClick={onSelect}
-				title={`Select ${name}`}
-			>
-				<span className="truncate text-xs font-semibold text-slate-950">
-					{name}
-				</span>
-				<span className="truncate text-xs text-slate-600">{draft.body}</span>
-			</button>
-			<Button
-				variant="ghost"
-				className="px-2 py-1 text-xs"
-				disabled={sending}
-				onClick={() => discardAnnotationDrafts([draft.key])}
-			>
-				Discard
-			</Button>
-			<Button
-				variant="outlined"
-				className="px-2 py-1 text-xs"
-				disabled={sending}
-				onClick={() => {
-					setSending(true);
-					void sendAnnotationDraft(draft, getDesignSnapshotHint()).finally(() =>
-						setSending(false),
-					);
-				}}
-			>
-				Send
-			</Button>
-		</div>
-	);
 }
 
 const byCreated = (a: Listed, b: Listed) =>
@@ -324,7 +241,6 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 		),
 	);
 	const otherDrafts = drafts.filter((draft) => draft.key !== targetKey);
-	const [sendingDrafts, setSendingDrafts] = useState(false);
 
 	const container = useMemo(
 		() => ({ kind: "design" as const, designId }),
@@ -408,66 +324,28 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 						focusRequest={composerFocusRequest}
 					/>
 				</div>
-				{addressed.length > 0 ||
-				agentResolved.length > 0 ||
-				drafts.length > 1 ? (
-					<div className="flex flex-wrap gap-1 border-b border-slate-200 px-3 py-2">
-						{drafts.length > 1 ? (
-							<Button
-								variant="filled"
-								className="px-2 py-1 text-xs"
-								disabled={sendingDrafts}
-								onClick={() => {
-									setSendingDrafts(true);
-									void sendAnnotationDrafts(
-										drafts,
-										getDesignSnapshotHint(),
-									).finally(() => setSendingDrafts(false));
-								}}
-								title={`Send every draft ${scopeLabel}`}
-							>
-								Send all drafts ({drafts.length})
-							</Button>
-						) : null}
-						{addressed.length > 0 ? (
-							<Button
-								variant="outlined"
-								className="px-2 py-1 text-xs"
-								onClick={() =>
-									void resolveAnnotations(container, addressed, "Resolved")
-								}
-								title={`Resolve every addressed annotation ${scopeLabel}`}
-							>
-								Resolve all addressed ({addressed.length})
-							</Button>
-						) : null}
-						{agentResolved.length > 0 ? (
-							<Button
-								variant="outlined"
-								className="px-2 py-1 text-xs"
-								onClick={() =>
-									void resolveAnnotations(container, agentResolved, "Accepted")
-								}
-								title={`Accept every resolution an agent made ${scopeLabel}`}
-							>
-								Accept all agent-resolved ({agentResolved.length})
-							</Button>
-						) : null}
-					</div>
-				) : null}
+				<AnnotationBulkActions
+					container={container}
+					drafts={drafts}
+					addressed={addressed}
+					agentResolved={agentResolved}
+					scopeLabel={scopeLabel}
+					getSnapshot={getDesignSnapshotHint}
+				/>
 				{otherDrafts.length > 0 ? (
-					<Section title="Drafts" count={otherDrafts.length}>
+					<AnnotationSection title="Drafts" count={otherDrafts.length}>
 						{otherDrafts.map((draft) => (
-							<DraftRow
+							<AnnotationDraftRow
 								key={draft.key}
 								draft={draft}
+								getSnapshot={getDesignSnapshotHint}
 								name={getDesignTargetName(draft.target, entitiesById)}
 								onSelect={() =>
 									selectElement(selectableIdOf(draft.target, entitiesById))
 								}
 							/>
 						))}
-					</Section>
+					</AnnotationSection>
 				) : null}
 				{status === "error" ? (
 					<p className="px-3 pt-3 text-xs text-red-900">
@@ -475,7 +353,7 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 					</p>
 				) : null}
 				{target.kind === "layer" ? (
-					<Section title="This layer" count={onLayer.length}>
+					<AnnotationSection title="This layer" count={onLayer.length}>
 						{onLayer.length > 0 ? (
 							onLayer.map(renderThread)
 						) : (
@@ -483,15 +361,15 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 								No annotations on {targetName}.
 							</p>
 						)}
-					</Section>
+					</AnnotationSection>
 				) : null}
 				{onBoard.length > 0 ? (
-					<Section title="This board" count={onBoard.length}>
+					<AnnotationSection title="This board" count={onBoard.length}>
 						{onBoard.map(renderThread)}
-					</Section>
+					</AnnotationSection>
 				) : null}
 				{elsewhereOnBoard.length > 0 ? (
-					<Section
+					<AnnotationSection
 						title={
 							target.kind === "board"
 								? "Layers on this board"
@@ -500,17 +378,17 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 						count={elsewhereOnBoard.length}
 					>
 						{elsewhereOnBoard.map(renderThread)}
-					</Section>
+					</AnnotationSection>
 				) : null}
 				{onDesign.length > 0 ? (
-					<Section title="This design" count={onDesign.length}>
+					<AnnotationSection title="This design" count={onDesign.length}>
 						{onDesign.map(renderThread)}
-					</Section>
+					</AnnotationSection>
 				) : null}
 				{onBoards.length > 0 ? (
-					<Section title="On boards" count={onBoards.length}>
+					<AnnotationSection title="On boards" count={onBoards.length}>
 						{onBoards.map(renderThread)}
-					</Section>
+					</AnnotationSection>
 				) : null}
 				<OtherBranchesSection
 					container={container}

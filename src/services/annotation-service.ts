@@ -1,13 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import type { Node, TrickroomDesign } from "../types";
+import type { Node, RecipeTemplateNode, TrickroomDesign } from "../types";
 import { isAnnotationTarget } from "./annotation-file-schema";
 import {
 	type AnnotationCountSummary,
+	type ComponentAnchorTemplate,
 	currentBoardOf,
+	deriveComponentDetached,
 	deriveDetached,
+	findComponentNode,
 	findDesignLayer,
+	hasPinnedVariants,
 	isLiveAnnotationStatus,
+	normalizePinnedVariants,
 	summarizeAnnotationCounts,
 } from "./annotation-model";
 import {
@@ -84,7 +89,8 @@ export type AnnotationServiceErrorCode =
 	| "CHANGED_SINCE"
 	| "REVERT_NOT_RECORDED"
 	| "DESIGN_BUSY"
-	| "WRONG_BRANCH";
+	| "WRONG_BRANCH"
+	| "COMPONENT_BUSY";
 
 export class AnnotationServiceError extends Error {
 	readonly code: AnnotationServiceErrorCode;
@@ -139,22 +145,35 @@ const assertActor = (by: AnnotationActor) => {
 // Pure helpers
 // ---------------------------------------------------------------------------
 
-/** Drops every change record's revert state (`before` and `after`). */
+/** Whether a change record still has revert state (design or component). */
+export const hasRevertState = (change: AnnotationChangeRecord) =>
+	Boolean(
+		change.before || change.after || change.draftBefore || change.draftAfter,
+	);
+
+/** A change record without its revert state. */
+export const withoutRevertState = ({
+	before: _before,
+	after: _after,
+	draftBefore: _draftBefore,
+	draftAfter: _draftAfter,
+	...change
+}: AnnotationChangeRecord): AnnotationChangeRecord => change;
+
+/**
+ * Drops every change record's revert state (`before` and `after`, and a
+ * component's `draftBefore` and `draftAfter`).
+ */
 export const pruneRevertState = (annotation: Annotation): Annotation => ({
 	...annotation,
-	entries: annotation.entries.map((entry) => {
-		if (
-			entry.kind !== "change" ||
-			(!entry.change.before && !entry.change.after)
-		) {
-			return entry;
-		}
-		const { before: _before, after: _after, ...change } = entry.change;
-		return { ...entry, change };
-	}),
+	entries: annotation.entries.map((entry) =>
+		entry.kind !== "change" || !hasRevertState(entry.change)
+			? entry
+			: { ...entry, change: withoutRevertState(entry.change) },
+	),
 });
 
-const withTransition = (
+export const withTransition = (
 	annotation: Annotation,
 	to: AnnotationStatus,
 	by: AnnotationActor,
@@ -177,7 +196,7 @@ const withTransition = (
 	return CLOSED_ANNOTATION_STATUSES.has(to) ? pruneRevertState(next) : next;
 };
 
-const withEntry = (
+export const withEntry = (
 	annotation: Annotation,
 	entry: AnnotationEntry,
 ): Annotation => ({
@@ -342,6 +361,60 @@ export const describeDesignTarget = (
 	}
 };
 
+/** A component read for annotations: its template and manifest revision. */
+export type AnnotationComponentRead = {
+	template: ComponentAnchorTemplate;
+	/** The component manifest revision (component writes' revisions). */
+	revision: string;
+};
+
+/** A node's name as the component editor's rail shows it. */
+const templateNodeName = (node: RecipeTemplateNode) =>
+	node.name?.trim() || node.component;
+
+/**
+ * Checks a component node target against the component's template (the
+ * node path exists, every pinned axis and value is in the variant schema)
+ * and describes it for the snapshot. An empty pin is no pin.
+ */
+export const describeComponentTarget = (
+	template: ComponentAnchorTemplate,
+	target: AnnotationTarget,
+): {
+	target: AnnotationTarget;
+	snapshot: Pick<
+		AnnotationSnapshot,
+		"layerName" | "component" | "ancestorNames"
+	>;
+} => {
+	if (target.kind !== "componentNode") {
+		throw invalidInput("Only a component node target is part of a component.");
+	}
+	const found = findComponentNode(template.root, target.nodePath);
+	if (!found) {
+		throw new AnnotationServiceError(
+			"TARGET_NOT_FOUND",
+			`Node ${target.nodePath} is not in component ${target.componentId}.`,
+		);
+	}
+	const variants = normalizePinnedVariants(target.variants);
+	if (variants && !hasPinnedVariants(variants, template.variants)) {
+		throw invalidInput(
+			`variants must name axes and values of component ${target.componentId}.`,
+			{ variants },
+		);
+	}
+	const { variants: _variants, ...rest } = target;
+	return {
+		target: variants ? { ...rest, variants } : rest,
+		snapshot: {
+			layerName: templateNodeName(found.node),
+			component: `${found.node.library}/${found.node.component}`,
+			ancestorNames: found.ancestors.map(templateNodeName),
+		},
+	};
+};
+
 /**
  * Element ids (layers and boards) with the live annotations anchored to
  * them, for delete warnings: `applyDeleteElement` reports the annotations
@@ -388,6 +461,12 @@ export type AnnotationBranchFilter = "current" | "all" | (string & {});
 export type ViewOptions = {
 	/** The design read alongside, to derive `detached`. */
 	design?: TrickroomDesign | null;
+	/**
+	 * The component's template read alongside (the draft's, or the
+	 * published one without a draft), to derive `detached` of component
+	 * node targets.
+	 */
+	component?: ComponentAnchorTemplate | null;
 };
 
 /** Session last-call times, read once per session per call. */
@@ -408,10 +487,12 @@ const toView = async (
 	{
 		now,
 		design,
+		component,
 		sessionClock,
 	}: {
 		now: Date;
 		design?: TrickroomDesign | null;
+		component?: ComponentAnchorTemplate | null;
 		sessionClock: (sessionId: string) => Promise<Date | null>;
 	},
 ): Promise<AnnotationView> => {
@@ -427,7 +508,9 @@ const toView = async (
 			: undefined;
 	const detached = design
 		? deriveDetached(annotation.target, design)
-		: undefined;
+		: component
+			? deriveComponentDetached(annotation.target, component)
+			: undefined;
 	return {
 		...annotation,
 		revision,
@@ -445,6 +528,7 @@ export const viewAnnotation = (
 	toView(stored, {
 		now: nowOf(context),
 		design: options.design,
+		component: options.component,
 		sessionClock: createSessionClock(context.store),
 	});
 
@@ -473,14 +557,16 @@ export const getAnnotation = async (
 		annotationId,
 		container,
 		design,
+		component,
 	}: {
 		annotationId: string;
 		container?: AnnotationContainer;
 		design?: TrickroomDesign | null;
+		component?: ComponentAnchorTemplate | null;
 	},
 ): Promise<AnnotationView> => {
 	const { stored } = await loadAnnotation(context, annotationId, container);
-	return viewAnnotation(context, stored, { design });
+	return viewAnnotation(context, stored, { design, component });
 };
 
 export type ListAnnotationsInput = {
@@ -495,6 +581,10 @@ export type ListAnnotationsInput = {
 	elementId?: string;
 	/** The design read alongside, to derive `detached` and current boards. */
 	design?: TrickroomDesign | null;
+	/** The component's template read alongside, to derive `detached`. */
+	component?: ComponentAnchorTemplate | null;
+	/** Component node annotations on this template path. */
+	nodePath?: string;
 };
 
 export const listAnnotations = async (
@@ -523,12 +613,26 @@ export const listAnnotations = async (
 		) {
 			return false;
 		}
+		if (
+			input.nodePath !== undefined &&
+			!(
+				annotation.target.kind === "componentNode" &&
+				annotation.target.nodePath === input.nodePath
+			)
+		) {
+			return false;
+		}
 		return true;
 	});
 	return {
 		annotations: await Promise.all(
 			selected.map((stored) =>
-				toView(stored, { now, design: input.design, sessionClock }),
+				toView(stored, {
+					now,
+					design: input.design,
+					component: input.component,
+					sessionClock,
+				}),
 			),
 		),
 		problems,
@@ -546,6 +650,7 @@ export const countAnnotations = async (
 		scope: AnnotationScope;
 		branch?: AnnotationBranchFilter;
 		design?: TrickroomDesign | null;
+		component?: ComponentAnchorTemplate | null;
 	},
 ): Promise<AnnotationCountSummary> => {
 	const { annotations } = await context.store.list(input.container);
@@ -556,6 +661,7 @@ export const countAnnotations = async (
 				matchesBranch(annotation, input.scope, input.branch),
 			),
 		input.design,
+		input.component,
 	);
 };
 
@@ -607,6 +713,51 @@ export type CreateAnnotationInput = {
 	 * exist in it, and it fills the snapshot's names and revision.
 	 */
 	design?: { design: TrickroomDesign; revision: string };
+	/**
+	 * The component of a component node target, read by the caller: the
+	 * node (and any pinned variant values) must exist in it, and it fills
+	 * the snapshot's names and revision. Without it the snapshot's names
+	 * are the caller's.
+	 */
+	component?: AnnotationComponentRead;
+};
+
+/**
+ * The target checked against what it is made on, and the snapshot fields
+ * that come from there (names, revision).
+ */
+const resolveTarget = (input: {
+	target: AnnotationTarget;
+	design?: { design: TrickroomDesign; revision: string };
+	component?: AnnotationComponentRead;
+}): { target: AnnotationTarget; described: Partial<AnnotationSnapshot> } => {
+	const { target } = input;
+	if (target.kind === "componentNode") {
+		if (!input.component) {
+			const variants = normalizePinnedVariants(target.variants);
+			const { variants: _variants, ...rest } = target;
+			return {
+				target: variants ? { ...rest, variants } : rest,
+				described: {},
+			};
+		}
+		const result = describeComponentTarget(input.component.template, target);
+		return {
+			target: result.target,
+			described: {
+				...result.snapshot,
+				designRevision: input.component.revision,
+			},
+		};
+	}
+	if (!input.design) {
+		throw invalidInput("A design target needs the design it is made on.");
+	}
+	const result = describeDesignTarget(input.design.design, target);
+	return {
+		target: result.target,
+		described: { ...result.snapshot, designRevision: input.design.revision },
+	};
 };
 
 /** A new annotation, `open`, with the remark as its first entry. */
@@ -624,19 +775,7 @@ export const createAnnotation = async (
 	if (!branch)
 		throw invalidInput("An annotation needs the branch it is made on.");
 
-	let target = input.target;
-	let described: Partial<AnnotationSnapshot> = {};
-	if (target.kind !== "componentNode") {
-		if (!input.design) {
-			throw invalidInput("A design target needs the design it is made on.");
-		}
-		const result = describeDesignTarget(input.design.design, target);
-		target = result.target;
-		described = {
-			...result.snapshot,
-			designRevision: input.design.revision,
-		};
-	}
+	const { target, described } = resolveTarget(input);
 	const at = nowOf(context).toISOString();
 	const scope: AnnotationScope = {
 		branch,
@@ -668,7 +807,10 @@ export const createAnnotation = async (
 	return finishWrite(
 		context,
 		{ stored, written: true },
-		{ design: input.design?.design },
+		{
+			design: input.design?.design,
+			component: input.component?.template,
+		},
 	);
 };
 
@@ -1107,6 +1249,8 @@ export type ReanchorInput = AnnotationRef & {
 	target: AnnotationTarget;
 	/** The design, for design targets: the new target must exist in it. */
 	design?: { design: TrickroomDesign; revision: string };
+	/** The component, for component node targets (see `CreateAnnotationInput.component`). */
+	component?: AnnotationComponentRead;
 	snapshot?: Omit<AnnotationSnapshot, "branch" | "worktreePath">;
 };
 
@@ -1126,16 +1270,7 @@ export const reanchorAnnotation = async (
 	}
 	const body =
 		input.body === undefined ? undefined : requireText(input.body, "body");
-	let target = input.target;
-	let described: Partial<AnnotationSnapshot> = {};
-	if (target.kind !== "componentNode") {
-		if (!input.design) {
-			throw invalidInput("A design target needs the design it is made on.");
-		}
-		const result = describeDesignTarget(input.design.design, target);
-		target = result.target;
-		described = { ...result.snapshot, designRevision: input.design.revision };
-	}
+	const { target, described } = resolveTarget(input);
 	const { by } = input;
 	const outcome = await updateAnnotation(context, input, (annotation, at) => {
 		if (
@@ -1178,7 +1313,10 @@ export const reanchorAnnotation = async (
 			snapshot: { ...kept, ...(input.snapshot ?? {}), ...described },
 		};
 	});
-	return finishWrite(context, outcome, { design: input.design?.design });
+	return finishWrite(context, outcome, {
+		design: input.design?.design,
+		component: input.component?.template,
+	});
 };
 
 /** Moves an annotation to the checkout's branch (after a merge, say). */
@@ -1297,6 +1435,7 @@ export type AddressProblem = {
 	code:
 		| "ANNOTATION_NOT_FOUND"
 		| "WRONG_DESIGN"
+		| "WRONG_COMPONENT"
 		| "ANNOTATION_CLOSED"
 		| "WRONG_BRANCH";
 	message: string;
@@ -1304,26 +1443,36 @@ export type AddressProblem = {
 	branch?: string;
 };
 
+/** `designId` (a design write) or `container` (either kind). */
+type AddressedContainer =
+	| { designId: string; container?: undefined }
+	| { container: AnnotationContainer; designId?: undefined };
+
+const addressedContainer = (input: AddressedContainer): AnnotationContainer =>
+	input.container ?? { kind: "design", designId: input.designId };
+
+const describeContainer = (container: AnnotationContainer) =>
+	container.kind === "design"
+		? `design ${container.designId}`
+		: `component ${container.componentId}`;
+
 /**
- * Checks, before a design write, that every addressed annotation exists,
- * belongs to the design and is live. `design_apply` refuses the write with
- * these as step errors.
+ * Checks, before a design (or component) write, that every addressed
+ * annotation exists, belongs to the design (or component) and is live.
+ * `design_apply`, `component_draft_update` and `component_publish` refuse
+ * the write with these.
  */
 export const validateAddresses = async (
 	context: AnnotationServiceContext,
-	{
-		designId,
-		addresses,
-		branch,
-	}: {
-		designId: string;
+	input: AddressedContainer & {
 		addresses: readonly AnnotationAddress[];
 		/** Also refuse annotations on another branch (`WRONG_BRANCH`). */
 		branch?: string;
 	},
 ): Promise<AddressProblem[]> => {
+	const { addresses, branch } = input;
 	const problems: AddressProblem[] = [];
-	const container: AnnotationContainer = { kind: "design", designId };
+	const container = addressedContainer(input);
 	for (const { annotationId } of addresses) {
 		const stored = await context.store
 			.read(container, annotationId)
@@ -1336,8 +1485,11 @@ export const validateAddresses = async (
 				elsewhere
 					? {
 							annotationId,
-							code: "WRONG_DESIGN",
-							message: `Annotation ${annotationId} is not on design ${designId}.`,
+							code:
+								container.kind === "design"
+									? "WRONG_DESIGN"
+									: "WRONG_COMPONENT",
+							message: `Annotation ${annotationId} is not on ${describeContainer(container)}.`,
 						}
 					: {
 							annotationId,
@@ -1391,14 +1543,7 @@ export type RecordChangeResult =
  */
 export const recordChange = async (
 	context: AnnotationServiceContext,
-	{
-		designId,
-		addresses,
-		change,
-		by,
-		branch,
-	}: {
-		designId: string;
+	input: AddressedContainer & {
 		addresses: readonly AnnotationAddress[];
 		change: AnnotationChangeRecord;
 		by: AnnotationActor;
@@ -1409,8 +1554,9 @@ export const recordChange = async (
 		branch?: string;
 	},
 ): Promise<RecordChangeResult[]> => {
+	const { addresses, change, by, branch } = input;
 	assertActor(by);
-	const container: AnnotationContainer = { kind: "design", designId };
+	const container = addressedContainer(input);
 	const results: RecordChangeResult[] = [];
 	for (const { annotationId, reply, knownEntryIds } of addresses) {
 		const entryId = randomUUID();
@@ -1433,15 +1579,15 @@ export const recordChange = async (
 								)
 								.map((entry) => entry.id)
 						: [];
-					const { before, after, ...record } = change;
+					// Revert state only on live annotations: a closed one cannot
+					// be reverted from.
 					const next = withEntry(annotation, {
 						id: entryId,
 						kind: "change",
 						at,
 						by,
 						...(reply?.trim() ? { body: reply.trim() } : {}),
-						change:
-							live && before && after ? { ...record, before, after } : record,
+						change: live ? change : withoutRevertState(change),
 					});
 					return {
 						// A remark the agent has not seen is still unanswered: the

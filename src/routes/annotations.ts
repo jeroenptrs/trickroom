@@ -29,10 +29,17 @@ import {
 } from "../services/annotations.types";
 import { readCheckoutScope } from "../services/checkout-scope";
 import {
+	type ComponentAnchorRead,
+	readComponentAnchor,
+	resolveAnnotationSystemId,
+	revertComponentChange,
+} from "../services/component-annotations";
+import {
 	createDesignFileService,
 	DesignFileServiceError,
 } from "../services/design-file-service";
 import type { TrickroomConfig } from "../types";
+import { SystemComponentOperationsError } from "../utils/system-component-operations";
 
 /**
  * `/api/trickroom/annotations`: the editor's annotation API. Every write is
@@ -58,6 +65,14 @@ import type { TrickroomConfig } from "../types";
  *
  * `:id` routes take an optional `?designId=` (or `systemId` and
  * `componentId`) hint so the annotation is not looked up in every folder.
+ *
+ * Component node targets (`{ kind: "componentNode", systemId, componentId,
+ * nodePath, variants? }`) are checked against the component's draft
+ * template (or its published one without a draft): the node must exist and
+ * pinned variant values must be in its schema. The server fills the node's
+ * names and the component revision; the editor sends the variant values in
+ * view as `snapshot.variants`. Their change records revert through the
+ * component's draft. List takes `nodePath` for one node's annotations.
  */
 
 const human: AnnotationActor = { role: "human" };
@@ -116,7 +131,9 @@ const respondWithError = (c: Context, error: unknown) => {
 		const status =
 			error.code === "TARGET_NOT_FOUND"
 				? 404
-				: error.code === "CHANGED_SINCE" || error.code === "DESIGN_BUSY"
+				: error.code === "CHANGED_SINCE" ||
+						error.code === "DESIGN_BUSY" ||
+						error.code === "COMPONENT_BUSY"
 					? 409
 					: error.code === "REVERT_NOT_RECORDED"
 						? 500
@@ -127,6 +144,20 @@ const respondWithError = (c: Context, error: unknown) => {
 		return errorJson(
 			c,
 			error.code === "DESIGN_FILE_LOCKED" ? 423 : 400,
+			error.message,
+			error.code,
+		);
+	}
+	if (error instanceof SystemComponentOperationsError) {
+		return errorJson(
+			c,
+			error.code === "COMPONENT_NOT_FOUND" || error.code === "SYSTEM_NOT_FOUND"
+				? 404
+				: error.code === "STALE_WRITE" || error.code === "DRAFT_HASH_MISMATCH"
+					? 409
+					: error.code === "MANIFEST_LOCKED"
+						? 423
+						: 400,
 			error.message,
 			error.code,
 		);
@@ -242,6 +273,15 @@ const parseSnapshot = (
 	) {
 		snapshot.ancestorNames = value.ancestorNames as string[];
 	}
+	// The variant values in view (component nodes).
+	if (
+		isRecord(value.variants) &&
+		Object.values(value.variants).every((entry) => typeof entry === "string")
+	) {
+		snapshot.variants = Object.fromEntries(
+			Object.entries(value.variants as Record<string, string>),
+		);
+	}
 	if (typeof value.designRevision === "string") {
 		snapshot.designRevision = value.designRevision;
 	}
@@ -288,6 +328,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 		return {
 			context,
 			designService,
+			projectRoot,
 			// The checkout's branch, read once per request.
 			scope: () => {
 				scope ??= readCheckoutScope(projectRoot);
@@ -297,6 +338,45 @@ export const registerAnnotationRoutes = <E extends Env>(
 				container?.kind === "design"
 					? designService.readDesignFile(container.designId)
 					: null,
+			/** The component of a component container; null when it is gone. */
+			readComponent: async (
+				container: AnnotationContainer | null,
+			): Promise<ComponentAnchorRead | null> =>
+				container?.kind === "component"
+					? readComponentAnchor(
+							projectRoot,
+							container.systemId,
+							container.componentId,
+						).catch(() => null)
+					: null,
+			/**
+			 * A component node target as stored: its system named by the
+			 * manifest's id (the editor and MCP share one folder per
+			 * component), and the component it must exist in.
+			 */
+			resolveComponentTarget: async (target: AnnotationTarget) => {
+				if (target.kind !== "componentNode") return { target };
+				const systemId = await resolveAnnotationSystemId(
+					projectRoot,
+					target.systemId,
+				);
+				const component = systemId
+					? await readComponentAnchor(projectRoot, systemId, target.componentId)
+					: null;
+				if (!systemId || !component) {
+					throw new AnnotationServiceError(
+						"TARGET_NOT_FOUND",
+						`Component ${target.componentId} is not in design system ${target.systemId}.`,
+					);
+				}
+				return {
+					target: { ...target, systemId },
+					component: {
+						template: component.template,
+						revision: component.revision,
+					},
+				};
+			},
 		};
 	};
 
@@ -326,6 +406,7 @@ export const registerAnnotationRoutes = <E extends Env>(
 				if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return null;
 				throw error;
 			});
+			const component = await request.readComponent(container);
 			const scope = await request.scope();
 			const result = await listAnnotations(request.context, {
 				container,
@@ -334,11 +415,19 @@ export const registerAnnotationRoutes = <E extends Env>(
 				...(query.status ? { statuses: parseStatuses(query.status) } : {}),
 				...(query.boardId ? { boardId: query.boardId } : {}),
 				...(query.elementId ? { elementId: query.elementId } : {}),
+				...(query.nodePath ? { nodePath: query.nodePath } : {}),
 				design: read?.design ?? null,
+				component: component?.template ?? null,
 			});
 			return c.json({
 				scope,
 				...(read ? { designRevision: read.revision } : {}),
+				...(component
+					? {
+							componentRevision: component.revision,
+							componentSource: component.source,
+						}
+					: {}),
 				annotations: result.annotations,
 				problems: result.problems,
 			});
@@ -350,13 +439,16 @@ export const registerAnnotationRoutes = <E extends Env>(
 		handle(async (c, request) => {
 			const body = await readBody(c);
 			if (!body) throw new RequestError("Expected a JSON object.");
-			const target = parseTarget(body.target);
+			const parsed = parseTarget(body.target);
 			if (typeof body.body !== "string") {
 				throw new RequestError("body must be the remark's text.");
 			}
+			const { target, component } =
+				await request.resolveComponentTarget(parsed);
 			const read = await request.readDesign(getAnnotationContainer(target));
 			const result = await createAnnotation(request.context, {
 				target,
+				...(component ? { component } : {}),
 				body: body.body,
 				by: human,
 				scope: await request.scope(),
@@ -444,11 +536,13 @@ export const registerAnnotationRoutes = <E extends Env>(
 			}
 			// A design that cannot be read leaves `detached` underived.
 			const read = await request.readDesign(container).catch(() => null);
+			const component = await request.readComponent(container);
 			return c.json({
 				annotation: await getAnnotation(request.context, {
 					annotationId,
 					container,
 					design: read?.design ?? null,
+					component: component?.template ?? null,
 				}),
 			});
 		}),
@@ -498,12 +592,15 @@ export const registerAnnotationRoutes = <E extends Env>(
 		handle(async (c, request) => {
 			const body = await readBody(c);
 			if (!body) throw new RequestError("Expected a JSON object.");
-			const target = parseTarget(body.target);
+			const { target, component } = await request.resolveComponentTarget(
+				parseTarget(body.target),
+			);
 			const read = await request.readDesign(getAnnotationContainer(target));
 			const result = await reanchorAnnotation(request.context, {
 				annotationId: c.req.param("annotationId") as string,
 				by: human,
 				target,
+				...(component ? { component } : {}),
 				container: getAnnotationContainer(target),
 				...(read
 					? { design: { design: read.design, revision: read.revision } }
@@ -538,6 +635,23 @@ export const registerAnnotationRoutes = <E extends Env>(
 			const body = await readBody(c);
 			const entryId = optionalString(body?.entryId);
 			if (!entryId) throw new RequestError("entryId must name a change entry.");
+			const annotationId = c.req.param("annotationId") as string;
+			const container = await request.context.store.locate(
+				annotationId,
+				parseContainer(c.req.query()) ?? undefined,
+			);
+			if (container?.kind === "component") {
+				return c.json(
+					await revertComponentChange(request.context, {
+						annotationId,
+						entryId,
+						by: human,
+						projectRoot: request.projectRoot,
+						container,
+						...expectedRevisionOf(body),
+					}),
+				);
+			}
 			const result = await revertChange(request.context, {
 				annotationId: c.req.param("annotationId") as string,
 				...containerHint(c),
