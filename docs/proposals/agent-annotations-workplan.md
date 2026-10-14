@@ -144,6 +144,19 @@ These resolve what the proposal left open and apply to every WP.
   move; compound precedence and slot hosts included), not what a designer
   already authored. It was not enforced on component tools before this
   feature; it is now.
+- Shared change records (WP6 dogfood and review): one design or component
+  write is one change. Change records carry a `writeId`; reverting one
+  record reverts the whole write and records the revert on every
+  annotation on this branch it addressed (records without `writeId` are
+  never shared). Recording takes all of a batch's annotation locks at once,
+  and revert finds the sibling set inside the container lock, then takes
+  all annotation locks in id order and re-checks them; all or nothing. A
+  sibling on another branch is left alone. The source's branch is checked
+  (`WRONG_BRANCH`, HTTP 409).
+- "Move here" drops another branch's acknowledgement. Resolved threads
+  keep "Save as memory note". Design-list counts come from
+  `GET /api/trickroom/annotations/counts`, cached per design and branch by
+  folder signature.
 
 ## Work packages
 
@@ -298,7 +311,7 @@ Status: merged (PR #31, 2026-10-14; five review rounds). Model: Opus 5.5. Depend
 
 ### WP6: dogfood, release and build
 
-Status: in progress (branch `annotations/wp6-dogfood`). Model: Opus 5.5. Depends on WP3, WP4, WP5.
+Status: merged (PR #32, 2026-10-14; four review rounds). Release review, release PR and build: in progress. Model: Opus 5.5. Depends on WP3, WP4, WP5.
 
 - End to end on this repository's own `.trickroom` project in a scratch
   `TRICKROOM_HOME`: annotate layers in the editor, run a real agent session
@@ -381,12 +394,26 @@ UI with the repo's `playwright-core` headless Chromium:
 - WP3: `annotation_list({ status: "open" })` is a literal status filter, so
   a second call after acknowledgement returns nothing; agents should use
   the default `live` filter (the guide says so).
-- WP4: change-record name substitution does not handle escaped quotes
-  inside JSON string literals (a `\"<uuid>\"` can be shown as a layer
-  name); display only, stored data unchanged.
-- WP4: collapsed rail rows do not sum their children's counts (only the
-  board row does); pins on nested layers that share a corner overlap; the
-  project screen's design list shows no annotation counts.
+- WP4: pins on nested layers that share a corner overlap. (Escaped quotes
+  in name substitution, collapsed rail sums and design-list counts were
+  closed in WP6.)
 - WP5: `annotation_watch` watches designs only, not components.
 - WP5: component writes with `addresses` that throw (rather than refuse)
   are not audited.
+- WP6 dogfood (real `claude -p` session on the 518-layer "Editor Right
+  Rail Redesign" design):
+  - Without a client build, `design_screenshot` waits 30 s before
+    `CAPTURE_TIMEOUT`; it should fail at once and say to build the web
+    runtime (affects dev checkouts, not `pnpm build` installs).
+  - Agents rarely call `guide`; annotation advice now lives in `next`
+    texts and the `addresses` description (WP6), but the guide topic is
+    still the only long-form explanation.
+  - A component's unnamed root shows as "container" in thread titles.
+  - `project_list` counts cover designs only, not components.
+  - Lock folders under `TRICKROOM_HOME/locks` are 0755 (existing
+    behaviour).
+  - Dev only: editing a `docs/*.md` file fully reloads the editor and
+    resets the inspector tab; React warns about `stroke-width` on board
+    icons.
+- Process: the flaky watcher test above failed once more during WP6;
+  worth fixing on `main` separately.
