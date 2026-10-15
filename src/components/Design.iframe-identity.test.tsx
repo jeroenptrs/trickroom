@@ -299,6 +299,7 @@ function ResponsiveStageFrameHarness({
 						iframeRef={iframeRef}
 						onMount={handleMount}
 						previewDarkMode={false}
+						annotationMode={true}
 					/>
 				</ResponsiveStageFrameWrapper>
 			</ResponsiveStageZoomContext.Provider>

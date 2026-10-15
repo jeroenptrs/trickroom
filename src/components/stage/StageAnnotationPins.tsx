@@ -21,19 +21,22 @@ export type StageAnnotationPinSource = {
 /**
  * The stage's annotation pins (`startStageAnnotationPins`): one layer per
  * stage, one pooled box per pin, no React tree per pin. Render it once
- * inside the stage frame, above the selection and change outlines.
+ * inside the stage frame, above the selection and change outlines. Disabled,
+ * it paints no pins.
  */
 export function StageAnnotationPins({
 	source,
+	enabled = true,
 }: {
 	source: StageAnnotationPinSource;
+	enabled?: boolean;
 }) {
 	const { document: frameDocument, window: frameWindow } = useFrame();
 	const originRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		const origin = originRef.current;
-		if (!origin || !frameDocument || !frameWindow) {
+		if (!enabled || !origin || !frameDocument || !frameWindow) {
 			return;
 		}
 		return startStageAnnotationPins({
@@ -45,7 +48,7 @@ export function StageAnnotationPins({
 			subscribe: source.subscribe,
 			onPinClick: source.onPinClick,
 		});
-	}, [frameDocument, frameWindow, source]);
+	}, [enabled, frameDocument, frameWindow, source]);
 
 	return (
 		<div

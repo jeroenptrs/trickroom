@@ -269,6 +269,41 @@ export function forwardStageKeyEvent(event: KeyboardEvent, host: Document) {
 }
 
 /**
+ * Key forwarding alone, for a live stage that leaves the pointer to the
+ * boards: only the keys `filter` accepts reach the editor document, so the
+ * design keeps every other key (Escape, arrows, Delete, Cmd+K) to itself.
+ *
+ * Returns the cleanup.
+ */
+export function attachStageKeyForwarding({
+	document,
+	window,
+	host,
+	filter,
+}: {
+	document: Document;
+	window: Window;
+	host: Document | null;
+	filter: (event: KeyboardEvent) => boolean;
+}) {
+	// Forwarding into the stage's own document would come straight back here.
+	if (!host || host === document) {
+		return () => {};
+	}
+	const onKey = (event: KeyboardEvent) => {
+		if (filter(event)) {
+			forwardStageKeyEvent(event, host);
+		}
+	};
+	window.addEventListener("keydown", onKey);
+	window.addEventListener("keyup", onKey);
+	return () => {
+		window.removeEventListener("keydown", onKey);
+		window.removeEventListener("keyup", onKey);
+	};
+}
+
+/**
  * Whether a press lands on a scrollbar of the element it targets (the
  * responsive viewport scrolls natively): not a click on content.
  */

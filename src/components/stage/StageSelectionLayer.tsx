@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import { useFrame } from "react-frame-component";
-import type { StageSelectionSource } from "./stage-interaction";
+import {
+	attachStageKeyForwarding,
+	type StageSelectionSource,
+} from "./stage-interaction";
 import {
 	STAGE_CHROME_ATTRIBUTE,
 	STAGE_HIGHLIGHT_CYAN,
@@ -12,12 +15,17 @@ import { startStageSelectionOverlay } from "./stage-selection-overlay";
 /**
  * The stage's selection and hover outlines, and the pointer and keyboard
  * wiring behind them (`startStageSelectionOverlay`). Render it once inside
- * the stage frame.
+ * the stage frame. Disabled, the boards keep the pointer and their keys, and
+ * only `forwardWhileDisabled` keys reach the editor.
  */
 export function StageSelectionLayer({
 	source,
+	enabled = true,
+	forwardWhileDisabled,
 }: {
 	source: StageSelectionSource;
+	enabled?: boolean;
+	forwardWhileDisabled?: (event: KeyboardEvent) => boolean;
 }) {
 	const { document: frameDocument, window: frameWindow } = useFrame();
 	const originRef = useRef<HTMLDivElement>(null);
@@ -44,6 +52,18 @@ export function StageSelectionLayer({
 			return;
 		}
 
+		const host = frameWindow.frameElement?.ownerDocument ?? null;
+		if (!enabled) {
+			return forwardWhileDisabled
+				? attachStageKeyForwarding({
+						document: frameDocument,
+						window: frameWindow,
+						host,
+						filter: forwardWhileDisabled,
+					})
+				: undefined;
+		}
+
 		return startStageSelectionOverlay({
 			document: frameDocument,
 			window: frameWindow,
@@ -51,9 +71,9 @@ export function StageSelectionLayer({
 			selection: { box: selectionBox, label: selectionLabel },
 			hover: { box: hoverBox, label: hoverLabel },
 			source,
-			host: frameWindow.frameElement?.ownerDocument ?? null,
+			host,
 		});
-	}, [frameDocument, frameWindow, source]);
+	}, [enabled, forwardWhileDisabled, frameDocument, frameWindow, source]);
 
 	return (
 		<div

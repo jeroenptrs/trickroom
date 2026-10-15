@@ -36,6 +36,10 @@ import {
 	designFileQueryOptions,
 } from "../queries/design-file";
 import {
+	isAnnotationModeShortcut,
+	useAnnotationMode,
+} from "../stores/annotation-mode-store";
+import {
 	designStore,
 	hydrateDesign,
 	selectElement,
@@ -93,12 +97,14 @@ type StageFrameProps = {
 	iframeRef: RefObject<HTMLIFrameElement | null>;
 	onMount: () => void;
 	previewDarkMode: boolean;
+	annotationMode: boolean;
 };
 
 export const StageFrame = memo(function StageFrame({
 	iframeRef,
 	onMount,
 	previewDarkMode,
+	annotationMode,
 }: StageFrameProps) {
 	return (
 		<Frame
@@ -115,9 +121,16 @@ export const StageFrame = memo(function StageFrame({
 			</main>
 
 			<Canvas />
-			<StageSelectionLayer source={designStageSelection} />
+			<StageSelectionLayer
+				source={designStageSelection}
+				enabled={annotationMode}
+				forwardWhileDisabled={isAnnotationModeShortcut}
+			/>
 			<StageChangeHighlight />
-			<StageAnnotationPins source={designAnnotationPinSource} />
+			<StageAnnotationPins
+				source={designAnnotationPinSource}
+				enabled={annotationMode}
+			/>
 			<StageFocusHighlight />
 		</Frame>
 	);
@@ -137,6 +150,7 @@ function DesignStage({
 	onMount: () => void;
 }) {
 	const { enabled: previewDarkMode } = useStagePreviewDarkMode();
+	const annotationMode = useAnnotationMode();
 
 	return (
 		<ResponsiveStageFrameWrapper>
@@ -144,6 +158,7 @@ function DesignStage({
 				iframeRef={iframeRef}
 				onMount={onMount}
 				previewDarkMode={previewDarkMode}
+				annotationMode={annotationMode}
 			/>
 		</ResponsiveStageFrameWrapper>
 	);

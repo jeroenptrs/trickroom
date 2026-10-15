@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAGE_BOARD_PORTAL_ATTRIBUTE } from "../../libraries/stage-portal";
 import {
 	attachStageInteraction,
+	attachStageKeyForwarding,
 	createStageNodeLookup,
 	createStageOverlayProbe,
 	forwardStageKeyEvent,
@@ -292,6 +293,41 @@ describe("key forwarding", () => {
 		forwardStageKeyEvent(shiftUp, host);
 		expect(released).toEqual(["Shift"]);
 		host.removeEventListener("keyup", onHostKeyUp);
+	});
+});
+
+describe("attachStageKeyForwarding", () => {
+	it("forwards only the keys the filter accepts, until detached", () => {
+		const host = document;
+		const stageDocument = document.implementation.createHTMLDocument();
+		const stageWindow = new EventTarget() as Window;
+		const seen: string[] = [];
+		const onHostKey = (event: KeyboardEvent) =>
+			seen.push(`${event.type}:${event.code}`);
+		host.addEventListener("keydown", onHostKey);
+		host.addEventListener("keyup", onHostKey);
+
+		const detach = attachStageKeyForwarding({
+			document: stageDocument,
+			window: stageWindow,
+			host,
+			filter: (event) => event.code === "KeyC",
+		});
+		const press = (type: string, code: string) => {
+			const event = new KeyboardEvent(type, { code });
+			Object.defineProperty(event, "target", { value: document.body });
+			stageWindow.dispatchEvent(event);
+		};
+		press("keydown", "Escape");
+		press("keydown", "KeyC");
+		press("keyup", "KeyC");
+		expect(seen).toEqual(["keydown:KeyC", "keyup:KeyC"]);
+
+		detach();
+		press("keydown", "KeyC");
+		expect(seen).toHaveLength(2);
+		host.removeEventListener("keydown", onHostKey);
+		host.removeEventListener("keyup", onHostKey);
 	});
 });
 

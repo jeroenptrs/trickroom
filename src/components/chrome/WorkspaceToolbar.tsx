@@ -20,6 +20,11 @@ import {
 	toExportBoards,
 } from "../../export/client";
 import {
+	ANNOTATION_MODE_SHORTCUT_LABEL,
+	setAnnotationMode,
+	useAnnotationMode,
+} from "../../stores/annotation-mode-store";
+import {
 	designStore,
 	serializeDesign,
 	useDesignRoots,
@@ -46,6 +51,7 @@ import {
 	useResponsiveStageZoom,
 } from "../responsive-stage-zoom";
 import { Button } from "../ui/button";
+import { Switch } from "../ui/switch";
 import { DesignHeaderContent, DesignPanelToggle } from "./DesignHeader";
 
 export const RESPONSIVE_DEVICE_WIDTH_PRESETS = [
@@ -142,6 +148,25 @@ function WorkspaceModeToggle() {
 				);
 			})}
 		</fieldset>
+	);
+}
+
+function AnnotationModeSwitch() {
+	const enabled = useAnnotationMode();
+	const title = enabled
+		? `Leave annotation mode (${ANNOTATION_MODE_SHORTCUT_LABEL}) to click and type in the boards`
+		: `Annotation mode (${ANNOTATION_MODE_SHORTCUT_LABEL}): click the stage to select, show annotation pins`;
+
+	return (
+		// biome-ignore lint/a11y/noLabelWithoutControl: the Switch renders the control.
+		<label className="flex items-center gap-1.5 text-slate-600" title={title}>
+			<span>Annotate</span>
+			<Switch
+				checked={enabled}
+				onCheckedChange={setAnnotationMode}
+				aria-label="Annotation mode"
+			/>
+		</label>
 	);
 }
 
@@ -625,6 +650,7 @@ export function WorkspaceToolbar() {
 				) : (
 					<ResponsiveZoomControls />
 				)}
+				<AnnotationModeSwitch />
 				<ExportControl />
 				<WorkspaceModeToggle />
 				<DesignPanelToggle panel="inspector" />

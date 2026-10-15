@@ -8,6 +8,7 @@ import { saveDesignFile } from "../../queries/design-file";
 import { requestDesignResync } from "../../queries/design-live-events";
 import { commitDesignSave } from "../../queries/design-save";
 import type { DesignFileRevision } from "../../services/design-file-service.types";
+import { handleAnnotationModeShortcut } from "../../stores/annotation-mode-store";
 import {
 	serializeDesign,
 	setDesignSavePending,
@@ -229,7 +230,10 @@ function EditorShellComponent({ designId, children }: EditorShellProps) {
 				return;
 			}
 
-			if (handleEditorChromeShortcut(event, "design")) {
+			if (
+				handleEditorChromeShortcut(event, "design") ||
+				handleAnnotationModeShortcut(event)
+			) {
 				return;
 			}
 

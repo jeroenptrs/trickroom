@@ -18,6 +18,7 @@ import {
 	isRecipeRoot,
 } from "../../recipes/ownership";
 import { isLiveAnnotationStatus } from "../../services/annotation-model";
+import { ANNOTATION_MODE_SHORTCUT_LABEL } from "../../stores/annotation-mode-store";
 import {
 	type DesignEntity,
 	designStore,
@@ -744,6 +745,7 @@ const KBD_MAP = [
 	{ key: "H / ←", label: "Exit layer" },
 	{ key: "⌥ [", label: "Toggle layers" },
 	{ key: "⌥ ]", label: "Toggle properties" },
+	{ key: ANNOTATION_MODE_SHORTCUT_LABEL, label: "Toggle annotation mode" },
 ] as const;
 
 function EmptyStateKbdMap() {
