@@ -503,8 +503,35 @@ Status: done; the user guide is checked against the editor once R3 lands. `docs/
 
 ### R6: dogfood
 
-Status: todo. A real agent against the built stdio server: the designer
-sends a round of three remarks; the agent addresses one, proposes one and
-asks about one; the designer accepts two and replies to the third; the
-agent addresses it; the designer closes the round; the agent's watch
-returns `closed`.
+Status: done (2026-10-15). A real `claude -p` session (Opus 5.5) against
+the built stdio server, the designer driven through the HTTP routes in
+process, on a scratch copy of this repo's "Onboarding Redesign POC"
+design. The prompt named neither tool nor `round`; the agent found
+`annotation_watch` with `round: true` from the server instructions.
+
+1. The designer sent three remarks in one round. The agent's first watch
+   returned `work` with all three.
+2. It addressed the title (`design_apply` addresses), proposed closing the
+   step title remark ("already font-semibold text-slate-950"), and asked
+   which icon "the icon we talked about" was.
+3. The designer accepted the two and answered the question; the next
+   watch returned `work` with the answer. The agent added the lucide
+   folder-open icon and addressed it.
+4. The designer closed the round. The agent's watch returned `verdict`
+   (the two acceptances), then `closed`; it summarised and ended its turn
+   (27 turns, 125 s, $0.51).
+
+Found: the agent passed `timeoutMs: 120000` (Claude Code allows it);
+`design_screenshot` timed out without a web runtime build, as in WP6.
+
+### Rounds follow-ups
+
+- `verdict` takes precedence over `closed`, so an agent whose round
+  closed while verdicts were pending makes one extra watch call.
+- `project_list` and `design_list` round counts cover designs, not
+  components (as for annotation counts).
+- `POST /api/trickroom/annotations` still creates annotations outside a
+  round; only the editor's send route uses rounds.
+- `annotation_list` and blocks note a round as seen only when they show
+  one of its annotations in full; a session that saw none of them gets
+  `idle` after the close, not `closed`.
