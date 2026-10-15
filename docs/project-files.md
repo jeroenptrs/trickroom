@@ -938,7 +938,9 @@ Paths:
 ```text
 ~/.trickroom/annotations/<projectId>/
   designs/<designId>/<annotationId>.json
+  designs/<designId>/rounds/<roundId>.json
   systems/<systemId>/components/<componentId>/<annotationId>.json
+  systems/<systemId>/components/<componentId>/rounds/<roundId>.json
   sessions/<sessionId>.json     last tool call of an MCP session
 ~/.trickroom/locks/annotations/<hash>.lock
 ```
@@ -950,11 +952,11 @@ Paths:
 - The server watches the project's annotation folder alongside `.trickroom` and sends an `annotation` event on `GET /api/trickroom/events` (`{ annotationId, container, operation, revision }`) when one changes.
 - Listings keep the files they parsed in memory, per process, keyed by each file's signature (device, inode, size, change and modification time); a file whose path has another signature is read again. Every write renames a new file into place, so any write, from any process, is read on the next listing.
 
-Format (version 1):
+Format (version 2):
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "id": "5d0c…",
   "projectId": "proj_…",
   "target": { "kind": "layer", "designId": "…", "boardId": "…", "elementId": "…" },
@@ -963,6 +965,7 @@ Format (version 1):
   "status": "addressed",
   "createdAt": "2026-10-14T10:00:00.000Z",
   "updatedAt": "2026-10-14T10:04:00.000Z",
+  "roundId": "4c2e…",
   "snapshot": {
     "layerName": "Title",
     "component": "trickroom/text",
@@ -990,13 +993,39 @@ Format (version 1):
 
 - `target.kind` is `design`, `board`, `layer` or `componentNode` (`systemId`, the design system's manifest id; `componentId`; `nodePath`, the template node's stable `path`; optional `variants`, the variant values the remark is pinned to, absent for every configuration). A component node's snapshot holds the node's names, the component manifest revision as `designRevision`, and `variants`: the values in view when it was made.
 - `branch` and `worktreePath` scope the annotation to a checkout: the branch is read from `.git/HEAD` (following a worktree's `gitdir:` file) without running git; a detached HEAD or no git is the unscoped bucket `"*"`. Moving an annotation to another branch changes these fields, not its path. The snapshot keeps the branch it was made on.
-- `status` is one of `open`, `acknowledged`, `addressed`, `needs_input`, `resolved`, `dismissed`. `open` and `acknowledged` are work for agents; `needs_input` (a question) and `addressed` (a change to review) wait on the designer; resolved and dismissed are closed. Every count of open work uses this split (`summarizeAnnotationCounts` in `src/services/annotation-model.ts`, shared by the server, MCP and the editor). `acknowledged` (`{ sessionId, at }`) is advisory: it is active while that session has made an MCP tool call within 15 minutes (`sessions/<sessionId>.json` holds `{ "version": 1, "sessionId", "lastCallAt" }`; an MCP session writes it on its tool calls, at most every 5 seconds, once it has acknowledged or written an annotation in the project), worked out on read; expiry writes nothing. MCP acknowledges an `open` annotation when it first shows it in full to a session (see [Agents And MCP](./mcp.md#annotations)).
-- Entry kinds: `remark` (human text), `reply` (agent text), `question`, `dismissal` (`reason`), `resolution` (optional `summary`), `change`, `revert` (`entryId`, revisions), `reanchor` (`from`, `to` targets), `move` (`from`, `to` scopes; a move to another branch also takes an `acknowledged` annotation back to `open`, since the session that acknowledged it works on the other branch).
+- `status` is one of `open`, `acknowledged`, `addressed`, `needs_input`, `proposed`, `resolved`, `dismissed`. `open` and `acknowledged` are work for agents; `needs_input` (a question), `addressed` (a change to review) and `proposed` (an agent asks to close it without a change) wait on the designer; resolved and dismissed are closed. Every count of open work uses this split (`summarizeAnnotationCounts` in `src/services/annotation-model.ts`, shared by the server, MCP and the editor). `acknowledged` (`{ sessionId, at }`) is advisory: it is active while that session has made an MCP tool call within 15 minutes (`sessions/<sessionId>.json` holds `{ "version": 1, "sessionId", "lastCallAt" }`; an MCP session writes it on its tool calls, at most every 5 seconds, once it has acknowledged or written an annotation in the project), worked out on read; expiry writes nothing. MCP acknowledges an `open` annotation when it first shows it in full to a session (see [Agents And MCP](./mcp.md#annotations)).
+- `roundId` (optional) names the round the annotation was sent in. An annotation made outside a round (through `POST /api/trickroom/annotations`, or before rounds existed) has none.
+- Entry kinds: `remark` (human text), `reply` (agent text), `question`, `proposal` (`summary`: why no change is needed), `dismissal` (`reason`), `resolution` (optional `summary`), `change`, `revert` (`entryId`, revisions), `reanchor` (`from`, `to` targets), `move` (`from`, `to` scopes; a move to another branch also takes an `acknowledged` annotation back to `open`, since the session that acknowledged it works on the other branch).
 - A change record's `before` holds each touched layer's own state (parent, props, and text or child ids; `null` for a layer the write added), plus board order and design settings when the write changed them; `after` holds hashes of the same after the write. Revert restores `before` only while every touched layer still matches `after`. Both are dropped when the annotation is resolved or dismissed, and when the change is reverted, to bound the file. Every change record carries a `writeId`, minted once per write: a write that addressed several annotations stores the same one on each. Reverting the change from one of them undoes the whole write, so the revert is recorded on every live one with that `writeId` on the reverting checkout's branch. It is all or nothing. Under the design (or component manifest) lock, where the write's own recording has finished (it holds that lock too), it finds them, takes all their locks in id order and checks each before the design changes; a held lock or one that changed meanwhile refuses the revert, naming the annotation. The reverted annotation itself must be on the reverting checkout's branch (`WRONG_BRANCH` otherwise). One on another branch is left alone. Whether its own revert works later depends on that checkout's content: a worktree whose layers still have the write can revert it, while a checkout that shares the reverted files refuses with `CHANGED_SINCE`. `writeId` was added within version 1: a record without it (written earlier) is never treated as shared, and reverting it reverts only its own annotation. A component draft write's change record holds `draftBefore` (the draft's `root`, `slots`, `variants` and `overrideTargets` before the write) and `draftAfter` (`templateHash` and `variantSchemaHash` of the draft after it) instead, dropped the same way; revert restores `draftBefore` only while the draft still has those hashes. Its `layerIds` are template paths and `boards` is empty; a publish's record has no revert state. These optional fields were added within version 1: files without them read as before.
 - Whether the target still exists (`detached`) is derived on read against the design, never stored. For a component node it is derived against the component's draft template (its published template when there is no draft): the path is gone, or a pinned axis or value is no longer in the variant schema. Template paths never change when nodes are inserted or moved, so nothing is re-keyed on component writes.
 - Reads return a content `revision` (`sha256:` of the annotation); writes may pass it back as `expectedRevision` and are refused when it changed. The HTTP API also returns, while acknowledged, `acknowledgement: { sessionId, at, active, lastSeenAt }`, derived on read and not part of the revision: `lastSeenAt` is the later of `at` and the session's last call. Its writes take `expectedScope` (the `scope` a list returned) and are refused with `SCOPE_CHANGED` once another branch is checked out, checked again against a fresh read of `.git/HEAD` under the write's lock, immediately before the file is renamed into place. A `git checkout` at the instant a write is stored can still let that one write land on the branch it started on.
 
-Versions: files carry `version` and run through `annotationFileMigrations` (`src/services/annotation-file-schema.ts`, the same `{ from, to, migrate }` shape as design files) on read; the next write stores the current shape. Files from a newer Trickroom are listed as problems and never rewritten.
+Versions: files carry `version` and run through `annotationFileMigrations` (`src/services/annotation-file-schema.ts`, the same `{ from, to, migrate }` shape as design files) on read; the next write stores the current shape. Files from a newer Trickroom are listed as problems and never rewritten. Version 2 added `roundId`, the `proposed` status and the `proposal` entry kind; a version 1 file has none of them, so its migration changes only `version`. A Trickroom from before version 2 lists a version 2 file as a problem.
+
+Rounds: the designer sends annotations in rounds, one file per round in the container's `rounds` folder. At most one round is open per container and branch. Format (version 1):
+
+```json
+{
+  "version": 1,
+  "id": "4c2e…",
+  "projectId": "proj_…",
+  "container": { "kind": "design", "designId": "…" },
+  "branch": "feature/checkout",
+  "worktreePath": "/home/me/app",
+  "status": "closed",
+  "openedAt": "2026-10-15T10:00:00.000Z",
+  "closedAt": "2026-10-15T11:30:00.000Z",
+  "closedBy": { "role": "human" },
+  "annotationIds": ["6b1f…", "9a07…"],
+  "sends": [{ "id": "…", "at": "2026-10-15T10:00:00.000Z", "annotationIds": ["6b1f…", "9a07…"] }]
+}
+```
+
+- `container` is `{ kind: "design", designId }` or `{ kind: "component", systemId, componentId }`. An open round has no `closedAt` or `closedBy`; only the designer closes one (`closedBy` is always the human).
+- Every round write of a container (open, a send, close) holds one lock, keyed by the container's `rounds` folder, with the same lockfiles, modes and atomic rename as annotation files. A send holds it while it writes its annotations (each under its own lock), then appends itself to the round file; nothing takes an annotation's lock and then the round lock. Two sends from two processes therefore open one round between them, and a round never closes during a send.
+- `annotationIds` lists every annotation of every send in send order; `sends` records each batch. Agents see an annotation with a `roundId` only once its round lists it, or 30 seconds after it was created (a send whose server stopped between writing the annotations and the round file).
+- Round files run through `roundFileMigrations` (`src/services/annotation-round-schema.ts`), empty for now, with the same rules as annotation files: the next write stores the current shape, and a newer file is listed as a problem and never rewritten.
+- Round files are per-user working state like annotations, never committed. Clearing resolved annotations leaves the round file; a round counts a cleared annotation as closed.
 
 Resolved and dismissed annotations stay until the designer clears them (per board or per design); nothing else deletes annotation files.
 

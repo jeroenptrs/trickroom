@@ -498,7 +498,7 @@ component rounds included).
 
 ### R5: docs
 
-Status: todo. `docs/mcp.md`, `docs/user-guide.md`,
+Status: done; the user guide is checked against the editor once R3 lands. `docs/mcp.md`, `docs/user-guide.md`,
 `docs/project-files.md`.
 
 ### R6: dogfood
