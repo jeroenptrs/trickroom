@@ -439,6 +439,10 @@ UI with the repo's `playwright-core` headless Chromium:
   at 10,000; removing it needs a persisted index, a new file shape); the
   `HEAD` watcher does not notice `git init` in a project without git (the
   next list or write corrects the scope).
+- Fixed 2026-10-15 (feedback 53dcab46): MCP bodies listed every layer id
+  of a change entry, so after a 3,426-layer write each result showing the
+  annotation (`annotation_reply` with `reanchor` among them) was 136 KB.
+  Bodies now list at most 20 ids plus `layerCount`.
 
 ## Rounds
 
