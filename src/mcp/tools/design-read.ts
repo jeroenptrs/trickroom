@@ -70,24 +70,27 @@ export const registerDesignReadTools = (ctx: McpToolContext) => {
 		async ({ project }) =>
 			withPolicyErrorHandling(project, async (context) => {
 				const payload = await listDesignFilesToolPayload(context);
-				const counts = await annotations
-					.countDesigns(
-						context,
-						payload.designFiles.map((designFile) => designFile.id),
-					)
-					.catch(() => new Map());
+				const ids = payload.designFiles.map((designFile) => designFile.id);
+				const [counts, rounds] = await Promise.all([
+					annotations.countDesigns(context, ids).catch(() => new Map()),
+					annotations.openRounds(context, ids).catch(() => new Map()),
+				]);
 				return createJsonResult(
-					counts.size > 0
+					counts.size > 0 || rounds.size > 0
 						? {
 								...payload,
 								designFiles: payload.designFiles.map((designFile) => {
 									const designCounts = counts.get(designFile.id);
-									return designCounts
+									const round = rounds.get(designFile.id);
+									return designCounts || round
 										? {
 												...designFile,
 												annotations: {
-													agentWork: designCounts.agentWork,
-													humanWork: designCounts.humanWork,
+													agentWork: designCounts?.agentWork ?? 0,
+													humanWork: designCounts?.humanWork ?? 0,
+													// The designer's open round: wait on it with
+													// annotation_watch round: true.
+													...(round ? { round } : {}),
 												},
 											}
 										: designFile;

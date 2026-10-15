@@ -376,6 +376,8 @@ const buildAnnotationsTopic = () => ({
 			"An agent session has seen it in full (possibly being worked on). Still your work; acknowledged by another session is advisory, never a lock.",
 		needs_input: "You asked a question; waits on the designer.",
 		addressed: "You changed the design for it; waits on the designer's review.",
+		proposed:
+			"You proposed closing it without a change; waits on the designer to accept (resolve) or reply.",
 		resolved: "Done.",
 		dismissed: "Not doing it, with a reason.",
 	},
@@ -384,10 +386,17 @@ const buildAnnotationsTopic = () => ({
 		"Read the target: elementId (a layer) or boardId. snapshot is what the designer was looking at: the names it had (name, path), the design revision, and stageMode with responsiveWidth (a remark made at 375 px is about that width: screenshot it there). detached: the element no longer exists; re-anchor if you replaced it, otherwise ask.",
 		`Address: make the change with ${TOOL.designApply} and pass addresses: [{ annotationId, reply }] in that same call. reply says what you changed. The write and the record go together: the annotation becomes addressed with a change record the designer can reveal and revert, and nothing is recorded when the write is refused. Unknown, other-design or resolved annotations refuse the write before anything happens. If the designer added a remark you had not seen, the change is recorded but the annotation stays your work and the remark comes back in annotations.new. One write that addresses several annotations is one change: reverting it from any of them undoes it for all, so make unrelated remarks separate writes.`,
 		`Ask: when a remark is ambiguous, ${TOOL.annotationReply}({ annotationId, question }) sets needs_input; the designer's answer reopens it and it shows up again in full.`,
-		`Reply without a change: ${TOOL.annotationReply}({ annotationId, body }). Dismiss with a reason when you will not do it: dismiss: { reason }.`,
+		`Reply without a change: ${TOOL.annotationReply}({ annotationId, body }). When a remark needs no change (it is already the case, it conflicts with another remark, it is out of scope, or you recommend another approach), propose closing it: propose: { summary } sets proposed until the designer accepts or replies. Dismiss with a reason when you will not do it: dismiss: { reason }.`,
 		`Resolve only when the designer asks you to (resolve: { summary }); otherwise they resolve after reviewing your change.`,
 		`Re-anchor: copySubtree, detachSystemComponent and component extraction mint new ids and never move annotations, so an annotation on the replaced element shows detached. When you replaced it, ${TOOL.annotationReply}({ annotationId, reanchor: { elementId } }) (or { boardId }) moves it to the new element in the same design; the result has the new target and snapshot, and the status stays. \`next\` lists detached annotations by id.`,
 		`Keep working on the designer's remarks while nothing else is called: ${TOOL.annotationWatch}({ designFileId }) waits for new ones and returns them in full.`,
+	],
+	rounds: [
+		`A round is the batch of remarks the designer sent together on a design (or component), on this branch. The designer opens it by sending and closes it when they have no more feedback; you cannot close it. ${TOOL.projectList} and ${TOOL.designList} show an open one as annotations.round.`,
+		`Work a round in one turn: ${TOOL.annotationWatch}({ designFileId, round: true }) (or { systemId, componentId, round: true }) waits and returns status "work" (remarks for you, in full), "verdict" (the designer accepted or dismissed an annotation you addressed or proposed), "closed" (the round is closed), "idle" (no round is open) or "timeout" (still open).`,
+		`On "work": address each remark in the write that makes its change (addresses), propose closing the ones that need no change (${TOOL.annotationReply} propose), ask about unclear ones (question), then call ${TOOL.annotationWatch} with round: true again. A designer's reply or a revert brings an annotation back as "work".`,
+		`On "verdict" or "timeout": call it again. On "closed": finish the live annotations it returns that are your work, then end your turn. On "idle": the designer has not sent a round; go on with your task and do not keep waiting.`,
+		"The goal of a round: every annotation in it ends resolved or dismissed, because you made the change and the designer accepted it, or you proposed a resolution and they accepted that.",
 	],
 	components: [
 		`On a system component: target is { kind: "componentNode", systemId, componentId, nodePath } where nodePath is the template node's path (stable: inserts and moves keep it). Results of ${TOOL.componentRead} (describe), ${TOOL.componentDraftUpdate} and ${TOOL.componentPublish} carry the same \`annotations\` block; the ${TOOL.componentRead} index counts them per component; ${TOOL.annotationList}({ systemId, componentId }) lists them.`,

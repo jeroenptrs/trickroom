@@ -46,27 +46,38 @@ const withProjectErrors = async (
 /**
  * Annotation counts over the project's designs on the checkout's branch:
  * agent work (open, acknowledged) and what waits on the designer
- * (needs_input, addressed). Left out when there are none.
+ * (needs_input, addressed, proposed), with the designer's open rounds.
+ * Left out when there are none.
  */
 const createAnnotationCounter =
 	(annotations: McpToolContext["annotations"]) =>
 	async (context: TrickroomMcpServerContext) => {
-		const counts = await annotations
-			.countDesigns(context)
-			.catch(() => new Map());
-		if (counts.size === 0) return {};
+		const [counts, rounds] = await Promise.all([
+			annotations.countDesigns(context).catch(() => new Map()),
+			annotations.openRounds(context).catch(() => new Map()),
+		]);
+		if (counts.size === 0 && rounds.size === 0) return {};
 		let agentWork = 0;
 		let humanWork = 0;
 		for (const designCounts of counts.values()) {
 			agentWork += designCounts.agentWork;
 			humanWork += designCounts.humanWork;
 		}
+		const firstRound = [...rounds.keys()][0];
 		return {
 			annotations: {
 				agentWork,
 				humanWork,
 				designs: counts.size,
-				next: `${TOOL.designList} shows them per design; ${TOOL.annotationList}({ designFileId }) lists one design's.`,
+				...(rounds.size > 0
+					? {
+							rounds: [...rounds].map(([designFileId, round]) => ({
+								designFileId,
+								...round,
+							})),
+						}
+					: {}),
+				next: `${TOOL.designList} shows them per design; ${TOOL.annotationList}({ designFileId }) lists one design's.${firstRound ? ` The designer has a round open: wait on it with ${TOOL.annotationWatch}({ designFileId: "${firstRound}", round: true }).` : ""}`,
 			},
 		};
 	};

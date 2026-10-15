@@ -475,7 +475,7 @@ at once into one round).
 
 ### R3: HTTP routes and the editor
 
-Status: todo.
+Status: in progress (routes and SSE done; editor in progress).
 
 - Routes: `POST /annotations/send`, `GET /annotations/rounds`,
   `POST /annotations/rounds/:roundId/close`; `annotation-round` SSE events.
@@ -487,7 +487,8 @@ Status: todo.
 
 ### R4: MCP
 
-Status: todo.
+Status: done (`annotation_watch` moved to `src/mcp/tools/annotation-watch.ts`;
+component rounds included).
 
 - `propose` on `annotation_reply`; `annotation_watch` with `round: true`
   (design and component); round counts on `project_list` and
