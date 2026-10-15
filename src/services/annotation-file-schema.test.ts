@@ -11,7 +11,7 @@ import type { Annotation } from "./annotations.types";
 const human = { role: "human" } as const;
 
 const makeAnnotation = (overrides: Partial<Annotation> = {}): Annotation => ({
-	version: 1,
+	version: 2,
 	id: "ann-1",
 	projectId: "proj-1",
 	target: { kind: "layer", designId: "home", boardId: "b1", elementId: "e1" },
@@ -47,14 +47,63 @@ const expectInvalid = (value: unknown) => {
 };
 
 describe("annotation file migration", () => {
-	it("reads a version 1 annotation back unchanged", () => {
-		const annotation = makeAnnotation();
+	it("reads a version 2 annotation back unchanged", () => {
+		const annotation = makeAnnotation({ roundId: "round-1" });
 		const result = migrateAnnotationFileValue(asValue(annotation));
 		expect(result).toEqual({
 			ok: true,
 			value: annotation,
-			fromVersion: 1,
+			fromVersion: 2,
 			migrated: false,
+		});
+	});
+
+	it("migrates a version 1 annotation by its version alone", () => {
+		const annotation = makeAnnotation();
+		const result = migrateAnnotationFileValue({
+			...asValue(annotation),
+			version: 1,
+		});
+		expect(result).toEqual({
+			ok: true,
+			value: annotation,
+			fromVersion: 1,
+			migrated: true,
+		});
+		if (!result.ok) return;
+		expect(result.value).not.toHaveProperty("roundId");
+	});
+
+	it("accepts the proposed status with a proposal entry", () => {
+		const annotation = makeAnnotation({
+			status: "proposed",
+			entries: [
+				...makeAnnotation().entries,
+				{
+					id: "entry-2",
+					kind: "proposal",
+					at: "2026-10-01T10:05:00.000Z",
+					by: { role: "agent", sessionId: "s-1" },
+					summary: "The title is already text-2xl.",
+				},
+			],
+		});
+		expect(migrateAnnotationFileValue(asValue(annotation)).ok).toBe(true);
+	});
+
+	it("refuses a blank roundId and a proposal without its summary", () => {
+		expectInvalid({ ...asValue(makeAnnotation()), roundId: "" });
+		expectInvalid({
+			...asValue(makeAnnotation()),
+			entries: [
+				...makeAnnotation().entries,
+				{
+					id: "entry-2",
+					kind: "proposal",
+					at: "2026-10-01T10:05:00.000Z",
+					by: { role: "agent", sessionId: "s-1" },
+				},
+			],
 		});
 	});
 
@@ -121,14 +170,14 @@ describe("unsupported annotation versions", () => {
 	it("refuses a newer version with its number", () => {
 		const result = migrateAnnotationFileValue({
 			...asValue(makeAnnotation()),
-			version: 2,
+			version: 3,
 		});
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
 		expect(result.code).toBe("UNSUPPORTED_ANNOTATION_VERSION");
 		if (result.code !== "UNSUPPORTED_ANNOTATION_VERSION") return;
-		expect(result.version).toBe(2);
-		expect(result.message).toContain("2");
+		expect(result.version).toBe(3);
+		expect(result.message).toContain("3");
 	});
 
 	it("refuses a newer version even when the rest of the file is garbage", () => {
@@ -138,9 +187,11 @@ describe("unsupported annotation versions", () => {
 		expect(result.code).toBe("UNSUPPORTED_ANNOTATION_VERSION");
 	});
 
-	it("supports exactly version 1 while there are no migrations", () => {
-		expect(annotationFileMigrations).toHaveLength(0);
-		expect([...supportedAnnotationFileVersions]).toEqual([1]);
+	it("supports versions 1 and 2, with one migration step", () => {
+		expect(annotationFileMigrations).toEqual([
+			{ from: 1, to: 2, migrate: expect.any(Function) },
+		]);
+		expect([...supportedAnnotationFileVersions].sort()).toEqual([1, 2]);
 	});
 });
 

@@ -38,6 +38,7 @@ import {
 	AnnotationDraftRow,
 	AnnotationSection,
 } from "./AnnotationPanelParts";
+import { AnnotationRoundHeader } from "./AnnotationRoundHeader";
 import { AnnotationThread } from "./AnnotationThread";
 import { reanchorAnnotation } from "./annotation-actions";
 import {
@@ -343,6 +344,11 @@ export function ComponentAnnotationsPanel({
 						</p>
 					)}
 				</div>
+				<AnnotationRoundHeader
+					container={container}
+					drafts={drafts}
+					getSnapshot={getComponentSnapshotHint}
+				/>
 				<AnnotationBulkActions
 					container={container}
 					drafts={drafts}

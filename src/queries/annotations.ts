@@ -1,6 +1,8 @@
 import { queryOptions } from "@tanstack/react-query";
+import type { AnnotationRoundCounts } from "../services/annotation-model";
 import type {
 	AnnotationContainer,
+	AnnotationRound,
 	AnnotationScope,
 	AnnotationTarget,
 	AnnotationView,
@@ -356,5 +358,97 @@ export const resolveAnnotationsRequest = (
 				annotations.map((annotation) => [annotation.id, annotation.revision]),
 			),
 		},
+		expectedScope,
+	);
+
+// ---------------------------------------------------------------------------
+// Rounds
+// ---------------------------------------------------------------------------
+
+/** A round as the server answers it: the round file and its progress. */
+export type OpenRound = AnnotationRound & { counts: AnnotationRoundCounts };
+
+/** One draft of a send, keyed by the editor's draft key. */
+export type AnnotationSendDraft = {
+	key: string;
+	target: AnnotationTarget;
+	body: string;
+	snapshot?: AnnotationSnapshotHint;
+};
+
+export type AnnotationSendResponse = {
+	scope: AnnotationScope;
+	/** The round the drafts went into; null when there is none. */
+	round: OpenRound | null;
+	/** The annotations written, by the key of the draft each came from. */
+	annotations: { key: string; annotation: AnnotationView }[];
+	/** Drafts that were not written; the others were. */
+	failed: { key: string; code: string; error: string }[];
+	/**
+	 * Why the send stopped after writing some drafts (the checkout
+	 * changed); the drafts it did not try are in `failed`. Null otherwise.
+	 */
+	interrupted?: {
+		code: string;
+		error: string;
+		details?: Record<string, unknown>;
+	} | null;
+};
+
+/**
+ * Sends a batch of drafts of one design or component in one request: the
+ * server writes them into the open round (or opens one) and says which
+ * were written.
+ */
+export const sendAnnotationsRequest = async (
+	container: AnnotationContainer,
+	drafts: readonly AnnotationSendDraft[],
+	expectedScope: ExpectedScope = null,
+) => {
+	const answer = await post<AnnotationSendResponse>(
+		`${baseUrl}/send`,
+		{ ...annotationContainerParams(container), drafts },
+		expectedScope,
+	);
+	// The checkout changed after some drafts were written: as with a
+	// refused write, the editor lists the new checkout's annotations.
+	const scope =
+		answer.interrupted?.code === "SCOPE_CHANGED"
+			? parseAnnotationScope(answer.interrupted.details?.scope)
+			: null;
+	if (scope) deliverAnnotationScope(scope);
+	return answer;
+};
+
+/**
+ * The open round of the container on the checkout's branch, or null, with
+ * the scope the server answered in. The caller decides what another scope
+ * than the editor's means: before the first list there is none to compare.
+ */
+export const fetchOpenRound = async (
+	container: AnnotationContainer,
+	signal?: AbortSignal,
+) => {
+	const answer = await readAnnotationJson<{
+		scope?: unknown;
+		round: OpenRound | null;
+	}>(
+		await fetch(
+			`${baseUrl}/rounds?${hint(container)}`,
+			signal ? { signal } : {},
+		),
+	);
+	return { scope: parseAnnotationScope(answer.scope), round: answer.round };
+};
+
+/** Closes a round; closing a closed one changes nothing (`written: false`). */
+export const closeRoundRequest = (
+	container: AnnotationContainer,
+	roundId: string,
+	expectedScope: ExpectedScope = null,
+) =>
+	post<{ round: OpenRound; written: boolean }>(
+		`${baseUrl}/rounds/${encodeURIComponent(roundId)}/close`,
+		annotationContainerParams(container),
 		expectedScope,
 	);

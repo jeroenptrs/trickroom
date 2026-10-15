@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import type { OpenRound } from "../queries/annotations";
 import type { AnnotationTargetLocator } from "../services/annotation-model";
 import type {
 	AnnotationContainer,
@@ -11,9 +12,12 @@ import { componentDraftTargetLocator } from "../utils/component-annotation-targe
 import {
 	applyAnnotationRead,
 	applyAnnotationWrite,
+	applyOpenRound,
 	beginAnnotationRead,
 	beginAnnotationWrite,
+	beginRoundRead,
 	changeAnnotationScope,
+	clearCloseRoundRequest,
 	deriveAnnotationRowMarkers,
 	editorAnnotationsStore,
 	getAnnotationStateWith,
@@ -23,6 +27,7 @@ import {
 	refreshAnnotationMarkers,
 	removeAnnotation,
 	requestAnnotationComposer,
+	requestCloseRound,
 	resetEditorAnnotations,
 	setAnnotationsError,
 	setInspectorTab,
@@ -50,7 +55,7 @@ const view = (
 ): AnnotationView => {
 	counter += 1;
 	return {
-		version: 1,
+		version: 2,
 		id: `a${counter}`,
 		projectId: "p1",
 		target: layerTarget("l1"),
@@ -836,5 +841,86 @@ describe("acknowledgements derived on read", () => {
 		ready([held]);
 		upsertAnnotation(acknowledged("2026-10-14T10:00:00.000Z", true));
 		expect(state().byId.ack).toBe(held);
+	});
+});
+
+describe("the open round", () => {
+	const roundOf = (id: string, annotationIds: string[] = []): OpenRound => ({
+		version: 1,
+		id,
+		projectId: "p1",
+		container,
+		branch: "main",
+		worktreePath: "/work",
+		status: "open",
+		openedAt: "2026-10-15T10:00:00.000Z",
+		annotationIds,
+		sends: [],
+		counts: {
+			total: annotationIds.length,
+			closed: 0,
+			agentWork: 0,
+			humanWork: 0,
+			byStatus: {},
+		},
+	});
+
+	it("shows a round of the open container", () => {
+		ready();
+		expect(
+			applyOpenRound(beginRoundRead(), container, scope, roundOf("R1")),
+		).toBe(true);
+		expect(state().round?.id).toBe("R1");
+		expect(applyOpenRound(beginRoundRead(), container, scope, null)).toBe(true);
+		expect(state().round).toBeNull();
+	});
+
+	it("applies the answer that started last, not the one that came last", () => {
+		ready();
+		const first = beginRoundRead();
+		const second = beginRoundRead();
+		applyOpenRound(second, container, scope, roundOf("R2"));
+		expect(applyOpenRound(first, container, scope, roundOf("R1"))).toBe(false);
+		expect(state().round?.id).toBe("R2");
+	});
+
+	it("ignores an answer of another container or another scope", () => {
+		ready();
+		expect(
+			applyOpenRound(
+				beginRoundRead(),
+				{ kind: "design", designId: "other" },
+				scope,
+				roundOf("R1"),
+			),
+		).toBe(false);
+		expect(
+			applyOpenRound(
+				beginRoundRead(),
+				container,
+				{ branch: "other", worktreePath: "/work" },
+				roundOf("R1"),
+			),
+		).toBe(false);
+		expect(state().round).toBeNull();
+	});
+
+	it("drops the round with a scope change and with a container change", () => {
+		ready();
+		applyOpenRound(beginRoundRead(), container, scope, roundOf("R1"));
+		changeAnnotationScope({ branch: "other", worktreePath: "/work" });
+		expect(state().round).toBeNull();
+		applyOpenRound(beginRoundRead(), container, null, roundOf("R2"));
+		openAnnotationContainer({ kind: "design", designId: "d2" });
+		expect(state().round).toBeNull();
+	});
+
+	it("passes the close request to the round header once", () => {
+		ready();
+		requestCloseRound();
+		expect(state().closeRoundRequested).toBe(true);
+		expect(state().inspectorTab).toBe("annotations");
+		clearCloseRoundRequest();
+		expect(state().closeRoundRequested).toBe(false);
 	});
 });

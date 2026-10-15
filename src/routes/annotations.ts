@@ -1,6 +1,13 @@
 import type { Context, Env, Hono, MiddlewareHandler } from "hono";
 import { isAnnotationTarget } from "../services/annotation-file-schema";
 import {
+	closeRound,
+	getOpenRound,
+	type SendDraft,
+	sendAnnotations,
+	viewRound,
+} from "../services/annotation-rounds";
+import {
 	type AnnotationServiceContext,
 	AnnotationServiceError,
 	clearAnnotations,
@@ -54,7 +61,10 @@ import { SystemComponentOperationsError } from "../utils/system-component-operat
  *
  * - `GET    /annotations?designId=|systemId=&componentId=` list (`boardId`, `elementId`, `status`, `branch`)
  * - `GET    /annotations/counts` agent and designer work per design (the project screen)
- * - `POST   /annotations` create `{ target, body, snapshot? }`
+ * - `POST   /annotations` create `{ target, body, snapshot? }`, outside any round
+ * - `POST   /annotations/send` send drafts into the open round `{ designId | systemId+componentId, drafts: [{ key, target, body, snapshot? }] }`; answers `{ round, annotations, failed, interrupted }`
+ * - `GET    /annotations/rounds?designId=|systemId=&componentId=` the open round on this branch, with counts
+ * - `POST   /annotations/rounds/:roundId/close` close it `{ designId | systemId+componentId }`
  * - `GET    /annotations/:id` one annotation
  * - `POST   /annotations/:id/entries` reply `{ body, expectedRevision? }`
  * - `POST   /annotations/:id/transition` `{ to: "resolved" | "dismissed" | "open", summary?, reason?, expectedRevision? }`
@@ -143,15 +153,17 @@ const respondWithError = (c: Context, error: unknown) => {
 	}
 	if (error instanceof AnnotationStoreError) {
 		const status =
-			error.code === "ANNOTATION_NOT_FOUND"
+			error.code === "ANNOTATION_NOT_FOUND" || error.code === "ROUND_NOT_FOUND"
 				? 404
 				: error.code === "ANNOTATION_REVISION_MISMATCH" ||
 						error.code === "ANNOTATION_EXISTS" ||
-						error.code === "UNSUPPORTED_ANNOTATION_VERSION"
+						error.code === "UNSUPPORTED_ANNOTATION_VERSION" ||
+						error.code === "UNSUPPORTED_ROUND_VERSION"
 					? 409
 					: error.code === "ANNOTATION_LOCKED"
 						? 423
-						: error.code === "INVALID_ANNOTATION_FILE"
+						: error.code === "INVALID_ANNOTATION_FILE" ||
+								error.code === "INVALID_ROUND_FILE"
 							? 500
 							: 400;
 		return errorJson(c, status, error.message, error.code, error.details);
@@ -163,6 +175,7 @@ const respondWithError = (c: Context, error: unknown) => {
 				: error.code === "CHANGED_SINCE" ||
 						error.code === "WRONG_BRANCH" ||
 						error.code === "SCOPE_CHANGED" ||
+						error.code === "ALREADY_CLOSED" ||
 						error.code === "DESIGN_BUSY" ||
 						error.code === "COMPONENT_BUSY"
 					? 409
@@ -435,6 +448,26 @@ export const registerAnnotationRoutes = <E extends Env>(
 						).catch(() => null)
 					: null,
 			/**
+			 * A container as stored: a component's system named by the
+			 * manifest's id, as `resolveComponentTarget` does for targets.
+			 */
+			resolveContainer: async (
+				container: AnnotationContainer,
+			): Promise<AnnotationContainer> => {
+				if (container.kind !== "component") return container;
+				const systemId = await resolveAnnotationSystemId(
+					projectRoot,
+					container.systemId,
+				);
+				if (!systemId) {
+					throw new AnnotationServiceError(
+						"TARGET_NOT_FOUND",
+						`Design system ${container.systemId} does not exist.`,
+					);
+				}
+				return { ...container, systemId };
+			},
+			/**
 			 * A component node target as stored: its system named by the
 			 * manifest's id (the editor and MCP share one folder per
 			 * component), and the component it must exist in.
@@ -559,6 +592,105 @@ export const registerAnnotationRoutes = <E extends Env>(
 					: {}),
 			});
 			return c.json(result, 201);
+		}),
+	);
+
+	app.post(
+		"/api/trickroom/annotations/send",
+		handle(async (c, request) => {
+			const body = await readBody(c);
+			await request.assertScope(body);
+			if (!body) throw new RequestError("Expected a JSON object.");
+			const container = await request.resolveContainer(requireContainer(body));
+			if (!Array.isArray(body.drafts) || body.drafts.length === 0) {
+				throw new RequestError(
+					"drafts must be a non-empty list of { key, target, body }.",
+				);
+			}
+			const read = await request.readDesign(container);
+			const drafts: SendDraft[] = [];
+			for (const value of body.drafts as unknown[]) {
+				if (
+					!isRecord(value) ||
+					typeof value.key !== "string" ||
+					value.key.length === 0 ||
+					typeof value.body !== "string"
+				) {
+					throw new RequestError(
+						"Every draft needs a key, a target and the remark's text as body.",
+					);
+				}
+				const { target, component } = await request.resolveComponentTarget(
+					parseTarget(value.target),
+				);
+				drafts.push({
+					key: value.key,
+					target,
+					...(component ? { component } : {}),
+					body: value.body,
+					...(value.snapshot !== undefined
+						? { snapshot: parseSnapshot(value.snapshot) }
+						: {}),
+					...(read
+						? { design: { design: read.design, revision: read.revision } }
+						: {}),
+				});
+			}
+			const result = await sendAnnotations(request.context, {
+				container,
+				scope: await request.scope(),
+				by: human,
+				drafts,
+			});
+			return c.json(
+				{
+					scope: await request.scope(),
+					round: result.round
+						? await viewRound(request.context, result.round)
+						: null,
+					annotations: result.annotations,
+					failed: result.failed,
+					// The checkout changed after some drafts were written: those
+					// are sent, the rest are in `failed`.
+					interrupted: result.interrupted,
+				},
+				result.annotations.length > 0 ? 201 : 200,
+			);
+		}),
+	);
+
+	// Before `/annotations/:annotationId`, which would take "rounds" as an id.
+	app.get(
+		"/api/trickroom/annotations/rounds",
+		handle(async (c, request) => {
+			const container = await request.resolveContainer(
+				requireContainer(c.req.query()),
+			);
+			const scope = await request.scope();
+			const round = await getOpenRound(request.context, { container, scope });
+			return c.json({
+				scope,
+				round: round ? await viewRound(request.context, round) : null,
+			});
+		}),
+	);
+
+	app.post(
+		"/api/trickroom/annotations/rounds/:roundId/close",
+		handle(async (c, request) => {
+			const body = (await readBody(c)) ?? {};
+			await request.assertScope(body);
+			const container = await request.resolveContainer(requireContainer(body));
+			const result = await closeRound(request.context, {
+				container,
+				roundId: c.req.param("roundId") as string,
+				by: human,
+				scope: await request.scope(),
+			});
+			return c.json({
+				round: await viewRound(request.context, result.round),
+				written: result.written,
+			});
 		}),
 	);
 

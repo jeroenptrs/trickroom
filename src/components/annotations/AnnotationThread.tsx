@@ -91,7 +91,8 @@ function ReplyComposer({ annotation }: { annotation: AnnotationView }) {
 	const reopens =
 		closed ||
 		annotation.status === "addressed" ||
-		annotation.status === "needs_input";
+		annotation.status === "needs_input" ||
+		annotation.status === "proposed";
 
 	const send = async () => {
 		if (!draft.trim() || sending) return;
@@ -240,23 +241,32 @@ export const AnnotationThread = memo(function AnnotationThread({
 	const resolve = async () => {
 		const result = await resolveAnnotation(annotation);
 		if (!result) return;
-		toast.success(agentResolved ? "Resolution accepted" : "Resolved", {
-			id: `annotation-resolved-${annotation.id}`,
-			duration: 10_000,
-			...(onSaveMemory
-				? {
-						action: {
-							label: "Save as memory note",
-							onClick: () => void onSaveMemory(result.annotation),
-						},
-					}
-				: {}),
-		});
+		toast.success(
+			agentResolved
+				? "Resolution accepted"
+				: proposed
+					? "Proposal accepted"
+					: "Resolved",
+			{
+				id: `annotation-resolved-${annotation.id}`,
+				duration: 10_000,
+				...(onSaveMemory
+					? {
+							action: {
+								label: "Save as memory note",
+								onClick: () => void onSaveMemory(result.annotation),
+							},
+						}
+					: {}),
+			},
+		);
 	};
 
 	const closed =
 		annotation.status === "resolved" || annotation.status === "dismissed";
 	const agentResolved = state === "agent_resolved";
+	// An agent asks the designer to close it without a change.
+	const proposed = annotation.status === "proposed";
 	const look = ANNOTATION_MARKER_LOOK[state];
 	const remark = annotation.entries[0];
 	const preview =
@@ -359,12 +369,16 @@ export const AnnotationThread = memo(function AnnotationThread({
 						/>
 					) : (
 						<div className="flex flex-wrap gap-1">
-							{agentResolved ? (
+							{agentResolved || proposed ? (
 								<Button
 									variant="filled"
 									className={actionButton}
 									disabled={busy}
-									title="Accept the agent's resolution"
+									title={
+										proposed
+											? "Accept the agent's proposal and resolve it"
+											: "Accept the agent's resolution"
+									}
 									onClick={() => void run(resolve)}
 								>
 									Accept
@@ -372,14 +386,17 @@ export const AnnotationThread = memo(function AnnotationThread({
 							) : null}
 							{!closed ? (
 								<>
-									<Button
-										variant="outlined"
-										className={actionButton}
-										disabled={busy}
-										onClick={() => void run(resolve)}
-									>
-										Resolve
-									</Button>
+									{/* Accepting a proposal is resolving it. */}
+									{proposed ? null : (
+										<Button
+											variant="outlined"
+											className={actionButton}
+											disabled={busy}
+											onClick={() => void run(resolve)}
+										>
+											Resolve
+										</Button>
+									)}
 									<Button
 										variant="ghost"
 										className={actionButton}

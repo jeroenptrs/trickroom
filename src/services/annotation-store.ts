@@ -19,9 +19,15 @@ import {
 	serializeAnnotation,
 } from "./annotation-file-schema";
 import {
+	migrateRoundFileValue,
+	serializeRound,
+} from "./annotation-round-schema";
+import {
 	ANNOTATION_FILE_VERSION,
+	ANNOTATION_ROUND_FILE_VERSION,
 	type Annotation,
 	type AnnotationContainer,
+	type AnnotationRound,
 	type AnnotationSessionFile,
 	type AnnotationTarget,
 } from "./annotations.types";
@@ -38,6 +44,7 @@ import {
  * ```text
  * <TRICKROOM_HOME>/annotations/<projectId>/designs/<designId>/<annotationId>.json
  * <TRICKROOM_HOME>/annotations/<projectId>/systems/<systemId>/components/<componentId>/<annotationId>.json
+ * <TRICKROOM_HOME>/annotations/<projectId>/<container>/rounds/<roundId>.json
  * <TRICKROOM_HOME>/annotations/<projectId>/sessions/<sessionId>.json
  * ```
  *
@@ -59,7 +66,10 @@ export type AnnotationStoreErrorCode =
 	| "INVALID_ANNOTATION_FILE"
 	| "UNSUPPORTED_ANNOTATION_VERSION"
 	| "ANNOTATION_REVISION_MISMATCH"
-	| "ANNOTATION_LOCKED";
+	| "ANNOTATION_LOCKED"
+	| "ROUND_NOT_FOUND"
+	| "INVALID_ROUND_FILE"
+	| "UNSUPPORTED_ROUND_VERSION";
 
 export class AnnotationStoreError extends Error {
 	readonly code: AnnotationStoreErrorCode;
@@ -148,9 +158,30 @@ export const isSameAnnotationContainer = (
 			a.componentId === b.componentId;
 
 /**
+ * Classifies a path relative to the project's annotation folder as a round
+ * file (`<container>/rounds/<roundId>.json`) with its container, or null.
+ */
+export const classifyRoundFile = (
+	relativeFile: string,
+): { container: AnnotationContainer; roundId: string } | null => {
+	const segments = relativeFile.split(/[/\\]/u);
+	const file = segments.at(-1) ?? "";
+	if (segments.at(-2) !== "rounds") return null;
+	if (!file.endsWith(jsonExtension) || file.startsWith(".")) return null;
+	const roundId = file.slice(0, -jsonExtension.length);
+	if (!isSafeAnnotationPathSegment(roundId)) return null;
+	// The folder holding `rounds` is a container folder: classify a file
+	// that would sit in it.
+	const owner = classifyAnnotationFile(
+		[...segments.slice(0, -2), `placeholder${jsonExtension}`].join("/"),
+	);
+	return owner ? { container: owner.container, roundId } : null;
+};
+
+/**
  * Classifies a path relative to the project's annotation folder: an
- * annotation file with its container, or null (session files, temporary
- * files, anything else).
+ * annotation file with its container, or null (round files, session
+ * files, temporary files, anything else).
  */
 export const classifyAnnotationFile = (
 	relativeFile: string,
@@ -999,6 +1030,144 @@ export class AnnotationStore {
 			});
 			return true;
 		});
+	}
+
+	// -------------------------------------------------------------------------
+	// Rounds: `<container>/rounds/<roundId>.json`. Every round write of a
+	// container (open, a send, close) holds that container's round lock, so
+	// two sends cannot open two rounds and a round cannot close during a
+	// send. A send writes annotations under it: the lock order is the round
+	// lock, then an annotation's lock, never the other way round.
+	// -------------------------------------------------------------------------
+
+	getRoundDirectory(container: AnnotationContainer) {
+		return path.join(this.getContainerDirectory(container), "rounds");
+	}
+
+	getRoundPath(container: AnnotationContainer, roundId: string) {
+		return path.join(
+			this.getRoundDirectory(container),
+			`${assertSegment(roundId, "roundId")}${jsonExtension}`,
+		);
+	}
+
+	/**
+	 * Holds the container's round lock while `operation` runs; `write`
+	 * stores a round under it (atomic rename, after the lock check and,
+	 * unless `guard: false`, the `beforeWrite` check).
+	 */
+	async withRoundLock<T>(
+		container: AnnotationContainer,
+		operation: (
+			write: (
+				round: AnnotationRound,
+				options?: { guard?: boolean },
+			) => Promise<void>,
+		) => Promise<T>,
+	): Promise<T> {
+		const directory = this.getRoundDirectory(container);
+		await ensureDirectory(directory);
+		return this.withLock(directory, (lock) =>
+			operation(async (round, { guard = true } = {}) => {
+				if (
+					round.projectId !== this.projectId ||
+					!isSameAnnotationContainer(round.container, container)
+				) {
+					throw new AnnotationStoreError(
+						"INVALID_ID",
+						"A round is written only in its own project and container.",
+					);
+				}
+				const next: AnnotationRound = {
+					...round,
+					version: ANNOTATION_ROUND_FILE_VERSION,
+				};
+				await writeFileAtomic(
+					this.getRoundPath(container, round.id),
+					serializeRound(next),
+					() => lock.assertHeld(),
+					guard ? () => this.guardWrite() : undefined,
+				);
+			}),
+		);
+	}
+
+	/** One round, or null when there is no such file. */
+	async readRound(
+		container: AnnotationContainer,
+		roundId: string,
+	): Promise<AnnotationRound | null> {
+		let contents: string;
+		try {
+			contents = await readFile(this.getRoundPath(container, roundId), "utf8");
+		} catch (error) {
+			if (isMissing(error)) return null;
+			throw error;
+		}
+		let value: unknown;
+		try {
+			value = JSON.parse(contents);
+		} catch {
+			throw new AnnotationStoreError(
+				"INVALID_ROUND_FILE",
+				`Round ${roundId} is not valid JSON.`,
+				{ roundId },
+			);
+		}
+		const migrated = migrateRoundFileValue(value);
+		if (!migrated.ok) {
+			throw new AnnotationStoreError(migrated.code, migrated.message, {
+				roundId,
+			});
+		}
+		if (migrated.value.id !== roundId) {
+			throw new AnnotationStoreError(
+				"INVALID_ROUND_FILE",
+				`Round file ${roundId} holds round ${migrated.value.id}.`,
+				{ roundId },
+			);
+		}
+		return migrated.value;
+	}
+
+	/**
+	 * Every readable round of a container, oldest first. Files that cannot
+	 * be read are reported in `problems` and left alone.
+	 */
+	async listRounds(container: AnnotationContainer): Promise<{
+		rounds: AnnotationRound[];
+		problems: { roundId: string; code: string; message: string }[];
+	}> {
+		const directory = this.getRoundDirectory(container);
+		const rounds: AnnotationRound[] = [];
+		const problems: { roundId: string; code: string; message: string }[] = [];
+		for (const entry of await readDirectoryEntries(directory)) {
+			if (
+				!entry.isFile() ||
+				entry.name.startsWith(".") ||
+				!entry.name.endsWith(jsonExtension)
+			) {
+				continue;
+			}
+			const roundId = entry.name.slice(0, -jsonExtension.length);
+			if (!isSafeAnnotationPathSegment(roundId)) continue;
+			try {
+				const round = await this.readRound(container, roundId);
+				if (round) rounds.push(round);
+			} catch (error) {
+				if (error instanceof AnnotationStoreError) {
+					problems.push({ roundId, code: error.code, message: error.message });
+					continue;
+				}
+				throw error;
+			}
+		}
+		rounds.sort(
+			(a, b) =>
+				a.openedAt.localeCompare(b.openedAt) || a.id.localeCompare(b.id),
+		);
+		problems.sort((a, b) => a.roundId.localeCompare(b.roundId));
+		return { rounds, problems };
 	}
 
 	/** Records an MCP session's last tool call (the acknowledgement expiry clock). */

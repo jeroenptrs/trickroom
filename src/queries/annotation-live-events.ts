@@ -1,6 +1,7 @@
 import type {
 	AnnotationContainer,
 	AnnotationFileEvent,
+	AnnotationRoundFileEvent,
 	AnnotationScope,
 } from "../services/annotations.types";
 
@@ -9,13 +10,15 @@ import type {
 // it to compare with the store again after the stream reconnects. The
 // checkout's scope travels the same way: `annotation-scope` events (another
 // branch checked out), the `scope` of read answers and `SCOPE_CHANGED`
-// refusals all reach `subscribeAnnotationScope`.
+// refusals all reach `subscribeAnnotationScope`. `annotation-round` events
+// (a round file changed) reach `subscribeAnnotationRound`.
 
 type Listener<T> = (value: T) => void;
 
 const eventListeners = new Set<Listener<AnnotationFileEvent>>();
 const resyncListeners = new Set<Listener<void>>();
 const scopeListeners = new Set<Listener<AnnotationScope>>();
+const roundListeners = new Set<Listener<AnnotationRoundFileEvent>>();
 
 /** A well-formed `{ branch, worktreePath }`, or null. */
 export const parseAnnotationScope = (
@@ -104,4 +107,38 @@ export const subscribeAnnotationScope = (
 
 export const deliverAnnotationScope = (scope: AnnotationScope) => {
 	for (const listener of scopeListeners) listener(scope);
+};
+
+/** The `data` of an `annotation-round` SSE frame, or null when it is malformed. */
+export const parseAnnotationRoundEvent = (
+	data: string,
+): AnnotationRoundFileEvent | null => {
+	let value: unknown;
+	try {
+		value = JSON.parse(data);
+	} catch {
+		return null;
+	}
+	if (typeof value !== "object" || value === null) return null;
+	const event = value as Record<string, unknown>;
+	if (typeof event.roundId !== "string" || !isContainer(event.container)) {
+		return null;
+	}
+	return { roundId: event.roundId, container: event.container };
+};
+
+/** Registers for round file changes (a send, a close) of any container. */
+export const subscribeAnnotationRound = (
+	listener: Listener<AnnotationRoundFileEvent>,
+) => {
+	roundListeners.add(listener);
+	return () => {
+		roundListeners.delete(listener);
+	};
+};
+
+export const deliverAnnotationRoundEvent = (
+	event: AnnotationRoundFileEvent,
+) => {
+	for (const listener of roundListeners) listener(event);
 };

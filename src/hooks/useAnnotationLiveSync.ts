@@ -2,8 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import { useProjectScope } from "../components/contexts";
 import {
+	deliverAnnotationScope,
 	subscribeAnnotationEvents,
 	subscribeAnnotationResync,
+	subscribeAnnotationRound,
 	subscribeAnnotationScope,
 } from "../queries/annotation-live-events";
 import {
@@ -12,6 +14,7 @@ import {
 	containerKey,
 	fetchAnnotation,
 	fetchAnnotationList,
+	fetchOpenRound,
 } from "../queries/annotations";
 import { acknowledgementExpiresAt } from "../services/annotation-model";
 import type {
@@ -20,11 +23,14 @@ import type {
 } from "../services/annotations.types";
 import {
 	applyAnnotationRead,
+	applyOpenRound,
 	beginAnnotationRead,
+	beginRoundRead,
 	changeAnnotationScope,
 	confirmAnnotationRevision,
 	editorAnnotationsStore,
 	hydrateAnnotations,
+	isHeldAnnotationScope,
 	openAnnotationContainer,
 	removeAnnotation,
 	setAnnotationsError,
@@ -69,6 +75,9 @@ const nextAcknowledgementExpiry = () => {
  *   (an `annotation-scope` event after a `git checkout`, the scope of a
  *   read, a `SCOPE_CHANGED` refusal), drops what it holds and lists the
  *   new branch's annotations, and the design-list counts refetch;
+ * - reads the container's open round (`GET /annotations/rounds`) on open,
+ *   on an `annotation-round` event for the container, after the event
+ *   stream reconnects, and when the checkout scope changes;
  * - reads an acknowledged annotation again when its acknowledgement would
  *   go idle (the editor counts it down from `lastSeenAt`), in case the
  *   agent session has called since.
@@ -259,6 +268,64 @@ export function useAnnotationLiveSync(container: AnnotationContainer | null) {
 			if (expiryTimer !== null) clearTimeout(expiryTimer);
 		};
 	}, [projectScope, queryClient, stableContainer]);
+
+	useEffect(() => {
+		if (!stableContainer) return;
+		const abort = new AbortController();
+
+		// Takes its place in the order when it starts; the store drops it if
+		// something newer was applied, or the container or scope moved on.
+		const load = async () => {
+			const sequence = beginRoundRead();
+			try {
+				const answer = await fetchOpenRound(stableContainer, abort.signal);
+				if (abort.signal.aborted) return;
+				if (answer.scope && !isHeldAnnotationScope(answer.scope)) {
+					// Another checkout than the one listed: the editor lists again,
+					// and reads the round once that scope is held.
+					deliverAnnotationScope(answer.scope);
+					return;
+				}
+				applyOpenRound(sequence, stableContainer, answer.scope, answer.round);
+			} catch {
+				// Aborted or unreachable: the round shown stays, and the next event
+				// reads it again.
+			}
+		};
+		void load();
+
+		const unsubscribeRound = subscribeAnnotationRound((event) => {
+			if (isSameContainer(event.container, stableContainer)) void load();
+		});
+		const unsubscribeResync = subscribeAnnotationResync(() => void load());
+		// Another checkout scope drops the round with the annotations; the new
+		// branch has its own open round (or none).
+		let heldScope = editorAnnotationsStore.get().scope;
+		let heldRound = editorAnnotationsStore.get().round;
+		const scopeSubscription = editorAnnotationsStore.subscribe(() => {
+			const { scope: next, round } = editorAnnotationsStore.get();
+			const previous = heldScope;
+			const droppedRound = heldRound !== null && round === null;
+			heldScope = next;
+			heldRound = round;
+			if (next === previous || next === null) return;
+			// A first scope after none is only the first list, which keeps the
+			// round; one that dropped the round is a scope change.
+			const changed =
+				previous === null
+					? droppedRound
+					: previous.branch !== next.branch ||
+						previous.worktreePath !== next.worktreePath;
+			if (changed) void load();
+		});
+
+		return () => {
+			abort.abort();
+			unsubscribeRound();
+			unsubscribeResync();
+			scopeSubscription.unsubscribe();
+		};
+	}, [stableContainer]);
 
 	return listQuery;
 }

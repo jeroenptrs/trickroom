@@ -1591,4 +1591,224 @@ describe("annotation routes", () => {
 			}
 		}, 15_000);
 	});
+
+	describe("rounds", () => {
+		type RoundBody = {
+			id: string;
+			status: "open" | "closed";
+			annotationIds: string[];
+			sends: { annotationIds: string[] }[];
+			counts: { total: number; closed: number; humanWork: number };
+		};
+		type SendBody = {
+			scope: { branch: string };
+			round: RoundBody | null;
+			annotations: { key: string; annotation: AnnotationView }[];
+			failed: { key: string; code: string; error: string }[];
+		};
+		const boardTarget = {
+			kind: "board",
+			designId: DESIGN_ID,
+			boardId: "board-1",
+		};
+		const sendDrafts = (drafts: unknown[]) =>
+			request("POST", `${base}/send`, { designId: DESIGN_ID, drafts });
+
+		it("sends drafts into one round and reads it back with counts", async () => {
+			const response = await sendDrafts([
+				{ key: "a", target: layerTarget, body: "Bigger" },
+				{
+					key: "b",
+					target: boardTarget,
+					body: "More air",
+					snapshot: { stageMode: "responsive", responsiveWidth: 390 },
+				},
+				{
+					key: "c",
+					target: { ...layerTarget, elementId: "gone" },
+					body: "Lost",
+				},
+			]);
+			expect(response.status).toBe(201);
+			const sent = await json<SendBody>(response);
+			expect(sent.annotations.map(({ key }) => key)).toEqual(["a", "b"]);
+			expect(sent.failed).toEqual([
+				{ key: "c", code: expect.any(String), error: expect.any(String) },
+			]);
+			expect(sent.round).toMatchObject({
+				status: "open",
+				counts: { total: 2, closed: 0 },
+			});
+			expect(sent.annotations[1]?.annotation).toMatchObject({
+				roundId: sent.round?.id,
+				snapshot: { stageMode: "responsive", responsiveWidth: 390 },
+			});
+
+			const again = await json<SendBody>(
+				await sendDrafts([{ key: "d", target: layerTarget, body: "Bolder" }]),
+			);
+			expect(again.round?.id).toBe(sent.round?.id);
+			expect(again.round?.sends).toHaveLength(2);
+
+			const read = await json<{ round: RoundBody | null }>(
+				await request("GET", `${base}/rounds?designId=${DESIGN_ID}`),
+			);
+			expect(read.round).toMatchObject({
+				id: sent.round?.id,
+				counts: { total: 3, closed: 0 },
+			});
+		});
+
+		it("refuses a malformed send and writes nothing", async () => {
+			for (const drafts of [[], [{ target: layerTarget, body: "x" }]]) {
+				const response = await sendDrafts(drafts);
+				expect(response.status).toBe(400);
+			}
+			await designService.createDesignFile("design-2", buildDesign());
+			const response = await request("POST", `${base}/send`, {
+				designId: "design-2",
+				drafts: [{ key: "a", target: layerTarget, body: "x" }],
+			});
+			expect(response.status).toBe(400);
+			expect((await json<ErrorBody>(response)).code).toBe("WRONG_CONTAINER");
+			expect(
+				(
+					await json<{ round: RoundBody | null }>(
+						await request("GET", `${base}/rounds?designId=${DESIGN_ID}`),
+					)
+				).round,
+			).toBeNull();
+		});
+
+		it("closes a round; a second close writes nothing and the next send opens another", async () => {
+			const sent = await json<SendBody>(
+				await sendDrafts([{ key: "a", target: layerTarget, body: "Bigger" }]),
+			);
+			const roundId = sent.round?.id as string;
+			const close = () =>
+				request("POST", `${base}/rounds/${roundId}/close`, {
+					designId: DESIGN_ID,
+				});
+			const closed = await json<{ round: RoundBody; written: boolean }>(
+				await close(),
+			);
+			expect(closed).toMatchObject({
+				written: true,
+				round: { status: "closed", counts: { total: 1, closed: 0 } },
+			});
+			expect((await json<{ written: boolean }>(await close())).written).toBe(
+				false,
+			);
+			expect(
+				(
+					await json<{ round: RoundBody | null }>(
+						await request("GET", `${base}/rounds?designId=${DESIGN_ID}`),
+					)
+				).round,
+			).toBeNull();
+			const next = await json<SendBody>(
+				await sendDrafts([{ key: "b", target: layerTarget, body: "Again" }]),
+			);
+			expect(next.round?.id).not.toBe(roundId);
+
+			const missing = await request("POST", `${base}/rounds/nope/close`, {
+				designId: DESIGN_ID,
+			});
+			expect(missing.status).toBe(404);
+			expect((await json<ErrorBody>(missing)).code).toBe("ROUND_NOT_FOUND");
+		});
+
+		it("accepts a proposed annotation as the human", async () => {
+			const sent = await json<SendBody>(
+				await sendDrafts([{ key: "a", target: layerTarget, body: "Bigger" }]),
+			);
+			const id = sent.annotations[0]?.annotation.id as string;
+			await editAnnotationFile(id, (annotation) => {
+				const at = new Date().toISOString();
+				const by = { role: "agent" as const, sessionId: "s-1" };
+				annotation.entries.push({
+					id: "proposal-1",
+					kind: "proposal",
+					at,
+					by,
+					summary: "Already large enough",
+				});
+				annotation.transitions.push({
+					from: annotation.status,
+					to: "proposed",
+					at,
+					by,
+				});
+				annotation.status = "proposed";
+			});
+			const listed = await json<ListBody>(
+				await request("GET", `${base}?designId=${DESIGN_ID}&status=proposed`),
+			);
+			expect(listed.annotations.map((annotation) => annotation.id)).toEqual([
+				id,
+			]);
+			const accepted = await json<{ resolved: AnnotationView[] }>(
+				await request("POST", `${base}/resolve`, {
+					designId: DESIGN_ID,
+					statuses: ["proposed"],
+				}),
+			);
+			expect(accepted.resolved).toEqual([
+				expect.objectContaining({
+					id,
+					status: "resolved",
+					resolvedBy: { role: "human" },
+				}),
+			]);
+		});
+
+		it("sends an annotation-round event when a round file changes", async () => {
+			const controller = new AbortController();
+			const response = await app.request("/api/trickroom/events", {
+				signal: controller.signal,
+			});
+			const reader = response.body?.getReader();
+			if (!reader) throw new Error("event stream body is unavailable");
+			const decoder = new TextDecoder();
+			let received = "";
+			const pump = (async () => {
+				for (;;) {
+					const chunk = await reader.read().catch(() => null);
+					if (!chunk || chunk.done) return;
+					received += decoder.decode(chunk.value, { stream: true });
+				}
+			})();
+			const waitFor = async (predicate: () => boolean) => {
+				const deadline = Date.now() + 8_000;
+				while (!predicate() && Date.now() < deadline) {
+					await new Promise((resolve) => setTimeout(resolve, 20));
+				}
+			};
+			try {
+				await waitFor(() => received.includes("event: ready"));
+				const sent = await json<SendBody>(
+					await sendDrafts([{ key: "a", target: layerTarget, body: "Hi" }]),
+				);
+				await waitFor(() => received.includes("event: annotation-round"));
+				const frame = received
+					.split("\n\n")
+					.find((entry) => entry.includes("event: annotation-round"));
+				const data = JSON.parse(
+					(frame as string)
+						.split("\n")
+						.find((line) => line.startsWith("data:"))
+						?.slice("data:".length)
+						.trim() ?? "null",
+				);
+				expect(data).toEqual({
+					roundId: sent.round?.id,
+					container: { kind: "design", designId: DESIGN_ID },
+				});
+			} finally {
+				controller.abort();
+				await reader.cancel().catch(() => undefined);
+				await pump;
+			}
+		}, 15_000);
+	});
 });

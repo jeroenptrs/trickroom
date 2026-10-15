@@ -443,3 +443,135 @@ UI with the repo's `playwright-core` headless Chromium:
   of a change entry, so after a 3,426-layer write each result showing the
   annotation (`annotation_reply` with `reanchor` among them) was 136 KB.
   Bodies now list at most 20 ids plus `layerCount`.
+
+## Rounds
+
+Proposal: [annotation-rounds.md](./annotation-rounds.md). Branch
+`t3/annotation-rounds` off `main` at 126d2f9, one PR against `main`. One
+implementing thread (Opus 5.5); small edits may go to Sonnet 5.5 or Haiku
+5.5 subagents. The design decisions and the MCP tools stay with the
+implementing thread. The bug fix found first (change entries listing every
+layer id) went out separately as PR #35.
+
+Status key: todo, in progress, done.
+
+### R1: proposal and plan
+
+Status: done (01208e8). The proposal, and this section.
+
+### R2: store and service
+
+Status: done (service tests, round schema tests, and two processes sending
+at once into one round).
+
+- `src/services/annotation-round-*.ts`: round file type, schema and
+  `roundFileMigrations`, a store for round files (lock per container's
+  `rounds` folder, atomic rename, 0700 and 0600).
+- Annotation file version 2 with optional `roundId`; migration 1 to 2.
+  Tests that used version 2 as "newer" move to version 3.
+- `proposed` status and `proposal` entry; `propose` in `replyToAnnotation`;
+  `proposed` in `HUMAN_WORK_STATUSES`.
+- `sendAnnotations` (open or find the round, write the annotations, append
+  the send, all under the round lock), `closeRound`, `getOpenRound`,
+  `summarizeRound`, and the pending filter (`landed`) for listings.
+- Tests: service level, plus a two-process case: two processes sending to
+  the same design at once open one round, and every annotation lands.
+
+### R3: HTTP routes and the editor
+
+Status: done. Editor built by a Sonnet 5.5 subagent from the proposal and
+reviewed; checked in headless Chromium (send round, live proposal, Accept
+all proposed, Close round with the confirm, command menu). The old **Send
+drafts** command is gone: **Send round** does the same.
+
+- Routes: `POST /annotations/send`, `GET /annotations/rounds`,
+  `POST /annotations/rounds/:roundId/close`; `annotation-round` SSE events.
+- Editor: send through the new route (one draft or many), `proposed`
+  rendering with **Accept**, round header with progress, **Send round**,
+  **Accept all proposed**, **Close round** with a confirm, command menu
+  entries. Pins and markers show `proposed` like `addressed`.
+- Verify in headless Chromium.
+
+### R4: MCP
+
+Status: done (`annotation_watch` moved to `src/mcp/tools/annotation-watch.ts`;
+component rounds included).
+
+- `propose` on `annotation_reply`; `annotation_watch` with `round: true`
+  (design and component); round counts on `project_list` and
+  `design_list`; pending annotations left out of every listing; `next`
+  texts; the `annotations` guide topic; server instructions; tool
+  descriptions under 2,048 characters.
+
+### R5: docs
+
+Status: done; the user guide is checked against the editor once R3 lands. `docs/mcp.md`, `docs/user-guide.md`,
+`docs/project-files.md`.
+
+### R6: dogfood
+
+Status: done (2026-10-15). A real `claude -p` session (Opus 5.5) against
+the built stdio server, the designer driven through the HTTP routes in
+process, on a scratch copy of this repo's "Onboarding Redesign POC"
+design. The prompt named neither tool nor `round`; the agent found
+`annotation_watch` with `round: true` from the server instructions.
+
+1. The designer sent three remarks in one round. The agent's first watch
+   returned `work` with all three.
+2. It addressed the title (`design_apply` addresses), proposed closing the
+   step title remark ("already font-semibold text-slate-950"), and asked
+   which icon "the icon we talked about" was.
+3. The designer accepted the two and answered the question; the next
+   watch returned `work` with the answer. The agent added the lucide
+   folder-open icon and addressed it.
+4. The designer closed the round. The agent's watch returned `verdict`
+   (the two acceptances), then `closed`; it summarised and ended its turn
+   (27 turns, 125 s, $0.51).
+
+Found: the agent passed `timeoutMs: 120000` (Claude Code allows it);
+`design_screenshot` timed out without a web runtime build, as in WP6.
+
+### Review round 1 (PR #36)
+
+Status: fixed, all five findings, each with a regression test.
+
+1. Partial send seen between two reads: agent reads take the round index
+   before the annotation files (`scanLanded`); listings, blocks, counts
+   and watch all go through it. Test: a reader whose send completes
+   between its two reads sees nothing, never half.
+2. Closed round of another branch: `takeClosedRounds` filters by the
+   checkout's branch. Test: a round closing after a checkout to a branch
+   with its own round is not reported there.
+3. Send cut short by a checkout change: the service returns the written
+   annotations with `interrupted` instead of throwing; the editor drops
+   those drafts. Tests: service (scope change between drafts) and editor.
+4. Counts included pending annotations: design, project and component
+   index counts use the landed filter. Tests: an unlisted annotation is
+   not counted on `design_list`, `project_list` or the component index.
+5. Late close answer cleared a newer round: send and close answers take
+   their place in the round order when the request starts, and a close
+   clears only the round it closed. Tests: reversed answers for close and
+   for send.
+
+### Review round 2 (PR #36)
+
+Status: approved; both minors fixed.
+
+1. `annotation_list`'s empty-list hint counted pending annotations on
+   other branches; it now counts landed ones only. Test: a pending send on
+   another branch gives no hint, and `branch: "all"` lists nothing.
+2. A partial send showed "nothing was saved" and "Annotation sent"; it now
+   shows one warning naming the sent and kept counts. Test checks the
+   notifications.
+
+### Rounds follow-ups
+
+- `verdict` takes precedence over `closed`, so an agent whose round
+  closed while verdicts were pending makes one extra watch call.
+- `project_list` and `design_list` round counts cover designs, not
+  components (as for annotation counts).
+- `POST /api/trickroom/annotations` still creates annotations outside a
+  round; only the editor's send route uses rounds.
+- `annotation_list` and blocks note a round as seen only when they show
+  one of its annotations in full; a session that saw none of them gets
+  `idle` after the close, not `closed`.

@@ -1,9 +1,13 @@
 import { createStore, useSelector } from "@tanstack/react-store";
+import { useMemo } from "react";
+import type { OpenRound } from "../queries/annotations";
 import {
+	type AnnotationRoundCounts,
 	type AnnotationTargetLocator,
 	currentBoardOfWith,
 	deriveDetachedWith,
 	latestAcknowledgement,
+	summarizeRound,
 } from "../services/annotation-model";
 import type {
 	AnnotationContainer,
@@ -45,6 +49,8 @@ export type EditorAnnotationsState = {
 	scope: AnnotationScope | null;
 	status: "idle" | "loading" | "ready" | "error";
 	byId: Record<string, AnnotationView>;
+	/** The open round of the container on this branch, if there is one. */
+	round: OpenRound | null;
 	/** Show resolved and dismissed annotations on the stage and in the rail. */
 	showResolved: boolean;
 	inspectorTab: InspectorTab;
@@ -52,6 +58,8 @@ export type EditorAnnotationsState = {
 	activeAnnotationId: string | null;
 	/** Bumped to move focus to the new-annotation composer. */
 	composerFocusRequest: number;
+	/** The command menu asked to close the round; the round header answers. */
+	closeRoundRequested: boolean;
 	/** Derived for the open design; see `refreshAnnotationMarkers`. */
 	markers: AnnotationRowMarkers;
 };
@@ -106,10 +114,12 @@ const initialState = (): EditorAnnotationsState => ({
 	scope: null,
 	status: "idle",
 	byId: createIdRecord(),
+	round: null,
 	showResolved: readShowResolved(),
 	inspectorTab: "properties",
 	activeAnnotationId: null,
 	composerFocusRequest: 0,
+	closeRoundRequested: false,
 	markers: emptyMarkers(),
 });
 
@@ -237,6 +247,7 @@ export function openAnnotationContainer(container: AnnotationContainer | null) {
 		scope: null,
 		status: container ? "loading" : "idle",
 		byId: createIdRecord(),
+		round: null,
 		activeAnnotationId: null,
 		markers: emptyMarkers(),
 	}));
@@ -322,6 +333,7 @@ const startScope = (scope: AnnotationScope | null) => {
 		scope,
 		status: state.container ? "loading" : "idle",
 		byId: createIdRecord(),
+		round: null,
 		activeAnnotationId: null,
 		markers: emptyMarkers(),
 	}));
@@ -464,6 +476,72 @@ export function removeAnnotation(annotationId: string) {
 	);
 }
 
+// ---------------------------------------------------------------------------
+// The open round. It is read on its own (a fetch, an `annotation-round`
+// event, or the answer of a send or a close), so it has its own order: an
+// answer applies only when it started after the newest one applied. An
+// answer of another container or another checkout scope than the one held
+// does not apply.
+// ---------------------------------------------------------------------------
+
+let roundClock = 0;
+let roundApplied = 0;
+
+/** Call when a round read starts; for a write's answer, call when it arrives. */
+export const beginRoundRead = () => (roundClock += 1);
+
+/**
+ * Shows the open round of `container` (null: none is open), read in
+ * `scope` when `scope` is known. False when it did not apply.
+ */
+export function applyOpenRound(
+	sequence: number,
+	container: AnnotationContainer,
+	scope: AnnotationScope | null,
+	round: OpenRound | null,
+): boolean {
+	const state = editorAnnotationsStore.get();
+	if (!sameContainer(state.container, container)) return false;
+	if (scope && state.scope && !sameScope(state.scope, scope)) return false;
+	if (sequence <= roundApplied) return false;
+	roundApplied = sequence;
+	editorAnnotationsStore.setState((current) => ({ ...current, round }));
+	return true;
+}
+
+/**
+ * The open round with its progress counted from the annotations the
+ * editor holds, so it moves as they do. An annotation the round lists and
+ * the editor does not hold counts as closed.
+ */
+export function useOpenRound(): {
+	round: OpenRound;
+	counts: AnnotationRoundCounts;
+	/** The round's annotations waiting for the designer to close them. */
+	proposed: AnnotationView[];
+} | null {
+	const round = useSelector(editorAnnotationsStore, (state) => state.round);
+	const byId = useSelector(editorAnnotationsStore, (state) => state.byId);
+	const ready = useSelector(
+		editorAnnotationsStore,
+		(state) => state.status === "ready",
+	);
+	return useMemo(() => {
+		if (!round) return null;
+		const listed = new Set(round.annotationIds);
+		const held = Object.values(byId);
+		return {
+			round,
+			// Before the list arrives the server's counts are the best there is.
+			counts: ready ? summarizeRound(round, held) : round.counts,
+			proposed: held.filter(
+				(annotation) =>
+					annotation.status === "proposed" && listed.has(annotation.id),
+			),
+		};
+	}, [byId, ready, round]);
+}
+
 export function setShowResolvedAnnotations(showResolved: boolean) {
 	try {
 		window.localStorage.setItem(
@@ -501,9 +579,31 @@ export function requestAnnotationComposer() {
 	}));
 }
 
+/**
+ * Opens the Annotations tab and asks the round header to close the round
+ * (it confirms first when annotations stay open).
+ */
+export function requestCloseRound() {
+	editorAnnotationsStore.setState((state) => ({
+		...state,
+		inspectorTab: "annotations",
+		closeRoundRequested: true,
+	}));
+}
+
+/** The round header took the request. */
+export function clearCloseRoundRequest() {
+	editorAnnotationsStore.setState((state) =>
+		state.closeRoundRequested
+			? { ...state, closeRoundRequested: false }
+			: state,
+	);
+}
+
 /** Test and reset helper. */
 export function resetEditorAnnotations() {
 	generation += 1;
+	roundApplied = 0;
 	settledAt = new Map();
 	lastList = null;
 	editorAnnotationsStore.setState(() => initialState());

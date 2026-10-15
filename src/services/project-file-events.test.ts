@@ -614,7 +614,7 @@ describe("annotation events", () => {
 	const createAnnotationFixture = (id: string): Annotation => {
 		const at = "2026-10-14T10:00:00.000Z";
 		return {
-			version: 1,
+			version: 2,
 			id,
 			projectId: "proj",
 			target: { kind: "design", designId: designContainer.designId },
@@ -644,7 +644,8 @@ describe("annotation events", () => {
 		const received: AnnotationFileEvent[] = [];
 		events.setAnnotationProject("proj");
 		const unsubscribe = events.subscribeAnnotations((event) => {
-			received.push(event);
+			// Round files are not written here; annotation events only.
+			if (!("roundId" in event)) received.push(event);
 		});
 		const store = new AnnotationStore({
 			projectId: "proj",

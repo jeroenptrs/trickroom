@@ -9,9 +9,11 @@ import {
 } from "../components/annotations/annotation-actions";
 import {
 	deliverAnnotationEvent,
+	deliverAnnotationRoundEvent,
 	deliverAnnotationScope,
 	requestAnnotationResync,
 } from "../queries/annotation-live-events";
+import type { OpenRound } from "../queries/annotations";
 import { ACKNOWLEDGEMENT_TTL_MS } from "../services/annotation-model";
 import type {
 	AnnotationContainer,
@@ -37,7 +39,7 @@ const view = (
 	revision = "r1",
 	overrides: Partial<AnnotationView> = {},
 ): AnnotationView => ({
-	version: 1,
+	version: 2,
 	id,
 	projectId: "p1",
 	target: { kind: "design", designId: "D" },
@@ -61,13 +63,27 @@ const json = (body: unknown) =>
 
 // What the server holds: the list answer and single reads.
 let served: Record<string, AnnotationView>;
+/** The open round the server answers with. */
+let openRound: OpenRound | null;
+/** The checkout the server answers in. */
+let servedScope: AnnotationScope;
 const fetchMock = vi.fn<(url: string) => Promise<Response>>();
 
 const urls = () => fetchMock.mock.calls.map(([url]) => String(url));
 const listCalls = () =>
 	urls().filter((url) => url === "/api/trickroom/annotations?designId=D");
 const singleCalls = () =>
-	urls().filter((url) => url.startsWith("/api/trickroom/annotations/"));
+	urls().filter(
+		(url) =>
+			url.startsWith("/api/trickroom/annotations/") &&
+			!url.startsWith("/api/trickroom/annotations/rounds"),
+	);
+const roundCalls = () =>
+	urls().filter((url) =>
+		url.startsWith("/api/trickroom/annotations/rounds?designId=D"),
+	);
+
+const roundAnswer = (round: OpenRound | null) => json({ scope, round });
 
 const flush = async () => {
 	await act(async () => {
@@ -101,12 +117,17 @@ const state = () => editorAnnotationsStore.get();
 beforeEach(() => {
 	resetEditorAnnotations();
 	served = { a1: view("a1", "r1") };
+	openRound = null;
+	servedScope = scope;
 	fetchMock.mockReset();
 	fetchMock.mockImplementation(async (url) => {
 		const path = String(url);
+		if (path.startsWith("/api/trickroom/annotations/rounds?")) {
+			return json({ scope: servedScope, round: openRound });
+		}
 		if (path.startsWith("/api/trickroom/annotations?")) {
 			return json({
-				scope,
+				scope: servedScope,
 				annotations: Object.values(served),
 				problems: [],
 			});
@@ -667,5 +688,119 @@ describe("useAnnotationLiveSync and checkout scope changes", () => {
 		expect(singleCalls()).toEqual(["/api/trickroom/annotations/a1?designId=D"]);
 		expect(state().byId.a1?.acknowledgement?.active).toBe(false);
 		expect(state().byId.a1?.revision).toBe("r1");
+	});
+});
+
+const roundOf = (id: string, annotationIds: string[]): OpenRound => ({
+	version: 1,
+	id,
+	projectId: "p1",
+	container,
+	branch: "main",
+	worktreePath: "/work",
+	status: "open",
+	openedAt: "2026-10-15T10:00:00.000Z",
+	annotationIds,
+	sends: [],
+	counts: {
+		total: annotationIds.length,
+		closed: 0,
+		agentWork: annotationIds.length,
+		humanWork: 0,
+		byStatus: { open: annotationIds.length },
+	},
+});
+
+describe("useAnnotationLiveSync and the open round", () => {
+	it("reads the open round when the container opens", async () => {
+		openRound = roundOf("R1", ["a1"]);
+		await mount();
+		expect(roundCalls()).toHaveLength(1);
+		expect(state().round?.id).toBe("R1");
+	});
+
+	it("has no round when none is open", async () => {
+		await mount();
+		expect(state().round).toBeNull();
+	});
+
+	it("reads the round again on an annotation-round event of the container", async () => {
+		await mount();
+		openRound = roundOf("R1", ["a1"]);
+		await act(async () => {
+			deliverAnnotationRoundEvent({ roundId: "R1", container });
+		});
+		await flush();
+		expect(roundCalls()).toHaveLength(2);
+		expect(state().round?.id).toBe("R1");
+		// A close: nothing is open any more.
+		openRound = null;
+		await act(async () => {
+			deliverAnnotationRoundEvent({ roundId: "R1", container });
+		});
+		await flush();
+		expect(state().round).toBeNull();
+	});
+
+	it("ignores round events of another design", async () => {
+		await mount();
+		await act(async () => {
+			deliverAnnotationRoundEvent({
+				roundId: "R1",
+				container: { kind: "design", designId: "other" },
+			});
+		});
+		await flush();
+		expect(roundCalls()).toHaveLength(1);
+	});
+
+	it("reads the round again after the stream reconnects", async () => {
+		await mount();
+		await act(async () => {
+			requestAnnotationResync();
+		});
+		await flush();
+		expect(roundCalls()).toHaveLength(2);
+	});
+
+	it("reads the new branch's round when the checkout changes", async () => {
+		openRound = roundOf("R1", ["a1"]);
+		await mount();
+		openRound = roundOf("R2", []);
+		served = {};
+		servedScope = { branch: "other", worktreePath: "/work" };
+		await act(async () => {
+			deliverAnnotationScope(servedScope);
+		});
+		await flush();
+		expect(roundCalls()).toHaveLength(2);
+		expect(state().round?.id).toBe("R2");
+	});
+
+	it("keeps the newest answer when two reads overlap", async () => {
+		await mount();
+		openRound = roundOf("R1", []);
+		const slow = deferred<Response>();
+		const answers = [
+			slow.promise,
+			Promise.resolve(roundAnswer(roundOf("R2", []))),
+		];
+		fetchMock.mockImplementationOnce(
+			() => answers.shift() as Promise<Response>,
+		);
+		fetchMock.mockImplementationOnce(
+			() => answers.shift() as Promise<Response>,
+		);
+		await act(async () => {
+			deliverAnnotationRoundEvent({ roundId: "R1", container });
+			deliverAnnotationRoundEvent({ roundId: "R2", container });
+		});
+		await flush();
+		expect(state().round?.id).toBe("R2");
+		await act(async () => {
+			slow.resolve(roundAnswer(roundOf("R1", [])));
+		});
+		await flush();
+		expect(state().round?.id).toBe("R2");
 	});
 });

@@ -16,7 +16,7 @@ import type {
  *
  * - `draft`: written, not sent; it lives only in the browser.
  * - `open` and `acknowledged`: sent, agent work.
- * - `addressed` and `needs_input`: waiting on the designer.
+ * - `addressed`, `needs_input` and `proposed`: waiting on the designer.
  * - `detached`: live, but its layer or board is gone.
  * - `agent_resolved`: resolved by an agent and not yet accepted.
  * - `resolved` and `dismissed`: closed.
@@ -31,7 +31,8 @@ export type AnnotationPresentationState =
  * The visual of each state (docs/proposals/agent-annotations-workplan.md):
  * open is a cyan square, addressed a hollow cyan square, needs input a
  * slate square with a cyan border, detached dashed slate, resolved slate
- * at 40%, a draft dashed cyan, agent-resolved a hollow check.
+ * at 40%, a draft dashed cyan, agent-resolved a hollow check. Proposed
+ * looks like addressed: a result for the designer to accept.
  */
 export type AnnotationMarkerLook =
 	| "filled"
@@ -52,6 +53,7 @@ export const ANNOTATION_MARKER_LOOK: Record<
 	acknowledged: "filled",
 	addressed: "hollow",
 	needs_input: "question",
+	proposed: "hollow",
 	detached: "detached",
 	agent_resolved: "check",
 	resolved: "muted",
@@ -67,6 +69,7 @@ export const ANNOTATION_STATE_LABELS: Record<
 	acknowledged: "Seen",
 	addressed: "Addressed",
 	needs_input: "Needs input",
+	proposed: "Proposed",
 	detached: "Detached",
 	agent_resolved: "Resolved by agent",
 	resolved: "Resolved",
@@ -80,13 +83,14 @@ export const ANNOTATION_STATE_LABELS: Record<
 const STATE_PRIORITY: Record<AnnotationPresentationState, number> = {
 	needs_input: 0,
 	addressed: 1,
-	detached: 2,
-	open: 3,
-	acknowledged: 4,
-	draft: 5,
-	agent_resolved: 6,
-	resolved: 7,
-	dismissed: 8,
+	proposed: 2,
+	detached: 3,
+	open: 4,
+	acknowledged: 5,
+	draft: 6,
+	agent_resolved: 7,
+	resolved: 8,
+	dismissed: 9,
 };
 
 export const compareAnnotationStates = (

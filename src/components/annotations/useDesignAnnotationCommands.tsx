@@ -1,5 +1,5 @@
 import { useSelector } from "@tanstack/react-store";
-import { MessageSquarePlus, Send, SkipForward } from "lucide-react";
+import { Flag, MessageSquarePlus, Send, SkipForward } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { isLiveAnnotationStatus } from "../../services/annotation-model";
 import {
@@ -10,6 +10,8 @@ import {
 import {
 	editorAnnotationsStore,
 	requestAnnotationComposer,
+	requestCloseRound,
+	useOpenRound,
 } from "../../stores/editor-annotations-store";
 import { setEditorPanelOpen } from "../../stores/editor-chrome-store";
 import type { EditorRootCommandGroup } from "../chrome/AddLayerCommandMenu";
@@ -38,6 +40,8 @@ export function useDesignAnnotationCommands(
 			).length,
 	);
 
+	const hasOpenRound = useOpenRound() !== null;
+
 	return useMemo(
 		() => ({
 			label: "Annotations",
@@ -58,9 +62,10 @@ export function useDesignAnnotationCommands(
 						),
 				},
 				{
-					value: "annotations:send-drafts",
-					label: draftCount > 0 ? `Send drafts (${draftCount})` : "Send drafts",
-					keywords: ["annotation", "drafts", "send"],
+					value: "annotations:send-round",
+					label: draftCount > 0 ? `Send round (${draftCount})` : "Send round",
+					secondary: "Every draft in the design, into the round",
+					keywords: ["annotation", "round", "send", "drafts", "batch"],
 					icon: <Send aria-hidden="true" className={iconClass} />,
 					disabled: draftCount === 0,
 					disabledReason: "No annotation drafts in this design",
@@ -69,6 +74,18 @@ export function useDesignAnnotationCommands(
 							getAnnotationDrafts().filter(isDesignDraft),
 							getDesignSnapshotHint(),
 						);
+					},
+				},
+				{
+					value: "annotations:close-round",
+					label: "Close round",
+					keywords: ["annotation", "round", "close", "finish", "done"],
+					icon: <Flag aria-hidden="true" className={iconClass} />,
+					disabled: !hasOpenRound,
+					disabledReason: "No round is open in this design",
+					onSelect: () => {
+						setEditorPanelOpen("design", "inspector", true);
+						requestCloseRound();
 					},
 				},
 				{
@@ -84,6 +101,6 @@ export function useDesignAnnotationCommands(
 				},
 			],
 		}),
-		[draftCount, isDesignDraft, liveCount],
+		[draftCount, hasOpenRound, isDesignDraft, liveCount],
 	);
 }

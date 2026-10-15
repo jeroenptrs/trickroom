@@ -18,6 +18,7 @@ import {
 	findDesignLayer,
 	hasPinnedVariants,
 	isLiveAnnotationStatus,
+	isPendingAnnotation,
 	normalizePinnedVariants,
 	summarizeAnnotationCounts,
 } from "./annotation-model";
@@ -35,6 +36,7 @@ import {
 	type AnnotationChangeRecord,
 	type AnnotationContainer,
 	type AnnotationEntry,
+	type AnnotationRound,
 	type AnnotationScope,
 	type AnnotationSnapshot,
 	type AnnotationStatus,
@@ -95,7 +97,8 @@ export type AnnotationServiceErrorCode =
 	| "DESIGN_BUSY"
 	| "WRONG_BRANCH"
 	| "SCOPE_CHANGED"
-	| "COMPONENT_BUSY";
+	| "COMPONENT_BUSY"
+	| "ALREADY_CLOSED";
 
 export class AnnotationServiceError extends Error {
 	readonly code: AnnotationServiceErrorCode;
@@ -616,14 +619,64 @@ export type ListAnnotationsInput = {
 	 * not list the folder again.
 	 */
 	stored?: Awaited<ReturnType<AnnotationStore["list"]>>;
+	/**
+	 * Leave out annotations still pending in a round (sent, not yet listed
+	 * in the round file): what agents see, so a batch arrives whole. With
+	 * `stored`, pass the `roundsById` that `scanLanded` read before it.
+	 */
+	landedOnly?: boolean;
+	/** The round index `scanLanded` read before `stored`. */
+	roundsById?: ReadonlyMap<string, AnnotationRound>;
 };
+
+/** A container's files as agents see them (`scanLanded`). */
+export type LandedScan = {
+	stored: Awaited<ReturnType<AnnotationStore["list"]>>;
+	roundsById: ReadonlyMap<string, AnnotationRound>;
+};
+
+/**
+ * A container's annotation files with the round index read first. The
+ * order matters: a send writes its annotations, then lists them in the
+ * round file, so every annotation a round lists is on disk before the
+ * round says so. Read the other way round, a scan could miss the second
+ * annotation of a send whose round file then lists both, and show half a
+ * batch.
+ */
+export const scanLanded = async (
+	context: AnnotationServiceContext,
+	container: AnnotationContainer,
+): Promise<LandedScan> => {
+	const { rounds } = await context.store.listRounds(container);
+	const stored = await context.store.list(container);
+	return {
+		stored,
+		roundsById: new Map(rounds.map((round) => [round.id, round])),
+	};
+};
+
+/** `scan`'s files without the annotations still pending in a round. */
+const landedOf = (scan: LandedScan, now: Date) =>
+	scan.stored.annotations.filter(
+		({ annotation }) => !isPendingAnnotation(annotation, scan.roundsById, now),
+	);
 
 export const listAnnotations = async (
 	context: AnnotationServiceContext,
 	input: ListAnnotationsInput,
 ) => {
+	let stored = input.stored;
+	let roundsById = input.roundsById ?? null;
+	if (input.landedOnly && !roundsById) {
+		if (stored) {
+			throw new Error(
+				"listAnnotations: landedOnly with stored needs the roundsById read before it (scanLanded).",
+			);
+		}
+		({ stored, roundsById } = await scanLanded(context, input.container));
+	}
 	const { annotations, problems } =
-		input.stored ?? (await context.store.list(input.container));
+		stored ?? (await context.store.list(input.container));
 	const statuses = input.statuses ? new Set(input.statuses) : null;
 	const now = nowOf(context);
 	const sessionClock = createSessionClock(context.store);
@@ -631,6 +684,13 @@ export const listAnnotations = async (
 	const locators = viewLocators(input);
 	const selected = annotations.filter(({ annotation }) => {
 		if (!matchesBranch(annotation, input.scope, input.branch)) return false;
+		if (
+			input.landedOnly &&
+			roundsById &&
+			isPendingAnnotation(annotation, roundsById, now)
+		) {
+			return false;
+		}
 		if (statuses && !statuses.has(annotation.status)) return false;
 		if (
 			input.boardId !== undefined &&
@@ -678,9 +738,13 @@ export const countAnnotations = async (
 		branch?: AnnotationBranchFilter;
 		design?: TrickroomDesign | null;
 		component?: ComponentAnchorTemplate | null;
+		/** Leave out annotations still pending in a round, as agents see them. */
+		landedOnly?: boolean;
 	},
 ): Promise<AnnotationCountSummary> => {
-	const { annotations } = await context.store.list(input.container);
+	const annotations = input.landedOnly
+		? landedOf(await scanLanded(context, input.container), nowOf(context))
+		: (await context.store.list(input.container)).annotations;
 	return summarizeAnnotationCounts(
 		annotations
 			.map(({ annotation }) => annotation)
@@ -813,6 +877,11 @@ export type CreateAnnotationInput = {
 	 * are the caller's.
 	 */
 	component?: AnnotationComponentRead;
+	/**
+	 * The round it is sent in (`sendAnnotations`). Agents see it once the
+	 * round file lists it.
+	 */
+	roundId?: string;
 };
 
 /**
@@ -889,6 +958,7 @@ export const createAnnotation = async (
 		status: "open",
 		createdAt: at,
 		updatedAt: at,
+		...(input.roundId ? { roundId: input.roundId } : {}),
 		entries: [
 			input.by.role === "human"
 				? { id: randomUUID(), kind: "remark", at, by: input.by, body }
@@ -978,14 +1048,19 @@ export type ReplyInput = AnnotationRef & {
 	dismiss?: { reason: string };
 	/** Done. */
 	resolve?: { summary?: string };
+	/**
+	 * An agent asks the designer to close it without a change, with its
+	 * reason: the annotation is proposed until they accept or reply.
+	 */
+	propose?: { summary: string };
 };
 
 /**
  * A reply without a design write. A human remark reopens an addressed,
  * needs-input, resolved or dismissed annotation; an agent reply on an open
- * one acknowledges it; a question sets `needs_input` (agents only);
- * `dismiss` and `resolve` close it. At most one of question, dismiss and
- * resolve per call.
+ * one acknowledges it; a question sets `needs_input` and a proposal
+ * `proposed` (agents only); `dismiss` and `resolve` close it. At most one
+ * of question, propose, dismiss and resolve per call.
  */
 export const replyToAnnotation = async (
 	context: AnnotationServiceContext,
@@ -1006,18 +1081,29 @@ export const replyToAnnotation = async (
 		input.resolve?.summary === undefined
 			? undefined
 			: requireText(input.resolve.summary, "resolve.summary");
-	const actions = [question, input.dismiss, input.resolve].filter(
+	const proposal =
+		input.propose === undefined
+			? undefined
+			: requireText(input.propose?.summary, "propose.summary");
+	const actions = [question, proposal, input.dismiss, input.resolve].filter(
 		(action) => action !== undefined,
 	);
 	if (actions.length > 1) {
-		throw invalidInput("Pass at most one of question, dismiss and resolve.");
+		throw invalidInput(
+			"Pass at most one of question, propose, dismiss and resolve.",
+		);
 	}
 	if (body === undefined && actions.length === 0) {
-		throw invalidInput("Pass a body, a question, dismiss or resolve.");
+		throw invalidInput("Pass a body, a question, propose, dismiss or resolve.");
 	}
 	if (question !== undefined && input.by.role !== "agent") {
 		throw invalidInput(
 			"Questions are asked by agents; a designer replies with a body.",
+		);
+	}
+	if (proposal !== undefined && input.by.role !== "agent") {
+		throw invalidInput(
+			"Resolutions are proposed by agents; a designer resolves directly.",
 		);
 	}
 	const { by } = input;
@@ -1041,6 +1127,25 @@ export const replyToAnnotation = async (
 				body: question,
 			});
 			return withTransition(next, "needs_input", by, at);
+		}
+		if (proposal !== undefined) {
+			if (!isLive(annotation.status)) {
+				throw new AnnotationServiceError(
+					"ALREADY_CLOSED",
+					`Annotation ${annotation.id} is ${annotation.status}: there is nothing to propose. Reply with a body instead.`,
+					{ annotationId: annotation.id, status: annotation.status },
+				);
+			}
+			next = withEntry(next, {
+				id: randomUUID(),
+				kind: "proposal",
+				at,
+				by,
+				summary: proposal,
+			});
+			return next.status === "proposed"
+				? next
+				: withTransition(next, "proposed", by, at);
 		}
 		// A repeated dismiss or resolve keeps only the text, if any.
 		const unchanged = next === annotation ? null : next;

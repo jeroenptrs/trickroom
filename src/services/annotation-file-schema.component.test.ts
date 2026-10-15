@@ -14,7 +14,7 @@ const agent = { role: "agent", sessionId: "s-1" } as const;
 const at = "2026-10-14T10:00:00.000Z";
 
 const makeAnnotation = (overrides: Partial<Annotation> = {}): Annotation => ({
-	version: 1,
+	version: 2,
 	id: "ann-1",
 	projectId: "proj-1",
 	target: {
@@ -76,13 +76,13 @@ const draftBefore = () => ({
 const draftAfter = () => ({ templateHash: "t", variantSchemaHash: "v" });
 
 describe("component node annotation files", () => {
-	it("reads a version 1 file with a componentNode target and snapshot.variants", () => {
+	it("reads a file with a componentNode target and snapshot.variants", () => {
 		const annotation = makeAnnotation();
 		const result = migrateAnnotationFileValue(asValue(annotation));
 		expect(result).toEqual({
 			ok: true,
 			value: annotation,
-			fromVersion: 1,
+			fromVersion: 2,
 			migrated: false,
 		});
 	});
@@ -136,7 +136,7 @@ describe("component node annotation files", () => {
 	it("refuses a newer version", () => {
 		const result = migrateAnnotationFileValue({
 			...asValue(makeAnnotation()),
-			version: 2,
+			version: 3,
 		});
 		expect(result.ok).toBe(false);
 		if (!result.ok) expect(result.code).toBe("UNSUPPORTED_ANNOTATION_VERSION");
@@ -292,6 +292,6 @@ describe("component change records", () => {
 			transitions: [{ from: null, to: "open", at, by: human }],
 		};
 		const result = migrateAnnotationFileValue(legacy);
-		expect(result).toMatchObject({ ok: true, migrated: false });
+		expect(result).toMatchObject({ ok: true, migrated: true, fromVersion: 1 });
 	});
 });

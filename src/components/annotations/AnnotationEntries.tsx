@@ -195,6 +195,7 @@ function entryLabel(entry: AnnotationEntry) {
 	switch (entry.kind) {
 		case "remark":
 		case "reply":
+		case "proposal":
 			return null;
 		case "question":
 			return "Question";
@@ -231,6 +232,8 @@ function EntryBody({
 			return <EntryText>{entry.reason}</EntryText>;
 		case "resolution":
 			return entry.summary ? <EntryText>{entry.summary}</EntryText> : null;
+		case "proposal":
+			return <EntryText>{`Proposed: ${entry.summary}`}</EntryText>;
 		case "change":
 			return (
 				<ChangeRecord entry={entry} annotation={annotation} actions={actions} />

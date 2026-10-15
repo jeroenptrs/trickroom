@@ -1,5 +1,8 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { ComponentAnchorTemplate } from "../services/annotation-model";
+import {
+	type ComponentAnchorTemplate,
+	summarizeRound,
+} from "../services/annotation-model";
 import {
 	AGENT_WORK_STATUSES,
 	type AnnotationCounts,
@@ -7,8 +10,10 @@ import {
 	acknowledgeAnnotation,
 	countAnnotations,
 	getAnnotationAnchorIndex,
+	type LandedScan,
 	listAnnotations,
 	recordSessionCall,
+	scanLanded,
 	summarizeAnnotationCounts,
 	viewAnnotation,
 } from "../services/annotation-service";
@@ -23,6 +28,7 @@ import {
 	type AnnotationActor,
 	type AnnotationContainer,
 	type AnnotationEntry,
+	type AnnotationRound,
 	type AnnotationScope,
 	type AnnotationStatus,
 	type AnnotationTarget,
@@ -128,6 +134,8 @@ const describeEntry = (entry: AnnotationEntry, sessionId: string) => {
 			return { ...base, text: entry.reason };
 		case "resolution":
 			return entry.summary ? { ...base, text: entry.summary } : base;
+		case "proposal":
+			return { ...base, text: entry.summary };
 		case "change":
 			return {
 				...base,
@@ -405,6 +413,15 @@ export const createMcpAnnotationSession = ({
 	>();
 	const seenKey = (projectId: string, annotationId: string) =>
 		`${projectId}\0${annotationId}`;
+	/**
+	 * Rounds this session has seen open (in `annotation_watch`, or through
+	 * an annotation of the round it was shown), by `<projectId>\0<roundId>`:
+	 * whether their closing has been reported to it. A round closed while
+	 * the session worked still comes back as `"closed"` once.
+	 */
+	const roundsSeen = new Map<string, { reported: boolean }>();
+	const roundKey = (projectId: string, roundId: string) =>
+		`${projectId}\0${roundId}`;
 
 	const createServiceContext = (
 		context: TrickroomMcpServerContext,
@@ -556,6 +573,98 @@ export const createMcpAnnotationSession = ({
 		return { shown, fresh, acknowledgedHere };
 	};
 
+	/** Notes rounds seen open; a round seen before keeps its state. */
+	const noteRoundsOpen = (
+		project: AnnotationProject,
+		rounds: readonly AnnotationRound[],
+	) => {
+		for (const round of rounds) {
+			if (round.status !== "open" || round.branch !== project.scope.branch) {
+				continue;
+			}
+			const key = roundKey(project.projectId, round.id);
+			if (!roundsSeen.has(key)) roundsSeen.set(key, { reported: false });
+		}
+	};
+
+	/**
+	 * Notes the open rounds of annotations about to be shown, so a session
+	 * that got its work from a result's block still hears when the round
+	 * closes. Reads the container's rounds only when a shown one has a round.
+	 */
+	const noteRoundsOf = async (
+		project: AnnotationProject,
+		container: AnnotationContainer,
+		views: readonly AnnotationView[],
+	) => {
+		const ids = new Set(
+			views.flatMap((view) =>
+				view.roundId &&
+				!roundsSeen.has(roundKey(project.projectId, view.roundId))
+					? [view.roundId]
+					: [],
+			),
+		);
+		if (ids.size === 0) return;
+		try {
+			const { rounds } = await project.service.store.listRounds(container);
+			noteRoundsOpen(
+				project,
+				rounds.filter((round) => ids.has(round.id)),
+			);
+		} catch {
+			// Advisory: a round that cannot be read is not reported closed.
+		}
+	};
+
+	/**
+	 * Rounds this session saw open that are closed now and not yet reported,
+	 * on the checkout's branch: after a checkout of another branch, a round
+	 * of the old one closing says nothing about the work here.
+	 */
+	const takeClosedRounds = (
+		project: AnnotationProject,
+		rounds: readonly AnnotationRound[],
+	) =>
+		rounds.filter(
+			(round) =>
+				round.status === "closed" &&
+				round.branch === project.scope.branch &&
+				roundsSeen.get(roundKey(project.projectId, round.id))?.reported ===
+					false,
+		);
+
+	const markRoundReported = (
+		project: AnnotationProject,
+		round: AnnotationRound,
+	) => {
+		roundsSeen.set(roundKey(project.projectId, round.id), { reported: true });
+	};
+
+	/**
+	 * The designer's verdicts on this session's work: closed annotations on
+	 * the checkout's branch that this session addressed or proposed, changed
+	 * since it last saw them (accepted, or dismissed). A reopen or a revert
+	 * is agent work, which `takeUnseen` returns instead.
+	 */
+	const takeVerdicts = (
+		project: AnnotationProject,
+		views: readonly AnnotationView[],
+	) =>
+		views.filter(
+			(view) =>
+				view.branch === project.scope.branch &&
+				!isLive(view.status) &&
+				seen.has(seenKey(project.projectId, view.id)) &&
+				isUnseen(project, view) &&
+				view.entries.some(
+					(entry) =>
+						(entry.kind === "change" || entry.kind === "proposal") &&
+						entry.by.role === "agent" &&
+						entry.by.sessionId === sessionId,
+				),
+		);
+
 	/** On the checkout's branch and agent work: what surfacing and watch show. */
 	const isCurrentWork =
 		(project: AnnotationProject) => (annotation: Annotation) =>
@@ -612,37 +721,38 @@ export const createMcpAnnotationSession = ({
 			design,
 		);
 
-	/** A container's files, as `listLive` takes them back: listed once per block. */
-	type StoredListing = Awaited<
-		ReturnType<AnnotationProject["service"]["store"]["list"]>
-	>;
+	/** A container's files and round index (`scanLanded`): read once per block. */
 
 	const listLive = (
 		project: AnnotationProject,
 		designId: string,
 		design: TrickroomDesign | null | undefined,
-		stored?: StoredListing,
+		scan?: LandedScan,
 	) =>
 		listAnnotations(project.service, {
 			container: { kind: "design", designId },
 			scope: project.scope,
 			statuses: LIVE_STATUSES,
+			// A send is seen whole: not before its round lists it.
+			landedOnly: true,
 			...(design ? { design } : {}),
-			...(stored ? { stored } : {}),
+			...(scan ? { stored: scan.stored, roundsById: scan.roundsById } : {}),
 		});
 
 	const listLiveComponent = (
 		project: AnnotationProject,
 		container: AnnotationContainer & { kind: "component" },
 		template: ComponentAnchorTemplate | null | undefined,
-		stored?: StoredListing,
+		scan?: LandedScan,
 	) =>
 		listAnnotations(project.service, {
 			container,
 			scope: project.scope,
 			statuses: LIVE_STATUSES,
+			// A send is seen whole: not before its round lists it.
+			landedOnly: true,
 			...(template ? { component: template } : {}),
-			...(stored ? { stored } : {}),
+			...(scan ? { stored: scan.stored, roundsById: scan.roundsById } : {}),
 		});
 
 	/**
@@ -662,12 +772,13 @@ export const createMcpAnnotationSession = ({
 			componentId: options.componentId,
 		};
 		let { template, name } = options;
-		const stored = await project.service.store.list(container);
+		// The round index first, then the files (see `scanLanded`).
+		const scan = await scanLanded(project.service, container);
 		let { annotations } = await listLiveComponent(
 			project,
 			container,
 			template,
-			stored,
+			scan,
 		);
 		if (annotations.length === 0) return null;
 		if (template === undefined) {
@@ -683,7 +794,7 @@ export const createMcpAnnotationSession = ({
 					project,
 					container,
 					template,
-					stored,
+					scan,
 				));
 			}
 		}
@@ -695,6 +806,7 @@ export const createMcpAnnotationSession = ({
 			isCurrentWork(project),
 		);
 		const { shown } = refreshed;
+		await noteRoundsOf(project, container, shown);
 		const bodies = shown.map((view) =>
 			describeAnnotation(view, sessionId, { now: now() }),
 		);
@@ -747,11 +859,12 @@ export const createMcpAnnotationSession = ({
 		if (!project) return null;
 		let design = options.design;
 		// The folder is listed once; a design read below only views it again.
-		const stored = await project.service.store.list({
+		// The round index first, then the files (see `scanLanded`).
+		const scan = await scanLanded(project.service, {
 			kind: "design",
 			designId,
 		});
-		let { annotations } = await listLive(project, designId, design, stored);
+		let { annotations } = await listLive(project, designId, design, scan);
 		if (annotations.length === 0) return null;
 		if (design === undefined) {
 			// Only now, when there is something to show: detached targets,
@@ -760,7 +873,7 @@ export const createMcpAnnotationSession = ({
 				.then((read) => read.design)
 				.catch(() => null);
 			if (design) {
-				({ annotations } = await listLive(project, designId, design, stored));
+				({ annotations } = await listLive(project, designId, design, scan));
 			}
 		}
 		if (
@@ -777,6 +890,7 @@ export const createMcpAnnotationSession = ({
 			isCurrentWork(project),
 		);
 		const { shown } = refreshed;
+		await noteRoundsOf(project, { kind: "design", designId }, shown);
 		const bodies = shown.map((view) =>
 			describeAnnotation(view, sessionId, { now: now() }),
 		);
@@ -849,7 +963,13 @@ export const createMcpAnnotationSession = ({
 		refreshListed,
 		showInFull,
 		takeUnseen,
+		takeVerdicts,
+		noteRoundsOpen,
+		noteRoundsOf,
+		takeClosedRounds,
+		markRoundReported,
 		listLive,
+		listLiveComponent,
 		buildBlock,
 
 		/**
@@ -910,6 +1030,8 @@ export const createMcpAnnotationSession = ({
 					const counts = await countAnnotations(project.service, {
 						container,
 						scope: project.scope,
+						// As agents see them: a send still being written is not counted.
+						landedOnly: true,
 					});
 					if (counts.total.live > 0) {
 						result.set(container.componentId, counts.total);
@@ -953,8 +1075,68 @@ export const createMcpAnnotationSession = ({
 						const counts = await countAnnotations(project.service, {
 							container: { kind: "design", designId },
 							scope: project.scope,
+							// As agents see them: a send still being written is not counted.
+							landedOnly: true,
 						});
 						if (counts.total.live > 0) result.set(designId, counts.total);
+					}),
+			);
+			return result;
+		},
+
+		/**
+		 * The open round of each design on the checkout's branch: `sent`
+		 * annotations, of which `closed` are resolved or dismissed. Designs
+		 * without an open round are left out.
+		 */
+		openRounds: async (
+			context: TrickroomMcpServerContext,
+			designIds?: readonly string[],
+		): Promise<
+			Map<string, { id: string; open: true; sent: number; closed: number }>
+		> => {
+			const result = new Map<
+				string,
+				{ id: string; open: true; sent: number; closed: number }
+			>();
+			const project = await openProject(context);
+			if (!project) return result;
+			const policy = getMcpPolicy(context.config);
+			const ids =
+				designIds ??
+				(await project.service.store.listContainers()).flatMap((container) =>
+					container.kind === "design" ? [container.designId] : [],
+				);
+			await Promise.all(
+				ids
+					.filter(
+						(designId) =>
+							policy.allowedDesignFileIds === null ||
+							policy.allowedDesignFileIds.has(designId),
+					)
+					.map(async (designId) => {
+						const container = { kind: "design" as const, designId };
+						const { rounds } =
+							await project.service.store.listRounds(container);
+						const open = rounds
+							.filter(
+								(round) =>
+									round.status === "open" &&
+									round.branch === project.scope.branch,
+							)
+							.at(-1);
+						if (!open) return;
+						const { annotations } = await project.service.store.list(container);
+						const counts = summarizeRound(
+							open,
+							annotations.map(({ annotation }) => annotation),
+						);
+						result.set(designId, {
+							id: open.id,
+							open: true,
+							sent: counts.total,
+							closed: counts.closed,
+						});
 					}),
 			);
 			return result;

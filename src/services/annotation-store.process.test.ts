@@ -71,7 +71,7 @@ for (let index = 0; index < Number(count); index += 1) {
 const container: AnnotationContainer = { kind: "design", designId: "home" };
 
 const annotation = (): Annotation => ({
-	version: 1,
+	version: 2,
 	id: "ann-1",
 	projectId: "proj-1",
 	target: { kind: "design", designId: "home" },
