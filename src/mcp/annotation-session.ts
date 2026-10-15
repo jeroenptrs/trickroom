@@ -68,6 +68,13 @@ export const ADDRESSING_ADVICE =
 /** Ids listed in `openIds`; `counts` has the total. */
 const MAX_OPEN_IDS = 50;
 
+/**
+ * Layer ids listed per change entry; `layerCount` has the total. A write
+ * that adds a large subtree touches thousands of layers, and every body
+ * that shows its change entry would carry them all.
+ */
+export const MAX_CHANGE_LAYER_IDS = 20;
+
 /** The session clock (acknowledgement expiry) is written at most this often. */
 const SESSION_CALL_INTERVAL_MS = 5_000;
 
@@ -128,7 +135,8 @@ const describeEntry = (entry: AnnotationEntry, sessionId: string) => {
 				change: {
 					summary: entry.change.summary,
 					revisionAfter: entry.change.revisionAfter,
-					layerIds: entry.change.layerIds,
+					layerIds: entry.change.layerIds.slice(0, MAX_CHANGE_LAYER_IDS),
+					layerCount: entry.change.layerIds.length,
 					...(entry.revertedBy ? { reverted: true } : {}),
 				},
 			};
