@@ -10,8 +10,10 @@ import {
 	acknowledgeAnnotation,
 	countAnnotations,
 	getAnnotationAnchorIndex,
+	type LandedScan,
 	listAnnotations,
 	recordSessionCall,
+	scanLanded,
 	summarizeAnnotationCounts,
 	viewAnnotation,
 } from "../services/annotation-service";
@@ -615,7 +617,11 @@ export const createMcpAnnotationSession = ({
 		}
 	};
 
-	/** Rounds this session saw open that are closed now and not yet reported. */
+	/**
+	 * Rounds this session saw open that are closed now and not yet reported,
+	 * on the checkout's branch: after a checkout of another branch, a round
+	 * of the old one closing says nothing about the work here.
+	 */
 	const takeClosedRounds = (
 		project: AnnotationProject,
 		rounds: readonly AnnotationRound[],
@@ -623,6 +629,7 @@ export const createMcpAnnotationSession = ({
 		rounds.filter(
 			(round) =>
 				round.status === "closed" &&
+				round.branch === project.scope.branch &&
 				roundsSeen.get(roundKey(project.projectId, round.id))?.reported ===
 					false,
 		);
@@ -714,16 +721,13 @@ export const createMcpAnnotationSession = ({
 			design,
 		);
 
-	/** A container's files, as `listLive` takes them back: listed once per block. */
-	type StoredListing = Awaited<
-		ReturnType<AnnotationProject["service"]["store"]["list"]>
-	>;
+	/** A container's files and round index (`scanLanded`): read once per block. */
 
 	const listLive = (
 		project: AnnotationProject,
 		designId: string,
 		design: TrickroomDesign | null | undefined,
-		stored?: StoredListing,
+		scan?: LandedScan,
 	) =>
 		listAnnotations(project.service, {
 			container: { kind: "design", designId },
@@ -732,14 +736,14 @@ export const createMcpAnnotationSession = ({
 			// A send is seen whole: not before its round lists it.
 			landedOnly: true,
 			...(design ? { design } : {}),
-			...(stored ? { stored } : {}),
+			...(scan ? { stored: scan.stored, roundsById: scan.roundsById } : {}),
 		});
 
 	const listLiveComponent = (
 		project: AnnotationProject,
 		container: AnnotationContainer & { kind: "component" },
 		template: ComponentAnchorTemplate | null | undefined,
-		stored?: StoredListing,
+		scan?: LandedScan,
 	) =>
 		listAnnotations(project.service, {
 			container,
@@ -748,7 +752,7 @@ export const createMcpAnnotationSession = ({
 			// A send is seen whole: not before its round lists it.
 			landedOnly: true,
 			...(template ? { component: template } : {}),
-			...(stored ? { stored } : {}),
+			...(scan ? { stored: scan.stored, roundsById: scan.roundsById } : {}),
 		});
 
 	/**
@@ -768,12 +772,13 @@ export const createMcpAnnotationSession = ({
 			componentId: options.componentId,
 		};
 		let { template, name } = options;
-		const stored = await project.service.store.list(container);
+		// The round index first, then the files (see `scanLanded`).
+		const scan = await scanLanded(project.service, container);
 		let { annotations } = await listLiveComponent(
 			project,
 			container,
 			template,
-			stored,
+			scan,
 		);
 		if (annotations.length === 0) return null;
 		if (template === undefined) {
@@ -789,7 +794,7 @@ export const createMcpAnnotationSession = ({
 					project,
 					container,
 					template,
-					stored,
+					scan,
 				));
 			}
 		}
@@ -854,11 +859,12 @@ export const createMcpAnnotationSession = ({
 		if (!project) return null;
 		let design = options.design;
 		// The folder is listed once; a design read below only views it again.
-		const stored = await project.service.store.list({
+		// The round index first, then the files (see `scanLanded`).
+		const scan = await scanLanded(project.service, {
 			kind: "design",
 			designId,
 		});
-		let { annotations } = await listLive(project, designId, design, stored);
+		let { annotations } = await listLive(project, designId, design, scan);
 		if (annotations.length === 0) return null;
 		if (design === undefined) {
 			// Only now, when there is something to show: detached targets,
@@ -867,7 +873,7 @@ export const createMcpAnnotationSession = ({
 				.then((read) => read.design)
 				.catch(() => null);
 			if (design) {
-				({ annotations } = await listLive(project, designId, design, stored));
+				({ annotations } = await listLive(project, designId, design, scan));
 			}
 		}
 		if (
@@ -1024,6 +1030,8 @@ export const createMcpAnnotationSession = ({
 					const counts = await countAnnotations(project.service, {
 						container,
 						scope: project.scope,
+						// As agents see them: a send still being written is not counted.
+						landedOnly: true,
 					});
 					if (counts.total.live > 0) {
 						result.set(container.componentId, counts.total);
@@ -1067,6 +1075,8 @@ export const createMcpAnnotationSession = ({
 						const counts = await countAnnotations(project.service, {
 							container: { kind: "design", designId },
 							scope: project.scope,
+							// As agents see them: a send still being written is not counted.
+							landedOnly: true,
 						});
 						if (counts.total.live > 0) result.set(designId, counts.total);
 					}),

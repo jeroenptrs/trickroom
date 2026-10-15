@@ -117,7 +117,10 @@ describe("MCP annotation rounds", () => {
 			design: await read(),
 		});
 		/** The designer sends a round of remarks, one per layer. */
-		const sendRound = async (remarks: Record<string, string>) => {
+		const sendRound = async (
+			remarks: Record<string, string>,
+			sendScope: AnnotationScope = scope,
+		) => {
 			const drafts = await Promise.all(
 				Object.entries(remarks).map(([elementId, body]) =>
 					draft(elementId, body),
@@ -125,7 +128,7 @@ describe("MCP annotation rounds", () => {
 			);
 			const result = await sendAnnotations(service, {
 				container,
-				scope,
+				scope: sendScope,
 				by: { role: "human" },
 				drafts,
 			});
@@ -137,12 +140,12 @@ describe("MCP annotation rounds", () => {
 				) as Record<string, string>,
 			};
 		};
-		const close = (roundId: string) =>
+		const close = (roundId: string, closeScope: AnnotationScope = scope) =>
 			closeRound(service, {
 				container,
 				roundId,
 				by: { role: "human" },
-				scope,
+				scope: closeScope,
 			});
 		const watch = (args: Record<string, unknown> = {}) =>
 			call(TOOL.annotationWatch, {
@@ -329,6 +332,32 @@ describe("MCP annotation rounds", () => {
 		expect(payload.next).toContain("still your work");
 	});
 
+	it("does not report another branch's round closing after a checkout", async () => {
+		const { fixture, sendRound, close, watch } = await open();
+		const onFeature = await sendRound({ title: "Bigger" });
+		expect((await watch()).payload.status).toBe("work");
+		// The checkout moves to another branch, which has a round of its own;
+		// then the designer closes the first branch's round.
+		await writeFile(
+			path.join(fixture.projectRoot, ".git", "HEAD"),
+			"ref: refs/heads/other\n",
+		);
+		const other: AnnotationScope = {
+			branch: "other",
+			worktreePath: fixture.projectRoot,
+		};
+		const onOther = await sendRound({ price: "Smaller" }, other);
+		await close(onFeature.roundId);
+		const work = (await watch()).payload;
+		expect(work.status).toBe("work");
+		expect(work.round.id).toBe(onOther.roundId);
+		const waiting = (await watch()).payload;
+		expect(waiting).toMatchObject({
+			status: "timeout",
+			round: { id: onOther.roundId },
+		});
+	});
+
 	it("does not show an annotation before its round lists it", async () => {
 		const { fixture, service, scope, call, watch } = await open();
 		const current = await fixture.designFileService.readDesignFile(designId);
@@ -344,6 +373,16 @@ describe("MCP annotation rounds", () => {
 		expect(read.payload).not.toHaveProperty("annotations");
 		const list = await call(TOOL.annotationList, { designFileId: designId });
 		expect(list.payload.annotations).toEqual([]);
+		// Counts agree with the bodies: nothing to count yet.
+		const designs = await call(TOOL.designList);
+		expect(
+			designs.payload.designFiles.find(
+				(entry: { id: string }) => entry.id === designId,
+			),
+		).not.toHaveProperty("annotations");
+		expect((await call(TOOL.projectList)).payload).not.toHaveProperty(
+			"annotations",
+		);
 		expect((await watch()).payload.status).toBe("idle");
 		expect(
 			(
@@ -452,6 +491,33 @@ describe("MCP annotation rounds", () => {
 			systemId,
 			componentId,
 		);
+		// A send still being written is not counted in the component index.
+		await createAnnotation(service, {
+			target: {
+				kind: "componentNode",
+				systemId,
+				componentId,
+				nodePath: "label",
+			},
+			body: "Half a batch",
+			by: { role: "human" },
+			scope,
+			...(anchor
+				? {
+						component: {
+							template: anchor.template,
+							revision: anchor.revision,
+						},
+					}
+				: {}),
+			roundId: "round-being-written",
+		});
+		const index = (await call(TOOL.componentRead, { systemName })).payload;
+		expect(
+			index.components.find(
+				(row: { componentId: string }) => row.componentId === componentId,
+			),
+		).not.toHaveProperty("annotations");
 		const sent = await sendAnnotations(service, {
 			container: componentContainer,
 			scope,

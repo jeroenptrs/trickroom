@@ -518,7 +518,7 @@ Annotations are remarks a designer anchors to a design, a board or a layer in th
 
 Statuses: `open` (sent) and `acknowledged` (an agent session has seen it in full) are agent work; `needs_input` (an agent asked a question), `addressed` (an agent changed the design for it) and `proposed` (an agent asked the designer to close it without a change) wait on the designer; `resolved` and `dismissed` are closed. A designer's reply on an addressed, needs-input, proposed or closed annotation reopens it.
 
-The designer sends annotations in rounds: a round is the batch they send on one design (or component), on one branch, until they close it. Each sent annotation has a `roundId`. Agents see a send whole: an annotation whose round file does not list it yet is pending and left out of the `annotations` blocks, `annotation_list` and `annotation_watch` for at most 30 seconds (see [Rounds](#rounds)).
+The designer sends annotations in rounds: a round is the batch they send on one design (or component), on one branch, until they close it. Each sent annotation has a `roundId`. Agents see a send whole: an annotation whose round file does not list it yet is pending and left out of the `annotations` blocks, `annotation_list`, `annotation_watch` and the counts of `design_list`, `project_list` and the `component_read` index for at most 30 seconds. Agents read the round index before the annotation files, so a send that completes between the two reads is seen whole or not at all (see [Rounds](#rounds)).
 
 Every write through MCP is recorded as `{ role: "agent", sessionId }` with the session's id; the editor writes as the human. No tool input can change that.
 
@@ -585,7 +585,7 @@ With `round: true`, it waits on the designer's round and returns the first of th
 |---|---|---|
 | `"work"` | Agent work this session has not seen: new remarks, reopens (a designer's reply, a revert), re-anchors. | `round` (when one is open), `annotations` in full (at most 10), `more`, `counts`, `next` |
 | `"verdict"` | The designer accepted (resolved) or dismissed an annotation this session addressed or proposed, since the session last saw it. | `round`, `annotations` in full, `counts`, `next` |
-| `"closed"` | A round this session saw open (in a watch, or through one of its annotations in any result) is closed, and the session has not been told. Reported once. | `round` (`id`, `closedAt`, `counts`), the round's live `annotations` in full, `more`, `next` |
+| `"closed"` | A round this session saw open (in a watch, or through one of its annotations in any result) is closed, and the session has not been told. Reported once, and only on the round's own branch: after a checkout of another branch, that round closing is not reported there. | `round` (`id`, `closedAt`, `counts`), the round's live `annotations` in full, `more`, `next` |
 | `"idle"` | No round is open on this design (or component) on the current branch, and nothing above. Returns at once, without waiting. | `counts` when there are live annotations, `next` |
 | `"timeout"` | Nothing above before `timeoutMs`. | `round` (`id`, `openedAt`, `counts`) when one is open, `counts`, `next` |
 

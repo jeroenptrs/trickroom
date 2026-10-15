@@ -531,6 +531,28 @@ design. The prompt named neither tool nor `round`; the agent found
 Found: the agent passed `timeoutMs: 120000` (Claude Code allows it);
 `design_screenshot` timed out without a web runtime build, as in WP6.
 
+### Review round 1 (PR #36)
+
+Status: fixed, all five findings, each with a regression test.
+
+1. Partial send seen between two reads: agent reads take the round index
+   before the annotation files (`scanLanded`); listings, blocks, counts
+   and watch all go through it. Test: a reader whose send completes
+   between its two reads sees nothing, never half.
+2. Closed round of another branch: `takeClosedRounds` filters by the
+   checkout's branch. Test: a round closing after a checkout to a branch
+   with its own round is not reported there.
+3. Send cut short by a checkout change: the service returns the written
+   annotations with `interrupted` instead of throwing; the editor drops
+   those drafts. Tests: service (scope change between drafts) and editor.
+4. Counts included pending annotations: design, project and component
+   index counts use the landed filter. Tests: an unlisted annotation is
+   not counted on `design_list`, `project_list` or the component index.
+5. Late close answer cleared a newer round: send and close answers take
+   their place in the round order when the request starts, and a close
+   clears only the round it closed. Tests: reversed answers for close and
+   for send.
+
 ### Rounds follow-ups
 
 - `verdict` takes precedence over `closed`, so an agent whose round

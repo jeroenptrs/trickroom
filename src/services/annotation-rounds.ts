@@ -88,6 +88,17 @@ export type SendResult = {
 	annotations: { key: string; annotation: AnnotationView }[];
 	/** Drafts that were not written, with why. */
 	failed: { key: string; code: string; error: string }[];
+	/**
+	 * Why the send stopped before trying every draft (the checkout changed,
+	 * an annotation was locked), once some were written; null otherwise. The
+	 * drafts it did not write are in `failed` with this code. When nothing
+	 * was written the error is thrown instead.
+	 */
+	interrupted: {
+		code: string;
+		error: string;
+		details?: Record<string, unknown>;
+	} | null;
 };
 
 /**
@@ -97,8 +108,10 @@ export type SendResult = {
  * the round file lists them in one send. Agents see a sent annotation only
  * once the round lists it (`isPendingAnnotation`), so they never get half a
  * batch. A draft that fails (its target is gone) is reported and does not
- * stop the others; a refusal of the whole request (the checkout changed)
- * stops the send, still listing what was written before it.
+ * stop the others. A refusal of the whole request (the checkout changed)
+ * stops the send: what was written before it is listed in the round and
+ * returned with `interrupted`, so the editor drops those drafts and a retry
+ * does not send them twice. With nothing written yet, the error is thrown.
  */
 export const sendAnnotations = async (
 	context: AnnotationServiceContext,
@@ -152,6 +165,7 @@ export const sendAnnotations = async (
 		};
 		const written: SendResult["annotations"] = [];
 		const failed: SendResult["failed"] = [];
+		let interrupted: SendResult["interrupted"] = null;
 		/** Lists what was written in the round: from then on agents see it. */
 		const land = async (): Promise<AnnotationRound | null> => {
 			if (written.length === 0) return null;
@@ -166,7 +180,7 @@ export const sendAnnotations = async (
 			await writeRound(next, { guard: false });
 			return next;
 		};
-		for (const draft of input.drafts) {
+		for (const [index, draft] of input.drafts.entries()) {
 			const { key, ...create } = draft;
 			try {
 				const { annotation } = await createAnnotation(context, {
@@ -183,8 +197,28 @@ export const sendAnnotations = async (
 					(error instanceof AnnotationStoreError &&
 						error.code !== "ANNOTATION_LOCKED");
 				if (!perDraft) {
-					await land();
-					throw error;
+					if (written.length === 0) throw error;
+					const code =
+						error instanceof AnnotationServiceError ||
+						error instanceof AnnotationStoreError
+							? error.code
+							: "INTERNAL";
+					const message =
+						error instanceof Error ? error.message : String(error);
+					interrupted = {
+						code,
+						error: message,
+						...(error instanceof AnnotationServiceError ||
+						error instanceof AnnotationStoreError
+							? error.details
+								? { details: error.details }
+								: {}
+							: {}),
+					};
+					for (const rest of input.drafts.slice(index)) {
+						failed.push({ key: rest.key, code, error: message });
+					}
+					break;
 				}
 				failed.push({
 					key,
@@ -194,7 +228,7 @@ export const sendAnnotations = async (
 			}
 		}
 		const landed = await land();
-		return { round: landed, annotations: written, failed };
+		return { round: landed, annotations: written, failed, interrupted };
 	});
 };
 

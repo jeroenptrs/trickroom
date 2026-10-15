@@ -160,6 +160,8 @@ type SendableDraft = Pick<AnnotationDraft, "key" | "target" | "body">;
 type SendOutcome = {
 	written: AnnotationView[];
 	failed: AnnotationSendResponse["failed"];
+	/** The send stopped part way (reported already). */
+	interrupted: boolean;
 };
 
 /**
@@ -176,7 +178,7 @@ async function sendBatch(
 	snapshot?: AnnotationSnapshotHint,
 ): Promise<SendOutcome | null> {
 	const first = listed[0];
-	if (!first) return { written: [], failed: [] };
+	if (!first) return { written: [], failed: [], interrupted: false };
 	const container =
 		editorAnnotationsStore.get().container ??
 		annotationContainerOf(first.target);
@@ -188,6 +190,9 @@ async function sendBatch(
 		batch.map((draft) => [draft.key, captureSentDraft(draft.body)]),
 	);
 	const token = beginAnnotationWrite();
+	// The round in the answer is as old as the request: a round read that
+	// started later (an `annotation-round` event, a close) is newer.
+	const roundToken = beginRoundRead();
 	try {
 		const answer = await sendAnnotationsRequest(
 			container,
@@ -209,12 +214,27 @@ async function sendBatch(
 			applyWriteAnswer(token, annotation),
 		);
 		if (answer.round) {
-			applyOpenRound(beginRoundRead(), container, answer.scope, answer.round);
+			applyOpenRound(roundToken, container, answer.scope, answer.round);
 		}
 		await Promise.all(applying);
+		const { interrupted } = answer;
+		if (interrupted) {
+			// The written drafts are cleared above, so a retry does not send
+			// them twice; the rest stay drafts.
+			await reportAnnotationWriteError(
+				new AnnotationRequestError(
+					interrupted.error,
+					409,
+					interrupted.code,
+					interrupted.details,
+				),
+				null,
+			);
+		}
 		return {
 			written: answer.annotations.map(({ annotation }) => annotation),
 			failed: answer.failed,
+			interrupted: Boolean(interrupted),
 		};
 	} catch (error) {
 		await reportAnnotationWriteError(error, null);
@@ -233,7 +253,8 @@ export async function sendAnnotationDraft(
 	const outcome = await sendBatch([draft], snapshot);
 	if (!outcome) return null;
 	const failure = outcome.failed[0];
-	if (failure) {
+	// An interrupted send was reported already.
+	if (failure && !outcome.interrupted) {
 		toast.error("Annotation not saved", { description: failure.error });
 	}
 	return outcome.written[0] ?? null;
@@ -256,7 +277,8 @@ export async function sendAnnotationDrafts(
 		});
 	}
 	const failed = outcome.failed.length;
-	if (failed > 0) {
+	// An interrupted send was reported already (the checkout changed).
+	if (failed > 0 && !outcome.interrupted) {
 		toast.error(
 			`${failed} of ${sent + failed} ${sent + failed === 1 ? "annotation" : "annotations"} not sent`,
 			{
@@ -276,11 +298,16 @@ export async function closeOpenRound(
 	container: AnnotationContainer,
 	round: Pick<OpenRound, "id">,
 ) {
+	// The answer is as old as the request: a round read or send that started
+	// later is newer, and may already show the next round.
+	const roundToken = beginRoundRead();
 	try {
 		const answer = await closeRoundRequest(container, round.id, heldScope());
 		// Whatever is open on this branch now is read through the event that
-		// follows; the closed round no longer is.
-		applyOpenRound(beginRoundRead(), container, null, null);
+		// follows; the closed round no longer is. Only that round is cleared.
+		if (editorAnnotationsStore.get().round?.id === round.id) {
+			applyOpenRound(roundToken, container, null, null);
+		}
 		toast.success("Round closed", { id: "annotation-round-closed" });
 		return answer.round;
 	} catch (error) {

@@ -13,6 +13,7 @@ import {
 	viewRound,
 } from "./annotation-rounds";
 import {
+	AnnotationServiceError,
 	countAnnotations,
 	createAnnotation,
 	listAnnotations,
@@ -155,6 +156,57 @@ describe("sending", () => {
 		expect(result.round?.annotationIds).toHaveLength(2);
 	});
 
+	it("returns what it wrote when the checkout changes between drafts", async () => {
+		// The second annotation write finds another branch checked out.
+		let writes = 0;
+		store = new AnnotationStore({
+			projectId: "project-1",
+			trickroomHome: path.join(root, "home"),
+			beforeWrite: () => {
+				writes += 1;
+				if (writes === 2) {
+					throw new AnnotationServiceError(
+						"SCOPE_CHANGED",
+						"The checkout changed.",
+						{ scope: feature },
+					);
+				}
+			},
+		});
+		const result = await send([draft("title"), draft("price"), draft("pay")]);
+		expect(result.annotations.map(({ key }) => key)).toEqual([
+			`layer:${designId}/title`,
+		]);
+		expect(result.round?.annotationIds).toEqual([
+			result.annotations[0]?.annotation.id,
+		]);
+		expect(result.interrupted).toEqual({
+			code: "SCOPE_CHANGED",
+			error: "The checkout changed.",
+			details: { scope: feature },
+		});
+		expect(result.failed.map(({ key, code }) => [key, code])).toEqual([
+			[`layer:${designId}/price`, "SCOPE_CHANGED"],
+			[`layer:${designId}/pay`, "SCOPE_CHANGED"],
+		]);
+		// The written one landed: agents see it, and only it.
+		expect(await landed()).toEqual([result.annotations[0]?.annotation.id]);
+	});
+
+	it("throws when the checkout changed before anything was written", async () => {
+		store = new AnnotationStore({
+			projectId: "project-1",
+			trickroomHome: path.join(root, "home"),
+			beforeWrite: () => {
+				throw new AnnotationServiceError("SCOPE_CHANGED", "Changed.");
+			},
+		});
+		await expect(send([draft("title"), draft("price")])).rejects.toMatchObject({
+			code: "SCOPE_CHANGED",
+		});
+		expect((await store.listRounds(container)).rounds).toEqual([]);
+	});
+
 	it("writes no round when nothing was sent", async () => {
 		const result = await send([draft("missing")]);
 		expect(result.round).toBeNull();
@@ -207,6 +259,74 @@ describe("sending", () => {
 });
 
 describe("pending annotations", () => {
+	it("never shows half a send to a reader whose reads straddle its completion", async () => {
+		// A send in flight: A is written with the round's id; B and the
+		// round file are not yet.
+		const roundId = "round-in-flight";
+		const { annotation: first } = await createAnnotation(context(), {
+			...draft("title"),
+			by: human,
+			scope: main,
+			roundId,
+		});
+		/** The rest of the send: B, then the round file listing both. */
+		const completeSend = async () => {
+			const { annotation: second } = await createAnnotation(context(), {
+				...draft("price"),
+				by: human,
+				scope: main,
+				roundId,
+			});
+			const ids = [first.id, second.id];
+			await store.withRoundLock(container, (write) =>
+				write({
+					version: 1,
+					id: roundId,
+					projectId: "project-1",
+					container,
+					branch: "main",
+					worktreePath: "/repo",
+					status: "open",
+					openedAt: clock.toISOString(),
+					annotationIds: ids,
+					sends: [
+						{ id: "send-1", at: clock.toISOString(), annotationIds: ids },
+					],
+				}),
+			);
+			return ids;
+		};
+		/** Completes the send right after the first of its two reads. */
+		class PausingStore extends AnnotationStore {
+			private reads = 0;
+			private async between() {
+				this.reads += 1;
+				if (this.reads === 1) await completeSend();
+			}
+			override async list(target: AnnotationContainer) {
+				const listed = await super.list(target);
+				await this.between();
+				return listed;
+			}
+			override async listRounds(target: AnnotationContainer) {
+				const listed = await super.listRounds(target);
+				await this.between();
+				return listed;
+			}
+		}
+		const reader = new PausingStore({
+			projectId: "project-1",
+			trickroomHome: path.join(root, "home"),
+		});
+		const listed = await listAnnotations(
+			{ store: reader, now: () => clock },
+			{ container, scope: main, landedOnly: true },
+		);
+		// Whole or not at all: never A alone.
+		expect(listed.annotations).toEqual([]);
+		expect((await landed()).sort()).toHaveLength(2);
+	});
+
 	it("hides an annotation its round does not list, until the round lists it or 30 s pass", async () => {
 		const result = await send([draft("title")]);
 		const round = result.round as NonNullable<typeof result.round>;

@@ -8,6 +8,7 @@ import {
 } from "../../services/annotation-model";
 import {
 	listAnnotations,
+	scanLanded,
 	summarizeAnnotationCounts,
 } from "../../services/annotation-service";
 import type { StoredAnnotation } from "../../services/annotation-store";
@@ -360,7 +361,9 @@ export const registerAnnotationWatchTool = (
 						view.branch === project.scope.branch;
 
 					const look = async (): Promise<Look> => {
-						const stored = await store.list(container);
+						// The round index first, then the files (see `scanLanded`).
+						const scan = await scanLanded(project.service, container);
+						const { stored } = scan;
 						// This branch's annotations as agents see them: landed
 						// sends only, on the board with boardId (a moved layer
 						// counts where it is now).
@@ -371,6 +374,7 @@ export const registerAnnotationWatchTool = (
 								scope: project.scope,
 								landedOnly: true,
 								stored,
+								roundsById: scan.roundsById,
 								...(boardId !== undefined ? { boardId } : {}),
 								...(subject.design ? { design: subject.design } : {}),
 								...(subject.template ? { component: subject.template } : {}),
@@ -391,7 +395,7 @@ export const registerAnnotationWatchTool = (
 						if (verdicts.length > 0) {
 							return { ...base, kind: "verdict", verdicts };
 						}
-						const { rounds } = await store.listRounds(container);
+						const rounds = [...scan.roundsById.values()];
 						const closed = annotations.takeClosedRounds(project, rounds).at(-1);
 						if (closed) return { ...base, kind: "closed", round: closed };
 						const open =

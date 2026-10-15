@@ -62,7 +62,7 @@ import { SystemComponentOperationsError } from "../utils/system-component-operat
  * - `GET    /annotations?designId=|systemId=&componentId=` list (`boardId`, `elementId`, `status`, `branch`)
  * - `GET    /annotations/counts` agent and designer work per design (the project screen)
  * - `POST   /annotations` create `{ target, body, snapshot? }`, outside any round
- * - `POST   /annotations/send` send drafts into the open round `{ designId | systemId+componentId, drafts: [{ key, target, body, snapshot? }] }`
+ * - `POST   /annotations/send` send drafts into the open round `{ designId | systemId+componentId, drafts: [{ key, target, body, snapshot? }] }`; answers `{ round, annotations, failed, interrupted }`
  * - `GET    /annotations/rounds?designId=|systemId=&componentId=` the open round on this branch, with counts
  * - `POST   /annotations/rounds/:roundId/close` close it `{ designId | systemId+componentId }`
  * - `GET    /annotations/:id` one annotation
@@ -650,6 +650,9 @@ export const registerAnnotationRoutes = <E extends Env>(
 						: null,
 					annotations: result.annotations,
 					failed: result.failed,
+					// The checkout changed after some drafts were written: those
+					// are sent, the rest are in `failed`.
+					interrupted: result.interrupted,
 				},
 				result.annotations.length > 0 ? 201 : 200,
 			);

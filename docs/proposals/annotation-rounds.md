@@ -112,6 +112,8 @@ container's round lock for the whole send and does these steps in order:
    layer is gone, say) is reported and does not stop the others.
 3. It appends one send to the round file, with the ids that were written.
 
+If the checkout changes part way, the send stops, lists what it wrote, and answers with those annotations and `interrupted`; the editor drops those drafts and keeps the rest. Agents read the round index before the annotation files, so a send that completes between the two reads shows whole or not at all.
+
 Closing takes the same lock, so a round cannot close in the middle of a
 send. The lock order is the round lock, then an annotation's lock; nothing
 takes them the other way round.

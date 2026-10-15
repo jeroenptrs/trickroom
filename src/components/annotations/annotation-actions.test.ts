@@ -73,6 +73,11 @@ const sendAnswer = (
 	extra: {
 		failed?: { key: string; code: string; error: string }[];
 		round?: OpenRound | null;
+		interrupted?: {
+			code: string;
+			error: string;
+			details?: Record<string, unknown>;
+		} | null;
 	} = {},
 ) =>
 	json({
@@ -89,6 +94,7 @@ const sendAnswer = (
 			annotation,
 		})),
 		failed: extra.failed ?? [],
+		interrupted: extra.interrupted ?? null,
 	});
 
 const deferred = <T>() => {
@@ -401,5 +407,105 @@ describe("Close round", () => {
 		);
 		await closeOpenRound({ kind: "design", designId: "D" }, round("R1"));
 		expect(editorAnnotationsStore.get().round?.id).toBe("R1");
+	});
+});
+
+// PR #36 review round 1: a send the checkout change cut short.
+describe("Send interrupted by a checkout change", () => {
+	it("drops the drafts it wrote and keeps the rest", async () => {
+		const layer = {
+			kind: "layer" as const,
+			designId: "D",
+			boardId: "B",
+			elementId: "L",
+		};
+		setAnnotationDraft(target, "written before the checkout");
+		setAnnotationDraft(layer, "not tried");
+		const listed = Object.values(drafts());
+		const writtenKey = listed[0]?.key ?? "";
+		const keptKey = listed[1]?.key ?? "";
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				sendAnswer(
+					{ [writtenKey]: view("a2") },
+					{
+						failed: [{ key: keptKey, code: "SCOPE_CHANGED", error: "Changed" }],
+						interrupted: {
+							code: "SCOPE_CHANGED",
+							error: "Changed",
+							details: {
+								scope: { branch: "feature", worktreePath: "/work" },
+							},
+						},
+					},
+				),
+			),
+		);
+		expect(await sendAnnotationDrafts(listed)).toBe(1);
+		// A retry on the original branch cannot send the written one twice.
+		expect(drafts()[writtenKey]).toBeUndefined();
+		expect(drafts()[keptKey]?.body).toBe("not tried");
+	});
+});
+
+// PR #36 review round 1: answers that arrive out of order.
+describe("Round answers in reverse order", () => {
+	const container = { kind: "design" as const, designId: "D" };
+
+	/** Holds each request's answer until the test releases it. */
+	const holdByUrl = () => {
+		const close = deferred<Response>();
+		const send = deferred<Response>();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((url: string) =>
+				url.endsWith("/close") ? close.promise : send.promise,
+			),
+		);
+		return { close, send };
+	};
+
+	it("does not clear the next round when a close answers late", async () => {
+		applyOpenRound(beginRoundRead(), container, scope, round("R1", ["a1"]));
+		const held = holdByUrl();
+		const closing = closeOpenRound(container, round("R1"));
+		setAnnotationDraft(target, "next round");
+		const draft = Object.values(drafts())[0];
+		if (!draft) throw new Error("no draft");
+		const sending = sendAnnotationDraft(draft);
+		held.send.resolve(
+			sendAnswer({ [draft.key]: view("a2") }, { round: round("R2", ["a2"]) }),
+		);
+		await sending;
+		// The event for R2 arrives too.
+		applyOpenRound(beginRoundRead(), container, scope, round("R2", ["a2"]));
+		held.close.resolve(
+			json({
+				round: { ...round("R1", ["a1"]), status: "closed" },
+				written: true,
+			}),
+		);
+		await closing;
+		expect(editorAnnotationsStore.get().round?.id).toBe("R2");
+	});
+
+	it("does not bring back a closed round when a send answers late", async () => {
+		applyOpenRound(beginRoundRead(), container, scope, round("R1", ["a1"]));
+		const held = holdByUrl();
+		setAnnotationDraft(target, "into R1");
+		const draft = Object.values(drafts())[0];
+		if (!draft) throw new Error("no draft");
+		const sending = sendAnnotationDraft(draft);
+		// Meanwhile the designer closed R1 in another tab: the event's read.
+		applyOpenRound(beginRoundRead(), container, scope, null);
+		held.send.resolve(
+			sendAnswer(
+				{ [draft.key]: view("a2") },
+				{ round: round("R1", ["a1", "a2"]) },
+			),
+		);
+		await sending;
+		expect(editorAnnotationsStore.get().round).toBeNull();
 	});
 });

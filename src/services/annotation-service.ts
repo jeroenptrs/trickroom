@@ -621,43 +621,74 @@ export type ListAnnotationsInput = {
 	stored?: Awaited<ReturnType<AnnotationStore["list"]>>;
 	/**
 	 * Leave out annotations still pending in a round (sent, not yet listed
-	 * in the round file): what agents see, so a batch arrives whole.
+	 * in the round file): what agents see, so a batch arrives whole. With
+	 * `stored`, pass the `roundsById` that `scanLanded` read before it.
 	 */
 	landedOnly?: boolean;
+	/** The round index `scanLanded` read before `stored`. */
+	roundsById?: ReadonlyMap<string, AnnotationRound>;
 };
 
-/** The rounds of a container by id, read only when an annotation names one. */
-export const readRoundsById = async (
+/** A container's files as agents see them (`scanLanded`). */
+export type LandedScan = {
+	stored: Awaited<ReturnType<AnnotationStore["list"]>>;
+	roundsById: ReadonlyMap<string, AnnotationRound>;
+};
+
+/**
+ * A container's annotation files with the round index read first. The
+ * order matters: a send writes its annotations, then lists them in the
+ * round file, so every annotation a round lists is on disk before the
+ * round says so. Read the other way round, a scan could miss the second
+ * annotation of a send whose round file then lists both, and show half a
+ * batch.
+ */
+export const scanLanded = async (
 	context: AnnotationServiceContext,
 	container: AnnotationContainer,
-	annotations: readonly Pick<Annotation, "roundId">[],
-): Promise<Map<string, AnnotationRound>> => {
-	if (!annotations.some((annotation) => annotation.roundId)) return new Map();
+): Promise<LandedScan> => {
 	const { rounds } = await context.store.listRounds(container);
-	return new Map(rounds.map((round) => [round.id, round]));
+	const stored = await context.store.list(container);
+	return {
+		stored,
+		roundsById: new Map(rounds.map((round) => [round.id, round])),
+	};
 };
+
+/** `scan`'s files without the annotations still pending in a round. */
+const landedOf = (scan: LandedScan, now: Date) =>
+	scan.stored.annotations.filter(
+		({ annotation }) => !isPendingAnnotation(annotation, scan.roundsById, now),
+	);
 
 export const listAnnotations = async (
 	context: AnnotationServiceContext,
 	input: ListAnnotationsInput,
 ) => {
+	let stored = input.stored;
+	let roundsById = input.roundsById ?? null;
+	if (input.landedOnly && !roundsById) {
+		if (stored) {
+			throw new Error(
+				"listAnnotations: landedOnly with stored needs the roundsById read before it (scanLanded).",
+			);
+		}
+		({ stored, roundsById } = await scanLanded(context, input.container));
+	}
 	const { annotations, problems } =
-		input.stored ?? (await context.store.list(input.container));
+		stored ?? (await context.store.list(input.container));
 	const statuses = input.statuses ? new Set(input.statuses) : null;
 	const now = nowOf(context);
 	const sessionClock = createSessionClock(context.store);
 	// One index of the design for every annotation listed.
 	const locators = viewLocators(input);
-	const roundsById = input.landedOnly
-		? await readRoundsById(
-				context,
-				input.container,
-				annotations.map(({ annotation }) => annotation),
-			)
-		: null;
 	const selected = annotations.filter(({ annotation }) => {
 		if (!matchesBranch(annotation, input.scope, input.branch)) return false;
-		if (roundsById && isPendingAnnotation(annotation, roundsById, now)) {
+		if (
+			input.landedOnly &&
+			roundsById &&
+			isPendingAnnotation(annotation, roundsById, now)
+		) {
 			return false;
 		}
 		if (statuses && !statuses.has(annotation.status)) return false;
@@ -707,9 +738,13 @@ export const countAnnotations = async (
 		branch?: AnnotationBranchFilter;
 		design?: TrickroomDesign | null;
 		component?: ComponentAnchorTemplate | null;
+		/** Leave out annotations still pending in a round, as agents see them. */
+		landedOnly?: boolean;
 	},
 ): Promise<AnnotationCountSummary> => {
-	const { annotations } = await context.store.list(input.container);
+	const annotations = input.landedOnly
+		? landedOf(await scanLanded(context, input.container), nowOf(context))
+		: (await context.store.list(input.container)).annotations;
 	return summarizeAnnotationCounts(
 		annotations
 			.map(({ annotation }) => annotation)

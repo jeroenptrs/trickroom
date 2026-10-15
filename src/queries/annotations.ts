@@ -384,6 +384,15 @@ export type AnnotationSendResponse = {
 	annotations: { key: string; annotation: AnnotationView }[];
 	/** Drafts that were not written; the others were. */
 	failed: { key: string; code: string; error: string }[];
+	/**
+	 * Why the send stopped after writing some drafts (the checkout
+	 * changed); the drafts it did not try are in `failed`. Null otherwise.
+	 */
+	interrupted?: {
+		code: string;
+		error: string;
+		details?: Record<string, unknown>;
+	} | null;
 };
 
 /**
@@ -391,16 +400,25 @@ export type AnnotationSendResponse = {
  * server writes them into the open round (or opens one) and says which
  * were written.
  */
-export const sendAnnotationsRequest = (
+export const sendAnnotationsRequest = async (
 	container: AnnotationContainer,
 	drafts: readonly AnnotationSendDraft[],
 	expectedScope: ExpectedScope = null,
-) =>
-	post<AnnotationSendResponse>(
+) => {
+	const answer = await post<AnnotationSendResponse>(
 		`${baseUrl}/send`,
 		{ ...annotationContainerParams(container), drafts },
 		expectedScope,
 	);
+	// The checkout changed after some drafts were written: as with a
+	// refused write, the editor lists the new checkout's annotations.
+	const scope =
+		answer.interrupted?.code === "SCOPE_CHANGED"
+			? parseAnnotationScope(answer.interrupted.details?.scope)
+			: null;
+	if (scope) deliverAnnotationScope(scope);
+	return answer;
+};
 
 /**
  * The open round of the container on the checkout's branch, or null, with
