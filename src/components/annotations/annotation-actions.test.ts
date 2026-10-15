@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { OpenRound } from "../../queries/annotations";
 import type { AnnotationView } from "../../services/annotations.types";
 import {
 	annotationDraftStore,
@@ -8,12 +9,15 @@ import {
 	setReplyDraft,
 } from "../../stores/annotation-draft-store";
 import {
+	applyOpenRound,
+	beginRoundRead,
 	editorAnnotationsStore,
 	hydrateAnnotations,
 	openAnnotationContainer,
 	resetEditorAnnotations,
 } from "../../stores/editor-annotations-store";
 import {
+	closeOpenRound,
 	replyToAnnotation,
 	sendAnnotationDraft,
 	sendAnnotationDrafts,
@@ -39,6 +43,52 @@ const json = (body: unknown) =>
 	new Response(JSON.stringify(body), {
 		status: 200,
 		headers: { "content-type": "application/json" },
+	});
+
+const scope = { branch: "main", worktreePath: "/work" };
+
+const round = (id = "R1", annotationIds: string[] = []): OpenRound => ({
+	version: 1,
+	id,
+	projectId: "p1",
+	container: { kind: "design", designId: "D" },
+	branch: "main",
+	worktreePath: "/work",
+	status: "open",
+	openedAt: "2026-10-15T10:00:00.000Z",
+	annotationIds,
+	sends: [],
+	counts: {
+		total: annotationIds.length,
+		closed: 0,
+		agentWork: annotationIds.length,
+		humanWork: 0,
+		byStatus: { open: annotationIds.length },
+	},
+});
+
+/** What `POST /send` answers: each key written as the given annotation. */
+const sendAnswer = (
+	written: Record<string, AnnotationView>,
+	extra: {
+		failed?: { key: string; code: string; error: string }[];
+		round?: OpenRound | null;
+	} = {},
+) =>
+	json({
+		scope,
+		round:
+			extra.round === undefined
+				? round(
+						"R1",
+						Object.values(written).map((entry) => entry.id),
+					)
+				: extra.round,
+		annotations: Object.entries(written).map(([key, annotation]) => ({
+			key,
+			annotation,
+		})),
+		failed: extra.failed ?? [],
 	});
 
 const deferred = <T>() => {
@@ -82,7 +132,7 @@ describe("Send and Reply clear only what they sent", () => {
 		);
 		const sending = sendAnnotationDraft(draft);
 		setAnnotationDraft(target, "new unsent text");
-		pending.resolve(json({ annotation: view("a2"), written: true }));
+		pending.resolve(sendAnswer({ [draft.key]: view("a2") }));
 		await sending;
 		expect(drafts()[draft.key]?.body).toBe("new unsent text");
 		expect(editorAnnotationsStore.get().byId.a2).toBeDefined();
@@ -94,7 +144,7 @@ describe("Send and Reply clear only what they sent", () => {
 		if (!draft) throw new Error("no draft");
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(async () => json({ annotation: view("a2"), written: true })),
+			vi.fn(async () => sendAnswer({ [draft.key]: view("a2") })),
 		);
 		await sendAnnotationDraft(draft);
 		expect(drafts()[draft.key]).toBeUndefined();
@@ -131,7 +181,7 @@ describe("Send and Reply clear only what they sent", () => {
 		expect(annotationDraftStore.get().replies.a1).toBe("new unsent reply");
 	});
 
-	it("Send all drafts sends each draft as it is when its turn comes", async () => {
+	it("Send all drafts is one request, with each draft as it is when it goes out", async () => {
 		const layer = {
 			kind: "layer" as const,
 			designId: "D",
@@ -141,25 +191,118 @@ describe("Send and Reply clear only what they sent", () => {
 		setAnnotationDraft(target, "design remark");
 		setAnnotationDraft(layer, "layer remark");
 		const listed = Object.values(drafts());
-		const first = deferred<Response>();
+		const requests: { url: string; body: Record<string, unknown> }[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string, init: RequestInit) => {
+				const body = JSON.parse(String(init.body));
+				requests.push({ url, body });
+				return sendAnswer(
+					Object.fromEntries(
+						(body.drafts as { key: string }[]).map((entry, index) => [
+							entry.key,
+							view(`a${index + 2}`),
+						]),
+					),
+				);
+			}),
+		);
+		const sending = sendAnnotationDrafts(listed, { stageMode: "responsive" });
+		setAnnotationDraft(layer, "layer remark, edited");
+		expect(await sending).toBe(2);
+		expect(requests).toHaveLength(1);
+		expect(requests[0]?.url).toBe("/api/trickroom/annotations/send");
+		expect(requests[0]?.body.designId).toBe("D");
+		// The request is built when Send starts: the edit made after is kept.
+		expect(
+			(requests[0]?.body.drafts as { body: string }[]).map((d) => d.body),
+		).toEqual(["design remark", "layer remark"]);
+		expect(
+			(requests[0]?.body.drafts as { snapshot: unknown }[])[0]?.snapshot,
+		).toEqual({ stageMode: "responsive" });
+		expect(drafts()["layer:D/L"]?.body).toBe("layer remark, edited");
+		expect(Object.keys(editorAnnotationsStore.get().byId).sort()).toEqual([
+			"a1",
+			"a2",
+			"a3",
+		]);
+	});
+});
+
+describe("Send reports what the server did not write", () => {
+	const layer = {
+		kind: "layer" as const,
+		designId: "D",
+		boardId: "B",
+		elementId: "L",
+	};
+
+	it("keeps the drafts the answer does not list and counts them", async () => {
+		setAnnotationDraft(target, "design remark");
+		setAnnotationDraft(layer, "layer remark");
+		const listed = Object.values(drafts());
+		const designKey = listed[0]?.key ?? "";
+		const layerKey = listed[1]?.key ?? "";
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				sendAnswer(
+					{ [designKey]: view("a2") },
+					{
+						failed: [
+							{
+								key: layerKey,
+								code: "TARGET_NOT_FOUND",
+								error: "Layer is gone",
+							},
+						],
+					},
+				),
+			),
+		);
+		expect(await sendAnnotationDrafts(listed)).toBe(1);
+		expect(drafts()[designKey]).toBeUndefined();
+		expect(drafts()[layerKey]?.body).toBe("layer remark");
+	});
+
+	it("shows the round the answer carries, counted from the annotations held", async () => {
+		setAnnotationDraft(target, "design remark");
+		const draft = Object.values(drafts())[0];
+		if (!draft) throw new Error("no draft");
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				sendAnswer({ [draft.key]: view("a2") }, { round: round("R1", ["a2"]) }),
+			),
+		);
+		await sendAnnotationDraft(draft);
+		expect(editorAnnotationsStore.get().round?.id).toBe("R1");
+	});
+
+	it("leaves the drafts of another design where they are", async () => {
+		setAnnotationDraft(target, "design remark");
+		const other = {
+			kind: "layer" as const,
+			designId: "E",
+			boardId: "B",
+			elementId: "L",
+		};
+		setAnnotationDraft(other, "other design remark");
 		const bodies: string[] = [];
-		let call = 0;
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async (_url: string, init: RequestInit) => {
-				bodies.push(JSON.parse(String(init.body)).body);
-				call += 1;
-				return call === 1
-					? first.promise
-					: json({ annotation: view(`a${call + 1}`), written: true });
+				const sent = JSON.parse(String(init.body)).drafts as {
+					key: string;
+					body: string;
+				}[];
+				bodies.push(...sent.map((entry) => entry.body));
+				return sendAnswer({ [sent[0]?.key ?? ""]: view("a2") });
 			}),
 		);
-		const sending = sendAnnotationDrafts(listed);
-		setAnnotationDraft(layer, "layer remark, edited");
-		first.resolve(json({ annotation: view("a2"), written: true }));
-		await sending;
-		expect(bodies).toEqual(["design remark", "layer remark, edited"]);
-		expect(Object.keys(drafts())).toEqual([]);
+		expect(await sendAnnotationDrafts(Object.values(drafts()))).toBe(1);
+		expect(bodies).toEqual(["design remark"]);
+		expect(drafts()["layer:E/L"]?.body).toBe("other design remark");
 	});
 });
 
@@ -172,50 +315,91 @@ describe("Send all drafts stays in its project and design", () => {
 		elementId: "L",
 	};
 
-	const holdFirst = () => {
-		const first = deferred<Response>();
-		const bodies: string[] = [];
-		let call = 0;
+	const holdAnswer = () => {
+		const held = deferred<Response>();
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(async (_url: string, init: RequestInit) => {
-				bodies.push(JSON.parse(String(init.body)).body);
-				call += 1;
-				return call === 1
-					? first.promise
-					: json({ annotation: view(`a${call + 1}`), written: true });
-			}),
+			vi.fn(() => held.promise),
 		);
-		return { first, bodies };
+		return held;
 	};
 
-	it("stops when the project changes and never sends the other project's draft", async () => {
+	it("clears the sent drafts in their own project when the tab moved on", async () => {
 		setAnnotationDraft(target, "A design draft");
 		setAnnotationDraft(layer, "A layer draft");
 		const listed = Object.values(drafts());
-		const { first, bodies } = holdFirst();
+		const held = holdAnswer();
 		const sending = sendAnnotationDrafts(listed);
 		loadAnnotationDrafts("project-b");
 		setAnnotationDraft(layer, "B unsent layer draft");
-		first.resolve(json({ annotation: view("a2"), written: true }));
-		expect(await sending).toBe(1);
-		expect(bodies).toEqual(["A design draft"]);
+		held.resolve(
+			sendAnswer(
+				Object.fromEntries(listed.map((d, i) => [d.key, view(`a${i + 2}`)])),
+			),
+		);
+		expect(await sending).toBe(2);
 		expect(drafts()["layer:D/L"]?.body).toBe("B unsent layer draft");
-		// Project a keeps its unsent layer draft.
+		// Project a's drafts went out with the request.
 		loadAnnotationDrafts("project-a");
-		expect(drafts()["layer:D/L"]?.body).toBe("A layer draft");
+		expect(drafts()["layer:D/L"]).toBeUndefined();
 	});
 
-	it("stops when the design changes", async () => {
+	it("does not show the answer in another design", async () => {
 		setAnnotationDraft(target, "design remark");
-		setAnnotationDraft(layer, "layer remark");
 		const listed = Object.values(drafts());
-		const { first, bodies } = holdFirst();
+		const held = holdAnswer();
 		const sending = sendAnnotationDrafts(listed);
 		openAnnotationContainer({ kind: "design", designId: "E" });
-		first.resolve(json({ annotation: view("a2"), written: true }));
-		expect(await sending).toBe(1);
-		expect(bodies).toEqual(["design remark"]);
-		expect(drafts()["layer:D/L"]?.body).toBe("layer remark");
+		held.resolve(
+			sendAnswer(Object.fromEntries(listed.map((d) => [d.key, view("a2")]))),
+		);
+		await sending;
+		expect(editorAnnotationsStore.get().byId.a2).toBeUndefined();
+		expect(editorAnnotationsStore.get().round).toBeNull();
+		expect(drafts()[listed[0]?.key ?? ""]).toBeUndefined();
+	});
+});
+
+describe("Close round", () => {
+	it("posts the close and drops the round", async () => {
+		hydrateAnnotations({ kind: "design", designId: "D" }, scope, [view("a1")]);
+		applyOpenRound(
+			beginRoundRead(),
+			{ kind: "design", designId: "D" },
+			scope,
+			round("R1", ["a1"]),
+		);
+		const fetchMock = vi.fn(async (_url: string) =>
+			json({
+				round: { ...round("R1", ["a1"]), status: "closed" },
+				written: true,
+			}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		await closeOpenRound({ kind: "design", designId: "D" }, round("R1"));
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(
+			"/api/trickroom/annotations/rounds/R1/close",
+		);
+		expect(editorAnnotationsStore.get().round).toBeNull();
+	});
+
+	it("keeps the round when the close fails", async () => {
+		applyOpenRound(
+			beginRoundRead(),
+			{ kind: "design", designId: "D" },
+			scope,
+			round("R1", ["a1"]),
+		);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ error: "nope", code: "X" }), {
+						status: 500,
+					}),
+			),
+		);
+		await closeOpenRound({ kind: "design", designId: "D" }, round("R1"));
+		expect(editorAnnotationsStore.get().round?.id).toBe("R1");
 	});
 });

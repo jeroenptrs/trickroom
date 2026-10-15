@@ -47,6 +47,7 @@ import {
 	AnnotationDraftRow,
 	AnnotationSection,
 } from "./AnnotationPanelParts";
+import { AnnotationRoundHeader } from "./AnnotationRoundHeader";
 import { AnnotationThread } from "./AnnotationThread";
 import { reanchorAnnotation } from "./annotation-actions";
 import { revealDesignLayers } from "./design-annotation-navigation";
@@ -242,6 +243,15 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 		),
 	);
 	const otherDrafts = drafts.filter((draft) => draft.key !== targetKey);
+	// A round carries every draft of the design, not only the board in view.
+	const designDrafts = useAnnotationDrafts(
+		useCallback(
+			(draft: AnnotationDraft) =>
+				draft.target.kind !== "componentNode" &&
+				draft.target.designId === designId,
+			[designId],
+		),
+	);
 
 	const container = useMemo(
 		() => ({ kind: "design" as const, designId }),
@@ -332,6 +342,11 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 						focusRequest={composerFocusRequest}
 					/>
 				</div>
+				<AnnotationRoundHeader
+					container={container}
+					drafts={designDrafts}
+					getSnapshot={getDesignSnapshotHint}
+				/>
 				<AnnotationBulkActions
 					container={container}
 					drafts={drafts}

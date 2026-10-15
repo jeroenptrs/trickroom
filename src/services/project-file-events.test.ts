@@ -644,7 +644,8 @@ describe("annotation events", () => {
 		const received: AnnotationFileEvent[] = [];
 		events.setAnnotationProject("proj");
 		const unsubscribe = events.subscribeAnnotations((event) => {
-			received.push(event);
+			// Round files are not written here; annotation events only.
+			if (!("roundId" in event)) received.push(event);
 		});
 		const store = new AnnotationStore({
 			projectId: "proj",

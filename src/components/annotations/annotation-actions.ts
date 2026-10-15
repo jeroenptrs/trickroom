@@ -1,18 +1,21 @@
 import { toast } from "sonner";
 import {
 	AnnotationRequestError,
+	type AnnotationSendResponse,
 	type AnnotationSnapshotHint,
 	annotationContainerOf,
+	closeRoundRequest,
 	containerKey,
-	createAnnotationRequest,
 	fetchAnnotation,
 	isAnnotationRevisionMismatch,
 	isAnnotationScopeChanged,
 	moveAnnotationRequest,
+	type OpenRound,
 	reanchorAnnotationRequest,
 	replyToAnnotationRequest,
 	resolveAnnotationsRequest,
 	revertAnnotationChangeRequest,
+	sendAnnotationsRequest,
 	transitionAnnotationRequest,
 } from "../../queries/annotations";
 import type {
@@ -22,7 +25,6 @@ import type {
 } from "../../services/annotations.types";
 import {
 	type AnnotationDraft,
-	annotationDraftStore,
 	captureSentDraft,
 	clearSentAnnotationDraft,
 	clearSentReplyDraft,
@@ -31,8 +33,10 @@ import {
 	type AnnotationReadToken,
 	applyAnnotationRead,
 	applyAnnotationWrite,
+	applyOpenRound,
 	beginAnnotationRead,
 	beginAnnotationWrite,
+	beginRoundRead,
 	editorAnnotationsStore,
 } from "../../stores/editor-annotations-store";
 
@@ -151,30 +155,67 @@ async function write<T extends { annotation: AnnotationView }>(
 	}
 }
 
+type SendableDraft = Pick<AnnotationDraft, "key" | "target" | "body">;
+
+type SendOutcome = {
+	written: AnnotationView[];
+	failed: AnnotationSendResponse["failed"];
+};
+
 /**
- * Sends a draft: from here on it is on disk and in front of an agent. The
- * draft is dropped only once the write succeeded.
+ * Sends drafts of one design (or component) in one request: the server
+ * writes them into the open round, or opens one. The container is the one
+ * the editor has open; drafts of another are left alone. A draft is
+ * dropped only when the answer lists it as written, and only the text that
+ * was sent: the composers stay editable while the request is out, and the
+ * drafts belong to the project they were written in. Null when the request
+ * failed (reported).
  */
-export async function sendAnnotationDraft(
-	draft: Pick<AnnotationDraft, "key" | "target" | "body">,
+async function sendBatch(
+	listed: readonly SendableDraft[],
 	snapshot?: AnnotationSnapshotHint,
-) {
-	// The composer stays editable while this is in flight: clear only the
-	// text that was sent, in the project it was written in.
-	const sent = captureSentDraft(draft.body);
+): Promise<SendOutcome | null> {
+	const first = listed[0];
+	if (!first) return { written: [], failed: [] };
+	const container =
+		editorAnnotationsStore.get().container ??
+		annotationContainerOf(first.target);
+	const key = containerKey(container);
+	const batch = listed.filter(
+		(draft) => containerKey(annotationContainerOf(draft.target)) === key,
+	);
+	const sent = new Map(
+		batch.map((draft) => [draft.key, captureSentDraft(draft.body)]),
+	);
 	const token = beginAnnotationWrite();
 	try {
-		const result = await createAnnotationRequest(
-			{
+		const answer = await sendAnnotationsRequest(
+			container,
+			batch.map((draft) => ({
+				key: draft.key,
 				target: draft.target,
 				body: draft.body.trim(),
 				...(snapshot ? { snapshot } : {}),
-			},
+			})),
 			heldScope(),
 		);
-		await applyWriteAnswer(token, result.annotation);
-		clearSentAnnotationDraft(draft.key, sent);
-		return result.annotation;
+		for (const { key: draftKey } of answer.annotations) {
+			const capture = sent.get(draftKey);
+			if (capture) clearSentAnnotationDraft(draftKey, capture);
+		}
+		// The annotations first: the round's progress counts the ones it lists
+		// that the editor holds.
+		const applying = answer.annotations.map(({ annotation }) =>
+			applyWriteAnswer(token, annotation),
+		);
+		if (answer.round) {
+			applyOpenRound(beginRoundRead(), container, answer.scope, answer.round);
+		}
+		await Promise.all(applying);
+		return {
+			written: answer.annotations.map(({ annotation }) => annotation),
+			failed: answer.failed,
+		};
 	} catch (error) {
 		await reportAnnotationWriteError(error, null);
 		return null;
@@ -182,49 +223,70 @@ export async function sendAnnotationDraft(
 }
 
 /**
- * Sends drafts one by one; returns how many were sent. The batch belongs to
- * the project and the design (or component) open when it started: if
- * either changes meanwhile, it stops, so another project's drafts with the
- * same target are never sent.
+ * Sends a draft: from here on it is on disk, in the open round, and in
+ * front of an agent. The draft is dropped only once it was written.
  */
-export async function sendAnnotationDrafts(
-	drafts: readonly Pick<AnnotationDraft, "key" | "target" | "body">[],
+export async function sendAnnotationDraft(
+	draft: SendableDraft,
 	snapshot?: AnnotationSnapshotHint,
 ) {
-	const project = annotationDraftStore.get().projectScope;
-	const opened = editorAnnotationsStore.get().container;
-	const openedKey = opened ? containerKey(opened) : null;
-	const stillHere = () => {
-		const current = editorAnnotationsStore.get().container;
-		return (
-			annotationDraftStore.get().projectScope === project &&
-			(current ? containerKey(current) : null) === openedKey
-		);
-	};
-	let sent = 0;
-	for (const listed of drafts) {
-		if (!stillHere()) {
-			toast.warning(
-				`Sending stopped after ${sent} of ${drafts.length}: you left the design`,
-				{
-					id: "annotation-drafts-stopped",
-					description: "The drafts not sent yet are kept in that design.",
-				},
-			);
-			return sent;
-		}
-		// Each one as it is when its turn comes: it may have been edited or
-		// discarded while earlier ones were sending.
-		const draft = annotationDraftStore.get().drafts[listed.key];
-		if (!draft) continue;
-		if (await sendAnnotationDraft(draft, snapshot)) sent += 1;
+	const outcome = await sendBatch([draft], snapshot);
+	if (!outcome) return null;
+	const failure = outcome.failed[0];
+	if (failure) {
+		toast.error("Annotation not saved", { description: failure.error });
 	}
+	return outcome.written[0] ?? null;
+}
+
+/**
+ * Sends drafts in one request; returns how many were written. Drafts the
+ * server could not write stay drafts and are counted in a toast.
+ */
+export async function sendAnnotationDrafts(
+	drafts: readonly SendableDraft[],
+	snapshot?: AnnotationSnapshotHint,
+) {
+	const outcome = await sendBatch(drafts, snapshot);
+	if (!outcome) return 0;
+	const sent = outcome.written.length;
 	if (sent > 0) {
 		toast.success(sent === 1 ? "Annotation sent" : `${sent} annotations sent`, {
 			id: "annotation-drafts-sent",
 		});
 	}
+	const failed = outcome.failed.length;
+	if (failed > 0) {
+		toast.error(
+			`${failed} of ${sent + failed} ${sent + failed === 1 ? "annotation" : "annotations"} not sent`,
+			{
+				id: "annotation-drafts-failed",
+				description: `${outcome.failed[0]?.error ?? "The server refused them."} ${failed === 1 ? "It stays" : "They stay"} as ${failed === 1 ? "a draft" : "drafts"}.`,
+			},
+		);
+	}
 	return sent;
+}
+
+/**
+ * Closes the open round. Annotations in it keep their status; the next
+ * send opens a new round.
+ */
+export async function closeOpenRound(
+	container: AnnotationContainer,
+	round: Pick<OpenRound, "id">,
+) {
+	try {
+		const answer = await closeRoundRequest(container, round.id, heldScope());
+		// Whatever is open on this branch now is read through the event that
+		// follows; the closed round no longer is.
+		applyOpenRound(beginRoundRead(), container, null, null);
+		toast.success("Round closed", { id: "annotation-round-closed" });
+		return answer.round;
+	} catch (error) {
+		await reportAnnotationWriteError(error, null);
+		return null;
+	}
 }
 
 export async function replyToAnnotation(

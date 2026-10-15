@@ -2,10 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import type { AnnotationFileEvent } from "../services/annotations.types";
 import {
 	deliverAnnotationEvent,
+	deliverAnnotationRoundEvent,
 	parseAnnotationFileEvent,
+	parseAnnotationRoundEvent,
 	requestAnnotationResync,
 	subscribeAnnotationEvents,
 	subscribeAnnotationResync,
+	subscribeAnnotationRound,
 } from "./annotation-live-events";
 
 const frame = (overrides: Record<string, unknown> = {}) =>
@@ -124,5 +127,39 @@ describe("annotation resync", () => {
 		requestAnnotationResync();
 		expect(events).not.toHaveBeenCalled();
 		stop();
+	});
+});
+
+describe("annotation round events", () => {
+	const container = { kind: "design", designId: "d1" };
+
+	it("parses a frame", () => {
+		expect(
+			parseAnnotationRoundEvent(JSON.stringify({ roundId: "R1", container })),
+		).toEqual({ roundId: "R1", container });
+	});
+
+	it.each([
+		["invalid JSON", "{nope"],
+		["null", "null"],
+		["a missing roundId", JSON.stringify({ container })],
+		["a missing container", JSON.stringify({ roundId: "R1" })],
+		[
+			"an unknown container kind",
+			JSON.stringify({ roundId: "R1", container: { kind: "board" } }),
+		],
+	])("rejects %s", (_name, data) => {
+		expect(parseAnnotationRoundEvent(data)).toBeNull();
+	});
+
+	it("reaches subscribers until they unsubscribe", () => {
+		const listener = vi.fn();
+		const stop = subscribeAnnotationRound(listener);
+		const event = { roundId: "R1", container: container as never };
+		deliverAnnotationRoundEvent(event);
+		stop();
+		deliverAnnotationRoundEvent(event);
+		expect(listener).toHaveBeenCalledTimes(1);
+		expect(listener).toHaveBeenCalledWith(event);
 	});
 });

@@ -127,7 +127,7 @@ describe("sending", () => {
 		expect(JSON.parse(await readFile(file, "utf8"))).toEqual(round);
 		expect((await stat(file)).mode & 0o777).toBe(0o600);
 		expect((await stat(path.dirname(file))).mode & 0o777).toBe(0o700);
-		expect(await landed()).toEqual(ids);
+		expect((await landed()).sort()).toEqual([...ids].sort());
 	});
 
 	it("adds later sends to the open round", async () => {
@@ -226,7 +226,7 @@ describe("pending annotations", () => {
 				.annotations,
 		).toHaveLength(2);
 		clock = new Date(clock.getTime() + ROUND_PENDING_MS);
-		expect(await landed()).toEqual([sent, unlisted.id]);
+		expect((await landed()).sort()).toEqual([sent, unlisted.id].sort());
 	});
 
 	it("lands an annotation whose round file is missing after 30 s", async () => {

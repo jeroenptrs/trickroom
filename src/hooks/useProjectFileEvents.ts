@@ -2,8 +2,10 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import {
 	deliverAnnotationEvent,
+	deliverAnnotationRoundEvent,
 	deliverAnnotationScope,
 	parseAnnotationFileEvent,
+	parseAnnotationRoundEvent,
 	parseAnnotationScope,
 	requestAnnotationResync,
 } from "../queries/annotation-live-events";
@@ -331,6 +333,13 @@ export function useProjectFileEvents(
 			}
 		};
 
+		// A round was sent or closed: an editor with that container open reads
+		// its open round again.
+		const handleAnnotationRound = (message: MessageEvent<string>) => {
+			const event = parseAnnotationRoundEvent(message.data);
+			if (event) deliverAnnotationRoundEvent(event);
+		};
+
 		// Another branch checked out: the counts are of the old one, and an
 		// editor with annotations open lists the new branch's.
 		const handleAnnotationScope = (message: MessageEvent<string>) => {
@@ -362,7 +371,15 @@ export function useProjectFileEvents(
 			"annotation-scope",
 			handleAnnotationScope as EventListener,
 		);
+		source.addEventListener(
+			"annotation-round",
+			handleAnnotationRound as EventListener,
+		);
 		return () => {
+			source.removeEventListener(
+				"annotation-round",
+				handleAnnotationRound as EventListener,
+			);
 			source.removeEventListener(
 				"annotation-scope",
 				handleAnnotationScope as EventListener,

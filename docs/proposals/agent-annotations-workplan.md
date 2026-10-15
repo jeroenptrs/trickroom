@@ -475,7 +475,10 @@ at once into one round).
 
 ### R3: HTTP routes and the editor
 
-Status: in progress (routes and SSE done; editor in progress).
+Status: done. Editor built by a Sonnet 5.5 subagent from the proposal and
+reviewed; checked in headless Chromium (send round, live proposal, Accept
+all proposed, Close round with the confirm, command menu). The old **Send
+drafts** command is gone: **Send round** does the same.
 
 - Routes: `POST /annotations/send`, `GET /annotations/rounds`,
   `POST /annotations/rounds/:roundId/close`; `annotation-round` SSE events.
