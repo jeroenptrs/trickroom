@@ -439,3 +439,70 @@ UI with the repo's `playwright-core` headless Chromium:
   at 10,000; removing it needs a persisted index, a new file shape); the
   `HEAD` watcher does not notice `git init` in a project without git (the
   next list or write corrects the scope).
+
+## Rounds
+
+Proposal: [annotation-rounds.md](./annotation-rounds.md). Branch
+`t3/annotation-rounds` off `main` at 126d2f9, one PR against `main`. One
+implementing thread (Opus 5.5); small edits may go to Sonnet 5.5 or Haiku
+5.5 subagents. The design decisions and the MCP tools stay with the
+implementing thread. The bug fix found first (change entries listing every
+layer id) went out separately as PR #35.
+
+Status key: todo, in progress, done.
+
+### R1: proposal and plan
+
+Status: done (01208e8). The proposal, and this section.
+
+### R2: store and service
+
+Status: todo.
+
+- `src/services/annotation-round-*.ts`: round file type, schema and
+  `roundFileMigrations`, a store for round files (lock per container's
+  `rounds` folder, atomic rename, 0700 and 0600).
+- Annotation file version 2 with optional `roundId`; migration 1 to 2.
+  Tests that used version 2 as "newer" move to version 3.
+- `proposed` status and `proposal` entry; `propose` in `replyToAnnotation`;
+  `proposed` in `HUMAN_WORK_STATUSES`.
+- `sendAnnotations` (open or find the round, write the annotations, append
+  the send, all under the round lock), `closeRound`, `getOpenRound`,
+  `summarizeRound`, and the pending filter (`landed`) for listings.
+- Tests: service level, plus a two-process case: two processes sending to
+  the same design at once open one round, and every annotation lands.
+
+### R3: HTTP routes and the editor
+
+Status: todo.
+
+- Routes: `POST /annotations/send`, `GET /annotations/rounds`,
+  `POST /annotations/rounds/:roundId/close`; `annotation-round` SSE events.
+- Editor: send through the new route (one draft or many), `proposed`
+  rendering with **Accept**, round header with progress, **Send round**,
+  **Accept all proposed**, **Close round** with a confirm, command menu
+  entries. Pins and markers show `proposed` like `addressed`.
+- Verify in headless Chromium.
+
+### R4: MCP
+
+Status: todo.
+
+- `propose` on `annotation_reply`; `annotation_watch` with `round: true`
+  (design and component); round counts on `project_list` and
+  `design_list`; pending annotations left out of every listing; `next`
+  texts; the `annotations` guide topic; server instructions; tool
+  descriptions under 2,048 characters.
+
+### R5: docs
+
+Status: todo. `docs/mcp.md`, `docs/user-guide.md`,
+`docs/project-files.md`.
+
+### R6: dogfood
+
+Status: todo. A real agent against the built stdio server: the designer
+sends a round of three remarks; the agent addresses one, proposes one and
+asks about one; the designer accepts two and replies to the third; the
+agent addresses it; the designer closes the round; the agent's watch
+returns `closed`.
