@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { isPendingAnnotation } from "../../services/annotation-model";
 import {
 	type AnnotationComponentRead,
 	AnnotationServiceError,
 	listAnnotations,
 	reanchorAnnotation,
 	replyToAnnotation,
+	scanLanded,
 	summarizeAnnotationCounts,
 } from "../../services/annotation-service";
 import { AnnotationStoreError } from "../../services/annotation-store";
@@ -107,9 +109,14 @@ const describeHiddenAnnotations = async (
 ) => {
 	let stored: Annotation[];
 	try {
-		stored = (await project.service.store.list(container)).annotations.map(
-			({ annotation }) => annotation,
-		);
+		// As agents see them: a send still being written is not hinted at.
+		const scan = await scanLanded(project.service, container);
+		const now = project.service.now?.() ?? new Date();
+		stored = scan.stored.annotations
+			.map(({ annotation }) => annotation)
+			.filter(
+				(annotation) => !isPendingAnnotation(annotation, scan.roundsById, now),
+			);
 	} catch {
 		return null;
 	}

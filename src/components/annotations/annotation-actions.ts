@@ -160,7 +160,7 @@ type SendableDraft = Pick<AnnotationDraft, "key" | "target" | "body">;
 type SendOutcome = {
 	written: AnnotationView[];
 	failed: AnnotationSendResponse["failed"];
-	/** The send stopped part way (reported already). */
+	/** The send stopped part way; one message reported both halves. */
 	interrupted: boolean;
 };
 
@@ -220,15 +220,22 @@ async function sendBatch(
 		const { interrupted } = answer;
 		if (interrupted) {
 			// The written drafts are cleared above, so a retry does not send
-			// them twice; the rest stay drafts.
-			await reportAnnotationWriteError(
-				new AnnotationRequestError(
-					interrupted.error,
-					409,
-					interrupted.code,
-					interrupted.details,
-				),
-				null,
+			// them twice; the rest stay drafts. One message for both halves.
+			const saved = answer.annotations.length;
+			const kept = answer.failed.length;
+			const scope = interrupted.details?.scope as
+				| { branch?: unknown }
+				| undefined;
+			const branch = typeof scope?.branch === "string" ? scope.branch : null;
+			toast.warning(
+				`${saved} ${saved === 1 ? "annotation" : "annotations"} sent, ${kept} kept as ${kept === 1 ? "a draft" : "drafts"}`,
+				{
+					id: "annotation-drafts-interrupted",
+					description:
+						interrupted.code === "SCOPE_CHANGED"
+							? `The checkout changed while sending. ${branch && branch !== "*" ? `Branch ${branch} is checked out now` : "Another checkout is active now"}; its annotations are shown instead.`
+							: interrupted.error,
+				},
 			);
 		}
 		return {
@@ -271,13 +278,13 @@ export async function sendAnnotationDrafts(
 	const outcome = await sendBatch(drafts, snapshot);
 	if (!outcome) return 0;
 	const sent = outcome.written.length;
-	if (sent > 0) {
+	// A partial send has its own message (sendBatch).
+	if (sent > 0 && !outcome.interrupted) {
 		toast.success(sent === 1 ? "Annotation sent" : `${sent} annotations sent`, {
 			id: "annotation-drafts-sent",
 		});
 	}
 	const failed = outcome.failed.length;
-	// An interrupted send was reported already (the checkout changed).
 	if (failed > 0 && !outcome.interrupted) {
 		toast.error(
 			`${failed} of ${sent + failed} ${sent + failed === 1 ? "annotation" : "annotations"} not sent`,

@@ -1,5 +1,13 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const toasts = vi.hoisted(() => ({
+	success: vi.fn(),
+	warning: vi.fn(),
+	error: vi.fn(),
+}));
+vi.mock("sonner", () => ({ toast: toasts }));
+
 import type { OpenRound } from "../../queries/annotations";
 import type { AnnotationView } from "../../services/annotations.types";
 import {
@@ -442,10 +450,23 @@ describe("Send interrupted by a checkout change", () => {
 				),
 			),
 		);
+		toasts.success.mockClear();
+		toasts.warning.mockClear();
+		toasts.error.mockClear();
 		expect(await sendAnnotationDrafts(listed)).toBe(1);
 		// A retry on the original branch cannot send the written one twice.
 		expect(drafts()[writtenKey]).toBeUndefined();
 		expect(drafts()[keptKey]?.body).toBe("not tried");
+		// One message, naming both halves; no "sent" or "nothing saved".
+		expect(toasts.success).not.toHaveBeenCalled();
+		expect(toasts.error).not.toHaveBeenCalled();
+		expect(toasts.warning).toHaveBeenCalledTimes(1);
+		expect(toasts.warning).toHaveBeenCalledWith(
+			"1 annotation sent, 1 kept as a draft",
+			expect.objectContaining({
+				description: expect.stringContaining("Branch feature"),
+			}),
+		);
 	});
 });
 

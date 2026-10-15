@@ -371,8 +371,23 @@ describe("MCP annotation rounds", () => {
 		});
 		const read = await call(TOOL.designRead, { designFileId: designId });
 		expect(read.payload).not.toHaveProperty("annotations");
+		// The same on another branch: no hint at an annotation agents cannot see.
+		await createAnnotation(service, {
+			target: { kind: "layer", designId, boardId: "board", elementId: "price" },
+			body: "Half a batch elsewhere",
+			by: { role: "human" },
+			scope: { branch: "other", worktreePath: fixture.projectRoot },
+			design: { design: current.design, revision: current.revision },
+			roundId: "other-round-being-written",
+		});
 		const list = await call(TOOL.annotationList, { designFileId: designId });
 		expect(list.payload.annotations).toEqual([]);
+		expect(list.payload).not.toHaveProperty("next");
+		const all = await call(TOOL.annotationList, {
+			designFileId: designId,
+			branch: "all",
+		});
+		expect(all.payload.annotations).toEqual([]);
 		// Counts agree with the bodies: nothing to count yet.
 		const designs = await call(TOOL.designList);
 		expect(

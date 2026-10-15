@@ -553,6 +553,17 @@ Status: fixed, all five findings, each with a regression test.
    clears only the round it closed. Tests: reversed answers for close and
    for send.
 
+### Review round 2 (PR #36)
+
+Status: approved; both minors fixed.
+
+1. `annotation_list`'s empty-list hint counted pending annotations on
+   other branches; it now counts landed ones only. Test: a pending send on
+   another branch gives no hint, and `branch: "all"` lists nothing.
+2. A partial send showed "nothing was saved" and "Annotation sent"; it now
+   shows one warning naming the sent and kept counts. Test checks the
+   notifications.
+
 ### Rounds follow-ups
 
 - `verdict` takes precedence over `closed`, so an agent whose round
