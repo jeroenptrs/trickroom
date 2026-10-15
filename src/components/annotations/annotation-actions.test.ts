@@ -20,7 +20,7 @@ import {
 } from "./annotation-actions";
 
 const view = (id: string, revision = "r1"): AnnotationView => ({
-	version: 1,
+	version: 2,
 	id,
 	projectId: "p1",
 	target: { kind: "design", designId: "D" },

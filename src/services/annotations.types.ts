@@ -9,13 +9,18 @@ import type { SystemComponentDraftPayload } from "../utils/system-components";
  * the project; see docs/project-files.md#annotations.
  */
 
-export const ANNOTATION_FILE_VERSION = 1;
+/**
+ * Version 2 added the optional `roundId`, the `proposed` status and the
+ * `proposal` entry kind; a version 1 file has none of them.
+ */
+export const ANNOTATION_FILE_VERSION = 2;
 
 export const ANNOTATION_STATUSES = [
 	"open",
 	"acknowledged",
 	"addressed",
 	"needs_input",
+	"proposed",
 	"resolved",
 	"dismissed",
 ] as const;
@@ -172,6 +177,8 @@ type EntryBase = {
  * - `question`: an agent asks; the annotation needs input.
  * - `dismissal`: not doing this, with a reason.
  * - `resolution`: resolved, with an optional summary.
+ * - `proposal`: an agent asks the designer to close it without a change,
+ *   with its reason; the annotation is proposed.
  * - `change`: a design write made for this annotation.
  * - `revert`: a change record undone.
  * - `reanchor`: the target moved to another layer, board or design level.
@@ -183,6 +190,7 @@ export type AnnotationEntry =
 	| (EntryBase & { kind: "question"; body: string })
 	| (EntryBase & { kind: "dismissal"; reason: string })
 	| (EntryBase & { kind: "resolution"; summary?: string })
+	| (EntryBase & { kind: "proposal"; summary: string })
 	| (EntryBase & {
 			kind: "change";
 			/** The agent's reply describing the change. */
@@ -237,6 +245,12 @@ export type Annotation = {
 	acknowledged?: { sessionId: string; at: string };
 	createdAt: string;
 	updatedAt: string;
+	/**
+	 * The round it was sent in. Agents see it only once the round file
+	 * lists it (see `annotation-rounds.ts`). Absent for annotations made
+	 * outside a round.
+	 */
+	roundId?: string;
 	entries: AnnotationEntry[];
 	transitions: AnnotationTransition[];
 };
@@ -282,4 +296,48 @@ export type AnnotationFileEvent = {
 	operation: "changed" | "deleted";
 	/** The annotation's revision, null when deleted or unreadable. */
 	revision: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// Rounds
+// ---------------------------------------------------------------------------
+
+/** Round files, `rounds/<roundId>.json` in a container's folder. */
+export const ANNOTATION_ROUND_FILE_VERSION = 1;
+
+export type AnnotationRoundStatus = "open" | "closed";
+
+/** One batch the designer sent into a round. */
+export type AnnotationRoundSend = {
+	id: string;
+	at: string;
+	/** The annotations written by that send, in draft order. */
+	annotationIds: string[];
+};
+
+/**
+ * A designer's bundle of annotations on one design or component, on one
+ * branch. At most one is open per container and branch; only the designer
+ * opens (by sending) and closes it.
+ */
+export type AnnotationRound = {
+	version: typeof ANNOTATION_ROUND_FILE_VERSION;
+	id: string;
+	projectId: string;
+	container: AnnotationContainer;
+	branch: string;
+	worktreePath: string;
+	status: AnnotationRoundStatus;
+	openedAt: string;
+	closedAt?: string;
+	closedBy?: AnnotationActor;
+	/** Every annotation of every send, in send order. */
+	annotationIds: string[];
+	sends: AnnotationRoundSend[];
+};
+
+/** Emitted on `/api/trickroom/events` as `annotation-round` events. */
+export type AnnotationRoundFileEvent = {
+	roundId: string;
+	container: AnnotationContainer;
 };

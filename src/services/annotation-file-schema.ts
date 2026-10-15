@@ -38,7 +38,11 @@ export type AnnotationFileMigration = {
 	migrate: (value: AnnotationFileValue) => AnnotationFileValue;
 };
 
-export const annotationFileMigrations: readonly AnnotationFileMigration[] = [];
+export const annotationFileMigrations: readonly AnnotationFileMigration[] = [
+	// Version 2 added the optional `roundId`, the `proposed` status and the
+	// `proposal` entry kind. A version 1 file has none of them.
+	{ from: 1, to: 2, migrate: (value) => ({ ...value, version: 2 }) },
+];
 
 export const supportedAnnotationFileVersions: ReadonlySet<number> = new Set([
 	ANNOTATION_FILE_VERSION,
@@ -164,6 +168,8 @@ const describeEntryProblem = (entry: unknown): string | null => {
 				return typeof entry.reason === "string";
 			case "resolution":
 				return isOptionalString(entry.summary);
+			case "proposal":
+				return typeof entry.summary === "string";
 			case "change":
 				return (
 					isOptionalString(entry.body) &&
@@ -243,6 +249,9 @@ const validateAnnotation = (value: AnnotationFileValue): string | null => {
 		!isNonEmptyString(value.updatedAt)
 	) {
 		return "createdAt and updatedAt must be ISO times.";
+	}
+	if (value.roundId !== undefined && !isNonEmptyString(value.roundId)) {
+		return "roundId must be a non-empty string.";
 	}
 	if (!Array.isArray(value.entries)) return "entries must be a list.";
 	for (const entry of value.entries) {
@@ -345,6 +354,7 @@ const leadingAnnotationKeys = [
 	"acknowledged",
 	"createdAt",
 	"updatedAt",
+	"roundId",
 	"snapshot",
 ] as const;
 

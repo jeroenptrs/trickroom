@@ -240,7 +240,7 @@ describe("create", () => {
 			`${annotation.id}.json`,
 		);
 		expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({
-			version: 1,
+			version: 2,
 			id: annotation.id,
 		});
 	});
@@ -2810,7 +2810,7 @@ describe("listing a large design", () => {
 		await Promise.all(
 			Array.from({ length: 300 }, (_, index) =>
 				store.create({
-					version: 1,
+					version: 2,
 					id: `bulk-${index}`,
 					projectId: "project-1",
 					target: {

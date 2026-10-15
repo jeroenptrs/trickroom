@@ -37,7 +37,7 @@ const view = (
 	revision = "r1",
 	overrides: Partial<AnnotationView> = {},
 ): AnnotationView => ({
-	version: 1,
+	version: 2,
 	id,
 	projectId: "p1",
 	target: { kind: "design", designId: "D" },

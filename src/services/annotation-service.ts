@@ -18,6 +18,7 @@ import {
 	findDesignLayer,
 	hasPinnedVariants,
 	isLiveAnnotationStatus,
+	isPendingAnnotation,
 	normalizePinnedVariants,
 	summarizeAnnotationCounts,
 } from "./annotation-model";
@@ -35,6 +36,7 @@ import {
 	type AnnotationChangeRecord,
 	type AnnotationContainer,
 	type AnnotationEntry,
+	type AnnotationRound,
 	type AnnotationScope,
 	type AnnotationSnapshot,
 	type AnnotationStatus,
@@ -95,7 +97,8 @@ export type AnnotationServiceErrorCode =
 	| "DESIGN_BUSY"
 	| "WRONG_BRANCH"
 	| "SCOPE_CHANGED"
-	| "COMPONENT_BUSY";
+	| "COMPONENT_BUSY"
+	| "ALREADY_CLOSED";
 
 export class AnnotationServiceError extends Error {
 	readonly code: AnnotationServiceErrorCode;
@@ -616,6 +619,22 @@ export type ListAnnotationsInput = {
 	 * not list the folder again.
 	 */
 	stored?: Awaited<ReturnType<AnnotationStore["list"]>>;
+	/**
+	 * Leave out annotations still pending in a round (sent, not yet listed
+	 * in the round file): what agents see, so a batch arrives whole.
+	 */
+	landedOnly?: boolean;
+};
+
+/** The rounds of a container by id, read only when an annotation names one. */
+export const readRoundsById = async (
+	context: AnnotationServiceContext,
+	container: AnnotationContainer,
+	annotations: readonly Pick<Annotation, "roundId">[],
+): Promise<Map<string, AnnotationRound>> => {
+	if (!annotations.some((annotation) => annotation.roundId)) return new Map();
+	const { rounds } = await context.store.listRounds(container);
+	return new Map(rounds.map((round) => [round.id, round]));
 };
 
 export const listAnnotations = async (
@@ -629,8 +648,18 @@ export const listAnnotations = async (
 	const sessionClock = createSessionClock(context.store);
 	// One index of the design for every annotation listed.
 	const locators = viewLocators(input);
+	const roundsById = input.landedOnly
+		? await readRoundsById(
+				context,
+				input.container,
+				annotations.map(({ annotation }) => annotation),
+			)
+		: null;
 	const selected = annotations.filter(({ annotation }) => {
 		if (!matchesBranch(annotation, input.scope, input.branch)) return false;
+		if (roundsById && isPendingAnnotation(annotation, roundsById, now)) {
+			return false;
+		}
 		if (statuses && !statuses.has(annotation.status)) return false;
 		if (
 			input.boardId !== undefined &&
@@ -813,6 +842,11 @@ export type CreateAnnotationInput = {
 	 * are the caller's.
 	 */
 	component?: AnnotationComponentRead;
+	/**
+	 * The round it is sent in (`sendAnnotations`). Agents see it once the
+	 * round file lists it.
+	 */
+	roundId?: string;
 };
 
 /**
@@ -889,6 +923,7 @@ export const createAnnotation = async (
 		status: "open",
 		createdAt: at,
 		updatedAt: at,
+		...(input.roundId ? { roundId: input.roundId } : {}),
 		entries: [
 			input.by.role === "human"
 				? { id: randomUUID(), kind: "remark", at, by: input.by, body }
@@ -978,14 +1013,19 @@ export type ReplyInput = AnnotationRef & {
 	dismiss?: { reason: string };
 	/** Done. */
 	resolve?: { summary?: string };
+	/**
+	 * An agent asks the designer to close it without a change, with its
+	 * reason: the annotation is proposed until they accept or reply.
+	 */
+	propose?: { summary: string };
 };
 
 /**
  * A reply without a design write. A human remark reopens an addressed,
  * needs-input, resolved or dismissed annotation; an agent reply on an open
- * one acknowledges it; a question sets `needs_input` (agents only);
- * `dismiss` and `resolve` close it. At most one of question, dismiss and
- * resolve per call.
+ * one acknowledges it; a question sets `needs_input` and a proposal
+ * `proposed` (agents only); `dismiss` and `resolve` close it. At most one
+ * of question, propose, dismiss and resolve per call.
  */
 export const replyToAnnotation = async (
 	context: AnnotationServiceContext,
@@ -1006,18 +1046,29 @@ export const replyToAnnotation = async (
 		input.resolve?.summary === undefined
 			? undefined
 			: requireText(input.resolve.summary, "resolve.summary");
-	const actions = [question, input.dismiss, input.resolve].filter(
+	const proposal =
+		input.propose === undefined
+			? undefined
+			: requireText(input.propose?.summary, "propose.summary");
+	const actions = [question, proposal, input.dismiss, input.resolve].filter(
 		(action) => action !== undefined,
 	);
 	if (actions.length > 1) {
-		throw invalidInput("Pass at most one of question, dismiss and resolve.");
+		throw invalidInput(
+			"Pass at most one of question, propose, dismiss and resolve.",
+		);
 	}
 	if (body === undefined && actions.length === 0) {
-		throw invalidInput("Pass a body, a question, dismiss or resolve.");
+		throw invalidInput("Pass a body, a question, propose, dismiss or resolve.");
 	}
 	if (question !== undefined && input.by.role !== "agent") {
 		throw invalidInput(
 			"Questions are asked by agents; a designer replies with a body.",
+		);
+	}
+	if (proposal !== undefined && input.by.role !== "agent") {
+		throw invalidInput(
+			"Resolutions are proposed by agents; a designer resolves directly.",
 		);
 	}
 	const { by } = input;
@@ -1041,6 +1092,25 @@ export const replyToAnnotation = async (
 				body: question,
 			});
 			return withTransition(next, "needs_input", by, at);
+		}
+		if (proposal !== undefined) {
+			if (!isLive(annotation.status)) {
+				throw new AnnotationServiceError(
+					"ALREADY_CLOSED",
+					`Annotation ${annotation.id} is ${annotation.status}: there is nothing to propose. Reply with a body instead.`,
+					{ annotationId: annotation.id, status: annotation.status },
+				);
+			}
+			next = withEntry(next, {
+				id: randomUUID(),
+				kind: "proposal",
+				at,
+				by,
+				summary: proposal,
+			});
+			return next.status === "proposed"
+				? next
+				: withTransition(next, "proposed", by, at);
 		}
 		// A repeated dismiss or resolve keeps only the text, if any.
 		const unchanged = next === annotation ? null : next;

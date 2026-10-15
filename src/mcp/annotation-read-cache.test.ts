@@ -76,7 +76,7 @@ describe("MCP surfacing over a long closed history", () => {
 		const { fixture, scope, projectId, store, session } = await open();
 		const read = await fixture.designFileService.readDesignFile(designId);
 		const closed = (index: number): Annotation => ({
-			version: 1,
+			version: 2,
 			id: `closed-${String(index).padStart(4, "0")}`,
 			projectId,
 			target: { kind: "board", designId, boardId: "board" },

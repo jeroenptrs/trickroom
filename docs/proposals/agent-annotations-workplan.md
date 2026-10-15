@@ -457,7 +457,8 @@ Status: done (01208e8). The proposal, and this section.
 
 ### R2: store and service
 
-Status: todo.
+Status: done (service tests, round schema tests, and two processes sending
+at once into one round).
 
 - `src/services/annotation-round-*.ts`: round file type, schema and
   `roundFileMigrations`, a store for round files (lock per container's

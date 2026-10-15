@@ -35,7 +35,7 @@ const componentContainer: AnnotationContainer = {
 };
 
 const makeAnnotation = (overrides: Partial<Annotation> = {}): Annotation => ({
-	version: 1,
+	version: 2,
 	id: "ann-1",
 	projectId: "proj-1",
 	target: { kind: "layer", designId: "home", boardId: "b1", elementId: "e1" },
@@ -214,7 +214,7 @@ describe("annotation store", () => {
 				store.getAnnotationPath(designContainer, "ann-1"),
 				"utf8",
 			);
-			expect(text.startsWith('{\n  "version": 1,')).toBe(true);
+			expect(text.startsWith('{\n  "version": 2,')).toBe(true);
 			expect(text.endsWith("}\n")).toBe(true);
 		});
 
@@ -582,7 +582,7 @@ describe("annotation store", () => {
 			const folder = store.getContainerDirectory(designContainer);
 			await writeFile(
 				path.join(folder, "future.json"),
-				JSON.stringify({ ...makeAnnotation({ id: "future" }), version: 2 }),
+				JSON.stringify({ ...makeAnnotation({ id: "future" }), version: 3 }),
 			);
 			await writeFile(path.join(folder, "broken.json"), "{ not json");
 			await writeFile(
@@ -680,7 +680,7 @@ describe("annotation store", () => {
 			const folder = store.getContainerDirectory(designContainer);
 			await mkdir(folder, { recursive: true });
 			const filePath = path.join(folder, "future.json");
-			const bytes = `${JSON.stringify({ ...makeAnnotation({ id: "future" }), version: 2, extra: "kept" })}\n`;
+			const bytes = `${JSON.stringify({ ...makeAnnotation({ id: "future" }), version: 3, extra: "kept" })}\n`;
 			await writeFile(filePath, bytes);
 			let called = false;
 			await expectStoreError(
@@ -699,7 +699,7 @@ describe("annotation store", () => {
 			await mkdir(folder, { recursive: true });
 			await writeFile(
 				path.join(folder, "future.json"),
-				JSON.stringify({ ...makeAnnotation({ id: "future" }), version: 2 }),
+				JSON.stringify({ ...makeAnnotation({ id: "future" }), version: 3 }),
 			);
 			await expectStoreError(
 				store.read(designContainer, "future"),
@@ -713,7 +713,7 @@ describe("annotation store", () => {
 			const filePath = path.join(folder, "future.json");
 			const bytes = JSON.stringify({
 				...makeAnnotation({ id: "future" }),
-				version: 2,
+				version: 3,
 			});
 			await writeFile(filePath, bytes);
 			await expectStoreError(

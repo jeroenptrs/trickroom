@@ -50,7 +50,7 @@ const view = (
 ): AnnotationView => {
 	counter += 1;
 	return {
-		version: 1,
+		version: 2,
 		id: `a${counter}`,
 		projectId: "p1",
 		target: layerTarget("l1"),

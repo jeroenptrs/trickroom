@@ -4,6 +4,7 @@ import {
 	type Annotation,
 	type AnnotationChangeRecord,
 	type AnnotationEntry,
+	type AnnotationRound,
 	type AnnotationStatus,
 	type AnnotationTarget,
 	CLOSED_ANNOTATION_STATUSES,
@@ -127,8 +128,9 @@ export const isLiveAnnotationStatus = (status: AnnotationStatus) =>
  *
  * - agent work: `open` and `acknowledged`. Sent and not yet answered;
  *   acknowledged is advisory and stays work for every session.
- * - human work: `needs_input` (a question to answer) and `addressed` (a
- *   change to review). Waiting on the designer, not on an agent.
+ * - human work: `needs_input` (a question to answer), `addressed` (a
+ *   change to review) and `proposed` (a resolution to accept). Waiting on
+ *   the designer, not on an agent.
  * - live: both, i.e. everything but `resolved` and `dismissed`.
  */
 export const AGENT_WORK_STATUSES: readonly AnnotationStatus[] = [
@@ -138,6 +140,7 @@ export const AGENT_WORK_STATUSES: readonly AnnotationStatus[] = [
 export const HUMAN_WORK_STATUSES: readonly AnnotationStatus[] = [
 	"needs_input",
 	"addressed",
+	"proposed",
 ];
 
 export type AnnotationCounts = {
@@ -145,7 +148,7 @@ export type AnnotationCounts = {
 	live: number;
 	/** `open` + `acknowledged`. */
 	agentWork: number;
-	/** `needs_input` + `addressed`. */
+	/** `needs_input` + `addressed` + `proposed`. */
 	humanWork: number;
 	byStatus: Record<AnnotationStatus, number>;
 	/** Live annotations whose target is gone (counted only with a design). */
@@ -573,4 +576,77 @@ export const getAnnotationMemoryReference = (target: AnnotationTarget) => {
 		case "componentNode":
 			return `{{component:${target.componentId}}}`;
 	}
+};
+
+// ---------------------------------------------------------------------------
+// Rounds
+// ---------------------------------------------------------------------------
+
+/**
+ * How long an annotation whose round does not list it stays pending. A
+ * send lists its annotations in the round file right after writing them;
+ * one still unlisted after this is from a send that never finished (its
+ * server stopped in between), and lands rather than being hidden for good.
+ */
+export const ROUND_PENDING_MS = 30_000;
+
+/**
+ * Sent in a round whose file does not list it yet: agents do not see it,
+ * so they never get half a batch. False once listed, without a round, or
+ * after `ROUND_PENDING_MS`.
+ */
+export const isPendingAnnotation = (
+	annotation: Pick<Annotation, "id" | "roundId" | "createdAt">,
+	roundsById: ReadonlyMap<string, Pick<AnnotationRound, "annotationIds">>,
+	now: Date,
+) => {
+	if (!annotation.roundId) return false;
+	if (
+		roundsById.get(annotation.roundId)?.annotationIds.includes(annotation.id)
+	) {
+		return false;
+	}
+	return (
+		now.getTime() - new Date(annotation.createdAt).getTime() < ROUND_PENDING_MS
+	);
+};
+
+export type AnnotationRoundCounts = {
+	/** Annotations sent in the round. */
+	total: number;
+	/** Resolved or dismissed (cleared ones count: only closed ones are cleared). */
+	closed: number;
+	agentWork: number;
+	humanWork: number;
+	/** Non-zero statuses of the round's annotations that still exist. */
+	byStatus: Partial<Record<AnnotationStatus, number>>;
+};
+
+/** Progress of a round over its annotations as they are now. */
+export const summarizeRound = (
+	round: Pick<AnnotationRound, "annotationIds">,
+	annotations: readonly Pick<Annotation, "id" | "status">[],
+): AnnotationRoundCounts => {
+	const byId = new Map(
+		annotations.map((annotation) => [annotation.id, annotation]),
+	);
+	const counts: AnnotationRoundCounts = {
+		total: round.annotationIds.length,
+		closed: 0,
+		agentWork: 0,
+		humanWork: 0,
+		byStatus: {},
+	};
+	for (const id of new Set(round.annotationIds)) {
+		const status = byId.get(id)?.status;
+		if (!status) {
+			counts.closed += 1;
+			continue;
+		}
+		counts.byStatus[status] = (counts.byStatus[status] ?? 0) + 1;
+		if (!isLiveAnnotationStatus(status)) counts.closed += 1;
+		if (AGENT_WORK_STATUSES.includes(status)) counts.agentWork += 1;
+		if (HUMAN_WORK_STATUSES.includes(status)) counts.humanWork += 1;
+	}
+	return counts;
 };
