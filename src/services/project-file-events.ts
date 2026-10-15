@@ -11,8 +11,12 @@ import {
 	AnnotationStore,
 	AnnotationStoreError,
 	classifyAnnotationFile,
+	classifyRoundFile,
 } from "./annotation-store";
-import type { AnnotationFileEvent } from "./annotations.types";
+import type {
+	AnnotationFileEvent,
+	AnnotationRoundFileEvent,
+} from "./annotations.types";
 import { createDesignFileService } from "./design-file-service";
 import { calculateManifestRevision } from "./design-revision";
 import { inspectDesignStorage } from "./design-storage";
@@ -56,7 +60,10 @@ export type TrickroomFileEvent = {
 
 export type TrickroomFileEventListener = (event: TrickroomFileEvent) => void;
 
-export type AnnotationFileEventListener = (event: AnnotationFileEvent) => void;
+/** An annotation file changed, or (with `roundId`) a round file. */
+export type AnnotationFileEventListener = (
+	event: AnnotationFileEvent | AnnotationRoundFileEvent,
+) => void;
 
 const DEFAULT_DEBOUNCE_MS = 75;
 /**
@@ -339,14 +346,20 @@ export class ProjectFileEvents {
 			if (!ready) return;
 			const relative = path.relative(root, filePath);
 			const classified = classifyAnnotationFile(relative);
-			if (!classified) return;
+			const round = classified ? null : classifyRoundFile(relative);
+			if (!classified && !round) return;
 			const previous = this.pendingAnnotations.get(relative);
 			if (previous) clearTimeout(previous);
 			this.pendingAnnotations.set(
 				relative,
 				setTimeout(() => {
 					this.pendingAnnotations.delete(relative);
-					void this.emitAnnotation(store, generation, classified);
+					if (classified) {
+						void this.emitAnnotation(store, generation, classified);
+					} else if (round && generation === this.annotationWatcherGeneration) {
+						// The editor reads the round again; nothing to read here.
+						for (const listener of this.annotationListeners) listener(round);
+					}
 				}, this.debounceMs),
 			);
 		};

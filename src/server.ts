@@ -771,7 +771,10 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			// agents write them through MCP, the editor refetches the one named.
 			const unsubscribeAnnotations = projectFileEvents.subscribeAnnotations(
 				(event) => {
-					enqueue("annotation", JSON.stringify(event));
+					enqueue(
+						"roundId" in event ? "annotation-round" : "annotation",
+						JSON.stringify(event),
+					);
 				},
 			);
 			// A checkout of another branch changes which annotations are the
