@@ -1,5 +1,8 @@
 import type { RecipeTemplateNode } from "../types";
-import { collectDesignOnlyPaths } from "../utils/system-component-design-only";
+import {
+	collectDesignOnlyPaths,
+	isDesignOnlyNode,
+} from "../utils/system-component-design-only";
 import { compareSystemComponentVariantAxisKeys } from "../utils/system-component-variant-class-layers";
 import type {
 	SystemComponentDraftPayload,
@@ -219,7 +222,7 @@ const collectParts = (
 		fromDefaultChildren: boolean,
 		isRoot: boolean,
 	) => {
-		if (node.designOnly === true) {
+		if (isDesignOnlyNode(node)) {
 			return;
 		}
 		parts.push({ path: node.path, node, isRoot, fromDefaultChildren });
@@ -297,7 +300,7 @@ export function buildCodegenComponentModel({
 
 	// A design-only root makes the whole component design-only: no file, so
 	// only its class targets are checked before it is skipped.
-	const designOnlyRoot = payload.root.designOnly === true;
+	const designOnlyRoot = isDesignOnlyNode(payload.root);
 	const exportName = variantsExportName(slug);
 	if (!designOnlyRoot && !isValidIdentifier(exportName)) {
 		report(

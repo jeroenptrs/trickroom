@@ -152,6 +152,8 @@ The built-in registries currently include:
 | `base-ui` | `separator` | `leaf` | Base UI separator primitive | Empty array |
 | `trickroom` | `asset` | `leaf` | System-scoped raster image | Empty array |
 | `trickroom` | `icon` | `leaf` | System-scoped sanitized SVG icon | Empty array |
+| `charts` | `chart` | `leaf` | Line, area, bar, or sparkline plot, rendered by TanStack Charts | Empty array |
+| `charts` | `map` | `leaf` | World map shaded by country, rendered by TanStack Charts | Empty array |
 
 Registry identity is stored on every element:
 
@@ -170,6 +172,38 @@ The role is the authored content shape:
 - `leaf`: terminates the tree with no authored content.
 
 Registry props are system-owned. The editor and MCP mutation tools treat `data-trickroom-name`, `className`, and registry-declared control props as writable instance props.
+
+## Charts
+
+A chart is a leaf element from the `charts` library. Props are JSON primitives, so a chart stores its rows in a JSON string prop:
+
+```json
+{
+  "id": "plot",
+  "props": {
+    "data-trickroom-library": "charts",
+    "data-trickroom-component": "chart",
+    "data-trickroom-role": "leaf",
+    "className": "h-40 w-full",
+    "form": "line",
+    "data": "{\"columns\":[\"t\",\"web-1\",\"web-2\"],\"rows\":[[1793400000000,42.1,31],[1793400900000,44,null]]}",
+    "limits": "[{\"value\":90},{\"value\":70,\"tone\":\"warning\"}]",
+    "yMax": 100,
+    "ySuffix": "%"
+  },
+  "children": []
+}
+```
+
+- `data`: the first column is the x value and the others are series, in slot order. An x value is a time when it is a number (epoch ms) or an ISO date string. Other strings are categories. `null` leaves a gap. An array of objects, such as `[{ "t": 1, "cpu": 40 }]`, is accepted too, so rows can be pasted from code.
+- `form`: `line`, `area`, `bar`, `stacked-bar`, `monthly-bar`, or `sparkline`.
+- `limits` and `markers` have their own props, so moving a reference line does not touch the `data` line in a diff or a merge.
+- `charts/map` takes `[country, value]` rows, where a country is a world-atlas name or numeric id. `steps` splits values over five colours, `view` is `world` or `europe`, `bounds` overrides the view, and `points` adds dots for places too small for the map.
+- A value that does not parse does not fail a write. `design_apply` warns with `INVALID_CHART_PROP`, and the element renders the message instead of a plot.
+
+A chart fills its box, so size it with classes. Size is authored, never in the base classes: Tailwind sorts by value, so a stored `h-8` would lose to a base `h-40`.
+
+The plot's colours are CSS variables that the linked system's stylesheet defines, and Trickroom ships none of its own. See [Chart Variables](tailwind-design-systems.md#chart-variables). A system's dark selector recolours a chart with no re-render, so a board never needs a light and a dark copy.
 
 ## Board, Element, And Layer
 

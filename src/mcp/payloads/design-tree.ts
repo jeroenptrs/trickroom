@@ -224,6 +224,8 @@ const getCompactClassName = (node: DesignNode) =>
 export type NodeReadDetail = "compact" | "full";
 
 const compactTextLimit = 160;
+// Chart rows live in a string prop; a compact read must not carry them.
+const compactPropLimit = 200;
 
 const getComponentRef = (node: DesignNode) => {
 	const library = node.props["data-trickroom-library"];
@@ -278,6 +280,11 @@ const getCompactProps = (
 			SYSTEM_PROP_KEYS.has(key) ||
 			(defaults !== undefined && defaults[key] === value)
 		) {
+			continue;
+		}
+		if (typeof value === "string" && value.length > compactPropLimit) {
+			props[key] = `${value.slice(0, compactPropLimit - 1)}\u2026`;
+			props[`${key}Length`] = value.length;
 			continue;
 		}
 		props[key] = value;

@@ -217,6 +217,22 @@ If the design is unlinked or no stored tokens exist, the managed style becomes:
 
 The hook manages the DOM injection. Tailwind browser compilation behavior is separate and may not reprocess every dynamically inserted style in every case.
 
+## Chart Variables
+
+`charts/chart` and `charts/map` read these variables from the system's compiled CSS. Define them in the file at `cssPath`, or in a file it imports, because the design iframe and HTML exports only load that stylesheet. Put dark values under the system's dark selector. A variable that is missing falls back to a neutral colour, which keeps the chart legible.
+
+| Variable | Used for |
+| --- | --- |
+| `--chart-series-1` and up | Series, by slot. The slots repeat after six. |
+| `--chart-grid`, `--chart-axis` | The horizontal grid, and axis text and event markers |
+| `--chart-limit`, `--chart-limit-warning` | Dashed reference lines |
+| `--chart-surface` | The 1px gap between stacked segments |
+| `--chart-partial` | The open period on a monthly bar chart |
+| `--map-0` to `--map-5` | A country without data, then the five value steps |
+| `--map-line`, `--map-surface` | Country borders, and the ring around a point |
+
+These are plain custom properties, not theme tokens, so `tokens.json` does not store them. If one of them refers to a theme token, such as `var(--color-pale-1)`, the token has to reach the output. Tailwind drops theme variables nothing uses unless the theme is `@theme static`.
+
 ## Classname Editing
 
 The raw `className` string is the source of truth, and the inspector edits it as text. It does not derive visual controls from it.

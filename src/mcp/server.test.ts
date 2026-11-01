@@ -1345,6 +1345,7 @@ describe("trickroom MCP discovery tools", () => {
 						separator: 1,
 					}),
 				}),
+				expect.objectContaining({ library: "charts" }),
 				expect.objectContaining({ library: "trickroom" }),
 			]);
 

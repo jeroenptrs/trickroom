@@ -96,6 +96,7 @@ import {
 } from "./DesignLintFindings";
 import { DesignSystemPicker } from "./DesignSystemPicker";
 import { LayerBreadcrumb } from "./LayerBreadcrumb";
+import { TextareaControl } from "./TextareaControl";
 
 type ComponentControlProps = {
 	elementId: string;
@@ -330,6 +331,12 @@ function ComponentControl({
 					))}
 				</div>
 			</div>
+		);
+	}
+
+	if (control.input === "textarea") {
+		return (
+			<TextareaControl control={control} value={value} onChange={updateValue} />
 		);
 	}
 

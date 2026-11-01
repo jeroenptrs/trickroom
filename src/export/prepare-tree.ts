@@ -84,6 +84,8 @@ export type PreparedBoard = {
 	tree: PrepNode | null;
 	/** base-ui component ids used (e.g. `dialog.popup`), for imports + REGISTRY emission. */
 	usedBaseUiComponents: Set<string>;
+	/** Chart elements used, which decide whether the export embeds the chart code. */
+	usedChartComponents: Set<"chart" | "map">;
 	/** Distinct Tailwind class tokens used anywhere in the tree (the precompile candidate set). */
 	classNames: Set<string>;
 	iconIds: Set<string>;
@@ -92,7 +94,11 @@ export type PreparedBoard = {
 
 type Accumulator = Pick<
 	PreparedBoard,
-	"usedBaseUiComponents" | "classNames" | "iconIds" | "assetIds"
+	| "usedBaseUiComponents"
+	| "usedChartComponents"
+	| "classNames"
+	| "iconIds"
+	| "assetIds"
 > & {
 	classSource: ComponentClassSource | null;
 	instanceRoots: Map<string, InstanceRootMarkers>;
@@ -189,9 +195,16 @@ function prepareNode(node: Node, acc: Accumulator): PrepNode | null {
 	}
 
 	const ref =
-		descriptor.kind === "intrinsic" ? descriptor.tag : `base-ui/${component}`;
+		descriptor.kind === "intrinsic"
+			? descriptor.tag
+			: descriptor.kind === "chart"
+				? `charts/${descriptor.component}`
+				: `base-ui/${component}`;
 	if (descriptor.kind === "base-ui") {
 		acc.usedBaseUiComponents.add(component);
+	}
+	if (descriptor.kind === "chart") {
+		acc.usedChartComponents.add(descriptor.component);
 	}
 
 	const cleaned = cleanProps(renderProps);
@@ -222,6 +235,7 @@ export function prepareRenderTree(
 ): PreparedBoard {
 	const acc: Accumulator = {
 		usedBaseUiComponents: new Set(),
+		usedChartComponents: new Set(),
 		classNames: new Set(),
 		iconIds: new Set(),
 		assetIds: new Set(),
@@ -234,6 +248,7 @@ export function prepareRenderTree(
 	return {
 		tree,
 		usedBaseUiComponents: acc.usedBaseUiComponents,
+		usedChartComponents: acc.usedChartComponents,
 		classNames: acc.classNames,
 		iconIds: acc.iconIds,
 		assetIds: acc.assetIds,

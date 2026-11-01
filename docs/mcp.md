@@ -446,6 +446,7 @@ Recovery: call the reads in `next` (a `design_read` with `boardId` for each stal
 | `registry` | Raw registry elements: roles, controls (options, defaults, deprecations), `baseClassName`. Filter with `library` and `name`. |
 | `tokens` | Choosing classes or fixing class warnings. |
 | `resources` | Images and icons from the design system. |
+| `charts` | Placing a chart or world map: forms, data, limits, sizing, the colour variables, and a worked `design_apply` call. |
 | `overlays` | Boards with an open dialog, sheet, popover or select. |
 | `validation` | Warnings, dry-runs and error hints. |
 | `memory` | Reading and writing memory notes, and the `{{type:id}}` references they embed (boards and layers included). |
@@ -467,6 +468,7 @@ Recovery: call the reads in `next` (a `design_read` with `boardId` for each stal
 - `maxHeight`: targets taller than this many CSS px are cropped to the top (default two viewport heights, at most 8,000).
 - At most 12 images per call (targets × viewports × themes); more fails with `TOO_MANY_SCREENSHOTS`.
 - Warnings: `MISSING_RENDERER` (an element renders as a "No renderer" placeholder) and `OVERLAY_CLIPPED` (an open overlay extends past the captured area).
+- Capture waits until every visible chart has painted, including its lazy chunk and map data. A chart that never paints fails the capture instead of returning an empty box.
 
 Screenshots need the optional `playwright-core` peer dependency and a Chrome or Chromium. `npx trickroom install-browser` downloads Playwright's Chromium; `npx trickroom install-browser --executable-path <path>` saves an installed browser as `screenshot.executablePath` in the Trickroom settings file. The browser is found in this order: the call's `executablePath`, `TRICKROOM_CHROME_PATH`, the `screenshot.executablePath` setting, the Chromium build this `playwright-core` expects, other cached Playwright builds, system installs, then the `chrome` and `msedge` channels.
 
@@ -474,7 +476,7 @@ Screenshots need the optional `playwright-core` peer dependency and a Chrome or 
 
 `design_export` writes boards to `destinationDir` (absolute paths as-is; relative paths resolve inside the project and must stay in it); omit `boardIds` for every board. Files of the same name are overwritten. `html` and `png` need `designFileId` and `destinationDir`; leaving one out, or passing `check` or `source`, fails with `INVALID_EXPORT_ARGUMENTS`.
 
-- `format: "html"` (default): self-contained interactive HTML, as the in-app export: one board writes one `.html`, several write one `.zip` with one `.html` per board. Each document inlines the design system's compiled Tailwind and loads React and Base UI from esm.sh, so it needs network access to render. Returns `artifacts` (path, bytes, board names).
+- `format: "html"` (default): self-contained interactive HTML, as the in-app export: one board writes one `.html`, several write one `.zip` with one `.html` per board. Each document inlines the design system's compiled Tailwind and loads React and Base UI from esm.sh, so it needs network access to render. A board with a chart also embeds the chart code, and a board with a map fetches the country shapes from esm.sh. Add `dark` to the document's `<html>` to see the dark theme. Returns `artifacts` (path, bytes, board names).
 - `format: "png"`: one PNG per board, viewport and theme, at scale 1 (or `scale`) and full height up to 8,000 CSS px, named `<design>-<board>.png` with `-<viewport>-<theme>` when there are several. Returns `files` (board, viewport, theme, size, path). Needs a browser like `design_screenshot`.
 
 - `format: "variants"`: one tailwind-variants file per published component of the system in the project's `codegen` config block, written to its `outDir`, as `trickroom codegen` does (see [Component Codegen](codegen.md)). Destination and system come from the config, so `designFileId`, `destinationDir`, `boardIds` and the png options are rejected with `INVALID_EXPORT_ARGUMENTS`. `check: true` compares without writing; `source: "draft"` generates from drafts. The configured formatter command runs for writes and checks. Returns `{ status: "success", project, codegen }`, where `codegen` is the [JSON result](codegen.md#json-result) (`status` `ok` or `drift`). Errors: `CODEGEN_NOT_CONFIGURED` (the message shows a minimal block), `REFUSED_OVERWRITE` (a target file has no Trickroom header; there is no `force` over MCP, so a human reviews the files and runs `trickroom codegen --force`) and `CODEGEN_FAILED` (generation, formatter or path errors); the last two carry `codegen` as well. When the project has a `codegen` block, `component_publish` returns a `codegenHint` pointing here.

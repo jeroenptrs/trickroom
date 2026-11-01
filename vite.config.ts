@@ -5,6 +5,7 @@ import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { chartExportRuntime } from "./plugin/chart-export-runtime";
 import spaServer from "./plugin/spa-server/index";
 import { resolveTrickroomHome } from "./src/app-state/home";
 import { requireSessionTokenForHost } from "./src/server-auth";
@@ -64,6 +65,7 @@ export default defineConfig({
 		},
 	},
 	plugins: [
+		chartExportRuntime(),
 		{
 			name: "require-shared-host-auth",
 			async config(config) {

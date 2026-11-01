@@ -10,6 +10,7 @@ export type ControlInput =
 	| "switch"
 	| "checkbox"
 	| "text"
+	| "textarea"
 	| "number";
 
 export type ControlValueType = "string" | "number" | "boolean";
@@ -31,6 +32,8 @@ export type ControlDefinition = {
 	visibility?: ControlVisibility;
 	deprecationReason?: string;
 	defaultValue?: Exclude<JsonPrimitive, null>;
+	/** Checks the string value's format; see `validateChartProp`. */
+	format?: "chart" | "map";
 	/**
 	 * Marks a discriminator prop (e.g. tab/item/radio value) whose value must
 	 * not collide with the same prop on sibling elements. Insert paths suffix

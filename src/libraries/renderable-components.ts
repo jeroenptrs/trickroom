@@ -206,6 +206,7 @@ export const RENDERABLE_COMPONENT_IDS: Record<
 		"toggle",
 		"toggle-group",
 	]),
+	charts: new Set(["chart", "map"]),
 	trickroom: new Set(["asset", "container", "icon", "text"]),
 };
 

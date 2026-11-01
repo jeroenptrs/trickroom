@@ -10,7 +10,7 @@ describe("registry suggestions", () => {
 		const unknown = describeUnknownRegistryLibrary("base_ui");
 		expect(unknown.details).toMatchObject({
 			suggestions: ["base-ui"],
-			availableLibraries: ["base-ui", "trickroom"],
+			availableLibraries: ["base-ui", "charts", "trickroom"],
 		});
 	});
 

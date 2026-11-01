@@ -75,6 +75,7 @@ Design editor:
 - Link or unlink a design system when no element is selected.
 - Add container layers.
 - Add text layers.
+- Add charts and world maps from the **charts** library.
 - The stage starts live: clicks, keys and focus reach the boards, so links, buttons, inputs and overlay triggers work as they would in the app, and no outlines or annotation pins cover them. Turn on **Annotate** in the toolbar above the stage, or press `Alt` + `C` (`⌥ C`), to select on the canvas and see the outlines and pins described below; the same switch or shortcut turns it off again. The setting is shared by every design and starts off on each page load. The layer tree, the properties panel and the layer shortcuts work in both modes, but while the stage is live, keys pressed inside a board stay with the board, apart from `Alt` + `C`.
 - Select layers from the layer tree or, in annotation mode, on the canvas. Hovering the canvas outlines the layer under the pointer with its name; clicking selects it (the deepest layer under the pointer). Clicking a board's own background or padding selects the board; clicking canvas space outside every board clears the selection. Right-click selects the same way. The selected layer keeps a cyan outline that follows pan and zoom. Clicking board content only selects: links, buttons, inputs, overlay triggers and context menus do not react, and overlays open through their properties instead. A click on the canvas moves keyboard focus to the stage (a field you were editing in the properties panel commits first), so the layer shortcuts and Space panning act on the canvas. Hover outlines pause while you drag or hold Space, and in a board with an open overlay.
 - Double-click a layer on the canvas, or press `Enter`, to select its first child; `Shift` + `Enter` selects its parent. `Escape` clears the selection. These and the other layer shortcuts (arrows, `Delete`) also work right after clicking the canvas.
@@ -140,6 +141,7 @@ Classes:
 Properties:
 
 - Text content, asset and icon pickers, registry controls, and recipe controls for the selected layer.
+- On a chart: the form, and multi-line fields for its data and limits as JSON. A field names what is wrong with its value as you type. See [Charts](design-model.md#charts).
 - On component instances: variant values, overrides, update and migration status, and detach.
 - In the component draft inspector: slot and override target settings.
 - With nothing selected: the design system picker, the dark-mode preview toggle, and the keyboard shortcut list.

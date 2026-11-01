@@ -7,7 +7,12 @@
  * instance); the system's fonts and the precompiled Tailwind CSS are inlined.
  */
 
-import { baseUiImportUrl, reactImportMapEntries } from "./cdn";
+import chartRuntime from "virtual:trickroom-chart-runtime";
+import {
+	baseUiImportUrl,
+	reactImportMapEntries,
+	WORLD_ATLAS_TOPOLOGY_URL,
+} from "./cdn";
 import {
 	baseUiAccessExpression,
 	baseUiImportSpecifier,
@@ -23,6 +28,8 @@ export type BuildHtmlInput = {
 	tree: RenderNode;
 	/** base-ui component ids used in the tree (e.g. `dialog.popup`). */
 	usedBaseUiComponents: Iterable<string>;
+	/** Chart elements in the tree. Without any, the export carries no chart code. */
+	usedChartComponents?: ReadonlySet<"chart" | "map">;
 	/** Precompiled Tailwind CSS (preflight + theme vars + utilities). */
 	css: string;
 	/** Export timestamp (unix seconds). */
@@ -81,6 +88,48 @@ function collectBaseUiUsage(
 	return { imports, importMap, registryEntries };
 }
 
+/** The import-map key of the embedded chart code. */
+const CHART_RUNTIME_SPECIFIER = "trickroom-charts";
+
+type ChartUsage = {
+	imports: string[];
+	importMap: Record<string, string>;
+	setup: string[];
+	registryEntries: string[];
+};
+
+/**
+ * The chart code has no CDN to load from, so the export embeds it as a `data:`
+ * module behind the import map. Its bare imports still resolve there, which
+ * keeps one React instance. A board without a chart embeds nothing.
+ */
+function collectChartUsage(used: ReadonlySet<"chart" | "map">): ChartUsage {
+	if (used.size === 0) {
+		return { imports: [], importMap: {}, setup: [], registryEntries: [] };
+	}
+	const names = [
+		...(used.has("chart") ? ["ChartElement"] : []),
+		...(used.has("map") ? ["createMapElement"] : []),
+	];
+	return {
+		imports: [
+			`import { ${names.join(", ")} } from "${CHART_RUNTIME_SPECIFIER}";`,
+		],
+		importMap: {
+			[CHART_RUNTIME_SPECIFIER]: `data:text/javascript;base64,${Buffer.from(chartRuntime).toString("base64")}`,
+		},
+		setup: used.has("map")
+			? [
+					`const MapElement = createMapElement(${jsonForScript(WORLD_ATLAS_TOPOLOGY_URL)});`,
+				]
+			: [],
+		registryEntries: [
+			...(used.has("chart") ? [`\t"charts/chart": ChartElement,`] : []),
+			...(used.has("map") ? [`\t"charts/map": MapElement,`] : []),
+		],
+	};
+}
+
 const RUNTIME_RENDERER = `
 function render(node) {
 	const type = REGISTRY[node.ref] ?? node.ref;
@@ -97,12 +146,18 @@ export function buildHtmlDocument({
 	title,
 	tree,
 	usedBaseUiComponents,
+	usedChartComponents = new Set(),
 	css,
 	epoch,
 	fonts = { stylesheetLinks: [], fontFaceCss: "" },
 }: BuildHtmlInput): string {
 	const usage = collectBaseUiUsage(usedBaseUiComponents);
-	const importMap = { ...reactImportMapEntries(), ...usage.importMap };
+	const charts = collectChartUsage(usedChartComponents);
+	const importMap = {
+		...reactImportMapEntries(),
+		...usage.importMap,
+		...charts.importMap,
+	};
 	const fontLinks = fonts.stylesheetLinks
 		.map((href) => `<link rel="stylesheet" href="${href}" crossorigin />`)
 		.join("\n\t\t");
@@ -114,9 +169,12 @@ export function buildHtmlDocument({
 		`import { createElement } from "react";`,
 		`import { createRoot } from "react-dom/client";`,
 		...usage.imports,
+		...charts.imports,
 		"",
+		...charts.setup,
 		`const REGISTRY = {`,
 		...usage.registryEntries,
+		...charts.registryEntries,
 		`};`,
 		"",
 		`const TREE = ${jsonForScript(tree)};`,

@@ -48,6 +48,7 @@ import {
 	getPropertiesControlSurface,
 	splitComponentControls,
 } from "../chrome/Properties";
+import { TextareaControl } from "../chrome/TextareaControl";
 import {
 	getStageLayerAncestry,
 	isSameStageLayerAncestry,
@@ -101,6 +102,12 @@ function DraftComponentControl({
 					))}
 				</div>
 			</div>
+		);
+	}
+
+	if (control.input === "textarea") {
+		return (
+			<TextareaControl control={control} value={value} onChange={updateValue} />
 		);
 	}
 

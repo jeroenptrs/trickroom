@@ -1,6 +1,7 @@
 import type { ElementType } from "react";
 import type { RegistryComponentDefinition } from "../types";
 import { baseUiRenderComponents } from "./base-ui/render-components";
+import { chartsRenderComponents } from "./charts/render-components";
 import {
 	getRenderableProps,
 	type RegistryId,
@@ -27,6 +28,7 @@ export type RenderableRegistryResolution =
 
 const renderComponents: Record<RegistryId, Record<string, ElementType>> = {
 	"base-ui": baseUiRenderComponents,
+	charts: chartsRenderComponents,
 	trickroom: trickroomRenderComponents,
 };
 
