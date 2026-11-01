@@ -25,6 +25,7 @@ export const DESIGN_GUIDE_TOPIC_NAMES = [
 	"registry",
 	"tokens",
 	"resources",
+	"charts",
 	"overlays",
 	"validation",
 	"memory",
@@ -320,6 +321,70 @@ const buildResourcesTopic = async (input: DesignGuideInput) => {
 			: null,
 	};
 };
+
+const CHART_DATA_EXAMPLE = JSON.stringify({
+	columns: ["t", "web-1", "web-2"],
+	rows: [
+		[1793400000000, 42.1, 31],
+		[1793400900000, 44, null],
+		[1793401800000, 39.5, 28.2],
+	],
+});
+
+const buildChartsTopic = () => ({
+	elements: {
+		"charts/chart":
+			"A plot (leaf). form: line, area (flat 12% fill, or fill: gradient), bar (grouped), stacked-bar, monthly-bar, or sparkline.",
+		"charts/map":
+			"A world map (leaf). data rows are [country, value]; countries match on the world-atlas name or numeric id. view: world or europe, or bounds as west south east north. steps: up to four ascending bounds over five colours. points: dots for places too small for the map.",
+	},
+	data: [
+		'Props are primitives, so data is a JSON string: { "columns": ["t", "cpu"], "rows": [[1793400000000, 42]] }. The first column is the x value, the others are series in slot order, and null leaves a gap. An array of objects works too, and is stored as you send it.',
+		"An x value is a time when it is a number (epoch ms) or an ISO date string. Other strings are categories, which only monthly-bar plots. line, area, bar, and stacked-bar always have a time axis.",
+		'limits is a JSON string for dashed reference lines: [{ "value": 90 }, { "value": 70, "tone": "warning" }]. markers is a JSON string of x values for dotted event rules. They work on every form with axes.',
+		'yMax 0 rounds up from the data and limits. yPrefix and ySuffix decorate the Y axis (for example "€" or "%"). yAxis false drops the Y axis and grid, for a strip plot. partial draws the last monthly bar lighter, for an open period.',
+		"A bad string does not fail the write: design_apply returns INVALID_CHART_PROP and the element renders the message instead of a plot.",
+	],
+	sizing:
+		"A chart fills its box and follows it at every width, so size it with classes: h-40 w-full, or aspect-2/1 w-full. It needs a height from its classes: a height from its content does not exist. Inside flex or grid, keep the default min-w-0.",
+	colors: [
+		"Colours come from CSS variables in the linked design system's stylesheet: --chart-series-1 and up, --chart-grid, --chart-axis, --chart-limit, --chart-limit-warning, --chart-surface, --chart-partial, and for maps --map-0 to --map-5, --map-line, and --map-surface. Define dark values under the system's dark selector and charts follow the board theme: one chart, never a light and a dark copy.",
+		"colors overrides series slots with space-separated CSS colours. To pin a chart's chrome, set variables in className, such as [--chart-axis:#616469].",
+	],
+	notes: [
+		"Hover is off in the editor, screenshots, and exports. A plot is a design-only element: codegen emits nothing for it and lint does not check its props.",
+		"Screenshots and PNG exports wait until every visible chart has painted.",
+	],
+	example: {
+		tool: TOOL.designApply,
+		arguments: {
+			...WRITE_CONTEXT,
+			operations: [
+				{
+					operation: "addElement",
+					parameters: {
+						parentId: "<card id>",
+						index: 1,
+						library: "charts",
+						component: "chart",
+						name: "CPU",
+						className: "h-40 w-full",
+						props: {
+							form: "line",
+							data: CHART_DATA_EXAMPLE,
+							limits: '[{"value":90},{"value":70,"tone":"warning"}]',
+							yMax: 100,
+							ySuffix: "%",
+							"aria-label": "CPU per node",
+						},
+					},
+				},
+			],
+		},
+		followUp:
+			'To change rows later: updateElementProps with { props: { data: "..." } }. Check it with design_screenshot at viewport ["mobile", "tablet", "desktop"] and theme ["light", "dark"].',
+	},
+});
 
 const buildOverlaysTopic = (input: DesignGuideInput) => ({
 	behavior: [
@@ -644,6 +709,11 @@ export const DESIGN_GUIDE_TOPICS: readonly GuideTopic<
 		name: "resources",
 		when: "Images and icons from the design system.",
 		build: buildResourcesTopic,
+	},
+	{
+		name: "charts",
+		when: "Placing a chart or world map, or setting its form and data.",
+		build: buildChartsTopic,
 	},
 	{
 		name: "overlays",

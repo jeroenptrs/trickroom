@@ -16,6 +16,7 @@ import { useInjectSystemAssets } from "../hooks/useInjectSystemAssets";
 import { useInjectSystemFonts } from "../hooks/useInjectSystemFonts";
 import { useInjectSystemTheme } from "../hooks/useInjectSystemTheme";
 import stageDocRaw from "../iframe/shell.html?raw";
+import { CHART_STATE_ATTRIBUTE } from "../libraries/charts/chart-box";
 import { getStagePreviewContainerClassName } from "../preview/stage-preview-dark-mode";
 import { designFileQueryOptions } from "../queries/design-file";
 import { systemComponentQueryOptions } from "../queries/system-components";
@@ -146,6 +147,23 @@ async function waitForTailwindOutput(doc: Document) {
 	});
 }
 
+/**
+ * Resolves once no visible chart is loading. A chart in a hidden box, such as
+ * `dark:hidden`, has no size and never paints, so it does not count. The
+ * capture timeout turns a chart that never paints into a capture error.
+ */
+export async function waitForCharts(doc: Document) {
+	const view = doc.defaultView;
+	if (!view) return;
+	const loading = () =>
+		[...doc.querySelectorAll(`[${CHART_STATE_ATTRIBUTE}="loading"]`)].some(
+			(chart) => chart.getClientRects().length > 0,
+		);
+	while (loading()) {
+		await nextFrame(view);
+	}
+}
+
 async function settleCaptureDocument(doc: Document) {
 	const timeout = new Promise<never>((_, reject) => {
 		setTimeout(
@@ -158,6 +176,7 @@ async function settleCaptureDocument(doc: Document) {
 		await waitForTailwindOutput(doc);
 		await waitForFontStylesheets(doc);
 		if (doc.fonts) await doc.fonts.ready;
+		await waitForCharts(doc);
 		const view = doc.defaultView;
 		if (view) {
 			await nextFrame(view);

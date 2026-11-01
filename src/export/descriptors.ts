@@ -22,6 +22,7 @@
 export type ExportDescriptor =
 	| { kind: "intrinsic"; tag: string }
 	| { kind: "icon" }
+	| { kind: "chart"; component: "chart" | "map" }
 	| { kind: "base-ui"; subpath: string; importName: string; member?: string };
 
 /**
@@ -91,6 +92,12 @@ export function resolveExportDescriptor(
 ): ExportDescriptor | null {
 	if (library === "trickroom") {
 		return TRICKROOM_DESCRIPTORS[component] ?? null;
+	}
+
+	if (library === "charts") {
+		return component === "chart" || component === "map"
+			? { kind: "chart", component }
+			: null;
 	}
 
 	if (library === "base-ui") {

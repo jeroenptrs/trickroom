@@ -143,6 +143,8 @@ A template node with `designOnly: true` exists in Designs but not in code: an an
 - A design-only root makes the whole Component design-only: it gets no file, and the run reports a `DESIGN_ONLY_COMPONENT` warning. Its variant and compound classes are still checked first, so any class entry fails with `DESIGN_ONLY_CLASS_TARGET`. A file generated for it earlier shows up as orphaned.
 - `sourceHash` leaves design-only subtrees out, together with slots hosted and override targets pointing inside them, so editing inside one does not change it. Empty `children` and `defaultChildren` lists are left out of the hash too, so an empty list, an omitted one and one holding only design-only nodes hash the same; a Component stored with an explicit empty list gets a one-time `sourceHash` change from this rule. Turning the flag on or off for a node that codegen emits does change it, because the output changes.
 
+Elements of the `charts` library count as design-only without the flag: a plot is implemented in the project's code, so a chart in a template never becomes a slot, and a Component whose root is a chart gets no file.
+
 The flag is part of the Component's template, so changing it is a draft change that needs a publish like any other. A publish still moves `publishedVersion` and `templateHash` in the header, so a check reports the file `stale` (`source-changed`) until it is regenerated; when only design-only nodes changed, `sourceHash` is the same as on disk and regenerating rewrites only the header line.
 
 ## Names

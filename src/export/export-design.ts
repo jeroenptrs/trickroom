@@ -155,6 +155,7 @@ export async function exportDesignBoards({
 				title: `${projectName} — ${designName} — ${name}`,
 				tree,
 				usedBaseUiComponents: prepared.usedBaseUiComponents,
+				usedChartComponents: prepared.usedChartComponents,
 				css,
 				epoch,
 				fonts,

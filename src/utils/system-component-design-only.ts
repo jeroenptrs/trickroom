@@ -7,6 +7,15 @@ import type { SystemComponentDraftPayload } from "./system-components";
  */
 
 /**
+ * Libraries whose elements never reach code: a plot is implemented by the
+ * project, so codegen treats these nodes as if marked design-only.
+ */
+const DESIGN_ONLY_LIBRARIES = new Set(["charts"]);
+
+export const isDesignOnlyNode = (node: RecipeTemplateNode): boolean =>
+	node.designOnly === true || DESIGN_ONLY_LIBRARIES.has(node.library);
+
+/**
  * The node without its design-only subtrees, or null when it is design-only
  * itself. Kept nodes lose an explicit `designOnly: false`, so it reads the same
  * as an absent flag, and lose an empty `children` list (empty in the data or
@@ -15,7 +24,7 @@ import type { SystemComponentDraftPayload } from "./system-components";
 export function stripDesignOnlyNodes(
 	node: RecipeTemplateNode,
 ): RecipeTemplateNode | null {
-	if (node.designOnly === true) {
+	if (isDesignOnlyNode(node)) {
 		return null;
 	}
 	const { designOnly: _designOnly, children, ...rest } = node;
@@ -49,7 +58,7 @@ export function collectDesignOnlyPaths(
 ): Set<string> {
 	const paths = new Set<string>();
 	const visit = (node: RecipeTemplateNode, inherited: boolean) => {
-		const designOnly = inherited || node.designOnly === true;
+		const designOnly = inherited || isDesignOnlyNode(node);
 		if (designOnly) {
 			paths.add(node.path);
 		}

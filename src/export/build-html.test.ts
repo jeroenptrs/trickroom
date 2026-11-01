@@ -70,3 +70,49 @@ describe("buildHtmlDocument", () => {
 		expect(withFonts).toContain('<style>@font-face{font-family:"X"}</style>');
 	});
 });
+
+describe("charts in an export", () => {
+	const build = (used: ReadonlySet<"chart" | "map">) =>
+		buildHtmlDocument({
+			title: "t",
+			tree,
+			usedBaseUiComponents: [],
+			usedChartComponents: used,
+			css: "",
+			epoch: 1,
+		});
+
+	it("embeds nothing on a board without a chart", () => {
+		const output = build(new Set());
+		expect(output).not.toContain("trickroom-charts");
+		expect(output).not.toContain("world-atlas");
+	});
+
+	it("embeds the chart code once, behind the import map", () => {
+		const output = build(new Set(["chart"]));
+		expect(output).toContain(
+			'import { ChartElement } from "trickroom-charts";',
+		);
+		expect(output).toContain(
+			'"trickroom-charts":"data:text/javascript;base64,',
+		);
+		expect(output).toContain('"charts/chart": ChartElement');
+		expect(output).not.toContain("world-atlas");
+	});
+
+	it("loads the topology only for a board with a map", () => {
+		const output = build(new Set(["map"]));
+		expect(output).toContain("createMapElement(");
+		expect(output).toContain("world-atlas@2.0.2/countries-110m.json");
+		expect(output).toContain('"charts/map": MapElement');
+	});
+
+	it("leaves React bare in the embedded code, so the page has one React", () => {
+		const runtime = build(new Set(["chart"])).match(
+			/data:text\/javascript;base64,([A-Za-z0-9+/=]+)/u,
+		)?.[1];
+		const code = Buffer.from(runtime ?? "", "base64").toString();
+		expect(code).toMatch(/from\s*["']react["']/u);
+		expect(code).not.toContain("esm.sh");
+	});
+});

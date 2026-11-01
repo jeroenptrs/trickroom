@@ -535,7 +535,14 @@ export function AddLayerCommandMenu({
 										<CommandGroupLabel>Libraries</CommandGroupLabel>
 										<ItemRow
 											value="browse:libraries"
-											keywords={["libraries", "library", "base-ui", "elements"]}
+											keywords={[
+												"libraries",
+												"library",
+												"base-ui",
+												"elements",
+												"charts",
+												"map",
+											]}
 											icon={
 												<Library
 													className="size-4 shrink-0 text-slate-500"

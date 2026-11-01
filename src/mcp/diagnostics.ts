@@ -1,4 +1,8 @@
-import { resolveRegistryComponent } from "../libraries/registry";
+import { validateChartProp } from "../libraries/charts/spec";
+import {
+	getControlDefinitions,
+	resolveRegistryComponent,
+} from "../libraries/registry";
 import { hasStageRenderer } from "../libraries/renderable-components";
 import {
 	type DesignLintResult,
@@ -89,7 +93,9 @@ export const isLikelyTypoWarning = (issue: McpDesignIssue) =>
  * as a placeholder in a screenshot.
  */
 export const isDefaultSurfacedWarning = (issue: McpDesignIssue) =>
-	isLikelyTypoWarning(issue) || issue.code === "MISSING_RENDERER";
+	isLikelyTypoWarning(issue) ||
+	issue.code === "MISSING_RENDERER" ||
+	issue.code === "INVALID_CHART_PROP";
 
 /**
  * Drop the heavy `customUtilities` catalog from a token snapshot unless the
@@ -310,6 +316,26 @@ const collectRendererDiagnostics = (
 				path,
 				elementId: node.id,
 			});
+		}
+		const resolution = resolveRegistryComponent(library, component);
+		if (resolution.status === "known") {
+			for (const control of getControlDefinitions(resolution.definition)) {
+				if (!control.format) continue;
+				const problem = validateChartProp(
+					control.format,
+					control.prop,
+					node.props[control.prop],
+				);
+				if (problem) {
+					issues.push({
+						severity: "warning",
+						code: "INVALID_CHART_PROP",
+						message: `"${library}/${component}" ${problem} The element renders this message instead of a plot.`,
+						path,
+						elementId: node.id,
+					});
+				}
+			}
 		}
 		if (Array.isArray(node.children)) {
 			for (const [childIndex, child] of node.children.entries()) {

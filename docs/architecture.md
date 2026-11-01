@@ -95,6 +95,16 @@ The iframe shell is `src/iframe/shell.html`; it loads the Tailwind browser runti
 
 The chrome-less `/capture/:design/:board?` route reuses the same iframe shell and `Artboards` renderer. It exposes persistent node IDs as render-only DOM attributes and signals readiness only after design hydration, managed styles, Tailwind compilation, font stylesheets, and `document.fonts.ready` settle. `POST /api/trickroom/screenshot` drives this route through an optional Playwright/Chrome runtime and returns PNG data, optionally writing an explicit `.png` path.
 
+## Charts
+
+The `charts` library (`src/libraries/charts/`) renders plots with TanStack Charts. `registry.ts` and `spec.ts` are data and pure parsing, which the MCP server and `getDesignDiagnostics` use. Nothing else in the library reaches the main bundle.
+
+- **Loading.** `render-components.tsx` holds a `lazy` entry per element, so a board without a chart loads none of this. `chart-element.tsx` and `map-element.tsx` are separate chunks, and the world-atlas topology is a third that only a mounted map imports.
+- **Rendering.** Every chart is a box with the layer's classes. `useBoxSize` observes it from the iframe's own window, and the plot takes that width and height. `chart-definition.ts` and `map-definition.ts` turn the stored props into a definition. Hover and keyboard focus are off (`focusDisabled`).
+- **Colour.** Marks reference CSS variables (`colors.ts`). SVG attributes resolve `var()`, so the stage's `dark` class recolours a plot without a re-render. In the compiled render mode the iframe gets the variables with the system's stylesheet, and the browser render mode does not load them, which leaves the fallbacks.
+- **Capture.** The box carries `data-trickroom-chart` (`loading`, `ready`, `error`). `settleCaptureDocument` waits while a box with layout says `loading`. A chart in a hidden box never paints and does not count.
+- **HTML export.** The chart code has no CDN, so `plugin/chart-export-runtime.ts` bundles `export-runtime.tsx` to a string (`virtual:trickroom-chart-runtime`), with React left as a bare import. `build-html.ts` embeds it as a `data:` module behind the import map, only for a board with a chart. A map fetches the topology from esm.sh at the version in `cdn.ts`.
+
 ## Stage Overlay Containment
 
 Every canvas board renders into one shared iframe document. Without containment, every Base UI portal would fall back to that document's body, and each board's dialogs, sheets and popovers would stack against the editor pane and ignore pan and zoom. Instead, each board contains its own overlays. This is render-time only: nothing about it reaches the design file or exports.

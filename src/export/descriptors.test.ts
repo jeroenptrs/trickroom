@@ -71,3 +71,17 @@ describe("resolveExportDescriptor", () => {
 		expect(resolveExportDescriptor("base-ui", "not-a-component")).toBeNull();
 	});
 });
+
+describe("chart descriptors", () => {
+	it("resolves the chart elements and nothing else in the library", () => {
+		expect(resolveExportDescriptor("charts", "chart")).toEqual({
+			kind: "chart",
+			component: "chart",
+		});
+		expect(resolveExportDescriptor("charts", "map")).toEqual({
+			kind: "chart",
+			component: "map",
+		});
+		expect(resolveExportDescriptor("charts", "pie")).toBeNull();
+	});
+});

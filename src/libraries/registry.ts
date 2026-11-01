@@ -30,18 +30,21 @@ import {
 } from "../utils/class-resolution";
 import { SYSTEM_COMPONENT_MARKER_PROP_KEYS } from "../utils/system-component-markers";
 import baseUiRegistry from "./base-ui/registry";
+import chartsRegistry from "./charts/registry";
 import trickroomRegistry from "./trickroom/registry";
 
-export const availableRegistries = ["base-ui", "trickroom"] as const;
+export const availableRegistries = ["base-ui", "charts", "trickroom"] as const;
 export type RegistryId = (typeof availableRegistries)[number];
 
 const libraryRegistries: Record<RegistryId, LibraryRegistry> = {
 	"base-ui": baseUiRegistry,
+	charts: chartsRegistry,
 	trickroom: trickroomRegistry,
 };
 
 const registries: Record<RegistryId, Registry> = {
 	"base-ui": libraryRegistries["base-ui"].components,
+	charts: libraryRegistries.charts.components,
 	trickroom: libraryRegistries.trickroom.components,
 };
 

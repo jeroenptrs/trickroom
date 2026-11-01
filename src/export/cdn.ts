@@ -17,7 +17,12 @@
 export const REACT_VERSION = "19.2.6";
 export const BASE_UI_VERSION = "1.5.0";
 
+export const WORLD_ATLAS_VERSION = "2.0.2";
+
 const ESM = "https://esm.sh";
+
+/** The map's country shapes. Only a board with a map fetches this file. */
+export const WORLD_ATLAS_TOPOLOGY_URL = `${ESM}/world-atlas@${WORLD_ATLAS_VERSION}/countries-110m.json`;
 
 /** Import-map entries for the React runtime; React-DOM externalizes React to dedupe. */
 export function reactImportMapEntries(): Record<string, string> {

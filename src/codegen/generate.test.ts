@@ -1324,6 +1324,40 @@ describe("design-only nodes", () => {
 		]);
 	});
 
+	it("emits nothing for a chart element, like a design-only node", () => {
+		const file = generateOne(
+			publishedRecord("chart-card", {
+				root: node("root", "flex flex-col", [
+					node("title", "font-bold"),
+					{
+						...node("plot", "h-40 w-full"),
+						library: "charts",
+						component: "chart",
+					},
+				]),
+			}),
+		);
+		expect(file.contents).toContain("title:");
+		expect(file.contents).not.toContain("plot");
+		expect(file.contents).not.toContain("h-40");
+	});
+
+	it("generates no file for a component that is only a chart", () => {
+		const result = generate([
+			publishedRecord("plot", {
+				root: {
+					...node("root", "h-40 w-full"),
+					library: "charts",
+					component: "chart",
+				},
+			}),
+		]);
+		expect(result.files).toEqual([]);
+		expect(result.diagnostics.map((entry) => entry.code)).toEqual([
+			"DESIGN_ONLY_COMPONENT",
+		]);
+	});
+
 	it("skips a component whose root is design-only with a warning", () => {
 		const annotation = publishedRecord("annotation", {
 			root: designOnly(node("root", "bg-yellow-100")),
