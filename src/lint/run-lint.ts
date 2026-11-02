@@ -781,6 +781,7 @@ async function runLintInner(
 		modules,
 		contract,
 		componentModules: config.components,
+		...(config.source.aliases ? { aliases: config.source.aliases } : {}),
 	});
 	for (const component of sources.components) {
 		for (const file of component.missingConfiguredWrappers) {

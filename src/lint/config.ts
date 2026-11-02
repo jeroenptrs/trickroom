@@ -41,6 +41,12 @@ export type LintSourceConfig = {
 	exclude?: string[];
 	/** Call names whose string arguments are class strings. */
 	classCalls?: string[];
+	/**
+	 * Import specifier patterns mapped to project-relative paths, for
+	 * workspace packages and path aliases (`"@acme/ui/*": "packages/ui/src/*"`).
+	 * Each side holds at most one `*`, as in tsconfig `paths`.
+	 */
+	aliases?: Record<string, string>;
 };
 
 export type LintSideThresholds = {
@@ -134,7 +140,7 @@ const CONFIG_KEYS = new Set([
 ]);
 const RULE_KEYS = new Set(["enabled", "severity", "options"]);
 const COMPONENT_KEYS = new Set(["module"]);
-const SOURCE_KEYS = new Set(["include", "exclude", "classCalls"]);
+const SOURCE_KEYS = new Set(["include", "exclude", "classCalls", "aliases"]);
 const THRESHOLD_KEYS = new Set(["code", "design", "rules", "coverage"]);
 const SIDE_THRESHOLD_KEYS = new Set(["errors", "warnings"]);
 const COVERAGE_THRESHOLD_KEYS = new Set([
@@ -249,18 +255,60 @@ const componentIssues = (value: unknown, slug: string): string[] => {
 	return issues;
 };
 
+const wildcardCount = (value: string) => value.split("*").length - 1;
+
+const aliasIssues = (value: unknown): string[] => {
+	if (value === undefined) {
+		return [];
+	}
+	if (!isRecord(value)) {
+		return [
+			'source.aliases must be an object mapping an import specifier pattern to a project-relative path, e.g. { "@acme/ui/*": "packages/ui/src/*" }.',
+		];
+	}
+	return Object.entries(value).flatMap(([pattern, target]) => {
+		const field = `source.aliases["${pattern}"]`;
+		const issues: string[] = [];
+		if (pattern.trim().length === 0) {
+			issues.push("source.aliases keys must be non-empty import specifiers.");
+		}
+		if (pattern.startsWith(".")) {
+			issues.push(
+				`${field}: relative specifiers resolve on their own; an alias pattern starts with a package name or alias prefix.`,
+			);
+		}
+		if (wildcardCount(pattern) > 1) {
+			issues.push(`${field}: a pattern holds at most one "*".`);
+		}
+		if (!isNonEmptyString(target)) {
+			issues.push(`${field} must be a non-empty string.`);
+			return issues;
+		}
+		issues.push(...relativePathIssues(target.trim(), field));
+		if (wildcardCount(target) !== wildcardCount(pattern)) {
+			issues.push(
+				`${field}: the target needs a "*" exactly when the pattern has one; got "${target}".`,
+			);
+		}
+		return issues;
+	});
+};
+
 const sourceIssues = (value: unknown): string[] => {
 	if (value === undefined) {
 		return [];
 	}
 	if (!isRecord(value)) {
-		return ["source must be an object with include, exclude or classCalls."];
+		return [
+			"source must be an object with include, exclude, classCalls or aliases.",
+		];
 	}
 	return [
 		...unknownKeyIssues(value, SOURCE_KEYS, "source"),
 		...stringListIssues(value.include, "source.include"),
 		...stringListIssues(value.exclude, "source.exclude"),
 		...stringListIssues(value.classCalls, "source.classCalls"),
+		...aliasIssues(value.aliases),
 	];
 };
 
@@ -447,10 +495,21 @@ export const normalizeLintConfig = (config: LintConfig): LintConfig => {
 		const include = trimList(config.source.include);
 		const exclude = trimList(config.source.exclude);
 		const classCalls = trimList(config.source.classCalls);
+		const aliases = config.source.aliases;
 		normalized.source = {
 			...("value" in include ? { include: include.value } : {}),
 			...("value" in exclude ? { exclude: exclude.value } : {}),
 			...("value" in classCalls ? { classCalls: classCalls.value } : {}),
+			...(aliases === undefined
+				? {}
+				: {
+						aliases: Object.fromEntries(
+							sortedEntries(aliases).map(([pattern, target]) => [
+								pattern.trim(),
+								target.trim(),
+							]),
+						),
+					}),
 		};
 	}
 	if (config.thresholds) {
@@ -484,7 +543,13 @@ export type ResolvedLintConfig = {
 	rules: ResolvedLintRule[];
 	/** Keyed by slug; `modules` are project-relative with `/` separators. */
 	components: Record<string, { modules: string[] }>;
-	source: { include: string[]; exclude: string[]; classCalls: string[] };
+	source: {
+		include: string[];
+		exclude: string[];
+		classCalls: string[];
+		/** Import specifier pattern to project-relative path; see LintSourceConfig. */
+		aliases?: Record<string, string>;
+	};
 	thresholds: LintThresholds;
 };
 
@@ -540,6 +605,18 @@ export const resolveLintConfig = (
 				defaultSourceInclude(options.codegenOutDir),
 			exclude: normalized?.source?.exclude ?? [...DEFAULT_SOURCE_EXCLUDE],
 			classCalls: normalized?.source?.classCalls ?? [...DEFAULT_CLASS_CALLS],
+			...(normalized?.source?.aliases
+				? {
+						aliases: Object.fromEntries(
+							Object.entries(normalized.source.aliases).map(
+								([pattern, target]) => [
+									pattern,
+									toPosix(path.posix.normalize(target)),
+								],
+							),
+						),
+					}
+				: {}),
 		},
 		thresholds: normalized?.thresholds ?? {},
 	};

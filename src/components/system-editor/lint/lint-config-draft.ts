@@ -198,7 +198,7 @@ export const componentModules = (
 /** Undefined goes back to the default list. */
 export const setSourceList = (
 	config: LintConfig,
-	key: keyof LintSourceConfig,
+	key: Exclude<keyof LintSourceConfig, "aliases">,
 	list: string[] | undefined,
 ) => {
 	const next = clone(config);

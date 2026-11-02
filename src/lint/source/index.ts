@@ -51,26 +51,10 @@ const dirname = (file: string) => {
 	return index === -1 ? "" : file.slice(0, index);
 };
 
-/**
- * The scanned module a relative specifier names, trying the bare path, the
- * source extensions, `.js`/`.jsx` rewritten to TypeScript, and an index
- * file. Bare and aliased specifiers (`react`, `@/ui/button`) resolve to
- * null: they need a resolver this syntactic index does not have.
- */
-export const resolveModuleSpecifier = (
-	fromFile: string,
-	specifier: string,
+const findScannedModule = (
+	base: string,
 	files: ReadonlySet<string>,
 ): string | null => {
-	if (
-		!specifier.startsWith("./") &&
-		!specifier.startsWith("../") &&
-		specifier !== "." &&
-		specifier !== ".."
-	) {
-		return null;
-	}
-	const base = normalizePath(`${dirname(fromFile)}/${specifier}`);
 	const candidates = [base];
 	for (const extension of RESOLVE_EXTENSIONS) {
 		candidates.push(`${base}.${extension}`);
@@ -83,6 +67,75 @@ export const resolveModuleSpecifier = (
 		candidates.push(base ? `${base}/${indexFile}` : indexFile);
 	}
 	return candidates.find((candidate) => files.has(candidate)) ?? null;
+};
+
+/**
+ * The project path an aliased specifier maps to, by `lint.json`
+ * `source.aliases`. An exact pattern wins; otherwise the wildcard pattern
+ * with the longest prefix, as TypeScript picks among `paths`.
+ */
+const applySourceAlias = (
+	specifier: string,
+	aliases: Readonly<Record<string, string>>,
+): string | null => {
+	if (Object.hasOwn(aliases, specifier) && !specifier.includes("*")) {
+		return aliases[specifier];
+	}
+	let best: { prefixLength: number; target: string } | null = null;
+	for (const [pattern, target] of Object.entries(aliases)) {
+		const star = pattern.indexOf("*");
+		if (star === -1) continue;
+		const prefix = pattern.slice(0, star);
+		const suffix = pattern.slice(star + 1);
+		if (
+			specifier.length < prefix.length + suffix.length ||
+			!specifier.startsWith(prefix) ||
+			!specifier.endsWith(suffix)
+		) {
+			continue;
+		}
+		if (best && best.prefixLength >= prefix.length) continue;
+		const matched = specifier.slice(
+			prefix.length,
+			specifier.length - suffix.length,
+		);
+		best = {
+			prefixLength: prefix.length,
+			target: target.replace("*", () => matched),
+		};
+	}
+	return best?.target ?? null;
+};
+
+/**
+ * The scanned module a specifier names, trying the bare path, the source
+ * extensions, `.js`/`.jsx` rewritten to TypeScript, and an index file.
+ * Relative specifiers resolve against the importing file. Bare and aliased
+ * specifiers (`react`, `@acme/ui/button`) resolve only through `aliases`
+ * (`lint.json` `source.aliases`), else to null: this syntactic index reads
+ * no tsconfig or package.json.
+ */
+export const resolveModuleSpecifier = (
+	fromFile: string,
+	specifier: string,
+	files: ReadonlySet<string>,
+	aliases: Readonly<Record<string, string>> = {},
+): string | null => {
+	if (
+		!specifier.startsWith("./") &&
+		!specifier.startsWith("../") &&
+		specifier !== "." &&
+		specifier !== ".."
+	) {
+		const target = applySourceAlias(specifier, aliases);
+		return target === null
+			? null
+			: findScannedModule(normalizePath(target), files);
+	}
+	return findScannedModule(
+		normalizePath(`${dirname(fromFile)}/${specifier}`),
+		files,
+	);
 };
 
 export type SourceComponentIdentity = {
@@ -140,6 +193,8 @@ export type BuildSourceIndexInput = {
 	contract: SystemContract;
 	/** `lint.json` component overrides: slug to wrapper modules. */
 	componentModules?: Readonly<Record<string, { modules: string[] }>>;
+	/** `lint.json` `source.aliases`: specifier pattern to project path. */
+	aliases?: Readonly<Record<string, string>>;
 };
 
 const fileStem = (file: string) => {
@@ -255,11 +310,21 @@ export function buildSourceIndex(input: BuildSourceIndexInput): SourceIndex {
 			...module,
 			imports: module.imports.map((entry) => ({
 				...entry,
-				resolved: resolveModuleSpecifier(module.file, entry.specifier, fileSet),
+				resolved: resolveModuleSpecifier(
+					module.file,
+					entry.specifier,
+					fileSet,
+					input.aliases,
+				),
 			})),
 			reexports: module.reexports.map((entry) => ({
 				...entry,
-				resolved: resolveModuleSpecifier(module.file, entry.specifier, fileSet),
+				resolved: resolveModuleSpecifier(
+					module.file,
+					entry.specifier,
+					fileSet,
+					input.aliases,
+				),
 			})),
 		};
 	}

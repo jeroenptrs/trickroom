@@ -88,6 +88,60 @@ describe("source index", () => {
 		).toBeNull();
 	});
 
+	it("resolves bare and aliased specifiers through source aliases", () => {
+		const files = new Set([
+			"design-system/ui/src/button.tsx",
+			"design-system/ui/src/index.ts",
+			"design-system/ui/src/forms/input.tsx",
+			"apps/web/src/lib/format.ts",
+		]);
+		const aliases = {
+			"@acme/ui": "design-system/ui/src",
+			"@acme/ui/*": "design-system/ui/src/*",
+			"@acme/ui/forms/*": "design-system/ui/src/forms/*",
+			"~/*": "apps/web/src/*",
+		};
+		const resolve = (specifier: string) =>
+			resolveModuleSpecifier("apps/web/src/app.tsx", specifier, files, aliases);
+		expect(resolve("@acme/ui")).toBe("design-system/ui/src/index.ts");
+		expect(resolve("@acme/ui/button")).toBe("design-system/ui/src/button.tsx");
+		expect(resolve("@acme/ui/forms/input")).toBe(
+			"design-system/ui/src/forms/input.tsx",
+		);
+		expect(resolve("~/lib/format")).toBe("apps/web/src/lib/format.ts");
+		expect(resolve("@acme/ui/missing")).toBeNull();
+		expect(resolve("@acme/other")).toBeNull();
+		expect(resolve("react")).toBeNull();
+	});
+
+	it("binds app usages imported through a workspace package alias", () => {
+		const modules = [
+			parse(
+				"design-system/ui/src/button.variants.ts",
+				`${header("button", button.componentId)}\nimport { tv } from "./tv";\nexport const buttonVariants = tv({ base: "px-3" });\n`,
+			),
+			parse(
+				"design-system/ui/src/button.tsx",
+				`import { buttonVariants } from "./button.variants";\nexport const Button = (p) => <button className={buttonVariants(p)} />;\n`,
+			),
+			parse(
+				"apps/web/src/app.tsx",
+				`import { Button } from "@acme/ui/button";\nexport const App = () => <Button />;\n`,
+			),
+		];
+		const withoutAliases = buildSourceIndex({ modules, contract });
+		expect(withoutAliases.usages).toEqual([]);
+
+		const index = buildSourceIndex({
+			modules,
+			contract,
+			aliases: { "@acme/ui/*": "design-system/ui/src/*" },
+		});
+		expect(index.usages.map((usage) => [usage.file, usage.slug])).toEqual([
+			["apps/web/src/app.tsx", "button"],
+		]);
+	});
+
 	it("finds generated files, wrappers, re-exporters and usages through barrels", () => {
 		const modules = [
 			parse(
