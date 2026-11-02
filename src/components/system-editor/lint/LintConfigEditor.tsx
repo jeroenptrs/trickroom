@@ -541,8 +541,10 @@ function ComponentModulesEditor({
 	);
 }
 
+// source.aliases is a map, not a list; it is edited in lint.json and kept
+// as is on save.
 const SOURCE_FIELDS: Array<{
-	key: keyof LintSourceConfig;
+	key: Exclude<keyof LintSourceConfig, "aliases">;
 	label: string;
 	description: string;
 }> = [

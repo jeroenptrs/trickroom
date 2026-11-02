@@ -54,6 +54,7 @@ describe("lint config", () => {
 						include: ["src/**/*.tsx"],
 						exclude: ["**/*.test.tsx"],
 						classCalls: ["cn"],
+						aliases: { "@acme/ui/*": "packages/ui/src/*" },
 					},
 					thresholds: {
 						code: { errors: 0, warnings: 10 },
@@ -107,6 +108,47 @@ describe("lint config", () => {
 				null,
 			),
 		).toEqual([]);
+	});
+
+	it("checks source aliases and resolves them with posix paths", () => {
+		expect(
+			getLintConfigIssues(
+				{
+					version: 1,
+					source: {
+						aliases: {
+							"./ui": "src/ui",
+							"@a/*/x/*": "src/*/*",
+							"@b/*": "src/b",
+							"@c": "../c",
+							"@d": "",
+						},
+					},
+				},
+				known,
+			),
+		).toEqual([
+			'source.aliases["./ui"]: relative specifiers resolve on their own; an alias pattern starts with a package name or alias prefix.',
+			'source.aliases["@a/*/x/*"]: a pattern holds at most one "*".',
+			'source.aliases["@b/*"]: the target needs a "*" exactly when the pattern has one; got "src/b".',
+			'source.aliases["@c"] must stay inside the project and cannot contain a ".." segment; got "../c".',
+			'source.aliases["@d"] must be a non-empty string.',
+		]);
+		expect(
+			getLintConfigIssues({ version: 1, source: { aliases: ["x"] } }, known),
+		).toEqual([
+			'source.aliases must be an object mapping an import specifier pattern to a project-relative path, e.g. { "@acme/ui/*": "packages/ui/src/*" }.',
+		]);
+		const resolved = resolveLintConfig(
+			{
+				version: 1,
+				source: { aliases: { " @acme/ui/* ": "./packages/ui/src/* " } },
+			},
+			{ ruleKinds: kinds, codegenOutDir: null },
+		);
+		expect(resolved.source.aliases).toEqual({
+			"@acme/ui/*": "packages/ui/src/*",
+		});
 	});
 
 	it("resolves defaults when the file is absent", () => {
