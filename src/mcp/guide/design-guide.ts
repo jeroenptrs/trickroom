@@ -113,9 +113,9 @@ const buildStepReferencesTopic = () => ({
 		"$step:N:tempId:<tempId>":
 			"The node with that tempId in step N's addSubtree. For copySubtree: the copy of that source element id.",
 		"$step:N:slot:<slotName>":
-			"The slot host of the recipe step N inserted (addRecipe, or a single recipe node in addSubtree).",
-		"$step:N:tempId:<recipeTempId>:slot:<slotName>":
-			"The slot host of one recipe when step N's addSubtree inserted several.",
+			"The slot host of the recipe or system component instance step N inserted (addRecipe, addSystemComponent, or a single instance in addSubtree or copySubtree).",
+		"$step:N:tempId:<tempId>:slot:<slotName>":
+			"The slot host of one instance when step N inserted several.",
 	},
 	notes: [
 		"Steps are numbered from 0.",

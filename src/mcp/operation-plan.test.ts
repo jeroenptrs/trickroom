@@ -5,6 +5,7 @@ import {
 	describeCreatedElements,
 	executeOperationPlan,
 	type OperationPlanDependencies,
+	type OperationPlanStepOutput,
 	resolveStepReferencesInParameters,
 } from "./operation-plan";
 import {
@@ -130,13 +131,36 @@ describe("step references", () => {
 		});
 	});
 
+	it("follows a tempId through earlier copies for a copy of a copy", () => {
+		const copies: OperationPlanStepOutput[] = [
+			{
+				stepIndex: 0,
+				operation: "copySubtree" as const,
+				summary: {},
+				idMap: { card: "copy-1", title: "copy-1-title" },
+			},
+			{
+				stepIndex: 1,
+				operation: "copySubtree" as const,
+				summary: {},
+				idMap: { "copy-1": "copy-2", "copy-1-title": "copy-2-title" },
+			},
+		];
+		expect(
+			resolveStepReferencesInParameters(
+				{ elementId: "$step:1:tempId:title" },
+				copies,
+			),
+		).toEqual({ elementId: "copy-2-title" });
+	});
+
 	it("rejects ambiguous slots with the qualified form", () => {
 		expect(() =>
 			resolveStepReferencesInParameters(
 				{ parentId: "$step:0:slot:content" },
 				steps,
 			),
-		).toThrow(/\$step:0:tempId:<recipeTempId>:slot:content/u);
+		).toThrow(/\$step:0:tempId:<tempId>:slot:content/u);
 	});
 
 	it("lists available tempIds and slots for unresolvable references", () => {

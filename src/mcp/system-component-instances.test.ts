@@ -281,6 +281,91 @@ describe("trickroom MCP system component instance tools", () => {
 		await fixture.cleanup();
 	});
 
+	it("resolves $step:N:slot:<name> to a system component's non-root slot host", async () => {
+		const listed = await session.client.callTool({
+			name: "component_read",
+			arguments: { systemName: "Core" },
+		});
+		const created = await session.client.callTool({
+			name: "component_draft_create",
+			arguments: {
+				systemName: "Core",
+				expectedRevision: toolPayload(listed)?.revision,
+				slug: "panel",
+				name: "Panel",
+				draft: {
+					root: {
+						path: "root",
+						library: "trickroom",
+						component: "container",
+						children: [
+							{ path: "body", library: "trickroom", component: "container" },
+						],
+					},
+					slots: {
+						content: { name: "content", hostPath: "body", label: "Content" },
+					},
+				},
+			},
+		});
+		const panelId = String(toolPayload(created)?.componentId);
+		await session.client.callTool({
+			name: "component_publish",
+			arguments: {
+				systemName: "Core",
+				componentId: panelId,
+				expectedRevision: toolPayload(created)?.revision,
+			},
+		});
+
+		const result = await session.client.callTool({
+			name: "design_apply",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				expectedRevision: await getDesignRevision(),
+				operations: [
+					{
+						operation: "addSystemComponent",
+						parameters: {
+							parentId: "board",
+							index: 0,
+							systemId,
+							componentId: panelId,
+						},
+					},
+					{
+						operation: "addElement",
+						parameters: {
+							parentId: "$step:0:slot:content",
+							index: 0,
+							library: "trickroom",
+							component: "text",
+							text: "Inside the slot",
+						},
+					},
+				],
+			},
+		});
+		expect(result.isError).toBeFalsy();
+		const payload = toolPayload(result);
+		const hostId = payload.created[0].slots?.content;
+		expect(typeof hostId).toBe("string");
+		expect(hostId).not.toBe(payload.created[0].id);
+
+		const persisted = await fixture.designFileService.readDesignFile(
+			trickroomMcpTestDesignUuid,
+		);
+		const board = persisted.design.boards[0];
+		const root = Array.isArray(board.children)
+			? board.children.find((child) => child.id === payload.created[0].id)
+			: null;
+		const body = Array.isArray(root?.children) ? root.children[0] : null;
+		expect(body?.id).toBe(hostId);
+		expect(body?.children).toEqual([
+			expect.objectContaining({ children: "Inside the slot" }),
+		]);
+	});
+
 	it("suggests the component id when addSystemComponent gets a component name", async () => {
 		const result = await applyOperation(session.client, "addSystemComponent", {
 			designFileId: trickroomMcpTestDesignUuid,
