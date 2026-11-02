@@ -1009,8 +1009,13 @@ const assertCanUpdateSystemComponentStructuralProps = (
 		return;
 	}
 
+	// The layer name of an instance root belongs to the design, not to the
+	// component template: it can be renamed while the instance stays attached.
+	const isInstanceRoot =
+		getSystemComponentStructuralMetadata(entitiesById[elementId]?.props)
+			?.isRoot === true;
 	if (
-		params.name === undefined &&
+		(params.name === undefined || isInstanceRoot) &&
 		params.className === undefined &&
 		Object.keys(params.props ?? {}).length === 0
 	) {

@@ -223,6 +223,17 @@ describe("validateDryRunOperationParameters", () => {
 			},
 		});
 	});
+
+	it("rejects an override key outside the entry shape and points at props", () => {
+		expect(() =>
+			validateDryRunOperationParameters("addSystemComponent", {
+				parentId: "board",
+				systemId: "sys_1",
+				componentId: "cmp_1",
+				overrides: { root: { value: "read-only", className: "mt-px" } },
+			}),
+		).toThrow(/unknown override key "value".*props: \{ value: … \}/);
+	});
 });
 
 describe("operation parameter catalogue", () => {

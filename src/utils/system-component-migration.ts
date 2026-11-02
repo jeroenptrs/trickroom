@@ -1386,6 +1386,24 @@ export const migrateSystemComponentInstance = (
 		version: targetVersion,
 	};
 
+	// A root layer name the user changed survives the migration. A name that
+	// still matches the source template follows the target template.
+	const sourceRootName = (() => {
+		const root = sourceVersion.root;
+		if (root.name !== undefined) return root.name;
+		if (!isRegistryId(root.library)) return undefined;
+		const resolution = resolveRegistryComponent(root.library, root.component);
+		return resolution.status === "known"
+			? resolution.definition.label
+			: undefined;
+	})();
+	const getRenamedRootName = (node: Node | undefined) => {
+		const name = node?.props?.["data-trickroom-name"];
+		return typeof name === "string" && name !== sourceRootName
+			? name
+			: undefined;
+	};
+
 	const buildTargetNode = (
 		template: RecipeTemplateNode,
 		isRoot: boolean,
@@ -1410,6 +1428,10 @@ export const migrateSystemComponentInstance = (
 		const sourcePath = sourcePathByTargetPath.get(template.path);
 		const previousReference = sourcePath ? oldByPath.get(sourcePath) : null;
 		const id = previousReference?.node.id ?? createElementId();
+		const name =
+			(isRoot ? getRenamedRootName(previousReference?.node) : undefined) ??
+			template.name ??
+			resolution.definition.label;
 		const templatePropsClassName =
 			typeof template.props?.className === "string"
 				? template.props.className
@@ -1458,14 +1480,14 @@ export const migrateSystemComponentInstance = (
 				template.library,
 				template.component,
 				resolution.definition,
-				template.name ?? resolution.definition.label,
+				name,
 			),
 			...(template.props ?? {}),
 			...classComposition.props,
 			...propOverrides,
 			...(iconOverride !== undefined ? { [iconIdProp]: iconOverride } : {}),
 			...(assetOverride !== undefined ? { [assetIdProp]: assetOverride } : {}),
-			"data-trickroom-name": template.name ?? resolution.definition.label,
+			"data-trickroom-name": name,
 			"data-trickroom-library": template.library,
 			"data-trickroom-component": template.component,
 			"data-trickroom-role": resolution.definition.role,

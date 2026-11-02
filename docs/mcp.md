@@ -369,7 +369,7 @@ Boards: a board is one responsive screen or one interaction state (a page, the p
 | `addSubtree` | Insert a tree of elements and recipe nodes; `tempId` names nodes for later steps. |
 | `addElement` | Insert one element. |
 | `addRecipe` | Insert an attached recipe instance; its slots come back in `created`. |
-| `addSystemComponent` | Place an instance of a published system component (`systemId`, `componentId`, `variantValues`, `overrides`). |
+| `addSystemComponent` | Place an instance of a published system component (`systemId`, `componentId`, `variantValues`, `overrides`). Each override entry takes `className`, `text`, `data-trickroom-icon-id`, `data-trickroom-asset-id` and `props`. Element props go under `props` (`{ root: { props: { value: "a" } } }`), and any other key fails the step. |
 | `updateSystemComponentInstance` | Change an instance's variant values (merge), clear axes, replace overrides. |
 | `detachSystemComponent` | Turn an instance into plain elements. |
 | `updateElementProps` | Change layer name, `className` or declared control props. |
@@ -382,7 +382,7 @@ Boards: a board is one responsive screen or one interaction state (a page, the p
 | `deleteElement` | Delete an element and its descendants. |
 | `renameDesignFile` | Rename the design. |
 
-Insertions take `parentId` (or `targetParentId`) and `index` (`0..childCount`); `parentId: null` inserts a board. Recipe and component structure is locked: insert only into declared slots, and change instances through controls, variants and overrides.
+Insertions take `parentId` (or `targetParentId`) and `index` (`0..childCount`); `parentId: null` inserts a board. Recipe and component structure is locked: insert only into declared slots, and change instances through controls, variants and overrides. The layer name of a component instance root is not locked, so `updateElementProps` with `name` renames it, and the name survives `component_migrate`.
 
 ### Step References
 

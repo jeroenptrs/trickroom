@@ -948,6 +948,22 @@ describe("trickroom MCP system component instance tools", () => {
 			status: "INVALID_OPERATION",
 			code: "COMPONENT_STRUCTURAL_NODE_LOCKED",
 		});
+
+		const rename = await applyOperation(session.client, "updateElementProps", {
+			designFileId: trickroomMcpTestDesignUuid,
+			expectedRevision: String(toolPayload(added)?.newRevision),
+			elementId: rootElementId,
+			name: "Primary CTA",
+		});
+		expect(rename.isError).toBeFalsy();
+		const persisted = await fixture.designFileService.readDesignFile(
+			trickroomMcpTestDesignUuid,
+		);
+		const board = persisted.design.boards[0];
+		const renamedRoot = Array.isArray(board.children)
+			? board.children.find((child) => child.id === rootElementId)
+			: null;
+		expect(renamedRoot?.props["data-trickroom-name"]).toBe("Primary CTA");
 	});
 
 	it("denies addSystemComponent when expanded registry components are not allowed", async () => {

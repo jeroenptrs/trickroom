@@ -349,6 +349,26 @@ describe("system-component-migration", () => {
 		expect(result.metadata.diagnostics).toEqual([]);
 	});
 
+	it("keeps a renamed root layer name and lets an unchanged one follow the template", () => {
+		const source = sourceVersionV1();
+		const v2 = targetVersionV2();
+		const target = { ...v2, root: { ...v2.root, name: "Action" } };
+		const migrate = (root: Node) =>
+			migrateSystemComponentInstance([root], root.id, {
+				systemId,
+				componentId,
+				sourceVersion: source,
+				targetVersion: target,
+			}).roots[0];
+
+		const untouched = expandStaleInstance(source);
+		expect(migrate(untouched).props["data-trickroom-name"]).toBe("Action");
+
+		const renamed = expandStaleInstance(source);
+		renamed.props["data-trickroom-name"] = "Checkout CTA";
+		expect(migrate(renamed).props["data-trickroom-name"]).toBe("Checkout CTA");
+	});
+
 	it("materializes text overrides on migrated nodes instead of resetting to template defaults", () => {
 		const source = sourceVersionV1();
 		const target = targetVersionV2();
