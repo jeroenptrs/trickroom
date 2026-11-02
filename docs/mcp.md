@@ -392,9 +392,9 @@ Element id parameters (`elementId`, `parentId`, `targetParentId`, `sourceElement
 | --- | --- |
 | `$step:N` | The element step `N` changed or inserted (its root). |
 | `$step:N:rootElementId` | The root element step `N` inserted. |
-| `$step:N:tempId:<tempId>` | The node with that `tempId` in step `N`'s `addSubtree`; for `copySubtree`, the copy of that source id. |
-| `$step:N:slot:<slotName>` | The slot host of the recipe step `N` inserted. |
-| `$step:N:tempId:<recipeTempId>:slot:<slotName>` | The slot host of one recipe when step `N` inserted several. |
+| `$step:N:tempId:<tempId>` | The node with that `tempId` in step `N`'s `addSubtree`; for `copySubtree`, the copy of that source id. When step `N` copied an earlier copy, the id of the first source works too. |
+| `$step:N:slot:<slotName>` | The slot host of the recipe or system component instance step `N` inserted. |
+| `$step:N:tempId:<tempId>:slot:<slotName>` | The slot host of one instance when step `N` inserted several. |
 
 A reference that does not resolve fails the step with `INVALID_OPERATION_PARAMETERS`, the accepted forms and the step's `availableTempIds` or `availableSlots`.
 

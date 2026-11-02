@@ -8,6 +8,7 @@ import {
 } from "../services/design-transform-service";
 import { enrichElementLookupError } from "../services/element-lookup-hints";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
+import { getSystemComponentStructuralMetadata } from "../utils/system-component-markers";
 import {
 	applyDryRunOperation,
 	assertOperationAllowedByPolicy,
@@ -65,7 +66,10 @@ export type OperationPlanStepOutput = {
 	insertedElementIds?: string[];
 	recipeExpansions?: unknown[];
 	idMap?: Record<string, string>;
-	/** Recipe instances this step inserted, with slot host ids by slot name. */
+	/**
+	 * Recipe and system component instances this step inserted, with slot
+	 * host ids by slot name.
+	 */
 	recipes?: OperationPlanStepRecipe[];
 	/** A copySubtree step asked for its id map in compact responses. */
 	includeIdMap?: true;
@@ -75,7 +79,10 @@ export type OperationPlanStepOutput = {
 
 export type OperationPlanStepRecipe = {
 	tempId?: string;
-	recipeId: string;
+	/** Set for a recipe instance. */
+	recipeId?: string;
+	/** Set for a system component instance. */
+	componentId?: string;
 	rootElementId: string;
 	slots: Record<string, string>;
 };
@@ -89,7 +96,7 @@ export const STEP_REFERENCE_FORMS = [
 	"$step:N:rootElementId",
 	"$step:N:tempId:<tempId>",
 	"$step:N:slot:<slotName>",
-	"$step:N:tempId:<recipeTempId>:slot:<slotName>",
+	"$step:N:tempId:<tempId>:slot:<slotName>",
 ];
 
 const STEP_REFERENCE_PARAMETER_KEYS = new Set([
@@ -131,24 +138,54 @@ const resolveSlotHost = (
 	}
 	const availableSlots = recipes.map((recipe) => ({
 		...(recipe.tempId !== undefined ? { tempId: recipe.tempId } : {}),
-		recipeId: recipe.recipeId,
+		...(recipe.recipeId !== undefined ? { recipeId: recipe.recipeId } : {}),
+		...(recipe.componentId !== undefined
+			? { componentId: recipe.componentId }
+			: {}),
 		rootElementId: recipe.rootElementId,
 		slots: Object.keys(recipe.slots),
 	}));
 	if (withSlot.length > 1) {
 		throw stepReferenceError(
 			value,
-			`is ambiguous: step ${step.stepIndex} inserted ${withSlot.length} recipes with slot "${slotName}". Qualify it with the recipe's tempId: $step:${step.stepIndex}:tempId:<recipeTempId>:slot:${slotName}.`,
+			`is ambiguous: step ${step.stepIndex} inserted ${withSlot.length} instances with slot "${slotName}". Qualify it with the instance's tempId: $step:${step.stepIndex}:tempId:<tempId>:slot:${slotName}.`,
 			{ availableSlots },
 		);
 	}
 	throw stepReferenceError(
 		value,
 		recipes.length === 0
-			? `cannot resolve slot "${slotName}": step ${step.stepIndex} did not insert a recipe${recipeRootElementId === undefined ? "" : " with that tempId"}.`
+			? `cannot resolve slot "${slotName}": step ${step.stepIndex} did not insert a recipe or system component instance${recipeRootElementId === undefined ? "" : " with that tempId"}.`
 			: `cannot resolve slot "${slotName}" in step ${step.stepIndex}. Available slots: ${[...new Set(recipes.flatMap((recipe) => Object.keys(recipe.slots)))].join(", ") || "none"}.`,
 		{ availableSlots },
 	);
+};
+
+/**
+ * A copy of a copy: step N copied the output of an earlier step, so its id
+ * map is keyed by ids that step generated. Follow the id through the earlier
+ * steps' maps, so `$step:N:tempId:<id>` also accepts the original source id
+ * or tempId the chain started from.
+ */
+const resolveThroughEarlierCopies = (
+	id: string,
+	step: OperationPlanStepOutput,
+	steps: OperationPlanStepOutput[],
+): string | undefined => {
+	if (step.operation !== "copySubtree" || !step.idMap) {
+		return undefined;
+	}
+	let current = id;
+	for (let index = 0; index < step.stepIndex; index += 1) {
+		const mapped = steps[index]?.idMap?.[current];
+		if (mapped === undefined) continue;
+		current = mapped;
+		const resolved = step.idMap[current];
+		if (resolved !== undefined) {
+			return resolved;
+		}
+	}
+	return undefined;
 };
 
 const resolveStepReferenceString = (
@@ -205,7 +242,8 @@ const resolveStepReferenceString = (
 		const rest = field.slice("tempId:".length);
 		const slotIndex = rest.lastIndexOf(":slot:");
 		const tempId = slotIndex >= 0 ? rest.slice(0, slotIndex) : rest;
-		const resolved = step.idMap?.[tempId];
+		const resolved =
+			step.idMap?.[tempId] ?? resolveThroughEarlierCopies(tempId, step, steps);
 		if (resolved === undefined) {
 			const availableTempIds = Object.keys(step.idMap ?? {});
 			throw stepReferenceError(
@@ -445,8 +483,9 @@ export const executeDesignOperation = async (
 };
 
 /**
- * Group the recipe-owned nodes among a step's inserted ids by recipe instance,
- * so later steps can address slot hosts with $step:N:slot:<name>.
+ * Group the recipe-owned and system-component-owned nodes among a step's
+ * inserted ids by instance, so later steps can address slot hosts with
+ * $step:N:slot:<name>.
  */
 const collectInsertedRecipes = (
 	design: TrickroomDesign,
@@ -457,25 +496,50 @@ const collectInsertedRecipes = (
 		return [];
 	}
 	const inserted = new Set(insertedElementIds);
-	const instances = new Map<
-		string,
-		{ recipeId: string; rootElementId?: string; slots: Record<string, string> }
-	>();
+	type Instance = {
+		recipeId?: string;
+		componentId?: string;
+		rootElementId?: string;
+		slots: Record<string, string>;
+	};
+	const instances = new Map<string, Instance>();
+	const record = (
+		key: string,
+		owner: Pick<Instance, "recipeId" | "componentId">,
+		nodeId: string,
+		isRoot: boolean,
+		slotName: string | null,
+	) => {
+		const instance = instances.get(key) ?? { ...owner, slots: {} };
+		if (isRoot) {
+			instance.rootElementId = nodeId;
+		}
+		if (slotName !== null) {
+			instance.slots[slotName] = nodeId;
+		}
+		instances.set(key, instance);
+	};
 	const visit = (node: DesignNode) => {
 		if (inserted.has(node.id)) {
-			const metadata = getRecipeStructuralMetadata(node.props);
-			if (metadata) {
-				const instance = instances.get(metadata.instanceId) ?? {
-					recipeId: metadata.recipeId,
-					slots: {},
-				};
-				if (metadata.isRoot) {
-					instance.rootElementId = node.id;
-				}
-				if (metadata.slotName !== null) {
-					instance.slots[metadata.slotName] = node.id;
-				}
-				instances.set(metadata.instanceId, instance);
+			const recipe = getRecipeStructuralMetadata(node.props);
+			if (recipe) {
+				record(
+					`recipe:${recipe.instanceId}`,
+					{ recipeId: recipe.recipeId },
+					node.id,
+					recipe.isRoot,
+					recipe.slotName,
+				);
+			}
+			const component = getSystemComponentStructuralMetadata(node.props);
+			if (component) {
+				record(
+					`component:${component.instanceId}`,
+					{ componentId: component.componentId },
+					node.id,
+					component.isRoot,
+					component.slotName,
+				);
 			}
 		}
 		if (Array.isArray(node.children)) {
@@ -497,7 +561,12 @@ const collectInsertedRecipes = (
 		const tempId = tempIdByElementId.get(instance.rootElementId);
 		recipes.push({
 			...(tempId !== undefined ? { tempId } : {}),
-			recipeId: instance.recipeId,
+			...(instance.recipeId !== undefined
+				? { recipeId: instance.recipeId }
+				: {}),
+			...(instance.componentId !== undefined
+				? { componentId: instance.componentId }
+				: {}),
 			rootElementId: instance.rootElementId,
 			slots: instance.slots,
 		});
