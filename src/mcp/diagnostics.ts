@@ -9,6 +9,10 @@ import {
 	lintDesign,
 	loadDesignLintSetup,
 } from "../lint/design-lint";
+import {
+	buildLintDesignIndex,
+	type LintDesignComponents,
+} from "../lint/designs";
 import { validateRecipeInstances } from "../recipes/validation";
 import type { Node as DesignNode, TrickroomDesign } from "../types";
 import { readAssetManifest } from "../utils/asset-manifest-service";
@@ -29,6 +33,7 @@ import {
 } from "../utils/design-resource-references";
 import { findDesignSystem } from "../utils/design-system-store";
 import { readIconManifest } from "../utils/icon-manifest-service";
+import { readSystemComponentManifest } from "../utils/system-component-manifest-service";
 import { loadCachedTailwindDesignSystem } from "../utils/tailwind-design-system";
 import type { TailwindTokenDomain } from "../utils/tailwind-token-domains";
 import {
@@ -490,6 +495,26 @@ const collectClassDiagnostics = (
 	}
 };
 
+/**
+ * The system's published components, for telling an instance's own classes
+ * from the ones it inherits. Null when they cannot be read: the checks then
+ * fall back to every stored className.
+ */
+const readComponentsForClassChecks = async (
+	context: TrickroomMcpServerContext,
+	systemId: string,
+): Promise<LintDesignComponents | null> => {
+	try {
+		return (
+			await readSystemComponentManifest(context.projectRoot, systemId, {
+				readOnly: true,
+			})
+		).manifest.components;
+	} catch {
+		return null;
+	}
+};
+
 const getTokenSnapshotMetadata = (
 	system: { systemId: string; systemName: string } | null,
 	storedTokens: TailwindTokenStorage | null,
@@ -675,8 +700,34 @@ export const getDesignDiagnostics = async (
 				),
 			),
 		);
-		for (const { board, index } of boards) {
-			collectClassDiagnostics(board, `boards[${index}]`, check, issues);
+		// The classes lint checks per node: a layer's className, and only the
+		// override an instance node adds. A component's own classes are its
+		// definition's findings (design_validate, lint), so a write that
+		// touches an instance does not repeat them.
+		const components = await readComponentsForClassChecks(
+			context,
+			system.manifest.systemId,
+		);
+		if (components) {
+			const index = buildLintDesignIndex({
+				systemId: system.manifest.systemId,
+				designs: [{ id: "", design, boardIds: options.boardIds }],
+				components,
+			});
+			for (const board of index.designs[0]?.boards ?? []) {
+				for (const node of board.nodes) {
+					if (!node.checkedClassName?.trim()) continue;
+					check(
+						node.checkedClassName,
+						{ path: `${node.path}.props.className`, elementId: node.element },
+						issues as DesignClassDiagnostic[],
+					);
+				}
+			}
+		} else {
+			for (const { board, index } of boards) {
+				collectClassDiagnostics(board, `boards[${index}]`, check, issues);
+			}
 		}
 	}
 

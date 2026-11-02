@@ -332,6 +332,91 @@ describe("MCP Phase 2 and Phase 3 tools", () => {
 		});
 	});
 
+	it("checks only an instance's own override classes on write", async () => {
+		const { session } = await createSession({
+			tokenSnapshots: [
+				{
+					systemName: "Core",
+					cssPath: "src/index.css",
+					tokens: { "brand-500": "#2563eb" },
+					overrides: ["brand-500"],
+					reviewRequired: false,
+				},
+			],
+		});
+		const listed = await session.client.callTool({
+			name: "component_read",
+			arguments: { systemName: "Core" },
+		});
+		const systemId = String(toolPayload(listed)?.systemId);
+		const created = await session.client.callTool({
+			name: "component_draft_create",
+			arguments: {
+				systemName: "Core",
+				expectedRevision: toolPayload(listed)?.revision,
+				slug: "tile",
+				name: "Tile",
+				draft: {
+					root: {
+						path: "root",
+						library: "trickroom",
+						component: "container",
+						className: "bg-template-missing-500",
+					},
+					overrideTargets: {
+						root: { targetId: "root", label: "Root", path: "root" },
+					},
+				},
+			},
+		});
+		const componentId = String(toolPayload(created)?.componentId);
+		await session.client.callTool({
+			name: "component_publish",
+			arguments: {
+				systemName: "Core",
+				componentId,
+				expectedRevision: toolPayload(created)?.revision,
+			},
+		});
+
+		const result = await session.client.callTool({
+			name: "design_apply",
+			arguments: {
+				designFileId: trickroomMcpTestDesignUuid,
+				expectedRevision: await getRevision(session),
+				operations: [
+					{
+						operation: "addSystemComponent",
+						parameters: {
+							parentId: "board",
+							index: 0,
+							systemId,
+							componentId,
+							overrides: {
+								root: { className: "bg-override-missing-500" },
+							},
+						},
+					},
+				],
+				response: "full",
+			},
+		});
+		const payload = toolPayload(result) as {
+			status: string;
+			warnings?: Array<{ code: string; token?: string }>;
+		};
+		expect(payload.status).toBe("success");
+		expect(payload.warnings).toContainEqual(
+			expect.objectContaining({
+				code: "UNKNOWN_COLOR_TOKEN",
+				token: "override-missing-500",
+			}),
+		);
+		expect(payload.warnings ?? []).not.toContainEqual(
+			expect.objectContaining({ token: "template-missing-500" }),
+		);
+	});
+
 	it("applies the minimal-default response contract and verbosity escalation", async () => {
 		const { session } = await createSession({
 			designs: {
