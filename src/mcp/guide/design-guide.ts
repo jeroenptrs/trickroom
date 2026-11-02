@@ -178,8 +178,8 @@ const buildBoardsTopic = () => ({
 const COMPONENTS_USAGE = [
 	"addSystemComponent places an instance of a published component: pass systemId and componentId (cmp_…), not the name. Omit version for the current version.",
 	"variantValues picks a value per variant axis. An omitted axis takes the component's default value, or stays unset when it has none.",
-	"overrides is keyed by override target id. Each target allows some of className, text, icon (data-trickroom-icon-id), asset (data-trickroom-asset-id) and the props it lists.",
-	"The instance's own elements are locked: no name, className, text or prop edits, no moves or deletes. Change the instance with updateSystemComponentInstance: variantValues merges, unsetVariantAxes clears, overrides replaces the whole map. Delete the instance root to remove it.",
+	'overrides is keyed by override target id. Each target allows some of className, text, icon (data-trickroom-icon-id), asset (data-trickroom-asset-id) and the props it lists as props.<name>. Props go in a nested props object: { root: { className: "mt-1", props: { value: "a" } } }. Unknown keys fail the step.',
+	"The instance's own elements are locked: no name, className, text or prop edits, no moves or deletes. The one exception is the root's layer name, which updateElementProps can change. Change the instance with updateSystemComponentInstance: variantValues merges, unsetVariantAxes clears, overrides replaces the whole map. Delete the instance root to remove it.",
 	"Slots accept your own elements: insert into the slot host. Reads mark slot hosts with slot.",
 	"To size or position an instance in its layout, use an override target with the className capability (often root), or wrap the instance in a container.",
 	`${TOOL.componentRead}({ view: "stale" }) finds instances of older versions; ${TOOL.componentMigrate} moves them to the current version.`,
@@ -215,7 +215,7 @@ const describePublishedComponent = (component: SystemComponentRecord) => {
 							target.targetId,
 							[
 								...(target.capabilities ?? ["className"]),
-								...(target.props ?? []),
+								...(target.props ?? []).map((prop) => `props.${prop}`),
 							],
 						]),
 					),
