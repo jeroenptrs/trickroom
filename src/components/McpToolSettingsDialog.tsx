@@ -141,13 +141,6 @@ export function McpToolSettingsDialog({
 		onSuccess: async (data) => {
 			queryClient.setQueryData(mcpToolGroupSettingsQueryKey, data);
 		},
-		onError: (error) => {
-			setActionError(
-				error instanceof Error
-					? error.message
-					: "Failed to update MCP tool settings",
-			);
-		},
 	});
 
 	const handleToggle = (groupId: McpToolGroupId, enabled: boolean) => {
@@ -159,7 +152,18 @@ export function McpToolSettingsDialog({
 			]),
 		) as Partial<Record<McpToolGroupId, boolean>>;
 
-		updateMutation.mutate(nextPatch);
+		const groupLabel =
+			currentGroups.find((group) => group.id === groupId)?.label ??
+			"the MCP tools";
+		updateMutation.mutate(nextPatch, {
+			onError: (error) => {
+				setActionError(
+					error instanceof Error
+						? `Could not save ${groupLabel}: ${error.message}`
+						: `Could not save ${groupLabel}.`,
+				);
+			},
+		});
 	};
 
 	const isSaving = updateMutation.isPending;
@@ -180,7 +184,7 @@ export function McpToolSettingsDialog({
 								aria-hidden="true"
 							/>
 							<DialogTitle className="p-0 text-sm font-medium text-slate-900">
-								MCP Settings
+								MCP tools
 							</DialogTitle>
 						</div>
 						<DialogClose
@@ -205,7 +209,7 @@ export function McpToolSettingsDialog({
 							{loadError ? (
 								<div className="mx-4 mt-3 flex items-start gap-2">
 									<Alert variant="panel" className="min-w-0 flex-1">
-										Failed to load MCP settings: {loadError}
+										Could not load MCP tools: {loadError}
 									</Alert>
 									<Button
 										type="button"

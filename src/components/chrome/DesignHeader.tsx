@@ -155,9 +155,7 @@ export function DesignHeaderContent({ children }: { children?: ReactNode }) {
 	const navigate = useNavigate();
 	const systemName = useDesignSystemName();
 	const systemId = useDesignSystemId();
-	const subtitle = systemName
-		? `${systemName} · design system`
-		: "No design system";
+	const subtitle = systemName ? `${systemName} system` : "No system";
 
 	return (
 		<>
@@ -172,7 +170,7 @@ export function DesignHeaderContent({ children }: { children?: ReactNode }) {
 			</Button>
 			<div className="flex min-w-0 flex-1 flex-col">
 				<DesignTitle />
-				<span className="truncate text-[10px] text-slate-400">{subtitle}</span>
+				<span className="truncate text-[10px] text-slate-500">{subtitle}</span>
 			</div>
 			<OpenDesignTokensButton systemId={systemId} />
 			{children}

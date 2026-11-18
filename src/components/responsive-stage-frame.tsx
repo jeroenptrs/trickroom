@@ -366,15 +366,10 @@ export function ResponsiveStageFrameWrapper({
 							onPointerMove={updateDrag}
 							onPointerUp={finishDrag}
 							onPointerCancel={finishDrag}
-							title="Drag to resize viewport width"
-							aria-label="Drag to resize viewport width"
+							title="Resize viewport width"
+							aria-label="Resize viewport width"
 						>
 							<span className="tabular-nums">{responsiveWidth}px</span>
-							{previewScale !== 1 ? (
-								<span className="text-slate-400">
-									Preview {Math.round(previewScale * 100)}%
-								</span>
-							) : null}
 						</button>
 						<div className="relative h-2 bg-slate-200">
 							<div
@@ -456,12 +451,12 @@ export function ResponsiveStageFrameWrapper({
 											draggingSide === side ? "before:bg-cyan-500" : "",
 										].join(" ")}
 										data-responsive-stage-resize-handle={side}
-										aria-label={`Resize responsive frame ${side} edge`}
+										aria-label={`Resize viewport width from the ${side} edge`}
 										onPointerDown={handlePointerDown}
 										onPointerMove={updateDrag}
 										onPointerUp={finishDrag}
 										onPointerCancel={finishDrag}
-										title="Drag to resize viewport width"
+										title="Resize viewport width"
 									/>
 								);
 							})

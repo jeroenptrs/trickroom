@@ -133,7 +133,7 @@ describe("WorkspaceToolbar", () => {
 		// Both panels start collapsed, so the rail's header leads the toolbar.
 		expect(html).toContain('title="Back to project"');
 		expect(html).toContain("Toolbar test");
-		expect(html).toContain("No design system");
+		expect(html).toContain("No system");
 		expect(html).toMatch(/aria-label="Show layers"[^>]*aria-expanded="false"/);
 		expect(html).toContain('title="Show layers (Alt+[)"');
 		expect(html).toContain("lucide-panel-left-open");

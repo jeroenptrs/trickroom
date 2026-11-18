@@ -97,7 +97,7 @@ describe("ComponentDraftProperties", () => {
 			/<textarea[^>]*aria-label="Tone: primary classes"[^>]*>bg-cyan-600<\/textarea>/,
 		);
 		expect(html).toMatch(
-			/<textarea[^>]*aria-label="Compound classes"[^>]*>shadow-lg<\/textarea>/,
+			/<textarea[^>]*aria-label="Compound variant classes"[^>]*>shadow-lg<\/textarea>/,
 		);
 	});
 

@@ -467,7 +467,7 @@ Recovery: call the reads in `next` (a `design_read` with `boardId` for each stal
 - `scale`: output pixels per CSS pixel, 0.25 to 2. Boards default to 0.5 (a quarter of the image tokens; layout, spacing and body text stay readable); elements and components to 1.
 - `maxHeight`: targets taller than this many CSS px are cropped to the top (default two viewport heights, at most 8,000).
 - At most 12 images per call (targets × viewports × themes); more fails with `TOO_MANY_SCREENSHOTS`.
-- Warnings: `MISSING_RENDERER` (an element renders as a "No renderer" placeholder) and `OVERLAY_CLIPPED` (an open overlay extends past the captured area).
+- Warnings: `MISSING_RENDERER` (an element renders as an "Unknown element" placeholder) and `OVERLAY_CLIPPED` (an open overlay extends past the captured area).
 - Capture waits until every visible chart has painted, including its lazy chunk and map data. A chart that never paints fails the capture instead of returning an empty box.
 
 Screenshots need the optional `playwright-core` peer dependency and a Chrome or Chromium. `npx trickroom install-browser` downloads Playwright's Chromium; `npx trickroom install-browser --executable-path <path>` saves an installed browser as `screenshot.executablePath` in the Trickroom settings file. The browser is found in this order: the call's `executablePath`, `TRICKROOM_CHROME_PATH`, the `screenshot.executablePath` setting, the Chromium build this `playwright-core` expects, other cached Playwright builds, system installs, then the `chrome` and `msedge` channels.

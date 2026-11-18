@@ -228,12 +228,12 @@ describe("System editor lint page", () => {
 	it("opens from ?tab=lint with the adherence view of a code-only report", () => {
 		const html = renderLintPage();
 
-		expect(html).toContain("Core System Lint");
+		expect(html).toContain("Core System lint");
 		expect(html).toContain("Lint");
 		expect(html).toContain('data-lint-view="adherence"');
 		// The ratchet outcome of the stored report, with what got worse.
-		expect(html).toContain("Ratchet fail");
-		expect(html).toContain("code.errors: 1 → 2");
+		expect(html).toContain("Failed");
+		expect(html).toContain("code.errors: 1 to 2");
 		expect(html).toContain("coverage.bound: 2 below min 3");
 		// Code side counts with the delta, the regression and lint.json's max.
 		expect(html).toMatch(/data-lint-side="code"/);
@@ -245,7 +245,7 @@ describe("System editor lint page", () => {
 		// One clickable row per rule kind of the code summary.
 		expect(countMatches(html, /data-lint-rule="code\./)).toBe(3);
 		// A catalogue kind missing from the summary is disabled.
-		expect(html).toContain("disabled in lint.json");
+		expect(html).toContain("Disabled in lint.json");
 		expect(html).not.toContain("data-lint-stale");
 	});
 
@@ -302,11 +302,9 @@ describe("System editor lint page", () => {
 				},
 			},
 		});
-		expect(html).toContain("Rule kinds adopted into the baseline");
-		expect(html).toContain(
-			"rule.code.unknown-variant-value: 1 (new rule kind)",
-		);
-		expect(html).toContain("rule.code.unknown-class-token: 3 → 7 (--adopt)");
+		expect(html).toContain("Rules adopted into the baseline");
+		expect(html).toContain("rule.code.unknown-variant-value: 1 (new rule)");
+		expect(html).toContain("rule.code.unknown-class-token: 3 to 7 (--adopt)");
 		expect(renderLintPage()).not.toContain("adopted into the baseline");
 	});
 
@@ -382,7 +380,7 @@ describe("System editor lint page", () => {
 		expect(html).toContain("5 files");
 		// Discrete swatches on both scales.
 		expect(html).toMatch(/data-slot="heat-swatch" data-step="4"/);
-		expect(html).toContain("findings (errors + warnings)");
+		expect(html).toContain("Findings (errors and warnings)");
 	});
 
 	it("shows the design map empty while the report has no design side", () => {
@@ -409,7 +407,7 @@ describe("System editor lint page", () => {
 				},
 			},
 		});
-		expect(html).toContain("2 of 5 findings");
+		expect(html).toContain("2 of 5");
 		expect(html).toContain("in src/components/ui");
 		expect(countMatches(html, /data-lint-finding="/)).toBe(2);
 		expect(html).toContain("src/components/ui/badge.variants.ts:1:1");
@@ -456,7 +454,7 @@ describe("System editor lint page", () => {
 			state: { view: "findings", selection: { kind: "finding", key } },
 			inspectorOpen: true,
 		});
-		expect(html).toContain("Open in editor");
+		expect(html).toContain("Open design");
 		expect(html).toContain(
 			'href="/design/dsg_home?board=brd_hero&amp;layer=el_cta"',
 		);
@@ -491,11 +489,11 @@ describe("System editor lint rule configuration", () => {
 			/aria-label="Banned text 2: Pattern"[^>]*value="Are you sure"/u,
 		);
 		expect(html).toContain("Regular expression (optional)");
-		expect(html).toContain("other options (read-only)");
+		expect(html).toContain("Other options (read-only)");
 		expect(html).toContain("&quot;mode&quot;: &quot;strict&quot;");
 		// Thresholds, wrapper overrides and sources with the defaults.
-		expect(html).toContain("coverage minima");
-		expect(html).toContain("wrapper modules");
+		expect(html).toContain("Coverage minima");
+		expect(html).toContain("Wrapper modules");
 		expect(html).toContain("src/**/*.{ts,tsx,js,jsx,mjs,cjs}");
 		expect(html).toContain("Save lint.json");
 		expect(html).not.toContain("Unsaved changes");
@@ -510,7 +508,7 @@ describe("System editor lint rule configuration", () => {
 				config: { version: 1 },
 			}),
 		});
-		expect(absent).toContain("No lint.json yet");
+		expect(absent).toContain("Not created yet");
 
 		const invalid = renderLintPage({
 			state: { view: "config" },

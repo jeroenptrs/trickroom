@@ -67,7 +67,7 @@ const NO_COMMAND_SELECTION = "__trickroom_no_command_selection__";
 const SWITCH_PROJECT_COMMAND_VALUE = "Switch project";
 const OPEN_ANOTHER_FOLDER_COMMAND_VALUE = "Open another folder";
 const CREATE_NEW_PROJECT_COMMAND_VALUE = "Create new project";
-const CREATE_NEW_SYSTEM_COMMAND_VALUE = "Create new system";
+const CREATE_NEW_SYSTEM_COMMAND_VALUE = "Add system";
 const MCP_TOOLS_COMMAND_VALUE = "MCP tools";
 
 /** Router state for `/new` when the menu closed a project to create one. */
@@ -335,7 +335,7 @@ export function CommandMenu() {
 							/>
 
 							<CommandList>
-								<CommandEmpty>No results found.</CommandEmpty>
+								<CommandEmpty>No matching commands</CommandEmpty>
 
 								{page === "home" ? (
 									<>
@@ -412,7 +412,7 @@ export function CommandMenu() {
 													aria-hidden="true"
 												/>
 												<span data-item-name="" className="flex-1 text-sm">
-													Create new system…
+													Add system…
 												</span>
 												<span
 													data-item-secondary=""
@@ -546,15 +546,15 @@ export function CommandMenu() {
 								<CommandFooterLeft>
 									<CommandFooterHint>
 										<CommandKeyBadge>↑↓</CommandKeyBadge>
-										<span>navigate</span>
+										<span>Navigate</span>
 									</CommandFooterHint>
 									<CommandFooterHint>
 										<CommandKeyBadge>↵</CommandKeyBadge>
-										<span>open</span>
+										<span>Open</span>
 									</CommandFooterHint>
 									<CommandFooterHint>
 										<CommandKeyBadge>esc</CommandKeyBadge>
-										<span>{page === "switcher" ? "back" : "close"}</span>
+										<span>{page === "switcher" ? "Back" : "Close"}</span>
 									</CommandFooterHint>
 								</CommandFooterLeft>
 								{footerLabel ? (
@@ -595,7 +595,7 @@ export function CommandMenu() {
 							/>
 							{openErrorMessage ? (
 								<Alert variant="panel">
-									Failed to open project: {openErrorMessage}
+									Could not open {path.trim()}: {openErrorMessage}
 								</Alert>
 							) : null}
 							<div className="flex">

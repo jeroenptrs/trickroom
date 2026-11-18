@@ -484,7 +484,7 @@ describe("component draft store", () => {
 		).toBeUndefined();
 		expect(state.variants?.compoundVariants).toBeUndefined();
 		expect(() => serializeComponentDraftState(state)).toThrow(
-			"Cannot serialize component draft without a root template.",
+			"Add a root layer before saving the draft.",
 		);
 
 		addTemplateNode({ library: "trickroom", component: "text" }, null, 0);

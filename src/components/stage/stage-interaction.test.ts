@@ -81,7 +81,7 @@ function renderStage() {
 							<button type="submit" id="unknown" data-trickroom-node-id="stale">x</button>
 						</div>
 						<div data-trickroom-node-id="missing" data-trickroom-missing-renderer="lib/thing" role="note">
-							<div id="missing-label">No renderer for lib/thing</div>
+							<div id="missing-label">Unknown element lib/thing</div>
 						</div>
 					</section>
 					<section data-trickroom-node-id="other" data-trickroom-root-id="other">

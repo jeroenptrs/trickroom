@@ -231,9 +231,13 @@ describe("formatAcknowledgement", () => {
 });
 
 describe("describeAnnotationActor", () => {
-	it("names the human You and an agent by short session id", () => {
+	it("names the human You and an agent Agent", () => {
 		expect(describeAnnotationActor(human)).toBe("You");
-		expect(describeAnnotationActor(agent)).toBe("Agent session-");
+		expect(describeAnnotationActor(agent)).toBe("Agent");
+	});
+
+	it("adds the short session id when several agents wrote", () => {
+		expect(describeAnnotationActor(agent, true)).toBe("Agent session-");
 	});
 });
 

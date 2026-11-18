@@ -77,11 +77,11 @@ function LayerContextMenu({
 		setRecipeConfirm(null);
 		try {
 			updateRecipeInstance(id);
-			toast.success("Updated recipe.");
+			toast.success("Recipe updated");
 		} catch (error) {
-			toast.error(
-				error instanceof Error ? error.message : "Failed to update recipe.",
-			);
+			toast.error("Could not update the recipe", {
+				description: error instanceof Error ? error.message : undefined,
+			});
 		}
 	};
 	const handleDetachRecipe = () => {
@@ -128,9 +128,10 @@ function LayerContextMenu({
 				queryKey: designSummariesQueryKey,
 			});
 			if (!isDesignCleanAtRevision(extractRevision)) {
-				toast.info(
-					"Extracted layer to a new design. Stayed here because this design changed during extraction.",
-				);
+				toast.info(`${layerName} extracted to a new design`, {
+					description:
+						"This design changed while it was extracted, so it stays open.",
+				});
 				return;
 			}
 

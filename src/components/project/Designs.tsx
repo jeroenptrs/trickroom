@@ -1,16 +1,13 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FilePlus2, Image, Search } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { annotationCountsQueryOptions } from "../../queries/annotations";
 import {
-	createDesignFile,
 	designFileQueryOptions,
-	designSummariesQueryKey,
 	designSummariesQueryOptions,
 } from "../../queries/design-file";
-import type { TrickroomDesign } from "../../types";
 import {
 	markDesignOpened,
 	sortDesignsByRecentActivity,
@@ -27,10 +24,11 @@ import { Separator } from "../ui/separator";
 import { Skeleton } from "../ui/skeleton";
 import { Text } from "../ui/text";
 import {
+	DESIGN_DIAGNOSTIC_LABEL,
 	formatRelativeTime,
-	getDesignDiagnosticLabel,
 	pluralize,
 } from "./project-view-utils";
+import { useCreateDesign } from "./useCreateDesign";
 import { useScrollSelectedIntoView } from "./useScrollSelectedIntoView";
 
 export function Designs({
@@ -70,27 +68,7 @@ export function Designs({
 	const prefetchDesignFile = (designId: string) =>
 		queryClient.prefetchQuery(designFileQueryOptions(designId, projectScope));
 
-	// TODO: when creating - add a secondary state requesting a name for the design file
-
-	const createDesignMutation = useMutation({
-		mutationFn: async () => {
-			const designUuid = crypto.randomUUID();
-			const design: TrickroomDesign = {
-				name: "Untitled",
-				boards: [],
-			};
-
-			await createDesignFile(designUuid, design);
-			return designUuid;
-		},
-		onSuccess: async (designUuid) => {
-			markDesignOpened(projectScope, designUuid);
-			await queryClient.invalidateQueries({
-				queryKey: designSummariesQueryKey,
-			});
-			onSelect(designUuid);
-		},
-	});
+	const createDesignMutation = useCreateDesign(onSelect);
 	const createErrorMessage = (createDesignMutation.error as Error | null)
 		?.message;
 
@@ -126,19 +104,18 @@ export function Designs({
 				{/* Header */}
 				<div className="flex items-center justify-between">
 					<div className="flex items-baseline gap-2">
-						<Text variant="section-header">designs</Text>
-						<Text tone="faint" className="font-mono text-[11px]">
-							{designs.length}
-						</Text>
+						<Text variant="section-header">Designs</Text>
+						<Text variant="section-header">{designs.length}</Text>
 					</div>
 					<Button
 						variant="block"
 						className="flex items-center gap-1 px-2 py-1 text-xs"
 						disabled={createDesignMutation.isPending}
+						aria-label="New design"
 						onClick={() => createDesignMutation.mutate()}
 					>
 						<FilePlus2 className="size-3.5" aria-hidden="true" />
-						{createDesignMutation.isPending ? "Creating..." : "New"}
+						{createDesignMutation.isPending ? "Creating…" : "New"}
 					</Button>
 				</div>
 
@@ -185,7 +162,7 @@ export function Designs({
 				{designsQuery.isError ? (
 					<div className="mx-4 my-3 flex items-start gap-2">
 						<Alert variant="panel" className="min-w-0 flex-1">
-							Failed to load designs: {designsErrorMessage}
+							Could not load designs: {designsErrorMessage}
 						</Alert>
 						<Button
 							variant="outlined"
@@ -199,7 +176,7 @@ export function Designs({
 				) : null}
 				{createDesignMutation.isError ? (
 					<Alert variant="panel" className="mx-4 my-3">
-						Failed to create design: {createErrorMessage}
+						Could not create the design: {createErrorMessage}
 					</Alert>
 				) : null}
 				{designsQuery.isSuccess ? (
@@ -209,14 +186,10 @@ export function Designs({
 								icon={Image}
 								size="sm"
 								title="No designs yet"
-								description="Press ⌘N or use + New above to create your first design board."
+								description="Create one with New design."
 							/>
 						) : filteredDesigns.length === 0 ? (
-							<div className="px-3 py-10 text-center">
-								<Text tone="muted" className="text-sm">
-									No matching designs.
-								</Text>
-							</div>
+							<EmptyState size="compact" title="No matching designs" />
 						) : (
 							filteredDesigns.map((design) => {
 								const isSelected = selectedUuid === design.uuid;
@@ -281,24 +254,22 @@ export function Designs({
 														edge="stamped"
 														className="shrink-0 whitespace-nowrap"
 													>
-														{getDesignDiagnosticLabel(design.diagnostic)}
+														{DESIGN_DIAGNOSTIC_LABEL}
 													</Badge>
-													<Text
-														tone="muted"
-														className="truncate font-mono text-[10px]"
-													>
+													<Text variant="meta" className="truncate">
 														{formatRelativeTime(design.modifiedAt)}
 													</Text>
 												</span>
 											) : (
 												<Text
-													tone="muted"
-													className="block max-w-full truncate font-mono text-[10px]"
+													variant="meta"
+													className="flex max-w-full gap-2 truncate"
 												>
-													{design.layersCount}{" "}
-													{pluralize(design.layersCount, "layer")}
-													{" · "}
-													{formatRelativeTime(design.modifiedAt)}
+													<span>
+														{design.layersCount}{" "}
+														{pluralize(design.layersCount, "layer")}
+													</span>
+													<span>{formatRelativeTime(design.modifiedAt)}</span>
 												</Text>
 											)}
 										</div>

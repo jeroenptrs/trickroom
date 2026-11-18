@@ -386,17 +386,15 @@ export function useLayerInsertion() {
 						getRecipeSlotCandidateFromProps(expansion.root.props),
 					)
 				) {
-					toast.error("This recipe slot does not allow that component.");
+					toast.error(`This slot doesn't accept ${component.name}`);
 					return false;
 				}
 				addNodeTree(expansion.root, placement.parentId, placement.index);
 				return true;
 			} catch (error) {
-				toast.error(
-					error instanceof Error
-						? error.message
-						: "Failed to add the system component.",
-				);
+				toast.error(`Could not add ${component.name}`, {
+					description: error instanceof Error ? error.message : undefined,
+				});
 				return false;
 			}
 		},

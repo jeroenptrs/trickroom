@@ -5,10 +5,8 @@ import {
 	Download,
 	LayoutGrid,
 	Minus,
-	Monitor,
 	Plus,
 	Smartphone,
-	Tablet,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -56,12 +54,12 @@ import { DesignHeaderContent, DesignPanelToggle } from "./DesignHeader";
 import { SaveIndicator } from "./DesignSave";
 
 export const RESPONSIVE_DEVICE_WIDTH_PRESETS = [
-	{ label: "Mobile S", width: 320, Icon: Smartphone },
-	{ label: "Mobile M", width: 375, Icon: Smartphone },
-	{ label: "Mobile L", width: 425, Icon: Smartphone },
-	{ label: "Tablet", width: 768, Icon: Tablet },
-	{ label: "Laptop", width: 1024, Icon: Monitor },
-	{ label: "Desktop", width: 1440, Icon: Monitor },
+	{ label: "Mobile S", width: 320 },
+	{ label: "Mobile M", width: 375 },
+	{ label: "Mobile L", width: 425 },
+	{ label: "Tablet", width: 768 },
+	{ label: "Laptop", width: 1024 },
+	{ label: "Desktop", width: 1440 },
 ] as const;
 
 export function getResponsiveWidthDraftError(draft: string) {
@@ -133,13 +131,13 @@ const STAGE_MODE_OPTIONS: {
 		value: "canvas",
 		label: "Canvas",
 		Icon: LayoutGrid,
-		title: "Canvas mode — all boards visible",
+		title: "Show all boards on a canvas",
 	},
 	{
 		value: "responsive",
 		label: "Responsive",
 		Icon: Smartphone,
-		title: "Responsive mode — single board preview",
+		title: "Preview one board at a set width",
 	},
 ];
 
@@ -235,7 +233,7 @@ function ResponsiveBoardControls() {
 				<ChevronLeft className="size-3.5" />
 			</Button>
 			<span
-				className="shrink-0 bg-white px-2 py-0.5 text-[10px] font-medium tabular-nums text-slate-600"
+				className="shrink-0 bg-white px-2 py-0.5 text-[11px] font-medium tabular-nums text-slate-950"
 				aria-live="polite"
 			>
 				{total > 0 ? `Board ${index} / ${total}` : "No boards"}
@@ -255,7 +253,7 @@ function ResponsiveBoardControls() {
 				<Button
 					type="button"
 					variant="block"
-					className="h-5 shrink-0 bg-cyan-500 px-1.5 py-0 font-mono text-[9px] font-medium uppercase tracking-wide text-slate-950 not-disabled:hover:bg-cyan-400"
+					className="h-5 shrink-0 bg-cyan-500 px-1.5 py-0 text-[11px] font-medium text-slate-950 not-disabled:hover:bg-cyan-400"
 					title="Boards changed outside this editor: show the next one"
 					aria-label={`Show the next of ${unseenChangedBoardIds.length} boards changed outside this editor`}
 					data-changed-externally="board-navigation"
@@ -282,7 +280,7 @@ function ResponsiveDevicePresetMenu() {
 						type="button"
 						variant="block"
 						isSelected={open}
-						className="flex h-7 items-center gap-1 px-2 py-0 text-[10px]"
+						className="flex h-7 items-center gap-1 px-2 py-0 text-[11px]"
 						aria-label="Viewport presets"
 						title="Viewport presets"
 					>
@@ -294,7 +292,7 @@ function ResponsiveDevicePresetMenu() {
 			<Menu.Portal>
 				<Menu.Positioner sideOffset={4} align="start">
 					<Menu.Popup className="z-50 flex min-w-36 flex-col bg-slate-50 p-1 text-[11px] text-slate-700 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-visible:outline-none">
-						{RESPONSIVE_DEVICE_WIDTH_PRESETS.map(({ label, width, Icon }) => {
+						{RESPONSIVE_DEVICE_WIDTH_PRESETS.map(({ label, width }) => {
 							const isSelected = responsiveWidth === width;
 							return (
 								<Menu.Item
@@ -302,7 +300,6 @@ function ResponsiveDevicePresetMenu() {
 									className="flex cursor-default items-center gap-2 px-2 py-1 data-highlighted:bg-slate-200/60"
 									onClick={() => controls.setResponsiveWidth(width)}
 								>
-									<Icon className="size-3.5 shrink-0 text-slate-400" />
 									<span className="min-w-0 flex-1 truncate">{label}</span>
 									<span className="tabular-nums text-slate-500">{width}</span>
 									{isSelected ? (
@@ -420,7 +417,7 @@ function ResponsiveWidthControls() {
 								variant="block"
 								disabled={roundedPx === null}
 								isSelected={isActive}
-								className="flex h-7 items-center gap-1 px-2 py-0 text-[10px]"
+								className="flex h-7 items-center gap-1 px-2 py-0 text-[11px]"
 								aria-label={title}
 								onClick={() => {
 									if (roundedPx !== null) {
@@ -480,13 +477,11 @@ function ResponsiveZoomControls() {
 							type="button"
 							variant="block"
 							isSelected={open}
-							className="flex h-7 min-w-12 items-center justify-center gap-1 px-1.5 py-0 text-[10px] tabular-nums"
+							className="flex h-7 min-w-12 items-center justify-center gap-1 px-1.5 py-0 text-[11px] tabular-nums"
 							aria-label="Zoom level"
 							title="Zoom level (Ctrl/Cmd + scroll to zoom)"
 						>
-							{zoom === "fit" ? (
-								<span className="text-slate-400">Fit</span>
-							) : null}
+							{zoom === "fit" ? <span>Fit</span> : null}
 							<span aria-live="polite">{formatResponsiveStageZoom(scale)}</span>
 						</Button>
 					)}
@@ -552,7 +547,7 @@ function ExportControl() {
 		}
 
 		if (boards.length === 0) {
-			toast.error("No board to export.");
+			toast.error("No board to export");
 			return;
 		}
 
@@ -566,12 +561,14 @@ function ExportControl() {
 			});
 			toast.success(
 				boards.length > 1
-					? `Exported ${boards.length} board artifacts.`
-					: "Artifact exported.",
+					? `${boards.length} boards exported`
+					: "Board exported",
 			);
 		} catch (error) {
 			console.error(error);
-			toast.error("Export failed.");
+			toast.error(`Could not export ${design.name}`, {
+				description: error instanceof Error ? error.message : undefined,
+			});
 		} finally {
 			setBusy(false);
 		}
@@ -587,7 +584,7 @@ function ExportControl() {
 						variant="block"
 						isSelected={open}
 						disabled={busy}
-						className="flex h-7 items-center gap-1 px-2 py-0 text-[10px]"
+						className="flex h-7 items-center gap-1 px-2 py-0 text-[11px]"
 						aria-label="Export"
 						title="Export as a Trickroom Artifact"
 					>
@@ -599,12 +596,6 @@ function ExportControl() {
 			<Menu.Portal>
 				<Menu.Positioner sideOffset={4} align="end">
 					<Menu.Popup className="z-50 flex min-w-44 flex-col bg-slate-50 p-1 text-[11px] text-slate-700 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-visible:outline-none">
-						<div className="flex items-center gap-1.5 px-2 pt-0.5 pb-1 text-[9px] font-medium uppercase tracking-wider text-slate-400">
-							<span aria-hidden className="text-cyan-700">
-								▦
-							</span>
-							Artifact
-						</div>
 						{mode === "responsive" ? (
 							<Menu.Item
 								className="flex cursor-default items-center gap-2 px-2 py-1 data-highlighted:bg-slate-200/60"

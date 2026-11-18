@@ -52,12 +52,16 @@ function getSystemBadgeState(
 	return "synced";
 }
 
+/**
+ * The facts on a system row's meta line, in order. Each renders as its own
+ * span, so no separator characters live in the strings.
+ */
 export function getSystemMetadata(
 	system: TailwindSyncResult,
 	cssPath?: string,
-) {
+): string[] {
 	const cssBasename = getCssBasename(system.data?.cssPath ?? cssPath);
-	const prefix = cssBasename ? `${cssBasename} · ` : "";
+	const file = cssBasename ? [cssBasename] : [];
 	const baselineDiff = system.data?.baselineDiff;
 
 	// A review counts what the tokens panel counts: the changes since the
@@ -73,30 +77,34 @@ export function getSystemMetadata(
 			counts.total === 0 &&
 			counts.stylesheets > 0
 		) {
-			return `${stylesheets} since last review`;
+			return [`${stylesheets} since last review`];
 		}
 		const label = `+${counts.added} ~${counts.changed} -${counts.removed}`;
 		if (!counts.sinceLastReview) {
-			return label;
+			return [label];
 		}
 		return counts.stylesheets > 0
-			? `${label} · ${stylesheets} since last review`
-			: `${label} since last review`;
+			? [label, `${stylesheets} since last review`]
+			: [`${label} since last review`];
 	}
 
-	if (baselineDiff) {
-		const added = baselineDiff.added.length;
-		const removed = baselineDiff.removed.length;
-
-		return `${prefix}+${added} / -${removed}`;
+	// An empty diff says nothing; the token count does.
+	if (
+		baselineDiff &&
+		(baselineDiff.added.length > 0 || baselineDiff.removed.length > 0)
+	) {
+		return [
+			...file,
+			`+${baselineDiff.added.length} / -${baselineDiff.removed.length}`,
+		];
 	}
 
 	const tokenCount = system.data?.tokens?.length;
 	if (tokenCount === undefined) {
-		return `${prefix}no token data`;
+		return [...file, "Not synced"];
 	}
 
-	return `${prefix}${tokenCount} ${pluralize(tokenCount, "token")}`;
+	return [...file, `${tokenCount} ${pluralize(tokenCount, "token")}`];
 }
 
 function SystemStatusIndicator({ state }: { state: SystemStatusBadgeState }) {
@@ -139,11 +147,11 @@ function System({
 	const target = systems.targetsById[systemId];
 	const reviewRequired = Boolean(system.data?.reviewRequired);
 	const status = getSystemBadgeState(system, reviewRequired);
+	// The row's dot or spinner always shows the state; a word joins it only
+	// when the system needs the user.
 	const actionBadgeState =
-		status === "review" || status === "error" || status === "syncing"
-			? status
-			: null;
-	const metaSubtitle = getSystemMetadata(system, target?.cssPath);
+		status === "review" || status === "error" ? status : null;
+	const metaFacts = getSystemMetadata(system, target?.cssPath);
 	const displayedSystemName =
 		system.data?.systemName ?? target?.systemName ?? "Unnamed system";
 
@@ -160,14 +168,17 @@ function System({
 			<SystemStatusIndicator state={status} />
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<Text className="block max-w-full truncate">{displayedSystemName}</Text>
-				<Text
-					tone="muted"
-					className="block max-w-full truncate font-mono text-[10px]"
-				>
-					{metaSubtitle}
+				<Text variant="meta" className="flex max-w-full gap-2 truncate">
+					{metaFacts.map((fact) => (
+						<span key={fact} className="truncate">
+							{fact}
+						</span>
+					))}
 				</Text>
 			</div>
-			{actionBadgeState ? <SystemStatusBadge state={actionBadgeState} /> : null}
+			{actionBadgeState ? (
+				<SystemStatusBadge state={actionBadgeState} showDot={false} />
+			) : null}
 		</Button>
 	);
 }
@@ -209,14 +220,13 @@ export function Systems({
 			<section className="flex flex-col flex-1 min-h-0 border-t border-slate-200">
 				<div className="flex items-center justify-between px-4 py-3">
 					<div className="flex items-baseline gap-2">
-						<Text variant="section-header">systems</Text>
-						<Text tone="faint" className="font-mono text-[11px]">
-							{systemEntries.length}
-						</Text>
+						<Text variant="section-header">Systems</Text>
+						<Text variant="section-header">{systemEntries.length}</Text>
 					</div>
 					<Button
 						variant="block"
 						className="flex items-center gap-1 px-2 py-1 text-xs"
+						aria-label="Add system"
 						onClick={() => setCreateDialogOpen(true)}
 					>
 						<FilePlus2 className="size-3.5" aria-hidden="true" />
@@ -230,7 +240,7 @@ export function Systems({
 							icon={Palette}
 							size="sm"
 							title="No systems yet"
-							description="Press ⌘⇧N or use + New above to connect a tokens file or Tailwind config."
+							description="Add one to use your tokens."
 						/>
 					) : (
 						<div className="divide-y divide-slate-100">

@@ -283,9 +283,7 @@ export function TokenDomainPills({
 						className={`inline-flex min-w-0 items-center gap-1.5 px-2 py-1 text-xs font-medium ${isPressed ? "bg-slate-900 text-white" : "bg-white text-slate-700 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"}`}
 					>
 						<span className="truncate">{pill.label}</span>
-						<span className="font-mono text-[10px] text-slate-400">
-							{pill.count}
-						</span>
+						<span className="font-mono text-[10px]">{pill.count}</span>
 					</button>
 				);
 			})}
@@ -296,7 +294,7 @@ export function TokenDomainPills({
 					onClick={() => setIsExpanded((current) => !current)}
 					aria-expanded={isExpanded}
 				>
-					{isExpanded ? "Less" : `More ${hiddenCount}`}
+					{isExpanded ? "Show fewer" : `${hiddenCount} more`}
 				</button>
 			) : null}
 		</div>
@@ -358,11 +356,7 @@ export function TokenDomainSectionList({
 					>
 						{section.label}
 					</Text>
-					<span
-						className="size-1 rounded-full bg-slate-300"
-						aria-hidden="true"
-					/>
-					<span className="font-mono text-[10px] text-slate-500">
+					<span className="font-mono text-[10px] text-slate-900">
 						{section.rows.length}
 					</span>
 				</div>

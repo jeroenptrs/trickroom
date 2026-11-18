@@ -13,8 +13,8 @@ export function DesignSystemPicker() {
 	if (systems.length === 0) {
 		return (
 			<div className="px-1 flex flex-col gap-1">
-				<Text variant="label">Design system</Text>
-				<span className="text-slate-400 text-xs">No systems configured</span>
+				<Text variant="label">System</Text>
+				<Text variant="meta">No systems in this project</Text>
 			</div>
 		);
 	}
@@ -26,7 +26,7 @@ export function DesignSystemPicker() {
 				// biome-ignore lint/a11y/noLabelWithoutControl: htmlFor points at the Select below.
 				render={<label htmlFor="design-system-picker" />}
 			>
-				Design system
+				System
 			</Text>
 			<Select
 				id="design-system-picker"
@@ -34,7 +34,7 @@ export function DesignSystemPicker() {
 				value={systemId ?? ""}
 				onChange={(e) => setDesignSystemId(e.currentTarget.value || null)}
 			>
-				<option value="">(unlinked)</option>
+				<option value="">No system</option>
 				{systems.map((system) => (
 					<option key={system.systemId} value={system.systemId}>
 						{system.systemName}

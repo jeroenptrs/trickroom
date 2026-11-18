@@ -72,7 +72,7 @@ export type AnnotationThreadProps = {
 	 * note"), with the annotation as resolved.
 	 */
 	onSaveMemory?: (annotation: AnnotationView) => Promise<unknown>;
-	/** On another branch: only "Move here". */
+	/** On another branch: only "Move to this branch". */
 	otherBranch?: boolean;
 	/**
 	 * Shown under the header, open or not: the component editor's chip of
@@ -123,7 +123,6 @@ function ReplyComposer({ annotation }: { annotation: AnnotationView }) {
 				disabled={unsupported}
 				className="min-h-12"
 				value={draft}
-				placeholder="Reply…"
 				onChange={(event) => setReplyDraft(annotation.id, event.target.value)}
 				onKeyDown={onKeyDown}
 			/>
@@ -163,8 +162,8 @@ function DismissForm({
 			<Input
 				ref={inputRef}
 				variant="outlined"
-				aria-label="Why it is dismissed"
-				placeholder="Why not?"
+				aria-label="Reason"
+				placeholder="Reason"
 				value={reason}
 				onChange={(event) => setReason(event.target.value)}
 				onKeyDown={(event) => {
@@ -318,10 +317,14 @@ export const AnnotationThread = memo(function AnnotationThread({
 					) : null}
 					{otherBranch ? (
 						<p className="text-xs text-slate-500">
-							On branch{" "}
-							<span className="font-mono">
-								{annotation.branch === "*" ? "none" : annotation.branch}
-							</span>
+							{annotation.branch === "*" ? (
+								"Not on a branch"
+							) : (
+								<>
+									On branch{" "}
+									<span className="font-mono">{annotation.branch}</span>
+								</>
+							)}
 						</p>
 					) : null}
 					<AnnotationEntries
@@ -354,7 +357,7 @@ export const AnnotationThread = memo(function AnnotationThread({
 								onClick={() => void run(() => moveAnnotationHere(annotation))}
 								title="Move it to the branch this checkout is on"
 							>
-								Move here
+								Move to this branch
 							</Button>
 						</div>
 					) : dismissing ? (

@@ -6,6 +6,7 @@ import { findClassesRemovedByMerge } from "../../../utils/class-merge";
 import type { ClassNameOptions } from "../../../utils/tailwind-classname";
 import { useClassMergeContext } from "../../stage/class-merge-context";
 import { Chip } from "../../ui/chip";
+import { Text } from "../../ui/text";
 import { ClassField, type ClassFieldHint } from "./ClassField";
 import { buildClassInventory, type InventoryItem } from "./classInventory";
 
@@ -18,7 +19,7 @@ function layerLabel(layer: ClassLayer): string {
 			return "Component";
 		case "system-variant":
 			return metadata?.axis && metadata.value
-				? `Variant · ${metadata.axis}: ${metadata.value}`
+				? `Variant ${metadata.axis}: ${metadata.value}`
 				: "Variant";
 		case "system-compound-variant":
 			return "Compound variant";
@@ -72,7 +73,7 @@ function shadowedHints(items: readonly InventoryItem[]): ClassFieldHint[] {
 					: winner
 						? `is overridden by ${winner.raw}`
 						: "is overridden by a later class",
-				fix: { label: "remove", replacement: "" },
+				fix: { label: "Remove", replacement: "" },
 			},
 		];
 	});
@@ -143,9 +144,7 @@ export function ClassCompositionPanel({
 		<div className="flex flex-col gap-2">
 			{readOnlyGroups.map((group) => (
 				<div key={group.key} className="flex flex-col gap-1">
-					<span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-						{group.label}
-					</span>
+					<Text variant="group-label">{group.label}</Text>
 					<div className="flex flex-wrap gap-1">
 						{group.items.map((item) => (
 							<Chip
@@ -161,9 +160,7 @@ export function ClassCompositionPanel({
 			))}
 			<div className="flex flex-col gap-1">
 				{readOnlyGroups.length > 0 ? (
-					<span className="text-[10px] font-semibold uppercase tracking-wider text-cyan-700">
-						{label}
-					</span>
+					<Text variant="group-label">{label}</Text>
 				) : null}
 				<ClassField
 					value={className}

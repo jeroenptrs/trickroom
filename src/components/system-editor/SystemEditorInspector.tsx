@@ -71,14 +71,15 @@ import { Input } from "../ui/input";
 import { Select } from "../ui/select";
 import { Skeleton } from "../ui/skeleton";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "../ui/tabs";
+import { Text } from "../ui/text";
 import { AuthoredCompoundsList } from "./AuthoredCompoundsList";
 import { ComponentDraftProperties } from "./ComponentDraftProperties";
 import type { ComponentPublicationState } from "./component-catalog";
 import { getComponentPublicationState } from "./component-catalog";
+import { formatAssetMimeType } from "./SystemEditorAssetsPanel";
 import { SystemEditorLintInspector } from "./SystemEditorLintPanel";
 import { SystemPanelToggle } from "./SystemPanelToggle";
 import type { SystemEditorPage } from "./types";
-import { discardOpenComponentDraft } from "./useGuardedComponentLocation";
 
 function InspectorField({ label, value }: { label: string; value: ReactNode }) {
 	return (
@@ -163,10 +164,14 @@ function ComponentDiagnosticsList({
 	}
 	return (
 		<div className="border-t border-slate-200 pt-2">
-			<p className="flex items-baseline justify-between gap-2 text-[10px] uppercase tracking-wider text-slate-500">
+			<Text
+				variant="group-label"
+				render={<p />}
+				className="flex items-baseline justify-between gap-2"
+			>
 				<span>Diagnostics</span>
-				<span className="font-mono text-slate-900">{diagnostics.length}</span>
-			</p>
+				<span className="text-slate-900">{diagnostics.length}</span>
+			</Text>
 			<ul className="mt-1 flex max-h-40 flex-col gap-1 overflow-y-auto">
 				{diagnostics.map((diagnostic, index) => (
 					<li
@@ -219,30 +224,11 @@ export type CompoundVariantDraft = {
 const DRAFT_CONFLICT_MESSAGE =
 	"This draft changed on disk while you were editing. Reload it to drop your edits.";
 
-/** The draft conflict message with its one way forward. */
-function DraftConflictNotice({
-	message,
-	onReload,
-}: {
-	message: string;
-	onReload: () => void;
-}) {
+/** The draft conflict message. Reload draft lives in the component footer. */
+function DraftConflictNotice({ message }: { message: string }) {
 	return (
-		<Card
-			edge="border"
-			tone="warning"
-			className="flex flex-col items-start gap-2 px-2 py-1.5"
-			role="alert"
-		>
-			<span>{message}</span>
-			<Button
-				type="button"
-				variant="outlined"
-				className="px-2 py-1 text-xs"
-				onClick={onReload}
-			>
-				Reload draft
-			</Button>
+		<Card edge="border" tone="warning" className="px-2 py-1.5" role="alert">
+			{message}
 		</Card>
 	);
 }
@@ -271,12 +257,10 @@ function compoundConditionsToWhen(
 export function validateSystemComponentMetadataSlug(slug: string) {
 	const trimmedSlug = slug.trim();
 	if (!trimmedSlug) {
-		throw new Error("Component slug is required.");
+		throw new Error("Enter a slug.");
 	}
 	if (!isSystemComponentSlug(trimmedSlug)) {
-		throw new Error(
-			"Component slug must use lowercase alphanumeric segments separated by hyphens.",
-		);
+		throw new Error("Use lowercase letters, numbers, and hyphens in the slug.");
 	}
 	return trimmedSlug;
 }
@@ -435,7 +419,7 @@ export function validateVariantDrafts(
 		if (compound.isAdvancedCompat) {
 			continue;
 		}
-		const compoundLabel = `compound ${compoundIndex + 1}`;
+		const compoundLabel = `Compound variant ${compoundIndex + 1}`;
 		const seenAxes = new Map<string, number>();
 		let resolvedConditions = 0;
 
@@ -443,28 +427,26 @@ export function validateVariantDrafts(
 			const axisKey = condition.axisKey.trim();
 			const valueKey = condition.valueKey.trim();
 			if (!axisKey) {
-				diagnostics.push(
-					`Variant ${compoundLabel} has a condition with no axis.`,
-				);
+				diagnostics.push(`${compoundLabel} has a condition with no axis.`);
 				continue;
 			}
 			seenAxes.set(axisKey, (seenAxes.get(axisKey) ?? 0) + 1);
 			const axisValues = valuesByAxis.get(axisKey);
 			if (!axisValues) {
 				diagnostics.push(
-					`Variant ${compoundLabel} references unknown axis "${axisKey}".`,
+					`${compoundLabel} references unknown axis "${axisKey}".`,
 				);
 				continue;
 			}
 			if (!valueKey) {
 				diagnostics.push(
-					`Variant ${compoundLabel} must choose a value for axis "${axisKey}".`,
+					`${compoundLabel} must choose a value for axis "${axisKey}".`,
 				);
 				continue;
 			}
 			if (!axisValues.has(valueKey)) {
 				diagnostics.push(
-					`Variant ${compoundLabel} references value "${valueKey}" that does not exist on axis "${axisKey}".`,
+					`${compoundLabel} references value "${valueKey}" that does not exist on axis "${axisKey}".`,
 				);
 				continue;
 			}
@@ -474,14 +456,14 @@ export function validateVariantDrafts(
 		for (const [axisKey, count] of [...seenAxes.entries()].sort()) {
 			if (count > 1) {
 				diagnostics.push(
-					`Variant ${compoundLabel} uses axis "${axisKey}" more than once.`,
+					`${compoundLabel} uses axis "${axisKey}" more than once.`,
 				);
 			}
 		}
 
 		if (resolvedConditions < COMPOUND_MIN_AXES) {
 			diagnostics.push(
-				`Variant ${compoundLabel} must combine at least ${COMPOUND_MIN_AXES} axes.`,
+				`${compoundLabel} must combine at least ${COMPOUND_MIN_AXES} axes.`,
 			);
 		}
 	}
@@ -823,9 +805,9 @@ function VariantSchemaEditor({
 			}}
 		>
 			<div className="flex items-center justify-between gap-2">
-				<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+				<Text variant="group-label" render={<p />}>
 					Variants
-				</p>
+				</Text>
 				<Button
 					type="button"
 					variant="outlined"
@@ -845,13 +827,13 @@ function VariantSchemaEditor({
 					}
 				>
 					<Plus className="size-3" aria-hidden="true" />
-					Axis
+					Add axis
 				</Button>
 			</div>
 			{drafts.length === 0 ? (
-				<p className="text-[11px] text-slate-500">
-					No variant axes defined for this draft.
-				</p>
+				<Text variant="meta" render={<p />}>
+					No variant axes yet.
+				</Text>
 			) : null}
 			{drafts.map((axis, axisIndex) => (
 				<Card key={axis.id} edge="border" className="flex flex-col gap-2 p-2">
@@ -860,9 +842,7 @@ function VariantSchemaEditor({
 							className="flex flex-col gap-1"
 							htmlFor={`variant-axis-${axis.id}-key`}
 						>
-							<span className="text-[10px] uppercase tracking-wider text-slate-500">
-								Axis key
-							</span>
+							<Text variant="group-label">Axis key</Text>
 							<Input
 								id={`variant-axis-${axis.id}-key`}
 								variant="formCompact"
@@ -879,9 +859,7 @@ function VariantSchemaEditor({
 							className="flex flex-col gap-1"
 							htmlFor={`variant-axis-${axis.id}-label`}
 						>
-							<span className="text-[10px] uppercase tracking-wider text-slate-500">
-								Label
-							</span>
+							<Text variant="group-label">Label</Text>
 							<Input
 								id={`variant-axis-${axis.id}-label`}
 								variant="formCompact"
@@ -913,9 +891,7 @@ function VariantSchemaEditor({
 							className="flex flex-col gap-1"
 							htmlFor={`variant-axis-${axis.id}-default`}
 						>
-							<span className="text-[10px] uppercase tracking-wider text-slate-500">
-								Axis default
-							</span>
+							<Text variant="group-label">Axis default</Text>
 							<Select
 								id={`variant-axis-${axis.id}-default`}
 								variant="outlined"
@@ -936,9 +912,7 @@ function VariantSchemaEditor({
 							className="flex flex-col gap-1"
 							htmlFor={`variant-axis-${axis.id}-schema-default`}
 						>
-							<span className="text-[10px] uppercase tracking-wider text-slate-500">
-								Schema default
-							</span>
+							<Text variant="group-label">Schema default</Text>
 							<Select
 								id={`variant-axis-${axis.id}-schema-default`}
 								variant="outlined"
@@ -960,9 +934,7 @@ function VariantSchemaEditor({
 					</div>
 					<div className="flex flex-col gap-1">
 						<div className="flex items-center justify-between">
-							<span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-								Values
-							</span>
+							<Text variant="group-label">Values</Text>
 							<Button
 								type="button"
 								variant="block"
@@ -988,7 +960,7 @@ function VariantSchemaEditor({
 								}
 							>
 								<Plus className="size-3" aria-hidden="true" />
-								Value
+								Add value
 							</Button>
 						</div>
 						{axis.values.map((value, valueIndex) => (
@@ -1210,11 +1182,6 @@ export function SystemEditorComponentContextPanel({
 	const loadedDraftTemplateHash = useLoadedDraftTemplateHash();
 	const loadedDraftVariantSchemaHash = useLoadedDraftVariantSchemaHash();
 	const draftConflict = useEditorDraftConflict();
-	// Drops the local edits; the effects below then hydrate the draft on disk.
-	const reloadDraft = () => {
-		discardOpenComponentDraft();
-		void detailQuery.refetch();
-	};
 	// Name and slug errors show after the field blurs, per component.
 	const [touchedMetadata, setTouchedMetadata] = useState<{
 		componentId: string;
@@ -1522,21 +1489,14 @@ export function SystemEditorComponentContextPanel({
 				}}
 			/>
 			<div className="flex items-center justify-between gap-2 pt-1">
-				<span className="text-[11px] text-slate-500">{variantStatusLabel}</span>
+				<Text variant="meta">{variantStatusLabel}</Text>
 			</div>
-			{draftConflict ? (
-				<DraftConflictNotice message={draftConflict} onReload={reloadDraft} />
-			) : null}
+			{draftConflict ? <DraftConflictNotice message={draftConflict} /> : null}
 		</form>
 	) : (
-		<Card edge="border" className="px-2 py-1.5">
-			<p className="text-[11px] font-medium text-slate-700">
-				No draft variants to edit.
-			</p>
-			<p className="mt-1 text-[11px] text-slate-500">
-				Create a draft before defining variant axes and compound variants.
-			</p>
-		</Card>
+		<Text variant="meta" render={<p />}>
+			Create a draft to edit variants.
+		</Text>
 	);
 
 	if (mode === "variants") {
@@ -1566,9 +1526,9 @@ export function SystemEditorComponentContextPanel({
 				{usageRows}
 				<div className="border-t border-slate-200 pt-3">
 					<div className="mb-2 flex items-center justify-between gap-2">
-						<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+						<Text variant="group-label" render={<p />}>
 							Publish
-						</p>
+						</Text>
 					</div>
 					{record.draft ? (
 						<Card edge="border" className="flex flex-col gap-1 px-2 py-1.5">
@@ -1588,33 +1548,27 @@ export function SystemEditorComponentContextPanel({
 									value={detailQuery.data.draftVariantSchemaHash}
 								/>
 							) : null}
-							<p className="pt-1 text-[11px] text-slate-500">
+							<Text variant="meta" render={<p />} className="pt-1">
 								{hasUnsavedDraftChanges
 									? "Save the draft before publishing."
 									: errorDiagnostics.length > 0 || variantDiagnostics.length > 0
-										? "Resolve validation diagnostics before publishing."
+										? "Fix the draft's errors before publishing."
 										: warningDiagnostics.length > 0
 											? "Warnings are listed below. Review before publishing."
-											: "Draft is ready to publish."}
-							</p>
+											: "Ready to publish."}
+							</Text>
 						</Card>
 					) : (
-						<Card edge="border" className="flex flex-col gap-1 px-2 py-1.5">
-							<p className="text-[11px] font-medium text-slate-700">
-								No draft available to publish.
-							</p>
-							<p className="text-[11px] text-slate-500">
-								Create or edit a draft first, then save it before publishing a
-								new version.
-							</p>
-						</Card>
+						<Text variant="meta" render={<p />}>
+							Create a draft to publish a new version.
+						</Text>
 					)}
 				</div>
 				{currentPublishedVersion ? (
 					<div className="border-t border-slate-200 pt-3">
-						<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+						<Text variant="group-label" render={<p />}>
 							Current published
-						</p>
+						</Text>
 						<Card
 							edge="border"
 							className="mt-1 flex flex-col gap-1 px-2 py-1.5"
@@ -1642,9 +1596,9 @@ export function SystemEditorComponentContextPanel({
 				) : null}
 				{versionHistory.length > 0 ? (
 					<div className="border-t border-slate-200 pt-3">
-						<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+						<Text variant="group-label" render={<p />}>
 							Version history
-						</p>
+						</Text>
 						<ul className="mt-1 flex max-h-52 flex-col gap-1 overflow-y-auto">
 							{versionHistory.map((version) => (
 								<li
@@ -1663,9 +1617,9 @@ export function SystemEditorComponentContextPanel({
 													: "Initial"}
 										</span>
 									</div>
-									<p className="mt-1 text-[11px] text-slate-500">
+									<Text variant="meta" render={<p />} className="mt-1">
 										{formatVersionTimestamp(version.publishedAt)}
-									</p>
+									</Text>
 									<p className="mt-1 truncate font-mono text-[10px] text-slate-500">
 										{version.templateHash}
 									</p>
@@ -1700,9 +1654,7 @@ export function SystemEditorComponentContextPanel({
 						className="flex flex-col gap-1"
 						htmlFor="system-component-draft-name"
 					>
-						<span className="text-[10px] uppercase tracking-wider text-slate-500">
-							Name
-						</span>
+						<Text variant="group-label">Name</Text>
 						<Input
 							id="system-component-draft-name"
 							variant="formCompact"
@@ -1730,9 +1682,7 @@ export function SystemEditorComponentContextPanel({
 						className="flex flex-col gap-1"
 						htmlFor="system-component-draft-slug"
 					>
-						<span className="text-[10px] uppercase tracking-wider text-slate-500">
-							Slug
-						</span>
+						<Text variant="group-label">Slug</Text>
 						<Input
 							id="system-component-draft-slug"
 							variant="formCompact"
@@ -1757,9 +1707,7 @@ export function SystemEditorComponentContextPanel({
 						) : null}
 					</label>
 					<label className="flex flex-col gap-1">
-						<span className="text-[10px] uppercase tracking-wider text-slate-500">
-							Description
-						</span>
+						<Text variant="group-label">Description</Text>
 						<textarea
 							className="min-h-16 resize-y border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 outline-none focus:border-slate-500"
 							value={description}
@@ -1773,9 +1721,7 @@ export function SystemEditorComponentContextPanel({
 							className="flex flex-col gap-1"
 							htmlFor="system-component-draft-group"
 						>
-							<span className="text-[10px] uppercase tracking-wider text-slate-500">
-								Group
-							</span>
+							<Text variant="group-label">Group</Text>
 							<AutocompleteRoot
 								items={groupSuggestions}
 								value={group}
@@ -1784,13 +1730,13 @@ export function SystemEditorComponentContextPanel({
 							>
 								<AutocompleteInput
 									id="system-component-draft-group"
-									placeholder="e.g. atoms/typography"
+									placeholder="atoms/typography"
 								/>
 								<AutocompletePortal>
 									<AutocompletePositioner>
 										<AutocompletePopup>
 											<AutocompleteEmpty>
-												No matching folders — your text becomes a new one.
+												No matching group. Your text creates a new one.
 											</AutocompleteEmpty>
 											<AutocompleteList>
 												{(item: string) => (
@@ -1808,9 +1754,7 @@ export function SystemEditorComponentContextPanel({
 							className="flex flex-col gap-1"
 							htmlFor="system-component-draft-order"
 						>
-							<span className="text-[10px] uppercase tracking-wider text-slate-500">
-								Order
-							</span>
+							<Text variant="group-label">Order</Text>
 							<Input
 								id="system-component-draft-order"
 								variant="formCompact"
@@ -1832,10 +1776,7 @@ export function SystemEditorComponentContextPanel({
 						</span>
 					</div>
 					{draftConflict ? (
-						<DraftConflictNotice
-							message={draftConflict}
-							onReload={reloadDraft}
-						/>
+						<DraftConflictNotice message={draftConflict} />
 					) : null}
 				</form>
 			) : null}
@@ -1856,9 +1797,9 @@ export function SystemEditorComponentContextPanel({
 			) : null}
 			{record.description ? (
 				<div className="border-t border-slate-200 pt-2">
-					<p className="text-[10px] uppercase tracking-wider text-slate-500">
+					<Text variant="group-label" render={<p />}>
 						Description
-					</p>
+					</Text>
 					<p className="mt-1 text-slate-700">{record.description}</p>
 				</div>
 			) : null}
@@ -1907,7 +1848,9 @@ function AssetInspector({
 
 	if (!asset) {
 		return (
-			<p className="text-slate-500">Asset not found in the current catalog.</p>
+			<Text variant="meta" render={<p />}>
+				This asset no longer exists.
+			</Text>
 		);
 	}
 
@@ -1923,7 +1866,10 @@ function AssetInspector({
 			<InspectorField label="Name" value={asset.name} />
 			<InspectorField label="Asset id" value={asset.id} />
 			<InspectorField label="Path" value={asset.sourcePath} />
-			<InspectorField label="MIME" value={asset.mimeType} />
+			<InspectorField
+				label="Type"
+				value={formatAssetMimeType(asset.mimeType)}
+			/>
 			{asset.width && asset.height ? (
 				<InspectorField
 					label="Size"
@@ -1969,7 +1915,9 @@ function IconInspector({
 
 	if (!icon) {
 		return (
-			<p className="text-slate-500">Icon not found in the current index.</p>
+			<Text variant="meta" render={<p />}>
+				This icon no longer exists.
+			</Text>
 		);
 	}
 
@@ -2143,7 +2091,7 @@ export function SystemEditorInspector({
 						title="Clear selection"
 						aria-label="Clear selection"
 					>
-						<X className="size-3.5 text-slate-500" aria-hidden="true" />
+						<X className="size-3.5 text-slate-900" aria-hidden="true" />
 					</Button>
 				</div>
 			</header>

@@ -23,26 +23,21 @@ export function MemoryNotesDrawer({
 }) {
 	return (
 		<Sheet open={open} onOpenChange={onOpenChange}>
-			<SheetContent aria-label={title}>
+			<SheetContent aria-label={`Notes for ${title}`}>
 				<div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
 					<div className="flex min-w-0 flex-col">
-						<Text variant="eyebrow">Memory</Text>
 						<Text variant="title" className="truncate text-base">
-							{title}
+							Notes for {title}
 						</Text>
 						{subtitle ? (
-							<Text tone="faint" className="truncate font-mono text-[11px]">
+							<Text variant="meta" className="truncate font-mono">
 								{subtitle}
 							</Text>
 						) : null}
 					</div>
 					<SheetClose
 						render={
-							<Button
-								variant="ghost"
-								className="p-1.5"
-								aria-label="Close memory drawer"
-							>
+							<Button variant="ghost" className="p-1.5" aria-label="Close">
 								<X className="size-4" aria-hidden="true" />
 							</Button>
 						}

@@ -72,6 +72,30 @@ const LIBRARY_IDS = availableRegistries.filter(
 	(library): library is RegistryId => library !== "trickroom",
 );
 
+const LIBRARY_NAMES: Record<RegistryId, string> = {
+	"base-ui": "Base UI",
+	charts: "Charts",
+	trickroom: "Built in",
+};
+
+const groupIconClassName = "size-3 shrink-0";
+
+/** A group label with the type icon its rows leave out. */
+function TypeGroupLabel({
+	icon,
+	children,
+}: {
+	icon: ReactNode;
+	children: ReactNode;
+}) {
+	return (
+		<CommandGroupLabel className="flex items-center gap-1.5">
+			{icon}
+			{children}
+		</CommandGroupLabel>
+	);
+}
+
 type AddLayerCommandMenuProps = {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -98,7 +122,7 @@ function ItemRow({
 }: {
 	value: string;
 	keywords?: string[];
-	icon: ReactNode;
+	icon?: ReactNode;
 	label: string;
 	secondary?: string | null;
 	shortcut?: ReactNode;
@@ -122,7 +146,7 @@ function ItemRow({
 				{secondary ? (
 					<span
 						data-item-secondary=""
-						className="truncate font-mono text-[10px] text-slate-500"
+						className="truncate text-xs text-slate-500"
 					>
 						{secondary}
 					</span>
@@ -164,9 +188,6 @@ export function getTrickroomBuiltinMenuItems(): {
 
 function pickerItemMeta(item: PickerItem) {
 	if (item.type === "component") {
-		const controlKeys = item.definition.controls
-			? Object.keys(item.definition.controls)
-			: [];
 		return {
 			value: `component:${item.component}`,
 			keywords: [
@@ -176,13 +197,7 @@ function pickerItemMeta(item: PickerItem) {
 				item.definition.description ?? "",
 			],
 			label: item.definition.label,
-			secondary:
-				controlKeys.length > 0
-					? `${item.definition.role} · ${controlKeys.join(", ")}`
-					: item.definition.role,
-			icon: (
-				<Box className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
-			),
+			secondary: item.definition.description ?? null,
 		};
 	}
 
@@ -195,10 +210,7 @@ function pickerItemMeta(item: PickerItem) {
 			item.definition.description ?? "",
 		],
 		label: item.definition.label,
-		secondary: "recipe",
-		icon: (
-			<Blocks className="size-4 shrink-0 text-slate-500" aria-hidden="true" />
-		),
+		secondary: item.definition.description ?? null,
 	};
 }
 
@@ -295,7 +307,6 @@ export function AddLayerCommandMenu({
 				key={`${library}:${meta.value}`}
 				value={`${library}:${meta.value}`}
 				keywords={meta.keywords}
-				icon={meta.icon}
 				label={meta.label}
 				secondary={meta.secondary}
 				disabled={!allowed}
@@ -345,7 +356,7 @@ export function AddLayerCommandMenu({
 									? "Search commands…"
 									: page === "libraries"
 										? "Search library elements…"
-										: "Search elements to add…"
+										: "Search layers to add…"
 							}
 						/>
 
@@ -353,7 +364,9 @@ export function AddLayerCommandMenu({
 							<CommandEmpty>
 								{page === "root"
 									? "No matching commands."
-									: "No matching elements."}
+									: page === "libraries"
+										? "No matching elements."
+										: "No matching layers."}
 							</CommandEmpty>
 
 							{page === "root" ? (
@@ -491,11 +504,18 @@ export function AddLayerCommandMenu({
 										<CommandGroup
 											key={`user:${section.groupPath || "ungrouped"}`}
 										>
-											<CommandGroupLabel>
+											<TypeGroupLabel
+												icon={
+													<Package
+														className={groupIconClassName}
+														aria-hidden="true"
+													/>
+												}
+											>
 												{section.groupPath
-													? `Your system · ${section.groupPath}`
+													? `Your system - ${section.groupPath}`
 													: "Your system"}
-											</CommandGroupLabel>
+											</TypeGroupLabel>
 											{section.items.map((item) => {
 												const allowed = Boolean(
 													insertion.systemId && item.component.currentVersion,
@@ -510,14 +530,9 @@ export function AddLayerCommandMenu({
 															item.component.group ?? "",
 															item.component.description ?? "",
 														]}
-														icon={
-															<Package
-																className="size-4 shrink-0 text-slate-500"
-																aria-hidden="true"
-															/>
-														}
 														label={item.component.name}
-														secondary={`${item.component.slug} · v${item.component.currentVersion}`}
+														secondary={item.component.description ?? null}
+														shortcut={`v${item.component.currentVersion}`}
 														disabled={!allowed || !canInsertHere}
 														disabledReason={blockedReason}
 														onSelect={() => {
@@ -540,7 +555,16 @@ export function AddLayerCommandMenu({
 
 									{builtinComponents.length > 0 || builtinRecipes.length > 0 ? (
 										<CommandGroup>
-											<CommandGroupLabel>Trickroom builtins</CommandGroupLabel>
+											<TypeGroupLabel
+												icon={
+													<Box
+														className={groupIconClassName}
+														aria-hidden="true"
+													/>
+												}
+											>
+												{LIBRARY_NAMES.trickroom}
+											</TypeGroupLabel>
 											{builtinComponents.map((item) =>
 												renderPickerItem(item, "trickroom"),
 											)}
@@ -585,9 +609,23 @@ export function AddLayerCommandMenu({
 									return sections.map((section) =>
 										section.items.length > 0 ? (
 											<CommandGroup key={`${library}:${section.title}`}>
-												<CommandGroupLabel>
-													{library} · {section.title}
-												</CommandGroupLabel>
+												<TypeGroupLabel
+													icon={
+														section.title === "Recipes" ? (
+															<Blocks
+																className={groupIconClassName}
+																aria-hidden="true"
+															/>
+														) : (
+															<Box
+																className={groupIconClassName}
+																aria-hidden="true"
+															/>
+														)
+													}
+												>
+													{LIBRARY_NAMES[library]} {section.title.toLowerCase()}
+												</TypeGroupLabel>
 												{section.items.map((item) =>
 													renderPickerItem(item, library),
 												)}

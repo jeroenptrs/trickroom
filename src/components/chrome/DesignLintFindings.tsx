@@ -64,11 +64,16 @@ export function DesignLintFindingList({
 					<Alert variant="inline" tone={toneOf(finding.severity)}>
 						{finding.message}
 					</Alert>
-					<span className="pl-5 font-mono text-[10px] text-slate-500">
-						{finding.rule}
-						{finding.componentLocation
-							? ` · ${describeComponentLocation(finding.componentLocation, finding.component)}`
-							: null}
+					<span className="flex flex-wrap gap-x-2 pl-5 text-[10px] text-slate-500">
+						<span className="font-mono">{finding.rule}</span>
+						{finding.componentLocation ? (
+							<span>
+								{describeComponentLocation(
+									finding.componentLocation,
+									finding.component,
+								)}
+							</span>
+						) : null}
 					</span>
 				</li>
 			))}
@@ -116,8 +121,8 @@ export function DesignLintSummary({ designId }: { designId: string }) {
 		<div className="flex flex-col gap-2">
 			<div className="flex items-center justify-between text-[11px] font-semibold text-slate-700">
 				<span>Lint</span>
-				<span className="font-mono font-normal text-slate-500">
-					{plural(errors, "error")} · {plural(warnings, "warning")}
+				<span className="font-normal text-slate-950">
+					{plural(errors, "error")}, {plural(warnings, "warning")}
 				</span>
 			</div>
 			{unplaced.length > 0 ? (

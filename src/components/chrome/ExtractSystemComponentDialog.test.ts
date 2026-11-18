@@ -230,7 +230,6 @@ describe("ExtractSystemComponentDialog helpers", () => {
 		const navigate = vi.fn();
 
 		const toastId = promptToOpenExtractedComponent({
-			replacedSelection: true,
 			systemId: "core",
 			componentId: "cmp_selection",
 			navigate,
@@ -238,14 +237,14 @@ describe("ExtractSystemComponentDialog helpers", () => {
 
 		expect(toastId).toBe("extract-toast");
 		expect(toastMock.success).toHaveBeenCalledWith(
-			"Component extracted.",
+			"Component extracted",
 			expect.objectContaining({
-				description: "The design now has the attached instance selected.",
-				duration: Number.POSITIVE_INFINITY,
-				action: expect.objectContaining({ label: "Open editor" }),
-				cancel: expect.objectContaining({ label: "Stay in design" }),
+				action: expect.objectContaining({ label: "Open component" }),
 			}),
 		);
+		const sent = toastMock.success.mock.calls.at(-1)?.[1];
+		expect(sent).not.toHaveProperty("duration");
+		expect(sent).not.toHaveProperty("cancel");
 
 		const options = toastMock.success.mock.calls.at(-1)?.[1];
 		if (
@@ -266,7 +265,7 @@ describe("ExtractSystemComponentDialog helpers", () => {
 		);
 	});
 
-	it("keeps the user in the design with the attached instance selected when the prompt is declined", async () => {
+	it("keeps the user in the design with the attached instance selected until they open the component", async () => {
 		const navigate = vi.fn();
 
 		await extractSystemComponentMutation({
@@ -274,23 +273,11 @@ describe("ExtractSystemComponentDialog helpers", () => {
 			replaceSelection: true,
 		});
 		promptToOpenExtractedComponent({
-			replacedSelection: true,
 			systemId: "core",
 			componentId: "cmp_selection",
 			navigate,
 		});
 
-		const options = toastMock.success.mock.calls.at(-1)?.[1];
-		if (
-			!options ||
-			typeof options.cancel !== "object" ||
-			!("onClick" in options.cancel)
-		) {
-			throw new Error("Expected stay in design toast action.");
-		}
-		options.cancel.onClick({} as never);
-
-		expect(toastMock.dismiss).toHaveBeenCalledWith("extract-toast");
 		expect(navigate).not.toHaveBeenCalled();
 		expect(designStore.get().selectedId).toBe("attached-root");
 	});

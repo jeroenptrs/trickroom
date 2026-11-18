@@ -28,9 +28,7 @@ describe("MemoryNotesButton", () => {
 		const queryClient = new QueryClient({
 			defaultOptions: { queries: { retry: false } },
 		});
-		await queryClient.prefetchQuery(
-			memoryQueryOptions({ kind: "project" }),
-		);
+		await queryClient.prefetchQuery(memoryQueryOptions({ kind: "project" }));
 		const html = renderToStaticMarkup(
 			<QueryClientProvider client={queryClient}>
 				<MemoryNotesButton
@@ -42,6 +40,6 @@ describe("MemoryNotesButton", () => {
 		);
 		expect(html).toContain("Notes");
 		expect(html).toContain(">2<");
-		expect(html).toContain('aria-label="Notes (2)"');
+		expect(html).toContain('aria-label="Notes, 2 notes"');
 	});
 });

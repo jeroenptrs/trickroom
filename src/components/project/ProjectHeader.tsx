@@ -13,7 +13,6 @@ import {
 } from "../../queries/projects";
 import type { TrickroomConfig } from "../../types";
 import { useProjectConfig, useProjectScope } from "../contexts";
-import { Alert } from "../ui/alert";
 import { EditableTitle } from "../ui/editable-title";
 import { Segmented, type SegmentedOption } from "../ui/segmented";
 import { Text } from "../ui/text";
@@ -48,7 +47,7 @@ function ProjectTitle({
 	const renameMutation = useMutation({
 		mutationFn: (nextName: string) => {
 			if (!locationId) {
-				throw new Error("Project location unavailable.");
+				throw new Error("Reopen the project and try again.");
 			}
 
 			return renameProjectLocation({ locationId, name: nextName });
@@ -67,8 +66,13 @@ function ProjectTitle({
 				queryClient.invalidateQueries({ queryKey: sessionQueryKey }),
 			]);
 		},
+		// A toast keeps the header one line tall.
+		onError: (error) => {
+			toast.error("Could not rename the project", {
+				description: error instanceof Error ? error.message : undefined,
+			});
+		},
 	});
-	const errorMessage = (renameMutation.error as Error | null)?.message;
 
 	return (
 		<div className="min-w-0">
@@ -81,11 +85,6 @@ function ProjectTitle({
 					onRename={(nextName) => renameMutation.mutate(nextName)}
 				/>
 			</div>
-			{errorMessage ? (
-				<Alert variant="inline" className="mt-1">
-					{errorMessage}
-				</Alert>
-			) : null}
 		</div>
 	);
 }

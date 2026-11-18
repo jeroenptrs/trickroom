@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle, Play, ShieldCheck } from "lucide-react";
 import { type RefObject, useEffect, useMemo, useState } from "react";
+import type { LintReport } from "../../lint/report";
 import type { ProjectQueryScope } from "../../queries/project-scope";
 import {
 	invalidateSystemLint,
@@ -22,6 +23,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { EmptyState } from "../ui/empty-state";
+import { InfoButton } from "../ui/popover";
 import { Skeleton } from "../ui/skeleton";
 import { Tabs, TabsList, TabsTab } from "../ui/tabs";
 import { Text } from "../ui/text";
@@ -41,10 +43,7 @@ import {
 } from "./lint/LintParts";
 import { countCoverage, isReportStale } from "./lint/lint-dashboard-model";
 
-export {
-	SystemEditorLintInspector,
-	SystemEditorLintRail,
-} from "./lint/LintRailAndInspector";
+export { SystemEditorLintInspector } from "./lint/LintRailAndInspector";
 
 const quoteArgument = (value: string) =>
 	/^[\w.-]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
@@ -90,14 +89,14 @@ function RunOutcome({
 					tone={result.status === "pass" ? "success" : "danger"}
 					edge="stamped"
 				>
-					Run {result.status}
+					{result.status === "pass" ? "Passed" : "Failed"}
 				</Badge>
 				<Text className="min-w-0 flex-1 text-xs text-slate-800">
 					{result.status === "pass"
 						? ratchet.baseline
-							? "Nothing got worse than the baseline; the report is the new baseline."
-							: "First run: the report is the baseline."
-						: `${ratchet.regressions.length} regressed, ${ratchet.breaches.length} over a threshold. The failing report was written so you can inspect it; its baseline was kept, so do not commit lint-report.json as it is.`}
+							? "No number got worse. This report is the new baseline."
+							: "First run. This report is the baseline."
+						: `${ratchet.regressions.length} regressed, ${ratchet.breaches.length} past a threshold. The old baseline was kept. Do not commit lint-report.json.`}
 				</Text>
 				<Button
 					type="button"
@@ -112,7 +111,7 @@ function RunOutcome({
 				<ul className="flex flex-col gap-1 font-mono text-[11px] text-red-800">
 					{ratchet.regressions.map((entry) => (
 						<li key={`r:${entry.metric}`}>
-							{entry.metric}: {entry.baseline} → {entry.current}
+							{entry.metric}: {entry.baseline} to {entry.current}
 						</li>
 					))}
 					{ratchet.breaches.map((entry) => (
@@ -125,7 +124,7 @@ function RunOutcome({
 			) : null}
 			{warnings.length > 0 ? (
 				<details className="text-[11px] text-slate-700">
-					<summary className="cursor-pointer font-mono text-slate-500">
+					<summary className="cursor-pointer text-slate-600">
 						{warnings.length} {warnings.length === 1 ? "warning" : "warnings"}
 					</summary>
 					<ul className="mt-1 flex flex-col gap-1">
@@ -143,6 +142,35 @@ function RunOutcome({
 				</details>
 			) : null}
 		</Card>
+	);
+}
+
+/** The report's details behind the header's info button, one per line. */
+function ReportFacts({ report }: { report: LintReport }) {
+	const components = report.contract.components;
+	return (
+		<dl className="flex flex-col gap-1 text-xs">
+			<div className="flex justify-between gap-4">
+				<dt className="text-slate-500">Components</dt>
+				<dd className="font-mono">{components.toLocaleString()}</dd>
+			</div>
+			<div className="flex justify-between gap-4">
+				<dt className="text-slate-500">Files scanned</dt>
+				<dd className="font-mono">
+					{report.summary.code.scanned.toLocaleString()}
+				</dd>
+			</div>
+			<div className="flex justify-between gap-4">
+				<dt className="text-slate-500">Rules</dt>
+				<dd>{report.config.present ? "lint.json" : "Defaults"}</dd>
+			</div>
+			<div className="flex flex-col gap-0.5">
+				<dt className="text-slate-500">Contract hash</dt>
+				<dd className="break-all font-mono text-[11px]">
+					{report.contract.hash}
+				</dd>
+			</div>
+		</dl>
 	);
 }
 
@@ -252,7 +280,7 @@ export function SystemEditorLintPanel({
 			<EmptyState
 				icon={ShieldCheck}
 				title="No lint report yet"
-				description="Lint checks how this system is used in the app and in Designs. Run it here, or from a terminal; the report it writes is committed and becomes the baseline the next run compares against."
+				description="Lint checks how the app and your designs use this system. The first run sets the baseline."
 			>
 				<div className="flex flex-col items-center gap-3">
 					<code className="bg-slate-900 px-3 py-2 font-mono text-xs text-slate-50">
@@ -264,11 +292,12 @@ export function SystemEditorLintPanel({
 		);
 	} else if (reportQuery.isError || !report) {
 		body = (
-			<Alert tone="danger">
-				The lint report could not be read:{" "}
-				{(reportQuery.error as Error | null)?.message ?? "unknown error"}. Run
-				lint to write a new one.
-			</Alert>
+			<LintLoadError
+				title="Could not read the lint report."
+				error={reportQuery.error}
+				hint="Run lint to write a new one."
+				onRetry={() => void reportQuery.refetch()}
+			/>
 		);
 	} else if (view === "adherence") {
 		body = (
@@ -330,43 +359,25 @@ export function SystemEditorLintPanel({
 			<header className="border-b border-slate-200 bg-white">
 				<div className="flex items-start justify-between gap-6 px-10 pt-8 pb-4">
 					<div className="flex min-w-0 flex-1 flex-col gap-1">
-						<Text variant="eyebrow" className="text-slate-400">
-							Design system
-						</Text>
 						<div className="flex min-w-0 flex-wrap items-center gap-3">
 							<h1 className="min-w-0 truncate text-2xl font-semibold text-slate-900">
-								{systemName} Lint
+								{systemName} lint
 							</h1>
-							{report ? (
-								<Badge
-									tone={report.status === "pass" ? "success" : "danger"}
-									edge="stamped"
-								>
-									{report.status}
-								</Badge>
-							) : null}
-							{stale ? (
-								<Badge
-									tone="warning"
-									edge="stamped"
-									title="The system's components, tokens or codegen settings changed since this report was generated. Run lint to refresh it."
-									data-lint-stale
-								>
-									Stale
+							{report?.status === "fail" ? (
+								<Badge tone="danger" edge="stamped">
+									Failed
 								</Badge>
 							) : null}
 						</div>
 						{report ? (
-							<span className="font-mono text-[11px] text-slate-500">
-								generated {formatRelativeTime(report.generatedAt)} ·{" "}
-								{report.contract.components}{" "}
-								{report.contract.components === 1 ? "component" : "components"}{" "}
-								· {report.summary.code.scanned.toLocaleString()} files scanned ·{" "}
-								{report.config.present ? "lint.json" : "default rules"} ·{" "}
-								<span title={report.contract.hash}>
-									{report.contract.hash.slice(0, 15)}…
-								</span>
-							</span>
+							<div className="flex items-center gap-1.5">
+								<Text variant="meta">
+									Run {formatRelativeTime(report.generatedAt)}
+								</Text>
+								<InfoButton label="About this report" title="This report">
+									<ReportFacts report={report} />
+								</InfoButton>
+							</div>
 						) : null}
 					</div>
 					{reportQuery.isPending ? (
@@ -392,7 +403,7 @@ export function SystemEditorLintPanel({
 								>
 									{entry.label}
 									{count ? (
-										<span className="bg-slate-200 px-1 font-mono text-[10px] text-slate-600">
+										<span className="bg-slate-200 px-1 font-mono text-[10px] text-slate-700">
 											{count.toLocaleString()}
 										</span>
 									) : null}
@@ -404,11 +415,13 @@ export function SystemEditorLintPanel({
 			</header>
 			<div className="flex min-w-0 flex-col gap-4 px-10 py-6">
 				{stale ? (
-					<Alert tone="warning">
-						The system changed since this report was generated (its contract
-						hash differs). The numbers below describe the previous state; run
-						lint to refresh them.
-					</Alert>
+					<div data-lint-stale>
+						<Alert tone="warning">
+							The system changed since this report was generated (its contract
+							hash differs). The numbers below describe the previous state; run
+							lint to refresh them.
+						</Alert>
+					</div>
 				) : null}
 				{runMutation.data ? (
 					<RunOutcome

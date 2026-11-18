@@ -258,7 +258,7 @@ function SystemIconsToolbar({
 						aria-pressed={groupByFolder}
 					>
 						<FolderTree className="size-3.5" aria-hidden="true" />
-						Group folders
+						Group by folder
 					</Button>
 				)}
 			</div>
@@ -272,7 +272,7 @@ function SystemIconsToolbar({
 					variant="formCompact"
 					className="w-full px-7"
 					aria-label="Filter icons"
-					placeholder="Filter by name or path..."
+					placeholder="Filter by name or path…"
 					value={filter}
 					onChange={(event) => onFilterChange(event.target.value)}
 				/>
@@ -317,16 +317,20 @@ export function SystemEditorIconFoldersRail({
 		await queryClient.invalidateQueries({ queryKey: iconSvgQueriesKey });
 	}, [iconSvgQueriesKey, queryClient]);
 	const clearIconFolderActionError = () => setIconFolderActionError(null);
-	const captureIconFolderActionError = (error: unknown) => {
-		setIconFolderActionError(
-			error instanceof Error ? error.message : "Icon folder action failed.",
-		);
-	};
+	// Each action names what failed, with the server's reason after it.
+	const captureIconFolderActionError =
+		(attempted: string) => (error: unknown) => {
+			setIconFolderActionError(
+				error instanceof Error
+					? `${attempted}: ${error.message}`
+					: `${attempted}.`,
+			);
+		};
 	const addIconFolderMutation = useMutation({
 		mutationFn: (folderPath: string) =>
 			addSystemIconFolder({ systemId, folderPath }),
 		onMutate: clearIconFolderActionError,
-		onError: captureIconFolderActionError,
+		onError: captureIconFolderActionError("Could not add the icon folder"),
 		onSuccess: async (response) => {
 			clearIconFolderActionError();
 			queryClient.setQueryData(iconsQueryKey, response);
@@ -350,7 +354,7 @@ export function SystemEditorIconFoldersRail({
 	const reindexIconsMutation = useMutation({
 		mutationFn: () => syncSystemIconsMutation(systemId),
 		onMutate: clearIconFolderActionError,
-		onError: captureIconFolderActionError,
+		onError: captureIconFolderActionError("Could not re-sync the icons"),
 		onSuccess: async (response) => {
 			clearIconFolderActionError();
 			queryClient.setQueryData(iconsQueryKey, response);
@@ -383,13 +387,6 @@ export function SystemEditorIconFoldersRail({
 						<p className="truncate text-[12px] font-semibold text-slate-900">
 							Icon folders
 						</p>
-						{iconsQuery.isPending ? (
-							<Skeleton className="mt-1 h-3 w-16" />
-						) : iconsQuery.isError ? null : (
-							<p className="font-mono text-[10px] text-slate-500">
-								{`${icons.length.toLocaleString()} icons`}
-							</p>
-						)}
 					</div>
 					{iconsQuery.isPending ? (
 						<Skeleton className="h-7 w-20" />
@@ -405,7 +402,7 @@ export function SystemEditorIconFoldersRail({
 								className={`size-3.5 ${reindexIconsMutation.isPending ? "animate-spin" : ""}`}
 								aria-hidden="true"
 							/>
-							Re-index
+							Re-sync
 						</Button>
 					)}
 				</div>
@@ -420,16 +417,11 @@ export function SystemEditorIconFoldersRail({
 					</Card>
 				) : null}
 				<div className="flex min-w-0 flex-col gap-1.5">
-					<label
-						htmlFor="system-editor-icon-folder-path"
-						className="text-[10px] font-semibold uppercase tracking-wider text-slate-500"
-					>
-						Icon folder path
-					</label>
 					<div className="flex min-w-0 items-stretch gap-2">
 						<div className="flex min-w-0 flex-1 items-stretch inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500">
 							<Input
 								id="system-editor-icon-folder-path"
+								aria-label="Icon folder path"
 								variant="formEmbedded"
 								className="min-w-0 flex-1 font-mono text-xs"
 								placeholder="src/icons"
@@ -450,7 +442,7 @@ export function SystemEditorIconFoldersRail({
 							onClick={addIconFolder}
 							disabled={addIconFolderDisabled}
 						>
-							Add
+							Add folder
 						</Button>
 					</div>
 				</div>
@@ -470,7 +462,7 @@ export function SystemEditorIconFoldersRail({
 					</div>
 				) : iconsQuery.isError ? null : folders.length === 0 ? (
 					<p className="px-2 py-3 text-sm text-slate-500">
-						No icon folders configured.
+						No icon folders yet.
 					</p>
 				) : (
 					<div className="flex flex-col gap-1">
@@ -485,7 +477,7 @@ export function SystemEditorIconFoldersRail({
 								>
 									{folder}
 								</span>
-								<span className="font-mono text-[10px] text-slate-500">
+								<span className="font-mono text-[10px] text-slate-900">
 									{(folderCounts.get(folder) ?? 0).toLocaleString()}
 								</span>
 								<Button
@@ -593,7 +585,7 @@ export function SystemEditorIconsPanel({
 			),
 		[filteredIcons, iconFolderPaths],
 	);
-	const iconCountLabel = `${icons.length.toLocaleString()} icon${icons.length === 1 ? "" : "s"}`;
+	const iconCountLabel = icons.length.toLocaleString();
 	const indexDiagnostics = iconsQuery.data?.diagnostics ?? [];
 	const filteredCountLabel = `${filteredIcons.length.toLocaleString()} visible icon${filteredIcons.length === 1 ? "" : "s"}`;
 
@@ -650,7 +642,7 @@ export function SystemEditorIconsPanel({
 			<div className="flex min-h-0 flex-col gap-4 px-5 py-4" role="alert">
 				<SystemIconsToolbar
 					countLabel={null}
-					filteredCountLabel="Icon index unavailable"
+					filteredCountLabel="Icons could not be loaded"
 					filter={iconFilter}
 					filterInputRef={filterInputRef}
 					groupByFolder={groupIconsByFolder}
@@ -663,7 +655,7 @@ export function SystemEditorIconsPanel({
 					className="flex flex-col items-start gap-2 px-4 py-3 text-sm"
 				>
 					<span>
-						Failed to load icons: {(iconsQuery.error as Error).message}
+						Could not load the icons: {(iconsQuery.error as Error).message}
 					</span>
 					<Button
 						type="button"
@@ -694,8 +686,14 @@ export function SystemEditorIconsPanel({
 				<IconIndexDiagnostics diagnostics={indexDiagnostics} />
 			) : null}
 			{icons.length === 0 ? (
-				<div className="border border-dashed border-slate-300 bg-white px-4 py-10 text-sm text-slate-500">
-					No icons indexed for this system.
+				<div className="flex min-h-0 flex-1 flex-col items-center justify-center border border-dashed border-slate-300 bg-white px-4 py-10 text-center">
+					<Library className="size-6 text-slate-400" aria-hidden="true" />
+					<p className="mt-3 text-sm font-medium text-slate-900">
+						No icons yet
+					</p>
+					<p className="mt-1 max-w-md text-sm text-slate-500">
+						Add an icon folder in the sidebar to list its SVGs.
+					</p>
 				</div>
 			) : filteredIcons.length === 0 ? (
 				<div className="flex min-h-0 flex-1 flex-col items-center justify-center border border-dashed border-slate-300 bg-white px-4 py-10 text-center">
@@ -713,10 +711,10 @@ export function SystemEditorIconsPanel({
 						segmentedIcons.map((segment) => (
 							<section key={segment.segment} className="flex flex-col gap-3">
 								<div className="flex items-baseline justify-between gap-3">
-									<h2 className="truncate font-mono text-[11px] font-semibold text-slate-700">
+									<h2 className="truncate font-mono text-[11px] font-semibold text-slate-900">
 										{segment.segment}
 									</h2>
-									<span className="shrink-0 text-[10px] text-slate-500">
+									<span className="shrink-0 text-[10px] text-slate-900">
 										{segment.items.length} icon
 										{segment.items.length === 1 ? "" : "s"}
 									</span>

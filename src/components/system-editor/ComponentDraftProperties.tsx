@@ -323,7 +323,7 @@ function describeCompoundSelection(
 		return [`${axis.label || axisKey}: ${valueKey}`];
 	});
 
-	return parts.join(" · ");
+	return parts.join(", ");
 }
 
 function getStyleTargetDescriptors(
@@ -361,7 +361,7 @@ function getStyleTargetDescriptors(
 			id: `compound:${styleTarget.compoundAxes
 				.map((axisKey) => `${axisKey}:${styleTarget.axisValues[axisKey] ?? ""}`)
 				.join("|")}`,
-			label: "Compound",
+			label: "Compound variant",
 			tab: { kind: "compound" },
 			title: compoundDescription || undefined,
 		});
@@ -417,9 +417,9 @@ function StyleTargetSection() {
 
 	return (
 		<section className="border-b border-slate-200 bg-slate-100/80 px-3 py-2">
-			<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+			<Text variant="group-label" render={<p />}>
 				Style target
-			</p>
+			</Text>
 			<div className="mt-1 flex flex-col gap-2">
 				<div className="flex flex-row flex-wrap items-center gap-1">
 					<DisabledReason
@@ -472,7 +472,9 @@ function StyleTargetSection() {
 
 				{selectedAxisEntries.length >= 2 ? (
 					<div className="flex flex-col gap-1 text-xs">
-						<span className="font-semibold text-slate-600">Compound</span>
+						<span className="font-semibold text-slate-600">
+							Compound variant
+						</span>
 						<div className="flex flex-row flex-wrap gap-1">
 							{selectedAxisEntries.map((selected) => {
 								const isCompoundAxis = styleTarget.compoundAxes.includes(
@@ -514,12 +516,9 @@ function StyleTargetClassEditor({
 	// Same class field as the design inspector, one per active style target.
 	return (
 		<section className="flex flex-col border-b border-slate-200 last:border-b-0">
-			<span
-				className="px-3 pt-2.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400"
-				title={target.title}
-			>
+			<Text variant="group-label" className="px-3 pt-2.5" title={target.title}>
 				{target.label}
-			</span>
+			</Text>
 			<div className="px-3 pt-1 pb-3">
 				<ClassCompositionPanel
 					className={className}
@@ -547,7 +546,9 @@ function DraftInspectorHeader({
 				<span className="truncate text-[13px] font-medium text-slate-950">
 					{title}
 				</span>
-				<span className="truncate text-[10px] text-slate-400">{subtitle}</span>
+				<span className="truncate font-mono text-[10px] text-slate-500">
+					{subtitle}
+				</span>
 			</div>
 		</header>
 	);
@@ -583,37 +584,31 @@ function DesignOnlySection({ path }: { path: string }) {
 					onCheckedChange={(checked) =>
 						setTemplateNodeDesignOnly(path, checked)
 					}
-					title={
-						inherited
-							? `Inherited from ${ancestorName}`
-							: "Keep this node and its children out of generated code"
-					}
 				/>
 			</div>
 			{inherited ? (
-				<p className="text-[11px] text-slate-500">
-					Inherited from{" "}
-					<span className="font-mono text-slate-700">{ancestorName}</span>: this
-					node and its children stay out of generated code. Change it on that
-					layer.
-				</p>
+				<Text variant="meta" render={<p />}>
+					Inherited from <span className="text-slate-700">{ancestorName}</span>:
+					this layer and its children stay out of generated code. Change it on
+					that layer.
+				</Text>
 			) : (
-				<p className="text-[11px] text-slate-500">
+				<Text variant="meta" render={<p />}>
 					{state.designOnly
-						? "Shown in designs, left out of generated code together with its children."
-						: "Turn on for helpers that exist in designs only; codegen skips the node and its children."}
-				</p>
+						? "Shown in designs. Left out of generated code, with its children."
+						: "Turn on for layers that exist only in designs."}
+				</Text>
 			)}
 			{inherited && state.own ? (
 				<div className="flex items-center justify-between gap-2 text-xs">
-					<span className="text-slate-500">Also set on this node.</span>
+					<Text variant="meta">Also set on this layer.</Text>
 					<Button
 						type="button"
 						variant="outlined"
 						className="shrink-0 px-2 py-1 text-xs"
 						onClick={() => setTemplateNodeDesignOnly(path, false)}
 					>
-						Clear
+						Turn off here
 					</Button>
 				</div>
 			) : null}
@@ -648,26 +643,20 @@ function SlotMetadataSection({ path }: { path: string }) {
 							})
 						}
 					/>
-					<div className="flex items-center justify-between gap-2 text-xs">
-						<span
-							className="min-w-0 truncate text-slate-500"
-							title={slot.hostPath}
-						>
-							Host path: {slot.hostPath}
-						</span>
+					<div className="flex items-center justify-end gap-2 text-xs">
 						<Button
 							type="button"
 							variant="outlined"
 							className="shrink-0 px-2 py-1 text-xs"
 							onClick={() => removeTemplateNodeSlotHost(path)}
 						>
-							Remove
+							Remove slot
 						</Button>
 					</div>
 				</>
 			) : (
 				<div className="flex items-center justify-between gap-2 text-xs">
-					<span className="text-slate-500">This node is not a slot host.</span>
+					<Text variant="meta">Not a slot.</Text>
 					<Button
 						type="button"
 						variant="outlined"
@@ -720,7 +709,7 @@ function OverrideTargetSection({ path }: { path: string }) {
 					{controls.length > 0 ? (
 						<div className="flex flex-col gap-1 text-xs text-slate-600">
 							<span className="font-semibold text-slate-700">
-								Registry props
+								Overridable props
 							</span>
 							{controls.map((control) => {
 								const checked = target.props?.includes(control.prop) ?? false;
@@ -776,9 +765,7 @@ function OverrideTargetSection({ path }: { path: string }) {
 				</>
 			) : (
 				<div className="flex items-center justify-between gap-2 text-xs">
-					<span className="text-slate-500">
-						This node is not an override target.
-					</span>
+					<Text variant="meta">Not an override target.</Text>
 					<Button
 						type="button"
 						variant="outlined"
@@ -786,7 +773,7 @@ function OverrideTargetSection({ path }: { path: string }) {
 						onClick={() => addTemplateNodeOverrideTarget(path)}
 					>
 						<Plus className="size-3" aria-hidden="true" />
-						<span>Make target</span>
+						<span>Make override target</span>
 					</Button>
 				</div>
 			)}
@@ -810,12 +797,12 @@ export function ComponentDraftProperties({
 			<div className="flex min-h-0 flex-1 flex-col">
 				<header className="flex h-12 shrink-0 items-center border-b border-slate-200 px-3">
 					<Text variant="label" className="text-[13px] text-slate-950">
-						Node
+						Layer
 					</Text>
 				</header>
-				<p className="p-3 text-slate-500">
-					Select a layer or stage node to edit its properties.
-				</p>
+				<Text variant="meta" render={<p />} className="p-3">
+					Select a layer to edit it.
+				</Text>
 			</div>
 		);
 	}
@@ -842,7 +829,7 @@ export function ComponentDraftProperties({
 		contentControls.length > 0;
 	const title =
 		selectedEntity.name?.trim() || selectedEntity.component || "Untitled";
-	const subtitle = `${selectedEntity.library}/${selectedEntity.component} · ${selectedEntity.role}`;
+	const subtitle = `${selectedEntity.library}/${selectedEntity.component}`;
 	const styleTargetClassEditors = getStyleTargetDescriptors(
 		variants,
 		styleTarget,
@@ -873,7 +860,7 @@ export function ComponentDraftProperties({
 							{selectedEntity.role === "text" ? (
 								<InputField
 									type="text"
-									label="Content"
+									label="Text"
 									value={selectedEntity.text ?? ""}
 									onChange={(event) =>
 										updateTemplateNodeText(path, event.currentTarget.value)
@@ -917,7 +904,7 @@ export function ComponentDraftProperties({
 						</InspectorSection>
 					) : null}
 					{propertyControls.length > 0 ? (
-						<InspectorSection title="Component">
+						<InspectorSection title="Props">
 							{propertyControls.map((control) => (
 								<DraftComponentControl
 									key={control.prop}

@@ -340,7 +340,7 @@ describe("SystemEditor", () => {
 	it("opens on the tokens tab from the route search param", () => {
 		const html = renderSystemEditor("/system/core?tab=tokens");
 
-		expect(html).toContain("Core Tokens");
+		expect(html).toContain(">Tokens</h1>");
 		expect(html).toContain("Synced");
 		expect(html).not.toContain("No components yet");
 	});
@@ -359,7 +359,7 @@ describe("SystemEditor", () => {
 		]);
 
 		expect(html).toContain("New Button");
-		expect(html).toContain("Draft only");
+		expect(html).toContain("Not published");
 		expect(html).toContain("Save draft");
 		expect(html).toContain("Variants");
 		expect(html).not.toContain("Inspector");
@@ -475,13 +475,13 @@ describe("SystemEditor page panels", () => {
 
 		expect(componentsHtml).toContain("New component name");
 		expect(componentsHtml).toContain("Search components");
-		expect(tokensHtml).toContain("Core Tokens");
-		expect(tokensHtml).toContain("Synced");
-		expect(tokensHtml).toContain("GROUP BY");
+		expect(tokensHtml).toContain(">Tokens</h1>");
+		expect(tokensHtml).not.toContain("Design system");
+		expect(tokensHtml).toContain("Group by");
 		expect(tokensHtml).toContain("#111111");
 		expect(tokensHtml).toContain("Hide defaults");
 		expect(tokensHtml).toContain("Custom colors");
-		expect(tokensHtml).toContain("Color Red");
+		expect(tokensHtml).toContain(">Red</div>");
 		expect(tokensHtml).toContain("Font families");
 		expect(tokensHtml).toContain("Text sizes");
 		expect(tokensHtml).toContain("Font weights");
@@ -586,21 +586,22 @@ describe("SystemEditor page panels", () => {
 		);
 
 		expect(assetsHtml).toContain("Assets");
-		expect(assetsHtml).toContain("2 assets");
-		expect(assetsHtml).toContain("Group folders");
+		expect(assetsHtml).toContain(">2</span>");
+		expect(assetsHtml).toContain("Group by folder");
 		expect(assetsHtml).toContain("Add asset");
 		expect(assetsHtml).not.toContain("Grid");
 		expect(assetsHtml).not.toContain("List");
 		expect(iconsHtml).toContain("Icons");
-		expect(iconsHtml).toContain("2 icons");
-		expect(iconsHtml).toContain("Group folders");
+		expect(iconsHtml).toContain(">2</span>");
+		expect(iconsHtml).toContain("Group by folder");
 		expect(iconsHtml).not.toContain("Stroke");
 		expect(iconsHtml).not.toContain("Mixed");
 		expect(iconsHtml).not.toContain("Insert");
 		expect(iconFoldersHtml).toContain("Icon folders");
 		expect(iconFoldersHtml).toContain("src/icons");
-		expect(iconFoldersHtml).toContain("Re-index");
-		expect(iconFoldersHtml).toContain("Icon folder path");
+		expect(iconFoldersHtml).toContain("Re-sync");
+		expect(iconFoldersHtml).toContain('aria-label="Icon folder path"');
+		expect(iconFoldersHtml).toContain("Add folder");
 	});
 
 	it("creates a component draft through the component API", async () => {
@@ -668,7 +669,7 @@ describe("SystemEditor page panels", () => {
 		);
 
 		expect(html).toContain("New Button");
-		expect(html).toContain("Draft only");
+		expect(html).toContain("Not published");
 	});
 
 	it("deletes a component through the component API", async () => {
@@ -747,9 +748,12 @@ describe("SystemEditor page panels", () => {
 			</QueryClientProvider>,
 		);
 
-		expect(html).toContain("Draft only");
-		expect(html).toContain("Published v1");
-		expect(html).toContain("Draft over v2");
+		// Only the never-published component carries a badge; the rest show
+		// their version as meta text.
+		expect(html).toContain("Not published");
+		expect(html).toContain("v1");
+		expect(html).toContain("v2");
+		expect(html).not.toContain("Draft over");
 		expect(html).toContain("Create draft from published version for Published");
 		// Delete lives on the component's Settings tab, not on the row.
 		expect(html).not.toContain("Delete Draft");
@@ -889,10 +893,10 @@ describe("SystemEditor page panels", () => {
 			</QueryClientProvider>,
 		);
 
-		expect(html).toContain("No usages");
-		expect(html).toContain("1 current");
-		expect(html).toContain("1 stale");
-		expect(html).toContain("Diagnostics missing");
+		expect(html).toContain("v1, unused");
+		expect(html).toContain("v2, 1 instance");
+		expect(html).toContain("1 outdated");
+		expect(html).toContain("Broken instances");
 	});
 
 	it("shows stale and hash review badges instead of masking them as diagnostics missing", async () => {
@@ -984,8 +988,8 @@ describe("SystemEditor page panels", () => {
 			</QueryClientProvider>,
 		);
 
-		expect(html).toContain("1 review");
-		expect(html).not.toContain("Diagnostics missing");
+		expect(html).toContain("1 changed");
+		expect(html).not.toContain("Broken instances");
 	});
 
 	it("shows stale and hash usage labels in inspector instead of generic diagnostics", async () => {
@@ -1422,17 +1426,15 @@ describe("SystemEditor collapsible panels", () => {
 	it("points at the collapsed sidebar from the empty components page", () => {
 		const html = renderSystemEditor("/system/core");
 
-		expect(html).toContain(
-			"Expand the sidebar (Alt+[) to pick a component draft.",
-		);
-		expect(html).not.toContain("Select a component draft to open the editor.");
+		expect(html).toContain("Expand the sidebar (Alt+[) to pick a component.");
+		expect(html).not.toContain("Select a component to edit it.");
 	});
 
 	it("asks to select a component draft while the rail is open", () => {
 		setEditorPanelOpen("system", "rail", true);
 		const html = renderSystemEditor("/system/core");
 
-		expect(html).toContain("Select a component draft to open the editor.");
+		expect(html).toContain("Select a component to edit it.");
 	});
 
 	it("floats the header with a dark expand icon when the rail is collapsed", () => {
@@ -1479,9 +1481,7 @@ describe("SystemEditor collapsible panels", () => {
 		expect(panel).toContain('title="Expand sidebar (Alt+[)"');
 		expect(panel).toContain('aria-expanded="false"');
 		expect(panel).toContain("lucide-panel-left-open");
-		expect(html).toContain(
-			"Expand the sidebar (Alt+[) to pick a component draft.",
-		);
+		expect(html).toContain("Expand the sidebar (Alt+[) to pick a component.");
 	});
 
 	it("renders no floating header while the rail is open", () => {
@@ -1495,7 +1495,7 @@ describe("SystemEditor collapsible panels", () => {
 		setEditorPanelOpen("system", "rail", false);
 		const html = renderSystemEditor("/system/core?tab=tokens");
 
-		expect(html).toContain("Core Tokens");
+		expect(html).toContain(">Tokens</h1>");
 		expect(html).toContain('data-slot="floating-panel"');
 	});
 
@@ -1510,7 +1510,7 @@ describe("SystemEditor collapsible panels", () => {
 		expect(panel).toContain('aria-label="Back to components"');
 		expect(panel).toContain("New Button");
 		expect(panel).toContain("new-button");
-		expect(panel).toContain("Draft only");
+		expect(panel).toContain("Not published");
 		expect(panel).toContain('aria-label="Expand sidebar"');
 		expect(panel).not.toContain("Back to project");
 		expect(panel).not.toContain("Core System");

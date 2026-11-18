@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { ArrowUpRight } from "lucide-react";
 import { auditLogSummaryQueryOptions } from "../../queries/audit-log";
 import { useProjectConfig, useProjectScope } from "../contexts";
 import { Button } from "../ui/button";
@@ -26,7 +27,7 @@ export function AuditLogLink() {
 				className="flex items-baseline justify-between gap-3"
 				aria-busy={auditLogQuery.isPending}
 			>
-				<Text variant="section-header">audit log</Text>
+				<Text variant="section-header">Audit log</Text>
 				{auditLogQuery.isPending ? (
 					<Skeleton className="h-4 w-20" />
 				) : auditLogQuery.isError ? (
@@ -48,10 +49,11 @@ export function AuditLogLink() {
 						href="/api/trickroom/audit-log/summary"
 						target="_blank"
 						rel="noreferrer"
-						className="shrink-0 px-1 py-0.5 font-mono text-[11px] text-cyan-700 hover:text-cyan-500 focus-visible:bg-cyan-50 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-200 focus-visible:text-cyan-500"
+						className="flex shrink-0 items-center gap-1 px-1 py-0.5 font-mono text-[11px] text-cyan-700 hover:text-cyan-500 focus-visible:bg-cyan-50 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-200 focus-visible:text-cyan-500"
 					>
 						{auditLogQuery.data.count}{" "}
-						{pluralize(auditLogQuery.data.count, "entry", "entries")} -&gt;
+						{pluralize(auditLogQuery.data.count, "entry", "entries")}
+						<ArrowUpRight className="size-3" aria-hidden="true" />
 					</a>
 				)}
 			</div>

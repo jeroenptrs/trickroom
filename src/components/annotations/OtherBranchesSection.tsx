@@ -56,7 +56,7 @@ export function OtherBranchesSection({
 				Other branches
 				<DisclosureSummary>
 					{query.data ? (
-						<span className="font-normal text-slate-500">{others.length}</span>
+						<span className="font-normal text-slate-950">{others.length}</span>
 					) : null}
 				</DisclosureSummary>
 			</DisclosureTrigger>
@@ -95,7 +95,8 @@ export function OtherBranchesSection({
 									annotation,
 									annotation.detached === true,
 								)}
-								targetName={`${getTargetName(annotation)} · ${annotation.branch === "*" ? "no branch" : annotation.branch}`}
+								// The open thread says which branch it is on.
+								targetName={getTargetName(annotation)}
 								expanded={expanded === annotation.id}
 								onExpandedChange={(next) =>
 									setExpanded(next ? annotation.id : null)

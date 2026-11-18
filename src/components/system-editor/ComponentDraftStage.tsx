@@ -392,8 +392,8 @@ export function ComponentDraftStage({
 		return (
 			<div className="flex min-h-0 flex-1 items-center justify-center bg-slate-100 px-6 text-center text-sm text-slate-500">
 				{railOpen
-					? "Select a component draft to open the editor."
-					: "Expand the sidebar (Alt+[) to pick a component draft."}
+					? "Select a component to edit it."
+					: "Expand the sidebar (Alt+[) to pick a component."}
 			</div>
 		);
 	}

@@ -98,7 +98,7 @@ export function AnnotationDraftRow({
 
 /**
  * "Send this board's drafts", "Resolve all addressed" and "Accept all
- * agent-resolved" for what is in scope (a board, a design, a component).
+ * resolved by agent" for what is in scope (a board, a design, a component).
  * `scopedDrafts` are the board's drafts when they are fewer than the round
  * sends; otherwise empty, so the round's Send stays the one send button.
  */
@@ -165,7 +165,7 @@ export function AnnotationBulkActions({
 					}
 					title={`Accept every resolution an agent made ${scopeLabel}`}
 				>
-					Accept all agent-resolved ({agentResolved.length})
+					Accept all resolved by agent ({agentResolved.length})
 				</Button>
 			) : null}
 		</div>

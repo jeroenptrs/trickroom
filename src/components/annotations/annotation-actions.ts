@@ -112,10 +112,10 @@ export async function reportAnnotationWriteError(
 		error.code === "CHANGED_SINCE"
 	) {
 		const layers = layerList(error, nameOf);
-		toast.error("Cannot revert: the layers changed since", {
+		toast.error("Could not revert", {
 			description: layers
-				? `Changed since: ${layers}.`
-				: "Revert only applies while the layers are as the change left them.",
+				? `These layers changed after it: ${layers}.`
+				: "Revert works only while the layers are as the change left them.",
 		});
 		return;
 	}

@@ -9,7 +9,6 @@ import {
 	setLintCoverageFilter,
 	useLintCoverageFilter,
 } from "../../../stores/lint-dashboard-store";
-import { Badge } from "../../ui/badge";
 import { Card } from "../../ui/card";
 import { Input } from "../../ui/input";
 import { Segmented } from "../../ui/segmented";
@@ -20,7 +19,6 @@ import {
 	compareLintMetric,
 	countCoverage,
 	coverageCellState,
-	coverageGaps,
 	filterCoverage,
 	LINT_COVERAGE_STATES,
 	thresholdForMetric,
@@ -116,14 +114,10 @@ export function LintCoverageView({
 						>
 							<Text variant="section-header">{state.label}</Text>
 							<span className="font-mono text-lg font-medium text-slate-950">
-								{allUnknown ? "—" : `${stateCounts.met}/${total}`}
+								{allUnknown ? "Unknown" : `${stateCounts.met}/${total}`}
 							</span>
 							<div className="flex flex-wrap items-center gap-2">
-								{allUnknown ? (
-									<span className="font-mono text-[11px] text-slate-400">
-										unknown
-									</span>
-								) : (
+								{allUnknown ? null : (
 									<MetricDelta
 										comparison={compareLintMetric(report.ratchet, metric)}
 									/>
@@ -146,8 +140,8 @@ export function LintCoverageView({
 
 			<section className="flex flex-col gap-3" aria-label="Component coverage">
 				<SectionHeading
-					title="components"
-					detail={`${counts.withGaps} of ${total} ${total === 1 ? "component has" : "components have"} a gap. A gap is a step to take, not an error.`}
+					title="Components"
+					detail={`${counts.withGaps} of ${total} ${total === 1 ? "component has" : "components have"} a gap.`}
 				/>
 				<div className="flex flex-wrap items-center gap-2">
 					<Segmented
@@ -172,32 +166,39 @@ export function LintCoverageView({
 						/>
 					</div>
 				</div>
-				<div className="flex items-center gap-4 font-mono text-[10px] text-slate-500">
+				<div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
 					{LINT_COVERAGE_STATES.map((state) => (
 						<span key={state.key} className="inline-flex items-center gap-1">
-							<span className="text-slate-900">{state.short}</span>
-							{state.label.toLowerCase()}
+							<span className="font-mono text-slate-900">{state.short}</span>
+							{state.label}
 						</span>
 					))}
 					<span className="inline-flex items-center gap-1">
-						<StateCell state="gap" className="size-3" /> gap
+						<StateCell state="gap" className="size-3" /> Gap
 					</span>
 					<span className="inline-flex items-center gap-1">
-						<StateCell state="unknown" className="size-3" /> unknown
+						<StateCell state="unknown" className="size-3" /> Unknown
 					</span>
 				</div>
 				<Card edge="inset" className="flex flex-col">
-					<div className="flex items-center gap-3 border-b border-slate-100 px-3 py-2 font-mono text-[10px] text-slate-500">
-						<span className="min-w-0 flex-1">component</span>
-						<span className="w-[108px] shrink-0">states</span>
-						<span className="w-56 shrink-0">gaps</span>
-						<span className="w-48 shrink-0">wrapper</span>
-						<span className="w-14 shrink-0 text-right">usages</span>
+					<div className="flex items-center gap-3 border-b border-slate-100 px-3 py-2">
+						<Text variant="group-label" className="min-w-0 flex-1">
+							Component
+						</Text>
+						<Text variant="group-label" className="w-[108px] shrink-0">
+							States
+						</Text>
+						<Text variant="group-label" className="w-48 shrink-0">
+							Wrapper
+						</Text>
+						<Text variant="group-label" className="w-14 shrink-0 text-right">
+							Usages
+						</Text>
 					</div>
 					{rows.length === 0 ? (
-						<Text tone="faint" className="px-3 py-4 text-xs">
+						<Text variant="meta" render={<p />} className="px-3 py-4">
 							{total === 0
-								? "The system has no published components in this report."
+								? "No published components. Publish one, then run lint."
 								: "No components match this filter."}
 						</Text>
 					) : null}
@@ -209,7 +210,6 @@ export function LintCoverageView({
 						{virtualizer.getVirtualItems().map((item) => {
 							const component = rows[item.index];
 							if (!component) return null;
-							const gaps = coverageGaps(component);
 							return (
 								<button
 									key={item.key}
@@ -238,28 +238,11 @@ export function LintCoverageView({
 									<span className="w-[108px] shrink-0">
 										<CoverageStrip component={component} />
 									</span>
-									<span className="flex w-56 shrink-0 flex-wrap gap-1">
-										{gaps.length === 0 ? (
-											<span className="font-mono text-[11px] text-slate-400">
-												none
-											</span>
-										) : (
-											gaps.map((gap) => (
-												<Badge key={gap} tone="warning" edge="stamped">
-													{
-														LINT_COVERAGE_STATES.find(
-															(state) => state.key === gap,
-														)?.gap
-													}
-												</Badge>
-											))
-										)}
-									</span>
 									<span
 										className="w-48 shrink-0 truncate font-mono text-[11px] text-slate-600"
 										title={component.wrappers.join("\n")}
 									>
-										{component.wrappers[0] ?? "—"}
+										{component.wrappers[0] ?? null}
 										{component.wrappers.length > 1
 											? ` +${component.wrappers.length - 1}`
 											: ""}

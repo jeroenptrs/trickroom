@@ -10,6 +10,7 @@ import {
 	useState,
 } from "react";
 import {
+	Link,
 	useLocation,
 	useNavigate,
 	useParams,
@@ -59,10 +60,7 @@ import {
 	SystemEditorIconsPanel,
 } from "./system-editor/SystemEditorIconsPanel";
 import { SystemEditorInspector } from "./system-editor/SystemEditorInspector";
-import {
-	SystemEditorLintPanel,
-	SystemEditorLintRail,
-} from "./system-editor/SystemEditorLintPanel";
+import { SystemEditorLintPanel } from "./system-editor/SystemEditorLintPanel";
 import { SystemEditorTokensPanel } from "./system-editor/SystemEditorTokensPanel";
 import {
 	revealSystemPanel,
@@ -127,7 +125,7 @@ function BackToProjectButton({ onClick }: { onClick: () => void }) {
 			title="Back to project"
 			aria-label="Back to project"
 		>
-			<ArrowLeft className="size-4 text-slate-500" aria-hidden="true" />
+			<ArrowLeft className="size-4 text-slate-900" aria-hidden="true" />
 		</Button>
 	);
 }
@@ -157,7 +155,20 @@ function SystemHeaderContent({
 					{systemName}
 				</Text>
 			</div>
-			<SystemStatusBadge state={systemStatus} />
+			{systemStatus === "review" || systemStatus === "error" ? (
+				// Off its resting state the badge leads to the Tokens tab, which
+				// holds the review and explains the error.
+				<Link
+					to={{ search: buildSystemTabSearch("tokens") }}
+					replace
+					className="shrink-0 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
+					title="Open the Tokens tab"
+				>
+					<SystemStatusBadge state={systemStatus} />
+				</Link>
+			) : (
+				<SystemStatusBadge state={systemStatus} />
+			)}
 			<SystemPanelToggle panel="rail" />
 		</>
 	);
@@ -632,11 +643,6 @@ export function SystemEditor() {
 							/>
 						) : activePage === "icons" ? (
 							<SystemEditorIconFoldersRail
-								systemId={systemId}
-								projectScope={projectScope}
-							/>
-						) : activePage === "lint" ? (
-							<SystemEditorLintRail
 								systemId={systemId}
 								projectScope={projectScope}
 							/>

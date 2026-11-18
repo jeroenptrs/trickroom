@@ -22,7 +22,7 @@ export function LayerBreadcrumb({
 	return (
 		<nav
 			aria-label="Layer path"
-			className="flex shrink-0 items-center gap-x-1 overflow-hidden whitespace-nowrap border-b border-slate-200 px-3 py-1 font-mono text-xs text-slate-400"
+			className="flex shrink-0 items-center gap-x-1 overflow-hidden whitespace-nowrap border-b border-slate-200 px-3 py-1 text-xs text-slate-500"
 		>
 			{crumbs.map((crumb, index) =>
 				index === crumbs.length - 1 ? (

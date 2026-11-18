@@ -132,15 +132,13 @@ describe("AnnotationRoundHeader", () => {
 		await render();
 		expect(button("Send round")).toBeDefined();
 		expect(button("Close round")).toBeUndefined();
-		expect(host.textContent).not.toContain("Round ·");
+		expect(host.textContent).not.toContain(" closed");
 	});
 
 	it("shows progress, and counts proposed ones as waiting on the designer", async () => {
 		open([view("a", "resolved"), view("b", "proposed"), view("c", "open")]);
 		await render();
-		expect(host.textContent).toContain(
-			"Round · 1 of 3 closed · 1 waiting on you",
-		);
+		expect(host.textContent).toContain("1 of 3 closed, 1 waiting on you");
 		expect(button("Send round")?.disabled).toBe(true);
 		expect(button("Accept all proposed (1)")).toBeDefined();
 		expect(button("Close round")).toBeDefined();
@@ -155,7 +153,7 @@ describe("AnnotationRoundHeader", () => {
 	it("leaves the waiting count out when nothing waits on the designer", async () => {
 		open([view("a", "resolved"), view("b", "open")]);
 		await render();
-		expect(host.textContent).toContain("Round · 1 of 2 closed");
+		expect(host.textContent).toContain("1 of 2 closed");
 		expect(host.textContent).not.toContain("waiting on you");
 	});
 

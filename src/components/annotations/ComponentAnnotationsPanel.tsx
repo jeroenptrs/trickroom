@@ -262,12 +262,12 @@ export function ComponentAnnotationsPanel({
 					{ kind: "system", systemId },
 					projectScope,
 				);
-				toast.success("Saved as a memory note", {
+				toast.success("Saved as memory note", {
 					id: `annotation-memory-${annotation.id}`,
 				});
 				return true;
 			} catch (error) {
-				toast.error("Memory note not saved", {
+				toast.error("Could not save the memory note", {
 					description: error instanceof Error ? error.message : String(error),
 				});
 				return false;

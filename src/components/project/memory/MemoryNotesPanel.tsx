@@ -54,9 +54,7 @@ function NoteCard({
 					<Badge tone={meta.tone} edge="stamped">
 						{meta.label}
 					</Badge>
-					{note.pinned ? (
-						<Pin className="size-3 text-cyan-600" aria-label="Pinned" />
-					) : null}
+					{note.pinned ? <Pin className="size-3" aria-label="Pinned" /> : null}
 					{note.title ? (
 						<Text className="truncate text-sm font-medium text-slate-900">
 							{note.title}
@@ -97,9 +95,9 @@ function NoteCard({
 					))}
 				</div>
 			) : null}
-			<Text tone="faint" className="font-mono text-[10px]">
-				{note.author.kind === "agent" ? "agent" : "you"}
-				{note.author.label ? ` · ${note.author.label}` : ""}
+			<Text variant="meta" className="flex gap-2">
+				<span>{note.author.kind === "agent" ? "Agent" : "You"}</span>
+				{note.author.label ? <span>{note.author.label}</span> : null}
 			</Text>
 		</div>
 	);
@@ -169,7 +167,7 @@ export function MemoryNotesPanel({
 			draft: MemoryNoteDraft;
 		}) => {
 			if (!revision) {
-				throw new Error("Memory revision unavailable; reopen the drawer.");
+				throw new Error("Notes are still loading. Try again.");
 			}
 			return updateMemoryNote(scope, noteId, {
 				expectedRevision: revision,
@@ -186,7 +184,7 @@ export function MemoryNotesPanel({
 	const deleteMutation = useMutation({
 		mutationFn: (note: MemoryNote) => {
 			if (!revision) {
-				throw new Error("Memory revision unavailable; reopen the drawer.");
+				throw new Error("Notes are still loading. Try again.");
 			}
 			return deleteMemoryNote(scope, note.noteId, revision);
 		},
@@ -227,14 +225,7 @@ export function MemoryNotesPanel({
 				</div>
 			) : null}
 
-			<div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-2">
-				{memoryQuery.isSuccess ? (
-					<Text tone="muted" className="text-xs">
-						{notes.length} {notes.length === 1 ? "note" : "notes"}
-					</Text>
-				) : (
-					<span />
-				)}
+			<div className="flex items-center justify-end gap-2 border-b border-slate-200 px-4 py-2">
 				<Button
 					variant="outlined"
 					className="flex items-center gap-1.5"
@@ -294,7 +285,7 @@ export function MemoryNotesPanel({
 							size="sm"
 							icon={NotebookPen}
 							title="No notes yet"
-							description="Capture intent, usage, conventions, and decisions for this scope."
+							description="Notes record intent, conventions, and decisions for you and for agents."
 						/>
 					) : null}
 
@@ -339,10 +330,10 @@ export function MemoryNotesPanel({
 					}
 				}}
 				title="Delete note"
-				description="Delete this memory note? This cannot be undone."
+				description="This can't be undone."
 				icon={<Trash2 className="size-4" aria-hidden="true" />}
 				actionIcon={<Trash2 className="size-3.5" aria-hidden="true" />}
-				actionLabel={deleteMutation.isPending ? "Deleting..." : "Delete note"}
+				actionLabel={deleteMutation.isPending ? "Deleting…" : "Delete note"}
 				actionDisabled={deleteMutation.isPending}
 				tone="destructive"
 				error={deleteError ? `Could not delete the note: ${deleteError}` : null}

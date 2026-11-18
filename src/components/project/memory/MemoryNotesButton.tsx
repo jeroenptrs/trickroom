@@ -33,7 +33,9 @@ export function MemoryNotesButton({
 	const memoryQuery = useQuery(memoryQueryOptions(scope, projectScope));
 	const count = memoryQuery.data?.summary.noteCount ?? 0;
 	// Only a loaded count is announced; a pending or failed load is not zero.
-	const accessibleLabel = memoryQuery.isSuccess ? `${label} (${count})` : label;
+	const accessibleLabel = memoryQuery.isSuccess
+		? `${label}, ${count} ${count === 1 ? "note" : "notes"}`
+		: label;
 
 	return (
 		<>

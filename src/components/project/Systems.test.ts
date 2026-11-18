@@ -55,7 +55,7 @@ describe("getSystemMetadata", () => {
 				syncResult({ reviewRequired: true, added: 12, removed: 4 }),
 				"src/index.css",
 			),
-		).toBe("+12 ~0 -4");
+		).toEqual(["+12 ~0 -4"]);
 	});
 
 	it("shows the diff after a system is synced", () => {
@@ -64,7 +64,7 @@ describe("getSystemMetadata", () => {
 				syncResult({ reviewRequired: false, added: 3, removed: 2 }),
 				"src/index.css",
 			),
-		).toBe("index.css · +3 / -2");
+		).toEqual(["index.css", "+3 / -2"]);
 	});
 
 	it("counts every change since the last review, custom-only ones included", () => {
@@ -89,9 +89,9 @@ describe("getSystemMetadata", () => {
 			stylesheets: null,
 		};
 
-		expect(getSystemMetadata(result, "src/index.css")).toBe(
+		expect(getSystemMetadata(result, "src/index.css")).toEqual([
 			"+0 ~1 -1 since last review",
-		);
+		]);
 	});
 
 	it("names stylesheet changes without a token-level change", () => {
@@ -114,14 +114,24 @@ describe("getSystemMetadata", () => {
 			stylesheets: { ...empty, changed: ["src/theme.css"] },
 		};
 
-		expect(getSystemMetadata(result, "src/index.css")).toBe(
+		expect(getSystemMetadata(result, "src/index.css")).toEqual([
 			"1 stylesheet changed since last review",
-		);
+		]);
 	});
 
-	it("keeps the existing no-data fallback", () => {
-		expect(getSystemMetadata({ status: "idle" }, "src/index.css")).toBe(
-			"index.css · no token data",
-		);
+	it("says a system without token data is not synced", () => {
+		expect(getSystemMetadata({ status: "idle" }, "src/index.css")).toEqual([
+			"index.css",
+			"Not synced",
+		]);
+	});
+
+	it("shows the token count instead of an empty diff", () => {
+		expect(
+			getSystemMetadata(
+				syncResult({ reviewRequired: false, added: 0, removed: 0 }),
+				"src/index.css",
+			),
+		).toEqual(["index.css", "0 tokens"]);
 	});
 });

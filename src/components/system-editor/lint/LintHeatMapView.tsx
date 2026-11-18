@@ -41,7 +41,7 @@ const INDENT = 14;
 
 const SORT_OPTIONS: Array<{ value: LintHeatSort; label: string }> = [
 	{ value: "name", label: "Name" },
-	{ value: "usages", label: "Usage" },
+	{ value: "usages", label: "Usages" },
 	{ value: "findings", label: "Findings" },
 ];
 
@@ -103,13 +103,13 @@ function HeatRow({
 				{node.name}
 			</span>
 			{node.file?.role ? (
-				<span className="shrink-0 font-mono text-[10px] text-slate-500">
-					{node.file.role}
-					{node.file.component ? ` · ${node.file.component}` : ""}
+				<span className="flex shrink-0 gap-2 font-mono text-[10px] text-slate-500">
+					<span>{node.file.role}</span>
+					{node.file.component ? <span>{node.file.component}</span> : null}
 				</span>
 			) : null}
 			{isFolder && variant === "files" ? (
-				<span className="w-14 shrink-0 text-right font-mono text-[10px] text-slate-400">
+				<span className="w-14 shrink-0 text-right font-mono text-[10px] text-slate-500">
 					{node.fileCount} {node.fileCount === 1 ? "file" : "files"}
 				</span>
 			) : null}
@@ -125,7 +125,7 @@ function HeatRow({
 			</span>
 			<span className="flex w-20 shrink-0 items-center justify-end gap-1.5">
 				<span
-					className={`font-mono text-[11px] ${node.findings.errors > 0 ? "text-red-700" : violations > 0 ? "text-amber-700" : "text-slate-400"}`}
+					className={`font-mono text-[11px] ${node.findings.errors > 0 ? "text-red-700" : violations > 0 ? "text-amber-700" : "text-slate-700"}`}
 				>
 					{violations}
 					{node.findings.info > 0 ? (
@@ -256,9 +256,9 @@ function HeatTree({
 		<div className="flex flex-col gap-3">
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-					<HeatLegend label="usage" scale={usageScale} kind="usage" />
+					<HeatLegend label="Usages" scale={usageScale} kind="usage" />
 					<HeatLegend
-						label="findings (errors + warnings)"
+						label="Findings (errors and warnings)"
 						scale={findingsScale}
 						kind="findings"
 					/>
@@ -283,12 +283,16 @@ function HeatTree({
 				</div>
 			</div>
 			<Card edge="inset" className="flex flex-col">
-				<div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 font-mono text-[10px] text-slate-500">
-					<span className="min-w-0 flex-1 pl-6">
-						{variant === "files" ? "file" : "design / board"}
-					</span>
-					<span className="w-16 shrink-0 text-right">usages</span>
-					<span className="w-20 shrink-0 text-right">findings</span>
+				<div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+					<Text variant="group-label" className="min-w-0 flex-1 pl-6">
+						{variant === "files" ? "File" : "Design and board"}
+					</Text>
+					<Text variant="group-label" className="w-16 shrink-0 text-right">
+						Usages
+					</Text>
+					<Text variant="group-label" className="w-20 shrink-0 text-right">
+						Findings
+					</Text>
 				</div>
 				<div
 					ref={containerRef}
@@ -341,7 +345,7 @@ export function LintFileHeatMapView({
 	return (
 		<div className="flex flex-col gap-4" data-lint-view="files">
 			<SectionHeading
-				title="codebase"
+				title="Code map"
 				detail={`${report.files.length.toLocaleString()} files with a role, a usage or a finding, of ${report.summary.code.scanned.toLocaleString()} scanned. Folders add up their files.`}
 			/>
 			<div className="flex flex-wrap items-center gap-2">
@@ -377,7 +381,7 @@ export function LintFileHeatMapView({
 				/>
 			</div>
 			{files.length === 0 ? (
-				<Text tone="faint" className="text-xs">
+				<Text variant="meta">
 					{report.files.length === 0
 						? "No scanned file has a role, a usage or a finding."
 						: "No files match the filter."}
@@ -431,7 +435,7 @@ export function LintDesignHeatMapView({
 		<div className="flex flex-col gap-4" data-lint-view="designs">
 			<div className="flex flex-wrap items-end justify-between gap-3">
 				<SectionHeading
-					title="designs"
+					title="Design map"
 					detail={`${root.children.length.toLocaleString()} designs in this report, of ${report.summary.design.scanned.toLocaleString()} scanned. Designs add up their boards.`}
 				/>
 				<Segmented
@@ -443,7 +447,7 @@ export function LintDesignHeatMapView({
 				/>
 			</div>
 			{root.children.length === 0 ? (
-				<Text tone="faint" className="text-xs">
+				<Text variant="meta">
 					No design places a component of this system or has a finding.
 				</Text>
 			) : (

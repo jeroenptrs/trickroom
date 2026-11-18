@@ -198,7 +198,9 @@ export function useTailwindSyncController(
 				});
 			} catch (error) {
 				const normalizedError =
-					error instanceof Error ? error : new Error("Failed to sync system");
+					error instanceof Error
+						? error
+						: new Error("Could not sync the system");
 				setScopedResults((current) => ({
 					...current,
 					[target.systemId]: {
