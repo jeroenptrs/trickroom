@@ -102,6 +102,15 @@ export type LintDesignNode = {
 	classSource: LintDesignClassSource;
 	render: LintNodeRender;
 	instance: LintDesignInstanceMarker | null;
+	/** The layer's name (`data-trickroom-name`), when it has one. */
+	name: string | null;
+	/**
+	 * The text the text rules check: a text node's own text, or null. An
+	 * instance node whose text equals its template's, and an unedited copy
+	 * of a slot default child, have none: that text is checked once, on the
+	 * component (`LintComponentDefinition.texts`).
+	 */
+	text: string | null;
 };
 
 export type LintDesignBoard = {
@@ -150,6 +159,17 @@ export type LintComponentClassEntry = {
 	className: string;
 };
 
+/** One text of a component definition: a template node's or a slot default child's. */
+export type LintComponentTextEntry = {
+	/** Template path of the text node. */
+	path: string;
+	/** The slot whose default children the node is one of; null for the template. */
+	slot: string | null;
+	/** Names of the node and its ancestors in the template, outermost first. */
+	names: string[];
+	text: string;
+};
+
 /** The classes one published version of a component declares. */
 export type LintComponentDefinition = {
 	componentId: string;
@@ -163,6 +183,8 @@ export type LintComponentDefinition = {
 	 * (codegen's axis order), then the compound variants in order.
 	 */
 	classes: LintComponentClassEntry[];
+	/** Template texts depth first, then each slot's default children's. */
+	texts: LintComponentTextEntry[];
 	/** The registry Element's base classes per template path, where it has any. */
 	baseClassNames: Record<string, string>;
 	/** The published version itself, which renders its classes per configuration. */
@@ -217,6 +239,23 @@ const toMarker = (
 		root: metadata.isRoot,
 		variantValues: metadata.variantValues,
 	};
+};
+
+/**
+ * A text node's text: `children` as a string, or as a list of strings
+ * (single characters in some writers), joined.
+ */
+const nodeText = (node: Node): string | null => {
+	const children: unknown = node.children;
+	if (typeof children === "string") return children;
+	if (
+		Array.isArray(children) &&
+		children.length > 0 &&
+		children.every((child) => typeof child === "string")
+	) {
+		return children.join("");
+	}
+	return null;
 };
 
 const nonEmpty = (className: unknown) =>
@@ -483,6 +522,17 @@ const walkBoard = (
 		);
 		const copy =
 			slotDefault !== undefined && hasDefaultClasses(node, slotDefault);
+		let text = nodeText(node);
+		if (text !== null) {
+			// Text the node inherits is checked on the component.
+			const inherited =
+				slotDefault !== undefined
+					? slotDefault.text
+					: version && instance
+						? templateAt(version, instance.templatePath)?.text
+						: undefined;
+			if (inherited !== undefined && inherited === text) text = null;
+		}
 		nodes.push({
 			element: node.id,
 			path: nodePath,
@@ -492,6 +542,8 @@ const walkBoard = (
 				? { checkedClassName: null, classSource: "slot-default" as const }
 				: {}),
 			instance,
+			name: nameOf(node),
+			text,
 		});
 		if (!Array.isArray(node.children)) return;
 		// A copy's children are paired with its default's, edited or not; a
@@ -660,6 +712,29 @@ const componentClassEntries = (
 	return entries;
 };
 
+/** Every text a published version declares, see `LintComponentDefinition`. */
+const componentTextEntries = (
+	version: PublishedSystemComponentVersion,
+): LintComponentTextEntry[] => {
+	const entries: LintComponentTextEntry[] = [];
+	const visit = (
+		node: RecipeTemplateNode,
+		slot: string | null,
+		names: readonly string[],
+	) => {
+		const chain = node.name ? [...names, node.name] : [...names];
+		if (typeof node.text === "string" && node.text.trim().length > 0) {
+			entries.push({ path: node.path, slot, names: chain, text: node.text });
+		}
+		for (const child of node.children ?? []) visit(child, slot, chain);
+	};
+	visit(version.root, null, []);
+	for (const slot of Object.values(version.slots ?? {})) {
+		for (const node of slot.defaultChildren ?? []) visit(node, slot.name, []);
+	}
+	return entries;
+};
+
 const buildComponentDefinitions = (
 	components: LintDesignComponents,
 	usages: Readonly<Record<string, readonly LintDesignUsage[]>>,
@@ -679,6 +754,7 @@ const buildComponentDefinitions = (
 				version: versionId,
 				current: versionId === published.currentVersion,
 				classes: componentClassEntries(version),
+				texts: componentTextEntries(version),
 				baseClassNames: templateBaseClassNames(version),
 				source: version,
 			});

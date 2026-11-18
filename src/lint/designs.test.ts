@@ -155,6 +155,8 @@ describe("design index", () => {
 			classSource: "layer",
 			render: { kind: "classes", className: "flex gap-2", known: true },
 			instance: null,
+			name: "Cart",
+			text: null,
 		});
 		expect(design.boards[0].nodes[1].instance).toEqual({
 			systemId: CODEGEN_TEST_SYSTEM_ID,

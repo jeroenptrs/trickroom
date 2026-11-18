@@ -1,6 +1,7 @@
 import { parseSync } from "oxc-parser";
 import { type CodegenHeader, parseCodegenHeader } from "../../codegen/header";
 import { createLineIndex } from "./locations";
+import { collectJsxTexts, type SourceText } from "./texts";
 
 /**
  * The syntactic model of one TypeScript or JavaScript module, built with
@@ -258,6 +259,8 @@ export type SourceModule = {
 	reexports: SourceReexport[];
 	jsx: SourceJsxElement[];
 	classStrings: SourceClassString[];
+	/** UI copy: JSX text children and attribute strings (`texts.ts`), in source order. */
+	texts: SourceText[];
 	calls: SourceCall[];
 	/** Member accesses taken directly off a call result, invoked or not. */
 	callResultUses: SourceCallResultUse[];
@@ -1029,6 +1032,7 @@ export function parseSourceModule(
 		reexports: [],
 		jsx: [],
 		classStrings: [],
+		texts: [],
 		calls: [],
 		callResultUses: [],
 		scopes: [],
@@ -1196,6 +1200,9 @@ export function parseSourceModule(
 	};
 
 	const visit = (node: AstNode, scope: number) => {
+		if (node.type === "JSXFragment") {
+			module.texts.push(...collectJsxTexts(node, "<>", position, () => null));
+		}
 		if (node.type === "JSXElement" && isNode(node.openingElement)) {
 			const opening = node.openingElement;
 			const name = isNode(opening.name) ? memberPath(opening.name) : null;
@@ -1238,6 +1245,13 @@ export function parseSourceModule(
 						}
 					}
 				}
+				module.texts.push(
+					...collectJsxTexts(node, formatName(name), position, (attribute) =>
+						isNode(attribute.name)
+							? (memberPath(attribute.name)?.root ?? null)
+							: null,
+					),
+				);
 				module.jsx.push({
 					name: formatName(name),
 					root: name.root,
@@ -1430,5 +1444,6 @@ export function parseSourceModule(
 		left.position.line - right.position.line ||
 		left.position.column - right.position.column;
 	module.classStrings.sort(byOffset);
+	module.texts.sort(byOffset);
 	return module;
 }

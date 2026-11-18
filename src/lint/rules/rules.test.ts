@@ -45,10 +45,16 @@ describe("rule registry", () => {
 			"code.non-canonical-class",
 			"code.variants-imported-outside-component",
 			"code.component-styling-restricted",
+			"code.text-pattern",
+			"code.class-restricted",
+			"code.missing-dark-variant",
 			"design.unknown-class-token",
 			"design.non-canonical-class",
 			"design.design-only-class-target",
 			"design.unknown-variant-value",
+			"design.text-pattern",
+			"design.class-restricted",
+			"design.missing-dark-variant",
 		]);
 		expect(
 			lintRuleRegistry.get("code.variants-file-stale")?.defaultSeverity,
