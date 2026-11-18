@@ -277,9 +277,9 @@ function ObjectListField({
 										{field.required ? "" : " (optional)"}
 									</span>
 									{field.type === "boolean" ? (
-										<select
+										<Select
 											aria-label={fieldLabel}
-											className={selectClassName}
+											variant="outlined"
 											value={fieldValue === undefined ? "" : String(fieldValue)}
 											onChange={(event) =>
 												setField(
@@ -294,7 +294,7 @@ function ObjectListField({
 											<option value="">Default</option>
 											<option value="true">On</option>
 											<option value="false">Off</option>
-										</select>
+										</Select>
 									) : field.type === "string-list" ? (
 										<ListTextarea
 											label={fieldLabel}
