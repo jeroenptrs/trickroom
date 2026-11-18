@@ -10,6 +10,10 @@ import {
 import { openProject, sessionQueryKey } from "../queries/projects";
 import { systemsQueryKey } from "../queries/systems";
 import { HttpError } from "../utils/readJsonOrThrow";
+import {
+	systemNameHasStorageKey,
+	systemNameStorageKeyError,
+} from "../utils/system-name";
 import type { CreateProjectRouteState } from "./project/CommandMenu";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
@@ -18,8 +22,6 @@ import { Field } from "./ui/field";
 import { FieldControl } from "./ui/input";
 import { InputGroup } from "./ui/input-group";
 import { Text } from "./ui/text";
-
-const systemNamePattern = /^[A-Za-z0-9_@-]+$/;
 
 type FieldName = "name" | "projectFolder" | "systemName" | "systemCssPath";
 const fieldOrder: FieldName[] = [
@@ -63,8 +65,8 @@ export function CreateProjectPanel() {
 	if (showSystem) {
 		if (!systemName.trim()) {
 			errors.systemName = "Enter a system name, or remove the system.";
-		} else if (!systemNamePattern.test(systemName.trim())) {
-			errors.systemName = "Use letters, numbers, - _ and @ only.";
+		} else if (!systemNameHasStorageKey(systemName)) {
+			errors.systemName = systemNameStorageKeyError;
 		}
 		if (!systemCssPath.trim()) {
 			errors.systemCssPath =

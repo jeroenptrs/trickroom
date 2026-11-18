@@ -816,7 +816,7 @@ export function Properties({ designId }: { designId?: string } = {}) {
 							<DesignSystemPicker />
 							{designId ? <DesignLintSummary designId={designId} /> : null}
 							<Text variant="meta" render={<p />}>
-								Turn on Annotate to select layers on the stage.
+								Turn on Select to select layers on the stage.
 							</Text>
 							<EmptyStateKbdMap />
 						</div>

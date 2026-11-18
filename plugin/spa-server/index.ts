@@ -15,6 +15,11 @@ const resolveEntry = (entry: string | undefined) => {
 	return found;
 };
 
+const isApiRequest = (url: string | undefined) => {
+	const pathname = (url ?? "").split("?")[0];
+	return pathname === "/api" || pathname.startsWith("/api/");
+};
+
 export const spaServer = (opts: SPAServerOptions = {}): PluginOption => {
 	const entry = resolveEntry(opts.entry);
 
@@ -41,7 +46,9 @@ export const spaServer = (opts: SPAServerOptions = {}): PluginOption => {
 				const webRes = (await app.fetch(
 					await createRequestFromIncoming(req),
 				)) as Response;
-				if (webRes.status === 404) {
+				// A 404 from an API route is an answer ("design not found"), not
+				// a miss: only non-API paths fall through to Vite's index.html.
+				if (webRes.status === 404 && !isApiRequest(req.url)) {
 					const marker = webRes.headers.get("spa-server");
 					if (marker !== "false") {
 						return next();

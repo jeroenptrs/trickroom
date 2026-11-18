@@ -7,6 +7,10 @@ import {
 	createSystem,
 	systemsQueryKey,
 } from "../../queries/systems";
+import {
+	systemNameHasStorageKey,
+	systemNameStorageKeyError,
+} from "../../utils/system-name";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 import Checkbox from "../ui/checkbox";
@@ -70,7 +74,11 @@ export function CreateSystemDialog({
 	const trimmedSystemName = systemName.trim();
 	const trimmedCssPath = cssPath.trim();
 	const nameError =
-		trimmedSystemName.length === 0 ? "Enter a system name." : undefined;
+		trimmedSystemName.length === 0
+			? "Enter a system name."
+			: systemNameHasStorageKey(trimmedSystemName)
+				? undefined
+				: systemNameStorageKeyError;
 	const cssError =
 		trimmedCssPath.length === 0 ? "Enter the CSS file." : undefined;
 
