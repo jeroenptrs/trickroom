@@ -1,4 +1,9 @@
 import { unknownClassTokenRule } from "./code/class-tokens";
+import {
+	codeClassRestrictedRule,
+	codeMissingDarkVariantRule,
+	codeTextPatternRule,
+} from "./code/guidelines";
 import { nonCanonicalClassRule } from "./code/non-canonical-class";
 import { redundantClassRule } from "./code/redundant-class";
 import {
@@ -18,6 +23,11 @@ import {
 	wrapperMissingVariantsCallRule,
 } from "./code/wrapper";
 import { designOnlyClassTargetRule } from "./design/design-only-class-target";
+import {
+	designClassRestrictedRule,
+	designMissingDarkVariantRule,
+	designTextPatternRule,
+} from "./design/guidelines";
 import { designNonCanonicalClassRule } from "./design/non-canonical-class";
 import { designUnknownClassTokenRule } from "./design/unknown-class-token";
 import { designUnknownVariantValueRule } from "./design/unknown-variant-value";
@@ -51,10 +61,16 @@ export const LINT_RULE_KINDS: readonly LintRuleKind[] = [
 	nonCanonicalClassRule,
 	variantsImportedOutsideComponentRule,
 	componentStylingRestrictedRule,
+	codeTextPatternRule,
+	codeClassRestrictedRule,
+	codeMissingDarkVariantRule,
 	designUnknownClassTokenRule,
 	designNonCanonicalClassRule,
 	designOnlyClassTargetRule,
 	designUnknownVariantValueRule,
+	designTextPatternRule,
+	designClassRestrictedRule,
+	designMissingDarkVariantRule,
 ];
 
 export const lintRuleRegistry = createLintRuleRegistry(LINT_RULE_KINDS);

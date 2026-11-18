@@ -11,6 +11,7 @@ import type {
 	LintRuleKindSummary,
 	LintRuleOptionSpec,
 } from "../../../lint/rule-catalogue";
+import { objectListIsEditable } from "../../../lint/rule-options";
 import type { ProjectQueryScope } from "../../../queries/project-scope";
 import { systemComponentsQueryOptions } from "../../../queries/system-components";
 import {
@@ -230,6 +231,127 @@ function ComponentMapField({
 	);
 }
 
+type ObjectListSpec = Extract<LintRuleOptionSpec, { type: "object-list" }>;
+
+/** One card per entry, a control per field; an empty field is left out. */
+function ObjectListField({
+	value,
+	onChange,
+	spec,
+}: {
+	value: unknown;
+	onChange: (next: Record<string, unknown>[] | undefined) => void;
+	spec: ObjectListSpec;
+}) {
+	const entries = Array.isArray(value)
+		? (value as Record<string, unknown>[])
+		: [];
+	const write = (next: Record<string, unknown>[]) =>
+		onChange(next.length > 0 ? next : undefined);
+	const setField = (index: number, key: string, fieldValue: unknown) =>
+		write(
+			entries.map((entry, position) => {
+				if (position !== index) return entry;
+				const { [key]: _previous, ...rest } = entry;
+				return fieldValue === undefined ? rest : { ...rest, [key]: fieldValue };
+			}),
+		);
+	return (
+		<div className="flex flex-col gap-2">
+			{entries.map((entry, index) => (
+				<div
+					// Entries have no identity of their own; the position is it.
+					// biome-ignore lint/suspicious/noArrayIndexKey: see above
+					key={index}
+					className="flex items-start gap-2 bg-slate-50 p-2 inset-shadow-[0_0_0_1px] inset-shadow-slate-200"
+				>
+					<div className="flex min-w-0 flex-1 flex-col gap-1.5">
+						{spec.fields.map((field) => {
+							const fieldLabel = `${spec.label} ${index + 1}: ${field.label}`;
+							const fieldValue = entry[field.key];
+							return (
+								<div
+									key={field.key}
+									className="flex flex-col gap-0.5 text-xs text-slate-500"
+								>
+									<span>
+										{field.label}
+										{field.required ? "" : " (optional)"}
+									</span>
+									{field.type === "boolean" ? (
+										<select
+											aria-label={fieldLabel}
+											className={selectClassName}
+											value={fieldValue === undefined ? "" : String(fieldValue)}
+											onChange={(event) =>
+												setField(
+													index,
+													field.key,
+													event.target.value === ""
+														? undefined
+														: event.target.value === "true",
+												)
+											}
+										>
+											<option value="">Default</option>
+											<option value="true">On</option>
+											<option value="false">Off</option>
+										</select>
+									) : field.type === "string-list" ? (
+										<ListTextarea
+											label={fieldLabel}
+											value={fieldValue as string[] | undefined}
+											placeholder={field.placeholder}
+											onChange={(list) => setField(index, field.key, list)}
+										/>
+									) : (
+										<Input
+											variant="formCompact"
+											className="w-full font-mono text-xs"
+											aria-label={fieldLabel}
+											placeholder={field.placeholder}
+											value={(fieldValue as string | undefined) ?? ""}
+											onChange={(event) =>
+												setField(
+													index,
+													field.key,
+													event.target.value || undefined,
+												)
+											}
+										/>
+									)}
+								</div>
+							);
+						})}
+					</div>
+					<Button
+						type="button"
+						variant="ghost"
+						className="flex size-7 shrink-0 items-center justify-center p-0"
+						title={`Remove ${spec.label.toLowerCase()} ${index + 1}`}
+						onClick={() =>
+							write(entries.filter((_entry, position) => position !== index))
+						}
+					>
+						<Trash2 className="size-3.5" aria-hidden="true" />
+					</Button>
+				</div>
+			))}
+			<div>
+				<Button
+					type="button"
+					variant="outlined"
+					className="flex items-center gap-1 px-2 py-1 text-xs"
+					onClick={() => write([...entries, {}])}
+				>
+					<Plus className="size-3" aria-hidden="true" />
+					Add
+				</Button>
+			</div>
+		</div>
+	);
+}
+
 function OptionField({
 	spec,
 	value,
@@ -242,7 +364,11 @@ function OptionField({
 	slugs: readonly string[];
 }) {
 	let control: React.ReactNode;
-	if (!optionValueMatchesSpec(spec, value)) {
+	const editable =
+		spec.type === "object-list"
+			? objectListIsEditable(spec, value)
+			: optionValueMatchesSpec(spec, value);
+	if (!editable) {
 		control = (
 			<div className="flex flex-col gap-1">
 				<Text tone="faint" className="text-[11px]">
@@ -314,6 +440,8 @@ function OptionField({
 				onChange={onChange}
 			/>
 		);
+	} else if (spec.type === "object-list") {
+		control = <ObjectListField spec={spec} value={value} onChange={onChange} />;
 	} else {
 		control = (
 			<ComponentMapField

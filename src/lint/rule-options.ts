@@ -23,7 +23,23 @@ export type LintRuleOptionSpec = {
 	 * or with `entryKey`, `{ [slug]: { [entryKey]: string[] } }`.
 	 */
 	| { type: "component-map"; placeholder?: string; entryKey?: string }
+	/**
+	 * A list of objects with the fields `fields` describes, such as banned
+	 * text patterns with their message. Keys outside `fields` are invalid.
+	 */
+	| { type: "object-list"; fields: readonly LintRuleOptionField[] }
 );
+
+/** One field of an `object-list` entry. */
+export type LintRuleOptionField = {
+	key: string;
+	label: string;
+	description?: string;
+	type: "string" | "boolean" | "string-list";
+	/** The entry must set it (a string must not be empty). */
+	required?: boolean;
+	placeholder?: string;
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
@@ -44,6 +60,86 @@ export const componentMapEntryList = (
 				: undefined;
 	return isStringList(list) ? list : undefined;
 };
+
+const fieldValueHasShape = (
+	field: LintRuleOptionField,
+	value: unknown,
+	partial = false,
+) => {
+	if (value === undefined) return partial || field.required !== true;
+	if (partial && field.type === "string") return typeof value === "string";
+	switch (field.type) {
+		case "string":
+			return (
+				typeof value === "string" &&
+				(field.required !== true || value.trim().length > 0)
+			);
+		case "boolean":
+			return typeof value === "boolean";
+		case "string-list":
+			return isStringList(value);
+	}
+};
+
+/** Problems with one entry of an object-list value, each naming `options.<key>[index]`. */
+const objectListEntryIssues = (
+	spec: Extract<LintRuleOptionSpec, { type: "object-list" }>,
+	entry: unknown,
+	index: number,
+): string[] => {
+	const field = `options.${spec.key}[${index}]`;
+	if (!isRecord(entry)) return [`${field} must be an object.`];
+	const issues: string[] = [];
+	const known = new Set(spec.fields.map((entryField) => entryField.key));
+	for (const key of Object.keys(entry)) {
+		if (!known.has(key)) {
+			issues.push(
+				`${field}.${key} is not a field of this option; the fields are ${quoted([...known])}.`,
+			);
+		}
+	}
+	for (const entryField of spec.fields) {
+		const value = entry[entryField.key];
+		if (fieldValueHasShape(entryField, value)) continue;
+		issues.push(
+			value === undefined
+				? `${field}.${entryField.key} is required.`
+				: `${field}.${entryField.key} must be ${
+						entryField.type === "string"
+							? entryField.required
+								? "a non-empty string"
+								: "a string"
+							: entryField.type === "boolean"
+								? "a boolean"
+								: "a list of strings"
+					}.`,
+		);
+	}
+	return issues;
+};
+
+/**
+ * Whether an object-list value can be edited field by field: a list of
+ * objects with known fields of the right types, required ones possibly
+ * missing (an entry being filled in). The dashboard's form uses it; saving
+ * still needs `optionValueHasSpecShape`.
+ */
+export const objectListIsEditable = (
+	spec: Extract<LintRuleOptionSpec, { type: "object-list" }>,
+	value: unknown,
+): boolean =>
+	value === undefined ||
+	(Array.isArray(value) &&
+		value.every(
+			(entry) =>
+				isRecord(entry) &&
+				Object.keys(entry).every((key) =>
+					spec.fields.some((field) => field.key === key),
+				) &&
+				spec.fields.every((field) =>
+					fieldValueHasShape(field, entry[field.key], true),
+				),
+		));
 
 /** Whether a stored value has the shape its spec describes; undefined is unset. */
 export const optionValueHasSpecShape = (
@@ -67,6 +163,14 @@ export const optionValueHasSpecShape = (
 					(entry) => componentMapEntryList(spec, entry) !== undefined,
 				)
 			);
+		case "object-list":
+			return (
+				Array.isArray(value) &&
+				value.every(
+					(entry, index) =>
+						objectListEntryIssues(spec, entry, index).length === 0,
+				)
+			);
 	}
 };
 
@@ -87,6 +191,8 @@ const describeShape = (spec: LintRuleOptionSpec) => {
 			return spec.entryKey === undefined
 				? "an object mapping component slugs to lists of strings"
 				: `an object mapping component slugs to { ${spec.entryKey}: [...] }`;
+		case "object-list":
+			return `a list of objects with the fields ${quoted(spec.fields.map((field) => field.key))}`;
 	}
 };
 
@@ -96,6 +202,11 @@ export const optionValueIssues = (
 	value: unknown,
 ): string[] => {
 	const field = `options.${spec.key}`;
+	if (spec.type === "object-list" && Array.isArray(value)) {
+		return value.flatMap((entry, index) =>
+			objectListEntryIssues(spec, entry, index),
+		);
+	}
 	if (!optionValueHasSpecShape(spec, value)) {
 		return [`${field} must be ${describeShape(spec)}.`];
 	}

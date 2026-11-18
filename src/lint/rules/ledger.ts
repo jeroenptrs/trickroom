@@ -34,6 +34,12 @@ export const LINT_RULE_KIND_LEDGER: readonly LintRuleKindLedgerEntry[] = [
 	{ id: "design.non-canonical-class" },
 	{ id: "design.design-only-class-target" },
 	{ id: "design.unknown-variant-value" },
+	{ id: "code.text-pattern" },
+	{ id: "code.class-restricted" },
+	{ id: "code.missing-dark-variant" },
+	{ id: "design.text-pattern" },
+	{ id: "design.class-restricted" },
+	{ id: "design.missing-dark-variant" },
 ];
 
 /** Every id in the ledger, retired ones included. */

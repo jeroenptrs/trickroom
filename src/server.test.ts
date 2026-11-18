@@ -2102,6 +2102,9 @@ describe("server design lint route", () => {
 				"design.non-canonical-class",
 				"design.design-only-class-target",
 				"design.unknown-variant-value",
+				"design.text-pattern",
+				"design.class-restricted",
+				"design.missing-dark-variant",
 			],
 			findings: [
 				{

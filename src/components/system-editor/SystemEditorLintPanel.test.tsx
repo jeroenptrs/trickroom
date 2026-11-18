@@ -81,6 +81,17 @@ const ruleKinds: LintRuleKindSummary[] = [
 				description: "Files that may style each component.",
 				type: "component-map",
 			},
+			{
+				key: "patterns",
+				label: "Banned text",
+				description: "Text the copy must not contain.",
+				type: "object-list",
+				fields: [
+					{ key: "pattern", label: "Pattern", type: "string", required: true },
+					{ key: "regex", label: "Regular expression", type: "boolean" },
+					{ key: "message", label: "Message", type: "string", required: true },
+				],
+			},
 		],
 	},
 ];
@@ -101,6 +112,10 @@ const configResponse = (
 				options: {
 					allow: ["src/legacy/**"],
 					only: { button: ["src/components/ui/button.tsx"] },
+					patterns: [
+						{ pattern: "^Sorry", regex: true, message: "Do not apologise." },
+						{ pattern: "Are you sure" },
+					],
 					future: { mode: "strict" },
 				},
 			},
@@ -464,6 +479,16 @@ describe("System editor lint rule configuration", () => {
 		expect(html).toContain("src/legacy/**");
 		expect(html).toContain('data-lint-option="only"');
 		expect(html).toContain("src/components/ui/button.tsx");
+		// An object list gets a card per entry, a half-filled one included.
+		expect(html).toContain('data-lint-option="patterns"');
+		expect(html).toMatch(
+			/aria-label="Banned text 1: Pattern"[^>]*value="\^Sorry"/u,
+		);
+		expect(html).toContain('value="Do not apologise."');
+		expect(html).toMatch(
+			/aria-label="Banned text 2: Pattern"[^>]*value="Are you sure"/u,
+		);
+		expect(html).toContain("Regular expression (optional)");
 		expect(html).toContain("other options (read-only)");
 		expect(html).toContain("&quot;mode&quot;: &quot;strict&quot;");
 		// Thresholds, wrapper overrides and sources with the defaults.

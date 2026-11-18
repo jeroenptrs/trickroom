@@ -27,6 +27,21 @@ const validValue = (spec: LintRuleOptionSpec): unknown => {
 						? ["src/**"]
 						: { [spec.entryKey]: ["src/**"] },
 			};
+		case "object-list":
+			return [
+				Object.fromEntries(
+					spec.fields
+						.filter((field) => field.required)
+						.map((field) => [
+							field.key,
+							field.type === "boolean"
+								? true
+								: field.type === "string-list"
+									? ["x"]
+									: "x",
+						]),
+				),
+			];
 	}
 };
 
@@ -35,6 +50,41 @@ const wrongShape = (spec: LintRuleOptionSpec): unknown =>
 	spec.type === "boolean" ? "yes" : spec.type === "component-map" ? [] : {};
 
 describe("rule option specs", () => {
+	it("checks object-list entries field by field", () => {
+		const patterns: LintRuleOptionSpec = {
+			key: "patterns",
+			label: "Patterns",
+			description: "",
+			type: "object-list",
+			fields: [
+				{ key: "pattern", label: "Pattern", type: "string", required: true },
+				{ key: "regex", label: "Regex", type: "boolean" },
+				{ key: "tags", label: "Tags", type: "string-list" },
+				{ key: "message", label: "Message", type: "string", required: true },
+			],
+		};
+		const valid = [{ pattern: "x", regex: true, tags: ["a"], message: "m" }];
+		expect(optionValueHasSpecShape(patterns, valid)).toBe(true);
+		expect(optionValueIssues(patterns, valid)).toEqual([]);
+		expect(optionValueIssues(patterns, {})).toEqual([
+			'options.patterns must be a list of objects with the fields "pattern", "regex", "tags", "message".',
+		]);
+		const invalid = [
+			"x",
+			{ pattern: "", regex: "yes", extra: 1, message: "m" },
+			{ pattern: "y", tags: [1] },
+		];
+		expect(optionValueHasSpecShape(patterns, invalid)).toBe(false);
+		expect(optionValueIssues(patterns, invalid)).toEqual([
+			"options.patterns[0] must be an object.",
+			'options.patterns[1].extra is not a field of this option; the fields are "pattern", "regex", "tags", "message".',
+			"options.patterns[1].pattern must be a non-empty string.",
+			"options.patterns[1].regex must be a boolean.",
+			"options.patterns[2].tags must be a list of strings.",
+			"options.patterns[2].message is required.",
+		]);
+	});
+
 	it("checks shapes, allowed values and component-map entries", () => {
 		const scope: LintRuleOptionSpec = {
 			key: "scope",
@@ -85,8 +135,14 @@ describe("rule option specs", () => {
 			"code.unknown-class-token",
 			"code.non-canonical-class",
 			"code.component-styling-restricted",
+			"code.text-pattern",
+			"code.class-restricted",
+			"code.missing-dark-variant",
 			"design.unknown-class-token",
 			"design.non-canonical-class",
+			"design.text-pattern",
+			"design.class-restricted",
+			"design.missing-dark-variant",
 		]);
 		for (const kind of withOptions) {
 			expect(LINT_RULE_OPTION_SPECS[kind.id]).toBe(kind.options);

@@ -398,8 +398,14 @@ describe("system lint routes", () => {
 			"code.unknown-class-token": ["allow", "scope"],
 			"code.non-canonical-class": ["allow"],
 			"code.component-styling-restricted": ["components"],
+			"code.text-pattern": ["patterns", "attributes", "exclude"],
+			"code.class-restricted": ["restrictions"],
+			"code.missing-dark-variant": ["colors", "allow", "exclude"],
 			"design.unknown-class-token": ["allow", "codes"],
 			"design.non-canonical-class": ["allow"],
+			"design.text-pattern": ["patterns", "skipLayers"],
+			"design.class-restricted": ["restrictions"],
+			"design.missing-dark-variant": ["colors", "allow"],
 		});
 
 		const response = await app.request(
