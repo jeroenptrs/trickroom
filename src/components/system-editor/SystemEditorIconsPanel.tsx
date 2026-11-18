@@ -436,7 +436,7 @@ export function SystemEditorIconFoldersRail({
 								<Button
 									type="button"
 									variant="block"
-									flavor="warning"
+									flavor="danger"
 									className="flex size-7 items-center justify-center p-0"
 									title={`Remove ${folder}`}
 									aria-label={`Remove ${folder}`}

@@ -24,6 +24,12 @@ const emptyState = tv({
 				tile: "size-12",
 				description: "max-w-sm text-sm",
 			},
+			// One line, no tile: for a filtered list with no results.
+			compact: {
+				root: "items-start gap-2 px-3 py-3 text-left",
+				title: "text-xs font-normal text-slate-900",
+				description: "text-xs",
+			},
 		},
 	},
 	defaultVariants: {
@@ -33,39 +39,57 @@ const emptyState = tv({
 
 /**
  * Centered icon tile + title + description for empty/welcome panes.
- * `size="sm"` fits sidebar lists; `size="md"` fills a detail pane.
+ * `size="sm"` fits sidebar lists; `size="md"` fills a detail pane;
+ * `size="compact"` is one line with no tile, for "no results" in a filtered
+ * list. `action` holds the one primary action of an empty collection.
  * Extra rows (kbd hints, paths) render below as children.
  */
 function EmptyState({
 	icon: Icon,
 	title,
 	description,
+	action,
 	size,
 	className,
 	children,
 }: {
-	icon: LucideIcon;
+	icon?: LucideIcon;
 	title: string;
-	description: string;
-	size?: "sm" | "md";
+	description?: ReactNode;
+	action?: ReactNode;
+	size?: "sm" | "md" | "compact";
 	className?: string;
 	children?: ReactNode;
 }) {
 	const styles = emptyState({ size });
 
+	if (size === "compact") {
+		return (
+			<div role="status" className={styles.root({ className })}>
+				<Text className={styles.title()}>{title}</Text>
+				{action}
+			</div>
+		);
+	}
+
 	return (
 		<div className={styles.root({ className })}>
-			<div className={styles.tile()}>
-				<Icon className={styles.icon()} aria-hidden="true" />
-			</div>
+			{Icon ? (
+				<div className={styles.tile()}>
+					<Icon className={styles.icon()} aria-hidden="true" />
+				</div>
+			) : null}
 			<div className="flex flex-col gap-1.5">
 				<Text variant="title" className={styles.title()}>
 					{title}
 				</Text>
-				<Text tone="faint" className={styles.description()}>
-					{description}
-				</Text>
+				{description ? (
+					<Text tone="faint" className={styles.description()}>
+						{description}
+					</Text>
+				) : null}
 			</div>
+			{action}
 			{children}
 		</div>
 	);

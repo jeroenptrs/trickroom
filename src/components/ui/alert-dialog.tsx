@@ -1,58 +1,24 @@
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
-import { X } from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
+import { type ComponentProps, type ReactNode, useRef } from "react";
 import { tv } from "tailwind-variants";
 import { Button } from "./button";
-import { Separator } from "./separator";
-
-const alertDialog = tv({
-	slots: {
-		backdrop:
-			"fixed inset-0 min-h-dvh bg-slate-950 opacity-20 transition-all duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 dark:opacity-70 supports-[-webkit-touch-callout:none]:absolute",
-		popup:
-			"flex flex-col fixed top-1/2 left-1/2 -mt-8 w-96 w-full max-w-xs md:max-w-md -translate-x-1/2 -translate-y-1/2 rounded-none bg-white text-slate-900 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 shadow-xl shadow-slate-900/10 transition-all duration-150 data-ending-style:scale-90 data-ending-style:opacity-0 data-starting-style:scale-90 data-starting-style:opacity-0",
-		title: "p-2",
-		description: "px-2 mb-4",
-	},
-});
-
-const { backdrop, popup, title, description } = alertDialog();
+import {
+	DialogBody,
+	DialogError,
+	DialogFooter,
+	DialogHeader,
+	dialogSlots,
+} from "./dialog";
 
 const confirmationDialog = tv({
 	slots: {
 		popup: "w-[calc(100vw-2rem)] max-w-104 gap-0 overflow-hidden rounded-none",
-		header: "flex items-center justify-between px-4 py-3",
-		titleGroup: "flex min-w-0 items-center gap-2",
-		icon: "size-4 shrink-0 text-slate-500",
-		closeIcon: "size-4 text-slate-500",
-		body: "px-4 py-4 text-sm leading-relaxed text-slate-700",
-		footer: "flex items-center justify-end gap-2 px-4 py-3",
-		cancelButton: "",
 		actionButton: "flex items-center justify-center gap-2",
-	},
-	variants: {
-		tone: {
-			default: {
-				icon: "text-slate-500",
-			},
-			destructive: {
-				icon: "text-red-600",
-			},
-		},
 	},
 });
 
-const {
-	popup: confirmationPopup,
-	header: confirmationHeader,
-	titleGroup: confirmationTitleGroup,
-	icon: confirmationIcon,
-	closeIcon: confirmationCloseIcon,
-	body: confirmationBody,
-	footer: confirmationFooter,
-	cancelButton: confirmationCancelButton,
-	actionButton: confirmationActionButton,
-} = confirmationDialog();
+const { popup: confirmationPopup, actionButton: confirmationActionButton } =
+	confirmationDialog();
 
 function AlertDialog({ ...props }: AlertDialogPrimitive.Root.Props) {
 	return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
@@ -71,7 +37,7 @@ function AlertDialogBackdrop({
 	return (
 		<AlertDialogPrimitive.Backdrop
 			data-slot="alert-dialog-backdrop"
-			className={backdrop({ className })}
+			className={dialogSlots.backdrop({ className })}
 			{...props}
 		/>
 	);
@@ -97,7 +63,7 @@ function AlertDialogPopup({
 	return (
 		<AlertDialogPrimitive.Popup
 			data-slot="alert-dialog-popup"
-			className={popup({ className })}
+			className={dialogSlots.content({ className })}
 			{...props}
 		/>
 	);
@@ -110,7 +76,7 @@ function AlertDialogTitle({
 	return (
 		<AlertDialogPrimitive.Title
 			data-slot="alert-dialog-title"
-			className={title({ className })}
+			className={dialogSlots.title({ className })}
 			{...props}
 		/>
 	);
@@ -123,7 +89,7 @@ function AlertDialogDescription({
 	return (
 		<AlertDialogPrimitive.Description
 			data-slot="alert-dialog-description"
-			className={description({ className })}
+			className={className}
 			{...props}
 		/>
 	);
@@ -135,6 +101,11 @@ function AlertDialogClose({ ...props }: AlertDialogPrimitive.Close.Props) {
 	);
 }
 
+/**
+ * A confirm dialog: header, body, an optional backend error, and a footer of
+ * Cancel, an optional secondary action, and the primary action. Focus opens
+ * on Cancel so Enter never commits a destructive action by accident.
+ */
 function ConfirmationDialog({
 	open,
 	onOpenChange,
@@ -150,6 +121,8 @@ function ConfirmationDialog({
 	actionForm,
 	onAction,
 	onCancel,
+	secondaryAction,
+	error,
 	children,
 }: {
 	open: boolean;
@@ -166,57 +139,64 @@ function ConfirmationDialog({
 	actionForm?: string;
 	onAction?: ComponentProps<"button">["onClick"];
 	onCancel?: ComponentProps<"button">["onClick"];
+	/** A third button between Cancel and the primary action. */
+	secondaryAction?: {
+		label: ReactNode;
+		onClick: ComponentProps<"button">["onClick"];
+		disabled?: boolean;
+		tone?: "default" | "destructive";
+	};
+	/** A backend error, shown inside the dialog above the footer. */
+	error?: ReactNode;
 	children?: ReactNode;
 }) {
+	const cancelRef = useRef<HTMLButtonElement>(null);
 	return (
 		<AlertDialog open={open} onOpenChange={onOpenChange}>
 			<AlertDialogPortal>
 				<AlertDialogBackdrop />
 				<AlertDialogViewport>
 					<AlertDialogPopup
-						initialFocus={false}
+						initialFocus={cancelRef}
 						className={confirmationPopup()}
 					>
-						<div className={confirmationHeader()}>
-							<div className={confirmationTitleGroup()}>
-								<span className={confirmationIcon({ tone })} aria-hidden="true">
-									{icon}
-								</span>
-								<AlertDialogTitle className="p-0 text-sm font-medium text-slate-900">
-									{title}
-								</AlertDialogTitle>
-							</div>
-							<AlertDialogClose className="border-none bg-transparent p-1 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500">
-								<span className="sr-only">Close</span>
-								<X className={confirmationCloseIcon()} aria-hidden="true" />
-							</AlertDialogClose>
-						</div>
-						<Separator />
+						<DialogHeader icon={icon} title={title} tone={tone} />
 						{description ? (
-							<AlertDialogDescription className={confirmationBody()}>
+							<AlertDialogDescription render={<DialogBody />}>
 								{description}
 							</AlertDialogDescription>
 						) : null}
 						{children}
-						<Separator />
-						<div className={confirmationFooter()}>
+						<DialogError>{error}</DialogError>
+						<DialogFooter>
 							<AlertDialogClose
+								ref={cancelRef}
 								render={
-									<Button
-										type="button"
-										variant="block"
-										className={confirmationCancelButton()}
-										onClick={onCancel}
-									/>
+									<Button type="button" variant="ghost" onClick={onCancel} />
 								}
 							>
 								{cancelLabel}
 							</AlertDialogClose>
+							{secondaryAction ? (
+								<Button
+									type="button"
+									variant="outlined"
+									flavor={
+										secondaryAction.tone === "destructive"
+											? "danger"
+											: undefined
+									}
+									disabled={secondaryAction.disabled}
+									onClick={secondaryAction.onClick}
+								>
+									{secondaryAction.label}
+								</Button>
+							) : null}
 							<Button
 								type={actionType}
 								form={actionForm}
 								variant={tone === "destructive" ? "outlined" : "filled"}
-								flavor={tone === "destructive" ? "warning" : undefined}
+								flavor={tone === "destructive" ? "danger" : undefined}
 								className={confirmationActionButton()}
 								disabled={actionDisabled}
 								onClick={onAction}
@@ -224,7 +204,7 @@ function ConfirmationDialog({
 								{actionIcon}
 								{actionLabel}
 							</Button>
-						</div>
+						</DialogFooter>
 					</AlertDialogPopup>
 				</AlertDialogViewport>
 			</AlertDialogPortal>

@@ -667,7 +667,7 @@ function VariantSchemaEditor({
 						<Button
 							type="button"
 							variant="block"
-							flavor="warning"
+							flavor="danger"
 							className="mt-4 px-2 py-1"
 							title="Remove axis"
 							onClick={() =>
@@ -782,7 +782,7 @@ function VariantSchemaEditor({
 								<Button
 									type="button"
 									variant="block"
-									flavor="warning"
+									flavor="danger"
 									className="px-2 py-1"
 									title="Remove value"
 									onClick={() =>

@@ -272,7 +272,7 @@ export function DesignDetailPane({
 								action={
 									<Button
 										variant="outlined"
-										flavor="warning"
+										flavor="danger"
 										className="flex shrink-0 items-center gap-1.5"
 										disabled={isMutatingDesign}
 										onClick={() => {

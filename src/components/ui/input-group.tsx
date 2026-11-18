@@ -19,7 +19,7 @@ function InputGroup({
 	return (
 		<div
 			className={[
-				"group flex min-w-0 items-stretch inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500",
+				"group flex min-w-0 items-stretch inset-shadow-[0_0_0_1px] inset-shadow-slate-200 focus-within:inset-shadow-cyan-500 has-[[aria-invalid=true]]:inset-shadow-red-500",
 				className,
 			]
 				.filter(Boolean)

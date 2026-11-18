@@ -931,7 +931,7 @@ export function SystemEditorComponentsRail({
 					<Button
 						type="button"
 						variant="block"
-						flavor="warning"
+						flavor="danger"
 						className="flex w-8 shrink-0 items-center justify-center p-0"
 						disabled={deleteComponentMutation.isPending}
 						title="Delete component"

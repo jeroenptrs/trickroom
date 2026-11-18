@@ -21,7 +21,18 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 					toastOptions={{
 						classNames: {
 							toast:
-								"!rounded-none !border-slate-200 !bg-white !text-slate-950",
+								"!rounded-none !border-slate-200 !bg-white !text-slate-950 !font-sans",
+							title: "!font-medium",
+							description: "!text-slate-700",
+							error:
+								"[&_[data-title]]:!text-red-900 [&_[data-icon]]:!text-red-700",
+							warning:
+								"[&_[data-title]]:!text-amber-900 [&_[data-icon]]:!text-amber-700",
+							success:
+								"[&_[data-title]]:!text-emerald-900 [&_[data-icon]]:!text-emerald-700",
+							info: "[&_[data-title]]:!text-cyan-900 [&_[data-icon]]:!text-cyan-700",
+							actionButton: "!rounded-none !bg-slate-950 !text-slate-50",
+							cancelButton: "!rounded-none",
 						},
 					}}
 				/>

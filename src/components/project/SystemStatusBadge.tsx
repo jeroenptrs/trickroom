@@ -20,6 +20,10 @@ const STATES: Record<
 	error: { label: "Error", tone: "danger" },
 };
 
+export function systemStatusLabel(state: SystemStatusBadgeState) {
+	return STATES[state].label;
+}
+
 export function SystemStatusBadge({
 	state,
 }: {
@@ -32,7 +36,12 @@ export function SystemStatusBadge({
 			{state === "syncing" ? (
 				<RefreshCw className="size-3 animate-spin" aria-hidden="true" />
 			) : (
-				<StatusDot tone={state} shape="square" className="size-1.5" />
+				<StatusDot
+					tone={state}
+					shape="square"
+					className="size-1.5"
+					decorative
+				/>
 			)}
 			{label}
 		</Badge>

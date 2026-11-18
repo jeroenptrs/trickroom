@@ -22,8 +22,8 @@ import { Chip } from "../../ui/chip";
 import { EmptyState } from "../../ui/empty-state";
 import { ScrollArea } from "../../ui/scroll-area";
 import { Text } from "../../ui/text";
-import { type MemoryNoteDraft, MemoryNoteEditor } from "./MemoryNoteEditor";
 import { MemoryNoteBody } from "./MemoryNoteBody";
+import { type MemoryNoteDraft, MemoryNoteEditor } from "./MemoryNoteEditor";
 import { MEMORY_CATEGORY_META } from "./memory-category-meta";
 import { sortMemoryNotes } from "./memory-note-utils";
 
@@ -74,7 +74,7 @@ function NoteCard({
 					</Button>
 					<Button
 						variant="ghost"
-						flavor="warning"
+						flavor="danger"
 						className="p-1.5"
 						onClick={onDelete}
 						disabled={disabled}

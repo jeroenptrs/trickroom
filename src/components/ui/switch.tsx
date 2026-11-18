@@ -2,6 +2,7 @@ import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
 import { tv } from "tailwind-variants";
 
 // Tracks Checkbox: slate-900 when on, square geometry, cyan focus ring.
+// A switch applies at once. A value that saves with a form is a Checkbox.
 const switchStyles = tv({
 	slots: {
 		root: "flex h-4 w-7 shrink-0 items-center rounded-none p-0.5 inset-shadow-[0_0_0_1px] inset-shadow-transparent transition-colors data-checked:bg-slate-900 data-unchecked:bg-slate-300 not-data-disabled:focus-visible:outline-none not-data-disabled:focus-visible:inset-shadow-cyan-500 data-disabled:pointer-events-none data-disabled:opacity-50",

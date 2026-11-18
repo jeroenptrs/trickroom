@@ -187,7 +187,7 @@ export function CreateProjectPanel() {
 								Design system
 							</Text>
 						</div>
-						<Button type="button" variant="link" onClick={handleToggleSystem}>
+						<Button type="button" variant="ghost" onClick={handleToggleSystem}>
 							{showSystem ? "Remove" : "Add +"}
 						</Button>
 					</div>
