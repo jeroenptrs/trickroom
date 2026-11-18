@@ -45,11 +45,10 @@ export function OpenProjectPanel() {
 	return (
 		<div className="flex flex-1 flex-col justify-center gap-6 px-8 pt-4 pb-8">
 			<div>
-				<Text variant="eyebrow">Welcome</Text>
 				<Text
 					variant="title"
 					tone="foreground"
-					className="mt-1 block text-2xl tracking-tight"
+					className="block text-2xl tracking-tight"
 				>
 					Open a project
 				</Text>
@@ -62,13 +61,10 @@ export function OpenProjectPanel() {
 				<Button
 					type="button"
 					variant="outlined"
-					className="w-full flex-col items-start gap-1 text-left"
+					className="w-full text-left"
 					onClick={() => void navigate("/new")}
 				>
-					<span className="block">Create project</span>
-					<Text tone="faint" className="block text-[11px] font-normal">
-						Start a new .trickroom workspace
-					</Text>
+					Create project
 				</Button>
 			</div>
 
@@ -80,7 +76,7 @@ export function OpenProjectPanel() {
 					<Field.Label
 						render={
 							// biome-ignore lint/a11y/noLabelWithoutControl: Field.Label injects htmlFor and the label text into this render element at runtime.
-							<Text variant="section-header" render={<label />} />
+							<Text variant="label" render={<label />} />
 						}
 					>
 						Open by path
@@ -118,7 +114,9 @@ export function OpenProjectPanel() {
 				</Field.Root>
 
 				{openMutation.isError ? (
-					<Alert variant="panel">Failed to open project: {openError}</Alert>
+					<Alert variant="panel">
+						Could not open {openMutation.variables}: {openError}
+					</Alert>
 				) : null}
 			</form>
 		</div>

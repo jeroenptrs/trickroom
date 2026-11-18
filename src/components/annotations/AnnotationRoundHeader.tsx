@@ -105,8 +105,8 @@ export function AnnotationRoundHeader({
 				render={<div />}
 				data-annotation-round-progress=""
 			>
-				Round · {counts.closed} of {counts.total} closed
-				{counts.humanWork > 0 ? ` · ${counts.humanWork} waiting on you` : null}
+				{counts.closed} of {counts.total} closed
+				{counts.humanWork > 0 ? `, ${counts.humanWork} waiting on you` : null}
 			</Text>
 			<div className="flex flex-wrap gap-1">
 				{sendRound}

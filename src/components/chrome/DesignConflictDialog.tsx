@@ -1,5 +1,6 @@
 import { GitMerge } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { resolveRegistryComponent } from "../../libraries/registry";
 import { manifestFieldLabels } from "../../stores/design-merge";
 import {
 	type BoardConflict,
@@ -24,7 +25,7 @@ import { Segmented, type SegmentedOption } from "../ui/segmented";
 import { Separator } from "../ui/separator";
 
 const choiceOptions: readonly SegmentedOption<ConflictChoice>[] = [
-	{ value: "theirs", label: "Take theirs" },
+	{ value: "theirs", label: "Use disk" },
 	{ value: "mine", label: "Keep mine" },
 ];
 
@@ -45,9 +46,19 @@ const describeBoardConflict = (conflict: BoardConflict) => {
 
 const layerNames = (conflict: BoardConflict) => {
 	const { entitiesById } = designStore.get();
+	// A name, else the element's label: never the raw id.
 	const names = conflict.nodeIds.map((id) => {
-		const name = entitiesById[id]?.props["data-trickroom-name"];
-		return typeof name === "string" && name ? name : id;
+		const entity = entitiesById[id];
+		if (!entity) return "a deleted layer";
+		const name = entity.props["data-trickroom-name"];
+		if (typeof name === "string" && name.trim()) return name.trim();
+		const resolution = resolveRegistryComponent(
+			entity.props["data-trickroom-library"],
+			entity.props["data-trickroom-component"],
+		);
+		return resolution.status === "known"
+			? resolution.definition.label
+			: entity.props["data-trickroom-component"];
 	});
 	const shown = names.slice(0, MAX_LAYER_NAMES).join(", ");
 	return names.length > MAX_LAYER_NAMES
@@ -174,7 +185,7 @@ export function DesignConflictDialog() {
 											{part.detail}
 										</span>
 										{part.layers ? (
-											<span className="truncate font-mono text-[11px] text-cyan-700">
+											<span className="truncate text-xs text-slate-950">
 												{part.layers}
 											</span>
 										) : null}
@@ -206,7 +217,7 @@ export function DesignConflictDialog() {
 								className="px-2 py-1 text-xs"
 								onClick={() => chooseAll("theirs")}
 							>
-								All theirs
+								Use disk for all
 							</Button>
 							<Button
 								type="button"
@@ -214,16 +225,21 @@ export function DesignConflictDialog() {
 								className="px-2 py-1 text-xs"
 								onClick={() => chooseAll("mine")}
 							>
-								All mine
+								Keep all mine
 							</Button>
+							{allChosen ? null : (
+								<span className="ml-auto text-xs text-slate-500">
+									Choose a version for each part.
+								</span>
+							)}
 							<Button
 								type="button"
 								variant="filled"
-								className="ml-auto px-3 py-1 text-xs"
+								className={`${allChosen ? "ml-auto " : ""}px-3 py-1 text-xs`}
 								disabled={!allChosen}
 								onClick={apply}
 							>
-								Apply
+								Resolve conflicts
 							</Button>
 						</div>
 					</AlertDialogPopup>

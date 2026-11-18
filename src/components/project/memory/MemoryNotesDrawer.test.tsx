@@ -4,13 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { MemoryNotesDrawer } from "./MemoryNotesDrawer";
 
 vi.mock("../../ui/sheet", () => ({
-	Sheet: ({
-		open,
-		children,
-	}: {
-		open: boolean;
-		children: ReactNode;
-	}) => (open ? <div data-slot="sheet">{children}</div> : null),
+	Sheet: ({ open, children }: { open: boolean; children: ReactNode }) =>
+		open ? <div data-slot="sheet">{children}</div> : null,
 	SheetClose: ({ render }: { render: ReactElement }) => render,
 	SheetContent: ({
 		children,
@@ -36,8 +31,8 @@ describe("MemoryNotesDrawer", () => {
 				subtitle="proj_test"
 			/>,
 		);
-		expect(html).toContain("Project notes");
+		expect(html).toContain("Notes for Project notes");
 		expect(html).toContain("memory-notes-panel");
-		expect(html).toContain("Close memory drawer");
+		expect(html).toContain('aria-label="Close"');
 	});
 });

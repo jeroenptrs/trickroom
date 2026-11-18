@@ -1,7 +1,7 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createStore, useSelector } from "@tanstack/react-store";
-import { FileCheck, FileMinus, FileUp } from "lucide-react";
+import { FileCheck, FileMinus, FileUp, FileX } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 import { saveDesignFile } from "../../queries/design-file";
 import { requestDesignResync } from "../../queries/design-live-events";
@@ -18,7 +18,6 @@ import {
 import type { TrickroomDesign } from "../../types";
 import { useProjectScope } from "../contexts";
 import { Button } from "../ui/button";
-import { Popover } from "../ui/popover";
 
 const AUTOSAVE_DELAY_MS = 1000;
 
@@ -176,8 +175,38 @@ export function DesignAutosave({ designId }: { designId: string }) {
 }
 
 /**
- * Unsaved, saving, saved, or failed with a Retry. Renders in the layers
- * panel header and, with that panel collapsed, in the toolbar.
+ * A failed save, as a full-width row under the header that shows the save
+ * state: what failed, why, and Retry. The header itself keeps the design
+ * name and shows only a marker.
+ */
+export function SaveErrorRow() {
+	const status = useSelector(designSaveStatusStore, (state) => state);
+	if (!status.error) return null;
+	return (
+		<div
+			className="flex shrink-0 items-start gap-2 border-b border-red-200 bg-red-50 px-3 py-2 text-xs"
+			role="alert"
+		>
+			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
+				<span className="font-medium text-red-900">Could not save</span>
+				<span className="wrap-break-word text-slate-700">{status.error}</span>
+			</div>
+			<Button
+				variant="outlined"
+				className="shrink-0 bg-white px-2 py-0.5 text-xs"
+				disabled={!status.canSave}
+				onClick={() => status.save?.()}
+			>
+				Retry
+			</Button>
+		</div>
+	);
+}
+
+/**
+ * Unsaved, saving, saved, or not saved. Renders in the layers panel header
+ * and, with that panel collapsed, in the toolbar; a failure's detail and
+ * Retry are in `SaveErrorRow` under it.
  */
 export function SaveIndicator() {
 	const status = useSelector(designSaveStatusStore, (state) => state);
@@ -185,31 +214,9 @@ export function SaveIndicator() {
 
 	if (status.error) {
 		return (
-			<span className="flex shrink-0 items-center gap-1" role="alert">
-				{/* The words open the reason: the header has no room for an
-				    info button beside them. */}
-				<Popover
-					title="Could not save"
-					align="end"
-					trigger={
-						<button
-							type="button"
-							className="whitespace-nowrap border-none bg-transparent p-0 text-[11px] text-red-700 underline decoration-dotted underline-offset-2 hover:text-red-900 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
-						>
-							Could not save
-						</button>
-					}
-				>
-					<p className="wrap-break-word">{status.error}</p>
-				</Popover>
-				<Button
-					variant="outlined"
-					className="px-1.5 py-0.5 text-[11px]"
-					disabled={!status.canSave}
-					onClick={() => status.save?.()}
-				>
-					Retry
-				</Button>
+			<span title="Not saved" className="shrink-0 p-1">
+				<FileX className="size-4 text-red-700" aria-hidden="true" />
+				<span className="sr-only">Not saved</span>
 			</span>
 		);
 	}

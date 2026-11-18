@@ -245,7 +245,7 @@ export function ClassField({
 			const suggestion = inspection.suggestions?.[0];
 			return {
 				token: inspection.candidate,
-				message: "is not a class in this design system",
+				message: "is not a class in this system",
 				tone: "unknown" as const,
 				...(suggestion
 					? { fix: { label: suggestion, replacement: suggestion } }
@@ -365,7 +365,7 @@ export function ClassField({
 									}}
 								>
 									{hint.fix.replacement
-										? `→ ${hint.fix.label}`
+										? `Replace with ${hint.fix.label}`
 										: hint.fix.label}
 								</button>
 							) : null}
@@ -463,8 +463,8 @@ function CompletionList({
 				>
 					<span className="truncate">{completion.label}</span>
 					{completion.kind === "variant" ? (
-						<span className="shrink-0 font-sans text-[10px] uppercase tracking-wider text-slate-400">
-							variant
+						<span className="shrink-0 font-sans text-[10px] text-slate-500">
+							Variant
 						</span>
 					) : null}
 				</button>

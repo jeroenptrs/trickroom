@@ -296,7 +296,7 @@ describe("ComponentDraftStage", () => {
 		expect(html).toContain(
 			'data-trickroom-missing-renderer="base-ui/meter.track"',
 		);
-		expect(html).toContain("No renderer for base-ui/meter.track");
+		expect(html).toContain("Unknown element base-ui/meter.track");
 		expect(html).toContain('data-component-draft-path="ghost"');
 		expect(html).toContain("Still visible");
 	});

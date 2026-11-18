@@ -15,6 +15,7 @@ import { Card } from "../../ui/card";
 import { Chip } from "../../ui/chip";
 import { Input } from "../../ui/input";
 import { Segmented } from "../../ui/segmented";
+import { Select } from "../../ui/select";
 import { Text } from "../../ui/text";
 import { SectionHeading, SeverityBadge } from "./LintParts";
 import {
@@ -36,9 +37,6 @@ const SEVERITY_OPTIONS = [
 	{ value: "warning", label: "Warnings" },
 	{ value: "info", label: "Info" },
 ] as const;
-
-const selectClassName =
-	"min-w-0 border-none bg-white px-2 py-1.5 text-xs text-slate-950 inset-shadow-[0_0_0_1px_#e2e8f0] focus:outline-none focus:inset-shadow-[0_0_0_1px_#06b6d4]";
 
 function FindingRow({
 	finding,
@@ -75,7 +73,9 @@ function FindingRow({
 				{finding.message}
 			</span>
 			{location ? (
-				<span className="truncate font-mono text-[10px] text-slate-500">
+				<span
+					className={`truncate text-[10px] text-slate-500 ${finding.location?.kind === "design" ? "" : "font-mono"}`}
+				>
 					{location}
 				</span>
 			) : null}
@@ -151,8 +151,12 @@ export function LintFindingsView({
 	return (
 		<div className="flex flex-col gap-4" data-lint-view="findings">
 			<SectionHeading
-				title="findings"
-				detail={`${findings.length.toLocaleString()} of ${report.findings.length.toLocaleString()} findings`}
+				title="Findings"
+				detail={
+					isFindingsFilterActive(filter)
+						? `${findings.length.toLocaleString()} of ${report.findings.length.toLocaleString()}`
+						: undefined
+				}
 				actions={
 					isFindingsFilterActive(filter) ? (
 						<Button
@@ -183,9 +187,10 @@ export function LintFindingsView({
 					}
 					className="flex-none"
 				/>
-				<select
+				<Select
 					aria-label="Rule"
-					className={selectClassName}
+					variant="outlined"
+					className="w-auto"
 					value={filter.rule ?? ""}
 					onChange={(event) => update({ rule: event.target.value || null })}
 				>
@@ -195,10 +200,11 @@ export function LintFindingsView({
 							{rule}
 						</option>
 					))}
-				</select>
-				<select
+				</Select>
+				<Select
 					aria-label="Component"
-					className={selectClassName}
+					variant="outlined"
+					className="w-auto"
 					value={filter.component ?? ""}
 					onChange={(event) =>
 						update({ component: event.target.value || null })
@@ -210,7 +216,7 @@ export function LintFindingsView({
 							{component}
 						</option>
 					))}
-				</select>
+				</Select>
 				<div className="relative min-w-48 flex-1">
 					<Search
 						className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-slate-500"
@@ -244,7 +250,7 @@ export function LintFindingsView({
 			) : null}
 			{findings.length === 0 ? (
 				<Card edge="inset" className="px-4 py-6">
-					<Text tone="faint" className="text-xs">
+					<Text variant="meta">
 						{report.findings.length === 0
 							? "This report has no findings."
 							: "No findings match the filters."}

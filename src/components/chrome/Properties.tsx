@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { Box, Component, Type } from "lucide-react";
-import { Fragment, type ReactNode, useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 import {
 	getControlDefinitions,
 	getRenderableClassComposition,
@@ -75,7 +75,7 @@ import {
 } from "../stage/stage-selection-sources";
 import { Button } from "../ui/button";
 import { InputField } from "../ui/input";
-import { Kbd } from "../ui/kbd";
+import { KbdHint } from "../ui/kbd-hint";
 import { ScrollArea } from "../ui/scroll-area";
 import { Select } from "../ui/select";
 import { Skeleton } from "../ui/skeleton";
@@ -171,12 +171,7 @@ export function splitComponentControls(controls: ControlDefinition[]) {
 }
 
 function getElementSubtitle(element: DesignEntity) {
-	return [
-		`${element.props["data-trickroom-library"]}/${element.props["data-trickroom-component"]}`,
-		element.role,
-	]
-		.filter(Boolean)
-		.join(" / ");
+	return `${element.props["data-trickroom-library"]}/${element.props["data-trickroom-component"]}`;
 }
 
 function InspectorGlyph({ element }: { element: DesignEntity }) {
@@ -201,9 +196,9 @@ function InspectorHeader({ element }: { element: DesignEntity }) {
 				<span className="truncate text-[13px] font-medium text-slate-950">
 					{getDesignLayerName(element)}
 				</span>
-				<span className="truncate text-[10px] text-slate-400">
+				<Text variant="meta" className="truncate text-[10px]">
 					{getElementSubtitle(element)}
-				</span>
+				</Text>
 			</div>
 		</header>
 	);
@@ -267,9 +262,7 @@ function InspectorTabs({
 				<TabsTab value="properties">Properties</TabsTab>
 				<TabsTab value="annotations" className="flex items-center gap-1.5">
 					Annotations
-					{count > 0 ? (
-						<span className="font-mono text-xs text-slate-500">{count}</span>
-					) : null}
+					{count > 0 ? <span className="text-xs">{count}</span> : null}
 				</TabsTab>
 			</TabsList>
 			<TabsPanel value="properties" className="flex min-h-0 flex-1 flex-col">
@@ -478,9 +471,7 @@ function AssetPicker({
 						)(event.currentTarget.value)
 					}
 				>
-					<option value="">
-						{!systemId ? "No linked system" : "No asset"}
-					</option>
+					<option value="">{!systemId ? "No system" : "No asset"}</option>
 					{assets.map((asset) => (
 						<option key={asset.id} value={asset.id}>
 							{asset.name}
@@ -553,10 +544,10 @@ function IconPicker({
 						)(event.currentTarget.value)
 					}
 				>
-					<option value="">{!systemId ? "No linked system" : "No icon"}</option>
+					<option value="">{!systemId ? "No system" : "No icon"}</option>
 					{icons.map((icon) => (
 						<option key={icon.id} value={icon.id}>
-							{icon.id}
+							{icon.name}
 						</option>
 					))}
 				</Select>
@@ -755,8 +746,8 @@ export function resolveAttachedComponentClassInventoryLayers({
 const KBD_MAP: readonly { key: string; label: string }[] = [
 	{ key: "F", label: "Add container" },
 	{ key: "T", label: "Add text" },
-	{ key: "A", label: "Add element" },
-	{ key: ".", label: "Repeat last added item" },
+	{ key: "A", label: "Add layer" },
+	{ key: ".", label: "Repeat last layer" },
 	{ key: `${formatShortcut(["Alt"])} + add`, label: "Insert inside" },
 	{ key: `${formatShortcut(["Shift"])} + add`, label: "Insert before" },
 	{ key: "R", label: "Rename layer" },
@@ -781,17 +772,16 @@ const KBD_MAP: readonly { key: string; label: string }[] = [
 function EmptyStateKbdMap() {
 	return (
 		<div className="flex flex-col gap-1.5">
-			<span className="text-[11px] font-semibold text-slate-700">
+			<Text variant="group-label" render={<div />}>
 				Shortcuts
-			</span>
-			<div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+			</Text>
+			<ul className="flex flex-col gap-1">
 				{KBD_MAP.map(({ key, label }) => (
-					<Fragment key={key}>
-						<Kbd>{key}</Kbd>
-						<span className="text-[11px] text-slate-500">{label}</span>
-					</Fragment>
+					<li key={key}>
+						<KbdHint keys={key} label={label} />
+					</li>
 				))}
-			</div>
+			</ul>
 		</div>
 	);
 }
@@ -949,14 +939,14 @@ export function Properties({ designId }: { designId?: string } = {}) {
 									className={className}
 									layers={classInventoryLayers}
 									systemId={systemId}
-									label={classOverride ? "Instance" : "Classes"}
+									label={classOverride ? "This instance" : "This layer"}
 									onChangeClassName={onChangeClassName}
 								/>
 							) : (
-								<p className="text-xs text-slate-500">
-									Class editing is locked for component-owned layers. This layer
-									has no published className override.
-								</p>
+								<Text variant="meta" render={<p />}>
+									This layer belongs to a component. Its classes can't be
+									changed on an instance.
+								</Text>
 							)}
 						</InspectorSection>
 						{hasAttachedComponentContext ? (
@@ -968,7 +958,7 @@ export function Properties({ designId }: { designId?: string } = {}) {
 								textOverride ? (
 									<InputField
 										type="text"
-										label="Content"
+										label="Text"
 										value={
 											textOverride ? textOverride.value : selectedElement.text
 										}
@@ -1083,7 +1073,7 @@ export function Properties({ designId }: { designId?: string } = {}) {
 							</InspectorSection>
 						) : null}
 						{visiblePropertyControls.length > 0 ? (
-							<InspectorSection title="Component">
+							<InspectorSection title="Element">
 								{visiblePropertyControls.map((control) => {
 									const binding = propOverrideBindings[control.prop];
 									return (

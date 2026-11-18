@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileImage, FolderTree, RefreshCw, Search, Upload } from "lucide-react";
+import { FileImage, FolderTree, Plus, RefreshCw, Search } from "lucide-react";
 import {
 	type RefObject,
 	useCallback,
@@ -21,7 +21,12 @@ import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
 import { Skeleton } from "../ui/skeleton";
-import { getParentPathSegment, groupItemsByPathSegment } from "./path-segments";
+import { Text } from "../ui/text";
+import {
+	getParentPathSegment,
+	groupItemsByPathSegment,
+	PROJECT_ROOT_SEGMENT,
+} from "./path-segments";
 import {
 	ASSET_GRID_MIN_COLUMN_WIDTH,
 	ASSET_GRID_ROW_EXTRA_HEIGHT,
@@ -33,7 +38,7 @@ function getAssetNameFromPath(sourcePath: string) {
 	return basename.replace(/\.[^.]+$/u, "") || basename;
 }
 
-function formatAssetMimeType(mimeType: string) {
+export function formatAssetMimeType(mimeType: string) {
 	const subtype = mimeType.split("/")[1]?.split("+")[0];
 	return subtype ? subtype.toUpperCase() : mimeType;
 }
@@ -83,7 +88,7 @@ function SystemEditorAssetCard({
 					{asset.name}
 				</span>
 				<span
-					className="truncate font-mono text-[10px] leading-3 text-slate-500"
+					className={`truncate text-[10px] leading-3 text-slate-500 ${folderLabel === PROJECT_ROOT_SEGMENT ? "" : "font-mono"}`}
 					title={asset.sourcePath}
 				>
 					{folderLabel}
@@ -220,7 +225,7 @@ function SystemAssetsToolbar({
 						aria-pressed={groupByFolder}
 					>
 						<FolderTree className="size-3.5" aria-hidden="true" />
-						Group folders
+						Group by folder
 					</Button>
 				)}
 			</div>
@@ -235,7 +240,7 @@ function SystemAssetsToolbar({
 						variant="formCompact"
 						className="w-full px-7"
 						aria-label="Filter assets"
-						placeholder="Filter by name or path..."
+						placeholder="Filter by name or path…"
 						value={filter}
 						onChange={(event) => onFilterChange(event.target.value)}
 					/>
@@ -254,7 +259,7 @@ function SystemAssetsToolbar({
 						aria-expanded={isAddFormOpen}
 						aria-controls={ADD_ASSET_FORM_ID}
 					>
-						<Upload className="size-3.5" aria-hidden="true" />
+						<Plus className="size-3.5" aria-hidden="true" />
 						Add asset
 					</Button>
 				)}
@@ -270,11 +275,8 @@ function SystemAssetsToolbar({
 						}
 					}}
 				>
-					<label
-						htmlFor={ADD_ASSET_PATH_INPUT_ID}
-						className="text-[10px] font-semibold uppercase tracking-wider text-slate-500"
-					>
-						Image path
+					<label htmlFor={ADD_ASSET_PATH_INPUT_ID}>
+						<Text variant="group-label">Image path</Text>
 					</label>
 					<div className="flex min-w-0 items-stretch gap-2">
 						<Input
@@ -308,10 +310,9 @@ function SystemAssetsToolbar({
 							{isAddingAsset ? "Adding" : "Add"}
 						</Button>
 					</div>
-					<p className="text-[11px] text-slate-500">
-						Relative to the project root. The image stays where it is; Trickroom
-						records the path in this system's asset manifest.
-					</p>
+					<Text variant="meta" render={<p />}>
+						Relative to the project root. The file is not moved or copied.
+					</Text>
 				</form>
 			) : null}
 		</div>
@@ -344,7 +345,7 @@ export function SystemEditorAssetsPanel({
 	const [assetActionError, setAssetActionError] = useState<string | null>(null);
 	const [isAddFormOpen, setIsAddFormOpen] = useState(false);
 	const [addAssetPath, setAddAssetPath] = useState("");
-	const assetCountLabel = `${assets.length.toLocaleString()} asset${assets.length === 1 ? "" : "s"}`;
+	const assetCountLabel = assets.length.toLocaleString();
 	const normalizedFilter = assetFilter.trim().toLowerCase();
 	const filteredAssets = useMemo(() => {
 		const matches = normalizedFilter
@@ -377,7 +378,9 @@ export function SystemEditorAssetsPanel({
 		onMutate: () => setAssetActionError(null),
 		onError: (error) => {
 			setAssetActionError(
-				error instanceof Error ? error.message : "Failed to add asset.",
+				error instanceof Error
+					? `Could not add the asset: ${error.message}`
+					: "Could not add the asset.",
 			);
 		},
 		onSuccess: async (response) => {
@@ -481,7 +484,7 @@ export function SystemEditorAssetsPanel({
 			<div className="flex min-h-0 flex-col gap-4 px-5 py-4" role="alert">
 				<SystemAssetsToolbar
 					countLabel={null}
-					filteredCountLabel="Asset catalog unavailable"
+					filteredCountLabel="Assets could not be loaded"
 					filter={assetFilter}
 					filterInputRef={filterInputRef}
 					groupByFolder={groupAssetsByFolder}
@@ -495,7 +498,7 @@ export function SystemEditorAssetsPanel({
 					className="flex flex-col items-start gap-2 px-4 py-3 text-sm"
 				>
 					<span>
-						Failed to load assets: {(assetsQuery.error as Error).message}
+						Could not load the assets: {(assetsQuery.error as Error).message}
 					</span>
 					<Button
 						type="button"
@@ -537,11 +540,10 @@ export function SystemEditorAssetsPanel({
 				<div className="flex min-h-0 flex-1 flex-col items-center justify-center border border-dashed border-slate-300 bg-white px-4 py-10 text-center">
 					<FileImage className="size-6 text-slate-400" aria-hidden="true" />
 					<p className="mt-3 text-sm font-medium text-slate-900">
-						No assets registered
+						No assets yet
 					</p>
 					<p className="mt-1 max-w-md text-sm text-slate-500">
-						Register raster image assets to make them available to linked
-						designs.
+						Add an image by its path to use it in designs linked to this system.
 					</p>
 				</div>
 			) : filteredAssets.length === 0 ? (
@@ -560,10 +562,12 @@ export function SystemEditorAssetsPanel({
 						segmentedAssets.map((segment) => (
 							<section key={segment.segment} className="flex flex-col gap-3">
 								<div className="flex items-baseline justify-between gap-3">
-									<h2 className="truncate font-mono text-[11px] font-semibold text-slate-700">
+									<h2
+										className={`truncate text-[11px] font-semibold text-slate-900 ${segment.segment === PROJECT_ROOT_SEGMENT ? "" : "font-mono"}`}
+									>
 										{segment.segment}
 									</h2>
-									<span className="shrink-0 text-[10px] text-slate-500">
+									<span className="shrink-0 text-[10px] text-slate-900">
 										{segment.items.length} asset
 										{segment.items.length === 1 ? "" : "s"}
 									</span>

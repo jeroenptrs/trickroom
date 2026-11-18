@@ -255,9 +255,7 @@ export function serializeComponentDraftState(
 	state: ComponentDraftStoreState,
 ): RecipeTemplateNode {
 	if (!state.rootPath) {
-		throw new Error(
-			"Cannot serialize component draft without a root template.",
-		);
+		throw new Error("Add a root layer before saving the draft.");
 	}
 
 	return serializeTemplateNode(state.rootPath, state.entitiesByPath);

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, Save, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowUpRight, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { useNavigate } from "react-router";
 import { buildDesignResourceUri } from "../../mcp/resources";
 import {
@@ -17,13 +17,11 @@ import { Button } from "../ui/button";
 import { CopyButton } from "../ui/copy-button";
 import { DetailSection, DetailSectionRow } from "../ui/detail-section";
 import { EditableTitle } from "../ui/editable-title";
-import { Input } from "../ui/input";
 import { MetricCard } from "../ui/metric-card";
 import { PaneHeader } from "../ui/pane-header";
 import { ReadOnlyField } from "../ui/readonly-field";
 import { ScrollArea } from "../ui/scroll-area";
 import { Text } from "../ui/text";
-import { DesignGlyph } from "./DesignGlyph";
 import { MemoryNotesButton } from "./memory/MemoryNotesButton";
 import { formatRelativeTime } from "./project-view-utils";
 
@@ -40,14 +38,12 @@ export function DesignDetailPane({
 	const queryClient = useQueryClient();
 	const projectScope = useProjectScope();
 	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-	const [draftName, setDraftName] = useState(design.name);
 	const resourceUri = buildDesignResourceUri(
 		locationId,
 		design.uuid,
 		design.name,
 	);
 
-	const systemName = design.systemName ?? "-";
 	const editedTime = formatRelativeTime(design.modifiedAt);
 	const renameMutation = useMutation({
 		mutationFn: (name: string) => renameDesignFile(design.uuid, name),
@@ -75,26 +71,17 @@ export function DesignDetailPane({
 		},
 	});
 	const isMutatingDesign = renameMutation.isPending || deleteMutation.isPending;
-	const saveNameDisabled =
-		isMutatingDesign ||
-		draftName.trim().length === 0 ||
-		draftName.trim() === design.name;
-	const actionError = (renameMutation.error as Error | null)?.message;
+	const renameError = (renameMutation.error as Error | null)?.message;
 	// The delete error shows inside the dialog, not behind its backdrop.
 	const deleteError = (deleteMutation.error as Error | null)?.message;
+	const isUnsupportedVersion =
+		design.diagnostic?.code === "UNSUPPORTED_DESIGN_VERSION";
 
 	const renameDesign = (nextName: string) => {
 		if (renameMutation.isPending) {
 			return;
 		}
 		renameMutation.mutate(nextName);
-	};
-
-	const saveDraftName = () => {
-		if (saveNameDisabled) {
-			return;
-		}
-		renameDesign(draftName.trim());
 	};
 
 	const deleteSelectedDesign = () => {
@@ -104,15 +91,10 @@ export function DesignDetailPane({
 		deleteMutation.mutate();
 	};
 
-	useEffect(() => {
-		setDraftName(design.name);
-	}, [design.name]);
-
 	return (
 		<>
 			<div className="flex h-full flex-col overflow-hidden bg-slate-50 text-slate-950">
 				<PaneHeader
-					eyebrow={<Text variant="eyebrow">Design</Text>}
 					title={
 						<EditableTitle
 							value={design.name}
@@ -121,18 +103,10 @@ export function DesignDetailPane({
 							onRename={renameDesign}
 						/>
 					}
-					meta={
-						<Text
-							tone="faint"
-							className="min-w-0 truncate font-mono text-[11px]"
-						>
-							{design.uuid}
-						</Text>
-					}
 					errors={
-						actionError ? (
+						renameError ? (
 							<Text tone="danger" className="text-xs">
-								{actionError}
+								Could not rename the design: {renameError}
 							</Text>
 						) : null
 					}
@@ -153,12 +127,6 @@ export function DesignDetailPane({
 								<ArrowUpRight className="size-4" aria-hidden="true" />
 								Open design
 							</Button>
-							<CopyButton
-								value={resourceUri}
-								subject="resource link"
-								className="p-2.5"
-								iconClassName="size-4"
-							/>
 						</div>
 					}
 				/>
@@ -168,13 +136,13 @@ export function DesignDetailPane({
 						{design.diagnostic ? (
 							<Alert variant="panel" tone="warning">
 								<span className="flex flex-col gap-1">
-									<span>This design cannot be opened.</span>
+									<span>This design can't be opened.</span>
 									<span className="font-mono">{design.diagnostic.message}</span>
 									<span>
-										{design.diagnostic.code === "UNSUPPORTED_DESIGN_VERSION"
-											? ""
-											: "Restore the file, for example from version control. "}
-										Board and layer counts are best-effort.
+										{isUnsupportedVersion
+											? "A newer version of Trickroom saved it."
+											: "Restore the file from version control."}{" "}
+										Board and layer counts may be wrong.
 									</span>
 								</span>
 							</Alert>
@@ -183,60 +151,16 @@ export function DesignDetailPane({
 							<MetricCard
 								label="Boards"
 								value={design.boardsCount.toLocaleString()}
-								detail="Root boards in this design"
 							/>
 							<MetricCard
 								label="Layers"
 								value={design.layersCount.toLocaleString()}
-								detail="Total rendered layers"
 							/>
-							<MetricCard
-								label="System"
-								value={systemName}
-								detail={
-									design.systemName ? "Linked system" : "No system linked"
-								}
-							/>
-							<MetricCard
-								label="Edited"
-								value={editedTime}
-								detail="Last file modification"
-							/>
+							<MetricCard label="System" value={design.systemName ?? "None"} />
+							<MetricCard label="Edited" value={editedTime} />
 						</div>
 
-						<DetailSection title="Identity">
-							<div className="flex min-w-0 flex-col gap-1.5">
-								<label htmlFor="design-settings-name">
-									<Text variant="label" tone="foreground">
-										Design name
-									</Text>
-								</label>
-								<div className="flex min-w-0 items-center gap-2">
-									<Input
-										id="design-settings-name"
-										variant="form"
-										className="min-w-0 flex-1"
-										value={draftName}
-										onChange={(event) => setDraftName(event.target.value)}
-										onKeyDown={(event) => {
-											if (event.key === "Enter") saveDraftName();
-										}}
-										disabled={isMutatingDesign}
-									/>
-									<Button
-										variant="outlined"
-										className="flex items-center gap-1.5"
-										onClick={saveDraftName}
-										disabled={saveNameDisabled}
-									>
-										<Save className="size-3.5" aria-hidden="true" />
-										{renameMutation.isPending ? "Saving..." : "Save"}
-									</Button>
-								</div>
-								<Text tone="muted" className="text-[11px]">
-									Shown in the sidebar, design editor, and resource links.
-								</Text>
-							</div>
+						<DetailSection title="Details">
 							<ReadOnlyField
 								label="Design ID"
 								value={design.uuid}
@@ -248,10 +172,6 @@ export function DesignDetailPane({
 									/>
 								}
 							/>
-						</DetailSection>
-
-						<DetailSection title="Storage & Resource">
-							<ReadOnlyField label="Design file" value={design.uuid} />
 							<ReadOnlyField
 								label="Resource URI"
 								value={resourceUri}
@@ -265,10 +185,10 @@ export function DesignDetailPane({
 							/>
 						</DetailSection>
 
-						<DetailSection title="Danger Zone" tone="danger">
+						<DetailSection title="Danger zone" tone="danger">
 							<DetailSectionRow
 								title="Delete design"
-								description="Removes this design file from the project."
+								description="Deletes the design and its boards from this project."
 								action={
 									<Button
 										variant="outlined"
@@ -281,16 +201,9 @@ export function DesignDetailPane({
 										}}
 									>
 										<Trash2 className="size-3.5" aria-hidden="true" />
-										{deleteMutation.isPending ? "Deleting..." : "Delete..."}
+										{deleteMutation.isPending ? "Deleting…" : "Delete…"}
 									</Button>
 								}
-							/>
-						</DetailSection>
-
-						<DetailSection title="Glyph">
-							<DesignGlyph
-								design={design}
-								className="mx-auto aspect-square w-full max-w-[700px]"
 							/>
 						</DetailSection>
 					</div>
@@ -306,13 +219,13 @@ export function DesignDetailPane({
 				title="Delete design"
 				description={
 					<>
-						Delete &quot;{design.name}&quot;? This removes the design file from
-						this project.
+						&quot;{design.name}&quot; and its boards are deleted from this
+						project. This can't be undone.
 					</>
 				}
 				icon={<Trash2 className="size-4" aria-hidden="true" />}
 				actionIcon={<Trash2 className="size-3.5" aria-hidden="true" />}
-				actionLabel={deleteMutation.isPending ? "Deleting..." : "Delete design"}
+				actionLabel={deleteMutation.isPending ? "Deleting…" : "Delete design"}
 				actionDisabled={deleteMutation.isPending}
 				tone="destructive"
 				onAction={deleteSelectedDesign}

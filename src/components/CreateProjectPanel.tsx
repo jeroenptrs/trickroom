@@ -236,7 +236,7 @@ export function CreateProjectPanel() {
 				<div className="flex flex-col gap-2 border-t border-slate-200 pt-5">
 					<div className="flex items-center justify-between">
 						<Text tone="foreground" className="text-sm font-semibold">
-							Design system
+							System
 						</Text>
 						<Button
 							type="button"
@@ -308,21 +308,19 @@ export function CreateProjectPanel() {
 										Set as default system
 									</Text>
 									<Text tone="muted" className="text-[11px]">
-										New designs will automatically link to this system.
+										New designs link to this system.
 									</Text>
 								</span>
 							</label>
 						</div>
 					) : (
-						<Text tone="muted" className="font-mono text-[10px]">
-							Link a Tailwind CSS file now, or add one after the project exists.
-						</Text>
+						<Text variant="meta">Optional. You can add a system later.</Text>
 					)}
 				</div>
 
 				{createProjectMutation.isError ? (
 					<Alert variant="panel">
-						Failed to create project: {createErrorMessage}
+						Could not create {name.trim()}: {createErrorMessage}
 					</Alert>
 				) : null}
 				{reopenMutation.isError ? (

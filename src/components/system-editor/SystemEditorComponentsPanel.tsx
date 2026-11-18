@@ -50,8 +50,10 @@ import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
 import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
 import { Alert } from "../ui/alert";
 import { ConfirmationDialog } from "../ui/alert-dialog";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
+import { EmptyState } from "../ui/empty-state";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Skeleton } from "../ui/skeleton";
@@ -114,7 +116,12 @@ const emptyUsageSummary = (): ComponentUsageSummary => ({
 	hasDiagnosticsMissing: false,
 });
 
-function ComponentUsageBadge({
+/**
+ * A component row's facts. The normal case is meta text ("v2, 3 instances");
+ * a badge appears only when something needs attention: broken, outdated or
+ * changed instances.
+ */
+function ComponentRowFacts({
 	component,
 	usage,
 	isPending,
@@ -126,59 +133,33 @@ function ComponentUsageBadge({
 	isError: boolean;
 }) {
 	if (!component.hasPublished) {
-		return (
-			<span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-				Not published
-			</span>
-		);
-	}
-
-	if (isPending) {
-		return <Skeleton className="h-4 w-14" />;
-	}
-
-	// The list shows the failure once, with its retry.
-	if (isError) {
 		return null;
 	}
-
 	const summary = usage ?? emptyUsageSummary();
-	if (summary.hasDiagnosticsMissing) {
-		return (
-			<span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-800">
-				Diagnostics missing
-			</span>
-		);
-	}
-
-	if (summary.staleCount > 0) {
-		return (
-			<span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
-				{summary.staleCount} stale
-			</span>
-		);
-	}
-
-	if (summary.hashMismatchCount > 0) {
-		return (
-			<span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
-				{summary.hashMismatchCount} review
-			</span>
-		);
-	}
-
-	if (summary.usedByCount > 0) {
-		return (
-			<span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">
-				{summary.currentCount || summary.usedByCount} current
-			</span>
-		);
-	}
-
+	const version = component.currentVersion
+		? `v${component.currentVersion}`
+		: null;
+	// The list shows a usage failure once, with its retry.
+	const instances =
+		isPending || isError
+			? null
+			: summary.usedByCount > 0
+				? `${summary.usedByCount} ${summary.usedByCount === 1 ? "instance" : "instances"}`
+				: "unused";
 	return (
-		<span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-			No usages
-		</span>
+		<>
+			<Text variant="meta" className="truncate">
+				{[version, instances].filter(Boolean).join(", ")}
+			</Text>
+			{isPending ? <Skeleton className="h-4 w-14" /> : null}
+			{isPending || isError ? null : summary.hasDiagnosticsMissing ? (
+				<Badge tone="danger">Broken instances</Badge>
+			) : summary.staleCount > 0 ? (
+				<Badge tone="warning">{summary.staleCount} outdated</Badge>
+			) : summary.hashMismatchCount > 0 ? (
+				<Badge tone="warning">{summary.hashMismatchCount} changed</Badge>
+			) : null}
+		</>
 	);
 }
 
@@ -259,21 +240,21 @@ function ComponentWorkspaceActions({
 	const publishDraftMutation = useMutation({
 		mutationFn: async () => {
 			if (!componentId || !componentQuery.data?.record.draft) {
-				throw new Error("Select a component draft before publishing.");
+				throw new Error("Open a draft to publish.");
 			}
 			if (hasUnsavedDraftChanges) {
-				throw new Error("Save the draft before publishing this version.");
+				throw new Error("Save the draft before publishing.");
 			}
 			if (!hasPublishableChanges) {
-				throw new Error("There are no draft changes to publish.");
+				throw new Error("Nothing to publish.");
 			}
 			if (!variantsValid) {
-				throw new Error("Resolve variant diagnostics before publishing.");
+				throw new Error("Fix the variant errors before publishing.");
 			}
 			if (errorDiagnostics.length > 0 || !componentQuery.data.valid) {
 				throw new Error(
 					errorDiagnostics[0]?.message ??
-						"Resolve validation diagnostics before publishing.",
+						"Fix the draft's errors before publishing.",
 				);
 			}
 
@@ -284,9 +265,7 @@ function ComponentWorkspaceActions({
 		onMutate: () => setPublishError(null),
 		onError: async (error) => {
 			setPublishError(
-				error instanceof Error
-					? error.message
-					: "Failed to publish component draft.",
+				error instanceof Error ? error.message : "Could not publish the draft.",
 			);
 			if (componentId) {
 				await invalidateSystemComponents(
@@ -351,7 +330,7 @@ function ComponentWorkspaceActions({
 					{componentQuery.isPending ? (
 						<Skeleton className="h-3 w-24" />
 					) : (
-						<p className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-500">
+						<p className="min-w-0 flex-1 truncate text-xs text-slate-500">
 							{draftConflict
 								? "Draft changed on disk"
 								: draftNeedsRoot
@@ -426,33 +405,15 @@ function ComponentWorkspaceActions({
 	);
 }
 
+/** Marks a component that has never been published; published is the norm. */
 function ComponentStatusBadge({
 	summary,
 }: {
 	summary: SystemComponentSummary;
 }) {
-	const state = getComponentPublicationState(summary);
-	if (state === "draft-over-published") {
-		return (
-			<span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">
-				Draft over v{summary.currentVersion ?? "?"}
-			</span>
-		);
-	}
-
-	if (state === "published-only") {
-		return (
-			<span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">
-				Published v{summary.currentVersion ?? "?"}
-			</span>
-		);
-	}
-
-	return (
-		<span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
-			Draft only
-		</span>
-	);
+	return getComponentPublicationState(summary) === "draft-only" ? (
+		<Badge tone="neutral">Not published</Badge>
+	) : null;
 }
 
 /**
@@ -495,7 +456,7 @@ export function ComponentContextHeaderContent({
 				>
 					{summary?.name ?? "Component"}
 				</Text>
-				<span className="block truncate font-mono text-[10px] text-slate-400">
+				<span className="block truncate font-mono text-[10px] text-slate-500">
 					{summary?.slug ?? componentId}
 				</span>
 			</div>
@@ -573,12 +534,12 @@ function filterComponents(
 
 function ComponentRailEmptyState() {
 	return (
-		<div className="mt-2 mx-2 flex flex-1 flex-col items-center justify-center border border-dashed border-slate-300 px-4 py-10 text-center">
-			<p className="text-sm font-medium text-slate-900">No components yet</p>
-			<p className="mt-1 max-w-sm text-sm text-slate-500">
-				Create a draft to start building the first system component in this
-				manifest.
-			</p>
+		<div className="flex flex-1 items-center justify-center px-4 py-10">
+			<EmptyState
+				size="sm"
+				title="No components yet"
+				description="Name a component above to create it."
+			/>
 		</div>
 	);
 }
@@ -649,8 +610,8 @@ function ComponentRailSkeleton() {
 
 function ComponentRailNoMatches() {
 	return (
-		<div className="mx-auto py-6 text-sm text-slate-500">
-			No components match the current search.
+		<div className="px-3 py-4">
+			<EmptyState size="compact" title="No components match" />
 		</div>
 	);
 }
@@ -840,7 +801,7 @@ export function SystemEditorComponentsRail({
 		mutationFn: async (name: string) => {
 			const revision = componentsQuery.data?.revision;
 			if (!revision) {
-				throw new Error("Component manifest revision is not loaded yet.");
+				throw new Error("Components are still loading. Try again.");
 			}
 
 			const baseSlug = slugifyComponentName(name);
@@ -859,7 +820,7 @@ export function SystemEditorComponentsRail({
 			setCreateError(
 				error instanceof Error
 					? error.message
-					: "Failed to create component draft.",
+					: "Could not create the component.",
 			);
 		},
 		onSuccess: async (response) => {
@@ -879,11 +840,11 @@ export function SystemEditorComponentsRail({
 		mutationFn: async (component: SystemComponentSummary) => {
 			const revision = componentsQuery.data?.revision;
 			if (!revision) {
-				throw new Error("Component manifest revision is not loaded yet.");
+				throw new Error("Components are still loading. Try again.");
 			}
 			if (component.hasDraft) {
 				throw new Error(
-					`Component "${component.name}" already has a draft. Select the draft instead.`,
+					`${component.name} already has a draft. Open it instead.`,
 				);
 			}
 
@@ -901,9 +862,7 @@ export function SystemEditorComponentsRail({
 		onMutate: () => setCopyDraftError(null),
 		onError: (error) => {
 			setCopyDraftError(
-				error instanceof Error
-					? error.message
-					: "Failed to create draft from published version.",
+				error instanceof Error ? error.message : "Could not create the draft.",
 			);
 		},
 		onSuccess: async (response) => {
@@ -922,7 +881,7 @@ export function SystemEditorComponentsRail({
 		mutationFn: async (component: SystemComponentSummary) => {
 			const revision = componentsQuery.data?.revision;
 			if (!revision) {
-				throw new Error("Component manifest revision is not loaded yet.");
+				throw new Error("Components are still loading. Try again.");
 			}
 
 			return deleteSystemComponent(systemId, component.componentId, {
@@ -932,7 +891,9 @@ export function SystemEditorComponentsRail({
 		onMutate: () => setDeleteError(null),
 		onError: (error) => {
 			setDeleteError(
-				error instanceof Error ? error.message : "Failed to delete component.",
+				error instanceof Error
+					? error.message
+					: "Could not delete the component.",
 			);
 		},
 		onSuccess: async (response) => {
@@ -986,11 +947,11 @@ export function SystemEditorComponentsRail({
 							<span className="block truncate font-medium">
 								{component.name}
 							</span>
-							<span className="mt-1 flex flex-wrap items-center gap-1">
+							<span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
 								<span className="truncate font-mono text-[10px] text-slate-500">
 									{component.slug}
 								</span>
-								<ComponentUsageBadge
+								<ComponentRowFacts
 									component={component}
 									usage={usage}
 									isPending={usageQuery.isPending}
@@ -1030,7 +991,7 @@ export function SystemEditorComponentsRail({
 					type="button"
 					onClick={() => toggleFolder(node.path)}
 					aria-expanded={!collapsed}
-					className="flex items-center gap-1 py-0.5 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-700"
+					className="flex items-center gap-1 py-0.5 text-left text-slate-500 hover:text-slate-700"
 					style={{ paddingLeft: `${headerPadding}px` }}
 				>
 					<ChevronRight
@@ -1039,7 +1000,9 @@ export function SystemEditorComponentsRail({
 						}`}
 						aria-hidden="true"
 					/>
-					<span className="truncate">{node.segment}</span>
+					<Text variant="group-label" className="truncate text-inherit">
+						{node.segment}
+					</Text>
 				</button>
 				{collapsed ? null : (
 					<div className="flex flex-col gap-1">
@@ -1260,7 +1223,7 @@ export function SystemEditorComponentsRail({
 						onClick={handleCreateDraft}
 					>
 						<Plus className="size-3.5" aria-hidden="true" />
-						{createDraftMutation.isPending ? "Creating" : "New"}
+						{createDraftMutation.isPending ? "Creating" : "Create"}
 					</Button>
 				</div>
 			</div>

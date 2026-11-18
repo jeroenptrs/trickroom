@@ -21,7 +21,6 @@ import {
 	systemLintConfigQueryKey,
 } from "../../../queries/system-lint";
 import { Alert } from "../../ui/alert";
-import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { Card } from "../../ui/card";
 import Checkbox from "../../ui/checkbox";
@@ -105,7 +104,7 @@ function CountInput({
 	value,
 	onChange,
 	label,
-	placeholder = "—",
+	placeholder = "None",
 }: {
 	value: number | undefined;
 	onChange: (next: number | undefined) => void;
@@ -459,7 +458,7 @@ function OptionField({
 				<span className="text-xs font-semibold text-slate-900">
 					{spec.label}
 				</span>
-				<span className="font-mono text-[10px] text-slate-400">{spec.key}</span>
+				<span className="font-mono text-[10px] text-slate-500">{spec.key}</span>
 			</div>
 			<Text tone="faint" className="text-[11px]">
 				{spec.description}
@@ -504,7 +503,7 @@ function RuleEditor({
 				</span>
 				{/* biome-ignore lint/a11y/noLabelWithoutControl: the primitive inside renders the control. */}
 				<label className="flex items-center gap-1.5 text-[11px] text-slate-500">
-					severity
+					Severity
 					<Select
 						aria-label={`Severity of ${kind.id}`}
 						variant="outlined"
@@ -530,7 +529,7 @@ function RuleEditor({
 					</Select>
 				</label>
 				<span className="flex items-center gap-1.5 text-[11px] text-slate-500">
-					max findings
+					Max findings
 					<CountInput
 						label={`Maximum findings of ${kind.id}`}
 						value={readThreshold(config, `rule.${kind.id}`)}
@@ -560,7 +559,7 @@ function RuleEditor({
 			) : null}
 			{Object.keys(undocumented).length > 0 ? (
 				<div className="flex flex-col gap-1">
-					<Text variant="section-header">other options (read-only)</Text>
+					<Text variant="section-header">Other options (read-only)</Text>
 					<JsonBlock value={undocumented} />
 				</div>
 			) : null}
@@ -606,7 +605,7 @@ function ComponentModulesEditor({
 	return (
 		<div className="flex flex-col gap-3 px-4 py-3">
 			{configured.length === 0 ? (
-				<Text tone="faint" className="text-xs">
+				<Text variant="meta">
 					No overrides: the module that imports a component's variants file is
 					its wrapper.
 				</Text>
@@ -784,23 +783,13 @@ export function LintConfigEditor({
 	return (
 		<div className="flex flex-col gap-6" data-lint-view="config">
 			<Card edge="inset" className="flex flex-col gap-2 px-4 py-3">
-				<div className="flex flex-wrap items-center gap-2">
-					<span className="font-mono text-xs text-slate-900">{data.path}</span>
-					{data.present ? (
-						<Badge tone="neutral" edge="stamped">
-							present
-						</Badge>
-					) : (
-						<Badge tone="info" edge="stamped">
-							defaults
-						</Badge>
-					)}
-				</div>
-				<Text tone="muted" className="text-xs">
-					{data.present
-						? "Changes are written to this file when you save. Run lint afterwards to see their effect."
-						: "No lint.json yet: every rule kind runs at its default severity with the default source globs. Saving creates the file."}
-				</Text>
+				<span className="font-mono text-xs text-slate-900">{data.path}</span>
+				{data.present ? null : (
+					<Text variant="meta" render={<p />}>
+						Not created yet. Every rule runs at its default severity with the
+						default source globs. Saving creates the file.
+					</Text>
+				)}
 				{data.issues.length > 0 ? (
 					<div className="flex flex-col gap-2">
 						<Alert tone="danger">
@@ -831,7 +820,9 @@ export function LintConfigEditor({
 						className="flex flex-col gap-2"
 						aria-label={`${side} rule kinds`}
 					>
-						<SectionHeading title={`${side} rules`} />
+						<SectionHeading
+							title={`${side === "code" ? "Code" : "Design"} rules`}
+						/>
 						<Card edge="inset" className="flex flex-col">
 							{kinds.map((kind) => (
 								<RuleEditor
@@ -849,7 +840,7 @@ export function LintConfigEditor({
 
 			<section className="flex flex-col gap-2" aria-label="Thresholds">
 				<SectionHeading
-					title="thresholds"
+					title="Thresholds"
 					detail="A run fails when a number goes past its threshold, on top of the ratchet against the baseline. Empty means no threshold."
 				/>
 				<div className="flex flex-row flex-wrap gap-4">
@@ -859,7 +850,9 @@ export function LintConfigEditor({
 							edge="inset"
 							className="flex min-w-56 flex-1 flex-col gap-2 px-4 py-3"
 						>
-							<Text variant="section-header">{side} maxima</Text>
+							<Text variant="section-header">
+								{side === "code" ? "Code" : "Design"} maxima
+							</Text>
 							<ThresholdField
 								label="Errors"
 								path={`${side}.errors`}
@@ -878,7 +871,7 @@ export function LintConfigEditor({
 						edge="inset"
 						className="flex min-w-56 flex-1 flex-col gap-2 px-4 py-3"
 					>
-						<Text variant="section-header">coverage minima</Text>
+						<Text variant="section-header">Coverage minima</Text>
 						{LINT_COVERAGE_STATES.map((state) => (
 							<ThresholdField
 								key={state.key}
@@ -894,7 +887,7 @@ export function LintConfigEditor({
 
 			<section className="flex flex-col gap-2" aria-label="Wrapper modules">
 				<SectionHeading
-					title="wrapper modules"
+					title="Wrapper modules"
 					detail="Name a component's bound wrapper when it is not the module importing the variants file (a barrel, a renamed wrapper). One project-relative path per line."
 				/>
 				<Card edge="inset" className="flex flex-col">
@@ -908,7 +901,7 @@ export function LintConfigEditor({
 
 			<section className="flex flex-col gap-2" aria-label="Sources">
 				<SectionHeading
-					title="sources"
+					title="Sources"
 					detail="Empty fields use the defaults shown as placeholders."
 				/>
 				<Card edge="inset" className="flex flex-col gap-3 px-4 py-3">
@@ -950,7 +943,7 @@ export function LintConfigEditor({
 								saveMutation.mutate({ config, revision: data.revision })
 							}
 						>
-							Overwrite
+							Overwrite lint.json
 						</Button>
 					</div>
 				) : null}
@@ -995,7 +988,7 @@ export function LintConfigEditor({
 							saveMutation.reset();
 						}}
 					>
-						Discard
+						Discard changes
 					</Button>
 					<Button
 						type="button"

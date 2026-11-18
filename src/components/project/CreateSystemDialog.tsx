@@ -103,7 +103,7 @@ export function CreateSystemDialog({
 								aria-hidden="true"
 							/>
 							<DialogTitle className="p-0 text-sm font-medium text-slate-900">
-								Create design system
+								Add system
 							</DialogTitle>
 						</div>
 						<DialogClose className="border-none bg-transparent p-1 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500">
@@ -114,10 +114,6 @@ export function CreateSystemDialog({
 					<Separator />
 					<form id={formId} onSubmit={handleSubmit}>
 						<div className="flex flex-col gap-5 px-5 py-5">
-							<Text render={<p />} tone="muted" className="text-xs">
-								Define a design system for this project. Trickroom reads your
-								tokens from the CSS file you point it at.
-							</Text>
 							<div className="flex flex-col gap-5">
 								<Field
 									label="System name"
@@ -128,7 +124,7 @@ export function CreateSystemDialog({
 										ref={nameRef}
 										variant="outlined"
 										className="px-3 py-2"
-										placeholder="e.g. Acme Web"
+										placeholder="Acme Web"
 										value={systemName}
 										onChange={(event) => setSystemName(event.target.value)}
 										onBlur={() =>
@@ -138,9 +134,9 @@ export function CreateSystemDialog({
 									/>
 								</Field>
 								<Field
-									label="Token source"
+									label="CSS file"
 									className="gap-2"
-									description="Trickroom indexes the @theme tokens declared in this file."
+									description="Relative to the project folder. Trickroom reads the @theme tokens in this file."
 									error={touched.css ? cssError : undefined}
 								>
 									<InputGroup icon={FilePlus2}>
@@ -175,14 +171,14 @@ export function CreateSystemDialog({
 											Set as default system
 										</Text>
 										<Text tone="muted" className="text-[11px] leading-relaxed">
-											New designs will automatically link to this system.
+											New designs link to this system.
 										</Text>
 									</span>
 								</label>
 							</div>
 							{errorMessage ? (
 								<Alert variant="panel" tone="danger">
-									{errorMessage}
+									Could not add {systemName.trim()}: {errorMessage}
 								</Alert>
 							) : null}
 						</div>
@@ -200,7 +196,7 @@ export function CreateSystemDialog({
 							disabled={mutation.isPending}
 						>
 							<Plus className="size-3.5" aria-hidden="true" />
-							{mutation.isPending ? "Creating..." : "Create system"}
+							{mutation.isPending ? "Adding…" : "Add system"}
 						</Button>
 					</div>
 				</DialogContent>

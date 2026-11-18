@@ -183,7 +183,7 @@ export function AnnotationComposer({
 					className="px-2 py-1 text-xs"
 					disabled={!body.trim() || sending}
 					onClick={() => void send()}
-					title={`Send it to the agent (${formatShortcut(["Mod", "Enter"])})`}
+					title={`Send to the agent (${formatShortcut(["Mod", "Enter"])})`}
 				>
 					Send
 				</Button>

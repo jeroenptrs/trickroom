@@ -1,4 +1,4 @@
-import { Save, X } from "lucide-react";
+import { Save } from "lucide-react";
 import { useRef, useState } from "react";
 import type { MemoryQueryScope } from "../../../queries/memory";
 import type { ProjectQueryScope } from "../../../queries/project-scope";
@@ -149,15 +149,15 @@ export function MemoryNoteEditor({
 				<Input
 					variant="formCompact"
 					value={title}
-					placeholder="e.g. Spacing scale rationale"
+					placeholder="Spacing scale rationale"
 					onChange={(event) => setTitle(event.target.value)}
 					disabled={isSubmitting}
 				/>
 			</Field>
 
 			<Field
-				label="Body"
-				description="Markdown. Type {{ to insert design, component, token, asset, or icon references."
+				label="Note"
+				description="Type {{ to reference a design, board, layer, component, token, asset, or icon."
 				error={bodyError}
 			>
 				<div className="relative">
@@ -165,7 +165,6 @@ export function MemoryNoteEditor({
 						ref={textareaRef}
 						data-slot="field-control"
 						value={body}
-						placeholder="Markdown body…"
 						onChange={(event) => {
 							setBody(event.target.value);
 							setCursor(event.target.selectionStart ?? 0);
@@ -219,7 +218,6 @@ export function MemoryNoteEditor({
 					onClick={onCancel}
 					disabled={isSubmitting}
 				>
-					<X className="size-3.5" aria-hidden="true" />
 					Cancel
 				</Button>
 				<Button
@@ -229,7 +227,7 @@ export function MemoryNoteEditor({
 					disabled={isSubmitting}
 				>
 					<Save className="size-3.5" aria-hidden="true" />
-					{isSubmitting ? "Saving..." : note ? "Save changes" : "Add note"}
+					{isSubmitting ? "Saving…" : note ? "Save changes" : "Add note"}
 				</Button>
 			</div>
 		</div>

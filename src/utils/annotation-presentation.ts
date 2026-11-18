@@ -165,9 +165,20 @@ export const formatAcknowledgement = (
 	return `Seen by an agent${ago}${isAcknowledgementActive(acknowledgement, now) ? "" : " (session idle)"}`;
 };
 
-/** Who wrote an entry, as the thread shows it. */
-export const describeAnnotationActor = (by: AnnotationActor) =>
-	by.role === "human" ? "You" : `Agent ${by.sessionId.slice(0, 8)}`;
+/**
+ * Who wrote an entry, as the thread shows it. An agent's session shows only
+ * when several agents wrote in the thread (`severalAgents`), to tell them
+ * apart.
+ */
+export const describeAnnotationActor = (
+	by: AnnotationActor,
+	severalAgents = false,
+) =>
+	by.role === "human"
+		? "You"
+		: severalAgents
+			? `Agent ${by.sessionId.slice(0, 8)}`
+			: "Agent";
 
 /**
  * A target as one stable string: drafts and pins are keyed by it. A
@@ -201,14 +212,14 @@ export const annotationAnchorId = (target: AnnotationTarget) =>
 export const describeChangeCount = (layerCount: number) =>
 	`Changed ${layerCount} ${layerCount === 1 ? "layer" : "layers"}`;
 
-/** `size: lg · tone: danger`: a pinned variant configuration, by axis. */
+/** `size: lg, tone: danger`: a pinned variant configuration, by axis. */
 export const describeVariantPin = (
 	variants: Readonly<Record<string, string>>,
 ) =>
 	Object.keys(variants)
 		.sort()
 		.map((axis) => `${axis}: ${variants[axis]}`)
-		.join(" · ");
+		.join(", ");
 
 const entryTimeFormat = new Intl.DateTimeFormat(undefined, {
 	hour: "2-digit",

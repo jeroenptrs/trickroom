@@ -177,7 +177,7 @@ describe("Artboards", () => {
 		expect(html).toContain(
 			'data-trickroom-missing-renderer="base-ui/not-a-component"',
 		);
-		expect(html).toContain("No renderer for base-ui/not-a-component");
+		expect(html).toContain("Unknown element base-ui/not-a-component");
 		expect(html).toContain(`data-trickroom-node-id="${boardOneId}"`);
 		expect(html).toContain(`data-trickroom-root-id="${boardOneId}"`);
 		expect(html).toContain("Still visible");

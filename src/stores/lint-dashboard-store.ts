@@ -22,7 +22,7 @@ export const LINT_DASHBOARD_VIEWS: Array<{
 	{ value: "files", label: "Code map" },
 	{ value: "designs", label: "Design map" },
 	{ value: "findings", label: "Findings" },
-	{ value: "config", label: "Rules" },
+	{ value: "config", label: "Config" },
 ];
 
 export type LintSelection =

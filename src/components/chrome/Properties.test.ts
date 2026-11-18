@@ -376,7 +376,7 @@ describe("Properties", () => {
 		);
 
 		expect(html).toMatch(
-			/<textarea[^>]*aria-label="Classes"[^>]*>flex flex-col gap-4 p-4<\/textarea>/,
+			/<textarea[^>]*aria-label="This layer"[^>]*>flex flex-col gap-4 p-4<\/textarea>/,
 		);
 		expect(html).not.toContain('role="tab"');
 		expect(html).not.toContain("Layout");
@@ -390,7 +390,7 @@ describe("Properties", () => {
 		);
 
 		expect(html).toContain("Asset");
-		expect(html).toContain("No linked system");
+		expect(html).toContain("No system");
 		expect(html).toContain("Alt text");
 		expect(html).not.toContain(recipeIdProp);
 		expect(html).not.toContain(recipeInstanceProp);
@@ -403,7 +403,7 @@ describe("Properties", () => {
 			avatarRootNode.id,
 		);
 
-		expect(html).not.toContain("No linked system");
+		expect(html).not.toContain("No system");
 		expect(html).not.toContain("Alt text");
 		expect(html).not.toContain(recipeIdProp);
 		expect(html).not.toContain(recipeRootProp);
@@ -434,7 +434,7 @@ describe("Properties", () => {
 		);
 
 		expect(html).toContain("Asset");
-		expect(html).toContain("No linked system");
+		expect(html).toContain("No system");
 		expect(html).toContain("Alt text");
 		expect(html).not.toContain("Object fit");
 		expect(html).not.toContain("Object position");
@@ -473,7 +473,7 @@ describe("Properties", () => {
 			},
 		);
 
-		expect(html).toContain("Detach component");
+		expect(html).toContain("Detach instance");
 		expect(html).toContain("Variants");
 		expect(html).toContain("Tone");
 		expect(html).toContain("brand");
@@ -607,9 +607,9 @@ describe("Properties", () => {
 			},
 		);
 
-		expect(html).toContain("Update component");
+		expect(html).toContain("Update instance");
 		expect(html).toContain("Template and variants changed");
-		expect(html).not.toMatch(/Update component[^<]*disabled/);
+		expect(html).not.toMatch(/Update instance[^<]*disabled/);
 	});
 
 	it("shows stale component migration review and update controls on the instance root", () => {
@@ -696,7 +696,7 @@ describe("Properties", () => {
 			},
 		);
 
-		expect(html).toContain("Update component");
+		expect(html).toContain("Update instance");
 		expect(html).toMatch(/Template and variants changed|Update available/);
 		expect(html).not.toContain("Manual updates are coming in a later wave");
 	});
@@ -751,8 +751,8 @@ describe("Properties", () => {
 		expect(html).toContain("Attached component");
 		expect(html).toContain("Template path");
 		expect(html).toContain("label");
-		expect(html).not.toContain("Detach component");
-		expect(html).toContain("Class editing is locked");
+		expect(html).not.toContain("Detach instance");
+		expect(html).toContain("This layer belongs to a component");
 		expect(html).not.toContain("<textarea");
 	});
 
@@ -839,10 +839,10 @@ describe("Properties", () => {
 		expect(html).not.toContain("Label class");
 		expect(html).not.toContain("Root class");
 		expect(html).not.toContain("Variants");
-		expect(html).not.toContain("Detach component");
+		expect(html).not.toContain("Detach instance");
 		expect(html).toContain("Instance classes");
 		expect(html).toMatch(
-			/<textarea[^>]*aria-label="Instance"[^>]*>text-lg<\/textarea>/,
+			/<textarea[^>]*aria-label="This instance"[^>]*>text-lg<\/textarea>/,
 		);
 	});
 

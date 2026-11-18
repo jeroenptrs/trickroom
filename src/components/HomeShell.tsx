@@ -127,10 +127,10 @@ export function HomeShell() {
 							</Text>
 						</button>
 						<div className="flex flex-1 flex-col gap-2 px-5 py-5">
-							<Text variant="section-header">recent</Text>
+							<Text variant="section-header">Recent</Text>
 							{recentProjects.length === 0 ? (
 								<Text tone="faint" className="mt-1 text-xs">
-									No recent projects yet.
+									No recent projects
 								</Text>
 							) : (
 								<div className="-mx-2 flex flex-col">
@@ -153,7 +153,7 @@ export function HomeShell() {
 								className="w-full justify-center"
 								onClick={() => setMcpSetupOpen(true)}
 							>
-								MCP Setup
+								MCP setup
 							</Button>
 						</div>
 					</aside>

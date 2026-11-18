@@ -98,7 +98,7 @@ export function MCPSetupDialog({ open, onOpenChange }: MCPSetupDialogProps) {
 				>
 					<div className="flex flex-row items-center justify-between px-4 py-3">
 						<DialogTitle className="p-0 text-sm font-medium text-slate-900">
-							MCP Setup
+							MCP setup
 						</DialogTitle>
 						<DialogClose
 							aria-label="Close"

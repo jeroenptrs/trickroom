@@ -615,11 +615,11 @@ export const Layer = memo(function Layer({
 							onDoubleClick={editLayer}
 							title={
 								canDragLayer
-									? `Drag ${layer.name}`
+									? layer.name
 									: isRecipeOwned
-										? `${layer.name} is recipe-owned structure`
+										? `${layer.name} is part of a recipe and can't be moved`
 										: isComponentOwned
-											? `${layer.name} is component-owned structure`
+											? `${layer.name} is part of a component and can't be moved`
 											: layer.name
 							}
 						>
@@ -1174,8 +1174,8 @@ export function Layers({
 					className="px-2 py-1"
 					disabled={!canInsertWithKeyboardIntent}
 					onClick={handleOpenMenu}
-					title="Add element (A)"
-					aria-label="Add element"
+					title="Add layer (A)"
+					aria-label="Add layer"
 				>
 					<Plus className="size-4 text-slate-950" />
 				</Button>
@@ -1185,8 +1185,8 @@ export function Layers({
 					className="px-2 py-1"
 					disabled={!lastAddedRef || !canInsertWithKeyboardIntent}
 					onClick={handleRepeatLast}
-					title="Repeat last added item (.)"
-					aria-label="Repeat last added item"
+					title="Repeat last layer (.)"
+					aria-label="Repeat last layer"
 				>
 					<Repeat2 className="size-4 text-slate-950" />
 				</Button>
@@ -1203,9 +1203,9 @@ export function Layers({
 			<Separator />
 			<div className="flex items-center justify-between pr-2">
 				<Text
-					variant="label"
+					variant="section-header"
 					render={<div />}
-					className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400"
+					className="px-3 pt-3 pb-1"
 				>
 					Layers
 				</Text>

@@ -283,7 +283,7 @@ describe("validateSystemComponentMetadataSlug", () => {
 
 	it("rejects underscores before metadata save", () => {
 		expect(() => validateSystemComponentMetadataSlug("primary_button")).toThrow(
-			"Component slug must use lowercase alphanumeric segments separated by hyphens.",
+			"Use lowercase letters, numbers, and hyphens in the slug.",
 		);
 	});
 });

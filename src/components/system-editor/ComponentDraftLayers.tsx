@@ -87,6 +87,19 @@ import {
 
 const INDENT_PER_LEVEL = 12;
 
+const LIBRARY_NAMES: Record<RegistryId, string> = {
+	"base-ui": "Base UI",
+	charts: "Charts",
+	trickroom: "Built in",
+};
+
+const PLACEMENT_HINTS: Record<PlacementIntent | "root", string> = {
+	after: "Adds after the selection",
+	before: "Adds before the selection",
+	inside: "Adds inside the selection",
+	root: "Adds as the root layer",
+};
+
 type DraftLayerDragData = {
 	type: "trickroom-draft-layer";
 	path: string;
@@ -1160,17 +1173,13 @@ export function ComponentDraftLayers({
 	if (draftComponentId !== componentId) {
 		return (
 			<Shell className={shellClassName}>
-				<Text
-					variant="label"
-					render={<div />}
-					className="px-3 py-3 text-[10px] uppercase tracking-wider text-slate-400"
-				>
+				<Text variant="group-label" render={<div />} className="px-3 py-3">
 					Layers
 				</Text>
 				{otherDraftUnsaved ? (
-					<p className="px-3 text-slate-500">
+					<Text variant="meta" render={<p />} className="px-3">
 						Another component has unsaved changes.
-					</p>
+					</Text>
 				) : null}
 			</Shell>
 		);
@@ -1178,11 +1187,7 @@ export function ComponentDraftLayers({
 
 	return (
 		<Shell className={shellClassName}>
-			<Text
-				variant="label"
-				render={<div />}
-				className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400"
-			>
+			<Text variant="group-label" render={<div />} className="px-3 pt-3 pb-1">
 				Layers
 			</Text>
 			<div className="flex flex-row items-center gap-1 px-2 pb-2">
@@ -1211,7 +1216,7 @@ export function ComponentDraftLayers({
 					<Type className="size-4 text-slate-950" aria-hidden="true" />
 				</LayerToolButton>
 				<LayerToolButton
-					label="Add component"
+					label="Add element"
 					disabledReason={addLayerBlockedReason}
 					onClick={() => {
 						setPickerIntent(keyboardPlacementIntent);
@@ -1222,7 +1227,7 @@ export function ComponentDraftLayers({
 				</LayerToolButton>
 				<Separator orientation="vertical" className="mx-1 h-5" />
 				<LayerToolButton
-					label="Repeat last added item"
+					label="Repeat last layer"
 					disabledReason={
 						addLayerBlockedReason ??
 						(lastAddedSelection ? null : "Add a layer first.")
@@ -1237,13 +1242,13 @@ export function ComponentDraftLayers({
 					<Input
 						variant="block"
 						value={componentQuery}
-						aria-label="Search components"
-						placeholder="Search components"
+						aria-label="Search elements"
+						placeholder="Search elements"
 						onChange={(event) => setComponentQuery(event.target.value)}
 					/>
-					<div className="px-1 font-mono text-[10px] text-slate-500">
-						Insert {pickerPlacementLabel}
-					</div>
+					<Text variant="meta" render={<div />} className="px-1">
+						{PLACEMENT_HINTS[pickerPlacementLabel]}
+					</Text>
 					<div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-1">
 						<div className="flex flex-col gap-1">
 							{availableRegistries.map((library) => (
@@ -1255,16 +1260,18 @@ export function ComponentDraftLayers({
 									onClick={() => setSelectedLibrary(library)}
 									isSelected={selectedLibrary === library}
 								>
-									{library}
+									{LIBRARY_NAMES[library]}
 								</Button>
 							))}
 						</div>
 						<div className="flex min-w-0 flex-col gap-1">
-							<div className="px-1 text-[0.625rem] font-semibold uppercase tracking-normal text-slate-400">
-								Components
-							</div>
+							<Text variant="group-label" render={<div />} className="px-1">
+								Elements
+							</Text>
 							{pickerItems.length === 0 ? (
-								<div className="px-1 text-xs text-slate-400">No matches</div>
+								<Text variant="meta" render={<div />} className="px-1">
+									No matches
+								</Text>
 							) : (
 								pickerItems.map((item) => (
 									<Button
@@ -1292,9 +1299,11 @@ export function ComponentDraftLayers({
 											<span className="block truncate font-medium">
 												{item.label}
 											</span>
-											<span className="block truncate text-slate-500">
-												{item.role}
-											</span>
+											{item.description ? (
+												<span className="block truncate font-normal text-slate-500">
+													{item.description}
+												</span>
+											) : null}
 										</span>
 									</Button>
 								))
@@ -1310,7 +1319,9 @@ export function ComponentDraftLayers({
 			>
 				<div className="flex flex-col">
 					{visibleRows.length === 0 ? (
-						<div className="px-3 py-2 text-slate-500">No root layer</div>
+						<Text variant="meta" render={<div />} className="px-3 py-2">
+							Add a container to start.
+						</Text>
 					) : (
 						visibleRows.map((row) => (
 							<DraftLayerRow

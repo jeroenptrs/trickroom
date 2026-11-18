@@ -150,25 +150,20 @@ type ExtractSystemComponentMutationInput = {
 
 export const getSystemComponentEditorPath = buildSystemComponentPath;
 
+/** The success toast: one action, the default duration. */
 export function promptToOpenExtractedComponent({
-	replacedSelection,
 	systemId,
 	componentId,
 	navigate,
 }: {
-	replacedSelection: boolean;
 	systemId: string;
 	componentId: string;
 	navigate: (path: string) => void;
 }) {
 	let didOpenEditor = false;
-	const toastId = toast.success("Component extracted.", {
-		description: replacedSelection
-			? "The design now has the attached instance selected."
-			: "The component draft is ready to edit.",
-		duration: Number.POSITIVE_INFINITY,
+	const toastId = toast.success("Component extracted", {
 		action: {
-			label: "Open editor",
+			label: "Open component",
 			onClick: () => {
 				if (didOpenEditor) {
 					return;
@@ -176,12 +171,6 @@ export function promptToOpenExtractedComponent({
 				didOpenEditor = true;
 				toast.dismiss(toastId);
 				navigate(getSystemComponentEditorPath(systemId, componentId));
-			},
-		},
-		cancel: {
-			label: "Stay in design",
-			onClick: () => {
-				toast.dismiss(toastId);
 			},
 		},
 		icon: <Pencil className="size-4" aria-hidden="true" />,
@@ -244,7 +233,7 @@ export async function extractSystemComponentMutation({
 		{ expectedRevision: created.revision },
 	);
 	if (!published.publishedVersion) {
-		throw new Error("Component publish did not return a version.");
+		throw new Error(`Could not publish ${name.trim()}. Try again.`);
 	}
 	const partialResult = {
 		systemId: published.systemId,
@@ -332,7 +321,6 @@ export function ExtractSystemComponentDialog({
 			);
 			onOpenChange(false);
 			promptToOpenExtractedComponent({
-				replacedSelection: result.replacedSelection,
 				systemId: result.systemId,
 				componentId: result.componentId,
 				navigate,
@@ -425,7 +413,7 @@ export function ExtractSystemComponentDialog({
 								aria-hidden="true"
 							/>
 							<DialogTitle className="p-0 text-sm font-medium text-slate-900">
-								Extract as system component
+								Extract as component
 							</DialogTitle>
 						</div>
 						<DialogClose className="border-none bg-transparent p-1 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500">
@@ -442,7 +430,7 @@ export function ExtractSystemComponentDialog({
 										htmlFor={`${formId}-system`}
 										className="text-xs font-semibold text-slate-950"
 									>
-										Target system
+										System
 									</label>
 									<Select
 										id={`${formId}-system`}
@@ -457,7 +445,7 @@ export function ExtractSystemComponentDialog({
 										}
 										disabled={mutation.isPending || systemsQuery.isPending}
 									>
-										<option value="">Choose system</option>
+										<option value="">Choose a system</option>
 										{systems.map((system) => (
 											<option key={system.systemId} value={system.systemId}>
 												{system.systemName}
@@ -503,7 +491,7 @@ export function ExtractSystemComponentDialog({
 										htmlFor={`${formId}-group`}
 										className="text-xs font-semibold text-slate-950"
 									>
-										Group
+										Group (optional)
 									</label>
 									<Input
 										id={`${formId}-group`}
@@ -512,7 +500,6 @@ export function ExtractSystemComponentDialog({
 										value={group}
 										onChange={(event) => setGroup(event.target.value)}
 										disabled={mutation.isPending}
-										placeholder="Optional"
 									/>
 								</div>
 								<div className="flex flex-col gap-2">
@@ -520,7 +507,7 @@ export function ExtractSystemComponentDialog({
 										htmlFor={`${formId}-description`}
 										className="text-xs font-semibold text-slate-950"
 									>
-										Description
+										Description (optional)
 									</label>
 									<Input
 										id={`${formId}-description`}
@@ -529,7 +516,6 @@ export function ExtractSystemComponentDialog({
 										value={description}
 										onChange={(event) => setDescription(event.target.value)}
 										disabled={mutation.isPending}
-										placeholder="Optional"
 									/>
 								</div>
 							</div>
@@ -547,10 +533,9 @@ export function ExtractSystemComponentDialog({
 										disabled={mutation.isPending}
 									/>
 									<span className="flex flex-col gap-0.5">
-										<span>Replace selection with attached instance</span>
+										<span>Replace the layer with an instance</span>
 										<span className="text-[11px] text-slate-500">
-											Publishes the initial version and swaps the selected
-											layer.
+											Publishes version 1 of the component.
 										</span>
 									</span>
 								</label>

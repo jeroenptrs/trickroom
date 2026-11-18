@@ -2,6 +2,7 @@ import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	AlertTriangle,
+	ArrowRight,
 	Check,
 	ChevronDown,
 	ChevronRight,
@@ -50,10 +51,7 @@ import {
 import { useTailwindSyncController } from "../contexts";
 import { formatRelativeTime, pluralize } from "../project/project-view-utils";
 import { SystemDiffChips } from "../project/SystemDiffChips";
-import {
-	SystemStatusBadge,
-	type SystemStatusBadgeState,
-} from "../project/SystemStatusBadge";
+import type { SystemStatusBadgeState } from "../project/SystemStatusBadge";
 import {
 	deriveTokenDomainPills,
 	filterAndGroupTokenRowsByDomain,
@@ -98,9 +96,14 @@ type TokenChangeRow = {
 	tone: TokenChangeTone;
 	previousValue?: string;
 	incomingValue?: string;
-	/** Label of the previous value; defaults to the Tailwind baseline. */
+	/** Label of the previous value; defaults to the Tailwind default. */
 	previousLabel?: string;
-	summary: string;
+	/** The tag; defaults to the tone's label. */
+	tagLabel?: string;
+	/** Only when the change is not in the values, such as `@theme` options. */
+	summary?: string;
+	previousOptions?: string;
+	incomingOptions?: string;
 };
 
 type SyncedTokenEntry = TailwindTokenEntry & {
@@ -151,30 +154,17 @@ const baseColorTokenNames = new Set([
 
 const syncedTokenStatusConfig: Record<
 	SyncedTokenStatus,
-	{ label: string; description: string; order: number }
+	{ label: string; order: number }
 > = {
-	default: {
-		label: "Default",
-		description: "Tailwind baseline tokens available to this system.",
-		order: 0,
-	},
-	overridden: {
-		label: "Overridden",
-		description: "Tailwind defaults replaced by the project theme.",
-		order: 1,
-	},
-	added: {
-		label: "Added",
-		description: "Custom tokens added by the project theme.",
-		order: 2,
-	},
+	default: { label: "Tailwind default", order: 0 },
+	overridden: { label: "Overridden", order: 1 },
+	added: { label: "Added", order: 2 },
 };
 
 const tokenChangeToneConfig: Record<
 	TokenChangeTone,
 	{
 		label: string;
-		tag: string;
 		borderClassName: string;
 		headerClassName: string;
 		tagClassName: string;
@@ -184,7 +174,6 @@ const tokenChangeToneConfig: Record<
 > = {
 	added: {
 		label: "Added",
-		tag: "ADDED",
 		borderClassName: "border-emerald-200",
 		headerClassName: "bg-emerald-50 border-emerald-100",
 		tagClassName: "bg-emerald-100 text-emerald-700",
@@ -193,7 +182,6 @@ const tokenChangeToneConfig: Record<
 	},
 	overridden: {
 		label: "Overridden",
-		tag: "CHANGED",
 		borderClassName: "border-amber-200",
 		headerClassName: "bg-amber-50 border-amber-100",
 		tagClassName: "bg-amber-100 text-amber-700",
@@ -202,7 +190,6 @@ const tokenChangeToneConfig: Record<
 	},
 	removed: {
 		label: "Removed",
-		tag: "REMOVED",
 		borderClassName: "border-rose-200",
 		headerClassName: "bg-rose-50 border-rose-100",
 		tagClassName: "bg-rose-100 text-rose-700",
@@ -479,7 +466,6 @@ function buildTokenChangeRows({
 			tone: "overridden" as const,
 			previousValue: token.defaultValue,
 			incomingValue: token.value,
-			summary: "Value differs from Tailwind baseline",
 		})),
 		...addedTokens.map((token) => ({
 			key: `added:${token.domain}:${token.name}`,
@@ -488,7 +474,6 @@ function buildTokenChangeRows({
 			value: token.value,
 			tone: "added" as const,
 			incomingValue: token.value,
-			summary: "Custom token in the project theme",
 		})),
 		...removedTokens.map((token) => ({
 			key: `removed:${token.domain}:${token.name}`,
@@ -497,7 +482,6 @@ function buildTokenChangeRows({
 			value: token.defaultValue,
 			tone: "removed" as const,
 			previousValue: token.defaultValue,
-			summary: "Default token missing from the project theme",
 		})),
 	]);
 }
@@ -512,7 +496,6 @@ function buildReviewChangeRows(
 	const rows = (
 		entries: TailwindTokenReviewChanges["tokens"]["added"],
 		tone: TokenChangeTone,
-		summary: string,
 	): TokenChangeRow[] =>
 		entries.map((entry) => ({
 			key: `review:${tone}:${entry.domain}:${entry.name}`,
@@ -522,16 +505,22 @@ function buildReviewChangeRows(
 			tone,
 			previousValue: entry.previousValue,
 			incomingValue: entry.value,
-			previousLabel: "CONFIRMED",
-			summary: entry.options
-				? `${formatThemeOptions(entry.previousOptions)} → ${formatThemeOptions(entry.options)}`
-				: summary,
+			previousLabel: "Confirmed",
+			// Since the last review, a changed token is "Changed", not "Overridden".
+			tagLabel: tone === "overridden" ? "Changed" : undefined,
+			...(entry.options
+				? {
+						summary: "@theme options changed",
+						previousOptions: formatThemeOptions(entry.previousOptions),
+						incomingOptions: formatThemeOptions(entry.options),
+					}
+				: {}),
 		}));
 
 	return sortTokenRowsByDomainAndValue([
-		...rows(changes.tokens.changed, "overridden", "Changed since last review"),
-		...rows(changes.tokens.added, "added", "New since last review"),
-		...rows(changes.tokens.removed, "removed", "Removed since last review"),
+		...rows(changes.tokens.changed, "overridden"),
+		...rows(changes.tokens.added, "added"),
+		...rows(changes.tokens.removed, "removed"),
 	]);
 }
 
@@ -548,22 +537,13 @@ function listChangedStylesheets(changes: TailwindTokenReviewChanges): string {
 		: "";
 }
 
-function SectionHeader({
-	title,
-	description,
-	count,
-}: {
-	title: string;
-	description: string;
-	count: number;
-}) {
+function SectionHeader({ title, count }: { title: string; count: number }) {
 	return (
 		<div className="mb-5 flex min-w-0 items-baseline gap-3">
 			<Text variant="subtitle" className="text-[15px] text-slate-900">
 				{title}
 			</Text>
-			<span className="text-[11px] text-slate-500">{description}</span>
-			<span className="ml-auto font-mono text-[10px] text-slate-400">
+			<span className="ml-auto font-mono text-[10px] text-slate-900">
 				{count.toLocaleString()}
 			</span>
 		</div>
@@ -587,13 +567,10 @@ function EmptyTokenState({
 
 function TokenMasthead({
 	systemId,
-	systemName,
 	cssPath,
 	syncedAt,
 	baselineVersion,
 	status,
-	tokenCount,
-	domainCount,
 	diff,
 	diffOverriddenLabel,
 	isSyncing,
@@ -603,16 +580,12 @@ function TokenMasthead({
 	isLoading = false,
 }: {
 	systemId: string;
-	systemName: string;
 	/** Unknown (omitted) until the snapshot or a sync names it. */
 	cssPath: string | null;
 	/** `undefined` while unknown; `null` when the system was never synced. */
 	syncedAt: string | null | undefined;
 	baselineVersion: string | null;
 	status: SystemStatusBadgeState;
-	/** Omitted while the snapshot loads or failed to load. */
-	tokenCount?: number;
-	domainCount?: number;
 	/** Draws the counts and actions as skeletons. */
 	isLoading?: boolean;
 	diff: TokenDiff;
@@ -625,34 +598,27 @@ function TokenMasthead({
 	const versionLabel = baselineVersion
 		? `Tailwind ${baselineVersion}`
 		: "Tailwind";
-	const facts = [
-		cssPath ? getCssBasename(cssPath) : null,
-		versionLabel,
-		syncedAt === undefined
-			? null
-			: syncedAt
-				? `synced ${formatRelativeTime(syncedAt)}`
-				: "Not synced yet",
-	].filter((fact): fact is string => fact !== null);
 	const exportHref = `/api/trickroom/tailwind/systems/${encodeURIComponent(systemId)}/tokens.html?download=1`;
 
 	return (
 		<header className="border-b border-slate-200 bg-white">
-			<div className="flex items-start justify-between gap-6 px-10 pt-8 pb-6">
+			<div className="flex items-center justify-between gap-6 px-10 py-4">
 				<div className="flex min-w-0 flex-1 flex-col gap-1">
-					<Text variant="eyebrow" className="text-slate-400">
-						Design system
-					</Text>
-					<div className="flex min-w-0 flex-wrap items-center gap-3">
-						<h1 className="min-w-0 truncate text-2xl font-semibold text-slate-900">
-							{systemName} Tokens
-						</h1>
-						<SystemStatusBadge state={status} />
-					</div>
-					<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-						<span className="font-mono text-[11px] text-slate-500">
-							{facts.join(" · ")}
-						</span>
+					<h1 className="truncate text-[15px] font-semibold text-slate-900">
+						Tokens
+					</h1>
+					<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+						{cssPath ? (
+							<span className="font-mono">{getCssBasename(cssPath)}</span>
+						) : null}
+						<span>{versionLabel}</span>
+						{syncedAt === undefined ? null : (
+							<span>
+								{syncedAt
+									? `Synced ${formatRelativeTime(syncedAt)}`
+									: "Not synced yet"}
+							</span>
+						)}
 						<SystemDiffChips
 							added={diff.added}
 							overridden={diff.overridden}
@@ -661,15 +627,7 @@ function TokenMasthead({
 						/>
 					</div>
 				</div>
-				<div className="flex shrink-0 flex-col items-end gap-2">
-					{isLoading ? (
-						<Skeleton className="h-3 w-28" />
-					) : tokenCount !== undefined && domainCount !== undefined ? (
-						<div className="font-mono text-[10px] text-slate-400">
-							{tokenCount.toLocaleString()} {pluralize(tokenCount, "token")} ·{" "}
-							{domainCount.toLocaleString()} {pluralize(domainCount, "domain")}
-						</div>
-					) : null}
+				<div className="flex shrink-0 items-center gap-2">
 					{isLoading ? (
 						<Skeleton className="h-9 w-24" />
 					) : (
@@ -678,7 +636,6 @@ function TokenMasthead({
 								<a
 									className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"
 									href={exportHref}
-									title="Export static HTML"
 								>
 									<Download className="size-3.5" aria-hidden="true" />
 									Export HTML
@@ -695,11 +652,7 @@ function TokenMasthead({
 									className={`size-3.5 ${isSyncing ? "animate-spin text-cyan-300" : ""}`}
 									aria-hidden="true"
 								/>
-								{isSyncing
-									? "Syncing..."
-									: status === "idle"
-										? "Sync"
-										: "Re-sync"}
+								{isSyncing ? "Syncing" : status === "idle" ? "Sync" : "Re-sync"}
 							</Button>
 						</div>
 					)}
@@ -723,12 +676,9 @@ function TokenGroupModeControl({
 
 	return (
 		<div className="flex items-center gap-2">
-			<span
-				className="text-[10px] font-semibold tracking-wider text-slate-400"
-				aria-hidden="true"
-			>
-				GROUP BY
-			</span>
+			<Text variant="group-label" aria-hidden="true">
+				Group by
+			</Text>
 			<Segmented
 				ariaLabel="Group by"
 				className="whitespace-nowrap"
@@ -798,10 +748,21 @@ function TokenToolbar({
 							onClear={onClearFilter}
 						/>
 					</div>
-					<span className="shrink-0 font-mono text-[10px] text-slate-500">
-						{filteredCount === totalCount
-							? `${totalCount.toLocaleString()} tokens`
-							: `${filteredCount.toLocaleString()} / ${totalCount.toLocaleString()}`}
+					<span className="shrink-0 text-[11px] text-slate-900">
+						{filteredCount === totalCount ? (
+							<>
+								<span className="font-mono">{totalCount.toLocaleString()}</span>{" "}
+								{pluralize(totalCount, "token")}
+							</>
+						) : (
+							<>
+								<span className="font-mono">
+									{filteredCount.toLocaleString()}
+								</span>{" "}
+								of{" "}
+								<span className="font-mono">{totalCount.toLocaleString()}</span>
+							</>
+						)}
 					</span>
 				</div>
 			</div>
@@ -824,7 +785,7 @@ function TokenToolbar({
 							>
 								<EyeOff className="size-3" aria-hidden="true" />
 								<span>Hide defaults</span>
-								<span className="font-mono text-[10px] text-slate-400">
+								<span className="font-mono text-[10px]">
 									{defaultTokenCount?.toLocaleString()}
 								</span>
 							</button>
@@ -897,9 +858,8 @@ function ReviewBanner({
 					<p className="text-[11px] text-amber-800">
 						{reviewChanges && changeCount === 0 && counts.stylesheets > 0 ? (
 							<>
-								Theme files changed (files:{" "}
-								{listChangedStylesheets(reviewChanges)}); no token-level change
-								detected.
+								Theme files changed, but no token changed:{" "}
+								{listChangedStylesheets(reviewChanges)}.
 							</>
 						) : reviewChanges ? (
 							<>
@@ -913,15 +873,16 @@ function ReviewBanner({
 							</>
 						) : (
 							<>
-								Nothing confirmed yet: the full theme diff against{" "}
-								{tailwindLabel} defaults, {changeCount.toLocaleString()}{" "}
-								{pluralize(changeCount, "entry", "entries")}.
+								No review confirmed yet. Showing all{" "}
+								{changeCount.toLocaleString()}{" "}
+								{pluralize(changeCount, "difference")} from the {tailwindLabel}{" "}
+								defaults.
 							</>
 						)}
 					</p>
 					{reviewChanges ? (
 						<Segmented
-							ariaLabel="Review view"
+							ariaLabel="Compare against"
 							className="self-start whitespace-nowrap"
 							options={tokenReviewViewOptions}
 							value={view}
@@ -962,7 +923,7 @@ function ReviewBanner({
 						disabled={confirmDisabled}
 					>
 						<Check className="size-3.5" aria-hidden="true" />
-						{isSaving ? "Confirming..." : "Confirm changeset"}
+						{isSaving ? "Confirming" : "Confirm changeset"}
 					</Button>
 				</div>
 			</div>
@@ -1034,7 +995,7 @@ function getColorGroupLabel(group: string) {
 		return "Base colors";
 	}
 
-	return `Color ${formatDomainLabel(group)}`;
+	return formatDomainLabel(group);
 }
 
 function groupColorRows(rows: readonly VisualTokenRow[]): ColorTokenGroup[] {
@@ -1065,11 +1026,7 @@ function ColorTokenSection({ rows }: { rows: readonly VisualTokenRow[] }) {
 
 	return (
 		<section className="border-b border-slate-100 px-10 py-8">
-			<SectionHeader
-				title="Color"
-				description="Resolved color tokens with their project values."
-				count={rows.length}
-			/>
+			<SectionHeader title="Color" count={rows.length} />
 			<div className="flex flex-col gap-6">
 				{colorGroups.map((group) => (
 					<div key={group.key} className="flex min-w-0 flex-col gap-2">
@@ -1077,7 +1034,7 @@ function ColorTokenSection({ rows }: { rows: readonly VisualTokenRow[] }) {
 							<Text variant="section-divider" render={<div />}>
 								{group.label}
 							</Text>
-							<span className="font-mono text-[10px] text-slate-400">
+							<span className="font-mono text-[10px] text-slate-900">
 								{group.rows.length.toLocaleString()}
 							</span>
 						</div>
@@ -1280,12 +1237,10 @@ function getDisplayTokenName(row: VisualTokenRow) {
 
 function VisualSubgroup({
 	title,
-	description,
 	count,
 	children,
 }: {
 	title: string;
-	description?: string;
 	count: number;
 	children: ReactNode;
 }) {
@@ -1299,12 +1254,7 @@ function VisualSubgroup({
 				<Text variant="section-divider" render={<div />} className="shrink-0">
 					{title}
 				</Text>
-				{description ? (
-					<span className="min-w-0 truncate text-[11px] text-slate-500">
-						{description}
-					</span>
-				) : null}
-				<span className="ml-auto font-mono text-[10px] text-slate-400">
+				<span className="ml-auto font-mono text-[10px] text-slate-900">
 					{count.toLocaleString()}
 				</span>
 			</div>
@@ -1445,8 +1395,11 @@ function TextSizeGrid({ rows }: { rows: readonly VisualTokenRow[] }) {
 						</span>
 					</div>
 					{lineHeightByName.has(row.name) ? (
-						<div className="mt-1 truncate font-mono text-[10px] text-slate-400">
-							leading {lineHeightByName.get(row.name)}
+						<div className="mt-1 truncate text-[10px] text-slate-500">
+							Leading{" "}
+							<span className="font-mono">
+								{lineHeightByName.get(row.name)}
+							</span>
 						</div>
 					) : null}
 				</div>
@@ -1523,46 +1476,22 @@ function TypeTokenSection({ rows }: { rows: readonly VisualTokenRow[] }) {
 
 	return (
 		<section className="border-b border-slate-100 px-10 py-8">
-			<SectionHeader
-				title="Type"
-				description="Font, size, weight, leading, and tracking tokens."
-				count={rows.length}
-			/>
+			<SectionHeader title="Type" count={rows.length} />
 			<div className="flex flex-col gap-7">
-				<VisualSubgroup
-					title="Font families"
-					description="Project font stacks."
-					count={fontRows.length}
-				>
+				<VisualSubgroup title="Font families" count={fontRows.length}>
 					<FontFamilyGrid rows={fontRows} />
 				</VisualSubgroup>
-				<VisualSubgroup
-					title="Text sizes"
-					description="Size tokens paired with their line-height metadata."
-					count={textSizeCount}
-				>
+				<VisualSubgroup title="Text sizes" count={textSizeCount}>
 					<TextSizeGrid rows={textRows} />
 				</VisualSubgroup>
-				<VisualSubgroup
-					title="Font weights"
-					description="Numeric weight scale."
-					count={weightRows.length}
-				>
+				<VisualSubgroup title="Font weights" count={weightRows.length}>
 					<FontWeightGrid rows={weightRows} />
 				</VisualSubgroup>
 				<div className="grid grid-cols-1 gap-7 xl:grid-cols-2">
-					<VisualSubgroup
-						title="Leading"
-						description="Line-height tokens."
-						count={leadingRows.length}
-					>
+					<VisualSubgroup title="Leading" count={leadingRows.length}>
 						<RhythmTokenList rows={leadingRows} />
 					</VisualSubgroup>
-					<VisualSubgroup
-						title="Tracking"
-						description="Letter-spacing tokens."
-						count={trackingRows.length}
-					>
+					<VisualSubgroup title="Tracking" count={trackingRows.length}>
 						<RhythmTokenList rows={trackingRows} />
 					</VisualSubgroup>
 				</div>
@@ -1705,13 +1634,6 @@ function ShadowGrid({ rows }: { rows: readonly VisualTokenRow[] }) {
 	);
 }
 
-const shadowGroupDescriptions: Partial<Record<TailwindTokenDomain, string>> = {
-	shadow: "Outer box shadows.",
-	"inset-shadow": "Inset box shadows.",
-	"drop-shadow": "Filter drop shadows.",
-	"text-shadow": "Text shadows.",
-};
-
 function getShadowGroupDomain(row: VisualTokenRow): TailwindTokenDomain {
 	if (row.domain === "shadow" && /\binset\b/i.test(row.value)) {
 		return "inset-shadow";
@@ -1738,7 +1660,6 @@ function ShadowTokenGroups({ rows }: { rows: readonly VisualTokenRow[] }) {
 				<VisualSubgroup
 					key={group.domain}
 					title={formatDomainLabel(group.domain)}
-					description={shadowGroupDescriptions[group.domain]}
 					count={group.rows.length}
 				>
 					<ShadowGrid rows={group.rows} />
@@ -1767,50 +1688,26 @@ function SpaceTokenSection({ rows }: { rows: readonly VisualTokenRow[] }) {
 
 	return (
 		<section className="px-10 py-8">
-			<SectionHeader
-				title="Space"
-				description="Spacing rhythm, breakpoints, containers, radii, and shadows."
-				count={rows.length}
-			/>
+			<SectionHeader title="Space" count={rows.length} />
 			<div className="flex flex-col gap-7">
 				<div className="grid grid-cols-1 gap-7 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)]">
-					<VisualSubgroup
-						title="Spacing"
-						description="Base spacing scale."
-						count={spacingRows.length}
-					>
+					<VisualSubgroup title="Spacing" count={spacingRows.length}>
 						<LengthScaleList rows={spacingRows} />
 					</VisualSubgroup>
-					<VisualSubgroup
-						title="Breakpoints"
-						description="Responsive viewport thresholds."
-						count={breakpointRows.length}
-					>
+					<VisualSubgroup title="Breakpoints" count={breakpointRows.length}>
 						<LengthScaleList
 							rows={breakpointRows}
 							order={["sm", "md", "lg", "xl", "2xl"]}
 						/>
 					</VisualSubgroup>
-					<VisualSubgroup
-						title="Containers"
-						description="Layout container widths."
-						count={containerRows.length}
-					>
+					<VisualSubgroup title="Containers" count={containerRows.length}>
 						<LengthScaleList rows={containerRows} order={containerSizeOrder} />
 					</VisualSubgroup>
 				</div>
-				<VisualSubgroup
-					title="Radii"
-					description="Corner radius tokens."
-					count={radiusRows.length}
-				>
+				<VisualSubgroup title="Radii" count={radiusRows.length}>
 					<RadiusGrid rows={radiusRows} />
 				</VisualSubgroup>
-				<VisualSubgroup
-					title="Shadows"
-					description="Outer, inset, drop, and text shadows."
-					count={shadowRows.length}
-				>
+				<VisualSubgroup title="Shadows" count={shadowRows.length}>
 					<ShadowTokenGroups rows={shadowRows} />
 				</VisualSubgroup>
 			</div>
@@ -1876,17 +1773,18 @@ function VisualTokenSections({
 function TokenValuePreview({
 	label,
 	value,
+	options,
 	emptyLabel,
 }: {
 	label: string;
 	value?: string;
+	/** The `@theme` options, shown when they changed. */
+	options?: string;
 	emptyLabel: string;
 }) {
 	return (
 		<div className="flex min-w-0 flex-col gap-1 p-3">
-			<span className="text-[9px] font-semibold tracking-wider text-slate-400">
-				{label}
-			</span>
+			<Text variant="group-label">{label}</Text>
 			{value ? (
 				<div className="flex min-w-0 items-center gap-2">
 					<SystemTokenSwatch value={value} />
@@ -1895,10 +1793,13 @@ function TokenValuePreview({
 					</span>
 				</div>
 			) : (
-				<span className="font-mono text-[10px] text-slate-400">
-					{emptyLabel}
-				</span>
+				<span className="text-[11px] text-slate-500">{emptyLabel}</span>
 			)}
+			{options ? (
+				<span className="truncate font-mono text-[10px] text-slate-700">
+					{options}
+				</span>
+			) : null}
 		</div>
 	);
 }
@@ -1912,37 +1813,35 @@ function TokenChangeCard({ row }: { row: TokenChangeRow }) {
 				className={`flex min-w-0 items-center gap-2 border-b px-3 py-2 ${config.headerClassName}`}
 			>
 				<span
-					className={`shrink-0 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider ${config.tagClassName}`}
+					className={`shrink-0 px-1.5 py-0.5 text-[10px] font-semibold ${config.tagClassName}`}
 				>
-					{config.tag}
+					{row.tagLabel ?? config.label}
 				</span>
-				<span
-					className={`min-w-0 flex-1 truncate font-mono text-[11px] ${
-						row.tone === "removed"
-							? "text-slate-500 line-through"
-							: "text-slate-700"
-					}`}
-				>
+				<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-slate-900">
 					{formatDomainLabel(row.domain)} / {row.name}
 				</span>
-				<span className={`shrink-0 text-[10px] ${config.textClassName}`}>
-					{row.summary}
-				</span>
+				{row.summary ? (
+					<span className={`shrink-0 text-[10px] ${config.textClassName}`}>
+						{row.summary}
+					</span>
+				) : null}
 			</div>
 			<div className="grid min-w-0 grid-cols-2">
 				<TokenValuePreview
 					label={
 						row.previousLabel ??
-						(row.tone === "added" ? "PREVIOUS" : "BASELINE")
+						(row.tone === "added" ? "Previous" : "Tailwind default")
 					}
 					value={row.previousValue}
-					emptyLabel={row.previousLabel ? "not defined" : "not stored"}
+					options={row.previousOptions}
+					emptyLabel="None"
 				/>
 				<div className="border-l border-slate-100">
 					<TokenValuePreview
-						label="INCOMING"
+						label="Incoming"
 						value={row.incomingValue}
-						emptyLabel={row.tone === "removed" ? "removed" : "unchanged"}
+						options={row.incomingOptions}
+						emptyLabel={row.tone === "removed" ? "Removed" : "Unchanged"}
 					/>
 				</div>
 			</div>
@@ -1976,7 +1875,7 @@ function ChangeSection({
 			<Text variant="subtitle" className="text-[11px] text-slate-700">
 				{label ?? config.label}
 			</Text>
-			<span className="font-mono text-[10px] text-slate-400">
+			<span className="font-mono text-[10px] text-slate-900">
 				{rows.length.toLocaleString()}
 			</span>
 		</>
@@ -1984,11 +1883,11 @@ function ChangeSection({
 	const ToggleIcon = collapsed ? ChevronRight : ChevronDown;
 
 	return (
-		<section className="flex flex-col border border-slate-200 bg-white">
+		<section className="flex flex-col gap-3">
 			{canToggle ? (
 				<button
 					type="button"
-					className="flex items-center gap-2 bg-slate-50 px-4 py-2.5 text-left hover:bg-slate-100"
+					className="-mx-2 flex items-center gap-2 px-2 py-1 text-left hover:bg-slate-100"
 					onClick={onToggle}
 					aria-expanded={!collapsed}
 				>
@@ -1999,12 +1898,10 @@ function ChangeSection({
 					{headerContent}
 				</button>
 			) : (
-				<h3 className="flex items-center gap-2 bg-slate-50 px-4 py-2.5">
-					{headerContent}
-				</h3>
+				<h3 className="flex items-center gap-2 py-1">{headerContent}</h3>
 			)}
 			{collapsed ? null : (
-				<div className="flex flex-col gap-3 px-4 py-4">
+				<div className="flex flex-col gap-3">
 					{rows.map((row) => (
 						<TokenChangeCard key={row.key} row={row} />
 					))}
@@ -2148,7 +2045,11 @@ function SyncedStatusTokenBrowser({
 									<span className="truncate bg-slate-50 px-1 text-slate-500">
 										{token.defaultValue}
 									</span>
-									<span className="shrink-0 text-slate-400">→</span>
+									<ArrowRight
+										className="size-3 shrink-0 text-slate-500"
+										aria-hidden="true"
+									/>
+									<span className="sr-only">to</span>
 									<span className="truncate bg-amber-50 px-1 text-amber-700">
 										{token.value}
 									</span>
@@ -2166,7 +2067,7 @@ function SyncedStatusTokenBrowser({
 				return [
 					{
 						domain: `status:${status}`,
-						label: `${config.label} · ${config.description}`,
+						label: config.label,
 						rows,
 					},
 				];
@@ -2177,7 +2078,7 @@ function SyncedStatusTokenBrowser({
 	if (sections.length === 0) {
 		return (
 			<p className="px-10 py-8 text-sm text-slate-500">
-				No token status records match the current filters.
+				No tokens match the current filters.
 			</p>
 		);
 	}
@@ -2201,6 +2102,17 @@ const customChangeBadgeTone = {
 	removed: "danger",
 } as const satisfies Record<TokenChangeTone, string>;
 
+/** Two values with an arrow between them, read as "from to to". */
+function ValueChange({ from, to }: { from?: string; to?: string }) {
+	return (
+		<>
+			{from}{" "}
+			<ArrowRight className="inline size-3 align-[-2px]" aria-hidden="true" />
+			<span className="sr-only">to</span> {to}
+		</>
+	);
+}
+
 /**
  * The `initial` resets, custom properties and `@utility` roots that changed
  * since the last confirmed review. They are not tokens, so they are listed
@@ -2215,7 +2127,7 @@ function CustomReviewChanges({
 		key: string;
 		tone: TokenChangeTone;
 		name: string;
-		detail?: string;
+		detail?: ReactNode;
 		/** The detail is a sentence (body font), not a value. */
 		detailIsText?: boolean;
 	}> = [
@@ -2238,9 +2150,18 @@ function CustomReviewChanges({
 			key: `property:changed:${entry.name}`,
 			tone: "overridden" as const,
 			name: entry.name,
-			detail: entry.options
-				? `${entry.previousValue} → ${entry.value} (${formatThemeOptions(entry.previousOptions)} → ${formatThemeOptions(entry.options)})`
-				: `${entry.previousValue} → ${entry.value}`,
+			detail: entry.options ? (
+				<>
+					<ValueChange from={entry.previousValue} to={entry.value} /> (
+					<ValueChange
+						from={formatThemeOptions(entry.previousOptions)}
+						to={formatThemeOptions(entry.options)}
+					/>
+					)
+				</>
+			) : (
+				<ValueChange from={entry.previousValue} to={entry.value} />
+			),
 		})),
 		...changes.customProperties.added.map((entry) => ({
 			key: `property:added:${entry.name}`,
@@ -2293,7 +2214,7 @@ function CustomReviewChanges({
 								edge="stamped"
 								className="shrink-0"
 							>
-								{config.tag}
+								{row.tone === "overridden" ? "Changed" : config.label}
 							</Badge>
 							<span className="shrink-0 font-mono text-slate-900">
 								{row.name}
@@ -2316,12 +2237,10 @@ function CustomReviewChanges({
 /** A collapsible section heading with its count, collapsed by default. */
 function CollapsibleTokenSection({
 	title,
-	description,
 	count,
 	children,
 }: {
 	title: string;
-	description?: string;
 	count: number;
 	children: ReactNode;
 }) {
@@ -2342,10 +2261,7 @@ function CollapsibleTokenSection({
 				<Text variant="subtitle" className="text-[15px] text-slate-900">
 					{title}
 				</Text>
-				{description ? (
-					<span className="text-[11px] text-slate-500">{description}</span>
-				) : null}
-				<span className="ml-auto font-mono text-[10px] text-slate-400">
+				<span className="ml-auto font-mono text-[10px] text-slate-900">
 					{count.toLocaleString()}
 				</span>
 			</button>
@@ -2397,7 +2313,6 @@ function CustomUtilitiesSection({
 			{utilities.length > 0 ? (
 				<CollapsibleTokenSection
 					title="Custom utilities"
-					description="@utility definitions grouped by the domain they affect"
 					count={utilities.length}
 				>
 					<div className="flex flex-col gap-6">
@@ -2409,7 +2324,7 @@ function CustomUtilitiesSection({
 											? "Uncategorized"
 											: formatDomainLabel(domain)}
 									</span>
-									<span className="font-mono text-[10px] text-slate-400">
+									<span className="font-mono text-[10px] text-slate-900">
 										{domainUtilities.length}
 									</span>
 								</p>
@@ -2422,10 +2337,10 @@ function CustomUtilitiesSection({
 										const tooltip = isFunctional
 											? [
 													utility.consumedNamespaces.join(", "),
-													utility.completionValues.join(" · "),
+													utility.completionValues.join(", "),
 												]
 													.filter(Boolean)
-													.join("  •  ")
+													.join("\n")
 											: undefined;
 										return (
 											<span
@@ -2611,21 +2526,6 @@ export function SystemEditorTokensPanel({
 		storedDomains,
 		storedSyncedTokenEntries,
 	]);
-	const allTokenSections = useMemo(
-		() =>
-			filterAndGroupTokenRowsByDomain(
-				syncedTokens,
-				(token) => ({
-					name: token.name,
-					value: token.value,
-				}),
-				{
-					domainOrder: [...TAILWIND_TOKEN_DOMAINS],
-					getDomainLabel: formatDomainLabel,
-				},
-			),
-		[syncedTokens],
-	);
 	const defaultTokenCount = useMemo(
 		() => syncedTokens.filter((token) => token.status === "default").length,
 		[syncedTokens],
@@ -2733,7 +2633,7 @@ export function SystemEditorTokensPanel({
 		? listChangedStylesheets(reviewChanges)
 		: "";
 	const noReviewTokenChangesMessage = changedStylesheets
-		? `No token-level change detected. Theme files changed: ${changedStylesheets}.`
+		? `No token changed. Theme files changed: ${changedStylesheets}.`
 		: "No token changes since the last review.";
 	const tokenDiff: TokenDiff = {
 		added: reviewCounts.added,
@@ -2741,7 +2641,6 @@ export function SystemEditorTokensPanel({
 		removed: reviewCounts.removed,
 	};
 	const totalTokenCount = syncedTokens.length;
-	const domainCount = allTokenSections.length;
 	const showingSyncedRows = !reviewRequired;
 	const filteredTokenCount = showingSyncedRows
 		? groupMode === "domain"
@@ -2874,7 +2773,6 @@ export function SystemEditorTokensPanel({
 			<div className="flex min-h-0 flex-1 flex-col bg-slate-50">
 				<TokenMasthead
 					systemId={systemId}
-					systemName={systemName}
 					cssPath={cssPath}
 					syncedAt={syncedAt}
 					baselineVersion={baselineVersion}
@@ -2914,7 +2812,6 @@ export function SystemEditorTokensPanel({
 			<div className="flex min-h-0 flex-1 flex-col bg-slate-50">
 				<TokenMasthead
 					systemId={systemId}
-					systemName={systemName}
 					cssPath={cssPath}
 					syncedAt={syncedAt}
 					baselineVersion={baselineVersion}
@@ -2937,7 +2834,7 @@ export function SystemEditorTokensPanel({
 					/>
 					<div className="flex min-w-0 flex-col items-start gap-2">
 						<div>
-							<p className="text-sm font-medium">Failed to load tokens</p>
+							<p className="text-sm font-medium">Could not load the tokens</p>
 							<p className="mt-1 text-xs">{storedTokensError}</p>
 						</div>
 						<Button
@@ -2959,13 +2856,10 @@ export function SystemEditorTokensPanel({
 		<div className="flex min-h-0 flex-1 flex-col bg-slate-50 text-slate-950">
 			<TokenMasthead
 				systemId={systemId}
-				systemName={systemName}
 				cssPath={cssPath}
 				syncedAt={syncedAt}
 				baselineVersion={baselineVersion}
 				status={status}
-				tokenCount={totalTokenCount}
-				domainCount={domainCount}
 				diff={
 					reviewRequired ? tokenDiff : { added: 0, overridden: 0, removed: 0 }
 				}
@@ -2984,7 +2878,7 @@ export function SystemEditorTokensPanel({
 						className="size-3.5 shrink-0 text-cyan-700"
 						aria-hidden="true"
 					/>
-					Tailwind defaults updated to {data.tailwindBaselineVersion}; your
+					Tailwind defaults updated to {data.tailwindBaselineVersion}. Your
 					tokens are unchanged.
 				</div>
 			) : null}
@@ -3011,13 +2905,13 @@ export function SystemEditorTokensPanel({
 					className="rounded-none border-x-0 border-t-0 px-10 py-2 text-xs"
 					role="alert"
 				>
-					{syncError}
+					Could not sync {systemName}: {syncError}
 				</Card>
 			) : null}
 			{totalTokenCount === 0 && changeRows.length === 0 ? (
 				<div className="px-10 py-8">
-					<EmptyTokenState title="No stored tokens">
-						Sync this system to populate the design-token snapshot.
+					<EmptyTokenState title="No tokens yet">
+						Sync to read the tokens from {cssPath ?? "the CSS file"}.
 					</EmptyTokenState>
 				</div>
 			) : (

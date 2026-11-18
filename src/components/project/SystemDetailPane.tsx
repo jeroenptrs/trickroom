@@ -60,7 +60,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Switch } from "../ui/switch";
 import { Text } from "../ui/text";
 import { MemoryNotesButton } from "./memory/MemoryNotesButton";
-import { formatRelativeTime } from "./project-view-utils";
+import { formatRelativeTime, pluralize } from "./project-view-utils";
 import { SystemDiffChips } from "./SystemDiffChips";
 import {
 	SystemStatusBadge,
@@ -259,59 +259,6 @@ function toTokenSaveDomains(overridesByDomain: TokenOverridesByDomain) {
 	) as Record<TailwindTokenDomain, { overrides: string[] }>;
 }
 
-function TokenDiffMiniBar({ diff }: { diff: TokenDiff }) {
-	const total = diff.added + diff.overridden + diff.removed;
-	if (total === 0) {
-		return null;
-	}
-
-	const segments = [
-		{
-			key: "added",
-			width: (diff.added / total) * 100,
-			className: "bg-emerald-500",
-			label: `+${diff.added}`,
-			textClassName: "font-medium text-emerald-700",
-		},
-		{
-			key: "overridden",
-			width: (diff.overridden / total) * 100,
-			className: "bg-amber-500",
-			label: `~${diff.overridden}`,
-			textClassName: "font-medium text-amber-700",
-		},
-		{
-			key: "removed",
-			width: (diff.removed / total) * 100,
-			className: "bg-rose-500",
-			label: `-${diff.removed}`,
-			textClassName: "font-medium text-rose-700",
-		},
-	];
-
-	return (
-		<div className="mt-2 flex flex-col gap-1.5">
-			<div className="flex h-1.5 overflow-hidden bg-slate-100">
-				{segments.map((segment) => (
-					<span
-						key={segment.key}
-						className={`block h-full ${segment.className}`}
-						style={{ width: `${segment.width}%` }}
-						aria-hidden="true"
-					/>
-				))}
-			</div>
-			<div className="flex items-center gap-1.5">
-				{segments.map((segment) => (
-					<Text key={segment.key} className={segment.textClassName}>
-						{segment.label}
-					</Text>
-				))}
-			</div>
-		</div>
-	);
-}
-
 /** A metric card's state from its query: a skeleton, or an error with a retry. */
 function getMetricState(
 	query: {
@@ -337,17 +284,13 @@ function getMetricState(
 }
 
 function SystemOverviewSubview({
-	cssPath,
 	syncedAtLabel,
 	tokenCount,
-	tokenDiff,
 	projectScope,
 	systemId,
 }: {
-	cssPath: string;
 	syncedAtLabel: string;
 	tokenCount: number | null;
-	tokenDiff: TokenDiff;
 	projectScope?: ProjectQueryScope;
 	systemId: string;
 }) {
@@ -365,23 +308,22 @@ function SystemOverviewSubview({
 		systemUsedByQueryOptions(systemId, projectScope),
 	);
 	const usedByCount = (usedByQuery.data?.usedByCount ?? 0).toLocaleString();
-	const iconDetail = `${iconSampleRow ?? "No icon folders"} · ${iconDiagnosticCount} diagnostic${iconDiagnosticCount === 1 ? "" : "s"}`;
+	// One fact under the count: the diagnostics when there are any, else the
+	// folder the icons come from.
+	const iconDetail =
+		iconDiagnosticCount > 0
+			? `${iconDiagnosticCount} ${pluralize(iconDiagnosticCount, "diagnostic")}`
+			: (iconSampleRow ?? "No icon folders");
 
 	const tokenValue =
 		tokenCount === null ? "Not synced" : tokenCount.toLocaleString();
 
 	return (
 		<div className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] gap-4">
-			<MetricCard
-				label="Tokens"
-				value={tokenValue}
-				detail="Stored token records"
-				footer={<TokenDiffMiniBar diff={tokenDiff} />}
-			/>
+			<MetricCard label="Tokens" value={tokenValue} />
 			<MetricCard
 				label="Assets"
 				value={assets.length.toLocaleString()}
-				detail="Indexed asset images"
 				state={getMetricState(assetsQuery, "Could not load assets")}
 			/>
 			<MetricCard
@@ -391,25 +333,11 @@ function SystemOverviewSubview({
 				state={getMetricState(iconFoldersQuery, "Could not load icons")}
 			/>
 			<MetricCard
-				label="Used By"
-				value={usedByCount}
-				detail="Design usage count"
+				label="Used by"
+				value={`${usedByCount} ${pluralize(usedByQuery.data?.usedByCount ?? 0, "design")}`}
 				state={getMetricState(usedByQuery, "Could not load usage")}
 			/>
-			<MetricCard
-				label="Last Sync"
-				value={syncedAtLabel}
-				detail={getCssBasename(cssPath)}
-			/>
-			<MetricCard
-				label="System ID"
-				value={systemId}
-				detail="Project config key"
-				mono
-				action={
-					<CopyButton value={systemId} subject="system ID" className="p-2" />
-				}
-			/>
+			<MetricCard label="Last sync" value={syncedAtLabel} />
 		</div>
 	);
 }
@@ -417,33 +345,27 @@ function SystemOverviewSubview({
 function SystemSettingsSubview({
 	cssPath,
 	projectScope,
-	systemDisplayName,
 	systemId,
-	onDisconnect,
-	disconnectDisabled,
-	isDisconnecting,
+	onRemove,
+	removeDisabled,
+	isRemoving,
 	onSettingsPendingChange,
 }: {
 	cssPath: string;
 	projectScope?: ProjectQueryScope;
-	systemDisplayName: string;
 	systemId: string;
-	onDisconnect: () => void;
-	disconnectDisabled: boolean;
-	isDisconnecting: boolean;
+	onRemove: () => void;
+	removeDisabled: boolean;
+	isRemoving: boolean;
 	onSettingsPendingChange: (isPending: boolean) => void;
 }) {
 	const queryClient = useQueryClient();
 	const syncController = useTailwindSyncController();
-	const [draftName, setDraftName] = useState(systemDisplayName);
 	const [draftCssPath, setDraftCssPath] = useState(cssPath);
 	const [settingsActionError, setSettingsActionError] = useState<string | null>(
 		null,
 	);
 	const storageRoot = `.trickroom/systems/${systemId}`;
-	const tokenStoragePath = `${storageRoot}/tokens.json`;
-	const iconManifestPath = `${storageRoot}/icons.json`;
-	const assetManifestPath = `${storageRoot}/assets.json`;
 	const storedTokensQueryKey = storedTailwindTokensQueryKey(
 		systemId,
 		projectScope,
@@ -459,7 +381,9 @@ function SystemSettingsSubview({
 	const clearSettingsActionError = () => setSettingsActionError(null);
 	const captureSettingsActionError = (error: unknown) => {
 		setSettingsActionError(
-			error instanceof Error ? error.message : "Settings action failed",
+			error instanceof Error
+				? `Could not save the system settings: ${error.message}`
+				: "Could not save the system settings.",
 		);
 	};
 
@@ -502,28 +426,13 @@ function SystemSettingsSubview({
 		(updateDefaultSystemMutation.error instanceof Error
 			? updateDefaultSystemMutation.error.message
 			: null);
-	// Each Save button shows its own pending state.
-	const isSavingName =
-		updateSystemMutation.isPending &&
-		updateSystemMutation.variables?.nextSystemName !== undefined;
-	const isSavingCssPath =
-		updateSystemMutation.isPending &&
-		updateSystemMutation.variables?.cssPath !== undefined;
 	const isMutatingSettings =
 		updateSystemMutation.isPending || updateDefaultSystemMutation.isPending;
-	const settingsActionsDisabled = isMutatingSettings || disconnectDisabled;
-	const saveNameDisabled =
-		settingsActionsDisabled ||
-		draftName.trim().length === 0 ||
-		draftName.trim() === systemDisplayName;
+	const settingsActionsDisabled = isMutatingSettings || removeDisabled;
 	const saveCssPathDisabled =
 		settingsActionsDisabled ||
 		draftCssPath.trim().length === 0 ||
 		draftCssPath.trim() === cssPath;
-
-	useEffect(() => {
-		setDraftName(systemDisplayName);
-	}, [systemDisplayName]);
 
 	useEffect(() => {
 		setDraftCssPath(cssPath);
@@ -536,11 +445,6 @@ function SystemSettingsSubview({
 	useEffect(() => {
 		return () => onSettingsPendingChange(false);
 	}, [onSettingsPendingChange]);
-
-	const saveName = () => {
-		if (saveNameDisabled) return;
-		updateSystemMutation.mutate({ nextSystemName: draftName.trim() });
-	};
 
 	const saveCssPath = () => {
 		if (saveCssPathDisabled) return;
@@ -555,39 +459,7 @@ function SystemSettingsSubview({
 				</Alert>
 			) : null}
 
-			<DetailSection title="Identity">
-				<div className="flex min-w-0 flex-col gap-1.5">
-					<label htmlFor="system-settings-name">
-						<Text variant="label" tone="foreground">
-							System name
-						</Text>
-					</label>
-					<div className="flex min-w-0 items-center gap-2">
-						<Input
-							id="system-settings-name"
-							variant="form"
-							className="min-w-0 flex-1"
-							value={draftName}
-							onChange={(event) => setDraftName(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === "Enter") saveName();
-							}}
-							disabled={settingsActionsDisabled}
-						/>
-						<Button
-							variant="outlined"
-							className="flex items-center gap-1.5"
-							onClick={saveName}
-							disabled={saveNameDisabled}
-						>
-							<Save className="size-3.5" aria-hidden="true" />
-							{isSavingName ? "Saving..." : "Save"}
-						</Button>
-					</div>
-					<Text tone="muted" className="text-[11px]">
-						Shown in the sidebar and design header.
-					</Text>
-				</div>
+			<DetailSection title="Details">
 				<ReadOnlyField
 					label="System ID"
 					value={systemId}
@@ -599,9 +471,10 @@ function SystemSettingsSubview({
 						/>
 					}
 				/>
+				<ReadOnlyField label="Storage" value={storageRoot} />
 			</DetailSection>
 
-			<DetailSection title="Project Default">
+			<DetailSection title="Project default">
 				{/* Applies at once, so it is a switch, not a checkbox. */}
 				<label
 					htmlFor="system-settings-default"
@@ -630,11 +503,11 @@ function SystemSettingsSubview({
 				</label>
 			</DetailSection>
 
-			<DetailSection title="Token Source">
+			<DetailSection title="CSS file">
 				<div className="flex min-w-0 flex-col gap-1.5">
 					<label htmlFor="system-settings-css-path">
 						<Text variant="label" tone="foreground">
-							CSS source path
+							Path
 						</Text>
 					</label>
 					<div className="flex min-w-0 items-stretch gap-2">
@@ -658,36 +531,30 @@ function SystemSettingsSubview({
 							disabled={saveCssPathDisabled}
 						>
 							<Save className="size-3.5" aria-hidden="true" />
-							{isSavingCssPath ? "Saving..." : "Save"}
+							{updateSystemMutation.isPending ? "Saving…" : "Save"}
 						</Button>
 					</div>
 					<Text tone="muted" className="text-[11px]">
-						Path watched for @theme blocks and stored overrides.
+						Relative to the project folder. Trickroom reads the @theme tokens in
+						this file.
 					</Text>
 				</div>
 			</DetailSection>
 
-			<DetailSection title="Storage & Debug Paths">
-				<ReadOnlyField label="System storage" value={storageRoot} />
-				<ReadOnlyField label="Token snapshot" value={tokenStoragePath} />
-				<ReadOnlyField label="Icon manifest" value={iconManifestPath} />
-				<ReadOnlyField label="Asset manifest" value={assetManifestPath} />
-			</DetailSection>
-
-			<DetailSection title="Danger Zone" tone="danger">
+			<DetailSection title="Danger zone" tone="danger">
 				<DetailSectionRow
-					title="Disconnect system"
-					description="Removes this system from project config and deletes Trickroom system storage for tokens, manifests, assets, and icon indexes."
+					title="Remove system"
+					description="Trickroom stops reading this CSS file and deletes the stored tokens, assets, and icons. The CSS file stays on disk."
 					action={
 						<Button
 							variant="outlined"
 							flavor="danger"
 							className="flex shrink-0 items-center gap-1.5"
-							onClick={onDisconnect}
+							onClick={onRemove}
 							disabled={settingsActionsDisabled}
 						>
 							<Trash2 className="size-3.5" aria-hidden="true" />
-							{isDisconnecting ? "Disconnecting..." : "Disconnect..."}
+							{isRemoving ? "Removing…" : "Remove…"}
 						</Button>
 					}
 				/>
@@ -734,7 +601,7 @@ export function SystemDetailPane({
 		() => computeSuggestedTokenOverridesByDomain(removedTokens),
 		[removedTokens],
 	);
-	const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
+	const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
 	const [isSettingsMutationPending, setIsSettingsMutationPending] =
 		useState(false);
 	const detailViewportRef = useRef<HTMLDivElement>(null);
@@ -763,7 +630,7 @@ export function SystemDetailPane({
 			);
 			await queryClient.invalidateQueries({ queryKey: configFileQueryKey });
 			await queryClient.invalidateQueries({ queryKey: systemsQueryKey });
-			setDisconnectDialogOpen(false);
+			setRemoveDialogOpen(false);
 			onSelectSystem(null);
 		},
 	});
@@ -841,7 +708,6 @@ export function SystemDetailPane({
 	const syncedAt = data?.syncedAt ?? storedTokensQuery.data?.syncedAt;
 	const editedTime = syncedAt ? formatRelativeTime(syncedAt) : "never";
 	const syncState = getSyncState(result, reviewRequired);
-	const headerSub = [cssBasename, `synced ${editedTime}`].join(" · ");
 	const actionDisabled =
 		renameMutation.isPending ||
 		deleteMutation.isPending ||
@@ -873,8 +739,10 @@ export function SystemDetailPane({
 		void syncController.syncSystem(systemId);
 	};
 
-	// The disconnect error shows inside the dialog, not behind its backdrop.
-	const actionError = renameError;
+	// The remove error shows inside the dialog, not behind its backdrop.
+	const actionError = renameError
+		? `Could not rename the system: ${renameError}`
+		: null;
 	const isSyncing = result.status === "pending";
 	// A review counts the changes since the last confirmed one; a first review
 	// (nothing confirmed yet), the full theme diff against Tailwind.
@@ -892,11 +760,11 @@ export function SystemDetailPane({
 	const tokenDiff: TokenDiff = reviewRequired
 		? rawTokenDiff
 		: { added: 0, overridden: 0, removed: 0 };
-	const syncErrorMessage =
-		result.error?.message ??
-		(storedTokensError
-			? `Failed to load token snapshot: ${storedTokensError}`
-			: null);
+	const syncErrorMessage = result.error?.message
+		? `Could not sync tokens: ${result.error.message}`
+		: storedTokensError
+			? `Could not load stored tokens: ${storedTokensError}`
+			: null;
 	const syncActionLabel = isSyncing
 		? "Syncing system"
 		: syncState === "error"
@@ -913,7 +781,7 @@ export function SystemDetailPane({
 				disabled={saveDisabled || actionDisabled}
 			>
 				<Check className="size-4" aria-hidden="true" />
-				{saveMutation.isPending ? "Confirming..." : "Confirm review"}
+				{saveMutation.isPending ? "Confirming…" : "Confirm review"}
 			</Button>
 		) : null;
 	const headerActions = (
@@ -959,11 +827,6 @@ export function SystemDetailPane({
 						</div>
 					) : null
 				}
-				eyebrow={
-					<Text variant="eyebrow" className="text-amber-700">
-						System
-					</Text>
-				}
 				title={
 					<>
 						<EditableTitle
@@ -972,26 +835,21 @@ export function SystemDetailPane({
 							disabled={actionDisabled}
 							onRename={renameSystem}
 						/>
-						<SystemStatusBadge state={syncState} />
+						{/* No badge at rest: a word only when the state is abnormal. */}
+						{syncState === "synced" ? null : (
+							<SystemStatusBadge state={syncState} />
+						)}
 					</>
 				}
 				meta={
-					<>
-						<Text
-							tone="faint"
-							className="min-w-0 truncate font-mono text-[11px]"
-						>
-							{headerSub}
-						</Text>
-						<SystemDiffChips
-							added={tokenDiff.added}
-							overridden={tokenDiff.overridden}
-							overriddenLabel={
-								reviewCounts.sinceLastReview ? "changed" : undefined
-							}
-							removed={tokenDiff.removed}
-						/>
-					</>
+					<SystemDiffChips
+						added={tokenDiff.added}
+						overridden={tokenDiff.overridden}
+						overriddenLabel={
+							reviewCounts.sinceLastReview ? "changed" : undefined
+						}
+						removed={tokenDiff.removed}
+					/>
 				}
 				errors={
 					<>
@@ -1007,7 +865,7 @@ export function SystemDetailPane({
 						) : null}
 						{saveError ? (
 							<Text tone="danger" className="text-xs">
-								Failed to save overrides: {saveError}
+								Could not confirm the review: {saveError}
 							</Text>
 						) : null}
 					</>
@@ -1018,53 +876,49 @@ export function SystemDetailPane({
 			<ScrollArea className="min-h-0 flex-1" viewportRef={detailViewportRef}>
 				<div className="flex min-h-full flex-col gap-6 px-10 py-8">
 					<SystemOverviewSubview
-						cssPath={cssPath}
 						syncedAtLabel={editedTime}
 						tokenCount={tokenCount}
-						tokenDiff={tokenDiff}
 						projectScope={projectScope}
 						systemId={systemId}
 					/>
 					<SystemSettingsSubview
 						cssPath={cssPath}
 						projectScope={projectScope}
-						systemDisplayName={systemDisplayName}
 						systemId={systemId}
-						onDisconnect={() => {
+						onRemove={() => {
 							deleteMutation.reset();
-							setDisconnectDialogOpen(true);
+							setRemoveDialogOpen(true);
 						}}
-						disconnectDisabled={actionDisabled}
-						isDisconnecting={deleteMutation.isPending}
+						removeDisabled={actionDisabled}
+						isRemoving={deleteMutation.isPending}
 						onSettingsPendingChange={setIsSettingsMutationPending}
 					/>
 				</div>
 			</ScrollArea>
 			<ConfirmationDialog
-				open={disconnectDialogOpen}
+				open={removeDialogOpen}
 				onOpenChange={(open) => {
 					if (!open && !deleteMutation.isPending) {
-						setDisconnectDialogOpen(false);
+						setRemoveDialogOpen(false);
 					}
 				}}
-				title="Disconnect system"
+				title="Remove system"
 				description={
 					<>
-						Disconnect &quot;{systemDisplayName}&quot;? This removes the system
-						from the project config and deletes its Trickroom system storage.
+						Trickroom stops reading tokens from {cssBasename} and deletes the
+						stored tokens, assets, and icons for &quot;{systemDisplayName}
+						&quot;. The CSS file stays on disk. This can't be undone.
 					</>
 				}
 				icon={<Trash2 className="size-4" aria-hidden="true" />}
 				actionIcon={<Trash2 className="size-3.5" aria-hidden="true" />}
-				actionLabel={
-					deleteMutation.isPending ? "Disconnecting..." : "Disconnect system"
-				}
+				actionLabel={deleteMutation.isPending ? "Removing…" : "Remove system"}
 				actionDisabled={deleteMutation.isPending}
 				tone="destructive"
 				onAction={handleDelete}
 				error={
 					deleteError
-						? `Could not disconnect ${systemDisplayName}: ${deleteError}`
+						? `Could not remove ${systemDisplayName}: ${deleteError}`
 						: null
 				}
 			/>

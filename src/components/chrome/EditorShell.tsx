@@ -2,6 +2,7 @@ import { memo, type ReactNode, useCallback } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router";
 import { handleAnnotationModeShortcut } from "../../stores/annotation-mode-store";
+import { useDesignRoots } from "../../stores/design-store";
 import {
 	type EditorChromePanel,
 	handleEditorChromeShortcut,
@@ -15,8 +16,9 @@ import {
 	useWindowKeyDown,
 } from "../../utils/editor-shortcuts";
 import { DesignHeaderContent, DesignPanelToggle } from "./DesignHeader";
-import { DesignAutosave, SaveIndicator } from "./DesignSave";
+import { DesignAutosave, SaveErrorRow, SaveIndicator } from "./DesignSave";
 import { Layers } from "./Layers";
+import { NoBoards } from "./NoBoards";
 import { Properties } from "./Properties";
 import { WorkspaceToolbar } from "./WorkspaceToolbar";
 
@@ -24,6 +26,17 @@ type EditorShellProps = {
 	designId: string;
 	children: ReactNode;
 };
+
+/** Over the empty stage, so a design with no boards says so with the rail collapsed. */
+function StageNoBoards() {
+	const hasBoards = useDesignRoots().length > 0;
+	if (hasBoards) return null;
+	return (
+		<div className="absolute inset-0 flex items-center justify-center">
+			<NoBoards />
+		</div>
+	);
+}
 
 function LeftSidebar({ designId }: { designId: string }) {
 	return (
@@ -34,6 +47,7 @@ function LeftSidebar({ designId }: { designId: string }) {
 					<DesignPanelToggle panel="rail" />
 				</DesignHeaderContent>
 			</header>
+			<SaveErrorRow />
 			<Layers designId={designId} className="flex-1" />
 		</aside>
 	);
@@ -123,7 +137,13 @@ function EditorShellComponent({ designId, children }: EditorShellProps) {
 			>
 				{/* With the rail collapsed, the toolbar takes over its header. */}
 				<WorkspaceToolbar />
-				<div className="relative min-h-0 flex-1">{children}</div>
+				{/* With the rail collapsed, its header is in the toolbar: the
+				    save error goes under that. */}
+				{railOpen ? null : <SaveErrorRow />}
+				<div className="relative min-h-0 flex-1">
+					{children}
+					<StageNoBoards />
+				</div>
 			</main>
 			<div
 				data-editor-region="inspector"

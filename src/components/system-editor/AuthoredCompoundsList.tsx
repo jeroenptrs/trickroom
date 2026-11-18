@@ -15,6 +15,7 @@ import { compoundWhenSignature } from "../../utils/system-component-compound-sig
 import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
+import { Text } from "../ui/text";
 import { Tooltip } from "../ui/tooltip";
 
 function toFocusableCompoundWhen(
@@ -83,14 +84,13 @@ export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 
 	return (
 		<section className="flex flex-col gap-2 border-b border-slate-200 pb-3">
-			<div>
-				<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-					Authored compounds
-				</p>
-				<p className="mt-1 text-[11px] text-slate-500">
-					Compounds with painted classes appear here. Select a row to edit them
-					with the Compound style target on the right.
-				</p>
+			<div className="flex flex-col gap-1">
+				<Text variant="group-label" render={<p />}>
+					Compound variants
+				</Text>
+				<Text variant="meta" render={<p />}>
+					Select one to edit its classes.
+				</Text>
 			</div>
 			<ul className="flex flex-col gap-1">
 				{entries.map((entry) => {
@@ -108,7 +108,7 @@ export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 											className="truncate text-sm text-slate-900"
 											title={entry.label}
 										>
-											{entry.label || "Advanced compound"}
+											{entry.label || "Advanced compound variant"}
 										</p>
 										<p className="mt-0.5 text-[11px] text-amber-800">
 											Advanced shape: {entry.advancedDiagnostic}
@@ -139,7 +139,7 @@ export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 									aria-pressed={isActive}
 									onClick={() => handleFocus(entry)}
 								>
-									{entry.label || "Compound"}
+									{entry.label || "Compound variant"}
 								</button>
 								<RemoveCompoundButton
 									label={entry.label}
@@ -158,12 +158,12 @@ export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 				tone="destructive"
 				title={
 					pendingDelete?.label
-						? `Remove compound ${pendingDelete.label}`
-						: "Remove compound"
+						? `Remove compound variant ${pendingDelete.label}`
+						: "Remove compound variant"
 				}
 				description="Its classes are removed with it. This can't be undone."
 				icon={<Trash2 className="size-4" aria-hidden="true" />}
-				actionLabel="Remove compound"
+				actionLabel="Remove compound variant"
 				onAction={() => {
 					if (pendingDelete) handleDelete(pendingDelete);
 					setPendingDelete(null);
@@ -181,13 +181,15 @@ function RemoveCompoundButton({
 	onClick: () => void;
 }) {
 	return (
-		<Tooltip content="Remove compound">
+		<Tooltip content="Remove compound variant">
 			<Button
 				type="button"
 				variant="block"
 				flavor="danger"
 				className="shrink-0 px-2 py-1"
-				aria-label={label ? `Remove compound ${label}` : "Remove compound"}
+				aria-label={
+					label ? `Remove compound variant ${label}` : "Remove compound variant"
+				}
 				onClick={onClick}
 			>
 				<Trash2 className="size-3.5" aria-hidden="true" />

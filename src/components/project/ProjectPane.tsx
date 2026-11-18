@@ -1,71 +1,85 @@
 import { useQuery } from "@tanstack/react-query";
-import { MousePointerClick, Sparkles } from "lucide-react";
+import {
+	FilePlus2,
+	LayoutTemplate,
+	MousePointerClick,
+	Plus,
+} from "lucide-react";
+import { useState } from "react";
 import { designSummariesQueryOptions } from "../../queries/design-file";
 import { sessionQueryOptions } from "../../queries/projects";
 import { useProjectScope, useTailwindSyncController } from "../contexts";
+import { Alert } from "../ui/alert";
+import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
-import { Kbd } from "../ui/kbd";
-import { Text } from "../ui/text";
+import { KbdHint } from "../ui/kbd-hint";
+import { CreateSystemDialog } from "./CreateSystemDialog";
 import { DesignDetailPane } from "./DesignDetailPane";
 import { SystemDetailPane } from "./SystemDetailPane";
+import { useCreateDesign } from "./useCreateDesign";
 
-function KbdHint({ kbd, label }: { kbd: string; label: string }) {
-	return (
-		<div className="flex items-center gap-1.5">
-			<Kbd>{kbd}</Kbd>
-			<Text tone="faint" className="text-xs">
-				{label}
-			</Text>
-		</div>
-	);
-}
+function WelcomePane({
+	onDesignCreated,
+	onSystemCreated,
+}: {
+	onDesignCreated: (designUuid: string) => void;
+	onSystemCreated: (systemId: string) => void;
+}) {
+	const createDesignMutation = useCreateDesign(onDesignCreated);
+	const [createSystemOpen, setCreateSystemOpen] = useState(false);
+	const createError = (createDesignMutation.error as Error | null)?.message;
 
-function KbdHintRow({ hints }: { hints: { kbd: string; label: string }[] }) {
 	return (
-		<div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-			{hints.map((hint) => (
-				<KbdHint key={hint.kbd} kbd={hint.kbd} label={hint.label} />
-			))}
-		</div>
-	);
-}
-
-function WelcomePane({ projectRoot }: { projectRoot: string }) {
-	return (
-		<EmptyState
-			icon={Sparkles}
-			title="Welcome to Trickroom"
-			description="This project doesn't have any designs or systems yet. Start by creating a design board."
-		>
-			<Text tone="faint" className="font-mono text-xs">
-				{projectRoot}
-			</Text>
-			<KbdHintRow
-				hints={[
-					{ kbd: "⌘N", label: "new design" },
-					{ kbd: "⌘⇧N", label: "new system" },
-					{ kbd: "⌘P", label: "switch project" },
-				]}
+		<>
+			<EmptyState
+				icon={LayoutTemplate}
+				title="No designs or systems yet"
+				description="Create a design to start drawing, or add a system to use your tokens."
+				action={
+					<div className="flex items-center gap-2">
+						<Button
+							variant="filled"
+							className="flex items-center gap-1.5"
+							disabled={createDesignMutation.isPending}
+							onClick={() => createDesignMutation.mutate()}
+						>
+							<FilePlus2 className="size-3.5" aria-hidden="true" />
+							{createDesignMutation.isPending ? "Creating…" : "New design"}
+						</Button>
+						<Button
+							variant="outlined"
+							className="flex items-center gap-1.5"
+							onClick={() => setCreateSystemOpen(true)}
+						>
+							<Plus className="size-3.5" aria-hidden="true" />
+							Add system
+						</Button>
+					</div>
+				}
+			>
+				{createError ? (
+					<Alert variant="panel">
+						Could not create the design: {createError}
+					</Alert>
+				) : null}
+			</EmptyState>
+			<CreateSystemDialog
+				open={createSystemOpen}
+				onOpenChange={setCreateSystemOpen}
+				onCreated={(system) => onSystemCreated(system.systemId)}
 			/>
-		</EmptyState>
+		</>
 	);
 }
 
 function NothingSelectedPane() {
 	return (
-		<EmptyState
-			icon={MousePointerClick}
-			title="Nothing selected"
-			description="Pick a design or system from the sidebar to preview its contents and edit metadata."
-		>
-			<KbdHintRow
-				hints={[
-					{ kbd: "↑↓", label: "navigate" },
-					{ kbd: "↵", label: "open" },
-					{ kbd: "⌘N", label: "new design" },
-					{ kbd: "⌘⇧N", label: "new system" },
-				]}
-			/>
+		<EmptyState icon={MousePointerClick} title="Select a design or system">
+			<div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+				<KbdHint keys="↑↓" label="Select" />
+				<KbdHint keys="⌘N" label="New design" />
+				<KbdHint keys="⌘⇧N" label="Add system" />
+			</div>
 		</EmptyState>
 	);
 }
@@ -87,7 +101,6 @@ export function ProjectPane({
 	const systems = useTailwindSyncController();
 	const designs = designsQuery.data ?? [];
 	const systemEntries = Object.entries(systems.statusBySystem);
-	const projectRoot = sessionQuery.data?.activeProject?.projectRoot ?? "";
 	const locationId = sessionQuery.data?.activeProject?.locationId ?? "";
 
 	const selectedDesign = designs.find((d) => d.uuid === selectedDesignUuid);
@@ -123,7 +136,12 @@ export function ProjectPane({
 		designs.length === 0 &&
 		systemEntries.length === 0
 	) {
-		return <WelcomePane projectRoot={projectRoot} />;
+		return (
+			<WelcomePane
+				onDesignCreated={onSelectDesign}
+				onSystemCreated={onSelectSystem}
+			/>
+		);
 	}
 
 	return <NothingSelectedPane />;

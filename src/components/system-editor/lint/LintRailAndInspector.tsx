@@ -1,23 +1,17 @@
-import { Boxes, ExternalLink } from "lucide-react";
-import { useMemo } from "react";
+import { ArrowRight, Boxes } from "lucide-react";
 import { Link } from "react-router";
 import { describeComponentClassSource } from "../../../lint/component-location";
 import type { LintFinding, LintReport } from "../../../lint/report";
 import type { ProjectQueryScope } from "../../../queries/project-scope";
 import {
-	LINT_DASHBOARD_VIEWS,
 	type LintSelection,
-	setLintDashboardView,
 	showLintFindings,
-	useLintDashboardView,
 	useLintSelection,
 } from "../../../stores/lint-dashboard-store";
 import { buildDesignPath } from "../../../utils/design-deep-link";
 import { buildSystemComponentPath } from "../../../utils/system-deep-link";
-import { formatRelativeTime } from "../../project/project-view-utils";
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
-import { Skeleton } from "../../ui/skeleton";
 import { StateCell } from "../../ui/state-cell";
 import { Text } from "../../ui/text";
 import {
@@ -27,107 +21,15 @@ import {
 	useSystemLint,
 } from "./LintParts";
 import {
-	countCoverage,
-	countReportDesigns,
 	coverageCellState,
 	findingKey,
 	formatFindingLocation,
-	isReportStale,
 	isUnderPath,
 	LINT_COVERAGE_STATES,
 	type LintDesignNames,
-	totalFindings,
 } from "./lint-dashboard-model";
 
 const MAX_LISTED_FINDINGS = 50;
-
-/** Rail content of the lint page: the views, with what each holds. */
-export function SystemEditorLintRail({
-	systemId,
-	projectScope,
-}: {
-	systemId: string;
-	projectScope?: ProjectQueryScope;
-}) {
-	const view = useLintDashboardView();
-	const { reportQuery, report, currentContractHash, hasNoReport } =
-		useSystemLint(systemId, projectScope);
-	const gapCount = useMemo(
-		() => (report ? countCoverage(report.components).withGaps : null),
-		[report],
-	);
-	const detail = (value: (typeof LINT_DASHBOARD_VIEWS)[number]["value"]) => {
-		if (!report) return null;
-		switch (value) {
-			case "adherence": {
-				const total = totalFindings(report.summary);
-				return `${total.errors}E ${total.warnings}W`;
-			}
-			case "coverage":
-				return `${gapCount ?? 0} gaps`;
-			case "files":
-				return `${report.files.length} files`;
-			case "designs":
-				return report.designs
-					? `${countReportDesigns(report.designs)} designs`
-					: null;
-			case "findings":
-				return String(report.findings.length);
-			default:
-				return null;
-		}
-	};
-	return (
-		<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 py-3">
-			<nav className="flex flex-col gap-px" aria-label="Lint views">
-				{LINT_DASHBOARD_VIEWS.map((entry) => (
-					<Button
-						key={entry.value}
-						type="button"
-						variant="block"
-						isSelected={view === entry.value}
-						className="flex items-center justify-between gap-2 px-2 py-1.5 text-left text-xs"
-						onClick={() => setLintDashboardView(entry.value)}
-					>
-						<span>{entry.label}</span>
-						<span className="font-mono text-[10px] text-slate-500">
-							{detail(entry.value)}
-						</span>
-					</Button>
-				))}
-			</nav>
-			<div className="flex flex-col gap-1 border-t border-slate-200 px-2 pt-3">
-				<Text variant="section-header">report</Text>
-				{report ? (
-					<>
-						<div className="flex items-center gap-2">
-							<Badge
-								tone={report.status === "pass" ? "success" : "danger"}
-								edge="stamped"
-							>
-								{report.status}
-							</Badge>
-							{isReportStale(report, currentContractHash) ? (
-								<Badge tone="warning" edge="stamped">
-									Stale
-								</Badge>
-							) : null}
-						</div>
-						<Text tone="faint" className="font-mono text-[10px]">
-							generated {formatRelativeTime(report.generatedAt)}
-						</Text>
-					</>
-				) : reportQuery.isPending ? (
-					<Skeleton className="h-4 w-20" />
-				) : hasNoReport ? (
-					<Text tone="faint" className="text-[11px]">
-						Not run yet.
-					</Text>
-				) : null}
-			</div>
-		</div>
-	);
-}
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
 	return (
@@ -152,11 +54,7 @@ function FindingList({
 	showLocation?: boolean;
 }) {
 	if (findings.length === 0) {
-		return (
-			<Text tone="faint" className="text-xs">
-				No findings.
-			</Text>
-		);
+		return <Text variant="meta">No findings</Text>;
 	}
 	return (
 		<ul className="flex flex-col gap-2">
@@ -170,7 +68,9 @@ function FindingList({
 					</span>
 					<span className="text-xs text-slate-900">{finding.message}</span>
 					{showLocation ? (
-						<span className="font-mono text-[10px] text-slate-500">
+						<span
+							className={`text-[10px] text-slate-500 ${finding.location?.kind === "design" ? "" : "font-mono"}`}
+						>
 							{formatFindingLocation(finding, designNames)}
 						</span>
 					) : null}
@@ -204,8 +104,8 @@ function OpenInEditorLink({
 			to={buildDesignPath(design, { boardId: board, layerId: element })}
 			className="inline-flex items-center gap-1.5 self-start px-2 py-1.5 text-xs font-medium text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"
 		>
-			<ExternalLink className="size-3.5" aria-hidden="true" />
-			Open in editor
+			Open design
+			<ArrowRight className="size-3.5" aria-hidden="true" />
 		</Link>
 	);
 }
@@ -234,7 +134,7 @@ function GoToComponentLink({
 			data-lint-go-to-component={componentLocation.componentId}
 			className={
 				compact
-					? "inline-flex items-center gap-1 self-start font-mono text-xs text-cyan-700 hover:underline"
+					? "inline-flex items-center gap-1 self-start text-xs text-cyan-700 hover:underline"
 					: "inline-flex items-center gap-1.5 self-start px-2 py-1.5 text-xs font-medium text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"
 			}
 		>
@@ -451,9 +351,7 @@ function ComponentInspector({
 	const component = report.components.find((entry) => entry.slug === slug);
 	if (!component) {
 		return (
-			<Text tone="faint" className="text-xs">
-				This component is not in the current report.
-			</Text>
+			<Text variant="meta">This component is not in the current report.</Text>
 		);
 	}
 	const findings = report.findings.filter(
@@ -621,7 +519,7 @@ export function SystemEditorLintInspector({
 	const designNames = useDesignNames(report, projectScope);
 	if (!report || !selection) {
 		return (
-			<Text tone="faint" className="text-xs">
+			<Text variant="meta">
 				Select a finding, file, component or design to see its details.
 			</Text>
 		);
@@ -659,9 +557,7 @@ function LintSelectionDetails({
 					designNames={designNames}
 				/>
 			) : (
-				<Text tone="faint" className="text-xs">
-					This finding is not in the current report.
-				</Text>
+				<Text variant="meta">This finding is not in the current report.</Text>
 			);
 		}
 		case "file":

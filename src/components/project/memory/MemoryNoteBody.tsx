@@ -22,10 +22,13 @@ function referenceChipLabel(reference: ResolvedMemoryReference): string {
 	return `${reference.type}:${reference.id}`;
 }
 
-/** The token, with where it points (a layer's design and board) when known. */
+/**
+ * The token, with where it points (a layer's design and board) when known:
+ * one fact per line.
+ */
 function referenceTitle(reference: ResolvedMemoryReference): string {
 	return reference.detail
-		? `${reference.detail} · ${reference.raw}`
+		? `${reference.detail}\n${reference.raw}`
 		: reference.raw;
 }
 
@@ -48,6 +51,9 @@ export function MemoryNoteBody({
 		<Text className="whitespace-pre-wrap text-xs text-slate-700">
 			{segments.map((segment, index) => {
 				if (segment.kind === "text") {
+					// Text runs sit between references and never reorder; the
+					// position is their identity.
+					// biome-ignore lint/suspicious/noArrayIndexKey: positional segments of one static string
 					return <span key={`text-${index}`}>{segment.text}</span>;
 				}
 

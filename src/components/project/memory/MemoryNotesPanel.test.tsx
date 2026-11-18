@@ -75,7 +75,7 @@ describe("MemoryNotesPanel", () => {
 	it("renders resolved reference chips in note cards", async () => {
 		const html = await renderPanel();
 		expect(html).toContain("Hero");
-		expect(html).toContain("1 note");
+		expect(html).toContain("You");
 	});
 
 	it("shows the empty state when there are no notes", async () => {

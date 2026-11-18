@@ -28,15 +28,14 @@ describe("system-component-usage queries", () => {
 	});
 
 	it("fetches used-by counts from the component route", async () => {
-		const fetchMock = vi.fn().mockResolvedValue({
-			ok: true,
-			json: async () => ({
+		const fetchMock = vi.fn().mockResolvedValue(
+			Response.json({
 				systemId: "sys_core",
 				systemName: "Core",
 				componentId: "cmp_test",
 				usedByCount: 2,
 			}),
-		});
+		);
 		vi.stubGlobal("fetch", fetchMock);
 
 		const { systemComponentUsedByQueryOptions } = await import(
@@ -55,9 +54,8 @@ describe("system-component-usage queries", () => {
 	});
 
 	it("fetches system-wide component usage from the components route", async () => {
-		const fetchMock = vi.fn().mockResolvedValue({
-			ok: true,
-			json: async () => ({
+		const fetchMock = vi.fn().mockResolvedValue(
+			Response.json({
 				systemId: "sys_core",
 				systemName: "Core",
 				instances: [],
@@ -72,7 +70,7 @@ describe("system-component-usage queries", () => {
 					"hash-mismatch": 0,
 				},
 			}),
-		});
+		);
 		vi.stubGlobal("fetch", fetchMock);
 
 		const { systemComponentsUsageQueryOptions } = await import(

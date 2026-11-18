@@ -49,7 +49,7 @@ export function MissingRenderer({
 			style={frameStyle}
 			onClick={onClick}
 		>
-			<div style={labelStyle}>No renderer for {componentId}</div>
+			<div style={labelStyle}>Unknown element {componentId}</div>
 			{children}
 		</div>
 	);

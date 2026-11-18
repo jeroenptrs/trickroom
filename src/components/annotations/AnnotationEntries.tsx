@@ -97,13 +97,13 @@ function ChangeRecord({
 					<button
 						type="button"
 						data-annotation-change={entry.id}
-						className={`min-w-0 flex-1 px-2 py-1 text-left font-mono text-xs text-cyan-700 hover:bg-cyan-50 disabled:text-slate-500 disabled:hover:bg-transparent ${focusRing}`}
+						className={`min-w-0 flex-1 px-2 py-1 text-left text-xs text-cyan-700 hover:bg-cyan-50 disabled:text-slate-500 disabled:hover:bg-transparent ${focusRing}`}
 						title="Show the changed layers"
 						onClick={() => onRevealLayers?.(present)}
 						disabled={!onRevealLayers || present.length === 0}
 					>
 						{describeChangeCount(layers.length)}
-						{entry.revertedBy ? " · reverted" : ""}
+						{entry.revertedBy ? " (reverted)" : ""}
 					</button>
 					{revertible && actions.onRevert ? (
 						<Button
@@ -172,7 +172,7 @@ function ChangeRecord({
 					<div className="flex flex-col gap-1 pt-1">
 						{summary ? <p title={summary}>{named(summary)}</p> : null}
 						{change.operations.length > 0 ? (
-							<ol className="flex flex-col gap-0.5 font-mono">
+							<ol className="flex flex-col gap-0.5">
 								{change.operations.map((operation, index) => (
 									<li
 										// Operations have no id; their order is the record's.
@@ -180,7 +180,7 @@ function ChangeRecord({
 										key={index}
 										title={operation.summary}
 									>
-										{operation.operation}: {named(operation.summary)}
+										{named(operation.summary)}
 									</li>
 								))}
 							</ol>
@@ -260,6 +260,12 @@ export function AnnotationEntries({
 	annotation: AnnotationView;
 	actions?: AnnotationChangeActions;
 }) {
+	const severalAgents =
+		new Set(
+			annotation.entries.flatMap((entry) =>
+				entry.by.role === "agent" ? [entry.by.sessionId] : [],
+			),
+		).size > 1;
 	return (
 		<ol className="flex flex-col gap-3">
 			{annotation.entries.map((entry) => {
@@ -275,13 +281,9 @@ export function AnnotationEntries({
 							<span
 								className={`font-semibold ${agent ? "text-cyan-700" : "text-slate-700"}`}
 							>
-								{describeAnnotationActor(entry.by)}
+								{describeAnnotationActor(entry.by, severalAgents)}
 							</span>
-							{label ? (
-								<span className="font-mono uppercase tracking-wider">
-									{label}
-								</span>
-							) : null}
+							{label ? <span>{label}</span> : null}
 							<EntryTime at={entry.at} />
 						</div>
 						<EntryBody

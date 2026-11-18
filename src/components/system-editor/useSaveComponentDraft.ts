@@ -70,7 +70,7 @@ export function useSaveComponentDraft({
 		// inspector but persisted here so this stays the only "Save draft" button.
 		mutationFn: async () => {
 			if (!componentId || !componentQuery.data?.record.draft) {
-				throw new Error("Select a component draft before saving.");
+				throw new Error("Open a draft to save.");
 			}
 
 			const session = componentEditorSessionStore.get();
@@ -78,25 +78,25 @@ export function useSaveComponentDraft({
 			let expectedRevision = componentQuery.data.revision;
 			const trimmedName = session.metadata.name.trim();
 			if (!trimmedName) {
-				throw new Error("Component name is required.");
+				throw new Error("Enter a component name.");
 			}
 			const trimmedSlug = session.metadata.slug.trim();
 			if (!trimmedSlug) {
-				throw new Error("Component slug is required.");
+				throw new Error("Enter a slug.");
 			}
 			if (!isSystemComponentSlug(trimmedSlug)) {
 				throw new Error(
-					"Component slug must use lowercase alphanumeric segments separated by hyphens.",
+					"Use lowercase letters, numbers, and hyphens in the slug.",
 				);
 			}
 			if (!session.variantsValid) {
-				throw new Error("Resolve variant diagnostics before saving.");
+				throw new Error("Fix the variant errors before saving.");
 			}
 
 			const draftDirty = templateDirty || variantsDirty;
 			if (draftDirty && !isComponentDraftForComponent(componentId)) {
 				throw new Error(
-					"The open draft no longer matches the selected component. Reload the component before saving.",
+					"The open draft belongs to another component. Open that component to save it.",
 				);
 			}
 
@@ -176,9 +176,7 @@ export function useSaveComponentDraft({
 		onMutate: () => setSaveError(null),
 		onError: async (error) => {
 			setSaveError(
-				error instanceof Error
-					? error.message
-					: "Failed to save component draft.",
+				error instanceof Error ? error.message : "Could not save the draft.",
 			);
 			if (componentId) {
 				await invalidateSystemComponents(

@@ -1,4 +1,3 @@
-import { ChevronRight } from "lucide-react";
 import type { LintConfig, LintSeverity } from "../../../lint/config";
 import type { LintReport, LintSideSummary } from "../../../lint/report";
 import type { LintRuleKindSummary } from "../../../lint/rule-catalogue";
@@ -33,27 +32,26 @@ function RatchetOutcome({ report }: { report: LintReport }) {
 			className="flex flex-col gap-2 px-4 py-3"
 		>
 			<div className="flex flex-wrap items-center gap-2">
-				<Badge
-					tone={ratchet.status === "pass" ? "success" : "danger"}
-					edge="stamped"
-				>
-					Ratchet {ratchet.status}
-				</Badge>
+				{ratchet.status === "fail" ? (
+					<Badge tone="danger" edge="stamped">
+						Failed
+					</Badge>
+				) : null}
 				<Text className="text-xs text-slate-700">
 					{ratchet.baseline
-						? `Compared with the baseline from ${formatRelativeTime(ratchet.baseline.generatedAt)}${
+						? `Compared with the baseline from ${formatRelativeTime(ratchet.baseline.generatedAt)}. ${
 								problems > 0
-									? `: ${ratchet.regressions.length} regressed, ${ratchet.breaches.length} over a threshold.`
-									: ": nothing got worse."
+									? `${ratchet.regressions.length} regressed, ${ratchet.breaches.length} past a threshold.`
+									: "No number got worse."
 							}`
-						: "First run: these numbers are the baseline."}
+						: "First run. These numbers are the baseline."}
 				</Text>
 			</div>
 			{problems > 0 ? (
 				<ul className="flex flex-col gap-1 font-mono text-[11px]">
 					{ratchet.regressions.map((entry) => (
 						<li key={`r:${entry.metric}`} className="text-red-800">
-							{entry.metric}: {entry.baseline} → {entry.current}
+							{entry.metric}: {entry.baseline} to {entry.current}
 						</li>
 					))}
 					{ratchet.breaches.map((entry) => (
@@ -67,14 +65,14 @@ function RatchetOutcome({ report }: { report: LintReport }) {
 			{ratchet.adopted.length > 0 ? (
 				<div className="flex flex-col gap-1">
 					<Text className="text-xs text-slate-700">
-						Rule kinds adopted into the baseline as they are:
+						Rules adopted into the baseline as they are:
 					</Text>
 					<ul className="flex flex-col gap-1 font-mono text-xs text-slate-800">
 						{ratchet.adopted.map((entry) => (
 							<li key={`a:${entry.metric}`}>
 								{entry.reason === "explicit"
-									? `${entry.metric}: ${entry.baseline ?? 0} → ${entry.current} (--adopt)`
-									: `${entry.metric}: ${entry.current} (new rule kind)`}
+									? `${entry.metric}: ${entry.baseline ?? 0} to ${entry.current} (--adopt)`
+									: `${entry.metric}: ${entry.current} (new rule)`}
 							</li>
 						))}
 					</ul>
@@ -110,9 +108,7 @@ function SideCount({
 				{tracked ? (
 					<MetricDelta comparison={compareLintMetric(report.ratchet, metric)} />
 				) : (
-					<span className="font-mono text-[11px] text-slate-400">
-						not tracked
-					</span>
+					<Text variant="meta">Not tracked</Text>
 				)}
 				{threshold ? (
 					<span className="font-mono text-[11px] text-slate-500">
@@ -144,7 +140,7 @@ function SideCard({
 			<div className="flex items-baseline justify-between gap-3 px-4 py-3">
 				<Text variant="subtitle">{SIDE_LABEL[side]}</Text>
 				{summary ? (
-					<Text tone="faint" className="font-mono text-[11px]">
+					<Text variant="meta">
 						{summary.scanned.toLocaleString()}{" "}
 						{side === "code" ? "source files" : "designs"} scanned
 					</Text>
@@ -182,9 +178,7 @@ function SideCard({
 					<Text className="text-sm font-medium text-slate-700">
 						No design results in this report
 					</Text>
-					<Text tone="faint" className="text-xs">
-						Run lint to include designs.
-					</Text>
+					<Text variant="meta">Run lint to include designs.</Text>
 				</div>
 			)}
 		</Card>
@@ -219,22 +213,28 @@ function RuleTable({
 			className="flex flex-col gap-2"
 			aria-label={`${SIDE_LABEL[side]} rules`}
 		>
-			<SectionHeading
-				title={`${side} rules`}
-				detail="Findings per rule kind in this report, with the change against the baseline. Select a rule to see its findings."
-			/>
+			<SectionHeading title={`${SIDE_LABEL[side]} rules`} />
 			<Card edge="inset" className="flex flex-col">
-				<div className="flex items-center gap-3 border-b border-slate-100 px-3 py-2 font-mono text-[10px] text-slate-500">
-					<span className="min-w-0 flex-1">rule kind</span>
-					<span className="w-16 shrink-0">severity</span>
-					<span className="w-28 shrink-0">findings</span>
-					<span className="w-40 shrink-0">vs baseline</span>
-					<span className="w-12 shrink-0 text-right">max</span>
-					<span className="w-4 shrink-0" />
+				<div className="flex items-center gap-3 border-b border-slate-100 px-3 py-2">
+					<Text variant="group-label" className="min-w-0 flex-1">
+						Rule
+					</Text>
+					<Text variant="group-label" className="w-16 shrink-0">
+						Severity
+					</Text>
+					<Text variant="group-label" className="w-28 shrink-0">
+						Findings
+					</Text>
+					<Text variant="group-label" className="w-40 shrink-0">
+						Change
+					</Text>
+					<Text variant="group-label" className="w-12 shrink-0 text-right">
+						Max
+					</Text>
 				</div>
 				{rows.length === 0 && disabled.length === 0 ? (
-					<Text tone="faint" className="px-3 py-3 text-xs">
-						No rule kinds on this side.
+					<Text variant="meta" render={<p />} className="px-3 py-3">
+						No rules on this side.
 					</Text>
 				) : null}
 				{rows.map((row) => {
@@ -262,19 +262,18 @@ function RuleTable({
 							</span>
 							<span className="w-16 shrink-0">
 								{severity ? (
-									<span
-										className={severity.fromReport ? "" : "opacity-50"}
-										title={severity.title}
-									>
-										<SeverityBadge severity={severity.severity} />
+									<span title={severity.title}>
+										{severity.fromReport ? (
+											<SeverityBadge severity={severity.severity} />
+										) : (
+											<Badge tone="neutral">{severity.severity}</Badge>
+										)}
 									</span>
 								) : null}
 							</span>
 							<span className="w-28 shrink-0">
 								{total === 0 ? (
-									<span className="font-mono text-[11px] text-slate-400">
-										clean
-									</span>
+									<Text variant="meta">Clean</Text>
 								) : (
 									<CountTriplet {...row.counts} />
 								)}
@@ -283,12 +282,8 @@ function RuleTable({
 								<MetricDelta comparison={row.comparison} />
 							</span>
 							<span className="w-12 shrink-0 text-right font-mono text-[11px] text-slate-500">
-								{threshold ? threshold.limit : "—"}
+								{threshold ? threshold.limit : null}
 							</span>
-							<ChevronRight
-								className="size-3.5 w-4 shrink-0 text-slate-400"
-								aria-hidden="true"
-							/>
 						</button>
 					);
 				})}
@@ -301,9 +296,9 @@ function RuleTable({
 						<span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-400">
 							{kind.id}
 						</span>
-						<span className="font-mono text-[11px] text-slate-400">
-							disabled in lint.json
-						</span>
+						<Text variant="meta" className="text-slate-400">
+							Disabled in lint.json
+						</Text>
 					</div>
 				))}
 			</Card>
@@ -326,7 +321,12 @@ export function LintAdherenceView({
 	const thresholds = config?.thresholds;
 	return (
 		<div className="flex flex-col gap-6" data-lint-view="adherence">
-			{showRatchet ? <RatchetOutcome report={report} /> : null}
+			{showRatchet &&
+			(report.ratchet.status === "fail" ||
+				!report.ratchet.baseline ||
+				report.ratchet.adopted.length > 0) ? (
+				<RatchetOutcome report={report} />
+			) : null}
 			<div className="flex flex-row flex-wrap gap-4">
 				<SideCard
 					side="code"

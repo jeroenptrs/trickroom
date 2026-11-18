@@ -1,8 +1,11 @@
+/** The segment for files directly in the project root. A word, not a path. */
+export const PROJECT_ROOT_SEGMENT = "Project root";
+
 export function getParentPathSegment(sourcePath: string) {
 	const normalized = sourcePath.trim().replaceAll("\\", "/");
 	const slashIndex = normalized.lastIndexOf("/");
 	if (slashIndex <= 0) {
-		return "(root)";
+		return PROJECT_ROOT_SEGMENT;
 	}
 	return normalized.slice(0, slashIndex);
 }

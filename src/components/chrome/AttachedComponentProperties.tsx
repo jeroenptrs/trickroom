@@ -14,6 +14,7 @@ import {
 	updateSystemComponentInstance,
 	useDesignRevision,
 	useDesignSystemId,
+	useDesignSystemName,
 } from "../../stores/design-store";
 import {
 	isSystemComponentInstanceMigrationUpdateBlocked,
@@ -110,7 +111,7 @@ function VariantAxisControl({
 					)
 				}
 			>
-				<option value={unsetVariantAxisValue}>Unselected</option>
+				<option value={unsetVariantAxisValue}>Default</option>
 				{options.map(([valueKey, value]) => (
 					<option key={valueKey} value={valueKey}>
 						{value.label ?? valueKey}
@@ -128,6 +129,7 @@ function ComponentStatusMessage({
 	status: AttachedComponentVersionStatus;
 	instance: SystemComponentInstanceMetadata;
 }) {
+	const systemName = useDesignSystemName() ?? "this design's system";
 	switch (status) {
 		case "current":
 			return null;
@@ -137,31 +139,29 @@ function ComponentStatusMessage({
 		case "stale-both":
 			return (
 				<Alert variant="inline" tone="warning">
-					This attached component does not match the current published
-					component. Review the migration notes below, then update when ready.
+					This instance doesn't match the published component. Review the
+					migration notes below, then update.
 				</Alert>
 			);
 		case "missing-component":
 			return (
 				<Alert variant="inline" tone="danger">
-					This instance references component {instance.componentId}, but that
-					component is not available in the current design system. Reconnect the
-					system component or detach this instance before editing its structure.
+					This instance's component is missing from {systemName}. Link the
+					system that has it, or detach the instance.
 				</Alert>
 			);
 		case "missing-version":
 			return (
 				<Alert variant="inline" tone="danger">
-					This instance references version {instance.version}, but that
-					published version is not available. Restore the version, update the
-					instance when migration is available, or detach it.
+					Version {instance.version} of this component is no longer published.
+					Restore that version, or detach the instance.
 				</Alert>
 			);
 		case "unknown":
 			return (
 				<Alert variant="inline" tone="danger">
-					Published component metadata could not be loaded. Check the linked
-					design system, or detach this instance if you need to edit it now.
+					Could not read this instance's component. Check that the design links
+					a system.
 				</Alert>
 			);
 	}
@@ -321,14 +321,15 @@ function AttachedComponentRootControls({
 				sourceVersion: version,
 				targetVersion: currentVersion,
 			});
-			toast.success(`Updated ${componentName}.`);
+			toast.success(`Updated ${componentName}`);
 		} catch (error) {
-			const message =
-				error instanceof SystemComponentInstanceMigrationError ||
-				error instanceof Error
-					? error.message
-					: "Failed to update component.";
-			toast.error(message);
+			toast.error(`Could not update ${componentName}`, {
+				description:
+					error instanceof SystemComponentInstanceMigrationError ||
+					error instanceof Error
+						? error.message
+						: undefined,
+			});
 		}
 	};
 
@@ -343,30 +344,33 @@ function AttachedComponentRootControls({
 							className="text-[11px] font-normal text-cyan-700 hover:text-cyan-900"
 							onClick={handleOpen}
 						>
-							Open
+							Open component
 						</button>
 					) : null}
 				</div>
-				<div className="flex flex-col gap-2 px-3 pb-3 text-xs text-slate-600">
+				<div className="flex flex-col gap-2 px-3 pb-3 text-xs text-slate-950">
 					<div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1">
-						<span className="font-semibold text-slate-700">Name</span>
+						<span className="font-semibold text-slate-600">Name</span>
 						<span className="truncate">{componentName}</span>
-						<span className="font-semibold text-slate-700">Version</span>
+						<span className="font-semibold text-slate-600">Version</span>
 						<span>{instance.version}</span>
-						<span className="font-semibold text-slate-700">Status</span>
-						<span>{attachedComponentVersionStatusLabel(status)}</span>
+						{/* Status at rest says nothing: show it only when it is not current. */}
+						{status !== "current" ? (
+							<>
+								<span className="font-semibold text-slate-600">Status</span>
+								<span>{attachedComponentVersionStatusLabel(status)}</span>
+							</>
+						) : null}
 						{currentVersion && currentVersion.version !== instance.version ? (
 							<>
-								<span className="font-semibold text-slate-700">Latest</span>
+								<span className="font-semibold text-slate-600">Latest</span>
 								<span>{currentVersion.version}</span>
 							</>
 						) : null}
 						{overrideCount > 0 ? (
 							<>
-								<span className="font-semibold text-slate-700">Modified</span>
-								<span>
-									{overrideCount} target{overrideCount === 1 ? "" : "s"}
-								</span>
+								<span className="font-semibold text-slate-600">Overrides</span>
+								<span>{overrideCount}</span>
 							</>
 						) : null}
 					</div>
@@ -397,7 +401,7 @@ function AttachedComponentRootControls({
 								disabled={updateBlocked}
 								onClick={() => setConfirm("update")}
 							>
-								Update component
+								Update instance
 							</Button>
 						) : null}
 						{overrideCount > 0 ? (
@@ -416,7 +420,7 @@ function AttachedComponentRootControls({
 							className="w-fit px-2 py-1 text-xs"
 							onClick={() => setConfirm("detach")}
 						>
-							Detach component
+							Detach instance
 						</Button>
 					</div>
 				</div>
@@ -499,11 +503,11 @@ function AttachedComponentOwnedContext({
 			<div className="flex items-center justify-between px-3 py-2 text-[11px] font-semibold text-slate-700">
 				Attached component
 			</div>
-			<div className="flex flex-col gap-2 px-3 pb-3 text-xs text-slate-600">
+			<div className="flex flex-col gap-2 px-3 pb-3 text-xs text-slate-950">
 				<p>
-					This layer is owned by <strong>{componentName}</strong> v
-					{inspection.instance.version}. Structural edits are locked; published
-					editable fields appear in their normal tabs.
+					This layer belongs to <strong>{componentName}</strong> v
+					{inspection.instance.version}. You can change only the fields the
+					component exposes.
 				</p>
 				<div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1">
 					<span className="font-semibold text-slate-700">Template path</span>

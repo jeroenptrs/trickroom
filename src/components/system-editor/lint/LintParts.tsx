@@ -123,10 +123,13 @@ export function useDesignNames(
 export function LintLoadError({
 	title,
 	error,
+	hint,
 	onRetry,
 }: {
 	title: string;
 	error: unknown;
+	/** What else fixes it, after the reason. */
+	hint?: string;
 	onRetry: () => void;
 }) {
 	return (
@@ -136,6 +139,7 @@ export function LintLoadError({
 				{error instanceof Error ? (
 					<span className="block">{error.message}</span>
 				) : null}
+				{hint ? <span className="block">{hint}</span> : null}
 			</Alert>
 			<Button
 				type="button"
@@ -278,15 +282,21 @@ export function CountTriplet({
 	warnings: number;
 	info: number;
 }) {
+	const label = `${errors} ${errors === 1 ? "error" : "errors"}, ${warnings} ${warnings === 1 ? "warning" : "warnings"}, ${info} info`;
 	return (
-		<span className="inline-flex items-center gap-2 font-mono text-[11px]">
-			<span className={errors > 0 ? "text-red-700" : "text-slate-400"}>
+		<span
+			className="inline-flex items-center gap-2 font-mono text-[11px]"
+			title={label}
+			role="img"
+			aria-label={label}
+		>
+			<span className={errors > 0 ? "text-red-700" : "text-slate-900"}>
 				{errors}E
 			</span>
-			<span className={warnings > 0 ? "text-amber-700" : "text-slate-400"}>
+			<span className={warnings > 0 ? "text-amber-700" : "text-slate-900"}>
 				{warnings}W
 			</span>
-			<span className={info > 0 ? "text-cyan-700" : "text-slate-400"}>
+			<span className={info > 0 ? "text-cyan-700" : "text-slate-900"}>
 				{info}I
 			</span>
 		</span>
