@@ -181,11 +181,11 @@ function AnnotationModeSwitch() {
 	return (
 		// biome-ignore lint/a11y/noLabelWithoutControl: the Switch renders the control.
 		<label className="flex items-center gap-1.5 text-slate-600" title={title}>
-			<span>Annotate</span>
+			<span>Select</span>
 			<Switch
 				checked={enabled}
 				onCheckedChange={setAnnotationMode}
-				aria-label="Annotation mode"
+				aria-label="Select layers and show annotation pins"
 			/>
 		</label>
 	);
