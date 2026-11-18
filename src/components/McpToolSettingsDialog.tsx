@@ -1,10 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Settings2, X } from "lucide-react";
 import { useState } from "react";
-import {
-	MCP_TOOL_GROUPS,
-	type McpToolGroupId,
-} from "../mcp/tool-groups";
+import { MCP_TOOL_GROUPS, type McpToolGroupId } from "../mcp/tool-groups";
 import {
 	mcpToolGroupSettingsQueryKey,
 	mcpToolGroupSettingsQueryOptions,
@@ -28,6 +25,7 @@ import {
 	DisclosureTrigger,
 } from "./ui/disclosure";
 import { ScrollArea } from "./ui/scroll-area";
+import { Skeleton } from "./ui/skeleton";
 import { Switch } from "./ui/switch";
 import { Text } from "./ui/text";
 
@@ -59,7 +57,7 @@ function McpToolGroupSettingRow({
 	const tools = mcpToolGroupTools[group.id];
 
 	return (
-		<div className="border border-slate-200 bg-slate-50">
+		<li>
 			<div className="flex items-start justify-between gap-3 px-3 py-3">
 				<div className="min-w-0 flex-1">
 					<label
@@ -77,7 +75,6 @@ function McpToolGroupSettingRow({
 					checked={group.enabled}
 					disabled={disabled}
 					onCheckedChange={onToggle}
-					aria-label={`${group.enabled ? "Disable" : "Enable"} ${group.label}`}
 				/>
 			</div>
 
@@ -105,7 +102,25 @@ function McpToolGroupSettingRow({
 					</DisclosurePanel>
 				</Disclosure>
 			</div>
-		</div>
+		</li>
+	);
+}
+
+/** Mirrors one group row: label, description line, switch, tools toggle. */
+function McpToolGroupSkeletonRow() {
+	return (
+		<li className="flex flex-col">
+			<div className="flex items-start justify-between gap-3 px-3 py-3">
+				<div className="flex min-w-0 flex-1 flex-col gap-2">
+					<Skeleton className="h-4 w-32" />
+					<Skeleton className="h-3 w-56" />
+				</div>
+				<Skeleton className="h-4 w-7" />
+			</div>
+			<div className="border-t border-slate-200 px-3 py-2.5">
+				<Skeleton className="h-3 w-12" />
+			</div>
+		</li>
 	);
 }
 
@@ -188,9 +203,20 @@ export function McpToolSettingsDialog({
 							</DialogDescription>
 
 							{loadError ? (
-								<Alert variant="panel" className="mx-4 mt-3">
-									Failed to load MCP settings: {loadError}
-								</Alert>
+								<div className="mx-4 mt-3 flex items-start gap-2">
+									<Alert variant="panel" className="min-w-0 flex-1">
+										Failed to load MCP settings: {loadError}
+									</Alert>
+									<Button
+										type="button"
+										variant="outlined"
+										className="shrink-0 px-2 py-1 text-xs"
+										disabled={settingsQuery.isFetching}
+										onClick={() => void settingsQuery.refetch()}
+									>
+										Retry
+									</Button>
+								</div>
 							) : null}
 
 							{actionError ? (
@@ -201,20 +227,27 @@ export function McpToolSettingsDialog({
 						</div>
 
 						<ScrollArea className="h-full min-h-0 overflow-hidden">
-							<div className="flex flex-col gap-2 px-4 py-4">
-								{settingsQuery.isPending ? (
-									<Text tone="muted" className="text-xs">
-										Loading MCP tool groups...
-									</Text>
-								) : (
-									settingsQuery.data?.toolGroups.map((group) => (
-										<McpToolGroupSettingRow
-											key={group.id}
-											group={group}
-											disabled={isSaving || settingsQuery.isFetching}
-											onToggle={(enabled) => handleToggle(group.id, enabled)}
-										/>
-									))
+							<div className="px-4 py-4">
+								{settingsQuery.isError ? null : (
+									<ul
+										className="flex flex-col divide-y divide-slate-200 border border-slate-200 bg-slate-50"
+										aria-busy={settingsQuery.isPending}
+									>
+										{settingsQuery.isPending
+											? ["a", "b", "c"].map((key) => (
+													<McpToolGroupSkeletonRow key={key} />
+												))
+											: settingsQuery.data.toolGroups.map((group) => (
+													<McpToolGroupSettingRow
+														key={group.id}
+														group={group}
+														disabled={isSaving || settingsQuery.isFetching}
+														onToggle={(enabled) =>
+															handleToggle(group.id, enabled)
+														}
+													/>
+												))}
+									</ul>
 								)}
 							</div>
 						</ScrollArea>

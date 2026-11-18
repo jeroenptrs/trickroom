@@ -225,7 +225,7 @@ export const LINT_COVERAGE_STATES: Array<{
 		short: "D",
 		gap: "Unused in designs",
 		hint: "No Design places an instance of this component.",
-		unknown: "This report has no design-side results yet.",
+		unknown: "No design results in this report. Run lint to include designs.",
 	},
 ];
 
@@ -406,6 +406,7 @@ export const buildFileTree = (
 	return finish(root);
 };
 
+/** Names of design, board and layer ids; an id without one shows as is. */
 export type LintDesignNames = ReadonlyMap<string, string>;
 
 /**
@@ -434,7 +435,7 @@ export const buildDesignTree = (
 		if (entry.board !== null) {
 			design.children.push({
 				id: `board:${entry.design}/${entry.board}`,
-				name: entry.board,
+				name: names.get(entry.board) ?? entry.board,
 				kind: "file",
 				usages: entry.usages,
 				findings: { ...entry.findings },
@@ -632,11 +633,19 @@ export const formatFindingLocation = (
 			.filter((part) => part !== undefined)
 			.join(":");
 	}
+	// A named layer says where the finding is; its path is the fallback
+	// handle only when the layer has no name to show.
+	const element = location.element
+		? (designNames.get(location.element) ?? location.element)
+		: undefined;
+	const elementNamed = Boolean(
+		location.element && designNames.has(location.element),
+	);
 	return [
 		designNames.get(location.design) ?? location.design,
-		location.board,
-		location.element,
-		location.path,
+		location.board ? (designNames.get(location.board) ?? location.board) : "",
+		element,
+		elementNamed ? "" : location.path,
 	]
 		.filter((part): part is string => Boolean(part))
 		.join(" › ");

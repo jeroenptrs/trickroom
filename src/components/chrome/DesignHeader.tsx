@@ -20,6 +20,7 @@ import {
 	toggleEditorPanel,
 	useEditorPanelOpen,
 } from "../../stores/editor-chrome-store";
+import { formatShortcut } from "../../utils/editor-shortcuts";
 import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -27,13 +28,13 @@ import { Input } from "../ui/input";
 const PANEL_TOGGLES = {
 	rail: {
 		name: "layers",
-		shortcut: "Alt+[",
+		shortcut: formatShortcut(["Alt", "["]),
 		CloseIcon: PanelLeftClose,
 		OpenIcon: PanelLeftOpen,
 	},
 	inspector: {
 		name: "properties",
-		shortcut: "Alt+]",
+		shortcut: formatShortcut(["Alt", "]"]),
 		CloseIcon: PanelRightClose,
 		OpenIcon: PanelRightOpen,
 	},
@@ -121,6 +122,7 @@ function DesignTitle() {
 		return (
 			<Input
 				variant="inline"
+				aria-label="Design name"
 				className="w-full text-[13px] font-medium"
 				value={draftName}
 				onChange={(e) => setDraftName(e.target.value)}
@@ -164,8 +166,9 @@ export function DesignHeaderContent({ children }: { children?: ReactNode }) {
 				className="flex size-7 shrink-0 items-center justify-center p-0"
 				onClick={() => navigate("/")}
 				title="Back to project"
+				aria-label="Back to project"
 			>
-				<ArrowLeft className="size-4 text-slate-500" />
+				<ArrowLeft className="size-4 text-slate-500" aria-hidden="true" />
 			</Button>
 			<div className="flex min-w-0 flex-1 flex-col">
 				<DesignTitle />

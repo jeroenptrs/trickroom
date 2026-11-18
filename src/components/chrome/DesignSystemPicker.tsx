@@ -3,6 +3,7 @@ import {
 	useDesignSystemId,
 } from "../../stores/design-store";
 import { useProjectSystems } from "../contexts";
+import { Select } from "../ui/select";
 import { Text } from "../ui/text";
 
 export function DesignSystemPicker() {
@@ -20,12 +21,16 @@ export function DesignSystemPicker() {
 
 	return (
 		<div className="px-1 flex flex-col gap-1">
-			<Text variant="label" render={<label htmlFor="design-system-picker" />}>
+			<Text
+				variant="label"
+				// biome-ignore lint/a11y/noLabelWithoutControl: htmlFor points at the Select below.
+				render={<label htmlFor="design-system-picker" />}
+			>
 				Design system
 			</Text>
-			<select
+			<Select
 				id="design-system-picker"
-				className="bg-slate-200/60 text-slate-950 text-xs rounded-none px-1 py-0.5 w-full border-none inset-shadow-[0_0_0_1px] inset-shadow-transparent focus-visible:outline-none focus-within:inset-shadow-cyan-200 cursor-pointer"
+				className="cursor-pointer"
 				value={systemId ?? ""}
 				onChange={(e) => setDesignSystemId(e.currentTarget.value || null)}
 			>
@@ -35,7 +40,7 @@ export function DesignSystemPicker() {
 						{system.systemName}
 					</option>
 				))}
-			</select>
+			</Select>
 		</div>
 	);
 }

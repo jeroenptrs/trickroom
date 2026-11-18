@@ -19,7 +19,6 @@ import {
 } from "../../stores/component-editor-session-store";
 import { buildSystemComponentSearch } from "../../utils/system-deep-link";
 import { ConfirmationDialog } from "../ui/alert-dialog";
-import { Button } from "../ui/button";
 import { getSystemEditorPage } from "./types";
 import { useSaveComponentDraft } from "./useSaveComponentDraft";
 
@@ -86,11 +85,12 @@ export function useGuardedComponentLocation({
 	const getOpenComponentIdRef = useRef(getOpenComponentId);
 	getOpenComponentIdRef.current = getOpenComponentId;
 	const [request, setRequest] = useState<LeaveRequest | null>(null);
-	const { saveDraftMutation, saveError, canSave } = useSaveComponentDraft({
-		systemId,
-		projectScope,
-		componentId: request?.fromComponentId ?? null,
-	});
+	const { saveDraftMutation, saveError, canSave, saveBlockedReason } =
+		useSaveComponentDraft({
+			systemId,
+			projectScope,
+			componentId: request?.fromComponentId ?? null,
+		});
 
 	const apply = useCallback((target: LocationTarget) => {
 		lastApplied.current = target;
@@ -173,12 +173,23 @@ export function useGuardedComponentLocation({
 					cancel();
 				}
 			}}
-			title="Discard unsaved changes?"
-			description="The open component has changes that are not saved. Save them before leaving it, discard them, or stay here."
+			title="Save changes before leaving?"
+			description="This component has unsaved changes."
 			icon={<TriangleAlert className="size-4" aria-hidden="true" />}
 			tone="default"
-			actionLabel={saveDraftMutation.isPending ? "Saving" : "Save"}
+			actionLabel={saveDraftMutation.isPending ? "Saving" : "Save draft"}
 			actionDisabled={!canSave || saveDraftMutation.isPending}
+			error={saveError}
+			secondaryAction={{
+				label: "Discard changes",
+				tone: "destructive",
+				disabled: saveDraftMutation.isPending,
+				onClick: () => {
+					if (!request) return;
+					discardOpenComponentDraft();
+					apply(request.target);
+				},
+			}}
 			onAction={async () => {
 				if (!request) return;
 				try {
@@ -192,27 +203,9 @@ export function useGuardedComponentLocation({
 				apply(request.target);
 			}}
 		>
-			<div className="flex flex-col gap-2 px-4 pb-4">
-				{saveError ? (
-					<p role="alert" className="text-xs text-red-700">
-						{saveError}
-					</p>
-				) : null}
-				<Button
-					type="button"
-					variant="outlined"
-					flavor="danger"
-					className="self-start px-2 py-1.5 text-xs"
-					disabled={saveDraftMutation.isPending}
-					onClick={() => {
-						if (!request) return;
-						discardOpenComponentDraft();
-						apply(request.target);
-					}}
-				>
-					Discard changes
-				</Button>
-			</div>
+			{saveBlockedReason ? (
+				<p className="px-4 pb-3 text-xs text-slate-700">{saveBlockedReason}</p>
+			) : null}
 		</ConfirmationDialog>
 	);
 }

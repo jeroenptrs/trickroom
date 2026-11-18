@@ -1,6 +1,6 @@
 import { Field } from "@base-ui/react/field";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Folder } from "lucide-react";
+import { Folder, TriangleAlert } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useNavigate } from "react-router";
 import { configFileQueryKey } from "../queries/config-file";
@@ -10,11 +10,11 @@ import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { FieldControl } from "./ui/input";
 import { InputGroup, InputGroupButton } from "./ui/input-group";
-import { Kbd } from "./ui/kbd";
 import { Text } from "./ui/text";
 
 export function OpenProjectPanel() {
 	const [path, setPath] = useState("");
+	const [pathError, setPathError] = useState<string | null>(null);
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const openMutation = useMutation({
@@ -32,7 +32,11 @@ export function OpenProjectPanel() {
 
 	const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		if (!hasPath || openMutation.isPending) {
+		if (openMutation.isPending) {
+			return;
+		}
+		if (!hasPath) {
+			setPathError("Enter the project folder.");
 			return;
 		}
 		openMutation.mutate(path.trim());
@@ -69,7 +73,10 @@ export function OpenProjectPanel() {
 			</div>
 
 			<form className="flex flex-col gap-2" onSubmit={handleSubmit}>
-				<Field.Root className="flex flex-col gap-2">
+				<Field.Root
+					className="flex flex-col gap-2"
+					invalid={Boolean(pathError)}
+				>
 					<Field.Label
 						render={
 							// biome-ignore lint/a11y/noLabelWithoutControl: Field.Label injects htmlFor and the label text into this render element at runtime.
@@ -83,30 +90,37 @@ export function OpenProjectPanel() {
 							variant="formEmbedded"
 							placeholder="/absolute/path/to/project"
 							value={path}
-							onChange={(event) => setPath(event.target.value)}
+							onChange={(event) => {
+								setPath(event.target.value);
+								if (event.target.value.trim()) {
+									setPathError(null);
+								}
+							}}
 							disabled={openMutation.isPending}
-							className="min-w-0 flex-1 truncate"
+							className="min-w-0 flex-1 truncate aria-invalid:inset-shadow-transparent"
 						/>
-						<InputGroupButton
-							type="submit"
-							disabled={openMutation.isPending || !hasPath}
-						>
+						<InputGroupButton type="submit" disabled={openMutation.isPending}>
 							{openMutation.isPending ? "Opening…" : "Open"}
 						</InputGroupButton>
 					</InputGroup>
+					{pathError ? (
+						<Field.Error
+							match
+							className="flex items-center gap-1.5 text-xs text-red-900"
+						>
+							<TriangleAlert
+								className="size-3 shrink-0 text-red-700"
+								aria-hidden="true"
+							/>
+							<span>{pathError}</span>
+						</Field.Error>
+					) : null}
 				</Field.Root>
 
 				{openMutation.isError ? (
 					<Alert variant="panel">Failed to open project: {openError}</Alert>
 				) : null}
 			</form>
-
-			<div className="flex items-center gap-2 pt-2">
-				<Kbd>⌘K</Kbd>
-				<Text tone="muted" className="text-[11px]">
-					Open the command menu anywhere
-				</Text>
-			</div>
 		</div>
 	);
 }

@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	AlertTriangle,
 	Check,
+	ChevronDown,
+	ChevronRight,
 	Download,
 	EyeOff,
 	Info,
@@ -68,6 +70,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Segmented, type SegmentedOption } from "../ui/segmented";
+import { Skeleton } from "../ui/skeleton";
 import { Text } from "../ui/text";
 
 type StoredTokenDomains = StoredTailwindTokensResponse["domains"];
@@ -546,19 +549,16 @@ function listChangedStylesheets(changes: TailwindTokenReviewChanges): string {
 }
 
 function SectionHeader({
-	index,
 	title,
 	description,
 	count,
 }: {
-	index: string;
 	title: string;
 	description: string;
 	count: number;
 }) {
 	return (
 		<div className="mb-5 flex min-w-0 items-baseline gap-3">
-			<span className="font-mono text-[11px] text-slate-300">{index}</span>
 			<Text variant="subtitle" className="text-[15px] text-slate-900">
 				{title}
 			</Text>
@@ -600,15 +600,21 @@ function TokenMasthead({
 	onSync,
 	syncDisabled,
 	canExport,
+	isLoading = false,
 }: {
 	systemId: string;
 	systemName: string;
-	cssPath: string;
-	syncedAt: string | null;
+	/** Unknown (omitted) until the snapshot or a sync names it. */
+	cssPath: string | null;
+	/** `undefined` while unknown; `null` when the system was never synced. */
+	syncedAt: string | null | undefined;
 	baselineVersion: string | null;
 	status: SystemStatusBadgeState;
-	tokenCount: number;
-	domainCount: number;
+	/** Omitted while the snapshot loads or failed to load. */
+	tokenCount?: number;
+	domainCount?: number;
+	/** Draws the counts and actions as skeletons. */
+	isLoading?: boolean;
 	diff: TokenDiff;
 	diffOverriddenLabel?: string;
 	isSyncing: boolean;
@@ -616,10 +622,18 @@ function TokenMasthead({
 	syncDisabled: boolean;
 	canExport: boolean;
 }) {
-	const syncLabel = syncedAt ? formatRelativeTime(syncedAt) : "never";
 	const versionLabel = baselineVersion
 		? `Tailwind ${baselineVersion}`
 		: "Tailwind";
+	const facts = [
+		cssPath ? getCssBasename(cssPath) : null,
+		versionLabel,
+		syncedAt === undefined
+			? null
+			: syncedAt
+				? `synced ${formatRelativeTime(syncedAt)}`
+				: "Not synced yet",
+	].filter((fact): fact is string => fact !== null);
 	const exportHref = `/api/trickroom/tailwind/systems/${encodeURIComponent(systemId)}/tokens.html?download=1`;
 
 	return (
@@ -637,7 +651,7 @@ function TokenMasthead({
 					</div>
 					<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
 						<span className="font-mono text-[11px] text-slate-500">
-							{getCssBasename(cssPath)} · {versionLabel} · synced {syncLabel}
+							{facts.join(" · ")}
 						</span>
 						<SystemDiffChips
 							added={diff.added}
@@ -648,39 +662,47 @@ function TokenMasthead({
 					</div>
 				</div>
 				<div className="flex shrink-0 flex-col items-end gap-2">
-					<div className="font-mono text-[10px] text-slate-400">
-						{tokenCount.toLocaleString()} {pluralize(tokenCount, "token")} ·{" "}
-						{domainCount.toLocaleString()} {pluralize(domainCount, "domain")}
-					</div>
-					<div className="flex items-center gap-2">
-						{canExport ? (
-							<a
-								className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"
-								href={exportHref}
-								title="Export static HTML"
+					{isLoading ? (
+						<Skeleton className="h-3 w-28" />
+					) : tokenCount !== undefined && domainCount !== undefined ? (
+						<div className="font-mono text-[10px] text-slate-400">
+							{tokenCount.toLocaleString()} {pluralize(tokenCount, "token")} ·{" "}
+							{domainCount.toLocaleString()} {pluralize(domainCount, "domain")}
+						</div>
+					) : null}
+					{isLoading ? (
+						<Skeleton className="h-9 w-24" />
+					) : (
+						<div className="flex items-center gap-2">
+							{canExport ? (
+								<a
+									className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"
+									href={exportHref}
+									title="Export static HTML"
+								>
+									<Download className="size-3.5" aria-hidden="true" />
+									Export HTML
+								</a>
+							) : null}
+							<Button
+								type="button"
+								variant="blockDark"
+								className="flex items-center gap-1.5 bg-slate-950 px-3 py-2"
+								onClick={onSync}
+								disabled={syncDisabled}
 							>
-								<Download className="size-3.5" aria-hidden="true" />
-								Export HTML
-							</a>
-						) : null}
-						<Button
-							type="button"
-							variant="blockDark"
-							className="flex items-center gap-1.5 bg-slate-950 px-3 py-2"
-							onClick={onSync}
-							disabled={syncDisabled}
-						>
-							<RefreshCw
-								className={`size-3.5 ${isSyncing ? "animate-spin text-cyan-300" : ""}`}
-								aria-hidden="true"
-							/>
-							{isSyncing
-								? "Syncing..."
-								: status === "idle"
-									? "Sync"
-									: "Re-sync"}
-						</Button>
-					</div>
+								<RefreshCw
+									className={`size-3.5 ${isSyncing ? "animate-spin text-cyan-300" : ""}`}
+									aria-hidden="true"
+								/>
+								{isSyncing
+									? "Syncing..."
+									: status === "idle"
+										? "Sync"
+										: "Re-sync"}
+							</Button>
+						</div>
+					)}
 				</div>
 			</div>
 		</header>
@@ -694,33 +716,30 @@ function TokenGroupModeControl({
 	groupMode: TokenGroupMode;
 	onChange: (mode: TokenGroupMode) => void;
 }) {
-	const modes: Array<{ mode: TokenGroupMode; label: string }> = [
-		{ mode: "domain", label: "Domain" },
-		{ mode: "status", label: "Status" },
+	const modes: SegmentedOption<TokenGroupMode>[] = [
+		{ value: "domain", label: "Domain" },
+		{ value: "status", label: "Status" },
 	];
 
 	return (
 		<div className="flex items-center gap-2">
-			<span className="text-[10px] font-semibold tracking-wider text-slate-400">
+			<span
+				className="text-[10px] font-semibold tracking-wider text-slate-400"
+				aria-hidden="true"
+			>
 				GROUP BY
 			</span>
-			<div className="flex items-center inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
-				{modes.map(({ mode, label }) => (
-					<button
-						key={mode}
-						type="button"
-						aria-pressed={groupMode === mode}
-						className={`px-2.5 py-1 text-sm ${
-							groupMode === mode
-								? "bg-slate-950 font-medium text-slate-100"
-								: "text-slate-700 hover:bg-slate-100"
-						}`}
-						onClick={() => onChange(mode)}
-					>
-						{label}
-					</button>
-				))}
-			</div>
+			<Segmented
+				ariaLabel="Group by"
+				className="whitespace-nowrap"
+				options={modes}
+				value={groupMode}
+				onChange={(next) => {
+					if (next) {
+						onChange(next);
+					}
+				}}
+			/>
 		</div>
 	);
 }
@@ -804,9 +823,7 @@ function TokenToolbar({
 								onClick={onToggleDefaultTokens}
 							>
 								<EyeOff className="size-3" aria-hidden="true" />
-								<span>
-									{hideDefaultTokens ? "Defaults hidden" : "Hide defaults"}
-								</span>
+								<span>Hide defaults</span>
 								<span className="font-mono text-[10px] text-slate-400">
 									{defaultTokenCount?.toLocaleString()}
 								</span>
@@ -832,6 +849,7 @@ function ReviewBanner({
 	onViewChange,
 	saveError,
 	isSaving,
+	suggestionsDiscarded,
 	confirmDisabled,
 	discardDisabled,
 	onConfirm,
@@ -845,6 +863,8 @@ function ReviewBanner({
 	onViewChange: (view: TokenReviewView) => void;
 	saveError: string | null;
 	isSaving: boolean;
+	/** The suggested overrides were dropped; Confirm keeps the current ones. */
+	suggestionsDiscarded: boolean;
 	confirmDisabled: boolean;
 	discardDisabled: boolean;
 	onConfirm: () => void;
@@ -912,6 +932,11 @@ function ReviewBanner({
 							}}
 						/>
 					) : null}
+					{suggestionsDiscarded ? (
+						<p role="status" className="text-[11px] text-amber-800">
+							Suggestions discarded. Confirm to keep your current overrides.
+						</p>
+					) : null}
 					{saveError ? (
 						<Alert variant="inline" className="text-[11px]">
 							{saveError}
@@ -927,7 +952,7 @@ function ReviewBanner({
 						disabled={discardDisabled}
 					>
 						<X className="size-3.5" aria-hidden="true" />
-						{isSaving ? "Saving..." : "Discard suggestions"}
+						Discard suggestions
 					</Button>
 					<Button
 						type="button"
@@ -1031,13 +1056,7 @@ function groupColorRows(rows: readonly VisualTokenRow[]): ColorTokenGroup[] {
 		}));
 }
 
-function ColorTokenSection({
-	index,
-	rows,
-}: {
-	index: string;
-	rows: readonly VisualTokenRow[];
-}) {
+function ColorTokenSection({ rows }: { rows: readonly VisualTokenRow[] }) {
 	if (rows.length === 0) {
 		return null;
 	}
@@ -1047,7 +1066,6 @@ function ColorTokenSection({
 	return (
 		<section className="border-b border-slate-100 px-10 py-8">
 			<SectionHeader
-				index={index}
 				title="Color"
 				description="Resolved color tokens with their project values."
 				count={rows.length}
@@ -1489,13 +1507,7 @@ function RhythmTokenList({ rows }: { rows: readonly VisualTokenRow[] }) {
 	);
 }
 
-function TypeTokenSection({
-	index,
-	rows,
-}: {
-	index: string;
-	rows: readonly VisualTokenRow[];
-}) {
+function TypeTokenSection({ rows }: { rows: readonly VisualTokenRow[] }) {
 	if (rows.length === 0) {
 		return null;
 	}
@@ -1512,7 +1524,6 @@ function TypeTokenSection({
 	return (
 		<section className="border-b border-slate-100 px-10 py-8">
 			<SectionHeader
-				index={index}
 				title="Type"
 				description="Font, size, weight, leading, and tracking tokens."
 				count={rows.length}
@@ -1737,13 +1748,7 @@ function ShadowTokenGroups({ rows }: { rows: readonly VisualTokenRow[] }) {
 	);
 }
 
-function SpaceTokenSection({
-	index,
-	rows,
-}: {
-	index: string;
-	rows: readonly VisualTokenRow[];
-}) {
+function SpaceTokenSection({ rows }: { rows: readonly VisualTokenRow[] }) {
 	if (rows.length === 0) {
 		return null;
 	}
@@ -1763,7 +1768,6 @@ function SpaceTokenSection({
 	return (
 		<section className="px-10 py-8">
 			<SectionHeader
-				index={index}
 				title="Space"
 				description="Spacing rhythm, breakpoints, containers, radii, and shadows."
 				count={rows.length}
@@ -1846,32 +1850,24 @@ function VisualTokenSections({
 		{
 			key: "color",
 			rows: colorRows,
-			render: (index: string) => (
-				<ColorTokenSection index={index} rows={colorRows} />
-			),
+			render: () => <ColorTokenSection rows={colorRows} />,
 		},
 		{
 			key: "type",
 			rows: typeRows,
-			render: (index: string) => (
-				<TypeTokenSection index={index} rows={typeRows} />
-			),
+			render: () => <TypeTokenSection rows={typeRows} />,
 		},
 		{
 			key: "space",
 			rows: spaceRows,
-			render: (index: string) => (
-				<SpaceTokenSection index={index} rows={spaceRows} />
-			),
+			render: () => <SpaceTokenSection rows={spaceRows} />,
 		},
 	].filter((section) => section.rows.length > 0);
 
 	return (
 		<div className="border-b border-slate-100">
-			{visualSections.map((section, index) => (
-				<div key={section.key}>
-					{section.render(String(index + 1).padStart(2, "0"))}
-				</div>
+			{visualSections.map((section) => (
+				<div key={section.key}>{section.render()}</div>
 			))}
 		</div>
 	);
@@ -1974,23 +1970,39 @@ function ChangeSection({
 		return null;
 	}
 
+	const headerContent = (
+		<>
+			<span className={`size-2 ${config.dotClassName}`} aria-hidden="true" />
+			<Text variant="subtitle" className="text-[11px] text-slate-700">
+				{label ?? config.label}
+			</Text>
+			<span className="font-mono text-[10px] text-slate-400">
+				{rows.length.toLocaleString()}
+			</span>
+		</>
+	);
+	const ToggleIcon = collapsed ? ChevronRight : ChevronDown;
+
 	return (
 		<section className="flex flex-col border border-slate-200 bg-white">
-			<button
-				type="button"
-				className="flex items-center gap-2 bg-slate-50 px-4 py-2.5 text-left disabled:pointer-events-none"
-				onClick={onToggle}
-				disabled={!canToggle}
-				aria-expanded={canToggle ? !collapsed : undefined}
-			>
-				<span className={`size-2 ${config.dotClassName}`} aria-hidden="true" />
-				<Text variant="subtitle" className="text-[11px] text-slate-700">
-					{label ?? config.label}
-				</Text>
-				<span className="font-mono text-[10px] text-slate-400">
-					{rows.length.toLocaleString()}
-				</span>
-			</button>
+			{canToggle ? (
+				<button
+					type="button"
+					className="flex items-center gap-2 bg-slate-50 px-4 py-2.5 text-left hover:bg-slate-100"
+					onClick={onToggle}
+					aria-expanded={!collapsed}
+				>
+					<ToggleIcon
+						className="size-3.5 shrink-0 text-slate-500"
+						aria-hidden="true"
+					/>
+					{headerContent}
+				</button>
+			) : (
+				<h3 className="flex items-center gap-2 bg-slate-50 px-4 py-2.5">
+					{headerContent}
+				</h3>
+			)}
 			{collapsed ? null : (
 				<div className="flex flex-col gap-3 px-4 py-4">
 					{rows.map((row) => (
@@ -2204,18 +2216,23 @@ function CustomReviewChanges({
 		tone: TokenChangeTone;
 		name: string;
 		detail?: string;
+		/** The detail is a sentence (body font), not a value. */
+		detailIsText?: boolean;
 	}> = [
+		// Tagged by what happened to the reset line; the detail says its effect.
 		...changes.resets.added.map((entry) => ({
 			key: `reset:added:${entry.pattern}`,
-			tone: "removed" as const,
+			tone: "added" as const,
 			name: `${entry.pattern}: initial`,
-			detail: "Tailwind defaults removed",
+			detail: "Removes the Tailwind defaults",
+			detailIsText: true,
 		})),
 		...changes.resets.removed.map((entry) => ({
 			key: `reset:removed:${entry.pattern}`,
-			tone: "added" as const,
+			tone: "removed" as const,
 			name: `${entry.pattern}: initial`,
-			detail: "reset dropped, Tailwind defaults restored",
+			detail: "Restores the Tailwind defaults",
+			detailIsText: true,
 		})),
 		...changes.customProperties.changed.map((entry) => ({
 			key: `property:changed:${entry.name}`,
@@ -2269,7 +2286,7 @@ function CustomReviewChanges({
 					return (
 						<div
 							key={row.key}
-							className="flex min-w-0 items-center gap-3 font-mono text-xs"
+							className="flex min-w-0 items-center gap-3 text-xs"
 						>
 							<Badge
 								tone={customChangeBadgeTone[row.tone]}
@@ -2278,9 +2295,13 @@ function CustomReviewChanges({
 							>
 								{config.tag}
 							</Badge>
-							<span className="shrink-0 text-slate-900">{row.name}</span>
+							<span className="shrink-0 font-mono text-slate-900">
+								{row.name}
+							</span>
 							{row.detail ? (
-								<span className="min-w-0 truncate text-slate-500">
+								<span
+									className={`min-w-0 truncate text-slate-500 ${row.detailIsText ? "" : "font-mono"}`}
+								>
 									{row.detail}
 								</span>
 							) : null}
@@ -2292,11 +2313,53 @@ function CustomReviewChanges({
 	);
 }
 
+/** A collapsible section heading with its count, collapsed by default. */
+function CollapsibleTokenSection({
+	title,
+	description,
+	count,
+	children,
+}: {
+	title: string;
+	description?: string;
+	count: number;
+	children: ReactNode;
+}) {
+	const [collapsed, setCollapsed] = useState(true);
+	const ToggleIcon = collapsed ? ChevronRight : ChevronDown;
+	return (
+		<section className="border-t border-slate-200 px-10 py-6">
+			<button
+				type="button"
+				onClick={() => setCollapsed((value) => !value)}
+				className="-mx-2 flex w-[calc(100%+1rem)] items-baseline gap-3 px-2 py-1 text-left hover:bg-slate-100"
+				aria-expanded={!collapsed}
+			>
+				<ToggleIcon
+					className="size-3.5 shrink-0 self-center text-slate-500"
+					aria-hidden="true"
+				/>
+				<Text variant="subtitle" className="text-[15px] text-slate-900">
+					{title}
+				</Text>
+				{description ? (
+					<span className="text-[11px] text-slate-500">{description}</span>
+				) : null}
+				<span className="ml-auto font-mono text-[10px] text-slate-400">
+					{count.toLocaleString()}
+				</span>
+			</button>
+			{collapsed ? null : <div className="mt-5">{children}</div>}
+		</section>
+	);
+}
+
 /**
  * Read-only review of the custom `@utility` definitions and the CSS variables
  * they consume — the data that lives outside the fixed token domains
  * (`customProperties` / `customUtilities` in the v3 snapshot). Surfacing it here
  * lets designers confirm what the system contributed beyond standard tokens.
+ * Utilities and properties are separate sections, each with its own count.
  */
 function CustomUtilitiesSection({
 	customProperties,
@@ -2305,13 +2368,8 @@ function CustomUtilitiesSection({
 	customProperties: StoredTailwindTokensResponse["customProperties"];
 	customUtilities: StoredTailwindTokensResponse["customUtilities"];
 }) {
-	const [collapsed, setCollapsed] = useState(true);
 	const variables = Object.entries(customProperties ?? {});
 	const utilities = customUtilities ?? [];
-
-	if (variables.length === 0 && utilities.length === 0) {
-		return null;
-	}
 
 	// Fold each utility into the domain(s) it affects (multi-tag). Utilities the
 	// inference couldn't place go under "uncategorized", listed last.
@@ -2335,88 +2393,79 @@ function CustomUtilitiesSection({
 	});
 
 	return (
-		<section className="border-t border-slate-200 px-10 py-6">
-			<button
-				type="button"
-				onClick={() => setCollapsed((value) => !value)}
-				className="flex w-full items-baseline gap-3 text-left"
-				aria-expanded={!collapsed}
-			>
-				<span className="font-mono text-[11px] text-slate-300">＊</span>
-				<Text variant="subtitle" className="text-[15px] text-slate-900">
-					Custom utilities
-				</Text>
-				<span className="text-[11px] text-slate-500">
-					@utility definitions grouped by the domain they affect
-				</span>
-				<span className="ml-auto font-mono text-[10px] text-slate-400">
-					{utilities.length.toLocaleString()}
-				</span>
-			</button>
-
-			{collapsed ? null : (
-				<div className="mt-5 flex flex-col gap-6">
-					{domainGroups.map(([domain, domainUtilities]) => (
-						<div key={domain} className="flex flex-col gap-2">
-							<p className="text-[11px] font-medium text-slate-500">
-								{domain === UNCATEGORIZED
-									? "Uncategorized"
-									: formatDomainLabel(domain)}{" "}
-								({domainUtilities.length})
-							</p>
-							<div className="flex flex-wrap gap-1">
-								{domainUtilities.map((utility) => {
-									const isFunctional = utility.kind !== "static";
-									const label = isFunctional
-										? `${utility.root}-*`
-										: utility.root;
-									const tooltip = isFunctional
-										? [
-												utility.consumedNamespaces.join(", "),
-												utility.completionValues.join(" · "),
-											]
-												.filter(Boolean)
-												.join("  •  ")
-										: undefined;
-									return (
-										<span
-											key={`${domain}:${utility.root}`}
-											title={tooltip}
-											className={
-												isFunctional
-													? "bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-800 ring-1 ring-slate-300 ring-inset"
-													: "bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700"
-											}
-										>
-											{label}
-										</span>
-									);
-								})}
+		<>
+			{utilities.length > 0 ? (
+				<CollapsibleTokenSection
+					title="Custom utilities"
+					description="@utility definitions grouped by the domain they affect"
+					count={utilities.length}
+				>
+					<div className="flex flex-col gap-6">
+						{domainGroups.map(([domain, domainUtilities]) => (
+							<div key={domain} className="flex flex-col gap-2">
+								<p className="flex items-baseline gap-2 text-[11px] font-medium text-slate-500">
+									<span>
+										{domain === UNCATEGORIZED
+											? "Uncategorized"
+											: formatDomainLabel(domain)}
+									</span>
+									<span className="font-mono text-[10px] text-slate-400">
+										{domainUtilities.length}
+									</span>
+								</p>
+								<div className="flex flex-wrap gap-1">
+									{domainUtilities.map((utility) => {
+										const isFunctional = utility.kind !== "static";
+										const label = isFunctional
+											? `${utility.root}-*`
+											: utility.root;
+										const tooltip = isFunctional
+											? [
+													utility.consumedNamespaces.join(", "),
+													utility.completionValues.join(" · "),
+												]
+													.filter(Boolean)
+													.join("  •  ")
+											: undefined;
+										return (
+											<span
+												key={`${domain}:${utility.root}`}
+												title={tooltip}
+												className={
+													isFunctional
+														? "bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-800 ring-1 ring-slate-300 ring-inset"
+														: "bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700"
+												}
+											>
+												{label}
+											</span>
+										);
+									})}
+								</div>
 							</div>
-						</div>
-					))}
-
-					{variables.length > 0 ? (
-						<div className="flex flex-col gap-2">
-							<p className="text-[11px] font-medium text-slate-500">
-								Custom CSS variables ({variables.length})
-							</p>
-							<div className="flex flex-col gap-1">
-								{variables.map(([name, value]) => (
-									<div
-										key={name}
-										className="flex flex-wrap items-baseline gap-x-3 font-mono text-[11px]"
-									>
-										<span className="text-slate-900">{name}</span>
-										<span className="text-slate-500">{value}</span>
-									</div>
-								))}
+						))}
+					</div>
+				</CollapsibleTokenSection>
+			) : null}
+			{variables.length > 0 ? (
+				<CollapsibleTokenSection
+					title="Custom properties"
+					count={variables.length}
+				>
+					<div className="flex flex-col gap-1">
+						{variables.map(([name, value]) => (
+							<div
+								key={name}
+								className="flex flex-wrap items-baseline gap-x-3 font-mono text-[11px]"
+							>
+								<span className="text-slate-900">{name}</span>
+								<span className="text-slate-500">{value}</span>
 							</div>
-						</div>
-					) : null}
-				</div>
-			)}
-		</section>
+						))}
+					</div>
+				</CollapsibleTokenSection>
+			) : null}
+		</>
 	);
 }
 
@@ -2466,7 +2515,7 @@ export function SystemEditorTokensPanel({
 	const [collapsedTokenDomains, setCollapsedTokenDomains] = useState<
 		readonly string[]
 	>([]);
-	const [isRemovedCollapsed, setIsRemovedCollapsed] = useState(true);
+	const [isRemovedCollapsed, setIsRemovedCollapsed] = useState(false);
 
 	useEffect(() => {
 		if (!systemId) {
@@ -2478,7 +2527,7 @@ export function SystemEditorTokensPanel({
 		setActiveTokenDomains([]);
 		setHideDefaultTokens(false);
 		setCollapsedTokenDomains([]);
-		setIsRemovedCollapsed(true);
+		setIsRemovedCollapsed(false);
 	}, [reviewRequired, systemId]);
 
 	const handleTokenFilterShortcut = useCallback((event: KeyboardEvent) => {
@@ -2713,11 +2762,13 @@ export function SystemEditorTokensPanel({
 		target?.systemName ??
 		systemId;
 	const cssPath =
-		data?.cssPath ??
-		storedTokensQuery.data?.cssPath ??
-		target?.cssPath ??
-		"./src/index.css";
-	const syncedAt = data?.syncedAt ?? storedTokensQuery.data?.syncedAt ?? null;
+		data?.cssPath ?? storedTokensQuery.data?.cssPath ?? target?.cssPath ?? null;
+	// Unknown until the snapshot loads; a missing snapshot means never synced.
+	const syncedAt =
+		data?.syncedAt ??
+		(storedTokensQuery.isSuccess
+			? (storedTokensQuery.data?.syncedAt ?? null)
+			: undefined);
 	const baselineVersion =
 		data?.tailwindBaselineVersion ??
 		storedTokensQuery.data?.tailwindBaselineVersion ??
@@ -2744,6 +2795,13 @@ export function SystemEditorTokensPanel({
 	});
 	const saveError =
 		saveMutation.error instanceof Error ? saveMutation.error.message : null;
+	// Discarding drops the suggested overrides locally; only Confirm ends the
+	// review. A new sync brings new suggestions.
+	const [suggestionsDiscarded, setSuggestionsDiscarded] = useState(false);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new sync (syncedAt) resets the choice
+	useEffect(() => {
+		setSuggestionsDiscarded(false);
+	}, [syncedAt, systemId]);
 	const hasStoredSnapshot = Boolean(storedTokensQuery.data);
 	const confirmReviewDisabled = !canConfirmTokenReview({
 		hasStoredSnapshot,
@@ -2753,10 +2811,7 @@ export function SystemEditorTokensPanel({
 		reviewRequired,
 	});
 	const discardReviewDisabled =
-		!reviewRequired ||
-		saveMutation.isPending ||
-		storedTokensQuery.isPending ||
-		!hasStoredSnapshot;
+		!reviewRequired || saveMutation.isPending || suggestionsDiscarded;
 	const handleSync = useCallback(() => {
 		void syncController
 			.syncSystem(systemId)
@@ -2768,8 +2823,18 @@ export function SystemEditorTokensPanel({
 		if (confirmReviewDisabled) {
 			return;
 		}
-		saveMutation.mutate(suggestedOverridesByDomain);
-	}, [confirmReviewDisabled, saveMutation, suggestedOverridesByDomain]);
+		saveMutation.mutate(
+			suggestionsDiscarded
+				? storedOverridesByDomain
+				: suggestedOverridesByDomain,
+		);
+	}, [
+		confirmReviewDisabled,
+		saveMutation,
+		storedOverridesByDomain,
+		suggestedOverridesByDomain,
+		suggestionsDiscarded,
+	]);
 	useHotkey("Mod+S", handleConfirmReview, {
 		enabled: isActive,
 		preventDefault: true,
@@ -2778,8 +2843,8 @@ export function SystemEditorTokensPanel({
 		if (discardReviewDisabled) {
 			return;
 		}
-		saveMutation.mutate(storedOverridesByDomain);
-	}, [discardReviewDisabled, saveMutation, storedOverridesByDomain]);
+		setSuggestionsDiscarded(true);
+	}, [discardReviewDisabled]);
 	const handleTokenDomainToggle = useCallback((domain: string) => {
 		setActiveTokenDomains((domains) => {
 			if (domains.length === 0) {
@@ -2814,16 +2879,31 @@ export function SystemEditorTokensPanel({
 					syncedAt={syncedAt}
 					baselineVersion={baselineVersion}
 					status={status}
-					tokenCount={0}
-					domainCount={0}
 					diff={{ added: 0, overridden: 0, removed: 0 }}
 					isSyncing={isSyncing}
 					onSync={handleSync}
 					syncDisabled={isSyncing}
 					canExport={false}
+					isLoading
 				/>
-				<div className="px-10 py-8 text-sm text-slate-500">
-					Loading token snapshot...
+				<div
+					className="flex min-h-0 flex-1 flex-col gap-8 bg-white px-10 py-8"
+					aria-busy="true"
+				>
+					{[0, 1, 2].map((section) => (
+						<div key={section} className="flex flex-col gap-4">
+							<Skeleton className="h-4 w-32" />
+							<div className="flex flex-wrap gap-3">
+								{Array.from({ length: 8 }, (_, swatch) => (
+									<Skeleton
+										// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder swatches
+										key={swatch}
+										className="h-16 w-24"
+									/>
+								))}
+							</div>
+						</div>
+					))}
 				</div>
 			</div>
 		);
@@ -2839,8 +2919,6 @@ export function SystemEditorTokensPanel({
 					syncedAt={syncedAt}
 					baselineVersion={baselineVersion}
 					status="error"
-					tokenCount={0}
-					domainCount={0}
 					diff={{ added: 0, overridden: 0, removed: 0 }}
 					isSyncing={isSyncing}
 					onSync={handleSync}
@@ -2857,9 +2935,20 @@ export function SystemEditorTokensPanel({
 						className="mt-0.5 size-4 shrink-0"
 						aria-hidden="true"
 					/>
-					<div className="min-w-0">
-						<p className="text-sm font-medium">Failed to load tokens</p>
-						<p className="mt-1 text-xs">{storedTokensError}</p>
+					<div className="flex min-w-0 flex-col items-start gap-2">
+						<div>
+							<p className="text-sm font-medium">Failed to load tokens</p>
+							<p className="mt-1 text-xs">{storedTokensError}</p>
+						</div>
+						<Button
+							type="button"
+							variant="outlined"
+							className="px-2 py-1 text-xs"
+							disabled={storedTokensQuery.isFetching}
+							onClick={() => storedTokensQuery.refetch()}
+						>
+							Retry
+						</Button>
 					</div>
 				</Card>
 			</div>
@@ -2908,6 +2997,7 @@ export function SystemEditorTokensPanel({
 					onViewChange={setReviewView}
 					saveError={saveError}
 					isSaving={saveMutation.isPending}
+					suggestionsDiscarded={suggestionsDiscarded}
 					confirmDisabled={confirmReviewDisabled}
 					discardDisabled={discardReviewDisabled}
 					onConfirm={handleConfirmReview}

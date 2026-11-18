@@ -264,26 +264,31 @@ export function TokenDomainPills({
 			{onClearAll ? (
 				<button
 					type="button"
+					aria-pressed={allActive}
 					className={`shrink-0 px-2 py-1 text-xs font-medium ${allActive ? "bg-slate-900 text-white" : "bg-white text-slate-700 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"}`}
 					onClick={onClearAll}
 				>
 					All
 				</button>
 			) : null}
-			{visiblePills.map((pill) => (
-				<button
-					type="button"
-					key={pill.domain}
-					onClick={() => onToggle(pill.domain)}
-					aria-pressed={pill.isActive}
-					className={`inline-flex min-w-0 items-center gap-1.5 px-2 py-1 text-xs font-medium ${pill.isActive ? "bg-slate-900 text-white" : "bg-white text-slate-700 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"}`}
-				>
-					<span className="truncate">{pill.label}</span>
-					<span className="font-mono text-[10px] text-slate-400">
-						{pill.count}
-					</span>
-				</button>
-			))}
+			{visiblePills.map((pill) => {
+				// With no filter every domain shows, but only "All" is pressed.
+				const isPressed = pill.isActive && !allActive;
+				return (
+					<button
+						type="button"
+						key={pill.domain}
+						onClick={() => onToggle(pill.domain)}
+						aria-pressed={isPressed}
+						className={`inline-flex min-w-0 items-center gap-1.5 px-2 py-1 text-xs font-medium ${isPressed ? "bg-slate-900 text-white" : "bg-white text-slate-700 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 hover:bg-slate-100"}`}
+					>
+						<span className="truncate">{pill.label}</span>
+						<span className="font-mono text-[10px] text-slate-400">
+							{pill.count}
+						</span>
+					</button>
+				);
+			})}
 			{canCollapse ? (
 				<button
 					type="button"
@@ -337,7 +342,7 @@ export function TokenDomainSectionList({
 		<>
 			<button
 				type="button"
-				className="flex w-full items-center bg-slate-50 px-3 py-2.5 text-left"
+				className="flex w-full items-center bg-slate-50 px-3 py-2.5 text-left hover:bg-slate-100"
 				onClick={onToggle}
 				aria-expanded={!collapsed}
 			>

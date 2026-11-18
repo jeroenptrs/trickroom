@@ -236,7 +236,7 @@ export function LintFindingsView({
 					) : null}
 					{filter.design ? (
 						<ActiveFilterChip
-							label={`in ${designNames.get(filter.design) ?? filter.design}${filter.board ? ` › ${filter.board}` : ""}`}
+							label={`in ${designNames.get(filter.design) ?? filter.design}${filter.board ? ` › ${designNames.get(filter.board) ?? filter.board}` : ""}`}
 							onClear={() => update({ design: null, board: null })}
 						/>
 					) : null}

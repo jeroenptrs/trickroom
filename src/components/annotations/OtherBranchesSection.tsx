@@ -7,6 +7,7 @@ import type {
 	AnnotationView,
 } from "../../services/annotations.types";
 import { getAnnotationPresentationState } from "../../utils/annotation-presentation";
+import { errorReason, RetryError } from "../chrome/RetryError";
 import { useProjectScope } from "../contexts";
 import {
 	Disclosure,
@@ -14,6 +15,7 @@ import {
 	DisclosureSummary,
 	DisclosureTrigger,
 } from "../ui/disclosure";
+import { Skeleton } from "../ui/skeleton";
 import { AnnotationThread } from "./AnnotationThread";
 
 /**
@@ -60,11 +62,25 @@ export function OtherBranchesSection({
 			</DisclosureTrigger>
 			<DisclosurePanel className="px-0">
 				{query.isPending ? (
-					<p className="px-3 text-xs text-slate-500">Loading…</p>
+					<div className="flex flex-col" aria-busy="true">
+						{[0, 1].map((row) => (
+							<div key={row} className="flex items-start gap-2 px-3 py-2">
+								<Skeleton className="mt-0.5 size-3" />
+								<div className="flex flex-1 flex-col gap-1">
+									<Skeleton className="h-3 w-24" />
+									<Skeleton className="h-3 w-40" />
+								</div>
+							</div>
+						))}
+					</div>
 				) : query.isError ? (
-					<p className="px-3 text-xs text-red-900">
-						Other branches could not be listed.
-					</p>
+					<RetryError
+						className="px-3"
+						message="Could not list other branches"
+						reason={errorReason(query.error)}
+						retrying={query.isFetching}
+						onRetry={() => void query.refetch()}
+					/>
 				) : others.length === 0 ? (
 					<p className="px-3 text-xs text-slate-500">
 						No annotations on other branches.

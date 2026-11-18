@@ -77,7 +77,7 @@ export function AnnotationDraftRow({
 				disabled={sending}
 				onClick={() => discardAnnotationDrafts([draft.key])}
 			>
-				Discard
+				Discard draft
 			</Button>
 			<Button
 				variant="outlined"
@@ -97,19 +97,21 @@ export function AnnotationDraftRow({
 }
 
 /**
- * "Send all drafts", "Resolve all addressed" and "Accept all
+ * "Send this board's drafts", "Resolve all addressed" and "Accept all
  * agent-resolved" for what is in scope (a board, a design, a component).
+ * `scopedDrafts` are the board's drafts when they are fewer than the round
+ * sends; otherwise empty, so the round's Send stays the one send button.
  */
 export function AnnotationBulkActions({
 	container,
-	drafts,
+	scopedDrafts: drafts,
 	addressed,
 	agentResolved,
 	scopeLabel,
 	getSnapshot,
 }: {
 	container: AnnotationContainer;
-	drafts: readonly AnnotationDraft[];
+	scopedDrafts: readonly AnnotationDraft[];
 	addressed: readonly AnnotationView[];
 	agentResolved: readonly AnnotationView[];
 	/** "on this board", "in this design", "in this component". */
@@ -128,7 +130,7 @@ export function AnnotationBulkActions({
 		<div className="flex flex-wrap gap-1 border-b border-slate-200 px-3 py-2">
 			{drafts.length > 1 ? (
 				<Button
-					variant="filled"
+					variant="outlined"
 					className="px-2 py-1 text-xs"
 					disabled={sendingDrafts}
 					onClick={() => {
@@ -139,7 +141,7 @@ export function AnnotationBulkActions({
 					}}
 					title={`Send every draft ${scopeLabel}`}
 				>
-					Send all drafts ({drafts.length})
+					Send this board's drafts ({drafts.length})
 				</Button>
 			) : null}
 			{addressed.length > 0 ? (

@@ -1,9 +1,12 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useNow } from "../../hooks/useNow";
-import type { AnnotationSnapshotHint } from "../../queries/annotations";
+import {
+	type AnnotationSnapshotHint,
+	annotationListQueryKey,
+} from "../../queries/annotations";
 import { createMemoryNote, invalidateMemory } from "../../queries/memory";
 import {
 	type AnnotationTargetLocator,
@@ -39,6 +42,7 @@ import {
 	getDesignTargetName,
 	getSelectionAnnotationTarget,
 } from "../../utils/design-annotation-targets";
+import { RetryError } from "../chrome/RetryError";
 import { useProjectScope } from "../contexts";
 import { ScrollArea } from "../ui/scroll-area";
 import { AnnotationComposer } from "./AnnotationComposer";
@@ -257,6 +261,12 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 		() => ({ kind: "design" as const, designId }),
 		[designId],
 	);
+	const listQueryKey = annotationListQueryKey(
+		container,
+		"current",
+		projectScope,
+	);
+	const listFetching = useIsFetching({ queryKey: listQueryKey }) > 0;
 
 	const saveMemory = useCallback(
 		async (annotation: AnnotationView) => {
@@ -349,7 +359,13 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 				/>
 				<AnnotationBulkActions
 					container={container}
-					drafts={drafts}
+					// The round sends every draft of the design; this sends the
+					// board's alone, so it shows only when they are fewer.
+					scopedDrafts={
+						boardId !== null && drafts.length < designDrafts.length
+							? drafts
+							: []
+					}
 					addressed={addressed}
 					agentResolved={agentResolved}
 					scopeLabel={scopeLabel}
@@ -371,9 +387,14 @@ export function DesignAnnotationsPanel({ designId }: { designId: string }) {
 					</AnnotationSection>
 				) : null}
 				{status === "error" ? (
-					<p className="px-3 pt-3 text-xs text-red-900">
-						Annotations could not be loaded.
-					</p>
+					<RetryError
+						className="px-3 pt-3"
+						message="Could not load annotations"
+						retrying={listFetching}
+						onRetry={() =>
+							void queryClient.invalidateQueries({ queryKey: listQueryKey })
+						}
+					/>
 				) : null}
 				{target.kind === "layer" ? (
 					<AnnotationSection title="This layer" count={onLayer.length}>

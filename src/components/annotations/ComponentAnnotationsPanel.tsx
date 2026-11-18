@@ -1,9 +1,12 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useNow } from "../../hooks/useNow";
-import type { AnnotationSnapshotHint } from "../../queries/annotations";
+import {
+	type AnnotationSnapshotHint,
+	annotationListQueryKey,
+} from "../../queries/annotations";
 import { createMemoryNote, invalidateMemory } from "../../queries/memory";
 import { findAnnotationsSharingChange } from "../../services/annotation-model";
 import type { AnnotationView } from "../../services/annotations.types";
@@ -30,6 +33,7 @@ import {
 	getComponentTargetName,
 	getVariantsInView,
 } from "../../utils/component-annotation-targets";
+import { RetryError } from "../chrome/RetryError";
 import { useProjectScope } from "../contexts";
 import { ScrollArea } from "../ui/scroll-area";
 import { AnnotationComposer } from "./AnnotationComposer";
@@ -238,6 +242,12 @@ export function ComponentAnnotationsPanel({
 		() => ({ kind: "component" as const, systemId, componentId }),
 		[componentId, systemId],
 	);
+	const listQueryKey = annotationListQueryKey(
+		container,
+		"current",
+		projectScope,
+	);
+	const listFetching = useIsFetching({ queryKey: listQueryKey }) > 0;
 
 	const saveMemory = useCallback(
 		async (annotation: AnnotationView) => {
@@ -351,7 +361,8 @@ export function ComponentAnnotationsPanel({
 				/>
 				<AnnotationBulkActions
 					container={container}
-					drafts={drafts}
+					// The round sends every draft; the component has no narrower scope.
+					scopedDrafts={[]}
 					addressed={addressed}
 					agentResolved={agentResolved}
 					scopeLabel="in this component"
@@ -376,9 +387,14 @@ export function ComponentAnnotationsPanel({
 					</AnnotationSection>
 				) : null}
 				{status === "error" ? (
-					<p className="px-3 pt-3 text-xs text-red-900">
-						Annotations could not be loaded.
-					</p>
+					<RetryError
+						className="px-3 pt-3"
+						message="Could not load annotations"
+						retrying={listFetching}
+						onRetry={() =>
+							void queryClient.invalidateQueries({ queryKey: listQueryKey })
+						}
+					/>
 				) : null}
 				{target ? (
 					<AnnotationSection title="This layer" count={onNode.length}>

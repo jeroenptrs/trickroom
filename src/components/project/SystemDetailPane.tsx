@@ -1,7 +1,14 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, Check, RefreshCw, Save, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type ComponentProps,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useNavigate } from "react-router";
 import type { TailwindSyncResult } from "../../hooks/useTailwindSyncController";
 import {
@@ -41,7 +48,6 @@ import { useProjectScope, useTailwindSyncController } from "../contexts";
 import { Alert } from "../ui/alert";
 import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
-import Checkbox from "../ui/checkbox";
 import { CopyButton } from "../ui/copy-button";
 import { DetailSection, DetailSectionRow } from "../ui/detail-section";
 import { EditableTitle } from "../ui/editable-title";
@@ -51,6 +57,7 @@ import { MetricCard } from "../ui/metric-card";
 import { PaneHeader } from "../ui/pane-header";
 import { ReadOnlyField } from "../ui/readonly-field";
 import { ScrollArea } from "../ui/scroll-area";
+import { Switch } from "../ui/switch";
 import { Text } from "../ui/text";
 import { MemoryNotesButton } from "./memory/MemoryNotesButton";
 import { formatRelativeTime } from "./project-view-utils";
@@ -305,6 +312,30 @@ function TokenDiffMiniBar({ diff }: { diff: TokenDiff }) {
 	);
 }
 
+/** A metric card's state from its query: a skeleton, or an error with a retry. */
+function getMetricState(
+	query: {
+		isPending: boolean;
+		isError: boolean;
+		error: unknown;
+		refetch: () => unknown;
+	},
+	errorLabel: string,
+): ComponentProps<typeof MetricCard>["state"] {
+	if (query.isPending) {
+		return { status: "loading" };
+	}
+	if (query.isError) {
+		const reason = query.error instanceof Error ? query.error.message : null;
+		return {
+			status: "error",
+			message: reason ? `${errorLabel}: ${reason}` : errorLabel,
+			onRetry: () => void query.refetch(),
+		};
+	}
+	return { status: "ready" };
+}
+
 function SystemOverviewSubview({
 	cssPath,
 	syncedAtLabel,
@@ -333,27 +364,8 @@ function SystemOverviewSubview({
 	const usedByQuery = useQuery(
 		systemUsedByQueryOptions(systemId, projectScope),
 	);
-	const usedByCount = usedByQuery.isPending
-		? "Loading..."
-		: usedByQuery.isError
-			? "Unavailable"
-			: (usedByQuery.data?.usedByCount ?? 0).toLocaleString();
-	const usedByDetail = usedByQuery.isError
-		? "Could not load usage count"
-		: "Design usage count";
-
-	const iconLabel = iconFoldersQuery.isPending
-		? "Loading..."
-		: iconFoldersQuery.isError
-			? "Error"
-			: `${iconCount.toLocaleString()}`;
-	const iconDetail = iconFoldersQuery.isPending
-		? "Loading icon index..."
-		: iconFoldersQuery.isError
-			? iconFoldersQuery.error instanceof Error
-				? iconFoldersQuery.error.message
-				: "Failed to load icon index"
-			: `${iconSampleRow ?? "No icon folders"} · ${iconDiagnosticCount} diagnostic${iconDiagnosticCount === 1 ? "" : "s"}`;
+	const usedByCount = (usedByQuery.data?.usedByCount ?? 0).toLocaleString();
+	const iconDetail = `${iconSampleRow ?? "No icon folders"} · ${iconDiagnosticCount} diagnostic${iconDiagnosticCount === 1 ? "" : "s"}`;
 
 	const tokenValue =
 		tokenCount === null ? "Not synced" : tokenCount.toLocaleString();
@@ -368,23 +380,22 @@ function SystemOverviewSubview({
 			/>
 			<MetricCard
 				label="Assets"
-				value={
-					assetsQuery.isPending
-						? "..."
-						: assetsQuery.isError
-							? "Error"
-							: assets.length.toLocaleString()
-				}
-				detail={
-					assetsQuery.isPending
-						? "Loading assets"
-						: assetsQuery.isError
-							? "Failed to load assets"
-							: "Indexed asset images"
-				}
+				value={assets.length.toLocaleString()}
+				detail="Indexed asset images"
+				state={getMetricState(assetsQuery, "Could not load assets")}
 			/>
-			<MetricCard label="Icons" value={iconLabel} detail={iconDetail} />
-			<MetricCard label="Used By" value={usedByCount} detail={usedByDetail} />
+			<MetricCard
+				label="Icons"
+				value={iconCount.toLocaleString()}
+				detail={iconDetail}
+				state={getMetricState(iconFoldersQuery, "Could not load icons")}
+			/>
+			<MetricCard
+				label="Used By"
+				value={usedByCount}
+				detail="Design usage count"
+				state={getMetricState(usedByQuery, "Could not load usage")}
+			/>
 			<MetricCard
 				label="Last Sync"
 				value={syncedAtLabel}
@@ -491,6 +502,13 @@ function SystemSettingsSubview({
 		(updateDefaultSystemMutation.error instanceof Error
 			? updateDefaultSystemMutation.error.message
 			: null);
+	// Each Save button shows its own pending state.
+	const isSavingName =
+		updateSystemMutation.isPending &&
+		updateSystemMutation.variables?.nextSystemName !== undefined;
+	const isSavingCssPath =
+		updateSystemMutation.isPending &&
+		updateSystemMutation.variables?.cssPath !== undefined;
 	const isMutatingSettings =
 		updateSystemMutation.isPending || updateDefaultSystemMutation.isPending;
 	const settingsActionsDisabled = isMutatingSettings || disconnectDisabled;
@@ -563,7 +581,7 @@ function SystemSettingsSubview({
 							disabled={saveNameDisabled}
 						>
 							<Save className="size-3.5" aria-hidden="true" />
-							{updateSystemMutation.isPending ? "Saving..." : "Save"}
+							{isSavingName ? "Saving..." : "Save"}
 						</Button>
 					</div>
 					<Text tone="muted" className="text-[11px]">
@@ -584,21 +602,11 @@ function SystemSettingsSubview({
 			</DetailSection>
 
 			<DetailSection title="Project Default">
+				{/* Applies at once, so it is a switch, not a checkbox. */}
 				<label
 					htmlFor="system-settings-default"
-					className="flex items-start gap-3"
+					className="flex items-start justify-between gap-3"
 				>
-					<Checkbox
-						id="system-settings-default"
-						checked={isDefaultSystem}
-						onCheckedChange={(checked) => {
-							if (checked === isDefaultSystem) {
-								return;
-							}
-							updateDefaultSystemMutation.mutate(checked === true);
-						}}
-						disabled={settingsActionsDisabled}
-					/>
 					<span className="flex min-w-0 flex-col gap-0.5">
 						<Text variant="label" tone="foreground">
 							Default system for new designs
@@ -608,6 +616,17 @@ function SystemSettingsSubview({
 							be default per project.
 						</Text>
 					</span>
+					<Switch
+						id="system-settings-default"
+						checked={isDefaultSystem}
+						onCheckedChange={(checked) => {
+							if (checked === isDefaultSystem) {
+								return;
+							}
+							updateDefaultSystemMutation.mutate(checked);
+						}}
+						disabled={settingsActionsDisabled}
+					/>
 				</label>
 			</DetailSection>
 
@@ -639,7 +658,7 @@ function SystemSettingsSubview({
 							disabled={saveCssPathDisabled}
 						>
 							<Save className="size-3.5" aria-hidden="true" />
-							{updateSystemMutation.isPending ? "Saving..." : "Save"}
+							{isSavingCssPath ? "Saving..." : "Save"}
 						</Button>
 					</div>
 					<Text tone="muted" className="text-[11px]">
@@ -854,7 +873,8 @@ export function SystemDetailPane({
 		void syncController.syncSystem(systemId);
 	};
 
-	const actionError = renameError ?? deleteError;
+	// The disconnect error shows inside the dialog, not behind its backdrop.
+	const actionError = renameError;
 	const isSyncing = result.status === "pending";
 	// A review counts the changes since the last confirmed one; a first review
 	// (nothing confirmed yet), the full theme diff against Tailwind.
@@ -1037,11 +1057,16 @@ export function SystemDetailPane({
 				icon={<Trash2 className="size-4" aria-hidden="true" />}
 				actionIcon={<Trash2 className="size-3.5" aria-hidden="true" />}
 				actionLabel={
-					deleteMutation.isPending ? "Disconnecting..." : "Disconnect"
+					deleteMutation.isPending ? "Disconnecting..." : "Disconnect system"
 				}
 				actionDisabled={deleteMutation.isPending}
 				tone="destructive"
 				onAction={handleDelete}
+				error={
+					deleteError
+						? `Could not disconnect ${systemDisplayName}: ${deleteError}`
+						: null
+				}
 			/>
 		</div>
 	);

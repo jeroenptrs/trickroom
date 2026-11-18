@@ -7,6 +7,7 @@ import type { ProjectQueryScope } from "../queries/project-scope";
 export type SystemAttentionSummary = {
 	issueNames: string[];
 	reviewNames: string[];
+	reviewSystemIds: string[];
 	issueKey: string;
 	reviewKey: string;
 };
@@ -29,6 +30,7 @@ export const getSystemAttentionSummary = (
 ): SystemAttentionSummary => {
 	const issueNames: string[] = [];
 	const reviewNames: string[] = [];
+	const reviewSystemIds: string[] = [];
 
 	for (const system of systems) {
 		const result = results[system.systemId];
@@ -42,13 +44,51 @@ export const getSystemAttentionSummary = (
 		}
 		if (result.data?.reviewRequired) {
 			reviewNames.push(displayName);
+			reviewSystemIds.push(system.systemId);
 		}
 	}
 
 	return {
 		issueNames,
 		reviewNames,
+		reviewSystemIds,
 		issueKey: issueNames.join("\0"),
 		reviewKey: reviewNames.join("\0"),
+	};
+};
+
+const MAX_LISTED_NAMES = 3;
+
+/** "A, B, C", or "A, B, C and N more" past three names. */
+const listNames = (names: string[]) => {
+	if (names.length <= MAX_LISTED_NAMES) {
+		return names.join(", ");
+	}
+	const rest = names.length - MAX_LISTED_NAMES;
+	return `${names.slice(0, MAX_LISTED_NAMES).join(", ")} and ${rest} more`;
+};
+
+/**
+ * The fact goes in the title. One system names it there; several give the
+ * count in the title and the names in the description.
+ */
+export const getSystemAttentionToastCopy = (
+	kind: "issues" | "review",
+	names: string[],
+): { title: string; description?: string } => {
+	if (names.length === 1) {
+		return {
+			title:
+				kind === "issues"
+					? `${names[0]} could not sync tokens`
+					: `${names[0]} has token changes to review`,
+		};
+	}
+	return {
+		title:
+			kind === "issues"
+				? `${names.length} systems could not sync tokens`
+				: `${names.length} systems have token changes to review`,
+		description: listNames(names),
 	};
 };

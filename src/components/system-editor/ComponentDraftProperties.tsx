@@ -54,11 +54,17 @@ import {
 	isSameStageLayerAncestry,
 } from "../stage/stage-interaction";
 import { draftLayerTree } from "../stage/stage-selection-sources";
+import { Button } from "../ui/button";
+import Checkbox from "../ui/checkbox";
 import { InputField } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
+import { Select } from "../ui/select";
+import { Skeleton } from "../ui/skeleton";
 import { Switch } from "../ui/switch";
 import { Text } from "../ui/text";
+import { Tooltip } from "../ui/tooltip";
 import { toDraftInspectableEntity } from "./component-draft-inspector";
+import { DisabledReason } from "./DisabledReason";
 
 type DraftComponentControlProps = {
 	path: string;
@@ -86,19 +92,18 @@ function DraftComponentControl({
 				<div className="font-semibold">{control.label}</div>
 				<div className="flex flex-row flex-wrap gap-1">
 					{control.options.map((option) => (
-						<button
+						<Button
 							key={String(option.value)}
 							type="button"
-							className={`border px-2 py-1 text-xs ${
-								value === option.value
-									? "border-cyan-500 bg-cyan-50 text-cyan-900"
-									: "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"
-							}`}
+							variant="block"
+							className="px-2 py-1 text-xs"
+							isSelected={value === option.value}
+							aria-pressed={value === option.value}
 							onClick={() => updateValue(option.value)}
 							title={control.description ?? control.label}
 						>
 							{option.label}
-						</button>
+						</Button>
 					))}
 				</div>
 			</div>
@@ -140,18 +145,16 @@ function DraftComponentControl({
 
 	if (control.input === "switch" || control.input === "checkbox") {
 		return (
-			<div className="flex flex-row items-center justify-between gap-2 text-xs">
-				<label className="font-semibold" htmlFor={`${path}-${control.prop}`}>
-					{control.label}
-				</label>
-				<input
-					id={`${path}-${control.prop}`}
-					type="checkbox"
+			// biome-ignore lint/a11y/noLabelWithoutControl: the primitive inside renders the control.
+			<label className="flex flex-row items-center justify-between gap-2 text-xs">
+				<span className="font-semibold">{control.label}</span>
+				<Checkbox
+					size="sm"
 					checked={value === true}
-					onChange={(event) => updateValue(event.currentTarget.checked)}
+					onCheckedChange={(checked) => updateValue(checked)}
 					title={control.description ?? control.label}
 				/>
-			</div>
+			</label>
 		);
 	}
 
@@ -181,26 +184,26 @@ function DraftAssetPicker({
 			<label className="font-semibold" htmlFor={`${path}-asset`}>
 				{label}
 			</label>
-			<select
-				id={`${path}-asset`}
-				className="w-full border-none bg-slate-200/60 px-1 py-0.5 text-xs text-slate-950 inset-shadow-[0_0_0_1px_transparent] focus:outline-none focus:inset-shadow-[0_0_0_1px_#67e8f9]"
-				value={value}
-				disabled={assetsQuery.isPending}
-				onChange={(event) =>
-					updateTemplateNodeProps(path, {
-						[assetIdProp]: event.currentTarget.value,
-					})
-				}
-			>
-				<option value="">
-					{assetsQuery.isPending ? "Loading assets" : "No asset"}
-				</option>
-				{assets.map((asset) => (
-					<option key={asset.id} value={asset.id}>
-						{asset.name}
-					</option>
-				))}
-			</select>
+			{assetsQuery.isPending ? (
+				<Skeleton className="h-5 w-full" />
+			) : (
+				<Select
+					id={`${path}-asset`}
+					value={value}
+					onChange={(event) =>
+						updateTemplateNodeProps(path, {
+							[assetIdProp]: event.currentTarget.value,
+						})
+					}
+				>
+					<option value="">No asset</option>
+					{assets.map((asset) => (
+						<option key={asset.id} value={asset.id}>
+							{asset.name}
+						</option>
+					))}
+				</Select>
+			)}
 		</div>
 	);
 }
@@ -226,26 +229,26 @@ function DraftIconPicker({
 			<label className="font-semibold" htmlFor={`${path}-icon`}>
 				{label}
 			</label>
-			<select
-				id={`${path}-icon`}
-				className="w-full border-none bg-slate-200/60 px-1 py-0.5 text-xs text-slate-950 inset-shadow-[0_0_0_1px_transparent] focus:outline-none focus:inset-shadow-[0_0_0_1px_#67e8f9]"
-				value={value}
-				disabled={iconsQuery.isPending}
-				onChange={(event) =>
-					updateTemplateNodeProps(path, {
-						[iconIdProp]: event.currentTarget.value,
-					})
-				}
-			>
-				<option value="">
-					{iconsQuery.isPending ? "Loading icons" : "No icon"}
-				</option>
-				{icons.map((icon) => (
-					<option key={icon.id} value={icon.id}>
-						{icon.id}
-					</option>
-				))}
-			</select>
+			{iconsQuery.isPending ? (
+				<Skeleton className="h-5 w-full" />
+			) : (
+				<Select
+					id={`${path}-icon`}
+					value={value}
+					onChange={(event) =>
+						updateTemplateNodeProps(path, {
+							[iconIdProp]: event.currentTarget.value,
+						})
+					}
+				>
+					<option value="">No icon</option>
+					{icons.map((icon) => (
+						<option key={icon.id} value={icon.id}>
+							{icon.id}
+						</option>
+					))}
+				</Select>
+			)}
 		</div>
 	);
 }
@@ -367,14 +370,6 @@ function getStyleTargetDescriptors(
 	return descriptors;
 }
 
-function styleTargetButtonClass(selected: boolean) {
-	return `border px-2 py-1 text-xs ${
-		selected
-			? "border-cyan-500 bg-cyan-50 text-cyan-900"
-			: "border-slate-200 bg-white text-slate-900 hover:bg-slate-100"
-	} disabled:pointer-events-none disabled:opacity-50`;
-}
-
 function StyleTargetSection() {
 	const variants = useComponentDraftVariants();
 	const styleTarget = useComponentDraftStyleTarget();
@@ -427,26 +422,37 @@ function StyleTargetSection() {
 			</p>
 			<div className="mt-1 flex flex-col gap-2">
 				<div className="flex flex-row flex-wrap items-center gap-1">
-					<button
-						type="button"
-						className={styleTargetButtonClass(styleTarget.base)}
-						aria-pressed={styleTarget.base}
-						disabled={styleTarget.base && !canDisableBase}
-						onClick={toggleBase}
+					<DisabledReason
+						reason={
+							styleTarget.base && !canDisableBase
+								? "Select a variant value to turn Base off."
+								: null
+						}
 					>
-						Base
-					</button>
+						<Button
+							type="button"
+							variant="block"
+							className="px-2 py-1 text-xs"
+							isSelected={styleTarget.base}
+							aria-pressed={styleTarget.base}
+							disabled={styleTarget.base && !canDisableBase}
+							onClick={toggleBase}
+						>
+							Base
+						</Button>
+					</DisabledReason>
 				</div>
 
 				{axes.length > 0 ? (
-					<div className="grid grid-cols-1 gap-2">
+					<div className="flex flex-col gap-2">
 						{axes.map(([axisKey, axis]) => (
+							// biome-ignore lint/a11y/noLabelWithoutControl: the primitive inside renders the control.
 							<label key={axisKey} className="flex flex-col gap-1 text-xs">
 								<span className="font-semibold text-slate-600">
 									{axis.label || axisKey}
 								</span>
-								<select
-									className="w-full border-none bg-white px-2 py-1 text-xs text-slate-950 inset-shadow-[0_0_0_1px_#cbd5e1] focus:outline-none focus:inset-shadow-[0_0_0_1px_#06b6d4]"
+								<Select
+									variant="outlined"
 									value={styleTarget.axisValues[axisKey] ?? ""}
 									onChange={(event) =>
 										setAxisValue(axisKey, event.currentTarget.value)
@@ -458,7 +464,7 @@ function StyleTargetSection() {
 											{value.label || valueKey}
 										</option>
 									))}
-								</select>
+								</Select>
 							</label>
 						))}
 					</div>
@@ -473,15 +479,17 @@ function StyleTargetSection() {
 									selected.axisKey,
 								);
 								return (
-									<button
+									<Button
 										key={selected.axisKey}
 										type="button"
-										className={styleTargetButtonClass(isCompoundAxis)}
+										variant="block"
+										className="px-2 py-1 text-xs"
+										isSelected={isCompoundAxis}
 										aria-pressed={isCompoundAxis}
 										onClick={() => toggleCompoundAxis(selected.axisKey)}
 									>
 										{selected.axisLabel}
-									</button>
+									</Button>
 								);
 							})}
 						</div>
@@ -599,13 +607,14 @@ function DesignOnlySection({ path }: { path: string }) {
 			{inherited && state.own ? (
 				<div className="flex items-center justify-between gap-2 text-xs">
 					<span className="text-slate-500">Also set on this node.</span>
-					<button
+					<Button
 						type="button"
-						className="border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 hover:bg-slate-100"
+						variant="outlined"
+						className="shrink-0 px-2 py-1 text-xs"
 						onClick={() => setTemplateNodeDesignOnly(path, false)}
 					>
 						Clear
-					</button>
+					</Button>
 				</div>
 			) : null}
 		</InspectorSection>
@@ -646,25 +655,27 @@ function SlotMetadataSection({ path }: { path: string }) {
 						>
 							Host path: {slot.hostPath}
 						</span>
-						<button
+						<Button
 							type="button"
-							className="border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 hover:bg-slate-100"
+							variant="outlined"
+							className="shrink-0 px-2 py-1 text-xs"
 							onClick={() => removeTemplateNodeSlotHost(path)}
 						>
 							Remove
-						</button>
+						</Button>
 					</div>
 				</>
 			) : (
 				<div className="flex items-center justify-between gap-2 text-xs">
 					<span className="text-slate-500">This node is not a slot host.</span>
-					<button
+					<Button
 						type="button"
-						className="border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 hover:bg-slate-100"
+						variant="outlined"
+						className="shrink-0 px-2 py-1 text-xs"
 						onClick={() => markTemplateNodeAsSlotHost(path)}
 					>
 						Make slot
-					</button>
+					</Button>
 				</div>
 			)}
 		</InspectorSection>
@@ -714,17 +725,18 @@ function OverrideTargetSection({ path }: { path: string }) {
 							{controls.map((control) => {
 								const checked = target.props?.includes(control.prop) ?? false;
 								return (
+									// biome-ignore lint/a11y/noLabelWithoutControl: the primitive inside renders the control.
 									<label
 										key={control.prop}
 										className="flex items-center justify-between gap-2"
 									>
 										<span>{control.label}</span>
-										<input
-											type="checkbox"
+										<Checkbox
+											size="sm"
 											checked={checked}
-											onChange={(event) => {
+											onCheckedChange={(nextChecked) => {
 												const props = new Set(target.props ?? []);
-												if (event.currentTarget.checked) {
+												if (nextChecked) {
 													props.add(control.prop);
 												} else {
 													props.delete(control.prop);
@@ -746,15 +758,20 @@ function OverrideTargetSection({ path }: { path: string }) {
 						>
 							{target.path}
 						</span>
-						<button
-							type="button"
-							className="inline-flex size-6 shrink-0 items-center justify-center text-slate-500 hover:text-red-700 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-red-500"
-							onClick={() => removeTemplateNodeOverrideTarget(target.targetId)}
-							title="Remove override target"
-							aria-label="Remove override target"
-						>
-							<Trash2 className="size-3.5" aria-hidden="true" />
-						</button>
+						<Tooltip content="Remove override target">
+							<Button
+								type="button"
+								variant="ghost"
+								flavor="danger"
+								className="inline-flex size-6 shrink-0 items-center justify-center p-0"
+								onClick={() =>
+									removeTemplateNodeOverrideTarget(target.targetId)
+								}
+								aria-label="Remove override target"
+							>
+								<Trash2 className="size-3.5" aria-hidden="true" />
+							</Button>
+						</Tooltip>
 					</div>
 				</>
 			) : (
@@ -762,14 +779,15 @@ function OverrideTargetSection({ path }: { path: string }) {
 					<span className="text-slate-500">
 						This node is not an override target.
 					</span>
-					<button
+					<Button
 						type="button"
-						className="inline-flex items-center gap-1 border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 hover:bg-slate-100"
+						variant="outlined"
+						className="inline-flex shrink-0 items-center gap-1 px-2 py-1 text-xs"
 						onClick={() => addTemplateNodeOverrideTarget(path)}
 					>
 						<Plus className="size-3" aria-hidden="true" />
 						<span>Make target</span>
-					</button>
+					</Button>
 				</div>
 			)}
 		</InspectorSection>

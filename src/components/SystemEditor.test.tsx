@@ -322,17 +322,19 @@ describe("SystemEditor", () => {
 		expect(html).toContain("No components yet");
 	});
 
-	it("shows an error message for unknown systems", () => {
+	it("shows a not-found state with a way back for unknown systems", () => {
 		const html = renderSystemEditor("/system/unknown");
 
-		expect(html).toContain("No system found for “unknown”.");
+		expect(html).toContain("System not found");
+		expect(html).toContain("No system matches &quot;unknown&quot;.");
+		expect(html).toContain("Back to project");
 	});
 
 	it("resolves a system by display name in the route param", () => {
 		const html = renderSystemEditor("/system/Core%20System");
 
 		expect(html).toContain("Core System");
-		expect(html).not.toContain("No system found");
+		expect(html).not.toContain("System not found");
 	});
 
 	it("opens on the tokens tab from the route search param", () => {
@@ -749,7 +751,8 @@ describe("SystemEditor page panels", () => {
 		expect(html).toContain("Published v1");
 		expect(html).toContain("Draft over v2");
 		expect(html).toContain("Create draft from published version for Published");
-		expect(html).toContain("Delete Draft");
+		// Delete lives on the component's Settings tab, not on the row.
+		expect(html).not.toContain("Delete Draft");
 	});
 
 	it("shows component usage and stale status in the components list", async () => {
@@ -1504,7 +1507,7 @@ describe("SystemEditor collapsible panels", () => {
 
 		const panel = html.slice(html.indexOf('data-slot="floating-panel"'));
 		expect(html).toContain('data-slot="floating-panel"');
-		expect(panel).toContain('title="Back to components"');
+		expect(panel).toContain('aria-label="Back to components"');
 		expect(panel).toContain("New Button");
 		expect(panel).toContain("new-button");
 		expect(panel).toContain("Draft only");
@@ -1534,10 +1537,10 @@ describe("SystemEditor collapsible panels", () => {
 		expect(html).toContain('data-editor-region="inspector"');
 		expect(html).toContain('aria-label="Expand inspector"');
 		expect(html).toContain('title="Expand inspector (Alt+])"');
-		expect(html).not.toContain("Close inspector");
+		expect(html).not.toContain("Clear selection");
 	});
 
-	it("adds an inspector collapse button next to the close button", () => {
+	it("adds an inspector collapse button next to the clear selection button", () => {
 		selectDraftRoot();
 		setEditorPanelOpen("system", "inspector", true);
 		const html = renderSystemEditor("/system/core?component=cmp_new_button", [
@@ -1547,7 +1550,7 @@ describe("SystemEditor collapsible panels", () => {
 		expect(html).toContain("Properties");
 		expect(html).toContain('aria-label="Collapse inspector"');
 		expect(html).toContain('title="Collapse inspector (Alt+])"');
-		expect(html).toContain("Close inspector");
+		expect(html).toContain('aria-label="Clear selection"');
 	});
 
 	it("collapses the inspector to an edge strip while keeping the selection", () => {
@@ -1557,7 +1560,7 @@ describe("SystemEditor collapsible panels", () => {
 			draftComponent,
 		]);
 
-		expect(html).not.toContain("Close inspector");
+		expect(html).not.toContain("Clear selection");
 		expect(html).toContain('data-editor-region="inspector"');
 		expect(html).toContain('aria-label="Expand inspector"');
 	});

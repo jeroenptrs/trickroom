@@ -39,7 +39,10 @@ async function renderPanel() {
 		<QueryClientProvider client={queryClient}>
 			<RouterProvider
 				router={createMemoryRouter([
-					{ path: "/", element: <MemoryNotesPanel scope={{ kind: "project" }} /> },
+					{
+						path: "/",
+						element: <MemoryNotesPanel scope={{ kind: "project" }} />,
+					},
 				])}
 			/>
 		</QueryClientProvider>,
@@ -90,5 +93,21 @@ describe("MemoryNotesPanel", () => {
 		);
 		const html = await renderPanel();
 		expect(html).toContain("No notes yet");
+	});
+
+	// A failed prefetch renders as pending on mount (the query refetches), so
+	// this covers the loading state: skeletons, never a zero count.
+	it("shows skeletons, not an empty count, until notes load", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({ error: "Memory store unreadable" }, { status: 500 }),
+			),
+		);
+		const html = await renderPanel();
+		expect(html).toContain('aria-busy="true"');
+		expect(html).toContain('data-slot="skeleton"');
+		expect(html).not.toContain("No notes yet");
+		expect(html).not.toContain("0 notes");
 	});
 });

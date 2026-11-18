@@ -32,6 +32,8 @@ export function MemoryNotesButton({
 	const [open, setOpen] = useState(false);
 	const memoryQuery = useQuery(memoryQueryOptions(scope, projectScope));
 	const count = memoryQuery.data?.summary.noteCount ?? 0;
+	// Only a loaded count is announced; a pending or failed load is not zero.
+	const accessibleLabel = memoryQuery.isSuccess ? `${label} (${count})` : label;
 
 	return (
 		<>
@@ -43,7 +45,7 @@ export function MemoryNotesButton({
 					.join(" ")}
 				onClick={() => setOpen(true)}
 				disabled={disabled}
-				aria-label={`${label} (${count})`}
+				aria-label={accessibleLabel}
 			>
 				<NotebookPen className="size-4" aria-hidden="true" />
 				{label}

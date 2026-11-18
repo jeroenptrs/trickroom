@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FilePlus2, FolderPlus } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { FilePlus2, FolderPlus, Plus, X } from "lucide-react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import {
 	configFileQueryKey,
 	configFileQueryOptions,
@@ -10,14 +10,24 @@ import {
 import { openProject, sessionQueryKey } from "../queries/projects";
 import { systemsQueryKey } from "../queries/systems";
 import { HttpError } from "../utils/readJsonOrThrow";
+import type { CreateProjectRouteState } from "./project/CommandMenu";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import Checkbox from "./ui/checkbox";
-import { Input } from "./ui/input";
+import { Field } from "./ui/field";
+import { FieldControl } from "./ui/input";
 import { InputGroup } from "./ui/input-group";
 import { Text } from "./ui/text";
 
 const systemNamePattern = /^[A-Za-z0-9_@-]+$/;
+
+type FieldName = "name" | "projectFolder" | "systemName" | "systemCssPath";
+const fieldOrder: FieldName[] = [
+	"name",
+	"projectFolder",
+	"systemName",
+	"systemCssPath",
+];
 
 export function CreateProjectPanel() {
 	const [name, setName] = useState("");
@@ -26,9 +36,16 @@ export function CreateProjectPanel() {
 	const [systemCssPath, setSystemCssPath] = useState("");
 	const [setSystemAsDefault, setSetSystemAsDefault] = useState(true);
 	const [showSystem, setShowSystem] = useState(false);
-	const nameInputRef = useRef<HTMLInputElement>(null);
+	// Validate a field once it loses focus, and every field on submit.
+	const [touched, setTouched] = useState<Set<FieldName>>(() => new Set());
+	const fieldRefs = useRef<Partial<Record<FieldName, HTMLInputElement | null>>>(
+		{},
+	);
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const location = useLocation();
+	const reopenProjectPath = (location.state as CreateProjectRouteState | null)
+		?.reopenProjectPath;
 	const configQuery = useQuery(configFileQueryOptions());
 
 	const isNoProjectCreate =
@@ -36,10 +53,30 @@ export function CreateProjectPanel() {
 		configQuery.error instanceof HttpError &&
 		configQuery.error.status === 409;
 	const hasActiveConfig = configQuery.isSuccess;
-	const hasPartialSystemLink =
-		Boolean(systemName.trim()) !== Boolean(systemCssPath.trim());
-	const hasInvalidSystemName =
-		Boolean(systemName.trim()) && !systemNamePattern.test(systemName.trim());
+	const errors: Partial<Record<FieldName, string>> = {};
+	if (!name.trim()) {
+		errors.name = "Enter a project name.";
+	}
+	if (isNoProjectCreate && !projectFolder.trim()) {
+		errors.projectFolder = "Enter the project folder.";
+	}
+	if (showSystem) {
+		if (!systemName.trim()) {
+			errors.systemName = "Enter a system name, or remove the system.";
+		} else if (!systemNamePattern.test(systemName.trim())) {
+			errors.systemName = "Use letters, numbers, - _ and @ only.";
+		}
+		if (!systemCssPath.trim()) {
+			errors.systemCssPath =
+				"Enter a CSS file for this system, or remove the system.";
+		}
+	}
+	const visibleError = (field: FieldName) =>
+		touched.has(field) ? errors[field] : undefined;
+	const markTouched = (field: FieldName) =>
+		setTouched((current) =>
+			current.has(field) ? current : new Set(current).add(field),
+		);
 
 	const createProjectMutation = useMutation({
 		mutationFn: () => {
@@ -74,9 +111,19 @@ export function CreateProjectPanel() {
 		},
 	});
 
+	const reopenMutation = useMutation({
+		mutationFn: (path: string) => openProject({ path }),
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({ queryKey: sessionQueryKey });
+			await queryClient.invalidateQueries({ queryKey: configFileQueryKey });
+			await queryClient.invalidateQueries({ queryKey: systemsQueryKey });
+			navigate("/", { replace: true });
+		},
+	});
+
 	useEffect(() => {
 		if (configQuery.isError) {
-			nameInputRef.current?.focus();
+			fieldRefs.current.name?.focus();
 		}
 	}, [configQuery.isError]);
 
@@ -86,40 +133,55 @@ export function CreateProjectPanel() {
 		}
 	}, [hasActiveConfig, navigate]);
 
-	const handleCreate = () => {
-		if (hasPartialSystemLink || hasInvalidSystemName) {
+	const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		if (createProjectMutation.isPending || configQuery.isPending) {
+			return;
+		}
+		const firstInvalid = fieldOrder.find((field) => errors[field]);
+		if (firstInvalid) {
+			setTouched(new Set(fieldOrder));
+			fieldRefs.current[firstInvalid]?.focus();
 			return;
 		}
 		createProjectMutation.mutate();
 	};
 
+	// Cancel goes back to the project the command menu closed, if any.
+	const handleCancel = () => {
+		if (reopenProjectPath) {
+			reopenMutation.mutate(reopenProjectPath);
+			return;
+		}
+		navigate("/");
+	};
+
 	const handleToggleSystem = () => {
-		setShowSystem((shown) => {
-			if (shown) {
-				setSystemName("");
-				setSystemCssPath("");
-				setSetSystemAsDefault(true);
-			}
-			return !shown;
-		});
+		if (showSystem) {
+			setSystemName("");
+			setSystemCssPath("");
+			setSetSystemAsDefault(true);
+			setTouched((current) => {
+				const next = new Set(current);
+				next.delete("systemName");
+				next.delete("systemCssPath");
+				return next;
+			});
+		}
+		setShowSystem(!showSystem);
 	};
 
 	const createErrorMessage = (createProjectMutation.error as Error | null)
 		?.message;
+	const reopenErrorMessage = (reopenMutation.error as Error | null)?.message;
 	const inputsDisabled =
-		createProjectMutation.isPending || configQuery.isPending;
-	const submitDisabled =
 		createProjectMutation.isPending ||
 		configQuery.isPending ||
-		!name.trim() ||
-		(isNoProjectCreate && !projectFolder.trim()) ||
-		hasPartialSystemLink ||
-		hasInvalidSystemName;
+		reopenMutation.isPending;
 
 	return (
-		<div className="flex flex-1 flex-col">
+		<form className="flex flex-1 flex-col" onSubmit={handleSubmit}>
 			<div className="flex min-h-20 flex-col justify-center gap-1 border-b border-slate-200 px-8">
-				<Text variant="eyebrow">New project</Text>
 				<Text
 					variant="title"
 					tone="foreground"
@@ -131,144 +193,128 @@ export function CreateProjectPanel() {
 
 			<div className="flex flex-1 flex-col gap-6 px-8 py-6">
 				<div className="flex flex-col gap-4">
-					<div className="flex items-center gap-2">
-						<span className="flex size-5 shrink-0 items-center justify-center bg-slate-950 font-mono text-[10px] text-slate-50">
-							1
-						</span>
-						<Text tone="foreground" className="text-sm font-semibold">
-							Project
-						</Text>
-					</div>
+					<Text tone="foreground" className="text-sm font-semibold">
+						Project
+					</Text>
 
-					<div className="flex flex-col gap-1.5">
-						<Text variant="label" tone="foreground">
-							Project name
-						</Text>
-						<Input
-							ref={nameInputRef}
+					<Field label="Project name" error={visibleError("name")}>
+						<FieldControl
+							ref={(element) => {
+								fieldRefs.current.name = element;
+							}}
 							type="text"
 							variant="form"
-							aria-label="Project name"
 							placeholder="acme-dashboard"
 							value={name}
 							onChange={(event) => setName(event.target.value)}
+							onBlur={() => markTouched("name")}
 							disabled={inputsDisabled}
 						/>
-					</div>
+					</Field>
 
 					{isNoProjectCreate ? (
-						<div className="flex flex-col gap-1.5">
-							<Text variant="label" tone="foreground">
-								Location
-							</Text>
+						<Field label="Location" error={visibleError("projectFolder")}>
 							<InputGroup icon={FolderPlus}>
-								<Input
+								<FieldControl
+									ref={(element) => {
+										fieldRefs.current.projectFolder = element;
+									}}
 									type="text"
 									variant="formEmbedded"
-									aria-label="Project folder"
 									placeholder="/absolute/path/to/project"
 									value={projectFolder}
 									onChange={(event) => setProjectFolder(event.target.value)}
+									onBlur={() => markTouched("projectFolder")}
 									disabled={inputsDisabled}
-									className="min-w-0 flex-1 truncate"
+									className="min-w-0 flex-1 truncate aria-invalid:inset-shadow-transparent"
 								/>
 							</InputGroup>
-						</div>
+						</Field>
 					) : null}
 				</div>
 
 				<div className="flex flex-col gap-2 border-t border-slate-200 pt-5">
 					<div className="flex items-center justify-between">
-						<div className="flex items-center gap-2">
-							<span className="flex size-5 shrink-0 items-center justify-center font-mono text-[10px] text-slate-500 inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
-								2
-							</span>
-							<Text tone="foreground" className="text-sm font-semibold">
-								Design system
-							</Text>
-						</div>
-						<Button type="button" variant="ghost" onClick={handleToggleSystem}>
-							{showSystem ? "Remove" : "Add +"}
+						<Text tone="foreground" className="text-sm font-semibold">
+							Design system
+						</Text>
+						<Button
+							type="button"
+							variant="ghost"
+							className="flex items-center gap-1.5"
+							onClick={handleToggleSystem}
+							disabled={inputsDisabled}
+						>
+							{showSystem ? (
+								<X className="size-3.5" aria-hidden="true" />
+							) : (
+								<Plus className="size-3.5" aria-hidden="true" />
+							)}
+							{showSystem ? "Remove system" : "Add system"}
 						</Button>
 					</div>
 
 					{showSystem ? (
-						<div className="flex flex-col gap-2 pl-7">
-							<div className="flex flex-col gap-1.5">
-								<Text variant="label" tone="foreground">
-									System name
-								</Text>
-								<Input
+						<div className="flex flex-col gap-2">
+							<Field label="System name" error={visibleError("systemName")}>
+								<FieldControl
+									ref={(element) => {
+										fieldRefs.current.systemName = element;
+									}}
 									type="text"
 									variant="form"
-									aria-label="Design system name"
 									placeholder="System name"
 									value={systemName}
 									onChange={(event) => setSystemName(event.target.value)}
-									pattern={systemNamePattern.source}
-									aria-invalid={hasInvalidSystemName}
+									onBlur={() => markTouched("systemName")}
 									disabled={inputsDisabled}
 								/>
-							</div>
-							<div className="flex flex-col gap-1.5">
-								<Text variant="label" tone="foreground">
-									CSS file
-								</Text>
+							</Field>
+							<Field
+								label="CSS file"
+								description="Relative to the project folder."
+								error={visibleError("systemCssPath")}
+							>
 								<InputGroup icon={FilePlus2}>
-									<Input
+									<FieldControl
+										ref={(element) => {
+											fieldRefs.current.systemCssPath = element;
+										}}
 										type="text"
 										variant="formEmbedded"
-										aria-label="Design system CSS file"
 										placeholder="src/index.css"
 										value={systemCssPath}
 										onChange={(event) => setSystemCssPath(event.target.value)}
+										onBlur={() => markTouched("systemCssPath")}
 										disabled={inputsDisabled}
-										className="min-w-0 flex-1 truncate"
+										className="min-w-0 flex-1 truncate aria-invalid:inset-shadow-transparent"
 									/>
 								</InputGroup>
-							</div>
-							<Text tone="muted" className="text-[11px]">
-								Optional. Path is relative to the project folder — e.g.{" "}
-								<code className="font-mono">src/index.css</code>.
-							</Text>
-							{systemName.trim() && systemCssPath.trim() ? (
-								<label
-									htmlFor="create-project-panel-default-system"
-									className="flex items-start gap-3"
-								>
-									<Checkbox
-										id="create-project-panel-default-system"
-										checked={setSystemAsDefault}
-										onCheckedChange={(checked) =>
-											setSetSystemAsDefault(checked === true)
-										}
-										disabled={inputsDisabled}
-									/>
-									<span className="flex min-w-0 flex-col gap-0.5">
-										<Text variant="label" tone="foreground">
-											Set as default system
-										</Text>
-										<Text tone="muted" className="text-[11px]">
-											New designs will automatically link to this system.
-										</Text>
-									</span>
-								</label>
-							) : null}
-							{hasPartialSystemLink ? (
-								<Alert variant="inline">
-									Provide both a design system name and CSS path, or leave both
-									empty.
-								</Alert>
-							) : null}
-							{hasInvalidSystemName ? (
-								<Alert variant="inline">
-									Use only letters, numbers, dashes, underscores, and at-signs
-									in the design system name.
-								</Alert>
-							) : null}
+							</Field>
+							<label
+								htmlFor="create-project-panel-default-system"
+								className="flex items-start gap-3"
+							>
+								<Checkbox
+									id="create-project-panel-default-system"
+									checked={setSystemAsDefault}
+									onCheckedChange={(checked) =>
+										setSetSystemAsDefault(checked === true)
+									}
+									disabled={inputsDisabled}
+								/>
+								<span className="flex min-w-0 flex-col gap-0.5">
+									<Text variant="label" tone="foreground">
+										Set as default system
+									</Text>
+									<Text tone="muted" className="text-[11px]">
+										New designs will automatically link to this system.
+									</Text>
+								</span>
+							</label>
 						</div>
 					) : (
-						<Text tone="muted" className="pl-7 font-mono text-[10px]">
+						<Text tone="muted" className="font-mono text-[10px]">
 							Link a Tailwind CSS file now, or add one after the project exists.
 						</Text>
 					)}
@@ -279,34 +325,30 @@ export function CreateProjectPanel() {
 						Failed to create project: {createErrorMessage}
 					</Alert>
 				) : null}
+				{reopenMutation.isError ? (
+					<Alert variant="panel">
+						Could not reopen the project: {reopenErrorMessage}
+					</Alert>
+				) : null}
 			</div>
 
-			<div className="flex items-center justify-between border-t border-slate-200 px-8 py-4">
-				<Text
-					tone="faint"
-					className="font-mono text-[10px] uppercase tracking-wider"
+			<div className="flex items-center justify-end gap-2 border-t border-slate-200 px-8 py-4">
+				<Button
+					type="button"
+					variant="ghost"
+					onClick={handleCancel}
+					disabled={createProjectMutation.isPending || reopenMutation.isPending}
 				>
-					Step {showSystem ? "2" : "1"} of 2
-				</Text>
-				<div className="flex items-center gap-2">
-					<Button
-						type="button"
-						variant="ghost"
-						onClick={() => navigate("/")}
-						disabled={createProjectMutation.isPending}
-					>
-						Cancel
-					</Button>
-					<Button
-						type="button"
-						variant="filled"
-						onClick={handleCreate}
-						disabled={submitDisabled}
-					>
-						{createProjectMutation.isPending ? "Creating…" : "Create project"}
-					</Button>
-				</div>
+					{reopenMutation.isPending ? "Reopening…" : "Cancel"}
+				</Button>
+				<Button
+					type="submit"
+					variant="filled"
+					disabled={createProjectMutation.isPending || reopenMutation.isPending}
+				>
+					{createProjectMutation.isPending ? "Creating…" : "Create project"}
+				</Button>
 			</div>
-		</div>
+		</form>
 	);
 }

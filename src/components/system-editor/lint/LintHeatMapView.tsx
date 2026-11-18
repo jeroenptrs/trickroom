@@ -294,8 +294,6 @@ function HeatTree({
 					ref={containerRef}
 					className="relative w-full"
 					style={{ height: virtualizer.getTotalSize() }}
-					role="tree"
-					aria-label={variant === "files" ? "Code heat map" : "Design heat map"}
 				>
 					{virtualizer.getVirtualItems().map((item) => {
 						const row = rows[item.index];
@@ -422,8 +420,8 @@ export function LintDesignHeatMapView({
 			<div data-lint-view="designs">
 				<EmptyState
 					icon={PenTool}
-					title="No design-side results yet"
-					description="This report covers the code side only. Per Design and board usage and findings appear here once design rules run as part of lint."
+					title="No design results in this report"
+					description="Run lint to include designs."
 				/>
 			</div>
 		);

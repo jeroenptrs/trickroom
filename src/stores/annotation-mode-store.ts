@@ -19,9 +19,6 @@ export function useAnnotationMode() {
 	return useSelector(annotationModeStore, (enabled) => enabled);
 }
 
-/** The label the switch and the shortcut list show for the shortcut. */
-export const ANNOTATION_MODE_SHORTCUT_LABEL = "⌥ C";
-
 export type AnnotationModeShortcutEvent = Pick<
 	KeyboardEvent,
 	"altKey" | "metaKey" | "ctrlKey" | "shiftKey" | "code"

@@ -79,9 +79,9 @@ export function DesignDetailPane({
 		isMutatingDesign ||
 		draftName.trim().length === 0 ||
 		draftName.trim() === design.name;
-	const actionError =
-		(renameMutation.error as Error | null)?.message ??
-		(deleteMutation.error as Error | null)?.message;
+	const actionError = (renameMutation.error as Error | null)?.message;
+	// The delete error shows inside the dialog, not behind its backdrop.
+	const deleteError = (deleteMutation.error as Error | null)?.message;
 
 	const renameDesign = (nextName: string) => {
 		if (renameMutation.isPending) {
@@ -312,10 +312,13 @@ export function DesignDetailPane({
 				}
 				icon={<Trash2 className="size-4" aria-hidden="true" />}
 				actionIcon={<Trash2 className="size-3.5" aria-hidden="true" />}
-				actionLabel={deleteMutation.isPending ? "Deleting..." : "Delete"}
+				actionLabel={deleteMutation.isPending ? "Deleting..." : "Delete design"}
 				actionDisabled={deleteMutation.isPending}
 				tone="destructive"
 				onAction={deleteSelectedDesign}
+				error={
+					deleteError ? `Could not delete ${design.name}: ${deleteError}` : null
+				}
 			/>
 		</>
 	);

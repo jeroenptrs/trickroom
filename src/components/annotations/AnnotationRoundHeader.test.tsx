@@ -152,7 +152,14 @@ describe("AnnotationRoundHeader", () => {
 		expect(button("Accept all proposed")).toBeUndefined();
 	});
 
-	it("asks before closing a round with annotations left, and closes on confirm", async () => {
+	it("leaves the waiting count out when nothing waits on the designer", async () => {
+		open([view("a", "resolved"), view("b", "open")]);
+		await render();
+		expect(host.textContent).toContain("Round · 1 of 2 closed");
+		expect(host.textContent).not.toContain("waiting on you");
+	});
+
+	it("closes a round with annotations left without asking", async () => {
 		open([view("a", "resolved"), view("b", "open"), view("c", "open")]);
 		const fetchMock = vi.fn(async () =>
 			json({ round: { ...round([]), status: "closed" }, written: true }),
@@ -160,14 +167,7 @@ describe("AnnotationRoundHeader", () => {
 		vi.stubGlobal("fetch", fetchMock);
 		await render();
 		await act(async () => button("Close round")?.click());
-		expect(document.body.textContent).toContain(
-			"2 annotations stay open. Close the round?",
-		);
-		expect(fetchMock).not.toHaveBeenCalled();
-		const confirm = [...document.querySelectorAll("button")]
-			.filter((entry) => entry.textContent === "Close round")
-			.at(-1);
-		await act(async () => confirm?.click());
+		expect(document.body.textContent).not.toContain("stay open");
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(editorAnnotationsStore.get().round).toBeNull();
 	});
@@ -186,11 +186,13 @@ describe("AnnotationRoundHeader", () => {
 
 	it("answers the command menu's close request", async () => {
 		open([view("a", "open")]);
+		const fetchMock = vi.fn(async () =>
+			json({ round: { ...round([]), status: "closed" }, written: true }),
+		);
+		vi.stubGlobal("fetch", fetchMock);
 		await render();
 		await act(async () => requestCloseRound());
-		expect(document.body.textContent).toContain(
-			"1 annotation stays open. Close the round?",
-		);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(editorAnnotationsStore.get().closeRoundRequested).toBe(false);
 	});
 });

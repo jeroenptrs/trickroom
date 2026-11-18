@@ -1,12 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-	Folder,
-	FolderTree,
-	Library,
-	RefreshCw,
-	Search,
-	Trash2,
-} from "lucide-react";
+import { FolderTree, Library, RefreshCw, Search, Trash2 } from "lucide-react";
 import {
 	type RefObject,
 	useCallback,
@@ -20,15 +13,21 @@ import {
 	addSystemIconFolder,
 	removeSystemIconFolder,
 	type SystemIconSummary,
+	type SystemIconsResponse,
 	syncSystemIconsMutation,
 	systemIconSvgQueriesQueryKey,
 	systemIconsQueryKey,
 	systemIconsQueryOptions,
 } from "../../queries/system-icons";
 import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
+import { pluralize } from "../project/project-view-utils";
+import { Alert } from "../ui/alert";
+import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
+import { Popover } from "../ui/popover";
+import { Skeleton } from "../ui/skeleton";
 import { groupItemsBySegment, resolveIconFolderSegment } from "./path-segments";
 import {
 	ICON_GRID_MIN_COLUMN_WIDTH,
@@ -45,11 +44,9 @@ function getIconFolderLabel(
 
 function SystemEditorIconPreview({
 	iconId,
-	name,
 	systemId,
 }: {
 	iconId: string;
-	name: string;
 	systemId: string;
 }) {
 	const [failed, setFailed] = useState(false);
@@ -60,7 +57,7 @@ function SystemEditorIconPreview({
 
 	return (
 		<img
-			alt={`${name} preview`}
+			alt=""
 			className="size-6 object-contain text-slate-900"
 			loading="lazy"
 			src={`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/${encodeURIComponent(iconId)}/svg`}
@@ -93,11 +90,7 @@ function SystemEditorIconCard({
 			aria-pressed={isSelected}
 		>
 			<div className="flex h-10 items-center justify-center bg-slate-50">
-				<SystemEditorIconPreview
-					iconId={icon.id}
-					name={icon.name}
-					systemId={systemId}
-				/>
+				<SystemEditorIconPreview iconId={icon.id} systemId={systemId} />
 			</div>
 			<span className="truncate text-[12px] font-medium text-slate-900">
 				{icon.name}
@@ -178,6 +171,47 @@ function VirtualIconGrid({
 	);
 }
 
+/** What the last index skipped or could not read, behind a popover. */
+function IconIndexDiagnostics({
+	diagnostics,
+}: {
+	diagnostics: SystemIconsResponse["diagnostics"];
+}) {
+	const count = diagnostics.length;
+	return (
+		<Alert variant="panel" tone="warning" className="items-center">
+			<Popover
+				title="Indexing problems"
+				trigger={
+					<button
+						type="button"
+						className="underline decoration-dotted underline-offset-2 hover:text-amber-950"
+					>
+						{count.toLocaleString()} indexing {pluralize(count, "problem")}
+					</button>
+				}
+			>
+				<ul className="flex flex-col gap-2">
+					{diagnostics.map((diagnostic, index) => (
+						<li
+							// biome-ignore lint/suspicious/noArrayIndexKey: messages can repeat
+							key={`${index}-${diagnostic.code}`}
+							className="flex flex-col gap-0.5"
+						>
+							<span>{diagnostic.message}</span>
+							{diagnostic.sourcePath ? (
+								<span className="break-all font-mono text-[10px] text-slate-500">
+									{diagnostic.sourcePath}
+								</span>
+							) : null}
+						</li>
+					))}
+				</ul>
+			</Popover>
+		</Alert>
+	);
+}
+
 function SystemIconsToolbar({
 	countLabel,
 	filteredCountLabel,
@@ -186,8 +220,11 @@ function SystemIconsToolbar({
 	groupByFolder,
 	onFilterChange,
 	onGroupByFolderChange,
+	isLoading = false,
 }: {
-	countLabel: string;
+	/** Draws the count chip and the toolbar button as skeletons. */
+	isLoading?: boolean;
+	countLabel: string | null;
 	filteredCountLabel: string;
 	filter: string;
 	filterInputRef: RefObject<HTMLInputElement | null>;
@@ -202,20 +239,28 @@ function SystemIconsToolbar({
 					<h1 className="truncate text-[15px] font-semibold text-slate-900">
 						Icons
 					</h1>
-					<span className="bg-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
-						{countLabel}
-					</span>
+					{isLoading ? (
+						<Skeleton className="h-4 w-14" />
+					) : countLabel ? (
+						<span className="bg-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
+							{countLabel}
+						</span>
+					) : null}
 				</div>
-				<Button
-					type="button"
-					variant={groupByFolder ? "filled" : "outlined"}
-					className="flex shrink-0 items-center gap-1.5 px-3 py-1.5"
-					onClick={() => onGroupByFolderChange(!groupByFolder)}
-					aria-pressed={groupByFolder}
-				>
-					<FolderTree className="size-3.5" aria-hidden="true" />
-					Group folders
-				</Button>
+				{isLoading ? (
+					<Skeleton className="h-7 w-32" />
+				) : (
+					<Button
+						type="button"
+						variant={groupByFolder ? "filled" : "outlined"}
+						className="flex shrink-0 items-center gap-1.5 px-3 py-1.5"
+						onClick={() => onGroupByFolderChange(!groupByFolder)}
+						aria-pressed={groupByFolder}
+					>
+						<FolderTree className="size-3.5" aria-hidden="true" />
+						Group folders
+					</Button>
+				)}
 			</div>
 			<div className="relative min-w-0">
 				<Search
@@ -293,8 +338,8 @@ export function SystemEditorIconFoldersRail({
 	const removeIconFolderMutation = useMutation({
 		mutationFn: (folderPath: string) =>
 			removeSystemIconFolder({ systemId, folderPath }),
+		// A failure shows inside the confirmation dialog.
 		onMutate: clearIconFolderActionError,
-		onError: captureIconFolderActionError,
 		onSuccess: async (response) => {
 			clearIconFolderActionError();
 			queryClient.setQueryData(iconsQueryKey, response);
@@ -319,9 +364,9 @@ export function SystemEditorIconFoldersRail({
 		reindexIconsMutation.isPending;
 	const addIconFolderDisabled =
 		isMutatingIconFolders || draftIconFolderPath.trim().length === 0;
-	const iconFolderError =
-		iconFolderActionError ??
-		(iconsQuery.error instanceof Error ? iconsQuery.error.message : null);
+	// A failed load is reported (with a retry) in the workspace only.
+	const iconFolderError = iconFolderActionError;
+	const [folderToRemove, setFolderToRemove] = useState<string | null>(null);
 
 	const addIconFolder = () => {
 		if (addIconFolderDisabled) {
@@ -338,25 +383,31 @@ export function SystemEditorIconFoldersRail({
 						<p className="truncate text-[12px] font-semibold text-slate-900">
 							Icon folders
 						</p>
-						<p className="font-mono text-[10px] text-slate-500">
-							{iconsQuery.isPending
-								? "Loading"
-								: `${icons.length.toLocaleString()} icons`}
-						</p>
+						{iconsQuery.isPending ? (
+							<Skeleton className="mt-1 h-3 w-16" />
+						) : iconsQuery.isError ? null : (
+							<p className="font-mono text-[10px] text-slate-500">
+								{`${icons.length.toLocaleString()} icons`}
+							</p>
+						)}
 					</div>
-					<Button
-						type="button"
-						variant="outlined"
-						className="flex shrink-0 items-center gap-1.5 px-2 py-1.5 text-xs"
-						onClick={() => reindexIconsMutation.mutate()}
-						disabled={isMutatingIconFolders}
-					>
-						<RefreshCw
-							className={`size-3.5 ${reindexIconsMutation.isPending ? "animate-spin" : ""}`}
-							aria-hidden="true"
-						/>
-						Re-index
-					</Button>
+					{iconsQuery.isPending ? (
+						<Skeleton className="h-7 w-20" />
+					) : (
+						<Button
+							type="button"
+							variant="outlined"
+							className="flex shrink-0 items-center gap-1.5 px-2 py-1.5 text-xs"
+							onClick={() => reindexIconsMutation.mutate()}
+							disabled={isMutatingIconFolders}
+						>
+							<RefreshCw
+								className={`size-3.5 ${reindexIconsMutation.isPending ? "animate-spin" : ""}`}
+								aria-hidden="true"
+							/>
+							Re-index
+						</Button>
+					)}
 				</div>
 				{iconFolderError ? (
 					<Card
@@ -406,10 +457,18 @@ export function SystemEditorIconFoldersRail({
 			</div>
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
 				{iconsQuery.isPending ? (
-					<p className="px-2 py-3 text-sm text-slate-500">
-						Loading icon folders...
-					</p>
-				) : folders.length === 0 ? (
+					<div className="flex flex-col gap-1" aria-busy="true">
+						{[0, 1, 2].map((row) => (
+							<div
+								key={row}
+								className="flex items-center justify-between gap-2 px-1.5 py-2.5"
+							>
+								<Skeleton className="h-3 w-36" />
+								<Skeleton className="h-3 w-6" />
+							</div>
+						))}
+					</div>
+				) : iconsQuery.isError ? null : folders.length === 0 ? (
 					<p className="px-2 py-3 text-sm text-slate-500">
 						No icon folders configured.
 					</p>
@@ -418,14 +477,10 @@ export function SystemEditorIconFoldersRail({
 						{folders.map((folder) => (
 							<div
 								key={folder}
-								className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 px-1.5 py-1.5 text-xs"
+								className="flex min-w-0 items-center gap-2 px-1.5 py-1.5 text-xs"
 							>
-								<Folder
-									className="size-3.5 text-slate-500"
-									aria-hidden="true"
-								/>
 								<span
-									className="min-w-0 truncate font-mono text-slate-800"
+									className="min-w-0 flex-1 truncate font-mono text-slate-800"
 									title={folder}
 								>
 									{folder}
@@ -440,7 +495,10 @@ export function SystemEditorIconFoldersRail({
 									className="flex size-7 items-center justify-center p-0"
 									title={`Remove ${folder}`}
 									aria-label={`Remove ${folder}`}
-									onClick={() => removeIconFolderMutation.mutate(folder)}
+									onClick={() => {
+										removeIconFolderMutation.reset();
+										setFolderToRemove(folder);
+									}}
 									disabled={isMutatingIconFolders}
 								>
 									<Trash2 className="size-3.5" aria-hidden="true" />
@@ -450,6 +508,45 @@ export function SystemEditorIconFoldersRail({
 					</div>
 				)}
 			</div>
+			<ConfirmationDialog
+				open={folderToRemove !== null}
+				onOpenChange={(open) => {
+					if (!open && !removeIconFolderMutation.isPending) {
+						setFolderToRemove(null);
+					}
+				}}
+				title="Remove icon folder"
+				description={
+					folderToRemove === null ? null : (
+						<span>
+							<span className="font-mono">{folderToRemove}</span> and its{" "}
+							{(folderCounts.get(folderToRemove) ?? 0).toLocaleString()}{" "}
+							{pluralize(folderCounts.get(folderToRemove) ?? 0, "icon")} leave
+							this system. The files stay on disk.
+						</span>
+					)
+				}
+				tone="destructive"
+				icon={<Trash2 className="size-4" aria-hidden="true" />}
+				actionIcon={<Trash2 className="size-3.5" aria-hidden="true" />}
+				actionLabel={
+					removeIconFolderMutation.isPending ? "Removing" : "Remove folder"
+				}
+				actionDisabled={removeIconFolderMutation.isPending}
+				error={
+					removeIconFolderMutation.error instanceof Error
+						? removeIconFolderMutation.error.message
+						: undefined
+				}
+				onAction={() => {
+					if (folderToRemove === null) {
+						return;
+					}
+					removeIconFolderMutation.mutate(folderToRemove, {
+						onSuccess: () => setFolderToRemove(null),
+					});
+				}}
+			/>
 		</div>
 	);
 }
@@ -496,9 +593,8 @@ export function SystemEditorIconsPanel({
 			),
 		[filteredIcons, iconFolderPaths],
 	);
-	const iconCountLabel = iconsQuery.isPending
-		? "Loading"
-		: `${icons.length.toLocaleString()} icon${icons.length === 1 ? "" : "s"}`;
+	const iconCountLabel = `${icons.length.toLocaleString()} icon${icons.length === 1 ? "" : "s"}`;
+	const indexDiagnostics = iconsQuery.data?.diagnostics ?? [];
 	const filteredCountLabel = `${filteredIcons.length.toLocaleString()} visible icon${filteredIcons.length === 1 ? "" : "s"}`;
 
 	useEffect(() => {
@@ -527,15 +623,24 @@ export function SystemEditorIconsPanel({
 		return (
 			<div className="flex min-h-0 flex-1 flex-col gap-4 px-5 py-4">
 				<SystemIconsToolbar
-					countLabel={iconCountLabel}
-					filteredCountLabel={filteredCountLabel}
+					countLabel={null}
+					filteredCountLabel=""
 					filter={iconFilter}
 					filterInputRef={filterInputRef}
 					groupByFolder={groupIconsByFolder}
 					onFilterChange={setIconFilter}
 					onGroupByFolderChange={setGroupIconsByFolder}
+					isLoading
 				/>
-				<p className="text-sm text-slate-500">Loading icons...</p>
+				<div className="flex flex-wrap gap-2.5" aria-busy="true">
+					{Array.from({ length: 24 }, (_, index) => (
+						<Skeleton
+							// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder cards
+							key={index}
+							className="h-[116px] w-[108px]"
+						/>
+					))}
+				</div>
 			</div>
 		);
 	}
@@ -544,7 +649,7 @@ export function SystemEditorIconsPanel({
 		return (
 			<div className="flex min-h-0 flex-col gap-4 px-5 py-4" role="alert">
 				<SystemIconsToolbar
-					countLabel="Unavailable"
+					countLabel={null}
 					filteredCountLabel="Icon index unavailable"
 					filter={iconFilter}
 					filterInputRef={filterInputRef}
@@ -552,8 +657,23 @@ export function SystemEditorIconsPanel({
 					onFilterChange={setIconFilter}
 					onGroupByFolderChange={setGroupIconsByFolder}
 				/>
-				<Card edge="border" tone="danger" className="px-4 py-3 text-sm">
-					Failed to load icons: {(iconsQuery.error as Error).message}
+				<Card
+					edge="border"
+					tone="danger"
+					className="flex flex-col items-start gap-2 px-4 py-3 text-sm"
+				>
+					<span>
+						Failed to load icons: {(iconsQuery.error as Error).message}
+					</span>
+					<Button
+						type="button"
+						variant="outlined"
+						className="px-2 py-1 text-xs"
+						disabled={iconsQuery.isFetching}
+						onClick={() => iconsQuery.refetch()}
+					>
+						Retry
+					</Button>
 				</Card>
 			</div>
 		);
@@ -570,6 +690,9 @@ export function SystemEditorIconsPanel({
 				onFilterChange={setIconFilter}
 				onGroupByFolderChange={setGroupIconsByFolder}
 			/>
+			{indexDiagnostics.length > 0 ? (
+				<IconIndexDiagnostics diagnostics={indexDiagnostics} />
+			) : null}
 			{icons.length === 0 ? (
 				<div className="border border-dashed border-slate-300 bg-white px-4 py-10 text-sm text-slate-500">
 					No icons indexed for this system.

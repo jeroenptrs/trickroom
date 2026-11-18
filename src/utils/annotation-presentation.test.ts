@@ -12,6 +12,7 @@ import {
 	describeAnnotationActor,
 	describeChangeCount,
 	formatAcknowledgement,
+	formatAnnotationEntryTime,
 	getAnnotationPresentationState,
 	groupAnnotationMarker,
 	isAgentResolved,
@@ -291,5 +292,42 @@ describe("describeChangeCount", () => {
 		expect(describeChangeCount(1)).toBe("Changed 1 layer");
 		expect(describeChangeCount(0)).toBe("Changed 0 layers");
 		expect(describeChangeCount(3)).toBe("Changed 3 layers");
+	});
+});
+
+describe("formatAnnotationEntryTime", () => {
+	const now = new Date(2026, 10, 18, 15, 0);
+	const time = (date: Date) =>
+		new Intl.DateTimeFormat(undefined, {
+			hour: "2-digit",
+			minute: "2-digit",
+		}).format(date);
+
+	it("shows the time alone for today", () => {
+		const at = new Date(2026, 10, 18, 9, 5);
+		expect(formatAnnotationEntryTime(at.toISOString(), now)?.label).toBe(
+			time(at),
+		);
+	});
+
+	it("adds the weekday within the past week, and the date beyond it", () => {
+		const monday = new Date(2026, 10, 16, 14, 5);
+		const lastMonth = new Date(2026, 9, 2, 14, 5);
+		const lastYear = new Date(2025, 9, 2, 14, 5);
+		const recent = formatAnnotationEntryTime(monday.toISOString(), now);
+		expect(recent?.label).not.toBe(time(monday));
+		expect(recent?.label).toContain(time(monday));
+		expect(
+			formatAnnotationEntryTime(lastMonth.toISOString(), now)?.label,
+		).not.toContain(time(lastMonth));
+		expect(
+			formatAnnotationEntryTime(lastYear.toISOString(), now)?.label,
+		).toContain("2025");
+	});
+
+	it("gives the full timestamp, and nothing for an unreadable one", () => {
+		const at = new Date(2026, 10, 18, 9, 5).toISOString();
+		expect(formatAnnotationEntryTime(at, now)?.full).toContain("2026");
+		expect(formatAnnotationEntryTime("not a date", now)).toBeNull();
 	});
 });

@@ -14,6 +14,7 @@ import {
 	useAnnotationDraftsUnsupported,
 } from "../../stores/annotation-draft-store";
 import { annotationTargetKey } from "../../utils/annotation-presentation";
+import { formatShortcut } from "../../utils/editor-shortcuts";
 import { Button } from "../ui/button";
 import { TextareaField } from "../ui/input";
 import { sendAnnotationDraft } from "./annotation-actions";
@@ -174,7 +175,7 @@ export function AnnotationComposer({
 						disabled={sending}
 						onClick={() => discardAnnotationDrafts([key])}
 					>
-						Discard
+						Discard draft
 					</Button>
 				) : null}
 				<Button
@@ -182,7 +183,7 @@ export function AnnotationComposer({
 					className="px-2 py-1 text-xs"
 					disabled={!body.trim() || sending}
 					onClick={() => void send()}
-					title="Send it to the agent (⌘ Enter)"
+					title={`Send it to the agent (${formatShortcut(["Mod", "Enter"])})`}
 				>
 					Send
 				</Button>

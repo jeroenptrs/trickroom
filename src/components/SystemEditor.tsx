@@ -1,6 +1,6 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, SearchX, TriangleAlert } from "lucide-react";
 import {
 	type ReactNode,
 	useCallback,
@@ -77,10 +77,12 @@ import {
 	useGuardedComponentLocation,
 } from "./system-editor/useGuardedComponentLocation";
 import { Button } from "./ui/button";
+import { EmptyState } from "./ui/empty-state";
 import { FloatingPanel, FloatingPanelHeader } from "./ui/floating-panel";
 import { PanelEdgeStrip } from "./ui/panel-edge-strip";
 import { ScrollArea } from "./ui/scroll-area";
 import { Separator } from "./ui/separator";
+import { Skeleton } from "./ui/skeleton";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "./ui/tabs";
 import { Text } from "./ui/text";
 
@@ -115,6 +117,21 @@ function getSystemBadgeState(
 	return "synced";
 }
 
+function BackToProjectButton({ onClick }: { onClick: () => void }) {
+	return (
+		<Button
+			type="button"
+			variant="block"
+			className="flex size-7 shrink-0 items-center justify-center p-0"
+			onClick={onClick}
+			title="Back to project"
+			aria-label="Back to project"
+		>
+			<ArrowLeft className="size-4 text-slate-500" aria-hidden="true" />
+		</Button>
+	);
+}
+
 /**
  * System header row: back to the project, the system name and its sync
  * state, then the rail toggle. Shared by the rail and the floating panel
@@ -131,15 +148,7 @@ function SystemHeaderContent({
 }) {
 	return (
 		<>
-			<Button
-				type="button"
-				variant="block"
-				className="flex size-7 shrink-0 items-center justify-center p-0"
-				onClick={onClose}
-				title="Back to project"
-			>
-				<ArrowLeft className="size-4 text-slate-500" />
-			</Button>
+			<BackToProjectButton onClick={onClose} />
 			<div className="min-w-0 flex-1">
 				<Text
 					variant="label"
@@ -208,6 +217,53 @@ function SystemLeftSidebar({
 				{children}
 			</div>
 		</aside>
+	);
+}
+
+/**
+ * The editor's frame while the system list loads, fails, or has no match:
+ * the rail header with its back button, and the state in the workspace.
+ * Without children it is the loading skeleton.
+ */
+function SystemEditorFallback({
+	onClose,
+	children,
+}: {
+	onClose: () => void;
+	children?: ReactNode;
+}) {
+	const isLoading = children === undefined;
+	return (
+		<div
+			className="absolute inset-0 z-10 flex min-h-0 bg-slate-100 text-xs text-slate-950"
+			aria-busy={isLoading || undefined}
+		>
+			<aside className="flex min-h-0 w-[300px] shrink-0 flex-col border-r border-slate-200 bg-white">
+				<header className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 px-3">
+					<BackToProjectButton onClick={onClose} />
+					{isLoading ? <Skeleton className="h-3 w-32" /> : null}
+				</header>
+				{isLoading ? (
+					<div className="flex flex-col gap-3 p-3">
+						<Skeleton className="h-7 w-full" />
+						<Skeleton className="h-4 w-40" />
+						<Skeleton className="h-4 w-48" />
+						<Skeleton className="h-4 w-36" />
+					</div>
+				) : null}
+			</aside>
+			<main className="flex min-h-0 min-w-0 flex-1 flex-col">
+				{isLoading ? (
+					<div className="flex flex-col gap-4 p-6">
+						<Skeleton className="h-6 w-48" />
+						<Skeleton className="h-32 w-full" />
+						<Skeleton className="h-32 w-full" />
+					</div>
+				) : (
+					children
+				)}
+			</main>
+		</div>
 	);
 }
 
@@ -498,36 +554,50 @@ export function SystemEditor() {
 
 	useWindowKeyDown(handleSystemEditorShortcut);
 
-	if (!normalizedSystemId) {
+	if (systemsQuery.isPending && normalizedSystemId) {
+		return <SystemEditorFallback onClose={() => navigate("/")} />;
+	}
+
+	if (systemsQuery.isError && normalizedSystemId) {
 		return (
-			<div className="absolute left-3 top-3 z-30 bg-red-500 px-2 py-1 text-xs text-white">
-				Missing system id
-			</div>
+			<SystemEditorFallback onClose={() => navigate("/")}>
+				<EmptyState
+					icon={TriangleAlert}
+					title="Could not load this system"
+					description={systemsQuery.error.message}
+					action={
+						<Button
+							type="button"
+							variant="outlined"
+							disabled={systemsQuery.isFetching}
+							onClick={() => systemsQuery.refetch()}
+						>
+							Retry
+						</Button>
+					}
+				/>
+			</SystemEditorFallback>
 		);
 	}
 
-	if (systemsQuery.isError) {
-		const errorMessage = (systemsQuery.error as Error | null)?.message;
+	if (!normalizedSystemId || !selectedSystem) {
 		return (
-			<div className="absolute left-3 top-3 z-30 bg-red-500 px-2 py-1 text-xs text-white">
-				Failed to load system data: {errorMessage}
-			</div>
-		);
-	}
-
-	if (systemsQuery.isPending) {
-		return (
-			<div className="pointer-events-none absolute left-3 top-3 z-30 bg-slate-500 px-2 py-1 text-xs text-white">
-				Loading system data...
-			</div>
-		);
-	}
-
-	if (!selectedSystem) {
-		return (
-			<div className="absolute left-3 top-3 z-30 bg-red-500 px-2 py-1 text-xs text-white">
-				No system found for “{normalizedSystemId}”.
-			</div>
+			<SystemEditorFallback onClose={() => navigate("/")}>
+				<EmptyState
+					icon={SearchX}
+					title="System not found"
+					description={`No system matches "${normalizedSystemId ?? ""}".`}
+					action={
+						<Button
+							type="button"
+							variant="outlined"
+							onClick={() => navigate("/")}
+						>
+							Back to project
+						</Button>
+					}
+				/>
+			</SystemEditorFallback>
 		);
 	}
 

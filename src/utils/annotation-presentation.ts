@@ -209,3 +209,55 @@ export const describeVariantPin = (
 		.sort()
 		.map((axis) => `${axis}: ${variants[axis]}`)
 		.join(" · ");
+
+const entryTimeFormat = new Intl.DateTimeFormat(undefined, {
+	hour: "2-digit",
+	minute: "2-digit",
+});
+const entryWeekdayFormat = new Intl.DateTimeFormat(undefined, {
+	weekday: "short",
+	hour: "2-digit",
+	minute: "2-digit",
+});
+const entryDateFormat = new Intl.DateTimeFormat(undefined, {
+	day: "numeric",
+	month: "short",
+});
+const entryDateWithYearFormat = new Intl.DateTimeFormat(undefined, {
+	day: "numeric",
+	month: "short",
+	year: "numeric",
+});
+const entryFullFormat = new Intl.DateTimeFormat(undefined, {
+	dateStyle: "full",
+	timeStyle: "short",
+});
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * When a thread entry was written, as short as stays true: the time for
+ * today, the weekday and time within the past week, the date beyond that
+ * (with the year when it is not this year). `full` is the whole timestamp,
+ * for a tooltip. Null for an unreadable timestamp.
+ */
+export function formatAnnotationEntryTime(at: string, now = new Date()) {
+	const date = new Date(at);
+	if (Number.isNaN(date.getTime())) {
+		return null;
+	}
+
+	const full = entryFullFormat.format(date);
+	if (date.toDateString() === now.toDateString()) {
+		return { label: entryTimeFormat.format(date), full };
+	}
+	const age = now.getTime() - date.getTime();
+	if (age > 0 && age < WEEK_MS - 24 * 60 * 60 * 1000) {
+		return { label: entryWeekdayFormat.format(date), full };
+	}
+	const format =
+		date.getFullYear() === now.getFullYear()
+			? entryDateFormat
+			: entryDateWithYearFormat;
+	return { label: format.format(date), full };
+}

@@ -27,6 +27,7 @@ import {
 	type AnnotationPresentationState,
 	formatAcknowledgement,
 } from "../../utils/annotation-presentation";
+import { formatShortcut } from "../../utils/editor-shortcuts";
 import { AnnotationStatusChip } from "../ui/annotation-marker";
 import { Button } from "../ui/button";
 import { Input, TextareaField } from "../ui/input";
@@ -132,7 +133,7 @@ function ReplyComposer({ annotation }: { annotation: AnnotationView }) {
 					className={actionButton}
 					disabled={!draft.trim() || sending}
 					onClick={() => void send()}
-					title="Send the reply (⌘ Enter)"
+					title={`Send the reply (${formatShortcut(["Mod", "Enter"])})`}
 				>
 					Reply
 				</Button>

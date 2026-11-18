@@ -1,14 +1,21 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import type { LintSeverity } from "../../../lint/config";
-import { designSummariesQueryOptions } from "../../../queries/design-file";
+import type { LintReport } from "../../../lint/report";
+import {
+	designFileQueryOptions,
+	designSummariesQueryOptions,
+} from "../../../queries/design-file";
 import type { ProjectQueryScope } from "../../../queries/project-scope";
 import {
 	systemLintConfigQueryOptions,
 	systemLintQueryOptions,
 } from "../../../queries/system-lint";
+import { Alert } from "../../ui/alert";
 import { Badge } from "../../ui/badge";
+import { Button } from "../../ui/button";
 import { HeatSwatch } from "../../ui/heat-swatch";
+import { Skeleton } from "../../ui/skeleton";
 import { Text } from "../../ui/text";
 import {
 	formatDelta,
@@ -38,21 +45,126 @@ export function useSystemLint(
 	};
 }
 
-/** Design ids to names, fetched only when the report has design data. */
+/** The ids of the designs a report has rows or findings for. */
+const reportDesignIds = (report: LintReport | null) => {
+	const ids = new Set<string>();
+	for (const entry of report?.designs ?? []) {
+		ids.add(entry.design);
+	}
+	for (const finding of report?.findings ?? []) {
+		if (finding.location?.kind === "design") {
+			ids.add(finding.location.design);
+		}
+	}
+	return [...ids].sort();
+};
+
+type NamedNode = { id: string; props: object; children: unknown };
+
+const collectLayerNames = (
+	nodes: readonly NamedNode[],
+	names: Map<string, string>,
+) => {
+	for (const node of nodes) {
+		const name = (node.props as { "data-trickroom-name"?: unknown })[
+			"data-trickroom-name"
+		];
+		if (typeof name === "string" && name.trim()) {
+			names.set(node.id, name);
+		}
+		if (Array.isArray(node.children)) {
+			collectLayerNames(node.children as NamedNode[], names);
+		}
+	}
+};
+
+const combineLayerNames = (
+	results: readonly { data?: { design: { boards: NamedNode[] } } }[],
+) => {
+	const names = new Map<string, string>();
+	for (const result of results) {
+		if (result.data) {
+			collectLayerNames(result.data.design.boards, names);
+		}
+	}
+	return names;
+};
+
+/**
+ * Names for the design, board and layer ids a report points at, fetched only
+ * for the designs it lists. An id whose design could not be read has no
+ * entry, so callers fall back to the id.
+ */
 export function useDesignNames(
-	enabled: boolean,
+	report: LintReport | null,
 	projectScope?: ProjectQueryScope,
 ): ReadonlyMap<string, string> {
+	const designIds = useMemo(() => reportDesignIds(report), [report]);
 	const summariesQuery = useQuery({
 		...designSummariesQueryOptions(projectScope),
-		enabled,
+		enabled: designIds.length > 0,
 	});
-	return useMemo(
-		() =>
-			new Map(
-				(summariesQuery.data ?? []).map((design) => [design.uuid, design.name]),
-			),
-		[summariesQuery.data],
+	const layerNames = useQueries({
+		queries: designIds.map((designId) =>
+			designFileQueryOptions(designId, projectScope),
+		),
+		combine: combineLayerNames,
+	});
+	return useMemo(() => {
+		const names = new Map(layerNames);
+		for (const summary of summariesQuery.data ?? []) {
+			names.set(summary.uuid, summary.name);
+		}
+		return names;
+	}, [layerNames, summariesQuery.data]);
+}
+
+/** A failed read: what could not load, the reason, and a retry. */
+export function LintLoadError({
+	title,
+	error,
+	onRetry,
+}: {
+	title: string;
+	error: unknown;
+	onRetry: () => void;
+}) {
+	return (
+		<div className="flex flex-wrap items-start gap-2">
+			<Alert tone="danger" className="min-w-0 flex-1">
+				<span className="block font-medium">{title}</span>
+				{error instanceof Error ? (
+					<span className="block">{error.message}</span>
+				) : null}
+			</Alert>
+			<Button
+				type="button"
+				variant="outlined"
+				className="px-3 py-1.5 text-xs"
+				onClick={onRetry}
+			>
+				Retry
+			</Button>
+		</div>
+	);
+}
+
+/** Stands in for a lint view while its report or config loads. */
+export function LintViewSkeleton() {
+	return (
+		<div className="flex flex-col gap-4" aria-busy="true">
+			<div className="flex flex-wrap gap-4">
+				<Skeleton className="h-28 min-w-64 flex-1" />
+				<Skeleton className="h-28 min-w-64 flex-1" />
+			</div>
+			<Skeleton className="h-4 w-32" />
+			<div className="flex flex-col gap-px">
+				{Array.from({ length: 6 }, (_, index) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder rows.
+					<Skeleton key={index} className="h-8 w-full" />
+				))}
+			</div>
+		</div>
 	);
 }
 

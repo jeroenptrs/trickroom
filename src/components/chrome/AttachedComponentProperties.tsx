@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
-import { useMemo } from "react";
+import { RefreshCw, RotateCcw, Unlink } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { systemComponentQueryOptions } from "../../queries/system-components";
@@ -29,7 +30,10 @@ import type {
 import { useProjectScope } from "../contexts";
 import { useClassMergeContext } from "../stage/class-merge-context";
 import { Alert } from "../ui/alert";
+import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
+import { Select } from "../ui/select";
+import { Skeleton } from "../ui/skeleton";
 import {
 	type AttachedComponentInspection,
 	type AttachedComponentVersionStatus,
@@ -41,6 +45,7 @@ import {
 	isAttachedComponentStaleStatus,
 } from "./attached-component-inspector";
 import { getSystemComponentEditorPath } from "./ExtractSystemComponentDialog";
+import { errorReason, RetryError } from "./RetryError";
 
 type AttachedComponentPropertiesProps = {
 	inspection: AttachedComponentInspection;
@@ -94,9 +99,8 @@ function VariantAxisControl({
 			<label className="font-semibold" htmlFor={`component-variant-${axisKey}`}>
 				{axis.label}
 			</label>
-			<select
+			<Select
 				id={`component-variant-${axisKey}`}
-				className="w-full border-none bg-slate-200/60 px-1 py-0.5 text-xs text-slate-950 inset-shadow-[0_0_0_1px_transparent] focus:outline-none focus:inset-shadow-[0_0_0_1px_#67e8f9]"
 				value={selectValue}
 				onChange={(event) =>
 					onChange(
@@ -112,7 +116,7 @@ function VariantAxisControl({
 						{value.label ?? valueKey}
 					</option>
 				))}
-			</select>
+			</Select>
 		</div>
 	);
 }
@@ -173,7 +177,7 @@ function MigrationDiagnosticsList({
 	}
 
 	return (
-		<ul className="flex max-h-40 flex-col gap-1 overflow-y-auto rounded border border-amber-200 bg-amber-50/80 p-2 text-[11px] text-amber-900">
+		<ul className="flex max-h-40 flex-col gap-1 overflow-y-auto border border-amber-200 bg-amber-50/80 p-2 text-[11px] text-amber-900">
 			{diagnostics.map((diagnostic, index) => (
 				<li
 					// biome-ignore lint/suspicious/noArrayIndexKey: migration diagnostics are an ephemeral, render-only list with no stable id (codes may repeat).
@@ -196,6 +200,7 @@ function AttachedComponentRootControls({
 	systemId,
 	componentRecord,
 	onOpen,
+	loadError,
 }: {
 	rootElementId: string;
 	instance: SystemComponentInstanceMetadata;
@@ -206,7 +211,16 @@ function AttachedComponentRootControls({
 	systemId: string | null;
 	componentRecord: SystemComponentRecord | undefined;
 	onOpen: (() => void) | null;
+	/** The component request failed: what to show, with its retry. */
+	loadError: {
+		reason: string | undefined;
+		retrying: boolean;
+		onRetry: () => void;
+	} | null;
 }) {
+	const [confirm, setConfirm] = useState<"reset" | "detach" | "update" | null>(
+		null,
+	);
 	const variantAxes = version?.variants?.axes ?? {};
 	const canUpdate = isAttachedComponentStaleStatus(status);
 	const designRevision = useDesignRevision();
@@ -276,25 +290,19 @@ function AttachedComponentRootControls({
 	const handleOpen = onOpen ?? null;
 
 	const handleResetOverrides = () => {
+		setConfirm(null);
 		if (!version || overrideCount === 0) return;
-		const confirmed = window.confirm(
-			`Reset all overrides for "${componentName}"? This removes all className, text, icon, asset, and prop overrides on this instance.`,
-		);
-		if (!confirmed) return;
 		resetSystemComponentOverrides(rootElementId, version);
 	};
 
 	const handleDetach = () => {
-		const confirmed = window.confirm(
-			`Detach "${componentName}"? This keeps the layers but removes component protection from the whole instance.`,
-		);
-		if (!confirmed) {
-			return;
-		}
+		setConfirm(null);
 		detachSystemComponent(rootElementId, version ?? undefined, classSource);
 	};
 
+	const reviewCount = reviewDiagnostics.length;
 	const handleUpdate = () => {
+		setConfirm(null);
 		if (
 			!systemId ||
 			!componentRecord ||
@@ -302,15 +310,6 @@ function AttachedComponentRootControls({
 			!currentVersion ||
 			updateBlocked
 		) {
-			return;
-		}
-
-		const reviewCount = reviewDiagnostics.length;
-		const confirmMessage =
-			reviewCount > 0
-				? `Update "${componentName}" to version ${currentVersion.version}? ${reviewCount} migration note${reviewCount === 1 ? "" : "s"} may affect authored content.`
-				: `Update "${componentName}" to version ${currentVersion.version}? Structure and settings will be preserved where possible.`;
-		if (!window.confirm(confirmMessage)) {
 			return;
 		}
 
@@ -371,7 +370,16 @@ function AttachedComponentRootControls({
 							</>
 						) : null}
 					</div>
-					<ComponentStatusMessage status={status} instance={instance} />
+					{loadError ? (
+						<RetryError
+							message={`Could not load ${componentName}`}
+							reason={loadError.reason}
+							retrying={loadError.retrying}
+							onRetry={loadError.onRetry}
+						/>
+					) : (
+						<ComponentStatusMessage status={status} instance={instance} />
+					)}
 					{reviewDiagnostics.length > 0 ? (
 						<MigrationDiagnosticsList diagnostics={reviewDiagnostics} />
 					) : null}
@@ -387,7 +395,7 @@ function AttachedComponentRootControls({
 								variant="outlined"
 								className="w-fit px-2 py-1 text-xs"
 								disabled={updateBlocked}
-								onClick={handleUpdate}
+								onClick={() => setConfirm("update")}
 							>
 								Update component
 							</Button>
@@ -397,7 +405,7 @@ function AttachedComponentRootControls({
 								type="button"
 								variant="outlined"
 								className="w-fit px-2 py-1 text-xs"
-								onClick={handleResetOverrides}
+								onClick={() => setConfirm("reset")}
 							>
 								Reset overrides
 							</Button>
@@ -406,12 +414,51 @@ function AttachedComponentRootControls({
 							type="button"
 							variant="outlined"
 							className="w-fit px-2 py-1 text-xs"
-							onClick={handleDetach}
+							onClick={() => setConfirm("detach")}
 						>
 							Detach component
 						</Button>
 					</div>
 				</div>
+				<ConfirmationDialog
+					open={confirm === "update"}
+					onOpenChange={(open) => {
+						if (!open) setConfirm(null);
+					}}
+					title={`Update ${componentName} to version ${currentVersion?.version ?? ""}`}
+					description={
+						reviewCount > 0
+							? `${reviewCount} migration ${reviewCount === 1 ? "note needs" : "notes need"} review.`
+							: "Structure and settings are kept where they still fit."
+					}
+					icon={<RefreshCw className="size-4" aria-hidden="true" />}
+					actionLabel="Update instance"
+					onAction={handleUpdate}
+				/>
+				<ConfirmationDialog
+					open={confirm === "reset"}
+					onOpenChange={(open) => {
+						if (!open) setConfirm(null);
+					}}
+					tone="destructive"
+					title="Reset overrides"
+					description="Removes every class, text, icon, asset, and property override on this instance. This can't be undone."
+					icon={<RotateCcw className="size-4" aria-hidden="true" />}
+					actionLabel="Reset overrides"
+					onAction={handleResetOverrides}
+				/>
+				<ConfirmationDialog
+					open={confirm === "detach"}
+					onOpenChange={(open) => {
+						if (!open) setConfirm(null);
+					}}
+					tone="destructive"
+					title={`Detach ${componentName}`}
+					description="The layers stay. They no longer update with the component. This can't be undone."
+					icon={<Unlink className="size-4" aria-hidden="true" />}
+					actionLabel="Detach instance"
+					onAction={handleDetach}
+				/>
 			</section>
 			{version && Object.keys(variantAxes).length > 0 ? (
 				<section className="flex flex-col">
@@ -558,11 +605,7 @@ export function AttachedComponentProperties({
 			: inspection.instance.componentId);
 
 	if (componentQuery.isPending && systemId && componentId) {
-		return (
-			<div className="px-3 py-3 text-xs text-slate-500">
-				Loading component metadata…
-			</div>
-		);
+		return <AttachedComponentSkeleton />;
 	}
 
 	if (inspection.kind === "owned-internal") {
@@ -613,7 +656,39 @@ export function AttachedComponentProperties({
 			systemId={systemId}
 			componentRecord={componentQuery.data?.record}
 			onOpen={onOpen}
+			loadError={
+				componentQuery.isError
+					? {
+							reason: errorReason(componentQuery.error),
+							retrying: componentQuery.isFetching,
+							onRetry: () => void componentQuery.refetch(),
+						}
+					: null
+			}
 		/>
+	);
+}
+
+/** The Component section while its metadata loads. */
+function AttachedComponentSkeleton() {
+	return (
+		<section className="flex flex-col" aria-busy="true">
+			<div className="px-3 py-2">
+				<Skeleton className="h-3 w-20" />
+			</div>
+			<div className="flex flex-col gap-2 px-3 pb-3">
+				{[0, 1, 2, 3].map((row) => (
+					<div key={row} className="flex gap-2">
+						<Skeleton className="h-3 w-14" />
+						<Skeleton className="h-3 w-24" />
+					</div>
+				))}
+				<div className="flex gap-2">
+					<Skeleton className="h-6 w-28" />
+					<Skeleton className="h-6 w-32" />
+				</div>
+			</div>
+		</section>
 	);
 }
 

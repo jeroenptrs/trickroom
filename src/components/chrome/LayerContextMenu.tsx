@@ -1,5 +1,6 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { RefreshCw, Unlink } from "lucide-react";
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -12,7 +13,6 @@ import {
 import { commitDesignSave } from "../../queries/design-save";
 import { validateRecipeInstances } from "../../recipes/validation";
 import {
-	deleteElement,
 	designStore,
 	detachRecipe,
 	isDesignCleanAtRevision,
@@ -20,8 +20,10 @@ import {
 	updateRecipeInstance,
 } from "../../stores/design-store";
 import { useProjectScope } from "../contexts";
+import { ConfirmationDialog } from "../ui/alert-dialog";
 import { contextMenu } from "../ui/context-menu";
 import { ExtractSystemComponentDialog } from "./ExtractSystemComponentDialog";
+import { requestLayerDelete } from "./layer-delete";
 
 const { trigger, positioner, popup, item } = contextMenu();
 
@@ -29,6 +31,7 @@ type LayerContextMenuProps = ContextMenu.Trigger.Props & {
 	className?: string;
 	id: string;
 	designId: string;
+	isBoard: boolean;
 	isRecipeOwned: boolean;
 	layerName: string;
 	recipeInstanceId: string | null;
@@ -37,6 +40,7 @@ type LayerContextMenuProps = ContextMenu.Trigger.Props & {
 function LayerContextMenu({
 	id,
 	designId,
+	isBoard,
 	isRecipeOwned,
 	layerName,
 	recipeInstanceId,
@@ -48,6 +52,9 @@ function LayerContextMenu({
 	const projectScope = useProjectScope();
 	const [isStaleRecipe, setIsStaleRecipe] = useState(false);
 	const [extractComponentOpen, setExtractComponentOpen] = useState(false);
+	const [recipeConfirm, setRecipeConfirm] = useState<
+		"update" | "detach" | null
+	>(null);
 	const handleOpenChange = useCallback(
 		(open: boolean) => {
 			if (!open || !recipeInstanceId) {
@@ -67,13 +74,7 @@ function LayerContextMenu({
 		[recipeInstanceId],
 	);
 	const handleUpdateRecipe = () => {
-		const confirmed = window.confirm(
-			`Update the recipe instance containing "${layerName}"? Recipe structure may change while editable settings and slot contents are preserved where possible.`,
-		);
-		if (!confirmed) {
-			return;
-		}
-
+		setRecipeConfirm(null);
 		try {
 			updateRecipeInstance(id);
 			toast.success("Updated recipe.");
@@ -84,13 +85,7 @@ function LayerContextMenu({
 		}
 	};
 	const handleDetachRecipe = () => {
-		const confirmed = window.confirm(
-			`Detach the recipe instance containing "${layerName}"? This keeps the layers but removes recipe protection from the whole instance.`,
-		);
-		if (!confirmed) {
-			return;
-		}
-
+		setRecipeConfirm(null);
 		detachRecipe(id);
 	};
 	const extractMutation = useMutation({
@@ -142,11 +137,9 @@ function LayerContextMenu({
 			navigate(`/design/${designUuid}`);
 		},
 		onError: (error) => {
-			toast.error(
-				error instanceof Error
-					? error.message
-					: "Failed to extract layer to a new design.",
-			);
+			toast.error(`Could not extract ${layerName} to a new design`, {
+				description: error instanceof Error ? error.message : undefined,
+			});
 		},
 	});
 
@@ -166,27 +159,27 @@ function LayerContextMenu({
 							disabled={extractMutation.isPending}
 							onClick={() => extractMutation.mutate()}
 						>
-							<span className="truncate">Extract as {layerName}</span>
+							<span className="truncate">Extract to new design</span>
 						</ContextMenu.Item>
 						<ContextMenu.Item
 							className={item()}
 							onClick={() => setExtractComponentOpen(true)}
 						>
-							<span className="truncate">Extract as system component</span>
+							<span className="truncate">Extract as component</span>
 						</ContextMenu.Item>
 						{isRecipeOwned ? (
 							<>
 								{isStaleRecipe ? (
 									<ContextMenu.Item
 										className={item()}
-										onClick={handleUpdateRecipe}
+										onClick={() => setRecipeConfirm("update")}
 									>
 										<span className="truncate">Update recipe</span>
 									</ContextMenu.Item>
 								) : null}
 								<ContextMenu.Item
 									className={item()}
-									onClick={handleDetachRecipe}
+									onClick={() => setRecipeConfirm("detach")}
 								>
 									<span className="truncate">Detach recipe</span>
 								</ContextMenu.Item>
@@ -194,9 +187,9 @@ function LayerContextMenu({
 						) : null}
 						<ContextMenu.Item
 							className={item()}
-							onClick={() => deleteElement(id)}
+							onClick={() => requestLayerDelete(id)}
 						>
-							Delete
+							{isBoard ? "Delete board" : "Delete layer"}
 						</ContextMenu.Item>
 					</ContextMenu.Popup>
 				</ContextMenu.Positioner>
@@ -206,6 +199,29 @@ function LayerContextMenu({
 				onOpenChange={setExtractComponentOpen}
 				elementId={id}
 				layerName={layerName}
+			/>
+			<ConfirmationDialog
+				open={recipeConfirm === "update"}
+				onOpenChange={(open) => {
+					if (!open) setRecipeConfirm(null);
+				}}
+				title="Update recipe"
+				description="The structure can change. Settings and slot content are kept where they still fit."
+				icon={<RefreshCw className="size-4" aria-hidden="true" />}
+				actionLabel="Update recipe"
+				onAction={handleUpdateRecipe}
+			/>
+			<ConfirmationDialog
+				open={recipeConfirm === "detach"}
+				onOpenChange={(open) => {
+					if (!open) setRecipeConfirm(null);
+				}}
+				tone="destructive"
+				title="Detach recipe"
+				description="The layers stay. They no longer update with the recipe. This can't be undone."
+				icon={<Unlink className="size-4" aria-hidden="true" />}
+				actionLabel="Detach recipe"
+				onAction={handleDetachRecipe}
 			/>
 		</ContextMenu.Root>
 	);

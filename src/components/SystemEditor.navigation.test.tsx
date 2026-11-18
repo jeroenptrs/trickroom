@@ -218,7 +218,9 @@ async function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
 }
 
 const clickByTitle = async (title: string) => {
-	const target = document.body.querySelector(`button[title="${title}"]`);
+	const target = document.body.querySelector(
+		`button[title="${title}"], button[aria-label="${title}"]`,
+	);
 	expect(target, `button titled "${title}"`).not.toBeNull();
 	await act(async () => {
 		(target as HTMLElement).click();
@@ -240,12 +242,16 @@ const clickListItem = async (name: string) => {
 };
 
 const dialogOpen = () =>
-	document.body.textContent?.includes("Discard unsaved changes?") ?? false;
+	document.body.textContent?.includes("Save changes before leaving?") ?? false;
 
+// An open dialog's buttons come first: the footer behind it repeats labels.
 const button = (label: string) =>
-	[...document.body.querySelectorAll("button, [role=tab]")].find(
-		(element) => element.textContent?.trim() === label,
-	) as HTMLElement | undefined;
+	[
+		...document.body.querySelectorAll("[role=alertdialog] button"),
+		...document.body.querySelectorAll("button, [role=tab]"),
+	].find((element) => element.textContent?.trim() === label) as
+		| HTMLElement
+		| undefined;
 
 const click = async (label: string) => {
 	const target = button(label);
@@ -284,13 +290,15 @@ describe("SystemEditor URL navigation", () => {
 			await router.navigate("/system/core?component=cmp_b");
 		});
 		await flush();
-		expect(document.body.textContent).toContain("Discard unsaved changes?");
+		expect(document.body.textContent).toContain("Save changes before leaving?");
 		// Nothing was dropped while the question is open.
 		expect(componentDraftStore.get().componentId).toBe("cmp_a");
 		expect(hasUnsavedComponentDraft()).toBe(true);
 
 		await click("Cancel");
-		expect(document.body.textContent).not.toContain("Discard unsaved changes?");
+		expect(document.body.textContent).not.toContain(
+			"Save changes before leaving?",
+		);
 		expect(router.state.location.search).toBe("?component=cmp_a");
 		expect(componentDraftStore.get().componentId).toBe("cmp_a");
 		expect(hasUnsavedComponentDraft()).toBe(true);
@@ -306,7 +314,9 @@ describe("SystemEditor URL navigation", () => {
 		});
 		await flush();
 		await click("Discard changes");
-		expect(document.body.textContent).not.toContain("Discard unsaved changes?");
+		expect(document.body.textContent).not.toContain(
+			"Save changes before leaving?",
+		);
 		expect(router.state.location.search).toBe("?component=cmp_b");
 		expect(componentDraftStore.get().componentId).toBe("cmp_b");
 		expect(hasUnsavedComponentDraft()).toBe(false);
@@ -319,7 +329,9 @@ describe("SystemEditor URL navigation", () => {
 			await router.navigate("/system/core?component=cmp_b");
 		});
 		await flush();
-		expect(document.body.textContent).not.toContain("Discard unsaved changes?");
+		expect(document.body.textContent).not.toContain(
+			"Save changes before leaving?",
+		);
 		expect(componentDraftStore.get().componentId).toBe("cmp_b");
 	});
 
@@ -463,7 +475,7 @@ describe("SystemEditor URL navigation", () => {
 				await router.navigate("/system/core?component=cmp_b");
 			});
 			await flush();
-			await click("Save");
+			await click("Save draft");
 			await click("Cancel");
 			expect(router.state.location.search).toBe("?component=cmp_a");
 
@@ -485,7 +497,7 @@ describe("SystemEditor URL navigation", () => {
 				await router.navigate("/system/core?component=cmp_b");
 			});
 			await flush();
-			await click("Save");
+			await click("Save draft");
 			await act(async () => {
 				await router.navigate("/system/core?tab=lint");
 			});
@@ -510,7 +522,7 @@ describe("SystemEditor URL navigation", () => {
 				await router.navigate("/system/core?component=cmp_b");
 			});
 			await flush();
-			await click("Save");
+			await click("Save draft");
 			await act(async () => {
 				gate.release();
 			});
@@ -558,18 +570,18 @@ describe("SystemEditor URL navigation", () => {
 	});
 
 	describe("a delete that finishes after the view moved", () => {
-		it("closes the deleted component even when it was opened meanwhile", async () => {
-			window.confirm = () => true;
+		it("closes the deleted component even when it was reopened meanwhile", async () => {
 			const gate = holdSaves();
-			const router = mount("/system/core");
+			const router = mount("/system/core?component=cmp_a");
 			await flush();
-			const remove = document.body.querySelector(
-				'button[aria-label="Delete Alpha"]',
-			) as HTMLElement | null;
-			expect(remove).not.toBeNull();
+			await click("Settings");
+			await click("Delete component");
+			// The dialog's action, which the dialog's buttons come first for.
+			await click("Delete component");
 			await act(async () => {
-				remove?.click();
+				await router.navigate("/system/core");
 			});
+			await flush();
 			await act(async () => {
 				await router.navigate("/system/core?component=cmp_a");
 			});

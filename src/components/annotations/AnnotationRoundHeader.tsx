@@ -1,5 +1,4 @@
 import { useSelector } from "@tanstack/react-store";
-import { Flag } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { AnnotationSnapshotHint } from "../../queries/annotations";
 import type { AnnotationContainer } from "../../services/annotations.types";
@@ -9,7 +8,6 @@ import {
 	editorAnnotationsStore,
 	useOpenRound,
 } from "../../stores/editor-annotations-store";
-import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { Text } from "../ui/text";
 import {
@@ -18,13 +16,12 @@ import {
 	sendAnnotationDrafts,
 } from "./annotation-actions";
 
-const noun = (count: number) => (count === 1 ? "annotation" : "annotations");
-
 /**
  * The round at the top of an Annotations tab. With a round open: its
  * progress, **Send round**, **Accept all proposed** (when it has proposed
  * annotations) and **Close round**. With none open and drafts waiting:
- * **Send round** alone. Closing asks first when annotations stay open.
+ * **Send round** alone. Closing loses nothing, so it does not ask; the
+ * toast says how many annotations stay open.
  * `drafts` are every draft of the design or component, not only the board
  * in view.
  */
@@ -44,20 +41,15 @@ export function AnnotationRoundHeader({
 	);
 	const [sending, setSending] = useState(false);
 	const [closing, setClosing] = useState(false);
-	const [confirming, setConfirming] = useState(false);
 
 	const remaining = open ? open.counts.total - open.counts.closed : 0;
 	const closeRound = async () => {
 		if (!open) return;
 		setClosing(true);
-		await closeOpenRound(container, open.round);
+		await closeOpenRound(container, open.round, remaining);
 		setClosing(false);
-		setConfirming(false);
 	};
-	const requestClose = () => {
-		if (remaining > 0) setConfirming(true);
-		else void closeRound();
-	};
+	const requestClose = () => void closeRound();
 
 	// The command menu's "Close round".
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs once per request.
@@ -114,7 +106,7 @@ export function AnnotationRoundHeader({
 				data-annotation-round-progress=""
 			>
 				Round · {counts.closed} of {counts.total} closed
-				{` · ${counts.humanWork} waiting on you`}
+				{counts.humanWork > 0 ? ` · ${counts.humanWork} waiting on you` : null}
 			</Text>
 			<div className="flex flex-wrap gap-1">
 				{sendRound}
@@ -140,19 +132,6 @@ export function AnnotationRoundHeader({
 					Close round
 				</Button>
 			</div>
-			<ConfirmationDialog
-				open={confirming}
-				onOpenChange={(next) => {
-					if (!closing) setConfirming(next);
-				}}
-				title="Close round"
-				description={`${remaining} ${noun(remaining)} ${remaining === 1 ? "stays" : "stay"} open. Close the round?`}
-				icon={<Flag className="size-4" aria-hidden="true" />}
-				actionIcon={<Flag className="size-3.5" aria-hidden="true" />}
-				actionLabel={closing ? "Closing..." : "Close round"}
-				actionDisabled={closing}
-				onAction={() => void closeRound()}
-			/>
 		</div>
 	);
 }

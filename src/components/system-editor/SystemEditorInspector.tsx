@@ -68,6 +68,8 @@ import {
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
+import { Select } from "../ui/select";
+import { Skeleton } from "../ui/skeleton";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "../ui/tabs";
 import { AuthoredCompoundsList } from "./AuthoredCompoundsList";
 import { ComponentDraftProperties } from "./ComponentDraftProperties";
@@ -75,18 +77,107 @@ import type { ComponentPublicationState } from "./component-catalog";
 import { getComponentPublicationState } from "./component-catalog";
 import { SystemEditorLintInspector } from "./SystemEditorLintPanel";
 import { SystemPanelToggle } from "./SystemPanelToggle";
-import { pageTitleByTab, type SystemEditorPage } from "./types";
+import type { SystemEditorPage } from "./types";
+import { discardOpenComponentDraft } from "./useGuardedComponentLocation";
 
-function InspectorField({ label, value }: { label: string; value: string }) {
+function InspectorField({ label, value }: { label: string; value: ReactNode }) {
 	return (
 		<div className="flex items-baseline justify-between gap-3 py-1.5">
 			<span className="text-slate-500">{label}</span>
 			<span
 				className="min-w-0 truncate text-right text-slate-900"
-				title={value}
+				title={typeof value === "string" ? value : undefined}
 			>
 				{value}
 			</span>
+		</div>
+	);
+}
+
+/** Field rows while an inspector's data loads. */
+function InspectorSkeleton({ rows = 4 }: { rows?: number }) {
+	return (
+		<div className="flex flex-col gap-3" aria-busy="true">
+			<div className="flex flex-col gap-1.5">
+				<Skeleton className="h-4 w-40" />
+				<Skeleton className="h-3 w-24" />
+			</div>
+			{Array.from({ length: rows }, (_, index) => (
+				<div
+					// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder rows
+					key={index}
+					className="flex items-center justify-between gap-3 py-1.5"
+				>
+					<Skeleton className="h-3 w-20" />
+					<Skeleton className="h-3 w-28" />
+				</div>
+			))}
+		</div>
+	);
+}
+
+/** A failed inspector request: what failed, the reason, and a retry. */
+function InspectorLoadError({
+	title,
+	error,
+	isRetrying,
+	onRetry,
+}: {
+	title: string;
+	error: Error | null;
+	isRetrying: boolean;
+	onRetry: () => void;
+}) {
+	return (
+		<div className="flex flex-col items-start gap-2">
+			<Alert variant="panel" className="w-full">
+				<span className="block font-medium">{title}</span>
+				{error?.message ? <span className="block">{error.message}</span> : null}
+			</Alert>
+			<Button
+				type="button"
+				variant="outlined"
+				className="px-2 py-1 text-xs"
+				disabled={isRetrying}
+				onClick={onRetry}
+			>
+				Retry
+			</Button>
+		</div>
+	);
+}
+
+/** Every diagnostic, with the count next to the label. */
+function ComponentDiagnosticsList({
+	diagnostics,
+}: {
+	diagnostics: Array<{
+		code: string;
+		componentId?: string;
+		path?: string;
+		message: string;
+	}>;
+}) {
+	if (diagnostics.length === 0) {
+		return null;
+	}
+	return (
+		<div className="border-t border-slate-200 pt-2">
+			<p className="flex items-baseline justify-between gap-2 text-[10px] uppercase tracking-wider text-slate-500">
+				<span>Diagnostics</span>
+				<span className="font-mono text-slate-900">{diagnostics.length}</span>
+			</p>
+			<ul className="mt-1 flex max-h-40 flex-col gap-1 overflow-y-auto">
+				{diagnostics.map((diagnostic, index) => (
+					<li
+						// biome-ignore lint/suspicious/noArrayIndexKey: two diagnostics can share every field
+						key={`${index}-${diagnostic.code}-${diagnostic.componentId ?? ""}-${diagnostic.path ?? ""}`}
+						className="text-[11px] text-amber-800"
+					>
+						{diagnostic.message}
+					</li>
+				))}
+			</ul>
 		</div>
 	);
 }
@@ -124,6 +215,37 @@ export type CompoundVariantDraft = {
 	originalWhen?: Record<string, string | string[]>;
 	isAdvancedCompat?: boolean;
 };
+
+const DRAFT_CONFLICT_MESSAGE =
+	"This draft changed on disk while you were editing. Reload it to drop your edits.";
+
+/** The draft conflict message with its one way forward. */
+function DraftConflictNotice({
+	message,
+	onReload,
+}: {
+	message: string;
+	onReload: () => void;
+}) {
+	return (
+		<Card
+			edge="border"
+			tone="warning"
+			className="flex flex-col items-start gap-2 px-2 py-1.5"
+			role="alert"
+		>
+			<span>{message}</span>
+			<Button
+				type="button"
+				variant="outlined"
+				className="px-2 py-1 text-xs"
+				onClick={onReload}
+			>
+				Reload draft
+			</Button>
+		</Card>
+	);
+}
 
 const variantAxisKeyPattern = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 const variantValueKeyPattern = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
@@ -555,6 +677,60 @@ export function advanceCompoundDraftKeys(
 	});
 }
 
+/**
+ * The error for each variant field the user types into, keyed by field id
+ * (`axis-key:{axisId}`, `axis-label:{axisId}`, `value-key:{valueId}`). Errors
+ * that span fields (defaults, compound variants) are only in the full list.
+ */
+export function variantFieldErrors(drafts: VariantAxisDraft[]) {
+	const errors = new Map<string, string>();
+	const axisKeyCounts = new Map<string, number>();
+	for (const axis of drafts) {
+		const axisKey = axis.key.trim();
+		axisKeyCounts.set(axisKey, (axisKeyCounts.get(axisKey) ?? 0) + 1);
+	}
+
+	for (const axis of drafts) {
+		const axisKey = axis.key.trim();
+		if (!axisKey) {
+			errors.set(`axis-key:${axis.id}`, "Enter an axis key.");
+		} else if (!variantAxisKeyPattern.test(axisKey)) {
+			errors.set(
+				`axis-key:${axis.id}`,
+				"Start with a letter. Use only letters, numbers, _ and -.",
+			);
+		} else if ((axisKeyCounts.get(axisKey) ?? 0) > 1) {
+			errors.set(`axis-key:${axis.id}`, "Another axis uses this key.");
+		}
+		if (!axis.label.trim()) {
+			errors.set(`axis-label:${axis.id}`, "Enter a label.");
+		}
+
+		const valueKeyCounts = new Map<string, number>();
+		for (const value of axis.values) {
+			const valueKey = value.key.trim();
+			valueKeyCounts.set(valueKey, (valueKeyCounts.get(valueKey) ?? 0) + 1);
+		}
+		for (const value of axis.values) {
+			const valueKey = value.key.trim();
+			if (!valueKey) {
+				errors.set(`value-key:${value.id}`, "Enter a value key.");
+			} else if (!variantValueKeyPattern.test(valueKey)) {
+				errors.set(
+					`value-key:${value.id}`,
+					"Start with a letter or number. Use only letters, numbers, _ and -.",
+				);
+			} else if ((valueKeyCounts.get(valueKey) ?? 0) > 1) {
+				errors.set(
+					`value-key:${value.id}`,
+					"Another value on this axis uses this key.",
+				);
+			}
+		}
+	}
+	return errors;
+}
+
 function VariantSchemaEditor({
 	diagnostics,
 	drafts,
@@ -567,6 +743,45 @@ function VariantSchemaEditor({
 	onCompoundsMutate?: () => void;
 }) {
 	const emitAxes = (nextDrafts: VariantAxisDraft[]) => onChange(nextDrafts);
+	// Validate on blur: a field shows its error once it loses focus, and the
+	// full list shows once focus leaves the editor (for example to Save).
+	const [touchedFields, setTouchedFields] = useState<ReadonlySet<string>>(
+		() => new Set(),
+	);
+	const [showAllDiagnostics, setShowAllDiagnostics] = useState(false);
+	const hasDiagnostics = diagnostics.length > 0;
+	useEffect(() => {
+		if (!hasDiagnostics) {
+			setShowAllDiagnostics(false);
+		}
+	}, [hasDiagnostics]);
+	const fieldErrors = useMemo(() => variantFieldErrors(drafts), [drafts]);
+	const touch = (fieldId: string) =>
+		setTouchedFields((current) =>
+			current.has(fieldId) ? current : new Set(current).add(fieldId),
+		);
+	const fieldError = (fieldId: string) =>
+		touchedFields.has(fieldId) ? fieldErrors.get(fieldId) : undefined;
+	const fieldErrorProps = (fieldId: string) => {
+		const error = fieldError(fieldId);
+		return {
+			onBlur: () => touch(fieldId),
+			"aria-invalid": error ? true : undefined,
+			"aria-describedby": error ? `variant-error-${fieldId}` : undefined,
+		};
+	};
+	const renderFieldError = (fieldId: string) => {
+		const error = fieldError(fieldId);
+		return error ? (
+			<Alert
+				variant="inline"
+				className="items-start [&_svg]:mt-px [&_svg]:size-3"
+				id={`variant-error-${fieldId}`}
+			>
+				{error}
+			</Alert>
+		) : null;
+	};
 	const updateAxis = (
 		axisId: string,
 		patch: Partial<Omit<VariantAxisDraft, "id" | "values">>,
@@ -595,7 +810,18 @@ function VariantSchemaEditor({
 	};
 
 	return (
-		<section className="flex flex-col gap-2 border-b border-slate-200 pb-3">
+		// biome-ignore lint/a11y/noStaticElementInteractions: focusout delegation from the fields inside, not an interaction of its own
+		<section
+			className="flex flex-col gap-2 border-b border-slate-200 pb-3"
+			onBlur={(event) => {
+				if (
+					hasDiagnostics &&
+					!event.currentTarget.contains(event.relatedTarget as Node | null)
+				) {
+					setShowAllDiagnostics(true);
+				}
+			}}
+		>
 			<div className="flex items-center justify-between gap-2">
 				<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
 					Variants
@@ -629,7 +855,7 @@ function VariantSchemaEditor({
 			) : null}
 			{drafts.map((axis, axisIndex) => (
 				<Card key={axis.id} edge="border" className="flex flex-col gap-2 p-2">
-					<div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+					<div className="grid grid-cols-[1fr_1fr_auto] items-start gap-2">
 						<label
 							className="flex flex-col gap-1"
 							htmlFor={`variant-axis-${axis.id}-key`}
@@ -645,7 +871,9 @@ function VariantSchemaEditor({
 								onChange={(event) =>
 									updateAxis(axis.id, { key: event.target.value })
 								}
+								{...fieldErrorProps(`axis-key:${axis.id}`)}
 							/>
+							{renderFieldError(`axis-key:${axis.id}`)}
 						</label>
 						<label
 							className="flex flex-col gap-1"
@@ -662,7 +890,9 @@ function VariantSchemaEditor({
 								onChange={(event) =>
 									updateAxis(axis.id, { label: event.target.value })
 								}
+								{...fieldErrorProps(`axis-label:${axis.id}`)}
 							/>
+							{renderFieldError(`axis-label:${axis.id}`)}
 						</label>
 						<Button
 							type="button"
@@ -670,6 +900,7 @@ function VariantSchemaEditor({
 							flavor="danger"
 							className="mt-4 px-2 py-1"
 							title="Remove axis"
+							aria-label={`Remove axis ${axis.key || axis.label || axisIndex + 1}`}
 							onClick={() =>
 								emitAxes(drafts.filter((entry) => entry.id !== axis.id))
 							}
@@ -678,12 +909,16 @@ function VariantSchemaEditor({
 						</Button>
 					</div>
 					<div className="grid grid-cols-2 gap-2">
-						<label className="flex flex-col gap-1">
+						<label
+							className="flex flex-col gap-1"
+							htmlFor={`variant-axis-${axis.id}-default`}
+						>
 							<span className="text-[10px] uppercase tracking-wider text-slate-500">
 								Axis default
 							</span>
-							<select
-								className="w-full border-none bg-white px-2 py-1.5 text-sm text-slate-950 inset-shadow-[0_0_0_1px_#cbd5e1] focus:outline-none focus:inset-shadow-[0_0_0_1px_#06b6d4]"
+							<Select
+								id={`variant-axis-${axis.id}-default`}
+								variant="outlined"
 								value={axis.defaultValue}
 								onChange={(event) =>
 									updateAxis(axis.id, { defaultValue: event.target.value })
@@ -695,14 +930,18 @@ function VariantSchemaEditor({
 										{value.key || "Untitled value"}
 									</option>
 								))}
-							</select>
+							</Select>
 						</label>
-						<label className="flex flex-col gap-1">
+						<label
+							className="flex flex-col gap-1"
+							htmlFor={`variant-axis-${axis.id}-schema-default`}
+						>
 							<span className="text-[10px] uppercase tracking-wider text-slate-500">
 								Schema default
 							</span>
-							<select
-								className="w-full border-none bg-white px-2 py-1.5 text-sm text-slate-950 inset-shadow-[0_0_0_1px_#cbd5e1] focus:outline-none focus:inset-shadow-[0_0_0_1px_#06b6d4]"
+							<Select
+								id={`variant-axis-${axis.id}-schema-default`}
+								variant="outlined"
 								value={axis.schemaDefaultValue}
 								onChange={(event) =>
 									updateAxis(axis.id, {
@@ -716,7 +955,7 @@ function VariantSchemaEditor({
 										{value.key || "Untitled value"}
 									</option>
 								))}
-							</select>
+							</Select>
 						</label>
 					</div>
 					<div className="flex flex-col gap-1">
@@ -767,6 +1006,7 @@ function VariantSchemaEditor({
 											key: event.target.value,
 										})
 									}
+									{...fieldErrorProps(`value-key:${value.id}`)}
 								/>
 								<Input
 									aria-label="Variant value label"
@@ -785,6 +1025,7 @@ function VariantSchemaEditor({
 									flavor="danger"
 									className="px-2 py-1"
 									title="Remove value"
+									aria-label={`Remove value ${value.key || value.label || valueIndex + 1}`}
 									onClick={() =>
 										emitAxes(
 											drafts.map((entry) =>
@@ -802,13 +1043,18 @@ function VariantSchemaEditor({
 								>
 									<Trash2 className="size-3.5" aria-hidden="true" />
 								</Button>
+								{fieldError(`value-key:${value.id}`) ? (
+									<div className="col-span-3">
+										{renderFieldError(`value-key:${value.id}`)}
+									</div>
+								) : null}
 							</div>
 						))}
 					</div>
 				</Card>
 			))}
 			<AuthoredCompoundsList onMutate={onCompoundsMutate} />
-			{diagnostics.length > 0 ? (
+			{showAllDiagnostics && hasDiagnostics ? (
 				<Card
 					edge="border"
 					tone="danger"
@@ -908,11 +1154,7 @@ export function SystemEditorComponentContextSync({
 				});
 			}
 
-			setEditorDraftConflict(
-				hasConflict
-					? "Component draft changed on the server while local edits are unsaved. Save or reload before continuing."
-					: null,
-			);
+			setEditorDraftConflict(hasConflict ? DRAFT_CONFLICT_MESSAGE : null);
 			return;
 		}
 
@@ -968,6 +1210,37 @@ export function SystemEditorComponentContextPanel({
 	const loadedDraftTemplateHash = useLoadedDraftTemplateHash();
 	const loadedDraftVariantSchemaHash = useLoadedDraftVariantSchemaHash();
 	const draftConflict = useEditorDraftConflict();
+	// Drops the local edits; the effects below then hydrate the draft on disk.
+	const reloadDraft = () => {
+		discardOpenComponentDraft();
+		void detailQuery.refetch();
+	};
+	// Name and slug errors show after the field blurs, per component.
+	const [touchedMetadata, setTouchedMetadata] = useState<{
+		componentId: string;
+		fields: ReadonlySet<"name" | "slug">;
+	}>({ componentId, fields: new Set() });
+	const isMetadataTouched = (field: "name" | "slug") =>
+		touchedMetadata.componentId === componentId &&
+		touchedMetadata.fields.has(field);
+	const touchMetadata = (field: "name" | "slug") =>
+		setTouchedMetadata((current) => ({
+			componentId,
+			fields: new Set(
+				current.componentId === componentId ? current.fields : [],
+			).add(field),
+		}));
+	const nameError =
+		isMetadataTouched("name") && !name.trim()
+			? "Enter a component name."
+			: undefined;
+	const slugError = !isMetadataTouched("slug")
+		? undefined
+		: !slug.trim()
+			? "Enter a slug."
+			: !isSystemComponentSlug(slug.trim())
+				? "Use lowercase letters, numbers, and hyphens in the slug."
+				: undefined;
 	const [variantDrafts, setVariantDrafts] = useState<VariantAxisDraft[]>([]);
 	const [compoundDrafts, setCompoundDrafts] = useState<CompoundVariantDraft[]>(
 		[],
@@ -1061,11 +1334,7 @@ export function SystemEditorComponentContextPanel({
 					});
 				}
 
-				setEditorDraftConflict(
-					hasConflict
-						? "Component draft changed on the server while local edits are unsaved. Save or reload before continuing."
-						: null,
-				);
+				setEditorDraftConflict(hasConflict ? DRAFT_CONFLICT_MESSAGE : null);
 			} else {
 				setLoadedDraftHashes({
 					templateHash: serverDraftTemplateHash,
@@ -1133,14 +1402,19 @@ export function SystemEditorComponentContextPanel({
 		Math.max(0, ...versionHistory.map((entry) => Number(entry.version))) + 1,
 	);
 
-	if (detailQuery.isPending || listQuery.isPending) {
-		return <p className="text-slate-500">Loading component details...</p>;
-	}
-
 	if (detailQuery.isError) {
 		return (
-			<Alert variant="inline">{(detailQuery.error as Error).message}</Alert>
+			<InspectorLoadError
+				title="Could not load this component"
+				error={detailQuery.error}
+				isRetrying={detailQuery.isFetching}
+				onRetry={() => detailQuery.refetch()}
+			/>
 		);
+	}
+
+	if (detailQuery.isPending || listQuery.isPending) {
+		return <InspectorSkeleton />;
 	}
 
 	// A settled detail query always carries the record; this narrows it.
@@ -1174,27 +1448,42 @@ export function SystemEditorComponentContextPanel({
 	const needsReviewUsageCount = staleUsageCount + hashMismatchCount;
 	const scannedDesignCount = usageData?.scannedDesignCount ?? 0;
 	const usageStatusLabel = usageQuery.isPending
-		? "Checking..."
-		: usageQuery.isError
-			? "Unavailable"
-			: needsReviewUsageCount > 0
-				? hashMismatchCount > 0 && staleUsageCount === 0
-					? `${hashMismatchCount} hash mismatch${hashMismatchCount === 1 ? "" : "es"}`
-					: `${needsReviewUsageCount} need${needsReviewUsageCount === 1 ? "s" : ""} review, ${currentUsageCount} current`
-				: attentionDiagnosticCount > 0
-					? `${attentionDiagnosticCount} diagnostic${attentionDiagnosticCount === 1 ? "" : "s"} need attention`
-					: usedByCount > 0
-						? `${usedByCount} current`
-						: "No usages";
+		? null
+		: needsReviewUsageCount > 0
+			? hashMismatchCount > 0 && staleUsageCount === 0
+				? `${hashMismatchCount} hash mismatch${hashMismatchCount === 1 ? "" : "es"}`
+				: `${needsReviewUsageCount} need${needsReviewUsageCount === 1 ? "s" : ""} review, ${currentUsageCount} current`
+			: attentionDiagnosticCount > 0
+				? `${attentionDiagnosticCount} diagnostic${attentionDiagnosticCount === 1 ? "" : "s"} need attention`
+				: usedByCount > 0
+					? `${usedByCount} current`
+					: "No usages";
 	const usageDetailLabel = usageQuery.isPending
-		? "Checking attached instances"
-		: usageQuery.isError
-			? "Usage diagnostics unavailable"
-			: hashMismatchCount > 0
-				? `${usedByCount} total, ${hashMismatchCount} hash mismatch${hashMismatchCount === 1 ? "" : "es"}`
-				: `${usedByCount} total across ${scannedDesignCount} scanned design${scannedDesignCount === 1 ? "" : "s"}`;
+		? null
+		: hashMismatchCount > 0
+			? `${usedByCount} total, ${hashMismatchCount} hash mismatch${hashMismatchCount === 1 ? "" : "es"}`
+			: `${usedByCount} total across ${scannedDesignCount} scanned design${scannedDesignCount === 1 ? "" : "s"}`;
+	const usageRows = usageQuery.isError ? (
+		<InspectorLoadError
+			title="Could not check design usage"
+			error={usageQuery.error}
+			isRetrying={usageQuery.isFetching}
+			onRetry={() => usageQuery.refetch()}
+		/>
+	) : (
+		<>
+			<InspectorField
+				label="Usage status"
+				value={usageStatusLabel ?? <Skeleton className="h-3 w-24" />}
+			/>
+			<InspectorField
+				label="Design usage"
+				value={usageDetailLabel ?? <Skeleton className="h-3 w-32" />}
+			/>
+		</>
+	);
 	const variantStatusLabel = draftConflict
-		? "Server draft changed"
+		? "Draft changed on disk"
 		: variantDiagnostics.length > 0
 			? "Variant definitions need attention"
 			: metadataChanged || templateDirty || variantsChanged
@@ -1236,9 +1525,7 @@ export function SystemEditorComponentContextPanel({
 				<span className="text-[11px] text-slate-500">{variantStatusLabel}</span>
 			</div>
 			{draftConflict ? (
-				<Card edge="border" tone="warning" className="px-2 py-1.5" role="alert">
-					{draftConflict}
-				</Card>
+				<DraftConflictNotice message={draftConflict} onReload={reloadDraft} />
 			) : null}
 		</form>
 	) : (
@@ -1276,8 +1563,7 @@ export function SystemEditorComponentContextPanel({
 					label="Status"
 					value={publicationStateLabel(publicationState)}
 				/>
-				<InspectorField label="Usage status" value={usageStatusLabel} />
-				<InspectorField label="Design usage" value={usageDetailLabel} />
+				{usageRows}
 				<div className="border-t border-slate-200 pt-3">
 					<div className="mb-2 flex items-center justify-between gap-2">
 						<p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
@@ -1392,23 +1678,7 @@ export function SystemEditorComponentContextPanel({
 					label="Validation"
 					value={detailQuery.data.valid ? "Valid" : "Needs attention"}
 				/>
-				{detailQuery.data.diagnostics.length > 0 ? (
-					<div className="border-t border-slate-200 pt-2">
-						<p className="text-[10px] uppercase tracking-wider text-slate-500">
-							Diagnostics
-						</p>
-						<ul className="mt-1 flex max-h-40 flex-col gap-1 overflow-y-auto">
-							{detailQuery.data.diagnostics.slice(0, 8).map((diagnostic) => (
-								<li
-									key={`${diagnostic.code}-${diagnostic.componentId ?? ""}-${diagnostic.path ?? ""}-${diagnostic.message}`}
-									className="text-[11px] text-amber-800"
-								>
-									{diagnostic.message}
-								</li>
-							))}
-						</ul>
-					</div>
-				) : null}
+				<ComponentDiagnosticsList diagnostics={detailQuery.data.diagnostics} />
 			</div>
 		);
 	}
@@ -1440,7 +1710,21 @@ export function SystemEditorComponentContextPanel({
 							onChange={(event) => {
 								setName(event.target.value);
 							}}
+							onBlur={() => touchMetadata("name")}
+							aria-invalid={nameError ? true : undefined}
+							aria-describedby={
+								nameError ? "system-component-draft-name-error" : undefined
+							}
 						/>
+						{nameError ? (
+							<Alert
+								variant="inline"
+								className="items-start [&_svg]:mt-px [&_svg]:size-3"
+								id="system-component-draft-name-error"
+							>
+								{nameError}
+							</Alert>
+						) : null}
 					</label>
 					<label
 						className="flex flex-col gap-1"
@@ -1456,7 +1740,21 @@ export function SystemEditorComponentContextPanel({
 							onChange={(event) => {
 								setSlug(event.target.value);
 							}}
+							onBlur={() => touchMetadata("slug")}
+							aria-invalid={slugError ? true : undefined}
+							aria-describedby={
+								slugError ? "system-component-draft-slug-error" : undefined
+							}
 						/>
+						{slugError ? (
+							<Alert
+								variant="inline"
+								className="items-start [&_svg]:mt-px [&_svg]:size-3"
+								id="system-component-draft-slug-error"
+							>
+								{slugError}
+							</Alert>
+						) : null}
 					</label>
 					<label className="flex flex-col gap-1">
 						<span className="text-[10px] uppercase tracking-wider text-slate-500">
@@ -1527,27 +1825,22 @@ export function SystemEditorComponentContextPanel({
 					<div className="flex items-center justify-between gap-2 pt-1">
 						<span className="text-[11px] text-slate-500">
 							{draftConflict
-								? "Server draft changed"
+								? "Draft changed on disk"
 								: metadataChanged || templateDirty || variantsChanged
 									? "Unsaved changes"
 									: "Saved"}
 						</span>
 					</div>
 					{draftConflict ? (
-						<Card
-							edge="border"
-							tone="warning"
-							className="px-2 py-1.5"
-							role="alert"
-						>
-							{draftConflict}
-						</Card>
+						<DraftConflictNotice
+							message={draftConflict}
+							onReload={reloadDraft}
+						/>
 					) : null}
 				</form>
 			) : null}
 			<InspectorField label="Component id" value={record.componentId} />
-			<InspectorField label="Usage status" value={usageStatusLabel} />
-			<InspectorField label="Design usage" value={usageDetailLabel} />
+			{usageRows}
 			<InspectorField
 				label="Status"
 				value={publicationStateLabel(publicationState)}
@@ -1573,23 +1866,7 @@ export function SystemEditorComponentContextPanel({
 				label="Validation"
 				value={detailQuery.data.valid ? "Valid" : "Needs attention"}
 			/>
-			{detailQuery.data.diagnostics.length > 0 ? (
-				<div className="border-t border-slate-200 pt-2">
-					<p className="text-[10px] uppercase tracking-wider text-slate-500">
-						Diagnostics
-					</p>
-					<ul className="mt-1 flex max-h-40 flex-col gap-1 overflow-y-auto">
-						{detailQuery.data.diagnostics.slice(0, 8).map((diagnostic) => (
-							<li
-								key={`${diagnostic.code}-${diagnostic.componentId ?? ""}-${diagnostic.path ?? ""}-${diagnostic.message}`}
-								className="text-[11px] text-amber-800"
-							>
-								{diagnostic.message}
-							</li>
-						))}
-					</ul>
-				</div>
-			) : null}
+			<ComponentDiagnosticsList diagnostics={detailQuery.data.diagnostics} />
 		</div>
 	);
 }
@@ -1609,12 +1886,22 @@ function AssetInspector({
 	const asset = assetsQuery.data?.assets.find((entry) => entry.id === assetId);
 
 	if (assetsQuery.isPending) {
-		return <p className="text-slate-500">Loading asset details...</p>;
+		return (
+			<div className="flex flex-col gap-3" aria-busy="true">
+				<Skeleton className="aspect-square w-full" />
+				<InspectorSkeleton />
+			</div>
+		);
 	}
 
 	if (assetsQuery.isError) {
 		return (
-			<Alert variant="inline">{(assetsQuery.error as Error).message}</Alert>
+			<InspectorLoadError
+				title="Could not load this asset"
+				error={assetsQuery.error}
+				isRetrying={assetsQuery.isFetching}
+				onRetry={() => assetsQuery.refetch()}
+			/>
 		);
 	}
 
@@ -1628,7 +1915,7 @@ function AssetInspector({
 		<div className="flex flex-col gap-3">
 			<div className="aspect-square bg-slate-100">
 				<img
-					alt={asset.alt ?? asset.name}
+					alt={asset.alt ?? ""}
 					className="size-full object-contain"
 					src={systemAssetFileUrl(systemId, asset.id)}
 				/>
@@ -1661,12 +1948,22 @@ function IconInspector({
 	const icon = iconsQuery.data?.icons.find((entry) => entry.id === iconId);
 
 	if (iconsQuery.isPending) {
-		return <p className="text-slate-500">Loading icon details...</p>;
+		return (
+			<div className="flex flex-col gap-3" aria-busy="true">
+				<Skeleton className="h-24 w-full" />
+				<InspectorSkeleton />
+			</div>
+		);
 	}
 
 	if (iconsQuery.isError) {
 		return (
-			<Alert variant="inline">{(iconsQuery.error as Error).message}</Alert>
+			<InspectorLoadError
+				title="Could not load this icon"
+				error={iconsQuery.error}
+				isRetrying={iconsQuery.isFetching}
+				onRetry={() => iconsQuery.refetch()}
+			/>
 		);
 	}
 
@@ -1680,7 +1977,7 @@ function IconInspector({
 		<div className="flex flex-col gap-3">
 			<div className="flex h-24 items-center justify-center bg-slate-100">
 				<img
-					alt={`${icon.name} preview`}
+					alt=""
 					className="size-10 object-contain"
 					src={`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/${encodeURIComponent(iconId)}/svg`}
 				/>
@@ -1818,19 +2115,9 @@ export function SystemEditorInspector({
 				projectScope={projectScope}
 			/>
 		);
-	} else if (page === "tokens") {
-		body = (
-			<p className="text-slate-600">
-				Browse token domains in the workspace. Domain sections can be collapsed;
-				filtering is available in the main pane.
-			</p>
-		);
 	} else {
-		body = (
-			<div className="rounded border border-dashed border-slate-200 p-4 text-slate-500">
-				Select an item on the {pageTitleByTab[page]} page to update this pane.
-			</div>
-		);
+		// The shell mounts the inspector only with a selection on these pages.
+		body = null;
 	}
 
 	const isNodeInspector =
@@ -1853,10 +2140,10 @@ export function SystemEditorInspector({
 						variant="block"
 						className="flex size-7 shrink-0 items-center justify-center p-0"
 						onClick={onClose}
-						title="Close inspector"
+						title="Clear selection"
+						aria-label="Clear selection"
 					>
 						<X className="size-3.5 text-slate-500" aria-hidden="true" />
-						<span className="sr-only">Close inspector</span>
 					</Button>
 				</div>
 			</header>

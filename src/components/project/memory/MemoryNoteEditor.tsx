@@ -1,14 +1,12 @@
 import { Save, X } from "lucide-react";
 import { useRef, useState } from "react";
+import type { MemoryQueryScope } from "../../../queries/memory";
+import type { ProjectQueryScope } from "../../../queries/project-scope";
 import type {
 	MemoryCategory,
 	MemoryNote,
 } from "../../../utils/memory-manifest-service.types";
 import type { MemoryReferenceType } from "../../../utils/memory-references.shared";
-import {
-	type MemoryQueryScope,
-} from "../../../queries/memory";
-import type { ProjectQueryScope } from "../../../queries/project-scope";
 import { Alert } from "../../ui/alert";
 import { Button } from "../../ui/button";
 import Checkbox from "../../ui/checkbox";
@@ -16,6 +14,7 @@ import { Field } from "../../ui/field";
 import { Input } from "../../ui/input";
 import { Segmented } from "../../ui/segmented";
 import { Text } from "../../ui/text";
+import { MemoryReferenceSuggest } from "./MemoryReferenceSuggest";
 import { MEMORY_CATEGORY_OPTIONS } from "./memory-category-meta";
 import { parseMemoryNoteTags } from "./memory-note-utils";
 import {
@@ -23,7 +22,6 @@ import {
 	formatMemoryReferenceToken,
 	insertMemoryReferenceToken,
 } from "./memory-reference-editor";
-import { MemoryReferenceSuggest } from "./MemoryReferenceSuggest";
 
 export type MemoryNoteDraft = {
 	title: string;
@@ -59,8 +57,10 @@ export function MemoryNoteEditor({
 	const [tags, setTags] = useState((note?.tags ?? []).join(", "));
 	const [pinned, setPinned] = useState(note?.pinned ?? false);
 	const [cursor, setCursor] = useState(0);
-
-	const submitDisabled = isSubmitting || body.trim().length === 0;
+	// Validated on blur and on submit, never per keystroke.
+	const [bodyTouched, setBodyTouched] = useState(false);
+	const bodyError =
+		bodyTouched && body.trim().length === 0 ? "Enter the note." : undefined;
 	const trigger = detectActiveReferenceTrigger(body, cursor);
 
 	const syncCursor = () => {
@@ -108,7 +108,12 @@ export function MemoryNoteEditor({
 	};
 
 	const submit = () => {
-		if (submitDisabled) {
+		if (isSubmitting) {
+			return;
+		}
+		if (body.trim().length === 0) {
+			setBodyTouched(true);
+			textareaRef.current?.focus();
 			return;
 		}
 		onSubmit({
@@ -153,6 +158,7 @@ export function MemoryNoteEditor({
 			<Field
 				label="Body"
 				description="Markdown. Type {{ to insert design, component, token, asset, or icon references."
+				error={bodyError}
 			>
 				<div className="relative">
 					<textarea
@@ -167,8 +173,10 @@ export function MemoryNoteEditor({
 						onClick={syncCursor}
 						onKeyUp={syncCursor}
 						onSelect={syncCursor}
+						onBlur={() => setBodyTouched(true)}
+						aria-invalid={bodyError ? true : undefined}
 						disabled={isSubmitting}
-						className="min-h-32 w-full rounded-none border-none bg-white px-2 py-1.5 text-sm text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 placeholder:text-slate-500 focus-visible:inset-shadow-cyan-500 focus-visible:outline-none disabled:opacity-50"
+						className="min-h-32 w-full rounded-none border-none bg-white px-2 py-1.5 text-sm text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 placeholder:text-slate-500 focus-visible:inset-shadow-cyan-500 focus-visible:outline-none disabled:opacity-50 aria-invalid:inset-shadow-red-500"
 					/>
 					{trigger ? (
 						<MemoryReferenceSuggest
@@ -218,7 +226,7 @@ export function MemoryNoteEditor({
 					variant="filled"
 					className="flex items-center gap-1.5"
 					onClick={submit}
-					disabled={submitDisabled}
+					disabled={isSubmitting}
 				>
 					<Save className="size-3.5" aria-hidden="true" />
 					{isSubmitting ? "Saving..." : note ? "Save changes" : "Add note"}

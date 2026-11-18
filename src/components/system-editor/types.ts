@@ -5,14 +5,6 @@ export type SystemEditorPage =
 	| "icons"
 	| "lint";
 
-export const pageTitleByTab: Record<SystemEditorPage, string> = {
-	components: "Components",
-	tokens: "Tokens",
-	assets: "Assets",
-	icons: "Icons",
-	lint: "Lint",
-};
-
 /** The page a System editor URL opens: a component always means Components. */
 export function getSystemEditorPage(
 	tab: string | null,

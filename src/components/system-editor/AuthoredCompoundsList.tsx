@@ -1,5 +1,5 @@
 import { Trash2 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
 	type ComponentDraftStyleTarget,
 	focusCompoundInDraft,
@@ -12,8 +12,10 @@ import {
 	listAuthoredCompounds,
 } from "../../utils/system-component-compound-shape";
 import { compoundWhenSignature } from "../../utils/system-component-compound-signature";
+import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
+import { Tooltip } from "../ui/tooltip";
 
 function toFocusableCompoundWhen(
 	when: Record<string, string | string[]>,
@@ -58,6 +60,10 @@ export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 	const entries = useMemo(() => listAuthoredCompounds(variants), [variants]);
 	const activeSignature = getActiveCompoundSignature(styleTarget);
 
+	// The draft has no undo, and a compound holds painted classes, so
+	// removing one asks first.
+	const [pendingDelete, setPendingDelete] =
+		useState<AuthoredCompoundListEntry | null>(null);
 	const handleDelete = (entry: AuthoredCompoundListEntry) => {
 		removeCompoundVariantByWhen(entry.when);
 		onMutate?.();
@@ -108,16 +114,10 @@ export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 											Advanced shape: {entry.advancedDiagnostic}
 										</p>
 									</div>
-									<Button
-										type="button"
-										variant="block"
-										flavor="danger"
-										className="shrink-0 px-2 py-1"
-										title="Remove compound"
-										onClick={() => handleDelete(entry)}
-									>
-										<Trash2 className="size-3.5" aria-hidden="true" />
-									</Button>
+									<RemoveCompoundButton
+										label={entry.label}
+										onClick={() => setPendingDelete(entry)}
+									/>
 								</Card>
 							</li>
 						);
@@ -126,7 +126,7 @@ export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 					return (
 						<li key={entry.signature}>
 							<div
-								className={`flex items-center justify-between gap-2 border px-2 py-1.5 ${
+								className={`flex items-stretch border ${
 									isActive
 										? "border-cyan-300 bg-cyan-50"
 										: "border-slate-200 bg-white"
@@ -134,27 +134,64 @@ export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 							>
 								<button
 									type="button"
-									className="min-w-0 flex-1 truncate text-left text-sm text-slate-900 hover:text-cyan-800"
+									className="min-w-0 flex-1 truncate px-2 py-1.5 text-left text-sm text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
 									title={entry.label}
+									aria-pressed={isActive}
 									onClick={() => handleFocus(entry)}
 								>
 									{entry.label || "Compound"}
 								</button>
-								<Button
-									type="button"
-									variant="block"
-									flavor="danger"
-									className="shrink-0 px-2 py-1"
-									title="Remove compound"
-									onClick={() => handleDelete(entry)}
-								>
-									<Trash2 className="size-3.5" aria-hidden="true" />
-								</Button>
+								<RemoveCompoundButton
+									label={entry.label}
+									onClick={() => setPendingDelete(entry)}
+								/>
 							</div>
 						</li>
 					);
 				})}
 			</ul>
+			<ConfirmationDialog
+				open={pendingDelete !== null}
+				onOpenChange={(open) => {
+					if (!open) setPendingDelete(null);
+				}}
+				tone="destructive"
+				title={
+					pendingDelete?.label
+						? `Remove compound ${pendingDelete.label}`
+						: "Remove compound"
+				}
+				description="Its classes are removed with it. This can't be undone."
+				icon={<Trash2 className="size-4" aria-hidden="true" />}
+				actionLabel="Remove compound"
+				onAction={() => {
+					if (pendingDelete) handleDelete(pendingDelete);
+					setPendingDelete(null);
+				}}
+			/>
 		</section>
+	);
+}
+
+function RemoveCompoundButton({
+	label,
+	onClick,
+}: {
+	label: string;
+	onClick: () => void;
+}) {
+	return (
+		<Tooltip content="Remove compound">
+			<Button
+				type="button"
+				variant="block"
+				flavor="danger"
+				className="shrink-0 px-2 py-1"
+				aria-label={label ? `Remove compound ${label}` : "Remove compound"}
+				onClick={onClick}
+			>
+				<Trash2 className="size-3.5" aria-hidden="true" />
+			</Button>
+		</Tooltip>
 	);
 }

@@ -30,12 +30,18 @@ describe("LayerBreadcrumb", () => {
 		container.remove();
 	});
 
-	it("renders nothing for a root layer", () => {
+	it("renders nothing without a selection", () => {
 		expect(
-			renderToStaticMarkup(
-				<LayerBreadcrumb crumbs={[crumbs[0]]} onSelect={() => {}} />,
-			),
+			renderToStaticMarkup(<LayerBreadcrumb crumbs={[]} onSelect={() => {}} />),
 		).toBe("");
+	});
+
+	it("keeps the line for a root layer so the tabs stay put", () => {
+		const markup = renderToStaticMarkup(
+			<LayerBreadcrumb crumbs={[crumbs[0]]} onSelect={() => {}} />,
+		);
+		expect(markup).toContain('aria-current="location"');
+		expect(markup).toContain("Board");
 	});
 
 	it("lists ancestors root first and marks the selected layer", () => {

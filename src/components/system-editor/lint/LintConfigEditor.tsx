@@ -23,8 +23,9 @@ import { Alert } from "../../ui/alert";
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { Card } from "../../ui/card";
+import Checkbox from "../../ui/checkbox";
 import { Input } from "../../ui/input";
-import { Switch } from "../../ui/switch";
+import { Select } from "../../ui/select";
 import { Text } from "../../ui/text";
 import { SectionHeading } from "./LintParts";
 import {
@@ -55,11 +56,8 @@ import { LINT_COVERAGE_STATES } from "./lint-dashboard-model";
 
 const SEVERITIES: LintSeverity[] = ["error", "warning", "info"];
 
-const selectClassName =
-	"min-w-0 border-none bg-white px-2 py-1.5 text-xs text-slate-950 inset-shadow-[0_0_0_1px_#e2e8f0] focus:outline-none focus:inset-shadow-[0_0_0_1px_#06b6d4]";
-
 const textareaClassName =
-	"min-h-16 w-full resize-y border-none bg-white px-2 py-1.5 font-mono text-[11px] leading-4 text-slate-950 inset-shadow-[0_0_0_1px_#e2e8f0] placeholder:text-slate-400 focus:outline-none focus:inset-shadow-[0_0_0_1px_#06b6d4]";
+	"min-h-16 w-full resize-y border-none bg-white px-2 py-1.5 font-mono text-[11px] leading-4 text-slate-950 inset-shadow-[0_0_0_1px] inset-shadow-slate-200 placeholder:text-slate-400 focus:outline-none focus:inset-shadow-cyan-500";
 
 const sameList = (left: readonly string[], right: readonly string[]) =>
 	left.length === right.length &&
@@ -188,7 +186,7 @@ function ComponentMapField({
 						type="button"
 						variant="ghost"
 						className="flex size-7 shrink-0 items-center justify-center p-0"
-						title={`Remove ${slug}`}
+						aria-label={`Remove ${slug}`}
 						onClick={() => {
 							const { [slug]: _removed, ...rest } = map;
 							write(rest);
@@ -199,9 +197,10 @@ function ComponentMapField({
 				</div>
 			))}
 			<div className="flex items-center gap-2">
-				<select
+				<Select
 					aria-label={`${label}: add a component`}
-					className={selectClassName}
+					variant="outlined"
+					className="w-auto"
 					value={adding}
 					onChange={(event) => setAdding(event.target.value)}
 				>
@@ -211,7 +210,7 @@ function ComponentMapField({
 							{slug}
 						</option>
 					))}
-				</select>
+				</Select>
 				<Button
 					type="button"
 					variant="outlined"
@@ -253,9 +252,10 @@ function OptionField({
 		);
 	} else if (spec.type === "boolean") {
 		control = (
-			<select
+			<Select
 				aria-label={spec.label}
-				className={selectClassName}
+				variant="outlined"
+				className="w-auto"
 				value={value === undefined ? "" : String(value)}
 				onChange={(event) =>
 					onChange(
@@ -268,7 +268,7 @@ function OptionField({
 				<option value="">Default</option>
 				<option value="true">On</option>
 				<option value="false">Off</option>
-			</select>
+			</Select>
 		);
 	} else if (spec.type === "number") {
 		control = (
@@ -280,9 +280,10 @@ function OptionField({
 		);
 	} else if (spec.type === "string" && spec.values) {
 		control = (
-			<select
+			<Select
 				aria-label={spec.label}
-				className={selectClassName}
+				variant="outlined"
+				className="w-auto"
 				value={(value as string | undefined) ?? ""}
 				onChange={(event) => onChange(event.target.value || undefined)}
 			>
@@ -292,7 +293,7 @@ function OptionField({
 						{choice}
 					</option>
 				))}
-			</select>
+			</Select>
 		);
 	} else if (spec.type === "string") {
 		control = (
@@ -360,7 +361,8 @@ function RuleEditor({
 			data-lint-rule-config={kind.id}
 		>
 			<div className="flex flex-wrap items-center gap-3">
-				<Switch
+				<Checkbox
+					size="sm"
 					checked={enabled}
 					onCheckedChange={(checked) =>
 						onChange(setRuleEnabled(config, kind.id, checked))
@@ -372,11 +374,13 @@ function RuleEditor({
 				>
 					{kind.id}
 				</span>
+				{/* biome-ignore lint/a11y/noLabelWithoutControl: the primitive inside renders the control. */}
 				<label className="flex items-center gap-1.5 text-[11px] text-slate-500">
 					severity
-					<select
+					<Select
 						aria-label={`Severity of ${kind.id}`}
-						className={selectClassName}
+						variant="outlined"
+						className="w-auto"
 						value={rule?.severity ?? ""}
 						disabled={!enabled}
 						onChange={(event) =>
@@ -395,7 +399,7 @@ function RuleEditor({
 								{severity}
 							</option>
 						))}
-					</select>
+					</Select>
 				</label>
 				<span className="flex items-center gap-1.5 text-[11px] text-slate-500">
 					max findings
@@ -502,7 +506,7 @@ function ComponentModulesEditor({
 						type="button"
 						variant="ghost"
 						className="flex size-7 shrink-0 items-center justify-center p-0"
-						title={`Remove the override of ${slug}`}
+						aria-label={`Remove the override of ${slug}`}
 						onClick={() => onChange(setComponentModules(config, slug, null))}
 					>
 						<Trash2 className="size-3.5" aria-hidden="true" />
@@ -510,9 +514,10 @@ function ComponentModulesEditor({
 				</div>
 			))}
 			<div className="flex items-center gap-2">
-				<select
+				<Select
 					aria-label="Add a wrapper override"
-					className={selectClassName}
+					variant="outlined"
+					className="w-auto"
 					value={adding}
 					onChange={(event) => setAdding(event.target.value)}
 				>
@@ -522,7 +527,7 @@ function ComponentModulesEditor({
 							{slug}
 						</option>
 					))}
-				</select>
+				</Select>
 				<Button
 					type="button"
 					variant="outlined"
@@ -691,33 +696,25 @@ export function LintConfigEditor({
 
 			{(["code", "design"] as const).map((side) => {
 				const kinds = ruleKindsBySide(side);
+				if (kinds.length === 0) return null;
 				return (
 					<section
 						key={side}
 						className="flex flex-col gap-2"
 						aria-label={`${side} rule kinds`}
 					>
-						<SectionHeading
-							title={`${side} rules`}
-							detail={
-								kinds.length === 0
-									? "No rule kinds ship for this side yet."
-									: undefined
-							}
-						/>
-						{kinds.length > 0 ? (
-							<Card edge="inset" className="flex flex-col">
-								{kinds.map((kind) => (
-									<RuleEditor
-										key={kind.id}
-										kind={kind}
-										config={config}
-										onChange={change}
-										slugs={slugs}
-									/>
-								))}
-							</Card>
-						) : null}
+						<SectionHeading title={`${side} rules`} />
+						<Card edge="inset" className="flex flex-col">
+							{kinds.map((kind) => (
+								<RuleEditor
+									key={kind.id}
+									kind={kind}
+									config={config}
+									onChange={change}
+									slugs={slugs}
+								/>
+							))}
+						</Card>
 					</section>
 				);
 			})}
@@ -853,12 +850,12 @@ export function LintConfigEditor({
 				<div className="flex items-center justify-end gap-2">
 					<Text tone="faint" className="mr-auto text-xs">
 						{saveMutation.isPending
-							? "Saving…"
+							? null
 							: isDirty
 								? "Unsaved changes"
 								: saveMutation.isSuccess
 									? "Saved"
-									: "No changes"}
+									: null}
 					</Text>
 					<Button
 						type="button"
@@ -884,7 +881,7 @@ export function LintConfigEditor({
 							})
 						}
 					>
-						Save lint.json
+						{saveMutation.isPending ? "Saving" : "Save lint.json"}
 					</Button>
 				</div>
 			</div>

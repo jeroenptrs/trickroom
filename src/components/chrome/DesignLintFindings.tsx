@@ -8,6 +8,7 @@ import {
 } from "../../queries/design-lint";
 import { useProjectScope } from "../contexts";
 import { Alert } from "../ui/alert";
+import { errorReason, RetryError } from "./RetryError";
 
 /**
  * The design-side lint findings in the design inspector: the same rules,
@@ -22,7 +23,7 @@ function useDesignLint(designId: string | undefined) {
 	return useQuery({
 		...designLintQueryOptions(designId ?? "", projectScope),
 		enabled: Boolean(designId),
-	}).data;
+	});
 }
 
 const isOnElement = (finding: LintRunFinding, elementId: string) =>
@@ -33,7 +34,7 @@ export function useElementLintFindings(
 	designId: string | undefined,
 	elementId: string | null,
 ): LintRunFinding[] {
-	const data = useDesignLint(designId);
+	const { data } = useDesignLint(designId);
 	return useMemo(
 		() =>
 			data && elementId
@@ -93,7 +94,19 @@ const summarize = (data: DesignFileLintResponse) => {
  * component's definition) and anything that kept a rule from running.
  */
 export function DesignLintSummary({ designId }: { designId: string }) {
-	const data = useDesignLint(designId);
+	const lint = useDesignLint(designId);
+	const { data } = lint;
+	// A failed request is not "no system linked": say so and keep a retry.
+	if (lint.isError) {
+		return (
+			<RetryError
+				message="Could not run lint"
+				reason={errorReason(lint.error)}
+				retrying={lint.isFetching}
+				onRetry={() => void lint.refetch()}
+			/>
+		);
+	}
 	if (!data?.system) return null;
 	const { errors, warnings } = summarize(data);
 	const unplaced = data.findings.filter(

@@ -8,6 +8,7 @@ import {
 	FolderPlus,
 	Folders,
 	Plus,
+	Settings2,
 	X,
 } from "lucide-react";
 import {
@@ -18,6 +19,7 @@ import {
 	useState,
 } from "react";
 import { useNavigate } from "react-router";
+import { toast } from "sonner";
 import { auditLogSummaryQueryKey } from "../../queries/audit-log";
 import { configFileQueryKey } from "../../queries/config-file";
 import { designSummariesQueryKey } from "../../queries/design-file";
@@ -28,6 +30,8 @@ import {
 	sessionQueryOptions,
 } from "../../queries/projects";
 import { systemsQueryKey } from "../../queries/systems";
+import { openMcpToolSettings } from "../AppDialogHost";
+import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
 import {
 	CommandDialogBackdrop,
@@ -54,6 +58,7 @@ import {
 	DialogTitle,
 } from "../ui/dialog";
 import { InputField } from "../ui/input";
+import { Kbd } from "../ui/kbd";
 import { Separator } from "../ui/separator";
 import { CreateSystemDialog } from "./CreateSystemDialog";
 
@@ -63,6 +68,10 @@ const SWITCH_PROJECT_COMMAND_VALUE = "Switch project";
 const OPEN_ANOTHER_FOLDER_COMMAND_VALUE = "Open another folder";
 const CREATE_NEW_PROJECT_COMMAND_VALUE = "Create new project";
 const CREATE_NEW_SYSTEM_COMMAND_VALUE = "Create new system";
+const MCP_TOOLS_COMMAND_VALUE = "MCP tools";
+
+/** Router state for `/new` when the menu closed a project to create one. */
+export type CreateProjectRouteState = { reopenProjectPath?: string };
 
 export function CommandMenu() {
 	const navigate = useNavigate();
@@ -79,7 +88,11 @@ export function CommandMenu() {
 	const [pathDialogOpen, setPathDialogOpen] = useState(false);
 	const [createSystemDialogOpen, setCreateSystemDialogOpen] = useState(false);
 	const [path, setPath] = useState("");
-	const postCloseDestinationRef = useRef("/");
+	const [pathError, setPathError] = useState<string | null>(null);
+	const postCloseDestinationRef = useRef<{
+		path: string;
+		state?: CreateProjectRouteState;
+	}>({ path: "/" });
 	const inputRef = useRef<HTMLInputElement>(null);
 
 	// Refocus the search input whenever the dialog opens.
@@ -97,8 +110,9 @@ export function CommandMenu() {
 			queryClient.invalidateQueries({ queryKey: systemsQueryKey }),
 			queryClient.invalidateQueries({ queryKey: auditLogSummaryQueryKey }),
 		]);
-		navigate(postCloseDestinationRef.current, { replace: true });
-		postCloseDestinationRef.current = "/";
+		const destination = postCloseDestinationRef.current;
+		navigate(destination.path, { replace: true, state: destination.state });
+		postCloseDestinationRef.current = { path: "/" };
 	};
 
 	const openMutation = useMutation({
@@ -106,6 +120,7 @@ export function CommandMenu() {
 		onSuccess: async () => {
 			setPathDialogOpen(false);
 			setPath("");
+			setPathError(null);
 			await refreshProjectQueries();
 		},
 	});
@@ -113,6 +128,12 @@ export function CommandMenu() {
 	const closeMutation = useMutation({
 		mutationFn: closeProject,
 		onSuccess: refreshProjectQueries,
+		onError: (error) => {
+			postCloseDestinationRef.current = { path: "/" };
+			toast.error("Could not close the project", {
+				description: error instanceof Error ? error.message : undefined,
+			});
+		},
 	});
 
 	const isMutating = openMutation.isPending || closeMutation.isPending;
@@ -144,8 +165,6 @@ export function CommandMenu() {
 	}, [firstSwitcherCommandValue, open, page]);
 
 	const openErrorMessage = (openMutation.error as Error | null)?.message;
-	const closeErrorMessage = (closeMutation.error as Error | null)?.message;
-	const navigationError = openErrorMessage || closeErrorMessage;
 
 	const openMenu = (targetPage: CommandPage) => {
 		if (!isMutating) {
@@ -213,25 +232,45 @@ export function CommandMenu() {
 		{ preventDefault: true },
 	);
 
-	const openProjectAtPath = (targetPath: string) => {
-		openMutation.mutate(targetPath);
+	// A switch from the menu has no dialog to hold its error, so it toasts.
+	const switchToProject = (project: { name: string; projectRoot: string }) => {
+		openMutation.mutate(project.projectRoot, {
+			onError: (error) => {
+				toast.error(`Could not open ${project.name}`, {
+					description: error instanceof Error ? error.message : undefined,
+				});
+			},
+		});
 	};
 
 	const handleOpenAnotherFolder = () => {
 		setOpen(false);
+		openMutation.reset();
+		setPathError(null);
 		setPathDialogOpen(true);
 	};
 
 	const handleCloseProject = () => {
 		setOpen(false);
-		postCloseDestinationRef.current = "/";
+		postCloseDestinationRef.current = { path: "/" };
 		closeMutation.mutate();
 	};
 
+	// The create form needs no open project. Cancel there reopens this one.
 	const handleCreateNewProject = () => {
 		setOpen(false);
-		postCloseDestinationRef.current = "/new";
+		postCloseDestinationRef.current = {
+			path: "/new",
+			state: currentProjectRoot
+				? { reopenProjectPath: currentProjectRoot }
+				: undefined,
+		};
 		closeMutation.mutate();
+	};
+
+	const handleOpenMcpTools = () => {
+		setOpen(false);
+		openMcpToolSettings();
 	};
 
 	const handleCreateNewSystem = () => {
@@ -242,19 +281,29 @@ export function CommandMenu() {
 	const handlePathSubmit = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		const nextPath = path.trim();
-		if (!nextPath || openMutation.isPending) return;
-		openProjectAtPath(nextPath);
+		if (openMutation.isPending) return;
+		if (!nextPath) {
+			setPathError("Enter the project folder.");
+			return;
+		}
+		openMutation.mutate(nextPath);
 	};
 
 	const footerLabel = page === "switcher" ? "Project switcher" : null;
 
 	return (
 		<>
-			{navigationError ? (
-				<div className="mt-1 w-fit bg-red-500 px-2 py-1 text-xs text-white">
-					{navigationError}
-				</div>
-			) : null}
+			<Button
+				type="button"
+				variant="outlined"
+				className="flex items-center gap-2"
+				disabled={isMutating}
+				aria-keyshortcuts="Meta+P"
+				onClick={() => openMenu("switcher")}
+			>
+				Switch project
+				<Kbd aria-hidden="true">⌘P</Kbd>
+			</Button>
 
 			<BaseUiDialog.Root open={open} onOpenChange={handleOpenChange}>
 				<BaseUiDialog.Portal>
@@ -323,12 +372,6 @@ export function CommandMenu() {
 												<span data-item-name="" className="flex-1 text-sm">
 													Open another folder…
 												</span>
-												<span
-													data-item-secondary=""
-													className="shrink-0 font-mono text-[10px] text-slate-400"
-												>
-													⌘O
-												</span>
 											</CommandItem>
 
 											<CommandItem
@@ -341,12 +384,6 @@ export function CommandMenu() {
 												/>
 												<span data-item-name="" className="flex-1 text-sm">
 													Create new project…
-												</span>
-												<span
-													data-item-secondary=""
-													className="shrink-0 font-mono text-[10px] text-slate-400"
-												>
-													⌘N
 												</span>
 											</CommandItem>
 
@@ -382,6 +419,28 @@ export function CommandMenu() {
 													className="shrink-0 font-mono text-[10px] text-slate-400"
 												>
 													⌘⇧N
+												</span>
+											</CommandItem>
+										</CommandGroup>
+										<CommandGroup>
+											<CommandGroupLabel>Agents</CommandGroupLabel>
+
+											<CommandItem
+												value={MCP_TOOLS_COMMAND_VALUE}
+												onSelect={handleOpenMcpTools}
+											>
+												<Settings2
+													className="size-4 shrink-0 text-slate-500"
+													aria-hidden="true"
+												/>
+												<span data-item-name="" className="flex-1 text-sm">
+													MCP tools…
+												</span>
+												<span
+													data-item-secondary=""
+													className="shrink-0 font-mono text-[10px] text-slate-400"
+												>
+													⌘,
 												</span>
 											</CommandItem>
 										</CommandGroup>
@@ -426,7 +485,7 @@ export function CommandMenu() {
 												keywords={[project.projectRoot]}
 												onSelect={() => {
 													setOpen(false);
-													openProjectAtPath(project.projectRoot);
+													switchToProject(project);
 												}}
 											>
 												<Folder
@@ -465,12 +524,6 @@ export function CommandMenu() {
 											<span data-item-name="" className="flex-1 text-sm">
 												Open another folder…
 											</span>
-											<span
-												data-item-secondary=""
-												className="shrink-0 font-mono text-[10px] text-slate-400"
-											>
-												⌘O
-											</span>
 										</CommandItem>
 
 										<CommandItem
@@ -483,12 +536,6 @@ export function CommandMenu() {
 											/>
 											<span data-item-name="" className="flex-1 text-sm">
 												Create new project…
-											</span>
-											<span
-												data-item-secondary=""
-												className="shrink-0 font-mono text-[10px] text-slate-400"
-											>
-												⌘N
 											</span>
 										</CommandItem>
 									</CommandGroup>
@@ -537,13 +584,19 @@ export function CommandMenu() {
 								label="Project folder"
 								placeholder="/absolute/path/to/project"
 								value={path}
-								onChange={(event) => setPath(event.target.value)}
+								onChange={(event) => {
+									setPath(event.target.value);
+									if (pathError && event.target.value.trim()) {
+										setPathError(null);
+									}
+								}}
+								error={pathError}
 								disabled={openMutation.isPending}
 							/>
 							{openErrorMessage ? (
-								<div className="w-fit bg-red-500 px-2 py-1 text-xs text-white">
+								<Alert variant="panel">
 									Failed to open project: {openErrorMessage}
-								</div>
+								</Alert>
 							) : null}
 							<div className="flex">
 								<Button
@@ -560,7 +613,7 @@ export function CommandMenu() {
 									type="submit"
 									variant="block"
 									className="flex-1 py-2"
-									disabled={openMutation.isPending || path.trim().length === 0}
+									disabled={openMutation.isPending}
 								>
 									{openMutation.isPending ? "Opening…" : "Open"}
 								</Button>
