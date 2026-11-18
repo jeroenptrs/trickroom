@@ -1,12 +1,12 @@
 {
 	"version": 1,
-	"generatedAt": "2026-10-09T19:16:30.162Z",
+	"generatedAt": "2026-11-18T21:05:01.087Z",
 	"system": {
 		"id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
 		"name": "Trickroom"
 	},
 	"contract": {
-		"hash": "sha256:a8f00c6c8961e6dd40df86438b7523c605e8c065b685f48f76094d7d08e11e13",
+		"hash": "sha256:4cc029c499469817b2b13e3d63c709087306e2ac4d20f93b52e4978b967c9337",
 		"components": 16
 	},
 	"config": {
@@ -17,7 +17,7 @@
 		"code": {
 			"findings": {
 				"errors": 0,
-				"warnings": 299,
+				"warnings": 295,
 				"info": 1
 			},
 			"rules": {
@@ -48,7 +48,7 @@
 				},
 				"code.unknown-class-token": {
 					"errors": 0,
-					"warnings": 299,
+					"warnings": 295,
 					"info": 0
 				},
 				"code.unknown-variant-value": {
@@ -77,7 +77,7 @@
 					"info": 0
 				}
 			},
-			"scanned": 505
+			"scanned": 584
 		},
 		"design": {
 			"findings": {
@@ -311,7 +311,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/SystemEditor.tsx",
-				"line": 147,
+				"line": 146,
 				"column": 32
 			}
 		},
@@ -323,7 +323,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AddLayerCommandMenu.tsx",
-				"line": 103,
+				"line": 126,
 				"column": 37
 			}
 		},
@@ -335,7 +335,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AddLayerCommandMenu.tsx",
-				"line": 112,
+				"line": 135,
 				"column": 36
 			}
 		},
@@ -515,7 +515,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/ExtractSystemComponentDialog.tsx",
-				"line": 493,
+				"line": 489,
 				"column": 28
 			}
 		},
@@ -527,8 +527,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Layers.tsx",
-				"line": 1086,
-				"column": 31
+				"line": 1217,
+				"column": 32
 			}
 		},
 		{
@@ -539,7 +539,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Layers.tsx",
-				"line": 1127,
+				"line": 1260,
 				"column": 75
 			}
 		},
@@ -551,7 +551,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 185,
+				"line": 198,
 				"column": 31
 			}
 		},
@@ -563,7 +563,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 188,
+				"line": 201,
 				"column": 31
 			}
 		},
@@ -575,7 +575,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 205,
+				"line": 291,
 				"column": 64
 			}
 		},
@@ -587,7 +587,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 660,
+				"line": 761,
 				"column": 21
 			}
 		},
@@ -599,7 +599,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 667,
+				"line": 768,
 				"column": 24
 			}
 		},
@@ -611,7 +611,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 694,
+				"line": 795,
 				"column": 39
 			}
 		},
@@ -623,8 +623,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 931,
-				"column": 33
+				"line": 1040,
+				"column": 34
 			}
 		},
 		{
@@ -635,8 +635,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 980,
-				"column": 33
+				"line": 1089,
+				"column": 34
 			}
 		},
 		{
@@ -647,7 +647,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 136,
+				"line": 142,
 				"column": 51
 			}
 		},
@@ -659,7 +659,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 190,
+				"line": 215,
 				"column": 54
 			}
 		},
@@ -671,7 +671,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 210,
+				"line": 235,
 				"column": 64
 			}
 		},
@@ -683,7 +683,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 237,
+				"line": 262,
 				"column": 56
 			}
 		},
@@ -695,7 +695,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 248,
+				"line": 273,
 				"column": 73
 			}
 		},
@@ -707,7 +707,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 346,
+				"line": 371,
 				"column": 27
 			}
 		},
@@ -719,7 +719,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 374,
+				"line": 399,
 				"column": 58
 			}
 		},
@@ -731,7 +731,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 434,
+				"line": 459,
 				"column": 83
 			}
 		},
@@ -743,7 +743,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 447,
+				"line": 472,
 				"column": 74
 			}
 		},
@@ -755,7 +755,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 541,
+				"line": 566,
 				"column": 56
 			}
 		},
@@ -767,7 +767,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 552,
+				"line": 577,
 				"column": 73
 			}
 		},
@@ -779,7 +779,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 553,
+				"line": 578,
 				"column": 66
 			}
 		},
@@ -791,7 +791,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 573,
+				"line": 598,
 				"column": 35
 			}
 		},
@@ -803,7 +803,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 601,
+				"line": 626,
 				"column": 119
 			}
 		},
@@ -875,7 +875,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/CommandMenu.tsx",
-				"line": 308,
+				"line": 309,
 				"column": 44
 			}
 		},
@@ -887,7 +887,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/CommandMenu.tsx",
-				"line": 327,
+				"line": 328,
 				"column": 44
 			}
 		},
@@ -899,7 +899,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/CommandMenu.tsx",
-				"line": 346,
+				"line": 347,
 				"column": 44
 			}
 		},
@@ -911,7 +911,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/CommandMenu.tsx",
-				"line": 381,
+				"line": 382,
 				"column": 44
 			}
 		},
@@ -923,7 +923,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/CommandMenu.tsx",
-				"line": 441,
+				"line": 442,
 				"column": 45
 			}
 		},
@@ -935,7 +935,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/CommandMenu.tsx",
-				"line": 469,
+				"line": 470,
 				"column": 43
 			}
 		},
@@ -947,7 +947,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/CommandMenu.tsx",
-				"line": 488,
+				"line": 489,
 				"column": 43
 			}
 		},
@@ -1007,7 +1007,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/Designs.tsx",
-				"line": 124,
+				"line": 129,
 				"column": 47
 			}
 		},
@@ -1019,7 +1019,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/Designs.tsx",
-				"line": 273,
+				"line": 278,
 				"column": 45
 			}
 		},
@@ -1031,7 +1031,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/Designs.tsx",
-				"line": 281,
+				"line": 286,
 				"column": 61
 			}
 		},
@@ -1067,7 +1067,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/SystemDetailPane.tsx",
-				"line": 599,
+				"line": 569,
 				"column": 36
 			}
 		},
@@ -1079,7 +1079,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/SystemDetailPane.tsx",
-				"line": 636,
+				"line": 606,
 				"column": 37
 			}
 		},
@@ -1091,7 +1091,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/SystemDetailPane.tsx",
-				"line": 675,
+				"line": 645,
 				"column": 36
 			}
 		},
@@ -1103,7 +1103,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/SystemDetailPane.tsx",
-				"line": 997,
+				"line": 962,
 				"column": 46
 			}
 		},
@@ -1151,7 +1151,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/Systems.tsx",
-				"line": 136,
+				"line": 165,
 				"column": 53
 			}
 		},
@@ -1163,7 +1163,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/Systems.tsx",
-				"line": 184,
+				"line": 213,
 				"column": 47
 			}
 		},
@@ -1272,7 +1272,7 @@
 				"kind": "code",
 				"file": "src/components/system-editor/AuthoredCompoundsList.tsx",
 				"line": 107,
-				"column": 31
+				"column": 32
 			}
 		},
 		{
@@ -1283,7 +1283,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftLayers.tsx",
-				"line": 1000,
+				"line": 1084,
 				"column": 27
 			}
 		},
@@ -1295,7 +1295,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftLayers.tsx",
-				"line": 1014,
+				"line": 1098,
 				"column": 31
 			}
 		},
@@ -1307,7 +1307,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftLayers.tsx",
-				"line": 1082,
+				"line": 1166,
 				"column": 37
 			}
 		},
@@ -1319,7 +1319,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftLayers.tsx",
-				"line": 1101,
+				"line": 1185,
 				"column": 29
 			}
 		},
@@ -1331,7 +1331,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 246,
+				"line": 262,
 				"column": 64
 			}
 		},
@@ -1343,7 +1343,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 409,
+				"line": 425,
 				"column": 18
 			}
 		},
@@ -1355,7 +1355,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 494,
+				"line": 510,
 				"column": 28
 			}
 		},
@@ -1367,7 +1367,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 523,
+				"line": 539,
 				"column": 31
 			}
 		},
@@ -1379,7 +1379,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 526,
+				"line": 542,
 				"column": 31
 			}
 		},
@@ -1391,7 +1391,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 561,
+				"line": 586,
 				"column": 19
 			}
 		},
@@ -1403,7 +1403,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 568,
+				"line": 593,
 				"column": 19
 			}
 		},
@@ -1415,7 +1415,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 680,
+				"line": 705,
 				"column": 38
 			}
 		},
@@ -1427,7 +1427,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 769,
+				"line": 794,
 				"column": 39
 			}
 		},
@@ -1439,7 +1439,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftStage.tsx",
-				"line": 216,
+				"line": 204,
 				"column": 85
 			}
 		},
@@ -1571,7 +1571,31 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 142,
+				"line": 125,
+				"column": 56
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
+				"line": 133,
+				"column": 56
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
+				"line": 141,
 				"column": 56
 			}
 		},
@@ -1584,7 +1608,7 @@
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
 				"line": 150,
-				"column": 56
+				"column": 54
 			}
 		},
 		{
@@ -1607,19 +1631,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 167,
-				"column": 54
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 175,
+				"line": 166,
 				"column": 56
 			}
 		},
@@ -1631,19 +1643,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 183,
-				"column": 56
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 191,
+				"line": 174,
 				"column": 58
 			}
 		},
@@ -1655,7 +1655,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 198,
+				"line": 181,
 				"column": 55
 			}
 		},
@@ -1667,7 +1667,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 510,
+				"line": 328,
 				"column": 39
 			}
 		},
@@ -1679,7 +1679,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 561,
+				"line": 379,
 				"column": 29
 			}
 		},
@@ -1691,7 +1691,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 579,
+				"line": 397,
 				"column": 58
 			}
 		},
@@ -1703,7 +1703,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 587,
+				"line": 405,
 				"column": 54
 			}
 		},
@@ -1715,7 +1715,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 594,
+				"line": 412,
 				"column": 55
 			}
 		},
@@ -1727,7 +1727,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 634,
+				"line": 452,
 				"column": 32
 			}
 		},
@@ -1739,7 +1739,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 638,
+				"line": 456,
 				"column": 47
 			}
 		},
@@ -1751,7 +1751,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 1092,
+				"line": 902,
 				"column": 45
 			}
 		},
@@ -1763,7 +1763,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 1151,
+				"line": 961,
 				"column": 58
 			}
 		},
@@ -1907,7 +1907,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 591,
+				"line": 600,
 				"column": 19
 			}
 		},
@@ -1919,7 +1919,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 617,
+				"line": 626,
 				"column": 19
 			}
 		},
@@ -1931,7 +1931,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 628,
+				"line": 637,
 				"column": 25
 			}
 		},
@@ -1943,7 +1943,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 645,
+				"line": 654,
 				"column": 25
 			}
 		},
@@ -1955,7 +1955,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 673,
+				"line": 682,
 				"column": 25
 			}
 		},
@@ -1967,7 +1967,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 692,
+				"line": 701,
 				"column": 25
 			}
 		},
@@ -1979,7 +1979,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 715,
+				"line": 724,
 				"column": 25
 			}
 		},
@@ -1991,7 +1991,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 811,
+				"line": 820,
 				"column": 40
 			}
 		},
@@ -2003,7 +2003,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1227,
+				"line": 1236,
 				"column": 22
 			}
 		},
@@ -2015,7 +2015,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1237,
+				"line": 1246,
 				"column": 18
 			}
 		},
@@ -2027,7 +2027,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1240,
+				"line": 1249,
 				"column": 23
 			}
 		},
@@ -2039,7 +2039,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1251,
+				"line": 1260,
 				"column": 30
 			}
 		},
@@ -2051,7 +2051,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1264,
+				"line": 1273,
 				"column": 30
 			}
 		},
@@ -2063,7 +2063,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1274,
+				"line": 1283,
 				"column": 21
 			}
 		},
@@ -2075,7 +2075,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1296,
+				"line": 1305,
 				"column": 27
 			}
 		},
@@ -2087,7 +2087,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1308,
+				"line": 1317,
 				"column": 22
 			}
 		},
@@ -2096,22 +2096,22 @@
 			"severity": "warning",
 			"side": "code",
 			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1311,
-				"column": 22
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
 				"line": 1320,
+				"column": 22
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorInspector.tsx",
+				"line": 1329,
 				"column": 21
 			}
 		},
@@ -2123,7 +2123,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1350,
+				"line": 1359,
 				"column": 21
 			}
 		},
@@ -2135,7 +2135,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1363,
+				"line": 1372,
 				"column": 28
 			}
 		},
@@ -2147,7 +2147,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1371,
+				"line": 1380,
 				"column": 29
 			}
 		},
@@ -2159,7 +2159,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1374,
+				"line": 1383,
 				"column": 48
 			}
 		},
@@ -2171,7 +2171,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1388,
+				"line": 1397,
 				"column": 21
 			}
 		},
@@ -2183,7 +2183,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1395,
+				"line": 1404,
 				"column": 21
 			}
 		},
@@ -2195,7 +2195,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1411,
+				"line": 1420,
 				"column": 29
 			}
 		},
@@ -2207,7 +2207,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1424,
+				"line": 1433,
 				"column": 24
 			}
 		},
@@ -2219,7 +2219,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1440,
+				"line": 1449,
 				"column": 24
 			}
 		},
@@ -2231,7 +2231,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1453,
+				"line": 1462,
 				"column": 24
 			}
 		},
@@ -2243,7 +2243,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1469,
+				"line": 1478,
 				"column": 25
 			}
 		},
@@ -2255,7 +2255,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1504,
+				"line": 1513,
 				"column": 25
 			}
 		},
@@ -2267,7 +2267,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1519,
+				"line": 1528,
 				"column": 24
 			}
 		},
@@ -2279,7 +2279,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1557,
+				"line": 1566,
 				"column": 20
 			}
 		},
@@ -2291,7 +2291,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1569,
+				"line": 1578,
 				"column": 20
 			}
 		},
@@ -2303,7 +2303,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1576,
+				"line": 1585,
 				"column": 20
 			}
 		},
@@ -2375,7 +2375,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 499,
+				"line": 561,
 				"column": 31
 			}
 		},
@@ -2387,7 +2387,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 500,
+				"line": 562,
 				"column": 40
 			}
 		},
@@ -2399,7 +2399,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 503,
+				"line": 565,
 				"column": 21
 			}
 		},
@@ -2411,7 +2411,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 504,
+				"line": 566,
 				"column": 39
 			}
 		},
@@ -2423,7 +2423,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 575,
+				"line": 639,
 				"column": 34
 			}
 		},
@@ -2435,7 +2435,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 586,
+				"line": 651,
 				"column": 32
 			}
 		},
@@ -2447,7 +2447,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 639,
+				"line": 704,
 				"column": 21
 			}
 		},
@@ -2459,7 +2459,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 717,
+				"line": 782,
 				"column": 42
 			}
 		},
@@ -2471,7 +2471,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 745,
+				"line": 810,
 				"column": 36
 			}
 		},
@@ -2483,7 +2483,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 794,
+				"line": 877,
 				"column": 20
 			}
 		},
@@ -2495,7 +2495,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 799,
+				"line": 916,
 				"column": 42
 			}
 		},
@@ -2507,7 +2507,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 945,
+				"line": 1062,
 				"column": 35
 			}
 		},
@@ -2519,7 +2519,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 961,
+				"line": 1078,
 				"column": 47
 			}
 		},
@@ -2531,7 +2531,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 964,
+				"line": 1081,
 				"column": 47
 			}
 		},
@@ -2543,7 +2543,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1168,
+				"line": 1285,
 				"column": 40
 			}
 		},
@@ -2555,7 +2555,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1172,
+				"line": 1289,
 				"column": 40
 			}
 		},
@@ -2567,7 +2567,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1256,
+				"line": 1373,
 				"column": 43
 			}
 		},
@@ -2579,7 +2579,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1259,
+				"line": 1376,
 				"column": 54
 			}
 		},
@@ -2591,7 +2591,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1305,
+				"line": 1422,
 				"column": 34
 			}
 		},
@@ -2603,7 +2603,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1308,
+				"line": 1425,
 				"column": 54
 			}
 		},
@@ -2615,7 +2615,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1313,
+				"line": 1430,
 				"column": 47
 			}
 		},
@@ -2627,7 +2627,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1338,
+				"line": 1455,
 				"column": 43
 			}
 		},
@@ -2639,7 +2639,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1341,
+				"line": 1458,
 				"column": 34
 			}
 		},
@@ -2651,7 +2651,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1363,
+				"line": 1480,
 				"column": 42
 			}
 		},
@@ -2663,7 +2663,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1366,
+				"line": 1483,
 				"column": 53
 			}
 		},
@@ -2675,7 +2675,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1475,
+				"line": 1592,
 				"column": 43
 			}
 		},
@@ -2687,7 +2687,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1484,
+				"line": 1601,
 				"column": 54
 			}
 		},
@@ -2699,7 +2699,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1515,
+				"line": 1632,
 				"column": 44
 			}
 		},
@@ -2711,7 +2711,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1518,
+				"line": 1635,
 				"column": 55
 			}
 		},
@@ -2723,7 +2723,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1566,
+				"line": 1683,
 				"column": 44
 			}
 		},
@@ -2735,7 +2735,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1570,
+				"line": 1687,
 				"column": 47
 			}
 		},
@@ -2747,7 +2747,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1774,
+				"line": 1891,
 				"column": 21
 			}
 		},
@@ -2759,7 +2759,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1780,
+				"line": 1897,
 				"column": 50
 			}
 		},
@@ -2771,7 +2771,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1785,
+				"line": 1902,
 				"column": 32
 			}
 		},
@@ -2783,7 +2783,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1865,
+				"line": 1987,
 				"column": 41
 			}
 		},
@@ -2795,7 +2795,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1868,
+				"line": 1990,
 				"column": 32
 			}
 		},
@@ -2807,7 +2807,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2111,
+				"line": 2345,
 				"column": 32
 			}
 		},
@@ -2819,7 +2819,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2112,
+				"line": 2346,
 				"column": 41
 			}
 		},
@@ -2831,7 +2831,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2115,
+				"line": 2349,
 				"column": 22
 			}
 		},
@@ -2843,7 +2843,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2118,
+				"line": 2352,
 				"column": 40
 			}
 		},
@@ -2855,7 +2855,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2127,
+				"line": 2361,
 				"column": 22
 			}
 		},
@@ -2867,7 +2867,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2153,
+				"line": 2387,
 				"column": 50
 			}
 		},
@@ -2879,7 +2879,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2154,
+				"line": 2388,
 				"column": 54
 			}
 		},
@@ -2891,7 +2891,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2167,
+				"line": 2401,
 				"column": 22
 			}
 		},
@@ -2903,7 +2903,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2174,
+				"line": 2408,
 				"column": 70
 			}
 		},
@@ -2927,7 +2927,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 111,
+				"line": 113,
 				"column": 33
 			}
 		},
@@ -2939,7 +2939,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 116,
+				"line": 118,
 				"column": 33
 			}
 		},
@@ -2951,7 +2951,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 145,
+				"line": 147,
 				"column": 46
 			}
 		},
@@ -2963,7 +2963,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 226,
+				"line": 228,
 				"column": 91
 			}
 		},
@@ -2975,7 +2975,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 274,
+				"line": 276,
 				"column": 37
 			}
 		},
@@ -2987,7 +2987,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 284,
+				"line": 286,
 				"column": 60
 			}
 		},
@@ -2999,7 +2999,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 303,
+				"line": 305,
 				"column": 34
 			}
 		},
@@ -3107,7 +3107,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 676,
+				"line": 678,
 				"column": 52
 			}
 		},
@@ -3119,7 +3119,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 682,
+				"line": 684,
 				"column": 81
 			}
 		},
@@ -3131,7 +3131,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 793,
+				"line": 795,
 				"column": 38
 			}
 		},
@@ -3143,7 +3143,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 839,
+				"line": 841,
 				"column": 50
 			}
 		},
@@ -3371,7 +3371,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 93,
+				"line": 94,
 				"column": 34
 			}
 		},
@@ -3383,7 +3383,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 116,
+				"line": 117,
 				"column": 47
 			}
 		},
@@ -3395,7 +3395,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 121,
+				"line": 122,
 				"column": 36
 			}
 		},
@@ -3407,7 +3407,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 134,
+				"line": 135,
 				"column": 59
 			}
 		},
@@ -3419,7 +3419,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 163,
+				"line": 166,
 				"column": 43
 			}
 		},
@@ -3431,7 +3431,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 169,
+				"line": 172,
 				"column": 34
 			}
 		},
@@ -3443,7 +3443,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 177,
+				"line": 183,
 				"column": 36
 			}
 		},
@@ -3455,7 +3455,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 411,
+				"line": 461,
 				"column": 45
 			}
 		},
@@ -3467,7 +3467,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 433,
+				"line": 483,
 				"column": 27
 			}
 		},
@@ -3479,7 +3479,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 437,
+				"line": 487,
 				"column": 27
 			}
 		},
@@ -3491,7 +3491,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 452,
+				"line": 502,
 				"column": 52
 			}
 		},
@@ -3503,7 +3503,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 507,
+				"line": 563,
 				"column": 45
 			}
 		},
@@ -3539,8 +3539,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/ui/command.tsx",
-				"line": 27,
-				"column": 24
+				"line": 28,
+				"column": 51
 			}
 		},
 		{
@@ -3551,7 +3551,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/ui/command.tsx",
-				"line": 32,
+				"line": 33,
 				"column": 45
 			}
 		},
@@ -3563,32 +3563,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/ui/command.tsx",
-				"line": 50,
-				"column": 50
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/ui/command.tsx",
-				"line": 53,
-				"column": 41
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/ui/command.tsx",
 				"line": 55,
-				"column": 77
+				"column": 86
 			}
 		},
 		{
@@ -3643,36 +3619,12 @@
 			"rule": "code.unknown-class-token",
 			"severity": "warning",
 			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/ui/text.tsx",
-				"line": 42,
-				"column": 24
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
 			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
 			"location": {
 				"kind": "code",
 				"file": "src/components/ui/text.tsx",
-				"line": 44,
-				"column": 16
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/ui/text.tsx",
-				"line": 47,
-				"column": 40
+				"line": 52,
+				"column": 33
 			}
 		},
 		{
@@ -7647,7 +7599,7 @@
 			"usages": 0,
 			"findings": {
 				"errors": 0,
-				"warnings": 5,
+				"warnings": 3,
 				"info": 0
 			}
 		},
@@ -7702,7 +7654,7 @@
 			"usages": 0,
 			"findings": {
 				"errors": 0,
-				"warnings": 3,
+				"warnings": 1,
 				"info": 0
 			}
 		},
@@ -8003,7 +7955,7 @@
 	"ratchet": {
 		"status": "pass",
 		"baseline": {
-			"generatedAt": "2026-10-09T15:16:44.349Z",
+			"generatedAt": "2026-10-09T19:16:30.162Z",
 			"numbers": {
 				"code.errors": 0,
 				"code.warnings": 299,
@@ -8013,7 +7965,7 @@
 				"coverage.usedInApp": 0,
 				"coverage.usedInDesigns": 5,
 				"design.errors": 0,
-				"design.warnings": 254,
+				"design.warnings": 244,
 				"rule.code.component-styling-restricted": 0,
 				"rule.code.non-canonical-class": 0,
 				"rule.code.redundant-class": 0,
@@ -8026,7 +7978,7 @@
 				"rule.code.variants-imported-outside-component": 0,
 				"rule.code.wrapper-missing-variants-call": 0,
 				"rule.design.design-only-class-target": 0,
-				"rule.design.non-canonical-class": 10,
+				"rule.design.non-canonical-class": 0,
 				"rule.design.unknown-class-token": 244,
 				"rule.design.unknown-variant-value": 0
 			},
@@ -8053,7 +8005,7 @@
 		"adopted": [],
 		"numbers": {
 			"code.errors": 0,
-			"code.warnings": 299,
+			"code.warnings": 295,
 			"coverage.bound": 0,
 			"coverage.generated": 0,
 			"coverage.published": 16,
@@ -8066,7 +8018,7 @@
 			"rule.code.redundant-class": 0,
 			"rule.code.required-axis-missing": 0,
 			"rule.code.slot-not-called": 0,
-			"rule.code.unknown-class-token": 299,
+			"rule.code.unknown-class-token": 295,
 			"rule.code.unknown-variant-value": 0,
 			"rule.code.variants-file-orphaned": 0,
 			"rule.code.variants-file-stale": 0,
@@ -8079,10 +8031,10 @@
 		}
 	},
 	"ratchetBaseline": {
-		"generatedAt": "2026-10-09T19:16:30.162Z",
+		"generatedAt": "2026-11-18T21:05:01.087Z",
 		"numbers": {
 			"code.errors": 0,
-			"code.warnings": 299,
+			"code.warnings": 295,
 			"coverage.bound": 0,
 			"coverage.generated": 0,
 			"coverage.published": 16,
@@ -8095,7 +8047,7 @@
 			"rule.code.redundant-class": 0,
 			"rule.code.required-axis-missing": 0,
 			"rule.code.slot-not-called": 0,
-			"rule.code.unknown-class-token": 299,
+			"rule.code.unknown-class-token": 295,
 			"rule.code.unknown-variant-value": 0,
 			"rule.code.variants-file-orphaned": 0,
 			"rule.code.variants-file-stale": 0,

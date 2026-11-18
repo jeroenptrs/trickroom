@@ -26,7 +26,7 @@ function ReadOnlyField({
 					{label}
 				</Text>
 			) : null}
-			<div className="flex min-w-0 items-stretch rounded-none bg-slate-50 inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
+			<div className="flex min-w-0 items-stretch rounded-none border border-slate-200 bg-slate-50">
 				<span className="min-w-0 flex-1 truncate px-2 py-1.5 font-mono text-xs text-slate-700">
 					{value}
 				</span>

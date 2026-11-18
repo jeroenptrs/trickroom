@@ -12,7 +12,7 @@ const disclosure = tv({
 	slots: {
 		root: "flex flex-col",
 		trigger:
-			"flex w-full items-center gap-1 px-3 py-2 text-left text-[11px] font-semibold text-slate-700 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500",
+			"flex w-full items-center gap-1 px-3 py-2 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500",
 		chevron:
 			"size-3 shrink-0 text-slate-400 transition-transform [[data-panel-open]_&]:rotate-90",
 		summary:

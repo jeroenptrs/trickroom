@@ -17,7 +17,7 @@ const layerChevron = tv({
 			true: "-mr-0.5",
 		},
 		selected: {
-			true: "text-cyan-500",
+			true: "text-cyan-900",
 		},
 		recipeOwned: {
 			true: "text-orange-500",
@@ -57,7 +57,7 @@ const layerRow = tv({
 	base: "relative pr-1 flex flex-row items-center leading-5 inset-shadow-[0_0_0_1px]",
 	variants: {
 		selected: {
-			true: "bg-cyan-50 text-cyan-500 inset-shadow-transparent",
+			true: "bg-cyan-100 text-cyan-900 inset-shadow-transparent",
 			false: "text-slate-950 inset-shadow-transparent hover:bg-slate-200",
 		},
 		recipeOwned: {

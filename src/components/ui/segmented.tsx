@@ -54,6 +54,7 @@ export function Segmented<T extends string>({
 						type="button"
 						variant="block"
 						isSelected={isSelected}
+						aria-pressed={isSelected}
 						title={option.title}
 						aria-label={option.title}
 						className={cell()}

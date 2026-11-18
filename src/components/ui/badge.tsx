@@ -2,7 +2,7 @@ import type { ComponentProps } from "react";
 import { tv } from "tailwind-variants";
 
 const badge = tv({
-	base: "inline-flex items-center gap-1 rounded-none px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider",
+	base: "inline-flex items-center gap-1 rounded-none px-1.5 py-0.5 font-mono text-[10px] leading-4 tracking-normal",
 	variants: {
 		tone: {
 			neutral: "bg-slate-100 text-slate-600",
@@ -46,7 +46,7 @@ const badge = tv({
 	],
 	defaultVariants: {
 		tone: "neutral",
-		edge: "solid",
+		edge: "stamped",
 	},
 });
 

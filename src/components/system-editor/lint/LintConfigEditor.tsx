@@ -818,7 +818,7 @@ export function LintConfigEditor({
 						<Button
 							type="button"
 							variant="outlined"
-							flavor="warning"
+							flavor="danger"
 							className="px-3 py-1.5 text-xs"
 							disabled={saveMutation.isPending}
 							onClick={() =>

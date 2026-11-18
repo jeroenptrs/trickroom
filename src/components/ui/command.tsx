@@ -1,3 +1,4 @@
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Command as CommandPrimitive } from "cmdk";
 import { Search } from "lucide-react";
 import {
@@ -24,12 +25,12 @@ const commandStyles = tv({
 		searchInput:
 			"flex-1 min-w-0 bg-transparent text-sm text-slate-950 outline-none placeholder:text-slate-400",
 		escBadge:
-			"shrink-0 font-mono text-[10px] uppercase tracking-wider text-slate-400 bg-slate-100 px-1.5 py-0.5",
+			"shrink-0 bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-slate-600",
 		list: "max-h-[60vh] overflow-y-auto",
 		empty: "py-6 text-center text-sm text-slate-500",
 		group: "flex flex-col",
 		groupLabel:
-			"block bg-slate-50 px-5 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-slate-500",
+			"block bg-slate-50 px-5 py-1.5 font-mono text-[10px] font-medium tracking-normal text-slate-500",
 		// Mirrors button.tsx block variant:
 		//   hover/selected → bg-cyan-50 + child colors
 		//   active → bg-cyan-100
@@ -47,12 +48,11 @@ const commandStyles = tv({
 		separator: "h-px bg-slate-200",
 		footer:
 			"flex items-center justify-between gap-2 px-5 py-2 border-t border-slate-200 bg-slate-50",
-		footerLeft: "flex items-center gap-3 font-mono text-[10px] text-slate-500",
+		footerLeft: "flex items-center gap-3 text-xs text-slate-500",
 		footerHint: "flex items-center gap-1",
-		footerRight:
-			"flex items-center gap-1.5 font-mono text-[10px] text-slate-500",
+		footerRight: "flex items-center gap-1.5 text-xs text-slate-500",
 		keyBadge:
-			"bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-300 px-1 font-mono text-[10px] text-slate-500",
+			"bg-white inset-shadow-[0_0_0_1px] inset-shadow-slate-300 px-1.5 py-0.5 font-mono text-[10px] leading-4 text-slate-600",
 	},
 	variants: {
 		// compact: in-rail menus (e.g. add-property) rather than the full palette
@@ -73,6 +73,43 @@ const commandStyles = tv({
 		size: "default",
 	},
 });
+
+/**
+ * The command palette shell: a centred popup with one max width, so it never
+ * runs past a narrow viewport. Same backdrop opacity as `Dialog`.
+ */
+const commandDialog = tv({
+	slots: {
+		backdrop:
+			"fixed inset-0 bg-slate-950/20 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0",
+		popup:
+			"fixed top-24 left-1/2 w-[640px] max-w-[calc(100vw-2rem)] -translate-x-1/2 shadow-2xl outline-none transition-all duration-150 data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0",
+	},
+});
+
+function CommandDialogBackdrop({
+	className,
+	...props
+}: DialogPrimitive.Backdrop.Props & { className?: string }) {
+	return (
+		<DialogPrimitive.Backdrop
+			className={commandDialog().backdrop({ className })}
+			{...props}
+		/>
+	);
+}
+
+function CommandDialogPopup({
+	className,
+	...props
+}: DialogPrimitive.Popup.Props & { className?: string }) {
+	return (
+		<DialogPrimitive.Popup
+			className={commandDialog().popup({ className })}
+			{...props}
+		/>
+	);
+}
 
 type CommandSize = "default" | "compact";
 
@@ -110,7 +147,7 @@ const CommandInput = forwardRef<
 				className={slots.searchInput({ className })}
 				{...props}
 			/>
-			<span className={slots.escBadge()}>ESC</span>
+			<kbd className={slots.escBadge()}>Esc</kbd>
 		</div>
 	);
 });
@@ -199,6 +236,8 @@ function CommandFooterRight({ className, ...props }: ComponentProps<"div">) {
 }
 
 export {
+	CommandDialogBackdrop,
+	CommandDialogPopup,
 	CommandEmpty,
 	CommandFooter,
 	CommandFooterHint,

@@ -201,7 +201,7 @@ export function useGuardedComponentLocation({
 				<Button
 					type="button"
 					variant="outlined"
-					flavor="warning"
+					flavor="danger"
 					className="self-start px-2 py-1.5 text-xs"
 					disabled={saveDraftMutation.isPending}
 					onClick={() => {

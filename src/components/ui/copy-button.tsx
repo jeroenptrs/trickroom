@@ -1,5 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { type ComponentProps, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { writeClipboardText } from "../../utils/clipboard";
 import { Button } from "./button";
 
@@ -45,6 +46,7 @@ function CopyButton({
 			})
 			.catch(() => {
 				setCopied(false);
+				toast.error(`Could not copy ${subject}`);
 			});
 	};
 

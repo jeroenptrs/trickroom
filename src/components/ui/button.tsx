@@ -8,19 +8,19 @@ const button = tv({
 		variant: {
 			// @deprecated prefer ghost / handle dark surfaces explicitly; kept for migration
 			block:
-				"text-slate-950 not-disabled:focus-within:inset-shadow-cyan-500 not-disabled:hover:bg-slate-100 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
+				"text-slate-950 not-disabled:focus-visible:inset-shadow-cyan-500 not-disabled:hover:bg-slate-100 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
 			// @deprecated prefer ghost / handle dark surfaces explicitly; kept for migration
 			blockDark:
-				"text-slate-50 not-disabled:focus-within:inset-shadow-cyan-500 not-disabled:hover:bg-slate-800 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
+				"text-slate-50 not-disabled:focus-visible:inset-shadow-cyan-500 not-disabled:hover:bg-slate-800 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
 			filled:
-				"bg-slate-950 text-slate-50 not-disabled:hover:bg-slate-800 not-disabled:focus-within:inset-shadow-cyan-500 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
+				"bg-slate-950 text-slate-50 not-disabled:hover:bg-slate-800 not-disabled:focus-visible:inset-shadow-cyan-500 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
 			ghost:
-				"text-slate-600 not-disabled:hover:bg-slate-100 not-disabled:hover:text-slate-950 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900",
+				"text-slate-600 not-disabled:focus-visible:inset-shadow-cyan-500 not-disabled:hover:bg-slate-100 not-disabled:hover:text-slate-950 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900",
 			outlined:
-				"text-slate-950 inset-shadow-slate-200 not-disabled:focus-within:inset-shadow-cyan-500 not-disabled:hover:bg-slate-100 not-disabled:active:inset-shadow-cyan-500 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
+				"text-slate-950 inset-shadow-slate-200 not-disabled:focus-visible:inset-shadow-cyan-500 not-disabled:hover:bg-slate-100 not-disabled:active:inset-shadow-cyan-500 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
 		},
 		flavor: {
-			warning: "",
+			danger: "",
 		},
 		isSelected: {
 			true: "",
@@ -29,21 +29,33 @@ const button = tv({
 	compoundVariants: [
 		{
 			variant: "block",
-			flavor: "warning",
+			flavor: "danger",
 			className:
-				"not-disabled:focus-within:inset-shadow-red-500 not-disabled:active:bg-red-100 not-disabled:active:text-red-900 not-disabled:active:[&_svg]:text-red-900",
+				"not-disabled:focus-visible:inset-shadow-red-500 not-disabled:active:bg-red-100 not-disabled:active:text-red-900 not-disabled:active:[&_svg]:text-red-900",
 		},
 		{
 			variant: "blockDark",
-			flavor: "warning",
+			flavor: "danger",
 			className:
-				"text-red-100 not-disabled:focus-within:inset-shadow-red-500 not-disabled:hover:bg-red-950 not-disabled:active:bg-red-100 not-disabled:active:text-red-950 not-disabled:active:[&_svg]:text-red-950",
+				"text-red-100 not-disabled:focus-visible:inset-shadow-red-500 not-disabled:hover:bg-red-950 not-disabled:active:bg-red-100 not-disabled:active:text-red-950 not-disabled:active:[&_svg]:text-red-950",
 		},
 		{
 			variant: "outlined",
-			flavor: "warning",
+			flavor: "danger",
 			className:
-				"text-red-700 inset-shadow-red-300 not-disabled:focus-within:inset-shadow-red-500 not-disabled:hover:bg-red-50 not-disabled:active:inset-shadow-red-500 not-disabled:active:bg-red-100 not-disabled:active:text-red-900 not-disabled:active:[&_svg]:text-red-900",
+				"text-red-700 inset-shadow-red-300 not-disabled:focus-visible:inset-shadow-red-500 not-disabled:hover:bg-red-50 not-disabled:active:inset-shadow-red-500 not-disabled:active:bg-red-100 not-disabled:active:text-red-900 not-disabled:active:[&_svg]:text-red-900",
+		},
+		{
+			variant: "ghost",
+			flavor: "danger",
+			className:
+				"text-red-700 not-disabled:focus-visible:inset-shadow-red-500 not-disabled:hover:bg-red-50 not-disabled:hover:text-red-900 not-disabled:active:bg-red-100 not-disabled:active:text-red-900",
+		},
+		{
+			variant: "ghost",
+			isSelected: true,
+			className:
+				"bg-cyan-100 text-cyan-900 [&_svg]:text-cyan-900 not-disabled:hover:bg-cyan-100 not-disabled:hover:text-cyan-900",
 		},
 		{
 			variant: "block",
@@ -53,7 +65,7 @@ const button = tv({
 		},
 		{
 			variant: "block",
-			flavor: "warning",
+			flavor: "danger",
 			isSelected: true,
 			className:
 				"bg-red-100 text-red-900 [&_svg]:text-red-900 not-disabled:hover:bg-red-100",
@@ -66,7 +78,7 @@ const button = tv({
 		},
 		{
 			variant: "blockDark",
-			flavor: "warning",
+			flavor: "danger",
 			isSelected: true,
 			className:
 				"bg-red-100 text-red-950 [&_svg]:text-red-950 not-disabled:hover:bg-red-100",
@@ -83,7 +95,7 @@ function Button({
 	...props
 }: ComponentProps<"button"> & {
 	variant: "block" | "blockDark" | "filled" | "ghost" | "outlined";
-	flavor?: "warning";
+	flavor?: "danger";
 	isSelected?: boolean;
 }) {
 	return (

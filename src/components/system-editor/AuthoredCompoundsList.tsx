@@ -97,27 +97,27 @@ export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 									tone="warning"
 									className="flex items-start justify-between gap-2 px-2 py-1.5"
 								>
-								<div className="min-w-0 flex-1">
-									<p
-										className="truncate text-sm text-slate-900"
-										title={entry.label}
+									<div className="min-w-0 flex-1">
+										<p
+											className="truncate text-sm text-slate-900"
+											title={entry.label}
+										>
+											{entry.label || "Advanced compound"}
+										</p>
+										<p className="mt-0.5 text-[11px] text-amber-800">
+											Advanced shape: {entry.advancedDiagnostic}
+										</p>
+									</div>
+									<Button
+										type="button"
+										variant="block"
+										flavor="danger"
+										className="shrink-0 px-2 py-1"
+										title="Remove compound"
+										onClick={() => handleDelete(entry)}
 									>
-										{entry.label || "Advanced compound"}
-									</p>
-									<p className="mt-0.5 text-[11px] text-amber-800">
-										Advanced shape: {entry.advancedDiagnostic}
-									</p>
-								</div>
-								<Button
-									type="button"
-									variant="block"
-									flavor="warning"
-									className="shrink-0 px-2 py-1"
-									title="Remove compound"
-									onClick={() => handleDelete(entry)}
-								>
-									<Trash2 className="size-3.5" aria-hidden="true" />
-								</Button>
+										<Trash2 className="size-3.5" aria-hidden="true" />
+									</Button>
 								</Card>
 							</li>
 						);
@@ -143,7 +143,7 @@ export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 								<Button
 									type="button"
 									variant="block"
-									flavor="warning"
+									flavor="danger"
 									className="shrink-0 px-2 py-1"
 									title="Remove compound"
 									onClick={() => handleDelete(entry)}

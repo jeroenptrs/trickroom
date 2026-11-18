@@ -13,11 +13,11 @@ const tabs = tv({
 		variant: {
 			line: {
 				list: "border-b border-slate-200",
-				tab: "not-disabled:focus-within:inset-shadow-cyan-200 data-active:bg-cyan-50 data-active:inset-shadow-transparent data-active:hover:bg-cyan-50 data-active:text-cyan-500 not-disabled:hover:bg-slate-200 not-disabled:active:bg-cyan-50 not-disabled:active:text-cyan-500",
+				tab: "not-disabled:focus-visible:inset-shadow-cyan-500 data-active:bg-cyan-100 data-active:hover:bg-cyan-100 data-active:text-cyan-900 not-disabled:hover:bg-slate-200 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900",
 			},
 			block: {
 				list: "gap-px border-b-0",
-				tab: "not-disabled:focus-within:inset-shadow-cyan-500 data-active:bg-cyan-100 data-active:text-cyan-900 data-active:[&_svg]:text-cyan-900 data-active:hover:bg-cyan-100 not-disabled:hover:bg-slate-100 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
+				tab: "not-disabled:focus-visible:inset-shadow-cyan-500 data-active:bg-cyan-100 data-active:text-cyan-900 data-active:[&_svg]:text-cyan-900 data-active:hover:bg-cyan-100 not-disabled:hover:bg-slate-100 not-disabled:active:bg-cyan-100 not-disabled:active:text-cyan-900 not-disabled:active:[&_svg]:text-cyan-900",
 			},
 		},
 	},

@@ -17,6 +17,7 @@ import { getSystemEditorPath } from "./SystemDetailPane";
 import {
 	SystemStatusBadge,
 	type SystemStatusBadgeState,
+	systemStatusLabel,
 } from "./SystemStatusBadge";
 import { useScrollSelectedIntoView } from "./useScrollSelectedIntoView";
 
@@ -103,12 +104,20 @@ function SystemStatusIndicator({ state }: { state: SystemStatusBadgeState }) {
 		return (
 			<RefreshCw
 				className="size-3 shrink-0 animate-spin text-cyan-500"
-				aria-hidden="true"
+				role="img"
+				aria-label={systemStatusLabel(state)}
 			/>
 		);
 	}
 
-	return <StatusDot tone={state} shape="square" className="shrink-0" />;
+	return (
+		<StatusDot
+			tone={state}
+			shape="square"
+			className="shrink-0"
+			label={systemStatusLabel(state)}
+		/>
+	);
 }
 
 function System({
@@ -142,7 +151,7 @@ function System({
 		<Button
 			ref={isSelected ? selectedItemRef : undefined}
 			variant="block"
-			flavor={reviewRequired ? "warning" : undefined}
+			flavor={reviewRequired ? "danger" : undefined}
 			isSelected={isSelected}
 			onClick={onSelect}
 			onDoubleClick={onOpen}

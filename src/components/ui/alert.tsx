@@ -57,9 +57,12 @@ function Alert({
 	tone = "danger",
 	icon,
 	className,
+	id,
 	children,
 }: {
 	variant?: "panel" | "inline";
+	/** Lets a control point at the message with `aria-describedby`. */
+	id?: string;
 	tone?: AlertTone;
 	/** Override the per-tone icon, or pass null to hide it. */
 	icon?: LucideIcon | null;
@@ -69,7 +72,12 @@ function Alert({
 	const styles = alert({ variant, tone });
 	const Icon = icon === null ? null : (icon ?? toneIcon[tone]);
 	return (
-		<div role="alert" className={styles.root({ className })}>
+		// Only errors interrupt a screen reader. Warnings and notes are polite.
+		<div
+			id={id}
+			role={tone === "danger" ? "alert" : "status"}
+			className={styles.root({ className })}
+		>
 			{Icon ? <Icon className={styles.icon()} aria-hidden="true" /> : null}
 			<span>{children}</span>
 		</div>

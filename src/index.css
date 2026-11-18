@@ -14,6 +14,8 @@
 }
 
 :root {
+	/* The app is light-only. Native controls and scrollbars stay light on a dark OS. */
+	color-scheme: light;
 	font-synthesis: none;
 	text-rendering: optimizeLegibility;
 	-webkit-font-smoothing: antialiased;
